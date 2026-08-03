@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "mcpServers": {
+    "codegraph": {
+      "command": "codegraph",
+      "args": ["serve", "--mcp", "--path", "."]
+    },
+    "fff": {
+      "command": "fff-mcp",
+      "args": ["."]
+    },
+    "github": {
+      "transport": "streamableHttp",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "capabilities": ["github"],
+      "enabled": false
+    }
+  }
+}
