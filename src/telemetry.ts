@@ -55,6 +55,22 @@ function emptyState(): TelemetryState {
   return { totals: { ...emptyCounts(), retrievals: 0 }, by_provider: {}, by_capability: {} };
 }
 
+function cloneCounts(counts: TelemetryCounts): TelemetryCounts {
+  return { ...counts };
+}
+
+function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" | "by_provider" | "by_capability"> {
+  return {
+    totals: { ...state.totals },
+    by_provider: Object.fromEntries(
+      Object.entries(state.by_provider).map(([key, counts]) => [key, cloneCounts(counts)]),
+    ),
+    by_capability: Object.fromEntries(
+      Object.entries(state.by_capability).map(([key, counts]) => [key, cloneCounts(counts)]),
+    ),
+  };
+}
+
 export function isTelemetryEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   const value = env.MOTTAINAI_TELEMETRY;
   return value === "1" || (value?.toLowerCase() === "true");
@@ -131,17 +147,44 @@ export function createTelemetrySink(env: NodeJS.ProcessEnv = process.env): Telem
   const filePath = resolveTelemetryPath(env);
   const state = loadState(filePath) ?? emptyState();
   let writeQueue: Promise<void> = Promise.resolve();
+  let pendingUpdates = 0;
+  let persistTimer: ReturnType<typeof setTimeout> | undefined;
+  const PERSIST_BATCH_SIZE = 10;
+  const PERSIST_DEBOUNCE_MS = 10;
 
-  function persist(): void {
+  function persistNow(): void {
     writeQueue = writeQueue
       .then(async () => {
         await fs.promises.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
-        const snapshot: TelemetrySnapshot = { enabled: true, generated_at: new Date().toISOString(), ...state };
+        const snapshot: TelemetrySnapshot = {
+          enabled: true,
+          generated_at: new Date().toISOString(),
+          ...snapshotState(state),
+        };
         await fs.promises.writeFile(filePath, `${JSON.stringify(snapshot, null, 2)}\n`, { mode: 0o600 });
       })
       .catch((err) => {
         console.error("mottainai: failed to write telemetry summary", err);
       });
+  }
+
+  function persist(): void {
+    pendingUpdates += 1;
+    if (pendingUpdates >= PERSIST_BATCH_SIZE) {
+      pendingUpdates = 0;
+      if (persistTimer !== undefined) {
+        clearTimeout(persistTimer);
+        persistTimer = undefined;
+      }
+      persistNow();
+      return;
+    }
+    if (persistTimer !== undefined) return;
+    persistTimer = setTimeout(() => {
+      persistTimer = undefined;
+      pendingUpdates = 0;
+      persistNow();
+    }, PERSIST_DEBOUNCE_MS);
   }
 
   return {
@@ -164,7 +207,7 @@ export function createTelemetrySink(env: NodeJS.ProcessEnv = process.env): Telem
       persist();
     },
     snapshot() {
-      return { enabled: true, generated_at: new Date().toISOString(), ...state };
+      return { enabled: true, generated_at: new Date().toISOString(), ...snapshotState(state) };
     },
   };
 }

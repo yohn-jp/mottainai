@@ -17,3 +17,8 @@ test("compactToBudget shortens text that exceeds the budget, keeping head and ta
   assert.match(compacted, /line 499$/);
   assert.match(compacted, /⋯ mottainai omitted=\d+ lines sha256=[0-9a-f]{16}; use mottainai_result_get ⋯/);
 });
+
+test("compactToBudget does not floor the target when rawBytes is below the envelope reservation", () => {
+  const text = "x".repeat(1_000);
+  assert.equal(compactToBudget(text, 1_000, 800), text);
+});

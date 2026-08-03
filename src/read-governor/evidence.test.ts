@@ -56,3 +56,25 @@ test("issue() evicts the oldest entry once maxEntries is reached", () => {
   assert.equal(store.get(first.evidenceId), undefined);
   assert.equal(store.get(second.evidenceId)?.path, "src/bar.ts");
 });
+
+test("constructor rejects invalid retention limits", () => {
+  assert.throws(() => new InMemoryEvidenceStore({ ttlMs: Number.POSITIVE_INFINITY }), /ttlMs/);
+  assert.throws(() => new InMemoryEvidenceStore({ ttlMs: -1 }), /ttlMs/);
+  assert.throws(() => new InMemoryEvidenceStore({ maxEntries: Number.NaN }), /maxEntries/);
+  assert.throws(() => new InMemoryEvidenceStore({ maxEntries: 1.5 }), /maxEntries/);
+  assert.throws(() => new InMemoryEvidenceStore({ maxEntries: 0 }), /maxEntries/);
+});
+
+test("issue() and get() return copies instead of exposing stored evidence", () => {
+  const store = new InMemoryEvidenceStore();
+  const issued = store.issue(baseInput());
+  issued.path = "tampered.ts";
+  issued.expiresAt = 0;
+
+  const stored = store.get(issued.evidenceId);
+  assert.equal(stored?.path, "src/foo.ts");
+  assert.notEqual(stored?.expiresAt, 0);
+
+  if (stored !== undefined) stored.path = "mutated-again.ts";
+  assert.equal(store.get(issued.evidenceId)?.path, "src/foo.ts");
+});

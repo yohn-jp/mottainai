@@ -80,6 +80,27 @@ test("a new sink resumes accumulating from a previously persisted summary", asyn
   second.recordToolCall({ provider: "fff", originalBytes: 100, compressedBytes: 10, isError: false });
   assert.equal(second.snapshot().totals.calls, 2);
 
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("snapshot returns deep copies of mutable counters", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-telemetry-copy-"));
+  const filePath = path.join(dir, "telemetry", "summary.json");
+  const sink = createTelemetrySink({ MOTTAINAI_TELEMETRY: "1", MOTTAINAI_TELEMETRY_FILE: filePath });
+  sink.recordToolCall({ provider: "fff", capability: "grep", originalBytes: 100, compressedBytes: 10, isError: false });
+
+  const snapshot = sink.snapshot();
+  snapshot.totals.calls = 999;
+  snapshot.by_provider.fff.calls = 999;
+  snapshot.by_capability.grep.calls = 999;
+
+  const next = sink.snapshot();
+  assert.equal(next.totals.calls, 1);
+  assert.equal(next.by_provider.fff.calls, 1);
+  assert.equal(next.by_capability.grep.calls, 1);
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
   await fs.rm(dir, { recursive: true, force: true });
 });
 
