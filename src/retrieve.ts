@@ -235,10 +235,26 @@ function boundArtifact(artifact: StoredArtifactInput, maxBytes: number): Artifac
     delete payload[key];
   }
 
+  // `operation` drives artifact discovery in search(); keep a minimal { operation }
+  // record alive even when the rest of metadata, stdout, stderr, and text had to be
+  // dropped or truncated to fit maxBytes. Reserve its bytes before truncating text so
+  // fitText doesn't spend the entire remaining budget on text alone.
+  const operation = artifact.metadata?.operation;
+  const minimalMetadata: ArtifactMetadata | undefined = operation === undefined ? undefined : { operation };
+
   if (payloadBytes(payload) > maxBytes) {
     const originalText = payload.text;
-    payload.text = fitText({ ...payload, text: "" }, originalText, maxBytes);
+    const budgetPayload: ArtifactPayload = { ...payload, text: "" };
+    if (minimalMetadata === undefined) delete budgetPayload.metadata;
+    else budgetPayload.metadata = minimalMetadata;
+    payload.text = fitText(budgetPayload, originalText, maxBytes);
+    delete payload.metadata;
   }
+
+  if (minimalMetadata !== undefined && payload.metadata === undefined) {
+    if (payloadBytes({ ...payload, metadata: minimalMetadata }) <= maxBytes) payload.metadata = minimalMetadata;
+  }
+
   return payload;
 }
 

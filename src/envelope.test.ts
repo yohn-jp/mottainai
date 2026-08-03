@@ -51,3 +51,9 @@ test("output preserves the error flag independently of details", () => {
   assert.equal(result.isError, true);
   assert.equal((result.structuredContent as Record<string, unknown>).isError, undefined);
 });
+
+test("output does not let details.isError leak into structuredContent", () => {
+  const result = output("read", "success", "ok", "mx_result", { isError: true });
+  assert.equal(result.isError, undefined);
+  assert.equal((result.structuredContent as Record<string, unknown>).isError, undefined);
+});

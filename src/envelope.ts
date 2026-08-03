@@ -14,7 +14,7 @@ export const OUTPUT_SCHEMA = {
   required: ["operation", "status", "summary", "facts", "diagnostics", "metrics", "result_id", "truncated"],
 };
 
-const RESERVED_OUTPUT_FIELDS = new Set(Object.keys(OUTPUT_SCHEMA.properties));
+const RESERVED_OUTPUT_FIELDS = new Set([...Object.keys(OUTPUT_SCHEMA.properties), "isError"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);

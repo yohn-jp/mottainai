@@ -97,6 +97,19 @@ test("artifact store bounds oversized stdout and stderr fields", () => {
   assert.ok(stdout.text.length < 100 || stderr.text.length < 1_000);
 });
 
+test("artifact store keeps metadata.operation discoverable even when oversized text forces metadata out", () => {
+  const store = new InMemoryArtifactStore({ createId: () => "op-preserved", maxBytes: 200 });
+  const id = store.putArtifact({
+    text: `MARKER${"x".repeat(5_000)}`,
+    metadata: { operation: "build", command: "npm test" },
+  });
+
+  const results = store.search("MARKER");
+  assert.equal(results.length, 1);
+  assert.equal(results[0].id, id);
+  assert.equal(results[0].operation, "build");
+});
+
 test("artifact store rejects invalid retention and byte limits", () => {
   assert.throws(() => new InMemoryArtifactStore({ ttlMs: Number.POSITIVE_INFINITY }), /ttlMs/);
   assert.throws(() => new InMemoryArtifactStore({ ttlMs: -1 }), /ttlMs/);
