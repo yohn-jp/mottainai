@@ -7,39 +7,73 @@ on:
 permissions:
   contents: read
   issues: read
-  pull-requests: read
 
 jobs:
   validate-pr:
     name: validate-pr
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout PR head
+        uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Checkout base governance validator
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: governance
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify trusted governance revision
+        working-directory: governance
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: test "$(git rev-parse HEAD)" = "$BASE_SHA"
+
       - name: Collect changed files
+        working-directory: pr
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: git diff --name-only "$BASE_SHA" "$HEAD_SHA" > /tmp/changed-files.txt
+          CHANGED_FILES: ${{ runner.temp }}/changed-files.txt
+        run: |
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git diff --no-ext-diff --name-only "$BASE_SHA" "$HEAD_SHA" > "$CHANGED_FILES"
+
       - name: Validate branch name
+        working-directory: governance
         env:
           HEAD_REF: ${{ github.head_ref }}
         run: node scripts/validate-branch-name.mjs --branch "$HEAD_REF"
+
       - name: Validate PR contract
-        run: node scripts/validate-pr.mjs --event "$GITHUB_EVENT_PATH" --files /tmp/changed-files.txt --issue-number-file /tmp/issue-number.txt
+        working-directory: governance
+        run: node scripts/validate-pr.mjs --event "$GITHUB_EVENT_PATH" --files "$RUNNER_TEMP/changed-files.txt" --issue-number-file "$RUNNER_TEMP/issue-number.txt"
+
       - name: Fetch linked Issue
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER_FILE: ${{ runner.temp }}/issue-number.txt
         run: |
-          issue_number="$(tr -d '\n' < /tmp/issue-number.txt)"
-          gh issue view "$issue_number" --json body,labels > /tmp/linked-issue.json
+          issue_number="$(tr -d '\n' < "$ISSUE_NUMBER_FILE")"
+          if ! [[ "$issue_number" =~ ^[0-9]+$ ]]; then
+            echo "linked Issue number must be numeric" >&2
+            exit 1
+          fi
+          gh issue view "$issue_number" --json body,labels > "$RUNNER_TEMP/linked-issue.json"
+
       - name: Validate linked Issue contract
+        working-directory: governance
         run: |
-          node scripts/validate-issue.mjs --body /tmp/linked-issue.json
-          if jq -e '.labels | map(.name) | any(. == "status:invalid" or . == "needs:specification")' /tmp/linked-issue.json >/dev/null; then
+          node scripts/validate-issue.mjs --body "$RUNNER_TEMP/linked-issue.json"
+          if jq -e '.labels | map(.name) | any(. == "status:invalid" or . == "needs:specification")' "$RUNNER_TEMP/linked-issue.json" >/dev/null; then
             echo "linked Issue has an invalid governance label" >&2
             exit 1
           fi
