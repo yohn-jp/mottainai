@@ -32,6 +32,18 @@ test("capabilityMap adds tool-level providers without touching upstream config",
   assert.equal(index.capabilityForCall({ toolName: "codegraph__find_definition" }), "definitions");
 });
 
+test("capabilityMap registers a provider-level entry under the matching upstream", () => {
+  const index = buildCapabilityIndex(upstreams, { codegraph: ["codebase_map"] });
+  assert.deepEqual(index.providersFor("codebase_map"), [
+    { provider: "codegraph", tool: undefined, priority: 10, source: "capability_map" },
+  ]);
+});
+
+test("capabilityMap excludes a provider-level entry for a disabled upstream", () => {
+  const index = buildCapabilityIndex(upstreams, { off: ["codebase_map"] });
+  assert.deepEqual(index.providersFor("codebase_map"), []);
+});
+
 test("exec commands map to the capability they actually produce", () => {
   const index = buildCapabilityIndex([]);
   const capability = (command: string) => index.capabilityForCall({ toolName: "mottainai_exec", arguments: { command } });
@@ -116,6 +128,9 @@ test("rankProviders sinks fallbackFor-only providers to the end and flags them",
   assert.deepEqual(ranked.map((entry) => entry.provider), ["slow", "codegraph"]);
   assert.equal(ranked.find((entry) => entry.provider === "codegraph")?.eligible_for_fallback, true);
   assert.equal(ranked.find((entry) => entry.provider === "slow")?.eligible_for_fallback, false);
+  // fallbackFor は比較器で priority より先に評価されるため、reasons でも priority より前に来る。
+  const codegraphReasons = ranked.find((entry) => entry.provider === "codegraph")?.reasons;
+  assert.deepEqual(codegraphReasons?.map((reason) => reason.rule), ["fallbackFor", "priority", "source", "provider"]);
 
   // タスク分類を指定しない呼び出しでは fallbackFor を評価しない。priority 順のまま。
   const noTask = index.rankProviders("callers");

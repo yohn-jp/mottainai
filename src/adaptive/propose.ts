@@ -125,12 +125,12 @@ function proposeRule(
   // noise ラベルは capability ではないため、直接 avoid へ写像しない。
   // provider が無い・落ちた・実行されなかった execution は母数に入れない（provider の
   // 欠落を「避けるべき capability」と誤学習しないため。issue #47 Phase 4）。
-  const executionsByCapability = new Map<string, { total: number; success: number }>();
+  const executionsByCapability = new Map<string, { traces: Set<string>; success: number }>();
   for (const trace of traces) {
     for (const execution of trace.executions) {
       if (!ATTEMPTED_STATUSES.has(execution.status)) continue;
-      const entry = executionsByCapability.get(execution.capability) ?? { total: 0, success: 0 };
-      entry.total += 1;
+      const entry = executionsByCapability.get(execution.capability) ?? { traces: new Set<string>(), success: 0 };
+      entry.traces.add(trace.request.request_id);
       if (execution.status === "success") entry.success += 1;
       executionsByCapability.set(execution.capability, entry);
     }
@@ -138,15 +138,17 @@ function proposeRule(
   const avoidAdded = baseline
     .filter((capability) => {
       const executed = executionsByCapability.get(capability);
-      return executed !== undefined && executed.total >= minSupport && executed.success === 0;
+      return executed !== undefined && executed.traces.size >= minSupport && executed.success === 0;
     })
     .sort();
 
   if (added.length === 0 && avoidAdded.length === 0) return undefined;
 
   const capabilities = [...baseline, ...added];
+  const avoidSet = new Set(avoidAdded);
+  const effective = capabilities.filter((capability) => !avoidSet.has(capability));
   const covered = traces.filter((trace) =>
-    (trace.review?.missing_capabilities ?? []).every((capability) => capabilities.includes(capability)),
+    (trace.review?.missing_capabilities ?? []).every((capability) => effective.includes(capability)),
   ).length;
   const rule: PolicyRule = {
     task_category: taskCategory,
@@ -228,7 +230,7 @@ export function proposePolicy(traces: Trace[], active: PolicyDocument, options: 
 
   const changes: RuleChange[] = [];
   const proposedRules = new Map<string, PolicyRule>();
-  for (const [taskCategory, categoryTraces] of [...byCategory.entries()].sort()) {
+  for (const [taskCategory, categoryTraces] of [...byCategory.entries()].sort(([left], [right]) => left.localeCompare(right))) {
     const proposed = proposeRule(taskCategory, categoryTraces, active, minSupport, missingThreshold);
     if (proposed === undefined) {
       if (categoryTraces.length < minSupport) {
