@@ -2,8 +2,12 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 const rules = JSON.parse(readFileSync(new URL("./governance-rules.json", import.meta.url), "utf8"));
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function sectionBody(markdown, heading) {
-  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escaped = escapeRegExp(heading);
   const lines = markdown.split(/\r?\n/);
   const headingIndex = lines.findIndex((line) => new RegExp(`^(#{2,3})\\s+${escaped}\\s*$`, "i").test(line));
   if (headingIndex === -1) return "";
@@ -36,12 +40,23 @@ export function validateIssue(body) {
   return errors;
 }
 
-function changed(files, pattern) {
-  return files.some((file) => pattern.test(file));
+function changed(files, patterns) {
+  return files.some((file) => patterns.some((pattern) => new RegExp(pattern).test(file)));
+}
+
+function hasCompletedCheckbox(body, item) {
+  return body.split(/\r?\n/).some((line) => {
+    for (const prefix of [`- [x] ${item}`, `- [X] ${item}`]) {
+      if (!line.startsWith(prefix)) continue;
+      const suffix = line.slice(prefix.length);
+      if (suffix.length === 0 || /^[, ]/.test(suffix)) return true;
+    }
+    return false;
+  });
 }
 
 export function extractClosingIssues(body) {
-  return [...body.matchAll(/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b/gi)].map((match) => Number(match[1]));
+  return [...new Set([...body.matchAll(/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b/gi)].map((match) => Number(match[1])))];
 }
 
 export function validatePullRequest({ title, body, draft = false, files = [] }) {
@@ -51,23 +66,31 @@ export function validatePullRequest({ title, body, draft = false, files = [] }) 
   for (const heading of rules.pullRequest.requiredSections) {
     if (!meaningful(sectionBody(body, heading))) errors.push(`required section is empty: ${heading}`);
   }
-  const issues = [...new Set(extractClosingIssues(body))];
+  const issues = extractClosingIssues(body);
   if (issues.length !== 1) errors.push("exactly one closing Issue is required");
-  for (const item of rules.pullRequest.validationItems) {
-    const checkbox = item === "Tests" ? "\\[[xX]\\]" : "\\[[ xX]\\]";
-    if (!new RegExp(`- ${checkbox} ${item}(?:$|[, ])`, "m").test(body)) errors.push(`Validation item is missing: ${item}`);
+  if (!draft) {
+    for (const item of rules.pullRequest.validationItems) {
+      if (!hasCompletedCheckbox(body, item)) errors.push(`Validation must be completed: ${item}`);
+    }
+    if (changed(files, rules.pullRequest.packageCheckPaths) && !hasCompletedCheckbox(body, "Package check")) {
+      errors.push("Validation must be completed: Package check");
+    }
   }
   if (!draft && /\b(?:TBD|TODO|FIXME|WIP)\b|<!--\s*required/i.test(body)) errors.push("non-draft PR contains an unfinished placeholder");
   if (!/^(?:No|Yes)(?:[.。:]|\s|$)/i.test(sectionBody(body, "Breaking changes"))) errors.push("Breaking changes must explicitly start with Yes or No");
-  if (changed(files, /^(?:src\/config\.ts|mottainai\.config)/) && !meaningful(sectionBody(body, "Migration / compatibility"))) errors.push("configuration changes require Migration / compatibility");
-  if (changed(files, /^src\/compress\//)) {
-    const hasCompressionTest = files.some((file) => /^src\/compress\/.*\.test\.ts$/.test(file));
-    if (!hasCompressionTest) errors.push("compression changes require a test change under src/compress");
-    if (!/compress(?:ed|ion)|transform/i.test(body) || !/unmodified|preserv/i.test(body)) errors.push("compression changes require validation for transformation and preservation cases");
+  const changedFileRules = rules.pullRequest.changedFileRules;
+  if (changed(files, changedFileRules.configurationPaths) && !meaningful(sectionBody(body, "Migration / compatibility"))) {
+    errors.push("configuration changes require Migration / compatibility");
   }
-  if (changed(files, /^package\.json$/) && !/- \[[xX]\] Package check(?:$|[, ])/m.test(body)) errors.push("package.json changes require a completed Package check");
-  if (changed(files, /^(?:src\/index\.ts|scripts\/mcp\.ts)$/) && !files.some((file) => file === "README.md" || /(?:cli|index).*\.test\.ts$/.test(file))) errors.push("CLI changes require a README or CLI test change");
-  if (changed(files, /(?:security|auth|sandbox|local-tools)/i) && !meaningful(sectionBody(body, "Security impact"))) errors.push("security-related changes require Security impact");
+  if (changed(files, changedFileRules.compressionPaths)) {
+    const hasCompressionTest = changed(files, changedFileRules.compressionTestPaths);
+    if (!hasCompressionTest) errors.push("compression changes require a test change under configured compression test paths");
+    if (!/\btransform(?:s|ed|ation|ations)?\b/i.test(body) || !/\bpreserv(?:e|es|ed|ing|ation|ations)?\b|\bunmodified\b/i.test(body)) {
+      errors.push("compression changes require validation for transformation and preservation cases");
+    }
+  }
+  if (changed(files, changedFileRules.cliPaths) && !changed(files, changedFileRules.cliEvidencePaths)) errors.push("CLI changes require a README or CLI test change");
+  if (changed(files, changedFileRules.securityPaths) && !meaningful(sectionBody(body, "Security impact"))) errors.push("security-related changes require Security impact");
   return { errors, closingIssues: issues };
 }
 

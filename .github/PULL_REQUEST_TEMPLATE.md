@@ -29,7 +29,7 @@ Closes #
 - [ ] Typecheck
 - [ ] Tests
 - [ ] Build
-- [ ] Package check, if applicable
+- [ ] Package check
 
 <!-- Run at least one relevant test and mark Tests complete. Leave only optional checks unchecked and state why. -->
 

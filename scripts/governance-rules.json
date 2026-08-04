@@ -16,7 +16,24 @@
       "Breaking changes",
       "Review focus"
     ],
-    "validationItems": ["Typecheck", "Tests", "Build", "Package check"]
+    "validationItems": ["Typecheck", "Tests", "Build"],
+    "packageCheckPaths": [
+      "^package\\.json$",
+      "^pnpm-lock\\.yaml$",
+      "^tsconfig\\.build\\.json$",
+      "^src/index\\.ts$",
+      "^src/server\\.ts$",
+      "^src/cli\\.ts$",
+      "^\\.github/workflows/publish\\.yml$"
+    ],
+    "changedFileRules": {
+      "configurationPaths": ["^src/config\\.ts$", "^mottainai\\.config(?:\\..+)?$"],
+      "compressionPaths": ["^src/compress/"],
+      "compressionTestPaths": ["^src/compress/.*\\.test\\.ts$"],
+      "cliPaths": ["^src/index\\.ts$", "^src/cli\\.ts$", "^scripts/mcp\\.ts$"],
+      "cliEvidencePaths": ["^README\\.md$", "(?:^|/)cli.*\\.test\\.ts$", "(?:^|/)index.*\\.test\\.ts$"],
+      "securityPaths": ["security", "auth", "sandbox", "local-tools"]
+    }
   },
   "issue": {
     "requiredSections": [
