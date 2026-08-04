@@ -4,8 +4,17 @@ const rules = JSON.parse(readFileSync(new URL("./governance-rules.json", import.
 
 function sectionBody(markdown, heading) {
   const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = `${markdown}\n## __END__`.match(new RegExp(`^#{2,3}\\s+${escaped}\\s*$([\\s\\S]*?)(?=^#{2,3}\\s+)`, "im"));
-  return match?.[1].trim() ?? "";
+  const lines = markdown.split(/\r?\n/);
+  const headingIndex = lines.findIndex((line) => new RegExp(`^(#{2,3})\\s+${escaped}\\s*$`, "i").test(line));
+  if (headingIndex === -1) return "";
+  const level = lines[headingIndex].match(/^#+/)?.[0].length;
+  const boundary = new RegExp(`^#{2,${level}}\\s+`);
+  const content = [];
+  for (const line of lines.slice(headingIndex + 1)) {
+    if (boundary.test(line)) break;
+    content.push(line);
+  }
+  return content.join("\n").trim();
 }
 
 function isPlaceholder(value) {

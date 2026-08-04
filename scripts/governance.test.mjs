@@ -20,6 +20,11 @@ test("valid pull request contract passes", () => {
   assert.deepEqual(result.closingIssues, [123]);
 });
 
+test("Scope remains meaningful when it contains nested sections", () => {
+  const result = validatePullRequest({ title: "chore(ci): enforce governance contracts", body: pullRequestBody });
+  assert.ok(!result.errors.includes("required section is empty: Scope"));
+});
+
 test("compression changes require tests and preservation evidence", () => {
   const result = validatePullRequest({ title: "fix(compression): preserve code fences", body: pullRequestBody, files: ["src/compress/code.ts"] });
   assert.ok(result.errors.some((error) => error.includes("test change")));
