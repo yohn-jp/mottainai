@@ -244,6 +244,11 @@ Claude Code 側へ反映するときは `/mcp reconnect mottainai`、または�
 
 ## 10. Issue and PR contract
 
+- Blank Issues disabled。実装前にIssue作成・合意。Maintenance IssueはIssue Formの全必須sectionを埋める
+- 作業ブランチはIssue番号を含む既定形式。PRは原則1件のIssueだけ閉じ、template全sectionを維持
+- 非Draft PRはTypecheck / Tests / Build完了必須。`scripts/governance-rules.json`のpackage影響path変更時Package check必須。Draftはready_for_reviewまで検証未完了許容
+- Governance required checkは`Governance / validate-pr`。PR Governanceは差分取得にhead、validator実行にbase revisionを使う。Governance変更はmerge後の後続PRへ適用
+- `.github/CODEOWNERS`の現行ownerは存在する個人ユーザー`@yohnark`。存在しないTeam名禁止
 - Do not add functionality absent from the Issue
 - Do not change acceptance criteria during implementation
 - Propose out-of-scope problems as separate Issues

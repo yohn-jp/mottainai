@@ -5,9 +5,15 @@ quickly — expect breaking changes between minor versions until 1.0.
 
 ## Before you start
 
-- For anything beyond a small fix, please open an issue first to discuss the
-  approach. This avoids wasted work on changes that don't fit the project's
-  direction (see [Non-Goals](README.md#non-goals) in the README).
+- Blank Issues are disabled. Create and discuss one concrete Issue before
+  implementation; the Issue must include the Maintenance contract sections
+  when the Maintenance form applies.
+- Include the Issue number in the branch name, following the repository branch
+  contract.
+- Keep a pull request scoped to one closing Issue. Split work that would close
+  multiple Issues.
+- Read [Issue and Pull Request Governance](docs/governance.md) before opening a
+  pull request.
 
 ## Development setup
 
@@ -31,19 +37,27 @@ below).
 
 ## Making changes
 
-1. Create a branch off `main` (don't commit directly to `main`).
+1. Create a branch off `main` using the Issue number (don't commit directly to
+   `main`).
 2. Keep changes focused — a bug fix shouldn't carry along unrelated
    refactors.
-3. Add or update tests alongside your change. Tests live next to the file
+3. Preserve every section in `.github/PULL_REQUEST_TEMPLATE.md`. Link exactly
+   one closing Issue and describe Included and Excluded scope.
+4. Add or update tests alongside your change. Tests live next to the file
    they cover, as `<name>.test.ts`, using `node:test` + `node:assert/strict`.
-4. If you change the compression pipeline (`src/compress/*`), you must add
+5. If you change the compression pipeline (`src/compress/*`), you must add
    **both** a "this gets shortened" test case and a "this must NOT be
    transformed" test case — see
    [AGENTS.md](AGENTS.md#4-圧縮ロジックを変更するときの規約) for the full list of
    protected content (code fences, inline code, URLs, quoted strings,
    Japanese text, non-`description` JSON Schema fields, `image`/`resource`
    content, `git diff` output).
-5. Run the full check before opening a PR:
+6. Run Typecheck, Tests, and Build before marking a non-Draft pull request
+   ready. If a configured package-impacting path changes, also run
+   `npm pack --dry-run` and complete Package check. The Governance check is a
+   required status check for the repository Ruleset.
+
+7. Run the full check before opening a PR:
 
    ```bash
    pnpm run typecheck
@@ -51,7 +65,7 @@ below).
    pnpm run build
    ```
 
-6. Update relevant docs in the same commit/PR as the behavior change
+8. Update relevant docs in the same commit/PR as the behavior change
    (`README.md`, `docs/*.md`) — stale docs are worse than no docs.
 
 ## Commit messages
@@ -81,11 +95,21 @@ for examples from this repository.
 ## Pull requests
 
 - Describe what changed and why, not just what.
-- Link the issue you discussed beforehand, if any.
+- Link exactly one Issue using a closing reference such as `Closes #123`.
+- Keep all pull request template sections, including `Breaking changes`,
+  `Migration / compatibility`, `Security impact`, and `Review focus`.
 - CI (install, typecheck, test, build) must pass — see
   [.github/workflows/ci.yml](.github/workflows/ci.yml).
+- `Governance / validate-pr` must pass. Non-Draft PRs must complete Typecheck,
+  Tests, and Build; Package check is conditional on distribution-impacting
+  paths listed in `scripts/governance-rules.json`.
+- Do not mark a check complete unless it ran. Draft PRs may leave validation
+  incomplete until they are ready for review.
 - Maintainers may ask for changes or close PRs that don't fit the project
   direction; an up-front issue discussion minimizes that risk.
+
+For the exact title, branch, changed-file, Issue, and Ruleset contracts, see
+[`docs/governance.md`](docs/governance.md).
 
 ## Reporting bugs / requesting features
 
