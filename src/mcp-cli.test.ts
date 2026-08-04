@@ -239,3 +239,23 @@ test("public CLI dispatcher exposes human and JSON doctor output", () => {
 
   fs.rmSync(directory, { recursive: true, force: true });
 });
+
+test("server entry points report configuration failures without an unhandled rejection", () => {
+  const directory = workspace();
+  const missingConfig = path.join(directory, "missing.json");
+  const server = spawnSync(process.execPath, ["--import", "tsx", publicCliPath], {
+    encoding: "utf8",
+    env: { ...process.env, MOTTAINAI_CONFIG: missingConfig },
+  });
+  assert.equal(server.status, 1);
+  assert.match(server.stderr, /ENOENT: no such file or directory/);
+  assert.doesNotMatch(server.stderr, /UnhandledPromiseRejection/);
+
+  const developmentServe = spawnSync(process.execPath, ["--import", "tsx", cliPath, "serve", "--config"], {
+    encoding: "utf8",
+  });
+  assert.equal(developmentServe.status, 1);
+  assert.match(developmentServe.stderr, /missing value for --config/);
+
+  fs.rmSync(directory, { recursive: true, force: true });
+});

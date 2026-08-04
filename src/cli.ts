@@ -1,6 +1,7 @@
 import { collectDoctorReport, formatDoctorHuman } from "./commands/doctor.js";
 import { loadMottainaiConfig, loadRawConfig, resolveConfigPath, saveRawConfig } from "./config.js";
 import type { MottainaiConfig } from "./config.js";
+import { runServer } from "./server.js";
 
 /**
  * upstream と profile の管理 CLI。
@@ -120,7 +121,11 @@ export async function runCli(args: string[]): Promise<number> {
     const [command = "list", ...argv] = args;
     const configPath = flag(argv, "config");
 
-if (command === "list") {
+if (command === "serve") {
+  const configIndex = argv.indexOf("--config");
+  if (configIndex !== -1 && argv[configIndex + 1] === undefined) fail("missing value for --config");
+  await runServer(configPath);
+} else if (command === "list") {
   const filePath = resolveConfigPath(configPath);
   print(summarize(loadMottainaiConfig(configPath), filePath));
 } else if (command === "inspect") {

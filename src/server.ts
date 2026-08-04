@@ -1,6 +1,7 @@
 import path from "node:path";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import packageMetadata from "../package.json" with { type: "json" };
 import { loadOAuthCredentialProvider } from "./auth.js";
 import { loadConfigSnapshot } from "./config.js";
 import { createLogger } from "./logging.js";
@@ -26,7 +27,7 @@ export async function runServer(configPath?: string, cwd: string = process.cwd()
   });
 
   const server = new Server(
-    { name: "mottainai", version: "0.1.0" },
+    { name: "mottainai", version: packageMetadata.version },
     { capabilities: { tools: {} } },
   );
   const activeProfileName = snapshot.config.gateway?.activeProfile;
@@ -44,5 +45,23 @@ export async function runServer(configPath?: string, cwd: string = process.cwd()
   );
 
   const transport = new StdioServerTransport();
+  let shutdownPromise: Promise<void> | undefined;
+  const shutdown = (): Promise<void> => {
+    if (shutdownPromise !== undefined) return shutdownPromise;
+    shutdownPromise = upstreams.close();
+    return shutdownPromise;
+  };
+  const onSignal = (): void => {
+    void shutdown()
+      .then(() => server.close())
+      .catch((error: unknown) => console.error(error instanceof Error ? error.message : String(error)));
+  };
+  transport.onclose = () => {
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
+    void shutdown().catch(() => {});
+  };
+  process.once("SIGINT", onSignal);
+  process.once("SIGTERM", onSignal);
   await server.connect(transport);
 }
