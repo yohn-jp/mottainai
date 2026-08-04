@@ -8,6 +8,7 @@ import test from "node:test";
 
 /** scripts/ は `src/**\/*.test.ts` の外なので、CLI は子プロセスとして実行して検証する。 */
 const cliPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "mcp.ts");
+const publicCliPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "index.ts");
 
 interface Run {
   status: number;
@@ -22,14 +23,31 @@ function workspace(): string {
     version: 2,
     mcpServers: { codegraph: { command: "__mottainai_missing_codegraph__", args: ["serve"], capabilities: ["definitions"] } },
     profiles: { development: { includeCapabilities: ["definitions"] } },
+    gateway: { workspaceRoot: "." },
   }, null, 2)}\n`);
   return directory;
 }
 
 function run(directory: string, ...argv: string[]): Run {
+  const cliArguments = argv[0] === "doctor" && !argv.includes("--json") ? [...argv, "--json"] : argv;
   const result = spawnSync(
     process.execPath,
-    ["--import", "tsx", cliPath, ...argv, "--config", path.join(directory, "config.json")],
+    ["--import", "tsx", cliPath, ...cliArguments, "--config", path.join(directory, "config.json")],
+    { encoding: "utf8" },
+  );
+  let json: Record<string, unknown> = {};
+  try {
+    json = JSON.parse(result.stdout) as Record<string, unknown>;
+  } catch {
+    json = {};
+  }
+  return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr, json };
+}
+
+function runPublic(directory: string, ...argv: string[]): Run {
+  const result = spawnSync(
+    process.execPath,
+    ["--import", "tsx", publicCliPath, ...argv, "--config", path.join(directory, "config.json")],
     { encoding: "utf8" },
   );
   let json: Record<string, unknown> = {};
@@ -198,6 +216,26 @@ test("mcp cli doctor keeps startup and connection fixtures isolated from its uni
   assert.equal(doctor.status, 0);
   assert.equal(doctor.json.checked, 2);
   assert.deepEqual(doctor.json.problems, []);
+
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test("public CLI dispatcher exposes human and JSON doctor output", () => {
+  const directory = workspace();
+  run(directory, "disable", "codegraph");
+  run(directory, "add", "echo", "--command", process.execPath, "--capabilities", "text_matches");
+
+  const human = runPublic(directory, "doctor");
+  assert.equal(human.status, 0);
+  assert.match(human.stdout, /^Mottainai Doctor/m);
+  assert.match(human.stdout, /✓ Node\.js/);
+  assert.match(human.stdout, /0 errors, 0 warnings/);
+
+  const json = runPublic(directory, "doctor", "--json");
+  assert.equal(json.status, 0);
+  assert.equal(json.json.ok, true);
+  assert.equal(json.json.errors, 0);
+  assert.ok(Array.isArray(json.json.checks));
 
   fs.rmSync(directory, { recursive: true, force: true });
 });

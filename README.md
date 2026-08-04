@@ -154,6 +154,21 @@ Minimal example:
 }
 ```
 
+Validate the local runtime, configuration, workspace, and upstream commands
+before registering the MCP server:
+
+```bash
+npx -y mottainai doctor
+npx -y mottainai doctor --json  # machine-readable output
+```
+
+Management commands use the same executable:
+
+```bash
+npx -y mottainai list
+npx -y mottainai inspect codegraph
+```
+
 Restart your MCP client (or reconnect) so it picks up the gateway. From here
 your client sees `codegraph__*` / `fff__*` tools, plus the gateway's own
 `mottainai_*` tools, all passing through compression.
