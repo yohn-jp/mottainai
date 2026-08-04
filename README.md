@@ -97,26 +97,28 @@ clients are welcome via PR.
 
 ## Installation
 
-Requires Node.js >= 22.13, [pnpm](https://pnpm.io/) 11.18.0, and
+Requires Node.js >= 22.13 and
 [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`) on `PATH` — used by
 `mottainai_search` and the `code.search` backend fallback.
 
+Run directly from npm:
+
 ```bash
-git clone https://github.com/yohn-jp/mottainai.git
-cd mottainai
-pnpm install
-# tree-sitter packages need a native build step; if pnpm warns with
-# ERR_PNPM_IGNORED_BUILDS on first install, run:
-pnpm approve-builds
-pnpm run build
+npx -y mottainai
 ```
 
-Register it with your MCP client. For Claude Code (user-level registration
-is recommended so personal absolute paths don't end up in a shared
-`.mcp.json`):
+Register it with your MCP client. A user-level registration keeps personal
+configuration out of a shared project file:
 
 ```bash
-claude mcp add -s user mottainai -- node /path/to/mottainai/dist/index.js
+claude mcp add -s user mottainai -- npx -y mottainai
+```
+
+For Codex, register one global MCP without a fixed `cwd`. Mottainai then uses
+the client startup directory as the workspace:
+
+```bash
+codex mcp add mottainai -- npx -y mottainai
 ```
 
 If you had upstream MCP servers (e.g. `codegraph`) registered directly with
@@ -130,8 +132,8 @@ claude mcp remove -s user codegraph
 ## Quick start
 
 ```bash
-cp mottainai.config.json.example mottainai.config.json
-# edit mottainai.config.json to list the upstream MCP servers you want
+# Create mottainai.config.json in the workspace and list the upstream MCP
+# servers you want.
 ```
 
 Minimal example:
@@ -152,15 +154,39 @@ Minimal example:
 }
 ```
 
+Validate the local runtime, configuration, workspace, and upstream commands
+before registering the MCP server:
+
+```bash
+npx -y mottainai doctor
+npx -y mottainai doctor --json  # machine-readable output
+```
+
+Management commands use the same executable:
+
+```bash
+npx -y mottainai list
+npx -y mottainai inspect codegraph
+```
+
 Restart your MCP client (or reconnect) so it picks up the gateway. From here
 your client sees `codegraph__*` / `fff__*` tools, plus the gateway's own
 `mottainai_*` tools, all passing through compression.
 
-Check what's running:
+At runtime, call `mottainai_runtime_status` from the MCP client to inspect
+registered upstreams and their health.
+
+## Development installation
+
+Contributors need [pnpm](https://pnpm.io/) 11.18.0:
 
 ```bash
-pnpm run mcp list          # registered upstreams and profiles
-pnpm run mcp doctor        # verify commands are runnable
+git clone https://github.com/yohn-jp/mottainai.git
+cd mottainai
+pnpm install
+# If pnpm reports ERR_PNPM_IGNORED_BUILDS for tree-sitter packages:
+pnpm approve-builds
+pnpm run build
 ```
 
 At runtime, `mottainai_runtime_status` reports per-upstream state
