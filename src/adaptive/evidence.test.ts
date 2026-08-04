@@ -46,6 +46,7 @@ test("summarizeExecution ignores non-empty content when structured metrics.resul
     structuredContent: { metrics: { result_count: 0 } },
   }));
   assert.equal(summary.status, "success");
+  assert.equal(summary.result_count, 0);
 });
 
 test("evidenceCount rejects invalid metrics.result_count (negative, fractional, NaN) and falls back", () => {

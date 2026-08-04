@@ -203,12 +203,13 @@ export async function connectUpstream(
 ): Promise<UpstreamHandle> {
   const transport = await createUpstreamTransport(config, oauthCredentialProvider);
   const client = createClient(config);
-  await client.connect(transport);
   try {
+    await client.connect(transport);
     const { tools } = await client.listTools();
     return { config, client, tools };
   } catch (error) {
-    // 接続済み client と（stdio の場合）child process を残さない。close 自体の失敗で元のエラーを隠さない。
+    // connect() の途中失敗（stdio なら child process が spawn 済みの場合がある）も
+    // listTools() の失敗も、同じスコープで client を閉じる。close 自体の失敗で元のエラーを隠さない。
     await client.close().catch(() => {});
     throw error;
   }

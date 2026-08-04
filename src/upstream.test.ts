@@ -186,6 +186,26 @@ test("connectUpstream still propagates the original error even if closing the cl
   );
 });
 
+test("connectUpstream closes the client and preserves the original error when connect() itself fails", async () => {
+  let closed = false;
+  let listToolsCalled = false;
+  const connectError = new Error("connect failed");
+  await assert.rejects(
+    () => connectUpstream(
+      { name: "broken-connect", command: "node" },
+      undefined,
+      () => ({
+        connect: async () => { throw connectError; },
+        listTools: async () => { listToolsCalled = true; return { tools: [] }; },
+        close: async () => { closed = true; },
+      }) as unknown as Client,
+    ),
+    (error: unknown) => error === connectError,
+  );
+  assert.equal(closed, true);
+  assert.equal(listToolsCalled, false);
+});
+
 test("close is resilient to one upstream's close failure and still stops the rest", async () => {
   let goodClosed = false;
   const registry = new UpstreamRegistry([
