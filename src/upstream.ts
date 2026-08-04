@@ -48,6 +48,9 @@ function errorMessage(error: unknown): string {
 export class UpstreamRegistry {
   private readonly records = new Map<string, UpstreamRecord>();
   private readonly connector: UpstreamConnector;
+  /** shutdown 開始後は in-flight start が ready handle を復活させられないようにする。 */
+  private closing = false;
+  private closingPromise?: Promise<void>;
 
   constructor(
     configs: UpstreamConfig[],
@@ -91,20 +94,29 @@ export class UpstreamRegistry {
   async start(name: string): Promise<UpstreamHandle> {
     const record = this.records.get(name);
     if (!record) throw new Error(`unknown upstream: ${name}`);
+    if (this.closing) throw new Error(`upstream registry is shutting down: ${name}`);
     if (record.state === "disabled") throw new Error(`upstream disabled: ${name}`);
     if (record.handle) return record.handle;
     if (record.starting) return record.starting;
     record.state = "starting";
-    record.starting = this.connector(record.config).then((handle) => {
+    record.starting = this.connector(record.config).then(async (handle) => {
+      if (this.closing) {
+        // shutdown が start と競合した。ready へ昇格させず、handle 自体を閉じてリークを防ぐ。
+        await handle.client.close().catch(() => {});
+        record.state = record.state === "disabled" ? "disabled" : "stopped";
+        throw new Error(`upstream registry closed while starting: ${name}`);
+      }
       record.handle = handle;
       record.state = "ready";
       return handle;
     }).catch((error: unknown) => {
-      record.state = "unhealthy";
-      // 次の実行要求で無条件に再試行するため、失敗回数は診断のためだけに持つ。
-      record.failureCount += 1;
-      record.lastError = errorMessage(error);
-      record.lastErrorAt = new Date().toISOString();
+      if (!this.closing) {
+        // 次の実行要求で無条件に再試行するため、失敗回数は診断のためだけに持つ。
+        record.state = "unhealthy";
+        record.failureCount += 1;
+        record.lastError = errorMessage(error);
+        record.lastErrorAt = new Date().toISOString();
+      }
       throw error;
     }).finally(() => { record.starting = undefined; });
     return record.starting;
@@ -129,12 +141,29 @@ export class UpstreamRegistry {
     }
   }
 
+  /**
+   * shutdown は冪等（複数回呼んでも同じ Promise を返す）。
+   * in-flight start は待たない — connector が固まっていると無期限に待つことになるため。
+   * その代わり closing フラグにより、start が後から解決しても ready へは昇格させず自ら閉じる。
+   */
   async close(): Promise<void> {
-    await Promise.all([...this.records.values()].map(async (record) => {
-      if (record.handle) await record.handle.client.close();
-      record.handle = undefined;
-      record.state = record.state === "disabled" ? "disabled" : "stopped";
-    }));
+    if (this.closingPromise) return this.closingPromise;
+    this.closing = true;
+    this.closingPromise = (async () => {
+      await Promise.all([...this.records.values()].map(async (record) => {
+        const handle = record.handle;
+        record.handle = undefined;
+        record.state = record.state === "disabled" ? "disabled" : "stopped";
+        if (handle) {
+          try {
+            await handle.client.close();
+          } catch {
+            // 1 つの upstream の close 失敗で他 upstream の停止を止めない。
+          }
+        }
+      }));
+    })();
+    return this.closingPromise;
   }
 }
 
@@ -167,10 +196,21 @@ export async function createUpstreamTransport(
   return new StdioClientTransport({ command: config.command, args: config.args, env: config.env, cwd: config.cwd });
 }
 
-async function connectUpstream(config: UpstreamConfig, oauthCredentialProvider?: OAuthCredentialProvider): Promise<UpstreamHandle> {
+export async function connectUpstream(
+  config: UpstreamConfig,
+  oauthCredentialProvider?: OAuthCredentialProvider,
+  createClient: (config: UpstreamConfig) => Client = (c) => new Client({ name: `mottainai/${c.name}`, version: "0.1.0" }),
+): Promise<UpstreamHandle> {
   const transport = await createUpstreamTransport(config, oauthCredentialProvider);
-  const client = new Client({ name: `mottainai/${config.name}`, version: "0.1.0" });
-  await client.connect(transport);
-  const { tools } = await client.listTools();
-  return { config, client, tools };
+  const client = createClient(config);
+  try {
+    await client.connect(transport);
+    const { tools } = await client.listTools();
+    return { config, client, tools };
+  } catch (error) {
+    // connect() の途中失敗（stdio なら child process が spawn 済みの場合がある）も
+    // listTools() の失敗も、同じスコープで client を閉じる。close 自体の失敗で元のエラーを隠さない。
+    await client.close().catch(() => {});
+    throw error;
+  }
 }

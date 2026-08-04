@@ -23,8 +23,26 @@ export interface ReadDecision {
   stage: RolloutStage;
 }
 
-/** issue #62/#82 の段階導入。observe は判定を記録するだけで拒否しない。 */
-export type RolloutStage = "observe" | "warn" | "enforce" | "tighten";
+/**
+ * issue #62/#82 の段階導入。observe/warn だけが実装済み。`enforce`/`tighten` は将来の値として
+ * 予約されているが挙動が無いので、型にもconfiguration検証にも含めない — 実装されるまでは
+ * 明示的に拒否し、`action: "allow"` へ黙って fall through させない（#87）。
+ */
+export type RolloutStage = "observe" | "warn";
+
+/** 将来 `enforce`/`tighten` を実装する際は、ここへ追加してから `RolloutStage` を拡張する。 */
+export const SUPPORTED_ROLLOUT_STAGES: readonly RolloutStage[] = ["observe", "warn"];
+
+/** 未実装の rollout stage（`enforce`/`tighten` を含む、将来の任意の文字列）を拒否する。 */
+export function assertSupportedRolloutStage(stage: string): asserts stage is RolloutStage {
+  if (!(SUPPORTED_ROLLOUT_STAGES as readonly string[]).includes(stage)) {
+    throw new Error(
+      `unsupported read governor rollout stage: ${JSON.stringify(stage)} `
+      + `(implemented stages: ${SUPPORTED_ROLLOUT_STAGES.join(", ")}; `
+      + `"enforce"/"tighten" are reserved but not yet implemented)`,
+    );
+  }
+}
 
 export interface ReadGovernorPolicy {
   stage: RolloutStage;
@@ -41,10 +59,16 @@ export const DEFAULT_POLICY: ReadGovernorPolicy = {
 
 export interface ReadRequest {
   path: string;
-  /** 呼び出し側が推定した行数。分からなければ省略可（small-file 判定は skip される）。 */
+  /** 呼び出し側が推定した"ファイル全体"の行数。small-file 判定にのみ使う（分からなければ省略可）。 */
   estimatedLines?: number;
   /** true ならすでに構造探索エビデンスに基づく範囲READ。observe stage では未使用。 */
   bounded?: boolean;
+  /**
+   * `bounded: true` のときの、実際にREADする範囲の行数。oversized-range 判定（`warnMaxRangeLines`）は
+   * これを使う — `estimatedLines`（ファイル全体のサイズ）を範囲サイズとして再利用しない（#88）。
+   * 900行のファイルから10行だけ読む bounded read を、900行の oversized range と誤認しないため。
+   */
+  rangeLines?: number;
 }
 
 /**
@@ -112,6 +136,9 @@ export function evaluateRead(
   policy: ReadGovernorPolicy = DEFAULT_POLICY,
   capabilityIndex: CapabilityIndex = DEFAULT_CAPABILITY_INDEX,
 ): ReadDecision {
+  // policy.stage は型では "observe" | "warn" に絞られているが、外部configから来る値は実行時に
+  // 未実装stageでありうる。enforce/tighten を黙って allow へ fall through させない（#87）。
+  assertSupportedRolloutStage(policy.stage);
   const fileClass = classifyFile(request.path);
   // generated/lockfile are denied regardless of size (issue #62 file-type routing);
   // the small-file exemption only applies to classes where size is the deciding factor.
@@ -133,26 +160,47 @@ export function evaluateRead(
   const wouldBePolicyCode = POLICY_CODE[fileClass];
   const wouldConcern = wouldBePolicyCode !== "NONE";
   const isUnbounded = request.bounded !== true;
-  const isOversizedRange = !isUnbounded && request.estimatedLines !== undefined && request.estimatedLines > policy.warnMaxRangeLines;
+  // oversized-range は「READする範囲」の大きさで判定する。ファイル全体のサイズ（estimatedLines）を
+  // 範囲サイズとして誤用しない — 900行のファイルから10行だけ読む bounded read を、900行の
+  // oversized range と誤認してはいけない（#88）。
+  const isOversizedRange = !isUnbounded && request.rangeLines !== undefined && request.rangeLines > policy.warnMaxRangeLines;
   const capability = CAPABILITY_FOR_CLASS[fileClass];
+  // deny-only class（generated/lockfile）は「代わりの読み方」が存在しない全面拒否。bounded で
+  // 範囲を絞っても、later stage が拒否するという懸念自体は消えない（#89）。
+  const isDenyOnly = capability === "deny";
 
-  if (policy.stage === "warn" && wouldConcern && WARN_REWRITE_CLASSES.has(fileClass) && (isUnbounded || isOversizedRange)) {
-    return {
-      action: "rewrite",
-      fileClass,
-      capability: capability ?? NO_CAPABILITY,
-      policyCode: wouldBePolicyCode,
-      reason: isUnbounded
-        ? `warn: whole ${fileClass} read should be localized`
-        : `warn: bounded ${fileClass} read exceeds the oversized-range threshold (${policy.warnMaxRangeLines} lines)`,
-      suggestedTools: suggestedToolsFor(capability, capabilityIndex),
-      stage: policy.stage,
-    };
+  switch (policy.stage) {
+    case "warn": {
+      if (wouldConcern && WARN_REWRITE_CLASSES.has(fileClass) && (isUnbounded || isOversizedRange)) {
+        return {
+          action: "rewrite",
+          fileClass,
+          capability: capability ?? NO_CAPABILITY,
+          policyCode: wouldBePolicyCode,
+          reason: isUnbounded
+            ? `warn: whole ${fileClass} read should be localized`
+            : `warn: bounded ${fileClass} read exceeds the oversized-range threshold (${policy.warnMaxRangeLines} lines)`,
+          suggestedTools: suggestedToolsFor(capability, capabilityIndex),
+          stage: policy.stage,
+        };
+      }
+      break;
+    }
+    case "observe":
+      // observe stage never rewrites or denies; falls through to the shared allow / would-deny
+      // reporting below, same as warn stage's non-rewrite path.
+      break;
+    default: {
+      // unreachable: assertSupportedRolloutStage already rejected anything outside
+      // "observe" | "warn", and this switch is exhaustive over the narrowed RolloutStage type.
+      const exhaustive: never = policy.stage;
+      throw new Error(`unhandled read governor rollout stage: ${String(exhaustive)}`);
+    }
   }
 
   // observe stage never denies; warn stage never denies either (deny-only classes and
   // in-range bounded reads fall through here). Both report what a later stage would decide.
-  const wouldDeny = wouldConcern && isUnbounded;
+  const wouldDeny = wouldConcern && (isDenyOnly || isUnbounded);
 
   return {
     action: "allow",
@@ -160,7 +208,9 @@ export function evaluateRead(
     capability: wouldDeny ? (capability ?? NO_CAPABILITY) : NO_CAPABILITY,
     policyCode: wouldDeny ? wouldBePolicyCode : "NONE",
     reason: wouldDeny
-      ? `${policy.stage}: a later stage would deny this unbounded ${fileClass} read`
+      ? (isDenyOnly
+        ? `${policy.stage}: ${fileClass} reads are deny-only; a later stage would deny this read`
+        : `${policy.stage}: a later stage would deny this unbounded ${fileClass} read`)
       : "no policy concern for this request",
     suggestedTools: wouldDeny ? suggestedToolsFor(capability, capabilityIndex) : [],
     stage: policy.stage,

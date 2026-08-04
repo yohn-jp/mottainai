@@ -86,9 +86,12 @@ export function truncateExcessLines(
   const lines = input.split("\n");
   if (lines.length <= maxTotalLines) return input;
 
-  const head = lines.slice(0, Math.max(headLines, 0));
-  const tail = tailLines > 0 ? lines.slice(lines.length - tailLines) : [];
-  const omitted = lines.length - head.length - tail.length;
+  const retainedLineBudget = Math.max(maxTotalLines, 0);
+  const headCount = Math.min(Math.max(headLines, 0), retainedLineBudget);
+  const tailCount = Math.min(Math.max(tailLines, 0), Math.max(retainedLineBudget - headCount, 0));
+  const head = lines.slice(0, headCount);
+  const tail = tailCount > 0 ? lines.slice(lines.length - tailCount) : [];
+  const omitted = Math.max(0, lines.length - head.length - tail.length);
   return [...head, `⋯ ${omitted} lines omitted ⋯`, ...tail].join("\n");
 }
 

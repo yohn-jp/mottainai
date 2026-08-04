@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildCapabilityIndex } from "../adaptive/capabilities.js";
-import { evaluateRead, DEFAULT_POLICY, NO_CAPABILITY } from "./policy.js";
+import { assertSupportedRolloutStage, evaluateRead, DEFAULT_POLICY, NO_CAPABILITY, SUPPORTED_ROLLOUT_STAGES } from "./policy.js";
+import type { RolloutStage } from "./policy.js";
 
 test("observe stage always allows, even for a large source file", () => {
   const decision = evaluateRead({ path: "apps/gateway/src/big.ts", estimatedLines: 900 });
@@ -165,7 +166,7 @@ test("warn stage rewrites an unbounded structured-config read and suggests a str
 
 test("warn stage rewrites an oversized bounded range read even though it is already localized", () => {
   const decision = evaluateRead(
-    { path: "apps/gateway/src/big.ts", estimatedLines: WARN_POLICY.warnMaxRangeLines + 50, bounded: true },
+    { path: "apps/gateway/src/big.ts", estimatedLines: 900, rangeLines: WARN_POLICY.warnMaxRangeLines + 50, bounded: true },
     WARN_POLICY,
   );
   assert.equal(decision.action, "rewrite");
@@ -173,7 +174,42 @@ test("warn stage rewrites an oversized bounded range read even though it is alre
 });
 
 test("warn stage allows a bounded read within the oversized-range threshold", () => {
-  const decision = evaluateRead({ path: "apps/gateway/src/big.ts", estimatedLines: 200, bounded: true }, WARN_POLICY);
+  const decision = evaluateRead(
+    { path: "apps/gateway/src/big.ts", estimatedLines: 900, rangeLines: WARN_POLICY.warnMaxRangeLines, bounded: true },
+    WARN_POLICY,
+  );
+  assert.equal(decision.action, "allow");
+  assert.equal(decision.policyCode, "NONE");
+});
+
+// --- L: estimatedLines (file size) must not be reused as rangeLines (requested range size) ---
+
+test("a small bounded range in a large file is not treated as an oversized range (#88)", () => {
+  // file is estimated at 900 lines (large), but the bounded request only reads 10 lines.
+  const decision = evaluateRead(
+    { path: "apps/gateway/src/big.ts", estimatedLines: 900, rangeLines: 10, bounded: true },
+    WARN_POLICY,
+  );
+  assert.equal(decision.action, "allow");
+  assert.equal(decision.policyCode, "NONE");
+});
+
+test("estimatedLines still controls the small-file exemption independently of rangeLines", () => {
+  // small file (40 lines), regardless of what rangeLines says, stays exempt.
+  const decision = evaluateRead(
+    { path: "apps/gateway/src/small.ts", estimatedLines: 40, rangeLines: 900, bounded: true },
+    WARN_POLICY,
+  );
+  assert.equal(decision.action, "allow");
+  assert.equal(decision.policyCode, "NONE");
+});
+
+test("a bounded range is oversized only when rangeLines itself exceeds warnMaxRangeLines, not estimatedLines alone", () => {
+  // large file, but rangeLines is missing entirely: must not be treated as oversized.
+  const decision = evaluateRead(
+    { path: "apps/gateway/src/big.ts", estimatedLines: 900, bounded: true },
+    WARN_POLICY,
+  );
   assert.equal(decision.action, "allow");
   assert.equal(decision.policyCode, "NONE");
 });
@@ -196,4 +232,91 @@ test("warn stage still exempts small files regardless of file class", () => {
   const decision = evaluateRead({ path: "apps/gateway/src/small.ts", estimatedLines: 40 }, WARN_POLICY);
   assert.equal(decision.action, "allow");
   assert.equal(decision.policyCode, "NONE");
+});
+
+// --- K: unsupported rollout stages must be rejected, never silently fall through to allow (#87) ---
+
+test("every implemented rollout stage has explicit, deliberate behavior (exhaustive)", () => {
+  assert.deepEqual([...SUPPORTED_ROLLOUT_STAGES].sort(), ["observe", "warn"]);
+  for (const stage of SUPPORTED_ROLLOUT_STAGES) {
+    assert.doesNotThrow(() => assertSupportedRolloutStage(stage));
+    assert.doesNotThrow(() => evaluateRead({ path: "apps/gateway/src/big.ts", estimatedLines: 900 }, { ...DEFAULT_POLICY, stage }));
+  }
+});
+
+test("assertSupportedRolloutStage rejects every unsupported/unimplemented stage, including enforce and tighten", () => {
+  for (const stage of ["enforce", "tighten", "", "OBSERVE", "warn ", "block", "audit"]) {
+    assert.throws(() => assertSupportedRolloutStage(stage), /unsupported read governor rollout stage/);
+  }
+});
+
+test("evaluateRead rejects a configured enforce/tighten stage instead of silently allowing (regression)", () => {
+  for (const stage of ["enforce", "tighten"] as const) {
+    const policy = { ...DEFAULT_POLICY, stage: stage as unknown as RolloutStage };
+    assert.throws(
+      () => evaluateRead({ path: "apps/gateway/src/big.ts", estimatedLines: 900 }, policy),
+      /unsupported read governor rollout stage/,
+    );
+  }
+});
+
+test("evaluateRead rejects any other unimplemented stage string the same way", () => {
+  for (const stage of ["block", "audit", ""] as const) {
+    const policy = { ...DEFAULT_POLICY, stage: stage as unknown as RolloutStage };
+    assert.throws(() => evaluateRead({ path: "apps/gateway/src/big.ts", estimatedLines: 900 }, policy));
+  }
+});
+
+// --- M: deny-only classes (generated/lockfile) must keep reporting the denial concern even when bounded ---
+
+test("observe stage reports the deny concern for an unbounded generated file read", () => {
+  const decision = evaluateRead({ path: "node_modules/foo/index.js", estimatedLines: 900 });
+  assert.equal(decision.action, "allow");
+  assert.equal(decision.capability, "deny");
+  assert.equal(decision.policyCode, "GENERATED_FILE_DENIED");
+});
+
+test("observe stage still reports the deny concern for a BOUNDED generated file read (regression: bounded must not erase it)", () => {
+  const decision = evaluateRead({ path: "node_modules/foo/index.js", estimatedLines: 900, rangeLines: 5, bounded: true });
+  assert.equal(decision.action, "allow");
+  assert.equal(decision.capability, "deny");
+  assert.equal(decision.policyCode, "GENERATED_FILE_DENIED");
+  assert.deepEqual(decision.suggestedTools, []);
+});
+
+test("observe stage still reports the deny concern for a BOUNDED lockfile read (regression: bounded must not erase it)", () => {
+  const decision = evaluateRead({ path: "pnpm-lock.yaml", estimatedLines: 900, rangeLines: 5, bounded: true });
+  assert.equal(decision.action, "allow");
+  assert.equal(decision.capability, "deny");
+  assert.equal(decision.policyCode, "GENERATED_FILE_DENIED");
+  assert.deepEqual(decision.suggestedTools, []);
+});
+
+test("warn stage still reports the deny concern for a BOUNDED generated/lockfile read", () => {
+  const generated = evaluateRead({ path: "node_modules/foo/index.js", estimatedLines: 900, rangeLines: 5, bounded: true }, WARN_POLICY);
+  assert.equal(generated.action, "allow");
+  assert.equal(generated.policyCode, "GENERATED_FILE_DENIED");
+
+  const lockfile = evaluateRead({ path: "pnpm-lock.yaml", estimatedLines: 900, rangeLines: 5, bounded: true }, WARN_POLICY);
+  assert.equal(lockfile.action, "allow");
+  assert.equal(lockfile.policyCode, "GENERATED_FILE_DENIED");
+});
+
+test("bounded and unbounded generated/lockfile reads report the same denial concern (deny-only classes ignore bounded)", () => {
+  const unboundedGenerated = evaluateRead({ path: "node_modules/foo/index.js", estimatedLines: 900 });
+  const boundedGenerated = evaluateRead({ path: "node_modules/foo/index.js", estimatedLines: 900, rangeLines: 5, bounded: true });
+  assert.equal(unboundedGenerated.policyCode, boundedGenerated.policyCode);
+  assert.equal(unboundedGenerated.capability, boundedGenerated.capability);
+
+  const unboundedLockfile = evaluateRead({ path: "pnpm-lock.yaml", estimatedLines: 900 });
+  const boundedLockfile = evaluateRead({ path: "pnpm-lock.yaml", estimatedLines: 900, rangeLines: 5, bounded: true });
+  assert.equal(unboundedLockfile.policyCode, boundedLockfile.policyCode);
+  assert.equal(unboundedLockfile.capability, boundedLockfile.capability);
+});
+
+test("bounded, in-range reads of non-deny-only classes still report no concern (deny-only carve-out does not leak)", () => {
+  const decision = evaluateRead({ path: "apps/gateway/src/big.ts", estimatedLines: 900, rangeLines: 10, bounded: true });
+  assert.equal(decision.action, "allow");
+  assert.equal(decision.policyCode, "NONE");
+  assert.equal(decision.capability, NO_CAPABILITY);
 });

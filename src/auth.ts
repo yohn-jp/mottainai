@@ -15,15 +15,22 @@ function isOAuthCredentialProvider(value: unknown): value is OAuthCredentialProv
     && typeof (value as { resolveEndpoint?: unknown }).resolveEndpoint === "function";
 }
 
+class BrokerEndpointValidationError extends Error {
+  constructor(profile: string) {
+    super(`oauth broker returned invalid endpoint: ${profile}`);
+    this.name = "BrokerEndpointValidationError";
+  }
+}
+
 function brokerUrl(value: URL | string, profile: string): URL {
   let endpoint: URL;
   try {
     endpoint = value instanceof URL ? value : new URL(value);
   } catch {
-    throw new Error(`oauth broker returned invalid endpoint: ${profile}`);
+    throw new BrokerEndpointValidationError(profile);
   }
   if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
-    throw new Error(`oauth broker returned invalid endpoint: ${profile}`);
+    throw new BrokerEndpointValidationError(profile);
   }
   return endpoint;
 }
@@ -36,7 +43,7 @@ export async function resolveBrokerEndpoint(
   try {
     return brokerUrl(await provider.resolveEndpoint(targetUrl, profile), profile);
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith("oauth broker returned invalid endpoint:")) {
+    if (error instanceof BrokerEndpointValidationError) {
       throw error;
     }
     throw new Error(`oauth broker resolution failed: ${profile}`);

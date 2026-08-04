@@ -891,7 +891,7 @@ test("a configured tool-level token budget truncates a large prefixed result and
   const result = await client.callTool({ name: "codegraph__explore", arguments: {} });
   const text = (result.content as Array<{ text: string }>).map((part) => part.text).join("\n");
   assert.match(text, /⋯ mottainai omitted=\d+ lines sha256=[0-9a-f]{16}; use mottainai_result_get ⋯/);
-  assert.match(text, /\[mottainai compression: original_id=mx_budgeted; retrieve=mottainai_retrieve\]/);
+  assert.match(text, /\[mottainai compression: original_id=mx_budgeted; retrieve=mottainai_result_get\]/);
 
   await client.close();
 });

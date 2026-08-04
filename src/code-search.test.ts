@@ -91,14 +91,15 @@ test("mottainai_code_search with scope=tracked uses git grep and ignores untrack
   await fs.rm(root, { recursive: true, force: true });
 });
 
-test("mottainai_code_search falls back to rg when ast-grep is unavailable, recording the failed attempt", async () => {
+test("mottainai_code_search reports ast-grep failure without a lossy rg fallback", async () => {
   const root = await workspace();
   await fs.writeFile(path.join(root, "sample.txt"), "function useState() {}\n");
   const ctx = await context(root);
   const result = structured(await callCodeSearchTool(
     "mottainai_code_search", { pattern: "useState", kind: "ast" }, ctx,
   ));
-  assert.equal(result.backend, "rg");
+  assert.equal(result.status, "failed");
+  assert.equal(result.backend, undefined);
   const history = result.fallback_history as Array<{ provider: string; tool: string; error: string }>;
   assert.equal(history.length, 1);
   assert.equal(history[0].provider, "ast_grep");

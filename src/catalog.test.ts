@@ -90,10 +90,19 @@ test("search ranks by capability, name, tag and summary and stays deterministic"
   const bySummary = index.search({ query: "rebuild" });
   assert.deepEqual(bySummary.map((hit) => hit.tool.tool), ["codegraph_reindex"]);
 
-  const noMatch = index.search({ query: "nothing-matches-this" });
+  const noMatch = index.search({ query: "zzz-nomatch-qqq" });
   assert.deepEqual(noMatch, []);
 
   assert.deepEqual(index.search({ query: "codegraph" }), index.search({ query: "codegraph" }));
+});
+
+test("search matches individual words within a snake_case capability id like text_matches", () => {
+  const index = catalog();
+  // "matches" appears only inside the "text_matches" capability id (grep's summary/name/tags don't
+  // contain it), so this only scores if capability ids are tokenized on `_` before comparison.
+  const hits = index.search({ query: "matches" });
+  assert.deepEqual(hits.map((hit) => hit.tool.tool), ["grep"]);
+  assert.deepEqual(hits[0].matched, ["capability:matches"]);
 });
 
 test("search filters by risk and provider without a query", () => {

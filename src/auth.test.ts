@@ -30,4 +30,8 @@ test("sanitizes OAuth provider failures and rejects non-HTTP broker endpoints", 
     () => resolveBrokerEndpoint({ resolveEndpoint: async () => "file:///tmp/mcp" }, new URL("https://mcp.example.test/mcp"), "example"),
     /oauth broker returned invalid endpoint: example/,
   );
+  await assert.rejects(
+    () => resolveBrokerEndpoint({ resolveEndpoint: async () => { throw new Error("oauth broker returned invalid endpoint: leaked"); } }, new URL("https://mcp.example.test/mcp"), "example"),
+    /oauth broker resolution failed: example/,
+  );
 });

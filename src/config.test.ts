@@ -167,6 +167,54 @@ test("loadMottainaiConfig accepts and rejects profile rawToolAccess (#26)", () =
   );
 });
 
+test("loadMottainaiConfig rejects denyRisk values outside the shared risk enum", () => {
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      version: 2,
+      mcpServers: { one: { command: "node" } },
+      // "destrucive" は typo。文字列配列であることだけを見るチェックだと通ってしまい、
+      // 本来 deny すべき tool を静かに許可してしまう。
+      profiles: { locked: { denyRisk: ["destrucive"] } },
+    })),
+    /invalid profile denyRisk value: destrucive for locked/,
+  );
+
+  const configPath = writeConfig({
+    version: 2,
+    mcpServers: { one: { command: "node" } },
+    profiles: { locked: { denyRisk: ["destructive", "mutating"] } },
+  });
+  assert.deepEqual(loadMottainaiConfig(configPath).profiles?.locked.denyRisk, ["destructive", "mutating"]);
+});
+
+test("loadMottainaiConfig rejects worktree.allowedBranchPrefixes containing an empty prefix", () => {
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      version: 2,
+      mcpServers: { one: { command: "node" } },
+      // "" は任意のブランチ名にマッチしてしまい、allow list を無効化する。
+      gateway: { worktree: { allowedBranchPrefixes: ["task/", ""] } },
+    })),
+    /invalid gateway worktree\.allowedBranchPrefixes must be a non-empty string array/,
+  );
+
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      version: 2,
+      mcpServers: { one: { command: "node" } },
+      gateway: { worktree: { allowedBranchPrefixes: [] } },
+    })),
+    /invalid gateway worktree\.allowedBranchPrefixes must be a non-empty string array/,
+  );
+
+  const configPath = writeConfig({
+    version: 2,
+    mcpServers: { one: { command: "node" } },
+    gateway: { worktree: { allowedBranchPrefixes: ["task/"] } },
+  });
+  assert.deepEqual(loadMottainaiConfig(configPath).gateway?.worktree?.allowedBranchPrefixes, ["task/"]);
+});
+
 test("loadMottainaiConfig rejects invalid v2 metadata", () => {
   assert.throws(
     () => loadMottainaiConfig(writeConfig({

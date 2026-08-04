@@ -20,6 +20,25 @@ export interface SqliteStateStoreOptions {
   env?: NodeJS.ProcessEnv;
 }
 
+const DEFAULT_DECISION_LIMIT = 100;
+const MAX_DECISION_LIMIT = 1000;
+
+/** filter.limit を bounded な正の整数に丸める。呼び出し元の型注釈は実行時の値までは保証しない。 */
+function normalizeLimit(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) return DEFAULT_DECISION_LIMIT;
+  return Math.min(Math.max(Math.trunc(value), 1), MAX_DECISION_LIMIT);
+}
+
+/** state directory / DB ファイル / WAL sidecar を所有者のみ読める権限に絞る（対応 Unix のみ）。 */
+function restrictToOwner(targetPath: string, mode: number): void {
+  if (process.platform === "win32") return;
+  try {
+    fs.chmodSync(targetPath, mode);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+}
+
 function toSessionRecord(row: Record<string, unknown>): SessionRecord {
   return {
     sessionId: row.session_id as string,
@@ -76,13 +95,28 @@ export class SqliteStateStore implements StateStore {
 
   init(): void {
     if (this.db !== undefined) return;
-    if (this.dbPath !== ":memory:") {
-      fs.mkdirSync(path.dirname(this.dbPath), { recursive: true, mode: 0o700 });
+    const isFileBacked = this.dbPath !== ":memory:";
+    if (isFileBacked) {
+      const dir = path.dirname(this.dbPath);
+      // mkdirSync の mode は umask の影響を受け、既存ディレクトリには適用されないため明示的に chmod する。
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+      restrictToOwner(dir, 0o700);
     }
     const db = new DatabaseSync(this.dbPath);
-    db.exec("PRAGMA journal_mode = WAL");
-    db.exec("PRAGMA foreign_keys = ON");
-    applyMigrations(db);
+    try {
+      if (isFileBacked) restrictToOwner(this.dbPath, 0o600);
+      db.exec("PRAGMA journal_mode = WAL");
+      db.exec("PRAGMA foreign_keys = ON");
+      applyMigrations(db);
+      if (isFileBacked) {
+        // WAL sidecar は書き込みが発生するまで存在しないことがあるため best-effort（無ければ無視）。
+        restrictToOwner(`${this.dbPath}-wal`, 0o600);
+        restrictToOwner(`${this.dbPath}-shm`, 0o600);
+      }
+    } catch (err) {
+      db.close();
+      throw err;
+    }
     this.db = db;
   }
 
@@ -158,14 +192,14 @@ export class SqliteStateStore implements StateStore {
 
   listReadDecisions(filter: ListReadDecisionsFilter = {}): ReadDecisionRecord[] {
     const db = this.handle();
-    const limit = filter.limit ?? 100;
-    if (filter.sessionId !== undefined) {
-      const rows = db.prepare(
-        "SELECT * FROM read_decisions WHERE session_id = ? ORDER BY created_at DESC LIMIT ?",
-      ).all(filter.sessionId, limit) as Record<string, unknown>[];
-      return rows.map(toReadDecisionRecord);
-    }
-    const rows = db.prepare("SELECT * FROM read_decisions ORDER BY created_at DESC LIMIT ?").all(limit) as Record<string, unknown>[];
+    const limit = normalizeLimit(filter.limit);
+    // decision_id は呼び出し側が渡す文字列（UUID 等）で挿入順を表さないため、
+    // 同一 created_at の安定順序には挿入順を表す rowid を tie-breaker に使う。
+    const where = filter.sessionId === undefined ? "" : "WHERE session_id = ? ";
+    const params = filter.sessionId === undefined ? [limit] : [filter.sessionId, limit];
+    const rows = db.prepare(
+      `SELECT * FROM read_decisions ${where}ORDER BY created_at DESC, rowid DESC LIMIT ?`,
+    ).all(...params) as Record<string, unknown>[];
     return rows.map(toReadDecisionRecord);
   }
 

@@ -184,12 +184,12 @@ async function execTool(args: Args, config: ResolvedGatewayConfig, store: Artifa
   const requestedTimeout = numberArg(args, "timeoutMs") ?? config.defaultTimeoutMs;
   if (requestedTimeout < 1) throw new Error("timeoutMs must be positive");
   const timeoutMs = Math.min(requestedTimeout, config.maxTimeoutMs);
+  const targetTokens = numberArg(args, "targetTokens") ?? config.execTargetTokens;
+  if (targetTokens < 128 || targetTokens > 10_000) throw new Error("targetTokens must be between 128 and 10000");
   const started = performance.now();
   const run = await runShell(command, cwd, timeoutMs, config.maxOutputBytes);
   const durationMs = Math.round(performance.now() - started);
   const raw = [run.stdout, run.stderr].filter(Boolean).join(run.stdout && run.stderr ? "\n" : "");
-  const targetTokens = numberArg(args, "targetTokens") ?? config.execTargetTokens;
-  if (targetTokens < 128 || targetTokens > 10_000) throw new Error("targetTokens must be between 128 and 10000");
   const status = run.exitCode === 0 && !run.timedOut && !run.outputLimit ? "success" : "failed";
   const failure = status === "failed" ? await diagnoseExecFailure(run, raw, cwd, config.workspaceRoot) : undefined;
   // 競合markerはパッチ根拠。通常出力の圧縮対象にしない。
@@ -230,6 +230,9 @@ interface TapTestResults {
   result_id: string;
 }
 
+/** TAP の result line（`ok N ...` / `not ok N ...`）。次のfailureのblockとの境界を判定するのに使う。 */
+const TAP_RESULT_LINE = /^(?:not )?ok \d+\b/;
+
 /** TAP footer と not ok block は機械的に読める。圧縮前の原文から最小失敗情報を残す。 */
 function tapTestResults(raw: string, resultId: string, outputOmitted: boolean): TapTestResults | undefined {
   const lines = raw.split("\n");
@@ -244,8 +247,14 @@ function tapTestResults(raw: string, resultId: string, outputOmitted: boolean): 
   for (let index = 0; index < lines.length; index += 1) {
     const match = /^not ok \d+ - (.+?)(?: # .*)?$/.exec(lines[index].trim());
     if (match === null) continue;
-    const block = lines.slice(index + 1).find((line) => /^\s*(?:error|message):\s*/.test(line));
-    const diagnostic = block?.replace(/^\s*(?:error|message):\s*/, "").trim() ?? "test failed";
+    // 自分のblock（次の ok/not ok result lineの手前まで）だけを診断情報の探索範囲にする。
+    // 診断の無いfailureが後続failureの診断を誤って引き継がないように。
+    let diagnostic = "test failed";
+    for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+      if (TAP_RESULT_LINE.test(lines[cursor].trim())) break;
+      const diagnosticMatch = /^\s*(?:error|message):\s*(.*)$/.exec(lines[cursor]);
+      if (diagnosticMatch !== null) { diagnostic = diagnosticMatch[1].trim(); break; }
+    }
     failures.push({ name: match[1], diagnostic: diagnostic.replace(/^['"]|['"]$/g, "") });
   }
   if (Object.keys(counters).length === 0 && failures.length === 0) return undefined;
@@ -345,13 +354,15 @@ async function searchTool(args: Args, config: ResolvedGatewayConfig, store: Arti
   if (mode !== "literal" && mode !== "regex") throw new Error("mode must be literal or regex");
   const context = numberArg(args, "contextLines") ?? 0;
   const maxResults = numberArg(args, "maxResults") ?? 30;
+  if (context < 0 || context > 20) throw new Error("contextLines must be between 0 and 20");
+  if (maxResults < 1 || maxResults > 100) throw new Error("maxResults must be between 1 and 100");
   const rgArgs = ["--json", "--line-number", "--no-heading", "--max-count", String(maxResults)];
   if (mode === "literal") rgArgs.push("--fixed-strings");
-  if (context > 0) rgArgs.push("--context", String(Math.min(context, 20)));
+  if (context > 0) rgArgs.push("--context", String(context));
   rgArgs.push("--glob", "!.git", "--glob", "!node_modules", "--glob", "!dist", query, searchPath);
   const run = await runProgram("rg", rgArgs, config.workspaceRoot, config.maxTimeoutMs, config.maxOutputBytes);
   if (run.spawnError) throw new Error(`rg unavailable: ${run.spawnError}`);
-  const { groups, omitted } = truncateGroups(parseRgJson(run.stdout, config.workspaceRoot), maxResults);
+  const { groups, omitted } = truncateGroups(parseRgJson(run.stdout, config.workspaceRoot, context), maxResults);
   const matchCount = groups.reduce((count, group) => count + group.matches.length, 0);
   const summary = `${matchCount} matches in ${groups.length} files${omitted > 0 ? ` (truncated, omitted=${omitted})` : ""}`;
   const resultId = store.putArtifact({ text: run.stdout, stderr: run.stderr, metadata: { operation: "search", command: query, cwd: searchPath, summary } });
@@ -360,10 +371,10 @@ async function searchTool(args: Args, config: ResolvedGatewayConfig, store: Arti
 
 // --max-countはファイル単位上限。ここでparse後にグローバル件数で打ち切る（issue #5）。
 function truncateGroups(
-  groups: Array<{ path: string; matches: Array<{ line: number; text: string }> }>,
+  groups: Array<{ path: string; matches: RgMatch[] }>,
   maxResults: number,
-): { groups: Array<{ path: string; matches: Array<{ line: number; text: string }> }>; omitted: number } {
-  const limited: Array<{ path: string; matches: Array<{ line: number; text: string }> }> = [];
+): { groups: Array<{ path: string; matches: RgMatch[] }>; omitted: number } {
+  const limited: Array<{ path: string; matches: RgMatch[] }> = [];
   let used = 0;
   let omitted = 0;
   for (const group of groups) {
@@ -480,7 +491,34 @@ async function worktreeNewToolImpl(args: Args, config: ResolvedGatewayConfig): P
   return output("worktree_new", "success", summary, "", { branch, worktree_dir: relativeWorktreeDir });
 }
 
+export interface ParsedIssue { number: number; title: string; state: string; labels: string[]; url: string; body: string; }
+export type ParsedIssueResult = { ok: true; issue: ParsedIssue } | { ok: false; reason: string };
+
+/**
+ * `gh issue view --json ...` の stdout を解釈する。exit 0 でも非JSONや必須field欠落がありうるので、
+ * 例外を投げず構造化された失敗理由を返す（呼び出し側の envelope とそのまま合わせる）。
+ */
+export function parseIssueViewOutput(stdout: string): ParsedIssueResult {
+  let parsed: { number?: unknown; title?: unknown; state?: unknown; labels?: unknown; body?: unknown; url?: unknown };
+  try {
+    parsed = JSON.parse(stdout) as typeof parsed;
+  } catch {
+    return { ok: false, reason: "unparsable JSON output" };
+  }
+  if (
+    typeof parsed.number !== "number" || typeof parsed.title !== "string"
+    || typeof parsed.state !== "string" || typeof parsed.url !== "string" || typeof parsed.body !== "string"
+  ) {
+    return { ok: false, reason: "missing required fields in output" };
+  }
+  const labels = Array.isArray(parsed.labels)
+    ? parsed.labels.filter((label): label is { name: string } => typeof label === "object" && label !== null && typeof (label as { name?: unknown }).name === "string").map((label) => label.name)
+    : [];
+  return { ok: true, issue: { number: parsed.number, title: parsed.title, state: parsed.state, labels, url: parsed.url, body: parsed.body } };
+}
+
 async function issueViewToolImpl(args: Args, config: ResolvedGatewayConfig): Promise<CallToolResult> {
+  if (config.worktree === undefined) throw new Error("issue tool is not configured for this workspace");
   const number = numberArg(args, "number");
   if (number === undefined || number < 1) throw new Error("number must be a positive integer");
   const run = await runProgram(
@@ -491,13 +529,12 @@ async function issueViewToolImpl(args: Args, config: ResolvedGatewayConfig): Pro
     const summary = `FAIL gh issue view: ${firstLine(run.stderr || run.stdout) || "command failed"}`;
     return output("issue_view", "failed", summary, "", { diagnostics: [{ severity: "error", message: summary }] }, true);
   }
-  const parsed = JSON.parse(run.stdout) as {
-    number: number; title: string; state: string; labels: Array<{ name: string }>; body: string; url: string;
-  };
-  const issue = {
-    number: parsed.number, title: parsed.title, state: parsed.state,
-    labels: parsed.labels.map((label) => label.name), url: parsed.url, body: parsed.body,
-  };
+  const parsed = parseIssueViewOutput(run.stdout);
+  if (!parsed.ok) {
+    const summary = `FAIL gh issue view: ${parsed.reason}`;
+    return output("issue_view", "failed", summary, "", { diagnostics: [{ severity: "error", message: summary }] }, true);
+  }
+  const { issue } = parsed;
   const summary = `#${issue.number} ${issue.state} ${issue.title}`;
   return output("issue_view", "success", summary, "", { issue });
 }
@@ -519,20 +556,63 @@ async function walk(root: string, current: string, remaining: number, outputEntr
   }
 }
 
-export function parseRgJson(raw: string, root: string): Array<{ path: string; matches: Array<{ line: number; text: string }> }> {
-  const grouped = new Map<string, Array<{ line: number; text: string }>>();
+export interface RgContextLine { line: number; text: string; }
+export interface RgMatch { line: number; text: string; context?: RgContextLine[]; }
+
+interface FileGroupState {
+  path: string;
+  matches: RgMatch[];
+  /** まだどの match にも属さない、直前の match より前に出た context line。次の match の "before" context になる。 */
+  pendingBefore: RgContextLine[];
+}
+
+/**
+ * rg `--json` の event 列（`match` / `context`）を file ごとに group 化し、各 context line を
+ * 正しい match group へ結び付ける。`context` の window 幅（`contextLines`）を使って、直前の
+ * match の "after" context か次の match の "before" context かを行番号で判定する（離れた
+ * match の context を誤って隣の match へ付けない）。
+ */
+export function parseRgJson(raw: string, root: string, contextLines = 0): Array<{ path: string; matches: RgMatch[] }> {
+  const files = new Map<string, FileGroupState>();
+  const order: string[] = [];
+
   for (const line of raw.split("\n")) {
     if (!line) continue;
     try {
       const item = JSON.parse(line) as { type?: string; data?: { path?: { text?: string }; line_number?: number; lines?: { text?: string } } };
-      if (item.type !== "match" || !item.data?.path?.text || item.data.line_number === undefined) continue;
+      if (item.type !== "match" && item.type !== "context") continue;
+      if (!item.data?.path?.text || item.data.line_number === undefined) continue;
       const key = path.relative(root, item.data.path.text);
-      const matches = grouped.get(key) ?? [];
-      matches.push({ line: item.data.line_number, text: (item.data.lines?.text ?? "").trimEnd() });
-      grouped.set(key, matches);
+      let state = files.get(key);
+      if (state === undefined) {
+        state = { path: key, matches: [], pendingBefore: [] };
+        files.set(key, state);
+        order.push(key);
+      }
+      const lineNumber = item.data.line_number;
+      const text = (item.data.lines?.text ?? "").trimEnd();
+
+      if (item.type === "match") {
+        const match: RgMatch = { line: lineNumber, text };
+        if (state.pendingBefore.length > 0) { match.context = state.pendingBefore; state.pendingBefore = []; }
+        state.matches.push(match);
+        continue;
+      }
+
+      const lastMatch = state.matches[state.matches.length - 1];
+      const withinAfterWindow = lastMatch !== undefined && lineNumber <= lastMatch.line + contextLines;
+      if (withinAfterWindow) {
+        lastMatch.context = [...(lastMatch.context ?? []), { line: lineNumber, text }];
+      } else {
+        state.pendingBefore.push({ line: lineNumber, text });
+      }
     } catch { /* ignore malformed rg event */ }
   }
-  return [...grouped.entries()].map(([filePath, matches]) => ({ path: filePath, matches }));
+
+  return order.map((key) => {
+    const state = files.get(key)!;
+    return { path: state.path, matches: state.matches };
+  });
 }
 
 function firstLine(value: string): string { return value.split("\n").find(Boolean) ?? "command failed"; }
@@ -552,7 +632,7 @@ async function runShell(command: string, cwd: string, timeoutMs: number, maxOutp
       [], cwd, timeoutMs, maxOutputBytes, true, { stdout: stdoutPath, stderr: stderrPath },
     );
     const stdout = await readLimited(stdoutPath, maxOutputBytes);
-    const stderr = await readLimited(stderrPath, Math.max(0, maxOutputBytes - stdout.text.length));
+    const stderr = await readLimited(stderrPath, Math.max(0, maxOutputBytes - Buffer.byteLength(stdout.text, "utf8")));
     return { ...result, stdout: stdout.text, stderr: stderr.text, outputLimit: result.outputLimit || stdout.truncated || stderr.truncated };
   } finally {
     await fs.rm(temporaryDirectory, { recursive: true, force: true });
@@ -568,12 +648,36 @@ function shellQuote(value: string): string { return `'${value.replace(/'/g, "'\\
 async function readLimited(filePath: string, maxBytes: number): Promise<{ text: string; truncated: boolean }> {
   try {
     const content = await fs.readFile(filePath);
-    return { text: content.subarray(0, maxBytes).toString("utf8"), truncated: content.length > maxBytes };
+    const bounded = trimIncompleteUtf8(content.subarray(0, Math.max(0, maxBytes)));
+    return { text: bounded.toString("utf8"), truncated: content.length > maxBytes };
   } catch (error: unknown) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return { text: "", truncated: false };
     throw error;
   }
 }
+
+/**
+ * byte数で切ったbufferが UTF-8 マルチbyte 文字の途中で終わっていると、`toString("utf8")` が
+ * 不完全な末尾を U+FFFD 1個（3 byte）へ置き換え、再encode時のbyte長がmaxBytesを超えうる。
+ * 末尾の不完全なsequenceをdecodeする前に切り落とし、`Buffer.byteLength(text,"utf8") <= maxBytes`
+ * を常に保つ。
+ */
+function trimIncompleteUtf8(buffer: Buffer): Buffer {
+  const maxSequenceLength = 4;
+  let leadIndex = buffer.length;
+  let scanned = 0;
+  while (leadIndex > 0 && scanned < maxSequenceLength && (buffer[leadIndex - 1] & 0xC0) === 0x80) {
+    leadIndex -= 1;
+    scanned += 1;
+  }
+  if (leadIndex === 0) return buffer;
+  const leadByte = buffer[leadIndex - 1];
+  const sequenceLength = leadByte >= 0xF0 ? 4 : leadByte >= 0xE0 ? 3 : leadByte >= 0xC0 ? 2 : 1;
+  const availableBytes = buffer.length - (leadIndex - 1);
+  if (sequenceLength > 1 && availableBytes < sequenceLength) return buffer.subarray(0, leadIndex - 1);
+  return buffer;
+}
+
 export function runProgram(program: string, args: string[], cwd: string, timeoutMs: number, maxOutputBytes: number): Promise<RunResult> {
   return runChild(program, args, cwd, timeoutMs, maxOutputBytes, false);
 }

@@ -23,21 +23,33 @@ function textOf(result: CallToolResult): string[] {
 }
 
 /**
- * 返った証拠の件数。
+ * structured output だけから件数を導く。両方の判定基準を一箇所にまとめ、
+ * `evidenceCount` と `summarizeExecution` の empty 判定がずれないようにする。
  *
- * 1. structured output の `metrics.result_count`
- * 2. structured output の `facts` 配列長
- * 3. 単一 text が JSON 配列ならその要素数
- * 4. それ以外は content 要素数
+ * `metrics.result_count` は非負整数のときだけ採用する（NaN・小数・負数の混入を防ぐ）。
+ * `facts` は空配列 `[]` も「0 件の証拠」として有効な値とみなす（フォールバックへ逃さない）。
  */
-export function evidenceCount(result: CallToolResult): number {
+function structuredEvidenceCount(result: CallToolResult): number | undefined {
   const structured = result.structuredContent as Record<string, unknown> | undefined;
   const metrics = structured?.metrics;
   if (typeof metrics === "object" && metrics !== null) {
     const count = (metrics as Record<string, unknown>).result_count;
-    if (typeof count === "number" && Number.isFinite(count)) return count;
+    if (typeof count === "number" && Number.isInteger(count) && count >= 0) return count;
   }
-  if (Array.isArray(structured?.facts) && structured.facts.length > 0) return structured.facts.length;
+  if (Array.isArray(structured?.facts)) return structured.facts.length;
+  return undefined;
+}
+
+/**
+ * 返った証拠の件数。
+ *
+ * 1. structured output の `metrics.result_count` / `facts` 配列長
+ * 2. 単一 text が JSON 配列ならその要素数
+ * 3. それ以外は content 要素数
+ */
+export function evidenceCount(result: CallToolResult): number {
+  const structuredCount = structuredEvidenceCount(result);
+  if (structuredCount !== undefined) return structuredCount;
   const texts = textOf(result);
   if (texts.length === 1) {
     try {
@@ -53,7 +65,10 @@ export function evidenceCount(result: CallToolResult): number {
 export function summarizeExecution(result: CallToolResult): ExecutionEvidence {
   const outputSize = Buffer.byteLength(JSON.stringify(result.content ?? []), "utf8");
   const texts = textOf(result);
-  const empty = (result.content ?? []).length === 0 || (texts.length === (result.content ?? []).length && texts.every((text) => text.trim().length === 0));
+  const contentEmpty = (result.content ?? []).length === 0 || (texts.length === (result.content ?? []).length && texts.every((text) => text.trim().length === 0));
+  const structuredCount = structuredEvidenceCount(result);
+  // content が空に見えても、structured 側に証拠があるなら empty 扱いにしない。
+  const empty = contentEmpty && (structuredCount ?? 0) === 0;
   const structuredStatus = (result.structuredContent as Record<string, unknown> | undefined)?.status;
   const status = result.isError === true || structuredStatus === "failed"
     ? "tool_error"

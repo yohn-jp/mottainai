@@ -227,6 +227,11 @@ export function approvePolicy(directory: string, policyVersion: string, approved
     approved_at: new Date().toISOString(),
     approved_by: approvedBy,
   };
-  savePolicy(directory, approved);
-  return { document: approved, filePath: stored.filePath };
+  const filePath = savePolicy(directory, approved);
+  // stored.filePath は任意の *.json 名でありうる（policyFileName(version) と一致する保証はない）。
+  // 名前が違えば古い candidate ファイルが残り、同じ policy_version の重複を生む。
+  if (filePath !== stored.filePath) {
+    fs.rmSync(stored.filePath, { force: true });
+  }
+  return { document: approved, filePath };
 }

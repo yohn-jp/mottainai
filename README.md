@@ -40,7 +40,7 @@ silently discarding information you might need later.
 
 ## How it fits together
 
-```
+```text
                  ┌───────────────────────────┐
   LLM client  ⇄  │         mottainai          │  ⇄  upstream MCP servers
  (Claude Code,   │  (this project, one stdio  │     (codegraph, fff-mcp,
