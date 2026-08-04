@@ -54,11 +54,9 @@ validation that ran. Non-draft PRs cannot contain `TBD`, `TODO`, `FIXME`, or
 
 | Change | Required contract |
 |---|---|
-| `src/config.ts`, `mottainai.config*` | `Migration / compatibility` statement |
-| `src/compress/**` | Test change in the same directory plus transformation and preservation validation |
 | Paths in `pullRequest.packageCheckPaths` | Completed Package check |
 | Paths in `pullRequest.changedFileRules.configurationPaths` | `Migration / compatibility` statement |
-| Paths in `pullRequest.changedFileRules.compressionPaths` | Test in `src/compress` plus transformation and preservation evidence |
+| Paths in `pullRequest.changedFileRules.compressionPaths` | Test path in `pullRequest.changedFileRules.compressionTestPaths` plus transformation and preservation evidence |
 | Paths in `pullRequest.changedFileRules.cliPaths` | README or CLI test change |
 | Paths in `pullRequest.changedFileRules.securityPaths` | `Security impact` statement |
 

@@ -29,6 +29,7 @@
     "changedFileRules": {
       "configurationPaths": ["^src/config\\.ts$", "^mottainai\\.config(?:\\..+)?$"],
       "compressionPaths": ["^src/compress/"],
+      "compressionTestPaths": ["^src/compress/.*\\.test\\.ts$"],
       "cliPaths": ["^src/index\\.ts$", "^src/cli\\.ts$", "^scripts/mcp\\.ts$"],
       "cliEvidencePaths": ["^README\\.md$", "(?:^|/)cli.*\\.test\\.ts$", "(?:^|/)index.*\\.test\\.ts$"],
       "securityPaths": ["security", "auth", "sandbox", "local-tools"]

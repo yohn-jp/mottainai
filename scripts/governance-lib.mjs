@@ -83,8 +83,8 @@ export function validatePullRequest({ title, body, draft = false, files = [] }) 
     errors.push("configuration changes require Migration / compatibility");
   }
   if (changed(files, changedFileRules.compressionPaths)) {
-    const hasCompressionTest = files.some((file) => /^src\/compress\/.*\.test\.ts$/.test(file));
-    if (!hasCompressionTest) errors.push("compression changes require a test change under src/compress");
+    const hasCompressionTest = changed(files, changedFileRules.compressionTestPaths);
+    if (!hasCompressionTest) errors.push("compression changes require a test change under configured compression test paths");
     if (!/\btransform(?:s|ed|ation|ations)?\b/i.test(body) || !/\bpreserv(?:e|es|ed|ing|ation|ations)?\b|\bunmodified\b/i.test(body)) {
       errors.push("compression changes require validation for transformation and preservation cases");
     }
