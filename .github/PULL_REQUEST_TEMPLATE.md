@@ -1,6 +1,6 @@
 ## Summary
 
-<!-- 変更結果を簡潔に記述 -->
+<!-- Concisely describe the delivered result. -->
 
 ## Linked issue
 
@@ -10,19 +10,19 @@ Closes #
 
 ### Included
 
-<!-- 実装範囲 -->
+<!-- Implemented scope. -->
 
 ### Excluded
 
-<!-- 明示的な対象外 -->
+<!-- Explicitly excluded scope. -->
 
 ## Implementation
 
-<!-- 主な実装判断 -->
+<!-- Key implementation decisions. -->
 
 ## Behavioral changes
 
-<!-- 利用者・運用から見える変化 -->
+<!-- User-visible and operational changes. -->
 
 ## Validation
 
@@ -31,24 +31,24 @@ Closes #
 - [ ] Build
 - [ ] Package check, if applicable
 
-<!-- 未実施項目は理由を併記し、チェックしない -->
+<!-- Leave unrun checks unchecked and state why. -->
 
 ## Risks
 
-<!-- リスクと緩和策 -->
+<!-- Risks and mitigations. -->
 
 ## Breaking changes
 
-No. <!-- Yesの場合は影響と移行方法を記述 -->
+No. <!-- If Yes, describe impact and migration. -->
 
 ## Migration / compatibility
 
-<!-- config変更時必須 -->
+<!-- Required for configuration changes. -->
 
 ## Security impact
 
-<!-- security関連変更時必須 -->
+<!-- Required for security-related changes. -->
 
 ## Review focus
 
-<!-- レビュアーが重点確認すべき具体箇所 -->
+<!-- Specific areas for reviewers to inspect. -->

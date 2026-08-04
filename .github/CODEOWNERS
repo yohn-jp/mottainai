@@ -1,4 +1,4 @@
-# ガバナンス契約と公開面はリポジトリ所有者レビュー必須。
+# Governance contracts and public surfaces require repository-owner review.
 /.github/ @yohn-jp
 /scripts/governance-* @yohn-jp
 /scripts/validate-*.mjs @yohn-jp

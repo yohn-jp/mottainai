@@ -1,40 +1,40 @@
 name: Architecture
-description: 境界・契約・設計判断の変更
+description: Change to boundaries, contracts, or architectural decisions
 title: "refactor: "
 body:
   - type: textarea
     id: summary
-    attributes: { label: Summary, description: 設計変更の要約 }
+    attributes: { label: Summary, description: Concise architectural change description }
     validations: { required: true }
   - type: textarea
     id: problem
-    attributes: { label: Problem, description: 現行設計の問題と証拠 }
+    attributes: { label: Problem, description: Current design problem and evidence }
     validations: { required: true }
   - type: textarea
     id: goal
-    attributes: { label: Goal, description: 目標アーキテクチャ・守る不変条件 }
+    attributes: { label: Goal, description: Target architecture and invariants to preserve }
     validations: { required: true }
   - type: textarea
     id: non_goals
-    attributes: { label: Non-goals, description: 今回変更しない境界 }
+    attributes: { label: Non-goals, description: Boundaries not changed in this work }
     validations: { required: true }
   - type: textarea
     id: acceptance
-    attributes: { label: Acceptance criteria, description: 検証可能な設計完了条件, value: "- [ ] " }
+    attributes: { label: Acceptance criteria, description: Verifiable design completion criteria, value: "- [ ] " }
     validations: { required: true }
   - type: textarea
     id: affected
-    attributes: { label: Affected areas, description: 影響レイヤ・公開契約 }
+    attributes: { label: Affected areas, description: Affected layers and public contracts }
     validations: { required: true }
   - type: textarea
     id: risks
-    attributes: { label: Risks / compatibility, description: 移行・後方互換性・失敗時影響 }
+    attributes: { label: Risks / compatibility, description: Migration, backward compatibility, and failure impact }
     validations: { required: true }
   - type: textarea
     id: dependencies
-    attributes: { label: Dependencies, description: 前提・後続Issue。なければ理由 }
+    attributes: { label: Dependencies, description: Prerequisites and follow-up Issues; explain if none }
     validations: { required: true }
   - type: textarea
     id: implementation
-    attributes: { label: Implementation notes, description: 代替案・選択理由・段階導入 }
+    attributes: { label: Implementation notes, description: Alternatives, decision rationale, and phased rollout }
     validations: { required: true }

@@ -9,7 +9,7 @@ function sectionBody(markdown, heading) {
 }
 
 function isPlaceholder(value) {
-  return value.length === 0 || /^(?:n\/?a|none|tbd|todo|未定|なし|該当なし|<!--.*-->)\.?$/is.test(value);
+  return value.length === 0 || /^(?:n\/?a|none|tbd|todo|not applicable|<!--.*-->)\.?$/is.test(value);
 }
 
 function meaningful(value) {
@@ -18,12 +18,12 @@ function meaningful(value) {
 
 export function validateIssue(body) {
   const errors = [];
-  if (body.trim().length < rules.issue.minimumBodyLength) errors.push(`本文は${rules.issue.minimumBodyLength}文字以上必要`);
+  if (body.trim().length < rules.issue.minimumBodyLength) errors.push(`body must be at least ${rules.issue.minimumBodyLength} characters`);
   for (const heading of rules.issue.requiredSections) {
-    if (!meaningful(sectionBody(body, heading))) errors.push(`必須項目が空: ${heading}`);
+    if (!meaningful(sectionBody(body, heading))) errors.push(`required section is empty: ${heading}`);
   }
   const acceptance = sectionBody(body, "Acceptance criteria");
-  if (!/- \[[ xX]\]\s+\S/.test(acceptance)) errors.push("Acceptance criteriaにチェック項目が必要");
+  if (!/- \[[ xX]\]\s+\S/.test(acceptance)) errors.push("Acceptance criteria must contain a checklist item");
   return errors;
 }
 
@@ -37,32 +37,32 @@ export function extractClosingIssues(body) {
 
 export function validatePullRequest({ title, body, draft = false, files = [] }) {
   const errors = [];
-  if (!new RegExp(rules.pullRequest.titlePattern).test(title)) errors.push("PRタイトル形式またはscopeが不正");
-  if (body.trim().length < rules.pullRequest.minimumBodyLength) errors.push(`本文は${rules.pullRequest.minimumBodyLength}文字以上必要`);
+  if (!new RegExp(rules.pullRequest.titlePattern).test(title)) errors.push("PR title format or scope is invalid");
+  if (body.trim().length < rules.pullRequest.minimumBodyLength) errors.push(`body must be at least ${rules.pullRequest.minimumBodyLength} characters`);
   for (const heading of rules.pullRequest.requiredSections) {
-    if (!meaningful(sectionBody(body, heading))) errors.push(`必須項目が空: ${heading}`);
+    if (!meaningful(sectionBody(body, heading))) errors.push(`required section is empty: ${heading}`);
   }
   const issues = [...new Set(extractClosingIssues(body))];
-  if (issues.length !== 1) errors.push("Closes対象は1件必要");
+  if (issues.length !== 1) errors.push("exactly one closing Issue is required");
   for (const item of rules.pullRequest.validationItems) {
-    if (!new RegExp(`- \\[[ xX]\\] ${item}(?:$|[, ])`, "m").test(body)) errors.push(`Validation項目がない: ${item}`);
+    if (!new RegExp(`- \\[[ xX]\\] ${item}(?:$|[, ])`, "m").test(body)) errors.push(`Validation item is missing: ${item}`);
   }
-  if (!draft && /\b(?:TBD|TODO|FIXME|WIP)\b|\[記入|<!--\s*(?:required|必須)/i.test(body)) errors.push("非Draft PRに未完了プレースホルダーあり");
-  if (!/^(?:No|Yes)(?:[.。:]|\s|$)/i.test(sectionBody(body, "Breaking changes"))) errors.push("Breaking changesはYes/Noで明示必要");
-  if (changed(files, /^(?:src\/config\.ts|mottainai\.config)/) && !meaningful(sectionBody(body, "Migration / compatibility"))) errors.push("設定変更にはMigration / compatibilityが必要");
+  if (!draft && /\b(?:TBD|TODO|FIXME|WIP)\b|<!--\s*required/i.test(body)) errors.push("non-draft PR contains an unfinished placeholder");
+  if (!/^(?:No|Yes)(?:[.。:]|\s|$)/i.test(sectionBody(body, "Breaking changes"))) errors.push("Breaking changes must explicitly start with Yes or No");
+  if (changed(files, /^(?:src\/config\.ts|mottainai\.config)/) && !meaningful(sectionBody(body, "Migration / compatibility"))) errors.push("configuration changes require Migration / compatibility");
   if (changed(files, /^src\/compress\//)) {
     const hasCompressionTest = files.some((file) => /^src\/compress\/.*\.test\.ts$/.test(file));
-    if (!hasCompressionTest) errors.push("圧縮変更にはsrc/compress配下のテスト変更が必要");
-    if (!/短縮|compress(?:ed|ion)|変換/i.test(body) || !/無変形|変換されない|preserv/i.test(body)) errors.push("圧縮変更は短縮例と無変形例の検証記述が必要");
+    if (!hasCompressionTest) errors.push("compression changes require a test change under src/compress");
+    if (!/compress(?:ed|ion)|transform/i.test(body) || !/unmodified|preserv/i.test(body)) errors.push("compression changes require validation for transformation and preservation cases");
   }
-  if (changed(files, /^package\.json$/) && !/- \[[xX]\] Package check(?:$|[, ])/m.test(body)) errors.push("package.json変更時はPackage check実施必須");
-  if (changed(files, /^(?:src\/index\.ts|scripts\/mcp\.ts)$/) && !files.some((file) => file === "README.md" || /(?:cli|index).*\.test\.ts$/.test(file))) errors.push("CLI変更にはREADMEまたはCLIテスト変更が必要");
-  if (changed(files, /(?:security|auth|sandbox|local-tools)/i) && !meaningful(sectionBody(body, "Security impact"))) errors.push("security関連変更にはSecurity impactが必要");
+  if (changed(files, /^package\.json$/) && !/- \[[xX]\] Package check(?:$|[, ])/m.test(body)) errors.push("package.json changes require a completed Package check");
+  if (changed(files, /^(?:src\/index\.ts|scripts\/mcp\.ts)$/) && !files.some((file) => file === "README.md" || /(?:cli|index).*\.test\.ts$/.test(file))) errors.push("CLI changes require a README or CLI test change");
+  if (changed(files, /(?:security|auth|sandbox|local-tools)/i) && !meaningful(sectionBody(body, "Security impact"))) errors.push("security-related changes require Security impact");
   return { errors, closingIssues: issues };
 }
 
 export function validateBranchName(branch) {
-  return new RegExp(rules.pullRequest.branchPattern).test(branch) ? [] : ["ブランチ名形式が不正"];
+  return new RegExp(rules.pullRequest.branchPattern).test(branch) ? [] : ["branch name format is invalid"];
 }
 
 export function parseArgs(argv) {

@@ -1,40 +1,40 @@
 name: Research
-description: 実装前調査・技術検証
+description: Pre-implementation research or technical validation
 title: "docs: research "
 body:
   - type: textarea
     id: summary
-    attributes: { label: Summary, description: 調査テーマ }
+    attributes: { label: Summary, description: Research topic }
     validations: { required: true }
   - type: textarea
     id: problem
-    attributes: { label: Problem, description: 未解決の問い・意思決定上の不足 }
+    attributes: { label: Problem, description: Unresolved question or decision gap }
     validations: { required: true }
   - type: textarea
     id: goal
-    attributes: { label: Goal, description: 調査で決定可能にする事項 }
+    attributes: { label: Goal, description: Decisions enabled by the research }
     validations: { required: true }
   - type: textarea
     id: non_goals
-    attributes: { label: Non-goals, description: 調査・実装しない事項 }
+    attributes: { label: Non-goals, description: Research and implementation excluded from this work }
     validations: { required: true }
   - type: textarea
     id: acceptance
-    attributes: { label: Acceptance criteria, description: 証拠・比較・結論の完了条件, value: "- [ ] " }
+    attributes: { label: Acceptance criteria, description: Completion criteria for evidence, comparison, and conclusion, value: "- [ ] " }
     validations: { required: true }
   - type: textarea
     id: affected
-    attributes: { label: Affected areas, description: 判断が影響する領域 }
+    attributes: { label: Affected areas, description: Areas affected by the decision }
     validations: { required: true }
   - type: textarea
     id: risks
-    attributes: { label: Risks / compatibility, description: 調査不足・採用時のリスク }
+    attributes: { label: Risks / compatibility, description: Risks from insufficient research or adoption }
     validations: { required: true }
   - type: textarea
     id: dependencies
-    attributes: { label: Dependencies, description: 必要な資料・環境・先行Issue }
+    attributes: { label: Dependencies, description: Required sources, environments, and prerequisite Issues }
     validations: { required: true }
   - type: textarea
     id: implementation
-    attributes: { label: Implementation notes, description: 比較対象・測定方法・成果物 }
+    attributes: { label: Implementation notes, description: Alternatives, measurement method, and deliverables }
     validations: { required: true }

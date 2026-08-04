@@ -1,10 +1,10 @@
-# Issue・PRガバナンス
+# Issue and Pull Request Governance
 
-複数LLM・人間が作るIssueとPRを、テンプレートではなく機械検証可能な契約として扱う。
+Treat Issues and pull requests created by people or multiple LLMs as machine-verifiable contracts, not suggestions in templates.
 
-## Issue契約
+## Issue contract
 
-Blank issueは禁止。`.github/ISSUE_TEMPLATE/`のIssue Formから種類を選ぶ。
+Blank Issues are disabled. Select an Issue Form from `.github/ISSUE_TEMPLATE/`:
 
 - Feature
 - Bug
@@ -12,53 +12,43 @@ Blank issueは禁止。`.github/ISSUE_TEMPLATE/`のIssue Formから種類を選�
 - Maintenance
 - Research
 
-全Issueで次を必須とする。
+Every Issue requires Summary, Problem, Goal, Non-goals, Acceptance criteria as a checklist, Affected areas, Risks / compatibility, Dependencies, and Implementation notes.
 
-- Summary
-- Problem
-- Goal
-- Non-goals
-- Acceptance criteria（チェックリスト形式）
-- Affected areas
-- Risks / compatibility
-- Dependencies
-- Implementation notes
+`issue-governance.yml` validates an Issue after creation or editing. Invalid Issues receive `status:invalid` and `needs:specification`; successful revalidation removes them.
 
-`issue-governance.yml`が作成・編集時に再検証する。不正Issueには`status:invalid`と`needs:specification`を付与する。修正後の再検証成功時に解除する。
+## Pull request contract
 
-## PR契約
-
-PRタイトル形式:
+Title format:
 
 ```text
 type(scope): summary
 ```
 
-許可type: `feat`、`fix`、`docs`、`refactor`、`test`、`chore`。
+Allowed types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
 
-許可scope: `cli`、`proxy`、`config`、`compression`、`routing`、`upstream`、`security`、`release`、`docs`、`ci`。
+Allowed scopes: `cli`, `proxy`, `config`, `compression`, `routing`, `upstream`, `security`, `release`, `docs`, `ci`.
 
-ブランチ名形式:
+Branch format:
 
 ```text
 type/123-short-description
 ```
 
-PR本文は`.github/PULL_REQUEST_TEMPLATE.md`の全見出しを維持する。`Closes #123`は原則1件。複数Issueを閉じる変更は分割する。Epicへ直接PRを紐付けず、子Issueへ分解する。
+Preserve every heading in `.github/PULL_REQUEST_TEMPLATE.md`. Use exactly one `Closes #123` reference. Split changes that close multiple Issues. Do not link PRs directly to Epics; split Epics into child Issues.
 
-Validationは実施結果だけチェックする。未実施項目は未チェックのまま理由を記載する。非Draft PRに`TBD`、`TODO`、`FIXME`、`WIP`を残さない。
+Check only validation that ran. Leave unrun checks unchecked and state why. Non-draft PRs cannot contain `TBD`, `TODO`, `FIXME`, or `WIP`.
 
-## 差分連動規則
+## Changed-file rules
 
-| 変更 | 追加契約 |
+| Change | Required contract |
 |---|---|
-| `src/config.ts`、`mottainai.config*` | `Migration / compatibility`記述 |
-| `src/compress/**` | 同ディレクトリのテスト変更、短縮例と無変形例の検証記述 |
-| `package.json` | Package check実施済み |
-| `src/index.ts`、`scripts/mcp.ts` | READMEまたはCLIテスト変更 |
-| security、auth、sandbox、local-tools関連 | `Security impact`記述 |
+| `src/config.ts`, `mottainai.config*` | `Migration / compatibility` statement |
+| `src/compress/**` | Test change in the same directory plus transformation and preservation validation |
+| `package.json` | Completed Package check |
+| `src/index.ts`, `scripts/mcp.ts` | README or CLI test change |
+| security, auth, sandbox, or local-tools files | `Security impact` statement |
 
-## ローカル検証
+## Local validation
 
 ```bash
 pnpm run governance:test
@@ -67,32 +57,31 @@ pnpm run governance:issue -- --event /path/to/issues-event.json
 pnpm run governance:pr -- --event /path/to/pull-request-event.json --files /path/to/changed-files.txt
 ```
 
-規則の正本は`scripts/governance-rules.json`。検証実装は`scripts/governance-lib.mjs`。workflowへ検証規則を重複させない。
+`scripts/governance-rules.json` is the rule source of truth. `scripts/governance-lib.mjs` implements validation. Do not duplicate validation rules in workflows.
 
 ## GitHub Ruleset
 
-リポジトリ内ファイルだけではRulesetを有効化できない。main対象Rulesetへ次を手動設定する。
+Repository files cannot enable a Ruleset. Configure a Ruleset for `main` manually:
 
-- Pull request必須
-- Approval 1件以上
-- 古いapprovalの破棄
-- Review conversation解決必須
-- Branch最新化必須
-- Force push禁止
-- Branch削除禁止
-- 管理者を含むbypass禁止
-- `Governance / validate-pr`をrequired status checkへ追加
-- CIのNode 22/24 jobをrequired status checkへ追加
+- Require pull requests
+- Require one approval
+- Dismiss stale approvals
+- Require resolved review conversations
+- Require branches to be up to date
+- Block force pushes and branch deletion
+- Block bypasses, including administrators
+- Require `Governance / validate-pr`
+- Require CI jobs for Node 22 and Node 24
 
-Ruleset適用後、既存IssueはPRから参照する前に現行Issue契約へ移行する。
+After enabling the Ruleset, update existing Issues to the current Issue contract before referencing them from a PR.
 
-## LLM運用
+## LLM rules
 
-- Issueにない機能を追加しない
-- Acceptance criteriaを実装中に変更しない
-- Scope外の問題は別Issueとして提案する
-- PR本文は実装後の差分と検証結果から再構成する
-- 実施していない検証へチェックを入れない
-- Closes対象は1件を原則とする
-- Review focusを具体化する
-- TODOやfollow-upをPR本文だけに残さずIssue化する
+- Do not add functionality absent from the Issue
+- Do not change acceptance criteria during implementation
+- Propose out-of-scope problems as separate Issues
+- Reconstruct the PR body from the final diff and validation results
+- Never mark unrun validation as completed
+- Close exactly one Issue by default
+- Make Review focus specific
+- Create Issues for TODOs and follow-ups; do not leave them only in a PR body

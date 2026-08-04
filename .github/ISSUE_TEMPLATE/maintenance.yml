@@ -1,40 +1,40 @@
 name: Maintenance
-description: 保守・依存更新・開発基盤
+description: Maintenance, dependency updates, or development infrastructure
 title: "chore: "
 body:
   - type: textarea
     id: summary
-    attributes: { label: Summary, description: 保守作業の要約 }
+    attributes: { label: Summary, description: Concise maintenance work description }
     validations: { required: true }
   - type: textarea
     id: problem
-    attributes: { label: Problem, description: 必要性・期限・現状の負債 }
+    attributes: { label: Problem, description: Need, deadline, and current debt }
     validations: { required: true }
   - type: textarea
     id: goal
-    attributes: { label: Goal, description: 完了後の状態 }
+    attributes: { label: Goal, description: State after completion }
     validations: { required: true }
   - type: textarea
     id: non_goals
-    attributes: { label: Non-goals, description: 同時に行わない変更 }
+    attributes: { label: Non-goals, description: Changes deliberately excluded from this work }
     validations: { required: true }
   - type: textarea
     id: acceptance
-    attributes: { label: Acceptance criteria, description: 検証可能な完了条件, value: "- [ ] " }
+    attributes: { label: Acceptance criteria, description: Verifiable completion criteria, value: "- [ ] " }
     validations: { required: true }
   - type: textarea
     id: affected
-    attributes: { label: Affected areas, description: 影響範囲 }
+    attributes: { label: Affected areas, description: Affected areas }
     validations: { required: true }
   - type: textarea
     id: risks
-    attributes: { label: Risks / compatibility, description: 運用・互換性リスク }
+    attributes: { label: Risks / compatibility, description: Operational and compatibility risks }
     validations: { required: true }
   - type: textarea
     id: dependencies
-    attributes: { label: Dependencies, description: 依存作業・外部条件。なければ理由 }
+    attributes: { label: Dependencies, description: Dependent work and external conditions; explain if none }
     validations: { required: true }
   - type: textarea
     id: implementation
-    attributes: { label: Implementation notes, description: 実施手順・ロールバック }
+    attributes: { label: Implementation notes, description: Execution plan and rollback }
     validations: { required: true }

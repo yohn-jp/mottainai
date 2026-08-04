@@ -1,43 +1,43 @@
 name: Feature
-description: 新機能・既存機能拡張
+description: New capability or extension to an existing capability
 title: "feat: "
 body:
   - type: markdown
     attributes:
-      value: 必須項目を具体化。1 Issue = 1目的。
+      value: Complete every field with specific evidence. One Issue has one objective.
   - type: textarea
     id: summary
-    attributes: { label: Summary, description: 変更の要約 }
+    attributes: { label: Summary, description: Concise description of the change }
     validations: { required: true }
   - type: textarea
     id: problem
-    attributes: { label: Problem, description: 解決する問題と根拠 }
+    attributes: { label: Problem, description: Problem to solve and supporting evidence }
     validations: { required: true }
   - type: textarea
     id: goal
-    attributes: { label: Goal, description: 達成する状態 }
+    attributes: { label: Goal, description: State to achieve }
     validations: { required: true }
   - type: textarea
     id: non_goals
-    attributes: { label: Non-goals, description: 明示的な対象外 }
+    attributes: { label: Non-goals, description: Explicitly excluded work }
     validations: { required: true }
   - type: textarea
     id: acceptance
-    attributes: { label: Acceptance criteria, description: 検証可能な完了条件, value: "- [ ] " }
+    attributes: { label: Acceptance criteria, description: Verifiable completion criteria, value: "- [ ] " }
     validations: { required: true }
   - type: textarea
     id: affected
-    attributes: { label: Affected areas, description: 影響する機能・ファイル・利用者 }
+    attributes: { label: Affected areas, description: Affected capabilities, files, and users }
     validations: { required: true }
   - type: textarea
     id: risks
-    attributes: { label: Risks / compatibility, description: リスク・後方互換性 }
+    attributes: { label: Risks / compatibility, description: Risks and backward compatibility }
     validations: { required: true }
   - type: textarea
     id: dependencies
-    attributes: { label: Dependencies, description: 依存Issue・PR・外部条件。なければ理由 }
+    attributes: { label: Dependencies, description: Dependent Issues, PRs, and external conditions; explain if none }
     validations: { required: true }
   - type: textarea
     id: implementation
-    attributes: { label: Implementation notes, description: 制約・推奨方針・調査済み事項 }
+    attributes: { label: Implementation notes, description: Constraints, proposed approach, and completed investigation }
     validations: { required: true }
