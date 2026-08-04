@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { callLocalTool, localTools, localToolsFor } from "./local-tools.js";
+import { allLocalTools, callLocalTool, localTools, localToolsFor, parseIssueViewOutput, parseRgJson } from "./local-tools.js";
 import type { ResolvedGatewayConfig } from "./config.js";
 import { InMemoryArtifactStore } from "./retrieve.js";
 
@@ -203,6 +203,33 @@ test("exec bounds generic output to its target token budget", async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test("exec validates targetTokens before running the command: invalid values never invoke the command runner", async () => {
+  const { root, config } = await workspace();
+  const invalidValues = [-1, 0, 1, 127, 10_001, 100_000, NaN, Infinity, -Infinity, 128.5];
+  for (const [index, targetTokens] of invalidValues.entries()) {
+    const store = new InMemoryArtifactStore();
+    const marker = path.join(root, `invalid-${index}.txt`);
+    await assert.rejects(
+      () => callLocalTool("mottainai_exec", { command: `touch "${marker}"`, targetTokens }, config, store),
+      `targetTokens=${targetTokens} should be rejected`,
+    );
+    const exists = await fs.access(marker).then(() => true, () => false);
+    assert.equal(exists, false, `command must not run for targetTokens=${targetTokens}`);
+  }
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("exec runs the command normally for boundary-valid targetTokens", async () => {
+  const { root, config } = await workspace();
+  for (const targetTokens of [128, 10_000]) {
+    const store = new InMemoryArtifactStore();
+    const marker = path.join(root, `valid-${targetTokens}.txt`);
+    await callLocalTool("mottainai_exec", { command: `touch "${marker}"`, targetTokens }, config, store);
+    assert.equal(await fs.access(marker).then(() => true, () => false), true);
+  }
+  await fs.rm(root, { recursive: true, force: true });
+});
+
 test("exec keeps TAP counts and failure diagnostics structured when output is omitted (#54)", async () => {
   const { root, config } = await workspace();
   const store = new InMemoryArtifactStore({ createId: () => "tap" });
@@ -250,6 +277,23 @@ test("exec keeps TAP counts and failure diagnostics structured when output is om
     output_omitted: false,
     result_id: "mx_tap-success",
   });
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("tapTestResults does not let a later failure's diagnostic leak into an earlier failure with none (regression)", async () => {
+  const { root, config } = await workspace();
+  const store = new InMemoryArtifactStore({ createId: () => "tap-two-failures" });
+  const command = [
+    "printf 'TAP version 13\\nnot ok 1 - first failure has no diagnostic\\nnot ok 2 - second failure has a diagnostic\\n  ---\\n  error: only the second should show this\\n  ...\\nok 3 - passing test\\n'",
+    "printf '1..3\\n# tests 3\\n# pass 1\\n# fail 2\\n# cancelled 0\\n# skipped 0\\n# todo 0\\n'",
+    "exit 1",
+  ].join("; ");
+  const failed = structured(await callLocalTool("mottainai_exec", { command }, config, store));
+  const tests = failed.test_results as Record<string, unknown>;
+  assert.deepEqual(tests.failures, [
+    { name: "first failure has no diagnostic", diagnostic: "test failed" },
+    { name: "second failure has a diagnostic", diagnostic: "only the second should show this" },
+  ]);
   await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -354,5 +398,209 @@ test("issue_view reports a structured failure when gh fails", async () => {
   const store = new InMemoryArtifactStore();
   const result = structured(await callLocalTool("mottainai_issue_view", { number: 999999999 }, config, store));
   assert.equal(result.status, "failed");
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("issue_view throws when the workspace has no worktree config, matching worktree_new's guard", async () => {
+  const { root, config } = await workspace();
+  const store = new InMemoryArtifactStore();
+  await assert.rejects(
+    () => callLocalTool("mottainai_issue_view", { number: 1 }, config, store),
+    /issue tool is not configured/,
+  );
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+// --- F: advertised tool surface == executable tool surface, table-driven over both configurations ---
+
+test("the advertised tool surface matches the executable tool surface for worktree-dependent tools", async () => {
+  const { root, config: bareConfig } = await workspace();
+  const withWorktree: ResolvedGatewayConfig = {
+    ...bareConfig,
+    worktree: { allowedBranchPrefixes: ["docs"], baseBranch: "main", worktreeDir: ".worktrees" },
+  };
+  const store = new InMemoryArtifactStore();
+  const guardedTools: Array<{ name: string; args: Record<string, unknown> }> = [
+    { name: "mottainai_worktree_new", args: { prefix: "docs", task: "example" } },
+    { name: "mottainai_issue_view", args: { number: 1 } },
+  ];
+
+  for (const config of [bareConfig, withWorktree]) {
+    const advertisedNames = new Set(localToolsFor(config).map((tool) => tool.name));
+    for (const tool of guardedTools) {
+      const isAdvertised = advertisedNames.has(tool.name);
+      assert.equal(isAdvertised, config.worktree !== undefined, `${tool.name} advertised state must track config.worktree`);
+      if (!isAdvertised) {
+        // hidden from localToolsFor: calling it directly by name must still be rejected by the
+        // same runtime guard, so the advertised and executable surfaces stay in lockstep.
+        await assert.rejects(
+          () => callLocalTool(tool.name, tool.args, config, store),
+          /not configured/,
+        );
+      }
+    }
+  }
+  // every tool in allLocalTools is reachable through localToolsFor under some configuration.
+  const everAdvertised = new Set([...localToolsFor(bareConfig), ...localToolsFor(withWorktree)].map((tool) => tool.name));
+  for (const tool of allLocalTools) assert.ok(everAdvertised.has(tool.name), `${tool.name} must be advertised under some configuration`);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+// --- H: contextLines / maxResults validation and parseRgJson context association ---
+
+test("search rejects out-of-range contextLines and maxResults without relying solely on JSON schema", async () => {
+  const { root, config } = await workspace();
+  const store = new InMemoryArtifactStore();
+  for (const contextLines of [-1, 21, 2.5, NaN, Infinity, -Infinity]) {
+    await assert.rejects(() => callLocalTool("mottainai_search", { query: "needle", contextLines }, config, store));
+  }
+  for (const maxResults of [0, -1, 101, 2.5, NaN, Infinity, -Infinity]) {
+    await assert.rejects(() => callLocalTool("mottainai_search", { query: "needle", maxResults }, config, store));
+  }
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("search accepts boundary-valid contextLines and maxResults", async () => {
+  const { root, config } = await workspace();
+  try {
+    execFileSync("rg", ["--version"], { stdio: "ignore" });
+  } catch {
+    await fs.rm(root, { recursive: true, force: true });
+    return;
+  }
+  const store = new InMemoryArtifactStore();
+  for (const contextLines of [0, 20]) {
+    const result = structured(await callLocalTool("mottainai_search", { query: "needle", contextLines }, config, store));
+    assert.notEqual(result.status, undefined);
+  }
+  for (const maxResults of [1, 100]) {
+    const result = structured(await callLocalTool("mottainai_search", { query: "needle", maxResults }, config, store));
+    assert.notEqual(result.status, undefined);
+  }
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("search contextLines has an observable effect on the returned match context", async () => {
+  const { root, config } = await workspace();
+  try {
+    execFileSync("rg", ["--version"], { stdio: "ignore" });
+  } catch {
+    await fs.rm(root, { recursive: true, force: true });
+    return;
+  }
+  await fs.writeFile(path.join(root, "context.txt"), "line1\nline2\nneedle\nline4\nline5\n");
+  const store = new InMemoryArtifactStore();
+  const withoutContext = structured(await callLocalTool("mottainai_search", { query: "needle", path: "context.txt" }, config, store));
+  const noContextGroups = withoutContext.groups as Array<{ matches: Array<{ context?: unknown }> }>;
+  assert.equal(noContextGroups[0].matches[0].context, undefined);
+
+  const withContext = structured(await callLocalTool("mottainai_search", { query: "needle", path: "context.txt", contextLines: 1 }, config, store));
+  const contextGroups = withContext.groups as Array<{ matches: Array<{ context?: Array<{ line: number; text: string }> }> }>;
+  const contextTexts = (contextGroups[0].matches[0].context ?? []).map((entry) => entry.text);
+  assert.deepEqual(contextTexts, ["line2", "line4"]);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+function rgEvent(type: "match" | "context", filePath: string, line: number, text: string): string {
+  return JSON.stringify({ type, data: { path: { text: filePath }, line_number: line, lines: { text } } });
+}
+
+test("parseRgJson: zero context lines yields matches with no context field", () => {
+  const raw = [rgEvent("match", "/root/file.txt", 5, "needle here")].join("\n");
+  const groups = parseRgJson(raw, "/root", 0);
+  assert.deepEqual(groups, [{ path: "file.txt", matches: [{ line: 5, text: "needle here" }] }]);
+});
+
+test("parseRgJson: before and after context lines attach to the correct match", () => {
+  const raw = [
+    rgEvent("context", "/root/file.txt", 3, "before-2"),
+    rgEvent("context", "/root/file.txt", 4, "before-1"),
+    rgEvent("match", "/root/file.txt", 5, "needle here"),
+    rgEvent("context", "/root/file.txt", 6, "after-1"),
+    rgEvent("context", "/root/file.txt", 7, "after-2"),
+  ].join("\n");
+  const groups = parseRgJson(raw, "/root", 2);
+  assert.deepEqual(groups, [{
+    path: "file.txt",
+    matches: [{
+      line: 5,
+      text: "needle here",
+      context: [
+        { line: 3, text: "before-2" },
+        { line: 4, text: "before-1" },
+        { line: 6, text: "after-1" },
+        { line: 7, text: "after-2" },
+      ],
+    }],
+  }]);
+});
+
+test("parseRgJson: multiple distant match groups in the same file keep their own context separate", () => {
+  const raw = [
+    rgEvent("context", "/root/file.txt", 8, "before-match-1"),
+    rgEvent("match", "/root/file.txt", 10, "first needle"),
+    rgEvent("context", "/root/file.txt", 12, "after-match-1"),
+    rgEvent("context", "/root/file.txt", 48, "before-match-2"),
+    rgEvent("match", "/root/file.txt", 50, "second needle"),
+    rgEvent("context", "/root/file.txt", 52, "after-match-2"),
+  ].join("\n");
+  const groups = parseRgJson(raw, "/root", 2);
+  assert.equal(groups.length, 1);
+  assert.deepEqual(groups[0].matches, [
+    { line: 10, text: "first needle", context: [{ line: 8, text: "before-match-1" }, { line: 12, text: "after-match-1" }] },
+    { line: 50, text: "second needle", context: [{ line: 48, text: "before-match-2" }, { line: 52, text: "after-match-2" }] },
+  ]);
+});
+
+// --- I: malformed / incomplete gh JSON output must not escape as an unstructured exception ---
+
+test("parseIssueViewOutput returns a structured failure for malformed JSON", () => {
+  const result = parseIssueViewOutput("not json at all {");
+  assert.deepEqual(result, { ok: false, reason: "unparsable JSON output" });
+});
+
+test("parseIssueViewOutput returns a structured failure and defaults labels safely for missing fields", () => {
+  const missingRequired = parseIssueViewOutput(JSON.stringify({ number: 1, title: "x" }));
+  assert.equal(missingRequired.ok, false);
+
+  const missingLabels = parseIssueViewOutput(JSON.stringify({
+    number: 42, title: "no labels field", state: "OPEN", url: "https://example.test/1", body: "body text",
+  }));
+  assert.deepEqual(missingLabels, {
+    ok: true,
+    issue: { number: 42, title: "no labels field", state: "OPEN", labels: [], url: "https://example.test/1", body: "body text" },
+  });
+});
+
+test("parseIssueViewOutput parses valid gh output including labels", () => {
+  const result = parseIssueViewOutput(JSON.stringify({
+    number: 7, title: "valid issue", state: "OPEN", url: "https://example.test/7", body: "body",
+    labels: [{ name: "bug" }, { name: "P1" }],
+  }));
+  assert.deepEqual(result, {
+    ok: true,
+    issue: { number: 7, title: "valid issue", state: "OPEN", labels: ["bug", "P1"], url: "https://example.test/7", body: "body" },
+  });
+});
+
+// --- J: output byte accounting must use byte length, not JS string length, for multibyte content ---
+
+test("exec keeps combined stdout+stderr within maxOutputBytes for multibyte content", async () => {
+  const { root, config } = await workspace();
+  const store = new InMemoryArtifactStore();
+  // 日本語 characters are >1 byte in UTF-8 but 1 UTF-16 code unit each; this exercises the
+  // package-manager (file-redirect) path in runShell, whose budgeting used to be string-length based.
+  const stdoutText = "あ".repeat(500);
+  const stderrText = "い".repeat(500);
+  const limitedConfig = { ...config, maxOutputBytes: 800 };
+  const result = structured(await callLocalTool(
+    "mottainai_exec",
+    { command: `npm --version >/dev/null; printf '${stdoutText}'; printf '${stderrText}' >&2`, targetTokens: 10_000, compression: false },
+    limitedConfig,
+    store,
+  ));
+  const stdoutBytes = (result.metrics as Record<string, number>).stdout_bytes;
+  const stderrBytes = (result.metrics as Record<string, number>).stderr_bytes;
+  assert.ok(stdoutBytes + stderrBytes <= limitedConfig.maxOutputBytes, `stdout(${stdoutBytes})+stderr(${stderrBytes}) must stay within maxOutputBytes(${limitedConfig.maxOutputBytes})`);
   await fs.rm(root, { recursive: true, force: true });
 });

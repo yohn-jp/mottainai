@@ -112,6 +112,11 @@ export function applyExecutionBudget(
   };
 }
 
+/** budget判定は常に最終（marker付与後）の JSON 表現のbyte長を見る。escaping/marker overheadを含む。 */
+export function fitsResultBudget(candidate: CallToolResult, targetBytes: number): boolean {
+  return Buffer.byteLength(JSON.stringify(candidate), "utf8") <= targetBytes;
+}
+
 function budgetResult(
   result: CallToolResult,
   targetTokens: number,
@@ -119,31 +124,32 @@ function budgetResult(
 ): { result: CallToolResult; truncated: boolean } {
   const originalText = JSON.stringify(result);
   const targetBytes = targetTokens * 4;
-  if (Buffer.byteLength(originalText) <= targetBytes) return { result, truncated: false };
+  if (fitsResultBudget(result, targetBytes)) return { result, truncated: false };
 
   const fixed = { ...result, content: [] };
-  const fixedBytes = Buffer.byteLength(JSON.stringify(fixed));
+  const fixedBytes = Buffer.byteLength(JSON.stringify(fixed), "utf8");
   const contentBudget = Math.max(256, targetTokens - Math.ceil(fixedBytes / 4));
   const content = (result.content ?? []).map((block) => {
     if (block.type !== "text") return block;
-    const text = compactToBudget(block.text, contentBudget, Buffer.byteLength(block.text));
+    const text = compactToBudget(block.text, contentBudget, Buffer.byteLength(block.text, "utf8"));
     return text === block.text ? block : { ...block, text };
   });
-  const compacted = { ...result, content };
-  if (Buffer.byteLength(JSON.stringify(compacted)) <= targetBytes) {
-    const contentChanged = JSON.stringify(compacted.content) !== JSON.stringify(result.content);
-    if (!contentChanged) return { result: compacted, truncated: true };
-    const artifactId = artifactStore.put(result);
-    return {
-      result: {
-        ...compacted,
-        content: [
-          ...(compacted.content ?? []),
-          { type: "text" as const, text: `[mottainai compression: original_id=${artifactId}; retrieve=mottainai_retrieve]` },
-        ],
-      },
-      truncated: true,
+  const contentChanged = JSON.stringify(content) !== JSON.stringify(result.content);
+  if (contentChanged) {
+    const artifactId = artifactStore.nextId();
+    const withMarker = {
+      ...result,
+      content: [
+        ...content,
+        { type: "text" as const, text: `[mottainai compression: original_id=${artifactId}; retrieve=mottainai_result_get]` },
+      ],
     };
+    // 先に marker を含む最終結果の byte 長を確定させ、budget内に収まる場合だけ artifact を保存する
+    // （どのみち参照されない artifact を残さないため）。
+    if (fitsResultBudget(withMarker, targetBytes)) {
+      artifactStore.put(result, artifactId);
+      return { result: withMarker, truncated: true };
+    }
   }
 
   const artifactId = artifactStore.putArtifact({
@@ -174,7 +180,7 @@ function budgetResult(
    * _meta is part of the budgeted CallToolResult. Keep it when the compact
    * result fits; otherwise the artifact already contains the complete value.
    */
-  if (Buffer.byteLength(JSON.stringify(compactResult)) <= targetBytes) {
+  if (fitsResultBudget(compactResult, targetBytes)) {
     return { result: compactResult, truncated: true };
   }
   return {

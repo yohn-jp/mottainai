@@ -55,6 +55,8 @@ export const GIT_GREP_BACKEND = "git_grep";
 export const RG_BACKEND = "rg";
 export const RG_PROVIDER = "local";
 export const RG_TOOL = "mottainai_search";
+/** 実行可能な候補が無いことを示す backend。`tool` は常に未指定。 */
+export const UNSUPPORTED_BACKEND = "unsupported";
 
 const AST_METAVARIABLE_PATTERN = /\$\$\$|\$[A-Z_][A-Z0-9_]*/;
 
@@ -67,26 +69,40 @@ export function resolveCodeSearchKind(request: Pick<CodeSearchRequest, "pattern"
 /**
  * text/ast pattern の候補 backend を優先順に並べる。
  *
- * - AST pattern → ast-grep のみを最優先し、無ければ literal fallback として rg へ落とす
- *   （AST pattern を他 upstream の literal 検索へそのまま渡しても意味が無いため）。
+ * - AST pattern → ast-grep のみを候補にする。ast-grep が使えない場合の rg fallback は
+ *   意図的に持たない — `$FN($$$)` のような AST メタ変数記法を text query へ変換する
+ *   決定論的な contract がこのリポジトリに無いので、あいまいな変換をでっち上げるより
+ *   「実行できる候補が無い」ことを明示する（#31）。
  * - literal text → `text_matches` capability を持つ provider を `rankProviders` の順で並べる。
  *   builtin の rg は source rank が最弱なので、他に何も設定されていなければ自然に唯一の
  *   候補、他に設定があれば自然に最後尾のfallbackになる。
- * - tracked scope → git grep（追跡ファイルだけを見る）を text_matches 候補群の先頭へ足す。
+ * - tracked scope → git 管理下ファイルへの制限を証明できる backend（git grep）だけを返す。
+ *   `text_matches` provider（builtin rg を含む）は tracked 制限を保証できないので、
+ *   scope: "tracked" では一切候補に含めない。AST pattern + tracked scope も同様に
+ *   ast-grep が tracked 制限を保証できないため、実行不能（`UNSUPPORTED_BACKEND`）を返す。
  */
 export function planCodeSearch(request: CodeSearchRequest, capabilityIndex: CapabilityIndex): CodeSearchCandidate[] {
   const contract = "code.search.v1";
+  const tracked = request.scope === "tracked";
+
   if (resolveCodeSearchKind(request) === "ast") {
+    if (tracked) {
+      return [
+        { backend: UNSUPPORTED_BACKEND, provider: "local", contract, reason: "ast_tracked_scope_unsupported" },
+      ];
+    }
     return [
       { backend: AST_GREP_BACKEND, provider: "local", tool: "ast-grep", contract, reason: "ast_pattern" },
-      { backend: RG_BACKEND, provider: RG_PROVIDER, tool: RG_TOOL, contract, reason: "ast_unavailable_fallback_to_text" },
+    ];
+  }
+
+  if (tracked) {
+    return [
+      { backend: GIT_GREP_BACKEND, provider: "local", tool: "git", contract, reason: "scope_tracked" },
     ];
   }
 
   const candidates: CodeSearchCandidate[] = [];
-  if (request.scope === "tracked") {
-    candidates.push({ backend: GIT_GREP_BACKEND, provider: "local", tool: "git", contract, reason: "scope_tracked" });
-  }
   for (const provider of capabilityIndex.rankProviders("text_matches")) {
     candidates.push({
       backend: backendNameFor(provider.provider, provider.tool),

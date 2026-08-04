@@ -13,10 +13,12 @@ export interface RetrievedArtifact {
 }
 
 export interface ArtifactStore {
-  put(result: CallToolResult): string;
-  putArtifact(artifact: StoredArtifactInput): string;
+  put(result: CallToolResult, id?: string): string;
+  putArtifact(artifact: StoredArtifactInput, id?: string): string;
   retrieve(id: string, options?: RetrieveOptions): RetrievedArtifact | undefined;
   search(query: string, maxResults?: number): ArtifactSearchResult[];
+  /** `put`/`putArtifact` が使う id を、何も保存せずに払い出す。呼び出し側が先に最終結果の byte 長を確定させたいときに使う。 */
+  nextId(): string;
 }
 
 export interface RetrieveOptions {
@@ -96,11 +98,11 @@ export class InMemoryArtifactStore implements ArtifactStore {
     this.createId = options.createId ?? randomUUID;
   }
 
-  put(result: CallToolResult): string {
-    return this.putArtifact({ text: textFromResult(result), metadata: { operation: "upstream" } });
+  put(result: CallToolResult, id?: string): string {
+    return this.putArtifact({ text: textFromResult(result), metadata: { operation: "upstream" } }, id);
   }
 
-  putArtifact(artifact: StoredArtifactInput): string {
+  putArtifact(artifact: StoredArtifactInput, id?: string): string {
     this.deleteExpired();
     while (this.entries.size >= this.maxEntries) {
       const oldest = this.entries.keys().next().value;
@@ -108,13 +110,17 @@ export class InMemoryArtifactStore implements ArtifactStore {
       this.entries.delete(oldest);
     }
 
-    const id = `mx_${this.createId()}`;
+    const resolvedId = id ?? this.nextId();
     const rawBytes = Buffer.byteLength(artifact.text, "utf8");
     const text = rawBytes <= this.maxBytes
       ? artifact.text
       : `${Buffer.from(artifact.text, "utf8").subarray(0, this.maxBytes).toString("utf8")}\n⋯ artifact truncated bytes=${rawBytes} max=${this.maxBytes} ⋯`;
-    this.entries.set(id, { ...artifact, text, expiresAt: this.now() + this.ttlMs });
-    return id;
+    this.entries.set(resolvedId, { ...artifact, text, expiresAt: this.now() + this.ttlMs });
+    return resolvedId;
+  }
+
+  nextId(): string {
+    return `mx_${this.createId()}`;
   }
 
   retrieve(
