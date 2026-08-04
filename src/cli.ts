@@ -1,6 +1,7 @@
 import { collectDoctorReport, formatDoctorHuman } from "./commands/doctor.js";
 import { loadMottainaiConfig, loadRawConfig, resolveConfigPath, saveRawConfig } from "./config.js";
 import type { MottainaiConfig } from "./config.js";
+import { formatInitHuman, runInit } from "./init.js";
 import { runServer } from "./server.js";
 
 /**
@@ -12,6 +13,7 @@ import { runServer } from "./server.js";
 
 const USAGE = `usage:
   mottainai                                      start the MCP stdio server
+  mottainai init [options]                       initialize a workspace configuration
   mottainai serve                                start the MCP stdio server explicitly
   mottainai list                                 registered upstreams and profiles
   mottainai inspect <name>                       one upstream with defaults applied
@@ -36,6 +38,19 @@ add options:
 
 global:
   --config path         config file; defaults to MOTTAINAI_CONFIG or ./mottainai.config.json
+
+init options:
+  --workspace path      workspace root; defaults to Git root or current directory
+  --scope personal|project
+  --client claude|codex|none
+  --import claude|codex|none
+  --yes                  use non-interactive safe defaults
+  --force                back up and replace an existing configuration
+  --dry-run              preview changes without writing files
+  --json                 emit one JSON document
+  --no-register          do not change MCP client registrations
+  --no-doctor            skip post-initialization diagnostics
+  --latest               register the unpinned npm package
 `;
 
 function flag(argv: string[], name: string): string | undefined {
@@ -121,7 +136,12 @@ export async function runCli(args: string[]): Promise<number> {
     const [command = "list", ...argv] = args;
     const configPath = flag(argv, "config");
 
-if (command === "serve") {
+    if (command === "init") {
+      const summary = await runInit({ args: argv });
+      if (hasFlag(argv, "json")) print(summary);
+      else console.log(formatInitHuman(summary));
+      return summary.ok ? 0 : 1;
+    } else if (command === "serve") {
   const configIndex = argv.indexOf("--config");
   if (configIndex !== -1 && argv[configIndex + 1] === undefined) fail("missing value for --config");
   await runServer(configPath);
@@ -217,6 +237,8 @@ if (command === "serve") {
         checked: 0,
         problems: [problem],
       });
+    } else if (args[0] === "init" && hasFlag(args, "json")) {
+      print({ ok: false, error: message });
     } else {
       console.error(message);
     }

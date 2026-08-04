@@ -1,6 +1,6 @@
 {
   "name": "mottainai",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP proxy gateway: aggregates upstream MCP servers behind one endpoint and compresses their tool definitions and results before they reach the LLM.",
   "type": "module",
   "bin": {
