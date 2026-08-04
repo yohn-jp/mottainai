@@ -45,6 +45,22 @@ test("compressJsonValue preserves keys, booleans, null, and short strings", () =
   assert.deepEqual(compressJsonValue(value), value);
 });
 
+test("compressJsonValue preserves an own __proto__ data property", () => {
+  const value = JSON.parse('{"__proto__":{"polluted":true},"safe":1}');
+  const out = compressJsonValue(value) as Record<string, unknown>;
+
+  assert.equal(Object.getPrototypeOf(out), Object.prototype);
+  assert.equal(Object.prototype.hasOwnProperty.call(out, "__proto__"), true);
+  assert.deepEqual(out["__proto__"], { polluted: true });
+  assert.equal(({} as { polluted?: boolean }).polluted, undefined);
+});
+
+test("compressJsonValue rejects negative numeric limits", () => {
+  assert.throws(() => compressJsonValue("value", { maxStringLength: -1 }), /maxStringLength/);
+  assert.throws(() => compressJsonValue([], { maxArrayItems: -1 }), /maxArrayItems/);
+  assert.throws(() => compressJsonValue([], { tailArrayItems: -1 }), /tailArrayItems/);
+});
+
 test("compressJsonValue truncates beyond maxDepth", () => {
   const value = { a: { b: { c: "deep" } } };
   const out = compressJsonValue(value, { maxDepth: 1 }) as { a: { b: unknown } };

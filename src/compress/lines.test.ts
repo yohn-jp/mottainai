@@ -51,6 +51,14 @@ test("truncateExcessLines is a no-op when under the limit", () => {
   assert.equal(truncateExcessLines(input, 3, 2, 5), input);
 });
 
+test("truncateExcessLines caps head and tail without overlap when their sum exceeds the limit", () => {
+  const lines = Array.from({ length: 10 }, (_, i) => `L${i}`);
+  const out = truncateExcessLines(lines.join("\n"), 4, 4, 5);
+
+  assert.equal(out, ["L0", "L1", "L2", "L3", "⋯ 5 lines omitted ⋯", "L9"].join("\n"));
+  assert.doesNotMatch(out, /L[4-8].*L[0-3]/s);
+});
+
 test("filterLines applies rules in order: duplicates, blanks, length, total", () => {
   const lines = ["dup", "dup", "dup", "", "", "x".repeat(20)];
   const input = lines.join("\n");

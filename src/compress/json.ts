@@ -27,6 +27,16 @@ function sha256Json(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+function resolveJsonCompressOptions(options?: JsonCompressOptions): Required<JsonCompressOptions> {
+  const merged = { ...DEFAULT_JSON_COMPRESS_OPTIONS, ...options };
+  for (const [name, value] of Object.entries(merged)) {
+    if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
+      throw new RangeError(`${name} must be a finite non-negative integer`);
+    }
+  }
+  return merged;
+}
+
 /** 入力がJSONとしてパース可能かどうかを判定する。パース不能なら undefined を返す。 */
 export function tryParseJson(input: string): unknown | undefined {
   try {
@@ -70,7 +80,12 @@ function compressValue(value: unknown, options: Required<JsonCompressOptions>, d
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
-      out[key] = compressValue(v, options, depth + 1);
+      Object.defineProperty(out, key, {
+        value: compressValue(v, options, depth + 1),
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
     }
     return out;
   }
@@ -81,7 +96,7 @@ function compressValue(value: unknown, options: Required<JsonCompressOptions>, d
 
 /** パース済みのJSON値に対して再帰的にサンプリング・切り詰めを適用する。 */
 export function compressJsonValue(value: unknown, options?: JsonCompressOptions): unknown {
-  const opts = { ...DEFAULT_JSON_COMPRESS_OPTIONS, ...options };
+  const opts = resolveJsonCompressOptions(options);
   return compressValue(value, opts, 0);
 }
 
@@ -92,7 +107,7 @@ export function compressJsonValue(value: unknown, options?: JsonCompressOptions)
 export function compressJsonText(input: string, options?: JsonCompressOptions): string {
   const parsed = tryParseJson(input);
   if (parsed === undefined) return input;
-  const opts = { ...DEFAULT_JSON_COMPRESS_OPTIONS, ...options };
+  const opts = resolveJsonCompressOptions(options);
   const compressed = compressValue(parsed, opts, 0);
   return opts.indent > 0 ? JSON.stringify(compressed, null, opts.indent) : JSON.stringify(compressed);
 }

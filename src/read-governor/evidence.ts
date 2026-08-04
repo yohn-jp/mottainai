@@ -47,6 +47,20 @@ export interface InMemoryEvidenceStoreOptions {
 const DEFAULT_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_MAX_ENTRIES = 500;
 
+function validateTtlMs(value: number, name: string): number {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new RangeError(`${name} must be a finite non-negative number`);
+  }
+  return value;
+}
+
+function validateMaxEntries(value: number): number {
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
+    throw new RangeError("maxEntries must be a finite positive integer");
+  }
+  return value;
+}
+
 /**
  * session-local な ReadEvidence ストア（InMemoryArtifactStore と同型: TTL + 上限件数の
  * インメモリ Map）。プロセス再起動・セッション終了で消える。期限切れ判定は authorize 側の
@@ -60,8 +74,8 @@ export class InMemoryEvidenceStore implements EvidenceStore {
   private readonly createId: () => string;
 
   constructor(options: InMemoryEvidenceStoreOptions = {}) {
-    this.ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
-    this.maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
+    this.ttlMs = validateTtlMs(options.ttlMs ?? DEFAULT_TTL_MS, "ttlMs");
+    this.maxEntries = validateMaxEntries(options.maxEntries ?? DEFAULT_MAX_ENTRIES);
     this.now = options.now ?? Date.now;
     this.createId = options.createId ?? randomUUID;
   }
@@ -73,6 +87,7 @@ export class InMemoryEvidenceStore implements EvidenceStore {
     if (!Number.isInteger(input.endLine) || input.endLine < input.startLine) {
       throw new Error("endLine must be an integer >= startLine");
     }
+    const ttlMs = validateTtlMs(input.ttlMs ?? this.ttlMs, "ttlMs");
 
     while (this.entries.size >= this.maxEntries) {
       const oldest = this.entries.keys().next().value;
@@ -92,13 +107,14 @@ export class InMemoryEvidenceStore implements EvidenceStore {
       endLine: input.endLine,
       reason: input.reason,
       createdAt: now,
-      expiresAt: now + (input.ttlMs ?? this.ttlMs),
+      expiresAt: now + ttlMs,
     };
     this.entries.set(evidence.evidenceId, evidence);
-    return evidence;
+    return { ...evidence };
   }
 
   get(evidenceId: string): ReadEvidence | undefined {
-    return this.entries.get(evidenceId);
+    const evidence = this.entries.get(evidenceId);
+    return evidence === undefined ? undefined : { ...evidence };
   }
 }

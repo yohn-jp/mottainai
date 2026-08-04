@@ -15,7 +15,7 @@ definitions and tool call results before they reach the model context**.
 
 ## How it fits together
 
-```
+```text
                  ┌───────────────────────────┐
   LLM client  ⇄  │         mottainai          │  ⇄  upstream MCP servers
  (Claude Code,   │  (this project, one stdio  │     (codegraph, fff-mcp,

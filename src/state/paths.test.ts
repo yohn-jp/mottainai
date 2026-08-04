@@ -20,6 +20,11 @@ test("resolveStateDir: linux falls back to ~/.local/state without XDG_STATE_HOME
   assert.equal(resolveStateDir(env, "linux"), path.join("/home/user", ".local", "state", "mottainai"));
 });
 
+test("resolveStateDir: linux ignores a relative XDG_STATE_HOME", () => {
+  const env = { HOME: "/home/user", XDG_STATE_HOME: "relative/state" };
+  assert.equal(resolveStateDir(env, "linux"), path.join("/home/user", ".local", "state", "mottainai"));
+});
+
 test("resolveStateDir: macOS uses Application Support", () => {
   const env = { HOME: "/Users/user" };
   assert.equal(resolveStateDir(env, "darwin"), path.join("/Users/user", "Library", "Application Support", "mottainai"));

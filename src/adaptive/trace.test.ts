@@ -88,6 +88,33 @@ test("traces survive a new store over the same directory", async () => {
   assert.equal(reopened.load({ reviewedOnly: true }).length, 1);
 });
 
+test("trace store rotates to multiple files at the configured size", async () => {
+  const directory = temporaryDir();
+  await seed(directory, { MOTTAINAI_TRACE_MAX_FILE_BYTES: "1" });
+
+  const files = fs.readdirSync(directory).filter((name) => name.endsWith(".jsonl"));
+  assert.ok(files.length >= 2);
+});
+
+test("trace store removes aged files during the next store preparation", async () => {
+  const directory = temporaryDir();
+  await seed(directory);
+  const stalePath = path.join(directory, "stale.jsonl");
+  fs.writeFileSync(stalePath, "{}\n");
+  const oldTime = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+  fs.utimesSync(stalePath, oldTime, oldTime);
+
+  const reopened = createTraceStore({ MOTTAINAI_TRACE_DIR: directory, MOTTAINAI_TRACE_RETENTION_DAYS: "1" });
+  await reopened.beginRequest({
+    task_category: "symbol_lookup",
+    caller_requested_capabilities: [],
+    planned_capabilities: [],
+    policy_version: "builtin-1",
+  });
+
+  assert.equal(fs.existsSync(stalePath), false);
+});
+
 test("disabled tracing still issues request ids but writes nothing", async () => {
   const directory = temporaryDir();
   const store = createTraceStore({ MOTTAINAI_TRACE_DIR: directory, MOTTAINAI_TRACE: "0" });

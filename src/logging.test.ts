@@ -149,6 +149,17 @@ test("createLogger bounds an oversized record while retaining its digest", async
   assert.match(record.rawResult.sha256 ?? "", /^[0-9a-f]{64}$/);
 });
 
+test("createLogger does not reject when a raw result cannot be serialized", async () => {
+  const dir = tmpDir();
+  const logger = createLogger({ MOTTAINAI_LOG_DIR: dir, MOTTAINAI_LOG_REDACT: "0" });
+  const circular: { self?: unknown } = {};
+  circular.self = circular;
+
+  await assert.doesNotReject(async () => {
+    await logger.log({ upstreamName: "u", toolName: "t", arguments: {}, rawResult: circular });
+  });
+});
+
 test("createLogger rolls over to distinct files even within a single timestamp tick", async () => {
   const dir = tmpDir();
   const logger = createLogger({ MOTTAINAI_LOG_DIR: dir, MOTTAINAI_LOG_MAX_FILE_BYTES: "10" });

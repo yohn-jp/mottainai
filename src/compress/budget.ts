@@ -13,13 +13,19 @@ export function compactToBudget(text: string, targetTokens: number, rawBytes: nu
   // 共通envelope分を約256 token確保。行境界を維持して先頭・末尾を残す。
   const targetBytes = (targetTokens - 256) * 4;
   // 生出力より大きいMCP payloadを返さないよう、envelope用に約1 KiB確保。
-  const budget = Math.max(256, Math.min(targetBytes, rawBytes - 1024));
+  const rawCap = rawBytes > 1024 ? rawBytes - 1024 : Number.POSITIVE_INFINITY;
+  const budget = Math.max(256, Math.min(targetBytes, rawCap));
   if (Buffer.byteLength(text) <= budget) return text;
   const lines = text.split("\n");
   const head: string[] = [];
   const tail: string[] = [];
   let used = 0;
-  const headBudget = Math.floor(budget * 0.6);
+  const markerOverhead = Buffer.byteLength(
+    `⋯ mottainai omitted=${"9".repeat(String(lines.length).length)} lines sha256=${"0".repeat(16)}; use mottainai_result_get ⋯`,
+    "utf8",
+  ) + 2;
+  const contentBudget = Math.max(0, budget - markerOverhead);
+  const headBudget = Math.floor(contentBudget * 0.6);
   for (const line of lines) {
     const bytes = Buffer.byteLength(`${line}\n`);
     if (used + bytes > headBudget) break;
@@ -29,7 +35,7 @@ export function compactToBudget(text: string, targetTokens: number, rawBytes: nu
   for (let index = lines.length - 1; index >= head.length; index -= 1) {
     const line = lines[index];
     const bytes = Buffer.byteLength(`${line}\n`);
-    if (used + tailUsed + bytes > budget) break;
+    if (used + tailUsed + bytes > contentBudget) break;
     tail.unshift(line); tailUsed += bytes;
   }
   const omitted = Math.max(0, lines.length - head.length - tail.length);

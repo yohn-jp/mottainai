@@ -38,6 +38,13 @@ test("compressToolDescription preserves code fences, literals, URLs, and Japanes
   );
 });
 
+test("compressToolDescription does not treat apostrophes in contractions as literals", () => {
+  assert.equal(
+    compressToolDescription("Don't say it's important: use the tool."),
+    "Don't say it's use tool.",
+  );
+});
+
 test("compressToolDefinition changes only description fields and does not mutate its input", () => {
   const tool = {
     name: "grep",

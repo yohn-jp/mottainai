@@ -2,7 +2,7 @@
  * MCPツール説明のうち、英語散文にだけ適用する機械的圧縮。
  * コードフェンス、インラインコード、URL、日本語を含む行は変更しない。
  */
-const PROTECTED_LITERAL = /https?:\/\/[^\s`]+|`[^`]*`|'[^']*'|"[^"]*"/g;
+const PROTECTED_LITERAL = /https?:\/\/[^\s`]+|`[^`]*`|(?<!\w)'[^']*'(?!\w)|"[^"]*"/g;
 const ENGLISH_FILLERS: Array<[RegExp, string]> = [
   [/\buse it when you need to\s+/gi, "use to "],
   [/\buse (.+?) instead for\s+/gi, "use $1 for "],
