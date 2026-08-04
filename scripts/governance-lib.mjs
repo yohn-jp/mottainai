@@ -54,7 +54,8 @@ export function validatePullRequest({ title, body, draft = false, files = [] }) 
   const issues = [...new Set(extractClosingIssues(body))];
   if (issues.length !== 1) errors.push("exactly one closing Issue is required");
   for (const item of rules.pullRequest.validationItems) {
-    if (!new RegExp(`- \\[[ xX]\\] ${item}(?:$|[, ])`, "m").test(body)) errors.push(`Validation item is missing: ${item}`);
+    const checkbox = item === "Tests" ? "\\[[xX]\\]" : "\\[[ xX]\\]";
+    if (!new RegExp(`- ${checkbox} ${item}(?:$|[, ])`, "m").test(body)) errors.push(`Validation item is missing: ${item}`);
   }
   if (!draft && /\b(?:TBD|TODO|FIXME|WIP)\b|<!--\s*required/i.test(body)) errors.push("non-draft PR contains an unfinished placeholder");
   if (!/^(?:No|Yes)(?:[.。:]|\s|$)/i.test(sectionBody(body, "Breaking changes"))) errors.push("Breaking changes must explicitly start with Yes or No");

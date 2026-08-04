@@ -31,7 +31,7 @@ Closes #
 - [ ] Build
 - [ ] Package check, if applicable
 
-<!-- Leave unrun checks unchecked and state why. -->
+<!-- Run at least one relevant test and mark Tests complete. Leave only optional checks unchecked and state why. -->
 
 ## Risks
 

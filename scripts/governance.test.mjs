@@ -20,6 +20,14 @@ test("valid pull request contract passes", () => {
   assert.deepEqual(result.closingIssues, [123]);
 });
 
+test("pull request requires completed Tests validation", () => {
+  const result = validatePullRequest({
+    title: "chore(ci): add governance contract",
+    body: pullRequestBody.replace("- [x] Tests", "- [ ] Tests"),
+  });
+  assert.ok(result.errors.includes("Validation item is missing: Tests"));
+});
+
 test("Scope remains meaningful when it contains nested sections", () => {
   const result = validatePullRequest({ title: "chore(ci): enforce governance contracts", body: pullRequestBody });
   assert.ok(!result.errors.includes("required section is empty: Scope"));

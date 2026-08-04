@@ -17,6 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Collect changed files
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -28,13 +29,15 @@ jobs:
         run: node scripts/validate-branch-name.mjs --branch "$HEAD_REF"
       - name: Validate PR contract
         run: node scripts/validate-pr.mjs --event "$GITHUB_EVENT_PATH" --files /tmp/changed-files.txt --issue-number-file /tmp/issue-number.txt
-      - name: Validate linked Issue contract
+      - name: Fetch linked Issue
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           issue_number="$(tr -d '\n' < /tmp/issue-number.txt)"
           gh issue view "$issue_number" --json body,labels > /tmp/linked-issue.json
+      - name: Validate linked Issue contract
+        run: |
           node scripts/validate-issue.mjs --body /tmp/linked-issue.json
           if jq -e '.labels | map(.name) | any(. == "status:invalid" or . == "needs:specification")' /tmp/linked-issue.json >/dev/null; then
             echo "linked Issue has an invalid governance label" >&2

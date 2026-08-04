@@ -65,6 +65,7 @@ Repository files cannot enable a Ruleset. Configure a Ruleset for `main` manuall
 
 - Require pull requests
 - Require one approval
+- Require review from Code Owners
 - Dismiss stale approvals
 - Require resolved review conversations
 - Require branches to be up to date
