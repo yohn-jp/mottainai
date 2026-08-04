@@ -63,7 +63,16 @@ test("planCodeSearch returns an explicit unsupported outcome for ast pattern + t
   assert.equal(candidates[0].reason, "ast_tracked_scope_unsupported");
 });
 
-test("planCodeSearch tracked scope: git grep on a real repo never returns an untracked matching file", async () => {
+// planCodeSearch is a planner only: it decides which backend a tracked-scope search should use,
+// it does not execute it. The executor that consumes CodeSearchCandidate (spawning `git grep`,
+// `rg`, etc.) is the top-level code-search dispatcher, which is intentionally not part of this
+// PR (see PR description: "code-search.ts (top-level dispatcher) ... land in the final import
+// PR"). This test therefore verifies the lower-level assumption the planner's choice relies on —
+// that the exact backend/tool planCodeSearch selects (`git grep`, via candidate.tool) restricts
+// results to Git-tracked files on a real repository — using a temporary Git repo with one tracked
+// and one untracked matching file. Once the dispatcher exists, add a companion test that exercises
+// it end-to-end with this same fixture.
+test("planCodeSearch tracked scope: the selected git_grep backend never returns an untracked matching file", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-code-search-"));
   try {
     execFileSync("git", ["init", "-q", "-b", "main"], { cwd: root });
@@ -77,8 +86,10 @@ test("planCodeSearch tracked scope: git grep on a real repo never returns an unt
     const index = buildCapabilityIndex([]);
     const candidates = planCodeSearch({ pattern: "needle", scope: "tracked" }, index);
     assert.deepEqual(candidates.map((c) => c.backend), ["git_grep"]);
+    assert.equal(candidates[0].tool, "git");
 
-    const output = execFileSync("git", ["grep", "-n", "needle"], { cwd: root, encoding: "utf8" });
+    // Invoke exactly the tool/backend the planner selected, from the workspace root it would run in.
+    const output = execFileSync(candidates[0].tool!, ["grep", "-n", "needle"], { cwd: root, encoding: "utf8" });
     assert.match(output, /tracked\.txt/);
     assert.doesNotMatch(output, /untracked\.txt/);
   } finally {

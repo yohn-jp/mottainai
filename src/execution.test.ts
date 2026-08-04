@@ -4,7 +4,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { ArtifactStore, RetrievedArtifact, RetrieveOptions, StoredArtifactInput, ArtifactSearchResult } from "./retrieve.js";
 import { InMemoryArtifactStore } from "./retrieve.js";
 import { resolveGatewayConfig } from "./config.js";
-import { allLocalTools } from "./local-tools.js";
+import { allLocalTools, callLocalTool } from "./local-tools.js";
 import { applyExecutionBudget, fitsResultBudget, normalizeExecutionOutcome, providerErrorOutcome } from "./execution.js";
 
 test("normalizeExecutionOutcome classifies successful and empty results from one evidence rule", () => {
@@ -172,16 +172,23 @@ test("every retrieval tool name referenced in execution.ts markers is advertised
   const url = await import("node:url");
   const here = path.dirname(url.fileURLToPath(import.meta.url));
   const executionSource = await fs.readFile(path.join(here, "execution.ts"), "utf8");
-  const localToolsSource = await fs.readFile(path.join(here, "local-tools.ts"), "utf8");
 
   const referencedNames = [...executionSource.matchAll(/retrieve=([A-Za-z0-9_]+)/g)].map((match) => match[1]);
   assert.ok(referencedNames.length > 0, "expected at least one retrieval marker in execution.ts");
 
   const advertisedNames = new Set(allLocalTools.map((tool) => tool.name));
-  const dispatchedNames = new Set([...localToolsSource.matchAll(/case\s+"([^"]+)":/g)].map((match) => match[1]));
+  const config = resolveGatewayConfig({});
+  const store = new InMemoryArtifactStore();
 
   for (const name of referencedNames) {
     assert.ok(advertisedNames.has(name), `${name} must be in the advertised local tool surface`);
-    assert.ok(dispatchedNames.has(name), `${name} must be dispatchable by callLocalTool`);
+    // Behavioral dispatchability check: call the tool with no arguments and assert the
+    // rejection is not "Unknown local tool" — any other rejection (e.g. a missing required
+    // argument) proves callLocalTool's switch actually routed to the tool's implementation.
+    await assert.rejects(
+      () => callLocalTool(name, {}, config, store),
+      (error: unknown) => error instanceof Error && error.message !== `Unknown local tool: ${name}`,
+      `${name} must be dispatchable by callLocalTool`,
+    );
   }
 });

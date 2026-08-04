@@ -174,7 +174,10 @@ test("warn stage rewrites an oversized bounded range read even though it is alre
 });
 
 test("warn stage allows a bounded read within the oversized-range threshold", () => {
-  const decision = evaluateRead({ path: "apps/gateway/src/big.ts", estimatedLines: 200, rangeLines: 200, bounded: true }, WARN_POLICY);
+  const decision = evaluateRead(
+    { path: "apps/gateway/src/big.ts", estimatedLines: 900, rangeLines: WARN_POLICY.warnMaxRangeLines, bounded: true },
+    WARN_POLICY,
+  );
   assert.equal(decision.action, "allow");
   assert.equal(decision.policyCode, "NONE");
 });

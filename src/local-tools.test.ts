@@ -57,12 +57,13 @@ test("read stores only the requested range so result_get cannot reach lines outs
   await fs.rm(root, { recursive: true, force: true });
 });
 
-test("search groups rg matches and list omits dependency directories", async () => {
+test("search groups rg matches and list omits dependency directories", async (t) => {
   const { root, config } = await workspace();
   try {
     execFileSync("rg", ["--version"], { stdio: "ignore" });
   } catch {
     await fs.rm(root, { recursive: true, force: true });
+    t.skip("rg is not installed");
     return;
   }
   const store = new InMemoryArtifactStore({ createId: () => crypto.randomUUID() });
@@ -74,12 +75,13 @@ test("search groups rg matches and list omits dependency directories", async () 
   await fs.rm(root, { recursive: true, force: true });
 });
 
-test("search caps total matches across files at maxResults and reports truncation", async () => {
+test("search caps total matches across files at maxResults and reports truncation", async (t) => {
   const { root, config } = await workspace();
   try {
     execFileSync("rg", ["--version"], { stdio: "ignore" });
   } catch {
     await fs.rm(root, { recursive: true, force: true });
+    t.skip("rg is not installed");
     return;
   }
   const manyLines = Array.from({ length: 10 }, (_, index) => `needle ${index}`).join("\n");
@@ -460,12 +462,13 @@ test("search rejects out-of-range contextLines and maxResults without relying so
   await fs.rm(root, { recursive: true, force: true });
 });
 
-test("search accepts boundary-valid contextLines and maxResults", async () => {
+test("search accepts boundary-valid contextLines and maxResults", async (t) => {
   const { root, config } = await workspace();
   try {
     execFileSync("rg", ["--version"], { stdio: "ignore" });
   } catch {
     await fs.rm(root, { recursive: true, force: true });
+    t.skip("rg is not installed");
     return;
   }
   const store = new InMemoryArtifactStore();
@@ -480,12 +483,13 @@ test("search accepts boundary-valid contextLines and maxResults", async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 
-test("search contextLines has an observable effect on the returned match context", async () => {
+test("search contextLines has an observable effect on the returned match context", async (t) => {
   const { root, config } = await workspace();
   try {
     execFileSync("rg", ["--version"], { stdio: "ignore" });
   } catch {
     await fs.rm(root, { recursive: true, force: true });
+    t.skip("rg is not installed");
     return;
   }
   await fs.writeFile(path.join(root, "context.txt"), "line1\nline2\nneedle\nline4\nline5\n");
