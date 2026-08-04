@@ -16,6 +16,31 @@ test("compressKnownCliOutput collapses successful cargo test lines and preserves
   ].join("\n"));
 });
 
+test("compressKnownCliOutput collapses complete pytest PASSED result lines", () => {
+  const input = [
+    "test_math.py::test_add PASSED",
+    "test_math.py::test_sub[case-1] PASSED [ 50%]",
+    "test_math.py::test_div FAILED",
+  ].join("\n");
+
+  assert.equal(compressKnownCliOutput(input, { command: "pytest" }), [
+    "test_math.py::test_div FAILED",
+    "⋯ 2 successful test lines omitted ⋯",
+  ].join("\n"));
+});
+
+test("compressKnownCliOutput keeps diagnostic lines that merely mention PASSED", () => {
+  const input = [
+    "test_math.py::test_add PASSED",
+    "error: expected PASSED, received FAILED",
+  ].join("\n");
+
+  assert.equal(compressKnownCliOutput(input, { command: "pytest" }), [
+    "error: expected PASSED, received FAILED",
+    "⋯ 1 successful test lines omitted ⋯",
+  ].join("\n"));
+});
+
 test("compressKnownCliOutput removes git status help only", () => {
   const input = [
     "On branch main",

@@ -10,8 +10,8 @@ export interface EvidenceReadRequest {
   startLine: number;
   endLine: number;
   evidenceId?: string;
-  /** worktree の実体ルート。指定時のみ symlink escape をファイルシステムで検査する。 */
-  worktreeRoot?: string;
+  /** worktree の実体ルート。allow/rewrite を返す前に必ず symlink escape をファイルシステムで検査する。 */
+  worktreeRoot: string;
 }
 
 export type EvidenceAuthorizationOutcome = "allow" | "rewrite" | "rejected";
@@ -64,11 +64,16 @@ export function authorizeRead(
     return { outcome: "rejected", reason: "path mismatch" };
   }
 
-  if (request.worktreeRoot !== undefined) {
-    const escapeReason = detectSymlinkEscape(request.worktreeRoot, requestPath);
-    if (escapeReason !== null) {
-      return { outcome: "rejected", reason: escapeReason };
-    }
+  if (request.worktreeRoot.length === 0) {
+    return { outcome: "rejected", reason: "worktree root required" };
+  }
+  const escapeReason = detectSymlinkEscape(request.worktreeRoot, requestPath);
+  if (escapeReason !== null) {
+    return { outcome: "rejected", reason: escapeReason };
+  }
+
+  if (!isValidLineRange(request.startLine, request.endLine)) {
+    return { outcome: "rejected", reason: "invalid line range" };
   }
 
   if (request.startLine >= evidence.startLine && request.endLine <= evidence.endLine) {
@@ -81,6 +86,12 @@ export function authorizeRead(
     rewrittenRange: { startLine: evidence.startLine, endLine: evidence.endLine },
     evidence,
   };
+}
+
+/** 正の整数かつ startLine <= endLine のときだけ true。逆転・負数・小数を弾く。 */
+function isValidLineRange(startLine: number, endLine: number): boolean {
+  return Number.isInteger(startLine) && Number.isInteger(endLine)
+    && startLine >= 1 && endLine >= 1 && startLine <= endLine;
 }
 
 /** ".." 脱出・絶対パス・null byte を弾く。安全なら正規化済み相対パスを返す。 */

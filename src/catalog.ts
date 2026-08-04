@@ -235,6 +235,9 @@ function score(tool: CatalogTool, tokens: string[], capability: string | undefin
   const summaryTokens = new Set(tokenize(tool.summary));
   const nameTokens = new Set(tokenize(tool.tool));
   const tagTokens = new Set(tool.tags);
+  // capability id は snake_case（例: text_matches）。tokenize は `_` で分割するため、
+  // 素の includes() 比較だと複数語の capability には絶対に一致しない。
+  const capabilityTokens = new Set(tool.capabilities.flatMap((value) => tokenize(value)));
   for (const token of tokens) {
     if (name === token) {
       total += NAME_EXACT_SCORE;
@@ -246,7 +249,7 @@ function score(tool: CatalogTool, tokens: string[], capability: string | undefin
       matched.push(`name:${token}`);
       continue;
     }
-    if (tool.capabilities.includes(token)) {
+    if (capabilityTokens.has(token)) {
       total += CAPABILITY_TOKEN_SCORE;
       matched.push(`capability:${token}`);
       continue;

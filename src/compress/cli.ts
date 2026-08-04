@@ -15,7 +15,11 @@ function commandKind(command: string | undefined): "test" | "git-status" | "buil
 function compressTestOutput(input: string): string {
   let omittedSuccesses = 0;
   const kept = input.split("\n").filter((line) => {
-    if (/^test .+ \.\.\. ok$/.test(line) || /\bPASSED\b/.test(line) || /^\s*[✓✔]\s/.test(line)) {
+    if (
+      /^test .+ \.\.\. ok$/.test(line)
+      || /^\S+::\S+\s+PASSED(?:\s+\[[^\]]+\])?$/.test(line)
+      || /^\s*[✓✔]\s/.test(line)
+    ) {
       omittedSuccesses += 1;
       return false;
     }
