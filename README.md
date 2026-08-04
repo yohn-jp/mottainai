@@ -189,7 +189,9 @@ Initialization options include `--workspace`, `--scope personal|project`,
 registration is pinned to the package version; use `--latest` only when
 following the latest npm release is intentional. Secrets are never copied
 into `mottainai.config.json`; remote authentication uses environment-variable
-names or an OAuth profile.
+names or an OAuth profile. After writing the file, `init` runs `doctor` and a
+stdio `initialize`/`tools/list` handshake; source checkouts without a built
+entry point report that handshake as skipped.
 
 Restart your MCP client (or reconnect) so it picks up the gateway. From here
 your client sees `codegraph__*` / `fff__*` tools, plus the gateway's own

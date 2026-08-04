@@ -3,6 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline/promises";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import packageMetadata from "../package.json" with { type: "json" };
 import { collectDoctorReport, formatDoctorHuman } from "./commands/doctor.js";
 import { saveRawConfig } from "./config.js";
@@ -26,6 +29,13 @@ export interface InitClientResult {
   status: "not-requested" | "registered" | "already-registered" | "unavailable" | "failed";
 }
 
+export interface InitHandshakeResult {
+  ok: boolean;
+  tools?: number;
+  skipped?: boolean;
+  reason?: string;
+}
+
 export interface InitSummary {
   ok: boolean;
   workspace: string;
@@ -33,12 +43,14 @@ export interface InitSummary {
   scope: InitScope;
   dry_run: boolean;
   config_written: boolean;
+  config_preview: Record<string, unknown>;
   backup?: string;
   detected_clients: InitClient[];
   detected_commands: string[];
   imported_upstreams: string[];
   clients: InitClientResult[];
   doctor?: DoctorReport;
+  handshake?: InitHandshakeResult;
   warnings: string[];
 }
 
@@ -55,6 +67,9 @@ interface InitArguments {
   noRegister: boolean;
   noDoctor: boolean;
   latest: boolean;
+  upstreamMode?: "none" | "import" | "detect" | "manual";
+  selectedCommands: string[];
+  manualUpstreams: ImportedServer[];
 }
 
 interface ImportedServer {
@@ -73,6 +88,11 @@ interface SanitizedArguments {
 }
 
 const KNOWN_COMMANDS = ["codegraph", "fff-mcp", "rg"] as const;
+
+const COMMAND_PRESETS: Record<string, Record<string, unknown>> = {
+  codegraph: { command: "codegraph", args: ["serve", "--mcp", "--path", "."] },
+  "fff-mcp": { command: "fff-mcp", args: ["."] },
+};
 
 function optionValue(args: string[], name: string): string | undefined {
   const index = args.indexOf(`--${name}`);
@@ -112,6 +132,8 @@ function parseArguments(args: string[]): InitArguments {
     noRegister: hasOption(args, "no-register"),
     noDoctor: hasOption(args, "no-doctor"),
     latest: hasOption(args, "latest"),
+    selectedCommands: [],
+    manualUpstreams: [],
   };
 }
 
@@ -392,7 +414,13 @@ function registerClient(client: InitClient, packageReference: string, noRegister
   return { name: client, available: true, registrationCommand: command, status: result.status === 0 ? "registered" : "failed" };
 }
 
-async function chooseInteractive(argumentsValue: InitArguments, clients: InitClient[], inputTTY: boolean, outputTTY: boolean): Promise<void> {
+async function chooseInteractive(
+  argumentsValue: InitArguments,
+  clients: InitClient[],
+  commands: string[],
+  inputTTY: boolean,
+  outputTTY: boolean,
+): Promise<void> {
   if (!inputTTY || !outputTTY || argumentsValue.yes || argumentsValue.json) return;
   const prompts = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
@@ -405,9 +433,52 @@ async function chooseInteractive(argumentsValue: InitArguments, clients: InitCli
       const answer = (await prompts.question(`MCP client [${available}/none] (none): `)).trim();
       argumentsValue.client = answer === "claude" || answer === "codex" ? answer : "none";
     }
-    if (argumentsValue.importSource === undefined) argumentsValue.importSource = "none";
+    if (argumentsValue.upstreamMode === undefined) {
+      const answer = (await prompts.question("Upstream setup [none/import/detect/manual] (none): ")).trim();
+      argumentsValue.upstreamMode = answer === "import" || answer === "detect" || answer === "manual" ? answer : "none";
+    }
+    if (argumentsValue.upstreamMode === "import" && argumentsValue.importSource === undefined) {
+      const answer = (await prompts.question(`Import from [${clients.length === 0 ? "none" : clients.join(", ")}] (none): `)).trim();
+      argumentsValue.importSource = answer === "claude" || answer === "codex" ? answer : "none";
+    }
+    if (argumentsValue.upstreamMode === "detect") {
+      const answer = (await prompts.question(`Detected commands [${commands.join(", ") || "none"}] (none): `)).trim();
+      argumentsValue.selectedCommands = answer.split(",").map((value) => value.trim()).filter((value) => commands.includes(value));
+    }
+    if (argumentsValue.upstreamMode === "manual") {
+      const name = (await prompts.question("Upstream name (blank to skip): ")).trim();
+      if (name !== "") {
+        const command = (await prompts.question("Command: ")).trim();
+        if (command === "") throw new Error("manual upstream command is required");
+        const args = (await prompts.question("Arguments (space-separated, blank for none): ")).trim().split(" ").filter(Boolean);
+        argumentsValue.manualUpstreams = [{ name, config: { command, ...(args.length === 0 ? {} : { args }) } }];
+      }
+    }
   } finally {
     prompts.close();
+  }
+}
+
+async function runMcpHandshake(configPath: string, workspace: string): Promise<InitHandshakeResult> {
+  const entry = path.join(path.dirname(fileURLToPath(import.meta.url)), "index.js");
+  if (!fs.existsSync(entry)) {
+    return { ok: true, skipped: true, reason: "source checkout has no built server entry" };
+  }
+  const client = new Client({ name: "mottainai-init-check", version: packageMetadata.version }, { capabilities: {} });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [entry],
+    cwd: workspace,
+    env: { ...process.env, MOTTAINAI_CONFIG: configPath },
+  });
+  try {
+    await client.connect(transport);
+    const tools = await client.listTools();
+    return { ok: true, tools: tools.tools.length };
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+  } finally {
+    await client.close().catch(() => {});
   }
 }
 
@@ -424,7 +495,8 @@ export async function runInit(options: InitRunOptions): Promise<InitSummary> {
   const workspace = resolveWorkspace(parsed.workspace, cwd);
   const configuration = resolveConfiguration(parsed.config, workspace, cwd);
   const clients = detectClients();
-  await chooseInteractive(parsed, clients, inputTTY, outputTTY);
+  const detectedCommands = detectCommands();
+  await chooseInteractive(parsed, clients, detectedCommands, inputTTY, outputTTY);
   const scope = parsed.scope ?? "personal";
   const client = parsed.client ?? "none";
   const importSource = parsed.importSource ?? "none";
@@ -436,6 +508,14 @@ export async function runInit(options: InitRunOptions): Promise<InitSummary> {
   for (const server of imported.servers) {
     if (registry[server.name] === undefined) registry[server.name] = server.config;
   }
+  for (const server of parsed.manualUpstreams) {
+    if (registry[server.name] === undefined) registry[server.name] = server.config;
+  }
+  for (const command of parsed.selectedCommands) {
+    const preset = COMMAND_PRESETS[command];
+    if (preset === undefined) warnings.push(`${command} was detected but has no safe MCP preset`);
+    else if (registry[command] === undefined) registry[command] = preset;
+  }
   const importedUpstreams = Object.keys(registry);
   const existing = fs.existsSync(configuration);
   if (existing && !parsed.force) throw new Error(`configuration already exists: ${configuration}; use --force to replace it`);
@@ -446,7 +526,6 @@ export async function runInit(options: InitRunOptions): Promise<InitSummary> {
     if (!parsed.dryRun) fs.copyFileSync(configuration, backup);
   }
 
-  const detectedCommands = detectCommands();
   const exclude = scope === "personal" ? updateGitExclude(configuration, workspace, !parsed.dryRun) : { changed: false };
   if (exclude.warning !== undefined) warnings.push(exclude.warning);
   if (parsed.dryRun && exclude.changed) {
@@ -463,25 +542,31 @@ export async function runInit(options: InitRunOptions): Promise<InitSummary> {
   if (clientResults.some((result) => result.status === "already-registered")) warnings.push(`${client} already has a mottainai registration; it was not replaced`);
 
   let doctor: DoctorReport | undefined;
+  let handshake: InitHandshakeResult | undefined;
   if (!parsed.noDoctor && !parsed.dryRun) {
     doctor = collectDoctorReport({ configPath: configuration, cwd: workspace });
     if (!doctor.ok) warnings.push("doctor found errors; initialization is incomplete");
     else if (doctor.warnings > 0) warnings.push("doctor completed with warnings");
+    handshake = await runMcpHandshake(configuration, workspace);
+    if (!handshake.ok) warnings.push(`MCP handshake failed: ${handshake.reason ?? "unknown error"}`);
+    else if (handshake.skipped === true) warnings.push(`MCP handshake skipped: ${handshake.reason ?? "unavailable"}`);
   }
 
   return {
-    ok: doctor?.ok ?? true,
+    ok: (doctor?.ok ?? true) && (handshake?.ok ?? true),
     workspace,
     configuration,
     scope,
     dry_run: parsed.dryRun,
     config_written: !parsed.dryRun,
+    config_preview: config,
     ...(backup === undefined ? {} : { backup }),
     detected_clients: clients,
     detected_commands: detectedCommands,
     imported_upstreams: importedUpstreams,
     clients: clientResults,
     ...(doctor === undefined ? {} : { doctor }),
+    ...(handshake === undefined ? {} : { handshake }),
     warnings,
   };
 }
@@ -501,10 +586,20 @@ export function formatInitHuman(summary: InitSummary): string {
   if (summary.imported_upstreams.length > 0) {
     lines.push("", "Upstreams", ...summary.imported_upstreams.map((name) => `  ✓ ${name}`));
   }
+  if (summary.detected_commands.length > 0) {
+    lines.push("", "Detected commands", ...summary.detected_commands.map((command) => `  ✓ ${command}`));
+  }
+  if (summary.dry_run) {
+    lines.push("", "Configuration preview", JSON.stringify(summary.config_preview, null, 2));
+  }
   if (summary.clients.length > 0) {
     lines.push("", "MCP clients", ...summary.clients.map((client) => `  ${client.status}: ${client.name}`));
   }
   if (summary.doctor !== undefined) lines.push("", formatDoctorHuman(summary.doctor));
+  if (summary.handshake !== undefined) {
+    const handshake = summary.handshake;
+    lines.push("", `MCP handshake: ${handshake.skipped === true ? "skipped" : handshake.ok ? `ok (${handshake.tools ?? 0} tools)` : "failed"}`);
+  }
   if (summary.warnings.length > 0) lines.push("", "Warnings", ...summary.warnings.map((warning) => `  ⚠ ${warning}`));
   if (summary.clients.some((client) => client.registrationCommand !== "")) {
     lines.push("", "Registration commands", ...summary.clients.map((client) => `  ${client.registrationCommand}`));

@@ -20,7 +20,8 @@ Nothing yet.
 - **Workspace initialization**: `mottainai init` creates a portable v2
   configuration, supports non-interactive defaults, dry-run/JSON output,
   personal Git exclusion, atomic writes, backups, and pinned client
-  registration commands.
+  registration commands. It runs `doctor` and a stdio MCP handshake after
+  writing the configuration.
 - **Safe stdio startup**: a missing configuration produces an initialization
   hint without writing anything to MCP stdout.
 
