@@ -1,5 +1,5 @@
 {
-  "name": "@yohn-jp/mottainai",
+  "name": "mottainai",
   "version": "0.1.0",
   "description": "MCP proxy gateway: aggregates upstream MCP servers behind one endpoint and compresses their tool definitions and results before they reach the LLM.",
   "type": "module",
@@ -8,13 +8,18 @@
     "mtnai": "./dist/index.js"
   },
   "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "mottainai.config.json.example"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -24,7 +29,8 @@
     "policy": "tsx scripts/policy.ts",
     "read-governor": "tsx scripts/read-governor.ts",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build"
+    "prepack": "pnpm run build",
+    "prepublishOnly": "pnpm run typecheck && pnpm test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.11.0",
@@ -42,6 +48,10 @@
     "node": ">=22.13"
   },
   "packageManager": "pnpm@11.18.0",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
