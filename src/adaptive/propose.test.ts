@@ -116,6 +116,39 @@ test("a capability with no available provider is never proposed as avoid (issue 
   );
 });
 
+test("confidence excludes capabilities suppressed by avoid_capabilities", () => {
+  const executions: Trace["executions"] = [{
+    type: "execution", schema_version: 1, execution_id: "ex_1", request_id: "rq", timestamp: "2026-07-20T00:00:00.000Z",
+    provider: "codegraph", tool: "codegraph__explore", capability: "runtime_state",
+    duration_ms: 5, result_count: 0, output_size: 0, status: "empty",
+  }];
+  // runtime_state はすでに bug_investigation の baseline にあるため avoid にしか回らない。
+  // missing に runtime_state を含む trace は、抑制後は capabilities で説明できないはず。
+  const traces = [0, 1, 2, 3, 4, 5, 6, 7].map((index) => trace(index, index % 2 === 0 ? ["runtime_state"] : [], { executions }));
+  const proposal = proposePolicy(traces, BUILTIN_POLICY, { now });
+  assert.deepEqual(proposal.changes[0].avoid_added, ["runtime_state"]);
+  // 3/6 の training trace だけが runtime_state を要求しない = 抑制後に説明できる。
+  assert.equal(proposal.changes[0].confidence, 0.5);
+});
+
+test("minSupport for avoid is measured in distinct traces, not execution count", () => {
+  // 3 件の trace だけが runtime_state を実行し、各 trace で 2 回失敗する
+  // (execution 合計は 6 = minSupport 以上だが、trace は 3 件しかない)。
+  const failingExecution = (index: number, suffix: string): Trace["executions"][number] => ({
+    type: "execution", schema_version: 1, execution_id: `ex_${index}_${suffix}`, request_id: `rq_${index}`,
+    timestamp: "2026-07-20T00:00:00.000Z", provider: "codegraph", tool: "codegraph__explore",
+    capability: "runtime_state", duration_ms: 5, result_count: 0, output_size: 0, status: "empty",
+  });
+  const traces = [0, 1, 2, 3, 4, 5, 6, 7].map((index) => {
+    const missing = [0, 2, 4].includes(index) ? ["ownership"] : [];
+    const executions = [0, 1, 2].includes(index) ? [failingExecution(index, "a"), failingExecution(index, "b")] : [];
+    return trace(index, missing, { executions });
+  });
+  const proposal = proposePolicy(traces, BUILTIN_POLICY, { now });
+  assert.deepEqual(proposal.changes[0].added, ["ownership"]);
+  assert.deepEqual(proposal.changes[0].avoid_added, []);
+});
+
 test("evaluation treats traces with nothing missing as full coverage on both sides", () => {
   const evaluation = evaluatePolicy(BUILTIN_POLICY, BUILTIN_POLICY, [trace(0, []), trace(1, [])]);
   assert.equal(evaluation.missing_coverage_active, 1);
