@@ -1,0 +1,40 @@
+name: Issue Governance
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  validate-issue:
+    name: validate-issue
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Issue contract
+        id: validate
+        continue-on-error: true
+        run: node scripts/validate-issue.mjs --event "$GITHUB_EVENT_PATH" --report /tmp/issue-governance.md
+      - name: Mark invalid Issue
+        if: steps.validate.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh label create "status:invalid" --color D73A4A --description "Issue governance contract violation" --force
+          gh label create "needs:specification" --color FBCA04 --description "Specification requires completion" --force
+          gh issue edit "$ISSUE_NUMBER" --add-label "status:invalid,needs:specification"
+          gh issue comment "$ISSUE_NUMBER" --body-file /tmp/issue-governance.md
+      - name: Clear invalid labels
+        if: steps.validate.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh issue edit "$ISSUE_NUMBER" --remove-label "status:invalid" 2>/dev/null || true
+          gh issue edit "$ISSUE_NUMBER" --remove-label "needs:specification" 2>/dev/null || true

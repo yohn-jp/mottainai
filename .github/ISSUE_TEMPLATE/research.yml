@@ -1,0 +1,40 @@
+name: Research
+description: 実装前調査・技術検証
+title: "docs: research "
+body:
+  - type: textarea
+    id: summary
+    attributes: { label: Summary, description: 調査テーマ }
+    validations: { required: true }
+  - type: textarea
+    id: problem
+    attributes: { label: Problem, description: 未解決の問い・意思決定上の不足 }
+    validations: { required: true }
+  - type: textarea
+    id: goal
+    attributes: { label: Goal, description: 調査で決定可能にする事項 }
+    validations: { required: true }
+  - type: textarea
+    id: non_goals
+    attributes: { label: Non-goals, description: 調査・実装しない事項 }
+    validations: { required: true }
+  - type: textarea
+    id: acceptance
+    attributes: { label: Acceptance criteria, description: 証拠・比較・結論の完了条件, value: "- [ ] " }
+    validations: { required: true }
+  - type: textarea
+    id: affected
+    attributes: { label: Affected areas, description: 判断が影響する領域 }
+    validations: { required: true }
+  - type: textarea
+    id: risks
+    attributes: { label: Risks / compatibility, description: 調査不足・採用時のリスク }
+    validations: { required: true }
+  - type: textarea
+    id: dependencies
+    attributes: { label: Dependencies, description: 必要な資料・環境・先行Issue }
+    validations: { required: true }
+  - type: textarea
+    id: implementation
+    attributes: { label: Implementation notes, description: 比較対象・測定方法・成果物 }
+    validations: { required: true }

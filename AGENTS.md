@@ -234,7 +234,22 @@ Claude Code 側へ反映するときは `/mcp reconnect mottainai`、または�
 | プロジェクト概要・圧縮規則一覧 | `README.md` |
 | 応答スタイル | `CLAUDE.md` |
 | 探索 hook | `.claude/hooks/warn-grep.sh` |
+| Issue・PR契約 | `docs/governance.md` |
 
 機能別の詳細ドキュメント（`docs/*.md`）は整理中で、このリポジトリにはまだ含まれていない。当面は本ファイルと `README.md` が正本。
 
 **最短手順**: codegraph 1 回 → 該当ファイル 1 本 Read → 修正 → テスト 1 本 → 即コミット。
+
+---
+
+## 10. Issue・PR契約
+
+- Issueにない機能を追加しない
+- Acceptance criteriaを実装中に変更しない
+- Scope外の問題は別Issueとして提案する
+- PR本文は実装後の差分と検証結果から再構成する
+- 実施していない検証へチェックを入れない
+- `Closes`対象は1件を原則とする
+- Review focusを具体化する
+- TODO・follow-upをPR本文だけに残さずIssue化する
+- 形式・差分連動規則は`docs/governance.md`と`scripts/governance-rules.json`を正本とする

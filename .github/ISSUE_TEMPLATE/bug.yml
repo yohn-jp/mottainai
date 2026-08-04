@@ -1,0 +1,40 @@
+name: Bug
+description: 再現可能な不具合
+title: "fix: "
+body:
+  - type: textarea
+    id: summary
+    attributes: { label: Summary, description: 不具合の要約 }
+    validations: { required: true }
+  - type: textarea
+    id: problem
+    attributes: { label: Problem, description: 実際の結果・期待結果・再現手順・環境 }
+    validations: { required: true }
+  - type: textarea
+    id: goal
+    attributes: { label: Goal, description: 修正後の状態 }
+    validations: { required: true }
+  - type: textarea
+    id: non_goals
+    attributes: { label: Non-goals, description: 修正対象外 }
+    validations: { required: true }
+  - type: textarea
+    id: acceptance
+    attributes: { label: Acceptance criteria, description: 回帰テストを含む完了条件, value: "- [ ] " }
+    validations: { required: true }
+  - type: textarea
+    id: affected
+    attributes: { label: Affected areas, description: 影響範囲 }
+    validations: { required: true }
+  - type: textarea
+    id: risks
+    attributes: { label: Risks / compatibility, description: 修正リスク・互換性 }
+    validations: { required: true }
+  - type: textarea
+    id: dependencies
+    attributes: { label: Dependencies, description: 関連Issue・外部条件。なければ理由 }
+    validations: { required: true }
+  - type: textarea
+    id: implementation
+    attributes: { label: Implementation notes, description: 原因仮説・ログ・回避策 }
+    validations: { required: true }

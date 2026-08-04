@@ -1,0 +1,43 @@
+name: Feature
+description: 新機能・既存機能拡張
+title: "feat: "
+body:
+  - type: markdown
+    attributes:
+      value: 必須項目を具体化。1 Issue = 1目的。
+  - type: textarea
+    id: summary
+    attributes: { label: Summary, description: 変更の要約 }
+    validations: { required: true }
+  - type: textarea
+    id: problem
+    attributes: { label: Problem, description: 解決する問題と根拠 }
+    validations: { required: true }
+  - type: textarea
+    id: goal
+    attributes: { label: Goal, description: 達成する状態 }
+    validations: { required: true }
+  - type: textarea
+    id: non_goals
+    attributes: { label: Non-goals, description: 明示的な対象外 }
+    validations: { required: true }
+  - type: textarea
+    id: acceptance
+    attributes: { label: Acceptance criteria, description: 検証可能な完了条件, value: "- [ ] " }
+    validations: { required: true }
+  - type: textarea
+    id: affected
+    attributes: { label: Affected areas, description: 影響する機能・ファイル・利用者 }
+    validations: { required: true }
+  - type: textarea
+    id: risks
+    attributes: { label: Risks / compatibility, description: リスク・後方互換性 }
+    validations: { required: true }
+  - type: textarea
+    id: dependencies
+    attributes: { label: Dependencies, description: 依存Issue・PR・外部条件。なければ理由 }
+    validations: { required: true }
+  - type: textarea
+    id: implementation
+    attributes: { label: Implementation notes, description: 制約・推奨方針・調査済み事項 }
+    validations: { required: true }

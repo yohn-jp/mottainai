@@ -1,0 +1,5 @@
+# ガバナンス契約と公開面はリポジトリ所有者レビュー必須。
+/.github/ @yohn-jp
+/scripts/governance-* @yohn-jp
+/scripts/validate-*.mjs @yohn-jp
+/package.json @yohn-jp

@@ -1,0 +1,40 @@
+name: Architecture
+description: 境界・契約・設計判断の変更
+title: "refactor: "
+body:
+  - type: textarea
+    id: summary
+    attributes: { label: Summary, description: 設計変更の要約 }
+    validations: { required: true }
+  - type: textarea
+    id: problem
+    attributes: { label: Problem, description: 現行設計の問題と証拠 }
+    validations: { required: true }
+  - type: textarea
+    id: goal
+    attributes: { label: Goal, description: 目標アーキテクチャ・守る不変条件 }
+    validations: { required: true }
+  - type: textarea
+    id: non_goals
+    attributes: { label: Non-goals, description: 今回変更しない境界 }
+    validations: { required: true }
+  - type: textarea
+    id: acceptance
+    attributes: { label: Acceptance criteria, description: 検証可能な設計完了条件, value: "- [ ] " }
+    validations: { required: true }
+  - type: textarea
+    id: affected
+    attributes: { label: Affected areas, description: 影響レイヤ・公開契約 }
+    validations: { required: true }
+  - type: textarea
+    id: risks
+    attributes: { label: Risks / compatibility, description: 移行・後方互換性・失敗時影響 }
+    validations: { required: true }
+  - type: textarea
+    id: dependencies
+    attributes: { label: Dependencies, description: 前提・後続Issue。なければ理由 }
+    validations: { required: true }
+  - type: textarea
+    id: implementation
+    attributes: { label: Implementation notes, description: 代替案・選択理由・段階導入 }
+    validations: { required: true }
