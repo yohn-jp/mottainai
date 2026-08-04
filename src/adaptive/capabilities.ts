@@ -63,8 +63,8 @@ export interface CapabilityIndex {
   /** capability を満たせる provider を優先度降順で返す。 */
   providersFor(capability: string): ProviderRef[];
   /**
-   * capability を満たせる provider を、`preferredFor` / priority / `source` / provider 名 /
-   * `fallbackFor` の順で決定論的に順位付けする。`taskCategory` 省略時は `preferredFor` /
+   * capability を満たせる provider を、`preferredFor` / `fallbackFor` / priority / `source` /
+   * provider 名の順で決定論的に順位付けする。`taskCategory` 省略時は `preferredFor` /
    * `fallbackFor` を評価しない（タスク文脈が無いので判定できない）。
    */
   rankProviders(capability: string, options?: { taskCategory?: string }): RankedProvider[];
@@ -127,13 +127,17 @@ export function buildCapabilityIndex(
   }
 
   for (const entry of mapEntries) {
-    const { provider, tool } = splitToolName(entry.key);
-    const upstream = upstreams.find((candidate) => candidate.name === provider);
+    const mappedUpstream = upstreams.find((candidate) => candidate.name === entry.key);
+    const provider = mappedUpstream?.name ?? splitToolName(entry.key).provider;
+    // provider 名そのものと一致するエントリは provider 単位の宣言。それ以外は tool 単位の
+    // 宣言で、gateway 上のツール名（entry.key 全体）を tool として記録する。
+    const tool = mappedUpstream === undefined && entry.key !== provider ? entry.key : undefined;
+    const upstream = mappedUpstream ?? upstreams.find((candidate) => candidate.name === provider);
     if (upstream?.enabled === false) continue;
     for (const capability of entry.capabilities) {
       add(capability, {
         provider,
-        tool: entry.key === provider ? undefined : entry.key,
+        tool,
         priority: upstream?.priority ?? 0,
         source: "capability_map",
       });
@@ -168,10 +172,10 @@ export function buildCapabilityIndex(
         const fallbackOnly = taskCategory !== undefined && !preferred && (meta?.fallbackFor.has(taskCategory) ?? false);
         const reasons: RankReason[] = [];
         if (preferred) reasons.push({ rule: "preferredFor", value: taskCategory! });
+        if (fallbackOnly) reasons.push({ rule: "fallbackFor", value: taskCategory! });
         reasons.push({ rule: "priority", value: ref.priority });
         reasons.push({ rule: "source", value: ref.source });
         reasons.push({ rule: "provider", value: ref.provider });
-        if (fallbackOnly) reasons.push({ rule: "fallbackFor", value: taskCategory! });
         return { ref, preferred, fallbackOnly, reasons };
       });
 

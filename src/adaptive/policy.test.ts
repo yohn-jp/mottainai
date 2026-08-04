@@ -20,11 +20,13 @@ function temporaryDir(): string {
 }
 
 function candidate(version: string, capabilities: string[]): PolicyDocument {
+  // version は newPolicyVersion() 形式（例: "20260720T000000Z"）。日付部分 [6, 8) を
+  // そのまま抜き出す（version.slice(-2) は末尾2文字 "0Z" になり不正な日付を作ってしまう）。
   return {
     policy_version: version,
     status: "candidate",
     source: "proposed",
-    generated_at: `2026-07-${version.slice(-2)}T00:00:00.000Z`,
+    generated_at: `2026-07-${version.slice(6, 8)}T00:00:00.000Z`,
     rules: [{ task_category: "bug_investigation", capabilities }],
   };
 }
@@ -76,6 +78,48 @@ test("approval activates the candidate and keeps the newest approved policy", ()
   assert.equal(active.policy_version, "20260722T000000Z");
   assert.equal(active.approved_by, "reviewer");
   assert.deepEqual(resolvePlan(active, "bug_investigation", []).capabilities, ["callers", "tests", "docs"]);
+});
+
+test("loadActivePolicy sorts approved policies by generated_at, not by policy_version lexical order", () => {
+  const directory = temporaryDir();
+  // policy_version の辞書順だけで並べると "9-old" が "1-new" より新しいと誤判定される。
+  // generated_at が本当に primary sort key として使われているかをこれで検証する。
+  const older: PolicyDocument = {
+    policy_version: "9-old",
+    status: "approved",
+    source: "proposed",
+    generated_at: "2026-07-01T00:00:00.000Z",
+    rules: [{ task_category: "bug_investigation", capabilities: ["callers"] }],
+  };
+  const newer: PolicyDocument = {
+    policy_version: "1-new",
+    status: "approved",
+    source: "proposed",
+    generated_at: "2026-07-31T00:00:00.000Z",
+    rules: [{ task_category: "bug_investigation", capabilities: ["tests"] }],
+  };
+  savePolicy(directory, older);
+  savePolicy(directory, newer);
+  assert.equal(loadActivePolicy({ MOTTAINAI_POLICY_DIR: directory }).policy_version, "1-new");
+});
+
+test("approvePolicy returns the path it actually wrote and removes a stale differently-named candidate file", () => {
+  const directory = temporaryDir();
+  const document = candidate("20260720T000000Z", ["callers"]);
+  // savePolicy が使うはずの正規名とは異なる名前で候補ファイルを置く状況を再現する
+  // （loadPolicies は directory 内の *.json を無差別に読むため、こうしたズレが起こりうる）。
+  const staleFilePath = path.join(directory, "manually-renamed-candidate.json");
+  fs.writeFileSync(staleFilePath, `${JSON.stringify(document, null, 2)}\n`);
+
+  const result = approvePolicy(directory, document.policy_version, "reviewer");
+
+  assert.equal(fs.existsSync(staleFilePath), false);
+  assert.equal(result.filePath, path.join(directory, "policy-20260720T000000Z.json"));
+  assert.equal(fs.existsSync(result.filePath), true);
+
+  const stored = loadPolicies(directory).filter((entry) => entry.document.policy_version === document.policy_version);
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0]?.document.status, "approved");
 });
 
 test("MOTTAINAI_POLICY=0 pins routing to the builtin policy", () => {

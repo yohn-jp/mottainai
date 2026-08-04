@@ -170,3 +170,99 @@ test("recordReadDecision()/listReadDecisions(): persists and lists newest first,
 
   store.close();
 });
+
+test("listReadDecisions(): breaks ties on identical created_at by insertion order (rowid), not by decisionId", () => {
+  const store = new SqliteStateStore({ dbPath: ":memory:" });
+  store.init();
+  store.createSession({ sessionId: "s1", repositoryId: "r1", worktreeId: "w1", createdAt: 1000 });
+
+  // decisionId は乱数 UUID 由来で挿入順とは無関係な値になり得る。あえて挿入順とは逆順のIDにする。
+  for (const decisionId of ["z-inserted-first", "a-inserted-second", "m-inserted-third"]) {
+    store.recordReadDecision({
+      decisionId,
+      sessionId: "s1",
+      path: "src/a.ts",
+      action: "allow",
+      fileClass: "source",
+      capability: "code.symbol",
+      policyCode: "NONE",
+      reason: "same millisecond",
+      stage: "observe",
+      createdAt: 5000,
+    });
+  }
+
+  const all = store.listReadDecisions();
+  assert.deepEqual(
+    all.map((decision) => decision.decisionId),
+    ["m-inserted-third", "a-inserted-second", "z-inserted-first"],
+  );
+  store.close();
+});
+
+test("listReadDecisions(): clamps negative, fractional, and oversized limits to a bounded positive integer", () => {
+  const store = new SqliteStateStore({ dbPath: ":memory:" });
+  store.init();
+  store.createSession({ sessionId: "s1", repositoryId: "r1", worktreeId: "w1", createdAt: 1000 });
+  for (let i = 0; i < 5; i += 1) {
+    store.recordReadDecision({
+      decisionId: `d${i}`,
+      sessionId: "s1",
+      path: "src/a.ts",
+      action: "allow",
+      fileClass: "source",
+      capability: "code.symbol",
+      policyCode: "NONE",
+      reason: "r",
+      stage: "observe",
+      createdAt: 1000 + i,
+    });
+  }
+
+  // SQLite は負の LIMIT を「無制限」と扱うため、正規化しないと -1 が全行返却になってしまう。
+  // 正規化後は「正の整数の下限 1」に丸められる。
+  assert.equal(store.listReadDecisions({ limit: -1 }).length, 1);
+  assert.equal(store.listReadDecisions({ limit: 2.9 }).length, 2);
+  assert.equal(store.listReadDecisions({ limit: 0 }).length, 1);
+  assert.equal(store.listReadDecisions({ limit: Number.POSITIVE_INFINITY }).length, 5);
+  assert.equal(store.listReadDecisions({ limit: 10_000 }).length, 5);
+  store.close();
+});
+
+test("init(): closes the database handle when a migration fails, leaving the store uninitialized", (t) => {
+  const dbPath = tmpDbPath();
+  // 事前に衝突する `sessions` テーブルを作り、migration 1 を失敗させる。
+  const preexisting = new DatabaseSync(dbPath);
+  preexisting.exec("CREATE TABLE sessions (id INTEGER)");
+  preexisting.close();
+
+  const closeSpy = t.mock.method(DatabaseSync.prototype, "close");
+  const store = new SqliteStateStore({ dbPath });
+  assert.throws(() => store.init(), /migration 1/);
+  assert.equal(closeSpy.mock.callCount(), 1);
+  assert.throws(
+    () => store.createSession({ sessionId: "s1", repositoryId: "r1", worktreeId: "w1" }),
+    /init\(\) must be called/,
+  );
+});
+
+test("init(): restricts the state directory, database file, and WAL sidecars to owner-only permissions", { skip: process.platform === "win32" }, () => {
+  const dbPath = tmpDbPath();
+  const dir = path.dirname(dbPath);
+  // ディレクトリは既に存在する（tmpDbPath が mkdtempSync 済み）状態で、緩い permission から始める。
+  fs.chmodSync(dir, 0o777);
+
+  const store = new SqliteStateStore({ dbPath });
+  store.init();
+  store.createSession({ sessionId: "s1", repositoryId: "r1", worktreeId: "w1" });
+
+  assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
+  assert.equal(fs.statSync(dbPath).mode & 0o777, 0o600);
+  for (const suffix of ["-wal", "-shm"]) {
+    const sidecar = `${dbPath}${suffix}`;
+    if (fs.existsSync(sidecar)) {
+      assert.equal(fs.statSync(sidecar).mode & 0o777, 0o600, sidecar);
+    }
+  }
+  store.close();
+});

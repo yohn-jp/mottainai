@@ -169,18 +169,24 @@ export function createLogger(env: NodeJS.ProcessEnv = process.env): Logger {
         return;
       }
 
-      const full: LogRecord = {
-        id: randomUUID(),
-        timestamp: new Date().toISOString(),
-        upstreamName: record.upstreamName,
-        toolName: record.toolName,
-        arguments: redactEnabled ? redact(record.arguments) : record.arguments,
-        rawResult: redactEnabled ? redact(record.rawResult) : record.rawResult,
-      };
-      const line = boundedLogLine(full, maxRecordBytes);
+      let full: LogRecord;
+      try {
+        full = {
+          id: randomUUID(),
+          timestamp: new Date().toISOString(),
+          upstreamName: record.upstreamName,
+          toolName: record.toolName,
+          arguments: redactEnabled ? redact(record.arguments) : record.arguments,
+          rawResult: redactEnabled ? redact(record.rawResult) : record.rawResult,
+        };
+      } catch (err) {
+        console.error("mottainai: failed to serialize log record", err);
+        return;
+      }
 
       writeQueue = writeQueue
         .then(async () => {
+          const line = boundedLogLine(full, maxRecordBytes);
           const lineBytes = Buffer.byteLength(line, "utf8");
           if (currentFileBytes > 0 && currentFileBytes + lineBytes > maxFileBytes) {
             filePath = path.join(logDir, logFileName());

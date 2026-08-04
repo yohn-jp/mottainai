@@ -372,7 +372,9 @@ export function createTraceStore(env: NodeJS.ProcessEnv = process.env): TraceSto
   const directory = resolveTraceDir(env);
   const raw = retainRawEvidence(env);
   const maxFileBytes = positiveNumber(env.MOTTAINAI_TRACE_MAX_FILE_BYTES, DEFAULT_MAX_FILE_BYTES);
+  const retentionMs = positiveNumber(env.MOTTAINAI_TRACE_RETENTION_DAYS, DEFAULT_RETENTION_DAYS) * 24 * 60 * 60 * 1000;
   const sessionRequests = new Set<string>();
+  const sessionExecutionIds = new Map<string, Set<string>>();
 
   let filePath = "";
   let currentFileBytes = 0;
@@ -385,7 +387,7 @@ export function createTraceStore(env: NodeJS.ProcessEnv = process.env): TraceSto
     if (prepared) return;
     prepared = true;
     fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-    sweepExpiredTraces(directory, positiveNumber(env.MOTTAINAI_TRACE_RETENTION_DAYS, DEFAULT_RETENTION_DAYS) * 24 * 60 * 60 * 1000);
+    sweepExpiredTraces(directory, retentionMs);
     filePath = path.join(directory, traceFileName());
   }
 
@@ -397,6 +399,7 @@ export function createTraceStore(env: NodeJS.ProcessEnv = process.env): TraceSto
         prepareDirectory();
         const lineBytes = Buffer.byteLength(line, "utf8");
         if (currentFileBytes > 0 && currentFileBytes + lineBytes > maxFileBytes) {
+          sweepExpiredTraces(directory, retentionMs);
           filePath = path.join(directory, traceFileName());
           currentFileBytes = 0;
         }
@@ -450,6 +453,9 @@ export function createTraceStore(env: NodeJS.ProcessEnv = process.env): TraceSto
         ...input,
       };
       await append(record);
+      const executionIds = sessionExecutionIds.get(record.request_id) ?? new Set<string>();
+      executionIds.add(record.execution_id);
+      sessionExecutionIds.set(record.request_id, executionIds);
     },
     async recordReview(input) {
       if (!sessionRequests.has(input.request_id) && loadTraces({ requestId: input.request_id }).length === 0) {
@@ -459,9 +465,12 @@ export function createTraceStore(env: NodeJS.ProcessEnv = process.env): TraceSto
       return "recorded";
     },
     async recordExecutionReview(input) {
-      const trace = loadTraces({ requestId: input.request_id })[0];
-      if (trace === undefined) return "unknown_request";
-      if (!trace.executions.some((execution) => execution.execution_id === input.execution_id)) return "unknown_execution";
+      const knownExecutionIds = sessionExecutionIds.get(input.request_id);
+      if (!sessionRequests.has(input.request_id) || knownExecutionIds === undefined || !knownExecutionIds.has(input.execution_id)) {
+        const trace = loadTraces({ requestId: input.request_id })[0];
+        if (trace === undefined) return "unknown_request";
+        if (!trace.executions.some((execution) => execution.execution_id === input.execution_id)) return "unknown_execution";
+      }
       await append({ type: "execution_review", schema_version: TRACE_SCHEMA_VERSION, timestamp: new Date().toISOString(), ...input });
       return "recorded";
     },

@@ -32,7 +32,10 @@ export function resolveStateDir(env: NodeJS.ProcessEnv = process.env, platform: 
   }
 
   const xdgStateHome = env.XDG_STATE_HOME;
-  const base = xdgStateHome !== undefined && xdgStateHome.length > 0 ? xdgStateHome : path.join(home, ".local", "state");
+  const base =
+    xdgStateHome !== undefined && xdgStateHome.length > 0 && path.isAbsolute(xdgStateHome)
+      ? xdgStateHome
+      : path.join(home, ".local", "state");
   return path.join(base, APP_DIR_NAME);
 }
 

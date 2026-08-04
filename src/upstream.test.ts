@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { UpstreamHandle } from "./upstream.js";
-import { createUpstreamTransport, UpstreamRegistry } from "./upstream.js";
+import { connectUpstream, createUpstreamTransport, UpstreamRegistry } from "./upstream.js";
 
 function handle(name: string): UpstreamHandle {
   return { config: { name, command: "node" }, client: { close: async () => {} } as UpstreamHandle["client"], tools: [] };
@@ -149,4 +150,127 @@ test("invalidating an active upstream closes the stale client and reconnects on 
   assert.equal(registry.state("flaky"), "ready");
   assert.equal(connections, 2);
   assert.equal(registry.status()[0].failureCount, 1);
+});
+
+test("connectUpstream closes the client and preserves the original error when listTools fails", async () => {
+  let closed = false;
+  const listToolsError = new Error("tools/list failed");
+  await assert.rejects(
+    () => connectUpstream(
+      { name: "broken-discovery", command: "node" },
+      undefined,
+      () => ({
+        connect: async () => {},
+        listTools: async () => { throw listToolsError; },
+        close: async () => { closed = true; },
+      }) as unknown as Client,
+    ),
+    (error: unknown) => error === listToolsError,
+  );
+  assert.equal(closed, true);
+});
+
+test("connectUpstream still propagates the original error even if closing the client also fails", async () => {
+  const listToolsError = new Error("tools/list failed");
+  await assert.rejects(
+    () => connectUpstream(
+      { name: "broken-discovery", command: "node" },
+      undefined,
+      () => ({
+        connect: async () => {},
+        listTools: async () => { throw listToolsError; },
+        close: async () => { throw new Error("close also failed"); },
+      }) as unknown as Client,
+    ),
+    (error: unknown) => error === listToolsError,
+  );
+});
+
+test("connectUpstream closes the client and preserves the original error when connect() itself fails", async () => {
+  let closed = false;
+  let listToolsCalled = false;
+  const connectError = new Error("connect failed");
+  await assert.rejects(
+    () => connectUpstream(
+      { name: "broken-connect", command: "node" },
+      undefined,
+      () => ({
+        connect: async () => { throw connectError; },
+        listTools: async () => { listToolsCalled = true; return { tools: [] }; },
+        close: async () => { closed = true; },
+      }) as unknown as Client,
+    ),
+    (error: unknown) => error === connectError,
+  );
+  assert.equal(closed, true);
+  assert.equal(listToolsCalled, false);
+});
+
+test("close is resilient to one upstream's close failure and still stops the rest", async () => {
+  let goodClosed = false;
+  const registry = new UpstreamRegistry([
+    { name: "bad", command: "node" },
+    { name: "good", command: "node" },
+  ], async (config) => ({
+    config,
+    client: {
+      close: async () => {
+        if (config.name === "bad") throw new Error("close failed");
+        goodClosed = true;
+      },
+    } as UpstreamHandle["client"],
+    tools: [],
+  }));
+
+  await registry.start("bad");
+  await registry.start("good");
+  await registry.close();
+
+  assert.equal(goodClosed, true);
+  assert.equal(registry.state("bad"), "stopped");
+  assert.equal(registry.state("good"), "stopped");
+});
+
+test("close is idempotent: a second call does not attempt to close handles again", async () => {
+  let closes = 0;
+  const registry = new UpstreamRegistry([{ name: "one", command: "node" }], async (config) => ({
+    config,
+    client: { close: async () => { closes += 1; } } as UpstreamHandle["client"],
+    tools: [],
+  }));
+
+  await registry.start("one");
+  await Promise.all([registry.close(), registry.close()]);
+  await registry.close();
+
+  assert.equal(closes, 1);
+  assert.equal(registry.state("one"), "stopped");
+});
+
+test("an in-flight start cannot resurrect a ready handle after close begins", async () => {
+  let releaseConnect: (() => void) | undefined;
+  const connecting = new Promise<void>((resolve) => { releaseConnect = resolve; });
+  let handleClosed = false;
+
+  const registry = new UpstreamRegistry([{ name: "slow", command: "node" }], async (config) => {
+    await connecting;
+    return {
+      config,
+      client: { close: async () => { handleClosed = true; } } as UpstreamHandle["client"],
+      tools: [],
+    };
+  });
+
+  const starting = registry.start("slow");
+  const closing = registry.close();
+  releaseConnect?.();
+
+  await assert.rejects(() => starting);
+  await closing;
+
+  assert.equal(registry.state("slow"), "stopped");
+  assert.equal(registry.readyHandles().length, 0);
+  assert.equal(handleClosed, true);
+
+  await assert.rejects(() => registry.start("slow"), /shutting down/);
 });

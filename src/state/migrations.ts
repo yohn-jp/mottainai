@@ -66,17 +66,29 @@ function currentVersion(db: DatabaseSync): number {
 
 /** 未適用の migration を version 昇順に適用する。冪等（適用済みなら何もしない）。 */
 export function applyMigrations(db: DatabaseSync, migrations: Migration[] = MIGRATIONS): void {
-  const applied = currentVersion(db);
-  const pending = migrations.filter((migration) => migration.version > applied).sort((left, right) => left.version - right.version);
-  const recordApplied = db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)");
-  for (const migration of pending) {
-    db.exec("BEGIN");
+  const ordered = [...migrations].sort((left, right) => left.version - right.version);
+  for (;;) {
+    db.exec("BEGIN IMMEDIATE");
+    let migration: Migration | undefined;
     try {
+      const applied = currentVersion(db);
+      migration = ordered.find((candidate) => candidate.version > applied);
+      if (migration === undefined) {
+        db.exec("COMMIT");
+        return;
+      }
+
       migration.up(db);
-      recordApplied.run(migration.version, Date.now());
+      db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)")
+        .run(migration.version, Date.now());
       db.exec("COMMIT");
     } catch (err) {
-      db.exec("ROLLBACK");
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // 元の migration エラーを保持する
+      }
+      if (migration === undefined) throw err;
       throw new Error(`migration ${migration.version} (${migration.description}) failed: ${(err as Error).message}`);
     }
   }

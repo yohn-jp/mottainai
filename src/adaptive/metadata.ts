@@ -102,7 +102,8 @@ function validateContract(value: unknown, field: string): string | undefined {
   return value;
 }
 
-const RISK_VALUES: ToolRisk[] = ["read_only", "mutating", "destructive", "unknown"];
+/** 正規の risk 値の一覧。config 側（`ProfileConfig.denyRisk` 等）の enum 検証にも使う。 */
+export const RISK_VALUES: ToolRisk[] = ["read_only", "mutating", "destructive", "unknown"];
 
 /** config の生 JSON から `ToolMetadataOverride` を検証しながら取り出す。 */
 export function normalizeToolMetadataOverride(value: unknown, field: string): ToolMetadataOverride {

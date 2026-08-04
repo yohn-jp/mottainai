@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { normalizeToolMetadataOverride } from "./adaptive/metadata.js";
+import { normalizeToolMetadataOverride, RISK_VALUES } from "./adaptive/metadata.js";
 import type { ToolMetadataOverride } from "./adaptive/metadata.js";
 
 export interface OAuthAuthConfig {
@@ -318,8 +318,12 @@ function worktreeConfig(value: unknown, field: string): WorktreeConfig | undefin
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw new Error(field);
   const allowedBranchPrefixes = stringArray(value.allowedBranchPrefixes, `${field}.allowedBranchPrefixes`);
-  if (allowedBranchPrefixes === undefined || allowedBranchPrefixes.length === 0) {
-    throw new Error(`${field}.allowedBranchPrefixes must be a non-empty string array`);
+  if (
+    allowedBranchPrefixes === undefined
+    || allowedBranchPrefixes.length === 0
+    || allowedBranchPrefixes.some((prefix) => prefix.length === 0)
+  ) {
+    throw new Error(`${field}.allowedBranchPrefixes must be a non-empty string array of non-empty prefixes`);
   }
   return {
     allowedBranchPrefixes,
@@ -451,10 +455,22 @@ function normalizeProfiles(value: unknown): Record<string, ProfileConfig> {
     }
     return [name, {
       includeCapabilities: stringArray(profile.includeCapabilities, `invalid profile capabilities: ${name}`),
-      denyRisk: stringArray(profile.denyRisk, `invalid profile denyRisk: ${name}`),
+      denyRisk: denyRiskArray(profile.denyRisk, name),
       rawToolAccess: rawToolAccessValue(profile.rawToolAccess, `invalid profile rawToolAccess: ${name}`),
     }];
   }));
+}
+
+/** 各要素を共有の risk enum（`RISK_VALUES`）に照らして検証する。typo は deny を静かに無効化するため。 */
+function denyRiskArray(value: unknown, profileName: string): string[] | undefined {
+  const values = stringArray(value, `invalid profile denyRisk: ${profileName}`);
+  if (values === undefined) return undefined;
+  for (const risk of values) {
+    if (!(RISK_VALUES as string[]).includes(risk)) {
+      throw new Error(`invalid profile denyRisk value: ${risk} for ${profileName}`);
+    }
+  }
+  return values;
 }
 
 function rawToolAccessValue(value: unknown, message: string): "open" | "restricted" | undefined {
