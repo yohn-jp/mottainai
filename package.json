@@ -28,6 +28,10 @@
     "mcp": "tsx scripts/mcp.ts",
     "policy": "tsx scripts/policy.ts",
     "read-governor": "tsx scripts/read-governor.ts",
+    "governance:pr": "node scripts/validate-pr.mjs",
+    "governance:issue": "node scripts/validate-issue.mjs",
+    "governance:branch": "node scripts/validate-branch-name.mjs",
+    "governance:test": "node --test scripts/governance.test.mjs",
     "typecheck": "tsc --noEmit",
     "prepack": "pnpm run build",
     "prepublishOnly": "pnpm run typecheck && pnpm test"

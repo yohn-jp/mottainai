@@ -1,0 +1,7 @@
+# Governance contracts and public surfaces require repository-owner review.
+/.github/ @yohn-jp
+/scripts/governance-* @yohn-jp
+/scripts/validate-*.mjs @yohn-jp
+/package.json @yohn-jp
+/docs/governance.md @yohn-jp
+/AGENTS.md @yohn-jp

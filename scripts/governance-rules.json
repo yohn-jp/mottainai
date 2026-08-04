@@ -1,0 +1,35 @@
+{
+  "pullRequest": {
+    "titlePattern": "^(feat|fix|docs|refactor|test|chore)\\((cli|proxy|config|compression|routing|upstream|security|release|docs|ci)\\): [a-z0-9].{4,}$",
+    "branchPattern": "^(feat|fix|docs|refactor|test|chore)/[0-9]+-[a-z0-9]+(?:-[a-z0-9]+)*$",
+    "minimumBodyLength": 300,
+    "requiredSections": [
+      "Summary",
+      "Linked issue",
+      "Scope",
+      "Included",
+      "Excluded",
+      "Implementation",
+      "Behavioral changes",
+      "Validation",
+      "Risks",
+      "Breaking changes",
+      "Review focus"
+    ],
+    "validationItems": ["Typecheck", "Tests", "Build", "Package check"]
+  },
+  "issue": {
+    "requiredSections": [
+      "Summary",
+      "Problem",
+      "Goal",
+      "Non-goals",
+      "Acceptance criteria",
+      "Affected areas",
+      "Risks / compatibility",
+      "Dependencies",
+      "Implementation notes"
+    ],
+    "minimumBodyLength": 200
+  }
+}

@@ -1,0 +1,40 @@
+name: Bug
+description: Reproducible defect
+title: "fix: "
+body:
+  - type: textarea
+    id: summary
+    attributes: { label: Summary, description: Concise defect description }
+    validations: { required: true }
+  - type: textarea
+    id: problem
+    attributes: { label: Problem, description: Actual result, expected result, reproduction steps, and environment }
+    validations: { required: true }
+  - type: textarea
+    id: goal
+    attributes: { label: Goal, description: State after the fix }
+    validations: { required: true }
+  - type: textarea
+    id: non_goals
+    attributes: { label: Non-goals, description: Explicitly excluded fixes }
+    validations: { required: true }
+  - type: textarea
+    id: acceptance
+    attributes: { label: Acceptance criteria, description: Completion criteria including regression tests, value: "- [ ] " }
+    validations: { required: true }
+  - type: textarea
+    id: affected
+    attributes: { label: Affected areas, description: Affected areas }
+    validations: { required: true }
+  - type: textarea
+    id: risks
+    attributes: { label: Risks / compatibility, description: Fix risks and compatibility }
+    validations: { required: true }
+  - type: textarea
+    id: dependencies
+    attributes: { label: Dependencies, description: Related Issues and external conditions; explain if none }
+    validations: { required: true }
+  - type: textarea
+    id: implementation
+    attributes: { label: Implementation notes, description: Root-cause hypothesis, logs, and workaround }
+    validations: { required: true }

@@ -1,0 +1,45 @@
+name: Governance
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  validate-pr:
+    name: validate-pr
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Collect changed files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git diff --name-only "$BASE_SHA" "$HEAD_SHA" > /tmp/changed-files.txt
+      - name: Validate branch name
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: node scripts/validate-branch-name.mjs --branch "$HEAD_REF"
+      - name: Validate PR contract
+        run: node scripts/validate-pr.mjs --event "$GITHUB_EVENT_PATH" --files /tmp/changed-files.txt --issue-number-file /tmp/issue-number.txt
+      - name: Fetch linked Issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          issue_number="$(tr -d '\n' < /tmp/issue-number.txt)"
+          gh issue view "$issue_number" --json body,labels > /tmp/linked-issue.json
+      - name: Validate linked Issue contract
+        run: |
+          node scripts/validate-issue.mjs --body /tmp/linked-issue.json
+          if jq -e '.labels | map(.name) | any(. == "status:invalid" or . == "needs:specification")' /tmp/linked-issue.json >/dev/null; then
+            echo "linked Issue has an invalid governance label" >&2
+            exit 1
+          fi
