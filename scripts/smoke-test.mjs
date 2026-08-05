@@ -83,6 +83,29 @@ function main() {
       if (!fs.existsSync(target)) fail(`bin target for "${name}" does not exist at ${target}`);
     }
 
+    // npm が node_modules/.bin に生成した launcher（Windows の .cmd shim を含む）を
+    // 実際に経由して実行し、bin ターゲットの存在確認だけでは検知できない shim の破損を防ぐ。
+    // "list" は未知の設定ファイルに対して decisive なエラーメッセージで終了するため、
+    // launcher が実際に CLI ロジックまで到達したことを判別できる。
+    const binDirectory = path.join(installDirectory, "node_modules", ".bin");
+    for (const name of expectedNames) {
+      const launcher = process.platform === "win32" ? path.join(binDirectory, `${name}.cmd`) : path.join(binDirectory, name);
+      if (!fs.existsSync(launcher)) fail(`npm did not generate a launcher for "${name}" at ${launcher}`);
+      console.log(`running ${name} list through its installed launcher...`);
+      const missingConfig = path.join(installDirectory, `${name}-missing.config.json`);
+      const launcherResult = spawnSync(launcher, ["list", "--config", missingConfig], {
+        cwd: installDirectory,
+        encoding: "utf8",
+        shell: process.platform === "win32",
+        timeout: 10_000,
+      });
+      if (launcherResult.error) fail(`launcher "${name}" failed to start: ${launcherResult.error.message}`);
+      if (launcherResult.status === 0) fail(`launcher "${name}" unexpectedly exited 0 against a missing configuration`);
+      if (!launcherResult.stderr.includes("ENOENT")) {
+        fail(`launcher "${name}" did not report the expected ENOENT for a missing configuration:\n${launcherResult.stderr}`);
+      }
+    }
+
     const primaryBin = binTargets.find((entry) => entry.name === "mottainai").target;
     const configPath = path.join(installDirectory, "mottainai.config.json");
 
