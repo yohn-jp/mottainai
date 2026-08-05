@@ -8,7 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import packageMetadata from "../package.json" with { type: "json" };
 import { collectDoctorReport, formatDoctorHuman } from "./commands/doctor.js";
-import { saveRawConfig } from "./config.js";
+import { resolveConfigPath, saveRawConfig } from "./config.js";
 import type { DoctorReport } from "./commands/doctor.js";
 
 export type InitScope = "personal" | "project";
@@ -27,12 +27,14 @@ export interface InitClientResult {
   available: boolean;
   registrationCommand: string;
   status: "not-requested" | "registered" | "already-registered" | "unavailable" | "failed";
+  timed_out?: boolean;
 }
 
 export interface InitHandshakeResult {
   ok: boolean;
   tools?: number;
   skipped?: boolean;
+  timed_out?: boolean;
   reason?: string;
 }
 
@@ -88,6 +90,7 @@ interface SanitizedArguments {
 }
 
 const KNOWN_COMMANDS = ["codegraph", "fff-mcp", "rg"] as const;
+const INIT_OPERATION_TIMEOUT_MS = 10_000;
 
 const COMMAND_PRESETS: Record<string, Record<string, unknown>> = {
   codegraph: { command: "codegraph", args: ["serve", "--mcp", "--path", "."] },
@@ -138,14 +141,28 @@ function parseArguments(args: string[]): InitArguments {
 }
 
 function commandPath(command: string, environment: NodeJS.ProcessEnv = process.env): string | undefined {
+  const extensions = process.platform === "win32"
+    ? Array.from(new Set([
+      "",
+      ".exe",
+      ".cmd",
+      ".bat",
+      ...(environment.PATHEXT ?? "")
+        .split(";")
+        .map((extension) => extension.trim())
+        .filter(Boolean),
+    ]))
+    : [""];
   for (const directory of (environment.PATH ?? "").split(path.delimiter).filter(Boolean)) {
-    const candidate = path.join(directory, command);
-    try {
-      if (fs.statSync(candidate).isFile() && (process.platform === "win32" || (fs.statSync(candidate).mode & 0o111) !== 0)) {
-        return candidate;
+    for (const extension of extensions) {
+      const candidate = path.join(directory, `${command}${extension}`);
+      try {
+        if (fs.statSync(candidate).isFile() && (process.platform === "win32" || (fs.statSync(candidate).mode & 0o111) !== 0)) {
+          return candidate;
+        }
+      } catch {
+        // 初期化中にPATHエントリが消える場合がある。
       }
-    } catch {
-      // PATH entries are user input and can disappear while initialization runs.
     }
   }
   return undefined;
@@ -176,7 +193,8 @@ function resolveWorkspace(explicit: string | undefined, cwd: string): string {
 }
 
 function resolveConfiguration(explicit: string | undefined, workspace: string, cwd: string): string {
-  return path.resolve(cwd, explicit ?? path.join(workspace, "mottainai.config.json"));
+  const resolutionCwd = explicit === undefined && process.env.MOTTAINAI_CONFIG === undefined ? workspace : cwd;
+  return resolveConfigPath(explicit, resolutionCwd);
 }
 
 function relativeWorkspace(configPath: string, workspace: string): string {
@@ -260,7 +278,8 @@ function importedRegistration(name: string, value: unknown): ImportedRegistratio
     : {
       transport: "streamableHttp",
       url,
-      ...(isRecord(value.auth) && value.auth.type === "oauth" && typeof value.auth.profile === "string"
+      ...(new URL(url).protocol === "https:"
+        && isRecord(value.auth) && value.auth.type === "oauth" && typeof value.auth.profile === "string"
         ? { auth: { type: "oauth", profile: value.auth.profile } }
         : {}),
     };
@@ -268,7 +287,7 @@ function importedRegistration(name: string, value: unknown): ImportedRegistratio
   if (capabilities !== undefined) imported.capabilities = capabilities;
   if (typeof value.enabled === "boolean") imported.enabled = value.enabled;
 
-  if (url !== undefined && isRecord(value.headersFromEnv)) {
+  if (url !== undefined && new URL(url).protocol === "https:" && isRecord(value.headersFromEnv)) {
     const headersFromEnv: Record<string, string> = {};
     for (const [header, environmentName] of Object.entries(value.headersFromEnv)) {
       if (typeof environmentName === "string" && safeEnvironmentName(environmentName)) {
@@ -301,20 +320,24 @@ function extractRegistrations(value: unknown): { servers: ImportedServer[]; warn
   return { servers, warnings };
 }
 
-function runClientList(client: InitClient): { output: string; commandAvailable: boolean } {
-  if (client === "none") return { output: "", commandAvailable: false };
+function runClientList(client: InitClient): { output: string; commandAvailable: boolean; timedOut: boolean } {
+  if (client === "none") return { output: "", commandAvailable: false, timedOut: false };
   const executable = commandPath(client);
-  if (executable === undefined) return { output: "", commandAvailable: false };
+  if (executable === undefined) return { output: "", commandAvailable: false, timedOut: false };
   for (const args of [["mcp", "list", "--json"], ["mcp", "list"]]) {
-    const result = spawnSync(executable, args, { encoding: "utf8" });
-    if (result.status === 0) return { output: result.stdout, commandAvailable: true };
+    const result = spawnSync(executable, args, { encoding: "utf8", timeout: INIT_OPERATION_TIMEOUT_MS });
+    if ((result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT") {
+      return { output: "", commandAvailable: true, timedOut: true };
+    }
+    if (result.status === 0) return { output: result.stdout, commandAvailable: true, timedOut: false };
   }
-  return { output: "", commandAvailable: true };
+  return { output: "", commandAvailable: true, timedOut: false };
 }
 
 function importClientServers(source: InitImportSource): { servers: ImportedServer[]; warnings: string[] } {
   if (source === "none") return { servers: [], warnings: [] };
   const listed = runClientList(source);
+  if (listed.timedOut) return { servers: [], warnings: [`${source} MCP list timed out`] };
   if (listed.output.trim() === "") {
     return { servers: [], warnings: [`${source} MCP registrations could not be read`] };
   }
@@ -398,20 +421,58 @@ function registrationArguments(client: InitClient, packageReference: string): st
   return [];
 }
 
-function clientAlreadyHasMottainai(client: InitClient): boolean {
+function clientAlreadyHasMottainai(client: InitClient): { alreadyRegistered: boolean; timedOut: boolean } {
   const listed = runClientList(client);
-  return listed.output.split(/\r?\n/).some((line) => /\bmottainai\b/.test(line));
+  return {
+    alreadyRegistered: listed.output.split(/\r?\n/).some((line) => /\bmottainai\b/.test(line)),
+    timedOut: listed.timedOut,
+  };
 }
 
 function registerClient(client: InitClient, packageReference: string, noRegister: boolean): InitClientResult {
   const command = registrationCommand(client, packageReference);
-  const available = client !== "none" && commandPath(client) !== undefined;
+  const executable = client === "none" ? undefined : commandPath(client);
+  const available = executable !== undefined;
   if (client === "none") return { name: client, available: false, registrationCommand: "", status: "not-requested" };
   if (noRegister) return { name: client, available, registrationCommand: command, status: "not-requested" };
-  if (!available) return { name: client, available: false, registrationCommand: command, status: "unavailable" };
-  if (clientAlreadyHasMottainai(client)) return { name: client, available: true, registrationCommand: command, status: "already-registered" };
-  const result = spawnSync(client, registrationArguments(client, packageReference), { encoding: "utf8" });
-  return { name: client, available: true, registrationCommand: command, status: result.status === 0 ? "registered" : "failed" };
+  if (executable === undefined) return { name: client, available: false, registrationCommand: command, status: "unavailable" };
+  const listed = clientAlreadyHasMottainai(client);
+  if (listed.alreadyRegistered) {
+    return {
+      name: client,
+      available: true,
+      registrationCommand: command,
+      status: "already-registered",
+      ...(listed.timedOut ? { timed_out: true } : {}),
+    };
+  }
+  const registrationExecutable = process.platform === "win32" ? executable : client;
+  const result = spawnSync(registrationExecutable, registrationArguments(client, packageReference), {
+    encoding: "utf8",
+    timeout: INIT_OPERATION_TIMEOUT_MS,
+  });
+  const timedOut = listed.timedOut || (result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT";
+  return {
+    name: client,
+    available: true,
+    registrationCommand: command,
+    status: result.status === 0 ? "registered" : "failed",
+    ...(timedOut ? { timed_out: true } : {}),
+  };
+}
+
+async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 async function chooseInteractive(
@@ -472,11 +533,12 @@ async function runMcpHandshake(configPath: string, workspace: string): Promise<I
     env: { ...process.env, MOTTAINAI_CONFIG: configPath },
   });
   try {
-    await client.connect(transport);
-    const tools = await client.listTools();
+    await withTimeout(client.connect(transport), INIT_OPERATION_TIMEOUT_MS, "MCP handshake timed out");
+    const tools = await withTimeout(client.listTools(), INIT_OPERATION_TIMEOUT_MS, "MCP handshake timed out");
     return { ok: true, tools: tools.tools.length };
   } catch (error) {
-    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+    const reason = error instanceof Error ? error.message : String(error);
+    return { ok: false, ...(reason === "MCP handshake timed out" ? { timed_out: true } : {}), reason };
   } finally {
     await client.close().catch(() => {});
   }
@@ -489,7 +551,7 @@ export async function runInit(options: InitRunOptions): Promise<InitSummary> {
   const outputTTY = options.stdoutIsTTY ?? process.stdout.isTTY === true;
   const interactive = inputTTY && outputTTY && !parsed.yes && !parsed.json;
   if (!interactive && !parsed.yes && !parsed.json) {
-    throw new Error('Interactive input is unavailable. Use "mottainai init --yes" or provide explicit options.');
+    throw new Error('interactive input is unavailable. Use "mottainai init --yes" or provide explicit options.');
   }
 
   const workspace = resolveWorkspace(parsed.workspace, cwd);
@@ -540,6 +602,7 @@ export async function runInit(options: InitRunOptions): Promise<InitSummary> {
   if (clientResults.some((result) => result.status === "unavailable")) warnings.push(`${client} command was not found; registration was not run`);
   if (clientResults.some((result) => result.status === "failed")) warnings.push(`${client} registration command failed`);
   if (clientResults.some((result) => result.status === "already-registered")) warnings.push(`${client} already has a mottainai registration; it was not replaced`);
+  if (clientResults.some((result) => result.timed_out === true)) warnings.push(`${client} command timed out; registration may be incomplete`);
 
   let doctor: DoctorReport | undefined;
   let handshake: InitHandshakeResult | undefined;
@@ -604,6 +667,6 @@ export function formatInitHuman(summary: InitSummary): string {
   if (summary.clients.some((client) => client.registrationCommand !== "")) {
     lines.push("", "Registration commands", ...summary.clients.map((client) => `  ${client.registrationCommand}`));
   }
-  if (!summary.dry_run) lines.push("", `Next step\n  npx -y mottainai@${packageMetadata.version} doctor`);
+  if (!summary.dry_run) lines.push("", `Next step\n  npx -y mottainai@${packageMetadata.version} doctor --config ${JSON.stringify(summary.configuration)}`);
   return lines.join("\n");
 }

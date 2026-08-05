@@ -24,8 +24,7 @@ if (args.length === 0) {
         "",
         "ENOENT: no such file or directory",
       ].join("\n");
-      if (process.stdin.isTTY === true && process.stdout.isTTY === true) console.log(message);
-      else console.error(message);
+      console.error(message);
     } else {
       console.error(error instanceof Error ? error.message : String(error));
     }

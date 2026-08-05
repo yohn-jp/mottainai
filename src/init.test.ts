@@ -4,19 +4,26 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { runInit } from "./init.js";
+import { formatInitHuman, runInit } from "./init.js";
 
 function temporaryWorkspace(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-init-test-"));
 }
 
 async function initialize(workspace: string, ...args: string[]) {
-  return runInit({
-    args: ["--yes", "--workspace", workspace, "--client", "none", "--no-doctor", ...args],
-    cwd: workspace,
-    stdinIsTTY: false,
-    stdoutIsTTY: false,
-  });
+  const previousConfig = process.env.MOTTAINAI_CONFIG;
+  delete process.env.MOTTAINAI_CONFIG;
+  try {
+    return await runInit({
+      args: ["--yes", "--workspace", workspace, "--client", "none", "--no-doctor", ...args],
+      cwd: workspace,
+      stdinIsTTY: false,
+      stdoutIsTTY: false,
+    });
+  } finally {
+    if (previousConfig === undefined) delete process.env.MOTTAINAI_CONFIG;
+    else process.env.MOTTAINAI_CONFIG = previousConfig;
+  }
 }
 
 test("init creates a portable empty v2 configuration with non-interactive defaults", async () => {
@@ -31,6 +38,59 @@ test("init creates a portable empty v2 configuration with non-interactive defaul
       gateway: { workspaceRoot: "." },
     });
   } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("init resolves explicit and MOTTAINAI_CONFIG paths with server precedence", async () => {
+  const workspace = temporaryWorkspace();
+  const environmentConfig = path.join(workspace, "environment.json");
+  const explicitConfig = path.join(workspace, "explicit.json");
+  const previousConfig = process.env.MOTTAINAI_CONFIG;
+  process.env.MOTTAINAI_CONFIG = environmentConfig;
+  try {
+    const runWithEnvironment = (args: string[]) => runInit({
+      args: ["--yes", "--workspace", workspace, "--client", "none", "--no-doctor", ...args],
+      cwd: workspace,
+      stdinIsTTY: false,
+      stdoutIsTTY: false,
+    });
+    const fromEnvironment = await runWithEnvironment(["--scope", "project"]);
+    assert.equal(fromEnvironment.configuration, environmentConfig);
+    assert.equal(fs.existsSync(environmentConfig), true);
+
+    const fromExplicit = await runWithEnvironment(["--scope", "project", "--config", explicitConfig]);
+    assert.equal(fromExplicit.configuration, explicitConfig);
+    assert.equal(fs.existsSync(explicitConfig), true);
+  } finally {
+    if (previousConfig === undefined) delete process.env.MOTTAINAI_CONFIG;
+    else process.env.MOTTAINAI_CONFIG = previousConfig;
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("init discovers Windows executables through fixed and PATHEXT extensions", async () => {
+  const workspace = temporaryWorkspace();
+  const bin = path.join(workspace, "bin");
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, "claude.cmd"), "");
+  fs.writeFileSync(path.join(bin, "codex.custom"), "");
+  const previousPath = process.env.PATH;
+  const previousPathExt = process.env.PATHEXT;
+  const previousPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+  process.env.PATH = `${bin}${path.delimiter}${previousPath ?? ""}`;
+  process.env.PATHEXT = ".CUSTOM";
+  Object.defineProperty(process, "platform", { configurable: true, value: "win32" });
+  try {
+    const summary = await initialize(workspace, "--scope", "project");
+    assert.deepEqual(summary.detected_clients, ["claude", "codex"]);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousPathExt === undefined) delete process.env.PATHEXT;
+    else process.env.PATHEXT = previousPathExt;
+    if (previousPlatform === undefined) delete (process as { platform?: string }).platform;
+    else Object.defineProperty(process, "platform", previousPlatform);
     fs.rmSync(workspace, { recursive: true, force: true });
   }
 });
@@ -84,7 +144,7 @@ test("init refuses to wait for input in a non-TTY without --yes", async () => {
   try {
     await assert.rejects(
       runInit({ args: ["--workspace", workspace], cwd: workspace, stdinIsTTY: false, stdoutIsTTY: false }),
-      /Interactive input is unavailable/,
+      /interactive input is unavailable/,
     );
     assert.equal(fs.existsSync(path.join(workspace, "mottainai.config.json")), false);
   } finally {
@@ -107,6 +167,12 @@ test("init import drops literal credentials from upstream registrations", async 
         url: "https://example.test/mcp",
         headersFromEnv: { Authorization: "literal-secret" },
       },
+      httpCredentials: {
+        transport: "streamableHttp",
+        url: "http://example.test/mcp",
+        auth: { type: "oauth", profile: "http" },
+        headersFromEnv: { Authorization: "HTTP_AUTH" },
+      },
     },
   });
   fs.writeFileSync(client, `#!/bin/sh\nprintf '%s' '${registrationOutput}'\n`, { mode: 0o755 });
@@ -114,7 +180,7 @@ test("init import drops literal credentials from upstream registrations", async 
   process.env.PATH = `${bin}${path.delimiter}${previousPath ?? ""}`;
   try {
     const summary = await runInit({
-      args: ["--yes", "--workspace", workspace, "--scope", "project", "--import", "claude", "--client", "none", "--no-doctor"],
+      args: ["--yes", "--workspace", workspace, "--config", path.join(workspace, "mottainai.config.json"), "--scope", "project", "--import", "claude", "--client", "none", "--no-doctor"],
       cwd: workspace,
       stdinIsTTY: false,
       stdoutIsTTY: false,
@@ -124,12 +190,60 @@ test("init import drops literal credentials from upstream registrations", async 
     assert.deepEqual(config.mcpServers.secretArgs, { command: "node", args: ["--safe"] });
     assert.equal("secretUrl" in config.mcpServers, false);
     assert.deepEqual(config.mcpServers.secretHeader, { transport: "streamableHttp", url: "https://example.test/mcp" });
+    assert.deepEqual(config.mcpServers.httpCredentials, { transport: "streamableHttp", url: "http://example.test/mcp" });
     assert.ok(summary.warnings.some((warning) => warning.includes("argument secrets")));
     assert.ok(summary.warnings.some((warning) => warning.includes("URL contains credentials")));
     assert.ok(summary.warnings.some((warning) => warning.includes("header secret")));
   } finally {
     if (previousPath === undefined) delete process.env.PATH;
     else process.env.PATH = previousPath;
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("init warns when an imported client listing times out", async () => {
+  const workspace = temporaryWorkspace();
+  const bin = path.join(workspace, "bin");
+  const client = path.join(bin, "claude");
+  fs.mkdirSync(bin);
+  fs.writeFileSync(client, `#!${process.execPath}\nsetInterval(() => {}, 1000);\n`, { mode: 0o755 });
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${previousPath ?? ""}`;
+  try {
+    const summary = await runInit({
+      args: [
+        "--yes",
+        "--workspace",
+        workspace,
+        "--config",
+        path.join(workspace, "mottainai.config.json"),
+        "--scope",
+        "project",
+        "--import",
+        "claude",
+        "--client",
+        "none",
+        "--no-doctor",
+      ],
+      cwd: workspace,
+      stdinIsTTY: false,
+      stdoutIsTTY: false,
+    });
+    assert.ok(summary.warnings.some((warning) => warning.includes("claude MCP list timed out")));
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("init human output points doctor at the generated configuration", async () => {
+  const workspace = temporaryWorkspace();
+  const configuration = path.join(workspace, "custom.json");
+  try {
+    const summary = await initialize(workspace, "--scope", "project", "--config", configuration);
+    assert.ok(formatInitHuman(summary).includes(`doctor --config ${JSON.stringify(configuration)}`));
+  } finally {
     fs.rmSync(workspace, { recursive: true, force: true });
   }
 });
