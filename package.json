@@ -1,19 +1,11 @@
 {
   "name": "mottainai",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "MCP proxy gateway: aggregates upstream MCP servers behind one endpoint and compresses their tool definitions and results before they reach the LLM.",
   "type": "module",
   "bin": {
-    "mottainai": "./dist/index.js",
-    "mtnai": "./dist/index.js"
-  },
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
+    "mottainai": "dist/index.js",
+    "mtnai": "dist/index.js"
   },
   "files": [
     "dist",
@@ -33,6 +25,7 @@
     "governance:branch": "node scripts/validate-branch-name.mjs",
     "governance:test": "node --test scripts/governance.test.mjs",
     "typecheck": "tsc --noEmit",
+    "smoke-test": "node scripts/smoke-test.mjs",
     "prepack": "pnpm run build",
     "prepublishOnly": "pnpm run typecheck && pnpm test"
   },

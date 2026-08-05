@@ -86,7 +86,7 @@ interface ImportedRegistrationResult {
 
 interface SanitizedArguments {
   args: string[];
-  redacted: boolean;
+  rejected: boolean;
 }
 
 interface ClientListResult {
@@ -243,30 +243,25 @@ function sensitiveArgument(value: string): boolean {
   return /(?:token|secret|password|passwd|api[-_]?key|authorization|cookie|credential)/i.test(value);
 }
 
+function containsSecret(argument: string): boolean {
+  return sensitiveArgument(argument) || /^Bearer\s+/i.test(argument) || /^(?:token|secret|password)=/i.test(argument);
+}
+
+/** 1個でも秘密値らしきトークンがあれば、その登録全体を拒否する（一部だけ落として壊れた引数列を残さない）。 */
 function sanitizeArguments(value: unknown): SanitizedArguments | undefined {
   const original = stringArray(value);
   if (original === undefined) return undefined;
-  const args: string[] = [];
-  let redacted = false;
-  for (let index = 0; index < original.length; index += 1) {
-    const argument = original[index];
-    if (!sensitiveArgument(argument) && !/^Bearer\s+/i.test(argument) && !/^(?:token|secret|password)=/i.test(argument)) {
-      args.push(argument);
-      continue;
-    }
-    redacted = true;
-    if (/^--?[a-z0-9_-]+$/.test(argument) && original[index + 1] !== undefined && !original[index + 1].startsWith("-")) index += 1;
-  }
-  return { args, redacted };
+  const rejected = original.some((argument) => containsSecret(argument));
+  return { args: rejected ? [] : original, rejected };
 }
 
 function safeRemoteUrl(value: string): boolean {
   try {
     const parsed = new URL(value);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
     if (parsed.username !== "" || parsed.password !== "") return false;
-    for (const key of parsed.searchParams.keys()) {
-      if (sensitiveArgument(key)) return false;
-    }
+    if (parsed.hash !== "") return false;
+    if (parsed.search !== "") return false;
     return true;
   } catch {
     return false;
@@ -279,12 +274,19 @@ function importedRegistration(name: string, value: unknown): ImportedRegistratio
   const command = typeof value.command === "string" ? value.command : undefined;
   if (url === undefined && command === undefined) return { warnings: [] };
   if (url !== undefined && !safeRemoteUrl(url)) {
-    return { warnings: [`${name} was not imported because its URL contains credentials`] };
+    return { warnings: [`${name} was not imported because its URL is not a plain http(s) URL without credentials or query/fragment data`] };
   }
 
   const sanitizedArguments = sanitizeArguments(value.args);
+  if (sanitizedArguments?.rejected === true) {
+    return { warnings: [`${name} was not imported because its arguments contain credentials`] };
+  }
+
   const warnings: string[] = [];
-  if (sanitizedArguments?.redacted === true) warnings.push(`${name} argument secrets were not copied`);
+  const isHttps = url !== undefined && new URL(url).protocol === "https:";
+  if (url !== undefined && !isHttps && (isRecord(value.auth) || isRecord(value.headersFromEnv))) {
+    warnings.push(`${name} auth/header configuration was not copied because its URL is not https`);
+  }
 
   const imported: Record<string, unknown> = url === undefined
     ? {
@@ -295,8 +297,7 @@ function importedRegistration(name: string, value: unknown): ImportedRegistratio
     : {
       transport: "streamableHttp",
       url,
-      ...(new URL(url).protocol === "https:"
-        && isRecord(value.auth) && value.auth.type === "oauth" && typeof value.auth.profile === "string"
+      ...(isHttps && isRecord(value.auth) && value.auth.type === "oauth" && typeof value.auth.profile === "string"
         ? { auth: { type: "oauth", profile: value.auth.profile } }
         : {}),
     };
@@ -304,7 +305,7 @@ function importedRegistration(name: string, value: unknown): ImportedRegistratio
   if (capabilities !== undefined) imported.capabilities = capabilities;
   if (typeof value.enabled === "boolean") imported.enabled = value.enabled;
 
-  if (url !== undefined && new URL(url).protocol === "https:" && isRecord(value.headersFromEnv)) {
+  if (isHttps && isRecord(value.headersFromEnv)) {
     const headersFromEnv: Record<string, string> = {};
     for (const [header, environmentName] of Object.entries(value.headersFromEnv)) {
       if (typeof environmentName === "string" && safeEnvironmentName(environmentName)) {
@@ -427,15 +428,26 @@ function backupPath(filePath: string): string {
   return `${filePath}.${Date.now()}.bak`;
 }
 
-function registrationCommand(client: InitClient, packageReference: string): string {
-  if (client === "claude") return `claude mcp add -s user mottainai -- npx -y ${packageReference}`;
-  if (client === "codex") return `codex mcp add mottainai -- npx -y ${packageReference}`;
+/** シェルへコピー&ペーストされる表示用コマンドなので、POSIX シングルクォート
+ * 規則で丸ごとエスケープする（シングルクォート内は ' 自身以外すべてリテラル
+ * になるため、$()・バッククォート・;・&・*・バックスラッシュ等を無害化できる）。
+ * 実際に spawn される registrationArguments は配列渡しのため対象外。 */
+function quoteForDisplay(value: string): string {
+  return /^[A-Za-z0-9_./:@%+=-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+/** 登録先クライアントの cwd は init 実行時の workspace と一致する保証がないため、
+ * 起動コマンドへ絶対パスの --config を明示し、cwd 依存の設定解決に頼らない。 */
+function registrationCommand(client: InitClient, packageReference: string, configuration: string): string {
+  const quotedConfiguration = quoteForDisplay(configuration);
+  if (client === "claude") return `claude mcp add -s user mottainai -- npx -y ${packageReference} serve --config ${quotedConfiguration}`;
+  if (client === "codex") return `codex mcp add mottainai -- npx -y ${packageReference} serve --config ${quotedConfiguration}`;
   return "";
 }
 
-function registrationArguments(client: InitClient, packageReference: string): string[] {
-  if (client === "claude") return ["mcp", "add", "-s", "user", "mottainai", "--", "npx", "-y", packageReference];
-  if (client === "codex") return ["mcp", "add", "mottainai", "--", "npx", "-y", packageReference];
+function registrationArguments(client: InitClient, packageReference: string, configuration: string): string[] {
+  if (client === "claude") return ["mcp", "add", "-s", "user", "mottainai", "--", "npx", "-y", packageReference, "serve", "--config", configuration];
+  if (client === "codex") return ["mcp", "add", "mottainai", "--", "npx", "-y", packageReference, "serve", "--config", configuration];
   return [];
 }
 
@@ -448,8 +460,8 @@ function clientAlreadyHasMottainai(client: InitClient): { alreadyRegistered: boo
   };
 }
 
-function registerClient(client: InitClient, packageReference: string, noRegister: boolean): InitClientResult {
-  const command = registrationCommand(client, packageReference);
+function registerClient(client: InitClient, packageReference: string, configuration: string, noRegister: boolean): InitClientResult {
+  const command = registrationCommand(client, packageReference, configuration);
   const executable = client === "none" ? undefined : commandPath(client);
   const available = executable !== undefined;
   if (client === "none") return { name: client, available: false, registrationCommand: "", status: "not-requested" };
@@ -474,7 +486,7 @@ function registerClient(client: InitClient, packageReference: string, noRegister
       ...(listed.timedOut ? { timed_out: true } : {}),
     };
   }
-  const result = spawnClientCommand(executable, registrationArguments(client, packageReference));
+  const result = spawnClientCommand(executable, registrationArguments(client, packageReference, configuration));
   const timedOut = listed.timedOut || (result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT";
   return {
     name: client,
@@ -624,7 +636,7 @@ export async function runInit(options: InitRunOptions): Promise<InitSummary> {
   const packageReference = parsed.latest ? "mottainai" : `mottainai@${packageMetadata.version}`;
   const clientResults = client === "none"
     ? []
-    : [registerClient(client, packageReference, parsed.noRegister || parsed.dryRun)];
+    : [registerClient(client, packageReference, configuration, parsed.noRegister || parsed.dryRun)];
   if (clientResults.some((result) => result.status === "unavailable")) warnings.push(`${client} command was not found; registration was not run`);
   if (clientResults.some((result) => result.status === "list-failed")) {
     const timedOut = clientResults.some((result) => result.status === "list-failed" && result.timed_out === true);
@@ -633,6 +645,9 @@ export async function runInit(options: InitRunOptions): Promise<InitSummary> {
   if (clientResults.some((result) => result.status === "failed")) warnings.push(`${client} registration command failed`);
   if (clientResults.some((result) => result.status === "already-registered")) warnings.push(`${client} already has a mottainai registration; it was not replaced`);
   if (clientResults.some((result) => result.status !== "list-failed" && result.timed_out === true)) warnings.push(`${client} command timed out; registration may be incomplete`);
+  const clientRegistrationFailed = clientResults.some(
+    (result) => result.status === "unavailable" || result.status === "list-failed" || result.status === "failed",
+  );
 
   let doctor: DoctorReport | undefined;
   let handshake: InitHandshakeResult | undefined;
@@ -646,7 +661,7 @@ export async function runInit(options: InitRunOptions): Promise<InitSummary> {
   }
 
   return {
-    ok: (doctor?.ok ?? true) && (handshake?.ok ?? true),
+    ok: (doctor?.ok ?? true) && (handshake?.ok ?? true) && !clientRegistrationFailed,
     workspace,
     configuration,
     scope,

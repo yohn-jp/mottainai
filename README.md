@@ -122,18 +122,22 @@ npx -y mottainai init --yes --no-register
 ```
 
 Register it with your MCP client. A user-level registration keeps personal
-configuration out of a shared project file:
+configuration out of a shared project file. The client may start the server
+from any working directory, so the registration command must point at the
+generated configuration with an absolute path:
 
 ```bash
-claude mcp add -s user mottainai -- npx -y mottainai@0.1.1
+claude mcp add -s user mottainai -- npx -y mottainai@0.1.2 serve --config /absolute/path/to/mottainai.config.json
 ```
 
-For Codex, register one global MCP without a fixed `cwd`. Mottainai then uses
-the client startup directory as the workspace:
+For Codex, register the same way:
 
 ```bash
-codex mcp add mottainai -- npx -y mottainai@0.1.1
+codex mcp add mottainai -- npx -y mottainai@0.1.2 serve --config /absolute/path/to/mottainai.config.json
 ```
+
+`mottainai init` prints the exact registration command for your detected
+client after writing the configuration.
 
 If you had upstream MCP servers (e.g. `codegraph`) registered directly with
 your client, remove the direct registration once they're behind the gateway,
