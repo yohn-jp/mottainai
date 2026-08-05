@@ -423,8 +423,7 @@ test("registration command neutralizes shell metacharacters in a configuration p
     const command = summary.clients[0]?.registrationCommand ?? "";
     const configArgument = command.slice(command.indexOf("--config ") + "--config ".length);
 
-    // 実際に POSIX shell へ引数として渡し、コマンド置換等を実行させずに元の
-    // configuration パスがそのまま1引数として復元されることを確認する。
+    // シェル展開による意図しないコマンド実行を防ぐため。
     const injectionCheckDirectory = temporaryWorkspace();
     try {
       const echoed = execFileSync("/bin/sh", ["-c", `printf '%s' ${configArgument}`], {
