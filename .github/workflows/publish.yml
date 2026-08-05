@@ -9,9 +9,8 @@ permissions:
   id-token: write
 
 jobs:
-  publish:
+  build:
     runs-on: ubuntu-latest
-    environment: npm
 
     steps:
       - name: Checkout
@@ -26,11 +25,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: "24"
-          registry-url: https://registry.npmjs.org
           package-manager-cache: false
-
-      - name: Require an OIDC-capable npm CLI
-        run: npm install --global npm@11.5.1
 
       - name: Install system dependencies
         run: |
@@ -49,9 +44,6 @@ jobs:
       - name: Build
         run: pnpm run build
 
-      - name: Verify package contents
-        run: npm pack --dry-run
-
       - name: Verify release version
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -62,6 +54,67 @@ jobs:
             echo "package.json version $package_version does not match tag $tag_version"
             exit 1
           fi
+
+      - name: Pack tarball
+        run: npm pack
+
+      - name: Upload tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: mottainai-tarball
+          path: mottainai-*.tgz
+          retention-days: 1
+
+  smoke-test:
+    needs: build
+    name: packed package smoke test (${{ matrix.os }}, Node ${{ matrix.node-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: ["22", "24"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Download tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: mottainai-tarball
+
+      - name: Smoke test packed tarball
+        run: node scripts/smoke-test.mjs --tarball "$(ls mottainai-*.tgz)"
+        shell: bash
+
+  publish:
+    needs: smoke-test
+    runs-on: ubuntu-latest
+    environment: npm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+
+      - name: Require an OIDC-capable npm CLI
+        run: npm install --global npm@11.5.1
+
+      - name: Download tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: mottainai-tarball
 
       - name: Check whether version is already published
         id: registry
@@ -75,4 +128,10 @@ jobs:
 
       - name: Publish
         if: steps.registry.outputs.published != 'true'
-        run: npm publish
+        run: |
+          set -o pipefail
+          npm publish "$(ls mottainai-*.tgz)" 2>&1 | tee publish.log
+          if grep -q "npm warn publish" publish.log; then
+            echo "npm emitted a publish warning; treating as failure"
+            exit 1
+          fi

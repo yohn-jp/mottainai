@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { formatInitHuman, runInit } from "./init.js";
 
 function temporaryWorkspace(): string {
@@ -152,7 +156,8 @@ test("init refuses to wait for input in a non-TTY without --yes", async () => {
   }
 });
 
-test("init import drops literal credentials from upstream registrations", async () => {
+/** unix shebang + 実行ビットで client を偽装するため、Windows では別スキップとする。 */
+test("init import drops literal credentials from upstream registrations", { skip: process.platform === "win32" }, async () => {
   const workspace = temporaryWorkspace();
   const binaryDirectory = path.join(workspace, "bin");
   fs.mkdirSync(binaryDirectory);
@@ -161,7 +166,11 @@ test("init import drops literal credentials from upstream registrations", async 
     mcpServers: {
       safe: { command: "node", args: ["--safe"] },
       secretArgs: { command: "node", args: ["--token", "literal-secret", "--safe"] },
+      secretHeaderArg: { command: "node", args: ["--header", "Authorization: Bearer literal-secret", "--safe"] },
       secretUrl: { transport: "streamableHttp", url: "https://example.test/mcp?token=literal-secret" },
+      obscureQueryUrl: { transport: "streamableHttp", url: "https://example.test/mcp?sig=literal-secret" },
+      fragmentUrl: { transport: "streamableHttp", url: "https://example.test/mcp#access_token=literal-secret" },
+      nonHttpUrl: { transport: "streamableHttp", url: "ftp://example.test/mcp" },
       secretHeader: {
         transport: "streamableHttp",
         url: "https://example.test/mcp",
@@ -193,8 +202,12 @@ test("init import drops literal credentials from upstream registrations", async 
     });
     const config = JSON.parse(fs.readFileSync(summary.configuration, "utf8")) as { mcpServers: Record<string, Record<string, unknown>> };
     assert.deepEqual(config.mcpServers.safe, { command: "node", args: ["--safe"] });
-    assert.deepEqual(config.mcpServers.secretArgs, { command: "node", args: ["--safe"] });
+    assert.equal("secretArgs" in config.mcpServers, false);
+    assert.equal("secretHeaderArg" in config.mcpServers, false);
     assert.equal("secretUrl" in config.mcpServers, false);
+    assert.equal("obscureQueryUrl" in config.mcpServers, false);
+    assert.equal("fragmentUrl" in config.mcpServers, false);
+    assert.equal("nonHttpUrl" in config.mcpServers, false);
     assert.deepEqual(config.mcpServers.secretHeader, { transport: "streamableHttp", url: "https://example.test/mcp" });
     assert.deepEqual(config.mcpServers.httpCredentials, { transport: "streamableHttp", url: "http://example.test/mcp" });
     assert.deepEqual(config.mcpServers.httpsCredentials, {
@@ -202,8 +215,12 @@ test("init import drops literal credentials from upstream registrations", async 
       url: "https://example.test/mcp",
       auth: { type: "oauth", profile: "https" },
     });
-    assert.ok(summary.warnings.some((warning) => warning.includes("argument secrets")));
-    assert.ok(summary.warnings.some((warning) => warning.includes("URL contains credentials")));
+    assert.ok(summary.warnings.some((warning) => warning.includes("secretArgs") && warning.includes("arguments contain credentials")));
+    assert.ok(summary.warnings.some((warning) => warning.includes("secretHeaderArg") && warning.includes("arguments contain credentials")));
+    assert.ok(summary.warnings.some((warning) => warning.includes("secretUrl") && warning.includes("not a plain http(s) URL")));
+    assert.ok(summary.warnings.some((warning) => warning.includes("obscureQueryUrl") && warning.includes("not a plain http(s) URL")));
+    assert.ok(summary.warnings.some((warning) => warning.includes("fragmentUrl") && warning.includes("not a plain http(s) URL")));
+    assert.ok(summary.warnings.some((warning) => warning.includes("nonHttpUrl") && warning.includes("not a plain http(s) URL")));
     assert.ok(summary.warnings.some((warning) => warning.includes("header secret")));
   } finally {
     if (previousPath === undefined) delete process.env.PATH;
@@ -212,7 +229,7 @@ test("init import drops literal credentials from upstream registrations", async 
   }
 });
 
-test("init does not register when a client listing fails", async () => {
+test("init does not register when a client listing fails", { skip: process.platform === "win32" }, async () => {
   const workspace = temporaryWorkspace();
   const binaryDirectory = path.join(workspace, "bin");
   const client = path.join(binaryDirectory, "claude");
@@ -247,6 +264,7 @@ test("init does not register when a client listing fails", async () => {
     assert.equal(summary.clients[0]?.status, "list-failed");
     assert.equal(fs.existsSync(registrationMarker), false);
     assert.ok(summary.warnings.some((warning) => warning.includes("MCP list failed")));
+    assert.equal(summary.ok, false);
   } finally {
     if (previousPath === undefined) delete process.env.PATH;
     else process.env.PATH = previousPath;
@@ -254,7 +272,51 @@ test("init does not register when a client listing fails", async () => {
   }
 });
 
-test("init warns when an imported client listing times out", async () => {
+test("init fails when an explicitly requested client binary is unavailable", async () => {
+  const workspace = temporaryWorkspace();
+  const emptyBinaryDirectory = path.join(workspace, "empty-bin");
+  fs.mkdirSync(emptyBinaryDirectory);
+  const previousPath = process.env.PATH;
+  process.env.PATH = emptyBinaryDirectory;
+  try {
+    const summary = await runInit({
+      args: [
+        "--yes",
+        "--workspace",
+        workspace,
+        "--config",
+        path.join(workspace, "mottainai.config.json"),
+        "--scope",
+        "project",
+        "--client",
+        "codex",
+        "--no-doctor",
+      ],
+      cwd: workspace,
+      stdinIsTTY: false,
+      stdoutIsTTY: false,
+    });
+    assert.equal(summary.clients[0]?.status, "unavailable");
+    assert.equal(summary.ok, false);
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("init does not fail when --client none is used", async () => {
+  const workspace = temporaryWorkspace();
+  try {
+    const summary = await initialize(workspace, "--scope", "project");
+    assert.deepEqual(summary.clients, []);
+    assert.equal(summary.ok, true);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("init warns when an imported client listing times out", { skip: process.platform === "win32" }, async () => {
   const workspace = temporaryWorkspace();
   const binaryDirectory = path.join(workspace, "bin");
   const client = path.join(binaryDirectory, "claude");
@@ -298,5 +360,68 @@ test("init human output points doctor at the generated configuration", async () 
     assert.ok(formatInitHuman(summary).includes(`doctor --config ${JSON.stringify(configuration)}`));
   } finally {
     fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("generated client registration command is self-sufficient regardless of MCP client cwd", { skip: process.platform === "win32" }, async () => {
+  const workspace = temporaryWorkspace();
+  const unrelatedCwd = temporaryWorkspace();
+  const binaryDirectory = path.join(workspace, "bin");
+  const argsMarker = path.join(workspace, "registration-args.json");
+  fs.mkdirSync(binaryDirectory);
+  const client = path.join(binaryDirectory, "claude");
+  // 実際に registerClient が組み立てた argv をそのまま捕捉する（テストが自前で argv を組み立てない）。
+  fs.writeFileSync(client, [
+    "#!/usr/bin/env node",
+    'const fs = require("node:fs");',
+    `fs.writeFileSync(${JSON.stringify(argsMarker)}, JSON.stringify(process.argv.slice(2)));`,
+  ].join("\n"), { mode: 0o755 });
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binaryDirectory}${path.delimiter}${previousPath ?? ""}`;
+  try {
+    const summary = await runInit({
+      args: ["--yes", "--workspace", workspace, "--config", path.join(workspace, "mottainai.config.json"), "--scope", "project", "--client", "claude", "--no-doctor"],
+      cwd: workspace,
+      stdinIsTTY: false,
+      stdoutIsTTY: false,
+    });
+    assert.equal(summary.clients[0]?.status, "registered");
+    const capturedArgs = JSON.parse(fs.readFileSync(argsMarker, "utf8")) as string[];
+    // capturedArgs: ["mcp", "add", "-s", "user", "mottainai", "--", "npx", "-y", "<pkgRef>", "serve", "--config", "<absPath>"]
+    const separatorIndex = capturedArgs.indexOf("--");
+    const registeredCommand = capturedArgs.slice(separatorIndex + 1);
+    assert.deepEqual(registeredCommand.slice(-2), ["--config", summary.configuration]);
+    assert.equal(registeredCommand[registeredCommand.length - 3], "serve");
+
+    // MCP クライアントは init を実行したディレクトリとは無関係な cwd からサーバーを起動しうる。
+    // npx 部分を除き、実際に捕捉した "serve --config <path>" をそのまま unrelated cwd から実行して検証する。
+    const servedArgs = registeredCommand.slice(registeredCommand.indexOf("serve"));
+    const publicCliPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "index.ts");
+    const tsxLoaderUrl = pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href;
+    const mcpClient = new Client({ name: "mottainai-registration-check", version: "0.0.0-test" }, { capabilities: {} });
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: ["--import", tsxLoaderUrl, publicCliPath, ...servedArgs],
+      cwd: unrelatedCwd,
+      env: (() => {
+        const environment: Record<string, string> = {};
+        for (const [key, value] of Object.entries(process.env)) {
+          if (key !== "MOTTAINAI_CONFIG" && value !== undefined) environment[key] = value;
+        }
+        return environment;
+      })(),
+    });
+    try {
+      await mcpClient.connect(transport);
+      const tools = await mcpClient.listTools();
+      assert.ok(Array.isArray(tools.tools));
+    } finally {
+      await mcpClient.close().catch(() => {});
+    }
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    fs.rmSync(workspace, { recursive: true, force: true });
+    fs.rmSync(unrelatedCwd, { recursive: true, force: true });
   }
 });
