@@ -192,6 +192,9 @@ export async function createUpstreamTransport(
         if (value === undefined) throw new Error(`upstream header environment missing: ${environmentName}`);
         return [header, value];
       }));
+    if (headers !== undefined && endpoint.protocol !== "https:") {
+      throw new Error(`credentialed upstream requires https: ${config.name}`);
+    }
     return new StreamableHTTPClientTransport(endpoint, {
       fetch: fetchWithoutRedirects,
       ...(headers === undefined ? {} : { requestInit: { headers } }),

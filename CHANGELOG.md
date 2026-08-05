@@ -16,7 +16,7 @@ in the Claude and Codex registration examples in `README.md` together.
 
 Nothing yet.
 
-## [0.1.1] - in development
+## 0.1.1 - in development
 
 ### Added
 
@@ -78,5 +78,4 @@ full history.
   with secret-key redaction, retention limits, and per-tool exclusion.
 
 [Unreleased]: https://github.com/yohn-jp/mottainai/compare/main...HEAD
-[0.1.1]: https://github.com/yohn-jp/mottainai/commits/main
 [0.1.0]: https://github.com/yohn-jp/mottainai/commits/main
