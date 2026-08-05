@@ -74,11 +74,11 @@ test("init discovers Windows executables through fixed and PATHEXT extensions", 
   const binaryDirectory = path.join(workspace, "bin");
   fs.mkdirSync(binaryDirectory);
   fs.writeFileSync(path.join(binaryDirectory, "claude.cmd"), "");
-  fs.writeFileSync(path.join(binaryDirectory, "codex.custom"), "");
+  fs.writeFileSync(path.join(binaryDirectory, "codex.CUSTOM"), "");
   const previousPath = process.env.PATH;
   const previousPathExtensions = process.env.PATHEXT;
   const previousPlatform = Object.getOwnPropertyDescriptor(process, "platform");
-  process.env.PATH = `${binaryDirectory}${path.delimiter}${previousPath ?? ""}`;
+  process.env.PATH = binaryDirectory;
   process.env.PATHEXT = ".CUSTOM";
   Object.defineProperty(process, "platform", { configurable: true, value: "win32" });
   try {
