@@ -7,8 +7,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
-const repoRoot = path.join(path.dirname(new URL(import.meta.url).pathname), "..");
+const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { encoding: "utf8", shell: process.platform === "win32", ...options });
