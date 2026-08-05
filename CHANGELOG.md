@@ -7,11 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once it
 reaches 1.0. Before 1.0, minor versions may include breaking changes.
 
 No version has been tagged or published yet — everything below is tracked
-under `Unreleased` against `package.json` version `0.1.0`.
+under `Unreleased` against `package.json` version `0.1.1`.
+
+When bumping the version, update `package.json` and the pinned package versions
+in the Claude and Codex registration examples in `README.md` together.
 
 ## [Unreleased]
 
 Nothing yet.
+
+## 0.1.1 - in development
+
+### Added
+
+- **Workspace initialization**: `mottainai init` creates a portable v2
+  configuration, supports non-interactive defaults, dry-run/JSON output,
+  personal Git exclusion, atomic writes, backups, and pinned client
+  registration commands. It runs `doctor` and a stdio MCP handshake after
+  writing the configuration.
+- **Safe stdio startup**: a missing configuration produces an initialization
+  hint without writing anything to MCP stdout.
 
 ## [0.1.0] - in development
 

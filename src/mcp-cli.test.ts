@@ -248,6 +248,9 @@ test("server entry points report configuration failures without an unhandled rej
     env: { ...process.env, MOTTAINAI_CONFIG: missingConfig },
   });
   assert.equal(server.status, 1);
+  assert.equal(server.stdout, "");
+  assert.match(server.stderr, /Mottainai configuration was not found/);
+  assert.match(server.stderr, /npx -y mottainai init/);
   assert.match(server.stderr, /ENOENT: no such file or directory/);
   assert.doesNotMatch(server.stderr, /UnhandledPromiseRejection/);
 
@@ -257,5 +260,20 @@ test("server entry points report configuration failures without an unhandled rej
   assert.equal(developmentServe.status, 1);
   assert.match(developmentServe.stderr, /missing value for --config/);
 
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test("public CLI init emits one JSON document and creates the workspace configuration", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-public-init-"));
+  const result = runPublic(directory, "init", "--yes", "--workspace", directory, "--scope", "project", "--client", "none", "--no-doctor", "--json");
+  assert.equal(result.status, 0);
+  assert.equal(result.stderr, "");
+  assert.equal(result.json.ok, true);
+  assert.equal(result.json.scope, "project");
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(directory, "config.json"), "utf8")), {
+    version: 2,
+    mcpServers: {},
+    gateway: { workspaceRoot: "." },
+  });
   fs.rmSync(directory, { recursive: true, force: true });
 });

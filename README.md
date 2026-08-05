@@ -101,24 +101,38 @@ Requires Node.js >= 22.13 and
 [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`) on `PATH` — used by
 `mottainai_search` and the `code.search` backend fallback.
 
-Run directly from npm:
+Initialize a workspace first. The initializer writes a portable v2
+configuration and keeps personal files out of the repository's Git index:
+
+```bash
+npx -y mottainai init
+```
+
+The bare command is the MCP stdio server entry point. It never starts an
+interactive wizard, because stdout is reserved for the MCP protocol:
 
 ```bash
 npx -y mottainai
+```
+
+For CI or other non-interactive environments, use safe defaults explicitly:
+
+```bash
+npx -y mottainai init --yes --no-register
 ```
 
 Register it with your MCP client. A user-level registration keeps personal
 configuration out of a shared project file:
 
 ```bash
-claude mcp add -s user mottainai -- npx -y mottainai
+claude mcp add -s user mottainai -- npx -y mottainai@0.1.1
 ```
 
 For Codex, register one global MCP without a fixed `cwd`. Mottainai then uses
 the client startup directory as the workspace:
 
 ```bash
-codex mcp add mottainai -- npx -y mottainai
+codex mcp add mottainai -- npx -y mottainai@0.1.1
 ```
 
 If you had upstream MCP servers (e.g. `codegraph`) registered directly with
@@ -132,8 +146,8 @@ claude mcp remove -s user codegraph
 ## Quick start
 
 ```bash
-# Create mottainai.config.json in the workspace and list the upstream MCP
-# servers you want.
+# Create mottainai.config.json in the workspace.
+npx -y mottainai init
 ```
 
 Minimal example:
@@ -168,6 +182,16 @@ Management commands use the same executable:
 npx -y mottainai list
 npx -y mottainai inspect codegraph
 ```
+
+Initialization options include `--workspace`, `--scope personal|project`,
+`--client claude|codex|none`, `--import claude|codex|none`, `--force`,
+`--dry-run`, `--json`, `--no-register`, and `--no-doctor`. The default client
+registration is pinned to the package version; use `--latest` only when
+following the latest npm release is intentional. Secrets are never copied
+into `mottainai.config.json`; remote authentication uses environment-variable
+names or an OAuth profile. After writing the file, `init` runs `doctor` and a
+stdio `initialize`/`tools/list` handshake; source checkouts without a built
+entry point report that handshake as skipped.
 
 Restart your MCP client (or reconnect) so it picks up the gateway. From here
 your client sees `codegraph__*` / `fff__*` tools, plus the gateway's own
