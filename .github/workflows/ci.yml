@@ -10,12 +10,11 @@ permissions:
 
 jobs:
   build-and-test:
-    name: install / typecheck / test / build (${{ matrix.os }}, Node ${{ matrix.node-version }})
-    runs-on: ${{ matrix.os }}
+    name: install / typecheck / test / build (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
         node-version: ["22", "24"]
 
     steps:
@@ -35,15 +34,10 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: pnpm
 
-      - name: Install system dependencies (Ubuntu)
-        if: runner.os == 'Linux'
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y ripgrep
-
-      - name: Install system dependencies (Windows)
-        if: runner.os == 'Windows'
-        run: choco install ripgrep -y
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -56,6 +50,40 @@ jobs:
 
       - name: Build
         run: pnpm run build
+
+  init-test-windows:
+    name: init.test.ts (Windows, Node ${{ matrix.node-version }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["22", "24"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # local-tools.test.ts などはユーザーのシェルコマンド（printf/sleep/yes 等）に
+      # 依存しており Windows 未対応のため、full suite ではなく init.test.ts のみを
+      # 対象にする（init --force の実ファイル操作を実プラットフォームで検証する目的）。
+      - name: Test (init.test.ts only)
+        run: node --import tsx --test src/init.test.ts
 
   smoke-test:
     name: packed package smoke test (${{ matrix.os }}, Node ${{ matrix.node-version }})
