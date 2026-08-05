@@ -9,6 +9,9 @@ reaches 1.0. Before 1.0, minor versions may include breaking changes.
 No version has been tagged or published yet — everything below is tracked
 under `Unreleased` against `package.json` version `0.1.1`.
 
+When bumping the version, update `package.json` and the pinned package versions
+in the Claude and Codex registration examples in `README.md` together.
+
 ## [Unreleased]
 
 Nothing yet.
@@ -75,4 +78,5 @@ full history.
   with secret-key redaction, retention limits, and per-tool exclusion.
 
 [Unreleased]: https://github.com/yohn-jp/mottainai/compare/main...HEAD
+[0.1.1]: https://github.com/yohn-jp/mottainai/commits/main
 [0.1.0]: https://github.com/yohn-jp/mottainai/commits/main

@@ -4,7 +4,7 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { UpstreamHandle } from "./upstream.js";
-import { connectUpstream, createUpstreamTransport, UpstreamRegistry } from "./upstream.js";
+import { connectUpstream, createUpstreamTransport, fetchWithoutRedirects, UpstreamRegistry } from "./upstream.js";
 
 function handle(name: string): UpstreamHandle {
   return { config: { name, command: "node" }, client: { close: async () => {} } as UpstreamHandle["client"], tools: [] };
@@ -27,6 +27,23 @@ test("transport factory preserves stdio and creates Streamable HTTP transports",
     }),
     /upstream header environment missing: MCP_MISSING_AUTH/,
   );
+});
+
+test("remote fetch rejects redirects before forwarding credential headers", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestInit: RequestInit | undefined;
+  globalThis.fetch = async (_url, init) => {
+    requestInit = init;
+    return new Response(null, { status: 204 });
+  };
+  try {
+    await fetchWithoutRedirects("https://mcp.example.test/mcp", {
+      headers: { Authorization: "secret" },
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(requestInit?.redirect, "error");
 });
 
 test("oauth remote resolves a broker endpoint without receiving a token", async () => {

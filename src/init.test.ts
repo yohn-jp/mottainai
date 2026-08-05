@@ -71,14 +71,14 @@ test("init resolves explicit and MOTTAINAI_CONFIG paths with server precedence",
 
 test("init discovers Windows executables through fixed and PATHEXT extensions", async () => {
   const workspace = temporaryWorkspace();
-  const bin = path.join(workspace, "bin");
-  fs.mkdirSync(bin);
-  fs.writeFileSync(path.join(bin, "claude.cmd"), "");
-  fs.writeFileSync(path.join(bin, "codex.custom"), "");
+  const binaryDirectory = path.join(workspace, "bin");
+  fs.mkdirSync(binaryDirectory);
+  fs.writeFileSync(path.join(binaryDirectory, "claude.cmd"), "");
+  fs.writeFileSync(path.join(binaryDirectory, "codex.custom"), "");
   const previousPath = process.env.PATH;
-  const previousPathExt = process.env.PATHEXT;
+  const previousPathExtensions = process.env.PATHEXT;
   const previousPlatform = Object.getOwnPropertyDescriptor(process, "platform");
-  process.env.PATH = `${bin}${path.delimiter}${previousPath ?? ""}`;
+  process.env.PATH = `${binaryDirectory}${path.delimiter}${previousPath ?? ""}`;
   process.env.PATHEXT = ".CUSTOM";
   Object.defineProperty(process, "platform", { configurable: true, value: "win32" });
   try {
@@ -87,8 +87,8 @@ test("init discovers Windows executables through fixed and PATHEXT extensions", 
   } finally {
     if (previousPath === undefined) delete process.env.PATH;
     else process.env.PATH = previousPath;
-    if (previousPathExt === undefined) delete process.env.PATHEXT;
-    else process.env.PATHEXT = previousPathExt;
+    if (previousPathExtensions === undefined) delete process.env.PATHEXT;
+    else process.env.PATHEXT = previousPathExtensions;
     if (previousPlatform === undefined) delete (process as { platform?: string }).platform;
     else Object.defineProperty(process, "platform", previousPlatform);
     fs.rmSync(workspace, { recursive: true, force: true });
@@ -154,9 +154,9 @@ test("init refuses to wait for input in a non-TTY without --yes", async () => {
 
 test("init import drops literal credentials from upstream registrations", async () => {
   const workspace = temporaryWorkspace();
-  const bin = path.join(workspace, "bin");
-  fs.mkdirSync(bin);
-  const client = path.join(bin, "claude");
+  const binaryDirectory = path.join(workspace, "bin");
+  fs.mkdirSync(binaryDirectory);
+  const client = path.join(binaryDirectory, "claude");
   const registrationOutput = JSON.stringify({
     mcpServers: {
       safe: { command: "node", args: ["--safe"] },
@@ -173,11 +173,17 @@ test("init import drops literal credentials from upstream registrations", async 
         auth: { type: "oauth", profile: "http" },
         headersFromEnv: { Authorization: "HTTP_AUTH" },
       },
+      httpsCredentials: {
+        transport: "streamableHttp",
+        url: "https://example.test/mcp",
+        auth: { type: "oauth", profile: "https" },
+        headersFromEnv: { Authorization: "literal-secret" },
+      },
     },
   });
   fs.writeFileSync(client, `#!/bin/sh\nprintf '%s' '${registrationOutput}'\n`, { mode: 0o755 });
   const previousPath = process.env.PATH;
-  process.env.PATH = `${bin}${path.delimiter}${previousPath ?? ""}`;
+  process.env.PATH = `${binaryDirectory}${path.delimiter}${previousPath ?? ""}`;
   try {
     const summary = await runInit({
       args: ["--yes", "--workspace", workspace, "--config", path.join(workspace, "mottainai.config.json"), "--scope", "project", "--import", "claude", "--client", "none", "--no-doctor"],
@@ -191,6 +197,11 @@ test("init import drops literal credentials from upstream registrations", async 
     assert.equal("secretUrl" in config.mcpServers, false);
     assert.deepEqual(config.mcpServers.secretHeader, { transport: "streamableHttp", url: "https://example.test/mcp" });
     assert.deepEqual(config.mcpServers.httpCredentials, { transport: "streamableHttp", url: "http://example.test/mcp" });
+    assert.deepEqual(config.mcpServers.httpsCredentials, {
+      transport: "streamableHttp",
+      url: "https://example.test/mcp",
+      auth: { type: "oauth", profile: "https" },
+    });
     assert.ok(summary.warnings.some((warning) => warning.includes("argument secrets")));
     assert.ok(summary.warnings.some((warning) => warning.includes("URL contains credentials")));
     assert.ok(summary.warnings.some((warning) => warning.includes("header secret")));
@@ -201,14 +212,56 @@ test("init import drops literal credentials from upstream registrations", async 
   }
 });
 
+test("init does not register when a client listing fails", async () => {
+  const workspace = temporaryWorkspace();
+  const binaryDirectory = path.join(workspace, "bin");
+  const client = path.join(binaryDirectory, "claude");
+  const registrationMarker = path.join(workspace, "registered");
+  fs.mkdirSync(binaryDirectory);
+  fs.writeFileSync(client, [
+    "#!/usr/bin/env node",
+    'const fs = require("node:fs");',
+    'if (process.argv[2] === "mcp" && process.argv[3] === "list") process.exit(1);',
+    `fs.writeFileSync(${JSON.stringify(registrationMarker)}, "registered");`,
+  ].join("\n"), { mode: 0o755 });
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${binaryDirectory}${path.delimiter}${previousPath ?? ""}`;
+  try {
+    const summary = await runInit({
+      args: [
+        "--yes",
+        "--workspace",
+        workspace,
+        "--config",
+        path.join(workspace, "mottainai.config.json"),
+        "--scope",
+        "project",
+        "--client",
+        "claude",
+        "--no-doctor",
+      ],
+      cwd: workspace,
+      stdinIsTTY: false,
+      stdoutIsTTY: false,
+    });
+    assert.equal(summary.clients[0]?.status, "list-failed");
+    assert.equal(fs.existsSync(registrationMarker), false);
+    assert.ok(summary.warnings.some((warning) => warning.includes("MCP list failed")));
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 test("init warns when an imported client listing times out", async () => {
   const workspace = temporaryWorkspace();
-  const bin = path.join(workspace, "bin");
-  const client = path.join(bin, "claude");
-  fs.mkdirSync(bin);
+  const binaryDirectory = path.join(workspace, "bin");
+  const client = path.join(binaryDirectory, "claude");
+  fs.mkdirSync(binaryDirectory);
   fs.writeFileSync(client, `#!${process.execPath}\nsetInterval(() => {}, 1000);\n`, { mode: 0o755 });
   const previousPath = process.env.PATH;
-  process.env.PATH = `${bin}${path.delimiter}${previousPath ?? ""}`;
+  process.env.PATH = `${binaryDirectory}${path.delimiter}${previousPath ?? ""}`;
   try {
     const summary = await runInit({
       args: [

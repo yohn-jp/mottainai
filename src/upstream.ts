@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import type { FetchLike, Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { resolveBrokerEndpoint } from "./auth.js";
 import type { OAuthCredentialProvider } from "./auth.js";
@@ -43,6 +43,10 @@ export type UpstreamConnector = (config: UpstreamConfig) => Promise<UpstreamHand
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+export const fetchWithoutRedirects: FetchLike = (url, init) => {
+  return globalThis.fetch(url, { ...init, redirect: "error" });
+};
 
 /** upstream は必要な時だけ接続し、失敗を他 upstream から分離する。 */
 export class UpstreamRegistry {
@@ -188,8 +192,9 @@ export async function createUpstreamTransport(
         if (value === undefined) throw new Error(`upstream header environment missing: ${environmentName}`);
         return [header, value];
       }));
-    return new StreamableHTTPClientTransport(endpoint, headers === undefined ? undefined : {
-      requestInit: { headers },
+    return new StreamableHTTPClientTransport(endpoint, {
+      fetch: fetchWithoutRedirects,
+      ...(headers === undefined ? {} : { requestInit: { headers } }),
     });
   }
   if (config.command === undefined) throw new Error(`upstream command missing: ${config.name}`);

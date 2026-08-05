@@ -26,7 +26,7 @@ export interface InitClientResult {
   name: InitClient;
   available: boolean;
   registrationCommand: string;
-  status: "not-requested" | "registered" | "already-registered" | "unavailable" | "failed";
+  status: "not-requested" | "registered" | "already-registered" | "unavailable" | "list-failed" | "failed";
   timed_out?: boolean;
 }
 
@@ -87,6 +87,13 @@ interface ImportedRegistrationResult {
 interface SanitizedArguments {
   args: string[];
   redacted: boolean;
+}
+
+interface ClientListResult {
+  output: string;
+  commandAvailable: boolean;
+  successful: boolean;
+  timedOut: boolean;
 }
 
 const KNOWN_COMMANDS = ["codegraph", "fff-mcp", "rg"] as const;
@@ -166,6 +173,16 @@ function commandPath(command: string, environment: NodeJS.ProcessEnv = process.e
     }
   }
   return undefined;
+}
+
+function spawnClientCommand(executable: string, args: string[]) {
+  const batchFile = process.platform === "win32" && /\.(?:cmd|bat)$/i.test(executable);
+  const command = batchFile ? (process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe") : executable;
+  const commandArguments = batchFile ? ["/d", "/s", "/c", executable, ...args] : args;
+  return spawnSync(command, commandArguments, {
+    encoding: "utf8",
+    timeout: INIT_OPERATION_TIMEOUT_MS,
+  });
 }
 
 function detectClients(): InitClient[] {
@@ -320,24 +337,25 @@ function extractRegistrations(value: unknown): { servers: ImportedServer[]; warn
   return { servers, warnings };
 }
 
-function runClientList(client: InitClient): { output: string; commandAvailable: boolean; timedOut: boolean } {
-  if (client === "none") return { output: "", commandAvailable: false, timedOut: false };
+function runClientList(client: InitClient): ClientListResult {
+  if (client === "none") return { output: "", commandAvailable: false, successful: false, timedOut: false };
   const executable = commandPath(client);
-  if (executable === undefined) return { output: "", commandAvailable: false, timedOut: false };
+  if (executable === undefined) return { output: "", commandAvailable: false, successful: false, timedOut: false };
   for (const args of [["mcp", "list", "--json"], ["mcp", "list"]]) {
-    const result = spawnSync(executable, args, { encoding: "utf8", timeout: INIT_OPERATION_TIMEOUT_MS });
+    const result = spawnClientCommand(executable, args);
     if ((result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT") {
-      return { output: "", commandAvailable: true, timedOut: true };
+      return { output: "", commandAvailable: true, successful: false, timedOut: true };
     }
-    if (result.status === 0) return { output: result.stdout, commandAvailable: true, timedOut: false };
+    if (result.status === 0) return { output: result.stdout, commandAvailable: true, successful: true, timedOut: false };
   }
-  return { output: "", commandAvailable: true, timedOut: false };
+  return { output: "", commandAvailable: true, successful: false, timedOut: false };
 }
 
 function importClientServers(source: InitImportSource): { servers: ImportedServer[]; warnings: string[] } {
   if (source === "none") return { servers: [], warnings: [] };
   const listed = runClientList(source);
   if (listed.timedOut) return { servers: [], warnings: [`${source} MCP list timed out`] };
+  if (!listed.successful) return { servers: [], warnings: [`${source} MCP list failed; no registration copied`] };
   if (listed.output.trim() === "") {
     return { servers: [], warnings: [`${source} MCP registrations could not be read`] };
   }
@@ -421,10 +439,11 @@ function registrationArguments(client: InitClient, packageReference: string): st
   return [];
 }
 
-function clientAlreadyHasMottainai(client: InitClient): { alreadyRegistered: boolean; timedOut: boolean } {
+function clientAlreadyHasMottainai(client: InitClient): { alreadyRegistered: boolean; successful: boolean; timedOut: boolean } {
   const listed = runClientList(client);
   return {
-    alreadyRegistered: listed.output.split(/\r?\n/).some((line) => /\bmottainai\b/.test(line)),
+    alreadyRegistered: listed.successful && listed.output.split(/\r?\n/).some((line) => /\bmottainai\b/.test(line)),
+    successful: listed.successful,
     timedOut: listed.timedOut,
   };
 }
@@ -437,6 +456,15 @@ function registerClient(client: InitClient, packageReference: string, noRegister
   if (noRegister) return { name: client, available, registrationCommand: command, status: "not-requested" };
   if (executable === undefined) return { name: client, available: false, registrationCommand: command, status: "unavailable" };
   const listed = clientAlreadyHasMottainai(client);
+  if (!listed.successful) {
+    return {
+      name: client,
+      available: true,
+      registrationCommand: command,
+      status: "list-failed",
+      ...(listed.timedOut ? { timed_out: true } : {}),
+    };
+  }
   if (listed.alreadyRegistered) {
     return {
       name: client,
@@ -446,11 +474,7 @@ function registerClient(client: InitClient, packageReference: string, noRegister
       ...(listed.timedOut ? { timed_out: true } : {}),
     };
   }
-  const registrationExecutable = process.platform === "win32" ? executable : client;
-  const result = spawnSync(registrationExecutable, registrationArguments(client, packageReference), {
-    encoding: "utf8",
-    timeout: INIT_OPERATION_TIMEOUT_MS,
-  });
+  const result = spawnClientCommand(executable, registrationArguments(client, packageReference));
   const timedOut = listed.timedOut || (result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT";
   return {
     name: client,
@@ -533,8 +557,10 @@ async function runMcpHandshake(configPath: string, workspace: string): Promise<I
     env: { ...process.env, MOTTAINAI_CONFIG: configPath },
   });
   try {
-    await withTimeout(client.connect(transport), INIT_OPERATION_TIMEOUT_MS, "MCP handshake timed out");
-    const tools = await withTimeout(client.listTools(), INIT_OPERATION_TIMEOUT_MS, "MCP handshake timed out");
+    const tools = await withTimeout((async () => {
+      await client.connect(transport);
+      return client.listTools();
+    })(), INIT_OPERATION_TIMEOUT_MS, "MCP handshake timed out");
     return { ok: true, tools: tools.tools.length };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
@@ -600,9 +626,13 @@ export async function runInit(options: InitRunOptions): Promise<InitSummary> {
     ? []
     : [registerClient(client, packageReference, parsed.noRegister || parsed.dryRun)];
   if (clientResults.some((result) => result.status === "unavailable")) warnings.push(`${client} command was not found; registration was not run`);
+  if (clientResults.some((result) => result.status === "list-failed")) {
+    const timedOut = clientResults.some((result) => result.status === "list-failed" && result.timed_out === true);
+    warnings.push(`${client} MCP list ${timedOut ? "timed out" : "failed"}; registration was not run`);
+  }
   if (clientResults.some((result) => result.status === "failed")) warnings.push(`${client} registration command failed`);
   if (clientResults.some((result) => result.status === "already-registered")) warnings.push(`${client} already has a mottainai registration; it was not replaced`);
-  if (clientResults.some((result) => result.timed_out === true)) warnings.push(`${client} command timed out; registration may be incomplete`);
+  if (clientResults.some((result) => result.status !== "list-failed" && result.timed_out === true)) warnings.push(`${client} command timed out; registration may be incomplete`);
 
   let doctor: DoctorReport | undefined;
   let handshake: InitHandshakeResult | undefined;
