@@ -390,7 +390,53 @@ test("registration command quotes a configuration path that contains whitespace"
       stdoutIsTTY: false,
     });
     assert.ok(summary.configuration.includes(" "), "test fixture path must contain a space");
-    assert.equal(summary.clients[0]?.registrationCommand.includes(`"${summary.configuration}"`), true);
+    assert.equal(summary.clients[0]?.registrationCommand.includes(`'${summary.configuration}'`), true);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+/** テスト用ディレクトリ名に `*` などの Windows で使用不可な文字を含むため、Windows ではスキップする。 */
+test("registration command neutralizes shell metacharacters in a configuration path", { skip: process.platform === "win32" }, async () => {
+  const workspace = temporaryWorkspace();
+  const hostileWorkspace = path.join(workspace, "a'b$(touch pwned)c`touch pwned2`d;e&f*g");
+  fs.mkdirSync(hostileWorkspace);
+  try {
+    const summary = await runInit({
+      args: [
+        "--yes",
+        "--workspace",
+        hostileWorkspace,
+        "--config",
+        path.join(hostileWorkspace, "mottainai.config.json"),
+        "--scope",
+        "project",
+        "--client",
+        "claude",
+        "--no-doctor",
+        "--dry-run",
+      ],
+      cwd: hostileWorkspace,
+      stdinIsTTY: false,
+      stdoutIsTTY: false,
+    });
+    const command = summary.clients[0]?.registrationCommand ?? "";
+    const configArgument = command.slice(command.indexOf("--config ") + "--config ".length);
+
+    // 実際に POSIX shell へ引数として渡し、コマンド置換等を実行させずに元の
+    // configuration パスがそのまま1引数として復元されることを確認する。
+    const injectionCheckDirectory = temporaryWorkspace();
+    try {
+      const echoed = execFileSync("/bin/sh", ["-c", `printf '%s' ${configArgument}`], {
+        encoding: "utf8",
+        cwd: injectionCheckDirectory,
+      });
+      assert.equal(echoed, summary.configuration);
+      assert.equal(fs.existsSync(path.join(injectionCheckDirectory, "pwned")), false);
+      assert.equal(fs.existsSync(path.join(injectionCheckDirectory, "pwned2")), false);
+    } finally {
+      fs.rmSync(injectionCheckDirectory, { recursive: true, force: true });
+    }
   } finally {
     fs.rmSync(workspace, { recursive: true, force: true });
   }

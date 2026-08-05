@@ -428,10 +428,12 @@ function backupPath(filePath: string): string {
   return `${filePath}.${Date.now()}.bak`;
 }
 
-/** シェルへコピー&ペーストされる表示用コマンドなので、空白や引用符を含むパスは
- * クォートする。実際に spawn される registrationArguments は配列渡しのため対象外。 */
+/** シェルへコピー&ペーストされる表示用コマンドなので、POSIX シングルクォート
+ * 規則で丸ごとエスケープする（シングルクォート内は ' 自身以外すべてリテラル
+ * になるため、$()・バッククォート・;・&・*・バックスラッシュ等を無害化できる）。
+ * 実際に spawn される registrationArguments は配列渡しのため対象外。 */
 function quoteForDisplay(value: string): string {
-  return /[\s"]/.test(value) ? `"${value.replace(/"/g, '\\"')}"` : value;
+  return /^[A-Za-z0-9_./:@%+=-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 /** 登録先クライアントの cwd は init 実行時の workspace と一致する保証がないため、
