@@ -6,9 +6,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/) once it
 reaches 1.0. Before 1.0, minor versions may include breaking changes.
 
-No version has been tagged or published yet — everything below is tracked
-under `Unreleased` against `package.json` version `0.1.1`.
-
 When bumping the version, update `package.json` and the pinned package versions
 in the Claude and Codex registration examples in `README.md` together.
 
@@ -16,7 +13,7 @@ in the Claude and Codex registration examples in `README.md` together.
 
 Nothing yet.
 
-## 0.1.1 - in development
+## [0.1.1] - 2026-08-05
 
 ### Added
 
@@ -28,11 +25,11 @@ Nothing yet.
 - **Safe stdio startup**: a missing configuration produces an initialization
   hint without writing anything to MCP stdout.
 
-## [0.1.0] - in development
+## [0.1.0] - 2026-08-05
 
-Initial feature set, developed incrementally on `main` (no tagged releases
-yet). Summarized by capability rather than by commit — see `git log` for
-full history.
+Initial feature set, developed incrementally on `main` prior to the first
+tagged release. Summarized by capability rather than by commit — see `git
+log` for full history.
 
 ### Added
 
@@ -77,5 +74,6 @@ full history.
 - Raw-data logging of upstream requests/responses to `.mottainai/log/*.jsonl`
   with secret-key redaction, retention limits, and per-tool exclusion.
 
-[Unreleased]: https://github.com/yohn-jp/mottainai/compare/main...HEAD
-[0.1.0]: https://github.com/yohn-jp/mottainai/commits/main
+[Unreleased]: https://github.com/yohn-jp/mottainai/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/yohn-jp/mottainai/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/yohn-jp/mottainai/releases/tag/v0.1.0
