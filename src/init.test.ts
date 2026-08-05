@@ -166,6 +166,7 @@ test("init import drops literal credentials from upstream registrations", { skip
     mcpServers: {
       safe: { command: "node", args: ["--safe"] },
       secretArgs: { command: "node", args: ["--token", "literal-secret", "--safe"] },
+      secretArgsEquals: { command: "node", args: ["--token=literal-secret", "--safe"] },
       secretHeaderArg: { command: "node", args: ["--header", "Authorization: Bearer literal-secret", "--safe"] },
       secretUrl: { transport: "streamableHttp", url: "https://example.test/mcp?token=literal-secret" },
       obscureQueryUrl: { transport: "streamableHttp", url: "https://example.test/mcp?sig=literal-secret" },
@@ -203,6 +204,7 @@ test("init import drops literal credentials from upstream registrations", { skip
     const config = JSON.parse(fs.readFileSync(summary.configuration, "utf8")) as { mcpServers: Record<string, Record<string, unknown>> };
     assert.deepEqual(config.mcpServers.safe, { command: "node", args: ["--safe"] });
     assert.equal("secretArgs" in config.mcpServers, false);
+    assert.equal("secretArgsEquals" in config.mcpServers, false);
     assert.equal("secretHeaderArg" in config.mcpServers, false);
     assert.equal("secretUrl" in config.mcpServers, false);
     assert.equal("obscureQueryUrl" in config.mcpServers, false);
@@ -216,6 +218,7 @@ test("init import drops literal credentials from upstream registrations", { skip
       auth: { type: "oauth", profile: "https" },
     });
     assert.ok(summary.warnings.some((warning) => warning.includes("secretArgs") && warning.includes("arguments contain credentials")));
+    assert.ok(summary.warnings.some((warning) => warning === "secretArgsEquals was not imported because its arguments contain credentials"));
     assert.ok(summary.warnings.some((warning) => warning.includes("secretHeaderArg") && warning.includes("arguments contain credentials")));
     assert.ok(summary.warnings.some((warning) => warning.includes("secretUrl") && warning.includes("not a plain http(s) URL")));
     assert.ok(summary.warnings.some((warning) => warning.includes("obscureQueryUrl") && warning.includes("not a plain http(s) URL")));
@@ -358,6 +361,36 @@ test("init human output points doctor at the generated configuration", async () 
   try {
     const summary = await initialize(workspace, "--scope", "project", "--config", configuration);
     assert.ok(formatInitHuman(summary).includes(`doctor --config ${JSON.stringify(configuration)}`));
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("registration command quotes a configuration path that contains whitespace", async () => {
+  const workspace = temporaryWorkspace();
+  const spacedWorkspace = path.join(workspace, "path with space");
+  fs.mkdirSync(spacedWorkspace);
+  try {
+    const summary = await runInit({
+      args: [
+        "--yes",
+        "--workspace",
+        spacedWorkspace,
+        "--config",
+        path.join(spacedWorkspace, "mottainai.config.json"),
+        "--scope",
+        "project",
+        "--client",
+        "claude",
+        "--no-doctor",
+        "--dry-run",
+      ],
+      cwd: spacedWorkspace,
+      stdinIsTTY: false,
+      stdoutIsTTY: false,
+    });
+    assert.ok(summary.configuration.includes(" "), "test fixture path must contain a space");
+    assert.equal(summary.clients[0]?.registrationCommand.includes(`"${summary.configuration}"`), true);
   } finally {
     fs.rmSync(workspace, { recursive: true, force: true });
   }

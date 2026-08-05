@@ -13,7 +13,7 @@ in the Claude and Codex registration examples in `README.md` together.
 
 Nothing yet.
 
-## [0.1.2] - 2026-08-05
+## [0.1.2] - 2026-08-06
 
 Distribution and initialization hardening release. Not a fix for the
 0.1.0/0.1.1 `npx` execution reports — those turned out to be a packed-package
@@ -35,6 +35,12 @@ verification gap (see below), not a broken published package.
   registration command itself fails. Previously these were warnings only,
   and the exit code depended solely on `doctor`/the internal handshake.
   `--client none` and `--no-register`/`--dry-run` are unaffected.
+- **Registration command display no longer breaks on paths with spaces**:
+  the `--config <path>` printed/JSON registration command now quotes the
+  path when it contains whitespace or double quotes. The actual
+  registration process was unaffected (it spawns the client with an argv
+  array, not a shell string); only the copy-pasteable string shown to the
+  user was broken for such paths.
 - **Secret sanitization on `init --import` is deny-by-default**: URLs are
   now rejected unless they are a plain `http:`/`https:` URL with no
   userinfo, query string, or fragment (previously only known credential-like

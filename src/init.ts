@@ -428,11 +428,18 @@ function backupPath(filePath: string): string {
   return `${filePath}.${Date.now()}.bak`;
 }
 
+/** シェルへコピー&ペーストされる表示用コマンドなので、空白や引用符を含むパスは
+ * クォートする。実際に spawn される registrationArguments は配列渡しのため対象外。 */
+function quoteForDisplay(value: string): string {
+  return /[\s"]/.test(value) ? `"${value.replace(/"/g, '\\"')}"` : value;
+}
+
 /** 登録先クライアントの cwd は init 実行時の workspace と一致する保証がないため、
  * 起動コマンドへ絶対パスの --config を明示し、cwd 依存の設定解決に頼らない。 */
 function registrationCommand(client: InitClient, packageReference: string, configuration: string): string {
-  if (client === "claude") return `claude mcp add -s user mottainai -- npx -y ${packageReference} serve --config ${configuration}`;
-  if (client === "codex") return `codex mcp add mottainai -- npx -y ${packageReference} serve --config ${configuration}`;
+  const quotedConfiguration = quoteForDisplay(configuration);
+  if (client === "claude") return `claude mcp add -s user mottainai -- npx -y ${packageReference} serve --config ${quotedConfiguration}`;
+  if (client === "codex") return `codex mcp add mottainai -- npx -y ${packageReference} serve --config ${quotedConfiguration}`;
   return "";
 }
 

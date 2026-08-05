@@ -113,7 +113,7 @@ function main() {
     const initResult = spawnSync(
       process.execPath,
       [primaryBin, "init", "--yes", "--scope", "project", "--client", "none", "--no-doctor", "--json", "--config", configPath],
-      { cwd: installDirectory, encoding: "utf8" },
+      { cwd: installDirectory, encoding: "utf8", timeout: 10_000 },
     );
     if (initResult.status !== 0) fail(`init exited with status ${initResult.status}:\n${initResult.stdout}\n${initResult.stderr}`);
     let initSummary;
