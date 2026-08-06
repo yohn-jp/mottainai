@@ -3,7 +3,8 @@ dist/
 *.tsbuildinfo
 
 mottainai.*.json
-.mottainai/
+.mottainai/*
+!.mottainai/workflow.json
 
 .DS_Store
 *.local
