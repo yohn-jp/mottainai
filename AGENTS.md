@@ -186,7 +186,7 @@ MOTTAINAI_LOG=0                           # 生データロギング停止
 - **変更完了ごとに即コミット**。まとめ置き禁止
 - コミットメッセージは Conventional Commits（`feat:` / `fix:` / `docs:` / `refactor:` / `test:`）。既存履歴に合わせる
 - push・PR 作成・ブランチ削除はユーザー明示時のみ
-- `mottainai.config.json` と `.mottainai/` は `.gitignore` 対象。**ログには upstream の生の実行結果が入りうるのでコミットしない**
+- `mottainai.config.json` と `.mottainai/` は `.gitignore` 対象。**ログには upstream の生の実行結果が入りうるのでコミットしない**。例外は `.mottainai/workflow.json`（tracked な Git workflow policy、`docs/workflow-policy.md` 参照）
 
 ---
 

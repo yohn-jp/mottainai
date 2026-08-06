@@ -246,9 +246,11 @@ MOTTAINAI_LOG_REDACT=0                    # disable secret redaction in logs (de
 MOTTAINAI_TELEMETRY=1                     # enable local-only usage/savings telemetry (default off)
 ```
 
-`mottainai.config.json` and `.mottainai/` (logs, traces, policy state) are
-gitignored — they can contain upstream command paths, environment variable
-names, and raw execution output. Don't commit them.
+`mottainai.config.json` and `.mottainai/` (logs, traces, routing policy
+state) are gitignored — they can contain upstream command paths,
+environment variable names, and raw execution output. Don't commit them.
+The one exception is `.mottainai/workflow.json`, the tracked Git workflow
+guardrail policy — see [docs/workflow-policy.md](docs/workflow-policy.md).
 
 ## Tool space: search, describe, call
 
