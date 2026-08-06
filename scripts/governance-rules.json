@@ -1,6 +1,6 @@
 {
   "pullRequest": {
-    "titlePattern": "^(feat|fix|docs|refactor|test|chore)\\((cli|proxy|config|compression|routing|upstream|security|release|docs|ci)\\): [a-z0-9].{4,}$",
+    "titlePattern": "^(feat|fix|docs|refactor|test|chore)\\((cli|proxy|config|compression|routing|upstream|security|release|docs|ci|workflow)\\): [a-z0-9].{4,}$",
     "branchPattern": "^(feat|fix|docs|refactor|test|chore)/[0-9]+-[a-z0-9]+(?:-[a-z0-9]+)*$",
     "minimumBodyLength": 300,
     "requiredSections": [
