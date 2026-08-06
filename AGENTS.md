@@ -47,6 +47,7 @@ LLM ⇄ mottainai ⇄ [codegraph, fff-mcp, ...]
 | ローカルツール | `src/local-tools.ts` | `mottainai_exec` 等、gateway 自前のツール |
 | ロギング | `src/logging.ts` | 圧縮前の生データを `.mottainai/log/` に JSON Lines |
 | 永続 state | `src/state/*` | `StateStore` 抽象、SQLite backend（`node:sqlite`）、session / read evidence / read decision、schema migration。現状は基盤のみで未配線（呼び出し元なし） |
+| Git workflow | `src/workflow/*`（Issue #28） | policy schema/presets/resolution（`policy/`）、repository identity + `WorkflowStateStore`（`domain/identity.ts`, `state/*`）。`src/state/*` の migration/DB を共有。詳細は `docs/workflow-policy.md` |
 
 ### パッケージマネージャ: pnpm
 

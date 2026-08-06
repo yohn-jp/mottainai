@@ -96,6 +96,36 @@ policy file at `.mottainai/workflow.json`. Loading fails closed:
 tracked policy file can live alongside untracked scratch data (logs,
 routing-policy candidates) without exposing it.
 
+## Repository identity and state foundation
+
+`src/workflow/domain/identity.ts` resolves a stable identity for the
+Git repository at a given `cwd`, without relying on remote URL,
+filesystem path, or branch name alone (all three change under moves,
+mirrors, and case-insensitive filesystems):
+
+- `rootCommitDigest` — a hash of the repository's root commit SHA(s).
+  This is a hint value, not a globally unique identifier: two
+  independently initialized repositories with identical content can
+  produce the same root commit SHA if created at the same instant.
+- `instanceId` — a UUID persisted in a marker file
+  (`<git-common-dir>/mottainai-instance-id`), created on first
+  resolution. Because the marker lives inside the Git common directory,
+  it moves with the repository on disk, so `instanceId` stays stable
+  across renames/moves. A corrupted marker file fails closed rather
+  than silently re-minting an id.
+
+`src/workflow/state/store.ts` defines `WorkflowStateStore`, a
+repository-identity-scoped persistence interface separate from
+`src/state/store.ts`'s session/read-evidence `StateStore`.
+`src/workflow/state/sqlite-store.ts` implements it on the same SQLite
+database and migration mechanism (`src/state/migrations.ts`,
+`src/state/paths.ts`). `observeRepositoryInstance()` is the single
+write path: it mints a globally unique `RepositorySourceId` the first
+time a given `rootCommitDigest` is seen (reusing it on subsequent
+observations, so root-commit-digest collisions never produce a
+duplicate source), tracks canonicalized worktree paths per instance,
+and reports whether an observation represents a detected move.
+
 ## What's not here yet
 
 Protected-branch enforcement, task/worktree lifecycle, commit/push
