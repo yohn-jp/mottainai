@@ -83,7 +83,12 @@ export const MIGRATIONS: Migration[] = [
           observed_at INTEGER NOT NULL,
           PRIMARY KEY (instance_id, canonical_path)
         );
-        CREATE INDEX idx_repository_paths_instance ON repository_paths (instance_id);
+        -- instance あたり is_current=1 の行を高々 1 つに制約する
+        -- （WorkflowSqliteStateStore.observeRepositoryInstance の move 検出は
+        -- 単一行の SELECT に依存しており、複数行が current だと非決定的になる）。
+        -- instance_id 単体の lookup は主キー (instance_id, canonical_path) の
+        -- 先頭列で足りるため、別途の非 unique index は張らない。
+        CREATE UNIQUE INDEX idx_repository_paths_current ON repository_paths (instance_id) WHERE is_current = 1;
       `);
     },
   },

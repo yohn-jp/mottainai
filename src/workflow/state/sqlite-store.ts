@@ -128,6 +128,20 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
         | undefined;
 
       if (existingInstance === undefined) {
+        // instance marker ファイル削除後の再観測や、同一パスへの再 clone では
+        // 新しい instanceId が発行されるが、旧 instance 行がまだ同じ
+        // git_common_dir を保持している可能性がある（UNIQUE 制約対象）。
+        // 旧 instance 自体は削除せず（repository_paths の履歴を保つ）、
+        // git_common_dir 列だけを一意な退避値へ書き換えて新 instance に明け渡す。
+        const staleInstance = db
+          .prepare("SELECT instance_id FROM repository_instances WHERE git_common_dir = ?")
+          .get(input.gitCommonDir) as { instance_id: string } | undefined;
+        if (staleInstance !== undefined && staleInstance.instance_id !== input.instanceId) {
+          db.prepare("UPDATE repository_instances SET git_common_dir = ? WHERE instance_id = ?").run(
+            `${input.gitCommonDir}#superseded-by:${input.instanceId}`,
+            staleInstance.instance_id,
+          );
+        }
         db.prepare(
           "INSERT INTO repository_instances (instance_id, source_id, git_common_dir, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?)",
         ).run(input.instanceId, source.sourceId, input.gitCommonDir, now, now);
@@ -162,7 +176,11 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       db.exec("COMMIT");
       result = { source, instance, moved, previousCurrentPath };
     } catch (err) {
-      db.exec("ROLLBACK");
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // 元の観測エラーを保持する
+      }
       throw err;
     }
     return result;

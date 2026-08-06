@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { test } from "node:test";
 import type { RepositoryInstanceId, RootCommitDigest } from "../domain/identity.js";
 import { WorkflowSqliteStateStore } from "./sqlite-store.js";
@@ -168,4 +171,54 @@ test("init() is idempotent and lookups before any observation return undefined",
   assert.equal(store.getRepositoryInstanceByCommonDir("/nope"), undefined);
   assert.deepEqual(store.listRepositoryPaths(instanceId), []);
   store.close();
+});
+
+test("a new instance id reusing a known git_common_dir supersedes the stale instance instead of failing on the UNIQUE constraint", () => {
+  const store = openStore();
+  const staleInstanceId = "inst-stale" as RepositoryInstanceId;
+  const freshInstanceId = "inst-fresh" as RepositoryInstanceId;
+  const commonDir = "/repo/.git";
+
+  store.observeRepositoryInstance({ rootCommitDigest: digest, instanceId: staleInstanceId, gitCommonDir: commonDir, canonicalWorktreePath: "/repo" });
+
+  // marker ファイル削除・同一パスへの再 clone を模して、同じ git_common_dir に
+  // 別の instanceId を観測させる。UNIQUE 制約で失敗せず、新 instance が
+  // common-dir を引き継ぐこと（旧 instance の行自体は履歴として残ること）を確認する。
+  const result = store.observeRepositoryInstance({
+    rootCommitDigest: digest,
+    instanceId: freshInstanceId,
+    gitCommonDir: commonDir,
+    canonicalWorktreePath: "/repo",
+  });
+
+  assert.equal(result.instance.instanceId, freshInstanceId);
+  assert.equal(store.getRepositoryInstanceByCommonDir(commonDir)?.instanceId, freshInstanceId);
+
+  const staleRecord = store.getRepositoryInstance(staleInstanceId);
+  assert.notEqual(staleRecord?.gitCommonDir, commonDir);
+  store.close();
+});
+
+test("file-backed store persists across close/reopen with owner-only permissions", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-workflow-sqlite-test-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const dbPath = path.join(dir, "state.sqlite3");
+
+  const store = new WorkflowSqliteStateStore({ dbPath });
+  store.init();
+  store.observeRepositoryInstance({ rootCommitDigest: digest, instanceId, gitCommonDir: "/repo/.git", canonicalWorktreePath: "/repo" });
+  store.close();
+
+  assert.ok(fs.existsSync(dbPath));
+  if (process.platform !== "win32") {
+    const mode = fs.statSync(dbPath).mode & 0o777;
+    assert.equal(mode, 0o600);
+    const dirMode = fs.statSync(dir).mode & 0o777;
+    assert.equal(dirMode, 0o700);
+  }
+
+  const reopened = new WorkflowSqliteStateStore({ dbPath });
+  reopened.init();
+  assert.equal(reopened.getRepositoryInstanceByCommonDir("/repo/.git")?.instanceId, instanceId);
+  reopened.close();
 });
