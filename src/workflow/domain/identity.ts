@@ -39,7 +39,12 @@ function runGit(args: string[], cwd: string): string {
   return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
-/** シンボリックリンク・大文字小文字正規化・末尾スラッシュ差異を吸収した絶対パスを返す。 */
+/**
+ * シンボリックリンク解決・末尾スラッシュ差異を吸収した絶対パスを返す。
+ * 大文字小文字の正規化は OS・ファイルシステムに依存する（例: macOS/Windows の
+ * 既定 FS は case-insensitive、Linux の既定 FS は case-sensitive）ため、
+ * 全プラットフォームで保証される挙動ではない点に注意。
+ */
 function canonicalizePath(targetPath: string): string {
   return fs.realpathSync.native(targetPath);
 }
@@ -57,7 +62,7 @@ function deriveRootCommitDigest(rootCommits: string[]): RootCommitDigest | undef
   return hash as RootCommitDigest;
 }
 
-const INSTANCE_ID_PATTERN = /^[0-9a-f-]{36}$/;
+const INSTANCE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
  * gitCommonDir 配下のマーカーファイルから instanceId を読む。無ければ
@@ -91,6 +96,7 @@ function resolveOrCreateInstanceId(gitCommonDir: string): { ok: true; instanceId
       try {
         const raceWinner = fs.readFileSync(markerPath, "utf8").trim();
         if (INSTANCE_ID_PATTERN.test(raceWinner)) return { ok: true, instanceId: raceWinner as RepositoryInstanceId };
+        return { ok: false, reason: `instance marker file is corrupt: ${markerPath}` };
       } catch {
         // 下の共通エラーへフォールスルー
       }
@@ -126,9 +132,14 @@ export function resolveRepositoryIdentity(cwd: string): ResolveRepositoryIdentit
     return { ok: false, reason: `cannot canonicalize repository path: ${(err as Error).message}` };
   }
 
+  // HEAD のみを対象にすると、orphan branch への切替や無関係 history の
+  // merge で到達可能な root commit 集合が変わり、同一リポジトリの digest が
+  // 変化しうる（state store 側で別 source として扱われてしまう）。`--all` で
+  // 全 ref から到達可能な root commit を対象にし、branch 追加/切替の影響を
+  // 受けないようにする。
   let rootCommits: string[];
   try {
-    const output = runGit(["rev-list", "--max-parents=0", "HEAD"], cwd);
+    const output = runGit(["rev-list", "--max-parents=0", "--all"], cwd);
     rootCommits = output.length === 0 ? [] : output.split("\n");
   } catch (err) {
     return { ok: false, reason: `cannot resolve root commit (unborn HEAD?): ${(err as Error).message}` };
