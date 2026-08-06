@@ -103,10 +103,13 @@ Git repository at a given `cwd`, without relying on remote URL,
 filesystem path, or branch name alone (all three change under moves,
 mirrors, and case-insensitive filesystems):
 
-- `rootCommitDigest` — a hash of the repository's root commit SHA(s).
-  This is a hint value, not a globally unique identifier: two
-  independently initialized repositories with identical content can
-  produce the same root commit SHA if created at the same instant.
+- `rootCommitDigest` — a hash of the root commit SHA(s) reachable from
+  any ref (`git rev-list --max-parents=0 --all`, not just `HEAD`, so
+  switching branches or adding an orphan branch doesn't change the
+  digest of an already-known repository). This is a hint value, not a
+  globally unique identifier: two independently initialized
+  repositories with identical content can produce the same root commit
+  SHA if created at the same instant.
 - `instanceId` — a UUID persisted in a marker file
   (`<git-common-dir>/mottainai-instance-id`), created on first
   resolution. Because the marker lives inside the Git common directory,
