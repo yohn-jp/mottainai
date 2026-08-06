@@ -22,7 +22,7 @@ const protectedBranchRuleSchema = z.object({
   directPush: ruleModeSchema,
   forcePush: ruleModeSchema,
   destructiveBranchOp: ruleModeSchema,
-});
+}).strict();
 export type ProtectedBranchRule = z.infer<typeof protectedBranchRuleSchema>;
 
 const worktreeRuleSchema = z.object({
@@ -30,7 +30,7 @@ const worktreeRuleSchema = z.object({
   bootstrapMode: z.enum(["off", "suggest", "automatic", "conditional"]),
   multipleActiveTasksPerIssue: ruleModeSchema,
   multipleWorktreesPerTask: ruleModeSchema,
-});
+}).strict();
 export type WorktreeRule = z.infer<typeof worktreeRuleSchema>;
 
 const stagingModeSchema = z.enum(["explicit", "already-staged-only", "tracked", "all"]);
@@ -42,7 +42,7 @@ const cleanupRuleSchema = z.object({
   remoteBranchDeletion: ruleModeSchema,
   worktreePrune: ruleModeSchema,
   forceCleanup: ruleModeSchema,
-});
+}).strict();
 export type CleanupRule = z.infer<typeof cleanupRuleSchema>;
 
 /**

@@ -52,6 +52,14 @@ test("unknown top-level key fails closed rather than being silently ignored", ()
   assert.equal(result.ok, false);
 });
 
+test("unknown key nested inside a rule object fails closed rather than being silently stripped", () => {
+  const preset = getPreset("minimal");
+  const document = { ...preset, cleanup: { ...preset.cleanup, unknownNested: "should not be stripped" } };
+  const root = workspaceWithPolicy(JSON.stringify(document));
+  const result = loadWorkflowPolicy(root);
+  assert.equal(result.ok, false);
+});
+
 test("missing schemaVersion fails closed", () => {
   const { schemaVersion: _schemaVersion, ...withoutVersion } = getPreset("minimal");
   const root = workspaceWithPolicy(JSON.stringify(withoutVersion));

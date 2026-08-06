@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { resolveRule } from "./resolve.js";
-import type { PolicySource } from "./resolve.js";
+import type { PolicySource, ResolvedPolicy, ResolvedRule } from "./resolve.js";
+
+/**
+ * 配列フィールド（protectedBranches）が要素単位にマッピングされず、単一の
+ * ResolvedRule<string[]> として解決されることをコンパイル時に検証する。
+ * `extends object` 分岐だけだと配列も object 扱いされ、要素キーごとに
+ * マッピングされてしまう回帰を防ぐ。
+ */
+type _ProtectedBranchesIsSingleRule = ResolvedPolicy["protectedBranches"] extends ResolvedRule<string[]> ? true : never;
+const _protectedBranchesTypeCheck: _ProtectedBranchesIsSingleRule = true;
+void _protectedBranchesTypeCheck;
 
 test("higher authority strengthens the rule freely", () => {
   const sources: PolicySource<boolean>[] = [

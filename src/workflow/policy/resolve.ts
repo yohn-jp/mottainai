@@ -103,7 +103,9 @@ export function resolveRule<Value>(sources: PolicySource<Value>[]): ResolvedRule
  * （value/mode/authority/weakening の全フィールド）。
  */
 export type ResolvedPolicy = {
-  [K in keyof WorkflowPolicyDocument]: WorkflowPolicyDocument[K] extends object
-    ? { [F in keyof WorkflowPolicyDocument[K]]: ResolvedRule<WorkflowPolicyDocument[K][F]> }
-    : ResolvedRule<WorkflowPolicyDocument[K]>;
+  [K in keyof WorkflowPolicyDocument]: WorkflowPolicyDocument[K] extends readonly unknown[]
+    ? ResolvedRule<WorkflowPolicyDocument[K]>
+    : WorkflowPolicyDocument[K] extends object
+      ? { [F in keyof WorkflowPolicyDocument[K]]: ResolvedRule<WorkflowPolicyDocument[K][F]> }
+      : ResolvedRule<WorkflowPolicyDocument[K]>;
 };

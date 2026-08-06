@@ -58,3 +58,27 @@ test("preset is optional (repository policy may omit it)", () => {
   const result = workflowPolicySchema.parse(withoutPreset);
   assert.equal(result.preset, undefined);
 });
+
+test("unknown key nested in protectedBranchRule is rejected, not silently stripped", () => {
+  const result = workflowPolicySchema.safeParse({
+    ...validDocument,
+    protectedBranchRule: { ...validDocument.protectedBranchRule, unknownNested: true },
+  });
+  assert.equal(result.success, false);
+});
+
+test("unknown key nested in worktree is rejected, not silently stripped", () => {
+  const result = workflowPolicySchema.safeParse({
+    ...validDocument,
+    worktree: { ...validDocument.worktree, unknownNested: true },
+  });
+  assert.equal(result.success, false);
+});
+
+test("unknown key nested in cleanup is rejected, not silently stripped", () => {
+  const result = workflowPolicySchema.safeParse({
+    ...validDocument,
+    cleanup: { ...validDocument.cleanup, unknownNested: true },
+  });
+  assert.equal(result.success, false);
+});
