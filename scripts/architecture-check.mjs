@@ -32,6 +32,9 @@ const envelopeFields = new Set([
   "truncated",
 ]);
 
+// src/test-support/ と src/e2e/ はテスト専用の横断ユーティリティ。全レイヤの
+// production コードを fixture として組み立てる必要がある一方、production 側から
+// 依存されることはない（entry と同じ「最上位」扱い）。
 const layerRules = Object.freeze({
   entry: new Set(["entry", "upstream", "adaptive", "compression", "persistence", "shared", "utility"]),
   upstream: new Set(["upstream", "adaptive", "compression", "persistence", "shared", "utility"]),
@@ -40,6 +43,16 @@ const layerRules = Object.freeze({
   persistence: new Set(["persistence", "shared", "utility"]),
   shared: new Set(["shared", "utility"]),
   utility: new Set(["utility"]),
+  testInfrastructure: new Set([
+    "testInfrastructure",
+    "entry",
+    "upstream",
+    "adaptive",
+    "compression",
+    "persistence",
+    "shared",
+    "utility",
+  ]),
 });
 
 const allowedSpecialEdges = new Set(["shared->adaptive:src/adaptive/metadata.ts"]);
@@ -83,6 +96,10 @@ const environmentBoundaryFiles = new Set([
   "src/workflow/git/worktree.ts",
   "src/upstream.ts",
   "src/workflow/state/sqlite-store.ts",
+  // テスト間でHOME/TZ/LANG等を一時的に差し替え、実行後に必ず復元する隔離境界（docs/testing.md）。
+  "src/test-support/env.ts",
+  // developer machineのglobal/system git設定から隔離したenvを組み立てるための境界（docs/testing.md）。
+  "src/test-support/tmp-git-repo.ts",
 ]);
 
 const pureTopLevelConstructors = new Set(["Date", "Map", "RegExp", "Set", "TextEncoder", "URL"]);
@@ -218,6 +235,7 @@ function resolveRelativeImport(sourceFile, specifier, root, resolutionCache) {
 }
 
 function layerForFile(relative) {
+  if (relative.startsWith("src/test-support/") || relative.startsWith("src/e2e/")) return "testInfrastructure";
   if (
     relative === "src/index.ts" ||
     relative === "src/cli.ts" ||

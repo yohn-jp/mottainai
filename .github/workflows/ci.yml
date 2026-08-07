@@ -48,6 +48,9 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Test (e2e / black-box)
+        run: pnpm run test:e2e
+
       - name: Build
         run: pnpm run build
 

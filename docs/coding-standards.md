@@ -53,6 +53,12 @@ The task worker may read argv and write its JSON result to stdout. Environment
 reads remain limited to the allowlisted configuration, telemetry, policy,
 upstream, CLI, persistence, and workflow bootstrap boundaries in the validator.
 
+`src/test-support/` and `src/e2e/` are a separate `testInfrastructure` layer:
+they may import any production layer to build fixtures (a temporary git repo
+fixture legitimately depends on persistence, for example), but no production
+code may import from them — the edge only runs one way. See
+[`testing.md`](testing.md) for what belongs there.
+
 ## Suppressions
 
 Production exceptions require a local marker with a reason, for example:

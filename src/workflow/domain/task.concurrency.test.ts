@@ -1,11 +1,9 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { spawn } from "node:child_process";
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import type { TestContext } from "node:test";
 import { test } from "node:test";
+import { createTempDir } from "../../test-support/tmp-dir.js";
+import { createTempGitRepo } from "../../test-support/tmp-git-repo.js";
 
 /**
  * 受入基準「2 プロセス同時 task start が同一 repository/Issue/branch/worktree path
@@ -14,27 +12,6 @@ import { test } from "node:test";
  * すべて単一プロセス・単一 store）、ここでは実プロセスを 2 つ同時起動し、
  * file-backed（`:memory:` ではない）DB を共有させる。
  */
-
-function git(args: string[], cwd: string): string {
-  return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
-}
-
-function tmpDir(t: TestContext, prefix: string): string {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  return dir;
-}
-
-function initRepo(t: TestContext): string {
-  const root = tmpDir(t, "mottainai-task-concurrency-test-");
-  git(["init", "--quiet", "-b", "main"], root);
-  git(["config", "user.email", "test@example.com"], root);
-  git(["config", "user.name", "Test"], root);
-  fs.writeFileSync(path.join(root, "file.txt"), "hello\n");
-  git(["add", "file.txt"], root);
-  git(["commit", "--quiet", "-m", "initial"], root);
-  return root;
-}
 
 interface WorkerOutcome {
   ok: boolean;
@@ -89,8 +66,8 @@ function runWorker(workspaceRoot: string, dbPath: string, taskSlug: string, issu
 }
 
 test("two concurrent processes starting a task with the same issueRef/taskSlug: exactly one wins", { timeout: WORKER_TIMEOUT_MS * 2 }, async (t) => {
-  const root = initRepo(t);
-  const dbDir = tmpDir(t, "mottainai-task-concurrency-db-");
+  const root = createTempGitRepo(t);
+  const dbDir = createTempDir(t, "mottainai-task-concurrency-db-");
   const dbPath = path.join(dbDir, "workflow.sqlite");
 
   const [resultA, resultB] = await Promise.all([
@@ -125,8 +102,8 @@ test("two concurrent processes starting a task with the same issueRef/taskSlug: 
 });
 
 test("two concurrent processes starting a task with the same taskSlug but no issueRef: branch collision leaves exactly one worktree", { timeout: WORKER_TIMEOUT_MS * 2 }, async (t) => {
-  const root = initRepo(t);
-  const dbDir = tmpDir(t, "mottainai-task-concurrency-db-");
+  const root = createTempGitRepo(t);
+  const dbDir = createTempDir(t, "mottainai-task-concurrency-db-");
   const dbPath = path.join(dbDir, "workflow.sqlite");
 
   const [resultA, resultB] = await Promise.all([
