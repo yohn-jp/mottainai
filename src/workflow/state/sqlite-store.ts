@@ -379,9 +379,14 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
   activateWorktree(worktreeId: WorktreeId, activatedAt?: number): WorktreeRecord {
     const db = this.handle();
     const now = activatedAt ?? Date.now();
-    db.prepare("UPDATE worktrees SET status = 'active', updated_at = ? WHERE worktree_id = ?").run(now, worktreeId);
-    const row = db.prepare("SELECT * FROM worktrees WHERE worktree_id = ?").get(worktreeId) as Record<string, unknown> | undefined;
-    if (row === undefined) throw new Error(`worktree not found: ${worktreeId}`);
+    // status='reserved' を条件に含めないと、既に removed（削除済み履歴）の worktree を
+    // 誤って active へ復活させてしまう（branch/path が別 worktree に再利用済みなら
+    // UNIQUE 制約違反にもなりうる）。activate できるのは予約直後の reserved 行のみ。
+    const result = db
+      .prepare("UPDATE worktrees SET status = 'active', updated_at = ? WHERE worktree_id = ? AND status = 'reserved'")
+      .run(now, worktreeId);
+    if (result.changes === 0) throw new Error(`worktree not found or not in reserved state: ${worktreeId}`);
+    const row = db.prepare("SELECT * FROM worktrees WHERE worktree_id = ?").get(worktreeId) as Record<string, unknown>;
     return toWorktreeRecord(row);
   }
 

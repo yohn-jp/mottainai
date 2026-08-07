@@ -395,6 +395,26 @@ test("activateWorktree transitions a reserved worktree to active", () => {
   assert.equal(activated.status, "active");
 });
 
+test("activateWorktree rejects a worktree that is not in the reserved state (already-active row is not re-activated silently)", () => {
+  const store = openStoreWithInstance();
+  const task = reserveTask(store, "task-a");
+  const reserved = store.reserveWorktree({
+    taskId: task.taskId, instanceId, branchName: "task/task-a", canonicalPath: "/repo/.worktrees/task-a",
+    baseBranch: "main", baseCommit: "deadbeef",
+  });
+  assert.equal(reserved.ok, true);
+  if (!reserved.ok) return;
+  store.activateWorktree(reserved.worktree.worktreeId);
+  // 一度 active になった行を再度 activateWorktree に渡すのは、reserved 以外の状態
+  // （将来 Child Issue 7 が追加する removed を含む）を誤って書き換えないことの代理検証。
+  assert.throws(() => store.activateWorktree(reserved.worktree.worktreeId), /not in reserved state/);
+});
+
+test("activateWorktree rejects an unknown worktree id", () => {
+  const store = openStoreWithInstance();
+  assert.throws(() => store.activateWorktree("does-not-exist" as never));
+});
+
 test("deleteReservedWorktree removes the row and frees its branch/path for reuse", () => {
   const store = openStoreWithInstance();
   const task = reserveTask(store, "task-a");
