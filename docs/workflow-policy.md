@@ -204,9 +204,26 @@ reconciliation reporting of detected hook-bypass events is Child Issue
 8.
 
 Task/worktree lifecycle, commit/push execution, provider integration,
-cleanup, reconciliation, and MCP/CLI exposure remain separate child
-Issues under the Issue #28 Epic and land incrementally. See Issue #28
-for the full child-Issue sequence.
+cleanup, and reconciliation remain separate child Issues under the
+Issue #28 Epic and land incrementally. See Issue #28 for the full
+child-Issue sequence.
+
+Issue #34 added a thin, early-dogfooding MCP/CLI exposure of three
+read-heavy/low-blast-radius operations — `policy explain`, `task
+start`, `task status` (`src/workflow/commands/mcp-tools.ts`, gated by
+`gateway.workflowTasks`) — ahead of the full exposure in Child Issue
+9a-1/9a-2. `policy explain` resolves only the genuine `RuleMode`
+fields (`protectedBranchRule.*` / `worktree.{required,issueRequired,
+multipleActiveTasksPerIssue,multipleWorktreesPerTask,staleBaseBranch}`
+/ `cleanup.*`) through `resolveRule()`; `protectedBranches`,
+`controlPlaneRole`, `stagingMode`, and `worktree.bootstrapMode` are
+returned as plain descriptive values since the schema has no
+associated mode for them yet. `task start`/`task status` still consult
+the effective policy document directly (`resolveEffectiveWorkflowPolicy`),
+not the authority-resolved view `policy explain` shows — the
+resolution/weakening-guard engine is not yet wired into task-start
+enforcement itself. Full write-path enforcement remains Child Issue
+9a-2.
 
 ## Rollout status
 

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { getPreset } from "./presets.js";
 import { POLICY_SCHEMA_VERSION, workflowPolicySchema } from "./schema.js";
 import type { WorkflowPolicyDocument } from "./schema.js";
 
@@ -54,4 +55,28 @@ export function loadWorkflowPolicy(workspaceRoot: string): LoadWorkflowPolicyRes
   }
 
   return { ok: true, document: result.data, filePath };
+}
+
+export type ResolveEffectiveWorkflowPolicyResult =
+  | { ok: true; document: WorkflowPolicyDocument; source: "preset" | "repository"; filePath: string }
+  | { ok: false; filePath: string; reason: string };
+
+/**
+ * `loadWorkflowPolicy` の「ファイルが無ければ呼び出し側が fallback する」を、実際の
+ * fallback 先（built-in `standard` preset）まで含めて一箇所に集約したもの。
+ * task.start/task.status/CLI 等、素朴に「今使うべき1つの document」だけが欲しい
+ * 呼び出し側はこちらを使う（`docs/workflow-policy.md` の既定 fallback と同じ）。
+ *
+ * JSON 破損・schemaVersion 不一致等（"not-found" 以外の失敗）は fallback せず
+ * fail-closed で返す — 壊れた policy ファイルを黙って無視して preset で続行しない。
+ *
+ * `policy explain`（`./explain.ts`）は repository の値と、それが宣言した preset の
+ * 値を別々の authority として resolveRule() に通す必要があるため、この関数は使わず
+ * `loadWorkflowPolicy` + `getPreset` を直接組み合わせる。
+ */
+export function resolveEffectiveWorkflowPolicy(workspaceRoot: string): ResolveEffectiveWorkflowPolicyResult {
+  const loaded = loadWorkflowPolicy(workspaceRoot);
+  if (loaded.ok) return { ok: true, document: loaded.document, source: "repository", filePath: loaded.filePath };
+  if (loaded.reason === "not-found") return { ok: true, document: getPreset("standard"), source: "preset", filePath: loaded.filePath };
+  return { ok: false, filePath: loaded.filePath, reason: loaded.reason };
 }
