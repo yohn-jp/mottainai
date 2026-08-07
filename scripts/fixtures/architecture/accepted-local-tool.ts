@@ -1,4 +1,17 @@
-const OUTPUT_SCHEMA = {};
+const OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    operation: { type: "string" },
+    status: { type: "string" },
+    summary: { type: "string" },
+    facts: { type: "array" },
+    diagnostics: { type: "array" },
+    metrics: { type: "object" },
+    result_id: { type: "string" },
+    truncated: { type: "boolean" },
+  },
+  required: ["operation", "status", "summary", "facts", "diagnostics", "metrics", "result_id", "truncated"],
+};
 const readOnly = {
   readOnlyHint: true,
   destructiveHint: false,

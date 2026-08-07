@@ -219,12 +219,7 @@ Claude Code 側へ反映するときは `/mcp reconnect mottainai`、または�
 
 ### 実行可能規則（Issue #25）
 
-- `pnpm run format:check` は新規standard tooling（`scripts/architecture-check*`、ESLint/Prettier設定、`package.json`）をPrettier検証。既存production codeの一括整形は別変更。
-- `pnpm run lint` はESLintでproduction/test TypeScript、`.mjs`、standard configを検証。broad `any` と理由なしTypeScript suppressionを拒否。
-- `pnpm run architecture:test` はvalidatorのaccepted/rejected fixtureを実行。
-- `pnpm run architecture:check` はTypeScript ASTとNodeNext module resolutionで、相対runtime import拡張子、未解決import、runtime dependency direction、import-time execution、MCP stdout、process/global boundary、unsafe type escape、local-tool `OUTPUT_SCHEMA`/annotationsを検証。
-- `pnpm run verify:standards` は上記4コマンドのcombined check。CIは原因を分離したstepで実行。
-- architecture layer map、boundary allowlist、suppression markerの正本は `scripts/architecture-check.mjs`。allow markerには局所理由必須。
+正本は設定ファイル自体（`scripts/architecture-check.mjs`、`eslint.config.mjs`、`prettier.config.mjs`、`package.json` scripts）。コマンド一覧・検証内容は `docs/coding-standards.md` 参照。ドキュメント側に規則を二重列挙しない（`CONTRIBUTING.md` 第9項）。
 
 人間レビュー専用: 完全語identifier、whyコメント、圧縮意味保存、behavior invariant、subjective architecture taste。これらをlint failureへ追加しない。
 

@@ -25,6 +25,11 @@ test("local tool schema and annotations reject incomplete metadata", () => {
   assert.ok(ruleIds(diagnostics).includes(RULE_IDS.localToolAnnotations));
 });
 
+test("local tool schema rejects an inline output schema in place of the shared OUTPUT_SCHEMA", () => {
+  const diagnostics = validateSourceText(fixture("rejected-local-tool-inline-schema.ts"), "src/local-tools.ts");
+  assert.ok(ruleIds(diagnostics).includes(RULE_IDS.localToolSchema));
+});
+
 test("stdout boundary accepts CLI output and rejects runtime output", () => {
   const accepted = validateSourceText(fixture("accepted-boundary.ts"), "src/cli.ts");
   const rejected = validateSourceText(fixture("rejected-boundary.ts"), "src/server.ts");

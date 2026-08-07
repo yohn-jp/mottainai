@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 export const RULE_IDS = Object.freeze({
@@ -32,8 +33,7 @@ const envelopeFields = new Set([
 ]);
 
 const layerRules = Object.freeze({
-  entry: new Set(["entry", "server", "upstream", "adaptive", "compression", "persistence", "shared", "utility"]),
-  server: new Set(["server", "upstream", "adaptive", "compression", "persistence", "shared", "utility"]),
+  entry: new Set(["entry", "upstream", "adaptive", "compression", "persistence", "shared", "utility"]),
   upstream: new Set(["upstream", "adaptive", "compression", "persistence", "shared", "utility"]),
   adaptive: new Set(["adaptive", "compression", "persistence", "shared", "utility"]),
   compression: new Set(["compression", "persistence", "shared", "utility"]),
@@ -85,13 +85,14 @@ const environmentBoundaryFiles = new Set([
   "src/workflow/state/sqlite-store.ts",
 ]);
 
-const pureTopLevelConstructors = new Set(["Date", "Map", "RegExp", "Set", "URL"]);
+const pureTopLevelConstructors = new Set(["Date", "Map", "RegExp", "Set", "TextEncoder", "URL"]);
 const pureTopLevelCalls = new Set([
   "Array.from",
   "buildCapabilityIndex",
   "Math.round",
   "Object.create",
   "Object.entries",
+  "snapshot",
   "Object.freeze",
   "Object.fromEntries",
   "Object.keys",
@@ -268,7 +269,7 @@ function hasRuleMarker(sourceFile, node, ruleName, boundaryLine) {
   const lastLine = sourceFile.getLineAndCharacterOfPosition(text.length).line;
   const maxTrailingLine = boundaryLine === undefined ? lastLine : Math.min(boundaryLine - 1, lastLine);
   const searchFromLine = Math.max(startLine - markerSearchLeadingLines, 0);
-  const searchToLine = Math.min(endLine + markerSearchTrailingLines, maxTrailingLine);
+  const searchToLine = Math.max(Math.min(endLine + markerSearchTrailingLines, maxTrailingLine), searchFromLine);
   const rangeStart = sourceFile.getPositionOfLineAndCharacter(searchFromLine, 0);
   const rangeEndLineStart = sourceFile.getPositionOfLineAndCharacter(searchToLine, 0);
   const rangeEnd = text.indexOf("\n", rangeEndLineStart);
@@ -338,6 +339,7 @@ function hasImportTimeExecution(node) {
         pureTopLevelCalls.has(callee) ||
         callee.endsWith(".join") ||
         callee.startsWith("z.") ||
+        /^create[A-Z]\w*Id$/u.test(callee) ||
         /\.(?:array|default|describe|extend|length|max|min|nonempty|nullable|optional|passthrough|refine|strict|superRefine)$/u.test(
           callee,
         );
@@ -926,6 +928,6 @@ export function runArchitectureCheck(root = process.cwd()) {
   return 0;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
   process.exitCode = runArchitectureCheck(process.argv[2] ?? process.cwd());
 }

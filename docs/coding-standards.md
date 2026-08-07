@@ -22,7 +22,7 @@ distinct failure causes.
 
 - Prettier `3.6.2` provides deterministic formatting for the ESM/TypeScript
   tool files and has no runtime dependency on the gateway.
-- ESLint `9.29.0` with `typescript-eslint` `8.35.0` provides the pinned flat
+- ESLint `9.29.0` with `typescript-eslint` `8.66.0` provides the pinned flat
   configuration and a small safety rule set for Node 22/24.
 - `scripts/architecture-check.mjs` uses the repository's pinned TypeScript
   compiler API. It parses ASTs, resolves relative modules with NodeNext
@@ -38,7 +38,7 @@ large mechanical diff and belongs in a separate change.
 The validator enforces runtime dependency edges in this direction:
 
 ```text
-entry -> server -> upstream / adaptive / compression -> persistence / shared / utility
+entry -> upstream / adaptive / compression -> persistence / shared / utility
 ```
 
 `src/config.ts`, `src/envelope.ts`, `src/logging.ts`, and `src/telemetry.ts`
