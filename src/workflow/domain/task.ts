@@ -4,7 +4,7 @@ import { decideProtectedBranchOperation } from "../policy/protected-branch.js";
 import type { WorkflowPolicyDocument } from "../policy/schema.js";
 import type { WorkflowStateStore, TaskId, TaskRecord, WorktreeRecord } from "../state/store.js";
 import { buildWorktreeNaming, createWorktree, decideBootstrap, detectWorktreeCollisions, runBootstrap } from "../git/worktree.js";
-import type { BootstrapDecision } from "../git/worktree.js";
+import type { BootstrapDecision, RunBootstrapResult } from "../git/worktree.js";
 import { resolveRepositoryIdentity } from "./identity.js";
 import { resolveRepoState } from "./repo-state.js";
 import { validateTransition, allowedNextTransitions } from "./lifecycle.js";
@@ -51,7 +51,14 @@ export type StartTaskFailureReason =
   | "git-worktree-add-failed";
 
 export type StartTaskResult =
-  | { ok: true; task: TaskRecord; worktree: WorktreeRecord | undefined; bootstrap: BootstrapDecision | undefined }
+  | {
+      ok: true;
+      task: TaskRecord;
+      worktree: WorktreeRecord | undefined;
+      bootstrap: BootstrapDecision | undefined;
+      /** bootstrap.shouldExecute が true だった場合の実行結果。実行しなかった場合は undefined。 */
+      bootstrapRun: RunBootstrapResult | undefined;
+    }
   | { ok: false; reason: StartTaskFailureReason; detail: string };
 
 function allowsMultipleActiveTasksPerIssue(policy: WorkflowPolicyDocument): boolean {
@@ -143,7 +150,7 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
       return { ok: false, reason: "issue-already-claimed", detail: `issue ${issueRef} is already claimed by task ${reserveResult.existingTask.taskId}` };
     }
     const activated = store.updateTaskLifecycleState(reserveResult.task.taskId, "active");
-    return { ok: true, task: activated, worktree: undefined, bootstrap: undefined };
+    return { ok: true, task: activated, worktree: undefined, bootstrap: undefined, bootstrapRun: undefined };
   }
 
   const worktreeDirRelative = input.worktreeDirRelative ?? DEFAULT_WORKTREE_DIR_RELATIVE;
@@ -203,14 +210,15 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
   const activeTask = store.updateTaskLifecycleState(task.taskId, "active");
 
   const bootstrap = decideBootstrap(policy.worktree.bootstrapMode, createResult.canonicalPath, input.expectedLockfileDigest);
+  let bootstrapRun: RunBootstrapResult | undefined;
   if (bootstrap.shouldExecute && bootstrap.command !== undefined) {
     // bootstrap 失敗は worktree/task のロールバック対象にしない — worktree 自体は
     // 正当に作成済みであり、bootstrap は利便性のための追加ステップに過ぎない。
-    // 呼び出し側が結果を見て再実行するかどうかを判断する。
-    await runBootstrap(createResult.canonicalPath, bootstrap.command);
+    // 実行結果は bootstrapRun として呼び出し側に返し、再実行の要否を判断できるようにする。
+    bootstrapRun = await runBootstrap(createResult.canonicalPath, bootstrap.command);
   }
 
-  return { ok: true, task: activeTask, worktree: activeWorktree, bootstrap };
+  return { ok: true, task: activeTask, worktree: activeWorktree, bootstrap, bootstrapRun };
 }
 
 export interface TaskStatusResult {

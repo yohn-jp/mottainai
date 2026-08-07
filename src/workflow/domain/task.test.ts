@@ -53,6 +53,23 @@ test("startTask happy path creates an active task with an active worktree (issue
   assert.ok(result.worktree !== undefined);
   assert.equal(result.worktree?.status, "active");
   assert.equal(result.worktree?.branchName, "issue-33/my-task");
+  // standard preset の bootstrapMode は "suggest" のため実行しない。
+  assert.equal(result.bootstrapRun, undefined);
+});
+
+test("startTask with bootstrapMode=automatic returns the bootstrap execution outcome (not just the decision)", async (t) => {
+  const root = initRepo(t);
+  fs.writeFileSync(path.join(root, "pnpm-lock.yaml"), "lockfileVersion: 9\n");
+  git(["add", "pnpm-lock.yaml"], root);
+  git(["commit", "--quiet", "-m", "add lockfile"], root);
+  const store = openStore(t);
+  const policy = standardPolicy({ bootstrapMode: "automatic" });
+  const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "bootstrap-check" });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.bootstrap?.shouldExecute, true);
+  assert.ok(result.bootstrapRun !== undefined, "expected bootstrapRun to be populated when bootstrap actually executes");
+  assert.equal(result.bootstrapRun?.ran, true);
 });
 
 test("startTask happy path without an issueRef", async (t) => {
