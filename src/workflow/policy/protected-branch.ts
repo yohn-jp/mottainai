@@ -62,6 +62,7 @@ export interface ProtectedBranchDecisionInput {
 export type ProtectedBranchDecisionReason =
   | "not-protected"
   | "rule-off"
+  | "rule-advisory"
   | "rule-active"
   | "control-plane-management-allowed"
   | "control-plane-source-denied"
@@ -134,7 +135,7 @@ export function decideProtectedBranchOperation(input: ProtectedBranchDecisionInp
 
   const mode = policy.protectedBranchRule[operation as keyof ProtectedBranchRule];
   if (modeAllows(mode)) {
-    return { allowed: true, operation, mode, branchMatch, reason: "rule-off" };
+    return { allowed: true, operation, mode, branchMatch, reason: mode === "advisory" ? "rule-advisory" : "rule-off" };
   }
   return { allowed: false, operation, mode, branchMatch, reason: "rule-active" };
 }

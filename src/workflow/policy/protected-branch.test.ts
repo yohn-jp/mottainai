@@ -56,6 +56,8 @@ for (const operation of PROTECTED_BRANCH_OPERATIONS) {
       assert.equal(decision.allowed, expectAllowed, `operation=${operation} mode=${mode}`);
       assert.equal(decision.mode, mode);
       assert.equal(decision.branchMatch.matched, true);
+      const expectedReason = mode === "off" ? "rule-off" : mode === "advisory" ? "rule-advisory" : "rule-active";
+      assert.equal(decision.reason, expectedReason, `operation=${operation} mode=${mode}`);
     });
   }
 }
