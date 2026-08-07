@@ -129,12 +129,66 @@ observations, so root-commit-digest collisions never produce a
 duplicate source), tracks canonicalized worktree paths per instance,
 and reports whether an observation represents a detected move.
 
+## Protected-branch and control-plane decisions
+
+`src/workflow/policy/protected-branch.ts` decides whether a given
+`(policy, branch, operation, repository role)` combination is allowed.
+It does not execute or intercept any Git operation itself — see
+"What's not here yet" below.
+
+- `matchesProtectedBranch()` matches a branch name against
+  `protectedBranches` glob patterns (`*` is the only wildcard; every
+  other character, including regex metacharacters, is literal).
+- `decideProtectedBranchOperation()` combines two independent gates:
+  1. **control-plane role** — when `controlPlaneRole` is
+     `"primary-checkout"` and the caller is on the primary checkout
+     (not a linked worktree), `sourceWrite`/`stage`/`commit` are denied
+     regardless of branch (the primary checkout is repo-sync/worktree
+     management only). Repo-sync/worktree-management operations remain
+     allowed.
+  2. **protected-branch rule** — if the branch matches
+     `protectedBranches`, the operation's `protectedBranchRule` mode
+     decides: `off`/`advisory` allow, `enforce`/`confirm` deny.
+  Detached HEAD (no branch name) is treated as unprotected for this
+  gate, not silently permissive by accident — the decision result
+  records why (`reason: "detached-head-treated-as-unprotected"`).
+
+`src/workflow/domain/repo-state.ts` resolves ambiguous repository
+states explicitly instead of letting them fall through as ordinary
+branch checkouts: `bare-repository`, `submodule`, `detached-head`,
+`unborn-branch`, and `linked-worktree` each get a structured
+`{ kind, supported, reason }`, plus `isPrimaryCheckout` (derived from
+whether `--git-dir` and `--git-common-dir` agree) for the
+control-plane gate above.
+
+`src/workflow/git/hooks.ts` generates `pre-commit`/`pre-push` shell
+scripts that re-implement the same glob-match-plus-rule-mode logic
+independently in POSIX `sh` (to avoid a Node startup cost on every Git
+operation) as defense-in-depth. It also exposes `detectHookBypass()`,
+which compares a recorded checkpoint commit (from the new
+`hook_checkpoints` table, `src/state/migrations.ts` version 3) against
+the current branch tip via `git merge-base --is-ancestor` — if the
+checkpoint isn't an ancestor of the current tip, something changed the
+branch without going through a hook-mediated commit (`--no-verify`,
+history rewrite, or a client that doesn't run hooks at all).
+
 ## What's not here yet
 
-Protected-branch enforcement, task/worktree lifecycle, commit/push
-operations, provider integration, cleanup, reconciliation, and MCP/CLI
-exposure are separate child Issues under the Issue #28 Epic and land
-incrementally. See Issue #28 for the full child-Issue sequence.
+This Issue (#32) provides the decision API, hook generation, and
+repository-state detection only — **not enforced write-path
+interception**. Generated hooks only intercept `git commit`/`git
+push`; they cannot stop a plain editor write to a file on `main`, and
+they can be bypassed with `--no-verify` or from hook-unaware clients.
+Actual enforcement over Mottainai's own write/edit tools — wiring every
+managed write path through `decideProtectedBranchOperation()` before
+it runs — lands in the MCP/CLI exposure child Issue (9a-2). Full
+reconciliation reporting of detected hook-bypass events is Child Issue
+8.
+
+Task/worktree lifecycle, commit/push execution, provider integration,
+cleanup, reconciliation, and MCP/CLI exposure remain separate child
+Issues under the Issue #28 Epic and land incrementally. See Issue #28
+for the full child-Issue sequence.
 
 ## Rollout status
 
