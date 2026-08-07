@@ -13,36 +13,60 @@ import type { LifecycleState, TransitionBlockedInfo } from "./lifecycle.js";
 const GIT_TIMEOUT_MS = 5_000;
 const GIT_MAX_OUTPUT_BYTES = 64 * 1024;
 
+interface GitOutcome {
+  /** コマンドが完走し exit code 0 だった。 */
+  ok: boolean;
+  stdout: string;
+  /** コマンドが完走した（spawn 失敗・timeout・output-limit のいずれでもない）。false の場合、
+   * `ok: false` は「exit code が非 0」を意味しない — 呼び出し側は状態を確定させてはならない。
+   * `src/workflow/domain/repo-state.ts` の同名パターンと同じ理由（timeout を「非0」と混同しない）。 */
+  usable: boolean;
+}
+
+async function git(args: string[], cwd: string): Promise<GitOutcome> {
+  const result = await runProgram("git", args, cwd, GIT_TIMEOUT_MS, GIT_MAX_OUTPUT_BYTES);
+  const usable = result.spawnError === undefined && !result.timedOut && !result.outputLimit && result.exitCode !== null;
+  return { ok: usable && result.exitCode === 0, stdout: result.stdout.trim(), usable };
+}
+
 /** baseBranch の現在の tip commit を解決する。予約時点の base_commit を確定するために
  * 使う（`createWorktree` 成功後の実際の worktree HEAD とは別に、予約時点の意図を記録する）。 */
 async function resolveBaseCommit(workspaceRoot: string, baseBranch: string): Promise<string | undefined> {
-  const result = await runProgram("git", ["rev-parse", "--verify", "-q", baseBranch], workspaceRoot, GIT_TIMEOUT_MS, GIT_MAX_OUTPUT_BYTES);
-  if (result.exitCode !== 0 || result.stdout.trim().length === 0) return undefined;
-  return result.stdout.trim();
+  const result = await git(["rev-parse", "--verify", "-q", baseBranch], workspaceRoot);
+  if (!result.usable || !result.ok || result.stdout.length === 0) return undefined;
+  return result.stdout;
 }
+
+export type StaleBaseBranchCheck =
+  | { kind: "fresh" }
+  | { kind: "stale"; remoteCommit: string }
+  /** origin tracking ref が存在しない（origin に同名ブランチがない、detached HEAD 等）。
+   * 判定対象外 — stale とは異なり、そもそも比較材料がない。 */
+  | { kind: "unavailable"; reason: string }
+  /** git 呼び出しが完走しなかった（spawn 失敗・timeout・output-limit）ため stale かどうか
+   * 判定できなかった。呼び出し側は enforce では fail-closed（block）、advisory では
+   * fail-open ＋ diagnostic とすること。 */
+  | { kind: "unknown"; reason: string };
 
 /** baseBranch のローカル tip が `origin/<baseBranch>` の tip より古くないか検証する。
  * fetch は行わない（副作用を避けるため） — 呼び出し側が事前に fetch している前提で、
- * ローカルの認識している origin tracking ref とだけ比較する。tracking ref が存在しない
- * （origin に同名ブランチがない、detached HEAD 等）場合は判定不能として素通りさせる。 */
-async function checkStaleBaseBranch(workspaceRoot: string, baseBranch: string, baseCommit: string): Promise<{ stale: true; remoteCommit: string } | { stale: false }> {
+ * ローカルの認識している origin tracking ref とだけ比較する。 */
+export async function checkStaleBaseBranch(workspaceRoot: string, baseBranch: string, baseCommit: string): Promise<StaleBaseBranchCheck> {
   const remoteRef = `origin/${baseBranch}`;
-  const result = await runProgram("git", ["rev-parse", "--verify", "-q", remoteRef], workspaceRoot, GIT_TIMEOUT_MS, GIT_MAX_OUTPUT_BYTES);
-  if (result.exitCode !== 0 || result.stdout.trim().length === 0) return { stale: false };
-  const remoteCommit = result.stdout.trim();
-  if (remoteCommit === baseCommit) return { stale: false };
+  const remoteRefResult = await git(["rev-parse", "--verify", "-q", remoteRef], workspaceRoot);
+  if (!remoteRefResult.usable) return { kind: "unknown", reason: `git rev-parse --verify ${remoteRef} did not complete` };
+  if (!remoteRefResult.ok || remoteRefResult.stdout.length === 0) {
+    return { kind: "unavailable", reason: `no tracking ref ${remoteRef}` };
+  }
+  const remoteCommit = remoteRefResult.stdout;
+  if (remoteCommit === baseCommit) return { kind: "fresh" };
 
-  const ancestryResult = await runProgram(
-    "git",
-    ["merge-base", "--is-ancestor", baseCommit, remoteCommit],
-    workspaceRoot,
-    GIT_TIMEOUT_MS,
-    GIT_MAX_OUTPUT_BYTES,
-  );
+  const ancestryResult = await git(["merge-base", "--is-ancestor", baseCommit, remoteCommit], workspaceRoot);
+  if (!ancestryResult.usable) return { kind: "unknown", reason: "git merge-base --is-ancestor did not complete" };
   // baseCommit が remoteCommit の祖先なら、ローカルは origin より単純に遅れている（stale）。
   // 祖先でなければ（分岐 or ローカルが進んでいる）判定対象外とし、誤検知を避ける。
-  if (ancestryResult.exitCode !== 0) return { stale: false };
-  return { stale: true, remoteCommit };
+  if (!ancestryResult.ok) return { kind: "fresh" };
+  return { kind: "stale", remoteCommit };
 }
 
 /**
@@ -74,6 +98,11 @@ export type StartTaskFailureReason =
   | "path-collision"
   | "git-worktree-add-failed";
 
+export interface StartTaskWarning {
+  code: "stale-base-branch" | "stale-base-branch-check-unavailable";
+  detail: string;
+}
+
 export type StartTaskResult =
   | {
       ok: true;
@@ -82,6 +111,9 @@ export type StartTaskResult =
       bootstrap: BootstrapDecision | undefined;
       /** bootstrap.shouldExecute が true だった場合の実行結果。実行しなかった場合は undefined。 */
       bootstrapRun: RunBootstrapResult | undefined;
+      /** policy.worktree.staleBaseBranch=advisory がブロックせず記録した guardrail 警告。
+       * block しなかった場合は常に undefined を含む空配列ではなく undefined そのもの。 */
+      warnings: StartTaskWarning[];
     }
   | { ok: false; reason: StartTaskFailureReason; detail: string };
 
@@ -161,14 +193,24 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
     return { ok: false, reason: "unsupported-repo-state", detail: `cannot resolve tip commit of ${baseBranch}` };
   }
 
-  if (policy.worktree.staleBaseBranch === "enforce") {
+  const warnings: StartTaskWarning[] = [];
+  if (policy.worktree.staleBaseBranch === "enforce" || policy.worktree.staleBaseBranch === "advisory") {
     const staleness = await checkStaleBaseBranch(workspaceRoot, baseBranch, baseCommit);
-    if (staleness.stale) {
-      return {
-        ok: false,
-        reason: "unsupported-repo-state",
-        detail: `local ${baseBranch} (${baseCommit}) is behind origin/${baseBranch} (${staleness.remoteCommit}); fetch and update before starting a task`,
-      };
+    // enforce は判定不能（unknown）を fail-closed で block する — 「判定に失敗した」を
+    // 「stale ではない」とみなさない（timeout/spawn 失敗を fresh と誤認しない）。
+    // advisory は unknown/stale いずれも block せず、guardrail warning として記録するのみ。
+    if (staleness.kind === "stale") {
+      const detail = `local ${baseBranch} (${baseCommit}) is behind origin/${baseBranch} (${staleness.remoteCommit}); fetch and update before starting a task`;
+      if (policy.worktree.staleBaseBranch === "enforce") {
+        return { ok: false, reason: "unsupported-repo-state", detail };
+      }
+      warnings.push({ code: "stale-base-branch", detail });
+    } else if (staleness.kind === "unknown") {
+      const detail = `could not determine whether ${baseBranch} is behind origin/${baseBranch}: ${staleness.reason}`;
+      if (policy.worktree.staleBaseBranch === "enforce") {
+        return { ok: false, reason: "unsupported-repo-state", detail };
+      }
+      warnings.push({ code: "stale-base-branch-check-unavailable", detail });
     }
   }
 
@@ -185,7 +227,7 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
       return { ok: false, reason: "issue-already-claimed", detail: `issue ${issueRef} is already claimed by task ${reserveResult.existingTask.taskId}` };
     }
     const activated = store.updateTaskLifecycleState(reserveResult.task.taskId, "active");
-    return { ok: true, task: activated, worktree: undefined, bootstrap: undefined, bootstrapRun: undefined };
+    return { ok: true, task: activated, worktree: undefined, bootstrap: undefined, bootstrapRun: undefined, warnings };
   }
 
   const worktreeDirRelative = input.worktreeDirRelative ?? DEFAULT_WORKTREE_DIR_RELATIVE;
@@ -253,7 +295,7 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
     bootstrapRun = await runBootstrap(createResult.canonicalPath, bootstrap.command);
   }
 
-  return { ok: true, task: activeTask, worktree: activeWorktree, bootstrap, bootstrapRun };
+  return { ok: true, task: activeTask, worktree: activeWorktree, bootstrap, bootstrapRun, warnings };
 }
 
 export interface TaskStatusResult {
