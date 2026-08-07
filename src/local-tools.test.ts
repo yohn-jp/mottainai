@@ -115,15 +115,22 @@ test("exec preserves stdout/stderr and result tools retrieve and search it", asy
 test("exec returns structured failure for timeout and output limit", async () => {
   const { root, config } = await workspace();
   const store = new InMemoryArtifactStore({ createId: () => "limit" });
-  const limitedConfig = { ...config, maxOutputBytes: 20, defaultTimeoutMs: 50, maxTimeoutMs: 50 };
-  const limited = structured(await callLocalTool("mottainai_exec", { command: "yes x" }, limitedConfig, store));
+  // output-limit ケースは maxOutputBytes を timeout より先に必ず超える必要がある。
+  // CI ランナーの CPU 負荷でイベントループが遅延すると、50ms のような極端に短い
+  // timeout では data イベント到達前に timeout が先着することがある（両方 true に
+  // なるべきだが output 側が先に立たない flaky 挙動）ため、output-limit 専用の
+  // config だけ timeout を十分長く取り、timeout ケースとは config を分ける。
+  const outputLimitedConfig = { ...config, maxOutputBytes: 20, defaultTimeoutMs: 5_000, maxTimeoutMs: 5_000 };
+  const limited = structured(await callLocalTool("mottainai_exec", { command: "yes x" }, outputLimitedConfig, store));
   assert.equal(limited.output_limited, true);
-  const timed = structured(await callLocalTool("mottainai_exec", { command: "sleep 1" }, limitedConfig, store));
+
+  const timeoutConfig = { ...config, maxOutputBytes: 20, defaultTimeoutMs: 50, maxTimeoutMs: 50 };
+  const timed = structured(await callLocalTool("mottainai_exec", { command: "sleep 1" }, timeoutConfig, store));
   assert.equal(timed.timed_out, true);
   const stubborn = structured(await callLocalTool(
     "mottainai_exec",
     { command: `${process.execPath} -e 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'` },
-    limitedConfig,
+    timeoutConfig,
     store,
   ));
   assert.equal(stubborn.timed_out, true);
