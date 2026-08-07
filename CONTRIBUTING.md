@@ -29,11 +29,18 @@ pnpm approve-builds
 pnpm run build
 pnpm test
 pnpm run typecheck
+pnpm run format:check
+pnpm run lint
+pnpm run architecture:test
+pnpm run architecture:check
+pnpm run verify:standards
 ```
 
-There is no separate lint/format tool configured yet — match the existing
-style in the file you're editing (see [Code conventions](#code-conventions)
-below).
+The executable standard is defined by `eslint.config.mjs`,
+`prettier.config.mjs`, and `scripts/architecture-check.mjs`. The formatter
+currently checks the new standard-tooling files only; broad reformatting of
+legacy production code stays out of this Issue. Use `pnpm run verify:standards`
+before submitting a change.
 
 ## Making changes
 
@@ -68,6 +75,9 @@ below).
 8. Update relevant docs in the same commit/PR as the behavior change
    (`README.md`, `docs/*.md`) — stale docs are worse than no docs.
 
+9. Keep executable rules in the formatter/lint/architecture configuration.
+   Do not duplicate those rules as a second normative list in documentation.
+
 ## Commit messages
 
 This repo uses [Conventional Commits](https://www.conventionalcommits.org/):
@@ -91,6 +101,12 @@ for examples from this repository.
   new tool.
 - MCP tool `annotations` (`readOnlyHint`, `destructiveHint`, etc.) must match
   real behavior. Don't add side effects to a tool annotated read-only.
+
+Executable checks enforce import/runtime safety, protocol stdout purity,
+process/global boundaries, dependency direction, unsafe type escapes, and the
+shared local-tool output envelope. Human review remains responsible for naming,
+why-comments, compression semantics, behavioral invariants, and subjective
+architecture judgment.
 
 ## Pull requests
 

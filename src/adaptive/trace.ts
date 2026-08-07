@@ -252,6 +252,7 @@ const LEGACY_EXECUTION_STATUS: Record<string, ExecutionStatus> = {
  * best-effort で `planned_capabilities` 側へ寄せ、`caller_requested_capabilities` も
  * 同じ値にする（policy の寄与を 0 とみなす、既知の近似）。
  */
+// architecture-check allow: double-assertion -- trace records pass schema and field guards before legacy normalization.
 function normalizeRequestRecord(record: Record<string, unknown>): TraceRequestRecord {
   const schemaVersion = typeof record.schema_version === "number" ? record.schema_version : LEGACY_SCHEMA_VERSION;
   if (schemaVersion >= TRACE_SCHEMA_VERSION && Array.isArray(record.caller_requested_capabilities)) {

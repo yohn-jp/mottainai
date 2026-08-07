@@ -64,7 +64,7 @@ lockfile は `pnpm-lock.yaml`。他のパッケージマネージャの lockfile
 
 `tree-sitter` 系はネイティブビルドが必要（`pnpm approve-builds`）。初回 `pnpm install` 時に `ERR_PNPM_IGNORED_BUILDS` が出たら実行する。
 
-CI は `.github/workflows/ci.yml`（install → typecheck → test → build、Node 22/24）。デプロイ系ワークフローは追加提案しない。
+CI は `.github/workflows/ci.yml`（Node 22/24 の install → typecheck → test → build と、Node 22 の format / lint / architecture）。デプロイ系ワークフローは追加提案しない。
 
 ---
 
@@ -208,7 +208,7 @@ Claude Code 側へ反映するときは `/mcp reconnect mottainai`、または�
 
 ## 7. コード規約
 
-`src/` の既存スタイルに合わせる。lint / formatter は未導入なので、**周囲のコードを模倣する**のが基準。
+`src/` の既存スタイルに合わせる。実行可能な規則は `scripts/architecture-check.mjs` / `eslint.config.mjs` / `prettier.config.mjs` を正本とし、周囲のコード模倣は人間レビュー規則として残す。
 
 - TypeScript strict / ESM（`module: NodeNext`）。相対 import は `.js` 拡張子付き（`./config.js`）
 - 命名は完全語。略語を作らない（`config` は既存だが `cfg` / `impl` / `res` を新規に増やさない）
@@ -216,6 +216,17 @@ Claude Code 側へ反映するときは `/mcp reconnect mottainai`、または�
   - 例: `// 共通envelope分を約256 token確保。行境界を維持して先頭・末尾を残す。`
 - テストは `node:test` + `node:assert/strict`。対象ファイルと同階層に `<name>.test.ts`
 - 例外は `throw new Error("<lowercase message>")` で引数検証エラーを返す既存パターンに合わせる
+
+### 実行可能規則（Issue #25）
+
+- `pnpm run format:check` は新規standard tooling（`scripts/architecture-check*`、ESLint/Prettier設定、`package.json`）をPrettier検証。既存production codeの一括整形は別変更。
+- `pnpm run lint` はESLintでproduction/test TypeScript、`.mjs`、standard configを検証。broad `any` と理由なしTypeScript suppressionを拒否。
+- `pnpm run architecture:test` はvalidatorのaccepted/rejected fixtureを実行。
+- `pnpm run architecture:check` はTypeScript ASTとNodeNext module resolutionで、相対runtime import拡張子、未解決import、runtime dependency direction、import-time execution、MCP stdout、process/global boundary、unsafe type escape、local-tool `OUTPUT_SCHEMA`/annotationsを検証。
+- `pnpm run verify:standards` は上記4コマンドのcombined check。CIは原因を分離したstepで実行。
+- architecture layer map、boundary allowlist、suppression markerの正本は `scripts/architecture-check.mjs`。allow markerには局所理由必須。
+
+人間レビュー専用: 完全語identifier、whyコメント、圧縮意味保存、behavior invariant、subjective architecture taste。これらをlint failureへ追加しない。
 
 ---
 
@@ -236,6 +247,7 @@ Claude Code 側へ反映するときは `/mcp reconnect mottainai`、または�
 | 応答スタイル | `CLAUDE.md` |
 | 探索 hook | `.claude/hooks/warn-grep.sh` |
 | Issue and PR contract | `docs/governance.md` |
+| Executable coding standard | `docs/coding-standards.md` / `scripts/architecture-check.mjs` |
 
 機能別の詳細ドキュメント（`docs/*.md`）は整理中。Issue・PR・差分連動規則の正本は`docs/governance.md`と`scripts/governance-rules.json`。
 
