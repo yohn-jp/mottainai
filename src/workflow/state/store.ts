@@ -178,6 +178,8 @@ export interface WorkflowStateStore {
   getTask(taskId: TaskId): TaskRecord | undefined;
   getActiveTaskByIssueRef(instanceId: RepositoryInstanceId, issueRef: string): TaskRecord | undefined;
   listWorktreesForTask(taskId: TaskId): WorktreeRecord[];
+  /** instance 全体の worktree 一覧（task を横断）。衝突・stale metadata 検出のために使う。 */
+  listWorktreesForInstance(instanceId: RepositoryInstanceId): WorktreeRecord[];
 
   /** backend 固有のリソース解放（DB クローズ等）。プロセス終了時 best-effort で呼ぶ。 */
   close(): void;

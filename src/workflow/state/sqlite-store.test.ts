@@ -457,3 +457,18 @@ test("listWorktreesForTask returns all worktrees for a task ordered by creation"
   const worktrees = store.listWorktreesForTask(task.taskId);
   assert.equal(worktrees.length, 2);
 });
+
+test("listWorktreesForInstance returns worktrees across multiple tasks", () => {
+  const store = openStoreWithInstance();
+  const taskA = reserveTask(store, "task-a");
+  const taskB = reserveTask(store, "task-b");
+  store.reserveWorktree({
+    taskId: taskA.taskId, instanceId, branchName: "task/a", canonicalPath: "/repo/.worktrees/a",
+    baseBranch: "main", baseCommit: "deadbeef",
+  });
+  store.reserveWorktree({
+    taskId: taskB.taskId, instanceId, branchName: "task/b", canonicalPath: "/repo/.worktrees/b",
+    baseBranch: "main", baseCommit: "deadbeef",
+  });
+  assert.equal(store.listWorktreesForInstance(instanceId).length, 2);
+});

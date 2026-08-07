@@ -416,6 +416,13 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     return rows.map(toWorktreeRecord);
   }
 
+  listWorktreesForInstance(instanceId: RepositoryInstanceId): WorktreeRecord[] {
+    const rows = this.handle()
+      .prepare("SELECT * FROM worktrees WHERE instance_id = ? ORDER BY created_at ASC")
+      .all(instanceId) as Record<string, unknown>[];
+    return rows.map(toWorktreeRecord);
+  }
+
   close(): void {
     this.db?.close();
     this.db = undefined;
