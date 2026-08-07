@@ -4,7 +4,7 @@ import path from "node:path";
 import type { TestContext } from "node:test";
 import { test } from "node:test";
 import { createTempDir } from "../../test-support/tmp-dir.js";
-import { createTempGitRepo, isolatedGitEnv, runGit } from "../../test-support/tmp-git-repo.js";
+import { createTempGitRepo, isolatedGitEnvironment, runGit } from "../../test-support/tmp-git-repo.js";
 import { detectHookBypass, generatePreCommitHookScript, generatePrePushHookScript, isMottainaiGeneratedHook } from "./hooks.js";
 
 function writePolicy(root: string, overrides: Record<string, unknown> = {}): void {
@@ -229,5 +229,5 @@ test("generated hook fails closed (blocks the operation) when node is not on PAT
   const pathWithoutNode = process.env.PATH?.split(path.delimiter)
     .filter((entry) => !fs.existsSync(path.join(entry, "node")) && !fs.existsSync(path.join(entry, "node.exe")))
     .join(path.delimiter);
-  assert.throws(() => runGit(["commit", "-m", "blocked-no-node"], root, isolatedGitEnv({ PATH: pathWithoutNode })));
+  assert.throws(() => runGit(["commit", "-m", "blocked-no-node"], root, isolatedGitEnvironment({ PATH: pathWithoutNode })));
 });

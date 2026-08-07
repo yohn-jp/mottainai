@@ -11,10 +11,7 @@ export const DETERMINISTIC_ENV: Readonly<NodeJS.ProcessEnv> = Object.freeze({
   LC_ALL: "C",
 });
 
-/**
- * process.envへ一時的にキーを設定し、テスト終了時（失敗時含む）に元の値へ必ず復元する。
- * 値が undefined のキーは「テスト中は未設定にする」を意味する。
- */
+/** テスト失敗時もprocess.envを汚したまま残さないため、t.after()で必ず復元する。 */
 export function withEnv(t: TestContext, overrides: Record<string, string | undefined>): void {
   const previous = new Map<string, string | undefined>();
   for (const key of Object.keys(overrides)) previous.set(key, process.env[key]);
@@ -30,7 +27,7 @@ export function withEnv(t: TestContext, overrides: Record<string, string | undef
   });
 }
 
-/** TZ/LANG/LC_ALLを決定論的な値へ固定する。実HOME/実gitconfig等には触れない。 */
+/** HOME/gitconfig等の隔離は対象外（isolatedHomeDir/createTempGitRepoの責務）。 */
 export function withDeterministicEnv(t: TestContext, overrides: Record<string, string | undefined> = {}): void {
   withEnv(t, { ...DETERMINISTIC_ENV, ...overrides });
 }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { isDependencyAllowed, RULE_IDS, validateSourceText } from "./architecture-check.mjs";
+import { isDependencyAllowed, RULE_IDS, validateSourceText, validateSourceTexts } from "./architecture-check.mjs";
 
 const fixtureRoot = path.join(process.cwd(), "scripts", "fixtures", "architecture");
 
@@ -115,14 +115,37 @@ test("test-support and e2e helpers may depend on any production layer, but nothi
   assert.equal(isDependencyAllowed("persistence", "testInfrastructure", "src/e2e/stdio-client.ts"), false);
 });
 
-test("a real fixture importing the workflow state store from test-support is accepted", () => {
-  const diagnostics = validateSourceText(
-    'import { WorkflowSqliteStateStore } from "../workflow/state/sqlite-store.js";\nexport function openMemoryStore() { return new WorkflowSqliteStateStore({ dbPath: ":memory:" }); }\n',
-    "src/test-support/workflow-store.ts",
-  );
+// checkImports only reaches isDependencyAllowed when the resolved import target is itself
+// among the validated entries (see the comment on validateSourceTexts). A single-entry
+// validateSourceText call never resolves into another file, so it can't exercise a
+// cross-file dependency-direction edge — these two cases use validateSourceTexts with a
+// stub second entry so the edge is actually checked, not skipped.
+test("testInfrastructure depending on persistence (test-support -> workflow state store) is accepted", () => {
+  const diagnostics = validateSourceTexts([
+    {
+      fileName: "src/test-support/workflow-store.ts",
+      sourceText:
+        'import { WorkflowSqliteStateStore } from "../workflow/state/sqlite-store.js";\nexport function openMemoryStore() { return new WorkflowSqliteStateStore({ dbPath: ":memory:" }); }\n',
+    },
+    { fileName: "src/workflow/state/sqlite-store.ts", sourceText: "export class WorkflowSqliteStateStore {}\n" },
+  ]);
   assert.equal(
     diagnostics.some((diagnostic) => diagnostic.ruleId === RULE_IDS.dependencyDirection),
     false,
+  );
+});
+
+test("shared depending on testInfrastructure (production -> test-support) is rejected", () => {
+  const diagnostics = validateSourceTexts([
+    {
+      fileName: "src/config.ts",
+      sourceText: 'import { createTempDir } from "./test-support/tmp-dir.js";\nexport { createTempDir };\n',
+    },
+    { fileName: "src/test-support/tmp-dir.ts", sourceText: "export function createTempDir() {}\n" },
+  ]);
+  assert.equal(
+    diagnostics.some((diagnostic) => diagnostic.ruleId === RULE_IDS.dependencyDirection),
+    true,
   );
 });
 

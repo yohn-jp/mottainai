@@ -912,11 +912,25 @@ function validateSources(root, sourceEntries) {
   );
 }
 
-export function validateSourceText(sourceText, fileName, options = {}) {
+// checkImports は resolved import 先が sourceByFile（渡した entries 由来）に無いと
+// isDependencyAllowed へ到達せず continue する。単一 entry だけの検証では、その entry
+// 自身以外への import は依存方向チェックを一切通らない（レイヤ違反があっても検出できない）。
+// 複数ファイル間の依存方向を検証するテストは validateSourceTexts を使うこと。
+export function validateSourceTexts(entries, options = {}) {
   const root = path.resolve(options.root ?? process.cwd());
-  const absolute = path.isAbsolute(fileName) ? fileName : absolutePath(root, fileName);
-  const sourceFile = parseSource(absolute, sourceText);
-  return validateSources(root, [{ fileName: absolute, relative: relativePath(root, absolute), sourceFile }]);
+  const resolvedEntries = entries.map(({ sourceText, fileName }) => {
+    const absolute = path.isAbsolute(fileName) ? fileName : absolutePath(root, fileName);
+    return {
+      fileName: absolute,
+      relative: relativePath(root, absolute),
+      sourceFile: parseSource(absolute, sourceText),
+    };
+  });
+  return validateSources(root, resolvedEntries);
+}
+
+export function validateSourceText(sourceText, fileName, options = {}) {
+  return validateSourceTexts([{ sourceText, fileName }], options);
 }
 
 export function validateProject(root = process.cwd()) {

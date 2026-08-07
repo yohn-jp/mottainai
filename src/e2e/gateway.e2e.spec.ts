@@ -6,11 +6,9 @@ import { createTempDir } from "../test-support/tmp-dir.js";
 import { startGatewayViaStdio } from "./stdio-client.js";
 
 /**
- * E2E / black-box tier: 実プロセスをstdioで起動し、実MCPプロトコルで話す。
- * #22のstdio black-box suiteが積み上がる場所。ここでは接続点が生きていることだけを
- * 検証する最小smokeにとどめ、網羅的なblack-boxケースは追加しない
- * （このファイル名の `.spec.ts` は意図的: `pnpm test` の既定glob `src/**\/*.test.ts`
- * から除外され、`pnpm test:e2e` からだけ実行される。docs/testing.md参照）。
+ * #22がblack-box suiteを積み上げる接続点なので、ここでは接続確認のsmoke 1本に留める。
+ * ファイル名が `.test.ts` でなく `.spec.ts` なのは、既定 `pnpm test` のglobから
+ * 意図的に外すため（docs/testing.md参照）。
  */
 
 test("gateway starts over stdio and serves local tools with a valid structured envelope", { timeout: 15_000 }, async (t) => {
