@@ -163,14 +163,32 @@ control-plane gate above.
 
 `src/workflow/git/hooks.ts` generates `pre-commit`/`pre-push` shell
 scripts that re-implement the same glob-match-plus-rule-mode logic
-independently in POSIX `sh` (to avoid a Node startup cost on every Git
-operation) as defense-in-depth. It also exposes `detectHookBypass()`,
-which compares a recorded checkpoint commit (from the new
-`hook_checkpoints` table, `src/state/migrations.ts` version 3) against
-the current branch tip via `git merge-base --is-ancestor` — if the
-checkpoint isn't an ancestor of the current tip, something changed the
-branch without going through a hook-mediated commit (`--no-verify`,
-history rewrite, or a client that doesn't run hooks at all).
+independently in POSIX `sh` as defense-in-depth (the TypeScript
+implementation isn't invoked directly from a hook). The scripts parse
+`.mottainai/workflow.json` via `node -e`, since `git` alone can't parse
+JSON safely; if `node` isn't on `PATH` (common in GUI Git clients or
+minimal launchd/systemd environments), the hook fails closed — it
+blocks the operation with a diagnostic rather than silently letting it
+through. Branch-name glob matching mirrors
+`protected-branch.ts`'s `patternToRegExp` exactly: patterns are split
+on `*`, each literal segment is escaped with the same character set
+(``. + ? ^ $ { } ( ) | [ ] \``), and segments are rejoined with `.*`.
+The `pre-push` hook classifies each updated ref independently: a
+ref deletion (all-zero local SHA, matched without hardcoding a SHA-1
+vs. SHA-256 length) is gated by `destructiveBranchOp`; a non-fast-forward
+update is gated by `forcePush`; anything else is gated by `directPush`.
+
+It also exposes `detectHookBypass(cwd, branch, checkpointCommit)`,
+which resolves the requested `branch`'s own tip (`refs/heads/<branch>`,
+not `HEAD` — a caller may be checking one branch's checkpoint from a
+different checkout) and compares a recorded checkpoint commit (from
+the new `hook_checkpoints` table, `src/state/migrations.ts` version 3)
+against that tip via `git merge-base --is-ancestor`. If the checkpoint
+isn't an ancestor of the tip, something changed the branch without
+going through a hook-mediated commit (`--no-verify`, history rewrite,
+or a client that doesn't run hooks at all). Failure to resolve the
+requested branch's tip throws rather than reporting a false
+divergence.
 
 ## What's not here yet
 

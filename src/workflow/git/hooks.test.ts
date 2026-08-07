@@ -190,3 +190,65 @@ test("detectHookBypass: checkpoint that is not an ancestor of HEAD indicates a b
   assert.equal(result.diverged, true);
   assert.equal(result.reason, "checkpoint-not-ancestor");
 });
+
+test("detectHookBypass: resolves the requested branch's tip, not HEAD, when the checkout is on a different branch", async (t) => {
+  const root = initRepo(t);
+  const mainCheckpoint = git(["rev-parse", "HEAD"], root);
+  git(["checkout", "--quiet", "-b", "feature/older"], root);
+  // main advances after the feature branch forked; HEAD (feature/older) never moves.
+  git(["checkout", "--quiet", "main"], root);
+  fs.appendFileSync(path.join(root, "file.txt"), "main-advanced\n");
+  git(["commit", "-am", "main advances"], root);
+  git(["checkout", "--quiet", "feature/older"], root);
+
+  const result = await detectHookBypass(root, "main", mainCheckpoint);
+  assert.equal(result.diverged, false, "checking 'main' from a feature checkout must resolve main's own tip, not HEAD");
+  assert.equal(result.reason, "clean");
+});
+
+test("detectHookBypass: throws when the requested branch does not exist", async (t) => {
+  const root = initRepo(t);
+  await assert.rejects(() => detectHookBypass(root, "no-such-branch", undefined));
+});
+
+test("generated pre-push hook blocks deleting a protected remote branch via destructiveBranchOp, independent of forcePush", (t) => {
+  const { root } = initRepoWithRemote(t);
+  writePolicy(root, {
+    protectedBranches: ["release/1.0"],
+    protectedBranchRule: {
+      sourceWrite: "off", stage: "off", commit: "off",
+      directPush: "off", forcePush: "off", destructiveBranchOp: "enforce",
+    },
+  });
+  git(["checkout", "--quiet", "-b", "release/1.0"], root);
+  git(["-c", "protocol.file.allow=always", "push", "--quiet", "origin", "release/1.0:release/1.0"], root);
+  installHook(root, "pre-push", generatePrePushHookScript());
+  assert.throws(() => git(["-c", "protocol.file.allow=always", "push", "origin", "--delete", "release/1.0"], root));
+});
+
+test("generated pre-push hook allows deleting a protected remote branch when destructiveBranchOp is off, even if forcePush is enforce", (t) => {
+  const { root } = initRepoWithRemote(t);
+  writePolicy(root, {
+    protectedBranches: ["release/1.0"],
+    protectedBranchRule: {
+      sourceWrite: "off", stage: "off", commit: "off",
+      directPush: "off", forcePush: "enforce", destructiveBranchOp: "off",
+    },
+  });
+  git(["checkout", "--quiet", "-b", "release/1.0"], root);
+  git(["-c", "protocol.file.allow=always", "push", "--quiet", "origin", "release/1.0:release/1.0"], root);
+  installHook(root, "pre-push", generatePrePushHookScript());
+  assert.doesNotThrow(() => git(["-c", "protocol.file.allow=always", "push", "origin", "--delete", "release/1.0"], root));
+});
+
+test("generated hook fails closed (blocks the operation) when node is not on PATH", (t) => {
+  const root = initRepo(t);
+  writePolicy(root);
+  installHook(root, "pre-commit", generatePreCommitHookScript());
+  fs.appendFileSync(path.join(root, "file.txt"), "change\n");
+  git(["add", "file.txt"], root);
+  const pathWithoutNode = process.env.PATH?.split(path.delimiter)
+    .filter((entry) => !fs.existsSync(path.join(entry, "node")) && !fs.existsSync(path.join(entry, "node.exe")))
+    .join(path.delimiter);
+  assert.throws(() => execFileSync("git", ["commit", "-m", "blocked-no-node"], { cwd: root, env: { ...process.env, PATH: pathWithoutNode } }));
+});
