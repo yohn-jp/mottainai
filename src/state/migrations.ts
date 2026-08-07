@@ -92,6 +92,27 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 3,
+    description: "workflow: hook_checkpoints (hook bypass / direct-Git divergence detection)",
+    up: (db) => {
+      db.exec(`
+        -- instance+branch ごとに「最後に pre-commit/pre-push hook を経由して
+        -- policy check を通過した commit SHA」を記録する。次回チェック時に
+        -- 記録済み SHA が現在の branch tip の ancestor でなければ、hook を
+        -- 経由しない変更（--no-verify・hook 未対応クライアント・直接の
+        -- ref 書き換え等）が発生したと判定できる。detection のみがこの
+        -- Child Issue の範囲であり、報告・repair は Child Issue 8 が担う。
+        CREATE TABLE hook_checkpoints (
+          instance_id TEXT NOT NULL REFERENCES repository_instances (instance_id),
+          branch TEXT NOT NULL,
+          last_checked_commit TEXT NOT NULL,
+          checked_at INTEGER NOT NULL,
+          PRIMARY KEY (instance_id, branch)
+        );
+      `);
+    },
+  },
 ];
 
 function currentVersion(db: DatabaseSync): number {

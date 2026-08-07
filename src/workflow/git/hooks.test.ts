@@ -1,0 +1,192 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import type { TestContext } from "node:test";
+import { test } from "node:test";
+import { detectHookBypass, generatePreCommitHookScript, generatePrePushHookScript, isMottainaiGeneratedHook } from "./hooks.js";
+
+function git(args: string[], cwd: string): string {
+  return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+}
+
+function tmpDir(t: TestContext, prefix: string): string {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  return dir;
+}
+
+function writePolicy(root: string, overrides: Record<string, unknown> = {}): void {
+  const policy = {
+    schemaVersion: 1,
+    protectedBranches: ["main", "release/*"],
+    protectedBranchRule: {
+      sourceWrite: "enforce",
+      stage: "enforce",
+      commit: "enforce",
+      directPush: "enforce",
+      forcePush: "enforce",
+      destructiveBranchOp: "enforce",
+    },
+    controlPlaneRole: "primary-checkout",
+    worktree: { required: "off", bootstrapMode: "off", multipleActiveTasksPerIssue: "off", multipleWorktreesPerTask: "off" },
+    stagingMode: "explicit",
+    cleanup: { worktreeRemoval: "off", localBranchDeletion: "off", remoteBranchDeletion: "off", worktreePrune: "off", forceCleanup: "off" },
+    ...overrides,
+  };
+  fs.mkdirSync(path.join(root, ".mottainai"), { recursive: true });
+  fs.writeFileSync(path.join(root, ".mottainai", "workflow.json"), JSON.stringify(policy, null, 2));
+}
+
+function initRepo(t: TestContext): string {
+  const root = tmpDir(t, "mottainai-workflow-hooks-test-");
+  git(["init", "--quiet", "-b", "main"], root);
+  git(["config", "user.email", "test@example.com"], root);
+  git(["config", "user.name", "Test"], root);
+  fs.writeFileSync(path.join(root, "file.txt"), "hello\n");
+  git(["add", "file.txt"], root);
+  git(["commit", "--quiet", "-m", "initial"], root);
+  return root;
+}
+
+function installHook(root: string, name: "pre-commit" | "pre-push", script: string): void {
+  const hookPath = path.join(root, ".git", "hooks", name);
+  fs.writeFileSync(hookPath, script, { mode: 0o755 });
+}
+
+test("isMottainaiGeneratedHook: detects generated scripts and rejects unrelated content", () => {
+  assert.equal(isMottainaiGeneratedHook(generatePreCommitHookScript()), true);
+  assert.equal(isMottainaiGeneratedHook(generatePrePushHookScript()), true);
+  assert.equal(isMottainaiGeneratedHook("#!/bin/sh\necho hi\n"), false);
+});
+
+test("generated pre-commit hook blocks commits on a protected branch", (t) => {
+  const root = initRepo(t);
+  writePolicy(root);
+  installHook(root, "pre-commit", generatePreCommitHookScript());
+  fs.appendFileSync(path.join(root, "file.txt"), "change\n");
+  git(["add", "file.txt"], root);
+  assert.throws(() => git(["commit", "-m", "blocked"], root));
+});
+
+test("generated pre-commit hook allows commits on a non-protected branch", (t) => {
+  const root = initRepo(t);
+  writePolicy(root);
+  installHook(root, "pre-commit", generatePreCommitHookScript());
+  git(["checkout", "--quiet", "-b", "feature/allowed"], root);
+  fs.appendFileSync(path.join(root, "file.txt"), "change\n");
+  git(["add", "file.txt"], root);
+  assert.doesNotThrow(() => git(["commit", "-m", "allowed"], root));
+});
+
+test("generated pre-commit hook respects glob-matched protected branches (release/*)", (t) => {
+  const root = initRepo(t);
+  writePolicy(root);
+  installHook(root, "pre-commit", generatePreCommitHookScript());
+  git(["checkout", "--quiet", "-b", "release/1.0"], root);
+  fs.appendFileSync(path.join(root, "file.txt"), "change\n");
+  git(["add", "file.txt"], root);
+  assert.throws(() => git(["commit", "-m", "blocked-glob"], root));
+});
+
+test("generated pre-commit hook allows commit when protectedBranchRule.commit is advisory", (t) => {
+  const root = initRepo(t);
+  writePolicy(root, {
+    protectedBranchRule: {
+      sourceWrite: "advisory", stage: "advisory", commit: "advisory",
+      directPush: "enforce", forcePush: "enforce", destructiveBranchOp: "enforce",
+    },
+  });
+  installHook(root, "pre-commit", generatePreCommitHookScript());
+  fs.appendFileSync(path.join(root, "file.txt"), "change\n");
+  git(["add", "file.txt"], root);
+  assert.doesNotThrow(() => git(["commit", "-m", "advisory-allowed"], root));
+});
+
+function initRepoWithRemote(t: TestContext): { root: string; remote: string } {
+  const root = initRepo(t);
+  const remote = tmpDir(t, "mottainai-workflow-hooks-remote-");
+  git(["init", "--quiet", "--bare"], remote);
+  git(["remote", "add", "origin", remote], root);
+  git(["-c", "protocol.file.allow=always", "push", "--quiet", "origin", "main:main"], root);
+  return { root, remote };
+}
+
+test("generated pre-push hook blocks direct push to a protected branch", (t) => {
+  const { root } = initRepoWithRemote(t);
+  writePolicy(root);
+  installHook(root, "pre-push", generatePrePushHookScript());
+  fs.appendFileSync(path.join(root, "file.txt"), "change\n");
+  git(["commit", "-am", "extra"], root);
+  assert.throws(() => git(["-c", "protocol.file.allow=always", "push", "origin", "main:main"], root));
+});
+
+test("generated pre-push hook allows push to a non-protected branch", (t) => {
+  const { root } = initRepoWithRemote(t);
+  writePolicy(root);
+  installHook(root, "pre-push", generatePrePushHookScript());
+  git(["checkout", "--quiet", "-b", "feature/pushable"], root);
+  assert.doesNotThrow(() => git(["-c", "protocol.file.allow=always", "push", "origin", "feature/pushable:feature/pushable"], root));
+});
+
+test("generated pre-push hook blocks force-push to a protected branch even when directPush is off", (t) => {
+  const { root } = initRepoWithRemote(t);
+  writePolicy(root, {
+    protectedBranchRule: {
+      sourceWrite: "off", stage: "off", commit: "off",
+      directPush: "off", forcePush: "enforce", destructiveBranchOp: "off",
+    },
+  });
+  installHook(root, "pre-push", generatePrePushHookScript());
+  git(["commit", "--quiet", "--amend", "-m", "amended"], root);
+  assert.throws(() => git(["-c", "protocol.file.allow=always", "push", "--force", "origin", "main:main"], root));
+});
+
+test("generated pre-push hook allows a plain fast-forward push when directPush is off", (t) => {
+  const { root } = initRepoWithRemote(t);
+  writePolicy(root, {
+    protectedBranchRule: {
+      sourceWrite: "off", stage: "off", commit: "off",
+      directPush: "off", forcePush: "enforce", destructiveBranchOp: "off",
+    },
+  });
+  installHook(root, "pre-push", generatePrePushHookScript());
+  fs.appendFileSync(path.join(root, "file.txt"), "change\n");
+  git(["commit", "-am", "extra"], root);
+  assert.doesNotThrow(() => git(["-c", "protocol.file.allow=always", "push", "origin", "main:main"], root));
+});
+
+test("detectHookBypass: no checkpoint recorded is not treated as diverged", async (t) => {
+  const root = initRepo(t);
+  const result = await detectHookBypass(root, "main", undefined);
+  assert.equal(result.diverged, false);
+  assert.equal(result.reason, "no-checkpoint");
+});
+
+test("detectHookBypass: checkpoint equal to HEAD is clean", async (t) => {
+  const root = initRepo(t);
+  const head = git(["rev-parse", "HEAD"], root);
+  const result = await detectHookBypass(root, "main", head);
+  assert.equal(result.diverged, false);
+  assert.equal(result.reason, "clean");
+});
+
+test("detectHookBypass: checkpoint that is an ancestor of HEAD is clean (hook-mediated commit happened after checkpoint)", async (t) => {
+  const root = initRepo(t);
+  const checkpoint = git(["rev-parse", "HEAD"], root);
+  fs.appendFileSync(path.join(root, "file.txt"), "more\n");
+  git(["commit", "-am", "second"], root);
+  const result = await detectHookBypass(root, "main", checkpoint);
+  assert.equal(result.diverged, false);
+  assert.equal(result.reason, "clean");
+});
+
+test("detectHookBypass: checkpoint that is not an ancestor of HEAD indicates a bypass (e.g. --no-verify amend/rebase)", async (t) => {
+  const root = initRepo(t);
+  const checkpoint = git(["rev-parse", "HEAD"], root);
+  git(["commit", "--quiet", "--amend", "--allow-empty", "-m", "rewritten", "--no-verify"], root);
+  const result = await detectHookBypass(root, "main", checkpoint);
+  assert.equal(result.diverged, true);
+  assert.equal(result.reason, "checkpoint-not-ancestor");
+});

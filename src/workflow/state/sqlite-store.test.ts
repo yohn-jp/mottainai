@@ -222,3 +222,44 @@ test("file-backed store persists across close/reopen with owner-only permissions
   assert.equal(reopened.getRepositoryInstanceByCommonDir("/repo/.git")?.instanceId, instanceId);
   reopened.close();
 });
+
+function openStoreWithInstance(): WorkflowSqliteStateStore {
+  const store = openStore();
+  store.observeRepositoryInstance({ rootCommitDigest: digest, instanceId, gitCommonDir: "/repo/.git", canonicalWorktreePath: "/repo" });
+  return store;
+}
+
+test("recordHookCheckpoint stores a checkpoint retrievable by instance and branch", () => {
+  const store = openStoreWithInstance();
+  const result = store.recordHookCheckpoint({ instanceId, branch: "main", commit: "abc123", checkedAt: 1000 });
+  assert.equal(result.instanceId, instanceId);
+  assert.equal(result.branch, "main");
+  assert.equal(result.lastCheckedCommit, "abc123");
+  assert.equal(result.checkedAt, 1000);
+
+  const fetched = store.getHookCheckpoint(instanceId, "main");
+  assert.equal(fetched?.lastCheckedCommit, "abc123");
+  assert.equal(fetched?.checkedAt, 1000);
+});
+
+test("getHookCheckpoint returns undefined when no checkpoint has been recorded", () => {
+  const store = openStoreWithInstance();
+  assert.equal(store.getHookCheckpoint(instanceId, "main"), undefined);
+});
+
+test("recordHookCheckpoint overwrites the previous checkpoint for the same instance+branch", () => {
+  const store = openStoreWithInstance();
+  store.recordHookCheckpoint({ instanceId, branch: "main", commit: "first", checkedAt: 1000 });
+  store.recordHookCheckpoint({ instanceId, branch: "main", commit: "second", checkedAt: 2000 });
+  const fetched = store.getHookCheckpoint(instanceId, "main");
+  assert.equal(fetched?.lastCheckedCommit, "second");
+  assert.equal(fetched?.checkedAt, 2000);
+});
+
+test("hook checkpoints are tracked independently per branch", () => {
+  const store = openStoreWithInstance();
+  store.recordHookCheckpoint({ instanceId, branch: "main", commit: "main-sha", checkedAt: 1000 });
+  store.recordHookCheckpoint({ instanceId, branch: "feature/x", commit: "feature-sha", checkedAt: 1000 });
+  assert.equal(store.getHookCheckpoint(instanceId, "main")?.lastCheckedCommit, "main-sha");
+  assert.equal(store.getHookCheckpoint(instanceId, "feature/x")?.lastCheckedCommit, "feature-sha");
+});

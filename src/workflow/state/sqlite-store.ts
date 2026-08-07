@@ -7,8 +7,10 @@ import { resolveStateDbPath } from "../../state/paths.js";
 import type { RepositoryInstanceId, RootCommitDigest } from "../domain/identity.js";
 import type {
   RepositorySourceId,
+  HookCheckpointRecord,
   ObserveRepositoryInstanceInput,
   ObserveRepositoryInstanceResult,
+  RecordHookCheckpointInput,
   RepositoryInstanceRecord,
   RepositoryPathRecord,
   RepositorySourceRecord,
@@ -55,6 +57,15 @@ function toPathRecord(row: Record<string, unknown>): RepositoryPathRecord {
     canonicalPath: row.canonical_path as string,
     isCurrent: (row.is_current as number) === 1,
     observedAt: row.observed_at as number,
+  };
+}
+
+function toHookCheckpointRecord(row: Record<string, unknown>): HookCheckpointRecord {
+  return {
+    instanceId: row.instance_id as RepositoryInstanceId,
+    branch: row.branch as string,
+    lastCheckedCommit: row.last_checked_commit as string,
+    checkedAt: row.checked_at as number,
   };
 }
 
@@ -219,6 +230,24 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       .prepare("SELECT * FROM repository_paths WHERE instance_id = ? ORDER BY observed_at ASC")
       .all(instanceId) as Record<string, unknown>[];
     return rows.map(toPathRecord);
+  }
+
+  recordHookCheckpoint(input: RecordHookCheckpointInput): HookCheckpointRecord {
+    const db = this.handle();
+    const checkedAt = input.checkedAt ?? Date.now();
+    db.prepare(
+      `INSERT INTO hook_checkpoints (instance_id, branch, last_checked_commit, checked_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT (instance_id, branch) DO UPDATE SET last_checked_commit = excluded.last_checked_commit, checked_at = excluded.checked_at`,
+    ).run(input.instanceId, input.branch, input.commit, checkedAt);
+    return { instanceId: input.instanceId, branch: input.branch, lastCheckedCommit: input.commit, checkedAt };
+  }
+
+  getHookCheckpoint(instanceId: RepositoryInstanceId, branch: string): HookCheckpointRecord | undefined {
+    const row = this.handle()
+      .prepare("SELECT * FROM hook_checkpoints WHERE instance_id = ? AND branch = ?")
+      .get(instanceId, branch) as Record<string, unknown> | undefined;
+    return row === undefined ? undefined : toHookCheckpointRecord(row);
   }
 
   close(): void {
