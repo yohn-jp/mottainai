@@ -87,6 +87,21 @@ test("linked worktree is explicitly reported and supported", async (t) => {
   assert.equal(result.state.isPrimaryCheckout, false);
 });
 
+test("a linked worktree with a detached HEAD is reported as linked-worktree, not detached-head (documented priority order)", async (t) => {
+  const root = initRepo(t);
+  const worktreeParent = tmpDir(t, "mottainai-workflow-repo-state-worktree-detached-");
+  const worktreePath = path.join(worktreeParent, "linked-detached");
+  const headSha = git(["rev-parse", "HEAD"], root);
+  git(["worktree", "add", "--quiet", "--detach", worktreePath, headSha], root);
+  const result = await resolveRepoState(worktreePath);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.state.kind, "linked-worktree");
+  assert.equal(result.state.branch, undefined);
+  assert.equal(result.state.supported, true);
+  assert.equal(result.state.isPrimaryCheckout, false);
+});
+
 test("primary checkout that owns linked worktrees is still reported as isPrimaryCheckout", async (t) => {
   const root = initRepo(t);
   const worktreeParent = tmpDir(t, "mottainai-workflow-repo-state-worktree-primary-");
