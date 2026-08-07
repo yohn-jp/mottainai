@@ -11,7 +11,7 @@ function git(args: string[], cwd: string): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 }
 
-/** 一時リポジトリを作り、テスト終了時に自動削除する。 */
+// テスト間でリポジトリ状態が残らないようにする。
 function initRepo(t: TestContext): string {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-workflow-identity-test-")));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -24,7 +24,7 @@ function initRepo(t: TestContext): string {
   return root;
 }
 
-/** 一時ディレクトリを作り、テスト終了時に自動削除する（git init しない）。 */
+// 非 Git ディレクトリが必要な失敗系を他のテストから隔離する。
 function tmpDir(t: TestContext, prefix: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -73,7 +73,9 @@ test("resolving through a symlinked path yields the same identity as the real pa
   const root = initRepo(t);
   const parent = path.dirname(root);
   const linkPath = path.join(parent, "symlinked-repo");
-  fs.symlinkSync(root, linkPath, "dir");
+  // Windows は symlink 作成に管理者権限や開発者モードを要求しうる（EPERM）が、
+  // junction はその制約を受けない。
+  fs.symlinkSync(root, linkPath, process.platform === "win32" ? "junction" : "dir");
   t.after(() => fs.rmSync(linkPath));
 
   const direct = resolveRepositoryIdentity(root);
@@ -153,6 +155,37 @@ test("two worktrees of the same repository share instanceId and rootCommitDigest
   assert.equal(fromMain.identity.rootCommitDigest, fromWorktree.identity.rootCommitDigest);
   assert.notEqual(fromMain.identity.worktreePath, fromWorktree.identity.worktreePath);
   assert.equal(fromWorktree.identity.worktreePath, fs.realpathSync.native(worktreePath));
+});
+
+test("concurrent first-time resolution from multiple processes converges on one instance id", async (t) => {
+  const root = initRepo(t);
+  const workerModule = path.join(import.meta.dirname, "identity-resolve-worker.mjs");
+
+  // 単一プロセス内の呼び出しは Node のイベントループ上で逐次実行されるため、
+  // マーカー未作成時の書き込み競合（初回発行の一意性）は複数の実プロセスを
+  // 同時起動しないと再現できない。
+  const { spawn } = await import("node:child_process");
+  const runWorker = () =>
+    new Promise<string>((resolve, reject) => {
+      const child = spawn(process.execPath, ["--import", "tsx", workerModule, root], { stdio: ["ignore", "pipe", "inherit"] });
+      let stdout = "";
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk;
+      });
+      child.on("error", reject);
+      child.on("exit", (code) => {
+        if (code !== 0) reject(new Error(`worker exited with code ${code}`));
+        else resolve(stdout.trim());
+      });
+    });
+
+  const concurrentResults = await Promise.all(Array.from({ length: 5 }, () => runWorker()));
+  const uniqueConcurrent = new Set(concurrentResults);
+  assert.equal(
+    uniqueConcurrent.size,
+    1,
+    `expected all concurrent resolutions to agree on one instance id, got: ${concurrentResults.join(", ")}`,
+  );
 });
 
 test("rootCommitDigest is stable across an unrelated orphan branch checkout (not HEAD-relative)", (t) => {

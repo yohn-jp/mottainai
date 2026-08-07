@@ -40,10 +40,10 @@ function runGit(args: string[], cwd: string): string {
 }
 
 /**
- * シンボリックリンク解決・末尾スラッシュ差異を吸収した絶対パスを返す。
- * 大文字小文字の正規化は OS・ファイルシステムに依存する（例: macOS/Windows の
- * 既定 FS は case-insensitive、Linux の既定 FS は case-sensitive）ため、
- * 全プラットフォームで保証される挙動ではない点に注意。
+ * シンボリックリンク経由や末尾スラッシュ違いの入力を同一パスとして比較できる
+ * よう、実体パス基準に正規化する。大文字小文字の正規化は OS・ファイルシステム
+ * 依存（例: macOS/Windows の既定 FS は case-insensitive、Linux は
+ * case-sensitive）であり、全プラットフォームで保証される挙動ではない。
  */
 function canonicalizePath(targetPath: string): string {
   return fs.realpathSync.native(targetPath);
@@ -87,21 +87,38 @@ function resolveOrCreateInstanceId(gitCommonDir: string): { ok: true; instanceId
   }
 
   const generated = crypto.randomUUID() as RepositoryInstanceId;
+  // `wx` での直接書き込みは排他生成こそ保証するが、書き込み自体は複数 syscall
+  // に分かれるため、他プロセスが空/部分内容を読んだり、書き込み中のクラッシュで
+  // 壊れた内容が永続化されたりしうる。一意な一時ファイルに全内容を書いてから
+  // `fs.linkSync`（ハードリンク、対象が存在すれば ENOENT ではなく EEXIST で失敗）
+  // で公開することで、他プロセスからは「存在しない」か「完全な内容」のいずれか
+  // しか観測できないようにする。
+  const tmpPath = `${markerPath}.tmp.${process.pid}.${crypto.randomBytes(8).toString("hex")}`;
   try {
-    // 他プロセスとの同時初回作成競合に備え、存在すれば失敗する排他書き込みにする。
-    fs.writeFileSync(markerPath, `${generated}\n`, { flag: "wx" });
-    return { ok: true, instanceId: generated };
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+    fs.writeFileSync(tmpPath, `${generated}\n`, { flag: "wx" });
+    try {
+      fs.linkSync(tmpPath, markerPath);
+      return { ok: true, instanceId: generated };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+        try {
+          const raceWinner = fs.readFileSync(markerPath, "utf8").trim();
+          if (INSTANCE_ID_PATTERN.test(raceWinner)) return { ok: true, instanceId: raceWinner as RepositoryInstanceId };
+          return { ok: false, reason: `instance marker file is corrupt: ${markerPath}` };
+        } catch {
+          // 下の共通エラーへフォールスルー
+        }
+      }
+      return { ok: false, reason: `cannot create instance marker file: ${(err as Error).message}` };
+    } finally {
       try {
-        const raceWinner = fs.readFileSync(markerPath, "utf8").trim();
-        if (INSTANCE_ID_PATTERN.test(raceWinner)) return { ok: true, instanceId: raceWinner as RepositoryInstanceId };
-        return { ok: false, reason: `instance marker file is corrupt: ${markerPath}` };
+        fs.unlinkSync(tmpPath);
       } catch {
-        // 下の共通エラーへフォールスルー
+        // ベストエフォート（既に自分で publish 済みなら該当ファイルは残らない想定）
       }
     }
-    return { ok: false, reason: `cannot create instance marker file: ${(err as Error).message}` };
+  } catch (err) {
+    return { ok: false, reason: `cannot create instance marker temp file: ${(err as Error).message}` };
   }
 }
 
