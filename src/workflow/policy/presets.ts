@@ -20,6 +20,7 @@ const minimal: WorkflowPolicyDocument = {
   controlPlaneRole: "any",
   worktree: {
     required: "off",
+    issueRequired: "off",
     bootstrapMode: "off",
     multipleActiveTasksPerIssue: "off",
     multipleWorktreesPerTask: "off",
@@ -49,6 +50,7 @@ const standard: WorkflowPolicyDocument = {
   controlPlaneRole: "any",
   worktree: {
     required: "off",
+    issueRequired: "off",
     bootstrapMode: "suggest",
     multipleActiveTasksPerIssue: "advisory",
     multipleWorktreesPerTask: "advisory",
@@ -82,6 +84,7 @@ const strictWorktree: WorkflowPolicyDocument = {
   controlPlaneRole: "primary-checkout",
   worktree: {
     required: "enforce",
+    issueRequired: "advisory",
     bootstrapMode: "conditional",
     multipleActiveTasksPerIssue: "off",
     multipleWorktreesPerTask: "off",

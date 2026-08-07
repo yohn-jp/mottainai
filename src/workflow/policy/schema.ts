@@ -27,6 +27,7 @@ export type ProtectedBranchRule = z.infer<typeof protectedBranchRuleSchema>;
 
 const worktreeRuleSchema = z.object({
   required: ruleModeSchema,
+  issueRequired: ruleModeSchema,
   bootstrapMode: z.enum(["off", "suggest", "automatic", "conditional"]),
   multipleActiveTasksPerIssue: ruleModeSchema,
   multipleWorktreesPerTask: ruleModeSchema,

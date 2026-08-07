@@ -17,6 +17,7 @@ const validDocument = {
   controlPlaneRole: "primary-checkout",
   worktree: {
     required: "enforce",
+    issueRequired: "off",
     bootstrapMode: "off",
     multipleActiveTasksPerIssue: "off",
     multipleWorktreesPerTask: "off",
