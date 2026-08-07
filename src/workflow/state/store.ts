@@ -1,4 +1,5 @@
 import type { RepositoryInstanceId, RootCommitDigest } from "../domain/identity.js";
+import type { LifecycleState } from "../domain/lifecycle.js";
 
 /**
  * Git workflow 専用の永続 state 抽象。`src/state/store.ts` の StateStore
@@ -50,6 +51,65 @@ export interface ObserveRepositoryInstanceResult {
   previousCurrentPath: string | undefined;
 }
 
+export type TaskId = string & { readonly __brand: "TaskId" };
+export type WorktreeId = string & { readonly __brand: "WorktreeId" };
+
+export interface TaskRecord {
+  taskId: TaskId;
+  instanceId: RepositoryInstanceId;
+  taskSlug: string;
+  issueRef: string | undefined;
+  lifecycleState: LifecycleState;
+  baseBranch: string;
+  baseCommit: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type WorktreeStatus = "reserved" | "active" | "removed";
+
+export interface WorktreeRecord {
+  worktreeId: WorktreeId;
+  taskId: TaskId;
+  instanceId: RepositoryInstanceId;
+  branchName: string;
+  canonicalPath: string;
+  status: WorktreeStatus;
+  baseBranch: string;
+  baseCommit: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ReserveTaskInput {
+  instanceId: RepositoryInstanceId;
+  taskSlug: string;
+  issueRef: string | undefined;
+  baseBranch: string;
+  baseCommit: string;
+  /** false の場合、同一 (instanceId, issueRef) に既存の未終了 task があれば拒否する。 */
+  allowMultipleActiveTasksPerIssue: boolean;
+  reservedAt?: number;
+}
+
+export type ReserveTaskResult =
+  | { ok: true; task: TaskRecord }
+  | { ok: false; reason: "issue-already-claimed"; existingTask: TaskRecord };
+
+export interface ReserveWorktreeInput {
+  taskId: TaskId;
+  instanceId: RepositoryInstanceId;
+  branchName: string;
+  canonicalPath: string;
+  baseBranch: string;
+  baseCommit: string;
+  reservedAt?: number;
+}
+
+export type ReserveWorktreeResult =
+  | { ok: true; worktree: WorktreeRecord }
+  | { ok: false; reason: "branch-collision" | "path-collision"; existingWorktree: WorktreeRecord };
+
 export interface HookCheckpointRecord {
   instanceId: RepositoryInstanceId;
   branch: string;
@@ -89,6 +149,37 @@ export interface WorkflowStateStore {
    */
   recordHookCheckpoint(input: RecordHookCheckpointInput): HookCheckpointRecord;
   getHookCheckpoint(instanceId: RepositoryInstanceId, branch: string): HookCheckpointRecord | undefined;
+
+  /**
+   * task を `planned` 状態で予約する。`allowMultipleActiveTasksPerIssue: false` かつ
+   * `issueRef` 指定時、同一 (instanceId, issueRef) に未終了（cleaned/abandoned 以外）の
+   * task が既にあれば拒否する。単一の `BEGIN IMMEDIATE` トランザクション内で SELECT→INSERT
+   * するため、2 プロセス同時呼び出しでも一方の transaction が他方の commit/rollback を
+   * 待つことで一意性が保証される（git/gh 等の外部プロセス呼び出しはこの中で行わない）。
+   */
+  reserveTask(input: ReserveTaskInput): ReserveTaskResult;
+
+  /**
+   * worktree を `reserved` 状態で予約する。branch_name/canonical_path の一意性は
+   * migration 側の UNIQUE partial index（status != 'removed'）が保証するため、
+   * ここでは INSERT を試み、制約違反時に既存行を読み直して衝突理由を構造化して返す。
+   */
+  reserveWorktree(input: ReserveWorktreeInput): ReserveWorktreeResult;
+
+  /** 外部 `git worktree add` 成功後に呼ぶ。`reserved`→`active` に更新する。 */
+  activateWorktree(worktreeId: WorktreeId, activatedAt?: number): WorktreeRecord;
+
+  /** 予約後に外部操作が失敗した場合の補償ロールバック。 */
+  deleteReservedTask(taskId: TaskId): void;
+  /** 予約後に外部操作が失敗した場合の補償ロールバック。 */
+  deleteReservedWorktree(worktreeId: WorktreeId): void;
+
+  updateTaskLifecycleState(taskId: TaskId, next: LifecycleState, updatedAt?: number): TaskRecord;
+  getTask(taskId: TaskId): TaskRecord | undefined;
+  getActiveTaskByIssueRef(instanceId: RepositoryInstanceId, issueRef: string): TaskRecord | undefined;
+  listWorktreesForTask(taskId: TaskId): WorktreeRecord[];
+  /** instance 全体の worktree 一覧（task を横断）。衝突・stale metadata 検出のために使う。 */
+  listWorktreesForInstance(instanceId: RepositoryInstanceId): WorktreeRecord[];
 
   /** backend 固有のリソース解放（DB クローズ等）。プロセス終了時 best-effort で呼ぶ。 */
   close(): void;

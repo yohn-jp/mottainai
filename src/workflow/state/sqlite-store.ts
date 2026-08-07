@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { applyMigrations } from "../../state/migrations.js";
 import { resolveStateDbPath } from "../../state/paths.js";
 import type { RepositoryInstanceId, RootCommitDigest } from "../domain/identity.js";
+import type { LifecycleState } from "../domain/lifecycle.js";
 import type {
   RepositorySourceId,
   HookCheckpointRecord,
@@ -14,7 +15,15 @@ import type {
   RepositoryInstanceRecord,
   RepositoryPathRecord,
   RepositorySourceRecord,
+  ReserveTaskInput,
+  ReserveTaskResult,
+  ReserveWorktreeInput,
+  ReserveWorktreeResult,
+  TaskId,
+  TaskRecord,
   WorkflowStateStore,
+  WorktreeId,
+  WorktreeRecord,
 } from "./store.js";
 
 export interface WorkflowSqliteStateStoreOptions {
@@ -60,6 +69,41 @@ function toPathRecord(row: Record<string, unknown>): RepositoryPathRecord {
   };
 }
 
+function toTaskRecord(row: Record<string, unknown>): TaskRecord {
+  return {
+    taskId: row.task_id as TaskId,
+    instanceId: row.instance_id as RepositoryInstanceId,
+    taskSlug: row.task_slug as string,
+    issueRef: (row.issue_ref as string | null) ?? undefined,
+    lifecycleState: row.lifecycle_state as LifecycleState,
+    baseBranch: row.base_branch as string,
+    baseCommit: row.base_commit as string,
+    createdAt: row.created_at as number,
+    updatedAt: row.updated_at as number,
+  };
+}
+
+function toWorktreeRecord(row: Record<string, unknown>): WorktreeRecord {
+  return {
+    worktreeId: row.worktree_id as WorktreeId,
+    taskId: row.task_id as TaskId,
+    instanceId: row.instance_id as RepositoryInstanceId,
+    branchName: row.branch_name as string,
+    canonicalPath: row.canonical_path as string,
+    status: row.status as WorktreeRecord["status"],
+    baseBranch: row.base_branch as string,
+    baseCommit: row.base_commit as string,
+    createdAt: row.created_at as number,
+    updatedAt: row.updated_at as number,
+  };
+}
+
+/** UNIQUE 制約違反を collision として扱うための判定。node:sqlite は専用の error class を
+ * 公開しないため、code + message 文字列でマッチする（sanity script で確認済みの実挙動）。 */
+function isUniqueConstraintError(err: unknown): boolean {
+  return err instanceof Error && (err as NodeJS.ErrnoException).code === "ERR_SQLITE_ERROR" && err.message.includes("UNIQUE constraint failed");
+}
+
 function toHookCheckpointRecord(row: Record<string, unknown>): HookCheckpointRecord {
   return {
     instanceId: row.instance_id as RepositoryInstanceId,
@@ -93,6 +137,12 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     const db = new DatabaseSync(this.dbPath);
     try {
       if (isFileBacked) restrictToOwner(this.dbPath, 0o600);
+      // busy_timeout 未設定だと、他プロセスが BEGIN IMMEDIATE で書き込みロックを
+      // 保持している間、即座に "database is locked" で失敗する（node:sqlite の
+      // DatabaseSync は既定でリトライしない）。task.ts の 2 プロセス同時
+      // reserveTask/reserveWorktree がロック解放を待って安全に直列化されるよう、
+      // ロック待ちを許容する。
+      db.exec("PRAGMA busy_timeout = 5000");
       db.exec("PRAGMA journal_mode = WAL");
       db.exec("PRAGMA foreign_keys = ON");
       applyMigrations(db);
@@ -248,6 +298,140 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       .prepare("SELECT * FROM hook_checkpoints WHERE instance_id = ? AND branch = ?")
       .get(instanceId, branch) as Record<string, unknown> | undefined;
     return row === undefined ? undefined : toHookCheckpointRecord(row);
+  }
+
+  reserveTask(input: ReserveTaskInput): ReserveTaskResult {
+    const db = this.handle();
+    const now = input.reservedAt ?? Date.now();
+
+    let result!: ReserveTaskResult;
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      if (!input.allowMultipleActiveTasksPerIssue && input.issueRef !== undefined) {
+        const existingRow = db
+          .prepare(
+            "SELECT * FROM tasks WHERE instance_id = ? AND issue_ref = ? AND lifecycle_state NOT IN ('cleaned', 'abandoned')",
+          )
+          .get(input.instanceId, input.issueRef) as Record<string, unknown> | undefined;
+        if (existingRow !== undefined) {
+          db.exec("ROLLBACK");
+          return { ok: false, reason: "issue-already-claimed", existingTask: toTaskRecord(existingRow) };
+        }
+      }
+
+      const taskId = crypto.randomUUID() as TaskId;
+      db.prepare(
+        `INSERT INTO tasks (task_id, instance_id, task_slug, issue_ref, lifecycle_state, base_branch, base_commit, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'planned', ?, ?, ?, ?)`,
+      ).run(taskId, input.instanceId, input.taskSlug, input.issueRef ?? null, input.baseBranch, input.baseCommit, now, now);
+      const row = db.prepare("SELECT * FROM tasks WHERE task_id = ?").get(taskId) as Record<string, unknown>;
+      db.exec("COMMIT");
+      result = { ok: true, task: toTaskRecord(row) };
+    } catch (err) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // 元の予約エラーを保持する
+      }
+      throw err;
+    }
+    return result;
+  }
+
+  reserveWorktree(input: ReserveWorktreeInput): ReserveWorktreeResult {
+    const db = this.handle();
+    const now = input.reservedAt ?? Date.now();
+
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const worktreeId = crypto.randomUUID() as WorktreeId;
+      db.prepare(
+        `INSERT INTO worktrees (worktree_id, task_id, instance_id, branch_name, canonical_path, status, base_branch, base_commit, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'reserved', ?, ?, ?, ?)`,
+      ).run(worktreeId, input.taskId, input.instanceId, input.branchName, input.canonicalPath, input.baseBranch, input.baseCommit, now, now);
+      const row = db.prepare("SELECT * FROM worktrees WHERE worktree_id = ?").get(worktreeId) as Record<string, unknown>;
+      db.exec("COMMIT");
+      return { ok: true, worktree: toWorktreeRecord(row) };
+    } catch (err) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // 元の予約エラーを保持する
+      }
+      if (!isUniqueConstraintError(err)) throw err;
+
+      const branchConflict = db
+        .prepare("SELECT * FROM worktrees WHERE instance_id = ? AND branch_name = ? AND status != 'removed'")
+        .get(input.instanceId, input.branchName) as Record<string, unknown> | undefined;
+      if (branchConflict !== undefined) {
+        return { ok: false, reason: "branch-collision", existingWorktree: toWorktreeRecord(branchConflict) };
+      }
+      const pathConflict = db
+        .prepare("SELECT * FROM worktrees WHERE instance_id = ? AND canonical_path = ? AND status != 'removed'")
+        .get(input.instanceId, input.canonicalPath) as Record<string, unknown> | undefined;
+      if (pathConflict !== undefined) {
+        return { ok: false, reason: "path-collision", existingWorktree: toWorktreeRecord(pathConflict) };
+      }
+      throw err;
+    }
+  }
+
+  activateWorktree(worktreeId: WorktreeId, activatedAt?: number): WorktreeRecord {
+    const db = this.handle();
+    const now = activatedAt ?? Date.now();
+    // status='reserved' を条件に含めないと、既に removed（削除済み履歴）の worktree を
+    // 誤って active へ復活させてしまう（branch/path が別 worktree に再利用済みなら
+    // UNIQUE 制約違反にもなりうる）。activate できるのは予約直後の reserved 行のみ。
+    const result = db
+      .prepare("UPDATE worktrees SET status = 'active', updated_at = ? WHERE worktree_id = ? AND status = 'reserved'")
+      .run(now, worktreeId);
+    if (result.changes === 0) throw new Error(`worktree not found or not in reserved state: ${worktreeId}`);
+    const row = db.prepare("SELECT * FROM worktrees WHERE worktree_id = ?").get(worktreeId) as Record<string, unknown>;
+    return toWorktreeRecord(row);
+  }
+
+  deleteReservedTask(taskId: TaskId): void {
+    this.handle().prepare("DELETE FROM tasks WHERE task_id = ? AND lifecycle_state = 'planned'").run(taskId);
+  }
+
+  deleteReservedWorktree(worktreeId: WorktreeId): void {
+    this.handle().prepare("DELETE FROM worktrees WHERE worktree_id = ? AND status = 'reserved'").run(worktreeId);
+  }
+
+  updateTaskLifecycleState(taskId: TaskId, next: LifecycleState, updatedAt?: number): TaskRecord {
+    const db = this.handle();
+    const now = updatedAt ?? Date.now();
+    db.prepare("UPDATE tasks SET lifecycle_state = ?, updated_at = ? WHERE task_id = ?").run(next, now, taskId);
+    const row = db.prepare("SELECT * FROM tasks WHERE task_id = ?").get(taskId) as Record<string, unknown> | undefined;
+    if (row === undefined) throw new Error(`task not found: ${taskId}`);
+    return toTaskRecord(row);
+  }
+
+  getTask(taskId: TaskId): TaskRecord | undefined {
+    const row = this.handle().prepare("SELECT * FROM tasks WHERE task_id = ?").get(taskId) as Record<string, unknown> | undefined;
+    return row === undefined ? undefined : toTaskRecord(row);
+  }
+
+  getActiveTaskByIssueRef(instanceId: RepositoryInstanceId, issueRef: string): TaskRecord | undefined {
+    const row = this.handle()
+      .prepare("SELECT * FROM tasks WHERE instance_id = ? AND issue_ref = ? AND lifecycle_state NOT IN ('cleaned', 'abandoned')")
+      .get(instanceId, issueRef) as Record<string, unknown> | undefined;
+    return row === undefined ? undefined : toTaskRecord(row);
+  }
+
+  listWorktreesForTask(taskId: TaskId): WorktreeRecord[] {
+    const rows = this.handle().prepare("SELECT * FROM worktrees WHERE task_id = ? ORDER BY created_at ASC").all(taskId) as Record<
+      string,
+      unknown
+    >[];
+    return rows.map(toWorktreeRecord);
+  }
+
+  listWorktreesForInstance(instanceId: RepositoryInstanceId): WorktreeRecord[] {
+    const rows = this.handle()
+      .prepare("SELECT * FROM worktrees WHERE instance_id = ? ORDER BY created_at ASC")
+      .all(instanceId) as Record<string, unknown>[];
+    return rows.map(toWorktreeRecord);
   }
 
   close(): void {

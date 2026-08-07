@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import type { SpawnOptions } from "node:child_process";
 import fs from "node:fs/promises";
 
 // timeout/output limit後に協調終了を待ち、無視する子プロセスだけ強制終了する。
@@ -8,8 +9,15 @@ export interface RunResult { stdout: string; stderr: string; exitCode: number | 
 
 export interface OutputFilePaths { stdout: string; stderr: string; }
 
-export function runProgram(program: string, args: string[], cwd: string, timeoutMs: number, maxOutputBytes: number): Promise<RunResult> {
-  return runChild(program, args, cwd, timeoutMs, maxOutputBytes, false);
+export function runProgram(
+  program: string,
+  args: string[],
+  cwd: string,
+  timeoutMs: number,
+  maxOutputBytes: number,
+  env?: NodeJS.ProcessEnv,
+): Promise<RunResult> {
+  return runChild(program, args, cwd, timeoutMs, maxOutputBytes, false, undefined, env);
 }
 
 export function runChild(
@@ -20,10 +28,13 @@ export function runChild(
   maxOutputBytes: number,
   shell: boolean,
   outputFiles?: OutputFilePaths,
+  env?: NodeJS.ProcessEnv,
 ): Promise<RunResult> {
   return new Promise((resolve) => {
     const detached = process.platform !== "win32";
-    const child = spawn(command, args, { cwd, shell, detached, stdio: ["ignore", "pipe", "pipe"] });
+    const spawnOptions: SpawnOptions = { cwd, shell, detached, stdio: ["ignore", "pipe", "pipe"] };
+    if (env !== undefined) spawnOptions.env = env;
+    const child = spawn(command, args, spawnOptions);
     let stdout = ""; let stderr = ""; let bytes = 0; let timedOut = false; let outputLimit = false; let settled = false;
     let killTimer: NodeJS.Timeout | undefined;
     let fileLimitTimer: NodeJS.Timeout | undefined;

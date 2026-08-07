@@ -27,6 +27,10 @@ export type ProtectedBranchRule = z.infer<typeof protectedBranchRuleSchema>;
 
 const worktreeRuleSchema = z.object({
   required: ruleModeSchema,
+  // default("off"): 既存の schemaVersion=1 policy ファイルは issueRequired を
+  // 持たない。version を上げず既存ドキュメントの読み込みを維持するため、
+  // 省略時は最も緩い "off"（issue 紐付け任意）へ fallback する。
+  issueRequired: ruleModeSchema.default("off"),
   bootstrapMode: z.enum(["off", "suggest", "automatic", "conditional"]),
   multipleActiveTasksPerIssue: ruleModeSchema,
   multipleWorktreesPerTask: ruleModeSchema,

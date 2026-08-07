@@ -263,3 +263,232 @@ test("hook checkpoints are tracked independently per branch", () => {
   assert.equal(store.getHookCheckpoint(instanceId, "main")?.lastCheckedCommit, "main-sha");
   assert.equal(store.getHookCheckpoint(instanceId, "feature/x")?.lastCheckedCommit, "feature-sha");
 });
+
+test("reserveTask creates a task in the planned state", () => {
+  const store = openStoreWithInstance();
+  const result = store.reserveTask({
+    instanceId, taskSlug: "my-task", issueRef: "33", baseBranch: "main", baseCommit: "deadbeef",
+    allowMultipleActiveTasksPerIssue: false,
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.task.lifecycleState, "planned");
+  assert.equal(result.task.issueRef, "33");
+  assert.equal(store.getTask(result.task.taskId)?.taskId, result.task.taskId);
+});
+
+test("reserveTask rejects a second active task for the same issue when multipleActiveTasksPerIssue is disallowed", () => {
+  const store = openStoreWithInstance();
+  const first = store.reserveTask({
+    instanceId, taskSlug: "task-a", issueRef: "33", baseBranch: "main", baseCommit: "deadbeef",
+    allowMultipleActiveTasksPerIssue: false,
+  });
+  assert.equal(first.ok, true);
+  const second = store.reserveTask({
+    instanceId, taskSlug: "task-b", issueRef: "33", baseBranch: "main", baseCommit: "deadbeef",
+    allowMultipleActiveTasksPerIssue: false,
+  });
+  assert.equal(second.ok, false);
+  if (second.ok) return;
+  assert.equal(second.reason, "issue-already-claimed");
+  assert.equal(first.ok && second.existingTask.taskId, first.ok ? first.task.taskId : undefined);
+});
+
+test("reserveTask allows a second active task for the same issue when multipleActiveTasksPerIssue is allowed", () => {
+  const store = openStoreWithInstance();
+  store.reserveTask({
+    instanceId, taskSlug: "task-a", issueRef: "33", baseBranch: "main", baseCommit: "deadbeef",
+    allowMultipleActiveTasksPerIssue: true,
+  });
+  const second = store.reserveTask({
+    instanceId, taskSlug: "task-b", issueRef: "33", baseBranch: "main", baseCommit: "deadbeef",
+    allowMultipleActiveTasksPerIssue: true,
+  });
+  assert.equal(second.ok, true);
+});
+
+test("reserveTask allows a claimed issue to be reclaimed once the prior task is cleaned/abandoned", () => {
+  const store = openStoreWithInstance();
+  const first = store.reserveTask({
+    instanceId, taskSlug: "task-a", issueRef: "33", baseBranch: "main", baseCommit: "deadbeef",
+    allowMultipleActiveTasksPerIssue: false,
+  });
+  assert.equal(first.ok, true);
+  if (!first.ok) return;
+  store.updateTaskLifecycleState(first.task.taskId, "abandoned");
+  const second = store.reserveTask({
+    instanceId, taskSlug: "task-b", issueRef: "33", baseBranch: "main", baseCommit: "deadbeef",
+    allowMultipleActiveTasksPerIssue: false,
+  });
+  assert.equal(second.ok, true);
+});
+
+function reserveTask(store: WorkflowSqliteStateStore, taskSlug: string) {
+  const result = store.reserveTask({
+    instanceId, taskSlug, issueRef: undefined, baseBranch: "main", baseCommit: "deadbeef",
+    allowMultipleActiveTasksPerIssue: true,
+  });
+  if (!result.ok) throw new Error("expected reserveTask to succeed in test setup");
+  return result.task;
+}
+
+test("reserveWorktree creates a worktree in the reserved state", () => {
+  const store = openStoreWithInstance();
+  const task = reserveTask(store, "task-a");
+  const result = store.reserveWorktree({
+    taskId: task.taskId, instanceId, branchName: "task/task-a", canonicalPath: "/repo/.worktrees/task-a",
+    baseBranch: "main", baseCommit: "deadbeef",
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.worktree.status, "reserved");
+  assert.equal(result.worktree.branchName, "task/task-a");
+});
+
+test("reserveWorktree rejects a branch_name collision and reports the existing worktree", () => {
+  const store = openStoreWithInstance();
+  const taskA = reserveTask(store, "task-a");
+  const taskB = reserveTask(store, "task-b");
+  const first = store.reserveWorktree({
+    taskId: taskA.taskId, instanceId, branchName: "task/dup", canonicalPath: "/repo/.worktrees/a",
+    baseBranch: "main", baseCommit: "deadbeef",
+  });
+  assert.equal(first.ok, true);
+  const second = store.reserveWorktree({
+    taskId: taskB.taskId, instanceId, branchName: "task/dup", canonicalPath: "/repo/.worktrees/b",
+    baseBranch: "main", baseCommit: "deadbeef",
+  });
+  assert.equal(second.ok, false);
+  if (second.ok) return;
+  assert.equal(second.reason, "branch-collision");
+  assert.equal(first.ok && second.existingWorktree.worktreeId, first.ok ? first.worktree.worktreeId : undefined);
+});
+
+test("reserveWorktree rejects a canonical_path collision and reports the existing worktree", () => {
+  const store = openStoreWithInstance();
+  const taskA = reserveTask(store, "task-a");
+  const taskB = reserveTask(store, "task-b");
+  const first = store.reserveWorktree({
+    taskId: taskA.taskId, instanceId, branchName: "task/a", canonicalPath: "/repo/.worktrees/dup",
+    baseBranch: "main", baseCommit: "deadbeef",
+  });
+  assert.equal(first.ok, true);
+  const second = store.reserveWorktree({
+    taskId: taskB.taskId, instanceId, branchName: "task/b", canonicalPath: "/repo/.worktrees/dup",
+    baseBranch: "main", baseCommit: "deadbeef",
+  });
+  assert.equal(second.ok, false);
+  if (second.ok) return;
+  assert.equal(second.reason, "path-collision");
+});
+
+test("activateWorktree transitions a reserved worktree to active", () => {
+  const store = openStoreWithInstance();
+  const task = reserveTask(store, "task-a");
+  const reserved = store.reserveWorktree({
+    taskId: task.taskId, instanceId, branchName: "task/task-a", canonicalPath: "/repo/.worktrees/task-a",
+    baseBranch: "main", baseCommit: "deadbeef",
+  });
+  assert.equal(reserved.ok, true);
+  if (!reserved.ok) return;
+  const activated = store.activateWorktree(reserved.worktree.worktreeId);
+  assert.equal(activated.status, "active");
+});
+
+test("activateWorktree rejects a worktree that is not in the reserved state (already-active row is not re-activated silently)", () => {
+  const store = openStoreWithInstance();
+  const task = reserveTask(store, "task-a");
+  const reserved = store.reserveWorktree({
+    taskId: task.taskId, instanceId, branchName: "task/task-a", canonicalPath: "/repo/.worktrees/task-a",
+    baseBranch: "main", baseCommit: "deadbeef",
+  });
+  assert.equal(reserved.ok, true);
+  if (!reserved.ok) return;
+  store.activateWorktree(reserved.worktree.worktreeId);
+  // 一度 active になった行を再度 activateWorktree に渡すのは、reserved 以外の状態
+  // （将来 Child Issue 7 が追加する removed を含む）を誤って書き換えないことの代理検証。
+  assert.throws(() => store.activateWorktree(reserved.worktree.worktreeId), /not in reserved state/);
+});
+
+test("activateWorktree rejects an unknown worktree id", () => {
+  const store = openStoreWithInstance();
+  assert.throws(() => store.activateWorktree("does-not-exist" as never));
+});
+
+test("deleteReservedWorktree removes the row and frees its branch/path for reuse", () => {
+  const store = openStoreWithInstance();
+  const task = reserveTask(store, "task-a");
+  const reserved = store.reserveWorktree({
+    taskId: task.taskId, instanceId, branchName: "task/task-a", canonicalPath: "/repo/.worktrees/task-a",
+    baseBranch: "main", baseCommit: "deadbeef",
+  });
+  assert.equal(reserved.ok, true);
+  if (!reserved.ok) return;
+  store.deleteReservedWorktree(reserved.worktree.worktreeId);
+  assert.equal(store.listWorktreesForTask(task.taskId).length, 0);
+
+  const taskB = reserveTask(store, "task-b");
+  const reclaimed = store.reserveWorktree({
+    taskId: taskB.taskId, instanceId, branchName: "task/task-a", canonicalPath: "/repo/.worktrees/task-a",
+    baseBranch: "main", baseCommit: "deadbeef",
+  });
+  assert.equal(reclaimed.ok, true);
+});
+
+test("deleteReservedTask removes a planned task but does not touch tasks past planned", () => {
+  const store = openStoreWithInstance();
+  const task = reserveTask(store, "task-a");
+  store.deleteReservedTask(task.taskId);
+  assert.equal(store.getTask(task.taskId), undefined);
+});
+
+test("updateTaskLifecycleState updates and returns the task", () => {
+  const store = openStoreWithInstance();
+  const task = reserveTask(store, "task-a");
+  const updated = store.updateTaskLifecycleState(task.taskId, "active");
+  assert.equal(updated.lifecycleState, "active");
+  assert.equal(store.getTask(task.taskId)?.lifecycleState, "active");
+});
+
+test("getActiveTaskByIssueRef returns undefined once the task is cleaned/abandoned", () => {
+  const store = openStoreWithInstance();
+  const result = store.reserveTask({
+    instanceId, taskSlug: "task-a", issueRef: "33", baseBranch: "main", baseCommit: "deadbeef",
+    allowMultipleActiveTasksPerIssue: false,
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(store.getActiveTaskByIssueRef(instanceId, "33")?.taskId, result.task.taskId);
+  store.updateTaskLifecycleState(result.task.taskId, "abandoned");
+  assert.equal(store.getActiveTaskByIssueRef(instanceId, "33"), undefined);
+});
+
+test("listWorktreesForTask returns all worktrees for a task ordered by creation", () => {
+  const store = openStoreWithInstance();
+  const task = reserveTask(store, "task-a");
+  store.reserveWorktree({
+    taskId: task.taskId, instanceId, branchName: "task/one", canonicalPath: "/repo/.worktrees/one",
+    baseBranch: "main", baseCommit: "deadbeef",
+  });
+  store.reserveWorktree({
+    taskId: task.taskId, instanceId, branchName: "task/two", canonicalPath: "/repo/.worktrees/two",
+    baseBranch: "main", baseCommit: "deadbeef",
+  });
+  const worktrees = store.listWorktreesForTask(task.taskId);
+  assert.equal(worktrees.length, 2);
+});
+
+test("listWorktreesForInstance returns worktrees across multiple tasks", () => {
+  const store = openStoreWithInstance();
+  const taskA = reserveTask(store, "task-a");
+  const taskB = reserveTask(store, "task-b");
+  store.reserveWorktree({
+    taskId: taskA.taskId, instanceId, branchName: "task/a", canonicalPath: "/repo/.worktrees/a",
+    baseBranch: "main", baseCommit: "deadbeef",
+  });
+  store.reserveWorktree({
+    taskId: taskB.taskId, instanceId, branchName: "task/b", canonicalPath: "/repo/.worktrees/b",
+    baseBranch: "main", baseCommit: "deadbeef",
+  });
+  assert.equal(store.listWorktreesForInstance(instanceId).length, 2);
+});

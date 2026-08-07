@@ -17,6 +17,7 @@ const validDocument = {
   controlPlaneRole: "primary-checkout",
   worktree: {
     required: "enforce",
+    issueRequired: "off",
     bootstrapMode: "off",
     multipleActiveTasksPerIssue: "off",
     multipleWorktreesPerTask: "off",
@@ -73,6 +74,12 @@ test("unknown key nested in worktree is rejected, not silently stripped", () => 
     worktree: { ...validDocument.worktree, unknownNested: true },
   });
   assert.equal(result.success, false);
+});
+
+test("issueRequired defaults to off when omitted (existing schemaVersion=1 documents keep parsing)", () => {
+  const { issueRequired: _issueRequired, ...worktreeWithoutIssueRequired } = validDocument.worktree;
+  const result = workflowPolicySchema.parse({ ...validDocument, worktree: worktreeWithoutIssueRequired });
+  assert.equal(result.worktree.issueRequired, "off");
 });
 
 test("unknown key nested in cleanup is rejected, not silently stripped", () => {
