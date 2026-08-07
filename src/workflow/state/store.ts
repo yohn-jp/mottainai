@@ -50,6 +50,20 @@ export interface ObserveRepositoryInstanceResult {
   previousCurrentPath: string | undefined;
 }
 
+export interface HookCheckpointRecord {
+  instanceId: RepositoryInstanceId;
+  branch: string;
+  lastCheckedCommit: string;
+  checkedAt: number;
+}
+
+export interface RecordHookCheckpointInput {
+  instanceId: RepositoryInstanceId;
+  branch: string;
+  commit: string;
+  checkedAt?: number;
+}
+
 export interface WorkflowStateStore {
   /** backend 固有の初期化（DB オープン・migration 適用）。呼び出し前は他メソッドを使わない。 */
   init(): void;
@@ -67,6 +81,14 @@ export interface WorkflowStateStore {
   getRepositoryInstance(instanceId: RepositoryInstanceId): RepositoryInstanceRecord | undefined;
   getRepositoryInstanceByCommonDir(gitCommonDir: string): RepositoryInstanceRecord | undefined;
   listRepositoryPaths(instanceId: RepositoryInstanceId): RepositoryPathRecord[];
+
+  /**
+   * hook がある branch の commit で policy check を通過したことを記録する
+   * （pre-commit/pre-push hook 自身、または将来の CLI/MCP 経路から呼ぶ）。
+   * 同じ (instanceId, branch) の既存行があれば上書きする。
+   */
+  recordHookCheckpoint(input: RecordHookCheckpointInput): HookCheckpointRecord;
+  getHookCheckpoint(instanceId: RepositoryInstanceId, branch: string): HookCheckpointRecord | undefined;
 
   /** backend 固有のリソース解放（DB クローズ等）。プロセス終了時 best-effort で呼ぶ。 */
   close(): void;
