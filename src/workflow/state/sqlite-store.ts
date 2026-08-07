@@ -137,6 +137,12 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     const db = new DatabaseSync(this.dbPath);
     try {
       if (isFileBacked) restrictToOwner(this.dbPath, 0o600);
+      // busy_timeout 未設定だと、他プロセスが BEGIN IMMEDIATE で書き込みロックを
+      // 保持している間、即座に "database is locked" で失敗する（node:sqlite の
+      // DatabaseSync は既定でリトライしない）。task.ts の 2 プロセス同時
+      // reserveTask/reserveWorktree がロック解放を待って安全に直列化されるよう、
+      // ロック待ちを許容する。
+      db.exec("PRAGMA busy_timeout = 5000");
       db.exec("PRAGMA journal_mode = WAL");
       db.exec("PRAGMA foreign_keys = ON");
       applyMigrations(db);
