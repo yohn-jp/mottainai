@@ -37,6 +37,14 @@ function compareStable(left: unknown, right: unknown): number {
   return compareText(stableStringifyValue(left), stableStringifyValue(right));
 }
 
+/** compareStableの比較毎serializeを避け、sort keyを1回だけ計算してから並べ替える。 */
+function sortByKey<T>(items: T[], keyOf: (item: T) => unknown): T[] {
+  return items
+    .map((item) => ({ item, key: stableStringifyValue(keyOf(item)) }))
+    .sort((left, right) => compareText(left.key, right.key))
+    .map((entry) => entry.item);
+}
+
 function canonicalizeEvidence(evidence: EvidenceReference[]): EvidenceReference[] {
   return [...evidence].sort(compareStable);
 }
@@ -111,10 +119,10 @@ export function canonicalizeSnapshot(snapshot: RepositorySemanticSnapshot): Repo
     ...snapshot,
     analysis: canonicalizeAnalysis(snapshot.analysis),
     nodes: snapshot.nodes.map(canonicalizeNode).sort((left, right) => compareText(left.identity.logicalId, right.identity.logicalId)),
-    edges: snapshot.edges.map(canonicalizeEdge).sort((left, right) => compareStable([left.kind, left.from, left.to, left.id], [right.kind, right.from, right.to, right.id])),
+    edges: sortByKey(snapshot.edges.map(canonicalizeEdge), (edge) => [edge.kind, edge.from, edge.to, edge.id]),
     facts: snapshot.facts.map(canonicalizeFact).sort((left, right) => compareText(left.id, right.id)),
     claims: snapshot.claims.map(canonicalizeClaim).sort((left, right) => compareText(left.id, right.id)),
-    diagnostics: snapshot.diagnostics.map(canonicalizeDiagnostic).sort(compareStable),
+    diagnostics: sortByKey(snapshot.diagnostics.map(canonicalizeDiagnostic), (item) => item),
   };
 }
 

@@ -30,8 +30,13 @@ export function createRevisionId(revision: string): LogicalId {
   return createLogicalId("revision", revision);
 }
 
+/** node kindからlogical IDのnamespaceを求める。repositoryだけrepo namespaceに写像する。 */
+export function namespaceForNodeKind(kind: string): string {
+  return kind === "repository" ? "repo" : kind;
+}
+
 export function createNodeId(kind: KnownNodeKind | string, localId: string): LogicalId {
-  return createLogicalId(kind, localId);
+  return createLogicalId(namespaceForNodeKind(kind), localId);
 }
 
 export function createFactId(localId: string): LogicalId {
@@ -55,22 +60,24 @@ export function isEffectId(value: unknown): value is EffectId {
   return typeof value === "string" && EFFECT_ID_PATTERN.test(value);
 }
 
-/** IDに使えない文字だけを安定的にescapeする。source rangeは引数に含めない。 */
+const idPartEncoder = new TextEncoder();
+
+/** IDに使えない文字だけを安定的にescapeする。1バイトにつき固定2桁hexで単射を保つ。source rangeは引数に含めない。 */
 function encodeIdPart(value: string, field: string): string {
   if (value.length === 0) throw new Error(`${field} must be non-empty`);
   return [...value].map((character) => {
     if (/[A-Za-z0-9._~+/@-]/.test(character)) return character;
-    return `%${character.codePointAt(0)!.toString(16).padStart(2, "0")}`;
+    return [...idPartEncoder.encode(character)].map((byte) => `%${byte.toString(16).padStart(2, "0")}`).join("");
   }).join("");
 }
 
-/** 言語非依存の物理locatorから、rangeを除外した論理symbol IDを作る。 */
+/** 言語非依存の物理locatorから、rangeを除外した論理symbol IDを作る。package/moduleは固定位置に置き、欠落と空文字を区別する。 */
 export function createSymbolId(locator: Pick<SymbolLocator, "kind" | "language" | "package" | "module" | "file" | "symbol" | "signature" | "range">): LogicalId {
   const coordinates = [
     encodeIdPart(locator.language, "language"),
-    locator.package === undefined ? undefined : encodeIdPart(locator.package, "package"),
-    locator.module === undefined ? undefined : encodeIdPart(locator.module, "module"),
-  ].filter((value): value is string => value !== undefined);
+    locator.package === undefined ? "" : encodeIdPart(locator.package, "package"),
+    locator.module === undefined ? "" : encodeIdPart(locator.module, "module"),
+  ];
   const symbol = encodeIdPart(locator.symbol, "symbol");
   const file = locator.file === undefined ? undefined : encodeIdPart(locator.file, "file");
   const symbolCoordinate = `${file === undefined ? "" : `${file}#`}${symbol}${locator.signature === undefined ? "" : `~${encodeIdPart(locator.signature, "signature")}`}`;

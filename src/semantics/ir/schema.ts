@@ -3,10 +3,12 @@ import {
   EFFECT_ID_PATTERN,
   LOGICAL_ID_PATTERN,
   logicalIdNamespace,
+  namespaceForNodeKind as sharedNamespaceForNodeKind,
 } from "./ids.js";
 import { NODE_KINDS } from "./types.js";
 import type {
   JsonValue,
+  Provenance,
   RepositorySemanticSnapshot,
   SemanticDiagnostic,
   SemanticNode,
@@ -292,8 +294,7 @@ function zodDiagnostics(error: z.ZodError): SemanticDiagnostic[] {
 }
 
 function namespaceForNodeKind(kind: string): string | undefined {
-  if (kind === "repository") return "repo";
-  return (NODE_KINDS as readonly string[]).includes(kind) ? kind : undefined;
+  return (NODE_KINDS as readonly string[]).includes(kind) ? sharedNamespaceForNodeKind(kind) : undefined;
 }
 
 function validateReferences(snapshot: RepositorySemanticSnapshot): SemanticDiagnostic[] {
@@ -305,6 +306,9 @@ function validateReferences(snapshot: RepositorySemanticSnapshot): SemanticDiagn
     snapshot.revisionIdentity.id,
   ]);
   const seenNodeIds = new Set<string>();
+  const seenEdgeIds = new Set<string>();
+  const seenFactIds = new Set<string>();
+  const seenClaimIds = new Set<string>();
 
   if (logicalIdNamespace(snapshot.repositoryIdentity.id) !== "repo") {
     diagnostics.push(diagnostic("invalid_repository_id", "repository identity must use the repo namespace", "repositoryIdentity.id"));
@@ -328,22 +332,39 @@ function validateReferences(snapshot: RepositorySemanticSnapshot): SemanticDiagn
     if (!validTargets.has(value)) diagnostics.push(diagnostic("dangling_reference", `reference does not resolve locally: ${value}`, path));
   };
 
+  const checkProvenance = (provenance: Provenance, path: string): void => {
+    provenance.evidence?.forEach((evidence, evidenceIndex) => {
+      if (evidence.target !== undefined) checkReference(evidence.target, `${path}.evidence.${evidenceIndex}.target`);
+    });
+    provenance.ambiguity?.candidates?.forEach((candidate, candidateIndex) => {
+      checkReference(candidate, `${path}.ambiguity.candidates.${candidateIndex}`);
+    });
+  };
+
+  const checkDuplicate = (seen: Set<string>, id: string, path: string, code: string): void => {
+    if (seen.has(id)) diagnostics.push(diagnostic(code, `duplicate ID: ${id}`, path));
+    seen.add(id);
+  };
+
+  snapshot.nodes.forEach((node, index) => {
+    checkProvenance(node.provenance, `nodes.${index}.provenance`);
+  });
   snapshot.edges.forEach((edge, index) => {
+    checkDuplicate(seenEdgeIds, edge.id, `edges.${index}.id`, "duplicate_edge_id");
     checkReference(edge.from, `edges.${index}.from`);
     checkReference(edge.to, `edges.${index}.to`);
+    checkProvenance(edge.provenance, `edges.${index}.provenance`);
   });
   snapshot.facts.forEach((fact, index) => {
+    checkDuplicate(seenFactIds, fact.id, `facts.${index}.id`, "duplicate_fact_id");
     checkReference(fact.subject, `facts.${index}.subject`);
-    fact.provenance.evidence?.forEach((evidence, evidenceIndex) => {
-      if (evidence.target !== undefined) checkReference(evidence.target, `facts.${index}.provenance.evidence.${evidenceIndex}.target`);
-    });
+    checkProvenance(fact.provenance, `facts.${index}.provenance`);
   });
   snapshot.claims.forEach((claim, index) => {
+    checkDuplicate(seenClaimIds, claim.id, `claims.${index}.id`, "duplicate_claim_id");
     checkReference(claim.subject, `claims.${index}.subject`);
     if (claim.object !== undefined) checkReference(claim.object, `claims.${index}.object`);
-    claim.provenance.evidence?.forEach((evidence, evidenceIndex) => {
-      if (evidence.target !== undefined) checkReference(evidence.target, `claims.${index}.provenance.evidence.${evidenceIndex}.target`);
-    });
+    checkProvenance(claim.provenance, `claims.${index}.provenance`);
   });
 
   return diagnostics;

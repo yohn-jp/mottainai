@@ -17,8 +17,8 @@ export const NODE_KINDS = [
 ] as const;
 
 export type KnownNodeKind = (typeof NODE_KINDS)[number];
-/** v1の既知語彙を補完しつつ、将来のkindを保存可能にする開放型。 */
-export type NodeKind = KnownNodeKind | string;
+/** v1の既知語彙を補完しつつ、将来のkindを保存可能にする開放型。(string & {})はエディタ補完を残すための慣用形。 */
+export type NodeKind = KnownNodeKind | (string & {});
 
 export const RELATIONSHIP_KINDS = [
   "contains",
@@ -38,8 +38,8 @@ export const RELATIONSHIP_KINDS = [
 ] as const;
 
 export type KnownRelationshipKind = (typeof RELATIONSHIP_KINDS)[number];
-/** DB enumに固定せず、未知の将来edge kindをそのまま保持する。 */
-export type RelationshipKind = KnownRelationshipKind | string;
+/** DB enumに固定せず、未知の将来edge kindをそのまま保持する。(string & {})はエディタ補完を残すための慣用形。 */
+export type RelationshipKind = KnownRelationshipKind | (string & {});
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };

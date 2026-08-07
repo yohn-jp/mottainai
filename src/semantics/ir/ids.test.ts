@@ -27,9 +27,29 @@ test("symbol logical IDs ignore source range movement", () => {
     signature: "(): Config",
     range: { start: { line: 110, column: 1 }, end: { line: 115, column: 2 } },
   });
-  assert.equal(before, "symbol:typescript:mottainai:src/config.ts#loadConfig~%28%29%3a%20Config");
+  assert.equal(before, "symbol:typescript:mottainai::src/config.ts#loadConfig~%28%29%3a%20Config");
   assert.equal(before, after);
   assert.equal(isLogicalId(before), true);
+});
+
+test("symbol logical IDs stay injective across package/module placement and multibyte escapes", () => {
+  const packageOnly = createSymbolId({
+    kind: "symbol",
+    language: "ts",
+    package: "runtime",
+    symbol: "f",
+  });
+  const moduleOnly = createSymbolId({
+    kind: "symbol",
+    language: "ts",
+    module: "runtime",
+    symbol: "f",
+  });
+  assert.notEqual(packageOnly, moduleOnly);
+
+  const twoCharacters = createSymbolId({ kind: "symbol", language: "ts", symbol: "«cd" });
+  const oneCharacter = createSymbolId({ kind: "symbol", language: "ts", symbol: "ꯍ" });
+  assert.notEqual(twoCharacters, oneCharacter);
 });
 
 test("logical IDs reject malformed values and effect IDs remain extensible", () => {

@@ -10,7 +10,6 @@ import {
 } from "../ir/ids.js";
 import type {
   Contract,
-  PhysicalLocator,
   Provenance,
   ProvenanceKind,
   RepositorySemanticSnapshot,
@@ -295,6 +294,20 @@ const dynamicComponent = createNodeId("component", "dynamic-handler");
 export const ambiguousDynamicCallFixture = snapshot([
   symbolNode(dynamicCaller, "dispatch"),
   node("component", "dynamic-handler", "Dynamic handler"),
+  symbolNode({
+    kind: "symbol",
+    language: "javascript",
+    package: "mottainai",
+    file: "src/semantics/fixtures/dynamic.js",
+    symbol: "readHandler",
+  }, "readHandler"),
+  symbolNode({
+    kind: "symbol",
+    language: "javascript",
+    package: "mottainai",
+    file: "src/semantics/fixtures/dynamic.js",
+    symbol: "writeHandler",
+  }, "writeHandler"),
 ], {
   analysis: {
     completeness: "partial",
@@ -343,5 +356,3 @@ export const allSemanticFixtures = {
   ambiguousDynamicCall: ambiguousDynamicCallFixture,
   inferredClaim: inferredClaimFixture,
 } as const;
-
-export const fixtureLocators: PhysicalLocator[] = [pureLocator, effectfulLocator];
