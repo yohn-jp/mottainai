@@ -24,6 +24,12 @@
     "governance:issue": "node scripts/validate-issue.mjs",
     "governance:branch": "node scripts/validate-branch-name.mjs",
     "governance:test": "node --test scripts/governance.test.mjs",
+    "format": "prettier --write 'scripts/architecture-check.mjs' 'scripts/architecture-check.test.mjs' 'eslint.config.mjs' 'prettier.config.mjs' 'package.json'",
+    "format:check": "prettier --check 'scripts/architecture-check.mjs' 'scripts/architecture-check.test.mjs' 'eslint.config.mjs' 'prettier.config.mjs' 'package.json'",
+    "lint": "eslint 'src/**/*.ts' 'src/**/*.mjs' 'scripts/**/*.mjs' 'eslint.config.mjs'",
+    "architecture:test": "node --test scripts/architecture-check.test.mjs",
+    "architecture:check": "node scripts/architecture-check.mjs",
+    "verify:standards": "pnpm run format:check && pnpm run lint && pnpm run architecture:test && pnpm run architecture:check",
     "typecheck": "tsc --noEmit",
     "smoke-test": "node scripts/smoke-test.mjs",
     "prepack": "pnpm run build",
@@ -38,8 +44,11 @@
   },
   "devDependencies": {
     "@types/node": "^22.15.3",
+    "eslint": "9.29.0",
+    "prettier": "3.6.2",
     "tsx": "^4.19.4",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "typescript-eslint": "8.66.0"
   },
   "engines": {
     "node": ">=22.13"
