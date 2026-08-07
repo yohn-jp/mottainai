@@ -43,6 +43,10 @@ interface WorkerOutcome {
   worktree?: { worktreeId: string };
 }
 
+const WORKER_TIMEOUT_MS = 30_000;
+
+/** worker がハングした場合に test runner 自体がブロックされないよう、
+ * kill timer で上限を設ける（node:test は既定でこの種の子プロセス待ちに timeout を掛けない）。 */
 function runWorker(workspaceRoot: string, dbPath: string, taskSlug: string, issueRef: string): Promise<WorkerOutcome> {
   const workerModule = path.join(import.meta.dirname, "task-start-worker.mjs");
   return new Promise((resolve, reject) => {
@@ -50,11 +54,27 @@ function runWorker(workspaceRoot: string, dbPath: string, taskSlug: string, issu
       stdio: ["ignore", "pipe", "inherit"],
     });
     let stdout = "";
+    let settled = false;
+    const killTimer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGKILL");
+      reject(new Error(`worker timed out after ${WORKER_TIMEOUT_MS}ms for taskSlug=${taskSlug}`));
+    }, WORKER_TIMEOUT_MS);
+
     child.stdout.on("data", (chunk) => {
       stdout += chunk;
     });
-    child.on("error", reject);
+    child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(killTimer);
+      reject(err);
+    });
     child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(killTimer);
       if (code !== 0) {
         reject(new Error(`worker exited with code ${code}, stdout: ${stdout}`));
         return;
@@ -68,7 +88,7 @@ function runWorker(workspaceRoot: string, dbPath: string, taskSlug: string, issu
   });
 }
 
-test("two concurrent processes starting a task with the same issueRef/taskSlug: exactly one wins", async (t) => {
+test("two concurrent processes starting a task with the same issueRef/taskSlug: exactly one wins", { timeout: WORKER_TIMEOUT_MS * 2 }, async (t) => {
   const root = initRepo(t);
   const dbDir = tmpDir(t, "mottainai-task-concurrency-db-");
   const dbPath = path.join(dbDir, "workflow.sqlite");
@@ -104,7 +124,7 @@ test("two concurrent processes starting a task with the same issueRef/taskSlug: 
   }
 });
 
-test("two concurrent processes starting a task with the same taskSlug but no issueRef: branch collision leaves exactly one worktree", async (t) => {
+test("two concurrent processes starting a task with the same taskSlug but no issueRef: branch collision leaves exactly one worktree", { timeout: WORKER_TIMEOUT_MS * 2 }, async (t) => {
   const root = initRepo(t);
   const dbDir = tmpDir(t, "mottainai-task-concurrency-db-");
   const dbPath = path.join(dbDir, "workflow.sqlite");
