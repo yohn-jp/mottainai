@@ -24,6 +24,7 @@ const minimal: WorkflowPolicyDocument = {
     bootstrapMode: "off",
     multipleActiveTasksPerIssue: "off",
     multipleWorktreesPerTask: "off",
+    staleBaseBranch: "off",
   },
   stagingMode: "all",
   cleanup: {
@@ -54,6 +55,7 @@ const standard: WorkflowPolicyDocument = {
     bootstrapMode: "suggest",
     multipleActiveTasksPerIssue: "advisory",
     multipleWorktreesPerTask: "advisory",
+    staleBaseBranch: "advisory",
   },
   stagingMode: "tracked",
   cleanup: {
@@ -88,6 +90,7 @@ const strictWorktree: WorkflowPolicyDocument = {
     bootstrapMode: "conditional",
     multipleActiveTasksPerIssue: "off",
     multipleWorktreesPerTask: "off",
+    staleBaseBranch: "enforce",
   },
   stagingMode: "explicit",
   cleanup: {

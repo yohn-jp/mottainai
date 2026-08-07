@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { BUILTIN_PRESETS } from "../policy/presets.js";
 import type { WorkflowPolicyDocument } from "../policy/schema.js";
 import { WorkflowSqliteStateStore } from "../state/sqlite-store.js";
-import { getTaskStatus, startTask, transitionTask } from "./task.js";
+import { checkStaleBaseBranch, getTaskStatus, startTask, transitionTask } from "./task.js";
 
 function git(args: string[], cwd: string): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -80,6 +80,104 @@ test("startTask happy path without an issueRef", async (t) => {
   if (!result.ok) return;
   assert.equal(result.task.issueRef, undefined);
   assert.equal(result.worktree?.branchName, "task/no-issue");
+});
+
+test("startTask rejects when staleBaseBranch=enforce and local base branch is behind origin", async (t) => {
+  const root = initRepo(t);
+  const remote = tmpDir(t, "mottainai-task-test-remote-");
+  git(["init", "--quiet", "--bare", "-b", "main"], remote);
+  git(["remote", "add", "origin", remote], root);
+  git(["push", "--quiet", "origin", "main"], root);
+
+  // origin に新しいコミットを積むが、ローカル main の tracking ref (`origin/main`) は
+  // 明示 fetch するまで更新されない — clone を経由して origin 側だけ進める。
+  const otherClone = tmpDir(t, "mottainai-task-test-clone-");
+  git(["clone", "--quiet", remote, otherClone], path.dirname(otherClone));
+  fs.writeFileSync(path.join(otherClone, "file2.txt"), "more\n");
+  git(["add", "file2.txt"], otherClone);
+  git(["config", "user.email", "test@example.com"], otherClone);
+  git(["config", "user.name", "Test"], otherClone);
+  git(["commit", "--quiet", "-m", "second"], otherClone);
+  git(["push", "--quiet", "origin", "main"], otherClone);
+  git(["fetch", "--quiet", "origin"], root);
+
+  const store = openStore(t);
+  const policy = standardPolicy({ staleBaseBranch: "enforce" });
+  const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "stale-check" });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.reason, "unsupported-repo-state");
+  assert.match(result.detail, /behind origin\/main/);
+});
+
+test("startTask succeeds when staleBaseBranch=enforce and local base branch matches origin", async (t) => {
+  const root = initRepo(t);
+  const remote = tmpDir(t, "mottainai-task-test-remote-");
+  git(["init", "--quiet", "--bare", "-b", "main"], remote);
+  git(["remote", "add", "origin", remote], root);
+  git(["push", "--quiet", "origin", "main"], root);
+
+  const store = openStore(t);
+  const policy = standardPolicy({ staleBaseBranch: "enforce" });
+  const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "fresh-check" });
+  assert.equal(result.ok, true);
+});
+
+test("startTask ignores staleBaseBranch when no origin tracking ref exists", async (t) => {
+  const root = initRepo(t);
+  const store = openStore(t);
+  const policy = standardPolicy({ staleBaseBranch: "enforce" });
+  const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "no-origin-check" });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.warnings, []);
+});
+
+test("startTask allows but records a warning when staleBaseBranch=advisory and local base branch is behind origin", async (t) => {
+  const root = initRepo(t);
+  const remote = tmpDir(t, "mottainai-task-test-remote-");
+  git(["init", "--quiet", "--bare", "-b", "main"], remote);
+  git(["remote", "add", "origin", remote], root);
+  git(["push", "--quiet", "origin", "main"], root);
+
+  const otherClone = tmpDir(t, "mottainai-task-test-clone-");
+  git(["clone", "--quiet", remote, otherClone], path.dirname(otherClone));
+  fs.writeFileSync(path.join(otherClone, "file2.txt"), "more\n");
+  git(["add", "file2.txt"], otherClone);
+  git(["config", "user.email", "test@example.com"], otherClone);
+  git(["config", "user.name", "Test"], otherClone);
+  git(["commit", "--quiet", "-m", "second"], otherClone);
+  git(["push", "--quiet", "origin", "main"], otherClone);
+  git(["fetch", "--quiet", "origin"], root);
+
+  const store = openStore(t);
+  const policy = standardPolicy({ staleBaseBranch: "advisory" });
+  const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "stale-advisory-check" });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.warnings.length, 1);
+  assert.equal(result.warnings[0].code, "stale-base-branch");
+  assert.match(result.warnings[0].detail, /behind origin\/main/);
+});
+
+test("checkStaleBaseBranch reports unknown (not fresh) when a git call does not complete", async (t) => {
+  const root = initRepo(t);
+  const remote = tmpDir(t, "mottainai-task-test-remote-");
+  git(["init", "--quiet", "--bare", "-b", "main"], remote);
+  git(["remote", "add", "origin", remote], root);
+  git(["push", "--quiet", "origin", "main"], root);
+  const baseCommit = git(["rev-parse", "HEAD"], root);
+
+  // PATH を壊し `git` 自体を spawn 不能にすることで、"非0 exit" ではなく
+  // "コマンドが完走しなかった" 状態（usable=false）を再現する。
+  const originalPath = process.env.PATH;
+  process.env.PATH = "";
+  t.after(() => {
+    process.env.PATH = originalPath;
+  });
+
+  const result = await checkStaleBaseBranch(root, "main", baseCommit);
+  assert.equal(result.kind, "unknown");
 });
 
 test("startTask rejects when issueRequired=enforce and no issueRef is provided", async (t) => {
