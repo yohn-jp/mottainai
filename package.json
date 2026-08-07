@@ -22,6 +22,7 @@
     "read-governor": "tsx scripts/read-governor.ts",
     "governance:pr": "node scripts/validate-pr.mjs",
     "governance:pr:local": "node scripts/governance-check-local.mjs",
+    "governance:issue:local": "node scripts/governance-check-issue-local.mjs",
     "governance:issue": "node scripts/validate-issue.mjs",
     "governance:branch": "node scripts/validate-branch-name.mjs",
     "governance:test": "node --test scripts/governance.test.mjs",

@@ -52,6 +52,42 @@ test("governance-check-local passes with a valid title/body/files triple", (t) =
   assert.equal(result.exitCode, 0, result.stdout);
 });
 
+test("governance-check-local fails on an invalid branch name even when title/body/files are otherwise valid", (t) => {
+  const bodyFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "gov-check-")), "body.md");
+  t.after(() => fs.rmSync(path.dirname(bodyFile), { recursive: true, force: true }));
+  fs.writeFileSync(
+    bodyFile,
+    [
+      "## Summary",
+      "A concrete summary.",
+      "## Linked issue",
+      "Closes #1",
+      "## Scope",
+      "### Included",
+      "Included scope.",
+      "### Excluded",
+      "Excluded scope.",
+      "## Implementation",
+      "Key decisions.",
+      "## Behavioral changes",
+      "Operational changes.",
+      "## Validation",
+      "- [x] Typecheck",
+      "- [x] Tests",
+      "- [x] Build",
+      "## Risks",
+      "Risks and mitigations.",
+      "## Breaking changes",
+      "No.",
+      "## Review focus",
+      "Areas for reviewers to inspect.",
+    ].join("\n"),
+  );
+  const result = run(["--title", "feat(cli): add local governance check", "--body-file", bodyFile, "--files", "/dev/null", "--branch", "no-issue-number-here"]);
+  assert.equal(result.exitCode, 1);
+  assert.match(result.stdout, /branch name format is invalid/);
+});
+
 test("governance-check-local fails and exits non-zero with an invalid title", (t) => {
   const bodyFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "gov-check-")), "body.md");
   t.after(() => fs.rmSync(path.dirname(bodyFile), { recursive: true, force: true }));
