@@ -106,7 +106,8 @@ function resolveOrCreateInstanceId(gitCommonDir: string): { ok: true; instanceId
           if (INSTANCE_ID_PATTERN.test(raceWinner)) return { ok: true, instanceId: raceWinner as RepositoryInstanceId };
           return { ok: false, reason: `instance marker file is corrupt: ${markerPath}` };
         } catch {
-          // 下の共通エラーへフォールスルー
+          // 競合 winner の内容を検証できない場合、新しい id を発行して不変条件を
+          // 壊すより fail-closed を優先する。
         }
       }
       return { ok: false, reason: `cannot create instance marker file: ${(err as Error).message}` };
@@ -114,7 +115,7 @@ function resolveOrCreateInstanceId(gitCommonDir: string): { ok: true; instanceId
       try {
         fs.unlinkSync(tmpPath);
       } catch {
-        // ベストエフォート（既に自分で publish 済みなら該当ファイルは残らない想定）
+        // 公開済み marker の整合性を優先し、一時ファイルの削除失敗で解決全体は失敗させない。
       }
     }
   } catch (err) {

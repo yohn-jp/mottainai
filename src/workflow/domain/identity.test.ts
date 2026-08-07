@@ -173,7 +173,9 @@ test("concurrent first-time resolution from multiple processes converges on one 
         stdout += chunk;
       });
       child.on("error", reject);
-      child.on("exit", (code) => {
+      // "exit" は最後の stdout data イベントより先に発火しうるため、stdout
+      // パイプが閉じ切ったことが保証される "close" まで待ってから読む。
+      child.on("close", (code) => {
         if (code !== 0) reject(new Error(`worker exited with code ${code}`));
         else resolve(stdout.trim());
       });
