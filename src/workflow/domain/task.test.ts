@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { BUILTIN_PRESETS } from "../policy/presets.js";
 import type { WorkflowPolicyDocument } from "../policy/schema.js";
 import { WorkflowSqliteStateStore } from "../state/sqlite-store.js";
-import { checkStaleBaseBranch, getTaskStatus, startTask, transitionTask } from "./task.js";
+import { checkStaleBaseBranch, getTaskStatus, getTaskStatusForWorkspace, startTask, transitionTask } from "./task.js";
 
 function git(args: string[], cwd: string): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -246,6 +246,130 @@ test("getTaskStatus reflects lifecycle state and allowed next transitions", asyn
 test("getTaskStatus returns undefined for an unknown task id", (t) => {
   const store = openStore(t);
   assert.equal(getTaskStatus(store, "does-not-exist" as never), undefined);
+});
+
+test("startTask rejects starting a second task from inside an already-active task worktree", async (t) => {
+  const root = initRepo(t);
+  const store = openStore(t);
+  const policy = standardPolicy();
+  const outer = await startTask({ workspaceRoot: root, store, policy, taskSlug: "outer" });
+  assert.equal(outer.ok, true);
+  if (!outer.ok) return;
+  assert.ok(outer.worktree !== undefined);
+
+  const inner = await startTask({ workspaceRoot: outer.worktree!.canonicalPath, store, policy, taskSlug: "inner" });
+  assert.equal(inner.ok, false);
+  if (inner.ok) return;
+  assert.equal(inner.reason, "active-task-in-workspace");
+  assert.match(inner.detail, new RegExp(outer.task.taskId));
+});
+
+test("getTaskStatusForWorkspace reports no active task for a plain repository", async (t) => {
+  const root = initRepo(t);
+  const store = openStore(t);
+  const status = await getTaskStatusForWorkspace(root, store);
+  assert.equal(status.ok, true);
+  if (!status.ok) return;
+  assert.equal(status.active, false);
+  assert.equal(status.branch, "main");
+  assert.deepEqual(status.warnings, []);
+});
+
+test("getTaskStatusForWorkspace reports the active task from inside its own worktree", async (t) => {
+  const root = initRepo(t);
+  const store = openStore(t);
+  const started = await startTask({ workspaceRoot: root, store, policy: standardPolicy(), taskSlug: "status-ws" });
+  assert.equal(started.ok, true);
+  if (!started.ok) return;
+
+  const status = await getTaskStatusForWorkspace(started.worktree!.canonicalPath, store);
+  assert.equal(status.ok, true);
+  if (!status.ok) return;
+  assert.equal(status.active, true);
+  if (!status.active) return;
+  assert.equal(status.status.task.taskId, started.task.taskId);
+  assert.equal(status.branch, started.worktree?.branchName);
+});
+
+test("getTaskStatusForWorkspace surfaces detached HEAD as a warning instead of failing (no active task is a normal outcome)", async (t) => {
+  const root = initRepo(t);
+  const headCommit = git(["rev-parse", "HEAD"], root);
+  git(["checkout", "--quiet", headCommit], root);
+  const store = openStore(t);
+  const status = await getTaskStatusForWorkspace(root, store);
+  assert.equal(status.ok, true);
+  if (!status.ok) return;
+  assert.equal(status.active, false);
+  assert.equal(status.warnings.length, 1);
+  assert.match(status.warnings[0].code, /detached-head/);
+});
+
+test("getTaskStatusForWorkspace fails closed for a non-git directory", async (t) => {
+  const dir = tmpDir(t, "mottainai-task-test-nongit-");
+  const store = openStore(t);
+  const status = await getTaskStatusForWorkspace(dir, store);
+  assert.equal(status.ok, false);
+});
+
+test("getTaskStatusForWorkspace keeps two repositories' active tasks separate in a shared store", async (t) => {
+  const rootA = initRepo(t);
+  const rootB = initRepo(t);
+  const store = openStore(t);
+  const startedA = await startTask({ workspaceRoot: rootA, store, policy: standardPolicy(), taskSlug: "repo-a-task" });
+  assert.equal(startedA.ok, true);
+  if (!startedA.ok) return;
+
+  const statusB = await getTaskStatusForWorkspace(rootB, store);
+  assert.equal(statusB.ok, true);
+  if (!statusB.ok) return;
+  assert.equal(statusB.active, false);
+
+  const statusA = await getTaskStatusForWorkspace(startedA.worktree!.canonicalPath, store);
+  assert.equal(statusA.ok, true);
+  if (!statusA.ok) return;
+  assert.equal(statusA.active, true);
+});
+
+test("getTaskStatusForWorkspace distinguishes between two active worktrees of the same repository", async (t) => {
+  const root = initRepo(t);
+  const store = openStore(t);
+  const policy = standardPolicy({ multipleActiveTasksPerIssue: "advisory" });
+  const first = await startTask({ workspaceRoot: root, store, policy, taskSlug: "multi-a" });
+  const second = await startTask({ workspaceRoot: root, store, policy, taskSlug: "multi-b" });
+  assert.equal(first.ok, true);
+  assert.equal(second.ok, true);
+  if (!first.ok || !second.ok) return;
+
+  const statusFirst = await getTaskStatusForWorkspace(first.worktree!.canonicalPath, store);
+  const statusSecond = await getTaskStatusForWorkspace(second.worktree!.canonicalPath, store);
+  assert.equal(statusFirst.ok, true);
+  assert.equal(statusSecond.ok, true);
+  if (!statusFirst.ok || !statusSecond.ok || !statusFirst.active || !statusSecond.active) return;
+  assert.equal(statusFirst.status.task.taskId, first.task.taskId);
+  assert.equal(statusSecond.status.task.taskId, second.task.taskId);
+  assert.notEqual(statusFirst.status.task.taskId, statusSecond.status.task.taskId);
+});
+
+test("getTaskStatusForWorkspace survives a store restart against a file-backed database", async (t) => {
+  const root = initRepo(t);
+  const dbDir = tmpDir(t, "mottainai-task-test-db-");
+  const dbPath = path.join(dbDir, "state.sqlite3");
+  const store1 = new WorkflowSqliteStateStore({ dbPath });
+  store1.init();
+  const started = await startTask({ workspaceRoot: root, store: store1, policy: standardPolicy(), taskSlug: "restart-check" });
+  assert.equal(started.ok, true);
+  if (!started.ok) return;
+  store1.close();
+
+  const store2 = new WorkflowSqliteStateStore({ dbPath });
+  store2.init();
+  t.after(() => store2.close());
+  const status = await getTaskStatusForWorkspace(started.worktree!.canonicalPath, store2);
+  assert.equal(status.ok, true);
+  if (!status.ok) return;
+  assert.equal(status.active, true);
+  if (!status.active) return;
+  assert.equal(status.status.task.taskId, started.task.taskId);
 });
 
 test("transitionTask applies a valid transition and rejects an invalid one with structured blocker info", async (t) => {
