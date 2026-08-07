@@ -222,7 +222,12 @@ test("unknown method, unknown tool, and invalid tool arguments return protocol e
   }
 });
 
-test("SIGTERM triggers the registered graceful-shutdown path, not a signal kill", { timeout: 20_000 }, async () => {
+// Windows has no POSIX signals: ChildProcess.kill("SIGTERM") force-terminates the process
+// directly instead of reaching the server's registered handler, so this is POSIX-only.
+test("SIGTERM triggers the registered graceful-shutdown path, not a signal kill", {
+  timeout: 20_000,
+  skip: process.platform === "win32",
+}, async () => {
   const workspace = makeWorkspace();
   const client = launch(workspace);
   try {

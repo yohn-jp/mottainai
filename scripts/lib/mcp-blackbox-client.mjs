@@ -7,11 +7,16 @@ import path from "node:path";
 
 const useShell = process.platform === "win32";
 
-/** npm pack はネットワークを使わず、ローカルの作業木を tar 化するのみ。 */
+/**
+ * dist を明示的にビルドしてから `--ignore-scripts` で pack する。`prepack` に任せると
+ * pack のたびに暗黙の再ビルドが走り、CI の Build stage で作った artifact と一致する保証が
+ * 薄れるうえ、ビルド失敗が pack のエラーに埋もれる。ネットワークは使わない（ローカル tsc のみ）。
+ */
 export function packRepository(repoRoot, destinationDir) {
+  execFileSync("pnpm", ["run", "build"], { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"], shell: useShell });
   const stdout = execFileSync(
     "npm",
-    ["pack", "--json", "--pack-destination", destinationDir],
+    ["pack", "--json", "--ignore-scripts", "--pack-destination", destinationDir],
     { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], shell: useShell },
   );
   const [info] = JSON.parse(stdout);
@@ -89,6 +94,8 @@ export class McpStdioClient {
     this.stderrChunks = [];
     this.exited = false;
     this.exitInfo = undefined;
+    this.closed = false;
+    this.closeInfo = undefined;
     this._pending = new Map();
     this._nextId = 1;
     this._stdoutBuffer = "";
@@ -106,6 +113,11 @@ export class McpStdioClient {
       }
       this._pending.clear();
     });
+    // "exit" 後も stdout/stderr が届き得るため、捕捉済み出力の確定は全 stdio が閉じる "close" を待つ。
+    this.child.once("close", (code, signal) => {
+      this.closed = true;
+      this.closeInfo = { code, signal };
+    });
   }
 
   _onStdout(chunk) {
@@ -114,7 +126,7 @@ export class McpStdioClient {
     while ((newlineIndex = this._stdoutBuffer.indexOf("\n")) !== -1) {
       const line = this._stdoutBuffer.slice(0, newlineIndex).replace(/\r$/, "");
       this._stdoutBuffer = this._stdoutBuffer.slice(newlineIndex + 1);
-      if (line.length === 0) continue;
+      // 空行も記録する。捨てると誤った console.log() 等の空行出力が purity 検証をすり抜ける。
       this.stdoutLines.push(line);
       let message;
       try {
@@ -176,11 +188,12 @@ export class McpStdioClient {
     return this.stderrChunks.join("");
   }
 
+  /** "close"（全 stdio 終了後）で解決するため、この後の stdout/stderr/stdoutLines 読み取りは確定済み。 */
   waitForExit(timeoutMs = 10_000) {
-    if (this.exited) return Promise.resolve(this.exitInfo);
+    if (this.closed) return Promise.resolve(this.closeInfo);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error(`timed out after ${timeoutMs}ms waiting for process exit`)), timeoutMs);
-      this.child.once("exit", (code, signal) => {
+      this.child.once("close", (code, signal) => {
         clearTimeout(timer);
         resolve({ code, signal });
       });
