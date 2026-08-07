@@ -108,6 +108,24 @@ test("dependency direction accepts downward edges and rejects upward edges", () 
   assert.equal(isDependencyAllowed("compression", "server", "src/proxy.ts"), false);
 });
 
+test("test-support and e2e helpers may depend on any production layer, but nothing depends back", () => {
+  assert.equal(isDependencyAllowed("testInfrastructure", "persistence", "src/workflow/state/sqlite-store.ts"), true);
+  assert.equal(isDependencyAllowed("testInfrastructure", "entry", "src/index.ts"), true);
+  assert.equal(isDependencyAllowed("shared", "testInfrastructure", "src/test-support/env.ts"), false);
+  assert.equal(isDependencyAllowed("persistence", "testInfrastructure", "src/e2e/stdio-client.ts"), false);
+});
+
+test("a real fixture importing the workflow state store from test-support is accepted", () => {
+  const diagnostics = validateSourceText(
+    'import { WorkflowSqliteStateStore } from "../workflow/state/sqlite-store.js";\nexport function openMemoryStore() { return new WorkflowSqliteStateStore({ dbPath: ":memory:" }); }\n',
+    "src/test-support/workflow-store.ts",
+  );
+  assert.equal(
+    diagnostics.some((diagnostic) => diagnostic.ruleId === RULE_IDS.dependencyDirection),
+    false,
+  );
+});
+
 test("import-time execution is rejected outside the entry boundary", () => {
   const diagnostics = validateSourceText("const value = factory();", "src/server.ts");
   assert.equal(

@@ -294,14 +294,18 @@ Search uses deterministic scoring, not a semantic/embedding model.
 ```bash
 pnpm install
 pnpm run build          # tsc → dist/
-pnpm test                # node --import tsx --test "src/**/*.test.ts"
+pnpm test                # node --import tsx --test "src/**/*.test.ts" (fast tier)
+pnpm run test:e2e        # stdio black-box tier, excluded from `pnpm test`
 pnpm run typecheck       # tsc --noEmit
 pnpm run mcp <cmd>       # upstream management CLI
 pnpm run policy <cmd>    # routing policy CLI
 ```
 
-There's no separate lint/formatter configured yet; match the surrounding
-file's style. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow,
+Test layers (unit/integration/contract/e2e), shared fixtures under
+`src/test-support/`, and the black-box connection point under `src/e2e/` for
+stdio MCP tests are documented in [`docs/testing.md`](docs/testing.md).
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow,
 commit conventions, and compression-change rules (every compression change
 needs both a "gets shortened" test and a "must NOT be transformed" test).
 
