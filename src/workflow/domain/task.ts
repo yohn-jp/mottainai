@@ -21,6 +21,30 @@ async function resolveBaseCommit(workspaceRoot: string, baseBranch: string): Pro
   return result.stdout.trim();
 }
 
+/** baseBranch のローカル tip が `origin/<baseBranch>` の tip より古くないか検証する。
+ * fetch は行わない（副作用を避けるため） — 呼び出し側が事前に fetch している前提で、
+ * ローカルの認識している origin tracking ref とだけ比較する。tracking ref が存在しない
+ * （origin に同名ブランチがない、detached HEAD 等）場合は判定不能として素通りさせる。 */
+async function checkStaleBaseBranch(workspaceRoot: string, baseBranch: string, baseCommit: string): Promise<{ stale: true; remoteCommit: string } | { stale: false }> {
+  const remoteRef = `origin/${baseBranch}`;
+  const result = await runProgram("git", ["rev-parse", "--verify", "-q", remoteRef], workspaceRoot, GIT_TIMEOUT_MS, GIT_MAX_OUTPUT_BYTES);
+  if (result.exitCode !== 0 || result.stdout.trim().length === 0) return { stale: false };
+  const remoteCommit = result.stdout.trim();
+  if (remoteCommit === baseCommit) return { stale: false };
+
+  const ancestryResult = await runProgram(
+    "git",
+    ["merge-base", "--is-ancestor", baseCommit, remoteCommit],
+    workspaceRoot,
+    GIT_TIMEOUT_MS,
+    GIT_MAX_OUTPUT_BYTES,
+  );
+  // baseCommit が remoteCommit の祖先なら、ローカルは origin より単純に遅れている（stale）。
+  // 祖先でなければ（分岐 or ローカルが進んでいる）判定対象外とし、誤検知を避ける。
+  if (ancestryResult.exitCode !== 0) return { stale: false };
+  return { stale: true, remoteCommit };
+}
+
 /**
  * task start/status domain service（Issue #28 Child 4）。MCP/CLI 配線は
  * この Issue の対象外（Child 4.5/9a）— ここは純粋な domain 層で、
@@ -135,6 +159,17 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
   const baseCommit = await resolveBaseCommit(workspaceRoot, baseBranch);
   if (baseCommit === undefined) {
     return { ok: false, reason: "unsupported-repo-state", detail: `cannot resolve tip commit of ${baseBranch}` };
+  }
+
+  if (policy.worktree.staleBaseBranch === "enforce") {
+    const staleness = await checkStaleBaseBranch(workspaceRoot, baseBranch, baseCommit);
+    if (staleness.stale) {
+      return {
+        ok: false,
+        reason: "unsupported-repo-state",
+        detail: `local ${baseBranch} (${baseCommit}) is behind origin/${baseBranch} (${staleness.remoteCommit}); fetch and update before starting a task`,
+      };
+    }
   }
 
   if (!wantsWorktree) {
