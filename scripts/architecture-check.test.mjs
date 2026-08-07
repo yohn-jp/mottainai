@@ -38,6 +38,31 @@ test("stdout boundary accepts CLI output and rejects runtime output", () => {
   );
 });
 
+test("workflow worker and bootstrap environment are explicit boundaries", () => {
+  const worker = validateSourceText(
+    "const [, , workspaceRoot] = process.argv; const value = factory(); process.stdout.write(JSON.stringify({ workspaceRoot, value }));",
+    "src/workflow/domain/task-start-worker.mjs",
+  );
+  assert.equal(
+    worker.some((diagnostic) => diagnostic.ruleId === RULE_IDS.importTimeSideEffect),
+    false,
+  );
+  assert.equal(
+    worker.some((diagnostic) => diagnostic.ruleId === RULE_IDS.protocolStdout),
+    false,
+  );
+  assert.equal(
+    worker.some((diagnostic) => diagnostic.ruleId === RULE_IDS.processBoundary),
+    false,
+  );
+
+  const environment = validateSourceText("const path = process.env.PATH;", "src/workflow/git/worktree.ts");
+  assert.equal(
+    environment.some((diagnostic) => diagnostic.ruleId === RULE_IDS.processBoundary),
+    false,
+  );
+});
+
 test("double assertion requires a local documented exception", () => {
   const accepted = validateSourceText(fixture("accepted-double-assertion.ts"), "src/compress/code.ts");
   const rejected = validateSourceText(fixture("rejected-double-assertion.ts"), "src/compress/code.ts");

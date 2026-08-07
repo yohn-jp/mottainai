@@ -48,9 +48,10 @@ and resolution but are excluded from runtime cycle detection.
 
 The executable boundaries are `src/index.ts` and `src/cli.ts`; `src/server.ts`
 owns MCP signal lifecycle registration. `src/workflow/domain/identity-resolve-worker.mjs`
-is a separate executable worker. Environment reads remain limited to the
-allowlisted configuration, telemetry, policy, upstream, CLI, and persistence
-boundaries in the validator.
+and `src/workflow/domain/task-start-worker.mjs` are separate executable workers.
+The task worker may read argv and write its JSON result to stdout. Environment
+reads remain limited to the allowlisted configuration, telemetry, policy,
+upstream, CLI, persistence, and workflow bootstrap boundaries in the validator.
 
 ## Suppressions
 

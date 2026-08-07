@@ -44,7 +44,12 @@ const layerRules = Object.freeze({
 
 const allowedSpecialEdges = new Set(["shared->adaptive:src/adaptive/metadata.ts"]);
 
-const stdoutBoundaryFiles = new Set(["src/cli.ts", "src/index.ts", "src/workflow/domain/identity-resolve-worker.mjs"]);
+const stdoutBoundaryFiles = new Set([
+  "src/cli.ts",
+  "src/index.ts",
+  "src/workflow/domain/identity-resolve-worker.mjs",
+  "src/workflow/domain/task-start-worker.mjs",
+]);
 
 const processExitBoundaryFiles = new Set([
   "src/cli.ts",
@@ -54,7 +59,12 @@ const processExitBoundaryFiles = new Set([
 
 const signalBoundaryFiles = new Set(["src/index.ts", "src/server.ts"]);
 
-const argvBoundaryFiles = new Set(["src/cli.ts", "src/index.ts", "src/workflow/domain/identity-resolve-worker.mjs"]);
+const argvBoundaryFiles = new Set([
+  "src/cli.ts",
+  "src/index.ts",
+  "src/workflow/domain/identity-resolve-worker.mjs",
+  "src/workflow/domain/task-start-worker.mjs",
+]);
 
 // これらは呼び出し側から環境を注入できる既存の設定境界。新規追加は理由をdocsへ記載する。
 const environmentBoundaryFiles = new Set([
@@ -70,6 +80,7 @@ const environmentBoundaryFiles = new Set([
   "src/state/paths.ts",
   "src/state/sqlite-store.ts",
   "src/telemetry.ts",
+  "src/workflow/git/worktree.ts",
   "src/upstream.ts",
   "src/workflow/state/sqlite-store.ts",
 ]);
@@ -343,7 +354,10 @@ function hasImportTimeExecution(node) {
 
 function checkTopLevelExecution(sourceFile, root, diagnostics) {
   const file = relativePath(root, sourceFile.fileName);
-  const boundary = file === "src/index.ts" || file === "src/workflow/domain/identity-resolve-worker.mjs";
+  const boundary =
+    file === "src/index.ts" ||
+    file === "src/workflow/domain/identity-resolve-worker.mjs" ||
+    file === "src/workflow/domain/task-start-worker.mjs";
   if (boundary || hasRuleMarker(sourceFile, "import-time-side-effect")) return;
   for (const statement of sourceFile.statements) {
     if (ts.isImportDeclaration(statement) && !statement.importClause) {

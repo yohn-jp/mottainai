@@ -36,6 +36,11 @@ test("compressCodeText handles language-tagged fenced code only", () => {
   assert.match(output, /after/);
 });
 
+test("compressCodeText preserves fenced code without a supported language", () => {
+  const input = "before\n```text\nfunction f() { return 1; }\n```\nafter";
+  assert.equal(compressCodeText(input), input);
+});
+
 test("detectCodeLanguage accepts explicit language and common file paths", () => {
   assert.equal(detectCodeLanguage({ language: "TSX" }), "tsx");
   assert.equal(detectCodeLanguage({ filePath: "/repo/src/proxy.ts" }), "typescript");
