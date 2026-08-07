@@ -127,7 +127,12 @@ export const MIGRATIONS: Migration[] = [
           base_branch TEXT NOT NULL,
           base_commit TEXT NOT NULL,
           created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL
+          updated_at INTEGER NOT NULL,
+          -- worktrees.(task_id, instance_id) の複合 FK が参照する対象。task_id は
+          -- 単独でも PRIMARY KEY で一意だが、worktree 側が task と別の instance を
+          -- 指す不整合（task_id は正しいが instance_id が食い違う行）を FK 制約自体で
+          -- 防ぐには、参照先にも複合 UNIQUE が必要。
+          UNIQUE (task_id, instance_id)
         );
         CREATE INDEX idx_tasks_instance ON tasks (instance_id);
         -- issue_ref の一意性は multipleActiveTasksPerIssue/issueRequired という policy 次第で
@@ -138,15 +143,20 @@ export const MIGRATIONS: Migration[] = [
 
         CREATE TABLE worktrees (
           worktree_id TEXT PRIMARY KEY,
-          task_id TEXT NOT NULL REFERENCES tasks (task_id),
-          instance_id TEXT NOT NULL REFERENCES repository_instances (instance_id),
+          task_id TEXT NOT NULL,
+          instance_id TEXT NOT NULL,
           branch_name TEXT NOT NULL,
           canonical_path TEXT NOT NULL,
           status TEXT NOT NULL,
           base_branch TEXT NOT NULL,
           base_commit TEXT NOT NULL,
           created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL
+          updated_at INTEGER NOT NULL,
+          -- task_id 単独 FK + instance_id 単独 FK では、worktree が「task A に属する
+          -- ふりをしつつ instance B を名乗る」不整合行を作れてしまう（task-to-instance
+          -- membership が強制されない）。複合 FK で常に同じ tasks 行に属する
+          -- (task_id, instance_id) の組だけを許可する。
+          FOREIGN KEY (task_id, instance_id) REFERENCES tasks (task_id, instance_id)
         );
         CREATE INDEX idx_worktrees_task ON worktrees (task_id);
         -- branch/path の一意性は policy に関わらず常に静的制約（同じ branch/path が同時に

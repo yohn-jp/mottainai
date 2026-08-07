@@ -94,6 +94,23 @@ test("worktrees UNIQUE index rejects a second live worktree on the same canonica
   }
 });
 
+test("worktrees composite FK rejects a row whose instance_id does not match its task's instance_id", () => {
+  const db = freshDb();
+  try {
+    seedInstance(db, "instance-1", "/repo-a/.git");
+    seedInstance(db, "instance-2", "/repo-b/.git");
+    seedTask(db, "task-1", "instance-1");
+    assert.throws(() =>
+      db.prepare(
+        `INSERT INTO worktrees (worktree_id, task_id, instance_id, branch_name, canonical_path, status, base_branch, base_commit, created_at, updated_at)
+         VALUES ('worktree-1', 'task-1', 'instance-2', 'task/mismatch', '/repo/.worktrees/mismatch', 'active', 'main', 'deadbeef', 0, 0)`,
+      ).run(),
+    );
+  } finally {
+    db.close();
+  }
+});
+
 test("worktrees UNIQUE index allows reuse of a branch_name/canonical_path once the prior row is removed", () => {
   const db = freshDb();
   try {
