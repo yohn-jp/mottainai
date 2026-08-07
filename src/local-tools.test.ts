@@ -7,7 +7,6 @@ import { test } from "node:test";
 import { allLocalTools, callLocalTool, localTools, localToolsFor, parseIssueViewOutput, parseRgJson } from "./local-tools.js";
 import type { ResolvedGatewayConfig } from "./config.js";
 import { InMemoryArtifactStore } from "./retrieve.js";
-import { WorkflowSqliteStateStore } from "./workflow/state/sqlite-store.js";
 
 async function workspace(): Promise<{ root: string; config: ResolvedGatewayConfig }> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-local-tools-"));
@@ -357,9 +356,25 @@ test("worktree_new tool is only listed when a worktree config is present", () =>
   assert.equal(localToolsFor(bareConfig).some((tool) => tool.name === "mottainai_worktree_new"), false);
 
   const withWorktree: ResolvedGatewayConfig = { ...bareConfig, worktree: { allowedBranchPrefixes: ["docs"], baseBranch: "main", worktreeDir: ".worktrees" } };
-  const names = localToolsFor(withWorktree).map((tool) => tool.name);
+  const tools = localToolsFor(withWorktree);
+  const names = tools.map((tool) => tool.name);
   assert.ok(names.includes("mottainai_worktree_new"));
   assert.ok(names.includes("mottainai_issue_view"));
+});
+
+test("worktree_new is annotated as deprecated in favor of mottainai_workflow_task_start (Issue #34), without changing its behavior", () => {
+  const withWorktree: ResolvedGatewayConfig = {
+    workspaceRoot: "/tmp", defaultTimeoutMs: 1_000, maxTimeoutMs: 2_000, maxOutputBytes: 1024, execTargetTokens: 1_000,
+    resultTtlMs: 10_000, resultMaxEntries: 10, capabilityMap: {}, toolMetadata: {}, tokenBudgets: { tools: {}, capabilities: {}, profiles: {} },
+    workflowTasks: false, worktree: { allowedBranchPrefixes: ["docs"], baseBranch: "main", worktreeDir: ".worktrees" },
+  };
+  const tool = localToolsFor(withWorktree).find((candidate) => candidate.name === "mottainai_worktree_new");
+  assert.ok(tool !== undefined);
+  assert.match(tool!.description ?? "", /Deprecated/);
+  assert.match(tool!.description ?? "", /mottainai_workflow_task_start/);
+  // behavior/schema unchanged: still a required prefix+task worktree-creation tool.
+  assert.deepEqual(tool!.inputSchema.required, ["prefix", "task"]);
+  assert.equal(tool!.annotations?.destructiveHint, false);
 });
 
 test("worktree_new creates a branch and worktree under the configured directory", async () => {
@@ -422,154 +437,20 @@ test("issue_view throws when the workspace has no worktree config, matching work
   await fs.rm(root, { recursive: true, force: true });
 });
 
-// --- G: mottainai_task_start / mottainai_task_status (Git workflow task lifecycle) ---
-
-function workflowConfig(base: ResolvedGatewayConfig): ResolvedGatewayConfig {
-  return { ...base, workflowTasks: true };
-}
-
-function openWorkflowStore(): WorkflowSqliteStateStore {
-  const store = new WorkflowSqliteStateStore({ dbPath: ":memory:" });
-  store.init();
-  return store;
-}
-
-test("task_start throws when workflowTasks is not configured", async () => {
-  const { root, config } = await gitWorkspace();
-  const store = new InMemoryArtifactStore();
-  await assert.rejects(
-    () => callLocalTool("mottainai_task_start", { taskSlug: "example" }, config, store),
-    /task lifecycle tools are not configured/,
-  );
-  await fs.rm(root, { recursive: true, force: true });
-});
-
-test("task_status throws when workflowTasks is not configured", async () => {
-  const { root, config } = await gitWorkspace();
-  const store = new InMemoryArtifactStore();
-  await assert.rejects(
-    () => callLocalTool("mottainai_task_status", {}, config, store),
-    /task lifecycle tools are not configured/,
-  );
-  await fs.rm(root, { recursive: true, force: true });
-});
-
-test("task_start rejects an invalid taskSlug at the MCP boundary", async () => {
-  const { root, config } = await gitWorkspace();
-  const store = new InMemoryArtifactStore();
-  const wfStore = openWorkflowStore();
-  await assert.rejects(
-    () => callLocalTool("mottainai_task_start", { taskSlug: "Bad Slug" }, workflowConfig(config), store, undefined, undefined, wfStore),
-    /invalid taskSlug/,
-  );
-  wfStore.close();
-  await fs.rm(root, { recursive: true, force: true });
-});
-
-test("task_start rejects an invalid issueRef at the MCP boundary", async () => {
-  const { root, config } = await gitWorkspace();
-  const store = new InMemoryArtifactStore();
-  const wfStore = openWorkflowStore();
-  await assert.rejects(
-    () => callLocalTool("mottainai_task_start", { taskSlug: "ok", issueRef: "../evil" }, workflowConfig(config), store, undefined, undefined, wfStore),
-    /invalid issueRef/,
-  );
-  wfStore.close();
-  await fs.rm(root, { recursive: true, force: true });
-});
-
-test("task_start always creates a dedicated worktree/branch (never main itself), and task_status reports it only from inside that worktree", async () => {
-  const { root, config } = await gitWorkspace();
-  const store = new InMemoryArtifactStore();
-  const wfStore = openWorkflowStore();
-
-  const started = structured(await callLocalTool(
-    "mottainai_task_start", { taskSlug: "example", issueRef: "9" }, workflowConfig(config), store, undefined, undefined, wfStore,
-  ));
-  assert.equal(started.status, "success");
-  const worktree = started.worktree as { branchName: string; canonicalPath: string };
-  assert.equal(worktree.branchName, "issue-9/example");
-  assert.notEqual(worktree.branchName, "main");
-
-  const statusFromMainCheckout = structured(await callLocalTool(
-    "mottainai_task_status", {}, workflowConfig(config), store, undefined, undefined, wfStore,
-  ));
-  assert.equal(statusFromMainCheckout.status, "success");
-  assert.equal(statusFromMainCheckout.active, false);
-
-  const statusFromWorktree = structured(await callLocalTool(
-    "mottainai_task_status", {}, workflowConfig({ ...config, workspaceRoot: worktree.canonicalPath }), store, undefined, undefined, wfStore,
-  ));
-  assert.equal(statusFromWorktree.active, true);
-  assert.equal((statusFromWorktree.task as { taskId: string }).taskId, (started.task as { taskId: string }).taskId);
-
-  wfStore.close();
-  await fs.rm(root, { recursive: true, force: true });
-});
-
-test("task_status reports no active task as a normal, structured outcome (not an error)", async () => {
-  const { root, config } = await gitWorkspace();
-  const store = new InMemoryArtifactStore();
-  const wfStore = openWorkflowStore();
-  const status = structured(await callLocalTool("mottainai_task_status", {}, workflowConfig(config), store, undefined, undefined, wfStore));
-  assert.equal(status.status, "success");
-  assert.equal(status.active, false);
-  assert.deepEqual(status.warnings, []);
-  wfStore.close();
-  await fs.rm(root, { recursive: true, force: true });
-});
-
-test("task_start rejects starting a second task from inside its own already-active worktree", async () => {
-  const { root, config } = await gitWorkspace();
-  const store = new InMemoryArtifactStore();
-  const wfStore = openWorkflowStore();
-  const started = structured(await callLocalTool(
-    "mottainai_task_start", { taskSlug: "outer" }, workflowConfig(config), store, undefined, undefined, wfStore,
-  ));
-  const worktree = started.worktree as { canonicalPath: string };
-
-  const second = structured(await callLocalTool(
-    "mottainai_task_start", { taskSlug: "inner" }, workflowConfig({ ...config, workspaceRoot: worktree.canonicalPath }), store, undefined, undefined, wfStore,
-  ));
-  assert.equal(second.status, "failed");
-  assert.equal(second.reason, "active-task-in-workspace");
-
-  wfStore.close();
-  await fs.rm(root, { recursive: true, force: true });
-});
-
-test("task_start fails closed on a corrupted .mottainai/workflow.json instead of silently falling back to a preset", async () => {
-  const { root, config } = await gitWorkspace();
-  await fs.mkdir(path.join(root, ".mottainai"), { recursive: true });
-  await fs.writeFile(path.join(root, ".mottainai", "workflow.json"), "{ not json");
-  const store = new InMemoryArtifactStore();
-  const wfStore = openWorkflowStore();
-  const result = structured(await callLocalTool(
-    "mottainai_task_start", { taskSlug: "example" }, workflowConfig(config), store, undefined, undefined, wfStore,
-  ));
-  assert.equal(result.status, "failed");
-  assert.equal(result.reason, "invalid-policy");
-  wfStore.close();
-  await fs.rm(root, { recursive: true, force: true });
-});
-
 // --- F: advertised tool surface == executable tool surface, table-driven over both configurations ---
 
-test("the advertised tool surface matches the executable tool surface for worktree-dependent and workflow-task tools", async () => {
+test("the advertised tool surface matches the executable tool surface for worktree-dependent tools", async () => {
   const { root, config: bareConfig } = await workspace();
   const withWorktree: ResolvedGatewayConfig = {
     ...bareConfig,
     worktree: { allowedBranchPrefixes: ["docs"], baseBranch: "main", worktreeDir: ".worktrees" },
   };
-  const withWorkflowTasks: ResolvedGatewayConfig = { ...bareConfig, workflowTasks: true };
   const store = new InMemoryArtifactStore();
   const guardedTools: Array<{ name: string; args: Record<string, unknown>; enabled: (config: ResolvedGatewayConfig) => boolean }> = [
     { name: "mottainai_worktree_new", args: { prefix: "docs", task: "example" }, enabled: (config) => config.worktree !== undefined },
     { name: "mottainai_issue_view", args: { number: 1 }, enabled: (config) => config.worktree !== undefined },
-    { name: "mottainai_task_start", args: { taskSlug: "example" }, enabled: (config) => config.workflowTasks },
-    { name: "mottainai_task_status", args: {}, enabled: (config) => config.workflowTasks },
   ];
-  const configs = [bareConfig, withWorktree, withWorkflowTasks];
+  const configs = [bareConfig, withWorktree];
 
   for (const config of configs) {
     const advertisedNames = new Set(localToolsFor(config).map((tool) => tool.name));

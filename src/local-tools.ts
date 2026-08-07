@@ -14,11 +14,6 @@ import type { RunResult } from "./subprocess.js";
 import { compressionRatio, retrievalRate } from "./telemetry.js";
 import type { TelemetrySink } from "./telemetry.js";
 import type { UpstreamStatus } from "./upstream.js";
-import { getPreset } from "./workflow/policy/presets.js";
-import { loadWorkflowPolicy } from "./workflow/policy/load.js";
-import type { WorkflowPolicyDocument } from "./workflow/policy/schema.js";
-import type { WorkflowStateStore } from "./workflow/state/store.js";
-import { getTaskStatusForWorkspace, startTask } from "./workflow/domain/task.js";
 
 const OMITTED_DIRECTORIES = new Set([".git", "node_modules", "dist", "build", "target", ".cache", ".venv", "coverage"]);
 
@@ -77,9 +72,16 @@ export const localTools: Tool[] = [
   },
 ];
 
+/**
+ * Deprecated (Issue #34): superseded by `mottainai_workflow_task_start`
+ * (`src/workflow/commands/mcp-tools.ts`), which reserves the same kind of
+ * dedicated worktree/branch under Mottainai's tracked task lifecycle (task
+ * id, lifecycle state, guardrail policy) instead of a bare `git worktree
+ * add`. Kept in place, unchanged, for existing callers — not removed.
+ */
 const worktreeNewTool: Tool = {
   name: "mottainai_worktree_new",
-  description: "Create a git worktree on a new branch, using the workspace's allowed branch prefixes.",
+  description: "Deprecated: superseded by mottainai_workflow_task_start. Create a git worktree on a new branch, using the workspace's allowed branch prefixes.",
   inputSchema: { type: "object", properties: {
     prefix: { type: "string" }, task: { type: "string" },
   }, required: ["prefix", "task"] }, outputSchema: OUTPUT_SCHEMA,
@@ -94,31 +96,13 @@ const issueViewTool: Tool = {
   }, required: ["number"] }, outputSchema: OUTPUT_SCHEMA, annotations: readOnly,
 };
 
-const taskStartTool: Tool = {
-  name: "mottainai_task_start",
-  description: "Start a Git workflow task: reserve it under Mottainai's task lifecycle, always create a dedicated worktree and branch off the current branch (never the current branch itself), and activate it.",
-  inputSchema: { type: "object", properties: {
-    taskSlug: { type: "string" }, issueRef: { type: "string" },
-  }, required: ["taskSlug"] }, outputSchema: OUTPUT_SCHEMA,
-  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-};
-
-const taskStatusTool: Tool = {
-  name: "mottainai_task_status",
-  description: "Report the active Git workflow task (if any) for the current worktree: task id, lifecycle state, repository/worktree identity, branch, and guardrail warnings. Side-effect free.",
-  inputSchema: { type: "object", properties: {} }, outputSchema: OUTPUT_SCHEMA, annotations: readOnly,
-};
-
-/** `worktree` 未設定のワークスペースでは `mottainai_worktree_new` を公開しない。同様に
- * `workflowTasks` 未設定では `mottainai_task_start`/`mottainai_task_status` を公開しない
- * （どちらも worktree 作成等の副作用を持つため既定非公開）。 */
+/** `worktree` 未設定のワークスペースでは `mottainai_worktree_new` を公開しない。 */
 export function localToolsFor(config: ResolvedGatewayConfig): Tool[] {
-  const withWorktree = config.worktree === undefined ? localTools : [...localTools, worktreeNewTool, issueViewTool];
-  return config.workflowTasks ? [...withWorktree, taskStartTool, taskStatusTool] : withWorktree;
+  return config.worktree === undefined ? localTools : [...localTools, worktreeNewTool, issueViewTool];
 }
 
 /** risk annotation 参照専用。gatewayConfig を持たない箇所でも定義を引けるよう、条件付き公開ツールも含む全量。 */
-export const allLocalTools: Tool[] = [...localTools, worktreeNewTool, issueViewTool, taskStartTool, taskStatusTool];
+export const allLocalTools: Tool[] = [...localTools, worktreeNewTool, issueViewTool];
 
 type Args = Record<string, unknown> | undefined;
 
@@ -129,7 +113,7 @@ export interface RuntimeStatusSource {
 
 export async function callLocalTool(
   name: string, args: Args, config: ResolvedGatewayConfig, store: ArtifactStore, runtime?: RuntimeStatusSource,
-  telemetry?: TelemetrySink, workflowStore?: WorkflowStateStore,
+  telemetry?: TelemetrySink,
 ): Promise<CallToolResult> {
   switch (name) {
     case "mottainai_exec": return execTool(args, config, store);
@@ -142,33 +126,8 @@ export async function callLocalTool(
     case "mottainai_telemetry_summary": return telemetrySummaryTool(telemetry);
     case "mottainai_worktree_new": return worktreeNewToolImpl(args, config);
     case "mottainai_issue_view": return issueViewToolImpl(args, config);
-    case "mottainai_task_start": return taskStartToolImpl(args, config, workflowStore ?? await defaultWorkflowStore());
-    case "mottainai_task_status": return taskStatusToolImpl(config, workflowStore ?? await defaultWorkflowStore());
     default: throw new Error(`Unknown local tool: ${name}`);
   }
-}
-
-/**
- * 既定の `WorkflowStateStore`。プロセス内で一度だけ生成する module-level singleton
- * （lazy — 呼ばれるまで DB ファイルを開かない）。`src/state/*` の SqliteStateStore と
- * 同じ DB ファイル・パス解決を共有する（`src/workflow/state/sqlite-store.ts` 参照）。
- * テストは `callLocalTool` の `workflowStore` 引数に独自インスタンス（`:memory:` 等）を
- * 渡すことでこの singleton を迂回できる。
- *
- * `node:sqlite` の import は Node が `ExperimentalWarning` を stderr に一度だけ出す副作用を
- * 持つため、`workflowTasks` を使わない起動（CLI init 等、stdout/stderr の厳密な契約がある
- * 経路を含む）にまで static import で持ち込まない — 実際にこのツールが呼ばれたときだけ
- * dynamic import する。
- */
-let defaultWorkflowStoreInstance: WorkflowStateStore | undefined;
-async function defaultWorkflowStore(): Promise<WorkflowStateStore> {
-  if (defaultWorkflowStoreInstance === undefined) {
-    const { WorkflowSqliteStateStore } = await import("./workflow/state/sqlite-store.js");
-    const created = new WorkflowSqliteStateStore();
-    created.init();
-    defaultWorkflowStoreInstance = created;
-  }
-  return defaultWorkflowStoreInstance;
 }
 
 function runtimeStatusTool(args: Args, config: ResolvedGatewayConfig, runtime?: RuntimeStatusSource): CallToolResult {
@@ -584,77 +543,6 @@ async function issueViewToolImpl(args: Args, config: ResolvedGatewayConfig): Pro
   const { issue } = parsed;
   const summary = `#${issue.number} ${issue.state} ${issue.title}`;
   return output("issue_view", "success", summary, "", { issue });
-}
-
-const ISSUE_REF_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-
-/**
- * `.mottainai/workflow.json` を読み、無ければ built-in `standard` preset に fallback する
- * （`docs/workflow-policy.md` が定める既定挙動）。JSON 破損・schemaVersion 不一致等は
- * fallback せず fail-closed で構造化エラーを返す — 「ポリシーファイルが壊れているから
- * 適当な既定値で続行する」は禁止（AGENTS.md のガードレール原則）。
- */
-type WorkflowPolicyForTool = { ok: true; policy: WorkflowPolicyDocument } | { ok: false; reason: string };
-function resolveToolWorkflowPolicy(workspaceRoot: string): WorkflowPolicyForTool {
-  const loaded = loadWorkflowPolicy(workspaceRoot);
-  if (loaded.ok) return { ok: true, policy: loaded.document };
-  if (loaded.reason === "not-found") return { ok: true, policy: getPreset("standard") };
-  return { ok: false, reason: loaded.reason };
-}
-
-async function taskStartToolImpl(args: Args, config: ResolvedGatewayConfig, store: WorkflowStateStore): Promise<CallToolResult> {
-  if (!config.workflowTasks) throw new Error("task lifecycle tools are not configured for this workspace");
-  const taskSlug = stringArg(args, "taskSlug", true)!;
-  if (!TASK_SLUG_PATTERN.test(taskSlug)) throw new Error(`invalid taskSlug: ${taskSlug} (use lowercase, digits, hyphens)`);
-  const issueRef = stringArg(args, "issueRef");
-  if (issueRef !== undefined && !ISSUE_REF_PATTERN.test(issueRef)) throw new Error(`invalid issueRef: ${issueRef}`);
-
-  const policyResult = resolveToolWorkflowPolicy(config.workspaceRoot);
-  if (!policyResult.ok) {
-    const summary = `FAIL task_start: invalid workflow policy (${policyResult.reason})`;
-    return output("task_start", "failed", summary, "", { reason: "invalid-policy", diagnostics: [{ severity: "error", message: policyResult.reason }] }, true);
-  }
-
-  // `skipWorktree` を渡さない — policy.worktree.required に関わらず常に専用 worktree/branch
-  // を作らせる（task lifecycle の目的そのものが「今どの worktree/branch にいるか」の追跡であり、
-  // 現在の branch（main を含む）をそのまま work branch にすることは決して起きない）。
-  const result = await startTask({ workspaceRoot: config.workspaceRoot, store, policy: policyResult.policy, taskSlug, issueRef });
-  if (!result.ok) {
-    const summary = `FAIL task_start (${result.reason}): ${result.detail}`;
-    return output("task_start", "failed", summary, "", { reason: result.reason, diagnostics: [{ severity: "error", message: result.detail }] }, true);
-  }
-
-  const summary = `OK task=${result.task.taskId} state=${result.task.lifecycleState} branch=${result.worktree?.branchName ?? "(none)"}`;
-  return output("task_start", "success", summary, "", {
-    task: result.task,
-    worktree: result.worktree,
-    warnings: result.warnings,
-  });
-}
-
-async function taskStatusToolImpl(config: ResolvedGatewayConfig, store: WorkflowStateStore): Promise<CallToolResult> {
-  if (!config.workflowTasks) throw new Error("task lifecycle tools are not configured for this workspace");
-  const result = await getTaskStatusForWorkspace(config.workspaceRoot, store);
-  if (!result.ok) {
-    const summary = `FAIL task_status: ${result.reason}`;
-    return output("task_status", "failed", summary, "", { diagnostics: [{ severity: "error", message: result.reason }] }, true);
-  }
-
-  const repository = { instanceId: result.instanceId, worktreePath: result.worktreePath, branch: result.branch, repoStateKind: result.repoStateKind };
-  if (!result.active) {
-    const summary = `OK no active task at ${result.worktreePath}`;
-    return output("task_status", "success", summary, "", { active: false, repository, warnings: result.warnings });
-  }
-
-  const summary = `OK task=${result.status.task.taskId} state=${result.status.task.lifecycleState} branch=${result.branch ?? "(detached)"}`;
-  return output("task_status", "success", summary, "", {
-    active: true,
-    repository,
-    task: result.status.task,
-    worktrees: result.status.worktrees,
-    allowedNextTransitions: result.status.allowedNextTransitions,
-    warnings: result.warnings,
-  });
 }
 
 function codeView(source: string, mode: string, filePath: string): string {
