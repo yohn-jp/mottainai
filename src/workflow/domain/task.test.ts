@@ -82,6 +82,55 @@ test("startTask happy path without an issueRef", async (t) => {
   assert.equal(result.worktree?.branchName, "task/no-issue");
 });
 
+test("startTask rejects when staleBaseBranch=enforce and local base branch is behind origin", async (t) => {
+  const root = initRepo(t);
+  const remote = tmpDir(t, "mottainai-task-test-remote-");
+  git(["init", "--quiet", "--bare", "-b", "main"], remote);
+  git(["remote", "add", "origin", remote], root);
+  git(["push", "--quiet", "origin", "main"], root);
+
+  // origin に新しいコミットを積むが、ローカル main の tracking ref (`origin/main`) は
+  // 明示 fetch するまで更新されない — clone を経由して origin 側だけ進める。
+  const otherClone = tmpDir(t, "mottainai-task-test-clone-");
+  git(["clone", "--quiet", remote, otherClone], path.dirname(otherClone));
+  fs.writeFileSync(path.join(otherClone, "file2.txt"), "more\n");
+  git(["add", "file2.txt"], otherClone);
+  git(["config", "user.email", "test@example.com"], otherClone);
+  git(["config", "user.name", "Test"], otherClone);
+  git(["commit", "--quiet", "-m", "second"], otherClone);
+  git(["push", "--quiet", "origin", "main"], otherClone);
+  git(["fetch", "--quiet", "origin"], root);
+
+  const store = openStore(t);
+  const policy = standardPolicy({ staleBaseBranch: "enforce" });
+  const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "stale-check" });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.reason, "unsupported-repo-state");
+  assert.match(result.detail, /behind origin\/main/);
+});
+
+test("startTask succeeds when staleBaseBranch=enforce and local base branch matches origin", async (t) => {
+  const root = initRepo(t);
+  const remote = tmpDir(t, "mottainai-task-test-remote-");
+  git(["init", "--quiet", "--bare", "-b", "main"], remote);
+  git(["remote", "add", "origin", remote], root);
+  git(["push", "--quiet", "origin", "main"], root);
+
+  const store = openStore(t);
+  const policy = standardPolicy({ staleBaseBranch: "enforce" });
+  const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "fresh-check" });
+  assert.equal(result.ok, true);
+});
+
+test("startTask ignores staleBaseBranch when no origin tracking ref exists", async (t) => {
+  const root = initRepo(t);
+  const store = openStore(t);
+  const policy = standardPolicy({ staleBaseBranch: "enforce" });
+  const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "no-origin-check" });
+  assert.equal(result.ok, true);
+});
+
 test("startTask rejects when issueRequired=enforce and no issueRef is provided", async (t) => {
   const root = initRepo(t);
   const store = openStore(t);

@@ -34,6 +34,9 @@ const worktreeRuleSchema = z.object({
   bootstrapMode: z.enum(["off", "suggest", "automatic", "conditional"]),
   multipleActiveTasksPerIssue: ruleModeSchema,
   multipleWorktreesPerTask: ruleModeSchema,
+  // default("off"): schemaVersion=1 の既存 policy ファイルは staleBaseBranch を
+  // 持たない。issueRequired と同じ理由で、省略時は最も緩い "off" へ fallback する。
+  staleBaseBranch: ruleModeSchema.default("off"),
 }).strict();
 export type WorktreeRule = z.infer<typeof worktreeRuleSchema>;
 
