@@ -56,6 +56,42 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 2,
+    description: "workflow: repository_sources, repository_instances, repository_paths",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE repository_sources (
+          source_id TEXT PRIMARY KEY,
+          root_commit_digest TEXT NOT NULL UNIQUE,
+          created_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE repository_instances (
+          instance_id TEXT PRIMARY KEY,
+          source_id TEXT NOT NULL REFERENCES repository_sources (source_id),
+          git_common_dir TEXT NOT NULL UNIQUE,
+          created_at INTEGER NOT NULL,
+          last_seen_at INTEGER NOT NULL
+        );
+        CREATE INDEX idx_repository_instances_source ON repository_instances (source_id);
+
+        CREATE TABLE repository_paths (
+          instance_id TEXT NOT NULL REFERENCES repository_instances (instance_id),
+          canonical_path TEXT NOT NULL,
+          is_current INTEGER NOT NULL DEFAULT 1,
+          observed_at INTEGER NOT NULL,
+          PRIMARY KEY (instance_id, canonical_path)
+        );
+        -- instance あたり is_current=1 の行を高々 1 つに制約する
+        -- （WorkflowSqliteStateStore.observeRepositoryInstance の move 検出は
+        -- 単一行の SELECT に依存しており、複数行が current だと非決定的になる）。
+        -- instance_id 単体の lookup は主キー (instance_id, canonical_path) の
+        -- 先頭列で足りるため、別途の非 unique index は張らない。
+        CREATE UNIQUE INDEX idx_repository_paths_current ON repository_paths (instance_id) WHERE is_current = 1;
+      `);
+    },
+  },
 ];
 
 function currentVersion(db: DatabaseSync): number {
