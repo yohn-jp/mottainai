@@ -113,6 +113,51 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 4,
+    description: "workflow: tasks, worktrees (Issue-bound task/worktree lifecycle)",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE tasks (
+          task_id TEXT PRIMARY KEY,
+          instance_id TEXT NOT NULL REFERENCES repository_instances (instance_id),
+          task_slug TEXT NOT NULL,
+          issue_ref TEXT,
+          lifecycle_state TEXT NOT NULL,
+          base_branch TEXT NOT NULL,
+          base_commit TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX idx_tasks_instance ON tasks (instance_id);
+        -- issue_ref の一意性は multipleActiveTasksPerIssue/issueRequired という policy 次第で
+        -- 可変な制約なので、DB の静的 UNIQUE index にはできない。呼び出し側
+        -- （WorkflowSqliteStateStore.reserveTask）が同一 BEGIN IMMEDIATE トランザクション内で
+        -- SELECT してから INSERT することで一意性を保証する。この index は絞り込みの高速化のみが目的。
+        CREATE INDEX idx_tasks_issue_ref ON tasks (instance_id, issue_ref);
+
+        CREATE TABLE worktrees (
+          worktree_id TEXT PRIMARY KEY,
+          task_id TEXT NOT NULL REFERENCES tasks (task_id),
+          instance_id TEXT NOT NULL REFERENCES repository_instances (instance_id),
+          branch_name TEXT NOT NULL,
+          canonical_path TEXT NOT NULL,
+          status TEXT NOT NULL,
+          base_branch TEXT NOT NULL,
+          base_commit TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX idx_worktrees_task ON worktrees (task_id);
+        -- branch/path の一意性は policy に関わらず常に静的制約（同じ branch/path が同時に
+        -- 2つの生きた worktree を裏付けることはあり得ない）。status='removed' の行は
+        -- 過去の履歴として残すため index の対象から外し、2プロセス同時 reserveWorktree の
+        -- race を UNIQUE 制約違反というエラー経路で安全に検出できるようにする。
+        CREATE UNIQUE INDEX idx_worktrees_branch ON worktrees (instance_id, branch_name) WHERE status != 'removed';
+        CREATE UNIQUE INDEX idx_worktrees_path ON worktrees (instance_id, canonical_path) WHERE status != 'removed';
+      `);
+    },
+  },
 ];
 
 function currentVersion(db: DatabaseSync): number {
