@@ -76,6 +76,28 @@ test("double assertion requires a local documented exception", () => {
   );
 });
 
+test("double assertion marker does not suppress unrelated violations elsewhere in the file", () => {
+  const source = [
+    "// architecture-check allow: double-assertion -- fixture models a validated native interop boundary",
+    'const value = "native" as unknown as string;',
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    'const other = "native" as unknown as string;',
+    "export { value, other };",
+    "",
+  ].join("\n");
+  const diagnostics = validateSourceText(source, "src/compress/code.ts");
+  const escapes = diagnostics.filter((diagnostic) => diagnostic.ruleId === RULE_IDS.unsafeTypeEscape);
+  assert.equal(escapes.length, 1);
+  assert.equal(escapes[0].line, 11);
+});
+
 test("dependency direction accepts downward edges and rejects upward edges", () => {
   assert.equal(isDependencyAllowed("server", "compression", "src/compress/index.ts"), true);
   assert.equal(isDependencyAllowed("compression", "server", "src/proxy.ts"), false);
@@ -87,6 +109,19 @@ test("import-time execution is rejected outside the entry boundary", () => {
     diagnostics.some((diagnostic) => diagnostic.ruleId === RULE_IDS.importTimeSideEffect),
     true,
   );
+});
+
+test("import-time-side-effect marker does not suppress unrelated top-level statements in the file", () => {
+  const source = [
+    "const first = factory();",
+    "// architecture-check allow: import-time-side-effect -- fixture models a singleton boundary",
+    "",
+    "const second = factory();",
+  ].join("\n");
+  const diagnostics = validateSourceText(source, "src/server.ts");
+  const effects = diagnostics.filter((diagnostic) => diagnostic.ruleId === RULE_IDS.importTimeSideEffect);
+  assert.equal(effects.length, 1);
+  assert.equal(effects[0].line, 4);
 });
 
 test("process termination is restricted to the entry boundary", () => {

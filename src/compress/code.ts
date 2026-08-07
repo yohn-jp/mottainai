@@ -28,16 +28,17 @@ const FUNCTION_NODE_TYPES = new Set([
 ]);
 
 const parser = new Parser();
-
 // architecture-check allow: import-time-side-effect -- tree-sitter parser is a reusable native singleton.
-// architecture-check allow: double-assertion -- tree-sitter native handles expose unknown declarations.
 
 function languageFor(language: CodeLanguage): Parameters<Parser["setLanguage"]>[0] {
   switch (language) {
     // grammar packages expose compatible native Language objects, but their bundled
     // declarations type the native handle as unknown.
+    // architecture-check allow: double-assertion -- tree-sitter native handles expose unknown declarations.
     case "javascript": return javascript as unknown as Parameters<Parser["setLanguage"]>[0];
+    // architecture-check allow: double-assertion -- tree-sitter native handles expose unknown declarations.
     case "typescript": return typescript.typescript as unknown as Parameters<Parser["setLanguage"]>[0];
+    // architecture-check allow: double-assertion -- tree-sitter native handles expose unknown declarations.
     case "tsx": return typescript.tsx as unknown as Parameters<Parser["setLanguage"]>[0];
   }
 }

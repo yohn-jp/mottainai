@@ -257,9 +257,23 @@ export function isDependencyAllowed(sourceLayer, targetLayer, targetPath = "") {
   return layerRules[sourceLayer]?.has(targetLayer) ?? true;
 }
 
-function hasRuleMarker(sourceFile, ruleName) {
+const markerSearchLeadingLines = 1;
+const markerSearchTrailingLines = 1;
+
+function hasRuleMarker(sourceFile, node, ruleName, boundaryLine) {
   const pattern = new RegExp(`architecture-check\\s+allow:\\s*${ruleName}\\s+--\\s+[^\\n\\r]+`, "u");
-  return pattern.test(sourceFile.getFullText());
+  const text = sourceFile.getFullText();
+  const startLine = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line;
+  const endLine = sourceFile.getLineAndCharacterOfPosition(node.getEnd()).line;
+  const lastLine = sourceFile.getLineAndCharacterOfPosition(text.length).line;
+  const maxTrailingLine = boundaryLine === undefined ? lastLine : Math.min(boundaryLine - 1, lastLine);
+  const searchFromLine = Math.max(startLine - markerSearchLeadingLines, 0);
+  const searchToLine = Math.min(endLine + markerSearchTrailingLines, maxTrailingLine);
+  const rangeStart = sourceFile.getPositionOfLineAndCharacter(searchFromLine, 0);
+  const rangeEndLineStart = sourceFile.getPositionOfLineAndCharacter(searchToLine, 0);
+  const rangeEnd = text.indexOf("\n", rangeEndLineStart);
+  const searchText = text.slice(rangeStart, rangeEnd === -1 ? text.length : rangeEnd);
+  return pattern.test(searchText);
 }
 
 function processAccess(node) {
@@ -358,8 +372,15 @@ function checkTopLevelExecution(sourceFile, root, diagnostics) {
     file === "src/index.ts" ||
     file === "src/workflow/domain/identity-resolve-worker.mjs" ||
     file === "src/workflow/domain/task-start-worker.mjs";
-  if (boundary || hasRuleMarker(sourceFile, "import-time-side-effect")) return;
-  for (const statement of sourceFile.statements) {
+  if (boundary) return;
+  const statements = sourceFile.statements;
+  for (let index = 0; index < statements.length; index += 1) {
+    const statement = statements[index];
+    const nextStatement = statements[index + 1];
+    const boundaryLine = nextStatement
+      ? sourceFile.getLineAndCharacterOfPosition(nextStatement.getStart(sourceFile)).line
+      : undefined;
+    if (hasRuleMarker(sourceFile, statement, "import-time-side-effect", boundaryLine)) continue;
     if (ts.isImportDeclaration(statement) && !statement.importClause) {
       diagnostics.push(
         makeDiagnostic(
@@ -512,7 +533,7 @@ function checkProtocolStdout(sourceFile, root, diagnostics) {
 
 function checkUnsafeTypes(sourceFile, root, diagnostics) {
   function visit(node) {
-    if (node.kind === ts.SyntaxKind.AnyKeyword && !hasRuleMarker(sourceFile, "any")) {
+    if (node.kind === ts.SyntaxKind.AnyKeyword && !hasRuleMarker(sourceFile, node, "any")) {
       diagnostics.push(
         makeDiagnostic(
           RULE_IDS.unsafeTypeEscape,
@@ -527,7 +548,7 @@ function checkUnsafeTypes(sourceFile, root, diagnostics) {
     if (
       ts.isAsExpression(node) &&
       (ts.isAsExpression(node.expression) || ts.isTypeAssertionExpression(node.expression)) &&
-      !hasRuleMarker(sourceFile, "double-assertion")
+      !hasRuleMarker(sourceFile, node, "double-assertion")
     ) {
       diagnostics.push(
         makeDiagnostic(
