@@ -343,6 +343,37 @@ test("public CLI task start creates a dedicated worktree/branch, and task status
   fs.rmSync(directory, { recursive: true, force: true });
 });
 
+test("public CLI task start validates taskSlug/issueRef at the boundary, same as the MCP tool", () => {
+  const directory = gitWorkspace();
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-workflow-state-"));
+  const env = { ...process.env, MOTTAINAI_STATE_DIR: stateDir };
+  const spawn = (...argv: string[]): Run => {
+    const result = spawnSync(process.execPath, ["--import", "tsx", publicCliPath, ...argv], { encoding: "utf8", env });
+    let json: Record<string, unknown> = {};
+    try {
+      json = JSON.parse(result.stdout) as Record<string, unknown>;
+    } catch {
+      json = {};
+    }
+    return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr, json };
+  };
+
+  const badSlug = spawn("task", "start", "Bad Slug", "--workspace", directory);
+  assert.equal(badSlug.status, 1);
+  assert.match(badSlug.stderr, /invalid taskSlug/);
+
+  const badIssueRef = spawn("task", "start", "ok-slug", "--issue", "7..9", "--workspace", directory);
+  assert.equal(badIssueRef.status, 1);
+  assert.match(badIssueRef.stderr, /invalid issueRef/);
+
+  const status = spawn("task", "status", "--workspace", directory);
+  assert.equal(status.status, 0);
+  assert.equal(status.json.active, false);
+
+  fs.rmSync(stateDir, { recursive: true, force: true });
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
 test("public CLI task start rejects starting a second task from inside its own already-active worktree", () => {
   const directory = gitWorkspace();
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-workflow-state-"));

@@ -5,6 +5,7 @@ import { loadMottainaiConfig, loadRawConfig, resolveConfigPath, saveRawConfig } 
 import type { MottainaiConfig } from "./config.js";
 import { formatInitHuman, runInit } from "./init.js";
 import { runServer } from "./server.js";
+import { validateIssueRef, validateTaskSlug } from "./workflow/commands/mcp-tools.js";
 import { startTask, getTaskStatusForWorkspace } from "./workflow/domain/task.js";
 import { explainWorkflowPolicy } from "./workflow/policy/explain.js";
 import { resolveEffectiveWorkflowPolicy } from "./workflow/policy/load.js";
@@ -274,8 +275,10 @@ export async function runCli(args: string[]): Promise<number> {
 } else if (command === "task" && argv[0] === "start") {
   const taskSlug = argv[1];
   if (taskSlug === undefined || taskSlug.startsWith("--")) fail(USAGE);
+  validateTaskSlug(taskSlug);
   const workspace = resolveWorkflowWorkspace(argv);
   const issueRef = flag(argv, "issue");
+  validateIssueRef(issueRef);
   const policyResult = resolveEffectiveWorkflowPolicy(workspace);
   if (!policyResult.ok) {
     print({ ok: false, workspace, error: policyResult.reason });

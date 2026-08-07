@@ -78,6 +78,17 @@ const TASK_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 // 予約前に弾く（さもないと git-worktree-add-failed として予約後・rollback 前に失敗する）。
 const ISSUE_REF_PATTERN = /^[A-Za-z0-9](?!.*\.\.)[A-Za-z0-9._-]*$/;
 
+/** MCP と CLI の両方の入口が `startTask` を呼ぶ前に通す唯一の境界検証。
+ * ここで弾かなければ、無効な値は state 予約や `git worktree add` まで進んでから
+ * 失敗する（予約行の補償削除、Windows でのパス/ref 由来の失敗など）。 */
+export function validateTaskSlug(taskSlug: string): void {
+  if (!TASK_SLUG_PATTERN.test(taskSlug)) throw new Error(`invalid taskSlug: ${taskSlug} (use lowercase, digits, hyphens)`);
+}
+
+export function validateIssueRef(issueRef: string | undefined): void {
+  if (issueRef !== undefined && !ISSUE_REF_PATTERN.test(issueRef)) throw new Error(`invalid issueRef: ${issueRef}`);
+}
+
 function requireWorkflowTasksConfigured(config: ResolvedGatewayConfig): void {
   if (!config.workflowTasks) throw new Error("workflow command tools are not configured for this workspace");
 }
@@ -102,9 +113,9 @@ function policyExplainToolImpl(config: ResolvedGatewayConfig): CallToolResult {
 async function taskStartToolImpl(args: Args, config: ResolvedGatewayConfig, store: WorkflowStateStore): Promise<CallToolResult> {
   requireWorkflowTasksConfigured(config);
   const taskSlug = stringArg(args, "taskSlug", true)!;
-  if (!TASK_SLUG_PATTERN.test(taskSlug)) throw new Error(`invalid taskSlug: ${taskSlug} (use lowercase, digits, hyphens)`);
+  validateTaskSlug(taskSlug);
   const issueRef = stringArg(args, "issueRef");
-  if (issueRef !== undefined && !ISSUE_REF_PATTERN.test(issueRef)) throw new Error(`invalid issueRef: ${issueRef}`);
+  validateIssueRef(issueRef);
 
   const policyResult = resolveEffectiveWorkflowPolicy(config.workspaceRoot);
   if (!policyResult.ok) {
@@ -186,9 +197,18 @@ export async function callWorkflowCommandTool(
   name: string, args: Args, config: ResolvedGatewayConfig, workflowStore?: WorkflowStateStore,
 ): Promise<CallToolResult> {
   switch (name) {
-    case "mottainai_workflow_policy_explain": return policyExplainToolImpl(config);
-    case "mottainai_workflow_task_start": return taskStartToolImpl(args, config, workflowStore ?? await defaultWorkflowStore());
-    case "mottainai_workflow_task_status": return taskStatusToolImpl(config, workflowStore ?? await defaultWorkflowStore());
-    default: throw new Error(`Unknown workflow command tool: ${name}`);
+    case "mottainai_workflow_policy_explain":
+      return policyExplainToolImpl(config);
+    case "mottainai_workflow_task_start":
+      // config.workflowTasks のゲートは defaultWorkflowStore() より前に通す — さもないと
+      // 無効化されたワークスペースでも既定の on-disk SQLite DB を開いてから拒否することになる
+      // （taskStartToolImpl 内の requireWorkflowTasksConfigured は defense in depth として残す）。
+      requireWorkflowTasksConfigured(config);
+      return taskStartToolImpl(args, config, workflowStore ?? (await defaultWorkflowStore()));
+    case "mottainai_workflow_task_status":
+      requireWorkflowTasksConfigured(config);
+      return taskStatusToolImpl(config, workflowStore ?? (await defaultWorkflowStore()));
+    default:
+      throw new Error(`Unknown workflow command tool: ${name}`);
   }
 }
