@@ -155,3 +155,6 @@ jobs:
 
       - name: Smoke test packed tarball
         run: node scripts/smoke-test.mjs
+
+      - name: Black-box stdio MCP protocol test
+        run: pnpm run e2e:test
