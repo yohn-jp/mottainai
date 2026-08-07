@@ -36,7 +36,9 @@ const taskStartTool: Tool = {
     taskSlug: { type: "string" }, issueRef: { type: "string" },
   }, required: ["taskSlug"] },
   outputSchema: OUTPUT_SCHEMA,
-  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  // openWorldHint: true — policy.worktree.bootstrapMode: "automatic" runs
+  // `pnpm install --frozen-lockfile` in the new worktree, which can reach package registries.
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
 };
 
 const taskStatusTool: Tool = {
@@ -72,7 +74,9 @@ function stringArg(args: Args, key: string, required = false): string | undefine
 }
 
 const TASK_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
-const ISSUE_REF_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+// `..` を除外する — issueRef は branch 名に入るため、git が ref として拒否する値を
+// 予約前に弾く（さもないと git-worktree-add-failed として予約後・rollback 前に失敗する）。
+const ISSUE_REF_PATTERN = /^[A-Za-z0-9](?!.*\.\.)[A-Za-z0-9._-]*$/;
 
 function requireWorkflowTasksConfigured(config: ResolvedGatewayConfig): void {
   if (!config.workflowTasks) throw new Error("workflow command tools are not configured for this workspace");
@@ -162,15 +166,20 @@ async function taskStatusToolImpl(config: ResolvedGatewayConfig, store: Workflow
  * 経路を含む）にまで static import で持ち込まない — 実際にこのツールが呼ばれたときだけ
  * dynamic import する。
  */
-let defaultWorkflowStoreInstance: WorkflowStateStore | undefined;
-export async function defaultWorkflowStore(): Promise<WorkflowStateStore> {
-  if (defaultWorkflowStoreInstance === undefined) {
+let defaultWorkflowStorePromise: Promise<WorkflowStateStore> | undefined;
+export function defaultWorkflowStore(): Promise<WorkflowStateStore> {
+  // 生成済みインスタンスではなく生成中の promise を保持する — await の間に同時呼び出しが
+  // 入ると store が二重に init() され、先に作った SQLite handle が close されないまま漏れる。
+  defaultWorkflowStorePromise ??= (async () => {
     const { WorkflowSqliteStateStore } = await import("../state/sqlite-store.js");
     const created = new WorkflowSqliteStateStore();
     created.init();
-    defaultWorkflowStoreInstance = created;
-  }
-  return defaultWorkflowStoreInstance;
+    return created;
+  })().catch((error: unknown) => {
+    defaultWorkflowStorePromise = undefined;
+    throw error;
+  });
+  return defaultWorkflowStorePromise;
 }
 
 export async function callWorkflowCommandTool(

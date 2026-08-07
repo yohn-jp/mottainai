@@ -170,6 +170,7 @@ test("task_start rejects starting a second task from inside its own already-acti
   const started = structured(await callWorkflowCommandTool(
     "mottainai_workflow_task_start", { taskSlug: "outer" }, enabled(config), store,
   ));
+  assert.equal(started.status, "success");
   const worktree = started.worktree as { canonicalPath: string };
 
   const second = structured(await callWorkflowCommandTool(

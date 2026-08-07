@@ -303,9 +303,6 @@ function normalizeGateway(value: unknown): GatewayConfig | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw new Error("invalid gateway config");
   const workspaceRoot = optionalString(value.workspaceRoot, "invalid gateway workspaceRoot");
-  if (value.workflowTasks !== undefined && typeof value.workflowTasks !== "boolean") {
-    throw new Error("invalid gateway workflowTasks");
-  }
   return {
     workspaceRoot,
     defaultTimeoutMs: positiveIntegerConfig(value.defaultTimeoutMs, "invalid gateway defaultTimeoutMs"),
@@ -320,7 +317,7 @@ function normalizeGateway(value: unknown): GatewayConfig | undefined {
     toolMetadata: toolMetadataRecord(value.toolMetadata, "invalid gateway toolMetadata"),
     tokenBudgets: tokenBudgetsConfig(value.tokenBudgets, "invalid gateway tokenBudgets"),
     worktree: worktreeConfig(value.worktree, "invalid gateway worktree"),
-    workflowTasks: value.workflowTasks as boolean | undefined,
+    workflowTasks: optionalBoolean(value.workflowTasks, "invalid gateway workflowTasks"),
   };
 }
 
@@ -495,6 +492,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function optionalString(value: unknown, message: string): string | undefined {
   if (value !== undefined && typeof value !== "string") {
+    throw new Error(message);
+  }
+  return value;
+}
+
+function optionalBoolean(value: unknown, message: string): boolean | undefined {
+  if (value !== undefined && typeof value !== "boolean") {
     throw new Error(message);
   }
   return value;

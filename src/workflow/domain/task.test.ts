@@ -261,7 +261,7 @@ test("startTask rejects starting a second task from inside an already-active tas
   assert.equal(inner.ok, false);
   if (inner.ok) return;
   assert.equal(inner.reason, "active-task-in-workspace");
-  assert.match(inner.detail, new RegExp(outer.task.taskId));
+  assert.ok(inner.detail.includes(outer.task.taskId));
 });
 
 test("getTaskStatusForWorkspace reports no active task for a plain repository", async (t) => {
@@ -356,6 +356,7 @@ test("getTaskStatusForWorkspace survives a store restart against a file-backed d
   const dbPath = path.join(dbDir, "state.sqlite3");
   const store1 = new WorkflowSqliteStateStore({ dbPath });
   store1.init();
+  t.after(() => store1.close());
   const started = await startTask({ workspaceRoot: root, store: store1, policy: standardPolicy(), taskSlug: "restart-check" });
   assert.equal(started.ok, true);
   if (!started.ok) return;

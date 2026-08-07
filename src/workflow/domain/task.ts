@@ -143,14 +143,15 @@ function findActiveTaskAtWorktreePath(
   store: WorkflowStateStore,
   instanceId: RepositoryInstanceId,
   canonicalWorktreePath: string,
-): { task: TaskRecord; worktree: WorktreeRecord } | undefined {
+): { task: TaskRecord | undefined; worktree: WorktreeRecord } | undefined {
   const worktree = store
     .listWorktreesForInstance(instanceId)
     .find((candidate) => candidate.status === "active" && candidate.canonicalPath === canonicalWorktreePath);
   if (worktree === undefined) return undefined;
-  const task = store.getTask(worktree.taskId);
-  if (task === undefined) return undefined;
-  return { task, worktree };
+  // task が undefined でもここでは握りつぶさず返す — worktrees→tasks の FK 制約上
+  // 起きないはずの状態だが、呼び出し元（startTask / getTaskStatusForWorkspace）に
+  // 「見えない」ままにすると fail-closed の意図が死ぬ。
+  return { task: store.getTask(worktree.taskId), worktree };
 }
 
 export async function startTask(input: StartTaskInput): Promise<StartTaskResult> {
@@ -174,10 +175,13 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
   // policy 判定より前に、無条件で fail-closed に拒否する。
   const conflicting = findActiveTaskAtWorktreePath(store, identityResult.identity.instanceId, identityResult.identity.worktreePath);
   if (conflicting !== undefined) {
+    const taskDescription = conflicting.task !== undefined
+      ? `taskId=${conflicting.task.taskId}`
+      : `worktreeId=${conflicting.worktree.worktreeId} references a task missing from the store`;
     return {
       ok: false,
       reason: "active-task-in-workspace",
-      detail: `this worktree already has an active task (taskId=${conflicting.task.taskId}, worktreeId=${conflicting.worktree.worktreeId}); finish or abandon it before starting another task here`,
+      detail: `this worktree already has an active task (${taskDescription}); finish or abandon it before starting another task here`,
     };
   }
 
@@ -411,6 +415,9 @@ export async function getTaskStatusForWorkspace(workspaceRoot: string, store: Wo
   const found = findActiveTaskAtWorktreePath(store, identityResult.identity.instanceId, identityResult.identity.worktreePath);
   if (found === undefined) {
     return { ok: true, active: false, ...location };
+  }
+  if (found.task === undefined) {
+    return { ok: false, reason: `active worktree ${found.worktree.worktreeId} references task ${found.worktree.taskId}, which is missing from the store` };
   }
 
   const status = getTaskStatus(store, found.task.taskId);
