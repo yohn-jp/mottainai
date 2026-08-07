@@ -16,6 +16,7 @@ test("symbol logical IDs ignore source range movement", () => {
     file: "src/config.ts",
     symbol: "loadConfig",
     signature: "(): Config",
+    range: { start: { line: 10, column: 1 }, end: { line: 15, column: 2 } },
   });
   const after = createSymbolId({
     kind: "symbol",
@@ -24,6 +25,7 @@ test("symbol logical IDs ignore source range movement", () => {
     file: "src/config.ts",
     symbol: "loadConfig",
     signature: "(): Config",
+    range: { start: { line: 110, column: 1 }, end: { line: 115, column: 2 } },
   });
   assert.equal(before, "symbol:typescript:mottainai:src/config.ts#loadConfig~%28%29%3a%20Config");
   assert.equal(before, after);

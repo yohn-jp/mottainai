@@ -65,7 +65,7 @@ function encodeIdPart(value: string, field: string): string {
 }
 
 /** 言語非依存の物理locatorから、rangeを除外した論理symbol IDを作る。 */
-export function createSymbolId(locator: Pick<SymbolLocator, "kind" | "language" | "package" | "module" | "file" | "symbol" | "signature">): LogicalId {
+export function createSymbolId(locator: Pick<SymbolLocator, "kind" | "language" | "package" | "module" | "file" | "symbol" | "signature" | "range">): LogicalId {
   const coordinates = [
     encodeIdPart(locator.language, "language"),
     locator.package === undefined ? undefined : encodeIdPart(locator.package, "package"),
