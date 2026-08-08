@@ -306,10 +306,12 @@ invalid values fail configuration validation. `tokenBudgets` and the
 not final response limits.
 
 `gateway.readGovernor` controls progressive `mottainai_read` disclosure. The
-default is `observe`; use `mode: "enforce"` to deny unrestricted raw reads of
-large files before source content is read. `mode: "auto"` selects a bounded
-outline for large files. See [`docs/read-governor.md`](docs/read-governor.md)
-for the policy modes and range examples.
+default `gateway.readGovernor.mode` is `"observe"`. Set
+`gateway.readGovernor.mode` to `"enforce"` to deny unrestricted raw reads of
+large files before source content is read. Pass `mode: "auto"` to
+`mottainai_read` to select a bounded representation for large files. See
+[`docs/read-governor.md`](docs/read-governor.md) for the policy modes and
+range examples.
 
 Projection retention priority, from highest to lowest: operation/status/result
 identity, summary, blocking diagnostics, actionable facts, structured test and
