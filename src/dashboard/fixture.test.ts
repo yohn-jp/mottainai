@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   createDeterministicFixtureQuery,
-} from "./dashboard/fixture.js";
+} from "./fixture.js";
 import {
   QUERY_API_VERSION,
   SEMANTIC_DELTA_KINDS,
   SemanticQueryError,
-} from "./dashboard/query.js";
+} from "./query.js";
 
 test("fixture provider is deterministic and exposes one query boundary", () => {
   const first = createDeterministicFixtureQuery();
@@ -52,5 +52,9 @@ test("entity, dependency, change, knowledge and agent projections are queryable"
   const knowledge = query.getKnowledge();
   assert.equal(knowledge.counts.decision, 2);
   assert.ok(knowledge.entries.some((entry) => entry.status === "protected"));
-  assert.equal(JSON.stringify(entity).includes("sourceBody"), false);
+  assert.equal(entity?.agentProjection.source.available, false);
+  assert.ok((entity?.agentProjection.source.reason.length ?? 0) > 0);
+  for (const fact of entity?.agentProjection.facts ?? []) {
+    assert.equal(fact.name === "source" || fact.name === "body", false);
+  }
 });

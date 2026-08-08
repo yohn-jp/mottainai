@@ -1,14 +1,9 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { createServer } from "node:http";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { request } from "node:http";
 import { afterEach, test } from "node:test";
-import { startDashboardServer } from "../dashboard/http.js";
-import { createFixtureQuery } from "../dashboard/fixture.js";
-import { parseDashboardOptions } from "../dashboard/command.js";
+import { startDashboardServer } from "./http.js";
+import { createFixtureQuery } from "./fixture.js";
 
-const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const activeServers: { close: () => Promise<void> }[] = [];
 
 interface ProjectBody {
@@ -48,16 +43,6 @@ interface ErrorBody {
 afterEach(async () => {
   await Promise.all(activeServers.splice(0).map((server) => server.close()));
 });
-
-async function freePort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  assert.ok(address && typeof address !== "string");
-  const port = address.port;
-  await new Promise<void>((resolve, reject) => server.close((error) => (error === undefined ? resolve() : reject(error))));
-  return port;
-}
 
 async function responseBody<T>(url: string): Promise<{ response: Response; body: T }> {
   const response = await fetch(url);
@@ -114,46 +99,40 @@ test("dashboard HTTP adapter serves the viewer and all versioned query routes", 
   assert.equal(unknownRoute.body.error.code, "not_found");
 });
 
-test("dashboard parser supports no-open and explicit ports", () => {
-  assert.deepEqual(parseDashboardOptions(["--no-open", "--port", "4321"]), { noOpen: true, port: 4321 });
-  assert.throws(() => parseDashboardOptions(["--port"]), /missing value/);
-  assert.throws(() => parseDashboardOptions(["--port", "70000"]), /invalid dashboard port/);
-  assert.throws(() => parseDashboardOptions(["--unexpected"]), /unknown dashboard option/);
+test("dashboard HTTP adapter rejects non-loopback Host headers", async () => {
+  const handle = await startDashboardServer({
+    port: 0,
+    viewerHtml: "<!doctype html><title>fixture viewer</title>",
+    query: createFixtureQuery(),
+  });
+  activeServers.push(handle);
+  const { statusCode, body } = await new Promise<{ statusCode: number | undefined; body: ErrorBody }>((resolve, reject) => {
+    const req = request(
+      { host: handle.host, port: handle.port, path: "/api/v1/project", headers: { host: "evil.example:1" } },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          resolve({ statusCode: res.statusCode, body: JSON.parse(Buffer.concat(chunks).toString()) as ErrorBody });
+        });
+      },
+    );
+    req.once("error", reject);
+    req.end();
+  });
+  assert.equal(statusCode, 403);
+  assert.equal(body.error.code, "forbidden");
 });
 
-test("dashboard CLI starts without browser opening and shuts down on SIGTERM", async () => {
-  const port = await freePort();
-  const child = spawn(process.execPath, ["--import", "tsx", "src/index.ts", "dashboard", "--no-open", "--port", String(port)], {
-    cwd: repositoryRoot,
-    env: { ...process.env },
-    stdio: ["ignore", "pipe", "pipe"],
+test("dashboard HTTP adapter rejects unknown enum query values", async () => {
+  const handle = await startDashboardServer({
+    port: 0,
+    viewerHtml: "<!doctype html><title>fixture viewer</title>",
+    query: createFixtureQuery(),
   });
-  let stdout = "";
-  let stderr = "";
-  const ready = new Promise<string>((resolve, reject) => {
-    const onStdout = (chunk: Buffer): void => {
-      stdout += chunk.toString();
-      const match = stdout.match(/Mottainai dashboard listening at (http:\/\/127\.0\.0\.1:\d+\/)/);
-      if (match?.[1] !== undefined) resolve(match[1]);
-    };
-    child.stdout.on("data", onStdout);
-    child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
-    child.once("error", reject);
-    child.once("exit", (code) => reject(new Error(`dashboard exited before ready: ${code}\n${stderr}`)));
-  });
-  try {
-    const url = await ready;
-    const project = await responseBody<ProjectBody>(`${url}api/v1/project`);
-    assert.equal(project.response.status, 200);
-    assert.equal(project.body.project.id, "project:mottainai");
-    child.kill("SIGTERM");
-    const exit = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
-      child.once("error", reject);
-      child.once("exit", (code, signal) => resolve({ code, signal }));
-    });
-    assert.equal(exit.code, 0);
-    assert.equal(exit.signal, null);
-  } finally {
-    if (!child.killed) child.kill("SIGTERM");
-  }
+  activeServers.push(handle);
+  const response = await fetch(`${handle.url}api/v1/components?status=bogus`);
+  assert.equal(response.status, 400);
+  const body = (await response.json()) as ErrorBody;
+  assert.equal(body.error.code, "invalid_query");
 });

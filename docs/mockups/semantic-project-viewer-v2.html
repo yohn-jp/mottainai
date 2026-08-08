@@ -416,17 +416,6 @@ recommended_source_reads:
 </div>
 
 <script>
-let entityData={};
-
-function selectEntity(id){
- const d=entityData[id]; if(!d) return;
- document.getElementById("crumb").textContent=d[0];
- document.getElementById("insTitle").textContent=d[1];
- document.getElementById("insSub").textContent=d[2];
- document.getElementById("typeIcon").textContent=d[3];
-}
-document.querySelectorAll("[data-entity]").forEach(el=>el.addEventListener("click",()=>selectEntity(el.dataset.entity)));
-
 function goPage(id){
  document.querySelectorAll(".page").forEach(p=>p.classList.toggle("active",p.id==="page-"+id));
  document.querySelectorAll(".nav[data-page]").forEach(n=>n.classList.toggle("active",n.dataset.page===id));
@@ -442,12 +431,6 @@ document.querySelectorAll(".segment button").forEach(b=>b.addEventListener("clic
  b.parentElement.querySelectorAll("button").forEach(x=>x.classList.remove("active")); b.classList.add("active");
 }));
 document.querySelectorAll(".chip").forEach(c=>c.addEventListener("click",()=>c.classList.toggle("on")));
-document.getElementById("globalSearch").addEventListener("input",e=>{
- const q=e.target.value.trim().toLowerCase();
- if(!q) return;
- const hit=Object.entries(entityData).find(([k,v])=>v.join(" ").toLowerCase().includes(q));
- if(hit) selectEntity(hit[0]);
-});
 
 /* Runtime semantic truth comes from the versioned Query API, not this shell. */
 let viewerState;
@@ -491,14 +474,17 @@ function renderInspector(entity){
 
 async function loadEntity(id){
  if(!id) return;
- try{renderInspector(await fetchQuery(`/api/v1/entities/${encodeURIComponent(id)}`));}catch(error){console.error(error);}
+ try{renderInspector(await fetchQuery(`/api/v1/entities/${encodeURIComponent(id)}`));}
+ catch(error){
+  console.error(error);
+  document.querySelector(".inspector").innerHTML=`<div class="isection"><div class="ibox"><div class="callout">Entity unavailable: ${esc(error.message)}</div></div></div>`;
+ }
 }
 
 async function loadViewer(){
  try{
   const [project,graph,components,dependencies,changes,knowledge]=await Promise.all([fetchQuery("/api/v1/project"),fetchQuery("/api/v1/graph?limit=100"),fetchQuery("/api/v1/components"),fetchQuery("/api/v1/dependencies"),fetchQuery("/api/v1/changes"),fetchQuery("/api/v1/knowledge")]);
   viewerState={project,graph,components,dependencies,changes,knowledge};
-  entityData=Object.fromEntries(graph.nodes.map(entity=>[entity.id,[entity.kind,entity.name,entity.summary,entity.kind.slice(0,1).toUpperCase()]]));
   renderPages();
   await loadEntity("component:read-authorization");
   document.getElementById("globalSearch").addEventListener("input",event=>{const q=event.target.value.trim().toLowerCase();if(!q)return;const hit=graph.nodes.find(entity=>`${entity.name} ${entity.summary}`.toLowerCase().includes(q));if(hit)loadEntity(hit.id);});

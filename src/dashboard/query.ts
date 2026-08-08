@@ -34,7 +34,8 @@ export type EntityKind =
   | "file"
   | "package"
   | "external-api";
-export type EntityStatus = "healthy" | "partial" | "review-required" | "protected" | "stale" | "unknown";
+export const ENTITY_STATUSES = ["healthy", "partial", "review-required", "protected", "stale", "unknown"] as const;
+export type EntityStatus = (typeof ENTITY_STATUSES)[number];
 export type FixtureStatus = "fixture" | "partial" | "unavailable";
 
 export interface Provenance {
@@ -245,12 +246,15 @@ export interface SemanticChangeSetView {
   provenance: Provenance;
 }
 
+export const KNOWLEDGE_ENTRY_KINDS = ["decision", "policy", "experiment", "evidence"] as const;
+export const KNOWLEDGE_ENTRY_STATUSES = ["accepted", "draft", "protected", "observed", "stale"] as const;
+
 export interface KnowledgeEntry {
   id: EntityId;
-  kind: "decision" | "policy" | "experiment" | "evidence";
+  kind: (typeof KNOWLEDGE_ENTRY_KINDS)[number];
   title: string;
   summary: string;
-  status: "accepted" | "draft" | "protected" | "observed" | "stale";
+  status: (typeof KNOWLEDGE_ENTRY_STATUSES)[number];
   linkedEntityIds: readonly EntityId[];
   authority: AuthorityLayer;
   provenance: Provenance;

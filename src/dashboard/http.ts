@@ -1,15 +1,22 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import {
+  ENTITY_STATUSES,
+  KNOWLEDGE_ENTRY_KINDS,
+  KNOWLEDGE_ENTRY_STATUSES,
+  REVIEW_LEVELS,
   SemanticQueryError,
   boundedLimit,
   type ChangeQuery,
   type ComponentQuery,
   type DependencyQuery,
+  type EntityStatus,
   type GraphQuery,
+  type KnowledgeEntry,
   type KnowledgeQuery,
   type RelationKind,
   type RepositorySemanticQuery,
+  type ReviewLevel,
 } from "./query.js";
 
 export const LOOPBACK_HOST = "127.0.0.1";
@@ -93,6 +100,12 @@ function parseRelationKinds(value: string | null): RelationKind[] | undefined {
   return requested as RelationKind[];
 }
 
+function parseEnum<T extends string>(value: string | null, allowed: readonly T[], label: string): T | undefined {
+  if (value === null) return undefined;
+  if (!allowed.includes(value as T)) throw new SemanticQueryError("invalid_query", `unknown ${label}: ${value}`);
+  return value as T;
+}
+
 function parseGraphQuery(url: URL): GraphQuery {
   const limit = parseOptionalLimit(url.searchParams.get("limit"));
   const relationKinds = parseRelationKinds(url.searchParams.get("relationKinds"));
@@ -134,9 +147,10 @@ async function routeApi(
     return;
   }
   if (resource === "components" && segments.length === 1) {
+    const status = parseEnum<EntityStatus>(url.searchParams.get("status"), ENTITY_STATUSES, "component status");
     const componentQuery: ComponentQuery = {
       ...(url.searchParams.get("search") === null ? {} : { search: url.searchParams.get("search") ?? undefined }),
-      ...(url.searchParams.get("status") === null ? {} : { status: url.searchParams.get("status") as ComponentQuery["status"] }),
+      ...(status === undefined ? {} : { status }),
       ...(parseOptionalLimit(url.searchParams.get("limit")) === undefined
         ? {}
         : { limit: parseOptionalLimit(url.searchParams.get("limit")) }),
@@ -155,15 +169,17 @@ async function routeApi(
     return;
   }
   if (resource === "changes" && segments.length === 1) {
-    const reviewLevel = url.searchParams.get("reviewLevel");
-    const changeQuery: ChangeQuery = reviewLevel === null ? {} : { reviewLevel: reviewLevel as ChangeQuery["reviewLevel"] };
+    const reviewLevel = parseEnum<ReviewLevel>(url.searchParams.get("reviewLevel"), REVIEW_LEVELS, "review level");
+    const changeQuery: ChangeQuery = reviewLevel === undefined ? {} : { reviewLevel };
     sendJson(response, 200, await query.getChangeSet(changeQuery));
     return;
   }
   if (resource === "knowledge" && segments.length === 1) {
+    const kind = parseEnum<KnowledgeEntry["kind"]>(url.searchParams.get("kind"), KNOWLEDGE_ENTRY_KINDS, "knowledge kind");
+    const status = parseEnum<KnowledgeEntry["status"]>(url.searchParams.get("status"), KNOWLEDGE_ENTRY_STATUSES, "knowledge status");
     const knowledgeQuery: KnowledgeQuery = {
-      ...(url.searchParams.get("kind") === null ? {} : { kind: url.searchParams.get("kind") as KnowledgeQuery["kind"] }),
-      ...(url.searchParams.get("status") === null ? {} : { status: url.searchParams.get("status") as KnowledgeQuery["status"] }),
+      ...(kind === undefined ? {} : { kind }),
+      ...(status === undefined ? {} : { status }),
     };
     sendJson(response, 200, await query.getKnowledge(knowledgeQuery));
     return;
@@ -183,6 +199,11 @@ async function route(
 ): Promise<void> {
   const method = request.method ?? "GET";
   const url = new URL(request.url ?? "/", `http://${options.host ?? LOOPBACK_HOST}`);
+  const hostName = (request.headers.host ?? "").split(":")[0];
+  if (hostName !== LOOPBACK_HOST && hostName !== "localhost") {
+    sendError(response, 403, "forbidden", "dashboard accepts loopback host headers only", url.pathname);
+    return;
+  }
   if (method !== "GET") {
     response.setHeader("allow", "GET");
     sendError(response, 405, "method_not_allowed", "dashboard accepts GET requests only", url.pathname);
@@ -251,6 +272,7 @@ export async function startDashboardServer(options: DashboardServerOptions): Pro
       if (closed) return Promise.resolve();
       closed = true;
       return new Promise<void>((resolve, reject) => {
+        server.closeAllConnections();
         server.close((error?: Error) => (error === undefined ? resolve() : reject(error)));
       });
     },

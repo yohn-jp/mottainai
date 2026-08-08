@@ -545,7 +545,7 @@ function createFixtureModel(): FixtureModel {
       "Unit coverage for fixture determinism and query methods",
       "healthy",
       "observed",
-      { path: "src/dashboard.test.ts", status: "passing" },
+      { path: "src/dashboard/fixture.test.ts", status: "passing" },
       "component:semantic-core",
       ["test", "observed"],
     ),
@@ -937,22 +937,25 @@ export class DeterministicFixtureQuery implements RepositorySemanticQuery {
   getGraph(query: GraphQuery = {}): GraphView {
     const limit = boundedLimit(query.limit, 80);
     const relationKinds = query.relationKinds === undefined ? undefined : new Set(query.relationKinds);
+    const scopedRelations = this.model.relations.filter(
+      (item) => relationKinds === undefined || relationKinds.has(item.kind),
+    );
     let nodes = [...this.model.entities];
     if (query.entityId !== undefined) {
       this.requireEntity(query.entityId);
-      const relatedIds = new Set(
-        this.model.relations
-          .filter((item) => item.from === query.entityId || item.to === query.entityId)
-          .flatMap((item) => [item.from, item.to]),
-      );
+      const relatedIds = new Set<EntityId>([query.entityId]);
+      for (const item of scopedRelations.filter((item) => item.from === query.entityId || item.to === query.entityId)) {
+        relatedIds.add(item.from);
+        relatedIds.add(item.to);
+      }
       nodes = nodes.filter((item) => relatedIds.has(item.id));
     } else if (query.componentId !== undefined) {
       this.requireEntity(query.componentId);
-      const relatedIds = new Set(
-        this.model.relations
-          .filter((item) => item.from === query.componentId || item.to === query.componentId)
-          .flatMap((item) => [item.from, item.to]),
-      );
+      const relatedIds = new Set<EntityId>([query.componentId]);
+      for (const item of scopedRelations.filter((item) => item.from === query.componentId || item.to === query.componentId)) {
+        relatedIds.add(item.from);
+        relatedIds.add(item.to);
+      }
       nodes = nodes.filter((item) => relatedIds.has(item.id));
     }
     const truncated = nodes.length > limit;
@@ -1039,10 +1042,18 @@ export class DeterministicFixtureQuery implements RepositorySemanticQuery {
   }
 
   getChangeSet(query: ChangeQuery = {}): SemanticChangeSetView {
-    const entries = query.reviewLevel === undefined
-      ? this.model.changeSet.entries
-      : this.model.changeSet.entries.filter((item) => item.reviewLevel === query.reviewLevel);
-    return clone({ ...this.model.changeSet, entries });
+    if (query.reviewLevel === undefined) return clone(this.model.changeSet);
+    const entries = this.model.changeSet.entries.filter((item) => item.reviewLevel === query.reviewLevel);
+    const touchedEntityIds = new Set(entries.map((item) => item.entityId));
+    return clone({
+      ...this.model.changeSet,
+      filesChanged: 0,
+      symbolsChanged: 0,
+      componentsChanged: [...touchedEntityIds].filter((id) => id.startsWith("component:")).length,
+      contractsTouched: [...touchedEntityIds].filter((id) => id.startsWith("contract:")).length,
+      staleEvidence: 0,
+      entries,
+    });
   }
 
   getKnowledge(query: KnowledgeQuery = {}): KnowledgeView {
