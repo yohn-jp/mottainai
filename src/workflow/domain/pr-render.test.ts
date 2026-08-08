@@ -42,6 +42,19 @@ test("zero and multiple closing Issues are rejected", () => {
   assert.deepEqual(multiple.closingIssues, ["#1", "#2"]);
 });
 
+test("closing Issue parser requires a real GitHub reference, not ordinary prose", () => {
+  const prose = validatePullRequestBody("## Implementation\nFix parser behavior for edge cases.", {
+    closingIssue: "exactly-one",
+  });
+  assert.deepEqual(prose.closingIssues, []);
+
+  const reference = validatePullRequestBody("Fixes #123", { closingIssue: "exactly-one" });
+  assert.deepEqual(reference.closingIssues, ["#123"]);
+
+  const crossRepo = validatePullRequestBody("Closes owner/repo#7", { closingIssue: "exactly-one" });
+  assert.deepEqual(crossRepo.closingIssues, ["owner/repo#7"]);
+});
+
 test("required sections and acceptance checklist are enforced", () => {
   const policy = {
     requiredSections: ["Summary", "Risks"],

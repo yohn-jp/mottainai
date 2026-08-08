@@ -42,14 +42,20 @@ function adapterWith(sequence: RunResult[], calls: string[][] = []): GithubAdapt
 }
 
 test("GitHub adapter parses successful gh issue JSON into provider-neutral Issue", async () => {
-  const adapter = adapterWith([runResult(issueJson())]);
+  const calls: string[][] = [];
+  const adapter = adapterWith([runResult(issueJson())], calls);
   const result = await adapter.viewIssue(7);
   assert.equal(result.ok, true);
   if (result.ok) {
     assert.equal(result.value.reference, "#7");
     assert.equal(result.value.repository.id, "org/repository");
     assert.deepEqual(result.value.metadata.labels, ["workflow"]);
+    assert.deepEqual(result.value.metadata.assignees, ["agent"]);
   }
+  const jsonFlagIndex = calls[0]?.indexOf("--json") ?? -1;
+  const requestedFields = calls[0]?.[jsonFlagIndex + 1]?.split(",") ?? [];
+  assert.ok(requestedFields.includes("assignees"), "gh issue view --json must request assignees");
+  assert.ok(requestedFields.includes("milestone"), "gh issue view --json must request milestone");
 });
 
 test("GitHub adapter returns stable failures for malformed JSON and gh failure", async () => {
@@ -93,6 +99,22 @@ test("PR creation parses gh URL and does not retry mutation", async () => {
     assert.equal(result.value.head.revision, "abc123");
   }
   assert.equal(calls.length, 1);
+});
+
+test("PR creation refuses to fall back to the cwd repository when the identity is opaque", async () => {
+  const calls: string[][] = [];
+  const adapter = adapterWith([runResult("https://github.com/org/repository/pull/12\n")], calls);
+  const result = await adapter.openPullRequest({
+    repository: { provider: "github", id: "opaque-node-id" },
+    title: "feat(workflow): open provider pull request",
+    head: { name: "feature/12", revision: "abc123" },
+    base: { name: "main" },
+    draft: { sections: { Summary: "structured" } },
+    policy: { requiredSections: ["Summary"] },
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.error.code, "invalid-input");
+  assert.equal(calls.length, 0, "gh pr create must not run without an explicit --repo target");
 });
 
 function pushedTaskStore(): { store: WorkflowSqliteStateStore; taskId: string & { readonly __brand: "TaskId" } } {
@@ -163,6 +185,31 @@ test("provider success writes PR metadata and transitions the task", async () =>
     assert.equal(result.task.lifecycleState, "pull-request-open");
     assert.equal(store.listPullRequestRecordsForTask(taskId).length, 1);
   }
+  store.close();
+});
+
+test("retry after a lifecycle-transition failure reconciles the task instead of staying stuck", async () => {
+  const { store, taskId } = pushedTaskStore();
+  // record 成功後 transitionTask 失敗を模擬: PR record だけ先に書き込み、task は `pushed` のまま残す。
+  store.recordPullRequest({
+    taskId,
+    provider: "github",
+    repositoryId: "org/repository",
+    prNumber: 36,
+    url: "https://github.com/org/repository/pull/36",
+    headSha: "abc123",
+    lifecycleState: "open",
+  });
+  assert.equal(store.getTask(taskId)?.lifecycleState, "pushed");
+
+  const adapter = adapterWith([]);
+  const result = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.reused, true);
+    assert.equal(result.task.lifecycleState, "pull-request-open");
+  }
+  assert.equal(store.getTask(taskId)?.lifecycleState, "pull-request-open");
   store.close();
 });
 

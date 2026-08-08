@@ -458,7 +458,13 @@ export class GithubAdapter {
       };
     }
     const selectedRepository = repository ?? this.defaultRepository;
-    const args = ["issue", "view", normalizedReference, "--json", "number,title,state,labels,url,repository"];
+    const args = [
+      "issue",
+      "view",
+      normalizedReference,
+      "--json",
+      "number,title,state,labels,url,repository,assignees,milestone",
+    ];
     const repositoryFlag = selectedRepository === undefined ? undefined : repositoryArgument(selectedRepository);
     if (repositoryFlag !== undefined) args.push("--repo", repositoryFlag);
     const command = await this.runGh(args, "issue-view", true);
@@ -585,6 +591,20 @@ export class GithubAdapter {
         },
       };
     }
+    const repositoryFlag = repositoryArgument(input.repository);
+    if (repositoryFlag === undefined) {
+      return {
+        ok: false,
+        error: {
+          provider: GITHUB_PROVIDER,
+          operation: "pull-request-create",
+          code: "invalid-input",
+          message: "repository identity must resolve to an explicit owner/name; refusing to fall back to the cwd repository for a mutation",
+          retryable: false,
+          attempts: 0,
+        },
+      };
+    }
     const rendered = renderPullRequestBody(input.draft, input.policy);
     if (!rendered.ok) {
       return {
@@ -610,10 +630,10 @@ export class GithubAdapter {
       input.head.name,
       "--base",
       input.base.name,
+      "--repo",
+      repositoryFlag,
     ];
     if (input.providerDraft === true) args.push("--draft");
-    const repositoryFlag = repositoryArgument(input.repository);
-    if (repositoryFlag !== undefined) args.push("--repo", repositoryFlag);
     // 作成は自動 retry しない。timeout 後に provider 側で作成済みの可能性があり、
     // 同じ mutation の再試行は duplicate PR を作るため、reconciliation 用の query を優先する。
     const command = await this.runGh(args, "pull-request-create", false);
@@ -710,11 +730,16 @@ export async function openWorkflowPullRequest(input: OpenWorkflowPullRequestInpu
   const existingRecords = input.store.listPullRequestRecordsForTask(input.taskId);
   const existing = existingRecords[0];
   if (existing !== undefined) {
+    let reconciledTask = task;
+    if (task.lifecycleState === "pushed") {
+      const reconciled = transitionTask(input.store, input.taskId, "pull-request-open");
+      if (reconciled.ok) reconciledTask = reconciled.task;
+    }
     return {
       ok: true,
       pullRequest: pullRequestFromRecord(existing, input.repository, input.head, input.base),
       record: existing,
-      task,
+      task: reconciledTask,
       renderedBody: "",
       reused: true,
     };

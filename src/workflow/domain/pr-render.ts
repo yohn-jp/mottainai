@@ -101,10 +101,11 @@ function sectionBody(markdown: string, heading: string): string {
   return body.join("\n").trim();
 }
 
+const CLOSING_ISSUE_REFERENCE =
+  /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+((?:[\w.-]+\/[\w.-]+)?#\d+|https?:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+)/gi;
+
 function closingIssues(markdown: string): string[] {
-  return [...markdown.matchAll(/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+([^\s,.;]+)/gi)]
-    .map((match) => match[1] ?? "")
-    .filter(Boolean);
+  return [...markdown.matchAll(CLOSING_ISSUE_REFERENCE)].map((match) => match[1] ?? "").filter(Boolean);
 }
 
 export function validatePullRequestBody(
