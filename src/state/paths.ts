@@ -19,6 +19,10 @@ export function resolveStateDir(env: NodeJS.ProcessEnv = process.env, platform: 
     return path.resolve(override);
   }
 
+  if (platform === "win32") {
+    throw new Error("native Windows is unsupported; run mottainai under WSL2");
+  }
+
   const home = env.HOME ?? os.homedir();
 
   if (platform === "darwin") {

@@ -29,6 +29,16 @@ test("resolveStateDir: macOS uses Application Support", () => {
   assert.equal(resolveStateDir(env, "darwin"), path.join("/Users/user", "Library", "Application Support", "mottainai"));
 });
 
+test("resolveStateDir: win32 throws without MOTTAINAI_STATE_DIR override", () => {
+  const env = { HOME: "C:\\Users\\user" };
+  assert.throws(() => resolveStateDir(env, "win32"), /unsupported/);
+});
+
+test("resolveStateDir: win32 still honors MOTTAINAI_STATE_DIR override", () => {
+  const env = { MOTTAINAI_STATE_DIR: "/custom/state/dir" };
+  assert.equal(resolveStateDir(env, "win32"), path.resolve("/custom/state/dir"));
+});
+
 test("resolveStateDir: never resolves inside cwd/node_modules/tmp by default", () => {
   const env = { HOME: "/home/user" };
   const resolved = resolveStateDir(env, "linux");

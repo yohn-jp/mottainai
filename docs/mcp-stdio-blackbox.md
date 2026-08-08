@@ -45,7 +45,7 @@ assertion pathはproduction server objectをimportしない。fixture upstream�
 | unsupported method / unknown tool / invalid args | deterministic JSON-RPC error、process継続                        |
 | missing / malformed config                       | deterministic stderr、non-zero exit、stdout contaminationなし    |
 | client disconnect / stdin EOF                    | bounded gateway shutdown、upstream cleanup                       |
-| SIGINT / SIGTERM                                 | POSIX実signalでgraceful shutdown |
+| SIGINT / SIGTERM                                 | 実signalでgraceful shutdown |
 | unterminated stdout / blank stdout               | close後もprotocol violationとして保持                            |
 
 ## Upstream fault matrix

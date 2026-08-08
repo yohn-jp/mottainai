@@ -10,7 +10,6 @@ export const MAX_TRANSCRIPT_BYTES = 32 * 1024;
 export const MAX_STDERR_TAIL_BYTES = 16 * 1024;
 const MAX_UNFRAMED_STDOUT_BYTES = 32 * 1024;
 const MAX_STDIN_ERROR_BYTES = 1_024;
-const WINDOWS_KILL_TIMEOUT_MS = 2_000;
 
 /** 既存の dist を pack する。build は CI/local の明示的な Build stage で先に行う。 */
 export function packRepository(repoRoot, destinationDir) {

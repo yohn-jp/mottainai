@@ -57,15 +57,8 @@ test("dashboard CLI starts without browser opening and shuts down on SIGTERM", a
       child.once("error", reject);
       child.once("exit", (code, signal) => resolve({ code, signal }));
     });
-    // Windows has no SIGTERM delivery: the child is terminated directly and
-    // reports { code: null, signal: "SIGTERM" } instead of a clean exit.
-    if (process.platform === "win32") {
-      assert.equal(exit.code, null);
-      assert.equal(exit.signal, "SIGTERM");
-    } else {
-      assert.equal(exit.code, 0);
-      assert.equal(exit.signal, null);
-    }
+    assert.equal(exit.code, 0);
+    assert.equal(exit.signal, null);
   } finally {
     if (!child.killed) child.kill("SIGTERM");
   }
