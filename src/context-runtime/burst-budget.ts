@@ -3,26 +3,11 @@ import { addOmission } from "./project.js";
 import type { ProjectedResult } from "./types.js";
 
 /**
- * #71 は「1レスポンスの投影」を境界にする。#73 はその上に、同一 MCP connection/session
- * が短時間に返す agent-visible projection の合計を境界づける。tool 実行・full result 保存
- * (ArtifactStore) は一切変更しない — ここで縮めるのは #71 が既に作った投影結果だけ。
+ * #71 は 1 レスポンスの投影を境界にする。#73 は同一 connection/session が短時間に返す
+ * agent-visible projection の合計を境界づける。tool 実行・full result 保存は変更しない。
  *
- * reservation/priority semantics（完了順に依存しない決定性）:
- *
- *  1. 各呼び出しは tool 実行を dispatch する **前** に `reserveEnvelope` で最小 envelope 分
- *     （固定コスト）を即時 reserve する。envelope は拒否しない — full result は必ず維持する。
- *     ここで reserve しておかないと、Promise.all で同時に投げられた複数呼び出しの実行区間が
- *     in-flight 集合に反映されず、後段の優先度判定が実質的に無意味になる（呼び出しは
- *     dispatch → #71 投影 → admitOptional という順で進むため、reserve が投影確定後では
- *     真に並行している他呼び出しを見つけられない）。
- *  2. dispatch 結果が判明した時点で `updatePriority` により isBlocking を確定する
- *     （dispatch 前は結果が分からないため）。
- *  3. #71 が投影を作った後、`admitOptional` で「最小 envelope を超える分」の可否を問う。
- *     可否は「今どの呼び出しが同時に in-flight か」という静的集合と、各呼び出しの優先度
- *     （blocking diagnostic を含むかどうか、次に登録順）だけで決まる。どちらが先に
- *     Promise を resolve したかには依存しない。
- *  4. `release` でレスポンス確定後に in-flight 集合から外す。rolling window の消費実績は
- *     時刻ベースで別途減衰する。
+ * reserveEnvelope を dispatch 前に呼ぶのは、投影確定後（dispatch 後）では Promise.all で
+ * 同時に投げられた他呼び出しの実行区間を検出できず、優先度判定が意味を成さないため。
  */
 
 export type BurstBudgetMode = "off" | "observe" | "warn" | "enforce";
@@ -132,7 +117,21 @@ export interface BurstBudgetTelemetry {
 interface InFlightEntry {
   callId: number;
   isBlocking: boolean;
+  /** dispatch 結果が判明し updatePriority が呼ばれたか。未解決の間は isBlocking の真値は不明。 */
+  resolved: boolean;
   sequence: number;
+}
+
+/**
+ * ランキング用の優先度 tier。resolved-blocking を最優先、次に「まだ dispatch 結果待ちで
+ * isBlocking が不明」な未解決呼び出し、最後に resolved-non-blocking とする。未解決呼び出しを
+ * 「blocking かもしれない」と保守的に扱うことで、後から isBlocking=true と判明する呼び出しの
+ * ために、まだ決定していない他呼び出しが budget を先取りしすぎるのを防ぐ — dispatch 完了を
+ * 待って優先度を確定させる（＝ response を serialize する）ことはできないための代替策。
+ */
+function priorityTier(entry: InFlightEntry): number {
+  if (entry.resolved) return entry.isBlocking ? 0 : 2;
+  return 1;
 }
 
 interface RollingEntry {
@@ -182,7 +181,7 @@ export class BurstBudgetController {
   reserveEnvelope(): BurstReservation {
     if (this.disposed) throw new Error("burst budget controller disposed");
     const callId = this.nextCallId++;
-    this.generation.set(callId, { callId, isBlocking: false, sequence: callId });
+    this.generation.set(callId, { callId, isBlocking: false, resolved: false, sequence: callId });
     this.openCallIds.add(callId);
     return { callId };
   }
@@ -192,6 +191,7 @@ export class BurstBudgetController {
     const entry = this.generation.get(reservation.callId);
     if (entry === undefined) return;
     entry.isBlocking = isBlocking;
+    entry.resolved = true;
   }
 
   /**
@@ -208,17 +208,25 @@ export class BurstBudgetController {
     const entry = this.generation.get(reservation.callId);
     if (entry === undefined) throw new Error("unknown burst reservation");
 
-    // 静的優先度: blocking diagnostic を持つ呼び出しは、非 blocking な呼び出しより常に優先。
-    // 同順位は登録順（sequence）で安定タイブレークする。この generation は release されても
-    // 縮まないので、rank は評価順に関係なく一意に決まる。
+    // 静的優先度: resolved-blocking > 未解決（isBlocking 不明、保守的に blocking 扱い） >
+    // resolved-non-blocking の 3 tier。同 tier 内は登録順（sequence）でタイブレーク。
+    // この generation は release されても縮まないので、rank は評価順に関係なく一意に決まる。
+    // 未解決呼び出しを保守的に高優先扱いすることで、「まだ dispatch 結果待ちの呼び出しが
+    // 後で blocking と判明する」ケースでも、既に決定済みの non-blocking 呼び出しがそれより
+    // 先に budget を食い潰してしまう事態を防ぐ（dispatch 完了を待って優先度を確定させる
+    // ことは response の serialize を意味し禁止のため、この保守的な扱いが代替策）。
+    //
+    // 上位ランクの呼び出しの実サイズは（未解決なら特に）知り得ないため、上位ランク 1 件
+    // あたりのコストは「自分自身が今要求している projectedTokens」で見積もる — 他呼び出しの
+    // 実データを一切参照しないため、どの呼び出しが先に決定されても各呼び出し自身の判定は
+    // 変わらない（rank・自分の要求量・policy だけで決まる）。同時に、同サイズの呼び出し群が
+    // 合計で budget を超える場合は必ず下位ランクが弾かれることを保証する（safe side）。
     const cohort = [...this.generation.values()].sort((a, b) => {
-      if (a.isBlocking !== b.isBlocking) return a.isBlocking ? -1 : 1;
-      return a.sequence - b.sequence;
+      const tierDifference = priorityTier(a) - priorityTier(b);
+      return tierDifference === 0 ? a.sequence - b.sequence : tierDifference;
     });
     const rankIndex = cohort.findIndex((candidate) => candidate.callId === entry.callId);
-    const higherPriorityTokens = cohort
-      .slice(0, rankIndex)
-      .reduce((sum) => sum + MIN_ENVELOPE_TOKENS, 0);
+    const higherPriorityTokens = rankIndex * projectedTokens;
 
     const concurrentBudget = this.policy.maxConcurrentProjectedTokens;
     const concurrentRemaining = concurrentBudget - higherPriorityTokens;
@@ -262,10 +270,12 @@ export class BurstBudgetController {
         reduced: !effectiveAdmitted,
       });
     }
-    // enforce で縮小した応答も最小 envelope 分は agent に届く。ここを 0 計上にすると、
-    // 圧迫が続く間 rolling window が実態より早く空いてしまう。
-    const chargedTokens = effectiveAdmitted ? projectedTokens : Math.min(projectedTokens, MIN_ENVELOPE_TOKENS);
-    const chargedBytes = effectiveAdmitted ? projectedBytes : Math.min(projectedBytes, MIN_ENVELOPE_TOKENS * 4);
+    // enforce で縮小した応答も、実際に返る縮小後サイズ（最大 MIN_RESPONSE_BUDGET 分）は
+    // agent に届く。ここを MIN_ENVELOPE_TOKENS で計上すると、圧迫が続く間 rolling window が
+    // 実態より早く空いてしまう — 縮小後の実サイズはこのスコープでは未知なので、
+    // applyBurstReduction が使う MIN_RESPONSE_BUDGET の上限を保守的に計上する。
+    const chargedTokens = effectiveAdmitted ? projectedTokens : Math.min(projectedTokens, MIN_RESPONSE_BUDGET.hardTokens);
+    const chargedBytes = effectiveAdmitted ? projectedBytes : Math.min(projectedBytes, MIN_RESPONSE_BUDGET.hardBytes);
     this.rollingWindow.push({ atMs: this.now(), tokens: chargedTokens, bytes: chargedBytes });
     return { admitted: effectiveAdmitted, reason, pressure };
   }
@@ -298,12 +308,14 @@ export class BurstBudgetController {
  * `minimalResult` 経路がそのまま働く — burst 用の圧縮ロジックを別途複製しない。
  */
 export function applyBurstReduction(result: ProjectedResult): ProjectedResult {
-  const reduced = applyResponseBudget(result, MIN_RESPONSE_BUDGET);
-  return addOmission(reduced, {
-    field: "optional_result_data",
-    reason: "burst_budget",
-    retrievalAvailable: reduced.resultId.length > 0,
-  });
+  return applyResponseBudget(
+    addOmission(result, {
+      field: "optional_result_data",
+      reason: "burst_budget",
+      retrievalAvailable: result.resultId.length > 0,
+    }),
+    MIN_RESPONSE_BUDGET,
+  );
 }
 
 export function isBlockingProjection(result: Pick<ProjectedResult, "diagnostics" | "status">): boolean {

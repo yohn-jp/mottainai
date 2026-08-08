@@ -12,7 +12,7 @@ function policy(overrides: Partial<typeof DEFAULT_BURST_BUDGET_POLICY> = {}) {
   return { ...DEFAULT_BURST_BUDGET_POLICY, mode: "enforce" as const, ...overrides };
 }
 
-/** dispatch 前に reserve → 結果判明後に updatePriority、という本番の流れを再現するヘルパー。 */
+/** 本番の呼び出し順（reserve は dispatch 前、updatePriority は結果判明後）を再現する。 */
 function reserve(controller: BurstBudgetController, isBlocking = false): BurstReservation {
   const reservation = controller.reserveEnvelope();
   controller.updatePriority(reservation, isBlocking);
@@ -72,8 +72,8 @@ test("simultaneous completion ordering: admission set is identical regardless of
 test("many small calls: admissions form a strict priority-rank prefix (once rejected, every lower-priority call is also rejected)", () => {
   const budget = policy({ maxConcurrentProjectedTokens: 500, rollingProjectedTokens: 100_000, rollingProjectedBytes: 400_000 });
   const controller = new BurstBudgetController(budget);
-  // envelope cost (MIN_ENVELOPE_TOKENS=64) が同順位のタイブレークを決める。10 個同時、各 50 tokens 要求。
-  const reservations = Array.from({ length: 10 }, () => reserve(controller));
+  // 各呼び出し 50 tokens、11 個同時で合計 550 > budget 500 なので必ず下位ランクが弾かれる。
+  const reservations = Array.from({ length: 11 }, () => reserve(controller));
   const admissions = reservations.map((reservation) => controller.admitOptional(reservation, 50, 200).admitted);
   assert.ok(admissions.some((admitted) => admitted));
   assert.ok(admissions.includes(false));
@@ -81,6 +81,18 @@ test("many small calls: admissions form a strict priority-rank prefix (once reje
   // それ以降（＝より低優先）は全部 false。
   const firstRejected = admissions.indexOf(false);
   assert.deepEqual(admissions.slice(firstRejected), new Array(admissions.length - firstRejected).fill(false));
+});
+
+test("concurrent budget never admits an aggregate exceeding maxConcurrentProjectedTokens, even for equal-size same-priority calls", () => {
+  const budget = policy({ maxConcurrentProjectedTokens: 300, rollingProjectedTokens: 100_000, rollingProjectedBytes: 400_000 });
+  const controller = new BurstBudgetController(budget);
+  const [first, second] = [reserve(controller), reserve(controller)];
+  const firstAdmitted = controller.admitOptional(first, 200, 800).admitted;
+  const secondAdmitted = controller.admitOptional(second, 200, 800).admitted;
+  const admittedTotal = (firstAdmitted ? 200 : 0) + (secondAdmitted ? 200 : 0);
+  assert.ok(admittedTotal <= 300, `admitted total (${admittedTotal}) must not exceed maxConcurrentProjectedTokens`);
+  assert.equal(firstAdmitted, true);
+  assert.equal(secondAdmitted, false);
 });
 
 test("one large plus several small calls: the large call does not starve the concurrent pool for the small ones registered before it", () => {
@@ -121,6 +133,23 @@ test("updatePriority applied after reservation still influences admission rankin
   const successAdmissions = successReservations.map((reservation) => controller.admitOptional(reservation, 150, 600).admitted);
   assert.equal(failureAdmission, true);
   assert.ok(successAdmissions.some((admitted) => !admitted));
+});
+
+test("a success decided while a same-generation call is still unresolved is protected against retroactively losing to that call's later-known blocking priority", () => {
+  const budget = policy({ maxConcurrentProjectedTokens: 300, rollingProjectedTokens: 100_000, rollingProjectedBytes: 400_000 });
+  const controller = new BurstBudgetController(budget);
+  // 両方とも dispatch 前に reserve するが、success 側の dispatch が先に終わり、
+  // isBlocking がまだ不明な failure より先に admitOptional が呼ばれる。
+  const successReservation = controller.reserveEnvelope();
+  const failureReservation = controller.reserveEnvelope();
+  controller.updatePriority(successReservation, false);
+  const successAdmission = controller.admitOptional(successReservation, 250, 1_000).admitted;
+
+  controller.updatePriority(failureReservation, true);
+  const failureAdmission = controller.admitOptional(failureReservation, 200, 800).admitted;
+
+  assert.equal(failureAdmission, true, "the blocking call must be admitted once its priority is known");
+  assert.equal(successAdmission, false, "the success must be rejected because it was ranked as if a still-unresolved sibling could be blocking");
 });
 
 test("rolling-window refill: budget denied inside the window becomes available again once the window elapses", () => {
