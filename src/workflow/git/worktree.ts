@@ -114,8 +114,10 @@ export type CreateWorktreeResult =
   | { ok: true; canonicalPath: string; baseCommit: string }
   | { ok: false; reason: "git-worktree-add-failed"; detail: string };
 
-/** `git worktree add` を実行する。失敗は throw せず構造化結果で返す（衝突は呼び出し前に detectWorktreeCollisions で弾く想定だが、
- * TOCTOU で外部から先に取られる可能性は残るため、ここでも失敗経路を正常系として扱う）。 */
+/** `git worktree add` を実行する。失敗は throw せず構造化結果で返す（呼び出し元の
+ * task.ts は branch/path を store.reserveTask/reserveWorktree で atomic に確保済みの
+ * 前提で呼ぶが、DB に追跡されていない残留ディレクトリ等は依然ありうるため、
+ * ここでも失敗経路を正常系として扱う）。 */
 export async function createWorktree(input: CreateWorktreeInput): Promise<CreateWorktreeResult> {
   const { canonicalRepositoryRoot, naming, baseCommit } = input;
   const managedRoot = ensureCanonicalManagedWorktreeRoot(canonicalRepositoryRoot);
