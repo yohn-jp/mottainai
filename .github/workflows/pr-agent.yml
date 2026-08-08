@@ -29,6 +29,7 @@ jobs:
           CONFIG.GIT_PROVIDER: "github"
           CONFIG.MODEL: "openai/moonshotai/Kimi-K3"
           CONFIG.FALLBACK_MODELS: "[]"
+          CONFIG.CUSTOM_MODEL_MAX_TOKENS: "32000"
           PR_REVIEWER.AUTO_REVIEW: "true"
           PR_DESCRIPTION.PUBLISH_DESCRIPTION_AS_COMMENT: "false"
           PR_DESCRIPTION.AUTO_DESCRIBE: "false"
