@@ -24,6 +24,7 @@ export interface TelemetrySnapshot {
   by_provider: Record<string, TelemetryCounts>;
   by_capability: Record<string, TelemetryCounts>;
   projection: ProjectionCounts;
+  read_governor: ReadGovernorCounts;
 }
 
 export interface RecordToolCallInput {
@@ -42,6 +43,25 @@ export interface ProjectionCounts {
   projected_tokens: number;
 }
 
+export interface ReadGovernorCounts {
+  allow: number;
+  observe: number;
+  warn: number;
+  deny: number;
+  raw_lines: number;
+  raw_bytes: number;
+  requested_modes: Record<string, number>;
+  policy_rules: Record<string, number>;
+}
+
+export interface RecordReadGovernorInput {
+  outcome: "allow" | "observe" | "warn" | "deny";
+  requestedMode: string;
+  rawLines: number;
+  rawBytes: number;
+  policyRule: string;
+}
+
 export interface RecordProjectionInput {
   rawBytes: number;
   storedBytes: number;
@@ -55,6 +75,7 @@ export interface TelemetrySink {
   readonly filePath?: string;
   recordToolCall(input: RecordToolCallInput): void;
   recordProjection(input: RecordProjectionInput): void;
+  recordReadGovernor(input: RecordReadGovernorInput): void;
   recordRetrieval(): void;
   snapshot(): TelemetrySnapshot;
 }
@@ -64,6 +85,7 @@ interface TelemetryState {
   by_provider: Record<string, TelemetryCounts>;
   by_capability: Record<string, TelemetryCounts>;
   projection: ProjectionCounts;
+  read_governor: ReadGovernorCounts;
 }
 
 function emptyCounts(): TelemetryCounts {
@@ -73,7 +95,7 @@ function emptyCounts(): TelemetryCounts {
 function emptyState(): TelemetryState {
   return {
     totals: { ...emptyCounts(), retrievals: 0 }, by_provider: {}, by_capability: {},
-    projection: emptyProjection(),
+    projection: emptyProjection(), read_governor: emptyReadGovernor(),
   };
 }
 
@@ -81,11 +103,24 @@ function emptyProjection(): ProjectionCounts {
   return { raw_bytes: 0, stored_bytes: 0, returned_bytes: 0, omitted_bytes: 0, projected_tokens: 0 };
 }
 
+function emptyReadGovernor(): ReadGovernorCounts {
+  return {
+    allow: 0,
+    observe: 0,
+    warn: 0,
+    deny: 0,
+    raw_lines: 0,
+    raw_bytes: 0,
+    requested_modes: {},
+    policy_rules: {},
+  };
+}
+
 function cloneCounts(counts: TelemetryCounts): TelemetryCounts {
   return { ...counts };
 }
 
-function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" | "by_provider" | "by_capability" | "projection"> {
+function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" | "by_provider" | "by_capability" | "projection" | "read_governor"> {
   return {
     totals: { ...state.totals },
     by_provider: Object.fromEntries(
@@ -95,7 +130,35 @@ function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" 
       Object.entries(state.by_capability).map(([key, counts]) => [key, cloneCounts(counts)]),
     ),
     projection: { ...state.projection },
+    read_governor: {
+      ...state.read_governor,
+      requested_modes: { ...state.read_governor.requested_modes },
+      policy_rules: { ...state.read_governor.policy_rules },
+    },
   };
+}
+
+function numberRecord(value: unknown): Record<string, number> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => typeof entry === "number" && Number.isFinite(entry) && entry >= 0)
+      .map(([key, entry]) => [key, entry as number]),
+  );
+}
+
+function readGovernorState(value: unknown): ReadGovernorCounts {
+  const empty = emptyReadGovernor();
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return empty;
+  const record = value as Record<string, unknown>;
+  const counts = { ...empty };
+  for (const key of ["allow", "observe", "warn", "deny", "raw_lines", "raw_bytes"] as const) {
+    const entry = record[key];
+    if (typeof entry === "number" && Number.isFinite(entry) && entry >= 0) counts[key] = entry;
+  }
+  counts.requested_modes = numberRecord(record.requested_modes);
+  counts.policy_rules = numberRecord(record.policy_rules);
+  return counts;
 }
 
 export function isTelemetryEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -147,6 +210,7 @@ function loadState(filePath: string): TelemetryState | undefined {
         omitted_bytes: typeof projection.omitted_bytes === "number" ? projection.omitted_bytes : 0,
         projected_tokens: typeof projection.projected_tokens === "number" ? projection.projected_tokens : 0,
       },
+      read_governor: readGovernorState(parsed.read_governor),
     };
   } catch {
     return undefined;
@@ -164,11 +228,12 @@ const NOOP_SINK: TelemetrySink = {
   enabled: false,
   recordToolCall() { /* telemetry disabled */ },
   recordProjection() { /* telemetry disabled */ },
+  recordReadGovernor() { /* telemetry disabled */ },
   recordRetrieval() { /* telemetry disabled */ },
   snapshot() {
     return {
       enabled: false, generated_at: new Date().toISOString(), totals: { ...emptyCounts(), retrievals: 0 },
-      by_provider: {}, by_capability: {}, projection: emptyProjection(),
+      by_provider: {}, by_capability: {}, projection: emptyProjection(), read_governor: emptyReadGovernor(),
     };
   },
 };
@@ -249,6 +314,19 @@ export function createTelemetrySink(env: NodeJS.ProcessEnv = process.env): Telem
       state.projection.returned_bytes += input.returnedBytes;
       state.projection.omitted_bytes += input.omittedBytes;
       state.projection.projected_tokens += input.projectedTokens;
+      persist();
+    },
+    recordReadGovernor(input) {
+      if (input.outcome in state.read_governor) {
+        const key = input.outcome as "allow" | "observe" | "warn" | "deny";
+        state.read_governor[key] += 1;
+      }
+      state.read_governor.raw_lines += Math.max(0, input.rawLines);
+      state.read_governor.raw_bytes += Math.max(0, input.rawBytes);
+      state.read_governor.requested_modes[input.requestedMode] =
+        (state.read_governor.requested_modes[input.requestedMode] ?? 0) + 1;
+      state.read_governor.policy_rules[input.policyRule] =
+        (state.read_governor.policy_rules[input.policyRule] ?? 0) + 1;
       persist();
     },
     recordRetrieval() {

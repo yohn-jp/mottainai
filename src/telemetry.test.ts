@@ -45,6 +45,8 @@ test("an enabled sink aggregates calls, errors, bytes and retrievals by provider
   sink.recordToolCall({ provider: "fff", capability: "text_matches", originalBytes: 500, compressedBytes: 500, isError: true });
   sink.recordToolCall({ provider: "codegraph", capability: "definitions", originalBytes: 300, compressedBytes: 300, isError: false });
   sink.recordProjection({ rawBytes: 2_000, storedBytes: 1_800, returnedBytes: 600, omittedBytes: 1_400, projectedTokens: 150 });
+  sink.recordReadGovernor({ outcome: "deny", requestedMode: "raw", rawLines: 0, rawBytes: 0, policyRule: "WHOLE_FILE_RAW_LINE_LIMIT" });
+  sink.recordReadGovernor({ outcome: "allow", requestedMode: "auto", rawLines: 20, rawBytes: 200, policyRule: "AUTO_BOUNDED_REPRESENTATION" });
   sink.recordRetrieval();
 
   const snapshot = sink.snapshot();
@@ -59,6 +61,11 @@ test("an enabled sink aggregates calls, errors, bytes and retrievals by provider
   assert.equal(snapshot.by_capability.definitions.calls, 1);
   assert.deepEqual(snapshot.projection, {
     raw_bytes: 2_000, stored_bytes: 1_800, returned_bytes: 600, omitted_bytes: 1_400, projected_tokens: 150,
+  });
+  assert.deepEqual(snapshot.read_governor, {
+    allow: 1, observe: 0, warn: 0, deny: 1, raw_lines: 20, raw_bytes: 200,
+    requested_modes: { raw: 1, auto: 1 },
+    policy_rules: { WHOLE_FILE_RAW_LINE_LIMIT: 1, AUTO_BOUNDED_REPRESENTATION: 1 },
   });
 
   assert.equal(compressionRatio(snapshot.totals), 1000 / 1800);

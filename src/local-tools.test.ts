@@ -633,3 +633,87 @@ test("exec keeps combined stdout+stderr within maxOutputBytes for multibyte cont
   assert.ok(stdoutBytes + stderrBytes <= limitedConfig.maxOutputBytes, `stdout(${stdoutBytes})+stderr(${stderrBytes}) must stay within maxOutputBytes(${limitedConfig.maxOutputBytes})`);
   await fs.rm(root, { recursive: true, force: true });
 });
+
+function readGovernorConfig(overrides: Record<string, unknown> = {}): ResolvedGatewayConfig["readGovernor"] {
+  return {
+    mode: "enforce",
+    maxRawLines: 100,
+    maxRawBytes: 10_000,
+    allowWholeFileBelowLines: 20,
+    preferAuto: true,
+    allowWholeFile: false,
+    ...overrides,
+  };
+}
+
+test("read governor denies large unrestricted raw before returning source content", async () => {
+  const { root, config } = await workspace();
+  const content = Array.from({ length: 600 }, (_, index) => `const secret_${index} = ${index};`).join("\n");
+  await fs.writeFile(path.join(root, "src", "large.ts"), content);
+  const store = new InMemoryArtifactStore({ createId: () => "denied" });
+  const result = structured(await callLocalTool(
+    "mottainai_read",
+    { path: "src/large.ts", mode: "raw" },
+    { ...config, readGovernor: readGovernorConfig() },
+    store,
+  ));
+  assert.equal(result.status, "partial");
+  assert.equal(result.text, undefined);
+  assert.equal(result.result_id, "");
+  assert.equal(result.policy_rule, "WHOLE_FILE_RAW_LINE_LIMIT");
+  assert.equal(result.file_line_count, 600);
+  assert.doesNotMatch(JSON.stringify(result), /secret_599/);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("read governor allows an explicit bounded raw range in enforce mode", async () => {
+  const { root, config } = await workspace();
+  await fs.writeFile(path.join(root, "src", "large.ts"), Array.from({ length: 600 }, (_, index) => `line-${index}`).join("\n"));
+  const store = new InMemoryArtifactStore({ createId: () => "bounded" });
+  const result = structured(await callLocalTool(
+    "mottainai_read",
+    { path: "src/large.ts", mode: "raw", startLine: 120, endLine: 140 },
+    { ...config, readGovernor: readGovernorConfig() },
+    store,
+  ));
+  assert.equal(result.status, "success");
+  assert.equal(result.mode, "raw");
+  assert.match(String(result.text), /^line-119\nline-120/);
+  assert.doesNotMatch(String(result.text), /line-141/);
+  assert.equal((result.metrics as Record<string, number>).raw_lines, 21);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("auto uses a bounded outline for a large file and never falls back to whole raw", async () => {
+  const { root, config } = await workspace();
+  await fs.writeFile(path.join(root, "src", "large.ts"), Array.from({ length: 600 }, (_, index) => `export const value_${index} = ${index};`).join("\n"));
+  const store = new InMemoryArtifactStore({ createId: () => "auto" });
+  const result = structured(await callLocalTool(
+    "mottainai_read",
+    { path: "src/large.ts", mode: "auto" },
+    { ...config, readGovernor: readGovernorConfig() },
+    store,
+  ));
+  assert.equal(result.status, "success");
+  assert.equal(result.mode, "outline");
+  assert.equal((result.metrics as Record<string, number>).raw_lines, 100);
+  assert.equal(result.truncated, true);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("outline or symbol extraction failure returns bounded diagnostics without raw fallback", async () => {
+  const { root, config } = await workspace();
+  await fs.writeFile(path.join(root, "notes.txt"), "plain text without source symbols\n");
+  const store = new InMemoryArtifactStore({ createId: () => "view-failure" });
+  const result = structured(await callLocalTool(
+    "mottainai_read",
+    { path: "notes.txt", mode: "symbols" },
+    { ...config, readGovernor: readGovernorConfig({ allowWholeFileBelowLines: 0 }) },
+    store,
+  ));
+  assert.equal(result.status, "partial");
+  assert.equal(result.text, undefined);
+  assert.ok((result.diagnostics as Array<{ code?: string }>).some((entry) => entry.code === "READ_VIEW_EXTRACTION_FAILED"));
+  assert.match(String(result.result_id), /^mx_view-failure$/);
+  await fs.rm(root, { recursive: true, force: true });
+});

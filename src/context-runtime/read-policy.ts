@@ -33,6 +33,8 @@ export interface ReadRequest {
 export interface ReadFileMetadata {
   lineCount: number;
   byteSize: number;
+  /** Adapter が対象 range の byte 数を別途計算した場合に使う。 */
+  requestedRangeBytes?: number;
   /** UTF-8 byte length of each logical line, excluding the separating LF. */
   lineByteLengths?: readonly number[];
   workspaceBoundaryValid?: boolean;
@@ -140,13 +142,13 @@ function explicitRange(request: ReadRequest, metadata: ReadFileMetadata): RangeI
   const hasEnd = request.endLine !== undefined;
   if (!hasStart && !hasEnd) return undefined;
   const startLine = request.startLine ?? 1;
-  const endLine = request.endLine;
+  const endLine = request.endLine ?? Math.max(1, metadata.lineCount);
   if (!isSafeInteger(startLine) || startLine < 1 || !isSafeInteger(endLine) || endLine < startLine) return undefined;
   return {
     startLine,
     endLine,
     lineCount: endLine - startLine + 1,
-    bytes: rangeBytes(metadata, startLine, endLine),
+    bytes: rangeBytes(metadata, startLine, endLine) ?? metadata.requestedRangeBytes,
   };
 }
 
@@ -211,7 +213,7 @@ function decision(
   actionOverride?: ReadDecision["action"],
 ): ReadDecision {
   const action = forceDeny ? "deny" : (actionOverride ?? actionFor(policy));
-  const severity = action === "deny" ? "error" : action === "allow" ? "info" : "warning";
+  const severity = action === "deny" ? "error" : action === "warn" ? "warning" : "info";
   const diagnostics: ReadDiagnostic[] =
     action === "allow" && rule === "NONE" ? [] : [{ severity, code: rule, message: reason }];
   return {
@@ -339,16 +341,33 @@ export function decideRead(
 
   const actualLineCount = Math.max(1, fileMetadata.lineCount);
   if (range !== undefined && range.endLine > actualLineCount) {
-    const normalizedRequest = normalized(request, requestedMode, range);
+    if (policy.mode === "enforce") {
+      const normalizedRequest = normalized(request, requestedMode, range);
+      return decision(
+        requestedMode,
+        normalizedRequest,
+        fileMetadata,
+        policy,
+        "RANGE_OUT_OF_BOUNDS",
+        `requested range ends after the file's ${fileMetadata.lineCount} lines`,
+        range.bytes,
+        true,
+      );
+    }
+    const clampedRange: RangeInfo = {
+      startLine: range.startLine,
+      endLine: actualLineCount,
+      lineCount: Math.max(0, actualLineCount - range.startLine + 1),
+      bytes: range.startLine <= actualLineCount ? rangeBytes(fileMetadata, range.startLine, actualLineCount) : 0,
+    };
     return decision(
       requestedMode,
-      normalizedRequest,
+      normalized(request, requestedMode, clampedRange),
       fileMetadata,
       policy,
       "RANGE_OUT_OF_BOUNDS",
-      `requested range ends after the file's ${fileMetadata.lineCount} lines`,
-      range.bytes,
-      policy.mode === "enforce",
+      `requested range ends after the file's ${fileMetadata.lineCount} lines; range was clamped`,
+      clampedRange.bytes,
     );
   }
 
@@ -360,6 +379,17 @@ export function decideRead(
 
   if (requestedMode === "raw") {
     if (range !== undefined) {
+      if (request.startLine !== undefined && request.endLine === undefined) {
+        return decision(
+          requestedMode,
+          normalized(request, "raw", range),
+          fileMetadata,
+          policy,
+          "RAW_RANGE_REQUIRES_END_LINE",
+          "raw reads with startLine must also provide endLine",
+          requestedRangeBytes,
+        );
+      }
       if (rangeWithinLimits || policy.mode === "off") {
         return allowed(
           request,
@@ -418,7 +448,7 @@ export function decideRead(
     );
   }
 
-  if (requestedMode === "auto" && rangeWithinLimits) {
+  if (requestedMode === "auto" && rangeWithinLimits && request.endLine !== undefined) {
     return allowed(
       request,
       requestedMode,

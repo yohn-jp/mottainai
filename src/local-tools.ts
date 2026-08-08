@@ -7,6 +7,8 @@ import { compactToBudget } from "./compress/budget.js";
 import { compressText } from "./compress/index.js";
 import { detectCodeLanguage } from "./compress/code.js";
 import type { ResolvedGatewayConfig, ResolvedWorktreeConfig } from "./config.js";
+import { DEFAULT_READ_GOVERNOR_POLICY, decideRead, READ_MODES } from "./context-runtime/read-policy.js";
+import type { NormalizedReadRequest, ReadDecision, ReadFileMetadata } from "./context-runtime/read-policy.js";
 import { OUTPUT_SCHEMA, output } from "./envelope.js";
 import type { ArtifactStore } from "./retrieve.js";
 import { runChild, runProgram } from "./subprocess.js";
@@ -29,10 +31,10 @@ export const localTools: Tool[] = [
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   },
   {
-    name: "mottainai_read", description: "Read a workspace file by line range or compact code view.",
+    name: "mottainai_read", description: "Read a workspace file by auto/outline/symbol view or an explicit bounded raw range.",
     inputSchema: { type: "object", properties: {
       path: { type: "string" }, startLine: { type: "integer", minimum: 1 }, endLine: { type: "integer", minimum: 1 },
-      mode: { type: "string", enum: ["raw", "outline", "symbols", "auto"] },
+      mode: { type: "string", enum: ["raw", "outline", "symbols", "auto"], default: "auto" },
     }, required: ["path"] }, outputSchema: OUTPUT_SCHEMA, annotations: readOnly,
   },
   {
@@ -111,7 +113,7 @@ export async function callLocalTool(
 ): Promise<CallToolResult> {
   switch (name) {
     case "mottainai_exec": return execTool(args, config, store);
-    case "mottainai_read": return readTool(args, config, store);
+    case "mottainai_read": return readTool(args, config, store, telemetry);
     case "mottainai_search": return searchTool(args, config, store);
     case "mottainai_list": return listTool(args, config, store);
     case "mottainai_result_get": return resultGetTool(args, store, telemetry);
@@ -329,22 +331,209 @@ function nextCommand(resultId: string, failure: ExecFailure | undefined): string
   return query ? `mottainai_result_get id=${resultId} query=${JSON.stringify(query)}` : `mottainai_result_get id=${resultId}`;
 }
 
-async function readTool(args: Args, config: ResolvedGatewayConfig, store: ArtifactStore): Promise<CallToolResult> {
-  const filePath = await resolveInside(config.workspaceRoot, stringArg(args, "path", true));
+interface ReadFileInspection extends ReadFileMetadata {
+  lineByteLengths: number[];
+}
+
+const READ_SCAN_CHUNK_BYTES = 64 * 1024;
+
+/** 本文を保持せず、policy が必要とする byte/line metadata だけ収集する。 */
+async function inspectReadFile(filePath: string): Promise<ReadFileInspection> {
+  const handle = await fs.open(filePath, "r");
+  const buffer = Buffer.alloc(READ_SCAN_CHUNK_BYTES);
+  const lineByteLengths: number[] = [];
+  let currentLineBytes = 0;
+  let byteSize = 0;
+  let lastByte = -1;
+  try {
+    while (true) {
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+      if (bytesRead === 0) break;
+      byteSize += bytesRead;
+      for (let index = 0; index < bytesRead; index += 1) {
+        const byte = buffer[index];
+        lastByte = byte;
+        if (byte === 0x0a) {
+          lineByteLengths.push(currentLineBytes);
+          currentLineBytes = 0;
+        } else {
+          currentLineBytes += 1;
+        }
+      }
+    }
+  } finally {
+    await handle.close();
+  }
+  if (lineByteLengths.length === 0 || lastByte !== 0x0a) lineByteLengths.push(currentLineBytes);
+  return {
+    lineCount: lineByteLengths.length,
+    byteSize,
+    lineByteLengths,
+    workspaceBoundaryValid: true,
+    symlinkBoundaryValid: true,
+  };
+}
+
+function lineStartByte(metadata: ReadFileInspection, line: number): number {
+  let offset = 0;
+  for (let index = 0; index < line - 1; index += 1) offset += metadata.lineByteLengths[index] + 1;
+  return offset;
+}
+
+async function readAuthorizedRange(
+  filePath: string,
+  metadata: ReadFileInspection,
+  startLine: number,
+  endLine: number,
+): Promise<string> {
+  if (startLine > metadata.lineCount) return "";
+  const startByte = lineStartByte(metadata, startLine);
+  const endByte = lineStartByte(metadata, endLine) + metadata.lineByteLengths[endLine - 1];
+  const length = Math.max(0, endByte - startByte);
+  if (length === 0) return "";
+
+  const handle = await fs.open(filePath, "r");
+  const chunks: Buffer[] = [];
+  let position = startByte;
+  let remaining = length;
+  try {
+    while (remaining > 0) {
+      const chunk = Buffer.alloc(Math.min(READ_SCAN_CHUNK_BYTES, remaining));
+      const { bytesRead } = await handle.read(chunk, 0, chunk.length, position);
+      if (bytesRead === 0) break;
+      chunks.push(chunk.subarray(0, bytesRead));
+      position += bytesRead;
+      remaining -= bytesRead;
+    }
+  } finally {
+    await handle.close();
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+async function readAuthorizedSource(
+  filePath: string,
+  metadata: ReadFileInspection,
+  request: NormalizedReadRequest,
+): Promise<string> {
+  if (request.startLine === undefined || request.endLine === undefined) return fs.readFile(filePath, "utf8");
+  return readAuthorizedRange(filePath, metadata, request.startLine, request.endLine);
+}
+
+function boundedReadMessage(decision: ReadDecision): string {
+  return decision.reason.length > 256 ? `${decision.reason.slice(0, 253)}...` : decision.reason;
+}
+
+async function readTool(
+  args: Args,
+  config: ResolvedGatewayConfig,
+  store: ArtifactStore,
+  telemetry?: TelemetrySink,
+): Promise<CallToolResult> {
+  const requestedPath = stringArg(args, "path", true)!;
+  const filePath = await resolveInside(config.workspaceRoot, requestedPath);
   const stat = await fs.stat(filePath);
   if (!stat.isFile()) throw new Error("path must be a file");
-  const raw = await fs.readFile(filePath, "utf8");
-  const start = numberArg(args, "startLine") ?? 1;
-  const end = numberArg(args, "endLine");
-  if (start < 1 || (end !== undefined && end < start)) throw new Error("invalid line range");
-  const selected = raw.split("\n").slice(start - 1, end).join("\n");
-  const requestedMode = stringArg(args, "mode") ?? "auto";
-  if (!new Set(["raw", "outline", "symbols", "auto"]).has(requestedMode)) throw new Error("invalid mode");
-  const mode = requestedMode === "auto" ? (selected.length > 12_000 ? "outline" : "raw") : requestedMode;
-  const text = mode === "raw" ? selected : codeView(selected, mode, filePath);
-  const summary = `${path.relative(config.workspaceRoot, filePath)} lines=${selected.split("\n").length} mode=${mode}`;
-  const resultId = store.putArtifact({ text: selected, metadata: { operation: "read", summary, cwd: filePath } });
-  return output("read", "success", summary, resultId, { path: path.relative(config.workspaceRoot, filePath), mode, text, metrics: { raw_bytes: Buffer.byteLength(selected) } });
+
+  const modeValue = stringArg(args, "mode");
+  if (modeValue !== undefined && !(READ_MODES as readonly string[]).includes(modeValue)) throw new Error("invalid mode");
+  const request = {
+    path: path.relative(config.workspaceRoot, filePath),
+    ...(modeValue === undefined ? {} : { mode: modeValue as typeof READ_MODES[number] }),
+    ...(numberArg(args, "startLine") === undefined ? {} : { startLine: numberArg(args, "startLine") }),
+    ...(numberArg(args, "endLine") === undefined ? {} : { endLine: numberArg(args, "endLine") }),
+  };
+  const metadata = await inspectReadFile(filePath);
+  const decision = decideRead(request, metadata, config.readGovernor ?? DEFAULT_READ_GOVERNOR_POLICY);
+  const relativePath = request.path || ".";
+  const normalized = decision.normalizedRequest;
+
+  if (!decision.allowed) {
+    telemetry?.recordReadGovernor({
+      outcome: "deny",
+      requestedMode: decision.requestedMode,
+      rawLines: 0,
+      rawBytes: 0,
+      policyRule: decision.policyRule,
+    });
+    const summary = `DENY ${relativePath} mode=${decision.requestedMode} rule=${decision.policyRule}`;
+    return output("read", "partial", summary, "", {
+      path: relativePath,
+      mode: decision.requestedMode,
+      requested_mode: decision.requestedMode,
+      file_line_count: metadata.lineCount,
+      file_bytes: metadata.byteSize,
+      policy: decision.policy,
+      policy_action: decision.action,
+      policy_rule: decision.policyRule,
+      policy_reason: boundedReadMessage(decision),
+      next_actions: decision.suggestedNextActions,
+      facts: [{ kind: "read_governor", action: decision.action, rule: decision.policyRule }],
+      diagnostics: decision.diagnostics,
+      metrics: { raw_lines: 0, raw_bytes: 0, file_lines: metadata.lineCount, file_bytes: metadata.byteSize },
+      truncated: true,
+    });
+  }
+
+  const selected = await readAuthorizedSource(filePath, metadata, normalized);
+  const rawLines = normalized.startLine === undefined || normalized.endLine === undefined
+    ? metadata.lineCount
+    : normalized.endLine - normalized.startLine + 1;
+  const rawBytes = Buffer.byteLength(selected);
+  let text: string | undefined;
+  let extractionFailure = false;
+  if (normalized.mode === "raw") {
+    text = selected;
+  } else {
+    try {
+      text = codeView(selected, normalized.mode, filePath);
+      extractionFailure = selected.length > 0 && text.trim().length === 0;
+    } catch {
+      extractionFailure = true;
+    }
+  }
+
+  const sourceResultId = store.putArtifact({
+    text: selected,
+    metadata: { operation: "read", summary: relativePath, cwd: filePath },
+  });
+  const diagnostics = extractionFailure
+    ? [
+        ...decision.diagnostics,
+        {
+          severity: "warning" as const,
+          code: "READ_VIEW_EXTRACTION_FAILED",
+          message: `${normalized.mode} extraction failed; source was not returned`,
+        },
+      ]
+    : decision.diagnostics;
+  const truncated = extractionFailure
+    || (normalized.startLine !== undefined && (normalized.startLine > 1 || normalized.endLine !== metadata.lineCount));
+  const summary = `${relativePath} lines=${rawLines}/${metadata.lineCount} mode=${normalized.mode}`;
+  telemetry?.recordReadGovernor({
+    outcome: decision.action === "observe" ? "observe" : decision.action === "warn" ? "warn" : "allow",
+    requestedMode: decision.requestedMode,
+    rawLines,
+    rawBytes,
+    policyRule: decision.policyRule,
+  });
+  return output("read", extractionFailure ? "partial" : "success", summary, sourceResultId, {
+    path: relativePath,
+    mode: normalized.mode,
+    requested_mode: decision.requestedMode,
+    ...(extractionFailure ? {} : { text }),
+    file_line_count: metadata.lineCount,
+    file_bytes: metadata.byteSize,
+    policy: decision.policy,
+    policy_action: decision.action,
+    policy_rule: decision.policyRule,
+    policy_reason: boundedReadMessage(decision),
+    next_actions: decision.suggestedNextActions,
+    facts: [{ kind: "read_governor", action: decision.action, rule: decision.policyRule }],
+    diagnostics,
+    metrics: { raw_lines: rawLines, raw_bytes: rawBytes, file_lines: metadata.lineCount, file_bytes: metadata.byteSize },
+    truncated,
+  });
 }
 
 async function searchTool(args: Args, config: ResolvedGatewayConfig, store: ArtifactStore): Promise<CallToolResult> {
@@ -428,6 +617,9 @@ function telemetrySummaryTool(telemetry?: TelemetrySink): CallToolResult {
     totals: { calls: 0, errors: 0, original_bytes: 0, compressed_bytes: 0, retrievals: 0 },
     by_provider: {}, by_capability: {},
     projection: { raw_bytes: 0, stored_bytes: 0, returned_bytes: 0, omitted_bytes: 0, projected_tokens: 0 },
+    read_governor: {
+      allow: 0, observe: 0, warn: 0, deny: 0, raw_lines: 0, raw_bytes: 0, requested_modes: {}, policy_rules: {},
+    },
   };
   if (!snapshot.enabled) {
     return output("telemetry_summary", "success", "telemetry disabled; set MOTTAINAI_TELEMETRY=1 to enable", "", {
@@ -449,6 +641,7 @@ function telemetrySummaryTool(telemetry?: TelemetrySink): CallToolResult {
     by_provider: snapshot.by_provider,
     by_capability: snapshot.by_capability,
     projection: snapshot.projection,
+    read_governor: snapshot.read_governor,
     compression_ratio: ratio,
     retrieval_rate: rate,
     generated_at: snapshot.generated_at,

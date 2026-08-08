@@ -1237,3 +1237,53 @@ test("mottainai_workflow_task_start/status/policy_explain are only listed and ca
   }
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+test("MCP local read cannot bypass enforce mode by selecting unrestricted raw", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-read-governor-proxy-"));
+  fs.writeFileSync(path.join(workspace, "large.ts"), Array.from({ length: 600 }, (_, index) => `const secret_${index} = ${index};`).join("\n"));
+  const gateway = resolveGatewayConfig({
+    workspaceRoot: workspace,
+    readGovernor: {
+      mode: "enforce",
+      maxRawLines: 100,
+      maxRawBytes: 10_000,
+      allowWholeFileBelowLines: 20,
+      preferAuto: true,
+    },
+  });
+  const client = await connectedClient([], undefined, undefined, undefined, { gateway });
+  try {
+    const result = await client.callTool({ name: "mottainai_read", arguments: { path: "large.ts", mode: "raw" } });
+    const structured = result.structuredContent as Record<string, unknown>;
+    assert.equal(structured.status, "partial");
+    assert.equal("text" in structured, false);
+    assert.equal(structured.policy_rule, "WHOLE_FILE_RAW_LINE_LIMIT");
+    assert.doesNotMatch(JSON.stringify(result), /secret_599/);
+  } finally {
+    await client.close();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("read-governor denial remains inside the Issue #71 final response hard cap", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-read-governor-budget-"));
+  fs.writeFileSync(path.join(workspace, "large.ts"), "const secret = 1;\n".repeat(800));
+  const gateway = resolveGatewayConfig({
+    workspaceRoot: workspace,
+    responseBudget: { softTokens: 128, hardTokens: 256, hardBytes: 1_024 },
+    readGovernor: { mode: "enforce", maxRawLines: 100, maxRawBytes: 10_000, allowWholeFileBelowLines: 20 },
+  });
+  const client = await connectedClient([], undefined, undefined, undefined, { gateway });
+  try {
+    const result = await client.callTool({ name: "mottainai_read", arguments: { path: "large.ts", mode: "raw" } });
+    assert.ok(Buffer.byteLength(JSON.stringify(result), "utf8") <= 1_024);
+    const structured = result.structuredContent as Record<string, unknown>;
+    for (const field of ["operation", "status", "summary", "facts", "diagnostics", "metrics", "result_id", "truncated"]) {
+      assert.ok(field in structured, `missing envelope field: ${field}`);
+    }
+    assert.equal(structured.truncated, true);
+  } finally {
+    await client.close();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
