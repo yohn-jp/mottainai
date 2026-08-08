@@ -30,6 +30,21 @@ test("component inventory keeps explicit ownership and bounded graph queries", (
   const graph = query.getGraph({ componentId: "component:read-authorization", limit: 3 });
   assert.equal(graph.nodes.length, 3);
   assert.equal(graph.truncated, true);
+  const ownsGraph = query.getGraph({
+    entityId: "component:read-authorization",
+    relationKinds: ["owns"],
+  });
+  assert.deepEqual(ownsGraph.nodes.map((node) => node.id), [
+    "component:read-authorization",
+    "symbol:decide-read",
+    "symbol:inspect-read-file",
+  ]);
+  assert.ok(ownsGraph.relations.every((relation) => relation.kind === "owns"));
+  const isolatedGraph = query.getGraph({
+    entityId: "symbol:project-result",
+    relationKinds: ["uses-package"],
+  });
+  assert.deepEqual(isolatedGraph.nodes.map((node) => node.id), ["symbol:project-result"]);
   assert.throws(() => query.getGraph({ limit: 101 }), SemanticQueryError);
 });
 

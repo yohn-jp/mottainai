@@ -107,18 +107,18 @@ test("dashboard HTTP adapter rejects non-loopback Host headers", async () => {
   });
   activeServers.push(handle);
   const { statusCode, body } = await new Promise<{ statusCode: number | undefined; body: ErrorBody }>((resolve, reject) => {
-    const req = request(
+    const clientRequest = request(
       { host: handle.host, port: handle.port, path: "/api/v1/project", headers: { host: "evil.example:1" } },
-      (res) => {
+      (response) => {
         const chunks: Buffer[] = [];
-        res.on("data", (chunk: Buffer) => chunks.push(chunk));
-        res.on("end", () => {
-          resolve({ statusCode: res.statusCode, body: JSON.parse(Buffer.concat(chunks).toString()) as ErrorBody });
+        response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.on("end", () => {
+          resolve({ statusCode: response.statusCode, body: JSON.parse(Buffer.concat(chunks).toString()) as ErrorBody });
         });
       },
     );
-    req.once("error", reject);
-    req.end();
+    clientRequest.once("error", reject);
+    clientRequest.end();
   });
   assert.equal(statusCode, 403);
   assert.equal(body.error.code, "forbidden");
