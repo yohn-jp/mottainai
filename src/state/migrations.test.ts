@@ -47,14 +47,39 @@ function seedTask(db: DatabaseSync, taskId: string, instanceId: string): void {
   ).run(taskId, instanceId);
 }
 
-test("version 5 creates tasks/worktrees and PR records tables reachable after migration", () => {
+test("version 6 creates tasks/worktrees/pr_records/validation_evidence tables reachable after migration", () => {
   const db = freshDb();
   try {
-    assert.equal(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()?.version, 5);
+    assert.equal(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()?.version, 6);
     seedInstance(db, "instance-1", "/repo/.git");
     seedTask(db, "task-1", "instance-1");
     const task = db.prepare("SELECT * FROM tasks WHERE task_id = ?").get("task-1") as { lifecycle_state: string };
     assert.equal(task.lifecycle_state, "planned");
+  } finally {
+    db.close();
+  }
+});
+
+test("validation_evidence PRIMARY KEY rejects a duplicate (instance, commit, name) row", () => {
+  const db = freshDb();
+  try {
+    seedInstance(db, "instance-1", "/repo/.git");
+    const insert = db.prepare(
+      "INSERT INTO validation_evidence (instance_id, head_commit, name, status, recorded_at) VALUES (?, ?, ?, ?, ?)",
+    );
+    insert.run("instance-1", "deadbeef", "tests", "passed", 0);
+    assert.throws(() => insert.run("instance-1", "deadbeef", "tests", "passed", 1));
+    assert.doesNotThrow(() =>
+      db
+        .prepare(
+          "INSERT INTO validation_evidence (instance_id, head_commit, name, status, recorded_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (instance_id, head_commit, name) DO UPDATE SET status = excluded.status, recorded_at = excluded.recorded_at",
+        )
+        .run("instance-1", "deadbeef", "tests", "failed", 2),
+    );
+    const row = db
+      .prepare("SELECT status FROM validation_evidence WHERE instance_id = ? AND head_commit = ? AND name = ?")
+      .get("instance-1", "deadbeef", "tests") as { status: string };
+    assert.equal(row.status, "failed");
   } finally {
     db.close();
   }
