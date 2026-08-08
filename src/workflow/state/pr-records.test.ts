@@ -9,7 +9,10 @@ test("pr_records migration is append-only and stores no body or credential colum
   const db = new DatabaseSync(":memory:");
   try {
     applyMigrations(db);
-    assert.equal(MIGRATIONS[MIGRATIONS.length - 1]?.version, 5);
+    assert.ok(
+      MIGRATIONS.some((migration) => migration.version === 5),
+      "pr_records is introduced by migration version 5",
+    );
     const columns = (db.prepare("PRAGMA table_info(pr_records)").all() as Array<{ name: string }>).map(
       (column) => column.name,
     );
@@ -52,6 +55,27 @@ test("PR records are queryable and lifecycle state can be reconciled", () => {
     assert.equal(updated.lifecycleState, "merged");
     assert.deepEqual(store.listPullRequestRecordsForTask("missing-task" as TaskId), []);
     assert.equal(store.getPullRequestRecord("missing-record" as PullRequestRecordId), undefined);
+  } finally {
+    store.close();
+  }
+});
+
+test("recording the same pull request twice is idempotent and rejects a conflicting identity", () => {
+  const store = new WorkflowSqliteStateStore({ dbPath: ":memory:" });
+  store.init();
+  try {
+    const input = {
+      provider: "github",
+      repositoryId: "org/repository",
+      prNumber: 36,
+      url: "https://github.com/org/repository/pull/36",
+      headSha: "abc123",
+      lifecycleState: "open" as const,
+    };
+    const first = store.recordPullRequest(input);
+    const second = store.recordPullRequest(input);
+    assert.equal(second.recordId, first.recordId);
+    assert.throws(() => store.recordPullRequest({ ...input, headSha: "def456" }), /different identity/);
   } finally {
     store.close();
   }

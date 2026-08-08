@@ -177,48 +177,88 @@ function workflowInput(
 
 test("provider success writes PR metadata and transitions the task", async () => {
   const { store, taskId } = pushedTaskStore();
-  const adapter = adapterWith([runResult("https://github.com/org/repository/pull/36")]);
-  const result = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
-  assert.equal(result.ok, true);
-  if (result.ok) {
-    assert.equal(result.record.headSha, "abc123");
-    assert.equal(result.task.lifecycleState, "pull-request-open");
-    assert.equal(store.listPullRequestRecordsForTask(taskId).length, 1);
+  try {
+    const adapter = adapterWith([runResult("https://github.com/org/repository/pull/36")]);
+    const result = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.record.headSha, "abc123");
+      assert.equal(result.task.lifecycleState, "pull-request-open");
+      assert.equal(store.listPullRequestRecordsForTask(taskId).length, 1);
+    }
+  } finally {
+    store.close();
   }
-  store.close();
 });
 
 test("retry after a lifecycle-transition failure reconciles the task instead of staying stuck", async () => {
   const { store, taskId } = pushedTaskStore();
-  // record 成功後 transitionTask 失敗を模擬: PR record だけ先に書き込み、task は `pushed` のまま残す。
-  store.recordPullRequest({
-    taskId,
-    provider: "github",
-    repositoryId: "org/repository",
-    prNumber: 36,
-    url: "https://github.com/org/repository/pull/36",
-    headSha: "abc123",
-    lifecycleState: "open",
-  });
-  assert.equal(store.getTask(taskId)?.lifecycleState, "pushed");
+  try {
+    // record 成功後 transitionTask 失敗を模擬: PR record だけ先に書き込み、task は `pushed` のまま残す。
+    store.recordPullRequest({
+      taskId,
+      provider: "github",
+      repositoryId: "org/repository",
+      prNumber: 36,
+      url: "https://github.com/org/repository/pull/36",
+      headSha: "abc123",
+      lifecycleState: "open",
+    });
+    assert.equal(store.getTask(taskId)?.lifecycleState, "pushed");
 
-  const adapter = adapterWith([]);
-  const result = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
-  assert.equal(result.ok, true);
-  if (result.ok) {
-    assert.equal(result.reused, true);
-    assert.equal(result.task.lifecycleState, "pull-request-open");
+    const adapter = adapterWith([]);
+    const result = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.reused, true);
+      assert.equal(result.task.lifecycleState, "pull-request-open");
+    }
+    assert.equal(store.getTask(taskId)?.lifecycleState, "pull-request-open");
+  } finally {
+    store.close();
   }
-  assert.equal(store.getTask(taskId)?.lifecycleState, "pull-request-open");
-  store.close();
 });
 
 test("provider failure leaves task and PR record state unchanged", async () => {
   const { store, taskId } = pushedTaskStore();
-  const adapter = adapterWith([runResult("", "provider unavailable", { exitCode: 1 })]);
-  const result = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
-  assert.equal(result.ok, false);
-  assert.equal(store.getTask(taskId)?.lifecycleState, "pushed");
-  assert.deepEqual(store.listPullRequestRecordsForTask(taskId), []);
-  store.close();
+  try {
+    const adapter = adapterWith([runResult("", "provider unavailable", { exitCode: 1 })]);
+    const result = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
+    assert.equal(result.ok, false);
+    assert.equal(store.getTask(taskId)?.lifecycleState, "pushed");
+    assert.deepEqual(store.listPullRequestRecordsForTask(taskId), []);
+  } finally {
+    store.close();
+  }
+});
+
+test("missing head revision fails before the provider is called", async () => {
+  const { store, taskId } = pushedTaskStore();
+  try {
+    const calls: string[][] = [];
+    const adapter = adapterWith([runResult("https://github.com/org/repository/pull/36")], calls);
+    const input = workflowInput(store, taskId, adapter);
+    const result = await openWorkflowPullRequest({ ...input, head: { name: "feature/36" } });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.reason, "head-sha-required");
+    assert.equal(calls.length, 0, "gh pr create must not run without a head revision");
+    assert.deepEqual(store.listPullRequestRecordsForTask(taskId), []);
+  } finally {
+    store.close();
+  }
+});
+
+test("a task lifecycle state that cannot reach pull-request-open blocks the transition before the provider call", async () => {
+  const { store, taskId } = pushedTaskStore();
+  try {
+    store.updateTaskLifecycleState(taskId, "merged");
+    const calls: string[][] = [];
+    const adapter = adapterWith([runResult("https://github.com/org/repository/pull/36")], calls);
+    const result = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.reason, "lifecycle-blocked");
+    assert.equal(calls.length, 0, "gh pr create must not run when the lifecycle transition is blocked");
+  } finally {
+    store.close();
+  }
 });

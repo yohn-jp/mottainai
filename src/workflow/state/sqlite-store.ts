@@ -454,22 +454,25 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
   recordPullRequest(input: RecordPullRequestInput): PullRequestRecord {
     const db = this.handle();
     const now = input.recordedAt ?? Date.now();
-    const existing = db
-      .prepare("SELECT * FROM pr_records WHERE provider = ? AND repository_id = ? AND pr_number = ?")
-      .get(input.provider, input.repositoryId, input.prNumber) as Record<string, unknown> | undefined;
-    if (existing !== undefined) {
-      const existingRecord = this.toPullRequestRecord(existing);
-      if (existingRecord.headSha !== input.headSha || existingRecord.taskId !== input.taskId) {
-        throw new Error(
-          `pull request record already exists with different identity: ${input.provider}/${input.repositoryId}#${input.prNumber}`,
-        );
-      }
-      return existingRecord;
-    }
 
-    const recordId = crypto.randomUUID() as PullRequestRecordId;
+    let result!: PullRequestRecord;
     db.exec("BEGIN IMMEDIATE");
     try {
+      const existing = db
+        .prepare("SELECT * FROM pr_records WHERE provider = ? AND repository_id = ? AND pr_number = ?")
+        .get(input.provider, input.repositoryId, input.prNumber) as Record<string, unknown> | undefined;
+      if (existing !== undefined) {
+        const existingRecord = this.toPullRequestRecord(existing);
+        if (existingRecord.headSha !== input.headSha || existingRecord.taskId !== input.taskId) {
+          throw new Error(
+            `pull request record already exists with different identity: ${input.provider}/${input.repositoryId}#${input.prNumber}`,
+          );
+        }
+        db.exec("COMMIT");
+        return existingRecord;
+      }
+
+      const recordId = crypto.randomUUID() as PullRequestRecordId;
       db.prepare(
         `INSERT INTO pr_records
           (record_id, task_id, provider, repository_id, pr_number, url, head_sha, lifecycle_state, created_at, updated_at)
@@ -488,7 +491,7 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       );
       const row = db.prepare("SELECT * FROM pr_records WHERE record_id = ?").get(recordId) as Record<string, unknown>;
       db.exec("COMMIT");
-      return this.toPullRequestRecord(row);
+      result = this.toPullRequestRecord(row);
     } catch (err) {
       try {
         db.exec("ROLLBACK");
@@ -497,6 +500,7 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       }
       throw err;
     }
+    return result;
   }
 
   getPullRequestRecord(recordId: PullRequestRecordId): PullRequestRecord | undefined {

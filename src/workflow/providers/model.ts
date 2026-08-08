@@ -57,6 +57,8 @@ export type PullRequestLifecycleState = (typeof PULL_REQUEST_LIFECYCLE_STATES)[n
 
 export interface PullRequest extends IssueReference {
   identity: ProviderEntityIdentity;
+  number: number;
+  url: string;
   state: PullRequestState;
   lifecycleState: PullRequestLifecycleState;
   repository: RepositoryIdentity;

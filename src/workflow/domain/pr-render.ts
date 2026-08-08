@@ -12,7 +12,7 @@ export interface PullRequestRenderPolicy {
   acceptanceCriteriaSection?: string;
   acceptanceCriteriaChecklist?: boolean;
   templates?: Readonly<Record<string, string>>;
-  /** Alias useful to callers that name the configured values after their role. */
+  /** `WorkflowPolicyDocument["pullRequest"]` は `templates` を持たないため、変換元と区別できるよう別名で受ける。 */
   sectionTemplates?: Readonly<Record<string, string>>;
 }
 
@@ -211,11 +211,7 @@ export function renderPullRequestBody(
   return { ok: true, body, closingIssues: validation.closingIssues };
 }
 
-/** Short alias for callers that use the PR abbreviation. */
-export const renderPrBody = renderPullRequestBody;
-export const validatePrBody = validatePullRequestBody;
-
-/** Convert a parsed workflow policy without embedding repository governance values here. */
+/** repository governance 側の値をここに埋め込まず、policy 変換のみに責務を絞るための関数。 */
 export function pullRequestPolicyFromWorkflow(policy: WorkflowPolicyDocument): PullRequestRenderPolicy {
   return resolvePullRequestRenderPolicy(policy.pullRequest as PullRequestRule | undefined);
 }

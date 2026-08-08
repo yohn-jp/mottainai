@@ -183,7 +183,7 @@ function assigneesFromGithub(value: unknown): string[] {
 
 export function parseGithubIssueOutput(
   stdout: string,
-  fallbackRepository?: RepositoryIdentity,
+  defaultRepository?: RepositoryIdentity,
 ): { ok: true; issue: Issue } | { ok: false; reason: string } {
   const parsed = parseJson(stdout);
   if (!parsed.ok) return parsed;
@@ -194,8 +194,7 @@ export function parseGithubIssueOutput(
   if (number === undefined || title === undefined || state === undefined || url === undefined) {
     return { ok: false, reason: "missing required fields in output" };
   }
-  const repository = repositoryFromGithub(parsed.value.repository) ??
-    fallbackRepository ?? { provider: GITHUB_PROVIDER, id: "unknown" };
+  const repository = repositoryFromGithub(parsed.value.repository) ?? fallbackRepository(defaultRepository);
   const identityValue = parsed.value.id;
   const identity =
     typeof identityValue === "string" || typeof identityValue === "number" ? String(identityValue) : `issue:${number}`;
@@ -222,7 +221,7 @@ export function parseGithubIssueOutput(
 
 function parseGithubPullRequestRecord(
   record: JsonRecord,
-  fallbackRepository: RepositoryIdentity,
+  defaultRepository: RepositoryIdentity,
   fallbackHead?: RevisionIdentity,
   fallbackBase?: RevisionIdentity,
 ): { ok: true; pullRequest: PullRequest } | { ok: false; reason: string } {
@@ -262,7 +261,7 @@ function parseGithubPullRequestRecord(
       state: normalizePullRequestState(state, merged),
       lifecycleState: normalizePullRequestLifecycle(state, draft, merged),
       url,
-      repository: repositoryFromGithub(record.repository) ?? fallbackRepository,
+      repository: repositoryFromGithub(record.repository) ?? defaultRepository,
       head: { name: headName, revision: headRevision },
       base: { name: baseName, revision: baseRevision },
     },
@@ -777,11 +776,7 @@ export async function openWorkflowPullRequest(input: OpenWorkflowPullRequestInpu
   if (!provider.ok) {
     return { ok: false, reason: "provider-failed", detail: provider.error.message, provider: provider.error };
   }
-  if (
-    provider.value.number === undefined ||
-    provider.value.url === undefined ||
-    provider.value.head.revision === undefined
-  ) {
+  if (provider.value.head.revision === undefined) {
     return {
       ok: false,
       reason: "local-state-write-failed",

@@ -52,7 +52,7 @@ const cleanupRuleSchema = z.object({
 }).strict();
 export type CleanupRule = z.infer<typeof cleanupRuleSchema>;
 
-/** PR body を構造化生成・検証する repository policy。未指定は既存 policy 互換。 */
+/** 未指定時は既存 policy と互換のデフォルト値を持つ。 */
 export const pullRequestRuleSchema = z.object({
   issue: z.enum(["required", "optional"]).default("optional"),
   closingIssue: z.enum(["exactly-one", "optional", "none"]).default("optional"),
