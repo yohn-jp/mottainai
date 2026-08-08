@@ -9,7 +9,7 @@ import type { WorkflowPolicyDocument } from "../policy/schema.js";
 import type { TaskId, WorktreeId } from "../state/store.js";
 import { createTempGitRepo, runGit } from "../../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../../test-support/workflow-store.js";
-import { commitTask, renderCommitMessage, verifyCommit, type CommitOperationInput } from "./commit.js";
+import { commitTask, renderCommitMessage, reverifyBeforeMutation, verifyCommit, type CommitOperationInput } from "./commit.js";
 
 async function managedTask(t: TestContext): Promise<{
   root: string;
@@ -156,6 +156,57 @@ test("explicit include reports unexpected changed and untracked paths without fi
     assert.equal(result.detail.includes("secret-looking"), false);
   }
   assert.equal(runGit(["status", "--porcelain"], fixture.worktree), before);
+});
+
+test("explicit include of a staged rename is keyed by the destination path, not the source path", async (t) => {
+  const fixture = await managedTask(t);
+  runGit(["mv", "file.txt", "renamed.txt"], fixture.worktree);
+  assert.match(runGit(["status", "--porcelain"], fixture.worktree), /^R\s+file\.txt -> renamed\.txt$/m);
+
+  const result = await commitTask({
+    ...fixture.input,
+    message: message("rename staged file"),
+    commitPolicy: { stagingMode: "explicit" },
+    includePaths: ["renamed.txt"],
+  });
+  assert.equal(result.ok, true);
+  assert.equal(fs.existsSync(path.join(fixture.worktree, "renamed.txt")), true);
+});
+
+test("a new untracked file injected after verification is not staged by 'all' mode; operation aborts", async (t) => {
+  const fixture = await managedTask(t);
+  fs.writeFileSync(path.join(fixture.worktree, "all.txt"), "all\n");
+  const verification = await verifyCommit({
+    ...fixture.input,
+    message: message("all staging"),
+    commitPolicy: { stagingMode: "all" },
+  });
+  assert.equal(verification.ok, true);
+  if (!verification.ok) return;
+
+  fs.writeFileSync(path.join(fixture.worktree, "injected-after-verify.txt"), "must not be staged\n");
+  const reverified = await reverifyBeforeMutation(verification);
+  assert.equal(reverified.ok, false);
+  if (!reverified.ok) assert.equal(reverified.code, "staging-failed");
+  assert.equal(runGit(["status", "--porcelain"], fixture.worktree).includes("injected-after-verify.txt"), true);
+  assert.equal(fs.existsSync(path.join(fixture.worktree, "injected-after-verify.txt")), true);
+});
+
+test("a HEAD change after verification aborts the commit instead of mutating on stale context", async (t) => {
+  const fixture = await managedTask(t);
+  fs.appendFileSync(path.join(fixture.worktree, "file.txt"), "tracked\n");
+  const verification = await verifyCommit({
+    ...fixture.input,
+    message: message("tracked staging"),
+    commitPolicy: { stagingMode: "tracked" },
+  });
+  assert.equal(verification.ok, true);
+  if (!verification.ok) return;
+
+  runGit(["commit", "--quiet", "--allow-empty", "-m", "advanced by another process"], fixture.worktree);
+  const reverified = await reverifyBeforeMutation(verification);
+  assert.equal(reverified.ok, false);
+  if (!reverified.ok) assert.equal(reverified.code, "staging-failed");
 });
 
 test("empty diff and no staged diff are rejected before mutation", async (t) => {

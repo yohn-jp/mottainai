@@ -25,6 +25,8 @@ export interface PushPolicyControls {
 export interface ValidationEvidence {
   name: string;
   status: "passed" | "failed";
+  /** The exact commit the validation ran against; must equal the current HEAD to count. */
+  headCommit: string;
   /** Metadata only; never copied to Git command output or audit state. */
   digest?: string;
   recordedAt?: number;
@@ -166,12 +168,12 @@ async function readRemoteRelation(
   return { ok: true, relation, ahead, behind };
 }
 
-function requiredEvidenceFailure(input: PushOperationInput): PushFailure | undefined {
+function requiredEvidenceFailure(input: PushOperationInput, context: VerifiedWorkflowContext): PushFailure | undefined {
   const required = input.pushPolicy?.requiredValidationEvidence ?? [];
   if (required.length === 0) return undefined;
   const passed = new Set(
     (input.validationEvidence ?? [])
-      .filter((evidence) => evidence.status === "passed")
+      .filter((evidence) => evidence.status === "passed" && evidence.headCommit === context.headCommit)
       .map((evidence) => evidence.name),
   );
   const missing = [...new Set(required)].filter((name) => !passed.has(name));
@@ -179,7 +181,7 @@ function requiredEvidenceFailure(input: PushOperationInput): PushFailure | undef
   return {
     ok: false,
     code: "missing-validation-evidence",
-    detail: "required validation evidence is missing or failed",
+    detail: "required validation evidence is missing, failed, or was not recorded against the current HEAD commit",
     missingEvidence: missing,
   };
 }
@@ -286,7 +288,7 @@ export async function verifyPush(input: PushOperationInput): Promise<PushVerific
     };
   }
 
-  const evidenceFailure = requiredEvidenceFailure(input);
+  const evidenceFailure = requiredEvidenceFailure(input, context);
   if (evidenceFailure !== undefined) return evidenceFailure;
 
   if (force && input.pushPolicy?.allowForcePush !== true)

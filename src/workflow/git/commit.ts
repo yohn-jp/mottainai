@@ -306,9 +306,47 @@ export async function verifyCommit(input: CommitOperationInput): Promise<CommitV
   };
 }
 
+function statusFingerprint(status: GitStatusSnapshot): string {
+  return status.entries
+    .map((entry) => `${entry.indexStatus}${entry.worktreeStatus} ${entry.path}${entry.originalPath === undefined ? "" : ` <- ${entry.originalPath}`}`)
+    .sort()
+    .join("\n");
+}
+
+export async function reverifyBeforeMutation(
+  verification: CommitVerificationSuccess,
+): Promise<{ ok: true } | CommitFailure> {
+  const headResult = await runGitCommand(verification.context.workspaceRoot, ["rev-parse", "--verify", "HEAD"]);
+  if (!headResult.usable || headResult.result.exitCode !== 0) {
+    const failure = gitCommandFailure("reverify-head", headResult);
+    return { ok: false, code: "staging-failed", detail: failure.detail, gitCode: failure.code };
+  }
+  if (headResult.result.stdout.trim() !== verification.context.headCommit) {
+    return {
+      ok: false,
+      code: "staging-failed",
+      detail: "HEAD changed between commit verification and mutation; aborting to avoid staging unverified state",
+    };
+  }
+
+  const statusResult = await readGitStatus(verification.context.workspaceRoot);
+  if (!statusResult.ok) return { ok: false, code: statusResult.failure.code, detail: statusResult.failure.detail };
+  if (statusFingerprint(statusResult.status) !== statusFingerprint(verification.status)) {
+    return {
+      ok: false,
+      code: "staging-failed",
+      detail: "worktree changed between commit verification and mutation; aborting to avoid staging unverified paths",
+    };
+  }
+  return { ok: true };
+}
+
 export async function commitTask(input: CommitOperationInput): Promise<CommitResult> {
   const verification = await verifyCommit(input);
   if (!verification.ok) return verification;
+
+  const reverified = await reverifyBeforeMutation(verification);
+  if (!reverified.ok) return reverified;
 
   if (verification.stagingArguments !== undefined) {
     const staging = await runGitCommand(verification.context.workspaceRoot, verification.stagingArguments);

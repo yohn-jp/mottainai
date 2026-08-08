@@ -10,6 +10,7 @@ import { createTempDir } from "../../test-support/tmp-dir.js";
 import { createTempGitRepo, runGit } from "../../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../../test-support/workflow-store.js";
 import { pushTask, verifyPush, type PushOperationInput } from "./push.js";
+import { verifyWorkflowContext } from "./context.js";
 
 interface PushFixture {
   root: string;
@@ -179,6 +180,31 @@ test("required validation evidence is checked before the push subprocess", async
     assert.equal(result.code, "missing-validation-evidence");
     assert.deepEqual(result.missingEvidence, ["typecheck", "tests"]);
   }
+});
+
+test("validation evidence not recorded against the current HEAD commit is rejected", async (t) => {
+  const fixture = await pushFixture(t, true);
+  const context = await verifyWorkflowContext(fixture.input);
+  assert.equal(context.ok, true);
+  if (!context.ok) return;
+
+  const forged = await pushTask({
+    ...fixture.input,
+    pushPolicy: { requiredValidationEvidence: ["tests"] },
+    validationEvidence: [{ name: "tests", status: "passed", headCommit: "0".repeat(40) }],
+  });
+  assert.equal(forged.ok, false);
+  if (!forged.ok) {
+    assert.equal(forged.code, "missing-validation-evidence");
+    assert.deepEqual(forged.missingEvidence, ["tests"]);
+  }
+
+  const genuine = await pushTask({
+    ...fixture.input,
+    pushPolicy: { requiredValidationEvidence: ["tests"] },
+    validationEvidence: [{ name: "tests", status: "passed", headCommit: context.headCommit }],
+  });
+  assert.equal(genuine.ok, true);
 });
 
 test("force push remains disabled even when the remote is otherwise safe", async (t) => {

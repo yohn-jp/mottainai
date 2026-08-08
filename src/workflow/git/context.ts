@@ -62,6 +62,8 @@ export interface GitStatusEntry {
   path: string;
   indexStatus: string;
   worktreeStatus: string;
+  /** Present only for rename/copy entries; the path git renamed or copied from. */
+  originalPath?: string;
 }
 
 export interface GitStatusSnapshot {
@@ -80,15 +82,18 @@ function parseStatusEntries(output: string): GitStatusEntry[] {
     if (record.length < 4) continue;
     const indexStatus = record[0]!;
     const worktreeStatus = record[1]!;
-    let changedPath = record.slice(3);
+    // For rename/copy (R/C), porcelain -z emits the current (destination) path in this
+    // record and the original (source) path as the following NUL-separated record.
+    const currentPath = record.slice(3);
+    let originalPath: string | undefined;
     if (
       (indexStatus === "R" || indexStatus === "C" || worktreeStatus === "R" || worktreeStatus === "C") &&
       index + 1 < records.length
     ) {
-      changedPath = records[index + 1]!;
+      originalPath = records[index + 1]!;
       index += 1;
     }
-    entries.push({ path: changedPath, indexStatus, worktreeStatus });
+    entries.push({ path: currentPath, indexStatus, worktreeStatus, ...(originalPath !== undefined ? { originalPath } : {}) });
   }
   return entries;
 }
@@ -164,6 +169,7 @@ export interface VerifiedWorkflowContext {
   workspaceRoot: string;
   branch: string;
   isPrimaryCheckout: boolean;
+  headCommit: string;
 }
 
 export type WorkflowContextResult = VerifiedWorkflowContext | WorkflowContextFailure;
@@ -218,11 +224,12 @@ export async function verifyWorkflowContext(input: WorkflowContextInput): Promis
     return { ok: false, code: "workspace-path-mismatch", detail: "workspace path could not be canonicalized" };
   }
 
-  const [topLevel, commonDirectory, gitDirectory, symbolicRef] = await Promise.all([
+  const [topLevel, commonDirectory, gitDirectory, symbolicRef, headCommitResult] = await Promise.all([
     runGitCommand(input.workspaceRoot, ["rev-parse", "--show-toplevel"]),
     runGitCommand(input.workspaceRoot, ["rev-parse", "--git-common-dir"]),
     runGitCommand(input.workspaceRoot, ["rev-parse", "--git-dir"]),
     runGitCommand(input.workspaceRoot, ["symbolic-ref", "-q", "--short", "HEAD"]),
+    runGitCommand(input.workspaceRoot, ["rev-parse", "--verify", "HEAD"]),
   ]);
   if (!topLevel.usable || topLevel.result.exitCode !== 0)
     return failureFromObservation("resolve-worktree-root", topLevel);
@@ -230,6 +237,13 @@ export async function verifyWorkflowContext(input: WorkflowContextInput): Promis
     return failureFromObservation("resolve-git-common-dir", commonDirectory);
   if (!gitDirectory.usable || gitDirectory.result.exitCode !== 0)
     return failureFromObservation("resolve-git-dir", gitDirectory);
+  if (
+    !headCommitResult.usable ||
+    headCommitResult.result.exitCode !== 0 ||
+    headCommitResult.result.stdout.trim().length === 0
+  )
+    return failureFromObservation("resolve-head-commit", headCommitResult);
+  const headCommit = headCommitResult.result.stdout.trim();
 
   const reportedTopLevel = canonicalPath(topLevel.result.stdout.trim());
   if (reportedTopLevel !== workspaceCanonicalPath) {
@@ -316,7 +330,16 @@ export async function verifyWorkflowContext(input: WorkflowContextInput): Promis
     return { ok: false, code: "branch-mismatch", detail: "a task without a managed worktree requires expectedBranch" };
   }
 
-  return { ok: true, task, repository, worktree, workspaceRoot: workspaceCanonicalPath, branch, isPrimaryCheckout };
+  return {
+    ok: true,
+    task,
+    repository,
+    worktree,
+    workspaceRoot: workspaceCanonicalPath,
+    branch,
+    isPrimaryCheckout,
+    headCommit,
+  };
 }
 
 export function isPathInsideWorkspace(workspaceRoot: string, candidatePath: string): boolean {
