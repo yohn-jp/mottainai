@@ -2,6 +2,20 @@
 
 テスト層は責務、実行コスト、環境境界で分離する。既存のcolocated testは移動・改名しない。分類の正本は`src/test-support/`のfixtureやコメントではなく、[`scripts/test-suites.mjs`](../scripts/test-suites.mjs)の機械可読ルール。
 
+## CI検証トポロジー
+
+PR CIはOS × Nodeの完全直積を採用しない。exhaustive correctnessとcompatibility checkの責務を分離し、各軸で固有の失敗を検出できる最小環境だけ残す。
+
+| 責務 | 環境 | CIで担う検証 |
+| --- | --- | --- |
+| Canonical full validation | Ubuntu + Node 22 | `standards`、typecheck、fast unit/contract、integration/process、build、built-dist full E2E、coverage、package/consumer smoke。repositoryの完全な必須検証の正本 |
+| Node compatibility smoke | Ubuntu + Node 24 | install、build、packed consumer path、最小MCP handshake/list/call/EOF。Node 22のfull suiteを再実行しない |
+| Windows compatibility smoke | Windows + Node 22 | install、build、packed consumer path、packaged launch、MCP initialize/list/call、spacesを含むpath、stdin EOF。Windows固有のPATHEXT executable discoveryも対象 |
+
+Ubuntu + Node 22はexhaustive correctnessの正本。Node 24はruntime/package差異、Windows + Node 22はOS/path/launcher/stdio差異だけ確認する。full E2Eのlifecycle・fault・POSIX SIGINT/SIGTERM検証はcanonical環境に残し、Windows smokeでは実行しない。
+
+完全直積を避ける理由は、OS差異とNode runtime差異が独立した軸だから。各環境でfull suiteを重複実行しても独立した保証が増えず、CI時間とWindows lifecycle hangの影響だけ増える。Windows child processはstdin EOFを第一選択とし、必要時だけboundedなWindows-native cleanupへ移行する。
+
 ## 層とコマンド
 
 | 層                    | 保証対象                                                                | ファイル規則                                                                                                                                                                    | コマンド                       | 実行目安       |
@@ -61,7 +75,7 @@ fault-injection testはintegration/process層に置く。timeout、spawn failure
 
 ## Coverage policy
 
-`pnpm run test:coverage`はNode 22/24の組み込みtest coverageを専用processで実行する。`coverage/lcov.info`（machine-readable LCOV）と`coverage/summary.json`（machine-readable gate summary）を生成し、同じCI stepでline、function、branchのhuman-readable summaryをstdoutへ出す。coverage jobは通常のfast commandと分離し、CIでのみ必須gateとして実行する。
+`pnpm run test:coverage`はcanonical Ubuntu + Node 22で組み込みtest coverageを専用processで実行する。`coverage/lcov.info`（machine-readable LCOV）と`coverage/summary.json`（machine-readable gate summary）を生成し、同じCI stepでline、function、branchのhuman-readable summaryをstdoutへ出す。coverage jobは通常のfast commandと分離し、CIでのみ必須gateとして実行する。Node 24ではcoverageを再測定しない。
 
 測定対象:
 

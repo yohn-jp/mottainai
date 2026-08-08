@@ -9,13 +9,10 @@ permissions:
   contents: read
 
 jobs:
-  build-and-test:
-    name: install / typecheck / test / build (Node ${{ matrix.node-version }})
+  canonical-full:
+    # Existing required check context; this job is the Ubuntu + Node 22 canonical full role.
+    name: install / typecheck / test / build (Node 22)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: ["22", "24"]
 
     steps:
       - name: Checkout
@@ -31,7 +28,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: "22"
           cache: pnpm
 
       - name: Install system dependencies
@@ -56,6 +53,9 @@ jobs:
 
       - name: Test (built dist e2e / black-box)
         run: pnpm run test:e2e
+
+      - name: Test (packed artifact package / consumer)
+        run: pnpm run test:package
 
   standards:
     name: format / lint / architecture (Node 22)
@@ -97,12 +97,9 @@ jobs:
         run: pnpm run architecture:check
 
   coverage:
-    name: coverage (Node ${{ matrix.node-version }})
+    # Existing required check context; coverage remains canonical Node 22 validation.
+    name: coverage (Node 22)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: ["22", "24"]
 
     steps:
       - name: Checkout
@@ -118,7 +115,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: "22"
           cache: pnpm
 
       - name: Install system dependencies
@@ -135,18 +132,14 @@ jobs:
       - name: Upload coverage artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-node-${{ matrix.node-version }}
+          name: coverage-node-22
           path: coverage
           if-no-files-found: error
 
-  init-test-windows:
-    name: init.test.ts (Windows, Node ${{ matrix.node-version }})
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: ["22", "24"]
-
+  node-compatibility-smoke:
+    # Existing Node 24 context retained while the job is narrowed to compatibility smoke.
+    name: install / typecheck / test / build (Node 24)
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -161,52 +154,44 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: "24"
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # local-tools.test.ts などはユーザーのシェルコマンド（printf/sleep/yes 等）に
-      # 依存しており Windows 未対応のため、full suite ではなく init.test.ts のみを
-      # 対象にする（init --force の実ファイル操作を実プラットフォームで検証する目的）。
-      - name: Test (init.test.ts only)
-        run: node --import tsx --test src/init.test.ts
-
-  smoke-test:
-    name: package / packed smoke test (${{ matrix.os }}, Node ${{ matrix.node-version }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        node-version: ["22", "24"]
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.18.0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build
-        run: pnpm run build
-
-      - name: Built dist black-box protocol and lifecycle suite
-        run: pnpm run test:e2e
-
-      - name: Packed artifact package suite and smoke test
+      # Node 24 は full suite を再実行せず、build + packed consumer/MCP path を確認する。
+      - name: Build and packed consumer / MCP compatibility smoke
         run: pnpm run test:package
+
+  windows-compatibility-smoke:
+    name: Windows compatibility smoke (Windows, Node 22)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # package suite は spaces を含む package path、packaged launch、initialize/list/call、EOF を検証する。
+      # POSIX の SIGINT/SIGTERM lifecycle suite は Windows smoke に含めない。
+      - name: Build and packed Windows consumer / MCP compatibility smoke
+        run: pnpm run test:package
+
+      # init.test.ts 全体は実行せず、Windows 固有の PATHEXT/executable discovery 契約だけ統合する。
+      - name: Windows executable discovery contract
+        run: node --import tsx --test --test-name-pattern "init discovers Windows executables through fixed and PATHEXT extensions" src/init.test.ts
