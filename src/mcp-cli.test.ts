@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -260,6 +260,155 @@ test("server entry points report configuration failures without an unhandled rej
   assert.equal(developmentServe.status, 1);
   assert.match(developmentServe.stderr, /missing value for --config/);
 
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+function gitWorkspace(): string {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-workflow-"));
+  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: directory });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: directory });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: directory });
+  fs.writeFileSync(path.join(directory, "file.txt"), "hello\n");
+  execFileSync("git", ["add", "."], { cwd: directory });
+  execFileSync("git", ["commit", "-q", "-m", "initial"], { cwd: directory });
+  return directory;
+}
+
+/** `task`/`policy` サブコマンドは git repo を対象にする（`config.json` は使わない）。
+ * `MOTTAINAI_STATE_DIR` を使い捨てディレクトリへ向け、実 state と分離する。 */
+function runWorkflow(...argv: string[]): Run {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-workflow-state-"));
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ["--import", "tsx", publicCliPath, ...argv],
+      { encoding: "utf8", env: { ...process.env, MOTTAINAI_STATE_DIR: stateDir } },
+    );
+    let json: Record<string, unknown> = {};
+    try {
+      json = JSON.parse(result.stdout) as Record<string, unknown>;
+    } catch {
+      json = {};
+    }
+    return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr, json };
+  } finally {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+}
+
+test("public CLI policy explain reports the standard preset for a plain repository", () => {
+  const directory = gitWorkspace();
+  const result = runWorkflow("policy", "explain", "--workspace", directory);
+  assert.equal(result.status, 0);
+  assert.equal(result.json.ok, true);
+  assert.equal(result.json.preset, "standard");
+  assert.equal(result.json.policySourceAuthority, "preset");
+  const rules = result.json.rules as { protectedBranchRule: { directPush: { mode: string; authority: string } } };
+  assert.equal(rules.protectedBranchRule.directPush.mode, "enforce");
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test("public CLI task start creates a dedicated worktree/branch, and task status reports it from inside that worktree", () => {
+  const directory = gitWorkspace();
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-workflow-state-"));
+  const environment = { ...process.env, MOTTAINAI_STATE_DIR: stateDir };
+  const spawn = (...argv: string[]): Run => {
+    const result = spawnSync(process.execPath, ["--import", "tsx", publicCliPath, ...argv], { encoding: "utf8", env: environment });
+    let json: Record<string, unknown> = {};
+    try {
+      json = JSON.parse(result.stdout) as Record<string, unknown>;
+    } catch {
+      json = {};
+    }
+    return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr, json };
+  };
+
+  const before = spawn("task", "status", "--workspace", directory);
+  assert.equal(before.status, 0);
+  assert.equal(before.json.active, false);
+  assert.equal(before.json.branch, "main");
+
+  const started = spawn("task", "start", "my-task", "--issue", "9", "--workspace", directory);
+  assert.equal(started.status, 0);
+  assert.equal(started.json.ok, true);
+  const worktree = started.json.worktree as { branchName: string; canonicalPath: string };
+  assert.equal(worktree.branchName, "issue-9/my-task");
+  assert.notEqual(worktree.branchName, "main");
+
+  const statusInWorktree = spawn("task", "status", "--workspace", worktree.canonicalPath);
+  assert.equal(statusInWorktree.status, 0);
+  assert.equal(statusInWorktree.json.active, true);
+
+  fs.rmSync(stateDir, { recursive: true, force: true });
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test("public CLI task start validates taskSlug/issueRef at the boundary, same as the MCP tool", () => {
+  const directory = gitWorkspace();
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-workflow-state-"));
+  const environment = { ...process.env, MOTTAINAI_STATE_DIR: stateDir };
+  const spawn = (...argv: string[]): Run => {
+    const result = spawnSync(process.execPath, ["--import", "tsx", publicCliPath, ...argv], { encoding: "utf8", env: environment });
+    let json: Record<string, unknown> = {};
+    try {
+      json = JSON.parse(result.stdout) as Record<string, unknown>;
+    } catch {
+      json = {};
+    }
+    return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr, json };
+  };
+
+  const badSlug = spawn("task", "start", "Bad Slug", "--workspace", directory);
+  assert.equal(badSlug.status, 1);
+  assert.match(badSlug.stderr, /invalid task slug/);
+
+  const badIssueRef = spawn("task", "start", "ok-slug", "--issue", "7..9", "--workspace", directory);
+  assert.equal(badIssueRef.status, 1);
+  assert.match(badIssueRef.stderr, /invalid issue ref/);
+
+  const status = spawn("task", "status", "--workspace", directory);
+  assert.equal(status.status, 0);
+  assert.equal(status.json.active, false);
+
+  fs.rmSync(stateDir, { recursive: true, force: true });
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test("public CLI task start rejects starting a second task from inside its own already-active worktree", () => {
+  const directory = gitWorkspace();
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-workflow-state-"));
+  const environment = { ...process.env, MOTTAINAI_STATE_DIR: stateDir };
+  const spawn = (...argv: string[]): Run => {
+    const result = spawnSync(process.execPath, ["--import", "tsx", publicCliPath, ...argv], { encoding: "utf8", env: environment });
+    let json: Record<string, unknown> = {};
+    try {
+      json = JSON.parse(result.stdout) as Record<string, unknown>;
+    } catch {
+      json = {};
+    }
+    return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr, json };
+  };
+
+  const outer = spawn("task", "start", "outer", "--workspace", directory);
+  assert.equal(outer.status, 0);
+  const worktree = outer.json.worktree as { canonicalPath: string };
+
+  const inner = spawn("task", "start", "inner", "--workspace", worktree.canonicalPath);
+  assert.equal(inner.status, 1);
+  assert.equal(inner.json.ok, false);
+  assert.equal(inner.json.reason, "active-task-in-workspace");
+
+  fs.rmSync(stateDir, { recursive: true, force: true });
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test("public CLI policy explain fails closed on a corrupted .mottainai/workflow.json", () => {
+  const directory = gitWorkspace();
+  fs.mkdirSync(path.join(directory, ".mottainai"), { recursive: true });
+  fs.writeFileSync(path.join(directory, ".mottainai", "workflow.json"), "{ not json");
+  const result = runWorkflow("policy", "explain", "--workspace", directory);
+  assert.equal(result.status, 1);
+  assert.equal(result.json.ok, false);
   fs.rmSync(directory, { recursive: true, force: true });
 });
 

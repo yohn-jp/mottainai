@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -1139,4 +1140,54 @@ test("mottainai_telemetry_summary reports disabled state when telemetry is off, 
   assert.equal(content.by_provider.fff.calls, 1);
 
   await onClient.close();
+});
+
+test("mottainai_workflow_task_start/status/policy_explain are only listed and callable when gateway.workflowTasks is enabled (Issue #34)", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-proxy-workflow-"));
+  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: root });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: root });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
+  fs.writeFileSync(path.join(root, "file.txt"), "hello\n");
+  execFileSync("git", ["add", "."], { cwd: root });
+  execFileSync("git", ["commit", "-q", "-m", "initial"], { cwd: root });
+
+  const disabledClient = await connectedClient([], undefined, undefined, undefined, {
+    gateway: resolveGatewayConfig({ workspaceRoot: root }),
+  });
+  const { tools: disabledTools } = await disabledClient.listTools();
+  assert.equal(disabledTools.some((tool) => tool.name.startsWith("mottainai_workflow_")), false);
+  await assert.rejects(() => disabledClient.callTool({ name: "mottainai_workflow_task_status", arguments: {} }));
+  await disabledClient.close();
+
+  // `mottainai_workflow_task_status` goes through the default (non-injected) WorkflowStateStore
+  // singleton at this layer, so it opens a real sqlite file — point it at a throwaway
+  // directory rather than the real per-user state dir.
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-proxy-workflow-state-"));
+  const originalStateDir = process.env.MOTTAINAI_STATE_DIR;
+  process.env.MOTTAINAI_STATE_DIR = stateDir;
+  try {
+    const enabledClient = await connectedClient([], undefined, undefined, undefined, {
+      gateway: resolveGatewayConfig({ workspaceRoot: root, workflowTasks: true }),
+    });
+    const { tools: enabledTools } = await enabledClient.listTools();
+    const names = enabledTools.map((tool) => tool.name);
+    assert.ok(names.includes("mottainai_workflow_policy_explain"));
+    assert.ok(names.includes("mottainai_workflow_task_start"));
+    assert.ok(names.includes("mottainai_workflow_task_status"));
+
+    const status = await enabledClient.callTool({ name: "mottainai_workflow_task_status", arguments: {} });
+    const statusContent = status.structuredContent as Record<string, unknown>;
+    assert.equal(statusContent.status, "success");
+    assert.equal(statusContent.active, false);
+
+    const explain = await enabledClient.callTool({ name: "mottainai_workflow_policy_explain", arguments: {} });
+    assert.equal((explain.structuredContent as Record<string, unknown>).status, "success");
+
+    await enabledClient.close();
+  } finally {
+    if (originalStateDir === undefined) delete process.env.MOTTAINAI_STATE_DIR;
+    else process.env.MOTTAINAI_STATE_DIR = originalStateDir;
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+  fs.rmSync(root, { recursive: true, force: true });
 });

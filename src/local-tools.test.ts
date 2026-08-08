@@ -15,7 +15,7 @@ async function workspace(): Promise<{ root: string; config: ResolvedGatewayConfi
   await fs.writeFile(path.join(root, "src", "sample.ts"), "export function useful() {\n  return 1;\n}\nexport const value = 2;\n");
   await fs.writeFile(path.join(root, "needle.txt"), "one\nneedle here\nthree\n");
   await fs.writeFile(path.join(root, "node_modules", "ignored.txt"), "needle ignored");
-  return { root, config: { workspaceRoot: root, defaultTimeoutMs: 1_000, maxTimeoutMs: 2_000, maxOutputBytes: 1024, execTargetTokens: 1_000, resultTtlMs: 10_000, resultMaxEntries: 10, capabilityMap: {}, toolMetadata: {}, tokenBudgets: { tools: {}, capabilities: {}, profiles: {} } } };
+  return { root, config: { workspaceRoot: root, defaultTimeoutMs: 1_000, maxTimeoutMs: 2_000, maxOutputBytes: 1024, execTargetTokens: 1_000, resultTtlMs: 10_000, resultMaxEntries: 10, capabilityMap: {}, toolMetadata: {}, tokenBudgets: { tools: {}, capabilities: {}, profiles: {} }, workflowTasks: false } };
 }
 
 function structured(result: Awaited<ReturnType<typeof callLocalTool>>): Record<string, unknown> {
@@ -351,13 +351,30 @@ test("worktree_new tool is only listed when a worktree config is present", () =>
   const bareConfig: ResolvedGatewayConfig = {
     workspaceRoot: "/tmp", defaultTimeoutMs: 1_000, maxTimeoutMs: 2_000, maxOutputBytes: 1024, execTargetTokens: 1_000,
     resultTtlMs: 10_000, resultMaxEntries: 10, capabilityMap: {}, toolMetadata: {}, tokenBudgets: { tools: {}, capabilities: {}, profiles: {} },
+    workflowTasks: false,
   };
   assert.equal(localToolsFor(bareConfig).some((tool) => tool.name === "mottainai_worktree_new"), false);
 
   const withWorktree: ResolvedGatewayConfig = { ...bareConfig, worktree: { allowedBranchPrefixes: ["docs"], baseBranch: "main", worktreeDir: ".worktrees" } };
-  const names = localToolsFor(withWorktree).map((tool) => tool.name);
+  const tools = localToolsFor(withWorktree);
+  const names = tools.map((tool) => tool.name);
   assert.ok(names.includes("mottainai_worktree_new"));
   assert.ok(names.includes("mottainai_issue_view"));
+});
+
+test("worktree_new is annotated as deprecated in favor of mottainai_workflow_task_start (Issue #34), without changing its behavior", () => {
+  const withWorktree: ResolvedGatewayConfig = {
+    workspaceRoot: "/tmp", defaultTimeoutMs: 1_000, maxTimeoutMs: 2_000, maxOutputBytes: 1024, execTargetTokens: 1_000,
+    resultTtlMs: 10_000, resultMaxEntries: 10, capabilityMap: {}, toolMetadata: {}, tokenBudgets: { tools: {}, capabilities: {}, profiles: {} },
+    workflowTasks: false, worktree: { allowedBranchPrefixes: ["docs"], baseBranch: "main", worktreeDir: ".worktrees" },
+  };
+  const tool = localToolsFor(withWorktree).find((candidate) => candidate.name === "mottainai_worktree_new");
+  assert.ok(tool !== undefined);
+  assert.match(tool!.description ?? "", /Deprecated/);
+  assert.match(tool!.description ?? "", /mottainai_workflow_task_start/);
+  // 非推奨化は description のみの変更 — schema・挙動は不変であることの確認。
+  assert.deepEqual(tool!.inputSchema.required, ["prefix", "task"]);
+  assert.equal(tool!.annotations?.destructiveHint, false);
 });
 
 test("worktree_new creates a branch and worktree under the configured directory", async () => {
@@ -429,16 +446,17 @@ test("the advertised tool surface matches the executable tool surface for worktr
     worktree: { allowedBranchPrefixes: ["docs"], baseBranch: "main", worktreeDir: ".worktrees" },
   };
   const store = new InMemoryArtifactStore();
-  const guardedTools: Array<{ name: string; args: Record<string, unknown> }> = [
-    { name: "mottainai_worktree_new", args: { prefix: "docs", task: "example" } },
-    { name: "mottainai_issue_view", args: { number: 1 } },
+  const guardedTools: Array<{ name: string; args: Record<string, unknown>; enabled: (config: ResolvedGatewayConfig) => boolean }> = [
+    { name: "mottainai_worktree_new", args: { prefix: "docs", task: "example" }, enabled: (config) => config.worktree !== undefined },
+    { name: "mottainai_issue_view", args: { number: 1 }, enabled: (config) => config.worktree !== undefined },
   ];
+  const configs = [bareConfig, withWorktree];
 
-  for (const config of [bareConfig, withWorktree]) {
+  for (const config of configs) {
     const advertisedNames = new Set(localToolsFor(config).map((tool) => tool.name));
     for (const tool of guardedTools) {
       const isAdvertised = advertisedNames.has(tool.name);
-      assert.equal(isAdvertised, config.worktree !== undefined, `${tool.name} advertised state must track config.worktree`);
+      assert.equal(isAdvertised, tool.enabled(config), `${tool.name} advertised state must track its gating config field`);
       if (!isAdvertised) {
         // hidden from localToolsFor: calling it directly by name must still be rejected by the
         // same runtime guard, so the advertised and executable surfaces stay in lockstep.
@@ -450,7 +468,7 @@ test("the advertised tool surface matches the executable tool surface for worktr
     }
   }
   // every tool in allLocalTools is reachable through localToolsFor under some configuration.
-  const everAdvertised = new Set([...localToolsFor(bareConfig), ...localToolsFor(withWorktree)].map((tool) => tool.name));
+  const everAdvertised = new Set(configs.flatMap((config) => localToolsFor(config).map((tool) => tool.name)));
   for (const tool of allLocalTools) assert.ok(everAdvertised.has(tool.name), `${tool.name} must be advertised under some configuration`);
   await fs.rm(root, { recursive: true, force: true });
 });

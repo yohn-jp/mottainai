@@ -1,8 +1,15 @@
+import { execFileSync } from "node:child_process";
+import path from "node:path";
 import { collectDoctorReport, formatDoctorHuman } from "./commands/doctor.js";
 import { loadMottainaiConfig, loadRawConfig, resolveConfigPath, saveRawConfig } from "./config.js";
 import type { MottainaiConfig } from "./config.js";
 import { formatInitHuman, runInit } from "./init.js";
 import { runServer } from "./server.js";
+import { validateIssueRef, validateTaskSlug } from "./workflow/commands/validate.js";
+import { startTask, getTaskStatusForWorkspace } from "./workflow/domain/task.js";
+import { explainWorkflowPolicy } from "./workflow/policy/explain.js";
+import { resolveEffectiveWorkflowPolicy } from "./workflow/policy/load.js";
+import type { WorkflowStateStore } from "./workflow/state/store.js";
 
 /**
  * upstream と profile の管理 CLI。
@@ -25,6 +32,9 @@ const USAGE = `usage:
   mottainai profile use <profile>                set gateway.activeProfile
   mottainai profile clear                        unset gateway.activeProfile
   mottainai doctor [--json]                      validate the local installation
+  mottainai policy explain [--workspace path]    resolved Git workflow policy (Issue #34)
+  mottainai task start <slug> [options]          start a Git workflow task (dedicated worktree/branch)
+  mottainai task status [--workspace path]       active Git workflow task for the current worktree
 
 add options:
   --transport streamableHttp  remote transport; inferred from --url
@@ -51,6 +61,10 @@ init options:
   --no-register          do not change MCP client registrations
   --no-doctor            skip post-initialization diagnostics
   --latest               register the unpinned npm package
+
+policy/task options:
+  --workspace path      Git repository root; defaults to the current Git repository's top level
+  --issue ref           issue reference for "task start" (omit for an ad-hoc, non-issue-bound task)
 `;
 
 function flag(argv: string[], name: string): string | undefined {
@@ -60,6 +74,48 @@ function flag(argv: string[], name: string): string | undefined {
 
 function hasFlag(argv: string[], name: string): boolean {
   return argv.includes(`--${name}`);
+}
+
+/** `--name` が渡された場合、値が欠落または別 flag に見える（`--` 始まり）なら fail する。
+ * 素の `flag()` はそのまま返すため、`--workspace` 抜けが cwd への静かな fallback に、
+ * `--workspace --issue 12` が `--issue` を workspace 値として誤読することにつながる
+ * （`task start` は worktree/branch を作るため、誤った workspace への書き込みになる）。 */
+function requireFlagValue(argv: string[], name: string): string | undefined {
+  if (!hasFlag(argv, name)) return undefined;
+  const value = flag(argv, name);
+  if (value === undefined || value.startsWith("--")) fail(`missing value for --${name}`);
+  return value;
+}
+
+function gitTopLevel(cwd: string): string | undefined {
+  try {
+    return execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd, encoding: "utf8" }).trim();
+  } catch {
+    return undefined;
+  }
+}
+
+/** `--workspace` 明示時はそれを、無ければ現在の Git リポジトリの top level を、
+ * どちらも無ければ cwd をそのまま使う（`init` の `--workspace` 既定と同じ考え方）。 */
+function resolveWorkflowWorkspace(argv: string[]): string {
+  const explicit = requireFlagValue(argv, "workspace");
+  if (explicit !== undefined) return path.resolve(process.cwd(), explicit);
+  return gitTopLevel(process.cwd()) ?? process.cwd();
+}
+
+/**
+ * `task start`/`task status` が使う `WorkflowStateStore`。MCP 面（`mottainai_workflow_task_*`）
+ * と同じ既定 DB ファイルを開く（`src/workflow/state/sqlite-store.ts` の
+ * `resolveStateDbPath` 共有）ため、CLI から始めた task を MCP 経由でも見える。
+ * `node:sqlite` の import は `ExperimentalWarning` を stderr に出す副作用があるため、
+ * `policy`/`list`/`init` 等このコマンドを使わない CLI 呼び出しに static import で
+ * 持ち込まない — 実際に `task` サブコマンドが呼ばれたときだけ dynamic import する。
+ */
+async function openWorkflowStateStore(): Promise<WorkflowStateStore> {
+  const { WorkflowSqliteStateStore } = await import("./workflow/state/sqlite-store.js");
+  const store = new WorkflowSqliteStateStore();
+  store.init();
+  return store;
 }
 
 function print(value: unknown): void {
@@ -219,6 +275,53 @@ export async function runCli(args: string[]): Promise<number> {
   if (hasFlag(argv, "json")) print(report);
   else console.log(formatDoctorHuman(report));
   return report.ok ? 0 : 1;
+} else if (command === "policy" && argv[0] === "explain") {
+  const workspace = resolveWorkflowWorkspace(argv);
+  const result = explainWorkflowPolicy(workspace);
+  if (!result.ok) {
+    print({ ok: false, workspace, error: result.reason });
+    return 1;
+  }
+  print({ ok: true, workspace, ...result.explained });
+} else if (command === "task" && argv[0] === "start") {
+  const taskSlug = argv[1];
+  if (taskSlug === undefined || taskSlug.startsWith("--")) fail(USAGE);
+  validateTaskSlug(taskSlug);
+  const workspace = resolveWorkflowWorkspace(argv);
+  const issueRef = requireFlagValue(argv, "issue");
+  validateIssueRef(issueRef);
+  const policyResult = resolveEffectiveWorkflowPolicy(workspace);
+  if (!policyResult.ok) {
+    print({ ok: false, workspace, error: policyResult.reason });
+    return 1;
+  }
+  const store = await openWorkflowStateStore();
+  try {
+    // `skipWorktree` を渡さない — task lifecycle は常に専用 worktree/branch を作る
+    // （main を含む現在の branch がそのまま work branch になることはない）。
+    const started = await startTask({ workspaceRoot: workspace, store, policy: policyResult.document, taskSlug, issueRef });
+    if (!started.ok) {
+      print({ ok: false, workspace, reason: started.reason, error: started.detail });
+      return 1;
+    }
+    print({ ok: true, workspace, task: started.task, worktree: started.worktree, warnings: started.warnings });
+  } finally {
+    store.close();
+  }
+} else if (command === "task" && argv[0] === "status") {
+  const workspace = resolveWorkflowWorkspace(argv);
+  const store = await openWorkflowStateStore();
+  try {
+    const result = await getTaskStatusForWorkspace(workspace, store);
+    if (!result.ok) {
+      print({ ok: false, workspace, error: result.reason });
+      return 1;
+    }
+    const { ok: _ok, ...rest } = result;
+    print({ ok: true, workspace, ...rest });
+  } finally {
+    store.close();
+  }
 } else {
   fail(USAGE);
 }

@@ -72,9 +72,10 @@ export const localTools: Tool[] = [
   },
 ];
 
+/** 既存呼び出し元を壊さないため、非推奨化のみで削除しない（Issue #34）。 */
 const worktreeNewTool: Tool = {
   name: "mottainai_worktree_new",
-  description: "Create a git worktree on a new branch, using the workspace's allowed branch prefixes.",
+  description: "Deprecated: superseded by mottainai_workflow_task_start. Create a git worktree on a new branch, using the workspace's allowed branch prefixes.",
   inputSchema: { type: "object", properties: {
     prefix: { type: "string" }, task: { type: "string" },
   }, required: ["prefix", "task"] }, outputSchema: OUTPUT_SCHEMA,

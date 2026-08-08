@@ -119,6 +119,9 @@ export interface GatewayConfig {
   tokenBudgets?: TokenBudgetsConfig;
   /** `mottainai_worktree_new` の許可 prefix・起点ブランチ設定。省略時はツールを非公開にする。 */
   worktree?: WorktreeConfig;
+  /** `mottainai_task_start`/`mottainai_task_status`（Git workflow task lifecycle）の公開可否。
+   * worktree 作成等の副作用を持つため、`worktree` 同様に既定 false（非公開）。 */
+  workflowTasks?: boolean;
 }
 
 export interface ResolvedGatewayConfig {
@@ -136,6 +139,7 @@ export interface ResolvedGatewayConfig {
   oauthProviderModule?: string;
   tokenBudgets: ResolvedTokenBudgets;
   worktree?: ResolvedWorktreeConfig;
+  workflowTasks: boolean;
 }
 
 /** 起動時に一度だけ解決した設定。以後の各層は同じ絶対パス基準を共有する。 */
@@ -155,6 +159,7 @@ const DEFAULT_GATEWAY_CONFIG: Omit<ResolvedGatewayConfig, "workspaceRoot"> = {
   capabilityMap: {},
   toolMetadata: {},
   tokenBudgets: { tools: {}, capabilities: {}, profiles: {} },
+  workflowTasks: false,
 };
 
 export function loadMottainaiConfig(configPath?: string): MottainaiConfig {
@@ -184,6 +189,7 @@ export function resolveGatewayConfig(
     activeProfile: config?.activeProfile,
     tokenBudgets: resolveTokenBudgets(config?.tokenBudgets),
     worktree: resolveWorktreeConfig(config?.worktree),
+    workflowTasks: config?.workflowTasks === true,
   };
 }
 
@@ -311,6 +317,7 @@ function normalizeGateway(value: unknown): GatewayConfig | undefined {
     toolMetadata: toolMetadataRecord(value.toolMetadata, "invalid gateway toolMetadata"),
     tokenBudgets: tokenBudgetsConfig(value.tokenBudgets, "invalid gateway tokenBudgets"),
     worktree: worktreeConfig(value.worktree, "invalid gateway worktree"),
+    workflowTasks: optionalBoolean(value.workflowTasks, "invalid gateway workflowTasks"),
   };
 }
 
@@ -485,6 +492,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function optionalString(value: unknown, message: string): string | undefined {
   if (value !== undefined && typeof value !== "string") {
+    throw new Error(message);
+  }
+  return value;
+}
+
+function optionalBoolean(value: unknown, message: string): boolean | undefined {
+  if (value !== undefined && typeof value !== "boolean") {
     throw new Error(message);
   }
   return value;

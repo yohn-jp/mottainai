@@ -6,7 +6,9 @@ import type { WorkflowStateStore, TaskId, TaskRecord, WorktreeRecord } from "../
 import { buildWorktreeNaming, createWorktree, decideBootstrap, detectWorktreeCollisions, runBootstrap } from "../git/worktree.js";
 import type { BootstrapDecision, RunBootstrapResult } from "../git/worktree.js";
 import { resolveRepositoryIdentity } from "./identity.js";
+import type { RepositoryInstanceId } from "./identity.js";
 import { resolveRepoState } from "./repo-state.js";
+import type { RepoStateKind } from "./repo-state.js";
 import { validateTransition, allowedNextTransitions } from "./lifecycle.js";
 import type { LifecycleState, TransitionBlockedInfo } from "./lifecycle.js";
 
@@ -96,6 +98,7 @@ export type StartTaskFailureReason =
   | "issue-already-claimed"
   | "branch-collision"
   | "path-collision"
+  | "active-task-in-workspace"
   | "git-worktree-add-failed";
 
 export interface StartTaskWarning {
@@ -133,6 +136,24 @@ function allowsMultipleActiveTasksPerIssue(policy: WorkflowPolicyDocument): bool
  * 予約した行を補償削除する。二重の補償（worktree だけ、または worktree+task の両方）を
  * 呼び出し順の逆順で行うことで、途中失敗でも DB に reserved のまま取り残さない。
  */
+/** instanceId+canonicalWorktreePath に一致する active worktree とその task を探す。
+ * 「今いる物理 worktree はすでに別 task が使っているか」を判定する唯一の入口 —
+ * `startTask` の重複開始拒否と `getTaskStatusForWorkspace` の現在地解決で共有する。 */
+function findActiveTaskAtWorktreePath(
+  store: WorkflowStateStore,
+  instanceId: RepositoryInstanceId,
+  canonicalWorktreePath: string,
+): { task: TaskRecord | undefined; worktree: WorktreeRecord } | undefined {
+  const worktree = store
+    .listWorktreesForInstance(instanceId)
+    .find((candidate) => candidate.status === "active" && candidate.canonicalPath === canonicalWorktreePath);
+  if (worktree === undefined) return undefined;
+  // task が undefined でもここでは握りつぶさず返す — worktrees→tasks の FK 制約上
+  // 起きないはずの状態だが、呼び出し元（startTask / getTaskStatusForWorkspace）に
+  // 「見えない」ままにすると fail-closed の意図が死ぬ。
+  return { task: store.getTask(worktree.taskId), worktree };
+}
+
 export async function startTask(input: StartTaskInput): Promise<StartTaskResult> {
   const { workspaceRoot, store, policy, taskSlug, issueRef } = input;
 
@@ -146,6 +167,22 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
   }
   if (!repoStateResult.state.supported) {
     return { ok: false, reason: "unsupported-repo-state", detail: repoStateResult.state.reason };
+  }
+
+  // 呼び出し元の cwd がそれ自体すでに別 task の active worktree である場合、ここで
+  // 新規 task を予約すると同じ物理 worktree に矛盾する2つの active task が
+  // 存在しうる（ネストした worktree を作る、または no-worktree task を重ねる）。
+  // policy 判定より前に、無条件で fail-closed に拒否する。
+  const conflicting = findActiveTaskAtWorktreePath(store, identityResult.identity.instanceId, identityResult.identity.worktreePath);
+  if (conflicting !== undefined) {
+    const taskDescription = conflicting.task !== undefined
+      ? `taskId=${conflicting.task.taskId}`
+      : `worktreeId=${conflicting.worktree.worktreeId} references a task missing from the store`;
+    return {
+      ok: false,
+      reason: "active-task-in-workspace",
+      detail: `this worktree already has an active task (${taskDescription}); finish or abandon it before starting another task here`,
+    };
   }
 
   if ((policy.worktree.issueRequired === "enforce" || policy.worktree.issueRequired === "confirm") && issueRef === undefined) {
@@ -322,4 +359,73 @@ export function transitionTask(store: WorkflowStateStore, taskId: TaskId, to: Li
   const validation = validateTransition(task.lifecycleState, to);
   if (!validation.allowed) return { ok: false, blocked: validation.blocked };
   return { ok: true, task: store.updateTaskLifecycleState(taskId, to) };
+}
+
+export interface WorkspaceGuardrailWarning {
+  code: string;
+  detail: string;
+}
+
+/** `getTaskStatusForWorkspace` の cwd 解決結果。task の有無に関わらず常に埋まる、
+ * 「今どこにいるか」の基本情報（MCP/CLI 側が task id を知らなくても呼べるための土台）。 */
+interface WorkspaceLocation {
+  instanceId: RepositoryInstanceId;
+  worktreePath: string;
+  branch: string | undefined;
+  repoStateKind: RepoStateKind;
+  warnings: WorkspaceGuardrailWarning[];
+}
+
+export type WorkspaceTaskStatusResult =
+  | ({ ok: true; active: true; status: TaskStatusResult } & WorkspaceLocation)
+  | ({ ok: true; active: false } & WorkspaceLocation)
+  | { ok: false; reason: string };
+
+/**
+ * taskId を持たない呼び出し側（MCP/CLI）のための入口。cwd から repository
+ * identity・repo state・「この物理 worktree に active task があるか」を副作用なく
+ * 解決する（`observeRepositoryInstance` は呼ばない — instance/path の観測記録は
+ * `startTask` の責務であり、`status` は読み取り専用のまま保つ）。
+ *
+ * git/repository の検出自体が失敗した場合（非 git ディレクトリ、git 呼び出しが
+ * 完走しない等）は `ok: false` で fail-closed にする — 「たぶんこの repository」で
+ * 推測して続行しない。detached HEAD 等の未サポート状態は `ok: true` のまま
+ * `warnings` に記録する（task が無いこと自体は正常系のため）。
+ */
+export async function getTaskStatusForWorkspace(workspaceRoot: string, store: WorkflowStateStore): Promise<WorkspaceTaskStatusResult> {
+  const identityResult = resolveRepositoryIdentity(workspaceRoot);
+  if (!identityResult.ok) return { ok: false, reason: identityResult.reason };
+
+  const repoStateResult = await resolveRepoState(workspaceRoot);
+  if (!repoStateResult.ok) return { ok: false, reason: repoStateResult.reason };
+
+  const warnings: WorkspaceGuardrailWarning[] = [];
+  if (!repoStateResult.state.supported) {
+    warnings.push({ code: `unsupported-repo-state:${repoStateResult.state.kind}`, detail: repoStateResult.state.reason });
+  }
+
+  const location: WorkspaceLocation = {
+    instanceId: identityResult.identity.instanceId,
+    worktreePath: identityResult.identity.worktreePath,
+    branch: repoStateResult.state.branch,
+    repoStateKind: repoStateResult.state.kind,
+    warnings,
+  };
+
+  const found = findActiveTaskAtWorktreePath(store, identityResult.identity.instanceId, identityResult.identity.worktreePath);
+  if (found === undefined) {
+    return { ok: true, active: false, ...location };
+  }
+  if (found.task === undefined) {
+    return { ok: false, reason: `active worktree ${found.worktree.worktreeId} references task ${found.worktree.taskId}, which is missing from the store` };
+  }
+
+  // found.task は既に store.getTask() 済みなので、getTaskStatus() で同じ id を
+  // 再取得する必要はない（その場合の「missing from the store」は既に上で判定済み）。
+  const status: TaskStatusResult = {
+    task: found.task,
+    worktrees: store.listWorktreesForTask(found.task.taskId),
+    allowedNextTransitions: allowedNextTransitions(found.task.lifecycleState),
+  };
+  return { ok: true, active: true, status, ...location };
 }

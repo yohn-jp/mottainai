@@ -17,7 +17,7 @@ function gatewayConfig(root: string): ResolvedGatewayConfig {
   return {
     workspaceRoot: root, defaultTimeoutMs: 5_000, maxTimeoutMs: 5_000, maxOutputBytes: 1024 * 1024,
     execTargetTokens: 1_000, resultTtlMs: 10_000, resultMaxEntries: 10,
-    capabilityMap: {}, toolMetadata: {}, tokenBudgets: { tools: {}, capabilities: {}, profiles: {} },
+    capabilityMap: {}, toolMetadata: {}, tokenBudgets: { tools: {}, capabilities: {}, profiles: {} }, workflowTasks: false,
   };
 }
 

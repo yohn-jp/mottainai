@@ -347,6 +347,32 @@ test("resolveGatewayConfig defaults tokenBudgets to empty maps (opt-in: no confi
   assert.equal(resolved.activeProfile, undefined);
 });
 
+test("resolveGatewayConfig defaults workflowTasks to false (mottainai_task_start/status stay unpublished)", () => {
+  assert.equal(resolveGatewayConfig(undefined).workflowTasks, false);
+  assert.equal(resolveGatewayConfig({ workflowTasks: true }).workflowTasks, true);
+  assert.equal(resolveGatewayConfig({ workflowTasks: false }).workflowTasks, false);
+});
+
+test("loadMottainaiConfig rejects a non-boolean gateway.workflowTasks", () => {
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      version: 2,
+      mcpServers: { one: { command: "node" } },
+      gateway: { workflowTasks: "yes" },
+    })),
+    /invalid gateway workflowTasks/,
+  );
+});
+
+test("loadMottainaiConfig round-trips gateway.workflowTasks=true", () => {
+  const configPath = writeConfig({
+    version: 2,
+    mcpServers: { one: { command: "node" } },
+    gateway: { workflowTasks: true },
+  });
+  assert.equal(loadMottainaiConfig(configPath).gateway?.workflowTasks, true);
+});
+
 test("config snapshot resolves MOTTAINAI_CONFIG once from its startup cwd (#59)", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-config-snapshot-"));
   const configDirectory = path.join(directory, "config");
