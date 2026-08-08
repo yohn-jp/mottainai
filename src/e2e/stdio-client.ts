@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -18,13 +18,38 @@ function processIsAlive(processId: number): boolean {
   }
 }
 
-function forceTerminate(processId: number): void {
+async function forceTerminate(processId: number): Promise<void> {
   if (process.platform === "win32") {
-    try {
-      execFileSync("taskkill", ["/pid", String(processId), "/t", "/f"], { stdio: "ignore" });
-    } catch {
-      // teardown は best effort。元のテストエラーを隠さない。
-    }
+    await new Promise<void>((resolve) => {
+      let timer: NodeJS.Timeout | undefined;
+      let killer: ReturnType<typeof spawn> | undefined;
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        if (timer !== undefined) clearTimeout(timer);
+        resolve();
+      };
+      timer = setTimeout(() => {
+        try {
+          killer?.kill();
+        } catch {
+          // teardown は best effort。元のテストエラーを隠さない。
+        }
+        killer?.unref();
+        finish();
+      }, FORCE_EXIT_TIMEOUT_MS);
+      try {
+        killer = spawn("taskkill", ["/pid", String(processId), "/t", "/f"], {
+          stdio: "ignore",
+          windowsHide: true,
+        });
+        killer.once("error", finish);
+        killer.once("close", finish);
+      } catch {
+        finish();
+      }
+    });
     return;
   }
   try {
@@ -60,7 +85,7 @@ async function closeWithDeadline(client: Client, processId: number | null): Prom
   }
 
   if (processId !== null && processIsAlive(processId)) {
-    forceTerminate(processId);
+    await forceTerminate(processId);
     const exited = await waitForProcessExit(processId, FORCE_EXIT_TIMEOUT_MS);
     if (!exited) {
       throw new Error(
@@ -102,7 +127,7 @@ export async function startGatewayViaStdio(options: StartGatewayOptions): Promis
     await client.connect(transport);
   } catch (error) {
     const processId = transport.pid;
-    if (processId !== null) forceTerminate(processId);
+    if (processId !== null) await forceTerminate(processId);
     throw error;
   }
   const processId = transport.pid;
