@@ -11,7 +11,10 @@ in the Claude and Codex registration examples in `README.md` together.
 
 ## [Unreleased]
 
-Nothing yet.
+- **Platform support policy**: Linux is Tier 1 / canonical, WSL2 is supported
+  as a Linux runtime, macOS is best effort / Tier 2, and native Windows is
+  unsupported. `v0.1.2` remains the historical final native-Windows
+  release/tag; Windows users should use WSL2.
 
 ## [0.1.2] - 2026-08-06
 

@@ -73,32 +73,6 @@ test("init resolves explicit and MOTTAINAI_CONFIG paths with server precedence",
   }
 });
 
-test("init discovers Windows executables through fixed and PATHEXT extensions", async () => {
-  const workspace = temporaryWorkspace();
-  const binaryDirectory = path.join(workspace, "bin");
-  fs.mkdirSync(binaryDirectory);
-  fs.writeFileSync(path.join(binaryDirectory, "claude.cmd"), "");
-  fs.writeFileSync(path.join(binaryDirectory, "codex.CUSTOM"), "");
-  const previousPath = process.env.PATH;
-  const previousPathExtensions = process.env.PATHEXT;
-  const previousPlatform = Object.getOwnPropertyDescriptor(process, "platform");
-  process.env.PATH = binaryDirectory;
-  process.env.PATHEXT = ".CUSTOM";
-  Object.defineProperty(process, "platform", { configurable: true, value: "win32" });
-  try {
-    const summary = await initialize(workspace, "--scope", "project");
-    assert.deepEqual(summary.detected_clients, ["claude", "codex"]);
-  } finally {
-    if (previousPath === undefined) delete process.env.PATH;
-    else process.env.PATH = previousPath;
-    if (previousPathExtensions === undefined) delete process.env.PATHEXT;
-    else process.env.PATHEXT = previousPathExtensions;
-    if (previousPlatform === undefined) delete (process as { platform?: string }).platform;
-    else Object.defineProperty(process, "platform", previousPlatform);
-    fs.rmSync(workspace, { recursive: true, force: true });
-  }
-});
-
 test("init personal scope updates Git info/exclude without touching .gitignore", async () => {
   const workspace = temporaryWorkspace();
   try {
@@ -156,8 +130,7 @@ test("init refuses to wait for input in a non-TTY without --yes", async () => {
   }
 });
 
-/** unix shebang + 実行ビットで client を偽装するため、Windows では別スキップとする。 */
-test("init import drops literal credentials from upstream registrations", { skip: process.platform === "win32" }, async () => {
+test("init import drops literal credentials from upstream registrations", async () => {
   const workspace = temporaryWorkspace();
   const binaryDirectory = path.join(workspace, "bin");
   fs.mkdirSync(binaryDirectory);
@@ -232,7 +205,7 @@ test("init import drops literal credentials from upstream registrations", { skip
   }
 });
 
-test("init does not register when a client listing fails", { skip: process.platform === "win32" }, async () => {
+test("init does not register when a client listing fails", async () => {
   const workspace = temporaryWorkspace();
   const binaryDirectory = path.join(workspace, "bin");
   const client = path.join(binaryDirectory, "claude");
@@ -319,7 +292,7 @@ test("init does not fail when --client none is used", async () => {
   }
 });
 
-test("init warns when an imported client listing times out", { skip: process.platform === "win32" }, async () => {
+test("init warns when an imported client listing times out", async () => {
   const workspace = temporaryWorkspace();
   const binaryDirectory = path.join(workspace, "bin");
   const client = path.join(binaryDirectory, "claude");
@@ -396,8 +369,7 @@ test("registration command quotes a configuration path that contains whitespace"
   }
 });
 
-/** テスト用ディレクトリ名に `*` などの Windows で使用不可な文字を含むため、Windows ではスキップする。 */
-test("registration command neutralizes shell metacharacters in a configuration path", { skip: process.platform === "win32" }, async () => {
+test("registration command neutralizes shell metacharacters in a configuration path", async () => {
   const workspace = temporaryWorkspace();
   const hostileWorkspace = path.join(workspace, "a'b$(touch pwned)c`touch pwned2`d;e&f*g");
   fs.mkdirSync(hostileWorkspace);
@@ -441,7 +413,7 @@ test("registration command neutralizes shell metacharacters in a configuration p
   }
 });
 
-test("generated client registration command is self-sufficient regardless of MCP client cwd", { skip: process.platform === "win32" }, async () => {
+test("generated client registration command is self-sufficient regardless of MCP client cwd", async () => {
   const workspace = temporaryWorkspace();
   const unrelatedCwd = temporaryWorkspace();
   const binaryDirectory = path.join(workspace, "bin");

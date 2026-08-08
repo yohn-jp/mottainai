@@ -31,8 +31,7 @@ export function runChild(
   env?: NodeJS.ProcessEnv,
 ): Promise<RunResult> {
   return new Promise((resolve) => {
-    const detached = process.platform !== "win32";
-    const spawnOptions: SpawnOptions = { cwd, shell, detached, stdio: ["ignore", "pipe", "pipe"] };
+    const spawnOptions: SpawnOptions = { cwd, shell, detached: true, stdio: ["ignore", "pipe", "pipe"] };
     if (env !== undefined) spawnOptions.env = env;
     const child = spawn(command, args, spawnOptions);
     let stdout = ""; let stderr = ""; let bytes = 0; let timedOut = false; let outputLimit = false; let settled = false;
@@ -48,13 +47,13 @@ export function runChild(
       }
     };
     const forceTerminate = (): void => {
-      if (detached && child.pid) {
+      if (child.pid) {
         try { process.kill(-child.pid, "SIGKILL"); } catch { /* child already ended */ }
       }
       child.kill("SIGKILL");
     };
     const terminate = (): void => {
-      if (detached && child.pid) {
+      if (child.pid) {
         try { process.kill(-child.pid, "SIGTERM"); } catch { /* child already ended */ }
       } else {
         child.kill("SIGTERM");
@@ -97,7 +96,6 @@ export type ManagedProcessState = "running" | "exited";
  */
 export class ManagedProcess {
   private readonly child: ReturnType<typeof spawn>;
-  private readonly detached: boolean;
   private stdout = "";
   private stderr = "";
   private bytes = 0;
@@ -111,8 +109,7 @@ export class ManagedProcess {
 
   constructor(command: string, cwd: string, maxOutputBytes: number, shell: boolean, env?: NodeJS.ProcessEnv) {
     this.startedAt = Date.now();
-    this.detached = process.platform !== "win32";
-    const spawnOptions: SpawnOptions = { cwd, shell, detached: this.detached, stdio: ["ignore", "pipe", "pipe"] };
+    const spawnOptions: SpawnOptions = { cwd, shell, detached: true, stdio: ["ignore", "pipe", "pipe"] };
     if (env !== undefined) spawnOptions.env = env;
     this.child = spawn(command, [], spawnOptions);
     this.settled = new Promise((resolve) => { this.resolveSettled = resolve; });
@@ -147,7 +144,7 @@ export class ManagedProcess {
   /** 猶予付き協調終了（SIGTERM → grace 経過後 SIGKILL）。 */
   terminate(): void {
     if (this.settledFlag) return;
-    if (this.detached && this.child.pid) {
+    if (this.child.pid) {
       try { process.kill(-this.child.pid, "SIGTERM"); } catch { /* child already ended */ }
     } else {
       this.child.kill("SIGTERM");
@@ -158,7 +155,7 @@ export class ManagedProcess {
   /** 即時 SIGKILL。connection/process shutdown や abandoned handle の cleanup で使う。 */
   forceTerminate(): void {
     if (this.settledFlag) return;
-    if (this.detached && this.child.pid) {
+    if (this.child.pid) {
       try { process.kill(-this.child.pid, "SIGKILL"); } catch { /* child already ended */ }
     }
     this.child.kill("SIGKILL");

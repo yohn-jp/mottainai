@@ -113,9 +113,11 @@ Repository files cannot enable a Ruleset. Configure a Ruleset for `main` manuall
 - Disable bypasses, including administrators
 - Require the status check `Governance / validate-pr`
 - Require `CI / install / typecheck / test / build (Node 22)`
-- Require `CI / install / typecheck / test / build (Node 24)`
 - Require `CI / coverage (Node 22)`
-- Require `CI / coverage (Node 24)`
+
+The active repository ruleset does not require a native-Windows check or the
+Linux Node 24 compatibility smoke. Issue #88 removes native-Windows CI; no
+branch-protection setting is changed by this repository change.
 
 `.github/CODEOWNERS` currently assigns the governance paths to the valid
 individual user `@yohnark`. A future migration to an existing Organization

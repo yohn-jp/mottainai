@@ -3,11 +3,10 @@ import path from "node:path";
 import { test } from "node:test";
 import { resolveStateDbPath, resolveStateDir, STATE_DB_FILE_NAME } from "./paths.js";
 
-test("resolveStateDir: MOTTAINAI_STATE_DIR override wins on every platform", () => {
+test("resolveStateDir: MOTTAINAI_STATE_DIR override wins on supported platforms", () => {
   const env = { MOTTAINAI_STATE_DIR: "/custom/state/dir" };
   assert.equal(resolveStateDir(env, "linux"), path.resolve("/custom/state/dir"));
   assert.equal(resolveStateDir(env, "darwin"), path.resolve("/custom/state/dir"));
-  assert.equal(resolveStateDir(env, "win32"), path.resolve("/custom/state/dir"));
 });
 
 test("resolveStateDir: linux uses XDG_STATE_HOME when set", () => {
@@ -28,11 +27,6 @@ test("resolveStateDir: linux ignores a relative XDG_STATE_HOME", () => {
 test("resolveStateDir: macOS uses Application Support", () => {
   const env = { HOME: "/Users/user" };
   assert.equal(resolveStateDir(env, "darwin"), path.join("/Users/user", "Library", "Application Support", "mottainai"));
-});
-
-test("resolveStateDir: windows uses LOCALAPPDATA when set", () => {
-  const env = { HOME: "C:\\Users\\user", LOCALAPPDATA: "C:\\Users\\user\\AppData\\Local" };
-  assert.equal(resolveStateDir(env, "win32"), path.join("C:\\Users\\user\\AppData\\Local", "mottainai"));
 });
 
 test("resolveStateDir: never resolves inside cwd/node_modules/tmp by default", () => {

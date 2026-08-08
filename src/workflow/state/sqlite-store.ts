@@ -32,9 +32,8 @@ export interface WorkflowSqliteStateStoreOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-/** state directory / DB ファイルを所有者のみ読める権限に絞る（対応 Unix のみ）。 */
+/** state directory / DB ファイルを所有者のみ読める権限に絞る。 */
 function restrictToOwner(targetPath: string, mode: number): void {
-  if (process.platform === "win32") return;
   try {
     fs.chmodSync(targetPath, mode);
   } catch (err) {

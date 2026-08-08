@@ -148,38 +148,22 @@ function parseArguments(args: string[]): InitArguments {
 }
 
 function commandPath(command: string, environment: NodeJS.ProcessEnv = process.env): string | undefined {
-  const extensions = process.platform === "win32"
-    ? Array.from(new Set([
-      "",
-      ".exe",
-      ".cmd",
-      ".bat",
-      ...(environment.PATHEXT ?? "")
-        .split(";")
-        .map((extension) => extension.trim())
-        .filter(Boolean),
-    ]))
-    : [""];
   for (const directory of (environment.PATH ?? "").split(path.delimiter).filter(Boolean)) {
-    for (const extension of extensions) {
-      const candidate = path.join(directory, `${command}${extension}`);
-      try {
-        if (fs.statSync(candidate).isFile() && (process.platform === "win32" || (fs.statSync(candidate).mode & 0o111) !== 0)) {
-          return candidate;
-        }
-      } catch {
-        // 初期化中にPATHエントリが消える場合がある。
+    const candidate = path.join(directory, command);
+    try {
+      const stat = fs.statSync(candidate);
+      if (stat.isFile() && (stat.mode & 0o111) !== 0) {
+        return candidate;
       }
+    } catch {
+      // 初期化中にPATHエントリが消える場合がある。
     }
   }
   return undefined;
 }
 
 function spawnClientCommand(executable: string, args: string[]) {
-  const batchFile = process.platform === "win32" && /\.(?:cmd|bat)$/i.test(executable);
-  const command = batchFile ? (process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe") : executable;
-  const commandArguments = batchFile ? ["/d", "/s", "/c", executable, ...args] : args;
-  return spawnSync(command, commandArguments, {
+  return spawnSync(executable, args, {
     encoding: "utf8",
     timeout: INIT_OPERATION_TIMEOUT_MS,
   });

@@ -246,7 +246,7 @@ test("init(): closes the database handle when a migration fails, leaving the sto
   );
 });
 
-test("init(): restricts the state directory, database file, and WAL sidecars to owner-only permissions", { skip: process.platform === "win32" }, () => {
+test("init(): restricts the state directory, database file, and WAL sidecars to owner-only permissions", () => {
   const dbPath = tmpDbPath();
   const dir = path.dirname(dbPath);
   // ディレクトリは既に存在する（tmpDbPath が mkdtempSync 済み）状態で、緩い permission から始める。

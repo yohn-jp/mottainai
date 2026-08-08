@@ -4,13 +4,8 @@ import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-const npmInvocation = process.platform === "win32"
-  ? {
-      command: process.execPath,
-      prefixArgs: [path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js")],
-    }
-  : { command: "npm", prefixArgs: [] };
-const tarCommand = process.platform === "win32" ? "tar.exe" : "tar";
+const npmInvocation = { command: "npm", prefixArgs: [] };
+const tarCommand = "tar";
 export const MAX_TRANSCRIPT_BYTES = 32 * 1024;
 export const MAX_STDERR_TAIL_BYTES = 16 * 1024;
 const MAX_UNFRAMED_STDOUT_BYTES = 32 * 1024;
@@ -55,7 +50,7 @@ export function extractTarball(tarballPath, destinationDir) {
  * node_modules（`repoRoot` 側、package.json の依存関係と同一）をそのまま再利用する。
  */
 export function linkDependencies(extractedPackageDir, repoRoot) {
-  fs.symlinkSync(path.join(repoRoot, "node_modules"), path.join(extractedPackageDir, "node_modules"), "junction");
+  fs.symlinkSync(path.join(repoRoot, "node_modules"), path.join(extractedPackageDir, "node_modules"), "dir");
 }
 
 /**
@@ -79,7 +74,7 @@ export function resolvePackagedBin(extractedPackageDir, binName = "mottainai") {
   if (firstLine !== "#!/usr/bin/env node") {
     throw new Error(`packed bin target has unexpected shebang: ${JSON.stringify(firstLine)}`);
   }
-  if (process.platform !== "win32") fs.chmodSync(binPath, 0o755);
+  fs.chmodSync(binPath, 0o755);
   return binPath;
 }
 
@@ -105,50 +100,13 @@ function killChild(child) {
   }
 }
 
-export function killProcessTree(child, options = {}) {
+export function killProcessTree(child) {
   if (child?.pid === undefined || child.pid === null) return;
-  const platform = options.platform ?? process.platform;
-  if (platform === "win32") {
-    const timeoutMs = options.timeoutMs ?? WINDOWS_KILL_TIMEOUT_MS;
-    const spawnTaskkill = options.spawnTaskkill ?? ((pid) => spawn("taskkill", ["/pid", String(pid), "/t", "/f"], {
-      stdio: "ignore",
-      windowsHide: true,
-    }));
-    let taskkill;
-    try {
-      taskkill = spawnTaskkill(child.pid);
-    } catch {
-      killChild(child);
-      return;
-    }
-    let completed = false;
-    let timeout;
-    const finish = (succeeded) => {
-      if (completed) return;
-      completed = true;
-      if (timeout !== undefined) clearTimeout(timeout);
-      if (!succeeded) {
-        try {
-          taskkill.kill();
-        } catch {
-          // taskkill 自体が終了不能でも対象 child の停止を続ける。
-        }
-        killChild(child);
-      }
-    };
-    taskkill.once("error", () => finish(false));
-    taskkill.once("close", (code) => finish(code === 0));
-    timeout = setTimeout(() => finish(false), timeoutMs);
-    timeout.unref?.();
+  try {
+    process.kill(-child.pid, "SIGKILL");
     return;
-  }
-  if (platform !== "win32") {
-    try {
-      process.kill(-child.pid, "SIGKILL");
-      return;
-    } catch {
-      // process group が既に消えている場合は個別 kill へ進む。
-    }
+  } catch {
+    // process group が既に消えている場合は個別 kill へ進む。
   }
   killChild(child);
 }
@@ -157,28 +115,21 @@ const trackedChildren = new Set();
 process.once("exit", () => {
   for (const child of trackedChildren) {
     if (child.exitCode === null && child.signalCode === null) {
-      // exit eventでは非同期taskkillを待てないため、Windowsは直接killでbounded cleanupする。
-      if (process.platform === "win32") killChild(child);
-      else killProcessTree(child);
+      killProcessTree(child);
     }
   }
 });
 
 /** ndjson JSON-RPC over stdio の最小 black-box client。実プロセスの外側から protocol を検証する。 */
 export class McpStdioClient {
-  /** dist ファイルを node で起動する。shebang には依存しない built-artifact 経路。 */
+  /** dist ファイルを node で起動する built-artifact 経路。 */
   static launchNode(entryPath, options = {}) {
     return new McpStdioClient(process.execPath, [entryPath], options);
   }
 
-  /**
-   * POSIX: shebang 経由で bin を直接起動し、shebang 破損・実行権限欠如を検出できる形で実行する。
-   * Windows: shebang は解釈されないため node 経由で同じ dist ファイルを起動する。
-   */
+  /** shebang 経由で bin を直接起動し、shebang 破損・実行権限欠如を検出する。 */
   static launchPackaged(binPath, options = {}) {
-    const command = process.platform === "win32" ? process.execPath : binPath;
-    const args = process.platform === "win32" ? [binPath] : [];
-    return new McpStdioClient(command, args, options);
+    return new McpStdioClient(binPath, [], options);
   }
 
   constructor(command, args, options = {}) {
@@ -203,7 +154,7 @@ export class McpStdioClient {
     try {
       this.child = spawn(command, args, {
         ...options,
-        detached: options.detached ?? process.platform !== "win32",
+        detached: options.detached ?? true,
         stdio: ["pipe", "pipe", "pipe"],
       });
     } catch (error) {
