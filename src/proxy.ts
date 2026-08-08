@@ -26,7 +26,7 @@ import { InMemoryArtifactStore } from "./retrieve.js";
 import type { ArtifactStore } from "./retrieve.js";
 import { createTelemetrySink } from "./telemetry.js";
 import type { TelemetrySink } from "./telemetry.js";
-import { UpstreamRegistry } from "./upstream.js";
+import { hasUpstreamDiagnostic, upstreamErrorMessage, UpstreamRegistry } from "./upstream.js";
 import { callUpstreamTool, RETRIEVE_TOOL_NAME } from "./upstream-call.js";
 import { applyExecutionBudget, normalizeExecutionOutcome, providerErrorOutcome } from "./execution.js";
 import type { ExecutionOutcome } from "./execution.js";
@@ -202,9 +202,9 @@ export function registerProxyHandlers(
           selectedTool: selected.toolName,
           capability: capability ?? "unknown",
           risk: "unknown",
-          error: error instanceof Error ? error.message : String(error),
+          error: upstreamErrorMessage(error),
         }));
-      throw error;
+      throw hasUpstreamDiagnostic(error) ? new Error(upstreamErrorMessage(error)) : error;
     }
     const budgeted = applyExecutionBudget(
       dispatched,

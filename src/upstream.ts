@@ -40,8 +40,19 @@ interface UpstreamRecord {
 
 export type UpstreamConnector = (config: UpstreamConfig) => Promise<UpstreamHandle>;
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+interface UpstreamDiagnosticError extends Error {
+  mottainaiUpstreamDiagnostic?: string;
+}
+
+export function upstreamErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const diagnostic = (error as UpstreamDiagnosticError).mottainaiUpstreamDiagnostic;
+  return diagnostic === undefined ? error.message : `${error.message}; ${diagnostic}`;
+}
+
+export function hasUpstreamDiagnostic(error: unknown): boolean {
+  return error instanceof Error
+    && (error as UpstreamDiagnosticError).mottainaiUpstreamDiagnostic !== undefined;
 }
 
 export const UPSTREAM_STARTUP_TIMEOUT_MS = 2_000;
@@ -164,7 +175,7 @@ export class UpstreamRegistry {
         // 次の実行要求で無条件に再試行するため、失敗回数は診断のためだけに持つ。
         record.state = "unhealthy";
         record.failureCount += 1;
-        record.lastError = errorMessage(error);
+        record.lastError = upstreamErrorMessage(error);
         record.lastErrorAt = new Date().toISOString();
       }
       throw error;
@@ -180,7 +191,7 @@ export class UpstreamRegistry {
     record.handle = undefined;
     record.state = "unhealthy";
     record.failureCount += 1;
-    record.lastError = errorMessage(error);
+    record.lastError = upstreamErrorMessage(error);
     record.lastErrorAt = new Date().toISOString();
     if (handle) {
       try {
@@ -290,7 +301,14 @@ export async function connectUpstream(
     if (client !== undefined) await closeClient(client);
     const details = `provider=${config.name} phase=${phase} stderr_tail=${JSON.stringify(stderrTail.join(""))}`
       + ` transcript=${JSON.stringify(transcript)}`;
-    if (error instanceof UpstreamTimeoutError) throw new Error(`${errorMessage(error)}; ${details}`);
-    throw new Error(`upstream=${config.name} phase=${phase} failed: ${errorMessage(error)}; ${details}`);
+    if (error instanceof UpstreamTimeoutError) throw new Error(`${upstreamErrorMessage(error)}; ${details}`);
+    if (error instanceof Error) {
+      Object.defineProperty(error, "mottainaiUpstreamDiagnostic", {
+        configurable: true,
+        value: details,
+      });
+      throw error;
+    }
+    throw new Error(`upstream=${config.name} phase=${phase} failed: ${upstreamErrorMessage(error)}; ${details}`);
   }
 }
