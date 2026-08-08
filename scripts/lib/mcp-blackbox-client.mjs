@@ -4,7 +4,12 @@ import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+const npmInvocation = process.platform === "win32"
+  ? {
+      command: process.execPath,
+      prefixArgs: [path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js")],
+    }
+  : { command: "npm", prefixArgs: [] };
 const tarCommand = process.platform === "win32" ? "tar.exe" : "tar";
 export const MAX_TRANSCRIPT_BYTES = 32 * 1024;
 export const MAX_STDERR_TAIL_BYTES = 16 * 1024;
@@ -13,7 +18,14 @@ const MAX_STDIN_ERROR_BYTES = 1_024;
 
 /** 既存の dist を pack する。build は CI/local の明示的な Build stage で先に行う。 */
 export function packRepository(repoRoot, destinationDir) {
-  const stdout = execFileSync(npmCommand, ["pack", "--json", "--ignore-scripts", "--pack-destination", destinationDir], {
+  const stdout = execFileSync(npmInvocation.command, [
+    ...npmInvocation.prefixArgs,
+    "pack",
+    "--json",
+    "--ignore-scripts",
+    "--pack-destination",
+    destinationDir,
+  ], {
     cwd: repoRoot,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],

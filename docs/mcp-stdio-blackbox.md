@@ -89,4 +89,4 @@ pollingはfixture filesystem stateの観測専用。arbitrary sleepでprotocol r
 
 ## Platform
 
-CIはUbuntu/Windows × Node 22/24。EOF、disconnect、built-dist protocol、package subsetは全matrix。SIGINT/SIGTERMはPOSIXだけ実deliveryし、WindowsはNode `ChildProcess.kill`が同じsignal handler semanticsを提供しないためskip。Windowsではnode executable、`npm.cmd`/`tar.exe`のshellなしargv実行、path separator、launcher、junctionを実artifact経路で検証する。生成pathにspaceがあってもpack/extractを壊さない。
+CIはUbuntu/Windows × Node 22/24。EOF、disconnect、built-dist protocol、package subsetは全matrix。SIGINT/SIGTERMはPOSIXだけ実deliveryし、WindowsはNode `ChildProcess.kill`が同じsignal handler semanticsを提供しないためskip。WindowsではNode同梱`npm-cli.js`/`tar.exe`のshellなしargv実行、path separator、launcher、junctionを実artifact経路で検証する。生成pathにspaceがあってもpack/extractを壊さない。
