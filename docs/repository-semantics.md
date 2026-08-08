@@ -1,66 +1,95 @@
 # Repository Semantics
 
-## Foundation: canonical Repository Semantic IR
+## Canonical Repository Semantic IR
 
 Repository Semantic IRは、リポジトリの意味情報を表すstorage-independentな正規モデルです。Semantic Source、extractor、runtime observation、semantic diff、物理インデックスは、このモデルのproducerまたはconsumerであり、独自のnode・edge・contract表現を定義しません。
 
-### Snapshot
+### Symbol-first v1
 
-`RepositorySemanticSnapshot`は次を持ちます。
+`RepositorySemanticSnapshot`は`schemaVersion: 2`と`modelVersion: "symbol-first-v1"`を持ちます。#48のnumeric schema v1とは別世代です。旧shapeを新shapeへ暗黙coercionせず、`unsupported_schema_version`またはschema diagnosticで拒否します。
 
-- `schemaVersion`: serialized schemaの明示的なバージョン
-- `repositoryIdentity`: リポジトリの論理identity
-- `revisionIdentity`: 入力revisionのidentity
-- `analysis`: `complete` / `partial` / `unknown` と未解決事項
-- `nodes`: repository、package、module、file、symbol、component、contract、invariant、decision、policy、test、document、document_section
-- `edges`: v1のrelationship語彙と、将来の未知kind
-- `facts` / `claims`: provenance付きの意味情報
-- `diagnostics`: 構造・参照・解析状態の診断
+Snapshotのcanonical stateは次の5層です。
 
-配列順は意味を持ちません。`serializeSnapshot`はstable logical IDとedge tupleでcollectionを正規化し、object keyを決定論的に並べます。
+```text
+RepositorySemanticSnapshot
+  declarations
+  derived
+  observed
+  analysis
+  integrity
+```
 
-### Identityとlocator
+authority layerとprovenanceは別概念です。entity、relation、factは`authority`を持ち、producerと証拠の出所は`provenance`に保持します。`inferred` provenanceは明示的な推論であり、既定のenforcement authorityを持ちません。
 
-論理IDは`namespace:local-id`形式のstable stringです。`component:config-loader`や`invariant:startup-side-effect-free`のように意味entityの継続的なidentityを表します。content hash、line number、source rangeはlogical IDに含めません。
+### Canonical entities
 
-`SymbolLocator`はlanguage、package、module、file、symbol、signatureを表します。line/source rangeは物理位置の補助情報だけです。同じsymbolが行移動した場合、locatorのrangeが変わってもlogical symbol IDは変わりません。
+Domain IRは次のentityを持ちます。
 
-### Provenanceと不確実性
+- Project、Component、Symbol
+- Capability、Contract、Invariant
+- Decision、Rationale、Constraint
+- Evidence、Test
+- File、Package、ExternalDependency、ExternalApi
 
-facts、claims、edges、nodesはproducer/versionとsource revisionを持つprovenanceを保持します。provenance kindは次の4値です。
+UI view、HTTP response、browser state、dashboard固有型はIRに含めません。#83のquery/fixture contractは、このdomain entityとuniversal relation graphのprojectionです。
 
-- `declared`: 明示的なプロジェクト authority
-- `derived`: 決定論的な静的導出
-- `observed`: test、runtime、toolの観測
-- `inferred`: heuristicやLLMによる推論。明示的な推論として扱い、既定のenforcement authorityにはしない
+`Symbol`は詳細分析の第一級単位です。`SymbolLocator`のlanguage、package、module、file、symbol、signatureからlogical IDを生成し、line、source range、content fingerprintはlogical identityに含めません。
 
-必要な情報にはevidence、confidence、completeness、ambiguityを追加できます。動的callの候補が一意でない場合も、edgeを捨てず、`inferred` provenanceと`ambiguity`で不確実性を表します。
+`Component`はownership / aggregation boundaryです。`graph.relations`の`owns`はComponentからSymbolへ向き、managed Symbolはexactly one ownerを要求します。Shared Symbolは`classification: "shared"`を明示し、`shares`を使います。Component clustering、directory layoutからの推測、推測ownershipの補完は行いません。
 
-### Contractとeffects
+### Universal relation graph
 
-ContractのINはlanguage signatureだけではありません。
+内部Symbol graphとPackage/API dependencyを別subsystemに分けず、`graph.relations`で統一します。既知のrelation vocabularyは次のとおりです。
 
-- `inputs.parameters`
-- `inputs.acceptedDomain`
-- `inputs.preconditions`
-- `inputs.dependencies`
-- `inputs.externalResources`
+`contains`、`owns`、`shares`、`defines`、`references`、`calls`、`imports`、`provides`、`requires`、`depends_on`、`implements`、`tests`、`verifies`、`documents`、`governs`、`constrained_by`、`uses_package`、`imports_api`、`evidence_for`
 
-OUTは次を表します。
+未知のrelation kindは将来拡張のため文字列として保持できます。relation targetはProject、Component、Symbol、Contract、Evidence、Package、ExternalApiなど全domain entityから解決します。
 
-- `outputs.returnValue`
-- `outputs.postconditions`
-- `outputs.errors`
-- `outputs.stateTransitions`
-- `outputs.externalCalls` / `outputs.externalEvents`
-- `outputs.effects`
+### Declared semantics
 
-effectは`filesystem.read`、`filesystem.write`、`network`、`process.exec`などのnamespaced stringです。closed enumではないため、後続producerは`vendor.cache.refresh`のような語彙を追加できます。
+`declarations`は明示的なproject authorityです。責務、capability、contract、invariant、rationale、constraint、effect policy、dependency policy、review guidance、stability、terminology、decision link、formal-English comment policyを保持します。
 
-### Schema validationとserialization
+Contractはparametersだけでなくaccepted domain、preconditions、dependencies、external resources、postconditions、errors、state transitions、external calls/events、effectsを分離して表現します。
 
-v1 schemaはZodで検証します。`validateSnapshot`はschema違反、malformed ID、local dangling reference、confidence範囲違反をstructured diagnosticとして返します。`parseSnapshot`はunsupported future schema versionを受理せず、`unsupported_schema_version` diagnosticを返します。
+### Derived / observed / analysis
 
-`serializeSnapshot`と`parseSnapshot`はJSON round-tripを提供します。serializationはfilesystem、SQLite、Kuzu、DuckDB、その他のstorage backendに依存しません。
+`derived`はrepository stateから決定論的に再生成可能なFile、Symbol、Package、ExternalDependency、ExternalApi、factを持ちます。`observed`はEvidence、Test、実行・CI・runtime観測factを持ちます。
 
-このfoundationでは、TypeScript AST extractor、Semantic Source YAML loader、database schema、CLI、MCP、Semantic Diff、JSDoc生成を実装しません。
+`analysis`はhealth、review level、semantic delta、claims、unknowns、recommended source reads、diagnosticsを持ちます。semantic-neutral transactionが実際のdeltaを生成した場合、`unauthorized: true`で表現できます。
+
+Transaction vocabularyはversion 1です。
+
+- intent: `semantic-neutral` / `semantic-change`
+- delta kind: `responsibility` / `capability` / `contract` / `effect` / `invariant` / `dependency-policy` / `public-surface`
+- review level: `L0` implementation-only、`L1` compatible semantic change、`L2` review-required semantic change、`L3` protected/breaking/violation
+
+### Repository integrity
+
+`integrity`はsemantic stateが記述するsource identityを明示します。
+
+- repository identity
+- Git revision/tree identity（取得可能な場合）
+- worktree identity
+- tracked file set
+- fileごとのphysical content fingerprint
+- fileごとのsemantic/extractor fingerprint（取得可能な場合）
+- schema version
+- extractor ID/version/options fingerprint
+- canonical semantic-state digest
+- model digest
+- snapshot digest
+- `fresh` / `stale` / `invalid`
+
+`mtime`はcorrectness authorityではありません。staleまたはinvalidには理由を必須とし、freshnessはcontent identity、Git identity、worktree、extractor configurationに結び付けます。
+
+### Canonical prose policy
+
+canonical semantic proseはformal Englishです。人間向けlocalizationとLLM token compressionはprojectionであり、canonical authoring stateではありません。fully managed source scopeのsource commentはimplementationに限定し、rationale、TODO/debt intent、review note、constraint、API meaningはsemantic entityへ置きます。inlineにはallowlisted machine/compiler/legal directiveだけ残し、JSDocはprojectionです。
+
+### Validation and serialization
+
+Zod schemaはschema version、model version、entity namespace、local reference、Symbol locator identity、Component ownership、inferred claim authority、integrity metadataを検証します。旧#48 schemaを受理せず、unknown relation kindは許容します。
+
+`serializeSnapshot` / `parseSnapshot`はdeterministic JSONとparse → serialize → parse round-tripを提供します。配列順に意味がないstate collectionとrelation graphはlogical ID、relation tuple、pathなどで正規化します。`computeSemanticStateDigest`、`computeModelDigest`、`computeSnapshotDigest`はcanonical inputへSHA-256を適用します。
+
+このfoundationでは、TypeScript production extractor、Semantic Mutation APIの実装、effect propagation、cache、live model compiler、Semantic Diff、dashboard redesign、permanent database、automatic Component clustering、LLM authority inferenceを実装しません。

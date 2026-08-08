@@ -1,19 +1,24 @@
-import { validateSnapshot } from "./schema.js";
+import { createHash } from "node:crypto";
+import { validateSemanticTransaction, validateSnapshot } from "./schema.js";
 import type {
-  AnalysisSummary,
-  AmbiguityMetadata,
-  EvidenceReference,
+  AnalysisState,
+  ContentDigest,
+  DeclaredState,
+  DerivedState,
+  EvidenceEntity,
+  ObservedState,
   Provenance,
   RepositorySemanticSnapshot,
   SemanticClaim,
-  SemanticDiagnostic,
-  SemanticEdge,
+  SemanticEntity,
   SemanticFact,
-  SemanticNode,
+  SemanticRelation,
+  SemanticTransaction,
   SnapshotValidationResult,
 } from "./types.js";
 
 export type ParseSnapshotResult = SnapshotValidationResult;
+export type ParseSemanticTransactionResult = ReturnType<typeof validateSemanticTransaction>;
 
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -33,11 +38,6 @@ function stableStringifyValue(value: unknown): string {
   throw new Error("semantic serialization encountered an unsupported value");
 }
 
-function compareStable(left: unknown, right: unknown): number {
-  return compareText(stableStringifyValue(left), stableStringifyValue(right));
-}
-
-/** compareStableの比較毎serializeを避け、sort keyを1回だけ計算してから並べ替える。 */
 function sortByKey<T>(items: T[], keyOf: (item: T) => unknown): T[] {
   return items
     .map((item) => ({ item, key: stableStringifyValue(keyOf(item)) }))
@@ -45,49 +45,57 @@ function sortByKey<T>(items: T[], keyOf: (item: T) => unknown): T[] {
     .map((entry) => entry.item);
 }
 
-function canonicalizeEvidence(evidence: EvidenceReference[]): EvidenceReference[] {
-  return [...evidence].sort(compareStable);
-}
-
-function canonicalizeAmbiguity(ambiguity: AmbiguityMetadata | undefined): AmbiguityMetadata | undefined {
-  if (ambiguity === undefined) return undefined;
-  return {
-    ...ambiguity,
-      ...(ambiguity.candidates === undefined ? {} : { candidates: [...ambiguity.candidates].sort(compareText) }),
-  };
-}
-
 function canonicalizeProvenance(provenance: Provenance): Provenance {
   return {
     ...provenance,
-    ...(provenance.evidence === undefined ? {} : { evidence: canonicalizeEvidence(provenance.evidence) }),
-    ...(provenance.ambiguity === undefined ? {} : { ambiguity: canonicalizeAmbiguity(provenance.ambiguity) }),
+    ...(provenance.evidence === undefined ? {} : { evidence: sortByKey([...provenance.evidence], (item) => item) }),
+    ...(provenance.ambiguity === undefined
+      ? {}
+      : {
+          ambiguity: {
+            ...provenance.ambiguity,
+            ...(provenance.ambiguity.candidates === undefined
+              ? {}
+              : { candidates: [...provenance.ambiguity.candidates].sort(compareText) }),
+          },
+        }),
   };
 }
 
-function canonicalizeNode(node: SemanticNode): SemanticNode {
-  return {
-    ...node,
-    identity: {
-      ...node.identity,
-      ...(node.identity.aliases === undefined ? {} : { aliases: [...node.identity.aliases].sort(compareText) }),
-      ...(node.identity.locators === undefined ? {} : { locators: [...node.identity.locators].sort(compareStable) }),
-    },
-    provenance: canonicalizeProvenance(node.provenance),
-    ...(node.contract === undefined ? {} : {
-      contract: {
-        ...node.contract,
+function canonicalizeEntity<T extends SemanticEntity>(entity: T): T {
+  const canonical = {
+    ...entity,
+    provenance: canonicalizeProvenance(entity.provenance),
+  } as T;
+  if (canonical.kind === "symbol") {
+    return canonical as T;
+  }
+  if (canonical.kind === "contract") {
+    return {
+      ...canonical,
+      definition: {
+        ...canonical.definition,
         outputs: {
-          ...node.contract.outputs,
-          effects: [...node.contract.outputs.effects].sort(compareText),
+          ...canonical.definition.outputs,
+          effects: [...canonical.definition.outputs.effects].sort(compareText),
         },
       },
-    }),
-  };
-}
-
-function canonicalizeEdge(edge: SemanticEdge): SemanticEdge {
-  return { ...edge, provenance: canonicalizeProvenance(edge.provenance) };
+    } as T;
+  }
+  if (canonical.kind === "decision") {
+    return {
+      ...canonical,
+      rationaleIds: [...canonical.rationaleIds].sort(compareText),
+      constraintIds: [...canonical.constraintIds].sort(compareText),
+    } as T;
+  }
+  if (canonical.kind === "rationale") {
+    return { ...canonical, decisionIds: [...canonical.decisionIds].sort(compareText) } as T;
+  }
+  if (canonical.kind === "test") {
+    return { ...canonical, evidenceIds: [...canonical.evidenceIds].sort(compareText) } as T;
+  }
+  return canonical;
 }
 
 function canonicalizeFact(fact: SemanticFact): SemanticFact {
@@ -98,38 +106,139 @@ function canonicalizeClaim(claim: SemanticClaim): SemanticClaim {
   return { ...claim, provenance: canonicalizeProvenance(claim.provenance) };
 }
 
-function canonicalizeAnalysis(analysis: AnalysisSummary): AnalysisSummary {
+function canonicalizeRelation(relation: SemanticRelation): SemanticRelation {
+  return { ...relation, provenance: canonicalizeProvenance(relation.provenance) };
+}
+
+function canonicalizeDeclared(declarations: DeclaredState): DeclaredState {
   return {
-    ...analysis,
-    unknowns: [...analysis.unknowns]
-      .map((unknown) => ({
-        ...unknown,
-        ...(unknown.subjects === undefined ? {} : { subjects: [...unknown.subjects].sort(compareText) }),
-      }))
-      .sort(compareStable),
+    ...declarations,
+    components: declarations.components.map(canonicalizeEntity).sort((left, right) => compareText(left.id, right.id)),
+    capabilities: declarations.capabilities
+      .map(canonicalizeEntity)
+      .sort((left, right) => compareText(left.id, right.id)),
+    contracts: declarations.contracts.map(canonicalizeEntity).sort((left, right) => compareText(left.id, right.id)),
+    invariants: declarations.invariants.map(canonicalizeEntity).sort((left, right) => compareText(left.id, right.id)),
+    decisions: declarations.decisions.map(canonicalizeEntity).sort((left, right) => compareText(left.id, right.id)),
+    rationales: declarations.rationales.map(canonicalizeEntity).sort((left, right) => compareText(left.id, right.id)),
+    constraints: declarations.constraints.map(canonicalizeEntity).sort((left, right) => compareText(left.id, right.id)),
+    facts: declarations.facts.map(canonicalizeFact).sort((left, right) => compareText(left.id, right.id)),
+    effectPolicies: sortByKey(
+      [...declarations.effectPolicies].map((item) => ({
+        ...item,
+        allow: [...item.allow].sort(compareText),
+        deny: [...item.deny].sort(compareText),
+        rationaleIds: [...item.rationaleIds].sort(compareText),
+      })),
+      (item) => item,
+    ),
+    dependencyPolicies: sortByKey(
+      [...declarations.dependencyPolicies].map((item) => ({
+        ...item,
+        allowedPackageIds: [...item.allowedPackageIds].sort(compareText),
+        deniedPackageIds: [...item.deniedPackageIds].sort(compareText),
+        rationaleIds: [...item.rationaleIds].sort(compareText),
+      })),
+      (item) => item,
+    ),
+    reviewGuidance: sortByKey([...declarations.reviewGuidance], (item) => item),
+    stability: sortByKey([...declarations.stability], (item) => item),
+    terminology: sortByKey(
+      [...declarations.terminology].map((item) => ({
+        ...item,
+        relatedEntityIds: [...item.relatedEntityIds].sort(compareText),
+      })),
+      (item) => item,
+    ),
+    decisionLinks: sortByKey([...declarations.decisionLinks], (item) => item),
+    commentPolicy: {
+      ...declarations.commentPolicy,
+      semanticCommentKinds: [...declarations.commentPolicy.semanticCommentKinds].sort(compareText),
+      inlineDirectives: [...declarations.commentPolicy.inlineDirectives].sort(compareText),
+    },
   };
 }
 
-function canonicalizeDiagnostic(diagnostic: SemanticDiagnostic): SemanticDiagnostic {
-  return { ...diagnostic };
+function canonicalizeDerived(derived: DerivedState): DerivedState {
+  return {
+    ...derived,
+    files: derived.files.map(canonicalizeEntity).sort((left, right) => compareText(left.id, right.id)),
+    symbols: derived.symbols.map(canonicalizeEntity).sort((left, right) => compareText(left.id, right.id)),
+    packages: derived.packages.map(canonicalizeEntity).sort((left, right) => compareText(left.id, right.id)),
+    externalDependencies: derived.externalDependencies
+      .map(canonicalizeEntity)
+      .sort((left, right) => compareText(left.id, right.id)),
+    externalApis: derived.externalApis.map(canonicalizeEntity).sort((left, right) => compareText(left.id, right.id)),
+    facts: derived.facts.map(canonicalizeFact).sort((left, right) => compareText(left.id, right.id)),
+  };
+}
+
+function canonicalizeObserved(observed: ObservedState): ObservedState {
+  const evidences: EvidenceEntity[] = observed.evidences.map(canonicalizeEntity);
+  return {
+    ...observed,
+    evidences: evidences.sort((left, right) => compareText(left.id, right.id)),
+    tests: observed.tests.map(canonicalizeEntity).sort((left, right) => compareText(left.id, right.id)),
+    facts: observed.facts.map(canonicalizeFact).sort((left, right) => compareText(left.id, right.id)),
+  };
+}
+
+function canonicalizeAnalysis(analysis: AnalysisState): AnalysisState {
+  return {
+    ...analysis,
+    semanticDelta: {
+      ...analysis.semanticDelta,
+      entries: sortByKey([...analysis.semanticDelta.entries], (item) => [item.subject, item.kind, item.id]),
+    },
+    facts: analysis.facts.map(canonicalizeFact).sort((left, right) => compareText(left.id, right.id)),
+    claims: analysis.claims.map(canonicalizeClaim).sort((left, right) => compareText(left.id, right.id)),
+    unknowns: sortByKey(
+      [...analysis.unknowns].map((unknown) => ({
+        ...unknown,
+        ...(unknown.subjects === undefined ? {} : { subjects: [...unknown.subjects].sort(compareText) }),
+      })),
+      (item) => item,
+    ),
+    recommendedSourceReads: sortByKey([...analysis.recommendedSourceReads], (item) => item),
+    diagnostics: sortByKey([...analysis.diagnostics], (item) => item),
+  };
+}
+
+function canonicalizeIntegrity(
+  integrity: RepositorySemanticSnapshot["integrity"],
+): RepositorySemanticSnapshot["integrity"] {
+  return {
+    ...integrity,
+    trackedFiles: sortByKey([...integrity.trackedFiles], (item) => item.path),
+    extractors: sortByKey([...integrity.extractors], (item) => item),
+  };
 }
 
 export function canonicalizeSnapshot(snapshot: RepositorySemanticSnapshot): RepositorySemanticSnapshot {
   return {
     ...snapshot,
+    declarations: canonicalizeDeclared(snapshot.declarations),
+    derived: canonicalizeDerived(snapshot.derived),
+    observed: canonicalizeObserved(snapshot.observed),
     analysis: canonicalizeAnalysis(snapshot.analysis),
-    nodes: snapshot.nodes.map(canonicalizeNode).sort((left, right) => compareText(left.identity.logicalId, right.identity.logicalId)),
-    edges: sortByKey(snapshot.edges.map(canonicalizeEdge), (edge) => [edge.kind, edge.from, edge.to, edge.id]),
-    facts: snapshot.facts.map(canonicalizeFact).sort((left, right) => compareText(left.id, right.id)),
-    claims: snapshot.claims.map(canonicalizeClaim).sort((left, right) => compareText(left.id, right.id)),
-    diagnostics: sortByKey(snapshot.diagnostics.map(canonicalizeDiagnostic), (item) => item),
+    integrity: canonicalizeIntegrity(snapshot.integrity),
+    graph: {
+      relations: sortByKey(snapshot.graph.relations.map(canonicalizeRelation), (relation) => [
+        relation.kind,
+        relation.from,
+        relation.to,
+        relation.id,
+      ]),
+    },
   };
 }
 
 export function serializeSnapshot(snapshot: RepositorySemanticSnapshot): string {
   const validation = validateSnapshot(snapshot);
   if (!validation.ok) {
-    throw new Error(`cannot serialize invalid semantic snapshot: ${validation.diagnostics.map((item) => item.code).join(",")}`);
+    throw new Error(
+      `cannot serialize invalid semantic snapshot: ${validation.diagnostics.map((item) => item.code).join(",")}`,
+    );
   }
   return `${stableStringifyValue(canonicalizeSnapshot(validation.snapshot))}\n`;
 }
@@ -141,20 +250,116 @@ export function parseSnapshot(serialized: string): ParseSnapshotResult {
   } catch (error) {
     return {
       ok: false,
-      diagnostics: [{
-        code: "invalid_serialized_json",
-        severity: "error",
-        message: error instanceof Error ? error.message : "serialized semantic snapshot is not valid JSON",
-      }],
+      diagnostics: [
+        {
+          code: "invalid_serialized_json",
+          severity: "error",
+          message: error instanceof Error ? error.message : "serialized semantic snapshot is not valid JSON",
+        },
+      ],
     };
   }
   const validation = validateSnapshot(value);
-  return validation.ok ? { ok: true, snapshot: canonicalizeSnapshot(validation.snapshot), diagnostics: [] } : validation;
+  return validation.ok
+    ? { ok: true, snapshot: canonicalizeSnapshot(validation.snapshot), diagnostics: [] }
+    : validation;
 }
 
 export function semanticEqualSnapshots(left: RepositorySemanticSnapshot, right: RepositorySemanticSnapshot): boolean {
   const leftValidation = validateSnapshot(left);
   const rightValidation = validateSnapshot(right);
   if (!leftValidation.ok || !rightValidation.ok) return false;
-  return stableStringifyValue(canonicalizeSnapshot(leftValidation.snapshot)) === stableStringifyValue(canonicalizeSnapshot(rightValidation.snapshot));
+  return (
+    stableStringifyValue(canonicalizeSnapshot(leftValidation.snapshot)) ===
+    stableStringifyValue(canonicalizeSnapshot(rightValidation.snapshot))
+  );
+}
+
+export function serializeSemanticTransaction(transaction: SemanticTransaction): string {
+  const validation = validateSemanticTransaction(transaction);
+  if (!validation.ok)
+    throw new Error(
+      `cannot serialize invalid semantic transaction: ${validation.diagnostics.map((item) => item.code).join(",")}`,
+    );
+  return `${stableStringifyValue(validation.transaction)}\n`;
+}
+
+export function parseSemanticTransaction(serialized: string): ParseSemanticTransactionResult {
+  let value: unknown;
+  try {
+    value = JSON.parse(serialized) as unknown;
+  } catch (error) {
+    return {
+      ok: false,
+      diagnostics: [
+        {
+          code: "invalid_serialized_json",
+          severity: "error",
+          message: error instanceof Error ? error.message : "serialized semantic transaction is not valid JSON",
+        },
+      ],
+    };
+  }
+  return validateSemanticTransaction(value);
+}
+
+export function digestCanonicalValue(value: unknown): ContentDigest {
+  return {
+    algorithm: "sha256",
+    value: createHash("sha256").update(stableStringifyValue(value), "utf8").digest("hex"),
+  };
+}
+
+export function computeSemanticStateDigest(snapshot: RepositorySemanticSnapshot): ContentDigest {
+  const validation = validateSnapshot(snapshot);
+  if (!validation.ok)
+    throw new Error(
+      `cannot digest invalid semantic snapshot: ${validation.diagnostics.map((item) => item.code).join(",")}`,
+    );
+  const canonical = canonicalizeSnapshot(validation.snapshot);
+  return digestCanonicalValue({
+    declarations: canonical.declarations,
+    derived: canonical.derived,
+    observed: canonical.observed,
+    analysis: canonical.analysis,
+    graph: canonical.graph,
+  });
+}
+
+export function computeModelDigest(snapshot: RepositorySemanticSnapshot): ContentDigest {
+  const validation = validateSnapshot(snapshot);
+  if (!validation.ok)
+    throw new Error(
+      `cannot digest invalid semantic snapshot: ${validation.diagnostics.map((item) => item.code).join(",")}`,
+    );
+  const canonical = canonicalizeSnapshot(validation.snapshot);
+  return digestCanonicalValue({
+    schemaVersion: canonical.schemaVersion,
+    modelVersion: canonical.modelVersion,
+    repositoryIdentity: canonical.repositoryIdentity,
+    revisionIdentity: canonical.revisionIdentity,
+    declarations: canonical.declarations,
+    derived: canonical.derived,
+    observed: canonical.observed,
+    analysis: canonical.analysis,
+    graph: canonical.graph,
+  });
+}
+
+export function computeSnapshotDigest(snapshot: RepositorySemanticSnapshot): ContentDigest {
+  const validation = validateSnapshot(snapshot);
+  if (!validation.ok)
+    throw new Error(
+      `cannot digest invalid semantic snapshot: ${validation.diagnostics.map((item) => item.code).join(",")}`,
+    );
+  const canonical = canonicalizeSnapshot(validation.snapshot);
+  return digestCanonicalValue({
+    ...canonical,
+    integrity: {
+      ...canonical.integrity,
+      semanticStateDigest: undefined,
+      modelDigest: undefined,
+      snapshotDigest: undefined,
+    },
+  });
 }
