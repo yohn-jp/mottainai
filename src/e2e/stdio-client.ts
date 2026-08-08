@@ -10,10 +10,10 @@ function resolveCliEntryPoint(): string {
 }
 
 export interface StartGatewayOptions {
-  cwd: string;
+  workingDirectory: string;
   configPath: string;
   /** 省略時はSDKの既定allowlistだけ継承させ、host環境全体を子プロセスへ渡さないため。 */
-  env?: Record<string, string>;
+  environment?: Record<string, string>;
 }
 
 export interface GatewayConnection {
@@ -26,8 +26,8 @@ export async function startGatewayViaStdio(options: StartGatewayOptions): Promis
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: ["--import", resolveTsxLoaderUrl(), resolveCliEntryPoint(), "serve", "--config", options.configPath],
-    cwd: options.cwd,
-    ...(options.env === undefined ? {} : { env: options.env }),
+    cwd: options.workingDirectory,
+    ...(options.environment === undefined ? {} : { env: options.environment }),
   });
   const client = new Client({ name: "mottainai-e2e-test-client", version: "0.0.0-test" }, { capabilities: {} });
   await client.connect(transport);

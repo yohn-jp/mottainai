@@ -15,7 +15,7 @@ test("gateway starts over stdio and serves local tools with a valid structured e
   const workspace = createTempDir(t, "mottainai-e2e-gateway-");
   const configPath = writeTestConfig(workspace, {});
 
-  const connection = await startGatewayViaStdio({ cwd: workspace, configPath });
+  const connection = await startGatewayViaStdio({ workingDirectory: workspace, configPath });
   t.after(() => connection.close());
 
   const { tools } = await connection.client.listTools();
