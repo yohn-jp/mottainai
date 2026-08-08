@@ -1,286 +1,135 @@
-# AGENTS.md — mottainai
+# AGENTS.md — Mottainai agent execution contract
 
-エージェント（Codex / Claude Code / その他）共通の運用指示。**このファイルがプロジェクト規約の正本**。`CLAUDE.md` は応答スタイルとこのファイルへの参照のみを持つ。
+このファイルは、Mottainaiで作業するagentの **canonical agent execution contract**。
+全リポジトリ規則の正本でも、プロジェクト百科事典でもない。作業の境界、証拠の扱い、context lifecycle、安全境界を定義し、詳細な規則は既存のstructured / executable authorityへ委譲する。
 
----
+同じ規則にmachine-readableまたはexecutableなauthorityがある場合、重複したMarkdown proseよりそちらを優先する。矛盾は隠さず、影響範囲とauthorityを報告する。
 
-## 0. 応答スタイル（原始人モード）
+## 1. Mission and authority
 
-日本語で簡潔に返す。詳細は `CLAUDE.md`。
+Mottainaiの目的は、agentとupstreamの間でtool定義・実行結果・作業証拠を、意味と追跡可能性を保ったままbounded projectionとして扱うこと。agentの作業も同じ原則に従う。
 
-- 削除: 敬語・丁寧語（です/ます）、クッション（これから/基本的に）、前置き（ご質問ありがとう）、ぼかし（〜かもしれません）、謝罪・進捗実況（〜を確認します/以降注意します）
-- 体言止め・用言止めOK。短い同義語。技術用語は正確維持。コードブロック無変更
-- パターン: `[対象] [状態/動作] [理由]。[次の手順]。`
-- 思考内容をテキスト出力で再度なぞらない。出力は結果・要約のみ
-- 不可: 「ご質問ありがとうございます、お答えします」
-- 可: 「圧縮パイプラインにバグ。修正:」
+- ユーザー依頼とaccepted Issueが、作業scope・acceptance criteria・non-goalsを定める。
+- machine-readable設定、validator、workflow、test runner、CIが、exact behaviorと判定のauthority。
+- domain documentは意図と入口を説明し、exact ruleを重複定義しない。
+- 会話は補助的な作業入力。`Conversation history is not durable project state.`
 
-**自動解除**（通常日本語に戻す）: 破壊的操作の確認、セキュリティ警告、ユーザー混乱時。該当部分が終わったらすぐ復帰。
+## 2. Task entry protocol
 
-**境界**: コード、コミットメッセージ、PR 本文は通常記述。
+1. Issue identity、目的、acceptance criteria、non-goals、許可されたpathを確定する。
+2. 専用worktreeとIssue branchを確認する。`main`、detached HEAD、他taskの変更を作業対象にしない。
+3. repository root、symbolic HEAD、branch ownership、既存変更、今回のmutation scopeを確認する。
+4. 必要なevidence capabilityとauthorityを選び、bounded taskに分割する。repository全探索を開始条件にしない。
+5. 既に正確なfile・原因・修正scopeが提示されている場合、探索を追加せず差分・validationへ進む。
 
-**テキスト形式ファイル生成時**（`.md` / `.txt` / `.json` 等）: 原始人口調を自動適用しない。初回のみ「原始人口調で書くか？」確認。いいえ/無回答なら通常日本語。
+長期taskでは、次のstateをauthoritative sourceから再構築できる状態で維持する。
 
----
+- task / Issue identity
+- current phase
+- permitted / modified scope
+- accepted decisions not canonical elsewhere
+- unresolved blockers
+- validation / evidence references
+- next action
 
-## 1. リポジトリの実態
+## 3. Context lifecycle / context economy
 
-複数の upstream MCP サーバーを 1 エンドポイントに集約し、**LLM に届く前にツール定義と実行結果を圧縮する**プロキシゲートウェイ。全体像は `README.md`。
+context lifecycleは次の順序で実行する。
 
+```text
+Prevent → Deduplicate → Externalize → Compact
 ```
-LLM ⇄ mottainai ⇄ [codegraph, fff-mcp, ...]
+
+### Prevent
+
+不要なREAD、広い検索、full log、同じcommandの再実行を開始前に抑える。必要なcapability、path、range、出力budgetを先に決める。
+
+### Deduplicate
+
+現在のprojection、artifact、result、reference、git stateを再利用する。既に結果が存在する情報を再READ・再実行しない。省略部分が必要なら保存されたresult referenceからbounded retrievalする。
+
+### Externalize
+
+会話にしかないtask stateやaccepted decisionを、利用可能なIssue、workflow state、branch/worktree state、validation artifact、result referenceなどのdurable sourceへ移す。将来機能や未配線のstate基盤を、現在利用可能な保存先として扱わない。
+
+### Compact
+
+context exhaustionまで待たない。clientがcompactionまたはcontext reset capabilityを持つ場合、reasoning qualityが劣化する前の安全なcheckpointで使う。特定clientの`/compact`コマンドを普遍的な手順にしない。
+
+compaction前に上記7項目と証拠referenceを外部化し、compaction後に同じauthoritative sourceからtask stateを再構築する。compaction後のrepository全探索、既読artifactの再READ、同一入力の再実行を禁止する。再検証が必要なのは入力・authority・環境が変わった場合だけ。
+
+### Projection integrity
+
+projectionやcompressionは、短縮を理由に意味・証拠・構文を壊さない。
+
+- code fence、inline code、URL、single / double quoted string、日本語を含む行を変形しない。
+- JSON Schemaの`description`以外のfield、`image` / `resource` content、`git diff`を変形しない。
+- projectionで落とす情報は、元結果を`result_id`等のreferenceから取得可能にする。
+- raw / full-file / full-log retrievalは通常経路にしない。必要時もrangeと目的を限定する。
+
+## 4. Repository understanding and progressive disclosure
+
+source explorationはprogressive disclosureで行う。
+
+```text
+fresh authoritative semantic/task projection
+→ structural/index query
+→ exact symbol/range evidence
+→ broad raw source only as last resort
 ```
 
-### レイヤ
+- freshでvalidなsemantic/task projectionが存在する場合、作業入口に使う。staleまたはinvalidなprojectionをcurrent truthとして使わない。
+- declared intent / responsibility / invariantと、実際のexecutable behaviorを同じauthorityとして扱わない。後者は実装、test、実行結果などで検証する。
+- 現在のtransitionとして、worktree-localでfreshnessを確認できる場合に限り`codegraph_explore`などのstructural/index queryと、Mottainaiのbounded read/search/list/result retrievalを使う。`codegraph first`を永久規則にしない。
+- exact symbol・range・artifactを優先し、broad raw sourceは最後の手段。全ファイル・全ログ・`src/**`の無目的なREADは禁止。
+- artifact/referenceが既にある場合、再実行ではなくreferenceから必要部分だけ取得する。
 
-| 層 | ファイル | 役割 |
-|---|---|---|
-| 起動 | `src/index.ts` | config 読み込み → upstream 接続 → stdio server |
-| 中継 | `src/proxy.ts` | `listTools` / `callTool` のルーティング、名前プレフィックス `<upstream>__<tool>` |
-| upstream | `src/upstream.ts` | 子プロセス起動（`StdioClientTransport` 前提） |
-| 設定 | `src/config.ts` | `mottainai.config.json` の `mcpServers` と `gateway` |
-| 圧縮 | `src/compress/*` | ANSI 除去 / JSON サンプリング / 行フィルタ / 既知 CLI / コード骨格 / tool description |
-| upstream 実行 | `src/upstream-call.ts` | 起動 → 実行 → ロギング → 圧縮 → 原文保持。prefix 経由と brokered 経由で共有 |
-| tool 目録 | `src/catalog.ts` / `src/broker.ts` | CatalogTool 構築、決定論的検索、profile による公開面の絞り込み |
-| routing | `src/adaptive/*` | タスク分類の受け取り、capability→provider 索引、trace、統計、policy 候補生成 |
-| 原文保持 | `src/retrieve.ts` | TTL 付きインメモリ artifact store（既定 15分 / 200件） |
-| ローカルツール | `src/local-tools.ts` | `mottainai_exec` 等、gateway 自前のツール |
-| ロギング | `src/logging.ts` | 圧縮前の生データを `.mottainai/log/` に JSON Lines |
-| 永続 state | `src/state/*` | `StateStore` 抽象、SQLite backend（`node:sqlite`）、session / read evidence / read decision、schema migration。現状は基盤のみで未配線（呼び出し元なし） |
-| Git workflow | `src/workflow/*`（Issue #28） | policy schema/presets/resolution（`policy/`）、repository identity + `WorkflowStateStore`（`domain/identity.ts`, `state/*`）。`src/state/*` の migration/DB を共有。詳細は `docs/workflow-policy.md` |
+Repository Semantics、永続task state、lifecycle enforcementなど将来または未実装の機能は、current capabilityとして記述・利用しない。実装され、freshnessとauthorityが明示された場合だけこのcontractのprojection入口に昇格する。
 
-### パッケージマネージャ: pnpm
+## 5. Mutation protocol
 
-lockfile は `pnpm-lock.yaml`。他のパッケージマネージャの lockfile を混在させない。
+- `main`へ直接変更しない。ユーザーまたはrepository workflowが要求するIssue worktree・branchを先に確保する。
+- 許可されたscopeだけ変更し、既存の無関係な変更を上書きしない。acceptance criteria変更、Issue外機能、無関係なrefactor、新しいMarkdown正本を追加しない。
+- Git操作、branch naming、worktree lifecycle、staging、commit、cleanupは`docs/workflow-policy.md`とそのstructured authorityに従う。
+- Issue / PR governance、title、body、changed-file rule、required checkは`docs/governance.md`と`scripts/governance-rules.json`に従う。
+- 変更をbounded checkpointで検証し、authorityが要求する形式でcommitする。push、PR作成、merge、rebase、Issue close、review reply / resolveは明示許可なしに行わない。
 
-| 用途 | コマンド |
+破壊的操作では通常の安全確認へ切り替え、対象を明示してから進める。
+
+## 6. Validation protocol
+
+- 変更pathとriskに対応するvalidation layerを`docs/testing.md`、test-suite classifier、package scripts、CI workflowから選ぶ。
+- executable / governance / documentation contractを変更した場合、対応するstandards・governance validationを実行する。不要な全suite実行を完了条件にしない。
+- validation結果はcommand、対象scope、環境、pass / fail / unavailable、artifact referenceで記録する。未実行、pending、hung、環境境界をpassと書かない。
+- 既存のvalidation artifactを、入力が変わっていないのに再生成しない。remote CIの状態はlocal passと分離する。
+
+## 7. Safety and trust-boundary invariants
+
+以下は短縮・projection・便利化の対象外。
+
+- `workspaceRoot`外へ出ない。pathはrealpath解決後も境界検証し、symlink経由の脱出を許さない。
+- `mottainai_exec`のworkspaceRootはOS sandboxではない。`shell: true`のarbitrary commandは、権限内のfilesystem、network、processへ到達できる。timeoutとoutput limitはaccess controlではない。
+- `mottainai_exec`はtrusted user / trusted workspaceにだけ公開する。OS-level sandbox未実装を、実装済みまたは保証済みと記述しない。
+- local toolの返却は`OUTPUT_SCHEMA`（`operation`、`status`、`summary`、`facts`、`diagnostics`、`metrics`、`result_id`、`truncated`）を保つ。`annotations`は実挙動と一致させ、`mottainai_exec`の`readOnlyHint: false`、`destructiveHint: true`、`idempotentHint: false`、`openWorldHint: true`を維持する。
+- routing candidateをMCP toolからactiveにしない。policyの承認・activateは`pnpm run policy approve`だけ。policyにprovider名を埋め込まず、provider解決は`CapabilityIndex`へ委譲する。
+- traceへevidence本文を入れない。既定はmetadataとdigestだけ、raw traceは`MOTTAINAI_TRACE_RAW=1`の明示opt-in時だけ。`_mottainai`をupstreamへ転送しない。
+- capability語彙を閉じたenumにしない。未知labelは失わず`known: false`として扱う。routing統計・candidate生成は決定論的にし、LLMをexecution pathへ入れない。
+
+## 8. Completion protocol
+
+完了前に、acceptance criteria、変更scope、unresolved blocker、validation evidence、next actionを再確認する。`git status`とdiffで無関係な変更・漏れを確認し、必要なcommitを作る。
+
+報告はchanged files、実装scope、validation結果、未検証の環境境界、follow-up候補、local commitとremote stateを分離して示す。diff全文・ログ全文・既読文書の再掲をしない。Issue外の問題は勝手に取り込まず、follow-up候補として分離する。
+
+## 9. Authority index
+
+| 責務 | authority |
 |---|---|
-| 依存インストール | `pnpm install`（lockfile 変更時は `pnpm install --frozen-lockfile`） |
-| ビルド | `pnpm run build` |
-| テスト | `pnpm test`（`node --import tsx --test "src/**/*.test.ts"`） |
-| typecheck | `pnpm run typecheck` |
-| upstream 管理 | `pnpm run mcp <list\|inspect\|add\|remove\|enable\|disable\|profile\|doctor>` |
-| policy 操作 | `pnpm run policy <list\|show\|approve\|traces\|stats>` |
-
-`tree-sitter` 系はネイティブビルドが必要（`pnpm approve-builds`）。初回 `pnpm install` 時に `ERR_PNPM_IGNORED_BUILDS` が出たら実行する。
-
-CI は `.github/workflows/ci.yml`（Node 22/24 の install → typecheck → test → build と、Node 22 の format / lint / architecture）。デプロイ系ワークフローは追加提案しない。
-
----
-
-## 2. 探索（最重要・トークン規律）
-
-このリポジトリは codegraph でインデックス済み（`.codegraph/`、TS 29ファイル）。**圧縮ゲートウェイを名乗る以上、自分の探索も無駄を出さない。**
-
-### 順序
-
-1. **`codegraph_explore` を 1 回**。シンボル定義・呼び出し関係・「X はどう動くか」はここが最短（呼び出し元・影響範囲まで 1 回で返る）
-2. 足りなければ**名前を絞った** codegraph 追加（最大あと 1〜2）
-3. Grep / Read は次だけ:
-   - 非インデックス対象 — `README.md` / `docs/*.md` / `package.json` / `tsconfig.json` / `mottainai.config.json*` / `.mottainai/log/*`
-   - staleness バナーが出た対象
-   - **編集直前の該当ファイル 1 本**
-
-### 禁止（硬）
-
-- codegraph がソースを返したあと、同じ記号・同じファイルを Grep/Read で「確認」する
-- ユーザーが原因・ファイル・修正方針を既に書いたとき → **探索 0**。差分・修正のみ
-- explore サブエージェント複数 / 指示があるのにリポジトリ再地図化
-
-探索は既定 **1 往復**。Todo・リポジトリ地図化はソロ実装ではやらない。
-
-`src/` は 2,500 行程度と小さい。全体を読み直すより codegraph の 1 クエリのほうが安い。
-
----
-
-## 3. 自己ドッグフーディング（このプロジェクト固有）
-
-このゲートウェイ自身が提供する `mottainai_*` ツールを、開発中も優先して使う。**自分が使わない圧縮は品質が落ちる。**
-
-| したいこと | 使うツール | 代わりに使わない |
-|---|---|---|
-| コマンド実行（test / build / typecheck） | `mottainai_exec` | 素の Bash（長い出力をそのまま食う） |
-| ファイル読み | `mottainai_read`（`mode: outline` / `symbols`） | 大きいファイルの Read 全文 |
-| 文字列検索 | `mottainai_search` | 素の `rg` / `grep` |
-| ディレクトリ一覧 | `mottainai_list` | `ls -R` |
-| 圧縮で落ちた原文 | `mottainai_result_get`（`query` / `startLine` / `maxLines`） | 同じコマンド再実行 |
-| 過去結果の探索 | `mottainai_result_search` | 再実行 |
-| upstream の状態確認 | `mottainai_runtime_status` | ログの手読み |
-
-`mottainai_exec` は既定 `targetTokens=1000` に収まるよう圧縮し、省略時は
-`⋯ mottainai omitted=N lines sha256=… ⋯` を挟む。**省略部分が必要なら再実行ではなく `mottainai_result_get`**（`result_id` を使う）。
-
-### 圧縮の不具合を見つけたときの扱い
-
-自分のツール経由で「圧縮しすぎて必要な行が消えた」「壊れた JSON が返った」を踏んだら、それは**このプロジェクトのバグ報告**。回避して先に進むだけで終わらせず、最小再現（入力テキスト + 期待出力）をユーザーに報告する。
-
-デバッグ時に圧縮を切る:
-
-```bash
-MOTTAINAI_COMPRESS=0                      # Step2/Step3まとめて停止
-MOTTAINAI_COMPRESS_TOOL_DESCRIPTIONS=0    # Step3 description圧縮のみ停止
-MOTTAINAI_COMPRESS_CODE=0                 # コード骨格化のみ停止
-MOTTAINAI_LOG=0                           # 生データロギング停止
-```
-
-`mottainai_exec` は引数 `compression: false` で単発の圧縮を切れる。
-
-### ローカルツールを触るときの不変条件
-
-- **`workspaceRoot` の外に出さない**。`resolveInside()`（`src/local-tools.ts`）が realpath 解決後にも境界を再検証する。シンボリックリンク経由の脱出を塞ぐ検査なので、片方だけの検査に簡略化しない
-- 全ローカルツールの返却は `OUTPUT_SCHEMA` 準拠（`operation` / `status` / `summary` / `facts` / `diagnostics` / `metrics` / `result_id` / `truncated`）。フィールドを削らない
-- `annotations`（`readOnlyHint` / `destructiveHint`）は実挙動と一致させる。読み取り専用ツールに副作用を足さない
-
-### `mottainai_exec` の trust mode と OS sandbox
-
-- `workspaceRoot` は OS sandbox ではない。`mottainai_exec` の初期 cwd と `cwd` 引数、read/search/list の path 解決だけを制約する
-- `mottainai_exec` は `shell: true` で任意コマンドを実行する。コマンド本文は `workspaceRoot` 外の絶対パス・`cd`・子プロセス経由の到達を防がない
-- 実行ユーザー権限で許される network、ファイル変更・削除、プロセス起動を防がない。timeout・出力上限は資源制御でありアクセス制御ではない
-- 現在の trust mode は運用上の信頼境界のみ。信頼済み利用者・信頼済みワークスペースにだけ `mottainai_exec` を公開する。非信頼入力には公開しない
-- OS sandbox 未実装。外部 sandbox なしで arbitrary exec の OS 隔離を提供しない。bubblewrap、sandbox-exec、コンテナ、trust mode 強制実装、OS sandbox テストは次段階
-- `mottainai_exec` の annotations は `readOnlyHint: false`、`destructiveHint: true`、`idempotentHint: false`、`openWorldHint: true` を維持。実挙動と一致
-
-### 呼び出し側監督型 routing を触るときの不変条件
-
-`src/adaptive/*`（trace / policy / capability 索引）は次を壊さない。
-
-- **候補 policy を MCP ツールから active にしない**。承認は `pnpm run policy approve` だけ。呼び出し側エージェントが自分の統計で自分の routing を書き換える経路を作らない
-- **trace に証拠本文を入れない**。既定は metadata のみ。呼び出し側の `context` は digest だけ保存し、原文は `MOTTAINAI_TRACE_RAW=1` のときに限る
-- **`_mottainai` は upstream へ転送しない**。`additionalProperties: false` の upstream schema を壊す
-- **capability 語彙を閉じた enum にしない**。未知ラベルは正規化して受け入れ、`known: false` として記録する。弾くとフィードバックそのものが失われる
-- **policy に provider 名を書かない**。規則は capability だけを扱い、provider 解決は `CapabilityIndex` が実行時に行う
-- 統計と候補生成は決定論的規則のみ。LLM を実行経路に入れない
-
----
-
-## 4. 圧縮ロジックを変更するときの規約
-
-**圧縮は「短くする」ことより「壊さない」ことが優先。** 判断に迷ったら圧縮しない側に倒す。
-
-### 無変形を守る対象（全レイヤ共通）
-
-- コードフェンス内 / inline code / URL / 引用文字列（シングル・ダブル）
-- 日本語を含む行（英語向け規則を適用しない）
-- JSON Schema の非 `description` フィールド（`type` / `enum` / `default` / `required` / `examples` 等）
-- `image` / `resource` タイプの content 要素
-- `git diff` 出力（パッチの根拠が消えるため）
-
-### 変更手順
-
-1. 規則は該当モジュールに閉じて足す（`src/compress/<layer>.ts`）。`proxy.ts` に個別ケースを直書きしない
-2. **テストは「短縮する例」と「短縮してはならない例」を必ず両方**追加する。片方だけの追加は不可
-3. 環境変数で切れるべき新レイヤは `src/compress/config.ts` に判定関数を足し、既定は有効
-4. `README.md` の圧縮規則一覧を、挙動が変わったら同じコミットで更新する
-
-### 追加してはいけない変更
-
-- 意味を変える言い換え・要約（機械的規則のみ。LLM 抽出器はロードマップ上 opt-in で別途）
-- tool 識別子の変更（プレフィックス付与以外）
-- upstream の元定義の破壊的書き換え（`listTools` は upstream 由来を保持したうえで写しを圧縮する）
-- 原文 artifact を保持せずに情報を落とす経路（落とすなら必ず `result_id` で辿れること）
-
----
-
-## 5. Git 運用
-
-- **コード変更・ファイル操作の着手前に作業ブランチを作成**。`main` 直接作業をしない
-- **変更完了ごとに即コミット**。まとめ置き禁止
-- コミットメッセージは Conventional Commits（`feat:` / `fix:` / `docs:` / `refactor:` / `test:`）。既存履歴に合わせる
-- push・PR 作成・ブランチ削除はユーザー明示時のみ
-- `mottainai.config.json` と `.mottainai/` は `.gitignore` 対象。**ログには upstream の生の実行結果が入りうるのでコミットしない**。例外は `.mottainai/workflow.json`（tracked な Git workflow policy、`docs/workflow-policy.md` 参照）
-
----
-
-## 6. 検証
-
-- 既定: **変更に対応するテスト 1 本**（`pnpm test` は全体でも数秒なので通してよい）
-- 型が疑わしい変更（`src/compress/index.ts` のオプション型、`CallToolResult` 周り）では `pnpm run typecheck`
-- `pnpm run build` は `dist/` を使う疎通確認をするときだけ
-- 新しい upstream の疎通確認は `Client` + `StdioClientTransport` の使い捨てスクリプトで `listTools()` を叩く
-
-### MCP サーバーの起動
-
-`node dist/index.js` は stdio を掴んで常駐する。**ユーザー許可なくフォアグラウンドで起動しない**（ハングに見える）。疎通確認は `Client` + `StdioClientTransport` の使い捨てスクリプトで `listTools()` を叩く。
-
-Claude Code 側へ反映するときは `/mcp reconnect mottainai`、またはセッション再起動。
-
----
-
-## 6.1 テスト層・coverage
-
-正本 `docs/testing.md` / `scripts/test-suites.mjs`。
-
-- `pnpm test` fast unit + contract。TDD default。integration/process、E2E、package smoke、coverage除外。
-- `pnpm run test:integration` filesystem/git/SQLite/CLI/subprocess/fault境界。
-- `pnpm run test:e2e` source gatewayのstdio black-box。
-- `pnpm run test:package` build後packed tarball smoke。`pnpm run smoke-test`単独はbuild済みdist前提。
-- `pnpm run test:standards` architecture/governance/classification/coverage-policy self-test。
-- `pnpm run test:coverage` Node 22/24 native coverage。`coverage/lcov.info` `coverage/summary.json`生成。line/function/branch gate。
-- `pnpm run verify` standards、typecheck、fast、integration、E2E、packageを決定的順序で全実行。
-
-テスト分類はコメント依存禁止。`.test.ts` `.spec.ts` `scripts/**/*.test.mjs` `scripts/smoke-test.mjs`をvalidatorが列挙し、各ファイルの単一suite所属、fastからの高コスト層除外、重複、full verification被覆を検証。既存colocated test移動・改名不要。
-
-coverage対象はproduction `src/**/*.ts` / `src/**/*.mjs`。test、fixture、test-support、E2E helper、declaration、generated、dist除外。baseline/critical threshold変更は `scripts/coverage-policy.json` と `docs/testing.md`を同一PRで更新し、実測値・source revision・Review focusを残す。未実行coverageをPR本文で完了扱いしない。
-
----
-
-## 7. コード規約
-
-`src/` の既存スタイルに合わせる。実行可能な規則は `scripts/architecture-check.mjs` / `eslint.config.mjs` / `prettier.config.mjs` を正本とし、周囲のコード模倣は人間レビュー規則として残す。
-
-- TypeScript strict / ESM（`module: NodeNext`）。相対 import は `.js` 拡張子付き（`./config.js`）
-- 命名は完全語。略語を作らない（`config` は既存だが `cfg` / `impl` / `res` を新規に増やさない）
-- コメントは日本語。**why のみ**書く（マジックナンバー、非自明な境界、回避策の理由）。what は書かない
-  - 例: `// 共通envelope分を約256 token確保。行境界を維持して先頭・末尾を残す。`
-- テストは `node:test` + `node:assert/strict`。対象ファイルと同階層に `<name>.test.ts`
-- 例外は `throw new Error("<lowercase message>")` で引数検証エラーを返す既存パターンに合わせる
-
-### 実行可能規則（Issue #25）
-
-正本は設定ファイル自体（`scripts/architecture-check.mjs`、`eslint.config.mjs`、`prettier.config.mjs`、`package.json` scripts）。コマンド一覧・検証内容は `docs/coding-standards.md` 参照。ドキュメント側に規則を二重列挙しない（`CONTRIBUTING.md` 第9項）。
-
-人間レビュー専用: 完全語identifier、whyコメント、圧縮意味保存、behavior invariant、subjective architecture taste。これらをlint failureへ追加しない。
-
----
-
-## 8. トークン規律
-
-- サブエージェントの並列起動はユーザー明示時のみ。このリポジトリの規模ではソロ実装が既定
-- 完了報告は変更パスと結果のみ。差分全文・ログ全文の再掲をしない
-- デバッグ: 計測 → 1 仮説 → 最小差分。効かなければ打ち切って報告。「直して様子見」の連鎖をしない
-- 生ログを見るときは `.mottainai/log/*.jsonl` を `jq` で絞る。全文を読み込まない
-
----
-
-## 9. 参照索引
-
-| 内容 | パス |
-|---|---|
-| プロジェクト概要・圧縮規則一覧 | `README.md` |
-| 応答スタイル | `CLAUDE.md` |
-| 探索 hook | `.claude/hooks/warn-grep.sh` |
-| Issue and PR contract | `docs/governance.md` |
-| Executable coding standard | `docs/coding-standards.md` / `scripts/architecture-check.mjs` |
-
-機能別の詳細ドキュメント（`docs/*.md`）は整理中。Issue・PR・差分連動規則の正本は`docs/governance.md`と`scripts/governance-rules.json`。
-
-**最短手順**: 作業ブランチ作成・switch（main直接変更禁止）→ codegraph 1 回 → 該当ファイル 1 本 Read → 修正 → 対応テスト 1 本 → Conventional Commits形式で即コミット。
-
----
-
-## 10. Issue and PR contract
-
-- Blank Issues disabled。実装前にIssue作成・合意。Maintenance IssueはIssue Formの全必須sectionを埋める
-- 作業ブランチはIssue番号を含む既定形式。PRは原則1件のIssueだけ閉じ、template全sectionを維持
-- 非Draft PRはTypecheck / Tests / Build完了必須。`scripts/governance-rules.json`のpackage影響path変更時Package check必須。Draftはready_for_reviewまで検証未完了許容
-- Governance required checkは`Governance / validate-pr`。PR Governanceは差分取得にhead、validator実行にbase revisionを使う。Governance変更はmerge後の後続PRへ適用
-- `.github/CODEOWNERS`の現行ownerは存在する個人ユーザー`@yohnark`。存在しないTeam名禁止
-- Do not add functionality absent from the Issue
-- Do not change acceptance criteria during implementation
-- Propose out-of-scope problems as separate Issues
-- Reconstruct the PR body from the final diff and validation results
-- Never mark unrun validation as completed
-- Close exactly one Issue by default
-- Make Review focus specific
-- Create Issues for TODOs and follow-ups; do not leave them only in a PR body
-- `docs/governance.md` and `scripts/governance-rules.json` are the source of truth for format and changed-file rules
+| Issue / PR contract、changed-file rule | [`docs/governance.md`](docs/governance.md)、[`scripts/governance-rules.json`](scripts/governance-rules.json)、`.github/PULL_REQUEST_TEMPLATE.md` |
+| Git workflow policy、repository state | [`docs/workflow-policy.md`](docs/workflow-policy.md)、trackedな`.mottainai/workflow.json`、対応するworkflow実装 |
+| test layer、classification、coverage、CI責務 | [`docs/testing.md`](docs/testing.md)、`scripts/test-suites.mjs`、`package.json`、`.github/workflows/ci.yml` |
+| executable coding standard | [`docs/coding-standards.md`](docs/coding-standards.md)、`eslint.config.mjs`、`prettier.config.mjs`、`scripts/architecture-check.mjs` |
+| project behavior、compressionの説明と実装契約 | [`README.md`](README.md)、対象実装・test |
+| response style | [`CLAUDE.md`](CLAUDE.md)。execution authorityではない |
+
+このindexはauthorityの入口。exact ruleをここへ複製しない。authorityが不在・stale・矛盾する場合、作業を広げずblockerと影響範囲を報告する。

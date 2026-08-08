@@ -1,6 +1,6 @@
 # CLAUDE.md — mottainai
 
-**プロジェクト規約の正本は [AGENTS.md](AGENTS.md)。** 探索順序（codegraph 優先）、自己ドッグフーディング、圧縮ロジック変更規約、Git 運用、コード規約はすべてそちらにある。矛盾したらこのファイルではなく `AGENTS.md` を優先し、差分を報告する。
+**Agent execution contractは [AGENTS.md](AGENTS.md)。** 全プロジェクト規則の正本ではなく、詳細なexact ruleは各machine-readable / executable authorityへ委譲する。矛盾はauthorityを確認し、差分を報告する。
 
 このファイルは応答スタイルのみを定義する。
 
