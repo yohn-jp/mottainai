@@ -31,7 +31,7 @@ import {
   type SemanticRelation,
   type SourceReference,
   type ProjectView,
-} from "./query.js";
+} from "../query.js";
 
 const ENTITY_KINDS: readonly EntityKind[] = [
   "project",
@@ -248,7 +248,7 @@ function createFixtureModel(): FixtureModel {
         packageIds: ["package:zod", "package:tree-sitter"],
         metrics: { symbols: 1, files: 2, tests: 12, reviewLevel: "L2" },
         recommendedReads: [
-          { path: "src/dashboard/query.ts", symbol: "RepositorySemanticQuery", reason: "replaceable provider contract" },
+          { path: "src/semantics/query.ts", symbol: "RepositorySemanticQuery", reason: "replaceable provider contract" },
         ],
       },
       "component:semantic-core",
@@ -354,10 +354,10 @@ function createFixtureModel(): FixtureModel {
       {
         symbolKind: "function",
         visibility: "internal",
-        path: "src/dashboard/fixture.ts",
+        path: "src/semantics/fixtures/dashboard-fixture.ts",
         range: "fixture",
         effects: "none",
-        recommendedReads: [{ path: "src/dashboard/fixture.ts", symbol: "createFixtureQuery", reason: "fixture provider boundary" }],
+        recommendedReads: [{ path: "src/semantics/fixtures/dashboard-fixture.ts", symbol: "createFixtureQuery", reason: "fixture provider boundary" }],
       },
       "component:semantic-core",
       ["function", "fixture"],
@@ -545,7 +545,7 @@ function createFixtureModel(): FixtureModel {
       "Unit coverage for fixture determinism and query methods",
       "healthy",
       "observed",
-      { path: "src/dashboard/fixture.test.ts", status: "passing" },
+      { path: "src/semantics/fixtures/dashboard-fixture.test.ts", status: "passing" },
       "component:semantic-core",
       ["test", "observed"],
     ),
@@ -607,11 +607,11 @@ function createFixtureModel(): FixtureModel {
     entity(
       "file:src-dashboard-query",
       "file",
-      "src/dashboard/query.ts",
+      "src/semantics/query.ts",
       "Transport-independent Query API location",
       "partial",
       "derived",
-      { path: "src/dashboard/query.ts", language: "typescript" },
+      { path: "src/semantics/query.ts", language: "typescript" },
       "component:semantic-core",
       ["file", "implementation"],
     ),

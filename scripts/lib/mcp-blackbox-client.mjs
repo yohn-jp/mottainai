@@ -83,6 +83,18 @@ export function resolvePackagedBin(extractedPackageDir, binName = "mottainai") {
   return binPath;
 }
 
+/**
+ * POSIX: shebang 経由で bin を直接起動する。
+ * Windows: shebang は解釈されないため node 経由で同じ dist ファイルを起動する。
+ * spawn する呼び出し元（McpStdioClient.launchPackaged や CLI サブコマンドの black-box test）が
+ * このプラットフォーム分岐を共有するための単一の解決点。
+ */
+export function resolvePackagedCommand(binPath) {
+  const command = process.platform === "win32" ? process.execPath : binPath;
+  const args = process.platform === "win32" ? [binPath] : [];
+  return { command, args };
+}
+
 function boundedText(value, maxBytes) {
   const text = String(value);
   if (Buffer.byteLength(text) <= maxBytes) return text;
@@ -176,8 +188,7 @@ export class McpStdioClient {
    * Windows: shebang は解釈されないため node 経由で同じ dist ファイルを起動する。
    */
   static launchPackaged(binPath, options = {}) {
-    const command = process.platform === "win32" ? process.execPath : binPath;
-    const args = process.platform === "win32" ? [binPath] : [];
+    const { command, args } = resolvePackagedCommand(binPath);
     return new McpStdioClient(command, args, options);
   }
 

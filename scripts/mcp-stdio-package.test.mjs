@@ -15,6 +15,7 @@ import {
   McpStdioClient,
   packRepository,
   resolvePackagedBin,
+  resolvePackagedCommand,
 } from "./lib/mcp-blackbox-client.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -119,7 +120,8 @@ test(
   { timeout: BLACKBOX_TIMEOUTS.test },
   async () => {
     const workspace = createWorkspace();
-    const child = spawn(binPath, ["dashboard", "--no-open", "--port", "0"], {
+    const { command, args } = resolvePackagedCommand(binPath);
+    const child = spawn(command, [...args, "dashboard", "--no-open", "--port", "0"], {
       cwd: workspace,
       env: isolatedEnv(workspace),
       stdio: ["ignore", "pipe", "pipe"],

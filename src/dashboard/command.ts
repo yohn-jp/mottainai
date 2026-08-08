@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createFixtureQuery } from "./fixture.js";
+import { createFixtureQuery } from "../semantics/fixtures/dashboard-fixture.js";
 import { readDashboardViewer } from "./assets.js";
 import {
   DEFAULT_DASHBOARD_PORT,

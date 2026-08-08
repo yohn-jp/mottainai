@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   createDeterministicFixtureQuery,
-} from "./fixture.js";
+} from "./dashboard-fixture.js";
 import {
   QUERY_API_VERSION,
   SEMANTIC_DELTA_KINDS,
   SemanticQueryError,
-} from "./query.js";
+} from "../query.js";
 
 test("fixture provider is deterministic and exposes one query boundary", () => {
   const first = createDeterministicFixtureQuery();

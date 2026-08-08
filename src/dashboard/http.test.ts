@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { request } from "node:http";
 import { afterEach, test } from "node:test";
 import { startDashboardServer } from "./http.js";
-import { createFixtureQuery } from "./fixture.js";
+import { createFixtureQuery } from "../semantics/fixtures/dashboard-fixture.js";
 
 const activeServers: { close: () => Promise<void> }[] = [];
 

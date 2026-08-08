@@ -17,7 +17,7 @@ import {
   type RelationKind,
   type RepositorySemanticQuery,
   type ReviewLevel,
-} from "./query.js";
+} from "../semantics/query.js";
 
 export const LOOPBACK_HOST = "127.0.0.1";
 export const DEFAULT_DASHBOARD_PORT = 4317;
