@@ -18,7 +18,7 @@ import {
   inspectReadFile,
   readAuthorizedFile,
   readSemanticInspectionSource,
-  verifyFileSnapshotUnchanged,
+  verifyFileContentUnchanged,
 } from "./context-runtime/read-adapter.js";
 import {
   createIdentityHint,
@@ -574,11 +574,13 @@ async function readTool(
   const semanticSource = isSemanticMode(normalized.mode) && normalized.bounded
     ? await readSemanticInspectionSource(filePath, normalized)
     : selected;
-  // hash 計算 snapshot と実際に返す bytes を束縛する TOCTOU 窓を閉じる: read 後に
-  // snapshot が変わっていれば、identity が古い hash に新しい bytes を紐付けてしまう
-  // ので fail-closed に identity を破棄する（読み取り結果自体は正常に返す）。
-  const snapshotStillValid = await verifyFileSnapshotUnchanged(filePath, metadata.snapshot);
-  const verifiedArtifactIdentity = snapshotStillValid ? artifactIdentity : undefined;
+  // hash 計算 bytes と実際に返す bytes を束縛する TOCTOU 窓を閉じる: read 後に
+  // content hash を再計算し、一致しなければ identity が古い hash に新しい bytes を
+  // 紐付けてしまうので fail-closed に identity を破棄する（読み取り結果自体は
+  // 正常に返す）。mtime/size/inode は same-size 上書き + mtime 巻き戻しですり抜け
+  // 得るため使わない — content hash の再計算のみを correctness authority とする。
+  const contentStillValid = await verifyFileContentUnchanged(filePath, { contentHash: metadata.contentHash });
+  const verifiedArtifactIdentity = contentStillValid ? artifactIdentity : undefined;
   const rawLines = normalized.startLine === undefined || normalized.endLine === undefined
     ? metadata.lineCount
     : normalized.endLine - normalized.startLine + 1;

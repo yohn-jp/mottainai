@@ -259,7 +259,27 @@ test("result_get on two different read ranges of the same unchanged file never c
   }
 });
 
-test("a file rewritten between hash inspection and authorized read never carries stale identity", async () => {
+// `fs.readFile` は read-adapter.ts が `import fs from "node:fs/promises"` で束縛
+// するのと同一のモジュール namespace object を指す。default export のプロパティ
+// は書き換え可能なため、readTool の実経路上で inspectReadFile が hash を確定
+// させた後・readAuthorizedFile がその bytes を実際に materialize する直前に
+// mutation を注入する race hook として使える（raw mode かつ範囲未指定の read は
+// readAuthorizedFile 内部で fs.readFile を呼ぶ）。
+async function withReadFileHook<T>(hook: () => Promise<void>, run: () => Promise<T>): Promise<T> {
+  const originalReadFile = fs.readFile;
+  (fs as { readFile: typeof fs.readFile }).readFile = (async (...args: Parameters<typeof fs.readFile>) => {
+    await hook();
+    (fs as { readFile: typeof fs.readFile }).readFile = originalReadFile;
+    return originalReadFile(...args);
+  }) as typeof fs.readFile;
+  try {
+    return await run();
+  } finally {
+    (fs as { readFile: typeof fs.readFile }).readFile = originalReadFile;
+  }
+}
+
+test("a file rewritten between hash inspection and authorized read never carries stale identity on readTool's real path", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-dedupe-toctou-"));
   try {
     const filePath = path.join(root, "sample.txt");
@@ -267,37 +287,70 @@ test("a file rewritten between hash inspection and authorized read never carries
     const config = resolveGatewayConfig({ workspaceRoot: root });
     const store = new InMemoryArtifactStore();
 
-    const { inspectReadFile } = await import("./read-adapter.js");
-    const inspected = await inspectReadFile(filePath);
-    // Simulate a concurrent writer mutating the file after the hash/snapshot was taken
-    // but before readTool's authorized read materializes the returned bytes.
-    await fs.writeFile(filePath, "rewritten by a concurrent process\n".repeat(50));
-
-    const result = structured(await callLocalTool("mottainai_read", { path: "sample.txt", mode: "raw" }, config, store));
-    // readTool re-inspects on its own, so this call alone would not reproduce the race;
-    // assert directly against the snapshot captured before the rewrite to prove detection.
-    const { verifyFileSnapshotUnchanged } = await import("./read-adapter.js");
-    assert.equal(await verifyFileSnapshotUnchanged(filePath, inspected.snapshot), false);
+    // inspectReadFile has already hashed the original content by the time
+    // readAuthorizedFile calls fs.readFile; rewrite right there, before the bytes
+    // are materialized.
+    const result = structured(
+      await withReadFileHook(
+        () => fs.writeFile(filePath, "rewritten by a concurrent process\n".repeat(50)),
+        () => callLocalTool("mottainai_read", { path: "sample.txt", mode: "raw" }, config, store),
+      ),
+    );
+    assert.equal(result.identity, undefined, "identity must be dropped when content changed mid-read");
     assert.match(String(result.text), /rewritten by a concurrent process/);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
 });
 
-test("verifyFileSnapshotUnchanged fails closed when size, mtime, or inode diverge from the hashed snapshot", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-snapshot-verify-"));
+test("a same-size rewrite with mtime restored to the original value still fails closed on readTool's real path", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-dedupe-toctou-samesize-"));
+  try {
+    const filePath = path.join(root, "sample.txt");
+    const original = "line content here\n".repeat(50);
+    await fs.writeFile(filePath, original);
+    const originalStat = await fs.stat(filePath);
+    const config = resolveGatewayConfig({ workspaceRoot: root });
+    const store = new InMemoryArtifactStore();
+
+    // Same byte length as the original, so a stat-only (size/mtime) check would not
+    // detect this — only re-hashing the content can.
+    const rewritten = "line CONTENT here\n".repeat(50);
+    assert.equal(Buffer.byteLength(rewritten, "utf8"), Buffer.byteLength(original, "utf8"));
+
+    const result = structured(
+      await withReadFileHook(
+        async () => {
+          await fs.writeFile(filePath, rewritten);
+          await fs.utimes(filePath, originalStat.atime, originalStat.mtime);
+        },
+        () => callLocalTool("mottainai_read", { path: "sample.txt", mode: "raw" }, config, store),
+      ),
+    );
+    assert.equal(result.identity, undefined, "identity must be dropped even when size/mtime were restored");
+    assert.match(String(result.text), /line CONTENT here/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("verifyFileContentUnchanged fails closed on content change and on deletion, independent of stat", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-content-verify-"));
   try {
     const filePath = path.join(root, "sample.txt");
     await fs.writeFile(filePath, "stable content\n");
-    const { inspectReadFile, verifyFileSnapshotUnchanged } = await import("./read-adapter.js");
+    const { inspectReadFile, verifyFileContentUnchanged } = await import("./read-adapter.js");
     const inspected = await inspectReadFile(filePath);
-    assert.equal(await verifyFileSnapshotUnchanged(filePath, inspected.snapshot), true);
+    assert.equal(await verifyFileContentUnchanged(filePath, { contentHash: inspected.contentHash }), true);
 
-    await fs.writeFile(filePath, "stable content\n2");
-    assert.equal(await verifyFileSnapshotUnchanged(filePath, inspected.snapshot), false);
+    const stat = await fs.stat(filePath);
+    await fs.writeFile(filePath, "STABLE content\n");
+    await fs.utimes(filePath, stat.atime, stat.mtime);
+    assert.equal(Buffer.byteLength("STABLE content\n"), Buffer.byteLength("stable content\n"));
+    assert.equal(await verifyFileContentUnchanged(filePath, { contentHash: inspected.contentHash }), false);
 
     await fs.rm(filePath);
-    assert.equal(await verifyFileSnapshotUnchanged(filePath, inspected.snapshot), false);
+    assert.equal(await verifyFileContentUnchanged(filePath, { contentHash: inspected.contentHash }), false);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
