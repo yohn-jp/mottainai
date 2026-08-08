@@ -206,6 +206,24 @@ Claude Code 側へ反映するときは `/mcp reconnect mottainai`、または�
 
 ---
 
+## 6.1 テスト層・coverage
+
+正本 `docs/testing.md` / `scripts/test-suites.mjs`。
+
+- `pnpm test` fast unit + contract。TDD default。integration/process、E2E、package smoke、coverage除外。
+- `pnpm run test:integration` filesystem/git/SQLite/CLI/subprocess/fault境界。
+- `pnpm run test:e2e` source gatewayのstdio black-box。
+- `pnpm run test:package` build後packed tarball smoke。`pnpm run smoke-test`単独はbuild済みdist前提。
+- `pnpm run test:standards` architecture/governance/classification/coverage-policy self-test。
+- `pnpm run test:coverage` Node 22/24 native coverage。`coverage/lcov.info` `coverage/summary.json`生成。line/function/branch gate。
+- `pnpm run verify` standards、typecheck、fast、integration、E2E、packageを決定的順序で全実行。
+
+テスト分類はコメント依存禁止。`.test.ts` `.spec.ts` `scripts/**/*.test.mjs` `scripts/smoke-test.mjs`をvalidatorが列挙し、各ファイルの単一suite所属、fastからの高コスト層除外、重複、full verification被覆を検証。既存colocated test移動・改名不要。
+
+coverage対象はproduction `src/**/*.ts` / `src/**/*.mjs`。test、fixture、test-support、E2E helper、declaration、generated、dist除外。baseline/critical threshold変更は `scripts/coverage-policy.json` と `docs/testing.md`を同一PRで更新し、実測値・source revision・Review focusを残す。未実行coverageをPR本文で完了扱いしない。
+
+---
+
 ## 7. コード規約
 
 `src/` の既存スタイルに合わせる。実行可能な規則は `scripts/architecture-check.mjs` / `eslint.config.mjs` / `prettier.config.mjs` を正本とし、周囲のコード模倣は人間レビュー規則として残す。

@@ -1,50 +1,22 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import type { TestContext } from "node:test";
 import { test } from "node:test";
+import { createTempDir } from "../../test-support/tmp-dir.js";
+import { createTempGitRepo, runGit } from "../../test-support/tmp-git-repo.js";
+import { createWorkflowStore } from "../../test-support/workflow-store.js";
 import { BUILTIN_PRESETS } from "../policy/presets.js";
 import type { WorkflowPolicyDocument } from "../policy/schema.js";
 import { WorkflowSqliteStateStore } from "../state/sqlite-store.js";
 import { checkStaleBaseBranch, getTaskStatus, getTaskStatusForWorkspace, startTask, transitionTask } from "./task.js";
-
-function git(args: string[], cwd: string): string {
-  return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
-}
-
-function tmpDir(t: TestContext, prefix: string): string {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  return dir;
-}
-
-function initRepo(t: TestContext): string {
-  const root = tmpDir(t, "mottainai-task-test-");
-  git(["init", "--quiet", "-b", "main"], root);
-  git(["config", "user.email", "test@example.com"], root);
-  git(["config", "user.name", "Test"], root);
-  fs.writeFileSync(path.join(root, "file.txt"), "hello\n");
-  git(["add", "file.txt"], root);
-  git(["commit", "--quiet", "-m", "initial"], root);
-  return root;
-}
-
-function openStore(t: TestContext): WorkflowSqliteStateStore {
-  const store = new WorkflowSqliteStateStore({ dbPath: ":memory:" });
-  store.init();
-  t.after(() => store.close());
-  return store;
-}
 
 function standardPolicy(overrides: Partial<WorkflowPolicyDocument["worktree"]> = {}): WorkflowPolicyDocument {
   return { ...BUILTIN_PRESETS.standard, worktree: { ...BUILTIN_PRESETS.standard.worktree, ...overrides } };
 }
 
 test("startTask happy path creates an active task with an active worktree (issue-bound)", async (t) => {
-  const root = initRepo(t);
-  const store = openStore(t);
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
   const result = await startTask({ workspaceRoot: root, store, policy: standardPolicy(), taskSlug: "my-task", issueRef: "33" });
   assert.equal(result.ok, true);
   if (!result.ok) return;
@@ -58,11 +30,11 @@ test("startTask happy path creates an active task with an active worktree (issue
 });
 
 test("startTask with bootstrapMode=automatic returns the bootstrap execution outcome (not just the decision)", async (t) => {
-  const root = initRepo(t);
+  const root = createTempGitRepo(t);
   fs.writeFileSync(path.join(root, "pnpm-lock.yaml"), "lockfileVersion: 9\n");
-  git(["add", "pnpm-lock.yaml"], root);
-  git(["commit", "--quiet", "-m", "add lockfile"], root);
-  const store = openStore(t);
+  runGit(["add", "pnpm-lock.yaml"], root);
+  runGit(["commit", "--quiet", "-m", "add lockfile"], root);
+  const store = createWorkflowStore(t);
   const policy = standardPolicy({ bootstrapMode: "automatic" });
   const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "bootstrap-check" });
   assert.equal(result.ok, true);
@@ -73,8 +45,8 @@ test("startTask with bootstrapMode=automatic returns the bootstrap execution out
 });
 
 test("startTask happy path without an issueRef", async (t) => {
-  const root = initRepo(t);
-  const store = openStore(t);
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
   const result = await startTask({ workspaceRoot: root, store, policy: standardPolicy(), taskSlug: "no-issue" });
   assert.equal(result.ok, true);
   if (!result.ok) return;
@@ -83,25 +55,25 @@ test("startTask happy path without an issueRef", async (t) => {
 });
 
 test("startTask rejects when staleBaseBranch=enforce and local base branch is behind origin", async (t) => {
-  const root = initRepo(t);
-  const remote = tmpDir(t, "mottainai-task-test-remote-");
-  git(["init", "--quiet", "--bare", "-b", "main"], remote);
-  git(["remote", "add", "origin", remote], root);
-  git(["push", "--quiet", "origin", "main"], root);
+  const root = createTempGitRepo(t);
+  const remote = createTempDir(t, "mottainai-task-test-remote-");
+  runGit(["init", "--quiet", "--bare", "-b", "main"], remote);
+  runGit(["remote", "add", "origin", remote], root);
+  runGit(["push", "--quiet", "origin", "main"], root);
 
   // origin に新しいコミットを積むが、ローカル main の tracking ref (`origin/main`) は
   // 明示 fetch するまで更新されない — clone を経由して origin 側だけ進める。
-  const otherClone = tmpDir(t, "mottainai-task-test-clone-");
-  git(["clone", "--quiet", remote, otherClone], path.dirname(otherClone));
+  const otherClone = createTempDir(t, "mottainai-task-test-clone-");
+  runGit(["clone", "--quiet", remote, otherClone], path.dirname(otherClone));
   fs.writeFileSync(path.join(otherClone, "file2.txt"), "more\n");
-  git(["add", "file2.txt"], otherClone);
-  git(["config", "user.email", "test@example.com"], otherClone);
-  git(["config", "user.name", "Test"], otherClone);
-  git(["commit", "--quiet", "-m", "second"], otherClone);
-  git(["push", "--quiet", "origin", "main"], otherClone);
-  git(["fetch", "--quiet", "origin"], root);
+  runGit(["add", "file2.txt"], otherClone);
+  runGit(["config", "user.email", "test@example.com"], otherClone);
+  runGit(["config", "user.name", "Test"], otherClone);
+  runGit(["commit", "--quiet", "-m", "second"], otherClone);
+  runGit(["push", "--quiet", "origin", "main"], otherClone);
+  runGit(["fetch", "--quiet", "origin"], root);
 
-  const store = openStore(t);
+  const store = createWorkflowStore(t);
   const policy = standardPolicy({ staleBaseBranch: "enforce" });
   const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "stale-check" });
   assert.equal(result.ok, false);
@@ -111,21 +83,21 @@ test("startTask rejects when staleBaseBranch=enforce and local base branch is be
 });
 
 test("startTask succeeds when staleBaseBranch=enforce and local base branch matches origin", async (t) => {
-  const root = initRepo(t);
-  const remote = tmpDir(t, "mottainai-task-test-remote-");
-  git(["init", "--quiet", "--bare", "-b", "main"], remote);
-  git(["remote", "add", "origin", remote], root);
-  git(["push", "--quiet", "origin", "main"], root);
+  const root = createTempGitRepo(t);
+  const remote = createTempDir(t, "mottainai-task-test-remote-");
+  runGit(["init", "--quiet", "--bare", "-b", "main"], remote);
+  runGit(["remote", "add", "origin", remote], root);
+  runGit(["push", "--quiet", "origin", "main"], root);
 
-  const store = openStore(t);
+  const store = createWorkflowStore(t);
   const policy = standardPolicy({ staleBaseBranch: "enforce" });
   const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "fresh-check" });
   assert.equal(result.ok, true);
 });
 
 test("startTask ignores staleBaseBranch when no origin tracking ref exists", async (t) => {
-  const root = initRepo(t);
-  const store = openStore(t);
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
   const policy = standardPolicy({ staleBaseBranch: "enforce" });
   const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "no-origin-check" });
   assert.equal(result.ok, true);
@@ -134,23 +106,23 @@ test("startTask ignores staleBaseBranch when no origin tracking ref exists", asy
 });
 
 test("startTask allows but records a warning when staleBaseBranch=advisory and local base branch is behind origin", async (t) => {
-  const root = initRepo(t);
-  const remote = tmpDir(t, "mottainai-task-test-remote-");
-  git(["init", "--quiet", "--bare", "-b", "main"], remote);
-  git(["remote", "add", "origin", remote], root);
-  git(["push", "--quiet", "origin", "main"], root);
+  const root = createTempGitRepo(t);
+  const remote = createTempDir(t, "mottainai-task-test-remote-");
+  runGit(["init", "--quiet", "--bare", "-b", "main"], remote);
+  runGit(["remote", "add", "origin", remote], root);
+  runGit(["push", "--quiet", "origin", "main"], root);
 
-  const otherClone = tmpDir(t, "mottainai-task-test-clone-");
-  git(["clone", "--quiet", remote, otherClone], path.dirname(otherClone));
+  const otherClone = createTempDir(t, "mottainai-task-test-clone-");
+  runGit(["clone", "--quiet", remote, otherClone], path.dirname(otherClone));
   fs.writeFileSync(path.join(otherClone, "file2.txt"), "more\n");
-  git(["add", "file2.txt"], otherClone);
-  git(["config", "user.email", "test@example.com"], otherClone);
-  git(["config", "user.name", "Test"], otherClone);
-  git(["commit", "--quiet", "-m", "second"], otherClone);
-  git(["push", "--quiet", "origin", "main"], otherClone);
-  git(["fetch", "--quiet", "origin"], root);
+  runGit(["add", "file2.txt"], otherClone);
+  runGit(["config", "user.email", "test@example.com"], otherClone);
+  runGit(["config", "user.name", "Test"], otherClone);
+  runGit(["commit", "--quiet", "-m", "second"], otherClone);
+  runGit(["push", "--quiet", "origin", "main"], otherClone);
+  runGit(["fetch", "--quiet", "origin"], root);
 
-  const store = openStore(t);
+  const store = createWorkflowStore(t);
   const policy = standardPolicy({ staleBaseBranch: "advisory" });
   const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "stale-advisory-check" });
   assert.equal(result.ok, true);
@@ -161,12 +133,12 @@ test("startTask allows but records a warning when staleBaseBranch=advisory and l
 });
 
 test("checkStaleBaseBranch reports unknown (not fresh) when a git call does not complete", async (t) => {
-  const root = initRepo(t);
-  const remote = tmpDir(t, "mottainai-task-test-remote-");
-  git(["init", "--quiet", "--bare", "-b", "main"], remote);
-  git(["remote", "add", "origin", remote], root);
-  git(["push", "--quiet", "origin", "main"], root);
-  const baseCommit = git(["rev-parse", "HEAD"], root);
+  const root = createTempGitRepo(t);
+  const remote = createTempDir(t, "mottainai-task-test-remote-");
+  runGit(["init", "--quiet", "--bare", "-b", "main"], remote);
+  runGit(["remote", "add", "origin", remote], root);
+  runGit(["push", "--quiet", "origin", "main"], root);
+  const baseCommit = runGit(["rev-parse", "HEAD"], root);
 
   // PATH を壊し `git` 自体を spawn 不能にすることで、"非0 exit" ではなく
   // "コマンドが完走しなかった" 状態（usable=false）を再現する。
@@ -181,8 +153,8 @@ test("checkStaleBaseBranch reports unknown (not fresh) when a git call does not 
 });
 
 test("startTask rejects when issueRequired=enforce and no issueRef is provided", async (t) => {
-  const root = initRepo(t);
-  const store = openStore(t);
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
   const policy = standardPolicy({ issueRequired: "enforce" });
   const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "needs-issue" });
   assert.equal(result.ok, false);
@@ -191,8 +163,8 @@ test("startTask rejects when issueRequired=enforce and no issueRef is provided",
 });
 
 test("startTask denies a no-worktree task start when protected-branch sourceWrite is enforced on the primary checkout", async (t) => {
-  const root = initRepo(t);
-  const store = openStore(t);
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
   const policy: WorkflowPolicyDocument = {
     ...BUILTIN_PRESETS["strict-worktree"],
     worktree: { ...BUILTIN_PRESETS["strict-worktree"].worktree, required: "off" },
@@ -204,8 +176,8 @@ test("startTask denies a no-worktree task start when protected-branch sourceWrit
 });
 
 test("startTask reports branch-collision when the branch is already claimed by an active worktree", async (t) => {
-  const root = initRepo(t);
-  const store = openStore(t);
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
   const policy = standardPolicy();
   const first = await startTask({ workspaceRoot: root, store, policy, taskSlug: "dup" });
   assert.equal(first.ok, true);
@@ -217,8 +189,8 @@ test("startTask reports branch-collision when the branch is already claimed by a
 });
 
 test("startTask rejects a second active task for the same issue when multipleActiveTasksPerIssue is disallowed", async (t) => {
-  const root = initRepo(t);
-  const store = openStore(t);
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
   const policy = standardPolicy({ multipleActiveTasksPerIssue: "enforce" });
   const first = await startTask({ workspaceRoot: root, store, policy, taskSlug: "task-a", issueRef: "7" });
   assert.equal(first.ok, true);
@@ -230,8 +202,8 @@ test("startTask rejects a second active task for the same issue when multipleAct
 });
 
 test("getTaskStatus reflects lifecycle state and allowed next transitions", async (t) => {
-  const root = initRepo(t);
-  const store = openStore(t);
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
   const started = await startTask({ workspaceRoot: root, store, policy: standardPolicy(), taskSlug: "status-check" });
   assert.equal(started.ok, true);
   if (!started.ok) return;
@@ -244,13 +216,13 @@ test("getTaskStatus reflects lifecycle state and allowed next transitions", asyn
 });
 
 test("getTaskStatus returns undefined for an unknown task id", (t) => {
-  const store = openStore(t);
+  const store = createWorkflowStore(t);
   assert.equal(getTaskStatus(store, "does-not-exist" as never), undefined);
 });
 
 test("startTask rejects starting a second task from inside an already-active task worktree", async (t) => {
-  const root = initRepo(t);
-  const store = openStore(t);
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
   const policy = standardPolicy();
   const outer = await startTask({ workspaceRoot: root, store, policy, taskSlug: "outer" });
   assert.equal(outer.ok, true);
@@ -265,8 +237,8 @@ test("startTask rejects starting a second task from inside an already-active tas
 });
 
 test("getTaskStatusForWorkspace reports no active task for a plain repository", async (t) => {
-  const root = initRepo(t);
-  const store = openStore(t);
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
   const status = await getTaskStatusForWorkspace(root, store);
   assert.equal(status.ok, true);
   if (!status.ok) return;
@@ -276,8 +248,8 @@ test("getTaskStatusForWorkspace reports no active task for a plain repository", 
 });
 
 test("getTaskStatusForWorkspace reports the active task from inside its own worktree", async (t) => {
-  const root = initRepo(t);
-  const store = openStore(t);
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
   const started = await startTask({ workspaceRoot: root, store, policy: standardPolicy(), taskSlug: "status-ws" });
   assert.equal(started.ok, true);
   if (!started.ok) return;
@@ -292,10 +264,10 @@ test("getTaskStatusForWorkspace reports the active task from inside its own work
 });
 
 test("getTaskStatusForWorkspace surfaces detached HEAD as a warning instead of failing (no active task is a normal outcome)", async (t) => {
-  const root = initRepo(t);
-  const headCommit = git(["rev-parse", "HEAD"], root);
-  git(["checkout", "--quiet", headCommit], root);
-  const store = openStore(t);
+  const root = createTempGitRepo(t);
+  const headCommit = runGit(["rev-parse", "HEAD"], root);
+  runGit(["checkout", "--quiet", headCommit], root);
+  const store = createWorkflowStore(t);
   const status = await getTaskStatusForWorkspace(root, store);
   assert.equal(status.ok, true);
   if (!status.ok) return;
@@ -305,16 +277,16 @@ test("getTaskStatusForWorkspace surfaces detached HEAD as a warning instead of f
 });
 
 test("getTaskStatusForWorkspace fails closed for a non-git directory", async (t) => {
-  const dir = tmpDir(t, "mottainai-task-test-nongit-");
-  const store = openStore(t);
+  const dir = createTempDir(t, "mottainai-task-test-nongit-");
+  const store = createWorkflowStore(t);
   const status = await getTaskStatusForWorkspace(dir, store);
   assert.equal(status.ok, false);
 });
 
 test("getTaskStatusForWorkspace keeps two repositories' active tasks separate in a shared store", async (t) => {
-  const rootA = initRepo(t);
-  const rootB = initRepo(t);
-  const store = openStore(t);
+  const rootA = createTempGitRepo(t);
+  const rootB = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
   const startedA = await startTask({ workspaceRoot: rootA, store, policy: standardPolicy(), taskSlug: "repo-a-task" });
   assert.equal(startedA.ok, true);
   if (!startedA.ok) return;
@@ -331,8 +303,8 @@ test("getTaskStatusForWorkspace keeps two repositories' active tasks separate in
 });
 
 test("getTaskStatusForWorkspace distinguishes between two active worktrees of the same repository", async (t) => {
-  const root = initRepo(t);
-  const store = openStore(t);
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
   const policy = standardPolicy({ multipleActiveTasksPerIssue: "advisory" });
   const first = await startTask({ workspaceRoot: root, store, policy, taskSlug: "multi-a" });
   const second = await startTask({ workspaceRoot: root, store, policy, taskSlug: "multi-b" });
@@ -351,8 +323,8 @@ test("getTaskStatusForWorkspace distinguishes between two active worktrees of th
 });
 
 test("getTaskStatusForWorkspace survives a store restart against a file-backed database", async (t) => {
-  const root = initRepo(t);
-  const dbDir = tmpDir(t, "mottainai-task-test-db-");
+  const root = createTempGitRepo(t);
+  const dbDir = createTempDir(t, "mottainai-task-test-db-");
   const dbPath = path.join(dbDir, "state.sqlite3");
   const store1 = new WorkflowSqliteStateStore({ dbPath });
   store1.init();
@@ -374,8 +346,8 @@ test("getTaskStatusForWorkspace survives a store restart against a file-backed d
 });
 
 test("transitionTask applies a valid transition and rejects an invalid one with structured blocker info", async (t) => {
-  const root = initRepo(t);
-  const store = openStore(t);
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
   const started = await startTask({ workspaceRoot: root, store, policy: standardPolicy(), taskSlug: "transition-check" });
   assert.equal(started.ok, true);
   if (!started.ok) return;

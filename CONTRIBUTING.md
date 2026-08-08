@@ -34,13 +34,18 @@ pnpm run lint
 pnpm run architecture:test
 pnpm run architecture:check
 pnpm run verify:standards
+pnpm run test:standards
+pnpm run test:coverage
+pnpm run verify
 ```
 
 The executable standard is defined by `eslint.config.mjs`,
 `prettier.config.mjs`, and `scripts/architecture-check.mjs`. The formatter
 currently checks the new standard-tooling files only; broad reformatting of
 legacy production code stays out of this Issue. Use `pnpm run verify:standards`
-before submitting a change.
+before submitting a change. Test-layer ownership and coverage policy are
+defined in [`docs/testing.md`](docs/testing.md); `scripts/test-suites.mjs` is
+the mechanical classification source.
 
 ## Making changes
 
@@ -59,17 +64,23 @@ before submitting a change.
    protected content (code fences, inline code, URLs, quoted strings,
    Japanese text, non-`description` JSON Schema fields, `image`/`resource`
    content, `git diff` output).
-6. Run Typecheck, Tests, and Build before marking a non-Draft pull request
-   ready. If a configured package-impacting path changes, also run
-   `npm pack --dry-run` and complete Package check. The Governance check is a
-   required status check for the repository Ruleset.
+6. Run the layer matching the change. Pure logic and contract changes need
+   `pnpm test`; filesystem, git, SQLite, CLI, subprocess, and fault changes
+   need `pnpm run test:integration`; stdio changes need `pnpm run test:e2e`;
+   package/bin/init changes need `pnpm run test:package`. Run
+   `pnpm run test:coverage` when production behavior or a critical module
+   changes.
+
+   Before a non-Draft pull request is ready, run `pnpm run verify` and report
+   `pnpm run test:coverage` separately. If a configured package-impacting path
+   changes, also complete Package check. The Governance check is a required
+   status check for the repository Ruleset.
 
 7. Run the full check before opening a PR:
 
    ```bash
-   pnpm run typecheck
-   pnpm test
-   pnpm run build
+   pnpm run verify
+   pnpm run test:coverage
    ```
 
 8. Update relevant docs in the same commit/PR as the behavior change
@@ -116,6 +127,9 @@ architecture judgment.
   `Migration / compatibility`, `Security impact`, and `Review focus`.
 - CI (install, typecheck, test, build) must pass — see
   [.github/workflows/ci.yml](.github/workflows/ci.yml).
+- CI identifies standards/static, fast, integration/process, coverage, and
+  package/E2E/smoke jobs separately. Use the same layer names in the PR
+  Validation section; do not claim a full verification from only `pnpm test`.
 - `Governance / validate-pr` must pass. Non-Draft PRs must complete Typecheck,
   Tests, and Build; Package check is conditional on distribution-impacting
   paths listed in `scripts/governance-rules.json`.

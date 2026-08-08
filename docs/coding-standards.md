@@ -11,12 +11,14 @@ pnpm run format:check
 pnpm run lint
 pnpm run architecture:test
 pnpm run architecture:check
+pnpm run test:standards
 pnpm run verify:standards
 ```
 
-`verify:standards` runs the four checks together. CI runs the same checks as
-separate steps so format, lint, validator fixtures, and project validation have
-distinct failure causes.
+`test:standards` runs architecture/governance/test-classification/coverage-policy
+self-tests. `verify:standards` adds format, lint, and project validation. CI
+keeps standards/static validation identifiable while preserving distinct
+failure causes.
 
 ## Tool selection
 
@@ -52,6 +54,12 @@ and `src/workflow/domain/task-start-worker.mjs` are separate executable workers.
 The task worker may read argv and write its JSON result to stdout. Environment
 reads remain limited to the allowlisted configuration, telemetry, policy,
 upstream, CLI, persistence, and workflow bootstrap boundaries in the validator.
+
+`src/test-support/` と `src/e2e/` は独立した `testInfrastructure` レイヤ:
+fixture を組み立てるためにどの production レイヤからでも import してよい（一時
+git repo fixture が persistence に依存するのは正当な例）が、production 側から
+このレイヤへの import は許されない — 依存の向きは一方向のみ。詳細は
+[`testing.md`](testing.md) を参照。
 
 ## Suppressions
 

@@ -1,38 +1,13 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import type { TestContext } from "node:test";
 import { test } from "node:test";
+import { createTempDir } from "../../test-support/tmp-dir.js";
+import { createTempGitRepo, runGit } from "../../test-support/tmp-git-repo.js";
 import { resolveRepositoryIdentity } from "./identity.js";
 
-function git(args: string[], cwd: string): string {
-  return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
-}
-
-// テスト間でリポジトリ状態が残らないようにする。
-function initRepo(t: TestContext): string {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-workflow-identity-test-")));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  git(["init", "--quiet", "-b", "main"], root);
-  git(["config", "user.email", "test@example.com"], root);
-  git(["config", "user.name", "Test"], root);
-  fs.writeFileSync(path.join(root, "README.md"), "hello\n");
-  git(["add", "README.md"], root);
-  git(["commit", "--quiet", "-m", "initial"], root);
-  return root;
-}
-
-// 非 Git ディレクトリが必要な失敗系を他のテストから隔離する。
-function tmpDir(t: TestContext, prefix: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  return dir;
-}
-
 test("resolves a stable identity for a normal repository", (t) => {
-  const root = initRepo(t);
+  const root = createTempGitRepo(t);
   const result = resolveRepositoryIdentity(root);
   assert.equal(result.ok, true);
   if (!result.ok) return;
@@ -42,7 +17,7 @@ test("resolves a stable identity for a normal repository", (t) => {
 });
 
 test("same repository resolved twice yields the same digest and instance id", (t) => {
-  const root = initRepo(t);
+  const root = createTempGitRepo(t);
   const first = resolveRepositoryIdentity(root);
   const second = resolveRepositoryIdentity(root);
   assert.equal(first.ok, true);
@@ -59,8 +34,8 @@ test("two independently initialized repositories under different common-dirs yie
   // WorkflowStateStore.observeRepositoryInstance() が発行する source_id が担う
   // （sqlite-store.test.ts 側で検証）。ここでは instanceId が gitCommonDir 由来で
   // 別リポジトリなら必ず分かれることだけを確認する。
-  const rootA = initRepo(t);
-  const rootB = initRepo(t);
+  const rootA = createTempGitRepo(t);
+  const rootB = createTempGitRepo(t);
   const resultA = resolveRepositoryIdentity(rootA);
   const resultB = resolveRepositoryIdentity(rootB);
   assert.equal(resultA.ok, true);
@@ -70,7 +45,7 @@ test("two independently initialized repositories under different common-dirs yie
 });
 
 test("resolving through a symlinked path yields the same identity as the real path", (t) => {
-  const root = initRepo(t);
+  const root = createTempGitRepo(t);
   const parent = path.dirname(root);
   const linkPath = path.join(parent, "symlinked-repo");
   // Windows は symlink 作成に管理者権限や開発者モードを要求しうる（EPERM）が、
@@ -89,12 +64,12 @@ test("resolving through a symlinked path yields the same identity as the real pa
 });
 
 test("moving a repository on disk preserves the root commit digest and instance id (path is not part of identity)", (t) => {
-  const root = initRepo(t);
+  const root = createTempGitRepo(t);
   const before = resolveRepositoryIdentity(root);
   assert.equal(before.ok, true);
   if (!before.ok) return;
 
-  const movedParent = tmpDir(t, "mottainai-workflow-identity-moved-");
+  const movedParent = createTempDir(t, "mottainai-workflow-identity-moved-");
   const movedRoot = path.join(movedParent, "repo");
   fs.renameSync(root, movedRoot);
 
@@ -107,7 +82,7 @@ test("moving a repository on disk preserves the root commit digest and instance 
 });
 
 test("a directory that is not a git repository fails closed", (t) => {
-  const root = tmpDir(t, "mottainai-workflow-identity-nongit-");
+  const root = createTempDir(t, "mottainai-workflow-identity-nongit-");
   const result = resolveRepositoryIdentity(root);
   assert.equal(result.ok, false);
   if (result.ok) return;
@@ -115,8 +90,7 @@ test("a directory that is not a git repository fails closed", (t) => {
 });
 
 test("a repository with an unborn HEAD (no commits) fails closed", (t) => {
-  const root = tmpDir(t, "mottainai-workflow-identity-unborn-");
-  git(["init", "--quiet", "-b", "main"], root);
+  const root = createTempGitRepo(t, { initialCommit: false });
   const result = resolveRepositoryIdentity(root);
   assert.equal(result.ok, false);
   if (result.ok) return;
@@ -124,7 +98,7 @@ test("a repository with an unborn HEAD (no commits) fails closed", (t) => {
 });
 
 test("a corrupted instance marker file fails closed instead of silently re-minting an id", (t) => {
-  const root = initRepo(t);
+  const root = createTempGitRepo(t);
   fs.writeFileSync(path.join(root, ".git", "mottainai-instance-id"), "not-a-valid-uuid\n");
   const result = resolveRepositoryIdentity(root);
   assert.equal(result.ok, false);
@@ -133,13 +107,13 @@ test("a corrupted instance marker file fails closed instead of silently re-minti
 });
 
 test("two worktrees of the same repository share instanceId and rootCommitDigest but have distinct worktreePaths", (t) => {
-  const root = initRepo(t);
-  const worktreeParent = tmpDir(t, "mottainai-workflow-identity-worktree-");
+  const root = createTempGitRepo(t);
+  const worktreeParent = createTempDir(t, "mottainai-workflow-identity-worktree-");
   const worktreePath = path.join(worktreeParent, "wt");
-  git(["worktree", "add", "-b", "feature", worktreePath], root);
+  runGit(["worktree", "add", "-b", "feature", worktreePath], root);
   t.after(() => {
     try {
-      git(["worktree", "remove", "--force", worktreePath], root);
+      runGit(["worktree", "remove", "--force", worktreePath], root);
     } catch {
       // ベストエフォート（先行する test 失敗時などは既に無い場合がある）
     }
@@ -158,7 +132,7 @@ test("two worktrees of the same repository share instanceId and rootCommitDigest
 });
 
 test("concurrent first-time resolution from multiple processes converges on one instance id", async (t) => {
-  const root = initRepo(t);
+  const root = createTempGitRepo(t);
   const workerModule = path.join(import.meta.dirname, "identity-resolve-worker.mjs");
 
   // 単一プロセス内の呼び出しは Node のイベントループ上で逐次実行されるため、
@@ -191,13 +165,13 @@ test("concurrent first-time resolution from multiple processes converges on one 
 });
 
 test("rootCommitDigest is stable across an unrelated orphan branch checkout (not HEAD-relative)", (t) => {
-  const root = initRepo(t);
+  const root = createTempGitRepo(t);
   const before = resolveRepositoryIdentity(root);
   assert.equal(before.ok, true);
   if (!before.ok) return;
 
-  git(["checkout", "--orphan", "orphan-branch"], root);
-  git(["commit", "--quiet", "--allow-empty", "-m", "unrelated root"], root);
+  runGit(["checkout", "--orphan", "orphan-branch"], root);
+  runGit(["commit", "--quiet", "--allow-empty", "-m", "unrelated root"], root);
 
   const afterOrphanCommit = resolveRepositoryIdentity(root);
   assert.equal(afterOrphanCommit.ok, true);
@@ -207,7 +181,7 @@ test("rootCommitDigest is stable across an unrelated orphan branch checkout (not
   // root commit が increase しても、既存 root を含む digest は変わらない
   // （ソート済み連結ハッシュに 1 要素追加されるだけなので値自体は変わるが、
   // 同一リポジトリを指し続ける限り HEAD 切替のたびに変化してはならない）。
-  git(["checkout", "main"], root);
+  runGit(["checkout", "main"], root);
   const backOnMain = resolveRepositoryIdentity(root);
   assert.equal(backOnMain.ok, true);
   if (!backOnMain.ok) return;
