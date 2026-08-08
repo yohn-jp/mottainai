@@ -230,8 +230,8 @@ current branch itself, even on `main`. This is observation/dogfooding only:
 no commit/push/PR/cleanup exposure yet, and Mottainai's own managed write/edit
 tools don't yet enforce protected-branch rules (generated `pre-commit`/`pre-push`
 Git hooks may already block protected-branch operations independently of this;
-see `docs/workflow-policy.md`). `mottainai_worktree_new` remains
-available but is deprecated in favor of `mottainai_workflow_task_start`.
+see `docs/workflow-policy.md`). The former `mottainai_worktree_new` tool has
+been removed; use `mottainai_workflow_task_start` instead.
 
 The same three operations are available from the CLI, independent of
 `mottainai.config.json` (they act on a Git repository, given by `--workspace`
