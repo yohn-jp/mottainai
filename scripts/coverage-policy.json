@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "baseline": {
+    "measuredAt": "2026-08-08",
+    "sourceRevision": "3e78cd494e27d6c4f3938e73d9e851a836be3438 (PR #67 merge-base; no production src changes in PR)",
+    "measurement": "pnpm run test:coverage -- --measure-only",
+    "metrics": {
+      "lines": 97.09,
+      "functions": 95.26,
+      "branches": 86.21
+    },
+    "thresholds": {
+      "lines": 80,
+      "functions": 80,
+      "branches": 65
+    }
+  },
+  "criticalModules": [
+    {
+      "path": "src/config.ts",
+      "reason": "設定解決は起動と全upstream接続の共通境界。",
+      "thresholds": { "lines": 95, "functions": 95, "branches": 80 }
+    },
+    {
+      "path": "src/init.ts",
+      "reason": "CLI/initは設定生成、client登録、credential除去を外部へ公開する境界。",
+      "thresholds": { "lines": 82, "functions": 82, "branches": 68 }
+    },
+    {
+      "path": "src/proxy.ts",
+      "reason": "MCP tool list/callの公開proxy境界。",
+      "thresholds": { "lines": 95, "functions": 90, "branches": 75 }
+    },
+    {
+      "path": "src/auth.ts",
+      "reason": "credential headerとOAuth broker処理はsecret漏洩防止の境界。",
+      "thresholds": { "lines": 92, "functions": 95, "branches": 70 }
+    },
+    {
+      "path": "src/retrieve.ts",
+      "reason": "圧縮前artifact retentionのTTLと取得保証。",
+      "thresholds": { "lines": 92, "functions": 90, "branches": 85 }
+    },
+    {
+      "path": "src/state/migrations.ts",
+      "reason": "永続state schema migrationは既存利用者のデータ互換性を決める。",
+      "thresholds": { "lines": 95, "functions": 95, "branches": 95 }
+    },
+    {
+      "path": "src/state/sqlite-store.ts",
+      "reason": "SQLite state storeはsession/read evidenceの永続化境界。",
+      "thresholds": { "lines": 95, "functions": 95, "branches": 85 }
+    },
+    {
+      "path": "src/workflow/state/sqlite-store.ts",
+      "reason": "workflow lifecycle stateの保存と競合制御を担う。",
+      "thresholds": { "lines": 95, "functions": 95, "branches": 82 }
+    },
+    {
+      "path": "src/workflow/domain/lifecycle.ts",
+      "reason": "workflow lifecycle遷移の不変条件を保つ重要境界。",
+      "thresholds": { "lines": 95, "functions": 95, "branches": 88 }
+    }
+  ]
+}
