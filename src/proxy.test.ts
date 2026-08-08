@@ -243,6 +243,52 @@ test("callTool routes to the upstream named by the prefix, with the prefix strip
   await client.close();
 });
 
+test("local tool responses share the final projection boundary and retain explicit retrieval", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-context-runtime-"));
+  fs.writeFileSync(path.join(workspace, "large.txt"), "large read evidence\n".repeat(2_000));
+  const hardBytes = 1_600;
+  const gateway = resolveGatewayConfig({
+    workspaceRoot: workspace,
+    responseBudget: { softTokens: 200, hardTokens: 400, hardBytes },
+  });
+  const artifactStore = new InMemoryArtifactStore({ createId: () => "proxy" });
+  const client = await connectedClient([], undefined, artifactStore, undefined, { gateway });
+  try {
+    const success = await client.callTool({
+      name: "mottainai_exec",
+      arguments: { command: "yes verbose | head -n 2000", _mottainai: { task: { category: "bug_investigation" } } },
+    });
+    assert.ok(Buffer.byteLength(JSON.stringify(success), "utf8") <= hardBytes);
+    const successStructured = success.structuredContent as Record<string, unknown>;
+    assert.equal(successStructured.truncated, true);
+    assert.equal("output" in successStructured, false);
+    assert.match(String(successStructured.request_id), /^rq_/);
+    const resultId = String(successStructured.result_id);
+    assert.match(resultId, /^mx_proxy$/);
+
+    const retrieved = await client.callTool({ name: "mottainai_result_get", arguments: { id: resultId } });
+    assert.ok(Buffer.byteLength(JSON.stringify(retrieved), "utf8") <= hardBytes);
+    assert.match(String((retrieved.structuredContent as Record<string, unknown>).text), /verbose/);
+
+    const legacyRetrieved = await client.callTool({ name: "mottainai_retrieve", arguments: { id: resultId } });
+    assert.ok(Buffer.byteLength(JSON.stringify(legacyRetrieved), "utf8") <= hardBytes);
+
+    const failure = await client.callTool({
+      name: "mottainai_exec",
+      arguments: { command: "printf root-cause >&2; exit 1" },
+    });
+    assert.ok(Buffer.byteLength(JSON.stringify(failure), "utf8") <= hardBytes);
+    assert.match(String(((failure.structuredContent as Record<string, unknown>).diagnostics as Array<Record<string, unknown>>)[0].message), /root-cause/);
+
+    const read = await client.callTool({ name: "mottainai_read", arguments: { path: "large.txt" } });
+    assert.ok(Buffer.byteLength(JSON.stringify(read), "utf8") <= hardBytes);
+    assert.match(String((read.structuredContent as Record<string, unknown>).result_id), /^mx_proxy$/);
+  } finally {
+    await client.close();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 test("callTool starts only the requested registry upstream", async () => {
   const started: string[] = [];
   const registry = new UpstreamRegistry([

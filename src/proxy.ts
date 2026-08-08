@@ -14,6 +14,7 @@ import { brokerTools, dispatchBrokerTool, isBrokerTool } from "./broker.js";
 import { buildCatalog, profileAllows } from "./catalog.js";
 import { riskOf } from "./catalog.js";
 import { codeSearchTools, dispatchCodeSearchTool, isCodeSearchTool } from "./code-search.js";
+import { finalizeToolResult } from "./context-runtime/adapter.js";
 import type { ToolCatalog } from "./catalog.js";
 import { isCompressionEnabled, isToolDescriptionCompressionEnabled } from "./compress/config.js";
 import { compressToolDefinition } from "./compress/tool-description.js";
@@ -232,9 +233,19 @@ export function registerProxyHandlers(
     });
     await record(finalOutcome);
     // brokered search/describe は structured を返し、brokered call は upstream 結果をそのまま返す。
-    return requestId === undefined
+    const tracedResult = requestId === undefined
       ? finalOutcome.result
       : withRequestId(finalOutcome.result, requestId, isLocal || isWorkflowCommand || isAdaptive || isBrokerTool(toolName) || isCodeSearchTool(toolName));
+    if (!isLocal) return tracedResult;
+    const finalized = finalizeToolResult(tracedResult, gatewayConfig, resolvedArtifactStore);
+    telemetry.recordProjection({
+      rawBytes: finalized.stats.rawBytes,
+      storedBytes: finalized.stats.storedBytes,
+      returnedBytes: finalized.stats.returnedBytes,
+      omittedBytes: finalized.stats.omittedBytes,
+      projectedTokens: finalized.stats.estimatedProjectedTokens,
+    });
+    return finalized.result;
   });
 
   async function authorize(toolName: string, isLocal: boolean, isAdaptive: boolean): Promise<void> {
