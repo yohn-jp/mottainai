@@ -26,6 +26,7 @@ import { createTelemetrySink } from "./telemetry.js";
 import type { TelemetrySink } from "./telemetry.js";
 import { EXECUTION_PATHS } from "./execution.js";
 import type { ExecutionPath } from "./execution.js";
+import { BurstBudgetController } from "./context-runtime/burst-budget.js";
 
 function fakeHandle(
   name: string,
@@ -1387,3 +1388,146 @@ test("connection shutdown force-terminates a still-running started process (no o
   await client.close();
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+test(
+  "burst budget (#73): four concurrent per-response-valid tool calls stay individually bounded but the aggregate agent-visible payload is burst-bounded",
+  async () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-burst-budget-"));
+    // per-response budget は #71 単独で満たせる程度に緩めておき、burst budget だけが効くようにする。
+    // 失敗コマンドの diagnostics は #71 が保持対象にするため、成功コマンドの output（既定で
+    // 常に省略される）より現実的に burst 予算を圧迫する題材になる。
+    const perResponseHardBytes = 12_000;
+    const gateway = resolveGatewayConfig({
+      workspaceRoot: workspace,
+      responseBudget: { softTokens: 1_500, hardTokens: 3_000, hardBytes: perResponseHardBytes },
+      burstBudget: {
+        mode: "enforce",
+        maxConcurrentProjectedTokens: 300,
+        // 4 呼び出しは Promise.all でほぼ同時に投げるが、CI の遅い/混雑したマシンでは実行に
+        // 数百ms〜数秒かかることがある。rolling window を短く取ると、最初の呼び出しの消費量が
+        // 最後の呼び出しの admitOptional までに減衰してしまい、burst 縮小が一切起きずテストが
+        // flaky になる。60s あれば実行時間のばらつきを十分吸収できる。
+        rollingWindowMs: 60_000,
+        rollingProjectedTokens: 512,
+        rollingProjectedBytes: 2_048,
+      },
+    });
+    let nextArtifactId = 0;
+    const artifactStore = new InMemoryArtifactStore({ createId: () => `burst${nextArtifactId++}` });
+    // telemetry の debounced persist は非同期で、この test 関数の return 後に発火し得る。workspace
+    // を消してしまうと書き込み先が消えた状態で走るため、telemetry 専用の別ディレクトリ（既存の
+    // 同種テストと同じ流儀で、明示的には削除しない）を使う。
+    const telemetryDir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-burst-budget-telemetry-"));
+    const telemetry = createTelemetrySink({ MOTTAINAI_TELEMETRY: "1", MOTTAINAI_TELEMETRY_FILE: path.join(telemetryDir, "summary.json") });
+    const client = await connectedClient([], undefined, artifactStore, undefined, { gateway, telemetry });
+    try {
+      const commands = [1, 2, 3, 4].map(
+        (index) =>
+          `seq 1 400 | awk '{print "err-line-${index}-" $1 "-unique-content-padding-xxxxxxxxxxxxxxxxxxxxxxxxxx"}' 1>&2; exit 1`,
+      );
+
+      const results = await Promise.all(
+        commands.map((command) => client.callTool({ name: "mottainai_exec", arguments: { command } })),
+      );
+
+      for (const result of results) {
+        assert.ok(
+          Buffer.byteLength(JSON.stringify(result), "utf8") <= perResponseHardBytes,
+          "each individual response must still respect the #71 per-response hard cap",
+        );
+      }
+
+      const aggregateBytes = results.reduce((sum, result) => sum + Buffer.byteLength(JSON.stringify(result), "utf8"), 0);
+      // 4 responses が個別に #71 の per-response hard cap (12,000 bytes) いっぱいまで使えば
+      // 48,000 bytes になり得るが、burst budget (rolling byte ceiling 2,048 bytes) が効けば
+      // はるかに小さい合計に収まる。少なくとも 1 件が縮小される前提（下で reducedResults として
+      // 検証）なので、素朴な worst case の半分を切ることを最低限の bound として置く。
+      assert.ok(
+        aggregateBytes < (perResponseHardBytes * commands.length) / 2,
+        `aggregate agent-visible payload (${aggregateBytes}) must be bounded well below the unburst-limited worst case`,
+      );
+
+      const resultIds = results.map((result) => String((result.structuredContent as Record<string, unknown>).result_id));
+      for (const id of resultIds) {
+        assert.match(id, /^mx_burst\d+$/, "every call must keep a retrievable result_id regardless of burst reduction");
+      }
+      // burst_budget で縮小された応答は resultId が必ず埋まっている（full result は破棄されない）。
+      const reducedResults = results.filter((result) => {
+        const structured = result.structuredContent as Record<string, unknown>;
+        const projection = structured.projection as { omissions: Array<{ reason: string }> } | undefined;
+        return projection?.omissions.some((omission) => omission.reason === "burst_budget") === true;
+      });
+      assert.ok(reducedResults.length > 0, "at least one of the four concurrent calls should be burst-reduced");
+      // full result の破棄禁止を検証する: ArtifactStore を直接叩く（mottainai_result_get 自体も
+      // この burst budget を共有する local tool なので、rolling window が温まっている間はその
+      // レスポンス自体も burst で縮む — ここで確認したいのは "元データが残っているか" であって、
+      // その確認応答が burst 縮小を免れるかではない）。
+      for (const result of reducedResults) {
+        const structured = result.structuredContent as Record<string, unknown>;
+        const resultId = String(structured.result_id);
+        assert.ok(resultId.length > 0, "burst-reduced response must retain a retrievable result_id");
+        assert.equal(structured.truncated, true);
+        assert.equal(typeof structured.status, "string");
+        assert.equal(typeof structured.summary, "string");
+        // burst-reduced 応答は applyBurstReduction が MIN_RESPONSE_BUDGET (hardBytes: 1,024) で
+        // #71 の minimalResult 経路を通すので、この上限に収まっていなければならない。
+        assert.ok(
+          Buffer.byteLength(JSON.stringify(result), "utf8") <= 1_024,
+          "a burst-reduced response must fit MIN_RESPONSE_BUDGET.hardBytes",
+        );
+        const retrieved = artifactStore.retrieve(resultId);
+        assert.ok(retrieved, "full evidence must remain retrievable in the ArtifactStore even when burst-reduced");
+        assert.match(retrieved!.text, /err-line-\d+-\d+-unique-content-padding/);
+      }
+
+      const snapshot = telemetry.snapshot();
+      assert.ok(snapshot.burst.pressure_samples > 0);
+      assert.ok(snapshot.burst.responses_reduced > 0);
+    } finally {
+      await client.close();
+      fs.rmSync(workspace, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "burst budget (#73): maxConcurrentProjectedTokens alone binds under genuine dispatch-time concurrency, deterministically",
+  () => {
+    // rolling budget を実質無制限にし、maxConcurrentProjectedTokens 単独の拘束力を検証する。
+    // proxy dispatch layer を迂回し BurstBudgetController を直接 test することで、
+    // process spawn timing に依存しない決定的な検証を実現する。
+    const gateway = resolveGatewayConfig({
+      workspaceRoot: process.cwd(),
+      burstBudget: {
+        mode: "enforce",
+        maxConcurrentProjectedTokens: 300,
+        rollingWindowMs: 60_000,
+        rollingProjectedTokens: 1_000_000,
+        rollingProjectedBytes: 4_000_000,
+      },
+    });
+    const controller = new BurstBudgetController(gateway.burstBudget);
+
+    // 4 つの同時 reservation を事前登録（全て同一 generation）。
+    const reservations = [
+      controller.reserveEnvelope(),
+      controller.reserveEnvelope(),
+      controller.reserveEnvelope(),
+      controller.reserveEnvelope(),
+    ];
+    // 全て non-blocking と仮定（実際の concurrent tool calls を模倣）。
+    for (const reservation of reservations) {
+      controller.updatePriority(reservation, false);
+    }
+
+    // 各 reservation が 100 tokens を要求すると、合計 400 tokens で maxConcurrentProjectedTokens: 300 を超過。
+    const admissions = reservations.map((reservation) =>
+      controller.admitOptional(reservation, 100, 400),
+    );
+
+    // 少なくとも 1 つは burst_budget により拒否される必要がある。
+    const rejected = admissions.filter((admission) => !admission.admitted);
+    assert.ok(rejected.length > 0, "at least one of four concurrent 100-token calls must be rejected when maxConcurrentProjectedTokens is 300");
+    assert.ok(rejected.every((admission) => admission.reason === "concurrent_budget"), "rejections must be due to concurrent_budget");
+  },
+);

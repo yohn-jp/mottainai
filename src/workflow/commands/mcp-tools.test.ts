@@ -7,6 +7,7 @@ import { test } from "node:test";
 import type { TestContext } from "node:test";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { ResolvedGatewayConfig } from "../../config.js";
+import { DEFAULT_BURST_BUDGET_POLICY } from "../../context-runtime/burst-budget.js";
 import { DEFAULT_AWAIT_POLICY } from "../../context-runtime/poll-policy.js";
 import { callWorkflowCommandTool, workflowCommandTools, workflowCommandToolsFor } from "./mcp-tools.js";
 import { WorkflowSqliteStateStore } from "../state/sqlite-store.js";
@@ -30,7 +31,7 @@ async function gitWorkspace(t: TestContext): Promise<{ root: string; config: Res
   const config: ResolvedGatewayConfig = {
     workspaceRoot: root, defaultTimeoutMs: 1_000, maxTimeoutMs: 2_000, maxOutputBytes: 1024, execTargetTokens: 1_000,
     resultTtlMs: 10_000, resultMaxEntries: 10, capabilityMap: {}, toolMetadata: {}, tokenBudgets: { tools: {}, capabilities: {}, profiles: {} },
-    workflowTasks: false, await: DEFAULT_AWAIT_POLICY,
+    workflowTasks: false, await: DEFAULT_AWAIT_POLICY, burstBudget: DEFAULT_BURST_BUDGET_POLICY,
   };
   return { root, config };
 }
