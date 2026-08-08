@@ -399,6 +399,14 @@ test("gateway.burstBudget configures the connection-level burst boundary and rej
     () => loadMottainaiConfig(writeConfig({ version: 2, mcpServers: {}, gateway: { burstBudget: { rollingWindowMs: 0 } } })),
     /invalid gateway burstBudget.rollingWindowMs/,
   );
+  // rollingWindowMs: 10 は positiveIntegerConfig (>0 の整数) は通すが、
+  // resolveBurstBudgetPolicy の MIN_BURST_BUDGET (50ms 以上) 未満で弾かれる。
+  // この場合はエラーメッセージに "gateway burstBudget" prefix が付かない
+  // （resolveBurstBudgetPolicy 内部の positiveInteger が投げるため）。
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({ version: 2, mcpServers: {}, gateway: { burstBudget: { rollingWindowMs: 10 } } })),
+    /invalid burst budget rollingWindowMs/,
+  );
 });
 
 test("resolveGatewayConfig defaults workflowTasks to false (mottainai_task_start/status stay unpublished)", () => {

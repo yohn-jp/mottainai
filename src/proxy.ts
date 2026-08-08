@@ -204,68 +204,82 @@ export function registerProxyHandlers(
 
     await authorize(toolName, isLocal || isWorkflowCommand, isAdaptive);
 
-    let dispatched: ExecutionOutcome;
+    // burst reservation は dispatch (tool 実行) を始める前に確保する。投影確定後に reserve
+    // すると、Promise.all で同時に投げられた他呼び出しの実行区間が in-flight 集合へ反映されず、
+    // 優先度判定が意味を成さなくなる。isLocal だけが #73 の burst 対象（finalizeToolResult を
+    // 通る経路）。
+    const burstReservation = isLocal ? burstBudget.reserveEnvelope() : undefined;
     try {
-      dispatched = await dispatch(toolName, forwardedArguments, isLocal, isWorkflowCommand, isAdaptive, capability, extra.signal);
-    } catch (error) {
-      const selected = toolName.includes(SEP) ? splitPrefixedName(toolName) : undefined;
-      await record(selected === undefined
-        ? normalizeExecutionOutcome({
-          result: { content: [], isError: true },
-          selectedProvider: isBrokerTool(toolName) ? "gateway" : "local",
-          selectedTool: toolName,
-          capability: capability ?? "unknown",
-          risk: gatewayToolRisk(toolName),
-          status: "tool_error",
-        })
-        : providerErrorOutcome({
-          selectedProvider: selected.upstreamName,
-          selectedTool: selected.toolName,
-          capability: capability ?? "unknown",
-          risk: "unknown",
-          error: upstreamBaseErrorMessage(error),
-        }));
-      if (!hasUpstreamDiagnostic(error)) throw error;
-      const diagnosticMessage = upstreamErrorMessage(error);
-      if (error instanceof McpError) {
-        const prefix = `MCP error ${error.code}: `;
-        const originalMessage = error.message.startsWith(prefix) ? error.message.slice(prefix.length) : error.message;
-        const suffix = diagnosticMessage.startsWith(error.message)
-          ? diagnosticMessage.slice(error.message.length).replace(/^; /u, "")
-          : diagnosticMessage;
-        throw McpError.fromError(error.code, `${originalMessage}; ${suffix}`, error.data);
+      let dispatched: ExecutionOutcome;
+      try {
+        dispatched = await dispatch(toolName, forwardedArguments, isLocal, isWorkflowCommand, isAdaptive, capability, extra.signal);
+      } catch (error) {
+        const selected = toolName.includes(SEP) ? splitPrefixedName(toolName) : undefined;
+        await record(selected === undefined
+          ? normalizeExecutionOutcome({
+            result: { content: [], isError: true },
+            selectedProvider: isBrokerTool(toolName) ? "gateway" : "local",
+            selectedTool: toolName,
+            capability: capability ?? "unknown",
+            risk: gatewayToolRisk(toolName),
+            status: "tool_error",
+          })
+          : providerErrorOutcome({
+            selectedProvider: selected.upstreamName,
+            selectedTool: selected.toolName,
+            capability: capability ?? "unknown",
+            risk: "unknown",
+            error: upstreamBaseErrorMessage(error),
+          }));
+        if (!hasUpstreamDiagnostic(error)) throw error;
+        const diagnosticMessage = upstreamErrorMessage(error);
+        if (error instanceof McpError) {
+          const prefix = `MCP error ${error.code}: `;
+          const originalMessage = error.message.startsWith(prefix) ? error.message.slice(prefix.length) : error.message;
+          const suffix = diagnosticMessage.startsWith(error.message)
+            ? diagnosticMessage.slice(error.message.length).replace(/^; /u, "")
+            : diagnosticMessage;
+          throw McpError.fromError(error.code, `${originalMessage}; ${suffix}`, error.data);
+        }
+        throw new Error(diagnosticMessage);
       }
-      throw new Error(diagnosticMessage);
+      const budgeted = applyExecutionBudget(
+        dispatched,
+        toolName,
+        capability ?? dispatched.capability,
+        gatewayConfig,
+        resolvedArtifactStore,
+      );
+      const finalOutcome = normalizeExecutionOutcome({
+        ...budgeted.outcome,
+        result: attachDecisionMetadata(budgeted.outcome.result, budgeted.decision === undefined ? {} : {
+          budget: budgeted.decision,
+        }),
+        attempts: budgeted.outcome.attempts,
+      });
+      await record(finalOutcome);
+      // brokered search/describe は structured を返し、brokered call は upstream 結果をそのまま返す。
+      const tracedResult = requestId === undefined
+        ? finalOutcome.result
+        : withRequestId(finalOutcome.result, requestId, isLocal || isWorkflowCommand || isAdaptive || isBrokerTool(toolName) || isCodeSearchTool(toolName));
+      if (!isLocal) return tracedResult;
+      const finalized = finalizeToolResult(
+        tracedResult,
+        gatewayConfig,
+        resolvedArtifactStore,
+        burstReservation === undefined ? undefined : { controller: burstBudget, reservation: burstReservation },
+      );
+      telemetry.recordProjection({
+        rawBytes: finalized.stats.rawBytes,
+        storedBytes: finalized.stats.storedBytes,
+        returnedBytes: finalized.stats.returnedBytes,
+        omittedBytes: finalized.stats.omittedBytes,
+        projectedTokens: finalized.stats.estimatedProjectedTokens,
+      });
+      return finalized.result;
+    } finally {
+      if (burstReservation !== undefined) burstBudget.release(burstReservation);
     }
-    const budgeted = applyExecutionBudget(
-      dispatched,
-      toolName,
-      capability ?? dispatched.capability,
-      gatewayConfig,
-      resolvedArtifactStore,
-    );
-    const finalOutcome = normalizeExecutionOutcome({
-      ...budgeted.outcome,
-      result: attachDecisionMetadata(budgeted.outcome.result, budgeted.decision === undefined ? {} : {
-        budget: budgeted.decision,
-      }),
-      attempts: budgeted.outcome.attempts,
-    });
-    await record(finalOutcome);
-    // brokered search/describe は structured を返し、brokered call は upstream 結果をそのまま返す。
-    const tracedResult = requestId === undefined
-      ? finalOutcome.result
-      : withRequestId(finalOutcome.result, requestId, isLocal || isWorkflowCommand || isAdaptive || isBrokerTool(toolName) || isCodeSearchTool(toolName));
-    if (!isLocal) return tracedResult;
-    const finalized = finalizeToolResult(tracedResult, gatewayConfig, resolvedArtifactStore, burstBudget);
-    telemetry.recordProjection({
-      rawBytes: finalized.stats.rawBytes,
-      storedBytes: finalized.stats.storedBytes,
-      returnedBytes: finalized.stats.returnedBytes,
-      omittedBytes: finalized.stats.omittedBytes,
-      projectedTokens: finalized.stats.estimatedProjectedTokens,
-    });
-    return finalized.result;
   });
 
   async function authorize(toolName: string, isLocal: boolean, isAdaptive: boolean): Promise<void> {

@@ -1352,7 +1352,11 @@ test(
       burstBudget: {
         mode: "enforce",
         maxConcurrentProjectedTokens: 300,
-        rollingWindowMs: 2_000,
+        // 4 呼び出しは Promise.all でほぼ同時に投げるが、CI の遅い/混雑したマシンでは実行に
+        // 数百ms〜数秒かかることがある。rolling window を短く取ると、最初の呼び出しの消費量が
+        // 最後の呼び出しの admitOptional までに減衰してしまい、burst 縮小が一切起きずテストが
+        // flaky になる。60s あれば実行時間のばらつきを十分吸収できる。
+        rollingWindowMs: 60_000,
         rollingProjectedTokens: 512,
         rollingProjectedBytes: 2_048,
       },
@@ -1383,11 +1387,13 @@ test(
       }
 
       const aggregateBytes = results.reduce((sum, result) => sum + Buffer.byteLength(JSON.stringify(result), "utf8"), 0);
-      // 4 responses が個別に per-response hard cap いっぱいまで使えば 4 * 6000 = 24000 bytes になり得るが、
-      // burst budget が働けば rolling ceiling (4_800 bytes) 相当に近い、はるかに小さい合計に収まる。
+      // 4 responses が個別に #71 の per-response hard cap (12,000 bytes) いっぱいまで使えば
+      // 48,000 bytes になり得るが、burst budget (rolling byte ceiling 2,048 bytes) が効けば
+      // はるかに小さい合計に収まる。少なくとも 1 件が縮小される前提（下で reducedResults として
+      // 検証）なので、素朴な worst case の半分を切ることを最低限の bound として置く。
       assert.ok(
-        aggregateBytes < perResponseHardBytes * commands.length,
-        `aggregate agent-visible payload (${aggregateBytes}) must be bounded below the unburst-limited worst case`,
+        aggregateBytes < (perResponseHardBytes * commands.length) / 2,
+        `aggregate agent-visible payload (${aggregateBytes}) must be bounded well below the unburst-limited worst case`,
       );
 
       const resultIds = results.map((result) => String((result.structuredContent as Record<string, unknown>).result_id));
@@ -1412,6 +1418,12 @@ test(
         assert.equal(structured.truncated, true);
         assert.equal(typeof structured.status, "string");
         assert.equal(typeof structured.summary, "string");
+        // burst-reduced 応答は applyBurstReduction が MIN_RESPONSE_BUDGET (hardBytes: 1,024) で
+        // #71 の minimalResult 経路を通すので、この上限に収まっていなければならない。
+        assert.ok(
+          Buffer.byteLength(JSON.stringify(result), "utf8") <= 1_024,
+          "a burst-reduced response must fit MIN_RESPONSE_BUDGET.hardBytes",
+        );
         const retrieved = artifactStore.retrieve(resultId);
         assert.ok(retrieved, "full evidence must remain retrievable in the ArtifactStore even when burst-reduced");
         assert.match(retrieved!.text, /err-line-\d+-\d+-unique-content-padding/);
@@ -1420,6 +1432,57 @@ test(
       const snapshot = telemetry.snapshot();
       assert.ok(snapshot.burst.pressure_samples > 0);
       assert.ok(snapshot.burst.responses_reduced > 0);
+    } finally {
+      await client.close();
+      fs.rmSync(workspace, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "burst budget (#73): maxConcurrentProjectedTokens alone binds under genuine dispatch-time concurrency, deterministically",
+  async () => {
+    // #73 review finding: reservations must span dispatch (not just the post-dispatch finalize
+    // step), and the concurrent-budget ranking must be based on a static per-burst roster rather
+    // than the shrinking "currently open" set — otherwise, because Node runs each call's
+    // admission decision synchronously through to release before the next overlapping call's
+    // decision even starts, every call ends up computing itself as rank 0 and the concurrent
+    // budget never binds. This test isolates maxConcurrentProjectedTokens (rolling budget left
+    // effectively unlimited) against four genuinely overlapping mottainai_exec dispatches and
+    // asserts a stable, non-zero rejection count across repeated runs.
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-burst-concurrent-only-"));
+    const gateway = resolveGatewayConfig({
+      workspaceRoot: workspace,
+      burstBudget: {
+        mode: "enforce",
+        maxConcurrentProjectedTokens: 300,
+        rollingWindowMs: 60_000,
+        rollingProjectedTokens: 1_000_000,
+        rollingProjectedBytes: 4_000_000,
+      },
+    });
+    const client = await connectedClient([], undefined, undefined, undefined, { gateway });
+    try {
+      // 各コマンドに `sleep 0.05` を挟み、4 つの dispatch が実際にオーバーラップすることを
+      // 保証する（内容自体は極小で #71 の投影サイズにはほぼ影響しない）。
+      const commands = [1, 2, 3, 4].map((index) => `sleep 0.05; echo done${index}`);
+      const reducedCounts: number[] = [];
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const results = await Promise.all(
+          commands.map((command) => client.callTool({ name: "mottainai_exec", arguments: { command } })),
+        );
+        const reduced = results.filter((result) => {
+          const structured = result.structuredContent as Record<string, unknown>;
+          const projection = structured.projection as { omissions: Array<{ reason: string }> } | undefined;
+          return projection?.omissions.some((omission) => omission.reason === "burst_budget") === true;
+        }).length;
+        reducedCounts.push(reduced);
+      }
+      assert.ok(reducedCounts.every((count) => count > 0), `concurrent budget must actually bind: ${JSON.stringify(reducedCounts)}`);
+      assert.ok(
+        reducedCounts.every((count) => count === reducedCounts[0]),
+        `reduction count must be deterministic across repeated identical bursts: ${JSON.stringify(reducedCounts)}`,
+      );
     } finally {
       await client.close();
       fs.rmSync(workspace, { recursive: true, force: true });

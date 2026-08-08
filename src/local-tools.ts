@@ -14,7 +14,7 @@ import { OUTPUT_SCHEMA, output } from "./envelope.js";
 import type { ArtifactStore } from "./retrieve.js";
 import { runChild, runProgram } from "./subprocess.js";
 import type { RunResult } from "./subprocess.js";
-import { compressionRatio, retrievalRate } from "./telemetry.js";
+import { compressionRatio, disabledTelemetrySnapshot, retrievalRate } from "./telemetry.js";
 import type { TelemetrySink } from "./telemetry.js";
 import type { UpstreamStatus } from "./upstream.js";
 
@@ -524,16 +524,7 @@ function resultSearchTool(args: Args, store: ArtifactStore, telemetry?: Telemetr
 }
 
 function telemetrySummaryTool(telemetry?: TelemetrySink): CallToolResult {
-  const snapshot = telemetry?.snapshot() ?? {
-    enabled: false, generated_at: new Date().toISOString(),
-    totals: { calls: 0, errors: 0, original_bytes: 0, compressed_bytes: 0, retrievals: 0 },
-    by_provider: {}, by_capability: {},
-    projection: { raw_bytes: 0, stored_bytes: 0, returned_bytes: 0, omitted_bytes: 0, projected_tokens: 0 },
-    burst: {
-      pressure_samples: 0, pressure_total: 0, pressure_max: 0, projected_tokens: 0, projected_bytes: 0,
-      omitted_tokens: 0, omitted_bytes: 0, responses_reduced: 0,
-    },
-  };
+  const snapshot = telemetry?.snapshot() ?? disabledTelemetrySnapshot();
   if (!snapshot.enabled) {
     return output("telemetry_summary", "success", "telemetry disabled; set MOTTAINAI_TELEMETRY=1 to enable", "", {
       enabled: false,

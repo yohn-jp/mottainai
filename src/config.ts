@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { resolveResponseBudget } from "./context-runtime/budget.js";
-import { resolveBurstBudgetPolicy } from "./context-runtime/burst-budget.js";
+import { DEFAULT_BURST_BUDGET_POLICY, resolveBurstBudgetPolicy } from "./context-runtime/burst-budget.js";
 import type { BurstBudgetPolicy, BurstBudgetPolicyConfig } from "./context-runtime/burst-budget.js";
 import type { ProjectionBudget, ProjectionBudgetConfig } from "./context-runtime/types.js";
 import { DEFAULT_AWAIT_POLICY } from "./context-runtime/poll-policy.js";
@@ -184,13 +184,7 @@ const DEFAULT_GATEWAY_CONFIG: Omit<ResolvedGatewayConfig, "workspaceRoot"> = {
   toolMetadata: {},
   tokenBudgets: { tools: {}, capabilities: {}, profiles: {} },
   responseBudget: { softTokens: 1_500, hardTokens: 3_000, hardBytes: 12_000 },
-  burstBudget: {
-    mode: "off",
-    maxConcurrentProjectedTokens: 6_000,
-    rollingWindowMs: 1_500,
-    rollingProjectedTokens: 8_000,
-    rollingProjectedBytes: 32_000,
-  },
+  burstBudget: DEFAULT_BURST_BUDGET_POLICY,
   workflowTasks: false,
   await: DEFAULT_AWAIT_POLICY,
 };

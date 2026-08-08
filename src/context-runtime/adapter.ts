@@ -3,9 +3,15 @@ import type { ResolvedGatewayConfig } from "../config.js";
 import type { ArtifactStore } from "../retrieve.js";
 import { applyResponseBudget, DEFAULT_RESPONSE_BUDGET, projectedBytes, projectedTokens } from "./budget.js";
 import { applyBurstReduction, isBlockingProjection } from "./burst-budget.js";
-import type { BurstBudgetController } from "./burst-budget.js";
+import type { BurstBudgetController, BurstReservation } from "./burst-budget.js";
 import { hasStructuredEnvelope, markOmissionsRetrievable, projectResult, serializeProjectedResult } from "./project.js";
 import type { ProjectedResult, ProjectionStats } from "./types.js";
+
+/** dispatch 前に取得済みの burst reservation。finalize 後の解放は呼び出し側（proxy.ts）が行う。 */
+export interface BurstContext {
+  controller: BurstBudgetController;
+  reservation: BurstReservation;
+}
 
 export interface FinalizedToolResult {
   result: CallToolResult;
@@ -89,28 +95,24 @@ function toCallToolResult(
 }
 
 /**
- * burst budget の可否を一度だけ判定する。reservation は呼び出しにつき 1 回だけ
- * reserve/release する — 同一呼び出しを二重に in-flight 登録すると優先度計算・rolling
- * window の消費量が二重加算され、admission の決定性が壊れる。
+ * burst budget の可否を判定する。reservation は呼び出し側が dispatch 前に既に
+ * reserveEnvelope 済みのものを渡す — ここでは isBlocking の確定と admitOptional のみ行う。
+ * release はここでは呼ばない: 呼び出し側がレスポンス確定後に 1 回だけ呼ぶ。
  */
 function decideBurstAdmission(
   projected: ProjectedResult,
-  burst: BurstBudgetController | undefined,
+  burst: BurstContext | undefined,
 ): boolean {
   if (burst === undefined) return true;
-  const reservation = burst.reserveEnvelope(isBlockingProjection(projected));
-  try {
-    return burst.admitOptional(reservation, projectedTokens(projected), projectedBytes(projected)).admitted;
-  } finally {
-    burst.release(reservation);
-  }
+  burst.controller.updatePriority(burst.reservation, isBlockingProjection(projected));
+  return burst.controller.admitOptional(burst.reservation, projectedTokens(projected), projectedBytes(projected)).admitted;
 }
 
 export function finalizeToolResult(
   result: CallToolResult,
   config: ResolvedGatewayConfig,
   store: ArtifactStore,
-  burst: BurstBudgetController | undefined = undefined,
+  burst: BurstContext | undefined = undefined,
 ): FinalizedToolResult {
   const rawBytes = serializedBytes(result);
   const structuredContent = result.structuredContent;

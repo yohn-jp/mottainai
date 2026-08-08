@@ -4,6 +4,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { resolveGatewayConfig } from "../config.js";
 import { InMemoryArtifactStore } from "../retrieve.js";
 import { finalizeToolResult } from "./adapter.js";
+import type { BurstContext } from "./adapter.js";
 import { applyResponseBudget, MIN_RESPONSE_BUDGET, projectedBytes, resolveResponseBudget } from "./budget.js";
 import { BurstBudgetController } from "./burst-budget.js";
 import { projectResult, serializeProjectedResult } from "./project.js";
@@ -197,13 +198,18 @@ function successResult(text: string): CallToolResult {
   };
 }
 
+/** proxy.ts と同じ流れ: dispatch 前に reserve し、finalize 用の BurstContext を作る。 */
+function burstContext(controller: BurstBudgetController): BurstContext {
+  return { controller, reservation: controller.reserveEnvelope() };
+}
+
 test("finalizeToolResult: burst budget never discards tool execution or the retrievable full result", () => {
   const store = new InMemoryArtifactStore({ createId: () => "burst" });
   const config = resolveGatewayConfig({ workspaceRoot: process.cwd() });
   const burst = new BurstBudgetController({
     mode: "enforce", maxConcurrentProjectedTokens: 1, rollingWindowMs: 1_000, rollingProjectedTokens: 1, rollingProjectedBytes: 1,
   });
-  const finalized = finalizeToolResult(successResult("hello world"), config, store, burst);
+  const finalized = finalizeToolResult(successResult("hello world"), config, store, burstContext(burst));
   const structured = finalized.result.structuredContent as Record<string, unknown>;
   assert.equal(typeof structured.result_id, "string");
   assert.ok(String(structured.result_id).length > 0, "burst reduction must still leave a retrievable result_id");
@@ -218,7 +224,7 @@ test("finalizeToolResult: burst-reduced response retains status/summary/result_i
   const burst = new BurstBudgetController({
     mode: "enforce", maxConcurrentProjectedTokens: 1, rollingWindowMs: 1_000, rollingProjectedTokens: 1, rollingProjectedBytes: 1,
   });
-  const finalized = finalizeToolResult(successResult("verbose output here"), config, store, burst);
+  const finalized = finalizeToolResult(successResult("verbose output here"), config, store, burstContext(burst));
   const structured = finalized.result.structuredContent as Record<string, unknown>;
   assert.equal(structured.operation, "exec");
   assert.equal(structured.status, "success");
@@ -235,7 +241,7 @@ test("finalizeToolResult: mode off leaves responses unaffected by burst budget e
     mode: "off", maxConcurrentProjectedTokens: 1, rollingWindowMs: 1_000, rollingProjectedTokens: 1, rollingProjectedBytes: 1,
   });
   const withoutBurst = finalizeToolResult(successResult("hello world"), config, store);
-  const withBurst = finalizeToolResult(successResult("hello world"), config, store, burst);
+  const withBurst = finalizeToolResult(successResult("hello world"), config, store, burstContext(burst));
   assert.deepEqual(withBurst.result.structuredContent, withoutBurst.result.structuredContent);
 });
 
@@ -247,11 +253,13 @@ test(
     const burst = new BurstBudgetController({
       mode: "enforce", maxConcurrentProjectedTokens: 200, rollingWindowMs: 1_000, rollingProjectedTokens: 100_000, rollingProjectedBytes: 400_000,
     });
-    // 失敗呼び出しはまだ finalize されていない（= 他 upstream からの応答待ちなどで in-flight）が、
-    // envelope 分はすでに reserve 済み。この状態で並行する成功応答を finalize すると、
-    // 失敗側の静的優先度（isBlocking）が成功側の optional projection を押し出す。
-    const inFlightFailureReservation = burst.reserveEnvelope(true);
-    const successFinalized = finalizeToolResult(successResult("verbose success payload".repeat(50)), config, store, burst);
+    // 失敗呼び出しはまだ finalize されていない（= dispatch 中で他 upstream からの応答待ち）が、
+    // dispatch 前に envelope 分はすでに reserve 済み、isBlocking も確定済み。この状態で並行する
+    // 成功応答を finalize すると、失敗側の静的優先度（isBlocking）が成功側の optional projection
+    // を押し出す。
+    const inFlightFailureReservation = burst.reserveEnvelope();
+    burst.updatePriority(inFlightFailureReservation, true);
+    const successFinalized = finalizeToolResult(successResult("verbose success payload".repeat(50)), config, store, burstContext(burst));
     burst.release(inFlightFailureReservation);
 
     const successStructured = successFinalized.result.structuredContent as Record<string, unknown>;
