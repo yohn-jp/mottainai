@@ -1,0 +1,32 @@
+name: PR-Agent
+
+on:
+  pull_request:
+    types: [opened, reopened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+
+jobs:
+  pr-agent:
+    # Internal PRs only: skip fork-originated pull_request events (no secret exposure to untrusted code),
+    # skip non-PR issue comments, and skip bot-authored comments to avoid re-trigger loops.
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && github.event.comment.user.type != 'Bot')
+    runs-on: ubuntu-latest
+    steps:
+      - name: PR Agent action step
+        uses: qodo-ai/pr-agent@main
+        env:
+          OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CONFIG.GIT_PROVIDER: "github"
+          PR_REVIEWER.AUTO_REVIEW: "true"
+          PR_DESCRIPTION.PUBLISH_DESCRIPTION_AS_COMMENT: "false"
+          PR_DESCRIPTION.AUTO_DESCRIBE: "false"
+          PR_CODE_SUGGESTIONS.AUTO_IMPROVE: "false"
