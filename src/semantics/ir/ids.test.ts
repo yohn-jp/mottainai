@@ -1,12 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  createEffectId,
-  createLogicalId,
-  createSymbolId,
-  isEffectId,
-  isLogicalId,
-} from "./ids.js";
+import { createEffectId, createLogicalId, createSymbolId, isEffectId, isLogicalId } from "./ids.js";
 
 test("symbol logical IDs ignore source range movement", () => {
   const before = createSymbolId({

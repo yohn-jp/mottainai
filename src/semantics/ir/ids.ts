@@ -2,7 +2,7 @@ import type { EffectId, KnownNodeKind, SymbolLocator } from "./types.js";
 
 export type LogicalId = string & { readonly __logicalId: unique symbol };
 
-/** namespace:local の論理ID。range/content hashは許可する構造に含めない。 */
+/** namespace:local の論理ID。source range/content hashはidentityに含めない。 */
 export const LOGICAL_ID_PATTERN = /^[a-z][a-z0-9_-]*:[A-Za-z0-9][A-Za-z0-9._~+/@#:%-]*$/;
 export const EFFECT_ID_PATTERN = /^[a-z][a-z0-9_-]*(?:\.[a-z0-9_-]+)*$/;
 
@@ -30,13 +30,37 @@ export function createRevisionId(revision: string): LogicalId {
   return createLogicalId("revision", revision);
 }
 
-/** node kindからlogical IDのnamespaceを求める。repositoryだけrepo namespaceに写像する。 */
+export function createWorktreeId(localId: string): LogicalId {
+  return createLogicalId("worktree", localId);
+}
+
+/** node kindからlogical IDのnamespaceを求める。repositoryだけrepo namespaceに写像。 */
 export function namespaceForNodeKind(kind: string): string {
   return kind === "repository" ? "repo" : kind;
 }
 
 export function createNodeId(kind: KnownNodeKind | string, localId: string): LogicalId {
   return createLogicalId(namespaceForNodeKind(kind), localId);
+}
+
+export function createProjectId(localId: string): LogicalId {
+  return createNodeId("project", localId);
+}
+
+export function createComponentId(localId: string): LogicalId {
+  return createNodeId("component", localId);
+}
+
+export function createPackageId(localId: string): LogicalId {
+  return createNodeId("package", localId);
+}
+
+export function createExternalDependencyId(localId: string): LogicalId {
+  return createNodeId("external_dependency", localId);
+}
+
+export function createExternalApiId(localId: string): LogicalId {
+  return createNodeId("external_api", localId);
 }
 
 export function createFactId(localId: string): LogicalId {
@@ -62,17 +86,22 @@ export function isEffectId(value: unknown): value is EffectId {
 
 const idPartEncoder = new TextEncoder();
 
-/** IDに使えない文字だけを安定的にescapeする。1バイトにつき固定2桁hexで単射を保つ。source rangeは引数に含めない。 */
+/** IDに使えない文字だけを固定hexへ変換。source rangeは引数に含めない。 */
 function encodeIdPart(value: string, field: string): string {
   if (value.length === 0) throw new Error(`${field} must be non-empty`);
-  return [...value].map((character) => {
-    if (/[A-Za-z0-9._~+/@-]/.test(character)) return character;
-    return [...idPartEncoder.encode(character)].map((byte) => `%${byte.toString(16).padStart(2, "0")}`).join("");
-  }).join("");
+  return [...value]
+    .map((character) => {
+      if (/[A-Za-z0-9._~+/@-]/.test(character)) return character;
+      return [...idPartEncoder.encode(character)].map((byte) => `%${byte.toString(16).padStart(2, "0")}`).join("");
+    })
+    .join("");
 }
 
-/** 言語非依存の物理locatorから、rangeを除外した論理symbol IDを作る。package/moduleは固定位置に置き、欠落と空文字を区別する。 */
-export function createSymbolId(locator: Pick<SymbolLocator, "kind" | "language" | "package" | "module" | "file" | "symbol" | "signature" | "range">): LogicalId {
+/** locatorのlogical ID。line/range/content fingerprint変更でIDを変えない。 */
+export function createSymbolId(
+  locator: Pick<SymbolLocator, "kind" | "language" | "package" | "module" | "file" | "symbol" | "signature" | "range">,
+): LogicalId {
+  if (locator.kind !== "symbol") throw new Error("symbol locator is required");
   const coordinates = [
     encodeIdPart(locator.language, "language"),
     locator.package === undefined ? "" : encodeIdPart(locator.package, "package"),

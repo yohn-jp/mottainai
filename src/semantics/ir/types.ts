@@ -1,56 +1,74 @@
 import type { LogicalId } from "./ids.js";
 
+export const MODEL_VERSION = "symbol-first-v1" as const;
+export type ModelVersion = typeof MODEL_VERSION;
+
+/** #48のnumeric v1と衝突しない、symbol-first v1のschema世代。 */
+export type SchemaVersion = 2;
+export const CURRENT_SCHEMA_VERSION: SchemaVersion = 2;
+
+export const AUTHORITY_LAYERS = ["declared", "derived", "observed", "analysis", "integrity"] as const;
+export type AuthorityLayer = (typeof AUTHORITY_LAYERS)[number];
+
 export const NODE_KINDS = [
+  "project",
   "repository",
-  "package",
-  "module",
-  "file",
-  "symbol",
   "component",
+  "symbol",
+  "capability",
   "contract",
   "invariant",
   "decision",
-  "policy",
+  "rationale",
+  "constraint",
+  "evidence",
   "test",
+  "file",
+  "package",
+  "external_dependency",
+  "external_api",
+  "module",
   "document",
   "document_section",
 ] as const;
 
 export type KnownNodeKind = (typeof NODE_KINDS)[number];
-/** v1の既知語彙を補完しつつ、将来のkindを保存可能にする開放型。(string & {})はエディタ補完を残すための慣用形。 */
 export type NodeKind = KnownNodeKind | (string & {});
 
 export const RELATIONSHIP_KINDS = [
   "contains",
+  "owns",
+  "shares",
   "defines",
   "references",
-  "imports",
   "calls",
+  "imports",
+  "provides",
+  "requires",
+  "depends_on",
   "implements",
-  "implemented_by",
   "tests",
+  "verifies",
   "documents",
   "governs",
   "constrained_by",
+  "uses_package",
+  "imports_api",
   "evidence_for",
-  "resolves_to",
-  "binds_to",
 ] as const;
 
 export type KnownRelationshipKind = (typeof RELATIONSHIP_KINDS)[number];
-/** DB enumに固定せず、未知の将来edge kindをそのまま保持する。(string & {})はエディタ補完を残すための慣用形。 */
 export type RelationshipKind = KnownRelationshipKind | (string & {});
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 export type ExtensionMetadata = Record<string, JsonValue>;
 
-export type SchemaVersion = 1;
-export const CURRENT_SCHEMA_VERSION: SchemaVersion = 1;
-
-export type ProvenanceKind = "declared" | "derived" | "observed" | "inferred";
+export const PROVENANCE_KINDS = ["declared", "derived", "observed", "inferred"] as const;
+export type ProvenanceKind = (typeof PROVENANCE_KINDS)[number];
 export type Completeness = "complete" | "partial" | "unknown";
 export type AmbiguityStatus = "none" | "possible" | "ambiguous";
+export type EnforcementAuthority = "none" | "advisory" | "authoritative";
 
 export interface ProducerIdentity {
   name: string;
@@ -59,7 +77,7 @@ export interface ProducerIdentity {
 
 export interface SourceRevision {
   repositoryId: LogicalId;
-  revisionId: LogicalId;
+  revisionId?: LogicalId;
 }
 
 export interface EvidenceReference {
@@ -76,6 +94,7 @@ export interface AmbiguityMetadata {
   candidates?: LogicalId[];
 }
 
+/** Authority layer and provenance origin remain separate fields by design. */
 export interface Provenance {
   kind: ProvenanceKind;
   producer: ProducerIdentity;
@@ -104,7 +123,7 @@ export interface SymbolLocator {
   file?: string;
   symbol: string;
   signature?: string;
-  /** 物理位置。logicalIdの生成には使わない。 */
+  /** 物理位置。symbol logical IDの生成には使わない。 */
   range?: SourceRange;
 }
 
@@ -114,7 +133,6 @@ export interface FileLocator {
   package?: string;
   module?: string;
   language?: string;
-  /** 物理位置。logicalIdの生成には使わない。 */
   range?: SourceRange;
 }
 
@@ -123,7 +141,6 @@ export interface ModuleLocator {
   name: string;
   package?: string;
   file?: string;
-  /** 物理位置。logicalIdの生成には使わない。 */
   range?: SourceRange;
 }
 
@@ -131,7 +148,6 @@ export interface DocumentLocator {
   kind: "document";
   path: string;
   section?: string;
-  /** 物理位置。logicalIdの生成には使わない。 */
   range?: SourceRange;
 }
 
@@ -152,6 +168,7 @@ export interface RepositoryIdentity {
 export interface RevisionIdentity {
   id: LogicalId;
   revision: string;
+  tree?: string;
   kind?: string;
   parentIds?: LogicalId[];
 }
@@ -230,33 +247,165 @@ export interface Contract {
   outputs: ContractOutputs;
 }
 
-export interface SemanticNodeBase {
-  identity: NodeIdentity;
+export type Stability = "experimental" | "unstable" | "stable" | "protected" | "deprecated";
+export type ReviewLevel = "L0" | "L1" | "L2" | "L3";
+export const REVIEW_LEVELS = ["L0", "L1", "L2", "L3"] as const;
+export const SEMANTIC_DELTA_KINDS = [
+  "responsibility",
+  "capability",
+  "contract",
+  "effect",
+  "invariant",
+  "dependency-policy",
+  "public-surface",
+] as const;
+export type SemanticDeltaKind = (typeof SEMANTIC_DELTA_KINDS)[number];
+export type SemanticIntent = "semantic-neutral" | "semantic-change";
+export const SEMANTIC_VOCABULARY_VERSION = 1 as const;
+
+export interface SemanticEntityBase {
+  id: LogicalId;
   name: string;
   description?: string;
+  authority: AuthorityLayer;
   provenance: Provenance;
-  contract?: Contract;
   metadata?: ExtensionMetadata;
 }
 
-export type KnownSemanticNode = {
-  [Kind in KnownNodeKind]: SemanticNodeBase & { kind: Kind }
-}[KnownNodeKind];
-
-/** v1外のkindも保存できる拡張node。既知kindはKnownSemanticNodeで型分岐可能。 */
-export interface ExtendedSemanticNode extends SemanticNodeBase {
-  kind: string;
+export interface ProjectEntity extends SemanticEntityBase {
+  kind: "project";
+  canonicalName: string;
+  responsibility: string;
+  stability: Stability;
+  reviewLevel: ReviewLevel;
 }
 
-export type SemanticNode = KnownSemanticNode | ExtendedSemanticNode;
+export interface ComponentEntity extends SemanticEntityBase {
+  kind: "component";
+  responsibility: string;
+  stability: Stability;
+  reviewLevel: ReviewLevel;
+}
 
-export interface SemanticEdge {
+export interface SymbolEntity extends SemanticEntityBase {
+  kind: "symbol";
+  locator: SymbolLocator;
+  classification: "managed" | "shared";
+}
+
+export interface CapabilityEntity extends SemanticEntityBase {
+  kind: "capability";
+  meaning: string;
+  stability: Stability;
+  reviewLevel: ReviewLevel;
+}
+
+export interface ContractEntity extends SemanticEntityBase {
+  kind: "contract";
+  definition: Contract;
+  stability: Stability;
+  reviewLevel: ReviewLevel;
+}
+
+export interface InvariantEntity extends SemanticEntityBase {
+  kind: "invariant";
+  statement: string;
+  severity: "info" | "warning" | "error";
+  stability: Stability;
+}
+
+export interface DecisionEntity extends SemanticEntityBase {
+  kind: "decision";
+  statement: string;
+  status: "proposed" | "accepted" | "rejected" | "superseded";
+  rationaleIds: LogicalId[];
+  constraintIds: LogicalId[];
+}
+
+export interface RationaleEntity extends SemanticEntityBase {
+  kind: "rationale";
+  statement: string;
+  decisionIds: LogicalId[];
+}
+
+export interface ConstraintEntity extends SemanticEntityBase {
+  kind: "constraint";
+  statement: string;
+  scope: string;
+  enforcement: "advisory" | "required" | "protected";
+}
+
+export interface FileEntity extends SemanticEntityBase {
+  kind: "file";
+  path: string;
+  language?: string;
+  tracked: boolean;
+}
+
+export interface PackageEntity extends SemanticEntityBase {
+  kind: "package";
+  packageName: string;
+  dependencyType: "internal" | "external";
+  version?: string;
+}
+
+export interface ExternalDependencyEntity extends SemanticEntityBase {
+  kind: "external_dependency";
+  packageName: string;
+  version?: string;
+  registry?: string;
+}
+
+export interface ExternalApiEntity extends SemanticEntityBase {
+  kind: "external_api";
+  packageId: LogicalId;
+  apiName: string;
+  version?: string;
+}
+
+export interface EvidenceEntity extends SemanticEntityBase {
+  kind: "evidence";
+  evidenceKind: string;
+  reference: string;
+  summary: string;
+}
+
+export interface TestEntity extends SemanticEntityBase {
+  kind: "test";
+  testName: string;
+  status: "passed" | "failed" | "skipped" | "unknown";
+  evidenceIds: LogicalId[];
+}
+
+export type SemanticEntity =
+  | ProjectEntity
+  | ComponentEntity
+  | SymbolEntity
+  | CapabilityEntity
+  | ContractEntity
+  | InvariantEntity
+  | DecisionEntity
+  | RationaleEntity
+  | ConstraintEntity
+  | FileEntity
+  | PackageEntity
+  | ExternalDependencyEntity
+  | ExternalApiEntity
+  | EvidenceEntity
+  | TestEntity;
+
+export interface SemanticRelation {
   id: LogicalId;
   kind: RelationshipKind;
   from: LogicalId;
   to: LogicalId;
+  authority: AuthorityLayer;
   provenance: Provenance;
   metadata?: ExtensionMetadata;
+}
+
+export interface UniversalRelationGraph {
+  relations: SemanticRelation[];
 }
 
 export interface SemanticFact {
@@ -264,6 +413,7 @@ export interface SemanticFact {
   subject: LogicalId;
   predicate: string;
   value: JsonValue;
+  authority: AuthorityLayer;
   provenance: Provenance;
   metadata?: ExtensionMetadata;
 }
@@ -276,8 +426,140 @@ export interface SemanticClaim {
   statement: string;
   object?: LogicalId;
   status: ClaimStatus;
+  authority: AuthorityLayer;
+  enforcement: EnforcementAuthority;
   provenance: Provenance;
   metadata?: ExtensionMetadata;
+}
+
+export interface EffectPolicy {
+  id: LogicalId;
+  subject: LogicalId;
+  allow: EffectId[];
+  deny: EffectId[];
+  rationaleIds: LogicalId[];
+}
+
+export interface DependencyPolicy {
+  id: LogicalId;
+  subject: LogicalId;
+  allowedPackageIds: LogicalId[];
+  deniedPackageIds: LogicalId[];
+  rationaleIds: LogicalId[];
+}
+
+export interface ReviewGuidance {
+  id: LogicalId;
+  subject: LogicalId;
+  level: ReviewLevel;
+  guidance: string;
+}
+
+export interface StabilityDeclaration {
+  subject: LogicalId;
+  stability: Stability;
+  rationaleId?: LogicalId;
+}
+
+export interface TerminologyLink {
+  term: string;
+  definition: string;
+  relatedEntityIds: LogicalId[];
+}
+
+export interface DecisionLink {
+  subject: LogicalId;
+  decisionId: LogicalId;
+  relation: "motivated_by" | "constrained_by" | "supersedes";
+}
+
+export interface CanonicalProsePolicy {
+  canonicalLanguage: "en";
+  canonicalForm: "formal-english";
+  humanLocalization: "projection";
+  llmTokenCompression: "projection";
+  sourceCodeSemantics: "implementation-only";
+  semanticCommentKinds: Array<"rationale" | "todo-debt-intent" | "review-note" | "constraint" | "api-meaning">;
+  inlineDirectives: string[];
+  jsdoc: "projection";
+}
+
+export interface DeclaredState {
+  project: ProjectEntity;
+  components: ComponentEntity[];
+  capabilities: CapabilityEntity[];
+  contracts: ContractEntity[];
+  invariants: InvariantEntity[];
+  decisions: DecisionEntity[];
+  rationales: RationaleEntity[];
+  constraints: ConstraintEntity[];
+  facts: SemanticFact[];
+  effectPolicies: EffectPolicy[];
+  dependencyPolicies: DependencyPolicy[];
+  reviewGuidance: ReviewGuidance[];
+  stability: StabilityDeclaration[];
+  terminology: TerminologyLink[];
+  decisionLinks: DecisionLink[];
+  commentPolicy: CanonicalProsePolicy;
+}
+
+export interface DerivedState {
+  files: FileEntity[];
+  symbols: SymbolEntity[];
+  packages: PackageEntity[];
+  externalDependencies: ExternalDependencyEntity[];
+  externalApis: ExternalApiEntity[];
+  facts: SemanticFact[];
+}
+
+export interface ObservedState {
+  evidences: EvidenceEntity[];
+  tests: TestEntity[];
+  facts: SemanticFact[];
+}
+
+export interface SemanticDeltaEntry {
+  id: LogicalId;
+  subject: LogicalId;
+  kind: SemanticDeltaKind;
+  summary: string;
+  reviewLevel: ReviewLevel;
+}
+
+export interface SemanticDelta {
+  version: typeof SEMANTIC_VOCABULARY_VERSION;
+  intent: SemanticIntent;
+  entries: SemanticDeltaEntry[];
+  /** semantic-neutral transactionが実際のdeltaを出した場合にtrue。 */
+  unauthorized: boolean;
+}
+
+export interface SemanticTransaction {
+  version: typeof SEMANTIC_VOCABULARY_VERSION;
+  intent: SemanticIntent;
+  delta: SemanticDelta;
+  provenance: Provenance;
+}
+
+export interface AnalysisUnknown {
+  code: string;
+  message: string;
+  subjects?: LogicalId[];
+}
+
+export interface SourceReference {
+  path: string;
+  symbol?: string;
+  startLine?: number;
+  endLine?: number;
+  reason: string;
+}
+
+export interface AnalysisHealth {
+  status: "healthy" | "partial" | "review-required" | "protected" | "unknown";
+  score: number;
+  staleEvidence: number;
+  modelGaps: number;
 }
 
 export type DiagnosticSeverity = "error" | "warning" | "info";
@@ -291,27 +573,77 @@ export interface SemanticDiagnostic {
   details?: JsonValue;
 }
 
-export interface AnalysisUnknown {
-  code: string;
-  message: string;
-  subjects?: LogicalId[];
+export interface AnalysisState {
+  health: AnalysisHealth;
+  reviewLevel: ReviewLevel;
+  semanticDelta: SemanticDelta;
+  facts: SemanticFact[];
+  claims: SemanticClaim[];
+  unknowns: AnalysisUnknown[];
+  recommendedSourceReads: SourceReference[];
+  diagnostics: SemanticDiagnostic[];
 }
 
-export interface AnalysisSummary {
-  completeness: Completeness;
-  unknowns: AnalysisUnknown[];
+export type DigestAlgorithm = "sha256" | (string & {});
+
+export interface ContentDigest {
+  algorithm: DigestAlgorithm;
+  value: string;
+}
+
+export interface GitIdentity {
+  revision?: string;
+  tree?: string;
+}
+
+export interface WorktreeIdentity {
+  id: LogicalId;
+  root?: string;
+  branch?: string;
+  gitCommonDir?: string;
+  dirty?: boolean;
+}
+
+export interface TrackedFileFingerprint {
+  path: string;
+  physicalFingerprint: ContentDigest;
+  semanticFingerprint?: ContentDigest;
+  extractorFingerprint?: ContentDigest;
+}
+
+export interface ExtractorFingerprint {
+  id: string;
+  version: string;
+  optionsFingerprint?: ContentDigest;
+}
+
+export type IntegrityStatus = "fresh" | "stale" | "invalid";
+
+export interface RepositoryIntegrity {
+  repositoryId: LogicalId;
+  git?: GitIdentity;
+  worktree: WorktreeIdentity;
+  trackedFiles: TrackedFileFingerprint[];
+  extractors: ExtractorFingerprint[];
+  schemaVersion: SchemaVersion;
+  semanticStateDigest: ContentDigest;
+  modelDigest: ContentDigest;
+  snapshotDigest: ContentDigest;
+  status: IntegrityStatus;
+  statusReason?: string;
 }
 
 export interface RepositorySemanticSnapshot {
   schemaVersion: SchemaVersion;
+  modelVersion: ModelVersion;
   repositoryIdentity: RepositoryIdentity;
-  revisionIdentity: RevisionIdentity;
-  analysis: AnalysisSummary;
-  nodes: SemanticNode[];
-  edges: SemanticEdge[];
-  facts: SemanticFact[];
-  claims: SemanticClaim[];
-  diagnostics: SemanticDiagnostic[];
+  revisionIdentity?: RevisionIdentity;
+  declarations: DeclaredState;
+  derived: DerivedState;
+  observed: ObservedState;
+  analysis: AnalysisState;
+  integrity: RepositoryIntegrity;
+  graph: UniversalRelationGraph;
 }
 
 export type SnapshotValidationResult =

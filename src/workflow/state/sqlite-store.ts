@@ -15,12 +15,17 @@ import type {
   RepositoryInstanceRecord,
   RepositoryPathRecord,
   RepositorySourceRecord,
+  PullRequestRecord,
+  PullRequestRecordId,
+  RecordPullRequestInput,
   ReserveTaskInput,
   ReserveTaskResult,
   ReserveWorktreeInput,
   ReserveWorktreeResult,
+  RecordValidationEvidenceInput,
   TaskId,
   TaskRecord,
+  ValidationEvidenceRecord,
   WorkflowStateStore,
   WorktreeId,
   WorktreeRecord,
@@ -109,6 +114,16 @@ function toHookCheckpointRecord(row: Record<string, unknown>): HookCheckpointRec
     branch: row.branch as string,
     lastCheckedCommit: row.last_checked_commit as string,
     checkedAt: row.checked_at as number,
+  };
+}
+
+function toValidationEvidenceRecord(row: Record<string, unknown>): ValidationEvidenceRecord {
+  return {
+    instanceId: row.instance_id as RepositoryInstanceId,
+    headCommit: row.head_commit as string,
+    name: row.name as string,
+    status: row.status as ValidationEvidenceRecord["status"],
+    recordedAt: row.recorded_at as number,
   };
 }
 
@@ -299,6 +314,24 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     return row === undefined ? undefined : toHookCheckpointRecord(row);
   }
 
+  recordValidationEvidence(input: RecordValidationEvidenceInput): ValidationEvidenceRecord {
+    const db = this.handle();
+    const recordedAt = input.recordedAt ?? Date.now();
+    db.prepare(
+      `INSERT INTO validation_evidence (instance_id, head_commit, name, status, recorded_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (instance_id, head_commit, name) DO UPDATE SET status = excluded.status, recorded_at = excluded.recorded_at`,
+    ).run(input.instanceId, input.headCommit, input.name, input.status, recordedAt);
+    return { instanceId: input.instanceId, headCommit: input.headCommit, name: input.name, status: input.status, recordedAt };
+  }
+
+  listValidationEvidence(instanceId: RepositoryInstanceId, headCommit: string): ValidationEvidenceRecord[] {
+    const rows = this.handle()
+      .prepare("SELECT * FROM validation_evidence WHERE instance_id = ? AND head_commit = ?")
+      .all(instanceId, headCommit) as Record<string, unknown>[];
+    return rows.map(toValidationEvidenceRecord);
+  }
+
   reserveTask(input: ReserveTaskInput): ReserveTaskResult {
     const db = this.handle();
     const now = input.reservedAt ?? Date.now();
@@ -431,6 +464,115 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       .prepare("SELECT * FROM worktrees WHERE instance_id = ? ORDER BY created_at ASC")
       .all(instanceId) as Record<string, unknown>[];
     return rows.map(toWorktreeRecord);
+  }
+
+  private toPullRequestRecord(row: Record<string, unknown>): PullRequestRecord {
+    return {
+      recordId: row.record_id as PullRequestRecordId,
+      taskId: (row.task_id as TaskId | null) ?? undefined,
+      provider: row.provider as string,
+      repositoryId: row.repository_id as string,
+      prNumber: row.pr_number as number,
+      url: row.url as string,
+      headSha: row.head_sha as string,
+      lifecycleState: row.lifecycle_state as PullRequestRecord["lifecycleState"],
+      createdAt: row.created_at as number,
+      updatedAt: row.updated_at as number,
+    };
+  }
+
+  recordPullRequest(input: RecordPullRequestInput): PullRequestRecord {
+    const db = this.handle();
+    const now = input.recordedAt ?? Date.now();
+
+    let result!: PullRequestRecord;
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const existing = db
+        .prepare("SELECT * FROM pr_records WHERE provider = ? AND repository_id = ? AND pr_number = ?")
+        .get(input.provider, input.repositoryId, input.prNumber) as Record<string, unknown> | undefined;
+      if (existing !== undefined) {
+        const existingRecord = this.toPullRequestRecord(existing);
+        if (existingRecord.headSha !== input.headSha || existingRecord.taskId !== input.taskId) {
+          throw new Error(
+            `pull request record already exists with different identity: ${input.provider}/${input.repositoryId}#${input.prNumber}`,
+          );
+        }
+        db.exec("COMMIT");
+        return existingRecord;
+      }
+
+      const recordId = crypto.randomUUID() as PullRequestRecordId;
+      db.prepare(
+        `INSERT INTO pr_records
+          (record_id, task_id, provider, repository_id, pr_number, url, head_sha, lifecycle_state, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        recordId,
+        input.taskId ?? null,
+        input.provider,
+        input.repositoryId,
+        input.prNumber,
+        input.url,
+        input.headSha,
+        input.lifecycleState,
+        now,
+        now,
+      );
+      const row = db.prepare("SELECT * FROM pr_records WHERE record_id = ?").get(recordId) as Record<string, unknown>;
+      db.exec("COMMIT");
+      result = this.toPullRequestRecord(row);
+    } catch (err) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // 元の state 書き込みエラーを保持する
+      }
+      throw err;
+    }
+    return result;
+  }
+
+  getPullRequestRecord(recordId: PullRequestRecordId): PullRequestRecord | undefined {
+    const row = this.handle().prepare("SELECT * FROM pr_records WHERE record_id = ?").get(recordId) as
+      | Record<string, unknown>
+      | undefined;
+    return row === undefined ? undefined : this.toPullRequestRecord(row);
+  }
+
+  getPullRequestByProviderRepositoryNumber(
+    provider: string,
+    repositoryId: string,
+    prNumber: number,
+  ): PullRequestRecord | undefined {
+    const row = this.handle()
+      .prepare("SELECT * FROM pr_records WHERE provider = ? AND repository_id = ? AND pr_number = ?")
+      .get(provider, repositoryId, prNumber) as Record<string, unknown> | undefined;
+    return row === undefined ? undefined : this.toPullRequestRecord(row);
+  }
+
+  listPullRequestRecordsForTask(taskId: TaskId): PullRequestRecord[] {
+    const rows = this.handle()
+      .prepare("SELECT * FROM pr_records WHERE task_id = ? ORDER BY created_at ASC")
+      .all(taskId) as Record<string, unknown>[];
+    return rows.map((row) => this.toPullRequestRecord(row));
+  }
+
+  updatePullRequestLifecycleState(
+    recordId: PullRequestRecordId,
+    lifecycleState: PullRequestRecord["lifecycleState"],
+    updatedAt?: number,
+  ): PullRequestRecord {
+    const now = updatedAt ?? Date.now();
+    const result = this.handle()
+      .prepare("UPDATE pr_records SET lifecycle_state = ?, updated_at = ? WHERE record_id = ?")
+      .run(lifecycleState, now, recordId);
+    if (result.changes === 0) throw new Error(`pull request record not found: ${recordId}`);
+    const row = this.handle().prepare("SELECT * FROM pr_records WHERE record_id = ?").get(recordId) as Record<
+      string,
+      unknown
+    >;
+    return this.toPullRequestRecord(row);
   }
 
   close(): void {

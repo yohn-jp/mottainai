@@ -6,7 +6,7 @@ import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { compactToBudget } from "./compress/budget.js";
 import { compressText } from "./compress/index.js";
 import { detectCodeLanguage } from "./compress/code.js";
-import type { ResolvedGatewayConfig, ResolvedWorktreeConfig } from "./config.js";
+import type { ResolvedGatewayConfig } from "./config.js";
 import {
   DEFAULT_READ_GOVERNOR_POLICY,
   decideRead,
@@ -113,16 +113,6 @@ export const localTools: Tool[] = [
   },
 ];
 
-/** 既存呼び出し元を壊さないため、非推奨化のみで削除しない（Issue #34）。 */
-const worktreeNewTool: Tool = {
-  name: "mottainai_worktree_new",
-  description: "Deprecated: superseded by mottainai_workflow_task_start. Create a git worktree on a new branch, using the workspace's allowed branch prefixes.",
-  inputSchema: { type: "object", properties: {
-    prefix: { type: "string" }, task: { type: "string" },
-  }, required: ["prefix", "task"] }, outputSchema: OUTPUT_SCHEMA,
-  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-};
-
 const issueViewTool: Tool = {
   name: "mottainai_issue_view",
   description: "Fetch one GitHub issue's number, title, state, labels, url, and body via gh CLI.",
@@ -141,11 +131,11 @@ const ghChecksAwaitTool: Tool = {
 
 /** `worktree` 未設定のワークスペースでは GitHub 連携ツールを非公開にする。 */
 export function localToolsFor(config: ResolvedGatewayConfig): Tool[] {
-  return config.worktree === undefined ? localTools : [...localTools, worktreeNewTool, issueViewTool, ghChecksAwaitTool];
+  return config.worktree === undefined ? localTools : [...localTools, issueViewTool, ghChecksAwaitTool];
 }
 
 /** risk annotation 参照専用。gatewayConfig を持たない箇所でも定義を引けるよう、条件付き公開ツールも含む全量。 */
-export const allLocalTools: Tool[] = [...localTools, worktreeNewTool, issueViewTool, ghChecksAwaitTool];
+export const allLocalTools: Tool[] = [...localTools, issueViewTool, ghChecksAwaitTool];
 
 type Args = Record<string, unknown> | undefined;
 
@@ -169,7 +159,6 @@ export async function callLocalTool(
     case "mottainai_result_search": return resultSearchTool(args, store, telemetry);
     case "mottainai_runtime_status": return runtimeStatusTool(args, config, runtime);
     case "mottainai_telemetry_summary": return telemetrySummaryTool(telemetry);
-    case "mottainai_worktree_new": return worktreeNewToolImpl(args, config);
     case "mottainai_issue_view": return issueViewToolImpl(args, config);
     case "mottainai_gh_checks_await": return ghChecksAwaitToolImpl(args, config, telemetry, signal);
     default: throw new Error(`Unknown local tool: ${name}`);
@@ -807,43 +796,6 @@ function telemetrySummaryTool(telemetry?: TelemetrySink): CallToolResult {
       burst_pressure_max: snapshot.burst.pressure_max,
     },
   });
-}
-
-const TASK_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
-
-async function worktreeNewToolImpl(args: Args, config: ResolvedGatewayConfig): Promise<CallToolResult> {
-  const worktree = config.worktree;
-  if (worktree === undefined) throw new Error("worktree tool is not configured for this workspace");
-  const prefix = stringArg(args, "prefix", true)!;
-  const task = stringArg(args, "task", true)!;
-  if (!worktree.allowedBranchPrefixes.includes(prefix)) {
-    throw new Error(`prefix must be one of: ${worktree.allowedBranchPrefixes.join(", ")}`);
-  }
-  if (!TASK_SLUG_PATTERN.test(task)) {
-    throw new Error(`invalid task slug: ${task} (use lowercase, digits, hyphens)`);
-  }
-  const branch = `${prefix}/${task}`;
-  const relativeWorktreeDir = path.join(worktree.worktreeDir, `${prefix}-${task}`);
-  const run = await runProgram(
-    "git",
-    ["worktree", "add", "-b", branch, relativeWorktreeDir, worktree.baseBranch],
-    config.workspaceRoot, config.maxTimeoutMs, config.maxOutputBytes,
-  );
-  if (run.exitCode !== 0) {
-    const summary = `FAIL git worktree add: ${firstLine(run.stderr || run.stdout) || "command failed"}`;
-    return output("worktree_new", "failed", summary, "", { diagnostics: [{ severity: "error", message: summary }] }, true);
-  }
-  const verify = await runProgram(
-    "git", ["-C", relativeWorktreeDir, "rev-parse", "--abbrev-ref", "HEAD"],
-    config.workspaceRoot, config.maxTimeoutMs, config.maxOutputBytes,
-  );
-  const actualBranch = verify.stdout.trim();
-  if (actualBranch !== branch) {
-    const summary = `FAIL branch verification: expected ${branch}, got ${actualBranch || "unknown"}`;
-    return output("worktree_new", "failed", summary, "", { diagnostics: [{ severity: "error", message: summary }] }, true);
-  }
-  const summary = `OK branch=${branch} worktree=${relativeWorktreeDir}`;
-  return output("worktree_new", "success", summary, "", { branch, worktree_dir: relativeWorktreeDir });
 }
 
 export interface ParsedIssue { number: number; title: string; state: string; labels: string[]; url: string; body: string; }

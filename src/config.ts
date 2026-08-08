@@ -86,7 +86,7 @@ export interface ResolvedTokenBudgets {
   default?: TokenBudgetEntry;
 }
 
-/** `mottainai_worktree_new` が受け付けるブランチ prefix と worktree の配置規則。省略時はツール自体を無効化する。 */
+/** `mottainai_issue_view`/`mottainai_gh_checks_await` 等の worktree 連携ツールを公開する条件。省略時はツール自体を無効化する。 */
 export interface WorktreeConfig {
   /** 許可するブランチ prefix（`<prefix>/<task>` の prefix 部分）。 */
   allowedBranchPrefixes: string[];
@@ -141,7 +141,7 @@ export interface GatewayConfig {
   readGovernor?: ReadGovernorConfig;
   /** connection/session 単位の集約 burst budget（#73）。`responseBudget` の上に重なる。既定 `off`。 */
   burstBudget?: BurstBudgetPolicyConfig;
-  /** `mottainai_worktree_new` の許可 prefix・起点ブランチ設定。省略時はツールを非公開にする。 */
+  /** worktree 連携ツール（`mottainai_issue_view`/`mottainai_gh_checks_await`）の許可 prefix・起点ブランチ設定。省略時はツールを非公開にする。 */
   worktree?: WorktreeConfig;
   /** `mottainai_task_start`/`mottainai_task_status`（Git workflow task lifecycle）の公開可否。
    * worktree 作成等の副作用を持つため、`worktree` 同様に既定 false（非公開）。 */
