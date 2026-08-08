@@ -10,6 +10,7 @@ import { createTraceStore } from "./adaptive/trace.js";
 import { brokerTools, callBrokerTool } from "./broker.js";
 import { buildCatalog } from "./catalog.js";
 import { resolveGatewayConfig } from "./config.js";
+import { ProcessRegistry } from "./context-runtime/process-registry.js";
 import { output } from "./envelope.js";
 import { callLocalTool, localTools } from "./local-tools.js";
 import { InMemoryArtifactStore } from "./retrieve.js";
@@ -89,9 +90,14 @@ test("all local tools return the required result envelope", async () => {
   fs.writeFileSync(path.join(directory, "fixture.txt"), "needle\n");
   const config = resolveGatewayConfig({ workspaceRoot: directory }, directory);
   const store = new InMemoryArtifactStore();
+  const processes = new ProcessRegistry();
   const exec = await callLocalTool("mottainai_exec", { command: "printf envelope" }, config, store);
+  const started = await callLocalTool("mottainai_exec_start", { command: "printf envelope" }, config, store, undefined, undefined, processes);
+  assertEnvelope(started, "mottainai_exec_start");
+  const handle = (started.structuredContent as Record<string, string>).handle;
   const cases: Array<[string, Record<string, unknown>]> = [
     ["mottainai_exec", { command: "printf envelope" }],
+    ["mottainai_exec_await", { handle }],
     ["mottainai_read", { path: "fixture.txt" }],
     ["mottainai_search", { query: "needle" }],
     ["mottainai_list", { path: ".", depth: 0 }],
@@ -100,9 +106,11 @@ test("all local tools return the required result envelope", async () => {
     ["mottainai_runtime_status", {}],
     ["mottainai_telemetry_summary", {}],
   ];
-  for (const [name, args] of cases) assertEnvelope(await callLocalTool(name, args, config, store), name);
+  for (const [name, args] of cases) {
+    assertEnvelope(await callLocalTool(name, args, config, store, undefined, undefined, processes), name);
+  }
   assert.deepEqual(
-    cases.map(([name]) => name).sort(),
+    [...cases.map(([name]) => name), "mottainai_exec_start"].sort(),
     localTools.map((tool) => tool.name).sort(),
     "every local tool needs an envelope case",
   );

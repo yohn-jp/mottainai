@@ -31,7 +31,7 @@ export async function runServer(configPath?: string, cwd: string = process.cwd()
   const activeProfile = activeProfileName === undefined
     ? undefined
     : snapshot.config.profiles?.[activeProfileName];
-  registerProxyHandlers(
+  const proxyHandlers = registerProxyHandlers(
     server,
     upstreams,
     logger,
@@ -45,6 +45,7 @@ export async function runServer(configPath?: string, cwd: string = process.cwd()
   let shutdownPromise: Promise<void> | undefined;
   const shutdown = (): Promise<void> => {
     if (shutdownPromise !== undefined) return shutdownPromise;
+    proxyHandlers.dispose();
     shutdownPromise = upstreams.close();
     return shutdownPromise;
   };
