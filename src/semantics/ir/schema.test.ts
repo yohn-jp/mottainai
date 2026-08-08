@@ -117,6 +117,66 @@ test("prior #48 schema is explicitly rejected and never coerced", () => {
   assertRejected(missingModel, "schema_validation_failed");
 });
 
+test("entity, fact and claim authority must match its container layer", () => {
+  const declaredAsAnalysis = clone(pureFunctionFixture);
+  declaredAsAnalysis.declarations.constraints.push({
+    ...declaredAsAnalysis.declarations.constraints[0]!,
+    id: "constraint:mislayered" as (typeof declaredAsAnalysis.declarations.constraints)[number]["id"],
+    authority: "analysis",
+  });
+  assertRejected(declaredAsAnalysis, "authority_layer_mismatch");
+
+  const derivedSymbolAsDeclared = clone(pureFunctionFixture);
+  derivedSymbolAsDeclared.derived.symbols[0]!.authority = "declared";
+  assertRejected(derivedSymbolAsDeclared, "authority_layer_mismatch");
+
+  const observedFactAsDeclared = clone(pureFunctionFixture);
+  observedFactAsDeclared.observed.facts[0]!.authority = "declared";
+  assertRejected(observedFactAsDeclared, "authority_layer_mismatch");
+
+  const analysisClaimAsDeclared = clone(inferredClaimFixture);
+  analysisClaimAsDeclared.analysis.claims[0]!.authority = "declared";
+  assertRejected(analysisClaimAsDeclared, "authority_layer_mismatch");
+});
+
+test("fresh integrity digests must match the recomputed canonical snapshot", () => {
+  const staleDigest = clone(pureFunctionFixture);
+  staleDigest.integrity.semanticStateDigest = {
+    algorithm: "sha256",
+    value: "0".repeat(64),
+  };
+  assertRejected(staleDigest, "integrity_digest_mismatch");
+
+  const mutatedAfterDigest = clone(pureFunctionFixture);
+  mutatedAfterDigest.declarations.project.description = "mutated after digest was computed";
+  assertRejected(mutatedAfterDigest, "integrity_digest_mismatch");
+
+  const staleStatusToleratesMismatch = clone(pureFunctionFixture);
+  staleStatusToleratesMismatch.integrity.status = "stale";
+  staleStatusToleratesMismatch.integrity.statusReason = "digest intentionally stale for this fixture";
+  staleStatusToleratesMismatch.integrity.semanticStateDigest = { algorithm: "sha256", value: "0".repeat(64) };
+  assert.equal(validateSnapshot(staleStatusToleratesMismatch).ok, true);
+});
+
+test("typed references must resolve to their expected entity kind", () => {
+  const decisionRationaleWrongKind = clone(pureFunctionFixture);
+  decisionRationaleWrongKind.declarations.decisions.push({
+    ...decisionRationaleWrongKind.declarations.decisions[0]!,
+    id: "decision:wrong-kind" as (typeof decisionRationaleWrongKind.declarations.decisions)[number]["id"],
+    rationaleIds: [decisionRationaleWrongKind.derived.symbols[0]!.id],
+  });
+  assertRejected(decisionRationaleWrongKind, "reference_kind_mismatch");
+
+  const testEvidenceWrongKind = clone(pureFunctionFixture);
+  testEvidenceWrongKind.observed.tests[0]!.evidenceIds = [testEvidenceWrongKind.declarations.components[0]!.id];
+  assertRejected(testEvidenceWrongKind, "reference_kind_mismatch");
+
+  const externalApiPackageWrongKind = clone(pureFunctionFixture);
+  externalApiPackageWrongKind.derived.externalApis[0]!.packageId =
+    externalApiPackageWrongKind.derived.externalDependencies[0]!.id;
+  assertRejected(externalApiPackageWrongKind, "reference_kind_mismatch");
+});
+
 test("semantic transaction vocabulary is versioned and serializable", () => {
   const transaction = {
     version: 1 as const,

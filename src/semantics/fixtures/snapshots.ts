@@ -1,3 +1,4 @@
+import { computeIntegrityDigestsFromValidated } from "../ir/canonical.js";
 import {
   createClaimId,
   createComponentId,
@@ -436,7 +437,8 @@ function snapshot(
     relation("test-verifies-contract", "verifies", testId, contractId, "observed"),
     relation("evidence-for-contract", "evidence_for", evidenceId, contractId, "observed"),
   ];
-  return {
+  const status = options.status ?? "fresh";
+  const draft: RepositorySemanticSnapshot = {
     schemaVersion: 2,
     modelVersion: "symbol-first-v1",
     repositoryIdentity: {
@@ -463,13 +465,23 @@ function snapshot(
       ],
       extractors: [{ id: "fixture-extractor", version: "2.0.0", optionsFingerprint: digest }],
       schemaVersion: 2,
+      // Placeholder; a fresh snapshot below gets its real digest recomputed from this draft.
       semanticStateDigest: digest,
       modelDigest: digest,
       snapshotDigest: digest,
-      status: options.status ?? "fresh",
+      status,
       ...(options.statusReason === undefined ? {} : { statusReason: options.statusReason }),
     },
     graph: { relations },
+  };
+  if (status !== "fresh") return draft;
+  const recomputed = computeIntegrityDigestsFromValidated(draft);
+  return {
+    ...draft,
+    integrity: {
+      ...draft.integrity,
+      ...recomputed,
+    },
   };
 }
 

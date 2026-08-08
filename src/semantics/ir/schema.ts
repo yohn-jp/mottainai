@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { computeIntegrityDigestsFromValidated } from "./canonical.js";
 import {
   EFFECT_ID_PATTERN,
   LOGICAL_ID_PATTERN,
@@ -790,23 +791,35 @@ function namespaceForNodeKind(kind: string): string | undefined {
   return (NODE_KINDS as readonly string[]).includes(kind) ? sharedNamespaceForNodeKind(kind) : undefined;
 }
 
-function snapshotEntities(snapshot: RepositorySemanticSnapshot): SemanticEntity[] {
+type ContainerLayer = "declarations" | "derived" | "observed" | "analysis";
+
+/** Container layer name doubles as its only permitted `authority` value; see AUTHORITY_LAYERS. */
+const CONTAINER_EXPECTED_AUTHORITY: Record<ContainerLayer, string> = {
+  declarations: "declared",
+  derived: "derived",
+  observed: "observed",
+  analysis: "analysis",
+};
+
+function snapshotEntities(
+  snapshot: RepositorySemanticSnapshot,
+): Array<{ entity: SemanticEntity; layer: ContainerLayer }> {
   return [
-    snapshot.declarations.project,
-    ...snapshot.declarations.components,
-    ...snapshot.declarations.capabilities,
-    ...snapshot.declarations.contracts,
-    ...snapshot.declarations.invariants,
-    ...snapshot.declarations.decisions,
-    ...snapshot.declarations.rationales,
-    ...snapshot.declarations.constraints,
-    ...snapshot.derived.files,
-    ...snapshot.derived.symbols,
-    ...snapshot.derived.packages,
-    ...snapshot.derived.externalDependencies,
-    ...snapshot.derived.externalApis,
-    ...snapshot.observed.evidences,
-    ...snapshot.observed.tests,
+    { entity: snapshot.declarations.project, layer: "declarations" as const },
+    ...snapshot.declarations.components.map((entity) => ({ entity, layer: "declarations" as const })),
+    ...snapshot.declarations.capabilities.map((entity) => ({ entity, layer: "declarations" as const })),
+    ...snapshot.declarations.contracts.map((entity) => ({ entity, layer: "declarations" as const })),
+    ...snapshot.declarations.invariants.map((entity) => ({ entity, layer: "declarations" as const })),
+    ...snapshot.declarations.decisions.map((entity) => ({ entity, layer: "declarations" as const })),
+    ...snapshot.declarations.rationales.map((entity) => ({ entity, layer: "declarations" as const })),
+    ...snapshot.declarations.constraints.map((entity) => ({ entity, layer: "declarations" as const })),
+    ...snapshot.derived.files.map((entity) => ({ entity, layer: "derived" as const })),
+    ...snapshot.derived.symbols.map((entity) => ({ entity, layer: "derived" as const })),
+    ...snapshot.derived.packages.map((entity) => ({ entity, layer: "derived" as const })),
+    ...snapshot.derived.externalDependencies.map((entity) => ({ entity, layer: "derived" as const })),
+    ...snapshot.derived.externalApis.map((entity) => ({ entity, layer: "derived" as const })),
+    ...snapshot.observed.evidences.map((entity) => ({ entity, layer: "observed" as const })),
+    ...snapshot.observed.tests.map((entity) => ({ entity, layer: "observed" as const })),
   ];
 }
 
@@ -852,7 +865,7 @@ function validateReferences(snapshot: RepositorySemanticSnapshot): SemanticDiagn
   }
 
   const seenEntityIds = new Set<LogicalId>();
-  entities.forEach((entity, index) => {
+  entities.forEach(({ entity, layer }, index) => {
     const path = entity.kind === "project" ? "declarations.project.id" : `entities.${index}.id`;
     if (seenEntityIds.has(entity.id))
       diagnostics.push(diagnostic("duplicate_entity_id", `duplicate entity ID: ${entity.id}`, path));
@@ -863,6 +876,15 @@ function validateReferences(snapshot: RepositorySemanticSnapshot): SemanticDiagn
     if (expectedNamespace !== undefined && logicalIdNamespace(entity.id) !== expectedNamespace) {
       diagnostics.push(
         diagnostic("entity_id_kind_mismatch", `entity ID namespace must match kind ${entity.kind}`, path),
+      );
+    }
+    if (entity.authority !== CONTAINER_EXPECTED_AUTHORITY[layer]) {
+      diagnostics.push(
+        diagnostic(
+          "authority_layer_mismatch",
+          `entity in ${layer} must carry authority ${CONTAINER_EXPECTED_AUTHORITY[layer]}, got ${entity.authority}`,
+          `${path.replace(/\.id$/, "")}.authority`,
+        ),
       );
     }
     if (entity.provenance.kind === "inferred" && entity.authority === "declared") {
@@ -898,6 +920,21 @@ function validateReferences(snapshot: RepositorySemanticSnapshot): SemanticDiagn
       diagnostics.push(diagnostic("dangling_reference", `reference does not resolve locally: ${value}`, path));
   };
 
+  const checkReferenceKind = (value: LogicalId, expectedKinds: readonly string[], path: string): void => {
+    checkReference(value, path);
+    const target = entityById.get(value);
+    if (target === undefined) return;
+    if (!expectedKinds.includes(target.kind)) {
+      diagnostics.push(
+        diagnostic(
+          "reference_kind_mismatch",
+          `reference must target ${expectedKinds.join(" or ")}, got ${target.kind}: ${value}`,
+          path,
+        ),
+      );
+    }
+  };
+
   const checkProvenance = (provenance: Provenance, path: string): void => {
     provenance.evidence?.forEach((evidence, index) => {
       if (evidence.target !== undefined) checkReference(evidence.target, `${path}.evidence.${index}.target`);
@@ -926,18 +963,28 @@ function validateReferences(snapshot: RepositorySemanticSnapshot): SemanticDiagn
   };
 
   const seenFactIds = new Set<LogicalId>();
-  const checkFacts = (facts: SemanticFact[], pathPrefix: string): void => {
+  const checkFacts = (facts: SemanticFact[], pathPrefix: string, layer: ContainerLayer): void => {
+    const expectedAuthority = CONTAINER_EXPECTED_AUTHORITY[layer];
     facts.forEach((fact, index) => {
       if (seenFactIds.has(fact.id))
         diagnostics.push(diagnostic("duplicate_fact_id", `duplicate fact ID: ${fact.id}`, `${pathPrefix}.${index}.id`));
       seenFactIds.add(fact.id);
+      if (fact.authority !== expectedAuthority) {
+        diagnostics.push(
+          diagnostic(
+            "authority_layer_mismatch",
+            `fact in ${layer} must carry authority ${expectedAuthority}, got ${fact.authority}`,
+            `${pathPrefix}.${index}.authority`,
+          ),
+        );
+      }
       checkFact(fact, `${pathPrefix}.${index}`);
     });
   };
-  checkFacts(snapshot.declarations.facts, "declarations.facts");
-  checkFacts(snapshot.derived.facts, "derived.facts");
-  checkFacts(snapshot.observed.facts, "observed.facts");
-  checkFacts(snapshot.analysis.facts, "analysis.facts");
+  checkFacts(snapshot.declarations.facts, "declarations.facts", "declarations");
+  checkFacts(snapshot.derived.facts, "derived.facts", "derived");
+  checkFacts(snapshot.observed.facts, "observed.facts", "observed");
+  checkFacts(snapshot.analysis.facts, "analysis.facts", "analysis");
 
   const seenClaimIds = new Set<LogicalId>();
   snapshot.analysis.claims.forEach((claim, index) => {
@@ -946,6 +993,15 @@ function validateReferences(snapshot: RepositorySemanticSnapshot): SemanticDiagn
         diagnostic("duplicate_claim_id", `duplicate claim ID: ${claim.id}`, `analysis.claims.${index}.id`),
       );
     seenClaimIds.add(claim.id);
+    if (claim.authority !== "analysis") {
+      diagnostics.push(
+        diagnostic(
+          "authority_layer_mismatch",
+          `claim in analysis must carry authority analysis, got ${claim.authority}`,
+          `analysis.claims.${index}.authority`,
+        ),
+      );
+    }
     checkClaim(claim, `analysis.claims.${index}`);
   });
 
@@ -1031,42 +1087,53 @@ function validateReferences(snapshot: RepositorySemanticSnapshot): SemanticDiagn
 
   const checkEntityIdList = (ids: LogicalId[], path: string): void =>
     ids.forEach((id, index) => checkReference(id, `${path}.${index}`));
+  const checkEntityIdListKind = (ids: LogicalId[], expectedKinds: readonly string[], path: string): void =>
+    ids.forEach((id, index) => checkReferenceKind(id, expectedKinds, `${path}.${index}`));
   snapshot.declarations.decisions.forEach((decision, index) => {
-    checkEntityIdList(decision.rationaleIds, `declarations.decisions.${index}.rationaleIds`);
-    checkEntityIdList(decision.constraintIds, `declarations.decisions.${index}.constraintIds`);
+    checkEntityIdListKind(decision.rationaleIds, ["rationale"], `declarations.decisions.${index}.rationaleIds`);
+    checkEntityIdListKind(decision.constraintIds, ["constraint"], `declarations.decisions.${index}.constraintIds`);
   });
   snapshot.declarations.rationales.forEach((rationale, index) =>
-    checkEntityIdList(rationale.decisionIds, `declarations.rationales.${index}.decisionIds`),
+    checkEntityIdListKind(rationale.decisionIds, ["decision"], `declarations.rationales.${index}.decisionIds`),
   );
   snapshot.declarations.effectPolicies.forEach((policy, index) => {
     checkReference(policy.subject, `declarations.effectPolicies.${index}.subject`);
-    checkEntityIdList(policy.rationaleIds, `declarations.effectPolicies.${index}.rationaleIds`);
+    checkEntityIdListKind(policy.rationaleIds, ["rationale"], `declarations.effectPolicies.${index}.rationaleIds`);
   });
   snapshot.declarations.dependencyPolicies.forEach((policy, index) => {
     checkReference(policy.subject, `declarations.dependencyPolicies.${index}.subject`);
-    checkEntityIdList(policy.allowedPackageIds, `declarations.dependencyPolicies.${index}.allowedPackageIds`);
-    checkEntityIdList(policy.deniedPackageIds, `declarations.dependencyPolicies.${index}.deniedPackageIds`);
-    checkEntityIdList(policy.rationaleIds, `declarations.dependencyPolicies.${index}.rationaleIds`);
+    checkEntityIdListKind(
+      policy.allowedPackageIds,
+      ["package"],
+      `declarations.dependencyPolicies.${index}.allowedPackageIds`,
+    );
+    checkEntityIdListKind(
+      policy.deniedPackageIds,
+      ["package"],
+      `declarations.dependencyPolicies.${index}.deniedPackageIds`,
+    );
+    checkEntityIdListKind(policy.rationaleIds, ["rationale"], `declarations.dependencyPolicies.${index}.rationaleIds`);
   });
   snapshot.declarations.reviewGuidance.forEach((guidance, index) =>
     checkReference(guidance.subject, `declarations.reviewGuidance.${index}.subject`),
   );
   snapshot.declarations.stability.forEach((item, index) => {
     checkReference(item.subject, `declarations.stability.${index}.subject`);
-    if (item.rationaleId !== undefined) checkReference(item.rationaleId, `declarations.stability.${index}.rationaleId`);
+    if (item.rationaleId !== undefined)
+      checkReferenceKind(item.rationaleId, ["rationale"], `declarations.stability.${index}.rationaleId`);
   });
   snapshot.declarations.terminology.forEach((item, index) =>
     checkEntityIdList(item.relatedEntityIds, `declarations.terminology.${index}.relatedEntityIds`),
   );
   snapshot.declarations.decisionLinks.forEach((item, index) => {
     checkReference(item.subject, `declarations.decisionLinks.${index}.subject`);
-    checkReference(item.decisionId, `declarations.decisionLinks.${index}.decisionId`);
+    checkReferenceKind(item.decisionId, ["decision"], `declarations.decisionLinks.${index}.decisionId`);
   });
   snapshot.derived.externalApis.forEach((api, index) =>
-    checkReference(api.packageId, `derived.externalApis.${index}.packageId`),
+    checkReferenceKind(api.packageId, ["package"], `derived.externalApis.${index}.packageId`),
   );
   snapshot.observed.tests.forEach((test, index) =>
-    checkEntityIdList(test.evidenceIds, `observed.tests.${index}.evidenceIds`),
+    checkEntityIdListKind(test.evidenceIds, ["evidence"], `observed.tests.${index}.evidenceIds`),
   );
   snapshot.analysis.unknowns.forEach((unknown, index) => {
     if (unknown.subjects !== undefined) checkEntityIdList(unknown.subjects, `analysis.unknowns.${index}.subjects`);
@@ -1087,6 +1154,30 @@ function validateReferences(snapshot: RepositorySemanticSnapshot): SemanticDiagn
       );
     trackedPaths.add(file.path);
   });
+
+  if (snapshot.integrity.status === "fresh") {
+    const recomputed = computeIntegrityDigestsFromValidated(snapshot);
+    const digestMismatch = (
+      field: "semanticStateDigest" | "modelDigest" | "snapshotDigest",
+    ): SemanticDiagnostic | undefined => {
+      const stored = snapshot.integrity[field];
+      const expected = recomputed[field];
+      if (stored.algorithm !== expected.algorithm || stored.value !== expected.value) {
+        return diagnostic(
+          "integrity_digest_mismatch",
+          `integrity.${field} does not match the recomputed digest for a snapshot marked fresh`,
+          `integrity.${field}`,
+          { algorithm: expected.algorithm, expected: expected.value, received: stored.value },
+        );
+      }
+      return undefined;
+    };
+    (["semanticStateDigest", "modelDigest", "snapshotDigest"] as const).forEach((field) => {
+      const mismatch = digestMismatch(field);
+      if (mismatch !== undefined) diagnostics.push(mismatch);
+    });
+  }
+
   return diagnostics;
 }
 

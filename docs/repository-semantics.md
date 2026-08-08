@@ -90,6 +90,8 @@ canonical semantic proseはformal Englishです。人間向けlocalizationとLLM
 
 Zod schemaはschema version、model version、entity namespace、local reference、Symbol locator identity、Component ownership、inferred claim authority、integrity metadataを検証します。旧#48 schemaを受理せず、unknown relation kindは許容します。
 
+entity・fact・claimの`authority`はそれが属するcontainer layer（`declarations`→`declared`、`derived`→`derived`、`observed`→`observed`、`analysis`→`analysis`）と一致しなければならず、不一致はfail-closedでrejectします。`decision.rationaleIds`、`decision.constraintIds`、`rationale.decisionIds`、`test.evidenceIds`、`externalApi.packageId`、dependency policyのpackage IDsのようなtyped referenceは、参照先が存在するだけでなく期待するentity kindであることも検証します。`integrity.status`が`fresh`の場合、`semanticStateDigest` / `modelDigest` / `snapshotDigest`をsnapshotから再計算し、格納値と一致しなければrejectします（snapshot内で検証可能な範囲のfreshness保証であり、filesystem/Gitとの整合性はこの検証の対象外です）。
+
 `serializeSnapshot` / `parseSnapshot`はdeterministic JSONとparse → serialize → parse round-tripを提供します。配列順に意味がないstate collectionとrelation graphはlogical ID、relation tuple、pathなどで正規化します。`computeSemanticStateDigest`、`computeModelDigest`、`computeSnapshotDigest`はcanonical inputへSHA-256を適用します。
 
 このfoundationでは、TypeScript production extractor、Semantic Mutation APIの実装、effect propagation、cache、live model compiler、Semantic Diff、dashboard redesign、permanent database、automatic Component clustering、LLM authority inferenceを実装しません。
