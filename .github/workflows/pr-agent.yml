@@ -24,8 +24,11 @@ jobs:
         uses: qodo-ai/pr-agent@main
         env:
           OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI.API_BASE: "https://api.featherless.ai/v1"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CONFIG.GIT_PROVIDER: "github"
+          CONFIG.MODEL: "openai/moonshotai/Kimi-K3"
+          CONFIG.FALLBACK_MODELS: "[]"
           PR_REVIEWER.AUTO_REVIEW: "true"
           PR_DESCRIPTION.PUBLISH_DESCRIPTION_AS_COMMENT: "false"
           PR_DESCRIPTION.AUTO_DESCRIBE: "false"
