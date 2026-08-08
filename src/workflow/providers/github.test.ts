@@ -82,9 +82,10 @@ test("PR creation parses gh URL and does not retry mutation", async () => {
   const result = await adapter.openPullRequest({
     repository: { provider: "github", id: "org/repository", namespace: "org", name: "repository" },
     title: "feat(workflow): open provider pull request",
-    body: "## Summary\nstructured",
     head: { name: "feature/12", revision: "abc123" },
     base: { name: "main" },
+    draft: { sections: { Summary: "structured" } },
+    policy: { requiredSections: ["Summary"] },
   });
   assert.equal(result.ok, true);
   if (result.ok) {

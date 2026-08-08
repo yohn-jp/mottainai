@@ -1,6 +1,6 @@
 import { runProgram as defaultRunProgram } from "../../subprocess.js";
 import type { RunResult } from "../../subprocess.js";
-import { renderPullRequestBody, type PullRequestBodyDraft } from "../domain/pr-render.js";
+import { renderPullRequestBody, type PullRequestBodyDraft, type PullRequestRenderPolicy } from "../domain/pr-render.js";
 import { transitionTask } from "../domain/task.js";
 import { validateTransition } from "../domain/lifecycle.js";
 import type { WorkflowPolicyDocument } from "../policy/schema.js";
@@ -74,10 +74,11 @@ interface JsonRecord {
 export interface GithubCreatePullRequestInput {
   repository: RepositoryIdentity;
   title: string;
-  body: string;
   head: RevisionIdentity;
   base: RevisionIdentity;
-  draft?: boolean;
+  draft: PullRequestBodyDraft;
+  policy?: PullRequestRenderPolicy | WorkflowPolicyDocument["pullRequest"];
+  providerDraft?: boolean;
 }
 
 function asRecord(value: unknown): JsonRecord | undefined {
@@ -287,7 +288,7 @@ function parseCreatePullRequestOutput(
           reference: `#${number}`,
           number,
           state: "open",
-          lifecycleState: input.draft === true ? "draft" : "open",
+          lifecycleState: input.providerDraft === true ? "draft" : "open",
           url,
           repository: input.repository,
           head: input.head,
@@ -310,7 +311,7 @@ function parseCreatePullRequestOutput(
       reference: `#${number}`,
       number,
       state: "open",
-      lifecycleState: input.draft === true ? "draft" : "open",
+      lifecycleState: input.providerDraft === true ? "draft" : "open",
       url,
       repository: input.repository,
       head: input.head,
@@ -558,14 +559,14 @@ export class GithubAdapter {
         },
       };
     }
-    if (input.title.trim().length === 0 || input.body.trim().length === 0) {
+    if (input.title.trim().length === 0) {
       return {
         ok: false,
         error: {
           provider: GITHUB_PROVIDER,
           operation: "pull-request-create",
           code: "invalid-input",
-          message: "title and body must not be empty",
+          message: "title must not be empty",
           retryable: false,
           attempts: 0,
         },
@@ -584,19 +585,33 @@ export class GithubAdapter {
         },
       };
     }
+    const rendered = renderPullRequestBody(input.draft, input.policy);
+    if (!rendered.ok) {
+      return {
+        ok: false,
+        error: {
+          provider: GITHUB_PROVIDER,
+          operation: "pull-request-create",
+          code: "invalid-input",
+          message: rendered.errors.join("; "),
+          retryable: false,
+          attempts: 0,
+        },
+      };
+    }
     const args = [
       "pr",
       "create",
       "--title",
       input.title,
       "--body",
-      input.body,
+      rendered.body,
       "--head",
       input.head.name,
       "--base",
       input.base.name,
     ];
-    if (input.draft === true) args.push("--draft");
+    if (input.providerDraft === true) args.push("--draft");
     const repositoryFlag = repositoryArgument(input.repository);
     if (repositoryFlag !== undefined) args.push("--repo", repositoryFlag);
     // 作成は自動 retry しない。timeout 後に provider 側で作成済みの可能性があり、
@@ -728,10 +743,11 @@ export async function openWorkflowPullRequest(input: OpenWorkflowPullRequestInpu
   const provider = await input.adapter.openPullRequest({
     repository: input.repository,
     title: input.title,
-    body: rendered.body,
     head: input.head,
     base: input.base,
-    draft: input.providerDraft,
+    draft: input.draft,
+    policy: input.policy.pullRequest,
+    providerDraft: input.providerDraft,
   });
   if (!provider.ok) {
     return { ok: false, reason: "provider-failed", detail: provider.error.message, provider: provider.error };
