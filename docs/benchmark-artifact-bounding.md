@@ -17,19 +17,37 @@ Issue #7 の判断用ベンチマーク。`InMemoryArtifactStore.putArtifact()` 
 
 2026-08-08、production最適化前。
 
-| size | shape | input bytes | maxBytes | iterations | median ms/op |
-| --- | --- | ---: | ---: | ---: | ---: |
-| 100 KiB | ascii | 102400 | 65536 | 20 | 5.366 |
-| 100 KiB | escaped | 102400 | 65536 | 20 | 7.283 |
-| 100 KiB | utf8 | 102400 | 65536 | 20 | 5.297 |
-| 1 MiB | ascii | 1048576 | 65536 | 8 | 32.900 |
-| 1 MiB | escaped | 1048576 | 65536 | 8 | 51.862 |
-| 1 MiB | utf8 | 1048576 | 65536 | 8 | 27.801 |
-| 10 MiB | ascii | 10485760 | 65536 | 3 | 331.070 |
-| 10 MiB | escaped | 10485760 | 65536 | 3 | 564.143 |
-| 10 MiB | utf8 | 10485760 | 65536 | 3 | 277.080 |
+| size    | shape   | input bytes | maxBytes | iterations | median ms/op |
+| ------- | ------- | ----------: | -------: | ---------: | -----------: |
+| 100 KiB | ascii   |      102400 |    65536 |         20 |        5.366 |
+| 100 KiB | escaped |      102400 |    65536 |         20 |        7.283 |
+| 100 KiB | utf8    |      102400 |    65536 |         20 |        5.297 |
+| 1 MiB   | ascii   |     1048576 |    65536 |          8 |       32.900 |
+| 1 MiB   | escaped |     1048576 |    65536 |          8 |       51.862 |
+| 1 MiB   | utf8    |     1048576 |    65536 |          8 |       27.801 |
+| 10 MiB  | ascii   |    10485760 |    65536 |          3 |      331.070 |
+| 10 MiB  | escaped |    10485760 |    65536 |          3 |      564.143 |
+| 10 MiB  | utf8    |    10485760 |    65536 |          3 |      277.080 |
 
 ベンチマークは各ケースで入力byte数が `maxBytes` を超えること、保存後の本文に truncation footer があること、UTF-8 replacement character がないことを検証する。
+
+## Before/after
+
+同一protocolをproduction最適化後に再実行した。
+
+| size    | shape   | before ms/op | after ms/op | after/before |
+| ------- | ------- | -----------: | ----------: | -----------: |
+| 100 KiB | ascii   |        5.366 |       5.676 |        1.058 |
+| 100 KiB | escaped |        7.283 |       7.323 |        1.005 |
+| 100 KiB | utf8    |        5.297 |       4.178 |        0.789 |
+| 1 MiB   | ascii   |       32.900 |      29.037 |        0.883 |
+| 1 MiB   | escaped |       51.862 |      51.617 |        0.995 |
+| 1 MiB   | utf8    |       27.801 |      15.661 |        0.563 |
+| 10 MiB  | ascii   |      331.070 |     266.323 |        0.804 |
+| 10 MiB  | escaped |      564.143 |     536.894 |        0.952 |
+| 10 MiB  | utf8    |      277.080 |     141.554 |        0.511 |
+
+10 MiBではASCII 19.6%、escaped 4.8%、UTF-8 48.9%短縮。100 KiBのASCIIは0.310 msの増加、escapedは0.040 msの増加だが、1 MiB以上ではescapedを含む全ケースで同等以上。大容量の重要ケースで悪化なし。
 
 ## Benchmark Decision
 
@@ -38,3 +56,5 @@ Issue #7 の判断用ベンチマーク。`InMemoryArtifactStore.putArtifact()` 
 10 MiB artifact の bounding は 277–564 ms/op。100 KiB から10 MiBへの増加は概ね線形で、escaping-heavy が最も遅い。大きなMottainai出力で現実的に発生するコストであり、局所的な最適化を測定する価値がある。
 
 主なコスト機構は、fitting の各binary-search反復で `utf8Prefix` が候補全体の `Buffer` を作り、`payloadBytes` が候補payload全体を `JSON.stringify` してbyte長を再計算すること。
+
+最適化後は、fit処理ごとに入力UTF-8 Bufferを再利用し、空文字候補から固定JSON overheadを一度だけ算出する。各候補のJSON文字列byte長は `JSON.stringify` で計算し、escapingを近似しない。探索後の候補は従来の全payload `payloadBytes` で最終検証する。

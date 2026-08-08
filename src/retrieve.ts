@@ -73,6 +73,7 @@ const DEFAULT_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_MAX_ENTRIES = 200;
 const DEFAULT_MAX_BYTES = 50 * 1024 * 1024;
 const DEFAULT_MAX_LINES = 80;
+const EMPTY_JSON_STRING = '""';
 
 type ArtifactPayload = Pick<StoredArtifact, "text" | "stdout" | "stderr" | "metadata">;
 
@@ -84,9 +85,8 @@ function textFromResult(result: CallToolResult): string {
     .join("\n\n");
 }
 
-function utf8Prefix(value: string, maxBytes: number): string {
+function utf8Prefix(value: string, maxBytes: number, bytes = Buffer.from(value, "utf8")): string {
   if (maxBytes <= 0) return "";
-  const bytes = Buffer.from(value, "utf8");
   if (bytes.byteLength <= maxBytes) return value;
   const decoder = new TextDecoder("utf-8", { fatal: true });
   for (let end = Math.min(maxBytes, bytes.byteLength); end >= 0; end -= 1) {
@@ -103,19 +103,22 @@ function payloadBytes(payload: ArtifactPayload): number {
   return Buffer.byteLength(JSON.stringify(payload), "utf8");
 }
 
-function fitStringField(
-  payload: ArtifactPayload,
-  key: "stdout" | "stderr",
+function jsonStringBytes(value: string): number {
+  return Buffer.byteLength(JSON.stringify(value), "utf8");
+}
+
+function fitUtf8Prefix(
   value: string,
-  maxBytes: number,
+  fits: (candidate: string) => boolean,
+  bytes = Buffer.from(value, "utf8"),
 ): string | undefined {
   let low = 0;
-  let high = Buffer.byteLength(value, "utf8");
+  let high = bytes.byteLength;
   let best: string | undefined;
   while (low <= high) {
     const middle = Math.floor((low + high) / 2);
-    const candidate = utf8Prefix(value, middle);
-    if (payloadBytes({ ...payload, [key]: candidate }) <= maxBytes) {
+    const candidate = utf8Prefix(value, middle, bytes);
+    if (fits(candidate)) {
       best = candidate;
       low = middle + 1;
     } else {
@@ -123,6 +126,20 @@ function fitStringField(
     }
   }
   return best;
+}
+
+function fitStringField(
+  payload: ArtifactPayload,
+  key: "stdout" | "stderr",
+  value: string,
+  maxBytes: number,
+): string | undefined {
+  const bytes = Buffer.from(value, "utf8");
+  const fixedBytes = payloadBytes({ ...payload, [key]: "" }) - Buffer.byteLength(EMPTY_JSON_STRING, "utf8");
+  const best = fitUtf8Prefix(value, (candidate) => fixedBytes + jsonStringBytes(candidate) <= maxBytes, bytes);
+  if (best !== undefined && payloadBytes({ ...payload, [key]: best }) <= maxBytes) return best;
+
+  return fitUtf8Prefix(value, (candidate) => payloadBytes({ ...payload, [key]: candidate }) <= maxBytes, bytes);
 }
 
 type MetadataStringKey = "operation" | "command" | "cwd" | "summary";
@@ -134,20 +151,20 @@ function fitMetadataString(
   value: string,
   maxBytes: number,
 ): string | undefined {
-  let low = 0;
-  let high = Buffer.byteLength(value, "utf8");
-  let best: string | undefined;
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2);
-    const candidate = { ...metadata, [key]: utf8Prefix(value, middle) };
-    if (payloadBytes({ ...payload, metadata: candidate }) <= maxBytes) {
-      best = candidate[key];
-      low = middle + 1;
-    } else {
-      high = middle - 1;
-    }
-  }
-  return best;
+  const bytes = Buffer.from(value, "utf8");
+  const exactFits = (candidate: string): boolean =>
+    payloadBytes({ ...payload, metadata: { ...metadata, [key]: candidate } }) <= maxBytes;
+
+  // metadata is spread into a fresh object below. An enumerable toJSON method
+  // could make its serialized result depend on the field being fitted.
+  const arithmeticSafe = !Object.prototype.propertyIsEnumerable.call(metadata, "toJSON");
+  if (!arithmeticSafe) return fitUtf8Prefix(value, exactFits, bytes);
+
+  const fixedBytes =
+    payloadBytes({ ...payload, metadata: { ...metadata, [key]: "" } }) - Buffer.byteLength(EMPTY_JSON_STRING, "utf8");
+  const best = fitUtf8Prefix(value, (candidate) => fixedBytes + jsonStringBytes(candidate) <= maxBytes, bytes);
+  if (best !== undefined && exactFits(best)) return best;
+  return fitUtf8Prefix(value, exactFits, bytes);
 }
 
 function boundMetadata(
@@ -176,36 +193,25 @@ function truncationFooter(rawBytes: number, maxBytes: number): string {
 }
 
 function fitText(payload: ArtifactPayload, originalText: string, maxBytes: number): string {
-  const rawBytes = Buffer.byteLength(originalText, "utf8");
+  const bytes = Buffer.from(originalText, "utf8");
+  const rawBytes = bytes.byteLength;
   const footer = truncationFooter(rawBytes, maxBytes);
-  let low = 0;
-  let high = rawBytes;
-  let best: string | undefined;
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2);
-    const candidate = `${utf8Prefix(originalText, middle)}${footer}`;
-    if (payloadBytes({ ...payload, text: candidate }) <= maxBytes) {
-      best = candidate;
-      low = middle + 1;
-    } else {
-      high = middle - 1;
-    }
+  const fixedBytes = payloadBytes({ ...payload, text: "" }) - Buffer.byteLength(EMPTY_JSON_STRING, "utf8");
+  const bestPrefix = fitUtf8Prefix(
+    originalText,
+    (prefix) => fixedBytes + jsonStringBytes(`${prefix}${footer}`) <= maxBytes,
+    bytes,
+  );
+  if (bestPrefix !== undefined) {
+    const best = `${bestPrefix}${footer}`;
+    if (payloadBytes({ ...payload, text: best }) <= maxBytes) return best;
   }
-  if (best !== undefined) return best;
 
-  low = 0;
-  high = rawBytes;
-  best = undefined;
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2);
-    const candidate = utf8Prefix(originalText, middle);
-    if (payloadBytes({ ...payload, text: candidate }) <= maxBytes) {
-      best = candidate;
-      low = middle + 1;
-    } else {
-      high = middle - 1;
-    }
-  }
+  const best = fitUtf8Prefix(
+    originalText,
+    (candidate) => payloadBytes({ ...payload, text: candidate }) <= maxBytes,
+    bytes,
+  );
   return best ?? "";
 }
 

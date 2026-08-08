@@ -24,9 +24,7 @@ function makeInput(bytes, shape) {
 function median(values) {
   const sorted = [...values].sort((left, right) => left - right);
   const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0
-    ? (sorted[middle - 1] + sorted[middle]) / 2
-    : sorted[middle];
+  return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
 }
 
 function runCase(protocol, shape) {
@@ -85,13 +83,15 @@ console.log("size\tshape\tinput_bytes\tmaxBytes\titerations\tmedian_ms");
 for (const protocol of PROTOCOLS) {
   for (const shape of SHAPES) {
     const result = runCase(protocol, shape);
-    console.log([
-      `${result.bytes / KIB} KiB`,
-      result.shape,
-      result.bytes,
-      result.maxBytes,
-      result.iterations,
-      result.medianMs.toFixed(3),
-    ].join("\t"));
+    console.log(
+      [
+        `${result.bytes / KIB} KiB`,
+        result.shape,
+        result.bytes,
+        result.maxBytes,
+        result.iterations,
+        result.medianMs.toFixed(3),
+      ].join("\t"),
+    );
   }
 }
