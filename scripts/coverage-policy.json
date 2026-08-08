@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "baseline": {
     "measuredAt": "2026-08-08",
-    "sourceRevision": "3e78cd494e27d6c4f3938e73d9e851a836be3438 (PR #67 merge-base; no production src changes in PR)",
+    "sourceRevision": "4c40896 (PR #67 rebased onto origin/main; final review-fix commit; coverage excludes test-support/e2e)",
     "measurement": "pnpm run test:coverage -- --measure-only",
     "metrics": {
-      "lines": 97.09,
-      "functions": 95.26,
-      "branches": 86.21
+      "lines": 97.17,
+      "functions": 95.18,
+      "branches": 86.47
     },
     "thresholds": {
       "lines": 80,

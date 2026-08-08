@@ -73,13 +73,13 @@ fault-injection testはintegration/process層に置く。timeout、spawn failure
 
 ### Measured baseline
 
-測定日`2026-08-08`、コマンド`pnpm run test:coverage -- --measure-only`、対象production source revisionは`3e78cd494e27d6c4f3938e73d9e851a836be3438`（PR #67のmain merge-base。PR差分にproduction `src`変更なし）。推測値ではなく、生成されたLCOVから取得した値。
+測定日`2026-08-08`、コマンド`pnpm run test:coverage -- --measure-only`、対象production source revisionは`4c40896`（PR #67をorigin/mainへrebase後の最終review-fix commit。coverageはtest-support/e2eを除外）。推測値ではなく、生成されたLCOVから取得した値。
 
 | 指標 | covered / total | baseline |
 |---|---:|---:|
-| Line | 12450 / 12823 | 97.09% |
-| Function | 865 / 908 | 95.26% |
-| Branch | 2925 / 3393 | 86.21% |
+| Line | 13056 / 13436 | 97.17% |
+| Function | 909 / 955 | 95.18% |
+| Branch | 3037 / 3512 | 86.47% |
 
 Baselineは品質targetそのものではない。repository-wide regression floorは`scripts/coverage-policy.json`の`baseline.thresholds`に保守的に設定し、現在値を大きく下回る意味のある回帰をCIで失敗させる。
 
