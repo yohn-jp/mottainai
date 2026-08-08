@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { resolveResponseBudget } from "./context-runtime/budget.js";
 import type { ProjectionBudget, ProjectionBudgetConfig } from "./context-runtime/types.js";
+import { DEFAULT_READ_GOVERNOR_POLICY, READ_GOVERNOR_MODES, resolveReadGovernorPolicy } from "./context-runtime/read-policy.js";
+import type { ReadGovernorMode, ReadGovernorPolicy } from "./context-runtime/read-policy.js";
 import { normalizeToolMetadataOverride, RISK_VALUES } from "./adaptive/metadata.js";
 import type { ToolMetadataOverride } from "./adaptive/metadata.js";
 
@@ -96,6 +98,15 @@ export interface ResolvedWorktreeConfig {
   worktreeDir: string;
 }
 
+export interface ReadGovernorConfig {
+  mode?: ReadGovernorMode;
+  maxRawLines?: number;
+  maxRawBytes?: number;
+  allowWholeFileBelowLines?: number;
+  preferAuto?: boolean;
+  allowWholeFile?: boolean;
+}
+
 export interface GatewayConfig {
   /** 直接操作ツールがアクセスできる唯一のルート。既定はMCP起動時のcwd。 */
   workspaceRoot?: string;
@@ -122,6 +133,8 @@ export interface GatewayConfig {
   tokenBudgets?: TokenBudgetsConfig;
   /** 最終MCP応答の投影予算。`tokenBudgets` はtool-local hintとして別管理する。 */
   responseBudget?: ProjectionBudgetConfig;
+  /** `mottainai_read` の progressive source disclosure policy。 */
+  readGovernor?: ReadGovernorConfig;
   /** `mottainai_worktree_new` の許可 prefix・起点ブランチ設定。省略時はツールを非公開にする。 */
   worktree?: WorktreeConfig;
   /** `mottainai_task_start`/`mottainai_task_status`（Git workflow task lifecycle）の公開可否。
@@ -145,6 +158,8 @@ export interface ResolvedGatewayConfig {
   tokenBudgets: ResolvedTokenBudgets;
   /** 設定省略時は安全な既定値。手書きfixture互換のためoptional型。 */
   responseBudget?: ProjectionBudget;
+  /** 設定省略時は observe、手書きfixture互換のためoptional型。 */
+  readGovernor?: ReadGovernorPolicy;
   worktree?: ResolvedWorktreeConfig;
   workflowTasks: boolean;
 }
@@ -167,6 +182,7 @@ const DEFAULT_GATEWAY_CONFIG: Omit<ResolvedGatewayConfig, "workspaceRoot"> = {
   toolMetadata: {},
   tokenBudgets: { tools: {}, capabilities: {}, profiles: {} },
   responseBudget: { softTokens: 1_500, hardTokens: 3_000, hardBytes: 12_000 },
+  readGovernor: DEFAULT_READ_GOVERNOR_POLICY,
   workflowTasks: false,
 };
 
@@ -197,6 +213,7 @@ export function resolveGatewayConfig(
     activeProfile: config?.activeProfile,
     tokenBudgets: resolveTokenBudgets(config?.tokenBudgets),
     responseBudget: resolveResponseBudget(config?.responseBudget),
+    readGovernor: resolveReadGovernorPolicy(config?.readGovernor),
     worktree: resolveWorktreeConfig(config?.worktree),
     workflowTasks: config?.workflowTasks === true,
   };
@@ -326,6 +343,7 @@ function normalizeGateway(value: unknown): GatewayConfig | undefined {
     toolMetadata: toolMetadataRecord(value.toolMetadata, "invalid gateway toolMetadata"),
     tokenBudgets: tokenBudgetsConfig(value.tokenBudgets, "invalid gateway tokenBudgets"),
     responseBudget: responseBudgetConfig(value.responseBudget, "invalid gateway responseBudget"),
+    readGovernor: readGovernorConfig(value.readGovernor, "invalid gateway readGovernor"),
     worktree: worktreeConfig(value.worktree, "invalid gateway worktree"),
     workflowTasks: optionalBoolean(value.workflowTasks, "invalid gateway workflowTasks"),
   };
@@ -394,6 +412,25 @@ function responseBudgetConfig(value: unknown, field: string): ProjectionBudgetCo
     hardBytes: positiveIntegerConfig(value.hardBytes, `${field}.hardBytes`),
   };
   resolveResponseBudget(config);
+  return config;
+}
+
+function readGovernorConfig(value: unknown, field: string): ReadGovernorConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error(field);
+  const mode = value.mode;
+  if (mode !== undefined && (typeof mode !== "string" || !(READ_GOVERNOR_MODES as readonly string[]).includes(mode))) {
+    throw new Error(`${field}.mode`);
+  }
+  const config: ReadGovernorConfig = {
+    mode: mode as ReadGovernorMode | undefined,
+    maxRawLines: positiveIntegerConfig(value.maxRawLines, `${field}.maxRawLines`),
+    maxRawBytes: positiveIntegerConfig(value.maxRawBytes, `${field}.maxRawBytes`),
+    allowWholeFileBelowLines: nonNegativeIntegerConfig(value.allowWholeFileBelowLines, `${field}.allowWholeFileBelowLines`),
+    preferAuto: optionalBoolean(value.preferAuto, `${field}.preferAuto`),
+    allowWholeFile: optionalBoolean(value.allowWholeFile, `${field}.allowWholeFile`),
+  };
+  resolveReadGovernorPolicy(config);
   return config;
 }
 
@@ -550,6 +587,13 @@ function stringArrayRecord(value: unknown, message: string): Record<string, stri
 
 function positiveIntegerConfig(value: unknown, message: string): number | undefined {
   if (value !== undefined && (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0)) {
+    throw new Error(message);
+  }
+  return value;
+}
+
+function nonNegativeIntegerConfig(value: unknown, message: string): number | undefined {
+  if (value !== undefined && (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)) {
     throw new Error(message);
   }
   return value;

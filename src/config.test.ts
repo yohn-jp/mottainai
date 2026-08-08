@@ -459,3 +459,44 @@ test("loadMottainaiConfig rejects invalid tokenBudgets values", () => {
     /invalid gateway tokenBudgets\.default\.success/,
   );
 });
+
+test("gateway.readGovernor resolves the four policy modes and bounded defaults", () => {
+  const configPath = writeConfig({
+    version: 2,
+    mcpServers: { one: { command: "node" } },
+    gateway: {
+      readGovernor: {
+        mode: "enforce",
+        maxRawLines: 80,
+        maxRawBytes: 4_000,
+        allowWholeFileBelowLines: 20,
+        preferAuto: true,
+        allowWholeFile: false,
+      },
+    },
+  });
+  assert.deepEqual(loadGatewayConfig(configPath).readGovernor, {
+    mode: "enforce",
+    maxRawLines: 80,
+    maxRawBytes: 4_000,
+    allowWholeFileBelowLines: 20,
+    preferAuto: true,
+    allowWholeFile: false,
+  });
+  assert.equal(resolveGatewayConfig(undefined).readGovernor?.mode, "observe");
+});
+
+test("gateway.readGovernor rejects invalid modes and unsafe limits", () => {
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({ version: 2, mcpServers: {}, gateway: { readGovernor: { mode: "block" } } })),
+    /invalid gateway readGovernor\.mode/,
+  );
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({ version: 2, mcpServers: {}, gateway: { readGovernor: { maxRawLines: 0 } } })),
+    /invalid gateway readGovernor\.maxRawLines/,
+  );
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({ version: 2, mcpServers: {}, gateway: { readGovernor: { allowWholeFileBelowLines: -1 } } })),
+    /invalid gateway readGovernor\.allowWholeFileBelowLines/,
+  );
+});
