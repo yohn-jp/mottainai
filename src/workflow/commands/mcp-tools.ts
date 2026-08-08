@@ -53,7 +53,7 @@ const taskStatusTool: Tool = {
 export const workflowCommandTools: Tool[] = [policyExplainTool, taskStartTool, taskStatusTool];
 
 /** `config.workflowTasks` 未設定のワークスペースではこのファミリー全体を公開しない
- * （worktree 作成等の副作用を持つため既定非公開。`mottainai_worktree_new` と同じ姿勢）。 */
+ * （worktree 作成等の副作用を持つため既定非公開）。 */
 export function workflowCommandToolsFor(config: ResolvedGatewayConfig): Tool[] {
   return config.workflowTasks ? workflowCommandTools : [];
 }
