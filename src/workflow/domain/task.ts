@@ -3,7 +3,7 @@ import { runProgram } from "../../subprocess.js";
 import { decideProtectedBranchOperation } from "../policy/protected-branch.js";
 import type { WorkflowPolicyDocument } from "../policy/schema.js";
 import type { WorkflowStateStore, TaskId, TaskRecord, WorktreeRecord } from "../state/store.js";
-import { buildWorktreeNaming, createWorktree, decideBootstrap, detectWorktreeCollisions, ensureCanonicalManagedWorktreeRoot, resolveCanonicalWorktreePath, runBootstrap } from "../git/worktree.js";
+import { buildWorktreeNaming, createWorktree, decideBootstrap, ensureCanonicalManagedWorktreeRoot, resolveCanonicalWorktreePath, runBootstrap } from "../git/worktree.js";
 import type { BootstrapDecision, RunBootstrapResult, WorktreeNaming } from "../git/worktree.js";
 import { validateBranchNameAgainstGovernance } from "../governance/branch.js";
 import { resolveRepositoryIdentity } from "./identity.js";
@@ -243,18 +243,16 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
     }
 
     // caller worktree ではなく、identity が common-dir から検証した canonical root を
-    // anchor にする。collision check と createWorktree は同じ解決関数を使う。
+    // anchor にする。resolveCanonicalWorktreePath は createWorktree とも同じ解決関数を使う。
+    //
+    // ここでは branch/path の衝突を先読みしない（意図的）。DB 上の衝突チェックは
+    // store.reserveTask/reserveWorktree の atomic な UNIQUE 制約違反経路に一本化する
+    // — 2 プロセスが同一 branch/path で競合した場合、ロック無しの先読みは相手側の
+    // `git worktree add`（ディスクへのディレクトリ作成）と原理的にレースし、
+    // 本来 branch-collision であるべき理由を path-collision に誤判定しうる
+    // （Issue #106）。fs.existsSync も同じ理由でここでは行わず、reserveWorktree で
+    // このプロセスが branch/path を正当に確保した後、createWorktree 直前でのみ行う。
     candidateCanonicalPath = resolveCanonicalWorktreePath(identityResult.identity.canonicalRepositoryRoot, naming);
-    const collisions = detectWorktreeCollisions(store, instanceId, naming.branchName, candidateCanonicalPath);
-    if (collisions.branchCollision) {
-      return { ok: false, reason: "branch-collision", detail: `branch ${naming.branchName} is already claimed by an active worktree` };
-    }
-    if (collisions.pathCollision) {
-      return { ok: false, reason: "path-collision", detail: `canonical worktree path ${candidateCanonicalPath} is already claimed by an active worktree` };
-    }
-    if (fs.existsSync(candidateCanonicalPath)) {
-      return { ok: false, reason: "path-collision", detail: `canonical worktree path already exists: ${candidateCanonicalPath}` };
-    }
   }
 
   const baseBranch = repoStateResult.state.branch ?? "HEAD";
@@ -345,6 +343,16 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
     };
   }
   const reservedWorktree = reserveWorktreeResult.worktree;
+
+  // branch/path はここまでで atomic に確保済み（他プロセスがこの canonicalPath を
+  // 正当に狙うことはもう起きない）。それでも存在する場合は DB に追跡されていない
+  // 残留ディレクトリであり、race ではなく本物の path-collision。
+  // `git worktree add` に投げて曖昧なエラーにする前にここで検出し、予約行を補償削除する。
+  if (fs.existsSync(candidateCanonicalPath)) {
+    store.deleteReservedWorktree(reservedWorktree.worktreeId);
+    store.deleteReservedTask(task.taskId);
+    return { ok: false, reason: "path-collision", detail: `canonical worktree path already exists on disk (untracked): ${candidateCanonicalPath}` };
+  }
 
   const createResult = await createWorktree({
     canonicalRepositoryRoot: identityResult.identity.canonicalRepositoryRoot,
