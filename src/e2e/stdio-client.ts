@@ -1,8 +1,76 @@
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { resolveTsxLoaderUrl } from "../test-support/tsx-loader.js";
+
+const CLOSE_TIMEOUT_MS = 5_000;
+const FORCE_EXIT_TIMEOUT_MS = 1_000;
+const PROCESS_POLL_MS = 25;
+
+function processIsAlive(processId: number): boolean {
+  try {
+    process.kill(processId, 0);
+    return true;
+  } catch (error) {
+    return error instanceof Error && "code" in error && error.code === "EPERM";
+  }
+}
+
+function forceTerminate(processId: number): void {
+  if (process.platform === "win32") {
+    try {
+      execFileSync("taskkill", ["/pid", String(processId), "/t", "/f"], { stdio: "ignore" });
+    } catch {
+      // teardown は best effort。元のテストエラーを隠さない。
+    }
+    return;
+  }
+  try {
+    process.kill(processId, "SIGKILL");
+  } catch {
+    // teardown は best effort。元のテストエラーを隠さない。
+  }
+}
+
+async function waitForProcessExit(processId: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!processIsAlive(processId)) return true;
+    await new Promise((resolve) => setTimeout(resolve, PROCESS_POLL_MS));
+  }
+  return !processIsAlive(processId);
+}
+
+async function closeWithDeadline(client: Client, processId: number | null): Promise<void> {
+  let closeFailure: unknown;
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      client.close(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`gateway close timed out after ${CLOSE_TIMEOUT_MS}ms`)), CLOSE_TIMEOUT_MS);
+      }),
+    ]);
+  } catch (error) {
+    closeFailure = error;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+
+  if (processId !== null && processIsAlive(processId)) {
+    forceTerminate(processId);
+    const exited = await waitForProcessExit(processId, FORCE_EXIT_TIMEOUT_MS);
+    if (!exited) {
+      throw new Error(
+        `gateway process ${processId} remained alive after forced termination` +
+          (closeFailure === undefined ? "" : `; close failure: ${String(closeFailure)}`),
+      );
+    }
+  }
+  if (closeFailure !== undefined) throw closeFailure;
+}
 
 function resolveCliEntryPoint(): string {
   const repoRoot = path.resolve(fileURLToPath(import.meta.url), "../../..");
@@ -30,11 +98,18 @@ export async function startGatewayViaStdio(options: StartGatewayOptions): Promis
     ...(options.environment === undefined ? {} : { env: options.environment }),
   });
   const client = new Client({ name: "mottainai-e2e-test-client", version: "0.0.0-test" }, { capabilities: {} });
-  await client.connect(transport);
+  try {
+    await client.connect(transport);
+  } catch (error) {
+    const processId = transport.pid;
+    if (processId !== null) forceTerminate(processId);
+    throw error;
+  }
+  const processId = transport.pid;
   return {
     client,
     close: async () => {
-      await client.close().catch(() => {});
+      await closeWithDeadline(client, processId);
     },
   };
 }

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import test from "node:test";
+import path from "node:path";
 import { assertEnvelopeShape } from "../test-support/assertions.js";
 import { writeTestConfig } from "../test-support/config-fixture.js";
 import { createTempDir } from "../test-support/tmp-dir.js";
@@ -38,6 +40,7 @@ test("gateway starts over stdio and serves local tools with a valid structured e
 test("stdio tools/call enforces the configured final response byte bound", { timeout: 15_000 }, async (t) => {
   const workspace = createTempDir(t, "mottainai-e2e-context-runtime-");
   const hardBytes = 1_600;
+  fs.writeFileSync(path.join(workspace, "large.txt"), "black-box marker\n".repeat(2_000));
   const configPath = writeTestConfig(workspace, {
     gateway: {
       workspaceRoot: ".",
@@ -48,12 +51,12 @@ test("stdio tools/call enforces the configured final response byte bound", { tim
   t.after(() => connection.close());
 
   const result = await connection.client.callTool({
-    name: "mottainai_exec",
-    arguments: { command: "yes black-box | head -n 2000" },
+    name: "mottainai_read",
+    arguments: { path: "large.txt" },
   });
   assert.ok(Buffer.byteLength(JSON.stringify(result), "utf8") <= hardBytes);
   assertEnvelopeShape(result.structuredContent);
-  assert.equal(result.structuredContent.operation, "exec");
+  assert.equal(result.structuredContent.operation, "read");
   assert.equal(result.structuredContent.truncated, true);
   assert.equal("output" in result.structuredContent, false);
   assert.match(String(result.structuredContent.result_id), /^mx_/);
