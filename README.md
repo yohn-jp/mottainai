@@ -232,6 +232,41 @@ your client sees `codegraph__*` / `fff__*` tools, plus the gateway's own
 At runtime, call `mottainai_runtime_status` from the MCP client to inspect
 registered upstreams and their health.
 
+### Await/watch primitives (Issue #74)
+
+Polling is orchestration, not reasoning. Instead of an agent looping
+`wait -> model turn -> status check`, Mottainai can wait on an
+observable process or provider state itself, inside a single bounded MCP
+call, and return once on terminal state, a meaningful change, or timeout.
+
+- `mottainai_exec_start(command, cwd?, maxOutputBytes?)` starts a shell
+  command and immediately returns an opaque `handle` — stdout/stderr are
+  never inlined into this response.
+- `mottainai_exec_await(handle, timeoutMs?)` blocks inside the call, up to
+  a runtime-bounded timeout, until the process reaches a terminal state.
+  A timeout does **not** kill the process — the started process's
+  lifecycle and the `await` call's lifecycle are independent. The started
+  process is force-terminated when its owning MCP connection/process
+  shuts down, so an abandoned await never orphans a child process
+  silently. Output continues to go through the same
+  `mottainai_result_get`-backed retrieval and response-budget projection
+  as `mottainai_exec`.
+- `mottainai_gh_checks_await(number, timeoutMs?)` (available alongside the
+  other `worktree`-gated GitHub tools) waits for a pull request's CI
+  checks to reach a terminal state or change, and returns a semantic
+  delta (`changed: [{ name, from, to }]`) instead of repeating a full
+  snapshot on every call.
+
+Handles are opaque, unguessable, and scoped to the MCP
+connection/process that created them — a handle from one connection is
+not resolvable from another, and all handles are cleaned up when their
+owning connection/process shuts down. Poll interval, backoff, and jitter
+are centrally bounded by the gateway (`gateway.await` in
+`mottainai.config.json`); callers cannot request an arbitrary polling
+frequency. This is **not** a persistent background job system — waiting
+only happens inside an active MCP tool call, and nothing survives a
+gateway process restart.
+
 ## Development installation
 
 Contributors need [pnpm](https://pnpm.io/) 11.18.0:

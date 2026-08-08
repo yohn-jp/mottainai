@@ -371,6 +371,48 @@ test("resolveGatewayConfig defaults workflowTasks to false (mottainai_task_start
   assert.equal(resolveGatewayConfig({ workflowTasks: false }).workflowTasks, false);
 });
 
+test("resolveGatewayConfig defaults await policy and clamps maxPollIntervalMs to at least minPollIntervalMs", () => {
+  const defaults = resolveGatewayConfig(undefined).await;
+  assert.equal(defaults.minPollIntervalMs, 250);
+  assert.equal(defaults.maxPollIntervalMs, 15_000);
+  assert.equal(defaults.maxAwaitMs, 120_000);
+  assert.equal(defaults.jitterRatio, 0.2);
+
+  const clamped = resolveGatewayConfig({ await: { minPollIntervalMs: 5_000, maxPollIntervalMs: 1_000 } }).await;
+  assert.equal(clamped.minPollIntervalMs, 5_000);
+  assert.equal(clamped.maxPollIntervalMs, 5_000);
+});
+
+test("resolveGatewayConfig falls back to the default jitterRatio when out of [0,1]", () => {
+  assert.equal(resolveGatewayConfig({ await: { jitterRatio: -0.1 } }).await.jitterRatio, 0.2);
+  assert.equal(resolveGatewayConfig({ await: { jitterRatio: 1.5 } }).await.jitterRatio, 0.2);
+  assert.equal(resolveGatewayConfig({ await: { jitterRatio: 0.5 } }).await.jitterRatio, 0.5);
+});
+
+test("loadMottainaiConfig rejects an invalid gateway.await.jitterRatio", () => {
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      version: 2,
+      mcpServers: { one: { command: "node" } },
+      gateway: { await: { jitterRatio: 2 } },
+    })),
+    /invalid gateway await\.jitterRatio/,
+  );
+});
+
+test("loadMottainaiConfig round-trips gateway.await bounds", () => {
+  const configPath = writeConfig({
+    version: 2,
+    mcpServers: { one: { command: "node" } },
+    gateway: { await: { minPollIntervalMs: 500, maxPollIntervalMs: 8_000, maxAwaitMs: 60_000, jitterRatio: 0.1 } },
+  });
+  const resolved = loadGatewayConfig(configPath);
+  assert.equal(resolved.await.minPollIntervalMs, 500);
+  assert.equal(resolved.await.maxPollIntervalMs, 8_000);
+  assert.equal(resolved.await.maxAwaitMs, 60_000);
+  assert.equal(resolved.await.jitterRatio, 0.1);
+});
+
 test("loadMottainaiConfig rejects a non-boolean gateway.workflowTasks", () => {
   assert.throws(
     () => loadMottainaiConfig(writeConfig({

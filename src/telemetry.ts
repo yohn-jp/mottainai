@@ -24,6 +24,31 @@ export interface TelemetrySnapshot {
   by_provider: Record<string, TelemetryCounts>;
   by_capability: Record<string, TelemetryCounts>;
   projection: ProjectionCounts;
+  await: AwaitCounts;
+}
+
+/**
+ * await/watch primitive（Issue #74）の集計値。credential・raw payload・provider response 本文は
+ * 一切保持しない — poll 回数・待機時間・観測した状態変化の件数・LLM へ返さずに済んだ
+ * 中間応答の件数だけを記録する。
+ */
+export interface AwaitCounts {
+  awaits: number;
+  poll_count: number;
+  elapsed_ms: number;
+  state_changes: number;
+  avoided_responses: number;
+  terminal: number;
+  timeouts: number;
+  cancelled: number;
+}
+
+export interface RecordAwaitInput {
+  pollCount: number;
+  elapsedMs: number;
+  stateChanges: number;
+  avoidedResponses: number;
+  outcome: "terminal" | "timeout" | "cancelled";
 }
 
 export interface RecordToolCallInput {
@@ -56,6 +81,7 @@ export interface TelemetrySink {
   recordToolCall(input: RecordToolCallInput): void;
   recordProjection(input: RecordProjectionInput): void;
   recordRetrieval(): void;
+  recordAwait(input: RecordAwaitInput): void;
   snapshot(): TelemetrySnapshot;
 }
 
@@ -64,6 +90,7 @@ interface TelemetryState {
   by_provider: Record<string, TelemetryCounts>;
   by_capability: Record<string, TelemetryCounts>;
   projection: ProjectionCounts;
+  await: AwaitCounts;
 }
 
 function emptyCounts(): TelemetryCounts {
@@ -74,6 +101,7 @@ function emptyState(): TelemetryState {
   return {
     totals: { ...emptyCounts(), retrievals: 0 }, by_provider: {}, by_capability: {},
     projection: emptyProjection(),
+    await: emptyAwait(),
   };
 }
 
@@ -81,11 +109,15 @@ function emptyProjection(): ProjectionCounts {
   return { raw_bytes: 0, stored_bytes: 0, returned_bytes: 0, omitted_bytes: 0, projected_tokens: 0 };
 }
 
+function emptyAwait(): AwaitCounts {
+  return { awaits: 0, poll_count: 0, elapsed_ms: 0, state_changes: 0, avoided_responses: 0, terminal: 0, timeouts: 0, cancelled: 0 };
+}
+
 function cloneCounts(counts: TelemetryCounts): TelemetryCounts {
   return { ...counts };
 }
 
-function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" | "by_provider" | "by_capability" | "projection"> {
+function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" | "by_provider" | "by_capability" | "projection" | "await"> {
   return {
     totals: { ...state.totals },
     by_provider: Object.fromEntries(
@@ -95,6 +127,7 @@ function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" 
       Object.entries(state.by_capability).map(([key, counts]) => [key, cloneCounts(counts)]),
     ),
     projection: { ...state.projection },
+    await: { ...state.await },
   };
 }
 
@@ -136,6 +169,9 @@ function loadState(filePath: string): TelemetryState | undefined {
     const projection = typeof parsed.projection === "object" && parsed.projection !== null
       ? parsed.projection as Record<string, unknown>
       : {};
+    const awaitRaw = typeof parsed.await === "object" && parsed.await !== null
+      ? parsed.await as Record<string, unknown>
+      : {};
     return {
       totals: totals as TelemetryState["totals"],
       by_provider: byProvider as Record<string, TelemetryCounts>,
@@ -146,6 +182,16 @@ function loadState(filePath: string): TelemetryState | undefined {
         returned_bytes: typeof projection.returned_bytes === "number" ? projection.returned_bytes : 0,
         omitted_bytes: typeof projection.omitted_bytes === "number" ? projection.omitted_bytes : 0,
         projected_tokens: typeof projection.projected_tokens === "number" ? projection.projected_tokens : 0,
+      },
+      await: {
+        awaits: typeof awaitRaw.awaits === "number" ? awaitRaw.awaits : 0,
+        poll_count: typeof awaitRaw.poll_count === "number" ? awaitRaw.poll_count : 0,
+        elapsed_ms: typeof awaitRaw.elapsed_ms === "number" ? awaitRaw.elapsed_ms : 0,
+        state_changes: typeof awaitRaw.state_changes === "number" ? awaitRaw.state_changes : 0,
+        avoided_responses: typeof awaitRaw.avoided_responses === "number" ? awaitRaw.avoided_responses : 0,
+        terminal: typeof awaitRaw.terminal === "number" ? awaitRaw.terminal : 0,
+        timeouts: typeof awaitRaw.timeouts === "number" ? awaitRaw.timeouts : 0,
+        cancelled: typeof awaitRaw.cancelled === "number" ? awaitRaw.cancelled : 0,
       },
     };
   } catch {
@@ -165,10 +211,11 @@ const NOOP_SINK: TelemetrySink = {
   recordToolCall() { /* telemetry disabled */ },
   recordProjection() { /* telemetry disabled */ },
   recordRetrieval() { /* telemetry disabled */ },
+  recordAwait() { /* telemetry disabled */ },
   snapshot() {
     return {
       enabled: false, generated_at: new Date().toISOString(), totals: { ...emptyCounts(), retrievals: 0 },
-      by_provider: {}, by_capability: {}, projection: emptyProjection(),
+      by_provider: {}, by_capability: {}, projection: emptyProjection(), await: emptyAwait(),
     };
   },
 };
@@ -253,6 +300,17 @@ export function createTelemetrySink(env: NodeJS.ProcessEnv = process.env): Telem
     },
     recordRetrieval() {
       state.totals.retrievals += 1;
+      persist();
+    },
+    recordAwait(input) {
+      state.await.awaits += 1;
+      state.await.poll_count += input.pollCount;
+      state.await.elapsed_ms += input.elapsedMs;
+      state.await.state_changes += input.stateChanges;
+      state.await.avoided_responses += input.avoidedResponses;
+      if (input.outcome === "terminal") state.await.terminal += 1;
+      else if (input.outcome === "timeout") state.await.timeouts += 1;
+      else state.await.cancelled += 1;
       persist();
     },
     snapshot() {
