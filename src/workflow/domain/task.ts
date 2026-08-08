@@ -89,7 +89,6 @@ export interface StartTaskInput {
   /** worktree.required が off の場合のみ、呼び出し側が worktree 不要と明示できる。 */
   skipWorktree?: boolean;
   expectedLockfileDigest?: string;
-  worktreeDirRelative?: string;
 }
 
 export type StartTaskFailureReason =

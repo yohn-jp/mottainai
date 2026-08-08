@@ -9,6 +9,7 @@ import { BUILTIN_PRESETS } from "../policy/presets.js";
 import type { WorkflowPolicyDocument } from "../policy/schema.js";
 import { WorkflowSqliteStateStore } from "../state/sqlite-store.js";
 import { validateBranchNameAgainstGovernance } from "../governance/branch.js";
+import { resolveRepositoryIdentity } from "./identity.js";
 import { checkStaleBaseBranch, getTaskStatus, getTaskStatusForWorkspace, startTask, transitionTask } from "./task.js";
 
 function standardPolicy(overrides: Partial<WorkflowPolicyDocument["worktree"]> = {}): WorkflowPolicyDocument {
@@ -93,9 +94,11 @@ test("startTask rejects a governance-invalid generated branch before Git or SQLi
   assert.match(result.detail, /rejected before Git mutation/);
   assert.equal(fs.existsSync(path.join(root, ".mottainai", "worktrees")), false);
   assert.equal(runGit(["branch", "--list", "feature/104-invalid-type"], root), "");
-  const status = await getTaskStatusForWorkspace(root, store);
-  assert.equal(status.ok, true);
-  if (status.ok) assert.equal(status.active, false);
+  const identity = resolveRepositoryIdentity(root);
+  assert.equal(identity.ok, true);
+  if (!identity.ok) return;
+  assert.equal(store.getActiveTaskByIssueRef(identity.identity.instanceId, "104"), undefined);
+  assert.deepEqual(store.listWorktreesForInstance(identity.identity.instanceId), []);
 });
 
 test("startTask with bootstrapMode=automatic returns the bootstrap execution outcome (not just the decision)", async (t) => {
