@@ -168,6 +168,51 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 5,
+    description: "workflow: provider-neutral pull request records",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE pr_records (
+          record_id TEXT PRIMARY KEY,
+          task_id TEXT REFERENCES tasks (task_id) ON DELETE SET NULL,
+          provider TEXT NOT NULL,
+          repository_id TEXT NOT NULL,
+          pr_number INTEGER NOT NULL CHECK (pr_number > 0),
+          url TEXT NOT NULL,
+          head_sha TEXT NOT NULL,
+          lifecycle_state TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE (provider, repository_id, pr_number)
+        );
+        CREATE UNIQUE INDEX idx_pr_records_task ON pr_records (task_id) WHERE task_id IS NOT NULL;
+        CREATE INDEX idx_pr_records_repository ON pr_records (provider, repository_id);
+        CREATE INDEX idx_pr_records_lifecycle ON pr_records (lifecycle_state);
+      `);
+    },
+  },
+  {
+    version: 6,
+    description: "workflow: validation_evidence (trusted record of validation results per commit)",
+    up: (db) => {
+      db.exec(`
+        -- instance+commit+validation-kind ごとに「実際に実行された検証の結果」を
+        -- 記録する。push.ts の requiredValidationEvidence gate はこのテーブルの
+        -- 内容だけを信頼する — 呼び出し側が渡す evidence オブジェクトは
+        -- 一切信頼しない。書き込みは検証を実際に実行した trusted caller
+        -- （CLI/MCP のテスト実行ステップ等）のみが行う想定。
+        CREATE TABLE validation_evidence (
+          instance_id TEXT NOT NULL REFERENCES repository_instances (instance_id),
+          head_commit TEXT NOT NULL,
+          name TEXT NOT NULL,
+          status TEXT NOT NULL,
+          recorded_at INTEGER NOT NULL,
+          PRIMARY KEY (instance_id, head_commit, name)
+        );
+      `);
+    },
+  },
 ];
 
 function currentVersion(db: DatabaseSync): number {

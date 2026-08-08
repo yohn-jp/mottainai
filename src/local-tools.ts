@@ -14,7 +14,20 @@ import {
   resolveReadGovernorPolicy,
 } from "./context-runtime/read-policy.js";
 import type { NormalizedReadRequest, ReadDecision } from "./context-runtime/read-policy.js";
-import { inspectReadFile, readAuthorizedFile, readSemanticInspectionSource } from "./context-runtime/read-adapter.js";
+import {
+  inspectReadFile,
+  readAuthorizedFile,
+  readSemanticInspectionSource,
+  verifyFileContentUnchanged,
+} from "./context-runtime/read-adapter.js";
+import {
+  createIdentityHint,
+  createReadProjectionKey,
+  createStoredProjectionKey,
+  isSensitiveReadPath,
+  resolveFileContentIdentity,
+} from "./context-runtime/identity.js";
+import type { ArtifactIdentityMetadata, FileContentIdentity } from "./context-runtime/identity.js";
 import { normalizeChecks, waitUntilChanged } from "./context-runtime/gh-checks.js";
 import type { CheckSnapshot, RawCheck } from "./context-runtime/gh-checks.js";
 import type { ProcessRegistry } from "./context-runtime/process-registry.js";
@@ -59,6 +72,7 @@ export const localTools: Tool[] = [
     name: "mottainai_read", description: "Read a workspace file by auto/outline/symbol view or an explicit bounded raw range.",
     inputSchema: { type: "object", properties: {
       path: { type: "string" }, startLine: { type: "integer", minimum: 1 }, endLine: { type: "integer", minimum: 1 },
+      ifChangedFrom: { type: "string", description: "Opaque result identity from a prior read; return unchanged when it still matches." },
       mode: { type: "string", enum: ["raw", "outline", "symbols", "auto"], default: "auto" },
     }, required: ["path"] }, outputSchema: OUTPUT_SCHEMA, annotations: readOnly,
   },
@@ -489,6 +503,10 @@ async function readTool(
 
   const modeValue = stringArg(args, "mode");
   if (modeValue !== undefined && !(READ_MODES as readonly string[]).includes(modeValue)) throw new Error("invalid mode");
+  const ifChangedFrom = stringArg(args, "ifChangedFrom");
+  if (ifChangedFrom !== undefined && (ifChangedFrom.length === 0 || ifChangedFrom.length > 512)) {
+    throw new Error("ifChangedFrom must be a non-empty identity up to 512 characters");
+  }
   const request = {
     path: path.relative(config.workspaceRoot, filePath),
     ...(modeValue === undefined ? {} : { mode: modeValue as typeof READ_MODES[number] }),
@@ -500,6 +518,18 @@ async function readTool(
   const decision = decideRead(request, metadata, readGovernor);
   const relativePath = request.path || ".";
   const normalized = decision.normalizedRequest;
+  const identitySafe = !isSensitiveReadPath(relativePath);
+  const contentIdentity = identitySafe
+    ? await resolveFileContentIdentity(filePath, config.workspaceRoot, metadata.contentHash)
+    : undefined;
+  const artifactIdentity: FileContentIdentity | undefined = contentIdentity === undefined
+    ? undefined
+    : {
+        version: contentIdentity.version,
+        content_id: contentIdentity.id,
+        adapter: "local_file_read_v1",
+        source_key: `file:${relativePath}`,
+      };
 
   if (!decision.allowed) {
     telemetry?.recordReadGovernor({
@@ -533,6 +563,13 @@ async function readTool(
   const semanticSource = isSemanticMode(normalized.mode) && normalized.bounded
     ? await readSemanticInspectionSource(filePath, normalized)
     : selected;
+  // hash 計算 bytes と実際に返す bytes を束縛する TOCTOU 窓を閉じる: read 後に
+  // content hash を再計算し、一致しなければ identity が古い hash に新しい bytes を
+  // 紐付けてしまうので fail-closed に identity を破棄する（読み取り結果自体は
+  // 正常に返す）。mtime/size/inode は same-size 上書き + mtime 巻き戻しですり抜け
+  // 得るため使わない — content hash の再計算のみを correctness authority とする。
+  const contentStillValid = await verifyFileContentUnchanged(filePath, { contentHash: metadata.contentHash });
+  const verifiedArtifactIdentity = contentStillValid ? artifactIdentity : undefined;
   const rawLines = normalized.startLine === undefined || normalized.endLine === undefined
     ? metadata.lineCount
     : normalized.endLine - normalized.startLine + 1;
@@ -556,10 +593,6 @@ async function readTool(
     }
   }
 
-  const sourceResultId = store.putArtifact({
-    text: selected,
-    metadata: { operation: "read", summary: relativePath, cwd: filePath },
-  });
   const diagnostics = extractionFailure
     ? [
         ...decision.diagnostics,
@@ -570,10 +603,41 @@ async function readTool(
         },
       ]
     : decision.diagnostics;
+  const readProjectionKey = createReadProjectionKey({
+    mode: normalized.mode,
+    ...(normalized.startLine === undefined ? {} : { startLine: normalized.startLine }),
+    ...(normalized.endLine === undefined ? {} : { endLine: normalized.endLine }),
+    policy: readGovernor,
+    policyRule: decision.policyRule,
+    policyReason: decision.reason,
+    diagnostics,
+    extractionFailure,
+  });
+  const storedArtifactIdentity: ArtifactIdentityMetadata | undefined = verifiedArtifactIdentity === undefined
+    ? undefined
+    : { ...verifiedArtifactIdentity, origin_projection_key: readProjectionKey };
+  const sourceResultId = store.putArtifact({
+    text: selected,
+    metadata: {
+      operation: "read",
+      summary: relativePath,
+      cwd: filePath,
+      ...(storedArtifactIdentity === undefined ? {} : { identity: storedArtifactIdentity }),
+    },
+  });
   const truncated = extractionFailure
     || semanticProjectionTruncated
     || (normalized.startLine !== undefined && (normalized.startLine > 1 || normalized.endLine !== metadata.lineCount));
   const summary = `${relativePath} lines=${rawLines}/${metadata.lineCount} mode=${normalized.mode}`;
+  const identity = verifiedArtifactIdentity === undefined
+    ? undefined
+    : createIdentityHint({
+        content_id: verifiedArtifactIdentity.content_id,
+        adapter: "local_file_read_v1",
+        source_key: verifiedArtifactIdentity.source_key,
+        projection_key: readProjectionKey,
+        ...(ifChangedFrom === undefined ? {} : { if_changed_from: ifChangedFrom }),
+      });
   telemetry?.recordReadGovernor({
     action: decision.action,
     requestedMode: decision.requestedMode,
@@ -598,6 +662,7 @@ async function readTool(
     diagnostics,
     metrics: { raw_lines_returned: rawLinesReturned, raw_bytes_returned: rawBytesReturned, file_lines: metadata.lineCount, file_bytes: metadata.byteSize },
     truncated,
+    ...(identity === undefined ? {} : { identity }),
   });
 }
 
@@ -665,7 +730,26 @@ function resultGetTool(args: Args, store: ArtifactStore, telemetry?: TelemetrySi
   if (!retrieved) throw new Error(`Original result unavailable or expired: ${id}`);
   telemetry?.recordRetrieval();
   const summary = `result=${id} ${retrieved.returnedStartLine}-${retrieved.returnedEndLine}/${retrieved.totalLines}`;
-  return output("result_get", "success", summary, id, { ...retrieved, truncated: retrieved.omittedLines > 0 });
+  const identity = retrieved.identity === undefined
+    ? undefined
+    : createIdentityHint({
+        content_id: retrieved.identity.content_id,
+        adapter: "stored_artifact_v1",
+        source_key: retrieved.identity.source_key,
+        projection_key: createStoredProjectionKey({
+          stream,
+          ...(stringArg(args, "query") === undefined ? {} : { query: stringArg(args, "query") }),
+          ...(numberArg(args, "startLine") === undefined ? {} : { startLine: numberArg(args, "startLine") }),
+          ...(numberArg(args, "maxLines") === undefined ? {} : { maxLines: numberArg(args, "maxLines") }),
+          ...(numberArg(args, "contextLines") === undefined ? {} : { contextLines: numberArg(args, "contextLines") }),
+          originProjectionKey: retrieved.identity.origin_projection_key,
+        }),
+      });
+  return output("result_get", "success", summary, id, {
+    ...retrieved,
+    ...(identity === undefined ? {} : { identity }),
+    truncated: retrieved.omittedLines > 0,
+  });
 }
 
 function resultSearchTool(args: Args, store: ArtifactStore, telemetry?: TelemetrySink): CallToolResult {

@@ -2,12 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   allSemanticFixtures,
-  ambiguousDynamicCallFixture,
+  callsAndPackageFixture,
+  effectfulFunctionFixture,
   inferredClaimFixture,
   logicalComponentFixture,
+  sharedOwnershipFixture,
   pureFunctionFixture,
 } from "../fixtures/snapshots.js";
-import { validateSnapshot } from "./schema.js";
+import { createComponentId, createEdgeId, createSymbolId } from "./ids.js";
+import { validateSemanticTransaction, validateSnapshot } from "./schema.js";
 
 function clone<T>(value: T): T {
   return structuredClone(value);
@@ -16,70 +19,188 @@ function clone<T>(value: T): T {
 function assertRejected(input: unknown, code: string): void {
   const result = validateSnapshot(input);
   if (result.ok) assert.fail(`expected rejection: ${code}`);
-  assert.ok(result.diagnostics.some((item) => item.code === code || item.path?.includes(code)));
+  assert.ok(
+    result.diagnostics.some((item) => item.code === code || item.path?.includes(code)),
+    JSON.stringify(result.diagnostics),
+  );
 }
 
-test("schema v1 fixtures validate without a storage backend", () => {
+test("symbol-first v1 separates declared, derived, observed, analysis and integrity state", () => {
+  const result = validateSnapshot(pureFunctionFixture);
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    Object.keys(pureFunctionFixture).sort(),
+    [
+      "analysis",
+      "declarations",
+      "derived",
+      "graph",
+      "integrity",
+      "modelVersion",
+      "repositoryIdentity",
+      "revisionIdentity",
+      "schemaVersion",
+      "observed",
+    ].sort(),
+  );
+  assert.equal(pureFunctionFixture.declarations.commentPolicy.canonicalForm, "formal-english");
+  assert.equal(pureFunctionFixture.derived.symbols[0]?.classification, "managed");
+  assert.equal(pureFunctionFixture.observed.evidences[0]?.kind, "evidence");
+  assert.equal(pureFunctionFixture.analysis.semanticDelta.version, 1);
+  assert.equal(pureFunctionFixture.integrity.status, "fresh");
+});
+
+test("all canonical entities and universal graph edges validate", () => {
   for (const [name, fixture] of Object.entries(allSemanticFixtures)) {
     const result = validateSnapshot(fixture);
-    assert.equal(result.ok, true, name);
+    assert.equal(result.ok, true, `${name}: ${result.ok ? "" : JSON.stringify(result.diagnostics)}`);
   }
+  assert.ok(callsAndPackageFixture.graph.relations.some((relation) => relation.kind === "calls"));
+  assert.ok(callsAndPackageFixture.graph.relations.some((relation) => relation.kind === "uses_package"));
+  assert.ok(callsAndPackageFixture.graph.relations.some((relation) => relation.kind === "imports_api"));
+  assert.ok(callsAndPackageFixture.graph.relations.some((relation) => relation.kind === "evidence_for"));
 });
 
-test("contract separates parameters from domain, preconditions, resources and effects", () => {
-  const pureSymbol = pureFunctionFixture.nodes.find((node) => node.kind === "symbol");
-  assert.ok(pureSymbol?.contract);
-  assert.equal(pureSymbol.contract.inputs.parameters[0]?.name, "value");
-  assert.equal(pureSymbol.contract.inputs.preconditions[0]?.expression, "value is finite-length text");
-  assert.deepEqual(pureSymbol.contract.outputs.effects, []);
+test("managed Symbol has exactly one Component owner and Shared is explicit", () => {
+  assert.equal(validateSnapshot(logicalComponentFixture).ok, true);
+  assert.equal(validateSnapshot(sharedOwnershipFixture).ok, true);
 
-  const effectfulSymbol = allSemanticFixtures.effectfulFunction.nodes.find((node) => node.kind === "symbol");
-  assert.deepEqual(effectfulSymbol?.contract?.outputs.effects, ["filesystem.read", "environment.read"]);
-  assert.equal(effectfulSymbol?.contract?.inputs.externalResources[0]?.access, "read");
-});
-
-test("future relationship kinds remain representable", () => {
-  const future = clone(logicalComponentFixture);
-  future.edges.push({
-    id: "edge:future-binding" as typeof future.edges[number]["id"],
-    kind: "future:binds_runtime",
-    from: future.nodes[1]!.identity.logicalId,
-    to: future.nodes[0]!.identity.logicalId,
-    provenance: future.nodes[0]!.provenance,
+  const invalid = clone(logicalComponentFixture);
+  const managedSymbol = invalid.derived.symbols[0]!;
+  invalid.declarations.components.push({
+    ...invalid.declarations.components[0]!,
+    id: createComponentId("second-owner"),
+    name: "Second Owner",
   });
-  const result = validateSnapshot(future);
-  assert.equal(result.ok, true);
+  invalid.graph.relations.push({
+    ...invalid.graph.relations.find((relation) => relation.kind === "owns" && relation.to === managedSymbol.id)!,
+    id: createEdgeId("second-owner"),
+    from: createComponentId("second-owner"),
+  });
+  assertRejected(invalid, "invalid_symbol_ownership");
 });
 
-test("inferred and ambiguous analysis are explicit", () => {
-  const edge = ambiguousDynamicCallFixture.edges[0];
-  assert.equal(edge?.provenance.kind, "inferred");
-  assert.equal(edge?.provenance.ambiguity?.status, "ambiguous");
-  assert.equal(ambiguousDynamicCallFixture.analysis.completeness, "partial");
-  assert.equal(inferredClaimFixture.claims[0]?.provenance.kind, "inferred");
-  assert.equal(inferredClaimFixture.claims[0]?.provenance.confidence, 0.35);
+test("contract, evidence and observed test remain graph-linked", () => {
+  const evidenceForContract = pureFunctionFixture.graph.relations.find((relation) => relation.kind === "evidence_for");
+  assert.equal(evidenceForContract?.from, pureFunctionFixture.observed.evidences[0]?.id);
+  assert.equal(evidenceForContract?.to, pureFunctionFixture.declarations.contracts[0]?.id);
+  assert.equal(pureFunctionFixture.observed.tests[0]?.evidenceIds[0], pureFunctionFixture.observed.evidences[0]?.id);
+  assert.equal(effectfulFunctionFixture.declarations.contracts[0]?.definition.outputs.effects.length, 0);
 });
 
-test("invalid fixtures return structured diagnostics", () => {
-  const missingProvenance = clone(pureFunctionFixture) as unknown as Record<string, unknown>;
-  const facts = missingProvenance.facts as Array<Record<string, unknown>>;
-  delete facts[0]!.provenance;
-  assertRejected(missingProvenance, "schema_validation_failed");
+test("integrity represents fresh, stale and invalid without mtime authority", () => {
+  for (const status of ["fresh", "stale", "invalid"] as const) {
+    const fixture = clone(pureFunctionFixture);
+    fixture.integrity.status = status;
+    if (status !== "fresh") fixture.integrity.statusReason = `${status} fixture state`;
+    assert.equal(validateSnapshot(fixture).ok, true, status);
+  }
 
-  const malformedId = clone(pureFunctionFixture);
-  malformedId.nodes[1]!.identity.logicalId = "not-an-id" as typeof malformedId.nodes[1]["identity"]["logicalId"];
-  assertRejected(malformedId, "schema_validation_failed");
+  const withMtime = clone(pureFunctionFixture) as unknown as { integrity: Record<string, unknown> };
+  withMtime.integrity.mtime = 123;
+  assertRejected(withMtime, "schema_validation_failed");
+});
 
-  const danglingReference = clone(logicalComponentFixture);
-  danglingReference.edges[0]!.to = "component:missing" as typeof danglingReference.edges[0]["to"];
-  assertRejected(danglingReference, "dangling_reference");
+test("inferred claims have no default enforcement authority", () => {
+  assert.equal(validateSnapshot(inferredClaimFixture).ok, true);
+  const invalid = clone(inferredClaimFixture);
+  invalid.analysis.claims[0]!.enforcement = "authoritative";
+  assertRejected(invalid, "inferred_claim_not_authoritative");
+});
 
-  const invalidConfidence = clone(ambiguousDynamicCallFixture) as unknown as Record<string, unknown>;
-  const edges = invalidConfidence.edges as Array<Record<string, unknown>>;
-  const edgeProvenance = edges[0]!.provenance as Record<string, unknown>;
-  edgeProvenance.confidence = 1.1;
-  assertRejected(invalidConfidence, "schema_validation_failed");
+test("prior #48 schema is explicitly rejected and never coerced", () => {
+  const prior = { ...pureFunctionFixture, schemaVersion: 1 };
+  assertRejected(prior, "unsupported_schema_version");
 
-  const unsupportedVersion = { ...pureFunctionFixture, schemaVersion: 2 };
-  assertRejected(unsupportedVersion, "unsupported_schema_version");
+  const missingModel = clone(pureFunctionFixture) as unknown as Record<string, unknown>;
+  delete missingModel.modelVersion;
+  assertRejected(missingModel, "schema_validation_failed");
+});
+
+test("entity, fact and claim authority must match its container layer", () => {
+  const declaredAsAnalysis = clone(pureFunctionFixture);
+  declaredAsAnalysis.declarations.constraints.push({
+    ...declaredAsAnalysis.declarations.constraints[0]!,
+    id: "constraint:mislayered" as (typeof declaredAsAnalysis.declarations.constraints)[number]["id"],
+    authority: "analysis",
+  });
+  assertRejected(declaredAsAnalysis, "authority_layer_mismatch");
+
+  const derivedSymbolAsDeclared = clone(pureFunctionFixture);
+  derivedSymbolAsDeclared.derived.symbols[0]!.authority = "declared";
+  assertRejected(derivedSymbolAsDeclared, "authority_layer_mismatch");
+
+  const observedFactAsDeclared = clone(pureFunctionFixture);
+  observedFactAsDeclared.observed.facts[0]!.authority = "declared";
+  assertRejected(observedFactAsDeclared, "authority_layer_mismatch");
+
+  const analysisClaimAsDeclared = clone(inferredClaimFixture);
+  analysisClaimAsDeclared.analysis.claims[0]!.authority = "declared";
+  assertRejected(analysisClaimAsDeclared, "authority_layer_mismatch");
+});
+
+test("fresh integrity digests must match the recomputed canonical snapshot", () => {
+  const staleDigest = clone(pureFunctionFixture);
+  staleDigest.integrity.semanticStateDigest = {
+    algorithm: "sha256",
+    value: "0".repeat(64),
+  };
+  assertRejected(staleDigest, "integrity_digest_mismatch");
+
+  const mutatedAfterDigest = clone(pureFunctionFixture);
+  mutatedAfterDigest.declarations.project.description = "mutated after digest was computed";
+  assertRejected(mutatedAfterDigest, "integrity_digest_mismatch");
+
+  const staleStatusToleratesMismatch = clone(pureFunctionFixture);
+  staleStatusToleratesMismatch.integrity.status = "stale";
+  staleStatusToleratesMismatch.integrity.statusReason = "digest intentionally stale for this fixture";
+  staleStatusToleratesMismatch.integrity.semanticStateDigest = { algorithm: "sha256", value: "0".repeat(64) };
+  assert.equal(validateSnapshot(staleStatusToleratesMismatch).ok, true);
+});
+
+test("typed references must resolve to their expected entity kind", () => {
+  const decisionRationaleWrongKind = clone(pureFunctionFixture);
+  decisionRationaleWrongKind.declarations.decisions.push({
+    ...decisionRationaleWrongKind.declarations.decisions[0]!,
+    id: "decision:wrong-kind" as (typeof decisionRationaleWrongKind.declarations.decisions)[number]["id"],
+    rationaleIds: [decisionRationaleWrongKind.derived.symbols[0]!.id],
+  });
+  assertRejected(decisionRationaleWrongKind, "reference_kind_mismatch");
+
+  const testEvidenceWrongKind = clone(pureFunctionFixture);
+  testEvidenceWrongKind.observed.tests[0]!.evidenceIds = [testEvidenceWrongKind.declarations.components[0]!.id];
+  assertRejected(testEvidenceWrongKind, "reference_kind_mismatch");
+
+  const externalApiPackageWrongKind = clone(pureFunctionFixture);
+  externalApiPackageWrongKind.derived.externalApis[0]!.packageId =
+    externalApiPackageWrongKind.derived.externalDependencies[0]!.id;
+  assertRejected(externalApiPackageWrongKind, "reference_kind_mismatch");
+});
+
+test("semantic transaction vocabulary is versioned and serializable", () => {
+  const transaction = {
+    version: 1 as const,
+    intent: "semantic-neutral" as const,
+    delta: {
+      version: 1 as const,
+      intent: "semantic-neutral" as const,
+      entries: [
+        {
+          id: "delta:unexpected" as (typeof pureFunctionFixture.analysis.semanticDelta.entries)[number]["id"],
+          subject: createSymbolId(pureFunctionFixture.derived.symbols[0]!.locator),
+          kind: "contract" as const,
+          summary: "A neutral transaction produced a contract delta.",
+          reviewLevel: "L2" as const,
+        },
+      ],
+      unauthorized: true,
+    },
+    provenance: pureFunctionFixture.derived.symbols[0]!.provenance,
+  };
+  assert.equal(validateSemanticTransaction(transaction).ok, true);
+
+  const incompatible = { ...transaction, version: 2 };
+  const result = validateSemanticTransaction(incompatible);
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.diagnostics[0]?.code, "unsupported_semantic_vocabulary_version");
 });

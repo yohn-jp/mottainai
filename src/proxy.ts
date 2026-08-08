@@ -16,6 +16,8 @@ import { riskOf } from "./catalog.js";
 import { codeSearchTools, dispatchCodeSearchTool, isCodeSearchTool } from "./code-search.js";
 import { finalizeToolResult } from "./context-runtime/adapter.js";
 import { BurstBudgetController } from "./context-runtime/burst-budget.js";
+import { IdentitySession } from "./context-runtime/dedupe.js";
+import type { IdentityAdapter } from "./context-runtime/identity.js";
 import { ProcessRegistry } from "./context-runtime/process-registry.js";
 import type { ToolCatalog } from "./catalog.js";
 import { isCompressionEnabled, isToolDescriptionCompressionEnabled } from "./compress/config.js";
@@ -122,9 +124,11 @@ export function registerProxyHandlers(
     recordPressure: (input) => telemetry.recordBurstPressure(input),
     recordReduced: (input) => telemetry.recordBurstReduced(input),
   });
+  const identitySession = new IdentitySession();
   const priorOnClose = server.onclose;
   server.onclose = () => {
     burstBudget.dispose();
+    identitySession.dispose();
     priorOnClose?.();
   };
   const adaptive: AdaptiveToolContext = {
@@ -268,6 +272,9 @@ export function registerProxyHandlers(
         gatewayConfig,
         resolvedArtifactStore,
         burstReservation === undefined ? undefined : { controller: burstBudget, reservation: burstReservation },
+        identityAdapterForTool(toolName) === undefined
+          ? undefined
+          : { session: identitySession, adapter: identityAdapterForTool(toolName)!, telemetry },
       );
       telemetry.recordProjection({
         rawBytes: finalized.stats.rawBytes,
@@ -409,6 +416,13 @@ export function registerProxyHandlers(
   return {
     dispose(): void {
       processes.dispose();
+      identitySession.dispose();
     },
   };
+}
+
+function identityAdapterForTool(toolName: string): IdentityAdapter | undefined {
+  if (toolName === "mottainai_read") return "local_file_read_v1";
+  if (toolName === "mottainai_result_get") return "stored_artifact_v1";
+  return undefined;
 }
