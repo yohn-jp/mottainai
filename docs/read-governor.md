@@ -59,6 +59,6 @@ outline/symbol extraction が失敗した場合も raw whole-file へ fallback �
 
 ## Telemetry
 
-`MOTTAINAI_TELEMETRY=1` のとき、read governor は decision outcome、requested mode、返した raw line/byte 数、policy rule を集計する。source contents、excerpt、credentials、environment、secret は記録しない。
+`MOTTAINAI_TELEMETRY=1` のとき、read governor は decision action、requested mode、LLMへ返した raw の `raw_lines_returned` / `raw_bytes_returned`、policy rule、reason category を集計する。semantic projectionの内部source inspectionはraw returnedに加算しない。集計には `by_mode`、`by_rule`、`by_reason_category` を含む。source contents、excerpt、credentials、environment、secret は記録しない。旧 `raw_lines` / `raw_bytes` / `requested_modes` / `policy_rules` 形式は読み戻し時に移行する。
 
 read result は Issue #71 の Context Runtime projection/final response budget を通る。warning、deny metadata、`result_id` も hard byte ceiling を超えない。

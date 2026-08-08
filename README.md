@@ -85,6 +85,11 @@ callTool result
 | Read Governor | `src/context-runtime/read-policy.ts`, `src/local-tools.ts` | progressive source disclosure for `mottainai_read`; `off` / `observe` / `warn` / `enforce` |
 | Logging | `src/logging.ts` | writes pre-compression raw records to `.mottainai/log/*.jsonl` |
 
+Context Runtime treats model context as a managed working set, not a byte
+stream to be maximally compressed. The durable rationale is in
+[ADR-0001](docs/decisions/0001-optimize-working-set-not-compression-ratio.md), with
+the supporting [2026-08-08 Headroom/Codex experiment](docs/experiments/2026-08-08-headroom-codex-ab.md).
+
 ## Supported clients
 
 Mottainai speaks standard MCP over stdio, so any MCP-compatible client
