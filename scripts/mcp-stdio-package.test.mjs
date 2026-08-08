@@ -48,6 +48,31 @@ test("packed artifact contains its declared runtime entry and pack does not rebu
 });
 
 test(
+  "pack and extract helpers preserve paths containing spaces",
+  { timeout: BLACKBOX_TIMEOUTS.test },
+  async () => {
+    const spacedRoot = path.join(suiteRoot, "temporary package root");
+    fs.mkdirSync(spacedRoot, { recursive: true });
+    const packed = packRepository(repoRoot, spacedRoot);
+    const extracted = extractTarball(packed.tarballPath, path.join(spacedRoot, "extracted package"));
+    linkDependencies(extracted, repoRoot);
+    const spacedBinPath = resolvePackagedBin(extracted);
+    const workspace = createWorkspace();
+    const client = McpStdioClient.launchPackaged(spacedBinPath, { cwd: workspace, env: isolatedEnv(workspace) });
+    try {
+      const response = await client.request("initialize", INITIALIZE_PARAMS, BLACKBOX_TIMEOUTS.request);
+      assert.equal(response.error, undefined);
+      assert.deepEqual(client.stdoutPurityViolations(), []);
+      const exitInfo = await client.closeGracefully(BLACKBOX_TIMEOUTS.shutdown);
+      assert.equal(exitInfo.code, 0);
+      assert.equal(exitInfo.signal, null);
+    } finally {
+      await cleanupClient(client, workspace);
+    }
+  },
+);
+
+test(
   "packed artifact serves a minimal MCP handshake, list, call, and EOF shutdown",
   { timeout: BLACKBOX_TIMEOUTS.test },
   async () => {

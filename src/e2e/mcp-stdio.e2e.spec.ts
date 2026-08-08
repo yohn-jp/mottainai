@@ -177,7 +177,8 @@ test(
     try {
       client.writeRaw('{"jsonrpc":"2.0","id":1,"method":"initialize"');
       const exitInfo = await client.closeGracefully(BLACKBOX_TIMEOUTS.shutdown);
-      assert.ok(exitInfo.code !== undefined || exitInfo.signal !== undefined);
+      assert.equal(exitInfo.code, 0, `expected EOF shutdown: ${JSON.stringify(exitInfo)}`);
+      assert.equal(exitInfo.signal, null);
       assert.deepEqual(client.stdoutPurityViolations(), []);
     } finally {
       await cleanupClient(client, workspace);
@@ -193,7 +194,7 @@ test(
     const client = launch(workspace);
     try {
       const beforeInit = await client.request("tools/list", {}, BLACKBOX_TIMEOUTS.request);
-      // SDK 1.29 permits tools/list before initialize; the contract is no crash/desync.
+      // 未初期化リクエスト後もセッションを壊さず、後続応答の対応関係を保つため。
       assert.equal(beforeInit.error, undefined);
       assert.ok(Array.isArray(beforeInit.result.tools));
       assert.equal(client.exited, false);
@@ -216,7 +217,7 @@ test(
     try {
       await initialize(client);
       const duplicate = await client.request("initialize", INITIALIZE_PARAMS, BLACKBOX_TIMEOUTS.request);
-      // SDK 1.29 treats a repeated initialize as an idempotent successful handshake.
+      // 二重初期化後もプロセスをクラッシュさせず、後続応答を同期状態で処理するため。
       assert.equal(duplicate.error, undefined);
       assert.equal(duplicate.result.serverInfo.name, "mottainai");
       const listResponse = await client.request("tools/list", {}, BLACKBOX_TIMEOUTS.request);
@@ -414,7 +415,8 @@ test("client disconnect is bounded and leaves no gateway process", { timeout: BL
     const upstreamPid = readPid(fixture.pidFile);
     client.disconnect();
     const exitInfo = await client.waitForExit(BLACKBOX_TIMEOUTS.shutdown);
-    assert.ok(exitInfo.code !== undefined || exitInfo.signal !== undefined);
+    assert.equal(exitInfo.code, 0, `expected disconnect shutdown: ${JSON.stringify(exitInfo)}`);
+    assert.equal(exitInfo.signal, null);
     await waitForProcessGone(upstreamPid, BLACKBOX_TIMEOUTS.forcedCleanup);
     assert.deepEqual(client.stdoutPurityViolations(), []);
   } finally {
@@ -524,7 +526,7 @@ test(
   "listTools failure is surfaced through a JSON-RPC provider error and leaves the gateway usable",
   { timeout: BLACKBOX_TIMEOUTS.test },
   async () => {
-    const fixture = createFixtureWorkspace(repoRoot, "fail-list");
+    const fixture = createFixtureWorkspace(repoRoot, "fail-list-secret");
     const client = launch(fixture.workspace);
     try {
       const callPromise = client.request(
@@ -535,11 +537,21 @@ test(
       await waitForFile(fixture.readyFile, BLACKBOX_TIMEOUTS.fixtureReady);
       const callResponse = await callPromise;
       assert.equal(callResponse.result, undefined);
-      assert.equal(typeof callResponse.error.code, "number");
+      assert.equal(callResponse.error.code, -32001);
       assert.match(callResponse.error.message, /fixture listTools failure|Connection closed|listTools/i);
+      assert.doesNotMatch(callResponse.error.message, /SECRET_SHOULD_NOT_LEAK_123/);
       const listResponse = await client.request("tools/list", {}, BLACKBOX_TIMEOUTS.request);
       assert.equal(listResponse.error, undefined);
+      const statusResponse = await client.request(
+        "tools/call",
+        { name: "mottainai_runtime_status", arguments: {} },
+        BLACKBOX_TIMEOUTS.request,
+      );
+      assert.equal(statusResponse.error, undefined);
+      assert.doesNotMatch(JSON.stringify(statusResponse), /SECRET_SHOULD_NOT_LEAK_123/);
       await closeAndAssert(client);
+      assert.match(client.stderrText(), /SECRET_SHOULD_NOT_LEAK_123/);
+      assert.doesNotMatch(JSON.stringify(client.stdoutLines), /SECRET_SHOULD_NOT_LEAK_123/);
     } finally {
       await cleanupClient(client, fixture.workspace);
     }
@@ -571,7 +583,7 @@ test(
 );
 
 test(
-  "termination-ignoring upstream is removed by forced process-tree cleanup",
+  "termination-ignoring upstream still permits bounded natural gateway shutdown",
   { timeout: BLACKBOX_TIMEOUTS.test },
   async () => {
     const fixture = createFixtureWorkspace(repoRoot, "ignore-termination");
@@ -583,7 +595,8 @@ test(
       assert.equal(listResponse.error, undefined);
       const upstreamPid = readPid(fixture.pidFile);
       const exitInfo = await client.closeGracefully(BLACKBOX_TIMEOUTS.shutdown);
-      assert.ok(exitInfo.code !== undefined || exitInfo.signal !== undefined);
+      assert.equal(exitInfo.code, 0, `gateway required forced cleanup: ${JSON.stringify(exitInfo)}`);
+      assert.equal(exitInfo.signal, null);
       await waitForProcessGone(upstreamPid, BLACKBOX_TIMEOUTS.forcedCleanup);
     } finally {
       await cleanupClient(client, fixture.workspace);

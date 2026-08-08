@@ -29,6 +29,8 @@ if (mode === "large-stderr") {
   process.stderr.write("\nfixture-large-stderr-end\n");
 }
 
+if (mode === "fail-list-secret") process.stderr.write("SECRET_SHOULD_NOT_LEAK_123\n");
+
 markReady();
 
 if (mode === "exit-immediately") process.exit(23);
@@ -75,8 +77,8 @@ function handleLine(line) {
     return;
   }
   if (message.method === "tools/list") {
-    if (mode === "fail-list") {
-      send({ jsonrpc: "2.0", id: message.id, error: { code: -32603, message: "fixture listTools failure" } });
+    if (mode === "fail-list" || mode === "fail-list-secret") {
+      send({ jsonrpc: "2.0", id: message.id, error: { code: -32001, message: "fixture listTools failure" } });
     } else if (mode === "malformed-result") {
       send({ jsonrpc: "2.0", id: message.id, result: { tools: "fixture malformed result" } });
     } else {

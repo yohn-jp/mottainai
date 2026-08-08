@@ -4,18 +4,20 @@ import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-const useShell = process.platform === "win32";
+const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+const tarCommand = process.platform === "win32" ? "tar.exe" : "tar";
 export const MAX_TRANSCRIPT_BYTES = 32 * 1024;
 export const MAX_STDERR_TAIL_BYTES = 16 * 1024;
 const MAX_UNFRAMED_STDOUT_BYTES = 32 * 1024;
+const MAX_STDIN_ERROR_BYTES = 1_024;
 
 /** 既存の dist を pack する。build は CI/local の明示的な Build stage で先に行う。 */
 export function packRepository(repoRoot, destinationDir) {
-  const stdout = execFileSync("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", destinationDir], {
+  const stdout = execFileSync(npmCommand, ["pack", "--json", "--ignore-scripts", "--pack-destination", destinationDir], {
     cwd: repoRoot,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    shell: useShell,
+    shell: false,
   });
   const [info] = JSON.parse(stdout);
   return {
@@ -27,9 +29,9 @@ export function packRepository(repoRoot, destinationDir) {
 /** tar 展開のみで npm/pnpm install は行わない。依存解決のネットワークアクセスを避ける。 */
 export function extractTarball(tarballPath, destinationDir) {
   fs.mkdirSync(destinationDir, { recursive: true });
-  execFileSync("tar", ["xzf", tarballPath, "-C", destinationDir], {
+  execFileSync(tarCommand, ["xzf", tarballPath, "-C", destinationDir], {
     stdio: ["ignore", "pipe", "pipe"],
-    shell: useShell,
+    shell: false,
   });
   return path.join(destinationDir, "package");
 }
@@ -136,6 +138,7 @@ export class McpStdioClient {
     this.stdoutLineCount = 0;
     this.stdoutBytes = 0;
     this.stderrBytes = 0;
+    this.stdinError = undefined;
     this.startupError = undefined;
     this.exited = false;
     this.exitInfo = undefined;
@@ -166,6 +169,10 @@ export class McpStdioClient {
 
     this.child.stdout.setEncoding("utf8");
     this.child.stderr.setEncoding("utf8");
+    // 子終了後の書き込みで stdin が発する error を runner の未処理例外にしない。
+    this.child.stdin.on("error", (error) => {
+      this.stdinError = error;
+    });
     this.child.stdout.on("data", (chunk) => this._onStdout(chunk));
     this.child.stderr.on("data", (chunk) => {
       this.stderrBytes += Buffer.byteLength(chunk);
@@ -179,19 +186,8 @@ export class McpStdioClient {
       this._pending.clear();
     });
     this.child.once("exit", (code, signal) => {
-      trackedChildren.delete(this.child);
       this.exited = true;
       this.exitInfo = { code, signal };
-      for (const pending of this._pending.values()) {
-        pending.reject(
-          this._diagnosticError(
-            pending.method,
-            pending.id,
-            `process exited (code=${code} signal=${signal}) before a response arrived`,
-          ),
-        );
-      }
-      this._pending.clear();
     });
     // "exit" 後も stdout/stderr が届き得るため、捕捉済み出力の確定は全 stdio が閉じる "close" を待つ。
     this._closePromise = new Promise((resolve) =>
@@ -199,6 +195,18 @@ export class McpStdioClient {
         this._flushStdoutBuffer();
         this.closed = true;
         this.closeInfo = { code, signal };
+        const finalCode = this.exitInfo?.code ?? code;
+        const finalSignal = this.exitInfo?.signal ?? signal;
+        for (const pending of this._pending.values()) {
+          pending.reject(
+            this._diagnosticError(
+              pending.method,
+              pending.id,
+              `process exited (code=${finalCode} signal=${finalSignal}) before a response arrived`,
+            ),
+          );
+        }
+        this._pending.clear();
         trackedChildren.delete(this.child);
         resolve(this.closeInfo);
       }),
@@ -253,12 +261,16 @@ export class McpStdioClient {
   }
 
   _diagnosticError(method, id, reason) {
+    const stdinError = this.stdinError === undefined
+      ? "none"
+      : boundedText(this.stdinError instanceof Error ? this.stdinError.message : String(this.stdinError), MAX_STDIN_ERROR_BYTES);
     const processState = [
       `pid=${this.child?.pid ?? "none"}`,
       `exited=${this.exited}`,
       `closed=${this.closed}`,
       `exit_code=${this.exitInfo?.code ?? "none"}`,
       `exit_signal=${this.exitInfo?.signal ?? "none"}`,
+      `stdin_error=${JSON.stringify(stdinError)}`,
     ].join(" ");
     return new Error(
       `${reason}; operation=${method} method=${method} request_id=${id}; ${processState}` +
@@ -271,7 +283,15 @@ export class McpStdioClient {
     if (this.child === undefined || this.child.stdin.destroyed) {
       throw this._diagnosticError(message.method ?? "notification", message.id ?? "none", "stdin is closed");
     }
-    this.child.stdin.write(`${JSON.stringify(message)}\n`);
+    try {
+      this.child.stdin.write(`${JSON.stringify(message)}\n`);
+    } catch (error) {
+      throw this._diagnosticError(
+        message.method ?? "notification",
+        message.id ?? "none",
+        `stdin write failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   notify(method, params) {
@@ -289,10 +309,16 @@ export class McpStdioClient {
       throw this._diagnosticError("raw", "none", "stdin is closed");
     }
     return new Promise((resolve, reject) => {
-      this.child.stdin.write(raw, (error) => {
-        if (error !== undefined && error !== null) reject(error);
-        else resolve();
-      });
+      const onWrite = (error) => {
+        if (error !== undefined && error !== null) {
+          reject(this._diagnosticError("raw", "none", `stdin write failed: ${error.message ?? String(error)}`));
+        } else resolve();
+      };
+      try {
+        this.child.stdin.write(raw, onWrite);
+      } catch (error) {
+        onWrite(error);
+      }
     });
   }
 

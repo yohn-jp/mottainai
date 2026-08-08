@@ -22,11 +22,13 @@ Issue #22は、Mottainai内部関数をimportせず、公開entrypointを実proc
 
 - child process spawn、request ID、newline JSON-RPC、notification
 - raw string/Buffer、partial write、stdin EOF/disconnect
-- response/process-close deadline、stdout/stderr capture、bounded transcript
+- response/process-close deadline、stdout/stderr capture、bounded transcript、stdin error containment
 - close時の未改行stdout fragment、blank line、JSON-RPC purity判定
 - child tree cleanup、forced kill、spawn failure diagnostics
 
-timeout diagnosticsはoperation/method、request id、process exit state、最近のstdout transcript、bounded stderr tailを含む。環境変数全量・secretは出力しない。upstream startup failureはprovider、phase、deadline、stderr tail、phase transcriptをJSON-RPC errorへ含める。
+timeout diagnosticsはoperation/method、request id、process exit state、最近のstdout transcript、bounded stderr tailを含む。環境変数全量・secretは出力しない。upstream startup failureはprovider、phase、deadline、stderr/transcriptのredacted summaryだけをJSON-RPC errorへ含め、raw stderrはgateway processのstderrだけに留める。status/traceにもbase errorだけを保存する。
+
+gateway shutdownはstdin EOF、client disconnect、SIGINT、SIGTERMから開始し、ready upstreamごとのcloseを`UPSTREAM_CLOSE_TIMEOUT_MS`でboundedに処理してからserverを閉じる。harnessのforced killは安全網であり、自然終了の成功条件ではない。child `exit`ではpending requestをrejectせず、`close`でstdout残片をflushしてから未解決requestをrejectする。
 
 assertion pathはproduction server objectをimportしない。fixture upstreamもlocal processだけで、network、port、developer HOME/configへ依存しない。
 
@@ -48,12 +50,13 @@ assertion pathはproduction server objectをimportしない。fixture upstream�
 
 ## Upstream fault matrix
 
-fixture modeは`normal`、`exit-immediately`、`hang-startup`、`large-stderr`、`fail-list`、`malformed-result`、`ignore-termination`。各caseでprovider identity、phase、cleanup、stdout purityを検証する。
+fixture modeは`normal`、`exit-immediately`、`hang-startup`、`large-stderr`、`fail-list`、`fail-list-secret`、`malformed-result`、`ignore-termination`。各caseでprovider identity、phase、cleanup、stdout purityを検証する。
 
 - immediate exit: provider error、永久hangなし、child cleanup
 - startup hang: initialize deadline `2_000ms`、provider/phase/stderr/transcript diagnostics、forced cleanup
 - large stderr: `768KiB`をpipe drain、gateway stdoutへ混入なし、stderr tail bounded
-- listTools failure: provider error、後続gateway requestとshutdown継続
+- listTools failure: provider error、MCP error code保持、後続gateway requestとshutdown継続
+- secret stderr: raw markerをlocal stderrへ限定し、JSON-RPC response、runtime status、traceへ出さない
 
 ## Failure taxonomy
 
@@ -61,10 +64,10 @@ fixture modeは`normal`、`exit-immediately`、`hang-startup`、`large-stderr`�
 | ------------------------- | ---------------------------------------------------------- | -------------------------------------- | ---------------------------------------------- |
 | Protocol error            | JSON-RPC error response、後続request                       | process継続、EOFで正常終了             | stdoutはvalid protocolのみ、stderrは補助診断可 |
 | Configuration error       | stderr、終了status                                         | non-zero、bounded exit                 | stdoutへ非protocol文字列を出さない             |
-| Provider / upstream error | JSON-RPC provider error、runtime status、phase diagnostics | gatewayは継続可能、shutdownでchild終了 | stdoutはprotocolのみ、stderr tail bounded      |
+| Provider / upstream error | JSON-RPC provider error、runtime status、redacted phase diagnostics | gatewayは継続可能、shutdownでchild終了 | stdoutはprotocolのみ、raw stderrはlocal stderr限定 |
 | Expected process exit     | EOF、disconnect、signal、close                             | bounded graceful exit                  | stdout既存frameをclose時確定                   |
-| Timeout                   | operation deadline、process state、transcript              | forced cleanup fallback                | stdout/stderr captureをbounded保持             |
-| Forced cleanup            | graceful close deadline超過                                | process tree kill後に終了              | cleanup failureを元エラーへ付加                |
+| Timeout                   | operation deadline、process state、redacted transcript    | upstream close timeout後にserver close、必要時のみharness forced cleanup | raw stderrはcaller/status/traceへ出さない |
+| Forced cleanup            | graceful close deadline超過                                | harness safety net。自然終了成功扱いにしない | cleanup failureを元エラーへ付加                |
 
 stderr自体はprotocol violationではない。protocol reservedはstdoutだけ。
 
@@ -86,4 +89,4 @@ pollingはfixture filesystem stateの観測専用。arbitrary sleepでprotocol r
 
 ## Platform
 
-CIはUbuntu/Windows × Node 22/24。EOF、disconnect、built-dist protocol、package subsetは全matrix。SIGINT/SIGTERMはPOSIXだけ実deliveryし、WindowsはNode `ChildProcess.kill`が同じsignal handler semanticsを提供しないためskip。Windowsではnode executable、path separator、launcher、junctionを実artifact経路で検証する。
+CIはUbuntu/Windows × Node 22/24。EOF、disconnect、built-dist protocol、package subsetは全matrix。SIGINT/SIGTERMはPOSIXだけ実deliveryし、WindowsはNode `ChildProcess.kill`が同じsignal handler semanticsを提供しないためskip。Windowsではnode executable、`npm.cmd`/`tar.exe`のshellなしargv実行、path separator、launcher、junctionを実artifact経路で検証する。生成pathにspaceがあってもpack/extractを壊さない。

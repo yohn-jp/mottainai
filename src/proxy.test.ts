@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpError } from "@modelcontextprotocol/sdk/types.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { buildCapabilityIndex } from "./adaptive/capabilities.js";
 import { BUILTIN_POLICY } from "./adaptive/policy.js";
@@ -524,6 +525,34 @@ test("a failed evidence call is recorded as a provider_error execution", async (
 
   assert.deepEqual(traceStore.load()[0].executions.map((execution) => execution.status), ["provider_error"]);
 
+  await client.close();
+});
+
+test("upstream McpError code and data survive diagnostic enrichment without leaking stderr", async () => {
+  const secret = "SECRET_SHOULD_NOT_LEAK_123";
+  const upstreamError = new McpError(-32001, "known upstream failure", { retryAfter: 3 });
+  Object.defineProperty(upstreamError, "mottainaiUpstreamDiagnostic", {
+    value: `provider=codegraph phase=call stderr_tail=${JSON.stringify(secret)} transcript=[]`,
+  });
+  const { traceStore, adaptive } = tracingContext();
+  const client = await connectedClient([
+    fakeHandle("codegraph", [{ name: "explore", inputSchema: { type: "object" } }], async () => {
+      throw upstreamError;
+    }),
+  ], undefined, undefined, adaptive);
+
+  await assert.rejects(() => client.callTool({
+    name: "codegraph__explore",
+    arguments: { _mottainai: { task: { category: "bug_investigation" }, capability: "callers" } },
+  }), (error: unknown) => {
+    assert.ok(error instanceof McpError);
+    assert.equal(error.code, -32001);
+    assert.deepEqual(error.data, { retryAfter: 3 });
+    assert.doesNotMatch(error.message, new RegExp(secret));
+    return true;
+  });
+
+  assert.doesNotMatch(JSON.stringify(traceStore.load()), new RegExp(secret));
   await client.close();
 });
 

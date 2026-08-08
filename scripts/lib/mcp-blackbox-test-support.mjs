@@ -115,6 +115,6 @@ export async function waitForProcessGone(pid, timeoutMs = BLACKBOX_TIMEOUTS.forc
 
 export async function cleanupClient(client, workspace) {
   client.forceKill();
-  await client.waitForExit(2_000).catch(() => {});
-  fs.rmSync(workspace, { recursive: true, force: true });
+  await client.waitForExit(BLACKBOX_TIMEOUTS.forcedCleanup).catch(() => {});
+  fs.rmSync(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }

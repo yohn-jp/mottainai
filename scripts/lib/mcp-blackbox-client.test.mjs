@@ -114,7 +114,29 @@ test("harness forced cleanup terminates a stubborn child", { timeout: BLACKBOX_T
   try {
     client.forceKill();
     const exitInfo = await client.waitForExit(BLACKBOX_TIMEOUTS.forcedCleanup);
-    assert.ok(exitInfo.code !== undefined || exitInfo.signal !== undefined);
+    assert.equal(
+      (exitInfo.code !== null) !== (exitInfo.signal !== null),
+      true,
+      `process did not terminate: ${JSON.stringify(exitInfo)}`,
+    );
+  } finally {
+    await cleanupClient(client, workspace);
+  }
+});
+
+test("harness contains a stdin write error after the child closes its input", { timeout: BLACKBOX_TIMEOUTS.test }, async () => {
+  const { client, workspace } = launchFixture(
+    "process.stderr.write('stdin-closed\\n'); process.stdin.destroy(); setTimeout(() => process.exit(0), 100);\n",
+  );
+  try {
+    await client.waitForExit(BLACKBOX_TIMEOUTS.processStartup);
+    const stdinError = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+    client.child.stdin.emit("error", stdinError);
+    assert.throws(() => client.writeRaw(Buffer.alloc(64 * 1024)), (error) => {
+      assert.match(error.message, /stdin|EPIPE|destroyed/i);
+      assert.match(error.message, /stdin_error=/);
+      return true;
+    });
   } finally {
     await cleanupClient(client, workspace);
   }

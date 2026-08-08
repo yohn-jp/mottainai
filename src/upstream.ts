@@ -45,9 +45,28 @@ interface UpstreamDiagnosticError extends Error {
 }
 
 export function upstreamErrorMessage(error: unknown): string {
-  if (!(error instanceof Error)) return String(error);
+  const baseMessage = upstreamBaseErrorMessage(error);
+  if (!(error instanceof Error)) return baseMessage;
   const diagnostic = (error as UpstreamDiagnosticError).mottainaiUpstreamDiagnostic;
-  return diagnostic === undefined ? error.message : `${error.message}; ${diagnostic}`;
+  return diagnostic === undefined ? baseMessage : `${baseMessage}; ${upstreamDiagnosticSummary(diagnostic)}`;
+}
+
+export function upstreamBaseErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function upstreamDiagnosticSummary(diagnostic: string): string {
+  const provider = diagnostic.match(/(?:^| )provider=([^ ]+)/u)?.[1];
+  const phase = diagnostic.match(/(?:^| )phase=([^ ]+)/u)?.[1];
+  const timeout = diagnostic.match(/(?:^| )timeout_ms=([^ ]+)/u)?.[1];
+  const fields = [
+    provider === undefined ? undefined : `provider=${provider}`,
+    phase === undefined ? undefined : `phase=${phase}`,
+    timeout === undefined ? undefined : `timeout_ms=${timeout}`,
+    diagnostic.includes("stderr_tail=") ? "stderr_tail=[redacted]" : undefined,
+    diagnostic.includes("transcript=") ? "transcript=[redacted]" : undefined,
+  ].filter((field): field is string => field !== undefined);
+  return fields.length === 0 ? "upstream diagnostic available" : fields.join(" ");
 }
 
 export function hasUpstreamDiagnostic(error: unknown): boolean {
@@ -82,10 +101,17 @@ async function withDeadline<T>(operation: Promise<T>, config: UpstreamConfig, ph
 }
 
 async function closeClient(client: Client): Promise<void> {
-  await Promise.race([
-    client.close().catch(() => {}),
-    new Promise<void>((resolve) => setTimeout(resolve, UPSTREAM_CLOSE_TIMEOUT_MS)),
-  ]);
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      client.close().catch(() => {}),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, UPSTREAM_CLOSE_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 function boundedText(value: string, maxBytes: number): string {
@@ -163,7 +189,7 @@ export class UpstreamRegistry {
     record.starting = this.connector(record.config).then(async (handle) => {
       if (this.closing) {
         // shutdown が start と競合した。ready へ昇格させず、handle 自体を閉じてリークを防ぐ。
-        await handle.client.close().catch(() => {});
+        await closeClient(handle.client);
         record.state = record.state === "disabled" ? "disabled" : "stopped";
         throw new Error(`upstream registry closed while starting: ${name}`);
       }
@@ -175,7 +201,7 @@ export class UpstreamRegistry {
         // 次の実行要求で無条件に再試行するため、失敗回数は診断のためだけに持つ。
         record.state = "unhealthy";
         record.failureCount += 1;
-        record.lastError = upstreamErrorMessage(error);
+        record.lastError = upstreamBaseErrorMessage(error);
         record.lastErrorAt = new Date().toISOString();
       }
       throw error;
@@ -191,11 +217,11 @@ export class UpstreamRegistry {
     record.handle = undefined;
     record.state = "unhealthy";
     record.failureCount += 1;
-    record.lastError = upstreamErrorMessage(error);
+    record.lastError = upstreamBaseErrorMessage(error);
     record.lastErrorAt = new Date().toISOString();
     if (handle) {
       try {
-        await handle.client.close();
+        await closeClient(handle.client);
       } catch {
         // 元の実行エラーを status に残し、close の二次エラーで原因を隠さない。
       }
@@ -217,7 +243,7 @@ export class UpstreamRegistry {
         record.state = record.state === "disabled" ? "disabled" : "stopped";
         if (handle) {
           try {
-            await handle.client.close();
+            await closeClient(handle.client);
           } catch {
             // 1 つの upstream の close 失敗で他 upstream の停止を止めない。
           }
@@ -301,7 +327,6 @@ export async function connectUpstream(
     if (client !== undefined) await closeClient(client);
     const details = `provider=${config.name} phase=${phase} stderr_tail=${JSON.stringify(stderrTail.join(""))}`
       + ` transcript=${JSON.stringify(transcript)}`;
-    if (error instanceof UpstreamTimeoutError) throw new Error(`${upstreamErrorMessage(error)}; ${details}`);
     if (error instanceof Error) {
       Object.defineProperty(error, "mottainaiUpstreamDiagnostic", {
         configurable: true,
@@ -309,6 +334,11 @@ export async function connectUpstream(
       });
       throw error;
     }
-    throw new Error(`upstream=${config.name} phase=${phase} failed: ${upstreamErrorMessage(error)}; ${details}`);
+    const normalized = new Error(upstreamBaseErrorMessage(error));
+    Object.defineProperty(normalized, "mottainaiUpstreamDiagnostic", {
+      configurable: true,
+      value: details,
+    });
+    throw normalized;
   }
 }

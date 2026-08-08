@@ -1,9 +1,10 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { packRepository } from "./lib/mcp-blackbox-client.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -12,7 +13,7 @@ function run(command, args, options = {}) {
     cwd: repoRoot,
     env: process.env,
     encoding: "utf8",
-    shell: process.platform === "win32",
+    shell: false,
     stdio: "inherit",
     ...options,
   });
@@ -25,18 +26,13 @@ try {
   const distEntry = path.join(repoRoot, "dist", "index.js");
   if (!fs.existsSync(distEntry)) throw new Error("dist is missing; run pnpm run build before the package suite");
   const distMtime = fs.statSync(distEntry).mtimeMs;
-  const packOutput = execFileSync(
-    "npm",
-    ["pack", "--json", "--ignore-scripts", "--pack-destination", artifactDirectory],
-    { cwd: repoRoot, encoding: "utf8", shell: process.platform === "win32" },
-  );
-  const [packInfo] = JSON.parse(packOutput);
-  const tarballPath = path.join(artifactDirectory, packInfo.filename);
+  const packed = packRepository(repoRoot, artifactDirectory);
+  const tarballPath = packed.tarballPath;
   const environment = {
     ...process.env,
     MOTTAINAI_PACKAGE_TARBALL: tarballPath,
     MOTTAINAI_DIST_MTIME: String(distMtime),
-    MOTTAINAI_PACKED_FILES: JSON.stringify(packInfo.files.map((entry) => entry.path)),
+    MOTTAINAI_PACKED_FILES: JSON.stringify(packed.packedFiles),
   };
 
   // 依存解決・launcher・initの責務は既存smokeへ委譲する。同一artifactを渡して再packを防ぐ。

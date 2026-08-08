@@ -1,6 +1,6 @@
 import { performance } from "node:perf_hooks";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, ListToolsRequestSchema, McpError } from "@modelcontextprotocol/sdk/types.js";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { buildCapabilityIndex } from "./adaptive/capabilities.js";
 import { extractCallerMetadata } from "./adaptive/caller.js";
@@ -26,7 +26,7 @@ import { InMemoryArtifactStore } from "./retrieve.js";
 import type { ArtifactStore } from "./retrieve.js";
 import { createTelemetrySink } from "./telemetry.js";
 import type { TelemetrySink } from "./telemetry.js";
-import { hasUpstreamDiagnostic, upstreamErrorMessage, UpstreamRegistry } from "./upstream.js";
+import { hasUpstreamDiagnostic, upstreamBaseErrorMessage, upstreamErrorMessage, UpstreamRegistry } from "./upstream.js";
 import { callUpstreamTool, RETRIEVE_TOOL_NAME } from "./upstream-call.js";
 import { applyExecutionBudget, normalizeExecutionOutcome, providerErrorOutcome } from "./execution.js";
 import type { ExecutionOutcome } from "./execution.js";
@@ -202,9 +202,19 @@ export function registerProxyHandlers(
           selectedTool: selected.toolName,
           capability: capability ?? "unknown",
           risk: "unknown",
-          error: upstreamErrorMessage(error),
+          error: upstreamBaseErrorMessage(error),
         }));
-      throw hasUpstreamDiagnostic(error) ? new Error(upstreamErrorMessage(error)) : error;
+      if (!hasUpstreamDiagnostic(error)) throw error;
+      const diagnosticMessage = upstreamErrorMessage(error);
+      if (error instanceof McpError) {
+        const prefix = `MCP error ${error.code}: `;
+        const originalMessage = error.message.startsWith(prefix) ? error.message.slice(prefix.length) : error.message;
+        const suffix = diagnosticMessage.startsWith(error.message)
+          ? diagnosticMessage.slice(error.message.length).replace(/^; /u, "")
+          : diagnosticMessage;
+        throw McpError.fromError(error.code, `${originalMessage}; ${suffix}`, error.data);
+      }
+      throw new Error(diagnosticMessage);
     }
     const budgeted = applyExecutionBudget(
       dispatched,
