@@ -24,6 +24,7 @@ export interface TelemetrySnapshot {
   by_provider: Record<string, TelemetryCounts>;
   by_capability: Record<string, TelemetryCounts>;
   projection: ProjectionCounts;
+  read_governor: ReadGovernorCounts;
 }
 
 export interface RecordToolCallInput {
@@ -50,11 +51,33 @@ export interface RecordProjectionInput {
   projectedTokens: number;
 }
 
+export interface ReadGovernorCounts {
+  allow: number;
+  observe: number;
+  warn: number;
+  deny: number;
+  raw_lines_returned: number;
+  raw_bytes_returned: number;
+  by_mode: Record<string, number>;
+  by_rule: Record<string, number>;
+  by_reason_category: Record<string, number>;
+}
+
+export interface RecordReadGovernorInput {
+  action: keyof Pick<ReadGovernorCounts, "allow" | "observe" | "warn" | "deny">;
+  requestedMode: string;
+  rawLinesReturned: number;
+  rawBytesReturned: number;
+  policyRule: string;
+  reasonCategory: string;
+}
+
 export interface TelemetrySink {
   readonly enabled: boolean;
   readonly filePath?: string;
   recordToolCall(input: RecordToolCallInput): void;
   recordProjection(input: RecordProjectionInput): void;
+  recordReadGovernor(input: RecordReadGovernorInput): void;
   recordRetrieval(): void;
   snapshot(): TelemetrySnapshot;
 }
@@ -64,6 +87,7 @@ interface TelemetryState {
   by_provider: Record<string, TelemetryCounts>;
   by_capability: Record<string, TelemetryCounts>;
   projection: ProjectionCounts;
+  read_governor: ReadGovernorCounts;
 }
 
 function emptyCounts(): TelemetryCounts {
@@ -74,6 +98,7 @@ function emptyState(): TelemetryState {
   return {
     totals: { ...emptyCounts(), retrievals: 0 }, by_provider: {}, by_capability: {},
     projection: emptyProjection(),
+    read_governor: emptyReadGovernor(),
   };
 }
 
@@ -81,11 +106,25 @@ function emptyProjection(): ProjectionCounts {
   return { raw_bytes: 0, stored_bytes: 0, returned_bytes: 0, omitted_bytes: 0, projected_tokens: 0 };
 }
 
+function emptyReadGovernor(): ReadGovernorCounts {
+  return {
+    allow: 0,
+    observe: 0,
+    warn: 0,
+    deny: 0,
+    raw_lines_returned: 0,
+    raw_bytes_returned: 0,
+    by_mode: {},
+    by_rule: {},
+    by_reason_category: {},
+  };
+}
+
 function cloneCounts(counts: TelemetryCounts): TelemetryCounts {
   return { ...counts };
 }
 
-function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" | "by_provider" | "by_capability" | "projection"> {
+function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" | "by_provider" | "by_capability" | "projection" | "read_governor"> {
   return {
     totals: { ...state.totals },
     by_provider: Object.fromEntries(
@@ -95,6 +134,12 @@ function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" 
       Object.entries(state.by_capability).map(([key, counts]) => [key, cloneCounts(counts)]),
     ),
     projection: { ...state.projection },
+    read_governor: {
+      ...state.read_governor,
+      by_mode: { ...state.read_governor.by_mode },
+      by_rule: { ...state.read_governor.by_rule },
+      by_reason_category: { ...state.read_governor.by_reason_category },
+    },
   };
 }
 
@@ -147,10 +192,30 @@ function loadState(filePath: string): TelemetryState | undefined {
         omitted_bytes: typeof projection.omitted_bytes === "number" ? projection.omitted_bytes : 0,
         projected_tokens: typeof projection.projected_tokens === "number" ? projection.projected_tokens : 0,
       },
+      read_governor: readGovernorState(parsed.read_governor),
     };
   } catch {
     return undefined;
   }
+}
+
+function readGovernorState(value: unknown): ReadGovernorCounts {
+  if (typeof value !== "object" || value === null) return emptyReadGovernor();
+  const record = value as Record<string, unknown>;
+  const result = emptyReadGovernor();
+  for (const key of ["allow", "observe", "warn", "deny"] as const) {
+    if (typeof record[key] === "number") result[key] = record[key];
+  }
+  if (typeof record.raw_lines_returned === "number") result.raw_lines_returned = record.raw_lines_returned;
+  if (typeof record.raw_bytes_returned === "number") result.raw_bytes_returned = record.raw_bytes_returned;
+  for (const key of ["by_mode", "by_rule", "by_reason_category"] as const) {
+    const values = record[key];
+    if (typeof values !== "object" || values === null) continue;
+    result[key] = Object.fromEntries(
+      Object.entries(values as Record<string, unknown>).filter(([, count]) => typeof count === "number"),
+    ) as Record<string, number>;
+  }
+  return result;
 }
 
 function bump(counts: TelemetryCounts, input: RecordToolCallInput): void {
@@ -164,11 +229,12 @@ const NOOP_SINK: TelemetrySink = {
   enabled: false,
   recordToolCall() { /* telemetry disabled */ },
   recordProjection() { /* telemetry disabled */ },
+  recordReadGovernor() { /* telemetry disabled */ },
   recordRetrieval() { /* telemetry disabled */ },
   snapshot() {
     return {
       enabled: false, generated_at: new Date().toISOString(), totals: { ...emptyCounts(), retrievals: 0 },
-      by_provider: {}, by_capability: {}, projection: emptyProjection(),
+      by_provider: {}, by_capability: {}, projection: emptyProjection(), read_governor: emptyReadGovernor(),
     };
   },
 };
@@ -249,6 +315,16 @@ export function createTelemetrySink(env: NodeJS.ProcessEnv = process.env): Telem
       state.projection.returned_bytes += input.returnedBytes;
       state.projection.omitted_bytes += input.omittedBytes;
       state.projection.projected_tokens += input.projectedTokens;
+      persist();
+    },
+    recordReadGovernor(input) {
+      state.read_governor[input.action] += 1;
+      state.read_governor.raw_lines_returned += input.rawLinesReturned;
+      state.read_governor.raw_bytes_returned += input.rawBytesReturned;
+      state.read_governor.by_mode[input.requestedMode] = (state.read_governor.by_mode[input.requestedMode] ?? 0) + 1;
+      state.read_governor.by_rule[input.policyRule] = (state.read_governor.by_rule[input.policyRule] ?? 0) + 1;
+      state.read_governor.by_reason_category[input.reasonCategory] =
+        (state.read_governor.by_reason_category[input.reasonCategory] ?? 0) + 1;
       persist();
     },
     recordRetrieval() {

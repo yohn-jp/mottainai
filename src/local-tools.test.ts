@@ -57,6 +57,162 @@ test("read stores only the requested range so result_get cannot reach lines outs
   await fs.rm(root, { recursive: true, force: true });
 });
 
+function governedConfig(
+  config: ResolvedGatewayConfig,
+  mode: "off" | "observe" | "warn" | "enforce",
+): ResolvedGatewayConfig {
+  return {
+    ...config,
+    readGovernor: {
+      mode,
+      maxRawLines: 10,
+      maxRawBytes: 200,
+      allowWholeFileBelowLines: 5,
+      preferAuto: true,
+    },
+  };
+}
+
+test("read governor denies explicit whole-file raw before storing source content", async () => {
+  const { root, config } = await workspace();
+  await fs.writeFile(
+    path.join(root, "src", "large.ts"),
+    Array.from({ length: 40 }, (_, index) => `line ${index}`).join("\n"),
+  );
+  const result = structured(
+    await callLocalTool(
+      "mottainai_read",
+      { path: "src/large.ts", mode: "raw" },
+      governedConfig(config, "enforce"),
+      new InMemoryArtifactStore({ createId: () => "denied" }),
+    ),
+  );
+  assert.equal(result.status, "failed");
+  assert.equal(result.result_id, "");
+  assert.equal(result.text, undefined);
+  assert.equal((result.facts as Array<Record<string, unknown>>)[0]?.line_count, 40);
+  assert.match(String((result.read_governor as Record<string, unknown>).policy_rule), /RAW_WHOLE_FILE/);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("read governor allows a bounded raw range and stores only that range", async () => {
+  const { root, config } = await workspace();
+  await fs.writeFile(
+    path.join(root, "src", "large.ts"),
+    Array.from({ length: 40 }, (_, index) => `line ${index}`).join("\n"),
+  );
+  const store = new InMemoryArtifactStore({ createId: () => "bounded" });
+  const result = structured(
+    await callLocalTool(
+      "mottainai_read",
+      { path: "src/large.ts", mode: "raw", startLine: 20, endLine: 22 },
+      governedConfig(config, "enforce"),
+      store,
+    ),
+  );
+  assert.equal(result.status, "success");
+  assert.equal(result.text, "line 19\nline 20\nline 21");
+  const retrieved = structured(await callLocalTool("mottainai_result_get", { id: result.result_id }, config, store));
+  assert.equal(retrieved.text, result.text);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("off, observe, and warn keep permitted legacy reads distinguishable", async () => {
+  const { root, config } = await workspace();
+  await fs.writeFile(
+    path.join(root, "src", "large.ts"),
+    Array.from({ length: 40 }, (_, index) => `line ${index}`).join("\n"),
+  );
+  for (const [mode, action] of [
+    ["off", "allow"],
+    ["observe", "observe"],
+    ["warn", "warn"],
+  ] as const) {
+    const result = structured(
+      await callLocalTool(
+        "mottainai_read",
+        { path: "src/large.ts", mode: "raw" },
+        governedConfig(config, mode),
+        new InMemoryArtifactStore({ createId: () => `mode-${mode}` }),
+      ),
+    );
+    assert.equal(result.status, "success");
+    assert.equal((result.read_governor as Record<string, unknown>).action, action);
+    assert.equal(typeof result.text, "string");
+  }
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("auto uses a bounded symbol view for a large source file", async () => {
+  const { root, config } = await workspace();
+  await fs.writeFile(
+    path.join(root, "src", "large.ts"),
+    [
+      "export function useful() {",
+      "  return 1;",
+      "}",
+      ...Array.from({ length: 40 }, (_, index) => `const value${index} = ${index};`),
+    ].join("\n"),
+  );
+  const store = new InMemoryArtifactStore({ createId: () => "auto" });
+  const result = structured(
+    await callLocalTool(
+      "mottainai_read",
+      { path: "src/large.ts", mode: "auto" },
+      governedConfig(config, "enforce"),
+      store,
+    ),
+  );
+  assert.equal(result.mode, "symbols");
+  assert.match(String(result.text), /useful/);
+  assert.doesNotMatch(String(result.text), /return 1/);
+  const retrieved = structured(await callLocalTool("mottainai_result_get", { id: result.result_id }, config, store));
+  assert.doesNotMatch(String(retrieved.text), /return 1/);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("symbol extraction failure returns a bounded result with safe next actions", async () => {
+  const { root, config } = await workspace();
+  await fs.writeFile(
+    path.join(root, "src", "plain.ts"),
+    Array.from({ length: 30 }, (_, index) => `plain ${index}`).join("\n"),
+  );
+  const result = structured(
+    await callLocalTool(
+      "mottainai_read",
+      { path: "src/plain.ts", mode: "symbols" },
+      governedConfig(config, "enforce"),
+      new InMemoryArtifactStore({ createId: () => "symbols-failed" }),
+    ),
+  );
+  assert.equal(result.status, "success");
+  assert.ok(
+    (result.diagnostics as Array<{ code: string }>).some((diagnostic) => diagnostic.code === "EXTRACTION_INSUFFICIENT"),
+  );
+  assert.ok((result.suggested_next_actions as string[]).includes("request a specific symbol"));
+  assert.ok(String(result.text).split("\n").length <= 10);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("read governor keeps symlink escapes outside the workspace", async () => {
+  const { root, config } = await workspace();
+  const outside = path.join(os.tmpdir(), `mottainai-read-outside-${Date.now()}.ts`);
+  await fs.writeFile(outside, "secret outside\n");
+  await fs.symlink(outside, path.join(root, "src", "outside.ts"));
+  await assert.rejects(
+    () =>
+      callLocalTool(
+        "mottainai_read",
+        { path: "src/outside.ts", mode: "raw" },
+        governedConfig(config, "enforce"),
+        new InMemoryArtifactStore({ createId: () => "symlink" }),
+      ),
+    /path resolves outside workspaceRoot/,
+  );
+  await fs.rm(outside, { force: true });
+  await fs.rm(root, { recursive: true, force: true });
+});
+
 test("search groups rg matches and list omits dependency directories", async (t) => {
   const { root, config } = await workspace();
   try {

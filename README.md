@@ -82,7 +82,7 @@ callTool result
 | Adaptive routing | `src/adaptive/*` | task classification intake, capability→provider index, trace recording, stats, policy proposals |
 | Original retention | `src/retrieve.ts` | TTL-bounded in-memory store for pre-compression text (15 min / 200 entries by default) |
 | Local tools | `src/local-tools.ts` | gateway's own tools: `mottainai_exec`, `mottainai_read`, `mottainai_search`, `mottainai_list`, etc. |
-| Read Governor (experimental) | `src/read-governor/*` | file-class-aware read policy, currently observe/warn only |
+| Read Governor | `src/context-runtime/read-policy.ts`, `src/local-tools.ts` | progressive `auto`/outline/symbol/range/raw disclosure with configurable off/observe/warn/enforce policy |
 | Logging | `src/logging.ts` | writes pre-compression raw records to `.mottainai/log/*.jsonl` |
 
 ## Supported clients
@@ -255,7 +255,7 @@ At runtime, `mottainai_runtime_status` reports per-upstream state
 - `profiles` — named views that narrow the exposed tool surface by
   `includeCapabilities` / `denyRisk`.
 - `gateway` — cross-cutting settings: `workspaceRoot`, `activeProfile`,
-  `capabilityMap`, `toolMetadata`, `tokenBudgets`, `responseBudget`,
+  `capabilityMap`, `toolMetadata`, `tokenBudgets`, `responseBudget`, `readGovernor`,
   `oauthProviderModule`.
 
 `gateway.responseBudget` is the authoritative boundary for Mottainai-owned
@@ -264,6 +264,15 @@ tokens, and 12,000 bytes. `hardBytes` is the deterministic safety ceiling;
 invalid values fail configuration validation. `tokenBudgets` and the
 `mottainai_exec` `targetTokens` argument remain tool-local compression hints,
 not final response limits.
+
+`gateway.readGovernor` controls `mottainai_read` raw access. Defaults are
+`mode: "enforce"`, `maxRawLines: 120`, `maxRawBytes: 12000`,
+`allowWholeFileBelowLines: 120`, and `preferAuto: true`. Use `mode: "auto"`
+or a bounded `startLine`/`endLine` range as the normal disclosure path;
+unrestricted raw reads require the small-file threshold in enforce mode.
+`off`, `observe`, and `warn` retain compatibility while exposing bounded
+decision metadata. Read-governor diagnostics and telemetry never include source
+contents.
 
 Projection retention priority, from highest to lowest: operation/status/result
 identity, summary, blocking diagnostics, actionable facts, structured test and
@@ -353,9 +362,9 @@ external sandbox story lands. Full details: [SECURITY.md](SECURITY.md).
 These are implemented and tested but not yet relied on for enforcement or
 production decisions — expect rough edges and interface changes:
 
-- **Read Governor** — currently `observe`/`warn` stage only. It classifies
-  file reads and *would* suggest a narrower/structured read, but never
-  denies a read yet.
+- **Read Governor** — configurable progressive source disclosure. The default
+  is `enforce`; use `observe` or `warn` while evaluating a repository, or
+  `off` for legacy raw-read compatibility.
 - **Caller-supervised routing policy proposals** — `mottainai_policy_propose`
   generates candidate routing policies from recorded feedback, but nothing
   is applied automatically; a human must run

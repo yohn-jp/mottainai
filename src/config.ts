@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import { DEFAULT_READ_GOVERNOR_POLICY, READ_GOVERNOR_MODES } from "./context-runtime/read-policy.js";
 import { resolveResponseBudget } from "./context-runtime/budget.js";
 import type { ProjectionBudget, ProjectionBudgetConfig } from "./context-runtime/types.js";
+import type { ReadGovernorMode, ReadGovernorPolicy } from "./context-runtime/read-policy.js";
 import { normalizeToolMetadataOverride, RISK_VALUES } from "./adaptive/metadata.js";
 import type { ToolMetadataOverride } from "./adaptive/metadata.js";
 
@@ -122,6 +124,8 @@ export interface GatewayConfig {
   tokenBudgets?: TokenBudgetsConfig;
   /** 最終MCP応答の投影予算。`tokenBudgets` はtool-local hintとして別管理する。 */
   responseBudget?: ProjectionBudgetConfig;
+  /** `mottainai_read` の段階的source disclosure policy。 */
+  readGovernor?: Partial<ReadGovernorPolicy>;
   /** `mottainai_worktree_new` の許可 prefix・起点ブランチ設定。省略時はツールを非公開にする。 */
   worktree?: WorktreeConfig;
   /** `mottainai_task_start`/`mottainai_task_status`（Git workflow task lifecycle）の公開可否。
@@ -145,6 +149,8 @@ export interface ResolvedGatewayConfig {
   tokenBudgets: ResolvedTokenBudgets;
   /** 設定省略時は安全な既定値。手書きfixture互換のためoptional型。 */
   responseBudget?: ProjectionBudget;
+  /** 設定省略時は progressive disclosure を enforce する。手書きfixture互換のためoptional型。 */
+  readGovernor?: ReadGovernorPolicy;
   worktree?: ResolvedWorktreeConfig;
   workflowTasks: boolean;
 }
@@ -167,6 +173,7 @@ const DEFAULT_GATEWAY_CONFIG: Omit<ResolvedGatewayConfig, "workspaceRoot"> = {
   toolMetadata: {},
   tokenBudgets: { tools: {}, capabilities: {}, profiles: {} },
   responseBudget: { softTokens: 1_500, hardTokens: 3_000, hardBytes: 12_000 },
+  readGovernor: { ...DEFAULT_READ_GOVERNOR_POLICY },
   workflowTasks: false,
 };
 
@@ -197,9 +204,14 @@ export function resolveGatewayConfig(
     activeProfile: config?.activeProfile,
     tokenBudgets: resolveTokenBudgets(config?.tokenBudgets),
     responseBudget: resolveResponseBudget(config?.responseBudget),
+    readGovernor: resolveReadGovernorPolicy(config?.readGovernor),
     worktree: resolveWorktreeConfig(config?.worktree),
     workflowTasks: config?.workflowTasks === true,
   };
+}
+
+function resolveReadGovernorPolicy(config: Partial<ReadGovernorPolicy> | undefined): ReadGovernorPolicy {
+  return { ...DEFAULT_READ_GOVERNOR_POLICY, ...config };
 }
 
 function resolveWorktreeConfig(config: WorktreeConfig | undefined): ResolvedWorktreeConfig | undefined {
@@ -326,6 +338,7 @@ function normalizeGateway(value: unknown): GatewayConfig | undefined {
     toolMetadata: toolMetadataRecord(value.toolMetadata, "invalid gateway toolMetadata"),
     tokenBudgets: tokenBudgetsConfig(value.tokenBudgets, "invalid gateway tokenBudgets"),
     responseBudget: responseBudgetConfig(value.responseBudget, "invalid gateway responseBudget"),
+    readGovernor: readGovernorConfig(value.readGovernor, "invalid gateway readGovernor"),
     worktree: worktreeConfig(value.worktree, "invalid gateway worktree"),
     workflowTasks: optionalBoolean(value.workflowTasks, "invalid gateway workflowTasks"),
   };
@@ -395,6 +408,29 @@ function responseBudgetConfig(value: unknown, field: string): ProjectionBudgetCo
   };
   resolveResponseBudget(config);
   return config;
+}
+
+function readGovernorConfig(value: unknown, field: string): Partial<ReadGovernorPolicy> | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error(field);
+  const mode = value.mode;
+  if (mode !== undefined && !(READ_GOVERNOR_MODES as readonly unknown[]).includes(mode)) {
+    throw new Error(`${field}.mode`);
+  }
+  const maxRawLines = positiveIntegerConfig(value.maxRawLines, `${field}.maxRawLines`);
+  const maxRawBytes = positiveIntegerConfig(value.maxRawBytes, `${field}.maxRawBytes`);
+  const allowWholeFileBelowLines = positiveIntegerConfig(
+    value.allowWholeFileBelowLines,
+    `${field}.allowWholeFileBelowLines`,
+  );
+  const preferAuto = optionalBoolean(value.preferAuto, `${field}.preferAuto`);
+  return {
+    ...(mode === undefined ? {} : { mode: mode as ReadGovernorMode }),
+    ...(maxRawLines === undefined ? {} : { maxRawLines }),
+    ...(maxRawBytes === undefined ? {} : { maxRawBytes }),
+    ...(allowWholeFileBelowLines === undefined ? {} : { allowWholeFileBelowLines }),
+    ...(preferAuto === undefined ? {} : { preferAuto }),
+  };
 }
 
 function normalizeUpstream(name: string, value: unknown): Omit<UpstreamConfig, "name"> {

@@ -345,6 +345,9 @@ test("resolveGatewayConfig defaults tokenBudgets to empty maps (opt-in: no confi
   const resolved = resolveGatewayConfig(undefined);
   assert.deepEqual(resolved.tokenBudgets, { tools: {}, capabilities: {}, profiles: {}, default: undefined });
   assert.deepEqual(resolved.responseBudget, { softTokens: 1_500, hardTokens: 3_000, hardBytes: 12_000 });
+  assert.deepEqual(resolved.readGovernor, {
+    mode: "enforce", maxRawLines: 120, maxRawBytes: 12_000, allowWholeFileBelowLines: 120, preferAuto: true,
+  });
   assert.equal(resolved.activeProfile, undefined);
 });
 
@@ -362,6 +365,33 @@ test("gateway.responseBudget configures the final projection boundary and reject
   assert.throws(
     () => loadMottainaiConfig(writeConfig({ version: 2, mcpServers: {}, gateway: { responseBudget: { softTokens: 900, hardTokens: 500 } } })),
     /softTokens must not exceed hardTokens/,
+  );
+});
+
+test("gateway.readGovernor configures progressive raw disclosure and rejects unsafe values", () => {
+  const configPath = writeConfig({
+    version: 2,
+    mcpServers: {},
+    gateway: {
+      readGovernor: {
+        mode: "warn",
+        maxRawLines: 80,
+        maxRawBytes: 4_000,
+        allowWholeFileBelowLines: 40,
+        preferAuto: false,
+      },
+    },
+  });
+  assert.deepEqual(loadGatewayConfig(configPath).readGovernor, {
+    mode: "warn", maxRawLines: 80, maxRawBytes: 4_000, allowWholeFileBelowLines: 40, preferAuto: false,
+  });
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({ version: 2, mcpServers: {}, gateway: { readGovernor: { mode: "block" } } })),
+    /invalid gateway readGovernor\.mode/,
+  );
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({ version: 2, mcpServers: {}, gateway: { readGovernor: { maxRawBytes: 0 } } })),
+    /invalid gateway readGovernor\.maxRawBytes/,
   );
 });
 
