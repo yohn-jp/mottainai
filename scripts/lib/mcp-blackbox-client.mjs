@@ -78,6 +78,11 @@ export function resolvePackagedBin(extractedPackageDir, binName = "mottainai") {
   return binPath;
 }
 
+/** shebang 経由で bin を直接起動する。呼び出し元間でこの解決点を共有する。 */
+export function resolvePackagedCommand(binPath) {
+  return { command: binPath, args: [] };
+}
+
 function boundedText(value, maxBytes) {
   const text = String(value);
   if (Buffer.byteLength(text) <= maxBytes) return text;
@@ -129,7 +134,8 @@ export class McpStdioClient {
 
   /** shebang 経由で bin を直接起動し、shebang 破損・実行権限欠如を検出する。 */
   static launchPackaged(binPath, options = {}) {
-    return new McpStdioClient(binPath, [], options);
+    const { command, args } = resolvePackagedCommand(binPath);
+    return new McpStdioClient(command, args, options);
   }
 
   constructor(command, args, options = {}) {
