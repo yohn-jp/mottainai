@@ -228,7 +228,7 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
       return { ok: false, reason: "issue-required", detail: "task workflow worktree branches require an issueRef for the repository governance pattern" };
     }
     naming = buildWorktreeNaming({ branchType: input.branchType, issueRef, taskSlug });
-    const branchValidation = await validateBranchNameAgainstGovernance(naming.branchName);
+    const branchValidation = await validateBranchNameAgainstGovernance(naming.branchName, identityResult.identity.canonicalRepositoryRoot);
     if (!branchValidation.ok) {
       return {
         ok: false,

@@ -70,8 +70,8 @@ test("startTask uses one canonical managed root from primary and linked worktree
   assert.equal(path.dirname(linked.worktree!.canonicalPath), expectedRoot);
   assert.equal(primary.worktree?.canonicalPath, path.join(expectedRoot, "fix-102-from-primary"));
   assert.equal(linked.worktree?.canonicalPath, path.join(expectedRoot, "docs-103-from-linked"));
-  assert.deepEqual(await validateBranchNameAgainstGovernance(primary.worktree!.branchName), { ok: true });
-  assert.deepEqual(await validateBranchNameAgainstGovernance(linked.worktree!.branchName), { ok: true });
+  assert.deepEqual(await validateBranchNameAgainstGovernance(primary.worktree!.branchName, root), { ok: true });
+  assert.deepEqual(await validateBranchNameAgainstGovernance(linked.worktree!.branchName, root), { ok: true });
   assert.equal(runGit(["-C", linked.worktree!.canonicalPath, "branch", "--show-current"], root), "docs/103-from-linked");
   assert.equal(fs.existsSync(path.join(linkedRoot, ".mottainai")), false);
   assert.equal(fs.existsSync(path.join(root, ".worktrees")), false);

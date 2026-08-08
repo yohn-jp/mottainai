@@ -32,19 +32,44 @@ export type ManagedWorktreeRootResult =
   | { ok: true; path: string }
   | { ok: false; detail: string };
 
+/**
+ * 1 segment ずつ lstat で symlink でないことを確認してから mkdir する。
+ * mkdirSync(..., {recursive:true}) を先に実行して事後に realpath 比較する方式だと、
+ * 中間 segment（例: `.mottainai` 自体）が repository 外への symlink だった場合、
+ * 失敗を報告する前に repository 外へディレクトリを作ってしまう。ここでは各
+ * segment を作る *前* に、既存なら symlink でないことを検証してから進むことで、
+ * mutation 前に escape を検出する（fail-closed）。
+ */
+function ensureCanonicalDirectorySegment(parentCanonical: string, segmentName: string): ManagedWorktreeRootResult {
+  const target = path.join(parentCanonical, segmentName);
+  try {
+    const stat = fs.lstatSync(target, { throwIfNoEntry: false });
+    if (stat === undefined) {
+      fs.mkdirSync(target);
+    } else if (stat.isSymbolicLink()) {
+      return { ok: false, detail: `managed worktree root resolves outside its canonical path: ${target}` };
+    } else if (!stat.isDirectory()) {
+      return { ok: false, detail: `managed worktree path segment is not a directory: ${target}` };
+    }
+    const actual = fs.realpathSync.native(target);
+    if (actual !== target) {
+      return { ok: false, detail: `managed worktree root resolves outside its canonical path: ${target}` };
+    }
+    return { ok: true, path: actual };
+  } catch (err) {
+    return { ok: false, detail: `cannot prepare managed worktree path segment ${target}: ${(err as Error).message}` };
+  }
+}
+
 /** Ensure the managed directory itself is not a symlink escape from the canonical root. */
 export function ensureCanonicalManagedWorktreeRoot(canonicalRepositoryRoot: string): ManagedWorktreeRootResult {
-  const configuredRoot = path.resolve(canonicalRepositoryRoot, MANAGED_WORKTREE_DIR_RELATIVE);
-  try {
-    fs.mkdirSync(configuredRoot, { recursive: true });
-    const actualRoot = fs.realpathSync.native(configuredRoot);
-    if (actualRoot !== configuredRoot) {
-      return { ok: false, detail: `managed worktree root resolves outside its canonical path: ${configuredRoot}` };
-    }
-    return { ok: true, path: configuredRoot };
-  } catch (err) {
-    return { ok: false, detail: `cannot prepare managed worktree root ${configuredRoot}: ${(err as Error).message}` };
+  let current = canonicalRepositoryRoot;
+  for (const segmentName of MANAGED_WORKTREE_DIR_RELATIVE.split(path.sep)) {
+    const result = ensureCanonicalDirectorySegment(current, segmentName);
+    if (!result.ok) return result;
+    current = result.path;
   }
+  return { ok: true, path: current };
 }
 
 /** branch rule は governance authority 側で検証する。ここでは structured input を

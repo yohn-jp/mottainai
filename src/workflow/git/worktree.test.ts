@@ -7,7 +7,42 @@ import { createTempDir } from "../../test-support/tmp-dir.js";
 import { createTempGitRepo, runGit } from "../../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../../test-support/workflow-store.js";
 import type { RepositoryInstanceId } from "../domain/identity.js";
-import { buildWorktreeNaming, createWorktree, decideBootstrap, detectWorktreeCollisions, runBootstrap } from "./worktree.js";
+import { buildWorktreeNaming, createWorktree, decideBootstrap, detectWorktreeCollisions, ensureCanonicalManagedWorktreeRoot, runBootstrap } from "./worktree.js";
+
+test("ensureCanonicalManagedWorktreeRoot rejects a symlink escape at the .mottainai segment before creating anything outside the root", (t) => {
+  const root = createTempDir(t, "mottainai-managed-root-test-");
+  const outsideTarget = createTempDir(t, "mottainai-managed-root-outside-");
+  fs.symlinkSync(outsideTarget, path.join(root, ".mottainai"));
+
+  const result = ensureCanonicalManagedWorktreeRoot(root);
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.match(result.detail, /resolves outside its canonical path/);
+  assert.equal(fs.existsSync(path.join(outsideTarget, "worktrees")), false);
+});
+
+test("ensureCanonicalManagedWorktreeRoot rejects a symlink escape at the worktrees segment", (t) => {
+  const root = createTempDir(t, "mottainai-managed-root-test-");
+  const outsideTarget = createTempDir(t, "mottainai-managed-root-outside-");
+  fs.mkdirSync(path.join(root, ".mottainai"));
+  fs.symlinkSync(outsideTarget, path.join(root, ".mottainai", "worktrees"));
+
+  const result = ensureCanonicalManagedWorktreeRoot(root);
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.match(result.detail, /resolves outside its canonical path/);
+});
+
+test("ensureCanonicalManagedWorktreeRoot succeeds and is idempotent when segments already exist as real directories", (t) => {
+  const root = createTempDir(t, "mottainai-managed-root-test-");
+  const first = ensureCanonicalManagedWorktreeRoot(root);
+  assert.equal(first.ok, true);
+  const second = ensureCanonicalManagedWorktreeRoot(root);
+  assert.equal(second.ok, true);
+  if (!first.ok || !second.ok) return;
+  assert.equal(first.path, second.path);
+  assert.equal(first.path, fs.realpathSync.native(path.join(root, ".mottainai", "worktrees")));
+});
 
 test("buildWorktreeNaming projects explicit structured input into the governance candidate and canonical root", () => {
   const naming = buildWorktreeNaming({ branchType: "fix", issueRef: "33", taskSlug: "my-task" });
