@@ -39,8 +39,6 @@ export async function inspectReadFile(filePath: string): Promise<InspectedReadFi
     lineCount: lineByteLengths.length,
     byteSize,
     lineByteLengths,
-    workspaceBoundaryValid: true,
-    symlinkBoundaryValid: true,
   };
 }
 

@@ -35,7 +35,7 @@ export interface ReadFileMetadata {
   byteSize: number;
   /** Adapter が対象 range の byte 数を別途計算した場合に使う。 */
   requestedRangeBytes?: number;
-  /** UTF-8 byte length of each logical line, excluding the separating LF. */
+  /** 各論理行の UTF-8 バイト長。改行文字 (LF) は次行の開始として扱うため除外する。 */
   lineByteLengths?: readonly number[];
   workspaceBoundaryValid?: boolean;
   symlinkBoundaryValid?: boolean;
@@ -355,9 +355,9 @@ export function decideRead(
       );
     }
     const clampedRange: RangeInfo = {
-      startLine: range.startLine,
+      startLine: Math.min(range.startLine, actualLineCount),
       endLine: actualLineCount,
-      lineCount: Math.max(0, actualLineCount - range.startLine + 1),
+      lineCount: Math.max(0, actualLineCount - Math.min(range.startLine, actualLineCount) + 1),
       bytes: range.startLine <= actualLineCount ? rangeBytes(fileMetadata, range.startLine, actualLineCount) : 0,
     };
     return decision(

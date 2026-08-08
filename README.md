@@ -399,9 +399,9 @@ external sandbox story lands. Full details: [SECURITY.md](SECURITY.md).
 These are implemented and tested but not yet relied on for enforcement or
 production decisions — expect rough edges and interface changes:
 
-- **Read Governor** — currently `observe`/`warn` stage only. It classifies
-  file reads and *would* suggest a narrower/structured read, but never
-  denies a read yet.
+- **Read Governor** — active with `off`, `observe`, `warn`, and `enforce`
+  modes. In `enforce` mode, reads that exceed configured limits are denied.
+  Default mode is `observe` (telemetry only, no denial).
 - **Caller-supervised routing policy proposals** — `mottainai_policy_propose`
   generates candidate routing policies from recorded feedback, but nothing
   is applied automatically; a human must run
