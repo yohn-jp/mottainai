@@ -1,0 +1,77 @@
+import fs from "node:fs";
+import path from "node:path";
+
+interface BranchGovernanceAuthority {
+  validateBranchName(branch: string): string[];
+}
+
+export type BranchGovernanceValidationResult =
+  | { ok: true }
+  | { ok: false; kind: "invalid" | "unavailable"; detail: string };
+
+let authorityPromise: Promise<BranchGovernanceAuthority> | undefined;
+
+/**
+ * repository governance の既存 shared API を domain boundary として利用する。
+ * CLI を subprocess 起動せず、同じ `governance-rules.json` を読む authority を
+ * source tree と packaged dist の双方から解決する。これは Mottainai 自身の
+ * dogfooding 用 fallback authority であり、対象 repository が別に
+ * `governance-rules.json` を持つ場合はそちらを優先する（下記 resolveBranchPattern）。
+ */
+function loadBranchGovernanceAuthority(): Promise<BranchGovernanceAuthority> {
+  authorityPromise ??= (async () => {
+    const authorityUrl = new URL("../../../scripts/governance-lib.mjs", import.meta.url);
+    return (await import(authorityUrl.href)) as BranchGovernanceAuthority;
+  })();
+  return authorityPromise;
+}
+
+const REPOSITORY_GOVERNANCE_RULES_RELATIVE = path.join(".mottainai", "governance-rules.json");
+
+interface RepositoryGovernanceRulesFile {
+  pullRequest?: { branchPattern?: unknown };
+}
+
+/**
+ * 対象 repository が自身の branch policy を宣言している場合、そちらを
+ * governance authority とする。任意の JS を実行させず JSON のみ読むことで、
+ * 「npm 版 Mottainai を別 repository で使うと Mottainai 自身の branch 規則を
+ * 強制してしまう」問題を、コード実行のリスクを増やさずに解決する。
+ */
+function resolveRepositoryBranchPattern(canonicalRepositoryRoot: string): RegExp | undefined {
+  const rulesPath = path.join(canonicalRepositoryRoot, REPOSITORY_GOVERNANCE_RULES_RELATIVE);
+  let raw: string;
+  try {
+    raw = fs.readFileSync(rulesPath, "utf8");
+  } catch {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(raw) as RepositoryGovernanceRulesFile;
+    const pattern = parsed.pullRequest?.branchPattern;
+    if (typeof pattern !== "string") return undefined;
+    return new RegExp(pattern);
+  } catch {
+    return undefined;
+  }
+}
+
+export async function validateBranchNameAgainstGovernance(
+  branch: string,
+  canonicalRepositoryRoot: string,
+): Promise<BranchGovernanceValidationResult> {
+  const repositoryPattern = resolveRepositoryBranchPattern(canonicalRepositoryRoot);
+  if (repositoryPattern !== undefined) {
+    if (!repositoryPattern.test(branch)) return { ok: false, kind: "invalid", detail: "branch name format is invalid" };
+    return { ok: true };
+  }
+
+  try {
+    const errors = loadBranchGovernanceAuthority().then((authority) => authority.validateBranchName(branch));
+    const validationErrors = await errors;
+    if (validationErrors.length > 0) return { ok: false, kind: "invalid", detail: validationErrors.join("; ") };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, kind: "unavailable", detail: `branch governance authority unavailable: ${(err as Error).message}` };
+  }
+}

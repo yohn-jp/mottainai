@@ -34,6 +34,8 @@ async function pushFixture(t: TestContext, upstream: boolean): Promise<PushFixtu
     store,
     policy,
     taskSlug: `push-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    branchType: "fix",
+    issueRef: "1",
   });
   assert.equal(started.ok, true);
   if (!started.ok || started.worktree === undefined) throw new Error("test fixture task did not create a worktree");

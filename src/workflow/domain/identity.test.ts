@@ -12,6 +12,7 @@ test("resolves a stable identity for a normal repository", (t) => {
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.identity.worktreePath, root);
+  assert.equal(result.identity.canonicalRepositoryRoot, root);
   assert.match(result.identity.rootCommitDigest, /^[0-9a-f]{64}$/);
   assert.match(result.identity.instanceId, /^[0-9a-f-]{36}$/);
 });
@@ -125,6 +126,8 @@ test("two worktrees of the same repository share instanceId and rootCommitDigest
 
   assert.equal(fromMain.identity.instanceId, fromWorktree.identity.instanceId);
   assert.equal(fromMain.identity.rootCommitDigest, fromWorktree.identity.rootCommitDigest);
+  assert.equal(fromMain.identity.canonicalRepositoryRoot, root);
+  assert.equal(fromWorktree.identity.canonicalRepositoryRoot, root);
   assert.notEqual(fromMain.identity.worktreePath, fromWorktree.identity.worktreePath);
   assert.equal(fromWorktree.identity.worktreePath, fs.realpathSync.native(worktreePath));
 });

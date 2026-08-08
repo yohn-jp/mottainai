@@ -108,7 +108,7 @@ test("task_start rejects an invalid taskSlug at the MCP boundary", async (t) => 
   const { config } = await gitWorkspace(t);
   const store = openWorkflowStore();
   await assert.rejects(
-    () => callWorkflowCommandTool("mottainai_workflow_task_start", { taskSlug: "Bad Slug" }, enabled(config), store),
+    () => callWorkflowCommandTool("mottainai_workflow_task_start", { taskSlug: "Bad Slug", branchType: "fix", issueRef: "9" }, enabled(config), store),
     /invalid task slug/,
   );
   store.close();
@@ -118,7 +118,7 @@ test("task_start rejects an invalid issueRef at the MCP boundary", async (t) => 
   const { config } = await gitWorkspace(t);
   const store = openWorkflowStore();
   await assert.rejects(
-    () => callWorkflowCommandTool("mottainai_workflow_task_start", { taskSlug: "ok", issueRef: "../evil" }, enabled(config), store),
+    () => callWorkflowCommandTool("mottainai_workflow_task_start", { taskSlug: "ok", branchType: "fix", issueRef: "../evil" }, enabled(config), store),
     /invalid issue ref/,
   );
   store.close();
@@ -128,7 +128,7 @@ test("task_start rejects an issueRef ending in .lock at the MCP boundary", async
   const { config } = await gitWorkspace(t);
   const store = openWorkflowStore();
   await assert.rejects(
-    () => callWorkflowCommandTool("mottainai_workflow_task_start", { taskSlug: "ok", issueRef: "9.lock" }, enabled(config), store),
+    () => callWorkflowCommandTool("mottainai_workflow_task_start", { taskSlug: "ok", branchType: "fix", issueRef: "9.lock" }, enabled(config), store),
     /invalid issue ref/,
   );
   store.close();
@@ -138,7 +138,7 @@ test("task_start rejects an issueRef ending in . at the MCP boundary", async (t)
   const { config } = await gitWorkspace(t);
   const store = openWorkflowStore();
   await assert.rejects(
-    () => callWorkflowCommandTool("mottainai_workflow_task_start", { taskSlug: "ok", issueRef: "issue." }, enabled(config), store),
+    () => callWorkflowCommandTool("mottainai_workflow_task_start", { taskSlug: "ok", branchType: "fix", issueRef: "issue." }, enabled(config), store),
     /invalid issue ref/,
   );
   store.close();
@@ -149,11 +149,11 @@ test("task_start always creates a dedicated worktree/branch (never main itself),
   const store = openWorkflowStore();
 
   const started = structured(await callWorkflowCommandTool(
-    "mottainai_workflow_task_start", { taskSlug: "example", issueRef: "9" }, enabled(config), store,
+    "mottainai_workflow_task_start", { taskSlug: "example", branchType: "fix", issueRef: "9" }, enabled(config), store,
   ));
   assert.equal(started.status, "success");
   const worktree = started.worktree as { branchName: string; canonicalPath: string };
-  assert.equal(worktree.branchName, "issue-9/example");
+  assert.equal(worktree.branchName, "fix/9-example");
   assert.notEqual(worktree.branchName, "main");
 
   const statusFromMainCheckout = structured(await callWorkflowCommandTool(
@@ -185,13 +185,13 @@ test("task_start rejects starting a second task from inside its own already-acti
   const { config } = await gitWorkspace(t);
   const store = openWorkflowStore();
   const started = structured(await callWorkflowCommandTool(
-    "mottainai_workflow_task_start", { taskSlug: "outer" }, enabled(config), store,
+    "mottainai_workflow_task_start", { taskSlug: "outer", branchType: "fix", issueRef: "10" }, enabled(config), store,
   ));
   assert.equal(started.status, "success");
   const worktree = started.worktree as { canonicalPath: string };
 
   const second = structured(await callWorkflowCommandTool(
-    "mottainai_workflow_task_start", { taskSlug: "inner" }, enabled({ ...config, workspaceRoot: worktree.canonicalPath }), store,
+    "mottainai_workflow_task_start", { taskSlug: "inner", branchType: "fix", issueRef: "11" }, enabled({ ...config, workspaceRoot: worktree.canonicalPath }), store,
   ));
   assert.equal(second.status, "failed");
   assert.equal(second.reason, "active-task-in-workspace");
@@ -205,7 +205,7 @@ test("task_start fails closed on a corrupted .mottainai/workflow.json instead of
   await fs.writeFile(path.join(root, ".mottainai", "workflow.json"), "{ not json");
   const store = openWorkflowStore();
   const result = structured(await callWorkflowCommandTool(
-    "mottainai_workflow_task_start", { taskSlug: "example" }, enabled(config), store,
+    "mottainai_workflow_task_start", { taskSlug: "example", branchType: "fix", issueRef: "12" }, enabled(config), store,
   ));
   assert.equal(result.status, "failed");
   assert.equal(result.reason, "invalid-policy");
