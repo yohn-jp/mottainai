@@ -22,8 +22,10 @@ import type {
   ReserveTaskResult,
   ReserveWorktreeInput,
   ReserveWorktreeResult,
+  RecordValidationEvidenceInput,
   TaskId,
   TaskRecord,
+  ValidationEvidenceRecord,
   WorkflowStateStore,
   WorktreeId,
   WorktreeRecord,
@@ -112,6 +114,16 @@ function toHookCheckpointRecord(row: Record<string, unknown>): HookCheckpointRec
     branch: row.branch as string,
     lastCheckedCommit: row.last_checked_commit as string,
     checkedAt: row.checked_at as number,
+  };
+}
+
+function toValidationEvidenceRecord(row: Record<string, unknown>): ValidationEvidenceRecord {
+  return {
+    instanceId: row.instance_id as RepositoryInstanceId,
+    headCommit: row.head_commit as string,
+    name: row.name as string,
+    status: row.status as ValidationEvidenceRecord["status"],
+    recordedAt: row.recorded_at as number,
   };
 }
 
@@ -300,6 +312,24 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       .prepare("SELECT * FROM hook_checkpoints WHERE instance_id = ? AND branch = ?")
       .get(instanceId, branch) as Record<string, unknown> | undefined;
     return row === undefined ? undefined : toHookCheckpointRecord(row);
+  }
+
+  recordValidationEvidence(input: RecordValidationEvidenceInput): ValidationEvidenceRecord {
+    const db = this.handle();
+    const recordedAt = input.recordedAt ?? Date.now();
+    db.prepare(
+      `INSERT INTO validation_evidence (instance_id, head_commit, name, status, recorded_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (instance_id, head_commit, name) DO UPDATE SET status = excluded.status, recorded_at = excluded.recorded_at`,
+    ).run(input.instanceId, input.headCommit, input.name, input.status, recordedAt);
+    return { instanceId: input.instanceId, headCommit: input.headCommit, name: input.name, status: input.status, recordedAt };
+  }
+
+  listValidationEvidence(instanceId: RepositoryInstanceId, headCommit: string): ValidationEvidenceRecord[] {
+    const rows = this.handle()
+      .prepare("SELECT * FROM validation_evidence WHERE instance_id = ? AND head_commit = ?")
+      .all(instanceId, headCommit) as Record<string, unknown>[];
+    return rows.map(toValidationEvidenceRecord);
   }
 
   reserveTask(input: ReserveTaskInput): ReserveTaskResult {

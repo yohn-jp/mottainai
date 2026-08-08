@@ -182,28 +182,35 @@ test("required validation evidence is checked before the push subprocess", async
   }
 });
 
-test("validation evidence not recorded against the current HEAD commit is rejected", async (t) => {
+test("validation evidence gate trusts only workflow-state records, never caller-supplied claims", async (t) => {
   const fixture = await pushFixture(t, true);
   const context = await verifyWorkflowContext(fixture.input);
   assert.equal(context.ok, true);
   if (!context.ok) return;
 
-  const forged = await pushTask({
-    ...fixture.input,
-    pushPolicy: { requiredValidationEvidence: ["tests"] },
-    validationEvidence: [{ name: "tests", status: "passed", headCommit: "0".repeat(40) }],
-  });
-  assert.equal(forged.ok, false);
-  if (!forged.ok) {
-    assert.equal(forged.code, "missing-validation-evidence");
-    assert.deepEqual(forged.missingEvidence, ["tests"]);
-  }
+  // A caller cannot satisfy the gate merely by asserting success; there is no
+  // caller-supplied evidence input on PushOperationInput at all.
+  const unrecorded = await pushTask({ ...fixture.input, pushPolicy: { requiredValidationEvidence: ["tests"] } });
+  assert.equal(unrecorded.ok, false);
+  if (!unrecorded.ok) assert.equal(unrecorded.code, "missing-validation-evidence");
 
-  const genuine = await pushTask({
-    ...fixture.input,
-    pushPolicy: { requiredValidationEvidence: ["tests"] },
-    validationEvidence: [{ name: "tests", status: "passed", headCommit: context.headCommit }],
+  fixture.input.store.recordValidationEvidence({
+    instanceId: context.repository.instanceId,
+    headCommit: "0".repeat(40),
+    name: "tests",
+    status: "passed",
   });
+  const staleEvidence = await pushTask({ ...fixture.input, pushPolicy: { requiredValidationEvidence: ["tests"] } });
+  assert.equal(staleEvidence.ok, false);
+  if (!staleEvidence.ok) assert.equal(staleEvidence.code, "missing-validation-evidence");
+
+  fixture.input.store.recordValidationEvidence({
+    instanceId: context.repository.instanceId,
+    headCommit: context.headCommit,
+    name: "tests",
+    status: "passed",
+  });
+  const genuine = await pushTask({ ...fixture.input, pushPolicy: { requiredValidationEvidence: ["tests"] } });
   assert.equal(genuine.ok, true);
 });
 

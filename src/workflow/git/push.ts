@@ -22,16 +22,6 @@ export interface PushPolicyControls {
   requiredValidationEvidence?: readonly string[];
 }
 
-export interface ValidationEvidence {
-  name: string;
-  status: "passed" | "failed";
-  /** The exact commit the validation ran against; must equal the current HEAD to count. */
-  headCommit: string;
-  /** Metadata only; never copied to Git command output or audit state. */
-  digest?: string;
-  recordedAt?: number;
-}
-
 export interface PushOperationInput extends WorkflowContextInput {
   policy: WorkflowPolicyDocument;
   pushPolicy?: PushPolicyControls;
@@ -39,7 +29,6 @@ export interface PushOperationInput extends WorkflowContextInput {
   remoteBranch?: string;
   force?: boolean;
   createUpstream?: boolean;
-  validationEvidence?: readonly ValidationEvidence[];
 }
 
 export type PushErrorCode =
@@ -171,11 +160,11 @@ async function readRemoteRelation(
 function requiredEvidenceFailure(input: PushOperationInput, context: VerifiedWorkflowContext): PushFailure | undefined {
   const required = input.pushPolicy?.requiredValidationEvidence ?? [];
   if (required.length === 0) return undefined;
-  const passed = new Set(
-    (input.validationEvidence ?? [])
-      .filter((evidence) => evidence.status === "passed" && evidence.headCommit === context.headCommit)
-      .map((evidence) => evidence.name),
-  );
+  // Only evidence recorded in workflow state by a trusted caller (the process that actually
+  // ran the validation) counts. Caller-supplied evidence objects are never accepted here —
+  // a push caller could otherwise assert "tests passed" without running them.
+  const recorded = input.store.listValidationEvidence(context.repository.instanceId, context.headCommit);
+  const passed = new Set(recorded.filter((evidence) => evidence.status === "passed").map((evidence) => evidence.name));
   const missing = [...new Set(required)].filter((name) => !passed.has(name));
   if (missing.length === 0) return undefined;
   return {
