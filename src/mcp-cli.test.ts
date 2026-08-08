@@ -328,11 +328,11 @@ test("public CLI task start creates a dedicated worktree/branch, and task status
   assert.equal(before.json.active, false);
   assert.equal(before.json.branch, "main");
 
-  const started = spawn("task", "start", "my-task", "--issue", "9", "--workspace", directory);
+  const started = spawn("task", "start", "my-task", "--type", "fix", "--issue", "9", "--workspace", directory);
   assert.equal(started.status, 0);
   assert.equal(started.json.ok, true);
   const worktree = started.json.worktree as { branchName: string; canonicalPath: string };
-  assert.equal(worktree.branchName, "issue-9/my-task");
+  assert.equal(worktree.branchName, "fix/9-my-task");
   assert.notEqual(worktree.branchName, "main");
 
   const statusInWorktree = spawn("task", "status", "--workspace", worktree.canonicalPath);
@@ -358,11 +358,11 @@ test("public CLI task start validates taskSlug/issueRef at the boundary, same as
     return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr, json };
   };
 
-  const badSlug = spawn("task", "start", "Bad Slug", "--workspace", directory);
+  const badSlug = spawn("task", "start", "Bad Slug", "--type", "fix", "--issue", "7", "--workspace", directory);
   assert.equal(badSlug.status, 1);
   assert.match(badSlug.stderr, /invalid task slug/);
 
-  const badIssueRef = spawn("task", "start", "ok-slug", "--issue", "7..9", "--workspace", directory);
+  const badIssueRef = spawn("task", "start", "ok-slug", "--type", "fix", "--issue", "7..9", "--workspace", directory);
   assert.equal(badIssueRef.status, 1);
   assert.match(badIssueRef.stderr, /invalid issue ref/);
 
@@ -389,11 +389,11 @@ test("public CLI task start rejects starting a second task from inside its own a
     return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr, json };
   };
 
-  const outer = spawn("task", "start", "outer", "--workspace", directory);
+  const outer = spawn("task", "start", "outer", "--type", "fix", "--issue", "13", "--workspace", directory);
   assert.equal(outer.status, 0);
   const worktree = outer.json.worktree as { canonicalPath: string };
 
-  const inner = spawn("task", "start", "inner", "--workspace", worktree.canonicalPath);
+  const inner = spawn("task", "start", "inner", "--type", "fix", "--issue", "14", "--workspace", worktree.canonicalPath);
   assert.equal(inner.status, 1);
   assert.equal(inner.json.ok, false);
   assert.equal(inner.json.reason, "active-task-in-workspace");

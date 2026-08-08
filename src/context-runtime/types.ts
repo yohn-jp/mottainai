@@ -1,3 +1,5 @@
+import type { IdentityHint, ResultIdentity } from "./identity.js";
+
 export interface ProjectionBudgetConfig {
   softTokens?: number;
   hardTokens?: number;
@@ -44,6 +46,7 @@ export interface ProjectedResult {
   fields: ProjectedField[];
   omissions: Omission[];
   content: unknown[];
+  identity?: IdentityHint | ResultIdentity;
   isError?: boolean;
   meta?: unknown;
 }

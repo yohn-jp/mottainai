@@ -8,6 +8,8 @@ import { createWorkflowStore } from "../../test-support/workflow-store.js";
 import { BUILTIN_PRESETS } from "../policy/presets.js";
 import type { WorkflowPolicyDocument } from "../policy/schema.js";
 import { WorkflowSqliteStateStore } from "../state/sqlite-store.js";
+import { validateBranchNameAgainstGovernance } from "../governance/branch.js";
+import { resolveRepositoryIdentity } from "./identity.js";
 import { checkStaleBaseBranch, getTaskStatus, getTaskStatusForWorkspace, startTask, transitionTask } from "./task.js";
 
 function standardPolicy(overrides: Partial<WorkflowPolicyDocument["worktree"]> = {}): WorkflowPolicyDocument {
@@ -17,16 +19,86 @@ function standardPolicy(overrides: Partial<WorkflowPolicyDocument["worktree"]> =
 test("startTask happy path creates an active task with an active worktree (issue-bound)", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
-  const result = await startTask({ workspaceRoot: root, store, policy: standardPolicy(), taskSlug: "my-task", issueRef: "33" });
+  const result = await startTask({ workspaceRoot: root, store, policy: standardPolicy(), taskSlug: "my-task", branchType: "fix", issueRef: "33" });
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.task.lifecycleState, "active");
   assert.equal(result.task.issueRef, "33");
   assert.ok(result.worktree !== undefined);
   assert.equal(result.worktree?.status, "active");
-  assert.equal(result.worktree?.branchName, "issue-33/my-task");
+  assert.equal(result.worktree?.branchName, "fix/33-my-task");
   // standard preset の bootstrapMode は "suggest" のため実行しない。
   assert.equal(result.bootstrapRun, undefined);
+});
+
+test("startTask uses one canonical managed root from primary and linked worktrees", async (t) => {
+  const root = createTempGitRepo(t);
+  const linkedParent = createTempDir(t, "mottainai-task-linked-caller-");
+  const linkedRoot = path.join(linkedParent, "linked");
+  runGit(["worktree", "add", "--quiet", "-b", "caller-branch", linkedRoot], root);
+  t.after(() => {
+    try {
+      runGit(["worktree", "remove", "--force", linkedRoot], root);
+    } catch {
+      // best effort cleanup after an assertion failure
+    }
+  });
+
+  const store = createWorkflowStore(t);
+  const primary = await startTask({
+    workspaceRoot: root,
+    store,
+    policy: standardPolicy(),
+    taskSlug: "from-primary",
+    branchType: "fix",
+    issueRef: "102",
+  });
+  const linked = await startTask({
+    workspaceRoot: linkedRoot,
+    store,
+    policy: standardPolicy(),
+    taskSlug: "from-linked",
+    branchType: "docs",
+    issueRef: "103",
+  });
+  assert.equal(primary.ok, true);
+  assert.equal(linked.ok, true);
+  if (!primary.ok || !linked.ok) return;
+
+  const expectedRoot = path.join(root, ".mottainai", "worktrees");
+  assert.equal(path.dirname(primary.worktree!.canonicalPath), expectedRoot);
+  assert.equal(path.dirname(linked.worktree!.canonicalPath), expectedRoot);
+  assert.equal(primary.worktree?.canonicalPath, path.join(expectedRoot, "fix-102-from-primary"));
+  assert.equal(linked.worktree?.canonicalPath, path.join(expectedRoot, "docs-103-from-linked"));
+  assert.deepEqual(await validateBranchNameAgainstGovernance(primary.worktree!.branchName, root), { ok: true });
+  assert.deepEqual(await validateBranchNameAgainstGovernance(linked.worktree!.branchName, root), { ok: true });
+  assert.equal(runGit(["-C", linked.worktree!.canonicalPath, "branch", "--show-current"], root), "docs/103-from-linked");
+  assert.equal(fs.existsSync(path.join(linkedRoot, ".mottainai")), false);
+  assert.equal(fs.existsSync(path.join(root, ".worktrees")), false);
+});
+
+test("startTask rejects a governance-invalid generated branch before Git or SQLite reservation", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const result = await startTask({
+    workspaceRoot: root,
+    store,
+    policy: standardPolicy(),
+    taskSlug: "invalid-type",
+    branchType: "feature",
+    issueRef: "104",
+  });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.reason, "invalid-branch-name");
+  assert.match(result.detail, /rejected before Git mutation/);
+  assert.equal(fs.existsSync(path.join(root, ".mottainai", "worktrees")), false);
+  assert.equal(runGit(["branch", "--list", "feature/104-invalid-type"], root), "");
+  const identity = resolveRepositoryIdentity(root);
+  assert.equal(identity.ok, true);
+  if (!identity.ok) return;
+  assert.equal(store.getActiveTaskByIssueRef(identity.identity.instanceId, "104"), undefined);
+  assert.deepEqual(store.listWorktreesForInstance(identity.identity.instanceId), []);
 });
 
 test("startTask with bootstrapMode=automatic returns the bootstrap execution outcome (not just the decision)", async (t) => {
@@ -36,7 +108,7 @@ test("startTask with bootstrapMode=automatic returns the bootstrap execution out
   runGit(["commit", "--quiet", "-m", "add lockfile"], root);
   const store = createWorkflowStore(t);
   const policy = standardPolicy({ bootstrapMode: "automatic" });
-  const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "bootstrap-check" });
+  const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "bootstrap-check", branchType: "fix", issueRef: "34" });
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.bootstrap?.shouldExecute, true);
@@ -44,14 +116,16 @@ test("startTask with bootstrapMode=automatic returns the bootstrap execution out
   assert.equal(result.bootstrapRun?.ran, true);
 });
 
-test("startTask happy path without an issueRef", async (t) => {
+test("startTask rejects a worktree task without an issueRef before state reservation", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
-  const result = await startTask({ workspaceRoot: root, store, policy: standardPolicy(), taskSlug: "no-issue" });
-  assert.equal(result.ok, true);
-  if (!result.ok) return;
-  assert.equal(result.task.issueRef, undefined);
-  assert.equal(result.worktree?.branchName, "task/no-issue");
+  const result = await startTask({ workspaceRoot: root, store, policy: standardPolicy(), taskSlug: "no-issue", branchType: "fix" });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.reason, "issue-required");
+  const status = await getTaskStatusForWorkspace(root, store);
+  assert.equal(status.ok, true);
+  if (status.ok) assert.equal(status.active, false);
 });
 
 test("startTask rejects when staleBaseBranch=enforce and local base branch is behind origin", async (t) => {
@@ -75,7 +149,7 @@ test("startTask rejects when staleBaseBranch=enforce and local base branch is be
 
   const store = createWorkflowStore(t);
   const policy = standardPolicy({ staleBaseBranch: "enforce" });
-  const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "stale-check" });
+  const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "stale-check", branchType: "fix", issueRef: "35" });
   assert.equal(result.ok, false);
   if (result.ok) return;
   assert.equal(result.reason, "unsupported-repo-state");
@@ -91,7 +165,7 @@ test("startTask succeeds when staleBaseBranch=enforce and local base branch matc
 
   const store = createWorkflowStore(t);
   const policy = standardPolicy({ staleBaseBranch: "enforce" });
-  const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "fresh-check" });
+  const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "fresh-check", branchType: "fix", issueRef: "36" });
   assert.equal(result.ok, true);
 });
 
@@ -99,7 +173,7 @@ test("startTask ignores staleBaseBranch when no origin tracking ref exists", asy
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
   const policy = standardPolicy({ staleBaseBranch: "enforce" });
-  const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "no-origin-check" });
+  const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "no-origin-check", branchType: "fix", issueRef: "37" });
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.deepEqual(result.warnings, []);
@@ -124,7 +198,7 @@ test("startTask allows but records a warning when staleBaseBranch=advisory and l
 
   const store = createWorkflowStore(t);
   const policy = standardPolicy({ staleBaseBranch: "advisory" });
-  const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "stale-advisory-check" });
+  const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "stale-advisory-check", branchType: "fix", issueRef: "38" });
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.warnings.length, 1);
@@ -156,7 +230,7 @@ test("startTask rejects when issueRequired=enforce and no issueRef is provided",
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
   const policy = standardPolicy({ issueRequired: "enforce" });
-  const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "needs-issue" });
+  const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "needs-issue", branchType: "fix" });
   assert.equal(result.ok, false);
   if (result.ok) return;
   assert.equal(result.reason, "issue-required");
@@ -169,7 +243,7 @@ test("startTask denies a no-worktree task start when protected-branch sourceWrit
     ...BUILTIN_PRESETS["strict-worktree"],
     worktree: { ...BUILTIN_PRESETS["strict-worktree"].worktree, required: "off" },
   };
-  const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "direct-edit", skipWorktree: true });
+  const result = await startTask({ workspaceRoot: root, store, policy, taskSlug: "direct-edit", branchType: "fix", skipWorktree: true });
   assert.equal(result.ok, false);
   if (result.ok) return;
   assert.equal(result.reason, "policy-denied");
@@ -179,10 +253,10 @@ test("startTask reports branch-collision when the branch is already claimed by a
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
   const policy = standardPolicy();
-  const first = await startTask({ workspaceRoot: root, store, policy, taskSlug: "dup" });
+  const first = await startTask({ workspaceRoot: root, store, policy, taskSlug: "dup", branchType: "fix", issueRef: "39" });
   assert.equal(first.ok, true);
 
-  const second = await startTask({ workspaceRoot: root, store, policy, taskSlug: "dup" });
+  const second = await startTask({ workspaceRoot: root, store, policy, taskSlug: "dup", branchType: "fix", issueRef: "39" });
   assert.equal(second.ok, false);
   if (second.ok) return;
   assert.equal(second.reason, "branch-collision");
@@ -192,10 +266,10 @@ test("startTask rejects a second active task for the same issue when multipleAct
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
   const policy = standardPolicy({ multipleActiveTasksPerIssue: "enforce" });
-  const first = await startTask({ workspaceRoot: root, store, policy, taskSlug: "task-a", issueRef: "7" });
+  const first = await startTask({ workspaceRoot: root, store, policy, taskSlug: "task-a", branchType: "fix", issueRef: "7" });
   assert.equal(first.ok, true);
 
-  const second = await startTask({ workspaceRoot: root, store, policy, taskSlug: "task-b", issueRef: "7" });
+  const second = await startTask({ workspaceRoot: root, store, policy, taskSlug: "task-b", branchType: "fix", issueRef: "7" });
   assert.equal(second.ok, false);
   if (second.ok) return;
   assert.equal(second.reason, "issue-already-claimed");
@@ -204,7 +278,7 @@ test("startTask rejects a second active task for the same issue when multipleAct
 test("getTaskStatus reflects lifecycle state and allowed next transitions", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
-  const started = await startTask({ workspaceRoot: root, store, policy: standardPolicy(), taskSlug: "status-check" });
+  const started = await startTask({ workspaceRoot: root, store, policy: standardPolicy(), taskSlug: "status-check", branchType: "fix", issueRef: "40" });
   assert.equal(started.ok, true);
   if (!started.ok) return;
 
@@ -224,12 +298,12 @@ test("startTask rejects starting a second task from inside an already-active tas
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
   const policy = standardPolicy();
-  const outer = await startTask({ workspaceRoot: root, store, policy, taskSlug: "outer" });
+  const outer = await startTask({ workspaceRoot: root, store, policy, taskSlug: "outer", branchType: "fix", issueRef: "41" });
   assert.equal(outer.ok, true);
   if (!outer.ok) return;
   assert.ok(outer.worktree !== undefined);
 
-  const inner = await startTask({ workspaceRoot: outer.worktree!.canonicalPath, store, policy, taskSlug: "inner" });
+  const inner = await startTask({ workspaceRoot: outer.worktree!.canonicalPath, store, policy, taskSlug: "inner", branchType: "fix", issueRef: "42" });
   assert.equal(inner.ok, false);
   if (inner.ok) return;
   assert.equal(inner.reason, "active-task-in-workspace");
@@ -250,7 +324,7 @@ test("getTaskStatusForWorkspace reports no active task for a plain repository", 
 test("getTaskStatusForWorkspace reports the active task from inside its own worktree", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
-  const started = await startTask({ workspaceRoot: root, store, policy: standardPolicy(), taskSlug: "status-ws" });
+  const started = await startTask({ workspaceRoot: root, store, policy: standardPolicy(), taskSlug: "status-ws", branchType: "fix", issueRef: "43" });
   assert.equal(started.ok, true);
   if (!started.ok) return;
 
@@ -287,7 +361,7 @@ test("getTaskStatusForWorkspace keeps two repositories' active tasks separate in
   const rootA = createTempGitRepo(t);
   const rootB = createTempGitRepo(t);
   const store = createWorkflowStore(t);
-  const startedA = await startTask({ workspaceRoot: rootA, store, policy: standardPolicy(), taskSlug: "repo-a-task" });
+  const startedA = await startTask({ workspaceRoot: rootA, store, policy: standardPolicy(), taskSlug: "repo-a-task", branchType: "fix", issueRef: "44" });
   assert.equal(startedA.ok, true);
   if (!startedA.ok) return;
 
@@ -302,12 +376,28 @@ test("getTaskStatusForWorkspace keeps two repositories' active tasks separate in
   assert.equal(statusA.active, true);
 });
 
+test("separate repository instances never share the canonical managed worktree root", async (t) => {
+  const rootA = createTempGitRepo(t);
+  const rootB = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const [startedA, startedB] = await Promise.all([
+    startTask({ workspaceRoot: rootA, store, policy: standardPolicy(), taskSlug: "same-task", branchType: "fix", issueRef: "105" }),
+    startTask({ workspaceRoot: rootB, store, policy: standardPolicy(), taskSlug: "same-task", branchType: "fix", issueRef: "105" }),
+  ]);
+  assert.equal(startedA.ok, true);
+  assert.equal(startedB.ok, true);
+  if (!startedA.ok || !startedB.ok) return;
+  assert.notEqual(startedA.worktree?.canonicalPath, startedB.worktree?.canonicalPath);
+  assert.equal(path.dirname(startedA.worktree!.canonicalPath), path.join(rootA, ".mottainai", "worktrees"));
+  assert.equal(path.dirname(startedB.worktree!.canonicalPath), path.join(rootB, ".mottainai", "worktrees"));
+});
+
 test("getTaskStatusForWorkspace distinguishes between two active worktrees of the same repository", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
   const policy = standardPolicy({ multipleActiveTasksPerIssue: "advisory" });
-  const first = await startTask({ workspaceRoot: root, store, policy, taskSlug: "multi-a" });
-  const second = await startTask({ workspaceRoot: root, store, policy, taskSlug: "multi-b" });
+  const first = await startTask({ workspaceRoot: root, store, policy, taskSlug: "multi-a", branchType: "fix", issueRef: "45" });
+  const second = await startTask({ workspaceRoot: root, store, policy, taskSlug: "multi-b", branchType: "fix", issueRef: "45" });
   assert.equal(first.ok, true);
   assert.equal(second.ok, true);
   if (!first.ok || !second.ok) return;
@@ -329,7 +419,7 @@ test("getTaskStatusForWorkspace survives a store restart against a file-backed d
   const store1 = new WorkflowSqliteStateStore({ dbPath });
   store1.init();
   t.after(() => store1.close());
-  const started = await startTask({ workspaceRoot: root, store: store1, policy: standardPolicy(), taskSlug: "restart-check" });
+  const started = await startTask({ workspaceRoot: root, store: store1, policy: standardPolicy(), taskSlug: "restart-check", branchType: "fix", issueRef: "46" });
   assert.equal(started.ok, true);
   if (!started.ok) return;
   store1.close();
@@ -348,7 +438,7 @@ test("getTaskStatusForWorkspace survives a store restart against a file-backed d
 test("transitionTask applies a valid transition and rejects an invalid one with structured blocker info", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
-  const started = await startTask({ workspaceRoot: root, store, policy: standardPolicy(), taskSlug: "transition-check" });
+  const started = await startTask({ workspaceRoot: root, store, policy: standardPolicy(), taskSlug: "transition-check", branchType: "fix", issueRef: "47" });
   assert.equal(started.ok, true);
   if (!started.ok) return;
 

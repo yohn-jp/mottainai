@@ -150,6 +150,28 @@ export interface RecordHookCheckpointInput {
   checkedAt?: number;
 }
 
+/**
+ * 実際に検証（テスト・型チェック等）を実行した trusted caller だけが書き込む、
+ * commit 単位の検証結果記録。`src/workflow/git/push.ts` の
+ * `requiredValidationEvidence` gate はこのテーブルの内容だけを信頼し、
+ * push 呼び出し側が渡す evidence オブジェクトは一切信頼しない。
+ */
+export interface ValidationEvidenceRecord {
+  instanceId: RepositoryInstanceId;
+  headCommit: string;
+  name: string;
+  status: "passed" | "failed";
+  recordedAt: number;
+}
+
+export interface RecordValidationEvidenceInput {
+  instanceId: RepositoryInstanceId;
+  headCommit: string;
+  name: string;
+  status: "passed" | "failed";
+  recordedAt?: number;
+}
+
 export interface WorkflowStateStore {
   /** backend 固有の初期化（DB オープン・migration 適用）。呼び出し前は他メソッドを使わない。 */
   init(): void;
@@ -175,6 +197,11 @@ export interface WorkflowStateStore {
    */
   recordHookCheckpoint(input: RecordHookCheckpointInput): HookCheckpointRecord;
   getHookCheckpoint(instanceId: RepositoryInstanceId, branch: string): HookCheckpointRecord | undefined;
+
+  /** trusted caller が検証結果を記録する。同じ (instanceId, headCommit, name) の既存行は上書きする。 */
+  recordValidationEvidence(input: RecordValidationEvidenceInput): ValidationEvidenceRecord;
+  /** 指定 commit に記録済みの検証結果を name ごとに引く。未記録の name は結果に含まれない。 */
+  listValidationEvidence(instanceId: RepositoryInstanceId, headCommit: string): ValidationEvidenceRecord[];
 
   /**
    * task を `planned` 状態で予約する。`allowMultipleActiveTasksPerIssue: false` かつ

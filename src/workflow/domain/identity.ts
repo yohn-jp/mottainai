@@ -25,6 +25,8 @@ export interface RepositoryIdentity {
   instanceId: RepositoryInstanceId;
   /** `git rev-parse --git-common-dir` の canonicalized 絶対パス（worktree 間で共有される値）。 */
   gitCommonDir: string;
+  /** git common-dir の実体から検証して導出した primary checkout の root。 */
+  canonicalRepositoryRoot: string;
   /** worktree の canonicalized 絶対パス（呼び出し時の cwd に対応する worktree）。 */
   worktreePath: string;
 }
@@ -47,6 +49,23 @@ function runGit(args: string[], cwd: string): string {
  */
 function canonicalizePath(targetPath: string): string {
   return fs.realpathSync.native(targetPath);
+}
+
+/**
+ * Git common-dir の実体から control-plane repository root を導出する。
+ * `.git` 以外を common-dir の root と推測しない — bare repository、submodule、
+ * Git の特殊配置はここで fail-closed にする。
+ */
+function resolveCanonicalRepositoryRoot(gitCommonDir: string): string | undefined {
+  if (path.basename(gitCommonDir) !== ".git") return undefined;
+  try {
+    if (!fs.statSync(gitCommonDir).isDirectory()) return undefined;
+    const candidateRoot = canonicalizePath(path.dirname(gitCommonDir));
+    const candidateCommonDir = canonicalizePath(path.join(candidateRoot, ".git"));
+    return candidateCommonDir === gitCommonDir ? candidateRoot : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -132,22 +151,26 @@ export function resolveRepositoryIdentity(cwd: string): ResolveRepositoryIdentit
   let rawCommonDir: string;
   let rawToplevel: string;
   try {
-    rawCommonDir = runGit(["rev-parse", "--git-common-dir"], cwd);
+    // 絶対 path を Git 自身に解決させる。caller cwd 基準の相対値を path anchor
+    // として再解決すると、linked worktree からの呼び出しで別 root になりうる。
+    rawCommonDir = runGit(["rev-parse", "--path-format=absolute", "--git-common-dir"], cwd);
     rawToplevel = runGit(["rev-parse", "--show-toplevel"], cwd);
   } catch (err) {
     return { ok: false, reason: `not a git repository or git unavailable: ${(err as Error).message}` };
   }
 
-  // `--git-common-dir` は非 worktree リポジトリで相対パス（例: ".git"）を
-  // 返すことがある。相対のまま fs.realpathSync に渡すと呼び出し側プロセスの
-  // cwd 基準で解決されてしまうため、まず git 呼び出し時の cwd 基準で絶対化する。
   let gitCommonDir: string;
   let worktreePath: string;
   try {
-    gitCommonDir = canonicalizePath(path.resolve(cwd, rawCommonDir));
+    gitCommonDir = canonicalizePath(rawCommonDir);
     worktreePath = canonicalizePath(path.resolve(cwd, rawToplevel));
   } catch (err) {
     return { ok: false, reason: `cannot canonicalize repository path: ${(err as Error).message}` };
+  }
+
+  const canonicalRepositoryRoot = resolveCanonicalRepositoryRoot(gitCommonDir);
+  if (canonicalRepositoryRoot === undefined) {
+    return { ok: false, reason: `cannot resolve an unambiguous repository root from git common-dir: ${gitCommonDir}` };
   }
 
   // HEAD のみを対象にすると、orphan branch への切替や無関係 history の
@@ -175,6 +198,6 @@ export function resolveRepositoryIdentity(cwd: string): ResolveRepositoryIdentit
 
   return {
     ok: true,
-    identity: { rootCommitDigest, instanceId: instanceIdResult.instanceId, gitCommonDir, worktreePath },
+    identity: { rootCommitDigest, instanceId: instanceIdResult.instanceId, gitCommonDir, canonicalRepositoryRoot, worktreePath },
   };
 }

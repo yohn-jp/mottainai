@@ -66,7 +66,8 @@ init options:
 
 policy/task options:
   --workspace path      Git repository root; defaults to the current Git repository's top level
-  --issue ref           issue reference for "task start" (omit for an ad-hoc, non-issue-bound task)
+  --type type           explicit branch type for "task start" (required)
+  --issue ref           issue reference for "task start" (required)
 `;
 
 function flag(argv: string[], name: string): string | undefined {
@@ -300,7 +301,10 @@ export async function runCli(args: string[]): Promise<number> {
   if (taskSlug === undefined || taskSlug.startsWith("--")) fail(USAGE);
   validateTaskSlug(taskSlug);
   const workspace = resolveWorkflowWorkspace(argv);
+  const branchType = requireFlagValue(argv, "type");
+  if (branchType === undefined) fail("missing value for --type");
   const issueRef = requireFlagValue(argv, "issue");
+  if (issueRef === undefined) fail("missing value for --issue");
   validateIssueRef(issueRef);
   const policyResult = resolveEffectiveWorkflowPolicy(workspace);
   if (!policyResult.ok) {
@@ -311,7 +315,7 @@ export async function runCli(args: string[]): Promise<number> {
   try {
     // `skipWorktree` を渡さない — task lifecycle は常に専用 worktree/branch を作る
     // （main を含む現在の branch がそのまま work branch になることはない）。
-    const started = await startTask({ workspaceRoot: workspace, store, policy: policyResult.document, taskSlug, issueRef });
+    const started = await startTask({ workspaceRoot: workspace, store, policy: policyResult.document, taskSlug, branchType, issueRef });
     if (!started.ok) {
       print({ ok: false, workspace, reason: started.reason, error: started.detail });
       return 1;

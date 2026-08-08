@@ -27,6 +27,21 @@ export interface TelemetrySnapshot {
   read_governor: ReadGovernorCounts;
   await: AwaitCounts;
   burst: BurstCounts;
+  /** このパッケージが生成する snapshot は常にゼロ初期化済みで返す。外部実装の後方互換性のため optional。 */
+  dedupe?: DedupeCounts;
+}
+
+export interface DedupeCounts {
+  hits: number;
+  misses: number;
+  bytes_avoided: number;
+  estimated_tokens_avoided: number;
+}
+
+export interface RecordDedupeInput {
+  hit: boolean;
+  bytesAvoided: number;
+  estimatedTokensAvoided: number;
 }
 
 /**
@@ -139,6 +154,7 @@ export interface TelemetrySink {
   recordAwait(input: RecordAwaitInput): void;
   recordBurstPressure(input: RecordBurstPressureInput): void;
   recordBurstReduced(input: RecordBurstReducedInput): void;
+  recordDedupe?(input: RecordDedupeInput): void;
   snapshot(): TelemetrySnapshot;
 }
 
@@ -150,6 +166,7 @@ interface TelemetryState {
   read_governor: ReadGovernorCounts;
   await: AwaitCounts;
   burst: BurstCounts;
+  dedupe: DedupeCounts;
 }
 
 function emptyCounts(): TelemetryCounts {
@@ -160,7 +177,7 @@ function emptyState(): TelemetryState {
   return {
     totals: { ...emptyCounts(), retrievals: 0 }, by_provider: {}, by_capability: {},
     projection: emptyProjection(), read_governor: emptyReadGovernor(), await: emptyAwait(),
-    burst: emptyBurst(),
+    burst: emptyBurst(), dedupe: emptyDedupe(),
   };
 }
 
@@ -200,11 +217,15 @@ function emptyBurst(): BurstCounts {
   };
 }
 
+function emptyDedupe(): DedupeCounts {
+  return { hits: 0, misses: 0, bytes_avoided: 0, estimated_tokens_avoided: 0 };
+}
+
 function cloneCounts(counts: TelemetryCounts): TelemetryCounts {
   return { ...counts };
 }
 
-function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" | "by_provider" | "by_capability" | "projection" | "read_governor" | "await" | "burst"> {
+function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" | "by_provider" | "by_capability" | "projection" | "read_governor" | "await" | "burst" | "dedupe"> {
   return {
     totals: { ...state.totals },
     by_provider: Object.fromEntries(
@@ -222,6 +243,7 @@ function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" 
     },
     await: { ...state.await },
     burst: { ...state.burst },
+    dedupe: { ...state.dedupe },
   };
 }
 
@@ -301,6 +323,9 @@ function loadState(filePath: string): TelemetryState | undefined {
     const burst = typeof parsed.burst === "object" && parsed.burst !== null
       ? parsed.burst as Record<string, unknown>
       : {};
+    const dedupe = typeof parsed.dedupe === "object" && parsed.dedupe !== null
+      ? parsed.dedupe as Record<string, unknown>
+      : {};
     return {
       totals: totals as TelemetryState["totals"],
       by_provider: byProvider as Record<string, TelemetryCounts>,
@@ -334,6 +359,12 @@ function loadState(filePath: string): TelemetryState | undefined {
         responses_reduced: typeof burst.responses_reduced === "number" ? burst.responses_reduced : 0,
         responses_would_reduce: typeof burst.responses_would_reduce === "number" ? burst.responses_would_reduce : 0,
       },
+      dedupe: {
+        hits: typeof dedupe.hits === "number" ? dedupe.hits : 0,
+        misses: typeof dedupe.misses === "number" ? dedupe.misses : 0,
+        bytes_avoided: typeof dedupe.bytes_avoided === "number" ? dedupe.bytes_avoided : 0,
+        estimated_tokens_avoided: typeof dedupe.estimated_tokens_avoided === "number" ? dedupe.estimated_tokens_avoided : 0,
+      },
     };
   } catch {
     return undefined;
@@ -351,7 +382,7 @@ function bump(counts: TelemetryCounts, input: RecordToolCallInput): void {
 export function disabledTelemetrySnapshot(): TelemetrySnapshot {
   return {
     enabled: false, generated_at: new Date().toISOString(), totals: { ...emptyCounts(), retrievals: 0 },
-    by_provider: {}, by_capability: {}, projection: emptyProjection(), read_governor: emptyReadGovernor(), await: emptyAwait(), burst: emptyBurst(),
+    by_provider: {}, by_capability: {}, projection: emptyProjection(), read_governor: emptyReadGovernor(), await: emptyAwait(), burst: emptyBurst(), dedupe: emptyDedupe(),
   };
 }
 
@@ -364,6 +395,7 @@ const NOOP_SINK: TelemetrySink = {
   recordAwait() { /* telemetry disabled */ },
   recordBurstPressure() { /* telemetry disabled */ },
   recordBurstReduced() { /* telemetry disabled */ },
+  recordDedupe() { /* telemetry disabled */ },
   snapshot: disabledTelemetrySnapshot,
 };
 
@@ -488,6 +520,13 @@ export function createTelemetrySink(env: NodeJS.ProcessEnv = process.env): Telem
       } else {
         state.burst.responses_would_reduce += 1;
       }
+      persist();
+    },
+    recordDedupe(input) {
+      if (input.hit) state.dedupe.hits += 1;
+      else state.dedupe.misses += 1;
+      state.dedupe.bytes_avoided += Math.max(0, input.bytesAvoided);
+      state.dedupe.estimated_tokens_avoided += Math.max(0, input.estimatedTokensAvoided);
       persist();
     },
     snapshot() {

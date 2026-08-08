@@ -22,8 +22,10 @@ import type {
   ReserveTaskResult,
   ReserveWorktreeInput,
   ReserveWorktreeResult,
+  RecordValidationEvidenceInput,
   TaskId,
   TaskRecord,
+  ValidationEvidenceRecord,
   WorkflowStateStore,
   WorktreeId,
   WorktreeRecord,
@@ -106,12 +108,41 @@ function isUniqueConstraintError(err: unknown): boolean {
   return err instanceof Error && (err as NodeJS.ErrnoException).code === "ERR_SQLITE_ERROR" && err.message.includes("UNIQUE constraint failed");
 }
 
+/**
+ * `PRAGMA journal_mode = WAL` への初回切替は DB ファイルへの排他ロックを要求する。
+ * 複数プロセスが同時に同じ file-backed DB へ初回 `init()` すると、`busy_timeout`
+ * 設定後でも "database is locked" や "disk I/O error" が発生しうる（node:sqlite の
+ * DatabaseSync コンストラクタ自体はロック取得を待たない）。init 全体を対象に
+ * 短い同期リトライを行うことで、他プロセスの初回接続完了を待ってから続行する。
+ */
+function isRetryableSqliteInitError(err: unknown): boolean {
+  if (!(err instanceof Error) || (err as NodeJS.ErrnoException).code !== "ERR_SQLITE_ERROR") return false;
+  return /database is locked|disk I\/O error|SQLITE_BUSY/i.test(err.message);
+}
+
+function sleepSync(milliseconds: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+}
+
+const SQLITE_INIT_MAX_ATTEMPTS = 5;
+const SQLITE_INIT_RETRY_DELAY_MS = 50;
+
 function toHookCheckpointRecord(row: Record<string, unknown>): HookCheckpointRecord {
   return {
     instanceId: row.instance_id as RepositoryInstanceId,
     branch: row.branch as string,
     lastCheckedCommit: row.last_checked_commit as string,
     checkedAt: row.checked_at as number,
+  };
+}
+
+function toValidationEvidenceRecord(row: Record<string, unknown>): ValidationEvidenceRecord {
+  return {
+    instanceId: row.instance_id as RepositoryInstanceId,
+    headCommit: row.head_commit as string,
+    name: row.name as string,
+    status: row.status as ValidationEvidenceRecord["status"],
+    recordedAt: row.recorded_at as number,
   };
 }
 
@@ -136,27 +167,37 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
       restrictToOwner(dir, 0o700);
     }
-    const db = new DatabaseSync(this.dbPath);
-    try {
-      if (isFileBacked) restrictToOwner(this.dbPath, 0o600);
-      // busy_timeout 未設定だと、他プロセスが BEGIN IMMEDIATE で書き込みロックを
-      // 保持している間、即座に "database is locked" で失敗する（node:sqlite の
-      // DatabaseSync は既定でリトライしない）。task.ts の 2 プロセス同時
-      // reserveTask/reserveWorktree がロック解放を待って安全に直列化されるよう、
-      // ロック待ちを許容する。
-      db.exec("PRAGMA busy_timeout = 5000");
-      db.exec("PRAGMA journal_mode = WAL");
-      db.exec("PRAGMA foreign_keys = ON");
-      applyMigrations(db);
-      if (isFileBacked) {
-        restrictToOwner(`${this.dbPath}-wal`, 0o600);
-        restrictToOwner(`${this.dbPath}-shm`, 0o600);
+
+    for (let attempt = 1; ; attempt += 1) {
+      const db = new DatabaseSync(this.dbPath);
+      try {
+        if (isFileBacked) restrictToOwner(this.dbPath, 0o600);
+        // busy_timeout 未設定だと、他プロセスが BEGIN IMMEDIATE で書き込みロックを
+        // 保持している間、即座に "database is locked" で失敗する（node:sqlite の
+        // DatabaseSync は既定でリトライしない）。task.ts の 2 プロセス同時
+        // reserveTask/reserveWorktree がロック解放を待って安全に直列化されるよう、
+        // ロック待ちを許容する。
+        db.exec("PRAGMA busy_timeout = 5000");
+        // journal_mode=WAL への初回切替自体は busy_timeout の対象外の排他ロックを
+        // 要求しうるため、その失敗はここで同期リトライする（下記 catch）。
+        db.exec("PRAGMA journal_mode = WAL");
+        db.exec("PRAGMA foreign_keys = ON");
+        applyMigrations(db);
+        if (isFileBacked) {
+          restrictToOwner(`${this.dbPath}-wal`, 0o600);
+          restrictToOwner(`${this.dbPath}-shm`, 0o600);
+        }
+      } catch (err) {
+        db.close();
+        if (isFileBacked && isRetryableSqliteInitError(err) && attempt < SQLITE_INIT_MAX_ATTEMPTS) {
+          sleepSync(SQLITE_INIT_RETRY_DELAY_MS * attempt);
+          continue;
+        }
+        throw err;
       }
-    } catch (err) {
-      db.close();
-      throw err;
+      this.db = db;
+      return;
     }
-    this.db = db;
   }
 
   private handle(): DatabaseSync {
@@ -300,6 +341,24 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       .prepare("SELECT * FROM hook_checkpoints WHERE instance_id = ? AND branch = ?")
       .get(instanceId, branch) as Record<string, unknown> | undefined;
     return row === undefined ? undefined : toHookCheckpointRecord(row);
+  }
+
+  recordValidationEvidence(input: RecordValidationEvidenceInput): ValidationEvidenceRecord {
+    const db = this.handle();
+    const recordedAt = input.recordedAt ?? Date.now();
+    db.prepare(
+      `INSERT INTO validation_evidence (instance_id, head_commit, name, status, recorded_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (instance_id, head_commit, name) DO UPDATE SET status = excluded.status, recorded_at = excluded.recorded_at`,
+    ).run(input.instanceId, input.headCommit, input.name, input.status, recordedAt);
+    return { instanceId: input.instanceId, headCommit: input.headCommit, name: input.name, status: input.status, recordedAt };
+  }
+
+  listValidationEvidence(instanceId: RepositoryInstanceId, headCommit: string): ValidationEvidenceRecord[] {
+    const rows = this.handle()
+      .prepare("SELECT * FROM validation_evidence WHERE instance_id = ? AND head_commit = ?")
+      .all(instanceId, headCommit) as Record<string, unknown>[];
+    return rows.map(toValidationEvidenceRecord);
   }
 
   reserveTask(input: ReserveTaskInput): ReserveTaskResult {

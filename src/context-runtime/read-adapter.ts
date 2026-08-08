@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import type { NormalizedReadRequest, ReadFileMetadata } from "./read-policy.js";
 
@@ -5,13 +6,15 @@ const READ_SCAN_CHUNK_BYTES = 64 * 1024;
 
 export interface InspectedReadFile extends ReadFileMetadata {
   lineByteLengths: number[];
+  contentHash: string;
 }
 
-/** 本文を保持せず、policy判定に必要なbyte/line metadataだけ収集する。 */
-export async function inspectReadFile(filePath: string): Promise<InspectedReadFile> {
+/** 本文を保持せず、指定 file の SHA-256 と line metadata をストリーミングで計算する。 */
+async function scanFile(filePath: string): Promise<{ contentHash: string; lineByteLengths: number[]; byteSize: number }> {
   const handle = await fs.open(filePath, "r");
   const buffer = Buffer.alloc(READ_SCAN_CHUNK_BYTES);
   const lineByteLengths: number[] = [];
+  const contentHasher = createHash("sha256");
   let currentLineBytes = 0;
   let byteSize = 0;
   let lastByte = -1;
@@ -19,6 +22,7 @@ export async function inspectReadFile(filePath: string): Promise<InspectedReadFi
     while (true) {
       const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
       if (bytesRead === 0) break;
+      contentHasher.update(buffer.subarray(0, bytesRead));
       byteSize += bytesRead;
       for (let index = 0; index < bytesRead; index += 1) {
         const byte = buffer[index];
@@ -35,11 +39,36 @@ export async function inspectReadFile(filePath: string): Promise<InspectedReadFi
     await handle.close();
   }
   if (lineByteLengths.length === 0 || lastByte !== 0x0a) lineByteLengths.push(currentLineBytes);
+  return { contentHash: contentHasher.digest("hex"), lineByteLengths, byteSize };
+}
+
+/** 本文を保持せず、policy判定に必要なbyte/line metadataだけ収集する。 */
+export async function inspectReadFile(filePath: string): Promise<InspectedReadFile> {
+  const scanned = await scanFile(filePath);
   return {
-    lineCount: lineByteLengths.length,
-    byteSize,
-    lineByteLengths,
+    lineCount: scanned.lineByteLengths.length,
+    byteSize: scanned.byteSize,
+    lineByteLengths: scanned.lineByteLengths,
+    contentHash: scanned.contentHash,
   };
+}
+
+/**
+ * inspect 時点の content hash を、現在の file を再スキャンして得た hash と比較する。
+ * これが correctness authority であり、stat（mtime/size/inode）は使わない: 同一
+ * inode への same-size 上書き＋mtime 巻き戻しは stat 一致のまま content だけ変え
+ * 得るため、stat 一致は「hash 計算 bytes と返却 bytes が同一だった」ことの証明に
+ * ならない。一致しなければ、identity と実際に返した bytes が同一 snapshot に
+ * 束縛されている保証がないということなので、呼び出し側は fail-closed に identity
+ * を破棄する。
+ */
+export async function verifyFileContentUnchanged(filePath: string, expected: { contentHash: string }): Promise<boolean> {
+  try {
+    const rescanned = await scanFile(filePath);
+    return rescanned.contentHash === expected.contentHash;
+  } catch {
+    return false;
+  }
 }
 
 function lineStartByte(metadata: InspectedReadFile, line: number): number {
