@@ -3,6 +3,7 @@ import path from "node:path";
 import { collectDoctorReport, formatDoctorHuman } from "./commands/doctor.js";
 import { loadMottainaiConfig, loadRawConfig, resolveConfigPath, saveRawConfig } from "./config.js";
 import type { MottainaiConfig } from "./config.js";
+import { openDashboardBrowser, parseDashboardOptions, startDashboard } from "./dashboard/command.js";
 import { formatInitHuman, runInit } from "./init.js";
 import { runServer } from "./server.js";
 import { validateIssueRef, validateTaskSlug } from "./workflow/commands/validate.js";
@@ -22,6 +23,7 @@ const USAGE = `usage:
   mottainai                                      start the MCP stdio server
   mottainai init [options]                       initialize a workspace configuration
   mottainai serve                                start the MCP stdio server explicitly
+  mottainai dashboard [options]                  start the local semantic project viewer
   mottainai list                                 registered upstreams and profiles
   mottainai inspect <name>                       one upstream with defaults applied
   mottainai add <name> --command c [options]     register a stdio upstream
@@ -197,6 +199,16 @@ export async function runCli(args: string[]): Promise<number> {
       if (hasFlag(argv, "json")) print(summary);
       else console.log(formatInitHuman(summary));
       return summary.ok ? 0 : 1;
+    } else if (command === "dashboard") {
+      const dashboardOptions = parseDashboardOptions(argv);
+      const dashboard = await startDashboard({
+        ...dashboardOptions,
+        browserOpener: dashboardOptions.noOpen
+          ? undefined
+          : (url) => openDashboardBrowser(url, process.platform),
+      });
+      console.log(`Mottainai dashboard listening at ${dashboard.url}`);
+      return 0;
     } else if (command === "serve") {
   const configIndex = argv.indexOf("--config");
   if (configIndex !== -1 && argv[configIndex + 1] === undefined) fail("missing value for --config");

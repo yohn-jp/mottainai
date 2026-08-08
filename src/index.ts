@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import { runCli } from "./cli.js";
 import { resolveConfigPath } from "./config.js";
+import { closeDashboard, hasActiveDashboard } from "./dashboard/command.js";
 import { runServer } from "./server.js";
 
 const args = process.argv.slice(2);
@@ -32,4 +33,16 @@ if (args.length === 0) {
   }
 } else {
   process.exitCode = await runCli(args);
+  if (args[0] === "dashboard" && hasActiveDashboard()) {
+    const shutdown = (): void => {
+      void closeDashboard().catch((error: unknown) => {
+        console.error(error instanceof Error ? error.message : String(error));
+      }).finally(() => {
+        process.off("SIGINT", shutdown);
+        process.off("SIGTERM", shutdown);
+      });
+    };
+    process.once("SIGINT", shutdown);
+    process.once("SIGTERM", shutdown);
+  }
 }
