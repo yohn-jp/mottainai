@@ -10,6 +10,7 @@ export const OUTPUT_SCHEMA = {
     operation: { type: "string" }, status: { type: "string" }, summary: { type: "string" },
     facts: { type: "array" }, diagnostics: { type: "array" }, metrics: { type: "object" },
     result_id: { type: "string" }, truncated: { type: "boolean" }, test_results: { type: "object" },
+    projection: { type: "object" },
   },
   required: ["operation", "status", "summary", "facts", "diagnostics", "metrics", "result_id", "truncated"],
 };
@@ -35,12 +36,14 @@ export function output(
   const metrics = isRecord(details.metrics) ? details.metrics : {};
   const truncated = typeof details.truncated === "boolean" ? details.truncated : false;
   const testResults = isRecord(details.test_results) ? details.test_results : undefined;
+  const projection = isRecord(details.projection) ? details.projection : undefined;
   const extensions = Object.fromEntries(
     Object.entries(details).filter(([key]) => !RESERVED_OUTPUT_FIELDS.has(key)),
   );
   const structuredContent = {
     operation, status, summary, facts, diagnostics, metrics, result_id: resultId, truncated,
     ...(testResults === undefined ? {} : { test_results: testResults }),
+    ...(projection === undefined ? {} : { projection }),
     ...extensions,
   };
   return { content: [{ type: "text", text: summary }], structuredContent, ...(isError ? { isError: true } : {}) };

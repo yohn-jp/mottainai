@@ -427,6 +427,7 @@ function telemetrySummaryTool(telemetry?: TelemetrySink): CallToolResult {
     enabled: false, generated_at: new Date().toISOString(),
     totals: { calls: 0, errors: 0, original_bytes: 0, compressed_bytes: 0, retrievals: 0 },
     by_provider: {}, by_capability: {},
+    projection: { raw_bytes: 0, stored_bytes: 0, returned_bytes: 0, omitted_bytes: 0, projected_tokens: 0 },
   };
   if (!snapshot.enabled) {
     return output("telemetry_summary", "success", "telemetry disabled; set MOTTAINAI_TELEMETRY=1 to enable", "", {
@@ -447,10 +448,16 @@ function telemetrySummaryTool(telemetry?: TelemetrySink): CallToolResult {
     totals: snapshot.totals,
     by_provider: snapshot.by_provider,
     by_capability: snapshot.by_capability,
+    projection: snapshot.projection,
     compression_ratio: ratio,
     retrieval_rate: rate,
     generated_at: snapshot.generated_at,
-    metrics: { calls: snapshot.totals.calls, errors: snapshot.totals.errors, retrievals: snapshot.totals.retrievals },
+    metrics: {
+      calls: snapshot.totals.calls, errors: snapshot.totals.errors, retrievals: snapshot.totals.retrievals,
+      returned_bytes: snapshot.projection.returned_bytes,
+      omitted_bytes: snapshot.projection.omitted_bytes,
+      projected_tokens: snapshot.projection.projected_tokens,
+    },
   });
 }
 
@@ -676,4 +683,3 @@ function trimIncompleteUtf8(buffer: Buffer): Buffer {
   if (sequenceLength > 1 && availableBytes < sequenceLength) return buffer.subarray(0, leadIndex - 1);
   return buffer;
 }
-

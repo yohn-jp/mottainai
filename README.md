@@ -60,8 +60,11 @@ callTool result
   → known-CLI compression (test runners, linters, git status/diff, ...)
   → JSON sampling (long arrays/strings/deep nesting)
   → line filtering (dedupe, cap length)
-  → [budget truncation, if a token budget applies]
-→ compressed result to the LLM, original retrievable via mottainai_retrieve
+  → tool-local targetTokens hint
+  → retain full local evidence in ArtifactStore
+  → Context Runtime projection (summary/facts/diagnostics/metrics)
+  → authoritative final response token/byte budget
+→ bounded structured result to the LLM, original retrievable via mottainai_result_get
 ```
 
 ### Architecture layers
@@ -73,6 +76,7 @@ callTool result
 | Upstream connections | `src/upstream.ts` | spawns/connects upstream MCP servers (stdio or Streamable HTTP) |
 | Config | `src/config.ts` | loads `mottainai.config.json` (`mcpServers`, `profiles`, `gateway`) |
 | Compression | `src/compress/*` | ANSI strip, JSON sampling, line filter, known-CLI rules, code-skeleton (tree-sitter), tool-description compression |
+| Context Runtime | `src/context-runtime/*` | projects local results, applies deterministic retention priority and final token/byte budget |
 | Upstream execution | `src/upstream-call.ts` | shared start → call → log → compress → retain-original pipeline |
 | Tool catalog | `src/catalog.ts`, `src/broker.ts` | builds searchable `CatalogTool` entries; profile-based surface narrowing |
 | Adaptive routing | `src/adaptive/*` | task classification intake, capability→provider index, trace recording, stats, policy proposals |
@@ -251,7 +255,22 @@ At runtime, `mottainai_runtime_status` reports per-upstream state
 - `profiles` — named views that narrow the exposed tool surface by
   `includeCapabilities` / `denyRisk`.
 - `gateway` — cross-cutting settings: `workspaceRoot`, `activeProfile`,
-  `capabilityMap`, `toolMetadata`, `tokenBudgets`, `oauthProviderModule`.
+  `capabilityMap`, `toolMetadata`, `tokenBudgets`, `responseBudget`,
+  `oauthProviderModule`.
+
+`gateway.responseBudget` is the authoritative boundary for Mottainai-owned
+local-tool responses. Defaults: soft target 1,500 tokens, hard target 3,000
+tokens, and 12,000 bytes. `hardBytes` is the deterministic safety ceiling;
+invalid values fail configuration validation. `tokenBudgets` and the
+`mottainai_exec` `targetTokens` argument remain tool-local compression hints,
+not final response limits.
+
+Projection retention priority, from highest to lowest: operation/status/result
+identity, summary, blocking diagnostics, actionable facts, structured test and
+failure data, retrieval references, essential metrics, bounded excerpts, then
+verbose/raw fields. Omitted fields carry versioned projection metadata and a
+retrieval-available flag. Full evidence is retained before projection when a
+`result_id` is available; explicit `mottainai_result_get` is the expansion path.
 
 Credentials: never write tokens into the config file. Remote upstreams read
 header values from environment variables via `headersFromEnv` (which takes

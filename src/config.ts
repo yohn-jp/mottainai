@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import { resolveResponseBudget } from "./context-runtime/budget.js";
+import type { ProjectionBudget, ProjectionBudgetConfig } from "./context-runtime/types.js";
 import { normalizeToolMetadataOverride, RISK_VALUES } from "./adaptive/metadata.js";
 import type { ToolMetadataOverride } from "./adaptive/metadata.js";
 
@@ -100,6 +102,7 @@ export interface GatewayConfig {
   defaultTimeoutMs?: number;
   maxTimeoutMs?: number;
   maxOutputBytes?: number;
+  /** tool-local compression hint; `responseBudget` remains the final agent-visible boundary. */
   execTargetTokens?: number;
   resultTtlMs?: number;
   resultMaxEntries?: number;
@@ -117,6 +120,8 @@ export interface GatewayConfig {
    * トークン上限がかかる。解決順は tool > capability > profile > `default`。
    */
   tokenBudgets?: TokenBudgetsConfig;
+  /** 最終MCP応答の投影予算。`tokenBudgets` はtool-local hintとして別管理する。 */
+  responseBudget?: ProjectionBudgetConfig;
   /** `mottainai_worktree_new` の許可 prefix・起点ブランチ設定。省略時はツールを非公開にする。 */
   worktree?: WorktreeConfig;
   /** `mottainai_task_start`/`mottainai_task_status`（Git workflow task lifecycle）の公開可否。
@@ -138,6 +143,8 @@ export interface ResolvedGatewayConfig {
   activeProfile?: string;
   oauthProviderModule?: string;
   tokenBudgets: ResolvedTokenBudgets;
+  /** 設定省略時は安全な既定値。手書きfixture互換のためoptional型。 */
+  responseBudget?: ProjectionBudget;
   worktree?: ResolvedWorktreeConfig;
   workflowTasks: boolean;
 }
@@ -159,6 +166,7 @@ const DEFAULT_GATEWAY_CONFIG: Omit<ResolvedGatewayConfig, "workspaceRoot"> = {
   capabilityMap: {},
   toolMetadata: {},
   tokenBudgets: { tools: {}, capabilities: {}, profiles: {} },
+  responseBudget: { softTokens: 1_500, hardTokens: 3_000, hardBytes: 12_000 },
   workflowTasks: false,
 };
 
@@ -188,6 +196,7 @@ export function resolveGatewayConfig(
     toolMetadata: config?.toolMetadata ?? {},
     activeProfile: config?.activeProfile,
     tokenBudgets: resolveTokenBudgets(config?.tokenBudgets),
+    responseBudget: resolveResponseBudget(config?.responseBudget),
     worktree: resolveWorktreeConfig(config?.worktree),
     workflowTasks: config?.workflowTasks === true,
   };
@@ -316,6 +325,7 @@ function normalizeGateway(value: unknown): GatewayConfig | undefined {
     capabilityMap: stringArrayRecord(value.capabilityMap, "invalid gateway capabilityMap"),
     toolMetadata: toolMetadataRecord(value.toolMetadata, "invalid gateway toolMetadata"),
     tokenBudgets: tokenBudgetsConfig(value.tokenBudgets, "invalid gateway tokenBudgets"),
+    responseBudget: responseBudgetConfig(value.responseBudget, "invalid gateway responseBudget"),
     worktree: worktreeConfig(value.worktree, "invalid gateway worktree"),
     workflowTasks: optionalBoolean(value.workflowTasks, "invalid gateway workflowTasks"),
   };
@@ -373,6 +383,18 @@ function tokenBudgetsConfig(value: unknown, field: string): TokenBudgetsConfig |
     profiles: tokenBudgetInputRecord(value.profiles, `${field}.profiles`),
     default: value.default === undefined ? undefined : tokenBudgetInput(value.default, `${field}.default`),
   };
+}
+
+function responseBudgetConfig(value: unknown, field: string): ProjectionBudgetConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error(field);
+  const config = {
+    softTokens: positiveIntegerConfig(value.softTokens, `${field}.softTokens`),
+    hardTokens: positiveIntegerConfig(value.hardTokens, `${field}.hardTokens`),
+    hardBytes: positiveIntegerConfig(value.hardBytes, `${field}.hardBytes`),
+  };
+  resolveResponseBudget(config);
+  return config;
 }
 
 function normalizeUpstream(name: string, value: unknown): Omit<UpstreamConfig, "name"> {

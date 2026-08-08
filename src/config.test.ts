@@ -344,7 +344,25 @@ test("loadMottainaiConfig accepts tokenBudgets in tool/capability/profile/defaul
 test("resolveGatewayConfig defaults tokenBudgets to empty maps (opt-in: no config, no limit)", () => {
   const resolved = resolveGatewayConfig(undefined);
   assert.deepEqual(resolved.tokenBudgets, { tools: {}, capabilities: {}, profiles: {}, default: undefined });
+  assert.deepEqual(resolved.responseBudget, { softTokens: 1_500, hardTokens: 3_000, hardBytes: 12_000 });
   assert.equal(resolved.activeProfile, undefined);
+});
+
+test("gateway.responseBudget configures the final projection boundary and rejects unsafe values", () => {
+  const configPath = writeConfig({
+    version: 2,
+    mcpServers: { one: { command: "node" } },
+    gateway: { responseBudget: { softTokens: 500, hardTokens: 900, hardBytes: 3_600 } },
+  });
+  assert.deepEqual(loadGatewayConfig(configPath).responseBudget, { softTokens: 500, hardTokens: 900, hardBytes: 3_600 });
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({ version: 2, mcpServers: {}, gateway: { responseBudget: { hardBytes: 1_023 } } })),
+    /invalid response budget hardBytes/,
+  );
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({ version: 2, mcpServers: {}, gateway: { responseBudget: { softTokens: 900, hardTokens: 500 } } })),
+    /softTokens must not exceed hardTokens/,
+  );
 });
 
 test("resolveGatewayConfig defaults workflowTasks to false (mottainai_task_start/status stay unpublished)", () => {
