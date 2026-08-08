@@ -4,9 +4,20 @@ import type { NormalizedReadRequest, ReadFileMetadata } from "./read-policy.js";
 
 const READ_SCAN_CHUNK_BYTES = 64 * 1024;
 
+export interface FileSnapshotStat {
+  size: number;
+  mtimeMs: number;
+  ino: number;
+}
+
 export interface InspectedReadFile extends ReadFileMetadata {
   lineByteLengths: number[];
   contentHash: string;
+  snapshot: FileSnapshotStat;
+}
+
+function snapshotStat(stat: { size: number; mtimeMs: number; ino: number }): FileSnapshotStat {
+  return { size: stat.size, mtimeMs: stat.mtimeMs, ino: stat.ino };
 }
 
 /** 本文を保持せず、policy判定に必要なbyte/line metadataだけ収集する。 */
@@ -18,7 +29,9 @@ export async function inspectReadFile(filePath: string): Promise<InspectedReadFi
   let currentLineBytes = 0;
   let byteSize = 0;
   let lastByte = -1;
+  let snapshot: FileSnapshotStat;
   try {
+    snapshot = snapshotStat(await handle.stat());
     while (true) {
       const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
       if (bytesRead === 0) break;
@@ -44,7 +57,22 @@ export async function inspectReadFile(filePath: string): Promise<InspectedReadFi
     byteSize,
     lineByteLengths,
     contentHash: contentHasher.digest("hex"),
+    snapshot,
   };
+}
+
+/**
+ * inspect 時点の snapshot と現在の file state を比較する。size/mtime/inode の
+ * いずれかが変わっていれば、identity と実際に返した bytes が同一 snapshot に
+ * 束縛されている保証がない — 呼び出し側は fail-closed に identity を破棄する。
+ */
+export async function verifyFileSnapshotUnchanged(filePath: string, snapshot: FileSnapshotStat): Promise<boolean> {
+  try {
+    const current = snapshotStat(await fs.stat(filePath));
+    return current.size === snapshot.size && current.mtimeMs === snapshot.mtimeMs && current.ino === snapshot.ino;
+  } catch {
+    return false;
+  }
 }
 
 function lineStartByte(metadata: InspectedReadFile, line: number): number {

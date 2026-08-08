@@ -25,12 +25,23 @@ export interface IdentityHint {
   if_changed_from?: string;
 }
 
-/** ArtifactStore metadata に保持する identity。projection や本文は保持しない。 */
-export interface ArtifactIdentityMetadata {
+/** file の版を指す identity。read range/mode には依存しない。 */
+export interface FileContentIdentity {
   version: typeof IDENTITY_VERSION;
   content_id: string;
   adapter: "local_file_read_v1";
   source_key: string;
+}
+
+/** ArtifactStore metadata に保持する identity。projection や本文は保持しない。 */
+export interface ArtifactIdentityMetadata extends FileContentIdentity {
+  /**
+   * 保存した `selected` を生んだ元 read の projection key（range/mode/policy 由来）。
+   * content_id はファイル全体の版を指すため、これが無いと同一ファイルの異なる
+   * range/mode で保存した artifact が同じ content_id を共有し、stored_artifact_v1
+   * 側の result identity が衝突し得る。
+   */
+  origin_projection_key: string;
 }
 
 export interface ResultIdentity {
@@ -167,6 +178,7 @@ export function createStoredProjectionKey(input: {
   startLine?: number;
   maxLines?: number;
   contextLines?: number;
+  originProjectionKey: string;
 }): string {
   return `sk1:${identityDigest({ version: "stored-artifact-projection-v1", ...input })}`;
 }

@@ -14,7 +14,12 @@ import {
   resolveReadGovernorPolicy,
 } from "./context-runtime/read-policy.js";
 import type { NormalizedReadRequest, ReadDecision } from "./context-runtime/read-policy.js";
-import { inspectReadFile, readAuthorizedFile, readSemanticInspectionSource } from "./context-runtime/read-adapter.js";
+import {
+  inspectReadFile,
+  readAuthorizedFile,
+  readSemanticInspectionSource,
+  verifyFileSnapshotUnchanged,
+} from "./context-runtime/read-adapter.js";
 import {
   createIdentityHint,
   createReadProjectionKey,
@@ -22,7 +27,7 @@ import {
   isSensitiveReadPath,
   resolveFileContentIdentity,
 } from "./context-runtime/identity.js";
-import type { ArtifactIdentityMetadata } from "./context-runtime/identity.js";
+import type { ArtifactIdentityMetadata, FileContentIdentity } from "./context-runtime/identity.js";
 import { normalizeChecks, waitUntilChanged } from "./context-runtime/gh-checks.js";
 import type { CheckSnapshot, RawCheck } from "./context-runtime/gh-checks.js";
 import type { ProcessRegistry } from "./context-runtime/process-registry.js";
@@ -528,7 +533,7 @@ async function readTool(
   const contentIdentity = identitySafe
     ? await resolveFileContentIdentity(filePath, config.workspaceRoot, metadata.contentHash)
     : undefined;
-  const artifactIdentity: ArtifactIdentityMetadata | undefined = contentIdentity === undefined
+  const artifactIdentity: FileContentIdentity | undefined = contentIdentity === undefined
     ? undefined
     : {
         version: contentIdentity.version,
@@ -569,6 +574,11 @@ async function readTool(
   const semanticSource = isSemanticMode(normalized.mode) && normalized.bounded
     ? await readSemanticInspectionSource(filePath, normalized)
     : selected;
+  // hash 計算 snapshot と実際に返す bytes を束縛する TOCTOU 窓を閉じる: read 後に
+  // snapshot が変わっていれば、identity が古い hash に新しい bytes を紐付けてしまう
+  // ので fail-closed に identity を破棄する（読み取り結果自体は正常に返す）。
+  const snapshotStillValid = await verifyFileSnapshotUnchanged(filePath, metadata.snapshot);
+  const verifiedArtifactIdentity = snapshotStillValid ? artifactIdentity : undefined;
   const rawLines = normalized.startLine === undefined || normalized.endLine === undefined
     ? metadata.lineCount
     : normalized.endLine - normalized.startLine + 1;
@@ -592,15 +602,6 @@ async function readTool(
     }
   }
 
-  const sourceResultId = store.putArtifact({
-    text: selected,
-    metadata: {
-      operation: "read",
-      summary: relativePath,
-      cwd: filePath,
-      ...(artifactIdentity === undefined ? {} : { identity: artifactIdentity }),
-    },
-  });
   const diagnostics = extractionFailure
     ? [
         ...decision.diagnostics,
@@ -611,26 +612,39 @@ async function readTool(
         },
       ]
     : decision.diagnostics;
+  const readProjectionKey = createReadProjectionKey({
+    mode: normalized.mode,
+    ...(normalized.startLine === undefined ? {} : { startLine: normalized.startLine }),
+    ...(normalized.endLine === undefined ? {} : { endLine: normalized.endLine }),
+    policy: readGovernor,
+    policyRule: decision.policyRule,
+    policyReason: decision.reason,
+    diagnostics,
+    extractionFailure,
+  });
+  const storedArtifactIdentity: ArtifactIdentityMetadata | undefined = verifiedArtifactIdentity === undefined
+    ? undefined
+    : { ...verifiedArtifactIdentity, origin_projection_key: readProjectionKey };
+  const sourceResultId = store.putArtifact({
+    text: selected,
+    metadata: {
+      operation: "read",
+      summary: relativePath,
+      cwd: filePath,
+      ...(storedArtifactIdentity === undefined ? {} : { identity: storedArtifactIdentity }),
+    },
+  });
   const truncated = extractionFailure
     || semanticProjectionTruncated
     || (normalized.startLine !== undefined && (normalized.startLine > 1 || normalized.endLine !== metadata.lineCount));
   const summary = `${relativePath} lines=${rawLines}/${metadata.lineCount} mode=${normalized.mode}`;
-  const identity = artifactIdentity === undefined
+  const identity = verifiedArtifactIdentity === undefined
     ? undefined
     : createIdentityHint({
-        content_id: artifactIdentity.content_id,
+        content_id: verifiedArtifactIdentity.content_id,
         adapter: "local_file_read_v1",
-        source_key: artifactIdentity.source_key,
-        projection_key: createReadProjectionKey({
-          mode: normalized.mode,
-          ...(normalized.startLine === undefined ? {} : { startLine: normalized.startLine }),
-          ...(normalized.endLine === undefined ? {} : { endLine: normalized.endLine }),
-          policy: readGovernor,
-          policyRule: decision.policyRule,
-          policyReason: decision.reason,
-          diagnostics,
-          extractionFailure,
-        }),
+        source_key: verifiedArtifactIdentity.source_key,
+        projection_key: readProjectionKey,
         ...(ifChangedFrom === undefined ? {} : { if_changed_from: ifChangedFrom }),
       });
   telemetry?.recordReadGovernor({
@@ -737,6 +751,7 @@ function resultGetTool(args: Args, store: ArtifactStore, telemetry?: TelemetrySi
           ...(numberArg(args, "startLine") === undefined ? {} : { startLine: numberArg(args, "startLine") }),
           ...(numberArg(args, "maxLines") === undefined ? {} : { maxLines: numberArg(args, "maxLines") }),
           ...(numberArg(args, "contextLines") === undefined ? {} : { contextLines: numberArg(args, "contextLines") }),
+          originProjectionKey: retrieved.identity.origin_projection_key,
         }),
       });
   return output("result_get", "success", summary, id, {

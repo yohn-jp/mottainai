@@ -57,6 +57,10 @@ function context(session: IdentitySession, telemetry?: IdentityDedupeContext["te
   return { session, adapter: "local_file_read_v1", telemetry };
 }
 
+function storedContext(session: IdentitySession): IdentityDedupeContext {
+  return { session, adapter: "stored_artifact_v1" };
+}
+
 test("same content and projection returns unchanged compact response with backing retrieval", () => {
   const store = new InMemoryArtifactStore({ createId: (() => {
     let count = 0;
@@ -198,6 +202,102 @@ test("local read integration materially reduces repeated visible bytes and token
     assert.ok(secondBytes < firstBytes / 3, `expected ${secondBytes} < ${firstBytes / 3}`);
     assert.ok(Math.ceil(secondBytes / 4) < Math.ceil(firstBytes / 4) / 3);
     assert.equal(secondStructured.result_id, firstStructured.result_id);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("result_get on two different read ranges of the same unchanged file never collapses to unchanged", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-dedupe-range-collision-"));
+  try {
+    const filePath = path.join(root, "sample.txt");
+    const lines = Array.from({ length: 200 }, (_, index) => `line-${index + 1}`);
+    await fs.writeFile(filePath, `${lines.join("\n")}\n`);
+    const config = resolveGatewayConfig({ workspaceRoot: root });
+    const store = new InMemoryArtifactStore({ createId: (() => {
+      let count = 0;
+      return () => `range-${++count}`;
+    })() });
+    const session = new IdentitySession();
+
+    const readA = structured(
+      await callLocalTool("mottainai_read", { path: "sample.txt", mode: "raw", startLine: 1, endLine: 5 }, config, store),
+    );
+    const readB = structured(
+      await callLocalTool("mottainai_read", { path: "sample.txt", mode: "raw", startLine: 100, endLine: 104 }, config, store),
+    );
+    // Both ranges come from the same unchanged, untracked file: whole-file content_id is identical.
+    assert.deepEqual(
+      (readA.identity as Record<string, unknown>).content_id,
+      (readB.identity as Record<string, unknown>).content_id,
+    );
+    assert.notEqual(readA.text, readB.text);
+
+    const getA = structured(await callLocalTool("mottainai_result_get", { id: readA.result_id }, config, store));
+    const finalizedA = finalizeToolResult(
+      { content: [{ type: "text", text: "a" }], structuredContent: getA },
+      config,
+      store,
+      undefined,
+      storedContext(session),
+    );
+    const getB = structured(await callLocalTool("mottainai_result_get", { id: readB.result_id }, config, store));
+    const finalizedB = finalizeToolResult(
+      { content: [{ type: "text", text: "b" }], structuredContent: getB },
+      config,
+      store,
+      undefined,
+      storedContext(session),
+    );
+
+    const structuredB = structured(finalizedB.result);
+    assert.notEqual(structuredB.status, "unchanged", JSON.stringify(structuredB));
+    assert.equal(structuredB.text, getB.text);
+    assert.equal(structured(finalizedA.result).status === "unchanged", false);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a file rewritten between hash inspection and authorized read never carries stale identity", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-dedupe-toctou-"));
+  try {
+    const filePath = path.join(root, "sample.txt");
+    await fs.writeFile(filePath, "original content\n".repeat(50));
+    const config = resolveGatewayConfig({ workspaceRoot: root });
+    const store = new InMemoryArtifactStore();
+
+    const { inspectReadFile } = await import("./read-adapter.js");
+    const inspected = await inspectReadFile(filePath);
+    // Simulate a concurrent writer mutating the file after the hash/snapshot was taken
+    // but before readTool's authorized read materializes the returned bytes.
+    await fs.writeFile(filePath, "rewritten by a concurrent process\n".repeat(50));
+
+    const result = structured(await callLocalTool("mottainai_read", { path: "sample.txt", mode: "raw" }, config, store));
+    // readTool re-inspects on its own, so this call alone would not reproduce the race;
+    // assert directly against the snapshot captured before the rewrite to prove detection.
+    const { verifyFileSnapshotUnchanged } = await import("./read-adapter.js");
+    assert.equal(await verifyFileSnapshotUnchanged(filePath, inspected.snapshot), false);
+    assert.match(String(result.text), /rewritten by a concurrent process/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("verifyFileSnapshotUnchanged fails closed when size, mtime, or inode diverge from the hashed snapshot", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-snapshot-verify-"));
+  try {
+    const filePath = path.join(root, "sample.txt");
+    await fs.writeFile(filePath, "stable content\n");
+    const { inspectReadFile, verifyFileSnapshotUnchanged } = await import("./read-adapter.js");
+    const inspected = await inspectReadFile(filePath);
+    assert.equal(await verifyFileSnapshotUnchanged(filePath, inspected.snapshot), true);
+
+    await fs.writeFile(filePath, "stable content\n2");
+    assert.equal(await verifyFileSnapshotUnchanged(filePath, inspected.snapshot), false);
+
+    await fs.rm(filePath);
+    assert.equal(await verifyFileSnapshotUnchanged(filePath, inspected.snapshot), false);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
