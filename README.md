@@ -230,8 +230,8 @@ current branch itself, even on `main`. This is observation/dogfooding only:
 no commit/push/PR/cleanup exposure yet, and Mottainai's own managed write/edit
 tools don't yet enforce protected-branch rules (generated `pre-commit`/`pre-push`
 Git hooks may already block protected-branch operations independently of this;
-see `docs/workflow-policy.md`). `mottainai_worktree_new` remains
-available but is deprecated in favor of `mottainai_workflow_task_start`.
+see `docs/workflow-policy.md`). The former `mottainai_worktree_new` tool has
+been removed; use `mottainai_workflow_task_start` instead.
 
 The same three operations are available from the CLI, independent of
 `mottainai.config.json` (they act on a Git repository, given by `--workspace`
@@ -404,9 +404,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow,
 commit conventions, and compression-change rules (every compression change
 needs both a "gets shortened" test and a "must NOT be transformed" test).
 
-Project conventions for coding agents (exploration order, self-dogfooding,
-git workflow) live in [AGENTS.md](AGENTS.md) — it's the canonical source;
-`CLAUDE.md` only sets response style and points back to it.
+The bounded agent execution contract lives in [AGENTS.md](AGENTS.md). It
+points to the authoritative documents and executable rules for exploration,
+self-dogfooding, Git workflow, testing, governance, and coding standards;
+`CLAUDE.md` only sets response style.
 
 ## Security model
 

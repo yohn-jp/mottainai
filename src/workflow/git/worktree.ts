@@ -8,8 +8,8 @@ import type { WorkflowStateStore, WorktreeRecord } from "../state/store.js";
 
 /**
  * policy 駆動 worktree 作成（Issue #28 Child 4）。branch/path の命名は
- * schema 拡張ではなく固定規約とする（`mottainai_worktree_new` の既存慣習
- * `<prefix>/<slug>` を踏襲）。bootstrap コマンドも同様に固定規約
+ * schema 拡張ではなく固定規約とする（廃止済み `mottainai_worktree_new` の
+ * 慣習 `<prefix>/<slug>` を踏襲）。bootstrap コマンドも同様に固定規約
  * （`pnpm-lock.yaml` 存在時のみ `pnpm install --frozen-lockfile`）とし、
  * operator 設定可能な template 文字列は本 Issue の対象外。
  */

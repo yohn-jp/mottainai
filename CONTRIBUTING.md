@@ -60,7 +60,7 @@ the mechanical classification source.
 5. If you change the compression pipeline (`src/compress/*`), you must add
    **both** a "this gets shortened" test case and a "this must NOT be
    transformed" test case — see
-   [AGENTS.md](AGENTS.md#4-圧縮ロジックを変更するときの規約) for the full list of
+   [AGENTS.md](AGENTS.md#projection-integrity) for the full list of
    protected content (code fences, inline code, URLs, quoted strings,
    Japanese text, non-`description` JSON Schema fields, `image`/`resource`
    content, `git diff` output).
