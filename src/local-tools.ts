@@ -7,6 +7,14 @@ import { compactToBudget } from "./compress/budget.js";
 import { compressText } from "./compress/index.js";
 import { detectCodeLanguage } from "./compress/code.js";
 import type { ResolvedGatewayConfig, ResolvedWorktreeConfig } from "./config.js";
+import {
+  DEFAULT_READ_GOVERNOR_POLICY,
+  decideRead,
+  READ_MODES,
+  resolveReadGovernorPolicy,
+} from "./context-runtime/read-policy.js";
+import type { NormalizedReadRequest, ReadDecision } from "./context-runtime/read-policy.js";
+import { inspectReadFile, readAuthorizedFile, readSemanticInspectionSource } from "./context-runtime/read-adapter.js";
 import { normalizeChecks, waitUntilChanged } from "./context-runtime/gh-checks.js";
 import type { CheckSnapshot, RawCheck } from "./context-runtime/gh-checks.js";
 import type { ProcessRegistry } from "./context-runtime/process-registry.js";
@@ -48,10 +56,10 @@ export const localTools: Tool[] = [
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   },
   {
-    name: "mottainai_read", description: "Read a workspace file by line range or compact code view.",
+    name: "mottainai_read", description: "Read a workspace file by auto/outline/symbol view or an explicit bounded raw range.",
     inputSchema: { type: "object", properties: {
       path: { type: "string" }, startLine: { type: "integer", minimum: 1 }, endLine: { type: "integer", minimum: 1 },
-      mode: { type: "string", enum: ["raw", "outline", "symbols", "auto"] },
+      mode: { type: "string", enum: ["raw", "outline", "symbols", "auto"], default: "auto" },
     }, required: ["path"] }, outputSchema: OUTPUT_SCHEMA, annotations: readOnly,
   },
   {
@@ -140,7 +148,7 @@ export async function callLocalTool(
     case "mottainai_exec": return execTool(args, config, store);
     case "mottainai_exec_start": return execStartTool(args, config, requireProcesses(processes));
     case "mottainai_exec_await": return execAwaitTool(args, config, store, requireProcesses(processes), telemetry, signal);
-    case "mottainai_read": return readTool(args, config, store);
+    case "mottainai_read": return readTool(args, config, store, telemetry);
     case "mottainai_search": return searchTool(args, config, store);
     case "mottainai_list": return listTool(args, config, store);
     case "mottainai_result_get": return resultGetTool(args, store, telemetry);
@@ -430,22 +438,178 @@ function nextCommand(resultId: string, failure: ExecFailure | undefined): string
   return query ? `mottainai_result_get id=${resultId} query=${JSON.stringify(query)}` : `mottainai_result_get id=${resultId}`;
 }
 
-async function readTool(args: Args, config: ResolvedGatewayConfig, store: ArtifactStore): Promise<CallToolResult> {
-  const filePath = await resolveInside(config.workspaceRoot, stringArg(args, "path", true));
+function boundedReadMessage(decision: ReadDecision): string {
+  return decision.reason.length > 256 ? `${decision.reason.slice(0, 253)}...` : decision.reason;
+}
+
+const SEMANTIC_OMISSION_MARKER = "… semantic projection omitted …";
+
+function isSemanticMode(mode: NormalizedReadRequest["mode"]): boolean {
+  return mode === "outline" || mode === "symbols";
+}
+
+/** semantic factsの先頭・末尾を残し、後段の#71 budget前にも公開量をboundedにする。 */
+function boundedSemanticView(text: string, maxLines: number, maxBytes: number): string {
+  const byteLimit = Math.max(1, maxBytes);
+  const lines = text.split("\n");
+  const lineLimit = Math.min(Math.max(1, maxLines), lines.length);
+  if (lines.length <= lineLimit && Buffer.byteLength(text, "utf8") <= byteLimit) return text;
+
+  let head = Math.floor((lineLimit - 1) / 2);
+  let tail = Math.ceil((lineLimit - 1) / 2);
+  while (head > 0 || tail > 0) {
+    const tailStart = Math.max(head, lines.length - tail);
+    const candidate = [
+      ...lines.slice(0, head),
+      SEMANTIC_OMISSION_MARKER,
+      ...lines.slice(tailStart),
+    ].join("\n");
+    if (Buffer.byteLength(candidate, "utf8") <= byteLimit) return candidate;
+    if (head >= tail && head > 0) head -= 1;
+    else if (tail > 0) tail -= 1;
+  }
+
+  return trimIncompleteUtf8(Buffer.from(SEMANTIC_OMISSION_MARKER).subarray(0, byteLimit)).toString("utf8");
+}
+
+function readReasonCategory(decision: ReadDecision, extractionFailure = false): string {
+  if (extractionFailure) return "extraction_failure";
+  if (decision.policyRule === "NONE") return "within_policy";
+  if (decision.policyRule === "AUTO_BOUNDED_REPRESENTATION") return "semantic_projection";
+  if (decision.policyRule === "BOUNDED_RANGE") return "bounded_range";
+  if (decision.policyRule.includes("BYTE")) return "byte_limit";
+  if (decision.policyRule.includes("LINE")) return "line_limit";
+  if (
+    decision.policyRule.includes("BOUNDARY")
+    || decision.policyRule.includes("RANGE")
+    || decision.policyRule === "INVALID_FILE_METADATA"
+  ) return "boundary";
+  return "policy";
+}
+
+async function readTool(
+  args: Args,
+  config: ResolvedGatewayConfig,
+  store: ArtifactStore,
+  telemetry?: TelemetrySink,
+): Promise<CallToolResult> {
+  const requestedPath = stringArg(args, "path", true)!;
+  const filePath = await resolveInside(config.workspaceRoot, requestedPath);
   const stat = await fs.stat(filePath);
   if (!stat.isFile()) throw new Error("path must be a file");
-  const raw = await fs.readFile(filePath, "utf8");
-  const start = numberArg(args, "startLine") ?? 1;
-  const end = numberArg(args, "endLine");
-  if (start < 1 || (end !== undefined && end < start)) throw new Error("invalid line range");
-  const selected = raw.split("\n").slice(start - 1, end).join("\n");
-  const requestedMode = stringArg(args, "mode") ?? "auto";
-  if (!new Set(["raw", "outline", "symbols", "auto"]).has(requestedMode)) throw new Error("invalid mode");
-  const mode = requestedMode === "auto" ? (selected.length > 12_000 ? "outline" : "raw") : requestedMode;
-  const text = mode === "raw" ? selected : codeView(selected, mode, filePath);
-  const summary = `${path.relative(config.workspaceRoot, filePath)} lines=${selected.split("\n").length} mode=${mode}`;
-  const resultId = store.putArtifact({ text: selected, metadata: { operation: "read", summary, cwd: filePath } });
-  return output("read", "success", summary, resultId, { path: path.relative(config.workspaceRoot, filePath), mode, text, metrics: { raw_bytes: Buffer.byteLength(selected) } });
+
+  const modeValue = stringArg(args, "mode");
+  if (modeValue !== undefined && !(READ_MODES as readonly string[]).includes(modeValue)) throw new Error("invalid mode");
+  const request = {
+    path: path.relative(config.workspaceRoot, filePath),
+    ...(modeValue === undefined ? {} : { mode: modeValue as typeof READ_MODES[number] }),
+    ...(numberArg(args, "startLine") === undefined ? {} : { startLine: numberArg(args, "startLine") }),
+    ...(numberArg(args, "endLine") === undefined ? {} : { endLine: numberArg(args, "endLine") }),
+  };
+  const metadata = await inspectReadFile(filePath);
+  const readGovernor = resolveReadGovernorPolicy(config.readGovernor ?? DEFAULT_READ_GOVERNOR_POLICY);
+  const decision = decideRead(request, metadata, readGovernor);
+  const relativePath = request.path || ".";
+  const normalized = decision.normalizedRequest;
+
+  if (!decision.allowed) {
+    telemetry?.recordReadGovernor({
+      action: decision.action,
+      requestedMode: decision.requestedMode,
+      rawLinesReturned: 0,
+      rawBytesReturned: 0,
+      policyRule: decision.policyRule,
+      reasonCategory: readReasonCategory(decision),
+    });
+    const summary = `DENY ${relativePath} mode=${decision.requestedMode} rule=${decision.policyRule}`;
+    return output("read", "partial", summary, "", {
+      path: relativePath,
+      mode: decision.requestedMode,
+      requested_mode: decision.requestedMode,
+      file_line_count: metadata.lineCount,
+      file_bytes: metadata.byteSize,
+      policy: decision.policy,
+      policy_action: decision.action,
+      policy_rule: decision.policyRule,
+      policy_reason: boundedReadMessage(decision),
+      next_actions: decision.suggestedNextActions,
+      facts: [{ kind: "read_governor", action: decision.action, rule: decision.policyRule }],
+      diagnostics: decision.diagnostics,
+      metrics: { raw_lines_returned: 0, raw_bytes_returned: 0, file_lines: metadata.lineCount, file_bytes: metadata.byteSize },
+      truncated: true,
+    });
+  }
+
+  const selected = await readAuthorizedFile(filePath, metadata, normalized);
+  const semanticSource = isSemanticMode(normalized.mode) && normalized.bounded
+    ? await readSemanticInspectionSource(filePath, normalized)
+    : selected;
+  const rawLines = normalized.startLine === undefined || normalized.endLine === undefined
+    ? metadata.lineCount
+    : normalized.endLine - normalized.startLine + 1;
+  const rawLinesReturned = normalized.mode === "raw" ? rawLines : 0;
+  const rawBytesReturned = normalized.mode === "raw" ? Buffer.byteLength(selected) : 0;
+  let text: string | undefined;
+  let extractionFailure = false;
+  let semanticProjectionTruncated = false;
+  if (normalized.mode === "raw") {
+    text = selected;
+  } else {
+    try {
+      const extracted = codeView(semanticSource, normalized.mode, filePath);
+      extractionFailure = semanticSource.length > 0 && extracted.trim().length === 0;
+      if (!extractionFailure) {
+        text = boundedSemanticView(extracted, readGovernor.maxRawLines, readGovernor.maxRawBytes);
+        semanticProjectionTruncated = text !== extracted;
+      }
+    } catch {
+      extractionFailure = true;
+    }
+  }
+
+  const sourceResultId = store.putArtifact({
+    text: selected,
+    metadata: { operation: "read", summary: relativePath, cwd: filePath },
+  });
+  const diagnostics = extractionFailure
+    ? [
+        ...decision.diagnostics,
+        {
+          severity: "warning" as const,
+          code: "READ_VIEW_EXTRACTION_FAILED",
+          message: `${normalized.mode} extraction failed; source was not returned`,
+        },
+      ]
+    : decision.diagnostics;
+  const truncated = extractionFailure
+    || semanticProjectionTruncated
+    || (normalized.startLine !== undefined && (normalized.startLine > 1 || normalized.endLine !== metadata.lineCount));
+  const summary = `${relativePath} lines=${rawLines}/${metadata.lineCount} mode=${normalized.mode}`;
+  telemetry?.recordReadGovernor({
+    action: decision.action,
+    requestedMode: decision.requestedMode,
+    rawLinesReturned,
+    rawBytesReturned,
+    policyRule: decision.policyRule,
+    reasonCategory: readReasonCategory(decision, extractionFailure),
+  });
+  return output("read", extractionFailure ? "partial" : "success", summary, sourceResultId, {
+    path: relativePath,
+    mode: normalized.mode,
+    requested_mode: decision.requestedMode,
+    ...(extractionFailure ? {} : { text }),
+    file_line_count: metadata.lineCount,
+    file_bytes: metadata.byteSize,
+    policy: decision.policy,
+    policy_action: decision.action,
+    policy_rule: decision.policyRule,
+    policy_reason: boundedReadMessage(decision),
+    next_actions: decision.suggestedNextActions,
+    facts: [{ kind: "read_governor", action: decision.action, rule: decision.policyRule }],
+    diagnostics,
+    metrics: { raw_lines_returned: rawLinesReturned, raw_bytes_returned: rawBytesReturned, file_lines: metadata.lineCount, file_bytes: metadata.byteSize },
+    truncated,
+  });
 }
 
 async function searchTool(args: Args, config: ResolvedGatewayConfig, store: ArtifactStore): Promise<CallToolResult> {
@@ -545,6 +709,7 @@ function telemetrySummaryTool(telemetry?: TelemetrySink): CallToolResult {
     by_provider: snapshot.by_provider,
     by_capability: snapshot.by_capability,
     projection: snapshot.projection,
+    read_governor: snapshot.read_governor,
     burst: snapshot.burst,
     compression_ratio: ratio,
     retrieval_rate: rate,

@@ -82,8 +82,13 @@ callTool result
 | Adaptive routing | `src/adaptive/*` | task classification intake, capability→provider index, trace recording, stats, policy proposals |
 | Original retention | `src/retrieve.ts` | TTL-bounded in-memory store for pre-compression text (15 min / 200 entries by default) |
 | Local tools | `src/local-tools.ts` | gateway's own tools: `mottainai_exec`, `mottainai_read`, `mottainai_search`, `mottainai_list`, etc. |
-| Read Governor (experimental) | `src/read-governor/*` | file-class-aware read policy, currently observe/warn only |
+| Read Governor | `src/context-runtime/read-policy.ts`, `src/local-tools.ts` | progressive source disclosure for `mottainai_read`; `off` / `observe` / `warn` / `enforce` |
 | Logging | `src/logging.ts` | writes pre-compression raw records to `.mottainai/log/*.jsonl` |
+
+Context Runtime treats model context as a managed working set, not a byte
+stream to be maximally compressed. The durable rationale is in
+[ADR-0001](docs/decisions/0001-optimize-working-set-not-compression-ratio.md), with
+the supporting [2026-08-08 Headroom/Codex experiment](docs/experiments/2026-08-08-headroom-codex-ab.md).
 
 ## Supported clients
 
@@ -290,7 +295,7 @@ At runtime, `mottainai_runtime_status` reports per-upstream state
 - `profiles` — named views that narrow the exposed tool surface by
   `includeCapabilities` / `denyRisk`.
 - `gateway` — cross-cutting settings: `workspaceRoot`, `activeProfile`,
-  `capabilityMap`, `toolMetadata`, `tokenBudgets`, `responseBudget`,
+  `capabilityMap`, `toolMetadata`, `tokenBudgets`, `responseBudget`, `readGovernor`,
   `oauthProviderModule`.
 
 `gateway.responseBudget` is the authoritative boundary for Mottainai-owned
@@ -299,6 +304,14 @@ tokens, and 12,000 bytes. `hardBytes` is the deterministic safety ceiling;
 invalid values fail configuration validation. `tokenBudgets` and the
 `mottainai_exec` `targetTokens` argument remain tool-local compression hints,
 not final response limits.
+
+`gateway.readGovernor` controls progressive `mottainai_read` disclosure. The
+default `gateway.readGovernor.mode` is `"observe"`. Set
+`gateway.readGovernor.mode` to `"enforce"` to deny unrestricted raw reads of
+large files before source content is read. Pass `mode: "auto"` to
+`mottainai_read` to select a bounded representation for large files. See
+[`docs/read-governor.md`](docs/read-governor.md) for the policy modes and
+range examples.
 
 Projection retention priority, from highest to lowest: operation/status/result
 identity, summary, blocking diagnostics, actionable facts, structured test and
@@ -388,9 +401,9 @@ external sandbox story lands. Full details: [SECURITY.md](SECURITY.md).
 These are implemented and tested but not yet relied on for enforcement or
 production decisions — expect rough edges and interface changes:
 
-- **Read Governor** — currently `observe`/`warn` stage only. It classifies
-  file reads and *would* suggest a narrower/structured read, but never
-  denies a read yet.
+- **Read Governor** — active with `off`, `observe`, `warn`, and `enforce`
+  modes. In `enforce` mode, reads that exceed configured limits are denied.
+  Default mode is `observe` (telemetry only, no denial).
 - **Caller-supervised routing policy proposals** — `mottainai_policy_propose`
   generates candidate routing policies from recorded feedback, but nothing
   is applied automatically; a human must run

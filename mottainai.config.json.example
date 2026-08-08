@@ -21,6 +21,14 @@
       "softTokens": 1500,
       "hardTokens": 3000,
       "hardBytes": 12000
+    },
+    "readGovernor": {
+      "mode": "observe",
+      "maxRawLines": 400,
+      "maxRawBytes": 16384,
+      "allowWholeFileBelowLines": 120,
+      "preferAuto": true,
+      "allowWholeFile": false
     }
   }
 }

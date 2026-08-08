@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import test from "node:test";
+import fs from "node:fs/promises";
 import path from "node:path";
+import test from "node:test";
 import { assertEnvelopeShape } from "../test-support/assertions.js";
 import { writeTestConfig } from "../test-support/config-fixture.js";
 import { createTempDir } from "../test-support/tmp-dir.js";
@@ -40,7 +40,7 @@ test("gateway starts over stdio and serves local tools with a valid structured e
 test("stdio tools/call enforces the configured final response byte bound", { timeout: 15_000 }, async (t) => {
   const workspace = createTempDir(t, "mottainai-e2e-context-runtime-");
   const hardBytes = 1_600;
-  fs.writeFileSync(path.join(workspace, "large.txt"), "black-box marker\n".repeat(2_000));
+  await fs.writeFile(path.join(workspace, "large.txt"), "black-box marker\n".repeat(2_000));
   const configPath = writeTestConfig(workspace, {
     gateway: {
       workspaceRoot: ".",
@@ -60,4 +60,63 @@ test("stdio tools/call enforces the configured final response byte bound", { tim
   assert.equal(result.structuredContent.truncated, true);
   assert.equal("output" in result.structuredContent, false);
   assert.match(String(result.structuredContent.result_id), /^mx_/);
+});
+
+test("stdio tools/call cannot bypass read-governor enforce mode with mode raw", { timeout: 15_000 }, async (t) => {
+  const workspace = createTempDir(t, "mottainai-e2e-read-governor-");
+  await fs.writeFile(path.join(workspace, "large.ts"), Array.from({ length: 600 }, (_, index) => `const secret_${index} = ${index};`).join("\n"));
+  const configPath = writeTestConfig(workspace, {
+    gateway: {
+      workspaceRoot: ".",
+      readGovernor: {
+        mode: "enforce",
+        maxRawLines: 100,
+        maxRawBytes: 10_000,
+        allowWholeFileBelowLines: 20,
+        preferAuto: true,
+      },
+    },
+  });
+  const connection = await startGatewayViaStdio({ workingDirectory: workspace, configPath });
+  t.after(() => connection.close());
+
+  const result = await connection.client.callTool({
+    name: "mottainai_read",
+    arguments: { path: "large.ts", mode: "raw" },
+  });
+  assertEnvelopeShape(result.structuredContent);
+  assert.equal(result.structuredContent.status, "partial");
+  assert.equal("text" in result.structuredContent, false);
+  assert.equal((result.structuredContent as Record<string, unknown>).policy_rule, "WHOLE_FILE_RAW_LINE_LIMIT");
+  assert.doesNotMatch(JSON.stringify(result), /secret_599/);
+});
+
+test("stdio governor diagnostics remain within the final response hard cap", { timeout: 15_000 }, async (t) => {
+  const workspace = createTempDir(t, "mottainai-e2e-read-governor-budget-");
+  await fs.writeFile(path.join(workspace, "large.ts"), Array.from({ length: 600 }, (_, index) => `const secret_${index} = ${index};`).join("\n"));
+  const hardBytes = 1_600;
+  const configPath = writeTestConfig(workspace, {
+    gateway: {
+      workspaceRoot: ".",
+      responseBudget: { softTokens: 200, hardTokens: 400, hardBytes },
+      readGovernor: {
+        mode: "enforce",
+        maxRawLines: 100,
+        maxRawBytes: 10_000,
+        allowWholeFileBelowLines: 20,
+        preferAuto: true,
+      },
+    },
+  });
+  const connection = await startGatewayViaStdio({ workingDirectory: workspace, configPath });
+  t.after(() => connection.close());
+
+  const result = await connection.client.callTool({
+    name: "mottainai_read",
+    arguments: { path: "large.ts", mode: "raw" },
+  });
+  assert.ok(Buffer.byteLength(JSON.stringify(result), "utf8") <= hardBytes);
+  assertEnvelopeShape(result.structuredContent);
+  assert.equal(result.structuredContent.status, "partial");
+  assert.equal(result.isError, undefined);
 });

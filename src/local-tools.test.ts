@@ -10,6 +10,7 @@ import { DEFAULT_BURST_BUDGET_POLICY } from "./context-runtime/burst-budget.js";
 import { ProcessRegistry } from "./context-runtime/process-registry.js";
 import { DEFAULT_AWAIT_POLICY } from "./context-runtime/poll-policy.js";
 import { InMemoryArtifactStore } from "./retrieve.js";
+import { createTelemetrySink } from "./telemetry.js";
 
 async function workspace(): Promise<{ root: string; config: ResolvedGatewayConfig }> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-local-tools-"));
@@ -773,4 +774,154 @@ test("exec keeps combined stdout+stderr within maxOutputBytes for multibyte cont
   const stderrBytes = (result.metrics as Record<string, number>).stderr_bytes;
   assert.ok(stdoutBytes + stderrBytes <= limitedConfig.maxOutputBytes, `stdout(${stdoutBytes})+stderr(${stderrBytes}) must stay within maxOutputBytes(${limitedConfig.maxOutputBytes})`);
   await fs.rm(root, { recursive: true, force: true });
+});
+
+function readGovernorConfig(overrides: Record<string, unknown> = {}): ResolvedGatewayConfig["readGovernor"] {
+  return {
+    mode: "enforce",
+    maxRawLines: 100,
+    maxRawBytes: 10_000,
+    allowWholeFileBelowLines: 20,
+    preferAuto: true,
+    allowWholeFile: false,
+    ...overrides,
+  };
+}
+
+test("read governor denies large unrestricted raw before returning source content", async () => {
+  const { root, config } = await workspace();
+  const content = Array.from({ length: 600 }, (_, index) => `const secret_${index} = ${index};`).join("\n");
+  await fs.writeFile(path.join(root, "src", "large.ts"), content);
+  const store = new InMemoryArtifactStore({ createId: () => "denied" });
+  const result = structured(await callLocalTool(
+    "mottainai_read",
+    { path: "src/large.ts", mode: "raw" },
+    { ...config, readGovernor: readGovernorConfig() },
+    store,
+  ));
+  assert.equal(result.status, "partial");
+  assert.equal(result.text, undefined);
+  assert.equal(result.result_id, "");
+  assert.equal(result.policy_rule, "WHOLE_FILE_RAW_LINE_LIMIT");
+  assert.equal(result.file_line_count, 600);
+  assert.doesNotMatch(JSON.stringify(result), /secret_599/);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("read governor allows an explicit bounded raw range in enforce mode", async () => {
+  const { root, config } = await workspace();
+  await fs.writeFile(path.join(root, "src", "large.ts"), Array.from({ length: 600 }, (_, index) => `line-${index}`).join("\n"));
+  const store = new InMemoryArtifactStore({ createId: () => "bounded" });
+  const result = structured(await callLocalTool(
+    "mottainai_read",
+    { path: "src/large.ts", mode: "raw", startLine: 120, endLine: 140 },
+    { ...config, readGovernor: readGovernorConfig() },
+    store,
+  ));
+  assert.equal(result.status, "success");
+  assert.equal(result.mode, "raw");
+  assert.match(String(result.text), /^line-119\nline-120/);
+  assert.doesNotMatch(String(result.text), /line-141/);
+  assert.equal((result.metrics as Record<string, number>).raw_lines_returned, 21);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("auto uses a bounded outline for a large file and never falls back to whole raw", async () => {
+  const { root, config } = await workspace();
+  await fs.writeFile(path.join(root, "src", "large.ts"), Array.from({ length: 600 }, (_, index) => `export const value_${index} = ${index};`).join("\n"));
+  const store = new InMemoryArtifactStore({ createId: () => "auto" });
+  const result = structured(await callLocalTool(
+    "mottainai_read",
+    { path: "src/large.ts", mode: "auto" },
+    { ...config, readGovernor: readGovernorConfig() },
+    store,
+  ));
+  assert.equal(result.status, "success");
+  assert.equal(result.mode, "outline");
+  assert.equal((result.metrics as Record<string, number>).raw_lines_returned, 0);
+  assert.equal(result.truncated, true);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("semantic symbols inspect later source without exposing an unbounded raw view", async () => {
+  const { root, config } = await workspace();
+  const content = Array.from({ length: 600 }, (_, index) => `export const value_${index} = ${index};`).join("\n");
+  await fs.writeFile(path.join(root, "src", "large.ts"), content);
+  const store = new InMemoryArtifactStore({ createId: () => "semantic-tail" });
+  const telemetryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-local-tools-telemetry-"));
+  const telemetry = createTelemetrySink({
+    MOTTAINAI_TELEMETRY: "1",
+    MOTTAINAI_TELEMETRY_FILE: path.join(telemetryDirectory, "summary.json"),
+  });
+  try {
+    const result = structured(await callLocalTool(
+      "mottainai_read",
+      { path: "src/large.ts", mode: "symbols" },
+      { ...config, readGovernor: readGovernorConfig({ maxRawLines: 10, maxRawBytes: 10_000 }) },
+      store,
+      undefined,
+      telemetry,
+    ));
+    assert.equal(result.status, "success");
+    assert.match(String(result.text), /value_0/);
+    assert.match(String(result.text), /value_599/);
+    assert.equal((result.metrics as Record<string, number>).raw_lines_returned, 0);
+    assert.equal((result.metrics as Record<string, number>).raw_bytes_returned, 0);
+    assert.equal(result.truncated, true);
+
+    const readTelemetry = telemetry.snapshot().read_governor;
+    assert.equal(readTelemetry.raw_lines_returned, 0);
+    assert.equal(readTelemetry.raw_bytes_returned, 0);
+    assert.deepEqual(readTelemetry.by_mode, { symbols: 1 });
+    assert.deepEqual(readTelemetry.by_rule, { AUTO_BOUNDED_REPRESENTATION: 1 });
+    assert.deepEqual(readTelemetry.by_reason_category, { semantic_projection: 1 });
+
+    const retrieved = structured(await callLocalTool("mottainai_result_get", { id: result.result_id }, config, store));
+    assert.doesNotMatch(String(retrieved.text), /value_599/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(telemetryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("outline or symbol extraction failure returns bounded diagnostics without raw fallback", async () => {
+  const { root, config } = await workspace();
+  await fs.writeFile(path.join(root, "notes.txt"), "plain text without source symbols\n");
+  const store = new InMemoryArtifactStore({ createId: () => "view-failure" });
+  const result = structured(await callLocalTool(
+    "mottainai_read",
+    { path: "notes.txt", mode: "symbols" },
+    { ...config, readGovernor: readGovernorConfig({ allowWholeFileBelowLines: 0 }) },
+    store,
+  ));
+  assert.equal(result.status, "partial");
+  assert.equal(result.text, undefined);
+  assert.ok((result.diagnostics as Array<{ code?: string }>).some((entry) => entry.code === "READ_VIEW_EXTRACTION_FAILED"));
+  assert.match(String(result.result_id), /^mx_view-failure$/);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("read rejects a symlink that resolves outside workspaceRoot", async (t) => {
+  const { root, config } = await workspace();
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-local-tools-outside-"));
+  const outsideFile = path.join(outside, "secret.ts");
+  const link = path.join(root, "src", "outside.ts");
+  await fs.writeFile(outsideFile, "export const outsideSecret = true;\n");
+  try {
+    try {
+      await fs.symlink(outsideFile, link);
+    } catch (error: unknown) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EPERM" || code === "EACCES") {
+        t.skip("symlink creation unavailable");
+        return;
+      }
+      throw error;
+    }
+    const store = new InMemoryArtifactStore({ createId: () => "symlink" });
+    await assert.rejects(() => callLocalTool("mottainai_read", { path: "src/outside.ts", mode: "raw" }, config, store), /path resolves outside workspaceRoot/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(outside, { recursive: true, force: true });
+  }
 });

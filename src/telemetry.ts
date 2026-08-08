@@ -24,6 +24,7 @@ export interface TelemetrySnapshot {
   by_provider: Record<string, TelemetryCounts>;
   by_capability: Record<string, TelemetryCounts>;
   projection: ProjectionCounts;
+  read_governor: ReadGovernorCounts;
   await: AwaitCounts;
   burst: BurstCounts;
 }
@@ -66,6 +67,27 @@ export interface ProjectionCounts {
   returned_bytes: number;
   omitted_bytes: number;
   projected_tokens: number;
+}
+
+export interface ReadGovernorCounts {
+  allow: number;
+  observe: number;
+  warn: number;
+  deny: number;
+  raw_lines_returned: number;
+  raw_bytes_returned: number;
+  by_mode: Record<string, number>;
+  by_rule: Record<string, number>;
+  by_reason_category: Record<string, number>;
+}
+
+export interface RecordReadGovernorInput {
+  action: "allow" | "observe" | "warn" | "deny";
+  requestedMode: string;
+  rawLinesReturned: number;
+  rawBytesReturned: number;
+  policyRule: string;
+  reasonCategory: string;
 }
 
 export interface RecordProjectionInput {
@@ -112,6 +134,7 @@ export interface TelemetrySink {
   readonly filePath?: string;
   recordToolCall(input: RecordToolCallInput): void;
   recordProjection(input: RecordProjectionInput): void;
+  recordReadGovernor(input: RecordReadGovernorInput): void;
   recordRetrieval(): void;
   recordAwait(input: RecordAwaitInput): void;
   recordBurstPressure(input: RecordBurstPressureInput): void;
@@ -124,6 +147,7 @@ interface TelemetryState {
   by_provider: Record<string, TelemetryCounts>;
   by_capability: Record<string, TelemetryCounts>;
   projection: ProjectionCounts;
+  read_governor: ReadGovernorCounts;
   await: AwaitCounts;
   burst: BurstCounts;
 }
@@ -135,14 +159,27 @@ function emptyCounts(): TelemetryCounts {
 function emptyState(): TelemetryState {
   return {
     totals: { ...emptyCounts(), retrievals: 0 }, by_provider: {}, by_capability: {},
-    projection: emptyProjection(),
-    await: emptyAwait(),
+    projection: emptyProjection(), read_governor: emptyReadGovernor(), await: emptyAwait(),
     burst: emptyBurst(),
   };
 }
 
 function emptyProjection(): ProjectionCounts {
   return { raw_bytes: 0, stored_bytes: 0, returned_bytes: 0, omitted_bytes: 0, projected_tokens: 0 };
+}
+
+function emptyReadGovernor(): ReadGovernorCounts {
+  return {
+    allow: 0,
+    observe: 0,
+    warn: 0,
+    deny: 0,
+    raw_lines_returned: 0,
+    raw_bytes_returned: 0,
+    by_mode: {},
+    by_rule: {},
+    by_reason_category: {},
+  };
 }
 
 function emptyAwait(): AwaitCounts {
@@ -167,7 +204,7 @@ function cloneCounts(counts: TelemetryCounts): TelemetryCounts {
   return { ...counts };
 }
 
-function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" | "by_provider" | "by_capability" | "projection" | "await" | "burst"> {
+function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" | "by_provider" | "by_capability" | "projection" | "read_governor" | "await" | "burst"> {
   return {
     totals: { ...state.totals },
     by_provider: Object.fromEntries(
@@ -177,9 +214,47 @@ function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" 
       Object.entries(state.by_capability).map(([key, counts]) => [key, cloneCounts(counts)]),
     ),
     projection: { ...state.projection },
+    read_governor: {
+      ...state.read_governor,
+      by_mode: { ...state.read_governor.by_mode },
+      by_rule: { ...state.read_governor.by_rule },
+      by_reason_category: { ...state.read_governor.by_reason_category },
+    },
     await: { ...state.await },
     burst: { ...state.burst },
   };
+}
+
+function numberRecord(value: unknown): Record<string, number> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => typeof entry === "number" && Number.isFinite(entry) && entry >= 0)
+      .map(([key, entry]) => [key, entry as number]),
+  );
+}
+
+function readGovernorState(value: unknown): ReadGovernorCounts {
+  const empty = emptyReadGovernor();
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return empty;
+  const record = value as Record<string, unknown>;
+  const counts = { ...empty };
+  for (const key of ["allow", "observe", "warn", "deny"] as const) {
+    const entry = record[key];
+    if (typeof entry === "number" && Number.isFinite(entry) && entry >= 0) counts[key] = entry;
+  }
+  const rawLinesReturned = record.raw_lines_returned ?? record.raw_lines;
+  const rawBytesReturned = record.raw_bytes_returned ?? record.raw_bytes;
+  if (typeof rawLinesReturned === "number" && Number.isFinite(rawLinesReturned) && rawLinesReturned >= 0) {
+    counts.raw_lines_returned = rawLinesReturned;
+  }
+  if (typeof rawBytesReturned === "number" && Number.isFinite(rawBytesReturned) && rawBytesReturned >= 0) {
+    counts.raw_bytes_returned = rawBytesReturned;
+  }
+  counts.by_mode = numberRecord(record.by_mode ?? record.requested_modes);
+  counts.by_rule = numberRecord(record.by_rule ?? record.policy_rules);
+  counts.by_reason_category = numberRecord(record.by_reason_category);
+  return counts;
 }
 
 export function isTelemetryEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -237,6 +312,7 @@ function loadState(filePath: string): TelemetryState | undefined {
         omitted_bytes: typeof projection.omitted_bytes === "number" ? projection.omitted_bytes : 0,
         projected_tokens: typeof projection.projected_tokens === "number" ? projection.projected_tokens : 0,
       },
+      read_governor: readGovernorState(parsed.read_governor),
       await: {
         awaits: typeof awaitRaw.awaits === "number" ? awaitRaw.awaits : 0,
         poll_count: typeof awaitRaw.poll_count === "number" ? awaitRaw.poll_count : 0,
@@ -275,7 +351,7 @@ function bump(counts: TelemetryCounts, input: RecordToolCallInput): void {
 export function disabledTelemetrySnapshot(): TelemetrySnapshot {
   return {
     enabled: false, generated_at: new Date().toISOString(), totals: { ...emptyCounts(), retrievals: 0 },
-    by_provider: {}, by_capability: {}, projection: emptyProjection(), await: emptyAwait(), burst: emptyBurst(),
+    by_provider: {}, by_capability: {}, projection: emptyProjection(), read_governor: emptyReadGovernor(), await: emptyAwait(), burst: emptyBurst(),
   };
 }
 
@@ -283,6 +359,7 @@ const NOOP_SINK: TelemetrySink = {
   enabled: false,
   recordToolCall() { /* telemetry disabled */ },
   recordProjection() { /* telemetry disabled */ },
+  recordReadGovernor() { /* telemetry disabled */ },
   recordRetrieval() { /* telemetry disabled */ },
   recordAwait() { /* telemetry disabled */ },
   recordBurstPressure() { /* telemetry disabled */ },
@@ -366,6 +443,18 @@ export function createTelemetrySink(env: NodeJS.ProcessEnv = process.env): Telem
       state.projection.returned_bytes += input.returnedBytes;
       state.projection.omitted_bytes += input.omittedBytes;
       state.projection.projected_tokens += input.projectedTokens;
+      persist();
+    },
+    recordReadGovernor(input) {
+      state.read_governor[input.action] += 1;
+      state.read_governor.raw_lines_returned += Math.max(0, input.rawLinesReturned);
+      state.read_governor.raw_bytes_returned += Math.max(0, input.rawBytesReturned);
+      state.read_governor.by_mode[input.requestedMode] =
+        (state.read_governor.by_mode[input.requestedMode] ?? 0) + 1;
+      state.read_governor.by_rule[input.policyRule] =
+        (state.read_governor.by_rule[input.policyRule] ?? 0) + 1;
+      state.read_governor.by_reason_category[input.reasonCategory] =
+        (state.read_governor.by_reason_category[input.reasonCategory] ?? 0) + 1;
       persist();
     },
     recordRetrieval() {
