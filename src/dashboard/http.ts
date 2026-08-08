@@ -1,0 +1,258 @@
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
+import {
+  SemanticQueryError,
+  boundedLimit,
+  type ChangeQuery,
+  type ComponentQuery,
+  type DependencyQuery,
+  type GraphQuery,
+  type KnowledgeQuery,
+  type RelationKind,
+  type RepositorySemanticQuery,
+} from "./query.js";
+
+export const LOOPBACK_HOST = "127.0.0.1";
+export const DEFAULT_DASHBOARD_PORT = 4317;
+const API_PREFIX = "/api/v1";
+
+export interface DashboardServerOptions {
+  query: RepositorySemanticQuery;
+  viewerHtml: string;
+  host?: string;
+  port?: number;
+}
+
+export interface DashboardServerHandle {
+  readonly host: string;
+  readonly port: number;
+  readonly url: string;
+  close(): Promise<void>;
+}
+
+interface JsonError {
+  error: {
+    code: string;
+    message: string;
+    path?: string;
+  };
+}
+
+function sendJson(response: ServerResponse, statusCode: number, body: unknown): void {
+  const payload = JSON.stringify(body);
+  response.writeHead(statusCode, {
+    "cache-control": "no-store",
+    "content-length": Buffer.byteLength(payload),
+    "content-type": "application/json; charset=utf-8",
+  });
+  response.end(payload);
+}
+
+function sendError(response: ServerResponse, statusCode: number, code: string, message: string, path?: string): void {
+  const body: JsonError = { error: { code, message, ...(path === undefined ? {} : { path }) } };
+  sendJson(response, statusCode, body);
+}
+
+function sendViewer(response: ServerResponse, html: string): void {
+  response.writeHead(200, {
+    "cache-control": "no-store",
+    "content-length": Buffer.byteLength(html),
+    "content-type": "text/html; charset=utf-8",
+  });
+  response.end(html);
+}
+
+function parseOptionalLimit(value: string | null): number | undefined {
+  if (value === null) return undefined;
+  const parsed = Number(value);
+  return boundedLimit(parsed, 1);
+}
+
+function parseRelationKinds(value: string | null): RelationKind[] | undefined {
+  if (value === null || value.trim().length === 0) return undefined;
+  const allowed: readonly RelationKind[] = [
+    "contains",
+    "owns",
+    "shares",
+    "provides",
+    "requires",
+    "depends-on",
+    "calls",
+    "references",
+    "imports",
+    "uses-package",
+    "imports-api",
+    "tests",
+    "verifies",
+    "governs",
+    "evidence-for",
+  ];
+  const requested = value.split(",").map((item) => item.trim()).filter(Boolean);
+  const invalid = requested.find((item) => !allowed.includes(item as RelationKind));
+  if (invalid !== undefined) throw new SemanticQueryError("invalid_query", `unknown relation kind: ${invalid}`);
+  return requested as RelationKind[];
+}
+
+function parseGraphQuery(url: URL): GraphQuery {
+  const limit = parseOptionalLimit(url.searchParams.get("limit"));
+  const relationKinds = parseRelationKinds(url.searchParams.get("relationKinds"));
+  return {
+    ...(url.searchParams.get("componentId") === null ? {} : { componentId: url.searchParams.get("componentId") ?? undefined }),
+    ...(url.searchParams.get("entityId") === null ? {} : { entityId: url.searchParams.get("entityId") ?? undefined }),
+    ...(relationKinds === undefined ? {} : { relationKinds }),
+    ...(limit === undefined ? {} : { limit }),
+  };
+}
+
+async function routeApi(
+  url: URL,
+  response: ServerResponse,
+  query: RepositorySemanticQuery,
+): Promise<void> {
+  const segments = url.pathname.slice(API_PREFIX.length).split("/").filter(Boolean);
+  const [resource, identifier] = segments;
+  if (segments.length === 0) {
+    sendError(response, 404, "not_found", "API route not found", url.pathname);
+    return;
+  }
+  if (resource === "project" && segments.length === 1) {
+    sendJson(response, 200, await query.getProject());
+    return;
+  }
+  if (resource === "graph" && segments.length === 1) {
+    sendJson(response, 200, await query.getGraph(parseGraphQuery(url)));
+    return;
+  }
+  if (resource === "entities" && segments.length === 2 && identifier !== undefined) {
+    const entityId = decodeURIComponent(identifier);
+    const entity = await query.getEntity(entityId);
+    if (entity === undefined) {
+      sendError(response, 404, "not_found", `unknown semantic entity: ${entityId}`, url.pathname);
+      return;
+    }
+    sendJson(response, 200, entity);
+    return;
+  }
+  if (resource === "components" && segments.length === 1) {
+    const componentQuery: ComponentQuery = {
+      ...(url.searchParams.get("search") === null ? {} : { search: url.searchParams.get("search") ?? undefined }),
+      ...(url.searchParams.get("status") === null ? {} : { status: url.searchParams.get("status") as ComponentQuery["status"] }),
+      ...(parseOptionalLimit(url.searchParams.get("limit")) === undefined
+        ? {}
+        : { limit: parseOptionalLimit(url.searchParams.get("limit")) }),
+    };
+    sendJson(response, 200, await query.listComponents(componentQuery));
+    return;
+  }
+  if (resource === "dependencies" && segments.length === 1) {
+    const dependencyQuery: DependencyQuery = {
+      ...(url.searchParams.get("componentId") === null ? {} : { componentId: url.searchParams.get("componentId") ?? undefined }),
+      ...(parseOptionalLimit(url.searchParams.get("limit")) === undefined
+        ? {}
+        : { limit: parseOptionalLimit(url.searchParams.get("limit")) }),
+    };
+    sendJson(response, 200, await query.getDependencies(dependencyQuery));
+    return;
+  }
+  if (resource === "changes" && segments.length === 1) {
+    const reviewLevel = url.searchParams.get("reviewLevel");
+    const changeQuery: ChangeQuery = reviewLevel === null ? {} : { reviewLevel: reviewLevel as ChangeQuery["reviewLevel"] };
+    sendJson(response, 200, await query.getChangeSet(changeQuery));
+    return;
+  }
+  if (resource === "knowledge" && segments.length === 1) {
+    const knowledgeQuery: KnowledgeQuery = {
+      ...(url.searchParams.get("kind") === null ? {} : { kind: url.searchParams.get("kind") as KnowledgeQuery["kind"] }),
+      ...(url.searchParams.get("status") === null ? {} : { status: url.searchParams.get("status") as KnowledgeQuery["status"] }),
+    };
+    sendJson(response, 200, await query.getKnowledge(knowledgeQuery));
+    return;
+  }
+  if (resource === "projections" && identifier === "agent" && segments.length === 3) {
+    const entityId = decodeURIComponent(segments[2] ?? "");
+    sendJson(response, 200, await query.getAgentProjection(entityId));
+    return;
+  }
+  sendError(response, 404, "not_found", "API route not found", url.pathname);
+}
+
+async function route(
+  request: IncomingMessage,
+  response: ServerResponse,
+  options: DashboardServerOptions,
+): Promise<void> {
+  const method = request.method ?? "GET";
+  const url = new URL(request.url ?? "/", `http://${options.host ?? LOOPBACK_HOST}`);
+  if (method !== "GET") {
+    response.setHeader("allow", "GET");
+    sendError(response, 405, "method_not_allowed", "dashboard accepts GET requests only", url.pathname);
+    return;
+  }
+  if (url.pathname === "/" || url.pathname === "/index.html") {
+    sendViewer(response, options.viewerHtml);
+    return;
+  }
+  if (url.pathname === API_PREFIX || url.pathname.startsWith(`${API_PREFIX}/`)) {
+    await routeApi(url, response, options.query);
+    return;
+  }
+  sendError(response, 404, "not_found", "dashboard route not found", url.pathname);
+}
+
+function errorDetails(error: unknown): { statusCode: number; code: string; message: string } {
+  if (error instanceof SemanticQueryError) {
+    return { statusCode: error.statusCode, code: error.code, message: error.message };
+  }
+  return { statusCode: 500, code: "internal_error", message: "dashboard request failed" };
+}
+
+export async function startDashboardServer(options: DashboardServerOptions): Promise<DashboardServerHandle> {
+  const host = options.host ?? LOOPBACK_HOST;
+  const port = options.port ?? DEFAULT_DASHBOARD_PORT;
+  if (!Number.isInteger(port) || port < 0 || port > 65_535) throw new Error("dashboard port must be an integer between 0 and 65535");
+  if (host !== LOOPBACK_HOST && host !== "localhost") throw new Error("dashboard host must be loopback");
+
+  const server: Server = createServer((request, response) => {
+    void route(request, response, { ...options, host }).catch((error: unknown) => {
+      if (response.headersSent) {
+        response.destroy();
+        return;
+      }
+      const details = errorDetails(error);
+      sendError(response, details.statusCode, details.code, details.message);
+    });
+  });
+
+  const address = await new Promise<AddressInfo>((resolve, reject) => {
+    const onError = (error: Error): void => {
+      server.off("listening", onListening);
+      reject(error);
+    };
+    const onListening = (): void => {
+      server.off("error", onError);
+      const bound = server.address();
+      if (bound === null || typeof bound === "string") {
+        reject(new Error("dashboard did not expose a bound address"));
+        return;
+      }
+      resolve(bound);
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(port, host);
+  });
+
+  let closed = false;
+  return {
+    host,
+    port: address.port,
+    url: `http://${host}:${address.port}/`,
+    close: () => {
+      if (closed) return Promise.resolve();
+      closed = true;
+      return new Promise<void>((resolve, reject) => {
+        server.close((error?: Error) => (error === undefined ? resolve() : reject(error)));
+      });
+    },
+  };
+}

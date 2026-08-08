@@ -1,6 +1,7 @@
 // Issue #22 package-compatible subset。full protocol/fault suiteは built dist suite にあり、
 // ここでは npm pack artifact の bin/runtime 解決と最小 MCP handshake を確認する。
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -109,6 +110,51 @@ test(
       assert.deepEqual(client.stdoutPurityViolations(), []);
     } finally {
       await cleanupClient(client, workspace);
+    }
+  },
+);
+
+test(
+  "packed artifact serves the dashboard from a consumer workspace",
+  { timeout: BLACKBOX_TIMEOUTS.test },
+  async () => {
+    const workspace = createWorkspace();
+    const child = spawn(binPath, ["dashboard", "--no-open", "--port", "0"], {
+      cwd: workspace,
+      env: isolatedEnv(workspace),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    const ready = new Promise((resolve, reject) => {
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk.toString();
+        const match = stdout.match(/Mottainai dashboard listening at (http:\/\/127\.0\.0\.1:\d+\/)/);
+        if (match?.[1] !== undefined) resolve(match[1]);
+      });
+      child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+      child.once("error", reject);
+      child.once("exit", (code) => reject(new Error(`packed dashboard exited before ready: ${code}\n${stderr}`)));
+    });
+    try {
+      const url = await ready;
+      const response = await fetch(`${url}api/v1/project`);
+      assert.equal(response.status, 200);
+      const project = await response.json();
+      assert.equal(project.project.name, "mottainai");
+      const viewer = await fetch(url);
+      assert.match(viewer.headers.get("content-type") ?? "", /^text\/html/);
+      assert.match(await viewer.text(), /Semantic Project Viewer/);
+      child.kill("SIGTERM");
+      const exit = await new Promise((resolve, reject) => {
+        child.once("error", reject);
+        child.once("exit", (code, signal) => resolve({ code, signal }));
+      });
+      assert.equal(exit.code, 0);
+      assert.equal(exit.signal, null);
+    } finally {
+      if (!child.killed) child.kill("SIGTERM");
+      fs.rmSync(workspace, { recursive: true, force: true });
     }
   },
 );

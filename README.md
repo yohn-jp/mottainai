@@ -196,6 +196,21 @@ npx -y mottainai list
 npx -y mottainai inspect codegraph
 ```
 
+### Semantic Project Viewer (Issue #83)
+
+Launch the local fixture-backed, read-only Semantic Project Viewer:
+
+```bash
+npx -y mottainai dashboard
+npx -y mottainai dashboard --no-open --port 4317
+```
+
+The dashboard binds loopback, serves the versioned `/api/v1/*` Query API from
+the same process, and opens a browser where practical. The canonical visual
+reference is `docs/mockups/semantic-project-viewer-v2.html`; the design
+contract is `docs/design/repository-semantic-model-v1.ts`. Fixture values are
+explicitly marked as fixture data and are not live repository analysis.
+
 ### Git workflow task lifecycle (early exposure, Issue #34)
 
 Behind `gateway.workflowTasks: true` in `mottainai.config.json`, the MCP

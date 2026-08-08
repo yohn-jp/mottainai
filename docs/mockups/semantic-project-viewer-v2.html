@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mottainai Semantic Project Viewer v2</title>
+<style>
+:root{
+  --bg:#080b10;--panel:#0f141c;--panel2:#121923;--panel3:#0b1017;--line:#212b38;
+  --text:#e8edf5;--muted:#8a96a7;--muted2:#617083;--blue:#8ca8ff;--cyan:#70d7e7;
+  --green:#68d9a0;--yellow:#f3c66e;--red:#ff8181;--purple:#b69dff;--orange:#f1a672;
+}
+*{box-sizing:border-box} html,body{height:100%} body{margin:0;background:var(--bg);color:var(--text);font:12px/1.45 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;overflow:hidden}
+button,input{font:inherit}.app{height:100%;display:grid;grid-template-columns:220px 1fr 380px;grid-template-rows:56px 1fr}
+.top{grid-column:1/-1;display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--line);background:#090d13;z-index:20}
+.logo{width:28px;height:28px;border:1px solid #41506a;border-radius:8px;display:grid;place-items:center;background:#101725;color:var(--blue);font-weight:800}
+.brand{font-weight:700;font-size:14px}.repo{padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:#0c1118;color:#c6cfdb}.repo span{color:var(--muted);margin-left:6px}
+.search{flex:1;max-width:620px}.search input{width:100%;padding:8px 11px;border:1px solid var(--line);border-radius:8px;background:#0b1118;color:var(--text);outline:0}.search input:focus{border-color:#465e95}
+.actions{margin-left:auto;display:flex;gap:6px}.btn{border:1px solid var(--line);background:#101720;color:#c6d0dd;padding:7px 9px;border-radius:8px;cursor:pointer}.btn:hover{border-color:#40516a}.btn.primary{background:#17233b;border-color:#344d7f;color:#dde6ff}
+
+.sidebar{grid-row:2;background:#0b0f15;border-right:1px solid var(--line);overflow:auto;padding:11px 8px}.sectlabel{font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted2);padding:10px 9px 5px}
+.nav{display:flex;align-items:center;gap:8px;padding:8px 9px;border-radius:7px;color:#9ca8b7;cursor:pointer;margin:1px 0}.nav:hover{background:#111822;color:#dce3ed}.nav.active{background:#172135;color:#dfe8f7}.nav .ico{width:16px;text-align:center;color:#72829a}.nav .count{margin-left:auto;border:1px solid var(--line);border-radius:999px;padding:0 6px;font-size:9px;color:#748194}
+.sidebox{margin:12px 5px;padding:10px;border:1px solid var(--line);border-radius:9px;background:#0e141c}.sidebox .row{display:flex;justify-content:space-between;margin:5px 0}.bar{height:4px;background:#1b2430;border-radius:10px;overflow:hidden}.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--green),var(--blue))}
+.small{font-size:9px;color:var(--muted)}.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border:1px solid var(--line);border-radius:999px;font-size:9px;color:#9aa6b5;background:#101720}.badge.ok{color:var(--green);border-color:#254b3b}.badge.warn{color:var(--yellow);border-color:#514326}.badge.bad{color:var(--red);border-color:#552b30}.badge.blue{color:var(--blue)}.badge.purple{color:var(--purple)}.badge.orange{color:var(--orange)}.badge.cyan{color:var(--cyan)}
+
+.main{grid-row:2;overflow:auto;background:linear-gradient(180deg,#090d12,#0a0f16)}.page{display:none;padding:15px;min-width:980px}.page.active{display:block}.page-title{display:flex;align-items:flex-end;gap:10px;margin-bottom:12px}.page-title h1{font-size:18px;margin:0;letter-spacing:-.02em}.page-title p{margin:0;color:var(--muted);font-size:10px}.spacer{flex:1}
+.metrics{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:8px;margin-bottom:10px}.metric{border:1px solid var(--line);border-radius:9px;background:var(--panel);padding:10px}.metric .k{font-size:9px;color:var(--muted2);text-transform:uppercase;letter-spacing:.08em}.metric .v{font-size:20px;font-weight:750;margin-top:2px}.metric .d{font-size:9px;color:var(--muted);margin-top:1px}.good{color:var(--green)!important}.warning{color:var(--yellow)!important}.danger{color:var(--red)!important}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) 315px;gap:9px}.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px}.card{border:1px solid var(--line);border-radius:10px;background:var(--panel);overflow:hidden}.head{height:42px;display:flex;align-items:center;gap:7px;padding:0 11px;border-bottom:1px solid var(--line)}.head strong{font-size:11px}.pad{padding:10px}.stack{display:grid;gap:9px}
+.segment{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}.segment button{border:0;border-right:1px solid var(--line);background:#0d131b;color:#718095;padding:5px 7px;font-size:9px;cursor:pointer}.segment button:last-child{border:0}.segment button.active{background:#1a2436;color:#e0e8f5}
+.table{width:100%;border-collapse:collapse}.table th{text-align:left;color:#657286;font-size:9px;font-weight:500;padding:7px;border-bottom:1px solid var(--line)}.table td{padding:8px 7px;border-bottom:1px solid #19212c;color:#b8c2d0;font-size:10px}.table tr{cursor:pointer}.table tr:hover td{background:#111923}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+
+.graph{height:548px;position:relative;background:
+radial-gradient(circle at 34% 30%,rgba(92,117,177,.08),transparent 34%),
+linear-gradient(#111923 1px,transparent 1px),linear-gradient(90deg,#111923 1px,transparent 1px);
+background-size:auto,27px 27px,27px 27px}.graph svg{width:100%;height:100%}.gtools{position:absolute;top:9px;left:9px;display:flex;gap:5px;z-index:4}.chip{border:1px solid var(--line);background:rgba(10,15,22,.94);color:#738197;border-radius:7px;padding:5px 7px;font-size:9px;cursor:pointer}.chip.on{color:#dce6fa;border-color:#435777}
+.edge{fill:none;stroke:#384555;stroke-width:1.1;opacity:.62}.edge.strong{stroke:#5f7499;stroke-width:1.5}.edge.ext{stroke:#816149}.edge.test{stroke:#3f7667;stroke-dasharray:3 4}.edge.soft{stroke-dasharray:4 5;opacity:.4}
+.node{cursor:pointer;filter:drop-shadow(0 6px 10px rgba(0,0,0,.25))}.node rect{fill:#111820;stroke:#435164;transition:.16s}.node:hover rect{stroke-width:2}.node.project rect{fill:#192440;stroke:#6c84d0}.node.comp rect{fill:#131d2b;stroke:#506884}.node.comp.bad rect{fill:#27191b;stroke:#9a5057}.node.symbol rect{fill:#0f161e;stroke:#43505e}.node.contract rect{fill:#211a2d;stroke:#745e99}.node.pkg rect{fill:#221a14;stroke:#8a694f}.node.test rect{fill:#10201b;stroke:#3e7462}.node.file rect{fill:#13181f;stroke:#586173}.node.cap rect{fill:#122023;stroke:#47767d}
+.node .t{fill:#e2e8f0;font-size:10px;font-weight:650}.node .s{fill:#788598;font-size:8px}.legend{position:absolute;left:9px;bottom:9px;display:flex;gap:5px;flex-wrap:wrap}.legend span{padding:3px 6px;border:1px solid var(--line);background:rgba(9,13,19,.92);border-radius:999px;color:#778597;font-size:8px}
+
+.feed .item,.list .item{display:flex;gap:7px;align-items:flex-start;padding:8px 0;border-bottom:1px solid #1b2330}.feed .item:last-child,.list .item:last-child{border:0}.bullet{width:22px;height:22px;border:1px solid var(--line);border-radius:6px;display:grid;place-items:center;background:#121a24}.copy{flex:1;min-width:0}.copy strong{font-size:10px;display:block}.copy span{display:block;color:var(--muted);font-size:9px;margin-top:1px}
+.statgrid{display:grid;grid-template-columns:1fr 1fr;gap:7px}.stat{border:1px solid #1c2531;background:#0d131b;border-radius:7px;padding:8px}.stat b{font-size:14px}.stat span{display:block;color:#748195;font-size:8px}
+.callout{border:1px solid #40382b;background:#17140e;border-radius:8px;padding:9px;color:#cdb98a;font-size:9px}
+.timeline{display:flex;gap:7px;align-items:center}.timeline .track{height:5px;flex:1;background:#1b2430;border-radius:99px;overflow:hidden}.timeline .track i{display:block;width:56%;height:100%;background:linear-gradient(90deg,#52688f,#7b91c0)}
+
+.dep-layout{display:grid;grid-template-columns:1fr 360px;gap:9px}.depgraph{height:500px}.riskrow{display:grid;grid-template-columns:1fr auto;gap:8px;padding:9px 0;border-bottom:1px solid #1a2330}.riskrow:last-child{border:0}.riskrow strong{font-size:10px}.riskrow .meta{font-size:8px;color:var(--muted)}
+.tree{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9px;line-height:1.8;color:#99a6b8}.tree .d1{padding-left:14px}.tree .d2{padding-left:28px}.tree .hit{color:var(--orange)}
+.change-hero{display:grid;grid-template-columns:1.15fr .85fr;gap:9px}.diffbox{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9px;line-height:1.7}.plus{color:#78dda5}.minus{color:#ff9696}.same{color:#778396}.impact-step{display:flex;gap:7px;align-items:center;padding:8px;border:1px solid #1d2633;border-radius:7px;background:#0d141c;margin-bottom:6px}.stepnum{width:23px;height:23px;border-radius:999px;display:grid;place-items:center;background:#172236;color:#9fb4ea;font-size:9px}
+.knowledge-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.docrow{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;padding:8px;border-bottom:1px solid #1a2330}.docrow:last-child{border:0}.doctype{width:27px;height:27px;border:1px solid var(--line);border-radius:7px;display:grid;place-items:center;color:#9eace0;background:#121926}
+
+.inspector{grid-row:2;border-left:1px solid var(--line);background:#0c1117;overflow:auto}.inspectHead{position:sticky;top:0;z-index:10;padding:13px;border-bottom:1px solid var(--line);background:rgba(12,17,23,.97);backdrop-filter:blur(12px)}.crumb{font-size:8px;text-transform:uppercase;letter-spacing:.11em;color:#617084}.titleline{display:flex;gap:8px;margin-top:5px}.typeicon{width:31px;height:31px;border:1px solid #42526a;border-radius:8px;display:grid;place-items:center;background:#111a27;color:#9fb6f0;font-weight:700}.titleline h2{font-size:14px;margin:0}.titleline p{font-size:9px;color:var(--muted);margin:2px 0 0}.itabs{position:sticky;top:76px;z-index:9;display:flex;padding:7px 8px;border-bottom:1px solid var(--line);background:#0c1117}.itab{padding:6px 7px;border-radius:6px;color:#748196;font-size:9px;cursor:pointer}.itab.active{background:#172136;color:#dbe5f6}
+.ipane{display:none;padding:11px}.ipane.active{display:block}.isection{margin-bottom:14px}.isection h3{font-size:9px;text-transform:uppercase;letter-spacing:.09em;color:#8794a5;margin:0 0 6px}.ibox{border:1px solid var(--line);border-radius:8px;background:#0f151d;padding:8px}.kv{display:grid;grid-template-columns:105px 1fr;gap:5px 7px;font-size:9px}.kv dt{color:#657286}.kv dd{margin:0;color:#bdc7d4}.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:8.5px;line-height:1.6;color:#aebbd0;white-space:pre-wrap}
+.pillset{display:flex;gap:4px;flex-wrap:wrap}.infoitem{display:flex;gap:7px;align-items:center;padding:6px 0;border-bottom:1px solid #19222d}.infoitem:last-child{border:0}.infoitem .main{flex:1}.infoitem b{font-size:9px}.infoitem span{font-size:8px;color:#748195;display:block}
+.note{padding:8px;border:1px dashed #2b3747;border-radius:7px;color:#6f7d90;font-size:8.5px}
+
+@media(max-width:1250px){.app{grid-template-columns:190px 1fr 340px}.metrics{grid-template-columns:repeat(3,1fr)}}
+</style>
+</head>
+<body>
+<div class="app">
+<header class="top">
+  <div class="logo">M</div><div class="brand">Mottainai</div>
+  <div class="repo">yohn-jp / mottainai <span>main · semantic snapshot</span></div>
+  <div class="search"><input id="globalSearch" placeholder="Search components, symbols, packages, contracts, decisions…"></div>
+  <div class="actions"><button class="btn" data-page="changes">Compare snapshots</button><button class="btn">Export graph</button><button class="btn primary">Semantic change</button></div>
+</header>
+
+<aside class="sidebar">
+  <div class="sectlabel">Project model</div>
+  <div class="nav active" data-page="overview"><span class="ico">◉</span>Overview</div>
+  <div class="nav" data-page="components"><span class="ico">⌘</span>Components<span class="count">12</span></div>
+  <div class="nav" data-page="dependencies"><span class="ico">↗</span>Dependencies<span class="count">9</span></div>
+  <div class="nav" data-page="changes"><span class="ico">∆</span>Change impact<span class="count">5</span></div>
+  <div class="nav" data-page="knowledge"><span class="ico">◫</span>Knowledge<span class="count">18</span></div>
+  <div class="sectlabel">Derived surfaces</div>
+  <div class="nav"><span class="ico">ƒ</span>Symbols<span class="count">146</span></div>
+  <div class="nav"><span class="ico">◇</span>Capabilities<span class="count">18</span></div>
+  <div class="nav"><span class="ico">□</span>Contracts<span class="count">34</span></div>
+  <div class="nav"><span class="ico">△</span>Invariants<span class="count">21</span></div>
+  <div class="nav"><span class="ico">✓</span>Evidence<span class="count">428</span></div>
+  <div class="nav"><span class="ico">▤</span>Files / modules<span class="count">92</span></div>
+  <div class="sectlabel">Runtime & review</div>
+  <div class="nav"><span class="ico">⚑</span>Review queue<span class="count">2</span></div>
+  <div class="nav"><span class="ico">⎇</span>Worktrees<span class="count">4</span></div>
+  <div class="nav"><span class="ico">⌁</span>Source escape hatch</div>
+  <div class="sidebox">
+    <div class="small">Semantic coverage</div>
+    <div class="row"><strong>81.4%</strong><span class="badge ok">healthy</span></div>
+    <div class="bar"><i style="width:81.4%"></i></div>
+    <div class="small" style="margin-top:6px">12 managed · 3 partial · 7 symbols unowned</div>
+  </div>
+</aside>
+
+<main class="main">
+
+<!-- OVERVIEW -->
+<section class="page active" id="page-overview">
+  <div class="page-title"><div><h1>Project overview</h1><p>Project status without opening source code.</p></div><div class="spacer"></div><span class="badge blue">live semantic model</span><span class="badge">snapshot main@e8fea09</span></div>
+  <div class="metrics">
+    <div class="metric"><div class="k">Project health</div><div class="v">96.2</div><div class="d good">+1.8 vs main~7</div></div>
+    <div class="metric"><div class="k">Components</div><div class="v">12</div><div class="d">9 managed · 3 partial</div></div>
+    <div class="metric"><div class="k">Semantic deltas</div><div class="v">5</div><div class="d warning">2 need review</div></div>
+    <div class="metric"><div class="k">Conformance</div><div class="v">33/34</div><div class="d danger">1 contract violation</div></div>
+    <div class="metric"><div class="k">Evidence freshness</div><div class="v">98.7%</div><div class="d good">422 / 428 current</div></div>
+    <div class="metric"><div class="k">External deps</div><div class="v">9</div><div class="d">4 runtime · 5 dev/build</div></div>
+  </div>
+  <div class="grid2">
+    <div class="card">
+      <div class="head"><strong>Project semantic graph</strong><span class="badge">Project → Component → Symbol → Evidence / Package</span><div class="spacer"></div><div class="segment"><button class="active">Semantic</button><button>Implementation</button><button>Evidence</button><button>All</button></div></div>
+      <div class="graph">
+        <div class="gtools"><span class="chip on">Ownership</span><span class="chip on">Impact</span><span class="chip on">External</span><span class="chip">Files</span><span class="chip">Tests</span></div>
+        <svg viewBox="0 0 900 548">
+          <path class="edge strong" d="M125 266 C220 140 265 125 335 121"/><path class="edge strong" d="M125 266 C220 225 270 220 335 220"/><path class="edge strong" d="M125 266 C220 315 270 330 335 326"/><path class="edge strong" d="M125 266 C220 400 275 430 335 430"/>
+          <path class="edge" d="M455 121 C510 100 540 100 586 98"/><path class="edge" d="M455 121 C510 135 540 145 586 148"/><path class="edge test" d="M455 121 C540 45 620 55 710 61"/>
+          <path class="edge" d="M455 220 C510 205 545 205 590 205"/><path class="edge" d="M455 220 C510 245 545 260 590 260"/><path class="edge test" d="M455 220 C550 175 630 180 710 184"/>
+          <path class="edge" d="M455 326 C510 325 545 326 590 326"/><path class="edge ext" d="M455 326 C535 385 620 398 710 405"/>
+          <path class="edge" d="M455 430 C510 430 548 430 594 430"/><path class="edge ext" d="M455 430 C535 485 615 486 710 487"/>
+          <path class="edge soft" d="M700 98 C750 105 780 115 812 125"/><path class="edge soft" d="M700 148 C750 150 780 154 812 156"/><path class="edge soft" d="M700 205 C752 210 780 214 812 214"/><path class="edge soft" d="M700 260 C752 272 780 280 812 286"/>
+
+          <g class="node project" data-entity="project" transform="translate(58 232)"><rect width="112" height="66" rx="11"/><text class="t" x="12" y="23">mottainai</text><text class="s" x="12" y="40">Project</text><text class="s" x="12" y="54">12 components</text></g>
+          <g class="node comp" data-entity="context" transform="translate(335 91)"><rect width="126" height="58" rx="9"/><text class="t" x="11" y="21">Context Runtime</text><text class="s" x="11" y="37">healthy · 23 symbols</text><text class="s" x="11" y="49">context.projection</text></g>
+          <g class="node comp bad" data-entity="read" transform="translate(335 190)"><rect width="126" height="58" rx="9"/><text class="t" x="11" y="21">Read Authorization</text><text class="s" x="11" y="37">review · 8 symbols</text><text class="s" x="11" y="49">1 violation</text></g>
+          <g class="node comp" data-entity="workflow" transform="translate(335 296)"><rect width="126" height="58" rx="9"/><text class="t" x="11" y="21">Workflow Runtime</text><text class="s" x="11" y="37">healthy · 17 symbols</text><text class="s" x="11" y="49">workflow.lifecycle</text></g>
+          <g class="node comp" data-entity="semantic" transform="translate(335 400)"><rect width="126" height="58" rx="9"/><text class="t" x="11" y="21">Semantic Core</text><text class="s" x="11" y="37">planned / partial</text><text class="s" x="11" y="49">repository.model</text></g>
+
+          <g class="node symbol" data-entity="projectResult" transform="translate(586 78)"><rect width="115" height="40" rx="7"/><text class="t" x="9" y="16">projectResult()</text><text class="s" x="9" y="30">pure · fan-in 9</text></g>
+          <g class="node contract" data-entity="hardBudget" transform="translate(586 128)"><rect width="115" height="40" rx="7"/><text class="t" x="9" y="16">Hard Budget</text><text class="s" x="9" y="30">protected contract</text></g>
+          <g class="node symbol" data-entity="decideRead" transform="translate(590 185)"><rect width="115" height="40" rx="7"/><text class="t" x="9" y="16">decideRead()</text><text class="s" x="9" y="30">pure · fan-in 3</text></g>
+          <g class="node symbol" data-entity="inspectRead" transform="translate(590 240)"><rect width="115" height="40" rx="7"/><text class="t" x="9" y="16">inspectReadFile()</text><text class="s" x="9" y="30">fs.read · boundary</text></g>
+          <g class="node symbol" data-entity="guardWrite" transform="translate(590 306)"><rect width="115" height="40" rx="7"/><text class="t" x="9" y="16">guardWrite()</text><text class="s" x="9" y="30">policy · fan-in 6</text></g>
+          <g class="node symbol" data-entity="compileModel" transform="translate(594 410)"><rect width="115" height="40" rx="7"/><text class="t" x="9" y="16">compileModel()</text><text class="s" x="9" y="30">planned · derived</text></g>
+
+          <g class="node test" data-entity="contextTests" transform="translate(710 42)"><rect width="112" height="38" rx="7"/><text class="t" x="8" y="16">317 tests</text><text class="s" x="8" y="29">evidence · current</text></g>
+          <g class="node test" data-entity="readTests" transform="translate(710 165)"><rect width="112" height="38" rx="7"/><text class="t" x="8" y="16">Read black-box</text><text class="s" x="8" y="29">evidence · current</text></g>
+          <g class="node pkg" data-entity="mcp" transform="translate(710 386)"><rect width="112" height="40" rx="7"/><text class="t" x="8" y="16">@mcp/sdk</text><text class="s" x="8" y="30">npm · runtime</text></g>
+          <g class="node pkg" data-entity="tree" transform="translate(710 468)"><rect width="112" height="40" rx="7"/><text class="t" x="8" y="16">tree-sitter</text><text class="s" x="8" y="30">npm · parser</text></g>
+          <g class="node cap" data-entity="capContext" transform="translate(812 107)"><rect width="76" height="35" rx="7"/><text class="t" x="7" y="15">context.*</text><text class="s" x="7" y="27">capability</text></g>
+          <g class="node cap" data-entity="capRead" transform="translate(812 139)"><rect width="76" height="35" rx="7"/><text class="t" x="7" y="15">read.auth</text><text class="s" x="7" y="27">capability</text></g>
+          <g class="node file" data-entity="filePolicy" transform="translate(812 198)"><rect width="76" height="35" rx="7"/><text class="t" x="7" y="15">read-policy.ts</text><text class="s" x="7" y="27">file · derived</text></g>
+          <g class="node file" data-entity="fileAdapter" transform="translate(812 269)"><rect width="76" height="35" rx="7"/><text class="t" x="7" y="15">read-adapter.ts</text><text class="s" x="7" y="27">file · boundary</text></g>
+        </svg>
+        <div class="legend"><span>Project</span><span>Component</span><span>Symbol</span><span>Contract</span><span>Evidence</span><span>Package</span><span>Capability</span><span>File</span></div>
+      </div>
+      <div class="pad timeline"><strong>Propagation</strong><span class="badge warn">main → feat/72</span><div class="track"><i></i></div><span class="small">2 / 12 components affected · boundary stops at Response Projection</span></div>
+    </div>
+    <div class="stack">
+      <div class="card"><div class="head"><strong>Review queue</strong><div class="spacer"></div><span class="badge bad">2 open</span></div><div class="pad feed">
+        <div class="item"><div class="bullet danger">!</div><div class="copy"><strong>Read Authorization</strong><span>pure → filesystem.read · protected contract</span></div><span class="badge bad">L3</span></div>
+        <div class="item"><div class="bullet warning">∆</div><div class="copy"><strong>Workflow Runtime</strong><span>provided capability widened</span></div><span class="badge warn">L2</span></div>
+        <div class="item"><div class="bullet good">✓</div><div class="copy"><strong>Context Runtime</strong><span>implementation-only · evidence current</span></div><span class="badge ok">L0</span></div>
+      </div></div>
+      <div class="card"><div class="head"><strong>Static model density</strong></div><div class="pad statgrid">
+        <div class="stat"><b>146</b><span>symbols indexed</span></div><div class="stat"><b>312</b><span>call edges</span></div>
+        <div class="stat"><b>92</b><span>files/modules</span></div><div class="stat"><b>41</b><span>external imports</span></div>
+        <div class="stat"><b>18</b><span>capabilities</span></div><div class="stat"><b>7</b><span>unowned symbols</span></div>
+      </div></div>
+      <div class="card"><div class="head"><strong>Model gaps</strong></div><div class="pad feed">
+        <div class="item"><div class="bullet">?</div><div class="copy"><strong>7 symbols unowned</strong><span>ownership not assigned</span></div></div>
+        <div class="item"><div class="bullet">~</div><div class="copy"><strong>2 effect facts inferred</strong><span>advisory only</span></div></div>
+        <div class="item"><div class="bullet">↻</div><div class="copy"><strong>4 evidence links stale</strong><span>source changed after observation</span></div></div>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<!-- COMPONENTS -->
+<section class="page" id="page-components">
+  <div class="page-title"><div><h1>Components</h1><p>Responsibility units, owned symbols, contracts, effects, dependencies and implementation shape.</p></div><div class="spacer"></div><button class="btn">Auto-cluster suggestion</button><button class="btn primary">Create component</button></div>
+  <div class="metrics">
+    <div class="metric"><div class="k">Managed</div><div class="v">9</div><div class="d good">fully modeled</div></div>
+    <div class="metric"><div class="k">Partial</div><div class="v">3</div><div class="d warning">missing contracts/evidence</div></div>
+    <div class="metric"><div class="k">Avg symbols</div><div class="v">12.2</div><div class="d">per component</div></div>
+    <div class="metric"><div class="k">Cross edges</div><div class="v">27</div><div class="d">component dependencies</div></div>
+    <div class="metric"><div class="k">Cycles</div><div class="v">1</div><div class="d danger">architecture smell</div></div>
+    <div class="metric"><div class="k">Shared symbols</div><div class="v">11</div><div class="d">generic utilities</div></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><div class="head"><strong>Component inventory</strong><div class="spacer"></div><span class="badge">sorted by semantic risk</span></div>
+      <table class="table">
+        <thead><tr><th>Component</th><th>Status</th><th>Symbols</th><th>Files</th><th>Provides</th><th>Requires</th><th>Complexity</th><th>Churn</th></tr></thead>
+        <tbody>
+          <tr data-entity="read"><td><strong>Read Authorization</strong><div class="small">source disclosure policy</div></td><td><span class="badge bad">review</span></td><td>8</td><td>3</td><td>1</td><td>2</td><td>18</td><td class="warning">high</td></tr>
+          <tr data-entity="context"><td><strong>Context Runtime</strong><div class="small">result projection & budgeting</div></td><td><span class="badge ok">healthy</span></td><td>23</td><td>8</td><td>3</td><td>4</td><td>44</td><td>medium</td></tr>
+          <tr data-entity="workflow"><td><strong>Workflow Runtime</strong><div class="small">task/worktree lifecycle</div></td><td><span class="badge warn">changed</span></td><td>17</td><td>6</td><td>2</td><td>3</td><td>37</td><td>high</td></tr>
+          <tr data-entity="semantic"><td><strong>Semantic Core</strong><div class="small">repository model & projections</div></td><td><span class="badge purple">partial</span></td><td>—</td><td>—</td><td>4</td><td>5</td><td>—</td><td>new</td></tr>
+          <tr><td><strong>Code Search</strong><div class="small">search provider routing</div></td><td><span class="badge ok">healthy</span></td><td>19</td><td>7</td><td>2</td><td>5</td><td>39</td><td>medium</td></tr>
+          <tr><td><strong>Artifact Store</strong><div class="small">retrievable omitted results</div></td><td><span class="badge ok">healthy</span></td><td>10</td><td>4</td><td>1</td><td>1</td><td>16</td><td>low</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="stack">
+      <div class="card"><div class="head"><strong>Architecture signals</strong></div><div class="pad feed">
+        <div class="item"><div class="bullet danger">↻</div><div class="copy"><strong>1 component cycle</strong><span>CLI → Config → Local Tools → CLI</span></div></div>
+        <div class="item"><div class="bullet warning">↗</div><div class="copy"><strong>High fan-out: Local Tools</strong><span>requires 7 component capabilities</span></div></div>
+        <div class="item"><div class="bullet good">✓</div><div class="copy"><strong>Read Authorization cohesive</strong><span>8 / 8 symbols share one responsibility cluster</span></div></div>
+      </div></div>
+      <div class="card"><div class="head"><strong>Derived component facts</strong></div><div class="pad">
+        <div class="pillset"><span class="badge">LOC</span><span class="badge">symbol count</span><span class="badge">fan-in/out</span><span class="badge">cyclomatic complexity</span><span class="badge">import edges</span><span class="badge">effects</span><span class="badge">test links</span><span class="badge">coverage</span><span class="badge">git churn</span><span class="badge">authors</span><span class="badge">public surface</span><span class="badge">dead symbols</span></div>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<!-- DEPENDENCIES -->
+<section class="page" id="page-dependencies">
+  <div class="page-title"><div><h1>Dependency surface</h1><p>Internal capabilities and external npm packages in one dependency model.</p></div><div class="spacer"></div><span class="badge">direct + transitive + actually-used API</span></div>
+  <div class="metrics">
+    <div class="metric"><div class="k">Runtime packages</div><div class="v">4</div><div class="d">direct</div></div>
+    <div class="metric"><div class="k">Dev/build packages</div><div class="v">5</div><div class="d">direct</div></div>
+    <div class="metric"><div class="k">Imported APIs</div><div class="v">41</div><div class="d">package symbols used</div></div>
+    <div class="metric"><div class="k">Affected comps</div><div class="v">7</div><div class="d">by runtime deps</div></div>
+    <div class="metric"><div class="k">License issues</div><div class="v">0</div><div class="d good">known</div></div>
+    <div class="metric"><div class="k">Upgrade reviews</div><div class="v">2</div><div class="d warning">API surface changed</div></div>
+  </div>
+  <div class="dep-layout">
+    <div class="card"><div class="head"><strong>Dependency graph</strong><div class="spacer"></div><div class="segment"><button class="active">Used</button><button>Transitive</button><button>Package</button><button>API symbol</button></div></div>
+      <div class="graph depgraph">
+        <svg viewBox="0 0 820 500">
+          <path class="edge strong" d="M105 245 C205 135 240 120 315 115"/><path class="edge strong" d="M105 245 C210 215 250 215 315 215"/><path class="edge strong" d="M105 245 C205 330 250 340 315 340"/>
+          <path class="edge ext" d="M435 115 C510 90 550 85 620 82"/><path class="edge ext" d="M435 115 C510 145 550 155 620 157"/>
+          <path class="edge ext" d="M435 215 C510 215 550 220 620 225"/><path class="edge ext" d="M435 215 C510 270 550 300 620 310"/>
+          <path class="edge ext" d="M435 340 C510 360 550 380 620 390"/>
+          <path class="edge soft" d="M730 82 C765 90 785 105 805 120"/><path class="edge soft" d="M730 157 C765 155 785 150 805 145"/><path class="edge soft" d="M730 225 C765 235 785 245 805 254"/>
+          <g class="node project" data-entity="project" transform="translate(48 215)"><rect width="112" height="60" rx="10"/><text class="t" x="11" y="22">mottainai</text><text class="s" x="11" y="39">project dependency root</text></g>
+          <g class="node comp" data-entity="context" transform="translate(315 88)"><rect width="122" height="54" rx="9"/><text class="t" x="10" y="20">Context Runtime</text><text class="s" x="10" y="36">3 external APIs</text></g>
+          <g class="node comp" data-entity="workflow" transform="translate(315 188)"><rect width="122" height="54" rx="9"/><text class="t" x="10" y="20">Code Search</text><text class="s" x="10" y="36">parser-bound</text></g>
+          <g class="node comp" data-entity="semantic" transform="translate(315 313)"><rect width="122" height="54" rx="9"/><text class="t" x="10" y="20">Semantic Core</text><text class="s" x="10" y="36">future analyzer consumer</text></g>
+          <g class="node pkg" data-entity="mcp" transform="translate(620 60)"><rect width="115" height="44" rx="8"/><text class="t" x="9" y="17">@mcp/sdk</text><text class="s" x="9" y="32">runtime · ^1.11.0</text></g>
+          <g class="node pkg" data-entity="zod" transform="translate(620 135)"><rect width="115" height="44" rx="8"/><text class="t" x="9" y="17">zod</text><text class="s" x="9" y="32">runtime · ^3.24.4</text></g>
+          <g class="node pkg" data-entity="tree" transform="translate(620 203)"><rect width="115" height="44" rx="8"/><text class="t" x="9" y="17">tree-sitter</text><text class="s" x="9" y="32">runtime · ^0.22.4</text></g>
+          <g class="node pkg" transform="translate(620 288)"><rect width="115" height="44" rx="8"/><text class="t" x="9" y="17">ts grammar</text><text class="s" x="9" y="32">runtime · ^0.23.2</text></g>
+          <g class="node pkg" transform="translate(620 368)"><rect width="115" height="44" rx="8"/><text class="t" x="9" y="17">typescript</text><text class="s" x="9" y="32">dev/build · 5.8.3</text></g>
+          <g class="node symbol" transform="translate(745 105)"><rect width="70" height="34" rx="7"/><text class="t" x="7" y="14">Server</text><text class="s" x="7" y="26">API used</text></g>
+          <g class="node symbol" transform="translate(745 238)"><rect width="70" height="34" rx="7"/><text class="t" x="7" y="14">Parser</text><text class="s" x="7" y="26">API used</text></g>
+        </svg>
+      </div>
+    </div>
+    <div class="stack">
+      <div class="card"><div class="head"><strong>Package usage</strong></div><div class="pad">
+        <div class="riskrow" data-entity="mcp"><div><strong>@modelcontextprotocol/sdk</strong><div class="meta">3 components · 14 imported symbols · runtime</div></div><span class="badge ok">healthy</span></div>
+        <div class="riskrow" data-entity="tree"><div><strong>tree-sitter</strong><div class="meta">2 components · parser boundary · runtime</div></div><span class="badge warn">upgrade review</span></div>
+        <div class="riskrow" data-entity="zod"><div><strong>zod</strong><div class="meta">4 components · schema validation</div></div><span class="badge ok">healthy</span></div>
+      </div></div>
+      <div class="card"><div class="head"><strong>Transitive reachability</strong></div><div class="pad tree">
+        mottainai<br>
+        <span class="d1">├─ @modelcontextprotocol/sdk</span><br>
+        <span class="d2">└─ protocol transport / schemas</span><br>
+        <span class="d1 hit">├─ tree-sitter</span><br>
+        <span class="d2 hit">├─ tree-sitter-typescript</span><br>
+        <span class="d2">└─ tree-sitter-javascript</span><br>
+        <span class="d1">└─ zod</span>
+      </div></div>
+      <div class="callout">The useful unit is not merely “package.json says dependency X exists”. The model records which components and imported APIs actually depend on it, so upgrade impact can propagate through the same semantic graph.</div>
+    </div>
+  </div>
+</section>
+
+<!-- CHANGES -->
+<section class="page" id="page-changes">
+  <div class="page-title"><div><h1>Semantic change impact</h1><p>Review what changed in meaning, not only what changed in text.</p></div><div class="spacer"></div><span class="badge warn">main → feat/72-read-governor-vscode</span></div>
+  <div class="metrics">
+    <div class="metric"><div class="k">Files changed</div><div class="v">11</div><div class="d">implementation evidence</div></div>
+    <div class="metric"><div class="k">Symbols changed</div><div class="v">14</div><div class="d">derived</div></div>
+    <div class="metric"><div class="k">Components changed</div><div class="v">2</div><div class="d">semantic</div></div>
+    <div class="metric"><div class="k">Contracts touched</div><div class="v">1</div><div class="d danger">protected</div></div>
+    <div class="metric"><div class="k">Evidence stale</div><div class="v">4</div><div class="d warning">needs refresh</div></div>
+    <div class="metric"><div class="k">Source reads suggested</div><div class="v">2</div><div class="d good">instead of 11 files</div></div>
+  </div>
+  <div class="change-hero">
+    <div class="card"><div class="head"><strong>Meaning-level diff</strong><div class="spacer"></div><span class="badge bad">review L3</span></div><div class="pad diffbox">
+      <div class="same">component Read Authorization</div>
+      <div class="same">  responsibility: unchanged</div>
+      <div class="same">  provides: read.authorization (unchanged)</div>
+      <div class="minus">- actual.effects: none</div>
+      <div class="plus">+ actual.effects: filesystem.read</div>
+      <div class="same">  expected.effects: none</div>
+      <div class="plus">+ violation: contract.read-authorization.pure</div>
+      <br>
+      <div class="same">component Context Runtime</div>
+      <div class="same">  public capability: unchanged</div>
+      <div class="same">  hard budget contract: unchanged</div>
+      <div class="plus">+ implementation symbols: 3 changed</div>
+      <div class="same">  classification: implementation-only</div>
+    </div></div>
+    <div class="card"><div class="head"><strong>Impact propagation</strong></div><div class="pad">
+      <div class="impact-step"><div class="stepnum">1</div><div class="copy"><strong>Read Authorization</strong><span>effect contract violated</span></div><span class="badge bad">origin</span></div>
+      <div class="impact-step"><div class="stepnum">2</div><div class="copy"><strong>Source Inspection</strong><span>consumes read.authorization</span></div><span class="badge warn">affected</span></div>
+      <div class="impact-step"><div class="stepnum">3</div><div class="copy"><strong>Local Tool Adapter</strong><span>transitive behavior may change</span></div><span class="badge warn">affected</span></div>
+      <div class="impact-step"><div class="stepnum">■</div><div class="copy"><strong>Response Projection</strong><span>component contract absorbs propagation</span></div><span class="badge ok">stop</span></div>
+    </div></div>
+  </div>
+  <div class="grid3" style="margin-top:9px">
+    <div class="card"><div class="head"><strong>Recommended validation</strong></div><div class="pad list">
+      <div class="item"><div class="bullet">1</div><div class="copy"><strong>read-policy unit tests</strong><span>direct contract evidence</span></div></div>
+      <div class="item"><div class="bullet">2</div><div class="copy"><strong>local-tools integration</strong><span>first dependent component</span></div></div>
+      <div class="item"><div class="bullet">3</div><div class="copy"><strong>MCP black-box</strong><span>public boundary evidence</span></div></div>
+    </div></div>
+    <div class="card"><div class="head"><strong>Recommended source reads</strong></div><div class="pad list">
+      <div class="item" data-entity="decideRead"><div class="bullet">ƒ</div><div class="copy"><strong>decideRead()</strong><span>changed contract-relevant symbol</span></div></div>
+      <div class="item" data-entity="inspectRead"><div class="bullet">ƒ</div><div class="copy"><strong>inspectReadFile()</strong><span>new fs.read effect origin</span></div></div>
+      <div class="note">Other changed files can remain unread unless validation fails or evidence is insufficient.</div>
+    </div></div>
+    <div class="card"><div class="head"><strong>Human review question</strong></div><div class="pad"><div class="callout">Is filesystem inspection intentionally part of Read Authorization, or should the effect remain in a separate boundary component? This is the only architecture-level decision surfaced by the change.</div></div></div>
+  </div>
+</section>
+
+<!-- KNOWLEDGE -->
+<section class="page" id="page-knowledge">
+  <div class="page-title"><div><h1>Project knowledge</h1><p>Decisions, policies, experiments and provenance attached to the same graph.</p></div><div class="spacer"></div><button class="btn primary">Record decision</button></div>
+  <div class="metrics">
+    <div class="metric"><div class="k">Decisions</div><div class="v">7</div><div class="d">2 protected</div></div>
+    <div class="metric"><div class="k">Policies</div><div class="v">9</div><div class="d">6 CI enforced</div></div>
+    <div class="metric"><div class="k">Experiments</div><div class="v">2</div><div class="d">1 accepted evidence</div></div>
+    <div class="metric"><div class="k">Declared facts</div><div class="v">84</div><div class="d">authoritative</div></div>
+    <div class="metric"><div class="k">Derived facts</div><div class="v">1.8k</div><div class="d">reproducible</div></div>
+    <div class="metric"><div class="k">Inferred facts</div><div class="v">12</div><div class="d warning">advisory only</div></div>
+  </div>
+  <div class="knowledge-grid">
+    <div class="card"><div class="head"><strong>Decisions & architecture</strong></div><div class="pad">
+      <div class="docrow"><div class="doctype">ADR</div><div class="copy"><strong>Optimize working-set efficiency, not compression ratio</strong><span>governs Context Runtime, Read Governor, evaluations</span></div><span class="badge ok">accepted</span></div>
+      <div class="docrow"><div class="doctype">ADR</div><div class="copy"><strong>Source is an escape hatch</strong><span>agent projection prefers semantic model</span></div><span class="badge purple">draft</span></div>
+      <div class="docrow"><div class="doctype">POL</div><div class="copy"><strong>No direct semantic YAML edits</strong><span>all mutations through Semantic API</span></div><span class="badge bad">protected</span></div>
+      <div class="docrow"><div class="doctype">POL</div><div class="copy"><strong>Component ownership is exclusive</strong><span>shared functions require explicit classification</span></div><span class="badge blue">proposed</span></div>
+    </div></div>
+    <div class="card"><div class="head"><strong>Experiments & evidence</strong></div><div class="pad">
+      <div class="docrow"><div class="doctype">EXP</div><div class="copy"><strong>Headroom Codex A/B</strong><span>retrieval thrashing outweighed local compression gains</span></div><span class="badge ok">retained</span></div>
+      <div class="docrow"><div class="doctype">OBS</div><div class="copy"><strong>Raw source read behavior</strong><span>prompt-only policy insufficient; runtime enforcement needed</span></div><span class="badge ok">observed</span></div>
+      <div class="docrow"><div class="doctype">INF</div><div class="copy"><strong>Potential component boundary</strong><span>read inspection may deserve its own component</span></div><span class="badge warn">inferred</span></div>
+    </div></div>
+  </div>
+</section>
+
+</main>
+
+<aside class="inspector">
+  <div class="inspectHead">
+    <div class="crumb" id="crumb">PROJECT / COMPONENT</div>
+    <div class="titleline"><div class="typeicon" id="typeIcon">C</div><div><h2 id="insTitle">Read Authorization</h2><p id="insSub">Authorize source disclosure against repository policy.</p></div></div>
+  </div>
+  <div class="itabs"><div class="itab active" data-tab="summary">Summary</div><div class="itab" data-tab="static">Static</div><div class="itab" data-tab="relations">Relations</div><div class="itab" data-tab="history">History</div><div class="itab" data-tab="agent">Agent</div></div>
+
+  <div class="ipane active" id="tab-summary">
+    <div class="isection"><h3>Semantic identity</h3><div class="ibox kv">
+      <dt>Kind</dt><dd>component</dd><dt>Status</dt><dd><span class="badge bad">review required</span></dd>
+      <dt>Responsibility</dt><dd>Authorize source disclosure against repository policy.</dd>
+      <dt>Provides</dt><dd><span class="badge cyan">read.authorization</span></dd>
+      <dt>Requires</dt><dd>repository.policy, file.metadata</dd><dt>Stability</dt><dd>stable / protected contract</dd>
+    </div></div>
+    <div class="isection"><h3>Contract conformance</h3><div class="ibox code"><span class="same">expected effects: none</span>
+<span class="plus">actual effects: filesystem.read</span>
+<span class="minus">status: violation</span></div></div>
+    <div class="isection"><h3>Implementation footprint</h3><div class="ibox kv"><dt>Symbols</dt><dd>8 owned</dd><dt>Files</dt><dd>3</dd><dt>Public symbols</dt><dd>2</dd><dt>Tests linked</dt><dd>14</dd><dt>External packages</dt><dd>0 direct</dd></div></div>
+  </div>
+
+  <div class="ipane" id="tab-static">
+    <div class="isection"><h3>Statically derived facts</h3><div class="ibox kv">
+      <dt>LOC</dt><dd>286 logical / 341 physical</dd>
+      <dt>Functions</dt><dd>8</dd><dt>Types</dt><dd>6 referenced / 2 defined</dd>
+      <dt>Call edges</dt><dd>17 outgoing / 11 incoming</dd><dt>Fan-out</dt><dd>4 components</dd>
+      <dt>Complexity</dt><dd>18 aggregate · max 6</dd><dt>Imports</dt><dd>7 internal / 0 npm direct</dd>
+      <dt>Exports</dt><dd>2</dd><dt>Dead symbols</dt><dd>0</dd>
+      <dt>Effects</dt><dd>filesystem.read (1 origin)</dd><dt>Async</dt><dd>0 async symbols</dd>
+    </div></div>
+    <div class="isection"><h3>Owned symbols</h3><div class="ibox">
+      <div class="infoitem" data-entity="decideRead"><span class="badge blue">ƒ</span><div class="main"><b>decideRead()</b><span>pure · fan-in 3 · complexity 6</span></div></div>
+      <div class="infoitem" data-entity="inspectRead"><span class="badge orange">ƒ</span><div class="main"><b>inspectReadFile()</b><span>fs.read · boundary · complexity 3</span></div></div>
+      <div class="infoitem"><span class="badge blue">ƒ</span><div class="main"><b>normalizeReadRequest()</b><span>pure · private · complexity 2</span></div></div>
+    </div></div>
+  </div>
+
+  <div class="ipane" id="tab-relations">
+    <div class="isection"><h3>Component dependencies</h3><div class="ibox">
+      <div class="infoitem"><span class="badge">→</span><div class="main"><b>repository.policy</b><span>required capability</span></div></div>
+      <div class="infoitem"><span class="badge">→</span><div class="main"><b>file.metadata</b><span>required capability</span></div></div>
+      <div class="infoitem"><span class="badge cyan">←</span><div class="main"><b>Source Inspection</b><span>consumes read.authorization</span></div></div>
+      <div class="infoitem"><span class="badge cyan">←</span><div class="main"><b>Local Tool Adapter</b><span>transitive consumer</span></div></div>
+    </div></div>
+    <div class="isection"><h3>Evidence</h3><div class="ibox"><div class="infoitem"><span class="badge ok">✓</span><div class="main"><b>read-policy unit suite</b><span>14 assertions · current</span></div></div><div class="infoitem"><span class="badge warn">↻</span><div class="main"><b>purity effect proof</b><span>stale after change</span></div></div></div></div>
+  </div>
+
+  <div class="ipane" id="tab-history">
+    <div class="isection"><h3>Semantic history</h3><div class="ibox">
+      <div class="infoitem"><span class="badge">#72</span><div class="main"><b>Progressive source disclosure</b><span>introduced bounded read contract</span></div></div>
+      <div class="infoitem"><span class="badge">∆</span><div class="main"><b>Current branch</b><span>filesystem.read effect introduced</span></div></div>
+      <div class="infoitem"><span class="badge">ADR</span><div class="main"><b>Working-set efficiency</b><span>governs source disclosure strategy</span></div></div>
+    </div></div>
+    <div class="isection"><h3>Git-derived signals</h3><div class="ibox kv"><dt>Last changed</dt><dd>2 commits ago</dd><dt>30d churn</dt><dd>high</dd><dt>Change count</dt><dd>14 semantic snapshots</dd><dt>Primary authors</dt><dd>derived from Git history</dd></div></div>
+  </div>
+
+  <div class="ipane" id="tab-agent">
+    <div class="isection"><h3>MCP projection</h3><div class="ibox code">component: read-authorization
+status: review_required
+responsibility: authorize source disclosure
+provides: [read.authorization]
+requires: [repository.policy, file.metadata]
+
+contract:
+  purity: pure
+  caller_authority: untrusted
+
+actual_delta:
+  effects_added: [filesystem.read]
+
+impact:
+  affected_components:
+    - source-inspection
+    - local-tool-adapter
+  propagation_stops_at:
+    - response-projection
+
+recommended_source_reads:
+  - decideRead
+  - inspectReadFile</div></div>
+    <div class="note">The model returns source only as an escalation. Normal agent planning starts from this projection.</div>
+  </div>
+</aside>
+</div>
+
+<script>
+let entityData={};
+
+function selectEntity(id){
+ const d=entityData[id]; if(!d) return;
+ document.getElementById("crumb").textContent=d[0];
+ document.getElementById("insTitle").textContent=d[1];
+ document.getElementById("insSub").textContent=d[2];
+ document.getElementById("typeIcon").textContent=d[3];
+}
+document.querySelectorAll("[data-entity]").forEach(el=>el.addEventListener("click",()=>selectEntity(el.dataset.entity)));
+
+function goPage(id){
+ document.querySelectorAll(".page").forEach(p=>p.classList.toggle("active",p.id==="page-"+id));
+ document.querySelectorAll(".nav[data-page]").forEach(n=>n.classList.toggle("active",n.dataset.page===id));
+}
+document.querySelectorAll("[data-page]").forEach(el=>el.addEventListener("click",()=>goPage(el.dataset.page)));
+
+document.querySelectorAll(".itab").forEach(t=>t.addEventListener("click",()=>{
+ document.querySelectorAll(".itab").forEach(x=>x.classList.remove("active")); t.classList.add("active");
+ document.querySelectorAll(".ipane").forEach(p=>p.classList.remove("active"));
+ document.getElementById("tab-"+t.dataset.tab).classList.add("active");
+}));
+document.querySelectorAll(".segment button").forEach(b=>b.addEventListener("click",()=>{
+ b.parentElement.querySelectorAll("button").forEach(x=>x.classList.remove("active")); b.classList.add("active");
+}));
+document.querySelectorAll(".chip").forEach(c=>c.addEventListener("click",()=>c.classList.toggle("on")));
+document.getElementById("globalSearch").addEventListener("input",e=>{
+ const q=e.target.value.trim().toLowerCase();
+ if(!q) return;
+ const hit=Object.entries(entityData).find(([k,v])=>v.join(" ").toLowerCase().includes(q));
+ if(hit) selectEntity(hit[0]);
+});
+
+/* Runtime semantic truth comes from the versioned Query API, not this shell. */
+let viewerState;
+const esc=value=>String(value??"").replace(/[&<>\"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;", "'":"&#39;"}[c]));
+const text=value=>Array.isArray(value)?value.map(text).join(", "):typeof value==="object"&&value!==null?JSON.stringify(value):String(value??"—");
+const badge=(value,kind="")=>`<span class="badge ${kind}">${esc(value)}</span>`;
+const metric=(label,value,detail,kind="")=>`<div class="metric"><div class="k">${esc(label)}</div><div class="v">${esc(value)}</div><div class="d ${kind}">${esc(detail)}</div></div>`;
+const entityLabel=entity=>`<span class="badge ${entity.status=== "healthy"?"ok":entity.status=== "review-required"?"bad":"purple"}">${esc(entity.status)}</span>`;
+const fetchQuery=async path=>{
+ const response=await fetch(path);
+ const body=await response.json();
+ if(!response.ok) throw new Error(body.error?.message||`Query failed: ${response.status}`);
+ return body;
+};
+const entityLink=entity=>`<div class="infoitem" data-entity="${esc(entity.id)}"><span class="badge blue">${esc(entity.kind)}</span><div class="main"><b>${esc(entity.name)}</b><span>${esc(entity.summary)} · ${entityLabel(entity)}</span></div></div>`;
+const factRows=facts=>facts.map(f=>`<dt>${esc(f.name)}</dt><dd>${esc(text(f.value))} ${badge(f.authority,"blue")}</dd>`).join("");
+
+function renderPages(){
+ const {project,graph,components,dependencies,changes,knowledge}=viewerState;
+ const componentRows=components.map(component=>`<tr data-entity="${esc(component.id)}"><td><strong>${esc(component.name)}</strong><div class="small">${esc(component.responsibility)}</div></td><td>${entityLabel(component)}</td><td>${esc(text(component.metrics.symbols))}</td><td>${esc(text(component.metrics.files))}</td><td>${esc(text(component.metrics.tests))}</td><td>${esc(text(component.metrics.reviewLevel))}</td></tr>`).join("");
+ const graphNodes=graph.nodes.slice(0,24).map(entityLink).join("");
+ const dependencyRows=dependencies.items.map(item=>`<div class="riskrow" data-entity="${esc(item.from.id)}"><div><strong>${esc(item.from.name)} → ${esc(item.to.name)}</strong><div class="meta">${esc(item.relation.kind)} · ${esc(item.relation.authority)} · ${esc(item.to.summary)}</div></div>${entityLabel(item.to)}</div>`).join("");
+ const changeRows=changes.entries.map(entry=>`<div class="impact-step" data-entity="${esc(entry.entityId)}"><div class="stepnum">${esc(entry.reviewLevel)}</div><div class="copy"><strong>${esc(entry.kind)}</strong><span>${esc(entry.summary)}</span></div>${badge(entry.reviewLevel,entry.reviewLevel==="L3"?"bad":entry.reviewLevel==="L2"?"warn":"ok")}</div>`).join("");
+ const knowledgeRows=knowledge.entries.map(entry=>`<div class="docrow"><div class="doctype">${esc(entry.kind.slice(0,3).toUpperCase())}</div><div class="copy"><strong>${esc(entry.title)}</strong><span>${esc(entry.summary)}</span></div>${badge(entry.status,entry.status==="protected"?"bad":entry.status==="accepted"?"ok":"purple")}</div>`).join("");
+ document.querySelector(".main").innerHTML=`
+ <section class="page active" id="page-overview"><div class="page-title"><div><h1>Project overview</h1><p>Project status without opening source code.</p></div><div class="spacer"></div>${badge("fixture-backed Query API","blue")}${badge(project.revision.head)}</div>
+ <div class="metrics">${metric("Project health",project.health.score,`${project.health.status} · ${project.health.reviewRequired} review items`,project.health.status==="healthy"?"good":"warning")}${metric("Components",project.counts.component,`${project.counts.component} explicit ownership units`)}${metric("Symbols",project.counts.symbol,`${project.counts.symbol} detailed fact units`)}${metric("Stale evidence",project.health.staleEvidence,"observed layer needs refresh","warning")}${metric("Model gaps",project.health.modelGaps,"fixture / unavailable only","warning")}${metric("Query API",project.apiVersion,"read-only · deterministic","good")}</div>
+ <div class="grid2"><div class="card"><div class="head"><strong>Project semantic graph</strong><div class="spacer"></div>${badge(`${graph.nodes.length} nodes · ${graph.relations.length} relations`)}</div><div class="pad"><div class="list">${graphNodes}</div></div></div><div class="stack"><div class="card"><div class="head"><strong>Health and provenance</strong></div><div class="pad"><div class="statgrid">${metric("Declared",project.counts.component,"ownership / contracts")}${metric("Derived",project.counts.file,"files / bindings")}${metric("Observed",project.counts.evidence,"test evidence")}${metric("Analysis",changes.entries.length,"fixture deltas")}</div><div class="callout">All semantic values are marked ${esc(project.provenance.status)}. Live extraction is outside this vertical slice.</div></div></div><div class="card"><div class="head"><strong>Recommended next reads</strong></div><div class="pad list">${changes.recommendedReads.map(read=>`<div class="item"><div class="bullet">ƒ</div><div class="copy"><strong>${esc(read.symbol||read.path)}</strong><span>${esc(read.path)} · ${esc(read.reason)}</span></div></div>`).join("")}</div></div></div></div></section>
+ <section class="page" id="page-components"><div class="page-title"><div><h1>Components</h1><p>Explicit responsibility units, owned Symbols, contracts and evidence.</p></div><div class="spacer"></div>${badge("no auto-clustering","purple")}</div><div class="card"><div class="head"><strong>Component inventory</strong><div class="spacer"></div>${badge(`${components.length} components`)}</div><div class="pad"><table class="table"><thead><tr><th>Component</th><th>Status</th><th>Symbols</th><th>Files</th><th>Tests</th><th>Review</th></tr></thead><tbody>${componentRows}</tbody></table></div></div></section>
+ <section class="page" id="page-dependencies"><div class="page-title"><div><h1>Dependencies</h1><p>Internal and external relations projected from the universal graph.</p></div><div class="spacer"></div>${badge("derived fixture")}</div><div class="dep-layout"><div class="card"><div class="head"><strong>Dependency surface</strong></div><div class="pad">${dependencyRows}</div></div><div class="stack"><div class="card"><div class="head"><strong>Package usage</strong></div><div class="pad">${dependencies.packageUsage.map(item=>`<div class="riskrow" data-entity="${esc(item.package.id)}"><div><strong>${esc(item.package.name)}</strong><div class="meta">${item.componentIds.length} components · ${item.importedApiIds.length} imported APIs</div></div>${entityLabel(item.package)}</div>`).join("")}</div></div><div class="card"><div class="head"><strong>Boundary</strong></div><div class="pad"><div class="callout">The viewer reports fixture relations. It does not infer package usage or calculate transitive impact.</div></div></div></div></div></section>
+ <section class="page" id="page-changes"><div class="page-title"><div><h1>Semantic change impact</h1><p>Review what changed in meaning, not only what changed in text.</p></div><div class="spacer"></div>${badge(`${changes.baseRevision} → ${changes.headRevision}`,"warn")}</div><div class="metrics">${metric("Files changed",changes.filesChanged,"implementation evidence")}${metric("Symbols changed",changes.symbolsChanged,"derived")}${metric("Components changed",changes.componentsChanged,"semantic")}${metric("Contracts touched",changes.contractsTouched,"protected","danger")}${metric("Evidence stale",changes.staleEvidence,"needs refresh","warning")}${metric("Source reads",changes.recommendedReads.length,"bounded escalation","good")}</div><div class="change-hero"><div class="card"><div class="head"><strong>Meaning-level diff</strong><div class="spacer"></div>${badge("L3 protected / violation","bad")}</div><div class="pad">${changeRows}</div></div><div class="card"><div class="head"><strong>Impact propagation</strong></div><div class="pad">${changes.impactPaths.map(path=>`<div class="impact-step"><div class="stepnum">→</div><div class="copy"><strong>${esc(path.entityIds.join(" → "))}</strong><span>${esc(path.stopReason)}</span></div>${badge("fixture","purple")}</div>`).join("")}</div></div></div></section>
+ <section class="page" id="page-knowledge"><div class="page-title"><div><h1>Project knowledge</h1><p>Decisions, policies, experiments and provenance attached to the same graph.</p></div><div class="spacer"></div>${badge("read-only projection","blue")}</div><div class="metrics">${metric("Decisions",knowledge.counts.decision,"declared")}${metric("Policies",knowledge.counts.policy,"declared")}${metric("Experiments",knowledge.counts.experiment,"observed")}${metric("Evidence",knowledge.counts.evidence,"observed")}${metric("Declared facts",project.counts.decision,"authoritative")}${metric("Fixture gaps",project.health.modelGaps,"not live analysis","warning")}</div><div class="knowledge-grid"><div class="card"><div class="head"><strong>Decisions & policies</strong></div><div class="pad">${knowledgeRows}</div></div><div class="card"><div class="head"><strong>Authority layers</strong></div><div class="pad"><div class="list">${["declared","derived","observed","analysis","integrity"].map(layer=>`<div class="item"><div class="bullet">◇</div><div class="copy"><strong>${layer}</strong><span>single provenance layer in the Query API</span></div></div>`).join("")}</div></div></div></section>`;
+ document.querySelectorAll(".main [data-entity]").forEach(element=>element.addEventListener("click",()=>loadEntity(element.dataset.entity)));
+}
+
+function renderInspector(entity){
+ const facts=entity.facts||[];
+ document.querySelector(".inspector").innerHTML=`<div class="inspectHead"><div class="crumb">${esc(entity.kind)} / ${esc(entity.authority)}</div><div class="titleline"><div class="typeicon">${esc(entity.kind.slice(0,1).toUpperCase())}</div><div><h2>${esc(entity.name)}</h2><p>${esc(entity.summary)}</p></div></div></div><div class="itabs"><div class="itab active" data-tab="summary">Summary</div><div class="itab" data-tab="static">Static facts</div><div class="itab" data-tab="relations">Relations</div><div class="itab" data-tab="history">History</div><div class="itab" data-tab="agent">Agent projection</div></div><div class="ipane active" id="tab-summary"><div class="isection"><h3>Semantic identity</h3><div class="ibox kv"><dt>Kind</dt><dd>${esc(entity.kind)}</dd><dt>Status</dt><dd>${entityLabel(entity)}</dd><dt>Provenance</dt><dd>${esc(entity.provenance.status)} · ${esc(entity.provenance.provider)}</dd><dt>Summary</dt><dd>${esc(entity.summary)}</dd></div></div><div class="isection"><h3>Facts</h3><div class="ibox kv">${factRows(facts.slice(0,6))}</div></div></div><div class="ipane" id="tab-static"><div class="isection"><h3>Static facts</h3><div class="ibox kv">${factRows(facts)}</div></div></div><div class="ipane" id="tab-relations"><div class="isection"><h3>Universal graph relations</h3><div class="ibox">${entity.relations.map(relation=>`<div class="infoitem"><span class="badge cyan">${esc(relation.kind)}</span><div class="main"><b>${esc(relation.from===entity.id?relation.to:relation.from)}</b><span>${esc(relation.authority)} · ${esc(relation.provenance.status)}</span></div></div>`).join("")||"No relations"}</div></div></div><div class="ipane" id="tab-history"><div class="isection"><h3>Semantic history</h3><div class="ibox">${entity.history.map(item=>`<div class="infoitem"><span class="badge">${esc(item.label)}</span><div class="main"><b>${esc(item.summary)}</b><span>${esc(item.authority)} · ${esc(item.provenance.status)}</span></div></div>`).join("")||"No fixture history"}</div></div></div><div class="ipane" id="tab-agent"><div class="isection"><h3>MCP projection</h3><div class="ibox code">${esc(JSON.stringify(entity.agentProjection,null,2))}</div></div><div class="note">Agent projection contains semantic facts and bounded source references only; raw source is unavailable here.</div></div>`;
+ document.querySelectorAll(".itab").forEach(tab=>tab.addEventListener("click",()=>{document.querySelectorAll(".itab").forEach(item=>item.classList.remove("active"));document.querySelectorAll(".ipane").forEach(item=>item.classList.remove("active"));tab.classList.add("active");document.getElementById("tab-"+tab.dataset.tab).classList.add("active");}));
+}
+
+async function loadEntity(id){
+ if(!id) return;
+ try{renderInspector(await fetchQuery(`/api/v1/entities/${encodeURIComponent(id)}`));}catch(error){console.error(error);}
+}
+
+async function loadViewer(){
+ try{
+  const [project,graph,components,dependencies,changes,knowledge]=await Promise.all([fetchQuery("/api/v1/project"),fetchQuery("/api/v1/graph?limit=100"),fetchQuery("/api/v1/components"),fetchQuery("/api/v1/dependencies"),fetchQuery("/api/v1/changes"),fetchQuery("/api/v1/knowledge")]);
+  viewerState={project,graph,components,dependencies,changes,knowledge};
+  entityData=Object.fromEntries(graph.nodes.map(entity=>[entity.id,[entity.kind,entity.name,entity.summary,entity.kind.slice(0,1).toUpperCase()]]));
+  renderPages();
+  await loadEntity("component:read-authorization");
+  document.getElementById("globalSearch").addEventListener("input",event=>{const q=event.target.value.trim().toLowerCase();if(!q)return;const hit=graph.nodes.find(entity=>`${entity.name} ${entity.summary}`.toLowerCase().includes(q));if(hit)loadEntity(hit.id);});
+ }catch(error){document.querySelector(".main").innerHTML=`<section class="page active"><div class="card"><div class="pad"><div class="callout">Semantic Query API unavailable: ${esc(error.message)}</div></div></div></section>`;}
+}
+loadViewer();
+</script>
+</body></html>
