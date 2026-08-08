@@ -420,9 +420,12 @@ export async function getTaskStatusForWorkspace(workspaceRoot: string, store: Wo
     return { ok: false, reason: `active worktree ${found.worktree.worktreeId} references task ${found.worktree.taskId}, which is missing from the store` };
   }
 
-  const status = getTaskStatus(store, found.task.taskId);
-  if (status === undefined) {
-    return { ok: false, reason: `active worktree ${found.worktree.worktreeId} references task ${found.task.taskId}, which is missing from the store` };
-  }
+  // found.task は既に store.getTask() 済みなので、getTaskStatus() で同じ id を
+  // 再取得する必要はない（その場合の「missing from the store」は既に上で判定済み）。
+  const status: TaskStatusResult = {
+    task: found.task,
+    worktrees: store.listWorktreesForTask(found.task.taskId),
+    allowedNextTransitions: allowedNextTransitions(found.task.lifecycleState),
+  };
   return { ok: true, active: true, status, ...location };
 }

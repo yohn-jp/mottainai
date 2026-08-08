@@ -209,8 +209,9 @@ Issue #28 Epic and land incrementally. See Issue #28 for the full
 child-Issue sequence.
 
 Issue #34 added a thin, early-dogfooding MCP/CLI exposure of three
-read-heavy/low-blast-radius operations — `policy explain`, `task
-start`, `task status` (`src/workflow/commands/mcp-tools.ts`, gated by
+gated workflow operations — `policy explain` (read-only), `task
+start` (creates a dedicated worktree/branch), `task status`
+(read-only) (`src/workflow/commands/mcp-tools.ts`, gated by
 `gateway.workflowTasks`) — ahead of the full exposure in Child Issue
 9a-1/9a-2. `policy explain` resolves only the genuine `RuleMode`
 fields (`protectedBranchRule.*` / `worktree.{required,issueRequired,

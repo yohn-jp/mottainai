@@ -372,7 +372,7 @@ test("worktree_new is annotated as deprecated in favor of mottainai_workflow_tas
   assert.ok(tool !== undefined);
   assert.match(tool!.description ?? "", /Deprecated/);
   assert.match(tool!.description ?? "", /mottainai_workflow_task_start/);
-  // behavior/schema unchanged: still a required prefix+task worktree-creation tool.
+  // 非推奨化は description のみの変更 — schema・挙動は不変であることの確認。
   assert.deepEqual(tool!.inputSchema.required, ["prefix", "task"]);
   assert.equal(tool!.annotations?.destructiveHint, false);
 });

@@ -195,8 +195,10 @@ and `mottainai_workflow_task_status` expose the Git workflow engine
 (`src/workflow/*`, Issue #28) for early dogfooding. `task start` always
 creates a dedicated worktree and branch off the current branch — never the
 current branch itself, even on `main`. This is observation/dogfooding only:
-no commit/push/PR/cleanup exposure and no protected-branch write-blocking
-yet (see `docs/workflow-policy.md`). `mottainai_worktree_new` remains
+no commit/push/PR/cleanup exposure yet, and Mottainai's own managed write/edit
+tools don't yet enforce protected-branch rules (generated `pre-commit`/`pre-push`
+Git hooks may already block protected-branch operations independently of this;
+see `docs/workflow-policy.md`). `mottainai_worktree_new` remains
 available but is deprecated in favor of `mottainai_workflow_task_start`.
 
 The same three operations are available from the CLI, independent of

@@ -5,7 +5,7 @@ import { loadMottainaiConfig, loadRawConfig, resolveConfigPath, saveRawConfig } 
 import type { MottainaiConfig } from "./config.js";
 import { formatInitHuman, runInit } from "./init.js";
 import { runServer } from "./server.js";
-import { validateIssueRef, validateTaskSlug } from "./workflow/commands/mcp-tools.js";
+import { validateIssueRef, validateTaskSlug } from "./workflow/commands/validate.js";
 import { startTask, getTaskStatusForWorkspace } from "./workflow/domain/task.js";
 import { explainWorkflowPolicy } from "./workflow/policy/explain.js";
 import { resolveEffectiveWorkflowPolicy } from "./workflow/policy/load.js";
@@ -76,6 +76,17 @@ function hasFlag(argv: string[], name: string): boolean {
   return argv.includes(`--${name}`);
 }
 
+/** `--name` が渡された場合、値が欠落または別 flag に見える（`--` 始まり）なら fail する。
+ * 素の `flag()` はそのまま返すため、`--workspace` 抜けが cwd への静かな fallback に、
+ * `--workspace --issue 12` が `--issue` を workspace 値として誤読することにつながる
+ * （`task start` は worktree/branch を作るため、誤った workspace への書き込みになる）。 */
+function requireFlagValue(argv: string[], name: string): string | undefined {
+  if (!hasFlag(argv, name)) return undefined;
+  const value = flag(argv, name);
+  if (value === undefined || value.startsWith("--")) fail(`missing value for --${name}`);
+  return value;
+}
+
 function gitTopLevel(cwd: string): string | undefined {
   try {
     return execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd, encoding: "utf8" }).trim();
@@ -87,7 +98,7 @@ function gitTopLevel(cwd: string): string | undefined {
 /** `--workspace` 明示時はそれを、無ければ現在の Git リポジトリの top level を、
  * どちらも無ければ cwd をそのまま使う（`init` の `--workspace` 既定と同じ考え方）。 */
 function resolveWorkflowWorkspace(argv: string[]): string {
-  const explicit = flag(argv, "workspace");
+  const explicit = requireFlagValue(argv, "workspace");
   if (explicit !== undefined) return path.resolve(process.cwd(), explicit);
   return gitTopLevel(process.cwd()) ?? process.cwd();
 }
@@ -277,7 +288,7 @@ export async function runCli(args: string[]): Promise<number> {
   if (taskSlug === undefined || taskSlug.startsWith("--")) fail(USAGE);
   validateTaskSlug(taskSlug);
   const workspace = resolveWorkflowWorkspace(argv);
-  const issueRef = flag(argv, "issue");
+  const issueRef = requireFlagValue(argv, "issue");
   validateIssueRef(issueRef);
   const policyResult = resolveEffectiveWorkflowPolicy(workspace);
   if (!policyResult.ok) {

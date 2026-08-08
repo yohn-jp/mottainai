@@ -97,28 +97,28 @@ export function explainWorkflowPolicy(workspaceRoot: string): ExplainWorkflowPol
   }
 
   const protectedBranchRule = {
-    sourceWrite: resolveModeField(presetDocument, repositoryDocument, (d) => d.protectedBranchRule.sourceWrite),
-    stage: resolveModeField(presetDocument, repositoryDocument, (d) => d.protectedBranchRule.stage),
-    commit: resolveModeField(presetDocument, repositoryDocument, (d) => d.protectedBranchRule.commit),
-    directPush: resolveModeField(presetDocument, repositoryDocument, (d) => d.protectedBranchRule.directPush),
-    forcePush: resolveModeField(presetDocument, repositoryDocument, (d) => d.protectedBranchRule.forcePush),
-    destructiveBranchOp: resolveModeField(presetDocument, repositoryDocument, (d) => d.protectedBranchRule.destructiveBranchOp),
+    sourceWrite: resolveModeField(presetDocument, repositoryDocument, (document) => document.protectedBranchRule.sourceWrite),
+    stage: resolveModeField(presetDocument, repositoryDocument, (document) => document.protectedBranchRule.stage),
+    commit: resolveModeField(presetDocument, repositoryDocument, (document) => document.protectedBranchRule.commit),
+    directPush: resolveModeField(presetDocument, repositoryDocument, (document) => document.protectedBranchRule.directPush),
+    forcePush: resolveModeField(presetDocument, repositoryDocument, (document) => document.protectedBranchRule.forcePush),
+    destructiveBranchOp: resolveModeField(presetDocument, repositoryDocument, (document) => document.protectedBranchRule.destructiveBranchOp),
   } satisfies ExplainedRuleGroups["protectedBranchRule"];
 
   const worktree = {
-    required: resolveModeField(presetDocument, repositoryDocument, (d) => d.worktree.required),
-    issueRequired: resolveModeField(presetDocument, repositoryDocument, (d) => d.worktree.issueRequired),
-    multipleActiveTasksPerIssue: resolveModeField(presetDocument, repositoryDocument, (d) => d.worktree.multipleActiveTasksPerIssue),
-    multipleWorktreesPerTask: resolveModeField(presetDocument, repositoryDocument, (d) => d.worktree.multipleWorktreesPerTask),
-    staleBaseBranch: resolveModeField(presetDocument, repositoryDocument, (d) => d.worktree.staleBaseBranch),
+    required: resolveModeField(presetDocument, repositoryDocument, (document) => document.worktree.required),
+    issueRequired: resolveModeField(presetDocument, repositoryDocument, (document) => document.worktree.issueRequired),
+    multipleActiveTasksPerIssue: resolveModeField(presetDocument, repositoryDocument, (document) => document.worktree.multipleActiveTasksPerIssue),
+    multipleWorktreesPerTask: resolveModeField(presetDocument, repositoryDocument, (document) => document.worktree.multipleWorktreesPerTask),
+    staleBaseBranch: resolveModeField(presetDocument, repositoryDocument, (document) => document.worktree.staleBaseBranch),
   } satisfies ExplainedRuleGroups["worktree"];
 
   const cleanup = {
-    worktreeRemoval: resolveModeField(presetDocument, repositoryDocument, (d) => d.cleanup.worktreeRemoval),
-    localBranchDeletion: resolveModeField(presetDocument, repositoryDocument, (d) => d.cleanup.localBranchDeletion),
-    remoteBranchDeletion: resolveModeField(presetDocument, repositoryDocument, (d) => d.cleanup.remoteBranchDeletion),
-    worktreePrune: resolveModeField(presetDocument, repositoryDocument, (d) => d.cleanup.worktreePrune),
-    forceCleanup: resolveModeField(presetDocument, repositoryDocument, (d) => d.cleanup.forceCleanup),
+    worktreeRemoval: resolveModeField(presetDocument, repositoryDocument, (document) => document.cleanup.worktreeRemoval),
+    localBranchDeletion: resolveModeField(presetDocument, repositoryDocument, (document) => document.cleanup.localBranchDeletion),
+    remoteBranchDeletion: resolveModeField(presetDocument, repositoryDocument, (document) => document.cleanup.remoteBranchDeletion),
+    worktreePrune: resolveModeField(presetDocument, repositoryDocument, (document) => document.cleanup.worktreePrune),
+    forceCleanup: resolveModeField(presetDocument, repositoryDocument, (document) => document.cleanup.forceCleanup),
   } satisfies ExplainedRuleGroups["cleanup"];
 
   return {

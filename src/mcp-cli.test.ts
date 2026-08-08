@@ -311,9 +311,9 @@ test("public CLI policy explain reports the standard preset for a plain reposito
 test("public CLI task start creates a dedicated worktree/branch, and task status reports it from inside that worktree", () => {
   const directory = gitWorkspace();
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-workflow-state-"));
-  const env = { ...process.env, MOTTAINAI_STATE_DIR: stateDir };
+  const environment = { ...process.env, MOTTAINAI_STATE_DIR: stateDir };
   const spawn = (...argv: string[]): Run => {
-    const result = spawnSync(process.execPath, ["--import", "tsx", publicCliPath, ...argv], { encoding: "utf8", env });
+    const result = spawnSync(process.execPath, ["--import", "tsx", publicCliPath, ...argv], { encoding: "utf8", env: environment });
     let json: Record<string, unknown> = {};
     try {
       json = JSON.parse(result.stdout) as Record<string, unknown>;
@@ -346,9 +346,9 @@ test("public CLI task start creates a dedicated worktree/branch, and task status
 test("public CLI task start validates taskSlug/issueRef at the boundary, same as the MCP tool", () => {
   const directory = gitWorkspace();
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-workflow-state-"));
-  const env = { ...process.env, MOTTAINAI_STATE_DIR: stateDir };
+  const environment = { ...process.env, MOTTAINAI_STATE_DIR: stateDir };
   const spawn = (...argv: string[]): Run => {
-    const result = spawnSync(process.execPath, ["--import", "tsx", publicCliPath, ...argv], { encoding: "utf8", env });
+    const result = spawnSync(process.execPath, ["--import", "tsx", publicCliPath, ...argv], { encoding: "utf8", env: environment });
     let json: Record<string, unknown> = {};
     try {
       json = JSON.parse(result.stdout) as Record<string, unknown>;
@@ -377,9 +377,9 @@ test("public CLI task start validates taskSlug/issueRef at the boundary, same as
 test("public CLI task start rejects starting a second task from inside its own already-active worktree", () => {
   const directory = gitWorkspace();
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-workflow-state-"));
-  const env = { ...process.env, MOTTAINAI_STATE_DIR: stateDir };
+  const environment = { ...process.env, MOTTAINAI_STATE_DIR: stateDir };
   const spawn = (...argv: string[]): Run => {
-    const result = spawnSync(process.execPath, ["--import", "tsx", publicCliPath, ...argv], { encoding: "utf8", env });
+    const result = spawnSync(process.execPath, ["--import", "tsx", publicCliPath, ...argv], { encoding: "utf8", env: environment });
     let json: Record<string, unknown> = {};
     try {
       json = JSON.parse(result.stdout) as Record<string, unknown>;

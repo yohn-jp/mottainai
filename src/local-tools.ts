@@ -72,13 +72,7 @@ export const localTools: Tool[] = [
   },
 ];
 
-/**
- * Deprecated (Issue #34): superseded by `mottainai_workflow_task_start`
- * (`src/workflow/commands/mcp-tools.ts`), which reserves the same kind of
- * dedicated worktree/branch under Mottainai's tracked task lifecycle (task
- * id, lifecycle state, guardrail policy) instead of a bare `git worktree
- * add`. Kept in place, unchanged, for existing callers — not removed.
- */
+/** 既存呼び出し元を壊さないため、非推奨化のみで削除しない（Issue #34）。 */
 const worktreeNewTool: Tool = {
   name: "mottainai_worktree_new",
   description: "Deprecated: superseded by mottainai_workflow_task_start. Create a git worktree on a new branch, using the workspace's allowed branch prefixes.",
