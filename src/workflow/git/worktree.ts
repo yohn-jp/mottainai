@@ -39,18 +39,37 @@ export type ManagedWorktreeRootResult =
  * 失敗を報告する前に repository 外へディレクトリを作ってしまう。ここでは各
  * segment を作る *前* に、既存なら symlink でないことを検証してから進むことで、
  * mutation 前に escape を検出する（fail-closed）。
+ *
+ * 複数プロセスが同時に同じ segment を初回作成しうる（task workflow の並行 start）ため、
+ * mkdirSync が EEXIST で失敗しても異常とはせず、他プロセスが作った実体を同じ symlink
+ * 検証にかけてから続行する。
  */
 function ensureCanonicalDirectorySegment(parentCanonical: string, segmentName: string): ManagedWorktreeRootResult {
   const target = path.join(parentCanonical, segmentName);
   try {
     const stat = fs.lstatSync(target, { throwIfNoEntry: false });
     if (stat === undefined) {
-      fs.mkdirSync(target);
+      try {
+        fs.mkdirSync(target);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      }
     } else if (stat.isSymbolicLink()) {
       return { ok: false, detail: `managed worktree root resolves outside its canonical path: ${target}` };
     } else if (!stat.isDirectory()) {
       return { ok: false, detail: `managed worktree path segment is not a directory: ${target}` };
     }
+
+    // mkdir 直後に他プロセスが symlink へ差し替えている可能性もゼロではないため、
+    // mkdir 成功/EEXIST いずれの経路でも symlink チェックを lstat からやり直す。
+    const postStat = fs.lstatSync(target);
+    if (postStat.isSymbolicLink()) {
+      return { ok: false, detail: `managed worktree root resolves outside its canonical path: ${target}` };
+    }
+    if (!postStat.isDirectory()) {
+      return { ok: false, detail: `managed worktree path segment is not a directory: ${target}` };
+    }
+
     const actual = fs.realpathSync.native(target);
     if (actual !== target) {
       return { ok: false, detail: `managed worktree root resolves outside its canonical path: ${target}` };
