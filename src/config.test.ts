@@ -365,6 +365,42 @@ test("gateway.responseBudget configures the final projection boundary and reject
   );
 });
 
+test("resolveGatewayConfig defaults burstBudget to mode off with dogfood-scale limits", () => {
+  const resolved = resolveGatewayConfig(undefined);
+  assert.deepEqual(resolved.burstBudget, {
+    mode: "off",
+    maxConcurrentProjectedTokens: 6_000,
+    rollingWindowMs: 1_500,
+    rollingProjectedTokens: 8_000,
+    rollingProjectedBytes: 32_000,
+  });
+});
+
+test("gateway.burstBudget configures the connection-level burst boundary and rejects unsafe values", () => {
+  const configPath = writeConfig({
+    version: 2,
+    mcpServers: { one: { command: "node" } },
+    gateway: {
+      burstBudget: {
+        mode: "enforce", maxConcurrentProjectedTokens: 2_000, rollingWindowMs: 1_000,
+        rollingProjectedTokens: 4_000, rollingProjectedBytes: 16_000,
+      },
+    },
+  });
+  assert.deepEqual(loadGatewayConfig(configPath).burstBudget, {
+    mode: "enforce", maxConcurrentProjectedTokens: 2_000, rollingWindowMs: 1_000,
+    rollingProjectedTokens: 4_000, rollingProjectedBytes: 16_000,
+  });
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({ version: 2, mcpServers: {}, gateway: { burstBudget: { mode: "aggressive" } } })),
+    /invalid gateway burstBudget.mode/,
+  );
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({ version: 2, mcpServers: {}, gateway: { burstBudget: { rollingWindowMs: 0 } } })),
+    /invalid gateway burstBudget.rollingWindowMs/,
+  );
+});
+
 test("resolveGatewayConfig defaults workflowTasks to false (mottainai_task_start/status stay unpublished)", () => {
   assert.equal(resolveGatewayConfig(undefined).workflowTasks, false);
   assert.equal(resolveGatewayConfig({ workflowTasks: true }).workflowTasks, true);

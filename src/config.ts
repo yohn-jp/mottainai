@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { resolveResponseBudget } from "./context-runtime/budget.js";
+import { resolveBurstBudgetPolicy } from "./context-runtime/burst-budget.js";
+import type { BurstBudgetPolicy, BurstBudgetPolicyConfig } from "./context-runtime/burst-budget.js";
 import type { ProjectionBudget, ProjectionBudgetConfig } from "./context-runtime/types.js";
 import { DEFAULT_AWAIT_POLICY } from "./context-runtime/poll-policy.js";
 import type { AwaitPolicy } from "./context-runtime/poll-policy.js";
@@ -124,6 +126,8 @@ export interface GatewayConfig {
   tokenBudgets?: TokenBudgetsConfig;
   /** 最終MCP応答の投影予算。`tokenBudgets` はtool-local hintとして別管理する。 */
   responseBudget?: ProjectionBudgetConfig;
+  /** connection/session 単位の集約 burst budget（#73）。`responseBudget` の上に重なる。既定 `off`。 */
+  burstBudget?: BurstBudgetPolicyConfig;
   /** `mottainai_worktree_new` の許可 prefix・起点ブランチ設定。省略時はツールを非公開にする。 */
   worktree?: WorktreeConfig;
   /** `mottainai_task_start`/`mottainai_task_status`（Git workflow task lifecycle）の公開可否。
@@ -156,6 +160,7 @@ export interface ResolvedGatewayConfig {
   tokenBudgets: ResolvedTokenBudgets;
   /** 設定省略時は安全な既定値。手書きfixture互換のためoptional型。 */
   responseBudget?: ProjectionBudget;
+  burstBudget: BurstBudgetPolicy;
   worktree?: ResolvedWorktreeConfig;
   workflowTasks: boolean;
   await: AwaitPolicy;
@@ -179,6 +184,13 @@ const DEFAULT_GATEWAY_CONFIG: Omit<ResolvedGatewayConfig, "workspaceRoot"> = {
   toolMetadata: {},
   tokenBudgets: { tools: {}, capabilities: {}, profiles: {} },
   responseBudget: { softTokens: 1_500, hardTokens: 3_000, hardBytes: 12_000 },
+  burstBudget: {
+    mode: "off",
+    maxConcurrentProjectedTokens: 6_000,
+    rollingWindowMs: 1_500,
+    rollingProjectedTokens: 8_000,
+    rollingProjectedBytes: 32_000,
+  },
   workflowTasks: false,
   await: DEFAULT_AWAIT_POLICY,
 };
@@ -210,6 +222,7 @@ export function resolveGatewayConfig(
     activeProfile: config?.activeProfile,
     tokenBudgets: resolveTokenBudgets(config?.tokenBudgets),
     responseBudget: resolveResponseBudget(config?.responseBudget),
+    burstBudget: resolveBurstBudgetPolicy(config?.burstBudget),
     worktree: resolveWorktreeConfig(config?.worktree),
     workflowTasks: config?.workflowTasks === true,
     await: resolveAwaitPolicy(config?.await),
@@ -354,6 +367,7 @@ function normalizeGateway(value: unknown): GatewayConfig | undefined {
     toolMetadata: toolMetadataRecord(value.toolMetadata, "invalid gateway toolMetadata"),
     tokenBudgets: tokenBudgetsConfig(value.tokenBudgets, "invalid gateway tokenBudgets"),
     responseBudget: responseBudgetConfig(value.responseBudget, "invalid gateway responseBudget"),
+    burstBudget: burstBudgetConfig(value.burstBudget, "invalid gateway burstBudget"),
     worktree: worktreeConfig(value.worktree, "invalid gateway worktree"),
     workflowTasks: optionalBoolean(value.workflowTasks, "invalid gateway workflowTasks"),
     await: awaitPolicyConfig(value.await, "invalid gateway await"),
@@ -438,6 +452,31 @@ function responseBudgetConfig(value: unknown, field: string): ProjectionBudgetCo
     hardBytes: positiveIntegerConfig(value.hardBytes, `${field}.hardBytes`),
   };
   resolveResponseBudget(config);
+  return config;
+}
+
+const BURST_BUDGET_MODES = new Set(["off", "observe", "warn", "enforce"]);
+
+function burstBudgetModeConfig(value: unknown, field: string): BurstBudgetPolicyConfig["mode"] {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !BURST_BUDGET_MODES.has(value)) throw new Error(field);
+  return value as BurstBudgetPolicyConfig["mode"];
+}
+
+function burstBudgetConfig(value: unknown, field: string): BurstBudgetPolicyConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error(field);
+  const config = {
+    mode: burstBudgetModeConfig(value.mode, `${field}.mode`),
+    maxConcurrentProjectedTokens: positiveIntegerConfig(
+      value.maxConcurrentProjectedTokens,
+      `${field}.maxConcurrentProjectedTokens`,
+    ),
+    rollingWindowMs: positiveIntegerConfig(value.rollingWindowMs, `${field}.rollingWindowMs`),
+    rollingProjectedTokens: positiveIntegerConfig(value.rollingProjectedTokens, `${field}.rollingProjectedTokens`),
+    rollingProjectedBytes: positiveIntegerConfig(value.rollingProjectedBytes, `${field}.rollingProjectedBytes`),
+  };
+  resolveBurstBudgetPolicy(config);
   return config;
 }
 

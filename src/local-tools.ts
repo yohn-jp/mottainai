@@ -529,6 +529,10 @@ function telemetrySummaryTool(telemetry?: TelemetrySink): CallToolResult {
     totals: { calls: 0, errors: 0, original_bytes: 0, compressed_bytes: 0, retrievals: 0 },
     by_provider: {}, by_capability: {},
     projection: { raw_bytes: 0, stored_bytes: 0, returned_bytes: 0, omitted_bytes: 0, projected_tokens: 0 },
+    burst: {
+      pressure_samples: 0, pressure_total: 0, pressure_max: 0, projected_tokens: 0, projected_bytes: 0,
+      omitted_tokens: 0, omitted_bytes: 0, responses_reduced: 0,
+    },
   };
   if (!snapshot.enabled) {
     return output("telemetry_summary", "success", "telemetry disabled; set MOTTAINAI_TELEMETRY=1 to enable", "", {
@@ -550,6 +554,7 @@ function telemetrySummaryTool(telemetry?: TelemetrySink): CallToolResult {
     by_provider: snapshot.by_provider,
     by_capability: snapshot.by_capability,
     projection: snapshot.projection,
+    burst: snapshot.burst,
     compression_ratio: ratio,
     retrieval_rate: rate,
     generated_at: snapshot.generated_at,
@@ -558,6 +563,8 @@ function telemetrySummaryTool(telemetry?: TelemetrySink): CallToolResult {
       returned_bytes: snapshot.projection.returned_bytes,
       omitted_bytes: snapshot.projection.omitted_bytes,
       projected_tokens: snapshot.projection.projected_tokens,
+      burst_responses_reduced: snapshot.burst.responses_reduced,
+      burst_pressure_max: snapshot.burst.pressure_max,
     },
   });
 }

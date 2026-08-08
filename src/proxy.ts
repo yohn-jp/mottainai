@@ -15,6 +15,7 @@ import { buildCatalog, profileAllows } from "./catalog.js";
 import { riskOf } from "./catalog.js";
 import { codeSearchTools, dispatchCodeSearchTool, isCodeSearchTool } from "./code-search.js";
 import { finalizeToolResult } from "./context-runtime/adapter.js";
+import { BurstBudgetController } from "./context-runtime/burst-budget.js";
 import { ProcessRegistry } from "./context-runtime/process-registry.js";
 import type { ToolCatalog } from "./catalog.js";
 import { isCompressionEnabled, isToolDescriptionCompressionEnabled } from "./compress/config.js";
@@ -115,6 +116,17 @@ export function registerProxyHandlers(
   });
   // await/watch primitive（Issue #74）の handle は、この connection（= この registerProxyHandlers 呼び出し）にだけ属する。
   const processes = new ProcessRegistry();
+  // connection/session scope: 1 Server インスタンス = 1 MCP connection。static/global state は
+  // 持たず、この closure だけが保持する — 無関係な client 間で burst budget を共有しない。
+  const burstBudget = new BurstBudgetController(gatewayConfig.burstBudget, {
+    recordPressure: (input) => telemetry.recordBurstPressure(input),
+    recordReduced: (input) => telemetry.recordBurstReduced(input),
+  });
+  const priorOnClose = server.onclose;
+  server.onclose = () => {
+    burstBudget.dispose();
+    priorOnClose?.();
+  };
   const adaptive: AdaptiveToolContext = {
     traceStore: adaptiveOverrides.traceStore ?? createTraceStore(),
     capabilityIndex: adaptiveOverrides.capabilityIndex
@@ -245,7 +257,7 @@ export function registerProxyHandlers(
       ? finalOutcome.result
       : withRequestId(finalOutcome.result, requestId, isLocal || isWorkflowCommand || isAdaptive || isBrokerTool(toolName) || isCodeSearchTool(toolName));
     if (!isLocal) return tracedResult;
-    const finalized = finalizeToolResult(tracedResult, gatewayConfig, resolvedArtifactStore);
+    const finalized = finalizeToolResult(tracedResult, gatewayConfig, resolvedArtifactStore, burstBudget);
     telemetry.recordProjection({
       rawBytes: finalized.stats.rawBytes,
       storedBytes: finalized.stats.storedBytes,

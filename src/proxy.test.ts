@@ -1337,3 +1337,92 @@ test("connection shutdown force-terminates a still-running started process (no o
   await client.close();
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+test(
+  "burst budget (#73): four concurrent per-response-valid tool calls stay individually bounded but the aggregate agent-visible payload is burst-bounded",
+  async () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-burst-budget-"));
+    // per-response budget は #71 単独で満たせる程度に緩めておき、burst budget だけが効くようにする。
+    // 失敗コマンドの diagnostics は #71 が保持対象にするため、成功コマンドの output（既定で
+    // 常に省略される）より現実的に burst 予算を圧迫する題材になる。
+    const perResponseHardBytes = 12_000;
+    const gateway = resolveGatewayConfig({
+      workspaceRoot: workspace,
+      responseBudget: { softTokens: 1_500, hardTokens: 3_000, hardBytes: perResponseHardBytes },
+      burstBudget: {
+        mode: "enforce",
+        maxConcurrentProjectedTokens: 300,
+        rollingWindowMs: 2_000,
+        rollingProjectedTokens: 512,
+        rollingProjectedBytes: 2_048,
+      },
+    });
+    let nextArtifactId = 0;
+    const artifactStore = new InMemoryArtifactStore({ createId: () => `burst${nextArtifactId++}` });
+    // telemetry の debounced persist は非同期で、この test 関数の return 後に発火し得る。workspace
+    // を消してしまうと書き込み先が消えた状態で走るため、telemetry 専用の別ディレクトリ（既存の
+    // 同種テストと同じ流儀で、明示的には削除しない）を使う。
+    const telemetryDir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-burst-budget-telemetry-"));
+    const telemetry = createTelemetrySink({ MOTTAINAI_TELEMETRY: "1", MOTTAINAI_TELEMETRY_FILE: path.join(telemetryDir, "summary.json") });
+    const client = await connectedClient([], undefined, artifactStore, undefined, { gateway, telemetry });
+    try {
+      const commands = [1, 2, 3, 4].map(
+        (index) =>
+          `seq 1 400 | awk '{print "err-line-${index}-" $1 "-unique-content-padding-xxxxxxxxxxxxxxxxxxxxxxxxxx"}' 1>&2; exit 1`,
+      );
+
+      const results = await Promise.all(
+        commands.map((command) => client.callTool({ name: "mottainai_exec", arguments: { command } })),
+      );
+
+      for (const result of results) {
+        assert.ok(
+          Buffer.byteLength(JSON.stringify(result), "utf8") <= perResponseHardBytes,
+          "each individual response must still respect the #71 per-response hard cap",
+        );
+      }
+
+      const aggregateBytes = results.reduce((sum, result) => sum + Buffer.byteLength(JSON.stringify(result), "utf8"), 0);
+      // 4 responses が個別に per-response hard cap いっぱいまで使えば 4 * 6000 = 24000 bytes になり得るが、
+      // burst budget が働けば rolling ceiling (4_800 bytes) 相当に近い、はるかに小さい合計に収まる。
+      assert.ok(
+        aggregateBytes < perResponseHardBytes * commands.length,
+        `aggregate agent-visible payload (${aggregateBytes}) must be bounded below the unburst-limited worst case`,
+      );
+
+      const resultIds = results.map((result) => String((result.structuredContent as Record<string, unknown>).result_id));
+      for (const id of resultIds) {
+        assert.match(id, /^mx_burst\d+$/, "every call must keep a retrievable result_id regardless of burst reduction");
+      }
+      // burst_budget で縮小された応答は resultId が必ず埋まっている（full result は破棄されない）。
+      const reducedResults = results.filter((result) => {
+        const structured = result.structuredContent as Record<string, unknown>;
+        const projection = structured.projection as { omissions: Array<{ reason: string }> } | undefined;
+        return projection?.omissions.some((omission) => omission.reason === "burst_budget") === true;
+      });
+      assert.ok(reducedResults.length > 0, "at least one of the four concurrent calls should be burst-reduced");
+      // full result の破棄禁止を検証する: ArtifactStore を直接叩く（mottainai_result_get 自体も
+      // この burst budget を共有する local tool なので、rolling window が温まっている間はその
+      // レスポンス自体も burst で縮む — ここで確認したいのは "元データが残っているか" であって、
+      // その確認応答が burst 縮小を免れるかではない）。
+      for (const result of reducedResults) {
+        const structured = result.structuredContent as Record<string, unknown>;
+        const resultId = String(structured.result_id);
+        assert.ok(resultId.length > 0, "burst-reduced response must retain a retrievable result_id");
+        assert.equal(structured.truncated, true);
+        assert.equal(typeof structured.status, "string");
+        assert.equal(typeof structured.summary, "string");
+        const retrieved = artifactStore.retrieve(resultId);
+        assert.ok(retrieved, "full evidence must remain retrievable in the ArtifactStore even when burst-reduced");
+        assert.match(retrieved!.text, /err-line-\d+-\d+-unique-content-padding/);
+      }
+
+      const snapshot = telemetry.snapshot();
+      assert.ok(snapshot.burst.pressure_samples > 0);
+      assert.ok(snapshot.burst.responses_reduced > 0);
+    } finally {
+      await client.close();
+      fs.rmSync(workspace, { recursive: true, force: true });
+    }
+  },
+);
