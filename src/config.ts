@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { resolveResponseBudget } from "./context-runtime/budget.js";
 import type { ProjectionBudget, ProjectionBudgetConfig } from "./context-runtime/types.js";
+import { DEFAULT_AWAIT_POLICY } from "./context-runtime/poll-policy.js";
+import type { AwaitPolicy } from "./context-runtime/poll-policy.js";
 import { DEFAULT_READ_GOVERNOR_POLICY, READ_GOVERNOR_MODES, resolveReadGovernorPolicy } from "./context-runtime/read-policy.js";
 import type { ReadGovernorMode, ReadGovernorPolicy } from "./context-runtime/read-policy.js";
 import { normalizeToolMetadataOverride, RISK_VALUES } from "./adaptive/metadata.js";
@@ -140,6 +142,15 @@ export interface GatewayConfig {
   /** `mottainai_task_start`/`mottainai_task_status`（Git workflow task lifecycle）の公開可否。
    * worktree 作成等の副作用を持つため、`worktree` 同様に既定 false（非公開）。 */
   workflowTasks?: boolean;
+  /** await/watch primitive（Issue #74）の polling 上限。agent は間隔を指定できず、ここが唯一の制御点。 */
+  await?: AwaitPolicyConfig;
+}
+
+export interface AwaitPolicyConfig {
+  minPollIntervalMs?: number;
+  maxPollIntervalMs?: number;
+  maxAwaitMs?: number;
+  jitterRatio?: number;
 }
 
 export interface ResolvedGatewayConfig {
@@ -162,6 +173,7 @@ export interface ResolvedGatewayConfig {
   readGovernor?: ReadGovernorPolicy;
   worktree?: ResolvedWorktreeConfig;
   workflowTasks: boolean;
+  await: AwaitPolicy;
 }
 
 /** 起動時に一度だけ解決した設定。以後の各層は同じ絶対パス基準を共有する。 */
@@ -184,6 +196,7 @@ const DEFAULT_GATEWAY_CONFIG: Omit<ResolvedGatewayConfig, "workspaceRoot"> = {
   responseBudget: { softTokens: 1_500, hardTokens: 3_000, hardBytes: 12_000 },
   readGovernor: DEFAULT_READ_GOVERNOR_POLICY,
   workflowTasks: false,
+  await: DEFAULT_AWAIT_POLICY,
 };
 
 export function loadMottainaiConfig(configPath?: string): MottainaiConfig {
@@ -216,7 +229,22 @@ export function resolveGatewayConfig(
     readGovernor: resolveReadGovernorPolicy(config?.readGovernor),
     worktree: resolveWorktreeConfig(config?.worktree),
     workflowTasks: config?.workflowTasks === true,
+    await: resolveAwaitPolicy(config?.await),
   };
+}
+
+function resolveAwaitPolicy(config: AwaitPolicyConfig | undefined): AwaitPolicy {
+  const minPollIntervalMs = positiveInteger(config?.minPollIntervalMs, DEFAULT_AWAIT_POLICY.minPollIntervalMs);
+  const maxPollIntervalMs = Math.max(
+    minPollIntervalMs,
+    positiveInteger(config?.maxPollIntervalMs, DEFAULT_AWAIT_POLICY.maxPollIntervalMs),
+  );
+  const maxAwaitMs = positiveInteger(config?.maxAwaitMs, DEFAULT_AWAIT_POLICY.maxAwaitMs);
+  const jitterRatio = config?.jitterRatio;
+  const resolvedJitterRatio = jitterRatio === undefined || !Number.isFinite(jitterRatio) || jitterRatio < 0 || jitterRatio > 1
+    ? DEFAULT_AWAIT_POLICY.jitterRatio
+    : jitterRatio;
+  return { minPollIntervalMs, maxPollIntervalMs, maxAwaitMs, jitterRatio: resolvedJitterRatio };
 }
 
 function resolveWorktreeConfig(config: WorktreeConfig | undefined): ResolvedWorktreeConfig | undefined {
@@ -346,6 +374,22 @@ function normalizeGateway(value: unknown): GatewayConfig | undefined {
     readGovernor: readGovernorConfig(value.readGovernor, "invalid gateway readGovernor"),
     worktree: worktreeConfig(value.worktree, "invalid gateway worktree"),
     workflowTasks: optionalBoolean(value.workflowTasks, "invalid gateway workflowTasks"),
+    await: awaitPolicyConfig(value.await, "invalid gateway await"),
+  };
+}
+
+function awaitPolicyConfig(value: unknown, field: string): AwaitPolicyConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error(field);
+  const jitterRatio = value.jitterRatio;
+  if (jitterRatio !== undefined && (typeof jitterRatio !== "number" || !Number.isFinite(jitterRatio) || jitterRatio < 0 || jitterRatio > 1)) {
+    throw new Error(`${field}.jitterRatio`);
+  }
+  return {
+    minPollIntervalMs: positiveIntegerConfig(value.minPollIntervalMs, `${field}.minPollIntervalMs`),
+    maxPollIntervalMs: positiveIntegerConfig(value.maxPollIntervalMs, `${field}.maxPollIntervalMs`),
+    maxAwaitMs: positiveIntegerConfig(value.maxAwaitMs, `${field}.maxAwaitMs`),
+    jitterRatio,
   };
 }
 

@@ -13,6 +13,14 @@ const integrationPatterns = Object.freeze([
   "src/mcp-cli.test.ts",
   "src/state/**/*.test.ts",
   "src/workflow/**/*.test.ts",
+  "scripts/lib/mcp-blackbox-client.test.mjs",
+]);
+
+const e2ePatterns = Object.freeze(["src/e2e/**/*.spec.ts"]);
+const packagePatterns = Object.freeze(["scripts/smoke-test.mjs", "scripts/mcp-stdio-package.test.mjs"]);
+const nonStandardsTestFiles = Object.freeze([
+  "scripts/lib/mcp-blackbox-client.test.mjs",
+  "scripts/mcp-stdio-package.test.mjs",
 ]);
 
 export const TEST_SUITE_RULES = Object.freeze({
@@ -25,15 +33,15 @@ export const TEST_SUITE_RULES = Object.freeze({
     exclude: Object.freeze([]),
   }),
   e2e: Object.freeze({
-    include: Object.freeze(["src/e2e/**/*.spec.ts"]),
+    include: e2ePatterns,
     exclude: Object.freeze([]),
   }),
   standards: Object.freeze({
     include: Object.freeze(["scripts/**/*.test.mjs"]),
-    exclude: Object.freeze([]),
+    exclude: nonStandardsTestFiles,
   }),
   package: Object.freeze({
-    include: Object.freeze(["scripts/smoke-test.mjs"]),
+    include: packagePatterns,
     exclude: Object.freeze([]),
   }),
 });
@@ -149,7 +157,7 @@ export function validateTestArchitecture(root = process.cwd()) {
   for (const file of suites.integration) {
     if (fastFiles.has(file)) errors.push(`${file}: integration file is included in fast suite`);
   }
-  if (!suites.e2e.every((file) => file.startsWith("src/e2e/") && file.endsWith(".spec.ts"))) {
+  if (!suites.e2e.every((file) => e2ePatterns.some((pattern) => matchesGlob(file, pattern)))) {
     errors.push("e2e: every file must be an src/e2e/*.spec.ts test");
   }
   if (!suites.package.includes("scripts/smoke-test.mjs")) {

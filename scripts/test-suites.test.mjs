@@ -16,12 +16,16 @@ test("every recognized repository test belongs to exactly one suite", () => {
 });
 
 test("fast suite excludes expensive integration, process, package, and e2e files", () => {
-  assert.equal(classifyTestFile("src/e2e/gateway.e2e.spec.ts"), "e2e");
+  assert.equal(classifyTestFile("src/e2e/mcp-stdio.e2e.spec.ts"), "e2e");
   assert.equal(classifyTestFile("src/init.test.ts"), "integration");
+  assert.equal(classifyTestFile("scripts/lib/mcp-blackbox-client.test.mjs"), "integration");
   assert.equal(classifyTestFile("scripts/smoke-test.mjs"), "package");
-  assert.equal(architecture.suites.fast.includes("src/e2e/gateway.e2e.spec.ts"), false);
+  assert.equal(classifyTestFile("scripts/mcp-stdio-package.test.mjs"), "package");
+  assert.equal(architecture.suites.fast.includes("src/e2e/mcp-stdio.e2e.spec.ts"), false);
   assert.equal(architecture.suites.fast.includes("src/init.test.ts"), false);
   assert.equal(architecture.suites.fast.includes("scripts/smoke-test.mjs"), false);
+  assert.equal(architecture.suites.standards.includes("scripts/mcp-stdio-package.test.mjs"), false);
+  assert.equal(architecture.suites.standards.includes("scripts/lib/mcp-blackbox-client.test.mjs"), false);
 });
 
 test("full verification names every classified suite exactly once", () => {

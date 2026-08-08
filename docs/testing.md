@@ -2,26 +2,42 @@
 
 テスト層は責務、実行コスト、環境境界で分離する。既存のcolocated testは移動・改名しない。分類の正本は`src/test-support/`のfixtureやコメントではなく、[`scripts/test-suites.mjs`](../scripts/test-suites.mjs)の機械可読ルール。
 
+## CI検証トポロジー
+
+PR CIはOS × Nodeの完全直積を採用しない。exhaustive correctnessとcompatibility checkの責務を分離し、各軸で固有の失敗を検出できる最小環境だけ残す。
+
+| 責務 | 環境 | CIで担う検証 |
+| --- | --- | --- |
+| Canonical full validation | Ubuntu + Node 22 | `standards`、typecheck、fast unit/contract、integration/process、build、built-dist full E2E、coverage、package/consumer smoke。repositoryの完全な必須検証の正本 |
+| Node compatibility smoke | Ubuntu + Node 24 | install、build、packed consumer path、最小MCP handshake/list/call/EOF。Node 22のfull suiteを再実行しない |
+| Windows compatibility smoke | Windows + Node 22 | install、build、packed consumer path、packaged launch、MCP initialize/list/call、spacesを含むpath、stdin EOF。Windows固有のPATHEXT executable discoveryも対象 |
+
+Ubuntu + Node 22はexhaustive correctnessの正本。Node 24はruntime/package差異、Windows + Node 22はOS/path/launcher/stdio差異だけ確認する。full E2Eのlifecycle・fault・POSIX SIGINT/SIGTERM検証はcanonical環境に残し、Windows smokeでは実行しない。
+
+完全直積を避ける理由は、OS差異とNode runtime差異が独立した軸だから。各環境でfull suiteを重複実行しても独立した保証が増えず、CI時間とWindows lifecycle hangの影響だけ増える。Windows child processはstdin EOFを第一選択とし、必要時だけboundedなWindows-native cleanupへ移行する。
+
+CI check名も検証責務に合わせる。Node 24のcheckは`Node compatibility smoke (Ubuntu, Node 24)`で、`pnpm run test:package`によるinstall、build、packed consumer/MCP smokeだけを実行する。既存rulesetの`install / typecheck / test / build (Node 24)`と`coverage (Node 24)`はこの構造では発行しないため、branch protection側で削除・置換する。Node 22 canonical checkとWindows smoke checkはそれぞれ実際の責務を表す。
+
 ## 層とコマンド
 
-| 層 | 保証対象 | ファイル規則 | コマンド | 実行目安 |
-|---|---|---|---|---|
-| Fast | pure logic、unit、contract、MCP envelope/config schema、決定論的境界 | `src/**/*.test.ts`からintegrationルール対象を除外 | `pnpm test` | 15秒以内を目標 |
-| Integration / process | 複数component、filesystem、git、SQLite、CLI・子process | `src/commands/**/*.test.ts`、`src/init.test.ts`、`src/local-tools.test.ts`、`src/logging.test.ts`、`src/mcp-cli.test.ts`、`src/state/**/*.test.ts`、`src/workflow/**/*.test.ts` | `pnpm run test:integration` | 30秒以内を目標 |
-| E2E / black-box | gatewayを外部MCP clientからstdioで接続 | `src/e2e/**/*.spec.ts` | `pnpm run test:e2e` | 30秒以内を目標 |
-| Package smoke | build後のpacked tarball install、bin、init、missing-config動作 | `scripts/smoke-test.mjs` | `pnpm run test:package` | 90秒以内を目標 |
-| Standards | format、lint、architecture、governance、suite/coverage policy self-test | `scripts/**/*.test.mjs` | `pnpm run test:standards` | 30秒以内を目標 |
-| Full verification | 上記全層、typecheck、build、package smoke | `FULL_VERIFICATION_SUITES`全項目 | `pnpm run verify` | CI/release前 |
+| 層                    | 保証対象                                                                | ファイル規則                                                                                                                                                                    | コマンド                       | 実行目安       |
+| --------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ | -------------- |
+| Fast                  | pure logic、unit、contract、MCP envelope/config schema、決定論的境界    | `src/**/*.test.ts`からintegrationルール対象を除外                                                                                                                               | `pnpm test`                    | 15秒以内を目標 |
+| Integration / process | 複数component、filesystem、git、SQLite、CLI・子process                  | `src/commands/**/*.test.ts`、`src/init.test.ts`、`src/local-tools.test.ts`、`src/logging.test.ts`、`src/mcp-cli.test.ts`、`src/state/**/*.test.ts`、`src/workflow/**/*.test.ts` | `pnpm run test:integration`    | 30秒以内を目標 |
+| E2E / black-box       | built `dist` gatewayを外部MCP clientからstdio接続                       | `src/e2e/**/*.spec.ts`                                                                                                                                                          | `pnpm run test:e2e`（build後） | 30秒以内を目標 |
+| Package               | packed artifactのprotocol subset、install、bin、init、missing-config    | `scripts/mcp-stdio-package.test.mjs`、`scripts/smoke-test.mjs`                                                                                                                  | `pnpm run test:package`        | 90秒以内を目標 |
+| Standards             | format、lint、architecture、governance、suite/coverage policy self-test | `scripts/**/*.test.mjs`                                                                                                                                                         | `pnpm run test:standards`      | 30秒以内を目標 |
+| Full verification     | 上記全層、typecheck、build、package smoke                               | `FULL_VERIFICATION_SUITES`全項目                                                                                                                                                | `pnpm run verify`              | CI/release前   |
 
 `pnpm test`はTDD用のdefault loop。E2E、package smoke、coverageは含めない。`pnpm run test:all`はfast、integration/process、E2Eを順に実行する開発用aliasで、standards・build・package smokeを含むrelease判定ではない。
 
 既存コマンドの責務:
 
 - `pnpm run smoke-test`: `dist/`をbuild済みとしてpacked packageだけ検証。単独実行時はbuildしない。
-- `pnpm run test:package`: `build`後に`smoke-test`を実行。package層の入口。
+- `pnpm run test:package`: `build`後に同一tarballをpackし、package protocol subsetと`smoke-test`を実行。package層の入口。
 - `pnpm run verify:standards`: format、lint、architecture、governance、分類validator、coverage policy self-test。
 - `pnpm run test:coverage`: fast+integrationを一度ずつ実行し、coverage artifactとgate結果を生成。fast loopへinstrumentationを入れない。
-- `pnpm run verify`: `verify:standards`、typecheck、fast、integration/process、E2E、coverage、package smokeを決定的な順序で実行。
+- `pnpm run verify`: `verify:standards`、typecheck、fast、integration/process、built-dist E2E、coverage、packageを決定的な順序で実行。
 
 ## 機械的分類
 
@@ -38,8 +54,10 @@ validatorは各認識ファイルについて、suite未所属、複数suite所�
 
 - pure logic、schema、envelope、config contract: 対象moduleの隣に`<name>.test.ts`。
 - filesystem、git、SQLite、CLI、子process: 既存colocated testを移動せず、integration path ruleへ追加して`test:integration`へ割り当てる。
-- 外部stdio MCP protocol: `src/e2e/<name>.e2e.spec.ts`。
-- packed package: `scripts/smoke-test.mjs`の検証、または同じpackage層のscript。package smokeを`pnpm test`へ追加しない。
+- 外部stdio MCP protocol: `src/e2e/<name>.e2e.spec.ts`。built `dist`を起動し、production internalsをimportしない。
+- packed package: `scripts/mcp-stdio-package.test.mjs`と`scripts/smoke-test.mjs`をpackage層へ割り当てる。package smokeを`pnpm test`へ追加しない。
+
+`scripts/**/*.test.mjs`は原則standards層。ただし`test-suites.mjs`の明示分類により、共通harness self-testはintegration、package protocol testはpackageへ所属する。
 
 ## Integration、process、fault test
 
@@ -51,13 +69,15 @@ fault-injection testはintegration/process層に置く。timeout、spawn failure
 
 ## E2Eとpackageの境界
 
-`test:e2e`はsource checkoutの`src/index.ts`を`tsx`経由で子process起動し、MCP `listTools`/`callTool`のstdio境界を検証する。`dist/`やpacked packageの公開内容は保証しない。
+`test:e2e`は`pnpm run build`後の`dist/index.js`をchild processとして起動し、MCP `initialize`、`initialized`、`tools/list`、`tools/call`、protocol fault、lifecycle、upstream faultをstdio境界で検証する。sourceをtsx起動するだけのsuiteではない。
 
-`test:package`は`pnpm build`後に`npm pack`、isolated install、installed bin、`init`、missing-config実行を検証する。公開tarball、package.jsonの`files`、launcher、依存解決の変更ではpackage層を実行する。E2Eでpackage smokeを代用しない。
+`test:package`はbuild済みartifactを`npm pack --ignore-scripts`で1回生成し、同一tarballのprotocol subsetと既存`smoke-test`へ渡す。smokeはisolated consumerの実installとlauncher/initを担当し、package subsetはartifactのbin、handshake/list/call、stdout purity、EOFを担当する。展開subsetの依存symlinkはprotocol確認用で、install correctnessの代替ではない。
+
+共通process harnessは`scripts/lib/mcp-blackbox-client.mjs`だけを使う。harness self-testはintegration tierでstdout fragment、blank line、partial response、timeout diagnostics、process-exit、stderr tail、forced cleanupを検証する。
 
 ## Coverage policy
 
-`pnpm run test:coverage`はNode 22/24の組み込みtest coverageを専用processで実行する。`coverage/lcov.info`（machine-readable LCOV）と`coverage/summary.json`（machine-readable gate summary）を生成し、同じCI stepでline、function、branchのhuman-readable summaryをstdoutへ出す。coverage jobは通常のfast commandと分離し、CIでのみ必須gateとして実行する。
+`pnpm run test:coverage`はcanonical Ubuntu + Node 22で組み込みtest coverageを専用processで実行する。`coverage/lcov.info`（machine-readable LCOV）と`coverage/summary.json`（machine-readable gate summary）を生成し、同じCI stepでline、function、branchのhuman-readable summaryをstdoutへ出す。coverage jobは通常のfast commandと分離し、CIでのみ必須gateとして実行する。Node 24ではcoverageを再測定しない。
 
 測定対象:
 
@@ -75,33 +95,33 @@ fault-injection testはintegration/process層に置く。timeout、spawn failure
 
 測定日`2026-08-08`、コマンド`pnpm run test:coverage -- --measure-only`、対象production source revisionは`4c40896`（PR #67をorigin/mainへrebase後の最終review-fix commit。coverageはtest-support/e2eを除外）。推測値ではなく、生成されたLCOVから取得した値。
 
-| 指標 | covered / total | baseline |
-|---|---:|---:|
-| Line | 13056 / 13436 | 97.17% |
-| Function | 909 / 955 | 95.18% |
-| Branch | 3037 / 3512 | 86.47% |
+| 指標     | covered / total | baseline |
+| -------- | --------------: | -------: |
+| Line     |   13056 / 13436 |   97.17% |
+| Function |       909 / 955 |   95.18% |
+| Branch   |     3037 / 3512 |   86.47% |
 
 Baselineは品質targetそのものではない。repository-wide regression floorは`scripts/coverage-policy.json`の`baseline.thresholds`に保守的に設定し、現在値を大きく下回る意味のある回帰をCIで失敗させる。
 
 現行repository-wide floor:
 
 | Line | Function | Branch |
-|---:|---:|---:|
-| 80% | 80% | 65% |
+| ---: | -------: | -----: |
+|  80% |      80% |    65% |
 
 Critical moduleはaggregate率で隠れやすい境界なので、個別targetを設定する。
 
-| Module | Line | Function | Branch | 高いtargetの理由 |
-|---|---:|---:|---:|---|
-| `src/config.ts` | 95% | 95% | 80% | 起動とupstream接続全体の設定解決 |
-| `src/init.ts` | 82% | 82% | 68% | CLI/init、設定生成、client登録、credential除去 |
-| `src/proxy.ts` | 95% | 90% | 75% | MCP tool list/call公開境界 |
-| `src/auth.ts` | 92% | 95% | 70% | credential headerとOAuth brokerのsecret境界 |
-| `src/retrieve.ts` | 92% | 90% | 85% | 圧縮前artifact retentionのTTL/取得保証 |
-| `src/state/migrations.ts` | 95% | 95% | 95% | 永続schema migrationと互換性 |
-| `src/state/sqlite-store.ts` | 95% | 95% | 85% | session/read evidenceの永続化 |
-| `src/workflow/state/sqlite-store.ts` | 95% | 95% | 82% | workflow lifecycle stateと競合制御 |
-| `src/workflow/domain/lifecycle.ts` | 95% | 95% | 88% | lifecycle遷移の不変条件 |
+| Module                               | Line | Function | Branch | 高いtargetの理由                               |
+| ------------------------------------ | ---: | -------: | -----: | ---------------------------------------------- |
+| `src/config.ts`                      |  95% |      95% |    80% | 起動とupstream接続全体の設定解決               |
+| `src/init.ts`                        |  82% |      82% |    68% | CLI/init、設定生成、client登録、credential除去 |
+| `src/proxy.ts`                       |  95% |      90% |    75% | MCP tool list/call公開境界                     |
+| `src/auth.ts`                        |  92% |      95% |    70% | credential headerとOAuth brokerのsecret境界    |
+| `src/retrieve.ts`                    |  92% |      90% |    85% | 圧縮前artifact retentionのTTL/取得保証         |
+| `src/state/migrations.ts`            |  95% |      95% |    95% | 永続schema migrationと互換性                   |
+| `src/state/sqlite-store.ts`          |  95% |      95% |    85% | session/read evidenceの永続化                  |
+| `src/workflow/state/sqlite-store.ts` |  95% |      95% |    82% | workflow lifecycle stateと競合制御             |
+| `src/workflow/domain/lifecycle.ts`   |  95% |      95% |    88% | lifecycle遷移の不変条件                        |
 
 gateはrepository floorとcritical targetの両方を評価し、moduleがartifactから消えた場合も失敗させる。100%や単一aggregate率を品質指標にしない。
 
@@ -115,13 +135,13 @@ gateはrepository floorとcritical targetの両方を評価し、moduleがartifa
 
 ## 変更種別ごとの検証
 
-| 変更 | 最低コマンド |
-|---|---|
-| pure logic、schema、envelope、contract | `pnpm test` |
-| filesystem、git、SQLite、CLI、timeout、spawn、fault | `pnpm run test:integration` |
-| stdio MCP server/proxy | `pnpm run test:e2e`（必要ならfast/integrationも） |
-| package files、bin、init、publish準備 | `pnpm run test:package` |
-| scripts、architecture、governance、test policy | `pnpm run test:standards` |
-| production変更をPR/release判定 | `pnpm run verify` と`pnpm run test:coverage` |
+| 変更                                                | 最低コマンド                                      |
+| --------------------------------------------------- | ------------------------------------------------- |
+| pure logic、schema、envelope、contract              | `pnpm test`                                       |
+| filesystem、git、SQLite、CLI、timeout、spawn、fault | `pnpm run test:integration`                       |
+| stdio MCP server/proxy                              | `pnpm run test:e2e`（必要ならfast/integrationも） |
+| package files、bin、init、publish準備               | `pnpm run test:package`                           |
+| scripts、architecture、governance、test policy      | `pnpm run test:standards`                         |
+| production変更をPR/release判定                      | `pnpm run verify` と`pnpm run test:coverage`      |
 
 非Draft PRのValidationには、実行した`format:check`、`lint`、`typecheck`、`pnpm test`、integration/process、E2E、build、package smoke、architecture/governance、coverageを明記する。未実行をpassとして記載しない。

@@ -147,6 +147,23 @@ test("status reports per-upstream failures without exposing env or args", async 
   assert.ok(!JSON.stringify(status.broken).includes("sekrit"));
 });
 
+test("status stores the base upstream error without stderr diagnostics", async () => {
+  const secret = "SECRET_SHOULD_NOT_LEAK_123";
+  const error = new Error("upstream connection failed");
+  Object.defineProperty(error, "mottainaiUpstreamDiagnostic", {
+    value: `provider=broken phase=initialize stderr_tail=${JSON.stringify(secret)} transcript=[]`,
+  });
+  const registry = new UpstreamRegistry([{ name: "broken", command: "node" }], async () => {
+    throw error;
+  });
+
+  await assert.rejects(() => registry.start("broken"), error);
+
+  const status = registry.status()[0];
+  assert.equal(status.lastError, error.message);
+  assert.doesNotMatch(JSON.stringify(status), new RegExp(secret));
+});
+
 test("a failing upstream does not block other upstreams from starting", async () => {
   const registry = new UpstreamRegistry([
     { name: "broken", command: "missing" },
@@ -262,6 +279,21 @@ test("close is resilient to one upstream's close failure and still stops the res
   assert.equal(goodClosed, true);
   assert.equal(registry.state("bad"), "stopped");
   assert.equal(registry.state("good"), "stopped");
+});
+
+test("close proceeds when an upstream ignores client.close", async () => {
+  const registry = new UpstreamRegistry([{ name: "stubborn", command: "node" }], async (config) => ({
+    config,
+    client: { close: async () => new Promise<void>(() => {}) } as UpstreamHandle["client"],
+    tools: [],
+  }));
+
+  await registry.start("stubborn");
+  const startedAt = Date.now();
+  await registry.close();
+
+  assert.ok(Date.now() - startedAt < 2_500);
+  assert.equal(registry.state("stubborn"), "stopped");
 });
 
 test("close is idempotent: a second call does not attempt to close handles again", async () => {

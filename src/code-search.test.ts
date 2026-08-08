@@ -9,6 +9,7 @@ import { callCodeSearchTool, dispatchCodeSearchTool } from "./code-search.js";
 import type { CodeSearchContext } from "./code-search.js";
 import { buildCatalog } from "./catalog.js";
 import type { ResolvedGatewayConfig } from "./config.js";
+import { DEFAULT_AWAIT_POLICY } from "./context-runtime/poll-policy.js";
 import { InMemoryArtifactStore } from "./retrieve.js";
 import { UpstreamRegistry } from "./upstream.js";
 import type { UpstreamHandle } from "./upstream.js";
@@ -18,6 +19,7 @@ function gatewayConfig(root: string): ResolvedGatewayConfig {
     workspaceRoot: root, defaultTimeoutMs: 5_000, maxTimeoutMs: 5_000, maxOutputBytes: 1024 * 1024,
     execTargetTokens: 1_000, resultTtlMs: 10_000, resultMaxEntries: 10,
     capabilityMap: {}, toolMetadata: {}, tokenBudgets: { tools: {}, capabilities: {}, profiles: {} }, workflowTasks: false,
+    await: DEFAULT_AWAIT_POLICY,
   };
 }
 

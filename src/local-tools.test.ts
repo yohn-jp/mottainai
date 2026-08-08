@@ -6,6 +6,8 @@ import path from "node:path";
 import { test } from "node:test";
 import { allLocalTools, callLocalTool, localTools, localToolsFor, parseIssueViewOutput, parseRgJson } from "./local-tools.js";
 import type { ResolvedGatewayConfig } from "./config.js";
+import { ProcessRegistry } from "./context-runtime/process-registry.js";
+import { DEFAULT_AWAIT_POLICY } from "./context-runtime/poll-policy.js";
 import { InMemoryArtifactStore } from "./retrieve.js";
 import { createTelemetrySink } from "./telemetry.js";
 
@@ -16,7 +18,7 @@ async function workspace(): Promise<{ root: string; config: ResolvedGatewayConfi
   await fs.writeFile(path.join(root, "src", "sample.ts"), "export function useful() {\n  return 1;\n}\nexport const value = 2;\n");
   await fs.writeFile(path.join(root, "needle.txt"), "one\nneedle here\nthree\n");
   await fs.writeFile(path.join(root, "node_modules", "ignored.txt"), "needle ignored");
-  return { root, config: { workspaceRoot: root, defaultTimeoutMs: 1_000, maxTimeoutMs: 2_000, maxOutputBytes: 1024, execTargetTokens: 1_000, resultTtlMs: 10_000, resultMaxEntries: 10, capabilityMap: {}, toolMetadata: {}, tokenBudgets: { tools: {}, capabilities: {}, profiles: {} }, workflowTasks: false } };
+  return { root, config: { workspaceRoot: root, defaultTimeoutMs: 1_000, maxTimeoutMs: 2_000, maxOutputBytes: 1024, execTargetTokens: 1_000, resultTtlMs: 10_000, resultMaxEntries: 10, capabilityMap: {}, toolMetadata: {}, tokenBudgets: { tools: {}, capabilities: {}, profiles: {} }, workflowTasks: false, await: DEFAULT_AWAIT_POLICY } };
 }
 
 function structured(result: Awaited<ReturnType<typeof callLocalTool>>): Record<string, unknown> {
@@ -26,8 +28,8 @@ function structured(result: Awaited<ReturnType<typeof callLocalTool>>): Record<s
 
 test("local tool definitions expose schemas, output schemas, and annotations", () => {
   assert.deepEqual(localTools.map((tool) => tool.name), [
-    "mottainai_exec", "mottainai_read", "mottainai_search", "mottainai_list", "mottainai_result_get", "mottainai_result_search",
-    "mottainai_runtime_status", "mottainai_telemetry_summary",
+    "mottainai_exec", "mottainai_exec_start", "mottainai_exec_await", "mottainai_read", "mottainai_search", "mottainai_list",
+    "mottainai_result_get", "mottainai_result_search", "mottainai_runtime_status", "mottainai_telemetry_summary",
   ]);
   for (const tool of localTools) {
     assert.equal(tool.inputSchema.type, "object");
@@ -307,6 +309,142 @@ test("tapTestResults does not let a later failure's diagnostic leak into an earl
   await fs.rm(root, { recursive: true, force: true });
 });
 
+// --- exec_start / exec_await: start/await primitives (Issue #74) ---
+
+test("exec_start returns an opaque handle immediately, and exec_await blocks until terminal state", async () => {
+  const { root, config } = await workspace();
+  const store = new InMemoryArtifactStore({ createId: () => "await-success" });
+  const processes = new ProcessRegistry();
+  const started = structured(await callLocalTool(
+    "mottainai_exec_start", { command: "printf hi" }, config, store, undefined, undefined, processes,
+  ));
+  assert.equal(started.status, "success");
+  assert.equal(typeof started.handle, "string");
+
+  const awaited = structured(await callLocalTool(
+    "mottainai_exec_await", { handle: started.handle }, config, store, undefined, undefined, processes,
+  ));
+  assert.equal(awaited.status, "success");
+  assert.equal(awaited.exit_code, 0);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("exec_await reports command failure via exit code without throwing", async () => {
+  const { root, config } = await workspace();
+  const store = new InMemoryArtifactStore({ createId: () => "await-failure" });
+  const processes = new ProcessRegistry();
+  const started = structured(await callLocalTool(
+    "mottainai_exec_start", { command: "printf boom; exit 1" }, config, store, undefined, undefined, processes,
+  ));
+  const awaited = structured(await callLocalTool(
+    "mottainai_exec_await", { handle: started.handle }, config, store, undefined, undefined, processes,
+  ));
+  assert.equal(awaited.status, "failed");
+  assert.equal(awaited.exit_code, 1);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("exec_await returns a bounded timeout result instead of blocking past the configured maxAwaitMs", async () => {
+  const { root, config } = await workspace();
+  const store = new InMemoryArtifactStore({ createId: () => "await-timeout" });
+  const processes = new ProcessRegistry();
+  const started = structured(await callLocalTool(
+    "mottainai_exec_start", { command: `${process.execPath} -e "setTimeout(() => {}, 2000)"` }, config, store, undefined, undefined, processes,
+  ));
+  const awaited = structured(await callLocalTool(
+    "mottainai_exec_await", { handle: started.handle, timeoutMs: 50 }, config, store, undefined, undefined, processes,
+  ));
+  assert.equal(awaited.status, "partial");
+  assert.equal(awaited.state, "running");
+  assert.equal(typeof awaited.elapsed_ms, "number");
+  processes.dispose();
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("exec_await is cancellable via AbortSignal without waiting for the process to finish", async () => {
+  const { root, config } = await workspace();
+  const store = new InMemoryArtifactStore({ createId: () => "await-cancel" });
+  const processes = new ProcessRegistry();
+  const started = structured(await callLocalTool(
+    "mottainai_exec_start", { command: `${process.execPath} -e "setTimeout(() => {}, 2000)"` }, config, store, undefined, undefined, processes,
+  ));
+  const controller = new AbortController();
+  const awaitPromise = callLocalTool(
+    "mottainai_exec_await", { handle: started.handle }, config, store, undefined, undefined, processes, controller.signal,
+  );
+  controller.abort();
+  const awaited = structured(await awaitPromise);
+  assert.equal(awaited.state, "cancelled");
+  processes.dispose();
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("exec_await bounds inline output and stores full evidence for retrieval (output-limit / projection)", async () => {
+  const { root, config } = await workspace();
+  const store = new InMemoryArtifactStore({ createId: () => "await-output-limit" });
+  const processes = new ProcessRegistry();
+  const started = structured(await callLocalTool(
+    "mottainai_exec_start", { command: "yes x", maxOutputBytes: 32 }, config, store, undefined, undefined, processes,
+  ));
+  const awaited = structured(await callLocalTool(
+    "mottainai_exec_await", { handle: started.handle }, config, store, undefined, undefined, processes,
+  ));
+  assert.equal(awaited.output_limited, true);
+  assert.equal(typeof awaited.result_id, "string");
+  assert.ok((awaited.result_id as string).length > 0);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("exec_await on an unknown handle throws (invalid handle)", async () => {
+  const { root, config } = await workspace();
+  const store = new InMemoryArtifactStore();
+  const processes = new ProcessRegistry();
+  await assert.rejects(
+    () => callLocalTool("mottainai_exec_await", { handle: "mh_unknown" }, config, store, undefined, undefined, processes),
+    /invalid or unknown exec handle/,
+  );
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("a handle started in one connection's process registry is rejected by another connection (cross-connection)", async () => {
+  const { root, config } = await workspace();
+  const store = new InMemoryArtifactStore();
+  const processesA = new ProcessRegistry();
+  const processesB = new ProcessRegistry();
+  const started = structured(await callLocalTool(
+    "mottainai_exec_start", { command: "printf hi" }, config, store, undefined, undefined, processesA,
+  ));
+  await assert.rejects(
+    () => callLocalTool("mottainai_exec_await", { handle: started.handle }, config, store, undefined, undefined, processesB),
+    /invalid or unknown exec handle/,
+  );
+  processesA.dispose();
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("disposing the process registry force-terminates a still-running started process (connection cleanup)", async () => {
+  const { root, config } = await workspace();
+  const store = new InMemoryArtifactStore();
+  const processes = new ProcessRegistry();
+  const started = structured(await callLocalTool(
+    "mottainai_exec_start", { command: `${process.execPath} -e "setTimeout(() => {}, 5000)"` }, config, store, undefined, undefined, processes,
+  ));
+  assert.equal(processes.has(started.handle as string), true);
+  processes.dispose();
+  assert.equal(processes.has(started.handle as string), false);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("exec_start/exec_await require a connection-scoped process registry", async () => {
+  const { root, config } = await workspace();
+  const store = new InMemoryArtifactStore();
+  await assert.rejects(
+    () => callLocalTool("mottainai_exec_start", { command: "printf hi" }, config, store),
+    /connection-scoped process registry/,
+  );
+  await fs.rm(root, { recursive: true, force: true });
+});
+
 test("runtime status reports provider health and diagnoses unhealthy upstreams", async () => {
   const { root, config } = await workspace();
   const store = new InMemoryArtifactStore();
@@ -352,7 +490,7 @@ test("worktree_new tool is only listed when a worktree config is present", () =>
   const bareConfig: ResolvedGatewayConfig = {
     workspaceRoot: "/tmp", defaultTimeoutMs: 1_000, maxTimeoutMs: 2_000, maxOutputBytes: 1024, execTargetTokens: 1_000,
     resultTtlMs: 10_000, resultMaxEntries: 10, capabilityMap: {}, toolMetadata: {}, tokenBudgets: { tools: {}, capabilities: {}, profiles: {} },
-    workflowTasks: false,
+    workflowTasks: false, await: DEFAULT_AWAIT_POLICY,
   };
   assert.equal(localToolsFor(bareConfig).some((tool) => tool.name === "mottainai_worktree_new"), false);
 
@@ -367,7 +505,7 @@ test("worktree_new is annotated as deprecated in favor of mottainai_workflow_tas
   const withWorktree: ResolvedGatewayConfig = {
     workspaceRoot: "/tmp", defaultTimeoutMs: 1_000, maxTimeoutMs: 2_000, maxOutputBytes: 1024, execTargetTokens: 1_000,
     resultTtlMs: 10_000, resultMaxEntries: 10, capabilityMap: {}, toolMetadata: {}, tokenBudgets: { tools: {}, capabilities: {}, profiles: {} },
-    workflowTasks: false, worktree: { allowedBranchPrefixes: ["docs"], baseBranch: "main", worktreeDir: ".worktrees" },
+    workflowTasks: false, await: DEFAULT_AWAIT_POLICY, worktree: { allowedBranchPrefixes: ["docs"], baseBranch: "main", worktreeDir: ".worktrees" },
   };
   const tool = localToolsFor(withWorktree).find((candidate) => candidate.name === "mottainai_worktree_new");
   assert.ok(tool !== undefined);
@@ -450,6 +588,7 @@ test("the advertised tool surface matches the executable tool surface for worktr
   const guardedTools: Array<{ name: string; args: Record<string, unknown>; enabled: (config: ResolvedGatewayConfig) => boolean }> = [
     { name: "mottainai_worktree_new", args: { prefix: "docs", task: "example" }, enabled: (config) => config.worktree !== undefined },
     { name: "mottainai_issue_view", args: { number: 1 }, enabled: (config) => config.worktree !== undefined },
+    { name: "mottainai_gh_checks_await", args: { number: 1 }, enabled: (config) => config.worktree !== undefined },
   ];
   const configs = [bareConfig, withWorktree];
 

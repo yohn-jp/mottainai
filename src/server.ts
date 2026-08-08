@@ -26,15 +26,12 @@ export async function runServer(configPath?: string, cwd: string = process.cwd()
     maxEntries: snapshot.gatewayConfig.resultMaxEntries,
   });
 
-  const server = new Server(
-    { name: "mottainai", version: packageMetadata.version },
-    { capabilities: { tools: {} } },
-  );
+  const server = new Server({ name: "mottainai", version: packageMetadata.version }, { capabilities: { tools: {} } });
   const activeProfileName = snapshot.config.gateway?.activeProfile;
   const activeProfile = activeProfileName === undefined
     ? undefined
     : snapshot.config.profiles?.[activeProfileName];
-  registerProxyHandlers(
+  const proxyHandlers = registerProxyHandlers(
     server,
     upstreams,
     logger,
@@ -48,20 +45,32 @@ export async function runServer(configPath?: string, cwd: string = process.cwd()
   let shutdownPromise: Promise<void> | undefined;
   const shutdown = (): Promise<void> => {
     if (shutdownPromise !== undefined) return shutdownPromise;
+    proxyHandlers.dispose();
     shutdownPromise = upstreams.close();
     return shutdownPromise;
   };
+  let closePromise: Promise<void> | undefined;
+  const closeServer = (): Promise<void> => {
+    if (closePromise !== undefined) return closePromise;
+    closePromise = shutdown().then(() => server.close());
+    return closePromise;
+  };
   const onSignal = (): void => {
-    void shutdown()
-      .then(() => server.close())
-      .catch((error: unknown) => console.error(error instanceof Error ? error.message : String(error)));
+    void closeServer().catch((error: unknown) => console.error(error instanceof Error ? error.message : String(error)));
+  };
+  const onInputEnd = (): void => {
+    void closeServer().catch((error: unknown) => console.error(error instanceof Error ? error.message : String(error)));
   };
   transport.onclose = () => {
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
+    process.stdin.off("end", onInputEnd);
+    process.stdin.off("close", onInputEnd);
     void shutdown().catch(() => {});
   };
   process.once("SIGINT", onSignal);
   process.once("SIGTERM", onSignal);
+  process.stdin.once("end", onInputEnd);
+  process.stdin.once("close", onInputEnd);
   await server.connect(transport);
 }

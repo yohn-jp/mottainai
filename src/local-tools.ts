@@ -15,6 +15,9 @@ import {
 } from "./context-runtime/read-policy.js";
 import type { NormalizedReadRequest, ReadDecision } from "./context-runtime/read-policy.js";
 import { inspectReadFile, readAuthorizedFile, readSemanticInspectionSource } from "./context-runtime/read-adapter.js";
+import { normalizeChecks, waitUntilChanged } from "./context-runtime/gh-checks.js";
+import type { CheckSnapshot, RawCheck } from "./context-runtime/gh-checks.js";
+import type { ProcessRegistry } from "./context-runtime/process-registry.js";
 import { OUTPUT_SCHEMA, output } from "./envelope.js";
 import type { ArtifactStore } from "./retrieve.js";
 import { runChild, runProgram } from "./subprocess.js";
@@ -35,6 +38,22 @@ export const localTools: Tool[] = [
       compression: { type: "boolean" },
     }, required: ["command"] }, outputSchema: OUTPUT_SCHEMA,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  },
+  {
+    name: "mottainai_exec_start",
+    description: "Start a shell command in workspace without waiting for it to finish; returns an opaque handle for mottainai_exec_await. Use this instead of mottainai_exec for long-running commands so you can await once instead of polling.",
+    inputSchema: { type: "object", properties: {
+      command: { type: "string" }, cwd: { type: "string" }, maxOutputBytes: { type: "integer", minimum: 1 },
+    }, required: ["command"] }, outputSchema: OUTPUT_SCHEMA,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  },
+  {
+    name: "mottainai_exec_await",
+    description: "Block inside this call, up to a bounded runtime-enforced timeout, until a mottainai_exec_start handle reaches a terminal state. Returns terminal result, or an explicit timeout with last-known state — never repeats an unchanged snapshot silently.",
+    inputSchema: { type: "object", properties: {
+      handle: { type: "string" }, timeoutMs: { type: "integer", minimum: 1 }, targetTokens: { type: "integer", minimum: 128, maximum: 10000 },
+    }, required: ["handle"] }, outputSchema: OUTPUT_SCHEMA,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   },
   {
     name: "mottainai_read", description: "Read a workspace file by auto/outline/symbol view or an explicit bounded raw range.",
@@ -98,13 +117,21 @@ const issueViewTool: Tool = {
   }, required: ["number"] }, outputSchema: OUTPUT_SCHEMA, annotations: readOnly,
 };
 
-/** `worktree` 未設定のワークスペースでは `mottainai_worktree_new` を公開しない。 */
+const ghChecksAwaitTool: Tool = {
+  name: "mottainai_gh_checks_await",
+  description: "Wait inside this call, up to a bounded runtime-enforced timeout, until a GitHub pull request's CI checks reach a terminal state or a meaningful state change. Returns a semantic delta (changed checks only), not a repeated full snapshot — replaces repeated gh pr checks polling with one call.",
+  inputSchema: { type: "object", properties: {
+    number: { type: "integer", minimum: 1 }, timeoutMs: { type: "integer", minimum: 1 },
+  }, required: ["number"] }, outputSchema: OUTPUT_SCHEMA, annotations: readOnly,
+};
+
+/** `worktree` 未設定のワークスペースでは GitHub 連携ツールを非公開にする。 */
 export function localToolsFor(config: ResolvedGatewayConfig): Tool[] {
-  return config.worktree === undefined ? localTools : [...localTools, worktreeNewTool, issueViewTool];
+  return config.worktree === undefined ? localTools : [...localTools, worktreeNewTool, issueViewTool, ghChecksAwaitTool];
 }
 
 /** risk annotation 参照専用。gatewayConfig を持たない箇所でも定義を引けるよう、条件付き公開ツールも含む全量。 */
-export const allLocalTools: Tool[] = [...localTools, worktreeNewTool, issueViewTool];
+export const allLocalTools: Tool[] = [...localTools, worktreeNewTool, issueViewTool, ghChecksAwaitTool];
 
 type Args = Record<string, unknown> | undefined;
 
@@ -115,10 +142,12 @@ export interface RuntimeStatusSource {
 
 export async function callLocalTool(
   name: string, args: Args, config: ResolvedGatewayConfig, store: ArtifactStore, runtime?: RuntimeStatusSource,
-  telemetry?: TelemetrySink,
+  telemetry?: TelemetrySink, processes?: ProcessRegistry, signal?: AbortSignal,
 ): Promise<CallToolResult> {
   switch (name) {
     case "mottainai_exec": return execTool(args, config, store);
+    case "mottainai_exec_start": return execStartTool(args, config, requireProcesses(processes));
+    case "mottainai_exec_await": return execAwaitTool(args, config, store, requireProcesses(processes), telemetry, signal);
     case "mottainai_read": return readTool(args, config, store, telemetry);
     case "mottainai_search": return searchTool(args, config, store);
     case "mottainai_list": return listTool(args, config, store);
@@ -128,8 +157,14 @@ export async function callLocalTool(
     case "mottainai_telemetry_summary": return telemetrySummaryTool(telemetry);
     case "mottainai_worktree_new": return worktreeNewToolImpl(args, config);
     case "mottainai_issue_view": return issueViewToolImpl(args, config);
+    case "mottainai_gh_checks_await": return ghChecksAwaitToolImpl(args, config, telemetry, signal);
     default: throw new Error(`Unknown local tool: ${name}`);
   }
+}
+
+function requireProcesses(processes: ProcessRegistry | undefined): ProcessRegistry {
+  if (processes === undefined) throw new Error("mottainai_exec_start/await require a connection-scoped process registry");
+  return processes;
 }
 
 function runtimeStatusTool(args: Args, config: ResolvedGatewayConfig, runtime?: RuntimeStatusSource): CallToolResult {
@@ -197,11 +232,77 @@ async function execTool(args: Args, config: ResolvedGatewayConfig, store: Artifa
   const started = performance.now();
   const run = await runShell(command, cwd, timeoutMs, config.maxOutputBytes);
   const durationMs = Math.round(performance.now() - started);
+  const preserveRaw = value(args, "compression") === false;
+  return buildExecOutput(run, command, cwd, config.workspaceRoot, durationMs, targetTokens, preserveRaw, store);
+}
+
+async function execStartTool(args: Args, config: ResolvedGatewayConfig, processes: ProcessRegistry): Promise<CallToolResult> {
+  const command = stringArg(args, "command", true)!;
+  const cwd = await resolveInside(config.workspaceRoot, stringArg(args, "cwd"));
+  const requestedMaxOutputBytes = numberArg(args, "maxOutputBytes");
+  const maxOutputBytes = requestedMaxOutputBytes === undefined
+    ? config.maxOutputBytes
+    : Math.min(requestedMaxOutputBytes, config.maxOutputBytes);
+  if (maxOutputBytes < 1) throw new Error("maxOutputBytes must be positive");
+  const started = processes.start(command, cwd, maxOutputBytes, true);
+  const summary = `started handle=${started.handle}${started.pid === undefined ? "" : ` pid=${started.pid}`}`;
+  return output("exec_start", "success", summary, "", {
+    handle: started.handle,
+    ...(started.pid === undefined ? {} : { pid: started.pid }),
+    next_command: `mottainai_exec_await handle=${started.handle}`,
+  });
+}
+
+async function execAwaitTool(
+  args: Args, config: ResolvedGatewayConfig, store: ArtifactStore, processes: ProcessRegistry, telemetry?: TelemetrySink,
+  signal?: AbortSignal,
+): Promise<CallToolResult> {
+  const handle = stringArg(args, "handle", true)!;
+  const requestedTimeout = numberArg(args, "timeoutMs");
+  if (requestedTimeout !== undefined && requestedTimeout < 1) throw new Error("timeoutMs must be positive");
+  const timeoutMs = Math.min(requestedTimeout ?? config.await.maxAwaitMs, config.await.maxAwaitMs);
+  const targetTokens = numberArg(args, "targetTokens") ?? config.execTargetTokens;
+  if (targetTokens < 128 || targetTokens > 10_000) throw new Error("targetTokens must be between 128 and 10000");
+
+  const describe = processes.describe(handle);
+  if (describe === undefined) throw new Error(`invalid or unknown exec handle: ${handle}`);
+
+  const started = performance.now();
+  const outcome = await processes.awaitHandle(handle, timeoutMs, signal);
+  const elapsedMs = Math.round(performance.now() - started);
+  if (outcome === undefined) throw new Error(`invalid or unknown exec handle: ${handle}`);
+
+  telemetry?.recordAwait({
+    pollCount: 0, elapsedMs, stateChanges: outcome.kind === "terminal" ? 1 : 0, avoidedResponses: 0,
+    outcome: outcome.kind,
+  });
+
+  if (outcome.kind === "terminal") {
+    processes.release(handle);
+    return buildExecOutput(outcome.result, describe.command, describe.cwd, config.workspaceRoot, elapsedMs, targetTokens, false, store);
+  }
+
+  const summary = outcome.kind === "timeout"
+    ? `TIMEOUT handle=${handle} elapsed=${outcome.elapsedMs}ms still running`
+    : `CANCELLED handle=${handle} elapsed=${outcome.elapsedMs}ms`;
+  return output("exec_await", "partial", summary, "", {
+    handle, elapsed_ms: outcome.elapsedMs, timeout_ms: timeoutMs,
+    state: outcome.kind === "timeout" ? "running" : "cancelled",
+    next_command: outcome.kind === "timeout" ? `mottainai_exec_await handle=${handle}` : undefined,
+    truncated: false,
+  });
+}
+
+/** `runShell`/`ManagedProcess` の `RunResult` を exec envelope へ変換する。同期 exec と await 経路が共有する。 */
+async function buildExecOutput(
+  run: RunResult, command: string, cwd: string, workspaceRoot: string, durationMs: number,
+  targetTokens: number, preserveRawArg: boolean, store: ArtifactStore,
+): Promise<CallToolResult> {
   const raw = [run.stdout, run.stderr].filter(Boolean).join(run.stdout && run.stderr ? "\n" : "");
   const status = run.exitCode === 0 && !run.timedOut && !run.outputLimit ? "success" : "failed";
-  const failure = status === "failed" ? await diagnoseExecFailure(run, raw, cwd, config.workspaceRoot) : undefined;
+  const failure = status === "failed" ? await diagnoseExecFailure(run, raw, cwd, workspaceRoot) : undefined;
   // 競合markerはパッチ根拠。通常出力の圧縮対象にしない。
-  const preserveRaw = value(args, "compression") === false || failure?.classification === "git_conflict";
+  const preserveRaw = preserveRawArg || failure?.classification === "git_conflict";
   const compressed = preserveRaw ? raw : compactToBudget(compressText(raw, { cli: { command } }), targetTokens, Buffer.byteLength(raw));
   const summary = status === "success"
     ? `OK exit=0 duration=${durationMs}ms${run.outputLimit ? " output_limit" : ""}`
@@ -713,6 +814,84 @@ async function issueViewToolImpl(args: Args, config: ResolvedGatewayConfig): Pro
   const { issue } = parsed;
   const summary = `#${issue.number} ${issue.state} ${issue.title}`;
   return output("issue_view", "success", summary, "", { issue });
+}
+
+/** `gh pr view --json statusCheckRollup` の stdout を `RawCheck[]` へ解釈する。壊れた/非JSON出力は空配列扱い。 */
+function parseStatusCheckRollup(stdout: string): RawCheck[] {
+  try {
+    const parsed = JSON.parse(stdout) as { statusCheckRollup?: unknown };
+    return Array.isArray(parsed.statusCheckRollup) ? parsed.statusCheckRollup as RawCheck[] : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * provider/status の await primitive（Issue #74）。`gh pr view` を runtime 側で bounded polling し、
+ * 変化の無い中間 snapshot は返さず、terminal 到達 または 意味のある変化のときだけ 1 回応答する。
+ * agent は interval を指定できない — `config.await` が唯一の polling policy 制御点。
+ */
+async function ghChecksAwaitToolImpl(
+  args: Args, config: ResolvedGatewayConfig, telemetry?: TelemetrySink, signal?: AbortSignal,
+): Promise<CallToolResult> {
+  if (config.worktree === undefined) throw new Error("gh checks tool is not configured for this workspace");
+  const number = numberArg(args, "number");
+  if (number === undefined || number < 1) throw new Error("number must be a positive integer");
+  const requestedTimeout = numberArg(args, "timeoutMs");
+  if (requestedTimeout !== undefined && requestedTimeout < 1) throw new Error("timeoutMs must be positive");
+  const timeoutMs = Math.min(requestedTimeout ?? config.await.maxAwaitMs, config.await.maxAwaitMs);
+
+  let lastSpawnError: string | undefined;
+  const fetchChecks = async (): Promise<CheckSnapshot[]> => {
+    const run = await runProgram(
+      "gh", ["pr", "view", String(number), "--json", "statusCheckRollup"],
+      config.workspaceRoot, config.maxTimeoutMs, config.maxOutputBytes,
+    );
+    if (run.exitCode !== 0) {
+      lastSpawnError = firstLine(run.stderr || run.stdout) || "gh pr view failed";
+      return [];
+    }
+    lastSpawnError = undefined;
+    return normalizeChecks(parseStatusCheckRollup(run.stdout));
+  };
+
+  if (signal?.aborted === true) {
+    return output("gh_checks_await", "partial", `CANCELLED pr=${number}`, "", { pr: number, state: "cancelled", truncated: false });
+  }
+
+  const abortPromise = signal === undefined
+    ? undefined
+    : new Promise<"cancelled">((resolve) => signal.addEventListener("abort", () => resolve("cancelled"), { once: true }));
+
+  const waitPromise = waitUntilChanged({ fetchChecks, policy: config.await, timeoutMs });
+  const result = abortPromise === undefined ? await waitPromise : await Promise.race([waitPromise, abortPromise]);
+
+  if (result === "cancelled") {
+    telemetry?.recordAwait({ pollCount: 0, elapsedMs: 0, stateChanges: 0, avoidedResponses: 0, outcome: "cancelled" });
+    return output("gh_checks_await", "partial", `CANCELLED pr=${number}`, "", { pr: number, state: "cancelled", truncated: false });
+  }
+
+  const avoidedResponses = Math.max(0, result.pollCount - 1);
+  telemetry?.recordAwait({
+    pollCount: result.pollCount, elapsedMs: result.elapsedMs, stateChanges: result.changed.length,
+    avoidedResponses, outcome: result.timedOut === true ? "timeout" : "terminal",
+  });
+
+  if (result.timedOut === true) {
+    const summary = `TIMEOUT pr=${number} elapsed=${result.elapsedMs}ms checks=${result.checks.length}${lastSpawnError ? ` last_error=${lastSpawnError}` : ""}`;
+    return output("gh_checks_await", "partial", summary, "", {
+      pr: number, elapsed_ms: result.elapsedMs, timeout_ms: timeoutMs, state: "timeout",
+      last_known_checks: result.checks, retrieval_hint: `mottainai_gh_checks_await number=${number}`,
+      truncated: false,
+    });
+  }
+
+  const summary = `pr=${number} changed=${result.changed.length} terminal=${result.terminal}`;
+  return output("gh_checks_await", "success", summary, "", {
+    pr: number, changed: result.changed, terminal: result.terminal, checks: result.checks,
+    metrics: { poll_count: result.pollCount, elapsed_ms: result.elapsedMs },
+    truncated: false,
+  });
 }
 
 function codeView(source: string, mode: string, filePath: string): string {

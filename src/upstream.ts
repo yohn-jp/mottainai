@@ -40,8 +40,91 @@ interface UpstreamRecord {
 
 export type UpstreamConnector = (config: UpstreamConfig) => Promise<UpstreamHandle>;
 
-function errorMessage(error: unknown): string {
+interface UpstreamDiagnosticError extends Error {
+  mottainaiUpstreamDiagnostic?: string;
+}
+
+export function upstreamErrorMessage(error: unknown): string {
+  const baseMessage = upstreamBaseErrorMessage(error);
+  if (!(error instanceof Error)) return baseMessage;
+  const diagnostic = (error as UpstreamDiagnosticError).mottainaiUpstreamDiagnostic;
+  return diagnostic === undefined ? baseMessage : `${baseMessage}; ${upstreamDiagnosticSummary(diagnostic)}`;
+}
+
+export function upstreamBaseErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function upstreamDiagnosticSummary(diagnostic: string): string {
+  const provider = diagnostic.match(/(?:^| )provider=([^ ]+)/u)?.[1];
+  const phase = diagnostic.match(/(?:^| )phase=([^ ]+)/u)?.[1];
+  const timeout = diagnostic.match(/(?:^| )timeout_ms=([^ ]+)/u)?.[1];
+  const fields = [
+    provider === undefined ? undefined : `provider=${provider}`,
+    phase === undefined ? undefined : `phase=${phase}`,
+    timeout === undefined ? undefined : `timeout_ms=${timeout}`,
+    diagnostic.includes("stderr_tail=") ? "stderr_tail=[redacted]" : undefined,
+    diagnostic.includes("transcript=") ? "transcript=[redacted]" : undefined,
+  ].filter((field): field is string => field !== undefined);
+  return fields.length === 0 ? "upstream diagnostic available" : fields.join(" ");
+}
+
+export function hasUpstreamDiagnostic(error: unknown): boolean {
+  return error instanceof Error
+    && (error as UpstreamDiagnosticError).mottainaiUpstreamDiagnostic !== undefined;
+}
+
+export const UPSTREAM_STARTUP_TIMEOUT_MS = 2_000;
+const UPSTREAM_CLOSE_TIMEOUT_MS = 1_000;
+const UPSTREAM_STDERR_TAIL_BYTES = 16 * 1024;
+
+class UpstreamTimeoutError extends Error {}
+
+async function withDeadline<T>(operation: Promise<T>, config: UpstreamConfig, phase: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(
+            new UpstreamTimeoutError(
+              `upstream=${config.name} phase=${phase} timeout_ms=${UPSTREAM_STARTUP_TIMEOUT_MS}`,
+            ),
+          );
+        }, UPSTREAM_STARTUP_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+async function closeClient(client: Client): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      client.close().catch(() => {}),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, UPSTREAM_CLOSE_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+function boundedText(value: string, maxBytes: number): string {
+  if (Buffer.byteLength(value) <= maxBytes) return value;
+  return Buffer.from(value).subarray(-maxBytes).toString("utf8");
+}
+
+function appendTail(values: string[], value: string): void {
+  values.push(value);
+  let bytes = values.reduce((total, entry) => total + Buffer.byteLength(entry), 0);
+  while (bytes > UPSTREAM_STDERR_TAIL_BYTES && values.length > 0) {
+    bytes -= Buffer.byteLength(values.shift() ?? "");
+  }
 }
 
 export const fetchWithoutRedirects: FetchLike = (url, init) => {
@@ -106,7 +189,7 @@ export class UpstreamRegistry {
     record.starting = this.connector(record.config).then(async (handle) => {
       if (this.closing) {
         // shutdown が start と競合した。ready へ昇格させず、handle 自体を閉じてリークを防ぐ。
-        await handle.client.close().catch(() => {});
+        await closeClient(handle.client);
         record.state = record.state === "disabled" ? "disabled" : "stopped";
         throw new Error(`upstream registry closed while starting: ${name}`);
       }
@@ -118,7 +201,7 @@ export class UpstreamRegistry {
         // 次の実行要求で無条件に再試行するため、失敗回数は診断のためだけに持つ。
         record.state = "unhealthy";
         record.failureCount += 1;
-        record.lastError = errorMessage(error);
+        record.lastError = upstreamBaseErrorMessage(error);
         record.lastErrorAt = new Date().toISOString();
       }
       throw error;
@@ -134,11 +217,11 @@ export class UpstreamRegistry {
     record.handle = undefined;
     record.state = "unhealthy";
     record.failureCount += 1;
-    record.lastError = errorMessage(error);
+    record.lastError = upstreamBaseErrorMessage(error);
     record.lastErrorAt = new Date().toISOString();
     if (handle) {
       try {
-        await handle.client.close();
+        await closeClient(handle.client);
       } catch {
         // 元の実行エラーを status に残し、close の二次エラーで原因を隠さない。
       }
@@ -160,7 +243,7 @@ export class UpstreamRegistry {
         record.state = record.state === "disabled" ? "disabled" : "stopped";
         if (handle) {
           try {
-            await handle.client.close();
+            await closeClient(handle.client);
           } catch {
             // 1 つの upstream の close 失敗で他 upstream の停止を止めない。
           }
@@ -201,7 +284,13 @@ export async function createUpstreamTransport(
     });
   }
   if (config.command === undefined) throw new Error(`upstream command missing: ${config.name}`);
-  return new StdioClientTransport({ command: config.command, args: config.args, env: config.env, cwd: config.cwd });
+  return new StdioClientTransport({
+    command: config.command,
+    args: config.args,
+    env: config.env,
+    cwd: config.cwd,
+    stderr: "pipe",
+  });
 }
 
 export async function connectUpstream(
@@ -209,16 +298,47 @@ export async function connectUpstream(
   oauthCredentialProvider?: OAuthCredentialProvider,
   createClient: (config: UpstreamConfig) => Client = (c) => new Client({ name: `mottainai/${c.name}`, version: "0.1.0" }),
 ): Promise<UpstreamHandle> {
-  const transport = await createUpstreamTransport(config, oauthCredentialProvider);
-  const client = createClient(config);
+  let client: Client | undefined;
+  let phase = "transport";
+  const transcript: string[] = ["phase=transport started"];
+  const stderrTail: string[] = [];
   try {
-    await client.connect(transport);
-    const { tools } = await client.listTools();
+    const transport = await withDeadline(createUpstreamTransport(config, oauthCredentialProvider), config, phase);
+    if (transport instanceof StdioClientTransport) {
+      transport.stderr?.on("data", (chunk: Buffer | string) => {
+        const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
+        appendTail(stderrTail, boundedText(text, UPSTREAM_STDERR_TAIL_BYTES));
+        process.stderr.write(text);
+      });
+    }
+    client = createClient(config);
+    phase = "initialize";
+    transcript.push("phase=initialize started");
+    await withDeadline(client.connect(transport), config, phase);
+    transcript.push("phase=initialize completed");
+    phase = "listTools";
+    transcript.push("phase=listTools started");
+    const { tools } = await withDeadline(client.listTools(), config, phase);
+    transcript.push("phase=listTools completed");
     return { config, client, tools };
   } catch (error) {
     // connect() の途中失敗（stdio なら child process が spawn 済みの場合がある）も
     // listTools() の失敗も、同じスコープで client を閉じる。close 自体の失敗で元のエラーを隠さない。
-    await client.close().catch(() => {});
-    throw error;
+    if (client !== undefined) await closeClient(client);
+    const details = `provider=${config.name} phase=${phase} stderr_tail=${JSON.stringify(stderrTail.join(""))}`
+      + ` transcript=${JSON.stringify(transcript)}`;
+    if (error instanceof Error) {
+      Object.defineProperty(error, "mottainaiUpstreamDiagnostic", {
+        configurable: true,
+        value: details,
+      });
+      throw error;
+    }
+    const normalized = new Error(upstreamBaseErrorMessage(error));
+    Object.defineProperty(normalized, "mottainaiUpstreamDiagnostic", {
+      configurable: true,
+      value: details,
+    });
+    throw normalized;
   }
 }

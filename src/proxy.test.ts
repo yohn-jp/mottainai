@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpError } from "@modelcontextprotocol/sdk/types.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { buildCapabilityIndex } from "./adaptive/capabilities.js";
 import { BUILTIN_POLICY } from "./adaptive/policy.js";
@@ -113,7 +114,7 @@ test("listTools prefixes each upstream's tool names with '<upstream>__'", async 
     tools.map((t) => t.name),
     [
       "codegraph__codegraph_explore", "fff__grep",
-      "mottainai_exec", "mottainai_read", "mottainai_search", "mottainai_list",
+      "mottainai_exec", "mottainai_exec_start", "mottainai_exec_await", "mottainai_read", "mottainai_search", "mottainai_list",
       "mottainai_result_get", "mottainai_result_search", "mottainai_runtime_status", "mottainai_telemetry_summary",
       "mottainai_plan", "mottainai_review", "mottainai_execution_review", "mottainai_policy_stats", "mottainai_policy_propose",
       "mottainai_tool_search", "mottainai_tool_describe", "mottainai_tool_call",
@@ -570,6 +571,34 @@ test("a failed evidence call is recorded as a provider_error execution", async (
 
   assert.deepEqual(traceStore.load()[0].executions.map((execution) => execution.status), ["provider_error"]);
 
+  await client.close();
+});
+
+test("upstream McpError code and data survive diagnostic enrichment without leaking stderr", async () => {
+  const secret = "SECRET_SHOULD_NOT_LEAK_123";
+  const upstreamError = new McpError(-32001, "known upstream failure", { retryAfter: 3 });
+  Object.defineProperty(upstreamError, "mottainaiUpstreamDiagnostic", {
+    value: `provider=codegraph phase=call stderr_tail=${JSON.stringify(secret)} transcript=[]`,
+  });
+  const { traceStore, adaptive } = tracingContext();
+  const client = await connectedClient([
+    fakeHandle("codegraph", [{ name: "explore", inputSchema: { type: "object" } }], async () => {
+      throw upstreamError;
+    }),
+  ], undefined, undefined, adaptive);
+
+  await assert.rejects(() => client.callTool({
+    name: "codegraph__explore",
+    arguments: { _mottainai: { task: { category: "bug_investigation" }, capability: "callers" } },
+  }), (error: unknown) => {
+    assert.ok(error instanceof McpError);
+    assert.equal(error.code, -32001);
+    assert.deepEqual(error.data, { retryAfter: 3 });
+    assert.doesNotMatch(error.message, new RegExp(secret));
+    return true;
+  });
+
+  assert.doesNotMatch(JSON.stringify(traceStore.load()), new RegExp(secret));
   await client.close();
 });
 
@@ -1286,4 +1315,75 @@ test("read-governor denial remains inside the Issue #71 final response hard cap"
     await client.close();
     fs.rmSync(workspace, { recursive: true, force: true });
   }
+});
+
+// --- await/watch primitives (Issue #74): black-box, one await call replaces repeated status polling ---
+
+test("a long-running command completes through one exec_start + one exec_await call, instead of repeated status polling", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-proxy-await-"));
+  const client = await connectedClient([], undefined, undefined, undefined, {
+    gateway: resolveGatewayConfig({ workspaceRoot: root }),
+  });
+
+  const { tools } = await client.listTools();
+  const names = tools.map((tool) => tool.name);
+  assert.ok(names.includes("mottainai_exec_start"));
+  assert.ok(names.includes("mottainai_exec_await"));
+
+  const started = await client.callTool({
+    name: "mottainai_exec_start",
+    arguments: { command: `${process.execPath} -e "setTimeout(() => { console.log('done'); }, 150)"` },
+  });
+  const startedContent = started.structuredContent as Record<string, unknown>;
+  assert.equal(startedContent.status, "success");
+  const handle = startedContent.handle as string;
+  assert.equal(typeof handle, "string");
+
+  // previously this required a poll loop: repeated `mottainai_runtime_status`/re-invocation
+  // calls from the model until the command finished. Here a single bounded await call blocks
+  // inside the MCP request and returns the terminal result directly.
+  const awaited = await client.callTool({
+    name: "mottainai_exec_await",
+    arguments: { handle, timeoutMs: 5_000 },
+  });
+  const awaitedContent = awaited.structuredContent as Record<string, unknown>;
+  assert.equal(awaitedContent.status, "success");
+  assert.equal(awaitedContent.exit_code, 0);
+  // successful verbose output is omitted by default (#71 projection policy) — full evidence
+  // stays retrievable via result_id instead of being inlined into this response.
+  assert.equal(typeof awaitedContent.result_id, "string");
+  assert.ok((awaitedContent.result_id as string).length > 0);
+
+  await client.close();
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("connection shutdown force-terminates a still-running started process (no orphaned child left abandoned)", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-proxy-await-cleanup-"));
+  const server = new Server({ name: "test", version: "0.0.0" }, { capabilities: { tools: {} } });
+  const proxyHandlers = registerProxyHandlers(
+    server,
+    registryFromHandles([]),
+    fakeLogger().logger,
+    undefined,
+    resolveGatewayConfig({ workspaceRoot: root }),
+    { traceStore: createTraceStore({ MOTTAINAI_TRACE: "0" }), loadPolicy: () => BUILTIN_POLICY },
+  );
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "0.0.0" });
+  await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+  const started = await client.callTool({
+    name: "mottainai_exec_start",
+    arguments: { command: `${process.execPath} -e "setTimeout(() => {}, 5000)"` },
+  });
+  const handle = (started.structuredContent as Record<string, unknown>).handle as string;
+  assert.equal(typeof handle, "string");
+
+  // simulate connection/process shutdown: dispose must force-terminate the still-running
+  // child instead of leaving it to run unattended, without requiring the await timeout to fire.
+  proxyHandlers.dispose();
+
+  await client.close();
+  fs.rmSync(root, { recursive: true, force: true });
 });

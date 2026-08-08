@@ -1,6 +1,6 @@
 import { performance } from "node:perf_hooks";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, ListToolsRequestSchema, McpError } from "@modelcontextprotocol/sdk/types.js";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { buildCapabilityIndex } from "./adaptive/capabilities.js";
 import { extractCallerMetadata } from "./adaptive/caller.js";
@@ -15,6 +15,7 @@ import { buildCatalog, profileAllows } from "./catalog.js";
 import { riskOf } from "./catalog.js";
 import { codeSearchTools, dispatchCodeSearchTool, isCodeSearchTool } from "./code-search.js";
 import { finalizeToolResult } from "./context-runtime/adapter.js";
+import { ProcessRegistry } from "./context-runtime/process-registry.js";
 import type { ToolCatalog } from "./catalog.js";
 import { isCompressionEnabled, isToolDescriptionCompressionEnabled } from "./compress/config.js";
 import { compressToolDefinition } from "./compress/tool-description.js";
@@ -27,7 +28,7 @@ import { InMemoryArtifactStore } from "./retrieve.js";
 import type { ArtifactStore } from "./retrieve.js";
 import { createTelemetrySink } from "./telemetry.js";
 import type { TelemetrySink } from "./telemetry.js";
-import { UpstreamRegistry } from "./upstream.js";
+import { hasUpstreamDiagnostic, upstreamBaseErrorMessage, upstreamErrorMessage, UpstreamRegistry } from "./upstream.js";
 import { callUpstreamTool, RETRIEVE_TOOL_NAME } from "./upstream-call.js";
 import { applyExecutionBudget, normalizeExecutionOutcome, providerErrorOutcome } from "./execution.js";
 import type { ExecutionOutcome } from "./execution.js";
@@ -93,6 +94,11 @@ function withRequestId(result: CallToolResult, requestId: string, structured: bo
  * Step2: callTool結果の圧縮。Step3: listToolsのdescription機械的圧縮。
  * 併せて、呼び出し側が `_mottainai` で添えたタスク metadata を trace として記録する。
  */
+export interface ProxyHandlers {
+  /** connection/process shutdown 用。この connection が保持する実行中 local process を全て強制終了する。 */
+  dispose(): void;
+}
+
 export function registerProxyHandlers(
   server: Server,
   upstreams: UpstreamRegistry,
@@ -102,11 +108,13 @@ export function registerProxyHandlers(
   adaptiveOverrides: Partial<AdaptiveToolContext> = {},
   activeProfile: ProfileConfig | undefined = undefined,
   telemetry: TelemetrySink = createTelemetrySink(),
-): void {
+): ProxyHandlers {
   const resolvedArtifactStore = artifactStore ?? new InMemoryArtifactStore({
     ttlMs: gatewayConfig.resultTtlMs,
     maxEntries: gatewayConfig.resultMaxEntries,
   });
+  // await/watch primitive（Issue #74）の handle は、この connection（= この registerProxyHandlers 呼び出し）にだけ属する。
+  const processes = new ProcessRegistry();
   const adaptive: AdaptiveToolContext = {
     traceStore: adaptiveOverrides.traceStore ?? createTraceStore(),
     capabilityIndex: adaptiveOverrides.capabilityIndex
@@ -155,7 +163,7 @@ export function registerProxyHandlers(
     return request.request_id;
   }
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const toolName = request.params.name;
     const { metadata, forwardedArguments } = extractCallerMetadata(request.params.arguments);
     const isLocal = toolName === RETRIEVE_TOOL_NAME || localToolsFor(gatewayConfig).some((tool) => tool.name === toolName);
@@ -186,7 +194,7 @@ export function registerProxyHandlers(
 
     let dispatched: ExecutionOutcome;
     try {
-      dispatched = await dispatch(toolName, forwardedArguments, isLocal, isWorkflowCommand, isAdaptive, capability);
+      dispatched = await dispatch(toolName, forwardedArguments, isLocal, isWorkflowCommand, isAdaptive, capability, extra.signal);
     } catch (error) {
       const selected = toolName.includes(SEP) ? splitPrefixedName(toolName) : undefined;
       await record(selected === undefined
@@ -203,9 +211,19 @@ export function registerProxyHandlers(
           selectedTool: selected.toolName,
           capability: capability ?? "unknown",
           risk: "unknown",
-          error: error instanceof Error ? error.message : String(error),
+          error: upstreamBaseErrorMessage(error),
         }));
-      throw error;
+      if (!hasUpstreamDiagnostic(error)) throw error;
+      const diagnosticMessage = upstreamErrorMessage(error);
+      if (error instanceof McpError) {
+        const prefix = `MCP error ${error.code}: `;
+        const originalMessage = error.message.startsWith(prefix) ? error.message.slice(prefix.length) : error.message;
+        const suffix = diagnosticMessage.startsWith(error.message)
+          ? diagnosticMessage.slice(error.message.length).replace(/^; /u, "")
+          : diagnosticMessage;
+        throw McpError.fromError(error.code, `${originalMessage}; ${suffix}`, error.data);
+      }
+      throw new Error(diagnosticMessage);
     }
     const budgeted = applyExecutionBudget(
       dispatched,
@@ -261,6 +279,7 @@ export function registerProxyHandlers(
     isWorkflowCommand: boolean,
     isAdaptive: boolean,
     capability: string | undefined,
+    signal: AbortSignal | undefined,
   ): Promise<ExecutionOutcome> {
     if (toolName === RETRIEVE_TOOL_NAME) {
       const id = typeof args?.id === "string" ? args.id : undefined;
@@ -295,7 +314,7 @@ export function registerProxyHandlers(
     }
 
     if (isLocal) {
-      const result = await callLocalTool(toolName, args, gatewayConfig, resolvedArtifactStore, upstreams, telemetry);
+      const result = await callLocalTool(toolName, args, gatewayConfig, resolvedArtifactStore, upstreams, telemetry, processes, signal);
       return normalizeExecutionOutcome({
         result,
         selectedProvider: "local",
@@ -360,4 +379,10 @@ export function registerProxyHandlers(
       attempts: outcome.attempts,
     });
   }
+
+  return {
+    dispose(): void {
+      processes.dispose();
+    },
+  };
 }

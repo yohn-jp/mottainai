@@ -133,6 +133,34 @@ test("telemetry loads legacy read-governor keys into the visible-disclosure sche
   await fs.rm(dir, { recursive: true, force: true });
 });
 
+test("recordAwait aggregates poll count, elapsed wait, state changes and avoided responses without storing payloads (Issue #74)", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-telemetry-await-"));
+  const filePath = path.join(dir, "telemetry", "summary.json");
+  const sink = createTelemetrySink({ MOTTAINAI_TELEMETRY: "1", MOTTAINAI_TELEMETRY_FILE: filePath });
+
+  sink.recordAwait({ pollCount: 5, elapsedMs: 1_200, stateChanges: 2, avoidedResponses: 4, outcome: "terminal" });
+  sink.recordAwait({ pollCount: 1, elapsedMs: 300, stateChanges: 0, avoidedResponses: 0, outcome: "timeout" });
+  sink.recordAwait({ pollCount: 1, elapsedMs: 10, stateChanges: 0, avoidedResponses: 0, outcome: "cancelled" });
+
+  const snapshot = sink.snapshot();
+  assert.deepEqual(snapshot.await, {
+    awaits: 3, poll_count: 7, elapsed_ms: 1_510, state_changes: 2, avoided_responses: 4,
+    terminal: 1, timeouts: 1, cancelled: 1,
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const persisted = JSON.parse(await fs.readFile(filePath, "utf8")) as { await: { awaits: number } };
+  assert.equal(persisted.await.awaits, 3);
+
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("a disabled sink's recordAwait is a no-op", () => {
+  const sink = createTelemetrySink({});
+  sink.recordAwait({ pollCount: 5, elapsedMs: 1_000, stateChanges: 1, avoidedResponses: 4, outcome: "terminal" });
+  assert.equal(sink.snapshot().await.awaits, 0);
+});
+
 test("a new sink resumes accumulating from a previously persisted summary", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-telemetry-resume-"));
   const filePath = path.join(dir, "telemetry", "summary.json");
