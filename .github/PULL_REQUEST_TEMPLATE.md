@@ -31,7 +31,17 @@ Closes #
 - [ ] Build
 - [ ] Package check
 
-<!-- Run at least one relevant test and mark Tests complete. Leave only optional checks unchecked and state why. -->
+<!-- State the executed layers below. `Tests` means the relevant fast and/or
+integration/process suite; include E2E, package smoke, coverage, and full
+verification when applicable. Never mark an unrun layer complete. -->
+
+Test layers:
+
+- Fast / unit / contract: `pnpm test`
+- Integration / process: `pnpm run test:integration`
+- Package / E2E / smoke: `pnpm run test:e2e`, `pnpm run test:package`
+- Coverage: `pnpm run test:coverage`
+- Full verification: `pnpm run verify`
 
 ## Risks
 

@@ -11,12 +11,14 @@ pnpm run format:check
 pnpm run lint
 pnpm run architecture:test
 pnpm run architecture:check
+pnpm run test:standards
 pnpm run verify:standards
 ```
 
-`verify:standards` runs the four checks together. CI runs the same checks as
-separate steps so format, lint, validator fixtures, and project validation have
-distinct failure causes.
+`test:standards` runs architecture/governance/test-classification/coverage-policy
+self-tests. `verify:standards` adds format, lint, and project validation. CI
+keeps standards/static validation identifiable while preserving distinct
+failure causes.
 
 ## Tool selection
 

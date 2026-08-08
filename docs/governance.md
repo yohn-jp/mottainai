@@ -50,6 +50,13 @@ the same checks are required when the PR becomes ready for review. Check only
 validation that ran. Non-draft PRs cannot contain `TBD`, `TODO`, `FIXME`, or
 `WIP`.
 
+PR Validation should name the executed test layer: fast (`pnpm test`),
+integration/process (`pnpm run test:integration`), package/E2E (`pnpm run
+test:package` / `pnpm run test:e2e`), standards (`pnpm run verify:standards`),
+coverage (`pnpm run test:coverage`), and full verification (`pnpm run verify`).
+`pnpm test` alone is not full verification. Coverage baseline and threshold
+changes are quality-policy changes and require explicit Review focus.
+
 ## Changed-file rules
 
 | Change | Required contract |

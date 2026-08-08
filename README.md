@@ -294,16 +294,21 @@ Search uses deterministic scoring, not a semantic/embedding model.
 ```bash
 pnpm install
 pnpm run build          # tsc → dist/
-pnpm test                # node --import tsx --test "src/**/*.test.ts" (fast tier)
+pnpm test                # fast unit + contract tier
+pnpm run test:integration # filesystem/git/SQLite/CLI/process tier
 pnpm run test:e2e        # stdio black-box tier, excluded from `pnpm test`
+pnpm run test:package    # build + packed tarball smoke
+pnpm run test:coverage   # line/function/branch coverage + gate
+pnpm run verify          # all test layers + standards + build/package
 pnpm run typecheck       # tsc --noEmit
 pnpm run mcp <cmd>       # upstream management CLI
 pnpm run policy <cmd>    # routing policy CLI
 ```
 
-Test layers (unit/integration/contract/e2e), shared fixtures under
-`src/test-support/`, and the black-box connection point under `src/e2e/` for
-stdio MCP tests are documented in [`docs/testing.md`](docs/testing.md).
+Test layers, mechanical suite classification, shared fixtures under
+`src/test-support/`, coverage baseline/threshold policy, and the black-box
+connection point under `src/e2e/` are documented in
+[`docs/testing.md`](docs/testing.md).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow,
 commit conventions, and compression-change rules (every compression change

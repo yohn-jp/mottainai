@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build-and-test:
-    name: install / typecheck / test / build (Node ${{ matrix.node-version }})
+    name: install / typecheck / fast / integration / e2e / build (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -45,8 +45,11 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
-      - name: Test
+      - name: Test (fast unit / contract)
         run: pnpm test
+
+      - name: Test (integration / process)
+        run: pnpm run test:integration
 
       - name: Test (e2e / black-box)
         run: pnpm run test:e2e
@@ -84,11 +87,49 @@ jobs:
       - name: Lint
         run: pnpm run lint
 
-      - name: Architecture validator tests
-        run: pnpm run architecture:test
+      - name: Standards self-tests (architecture / governance / test policy)
+        run: pnpm run test:standards
 
       - name: Architecture/static validation
         run: pnpm run architecture:check
+
+  coverage:
+    name: coverage (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["22", "24"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Coverage (line / function / branch)
+        run: pnpm run test:coverage
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-node-${{ matrix.node-version }}
+          path: coverage
+          if-no-files-found: error
 
   init-test-windows:
     name: init.test.ts (Windows, Node ${{ matrix.node-version }})
@@ -125,7 +166,7 @@ jobs:
         run: node --import tsx --test src/init.test.ts
 
   smoke-test:
-    name: packed package smoke test (${{ matrix.os }}, Node ${{ matrix.node-version }})
+    name: package / packed smoke test (${{ matrix.os }}, Node ${{ matrix.node-version }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -156,5 +197,5 @@ jobs:
       - name: Build
         run: pnpm run build
 
-      - name: Smoke test packed tarball
+      - name: Package smoke test (packed tarball)
         run: node scripts/smoke-test.mjs
