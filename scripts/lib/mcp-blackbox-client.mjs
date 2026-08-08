@@ -6,19 +6,18 @@ import fs from "node:fs";
 import path from "node:path";
 
 const useShell = process.platform === "win32";
+const MAX_TRANSCRIPT_BYTES = 32 * 1024;
+const MAX_STDERR_TAIL_BYTES = 16 * 1024;
+const MAX_UNFRAMED_STDOUT_BYTES = 32 * 1024;
 
-/**
- * dist を明示的にビルドしてから `--ignore-scripts` で pack する。`prepack` に任せると
- * pack のたびに暗黙の再ビルドが走り、CI の Build stage で作った artifact と一致する保証が
- * 薄れるうえ、ビルド失敗が pack のエラーに埋もれる。ネットワークは使わない（ローカル tsc のみ）。
- */
+/** 既存の dist を pack する。build は CI/local の明示的な Build stage で先に行う。 */
 export function packRepository(repoRoot, destinationDir) {
-  execFileSync("pnpm", ["run", "build"], { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"], shell: useShell });
-  const stdout = execFileSync(
-    "npm",
-    ["pack", "--json", "--ignore-scripts", "--pack-destination", destinationDir],
-    { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], shell: useShell },
-  );
+  const stdout = execFileSync("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", destinationDir], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    shell: useShell,
+  });
   const [info] = JSON.parse(stdout);
   return {
     tarballPath: path.join(destinationDir, info.filename),
@@ -29,7 +28,10 @@ export function packRepository(repoRoot, destinationDir) {
 /** tar 展開のみで npm/pnpm install は行わない。依存解決のネットワークアクセスを避ける。 */
 export function extractTarball(tarballPath, destinationDir) {
   fs.mkdirSync(destinationDir, { recursive: true });
-  execFileSync("tar", ["xzf", tarballPath, "-C", destinationDir], { stdio: ["ignore", "pipe", "pipe"], shell: useShell });
+  execFileSync("tar", ["xzf", tarballPath, "-C", destinationDir], {
+    stdio: ["ignore", "pipe", "pipe"],
+    shell: useShell,
+  });
   return path.join(destinationDir, "package");
 }
 
@@ -67,31 +69,75 @@ export function resolvePackagedBin(extractedPackageDir, binName = "mottainai") {
   return binPath;
 }
 
+function boundedText(value, maxBytes) {
+  const text = String(value);
+  if (Buffer.byteLength(text) <= maxBytes) return text;
+  return text.slice(-maxBytes);
+}
+
+function appendTail(values, value, maxBytes) {
+  values.push(boundedText(value, maxBytes));
+  let bytes = values.reduce((total, entry) => total + Buffer.byteLength(entry), 0);
+  while (bytes > maxBytes && values.length > 0) {
+    bytes -= Buffer.byteLength(values.shift());
+  }
+}
+
+function killProcessTree(child) {
+  if (child?.pid === undefined || child.pid === null) return;
+  if (process.platform === "win32") {
+    try {
+      execFileSync("taskkill", ["/pid", String(child.pid), "/t", "/f"], { stdio: "ignore" });
+      return;
+    } catch {
+      // taskkill が使えない環境では、親だけでも停止する。
+    }
+  } else {
+    try {
+      process.kill(-child.pid, "SIGKILL");
+      return;
+    } catch {
+      // process group が既に消えている場合は個別 kill へ進む。
+    }
+  }
+  try {
+    child.kill("SIGKILL");
+  } catch {
+    // cleanup は best effort。元のテストエラーを隠さない。
+  }
+}
+
 const trackedChildren = new Set();
 process.once("exit", () => {
   for (const child of trackedChildren) {
-    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    if (child.exitCode === null && child.signalCode === null) killProcessTree(child);
   }
 });
 
 /** ndjson JSON-RPC over stdio の最小 black-box client。実プロセスの外側から protocol を検証する。 */
 export class McpStdioClient {
+  /** dist ファイルを node で起動する。shebang には依存しない built-artifact 経路。 */
+  static launchNode(entryPath, options = {}) {
+    return new McpStdioClient(process.execPath, [entryPath], options);
+  }
+
   /**
    * POSIX: shebang 経由で bin を直接起動し、shebang 破損・実行権限欠如を検出できる形で実行する。
    * Windows: shebang は解釈されないため node 経由で同じ dist ファイルを起動する。
    */
-  static launchPackaged(binPath, options) {
+  static launchPackaged(binPath, options = {}) {
     const command = process.platform === "win32" ? process.execPath : binPath;
     const args = process.platform === "win32" ? [binPath] : [];
     return new McpStdioClient(command, args, options);
   }
 
-  constructor(command, args, options) {
-    this.child = spawn(command, args, { ...options, stdio: ["pipe", "pipe", "pipe"] });
-    trackedChildren.add(this.child);
-
+  constructor(command, args, options = {}) {
     this.stdoutLines = [];
     this.stderrChunks = [];
+    this.stdoutLineCount = 0;
+    this.stdoutBytes = 0;
+    this.stderrBytes = 0;
+    this.startupError = undefined;
     this.exited = false;
     this.exitInfo = undefined;
     this.closed = false;
@@ -99,25 +145,65 @@ export class McpStdioClient {
     this._pending = new Map();
     this._nextId = 1;
     this._stdoutBuffer = "";
+    this._stdoutBufferOverflowed = false;
+    this._stdoutViolations = [];
+    this._stdoutViolationCount = 0;
+
+    try {
+      this.child = spawn(command, args, {
+        ...options,
+        detached: options.detached ?? process.platform !== "win32",
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    } catch (error) {
+      this.startupError = error;
+      this.exited = true;
+      this.closed = true;
+      this.closeInfo = { code: null, signal: null };
+      this._closePromise = Promise.resolve(this.closeInfo);
+      return;
+    }
+    trackedChildren.add(this.child);
 
     this.child.stdout.setEncoding("utf8");
     this.child.stderr.setEncoding("utf8");
     this.child.stdout.on("data", (chunk) => this._onStdout(chunk));
-    this.child.stderr.on("data", (chunk) => this.stderrChunks.push(chunk));
+    this.child.stderr.on("data", (chunk) => {
+      this.stderrBytes += Buffer.byteLength(chunk);
+      appendTail(this.stderrChunks, chunk, MAX_STDERR_TAIL_BYTES);
+    });
+    this.child.once("error", (error) => {
+      this.startupError = error;
+      for (const pending of this._pending.values()) {
+        pending.reject(this._diagnosticError(pending.method, pending.id, error.message));
+      }
+      this._pending.clear();
+    });
     this.child.once("exit", (code, signal) => {
       trackedChildren.delete(this.child);
       this.exited = true;
       this.exitInfo = { code, signal };
       for (const pending of this._pending.values()) {
-        pending.reject(new Error(`process exited (code=${code} signal=${signal}) before a response arrived`));
+        pending.reject(
+          this._diagnosticError(
+            pending.method,
+            pending.id,
+            `process exited (code=${code} signal=${signal}) before a response arrived`,
+          ),
+        );
       }
       this._pending.clear();
     });
     // "exit" 後も stdout/stderr が届き得るため、捕捉済み出力の確定は全 stdio が閉じる "close" を待つ。
-    this.child.once("close", (code, signal) => {
-      this.closed = true;
-      this.closeInfo = { code, signal };
-    });
+    this._closePromise = new Promise((resolve) =>
+      this.child.once("close", (code, signal) => {
+        this._flushStdoutBuffer();
+        this.closed = true;
+        this.closeInfo = { code, signal };
+        trackedChildren.delete(this.child);
+        resolve(this.closeInfo);
+      }),
+    );
   }
 
   _onStdout(chunk) {
@@ -126,25 +212,66 @@ export class McpStdioClient {
     while ((newlineIndex = this._stdoutBuffer.indexOf("\n")) !== -1) {
       const line = this._stdoutBuffer.slice(0, newlineIndex).replace(/\r$/, "");
       this._stdoutBuffer = this._stdoutBuffer.slice(newlineIndex + 1);
-      // 空行も記録する。捨てると誤った console.log() 等の空行出力が purity 検証をすり抜ける。
-      this.stdoutLines.push(line);
-      let message;
-      try {
-        message = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (message && typeof message === "object" && message.id !== undefined && message.id !== null) {
-        const pending = this._pending.get(message.id);
-        if (pending !== undefined) {
-          this._pending.delete(message.id);
-          pending.resolve(message);
-        }
+      this._recordStdoutLine(line);
+    }
+    if (Buffer.byteLength(this._stdoutBuffer) > MAX_UNFRAMED_STDOUT_BYTES) {
+      this._stdoutBuffer = this._stdoutBuffer.slice(-MAX_UNFRAMED_STDOUT_BYTES);
+      this._stdoutBufferOverflowed = true;
+    }
+  }
+
+  _recordStdoutLine(line, forcedViolation = false) {
+    this.stdoutLineCount += 1;
+    this.stdoutBytes += Buffer.byteLength(line) + 1;
+    // 空行も記録する。捨てると誤った console.log() 等の空行出力が purity 検証をすり抜ける。
+    appendTail(this.stdoutLines, line, MAX_TRANSCRIPT_BYTES);
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      message = undefined;
+    }
+    const validProtocolMessage = message && typeof message === "object" && message.jsonrpc === "2.0";
+    if (forcedViolation || !validProtocolMessage) {
+      this._stdoutViolationCount += 1;
+      appendTail(this._stdoutViolations, line, MAX_TRANSCRIPT_BYTES);
+    }
+    if (message && typeof message === "object" && message.id !== undefined && message.id !== null) {
+      const pending = this._pending.get(message.id);
+      if (pending !== undefined) {
+        this._pending.delete(message.id);
+        pending.resolve(message);
       }
     }
   }
 
+  _flushStdoutBuffer() {
+    if (this._stdoutBuffer.length === 0) return;
+    const line = this._stdoutBuffer;
+    this._stdoutBuffer = "";
+    this._recordStdoutLine(line, this._stdoutBufferOverflowed);
+    this._stdoutBufferOverflowed = false;
+  }
+
+  _diagnosticError(method, id, reason) {
+    const processState = [
+      `pid=${this.child?.pid ?? "none"}`,
+      `exited=${this.exited}`,
+      `closed=${this.closed}`,
+      `exit_code=${this.exitInfo?.code ?? "none"}`,
+      `exit_signal=${this.exitInfo?.signal ?? "none"}`,
+    ].join(" ");
+    return new Error(
+      `${reason}; method=${method} request_id=${id}; ${processState}` +
+        `; stderr_tail=${JSON.stringify(this.stderrText())}` +
+        `; stdout_transcript=${JSON.stringify(this.stdoutLines.join("\n"))}`,
+    );
+  }
+
   _send(message) {
+    if (this.child === undefined || this.child.stdin.destroyed) {
+      throw this._diagnosticError(message.method ?? "notification", message.id ?? "none", "stdin is closed");
+    }
     this.child.stdin.write(`${JSON.stringify(message)}\n`);
   }
 
@@ -154,34 +281,67 @@ export class McpStdioClient {
 
   /** malformed JSON-RPC 検証用。改行終端の生バイト列をそのまま stdin へ書く。 */
   writeRawLine(raw) {
-    this.child.stdin.write(raw.endsWith("\n") ? raw : `${raw}\n`);
+    this.writeRaw(raw.endsWith("\n") ? raw : `${raw}\n`);
+  }
+
+  /** 改行を付けず、生の文字列/バイト列を stdin へ送る。partial JSON 検証に使う。 */
+  writeRaw(raw) {
+    if (this.child === undefined || this.child.stdin.destroyed) {
+      throw this._diagnosticError("raw", "none", "stdin is closed");
+    }
+    this.child.stdin.write(raw);
+  }
+
+  prepareRequest(method, params, timeoutMs = 10_000) {
+    const id = this._nextId++;
+    const message = { jsonrpc: "2.0", id, method, params };
+    let resolveResponse;
+    let rejectResponse;
+    const response = new Promise((resolve, reject) => {
+      resolveResponse = resolve;
+      rejectResponse = reject;
+    });
+    if (this.exited || this.closed || this.startupError !== undefined) {
+      rejectResponse(this._diagnosticError(method, id, "process is unavailable before request"));
+      return { id, message, response };
+    }
+    const timer = setTimeout(() => {
+      this._pending.delete(id);
+      rejectResponse(this._diagnosticError(method, id, `timed out after ${timeoutMs}ms waiting for response`));
+    }, timeoutMs);
+    this._pending.set(id, {
+      id,
+      method,
+      resolve: (value) => {
+        clearTimeout(timer);
+        resolveResponse(value);
+      },
+      reject: (error) => {
+        clearTimeout(timer);
+        rejectResponse(error);
+      },
+    });
+    return { id, message, response };
   }
 
   request(method, params, timeoutMs = 10_000) {
-    const id = this._nextId++;
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this._pending.delete(id);
-        reject(new Error(`timed out after ${timeoutMs}ms waiting for response to ${method} (id=${id})`));
-      }, timeoutMs);
-      this._pending.set(id, {
-        resolve: (message) => { clearTimeout(timer); resolve(message); },
-        reject: (error) => { clearTimeout(timer); reject(error); },
-      });
-      this._send({ jsonrpc: "2.0", id, method, params });
-    });
+    const prepared = this.prepareRequest(method, params, timeoutMs);
+    try {
+      this._send(prepared.message);
+    } catch (error) {
+      const pending = this._pending.get(prepared.id);
+      this._pending.delete(prepared.id);
+      pending?.reject(error);
+    }
+    return prepared.response;
   }
 
   /** jsonrpc:"2.0" envelope を欠く、または JSON parse できない stdout 行を違反として返す。 */
   stdoutPurityViolations() {
-    return this.stdoutLines.filter((line) => {
-      try {
-        const parsed = JSON.parse(line);
-        return !(parsed && typeof parsed === "object" && parsed.jsonrpc === "2.0");
-      } catch {
-        return true;
-      }
-    });
+    const omitted = this._stdoutViolationCount - this._stdoutViolations.length;
+    return omitted > 0
+      ? [`⋯ omitted=${omitted} stdout protocol violations ⋯`, ...this._stdoutViolations]
+      : [...this._stdoutViolations];
   }
 
   stderrText() {
@@ -191,22 +351,53 @@ export class McpStdioClient {
   /** "close"（全 stdio 終了後）で解決するため、この後の stdout/stderr/stdoutLines 読み取りは確定済み。 */
   waitForExit(timeoutMs = 10_000) {
     if (this.closed) return Promise.resolve(this.closeInfo);
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`timed out after ${timeoutMs}ms waiting for process exit`)), timeoutMs);
-      this.child.once("close", (code, signal) => {
-        clearTimeout(timer);
-        resolve({ code, signal });
-      });
-    });
+    return Promise.race([
+      this._closePromise,
+      new Promise((resolve, reject) => {
+        const timer = setTimeout(
+          () =>
+            reject(
+              this._diagnosticError(
+                "process.close",
+                "none",
+                `timed out after ${timeoutMs}ms waiting for process close`,
+              ),
+            ),
+          timeoutMs,
+        );
+        this._closePromise.then((value) => {
+          clearTimeout(timer);
+          resolve(value);
+        });
+      }),
+    ]);
   }
 
-  /** client 側から見える唯一の正常終了経路: stdin を閉じて EOF を送る。 */
+  /** client 側から見える正常終了経路: stdin を閉じて EOF を送る。timeout 時は tree cleanup。 */
   async closeGracefully(timeoutMs = 10_000) {
-    if (!this.exited) this.child.stdin.end();
-    return this.waitForExit(timeoutMs);
+    if (!this.exited && !this.closed) this.endInput();
+    try {
+      return await this.waitForExit(timeoutMs);
+    } catch (error) {
+      this.forceKill();
+      try {
+        return await this.waitForExit(Math.min(2_000, Math.max(250, timeoutMs)));
+      } catch (forcedError) {
+        throw new Error(`${error.message}; forced cleanup failed: ${forcedError.message}`);
+      }
+    }
+  }
+
+  endInput() {
+    if (this.child?.stdin !== undefined && !this.child.stdin.destroyed) this.child.stdin.end();
+  }
+
+  /** client disconnect を stdin破棄として再現する。 */
+  disconnect() {
+    if (this.child?.stdin !== undefined && !this.child.stdin.destroyed) this.child.stdin.destroy();
   }
 
   forceKill() {
-    if (!this.exited) this.child.kill("SIGKILL");
+    if (!this.exited && !this.closed) killProcessTree(this.child);
   }
 }

@@ -202,8 +202,11 @@ jobs:
       - name: Build
         run: pnpm run build
 
-      - name: Package smoke test (packed tarball)
+      - name: Built dist black-box protocol and lifecycle suite
+        run: pnpm run e2e:test
+
+      - name: Smoke test packed tarball
         run: node scripts/smoke-test.mjs
 
-      - name: Black-box stdio MCP protocol test
-        run: pnpm run e2e:test
+      - name: Packed artifact black-box package subset
+        run: pnpm run e2e:package

@@ -44,6 +44,7 @@
     "typecheck": "tsc --noEmit",
     "smoke-test": "node scripts/smoke-test.mjs",
     "e2e:test": "node --test scripts/mcp-stdio-e2e.test.mjs",
+    "e2e:package": "node --test scripts/mcp-stdio-package.test.mjs",
     "prepack": "pnpm run build",
     "prepublishOnly": "pnpm run typecheck && pnpm test"
   },
