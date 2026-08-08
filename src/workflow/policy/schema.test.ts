@@ -89,3 +89,19 @@ test("unknown key nested in cleanup is rejected, not silently stripped", () => {
   });
   assert.equal(result.success, false);
 });
+
+test("repository PR policy parses structured rendering requirements", () => {
+  const result = workflowPolicySchema.parse({
+    ...validDocument,
+    pullRequest: {
+      issue: "required",
+      closingIssue: "exactly-one",
+      requiredSections: ["Summary", "Validation"],
+      acceptanceCriteriaChecklist: true,
+      templates: { Summary: "{value}" },
+    },
+  });
+  assert.equal(result.pullRequest?.issue, "required");
+  assert.equal(result.pullRequest?.closingIssue, "exactly-one");
+  assert.equal(result.pullRequest?.acceptanceCriteriaSection, "Acceptance criteria");
+});
