@@ -27,7 +27,8 @@ export interface TelemetrySnapshot {
   read_governor: ReadGovernorCounts;
   await: AwaitCounts;
   burst: BurstCounts;
-  dedupe: DedupeCounts;
+  /** このパッケージが生成する snapshot は常にゼロ初期化済みで返す。外部実装の後方互換性のため optional。 */
+  dedupe?: DedupeCounts;
 }
 
 export interface DedupeCounts {
@@ -153,7 +154,7 @@ export interface TelemetrySink {
   recordAwait(input: RecordAwaitInput): void;
   recordBurstPressure(input: RecordBurstPressureInput): void;
   recordBurstReduced(input: RecordBurstReducedInput): void;
-  recordDedupe(input: RecordDedupeInput): void;
+  recordDedupe?(input: RecordDedupeInput): void;
   snapshot(): TelemetrySnapshot;
 }
 

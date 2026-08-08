@@ -176,7 +176,7 @@ export function finalizeToolResult(
   if (dedupe !== undefined && deduplicated.eligible) {
     const beforeBytes = serializedBytes(beforeDedupe);
     const avoidedBytes = deduplicated.hit ? Math.max(0, beforeBytes - returnedBytes) : 0;
-    dedupe.telemetry?.recordDedupe({
+    dedupe.telemetry?.recordDedupe?.({
       hit: deduplicated.hit,
       bytesAvoided: avoidedBytes,
       estimatedTokensAvoided: deduplicated.hit

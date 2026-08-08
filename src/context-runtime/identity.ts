@@ -61,13 +61,21 @@ export interface ProjectionIdentityInput {
 
 function runGit(args: string[], cwd: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile("git", args, { cwd, encoding: "utf8", maxBuffer: 16 * 1024 }, (error, stdout) => {
-      if (error !== null) {
-        reject(error);
-        return;
-      }
-      resolve(String(stdout));
-    });
+    // A stalled git process (index lock contention, an unresponsive filesystem, a
+    // hanging credential helper) must not block the read response indefinitely —
+    // the caller's catch already falls back to the content hash.
+    execFile(
+      "git",
+      args,
+      { cwd, encoding: "utf8", maxBuffer: 16 * 1024, timeout: 2_000, killSignal: "SIGKILL" },
+      (error, stdout) => {
+        if (error !== null) {
+          reject(error);
+          return;
+        }
+        resolve(String(stdout));
+      },
+    );
   });
 }
 
