@@ -25,6 +25,7 @@ export interface TelemetrySnapshot {
   by_capability: Record<string, TelemetryCounts>;
   projection: ProjectionCounts;
   await: AwaitCounts;
+  burst: BurstCounts;
 }
 
 /**
@@ -75,6 +76,37 @@ export interface RecordProjectionInput {
   projectedTokens: number;
 }
 
+/** #73: connection burst budget の集計値。content 本体は一切持たない。 */
+export interface BurstCounts {
+  pressure_samples: number;
+  pressure_total: number;
+  pressure_max: number;
+  projected_tokens: number;
+  projected_bytes: number;
+  omitted_tokens: number;
+  omitted_bytes: number;
+  /** enforce で実際に応答が縮小された回数。 */
+  responses_reduced: number;
+  /** observe/warn で「enforce なら縮小されていたはず」の回数。応答自体は縮小されていない。 */
+  responses_would_reduce: number;
+}
+
+export interface RecordBurstPressureInput {
+  mode: string;
+  pressure: number;
+  projectedTokens: number;
+  projectedBytes: number;
+}
+
+export interface RecordBurstReducedInput {
+  mode: string;
+  reason: string;
+  projectedTokens: number;
+  projectedBytes: number;
+  /** enforce で実際に応答が縮小された場合のみ true。observe/warn は縮小せず記録するだけ。 */
+  reduced: boolean;
+}
+
 export interface TelemetrySink {
   readonly enabled: boolean;
   readonly filePath?: string;
@@ -82,6 +114,8 @@ export interface TelemetrySink {
   recordProjection(input: RecordProjectionInput): void;
   recordRetrieval(): void;
   recordAwait(input: RecordAwaitInput): void;
+  recordBurstPressure(input: RecordBurstPressureInput): void;
+  recordBurstReduced(input: RecordBurstReducedInput): void;
   snapshot(): TelemetrySnapshot;
 }
 
@@ -91,6 +125,7 @@ interface TelemetryState {
   by_capability: Record<string, TelemetryCounts>;
   projection: ProjectionCounts;
   await: AwaitCounts;
+  burst: BurstCounts;
 }
 
 function emptyCounts(): TelemetryCounts {
@@ -102,6 +137,7 @@ function emptyState(): TelemetryState {
     totals: { ...emptyCounts(), retrievals: 0 }, by_provider: {}, by_capability: {},
     projection: emptyProjection(),
     await: emptyAwait(),
+    burst: emptyBurst(),
   };
 }
 
@@ -113,11 +149,25 @@ function emptyAwait(): AwaitCounts {
   return { awaits: 0, poll_count: 0, elapsed_ms: 0, state_changes: 0, avoided_responses: 0, terminal: 0, timeouts: 0, cancelled: 0 };
 }
 
+function emptyBurst(): BurstCounts {
+  return {
+    pressure_samples: 0,
+    pressure_total: 0,
+    pressure_max: 0,
+    projected_tokens: 0,
+    projected_bytes: 0,
+    omitted_tokens: 0,
+    omitted_bytes: 0,
+    responses_reduced: 0,
+    responses_would_reduce: 0,
+  };
+}
+
 function cloneCounts(counts: TelemetryCounts): TelemetryCounts {
   return { ...counts };
 }
 
-function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" | "by_provider" | "by_capability" | "projection" | "await"> {
+function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" | "by_provider" | "by_capability" | "projection" | "await" | "burst"> {
   return {
     totals: { ...state.totals },
     by_provider: Object.fromEntries(
@@ -128,6 +178,7 @@ function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" 
     ),
     projection: { ...state.projection },
     await: { ...state.await },
+    burst: { ...state.burst },
   };
 }
 
@@ -172,6 +223,9 @@ function loadState(filePath: string): TelemetryState | undefined {
     const awaitRaw = typeof parsed.await === "object" && parsed.await !== null
       ? parsed.await as Record<string, unknown>
       : {};
+    const burst = typeof parsed.burst === "object" && parsed.burst !== null
+      ? parsed.burst as Record<string, unknown>
+      : {};
     return {
       totals: totals as TelemetryState["totals"],
       by_provider: byProvider as Record<string, TelemetryCounts>,
@@ -193,6 +247,17 @@ function loadState(filePath: string): TelemetryState | undefined {
         timeouts: typeof awaitRaw.timeouts === "number" ? awaitRaw.timeouts : 0,
         cancelled: typeof awaitRaw.cancelled === "number" ? awaitRaw.cancelled : 0,
       },
+      burst: {
+        pressure_samples: typeof burst.pressure_samples === "number" ? burst.pressure_samples : 0,
+        pressure_total: typeof burst.pressure_total === "number" ? burst.pressure_total : 0,
+        pressure_max: typeof burst.pressure_max === "number" ? burst.pressure_max : 0,
+        projected_tokens: typeof burst.projected_tokens === "number" ? burst.projected_tokens : 0,
+        projected_bytes: typeof burst.projected_bytes === "number" ? burst.projected_bytes : 0,
+        omitted_tokens: typeof burst.omitted_tokens === "number" ? burst.omitted_tokens : 0,
+        omitted_bytes: typeof burst.omitted_bytes === "number" ? burst.omitted_bytes : 0,
+        responses_reduced: typeof burst.responses_reduced === "number" ? burst.responses_reduced : 0,
+        responses_would_reduce: typeof burst.responses_would_reduce === "number" ? burst.responses_would_reduce : 0,
+      },
     };
   } catch {
     return undefined;
@@ -206,18 +271,23 @@ function bump(counts: TelemetryCounts, input: RecordToolCallInput): void {
   counts.compressed_bytes += input.compressedBytes;
 }
 
+/** telemetry 無効時（または未接続時）の snapshot。呼び出し側が個別に同じ形を組み立てなくて済むよう公開する。 */
+export function disabledTelemetrySnapshot(): TelemetrySnapshot {
+  return {
+    enabled: false, generated_at: new Date().toISOString(), totals: { ...emptyCounts(), retrievals: 0 },
+    by_provider: {}, by_capability: {}, projection: emptyProjection(), await: emptyAwait(), burst: emptyBurst(),
+  };
+}
+
 const NOOP_SINK: TelemetrySink = {
   enabled: false,
   recordToolCall() { /* telemetry disabled */ },
   recordProjection() { /* telemetry disabled */ },
   recordRetrieval() { /* telemetry disabled */ },
   recordAwait() { /* telemetry disabled */ },
-  snapshot() {
-    return {
-      enabled: false, generated_at: new Date().toISOString(), totals: { ...emptyCounts(), retrievals: 0 },
-      by_provider: {}, by_capability: {}, projection: emptyProjection(), await: emptyAwait(),
-    };
-  },
+  recordBurstPressure() { /* telemetry disabled */ },
+  recordBurstReduced() { /* telemetry disabled */ },
+  snapshot: disabledTelemetrySnapshot,
 };
 
 /**
@@ -311,6 +381,24 @@ export function createTelemetrySink(env: NodeJS.ProcessEnv = process.env): Telem
       if (input.outcome === "terminal") state.await.terminal += 1;
       else if (input.outcome === "timeout") state.await.timeouts += 1;
       else state.await.cancelled += 1;
+      persist();
+    },
+    recordBurstPressure(input) {
+      state.burst.pressure_samples += 1;
+      state.burst.pressure_total += input.pressure;
+      state.burst.pressure_max = Math.max(state.burst.pressure_max, input.pressure);
+      state.burst.projected_tokens += input.projectedTokens;
+      state.burst.projected_bytes += input.projectedBytes;
+      persist();
+    },
+    recordBurstReduced(input) {
+      if (input.reduced) {
+        state.burst.responses_reduced += 1;
+        state.burst.omitted_tokens += input.projectedTokens;
+        state.burst.omitted_bytes += input.projectedBytes;
+      } else {
+        state.burst.responses_would_reduce += 1;
+      }
       persist();
     },
     snapshot() {

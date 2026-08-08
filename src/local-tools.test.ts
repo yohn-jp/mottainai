@@ -6,6 +6,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { allLocalTools, callLocalTool, localTools, localToolsFor, parseIssueViewOutput, parseRgJson } from "./local-tools.js";
 import type { ResolvedGatewayConfig } from "./config.js";
+import { DEFAULT_BURST_BUDGET_POLICY } from "./context-runtime/burst-budget.js";
 import { ProcessRegistry } from "./context-runtime/process-registry.js";
 import { DEFAULT_AWAIT_POLICY } from "./context-runtime/poll-policy.js";
 import { InMemoryArtifactStore } from "./retrieve.js";
@@ -17,7 +18,7 @@ async function workspace(): Promise<{ root: string; config: ResolvedGatewayConfi
   await fs.writeFile(path.join(root, "src", "sample.ts"), "export function useful() {\n  return 1;\n}\nexport const value = 2;\n");
   await fs.writeFile(path.join(root, "needle.txt"), "one\nneedle here\nthree\n");
   await fs.writeFile(path.join(root, "node_modules", "ignored.txt"), "needle ignored");
-  return { root, config: { workspaceRoot: root, defaultTimeoutMs: 1_000, maxTimeoutMs: 2_000, maxOutputBytes: 1024, execTargetTokens: 1_000, resultTtlMs: 10_000, resultMaxEntries: 10, capabilityMap: {}, toolMetadata: {}, tokenBudgets: { tools: {}, capabilities: {}, profiles: {} }, workflowTasks: false, await: DEFAULT_AWAIT_POLICY } };
+  return { root, config: { workspaceRoot: root, defaultTimeoutMs: 1_000, maxTimeoutMs: 2_000, maxOutputBytes: 1024, execTargetTokens: 1_000, resultTtlMs: 10_000, resultMaxEntries: 10, capabilityMap: {}, toolMetadata: {}, tokenBudgets: { tools: {}, capabilities: {}, profiles: {} }, workflowTasks: false, await: DEFAULT_AWAIT_POLICY, burstBudget: DEFAULT_BURST_BUDGET_POLICY } };
 }
 
 function structured(result: Awaited<ReturnType<typeof callLocalTool>>): Record<string, unknown> {
@@ -489,7 +490,7 @@ test("worktree_new tool is only listed when a worktree config is present", () =>
   const bareConfig: ResolvedGatewayConfig = {
     workspaceRoot: "/tmp", defaultTimeoutMs: 1_000, maxTimeoutMs: 2_000, maxOutputBytes: 1024, execTargetTokens: 1_000,
     resultTtlMs: 10_000, resultMaxEntries: 10, capabilityMap: {}, toolMetadata: {}, tokenBudgets: { tools: {}, capabilities: {}, profiles: {} },
-    workflowTasks: false, await: DEFAULT_AWAIT_POLICY,
+    workflowTasks: false, await: DEFAULT_AWAIT_POLICY, burstBudget: DEFAULT_BURST_BUDGET_POLICY,
   };
   assert.equal(localToolsFor(bareConfig).some((tool) => tool.name === "mottainai_worktree_new"), false);
 
@@ -504,7 +505,8 @@ test("worktree_new is annotated as deprecated in favor of mottainai_workflow_tas
   const withWorktree: ResolvedGatewayConfig = {
     workspaceRoot: "/tmp", defaultTimeoutMs: 1_000, maxTimeoutMs: 2_000, maxOutputBytes: 1024, execTargetTokens: 1_000,
     resultTtlMs: 10_000, resultMaxEntries: 10, capabilityMap: {}, toolMetadata: {}, tokenBudgets: { tools: {}, capabilities: {}, profiles: {} },
-    workflowTasks: false, await: DEFAULT_AWAIT_POLICY, worktree: { allowedBranchPrefixes: ["docs"], baseBranch: "main", worktreeDir: ".worktrees" },
+    workflowTasks: false, await: DEFAULT_AWAIT_POLICY, burstBudget: DEFAULT_BURST_BUDGET_POLICY,
+    worktree: { allowedBranchPrefixes: ["docs"], baseBranch: "main", worktreeDir: ".worktrees" },
   };
   const tool = localToolsFor(withWorktree).find((candidate) => candidate.name === "mottainai_worktree_new");
   assert.ok(tool !== undefined);

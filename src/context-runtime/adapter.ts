@@ -1,9 +1,17 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { ResolvedGatewayConfig } from "../config.js";
 import type { ArtifactStore } from "../retrieve.js";
-import { applyResponseBudget, DEFAULT_RESPONSE_BUDGET, projectedTokens } from "./budget.js";
+import { applyResponseBudget, DEFAULT_RESPONSE_BUDGET, projectedBytes, projectedTokens } from "./budget.js";
+import { applyBurstReduction, isBlockingProjection } from "./burst-budget.js";
+import type { BurstBudgetController, BurstReservation } from "./burst-budget.js";
 import { hasStructuredEnvelope, markOmissionsRetrievable, projectResult, serializeProjectedResult } from "./project.js";
-import type { ProjectionStats } from "./types.js";
+import type { ProjectedResult, ProjectionStats } from "./types.js";
+
+/** dispatch 前に取得済みの burst reservation。finalize 後の解放は呼び出し側（proxy.ts）が行う。 */
+export interface BurstContext {
+  controller: BurstBudgetController;
+  reservation: BurstReservation;
+}
 
 export interface FinalizedToolResult {
   result: CallToolResult;
@@ -86,10 +94,25 @@ function toCallToolResult(
   return next;
 }
 
+/**
+ * burst budget の可否を判定する。reservation は呼び出し側が dispatch 前に既に
+ * reserveEnvelope 済みのものを渡す — ここでは isBlocking の確定と admitOptional のみ行う。
+ * release はここでは呼ばない: 呼び出し側がレスポンス確定後に 1 回だけ呼ぶ。
+ */
+function decideBurstAdmission(
+  projected: ProjectedResult,
+  burst: BurstContext | undefined,
+): boolean {
+  if (burst === undefined) return true;
+  burst.controller.updatePriority(burst.reservation, isBlockingProjection(projected));
+  return burst.controller.admitOptional(burst.reservation, projectedTokens(projected), projectedBytes(projected)).admitted;
+}
+
 export function finalizeToolResult(
   result: CallToolResult,
   config: ResolvedGatewayConfig,
   store: ArtifactStore,
+  burst: BurstContext | undefined = undefined,
 ): FinalizedToolResult {
   const rawBytes = serializedBytes(result);
   const structuredContent = result.structuredContent;
@@ -119,8 +142,12 @@ export function finalizeToolResult(
   });
   let budgeted = applyResponseBudget(projected, budget);
   let storedBytes = budgeted.resultId.length > 0 ? rawBytes : 0;
+  const burstAdmitted = decideBurstAdmission(budgeted, burst);
 
-  if (shouldRetainEvidence(budgeted.resultId, budgeted.truncated, budgeted.omissions.length)) {
+  if (
+    shouldRetainEvidence(budgeted.resultId, budgeted.truncated, budgeted.omissions.length)
+    || (!burstAdmitted && budgeted.resultId.length === 0)
+  ) {
     const evidence = rawArtifactText(result);
     const resultId = store.putArtifact({
       text: evidence,
@@ -130,7 +157,8 @@ export function finalizeToolResult(
     budgeted = applyResponseBudget(markOmissionsRetrievable({ ...projected, resultId }), budget);
   }
 
-  const finalized = toCallToolResult(result, serializeProjectedResult(budgeted));
+  const bursted = burstAdmitted ? budgeted : applyBurstReduction(budgeted);
+  const finalized = toCallToolResult(result, serializeProjectedResult(bursted));
   const returnedBytes = serializedBytes(finalized);
   return {
     result: finalized,
@@ -139,7 +167,7 @@ export function finalizeToolResult(
       storedBytes,
       returnedBytes,
       omittedBytes: Math.max(0, rawBytes - returnedBytes),
-      estimatedProjectedTokens: projectedTokens(budgeted),
+      estimatedProjectedTokens: projectedTokens(bursted),
     },
   };
 }
