@@ -4,19 +4,18 @@
 
 ## CI検証トポロジー
 
-PR CIはOS × Nodeの完全直積を採用しない。exhaustive correctnessとcompatibility checkの責務を分離し、各軸で固有の失敗を検出できる最小環境だけ残す。
+PR CIはnative Windowsを含めず、Linux上のNode matrixだけを採用する。LinuxはTier 1 / canonical、WSL2はLinux runtimeとしてsupported、macOSはbest effort / Tier 2、native Windowsはunsupported。WindowsユーザーはWSL2を利用する。Issue #78のWindows smoke前提はIssue #88でsupersedeされた。
 
 | 責務 | 環境 | CIで担う検証 |
 | --- | --- | --- |
 | Canonical full validation | Ubuntu + Node 22 | `standards`、typecheck、fast unit/contract、integration/process、build、built-dist full E2E、coverage、package/consumer smoke。repositoryの完全な必須検証の正本 |
 | Node compatibility smoke | Ubuntu + Node 24 | install、build、packed consumer path、最小MCP handshake/list/call/EOF。Node 22のfull suiteを再実行しない |
-| Windows compatibility smoke | Windows + Node 22 | install、build、packed consumer path、packaged launch、MCP initialize/list/call、spacesを含むpath、stdin EOF。Windows固有のPATHEXT executable discoveryも対象 |
 
-Ubuntu + Node 22はexhaustive correctnessの正本。Node 24はruntime/package差異、Windows + Node 22はOS/path/launcher/stdio差異だけ確認する。full E2Eのlifecycle・fault・POSIX SIGINT/SIGTERM検証はcanonical環境に残し、Windows smokeでは実行しない。
+Ubuntu + Node 22はexhaustive correctnessの正本。Node 24はruntime/package差異だけ確認する。full E2Eのlifecycle・fault・POSIX SIGINT/SIGTERM検証はcanonical環境に残す。
 
-完全直積を避ける理由は、OS差異とNode runtime差異が独立した軸だから。各環境でfull suiteを重複実行しても独立した保証が増えず、CI時間とWindows lifecycle hangの影響だけ増える。Windows child processはstdin EOFを第一選択とし、必要時だけboundedなWindows-native cleanupへ移行する。
+完全直積を避ける理由は、Node runtime差異の確認にLinuxのNode matrixで足りるため。CIはsupported runtimeのcorrectnessとNode compatibilityへ集中する。
 
-CI check名も検証責務に合わせる。Node 24のcheckは`Node compatibility smoke (Ubuntu, Node 24)`で、`pnpm run test:package`によるinstall、build、packed consumer/MCP smokeだけを実行する。既存rulesetの`install / typecheck / test / build (Node 24)`と`coverage (Node 24)`はこの構造では発行しないため、branch protection側で削除・置換する。Node 22 canonical checkとWindows smoke checkはそれぞれ実際の責務を表す。
+CI check名も検証責務に合わせる。Node 24のcheckは`Node compatibility smoke (Ubuntu, Node 24)`で、`pnpm run test:package`によるinstall、build、packed consumer/MCP smokeだけを実行する。main rulesetのrequired checksは`validate-pr`、`install / typecheck / test / build (Node 22)`、`coverage (Node 22)`。Windows job削除に対応するrequired checkは現行rulesetにないため、branch protectionの手動変更は不要。設定変更は実施しない。
 
 ## 層とコマンド
 

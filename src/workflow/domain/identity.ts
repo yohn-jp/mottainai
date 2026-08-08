@@ -42,8 +42,8 @@ function runGit(args: string[], cwd: string): string {
 /**
  * シンボリックリンク経由や末尾スラッシュ違いの入力を同一パスとして比較できる
  * よう、実体パス基準に正規化する。大文字小文字の正規化は OS・ファイルシステム
- * 依存（例: macOS/Windows の既定 FS は case-insensitive、Linux は
- * case-sensitive）であり、全プラットフォームで保証される挙動ではない。
+ * 依存（macOS の既定 FS は case-insensitive、Linux は case-sensitive）であり、
+ * 全プラットフォームで保証される挙動ではない。
  */
 function canonicalizePath(targetPath: string): string {
   return fs.realpathSync.native(targetPath);

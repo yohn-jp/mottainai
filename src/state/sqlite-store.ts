@@ -29,9 +29,8 @@ function normalizeLimit(value: number | undefined): number {
   return Math.min(Math.max(Math.trunc(value), 1), MAX_DECISION_LIMIT);
 }
 
-/** state directory / DB ファイル / WAL sidecar を所有者のみ読める権限に絞る（対応 Unix のみ）。 */
+/** state directory / DB ファイル / WAL sidecar を所有者のみ読める権限に絞る。 */
 function restrictToOwner(targetPath: string, mode: number): void {
-  if (process.platform === "win32") return;
   try {
     fs.chmodSync(targetPath, mode);
   } catch (err) {

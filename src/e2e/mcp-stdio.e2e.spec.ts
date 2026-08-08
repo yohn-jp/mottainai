@@ -384,22 +384,16 @@ async function runSignalTest(signal) {
 }
 
 test(
-  "SIGINT triggers bounded graceful shutdown on POSIX",
-  {
-    timeout: BLACKBOX_TIMEOUTS.test,
-    skip: process.platform === "win32" ? "Windows ChildProcess.kill does not deliver POSIX signal handlers" : false,
-  },
+  "SIGINT triggers bounded graceful shutdown",
+  { timeout: BLACKBOX_TIMEOUTS.test },
   async () => {
     await runSignalTest("SIGINT");
   },
 );
 
 test(
-  "SIGTERM triggers bounded graceful shutdown on POSIX",
-  {
-    timeout: BLACKBOX_TIMEOUTS.test,
-    skip: process.platform === "win32" ? "Windows ChildProcess.kill does not deliver POSIX signal handlers" : false,
-  },
+  "SIGTERM triggers bounded graceful shutdown",
+  { timeout: BLACKBOX_TIMEOUTS.test },
   async () => {
     await runSignalTest("SIGTERM");
   },

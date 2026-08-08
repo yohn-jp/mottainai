@@ -104,6 +104,14 @@ should be able to use it. Actual verification is limited so far:
 "Not yet verified" means untested, not known-broken. Reports from other
 clients are welcome via PR.
 
+## Supported platforms
+
+- Linux: Tier 1 and the canonical runtime.
+- WSL2: supported as a Linux runtime for Windows users.
+- macOS: best effort / Tier 2.
+- Native Windows: unsupported. The historical final native-Windows release/tag
+  is `v0.1.2`; use WSL2 for the supported Windows-user path.
+
 ## Installation
 
 Requires Node.js >= 22.13 and

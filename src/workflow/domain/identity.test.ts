@@ -48,9 +48,7 @@ test("resolving through a symlinked path yields the same identity as the real pa
   const root = createTempGitRepo(t);
   const parent = path.dirname(root);
   const linkPath = path.join(parent, "symlinked-repo");
-  // Windows は symlink 作成に管理者権限や開発者モードを要求しうる（EPERM）が、
-  // junction はその制約を受けない。
-  fs.symlinkSync(root, linkPath, process.platform === "win32" ? "junction" : "dir");
+  fs.symlinkSync(root, linkPath, "dir");
   t.after(() => fs.rmSync(linkPath));
 
   const direct = resolveRepositoryIdentity(root);

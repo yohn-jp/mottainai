@@ -50,10 +50,9 @@ export function parseDashboardOptions(args: readonly string[]): DashboardCommand
 }
 
 export function openDashboardBrowser(url: string, platform: NodeJS.Platform): Promise<void> {
-  const command = platform === "win32" ? "cmd" : platform === "darwin" ? "open" : "xdg-open";
-  const args = platform === "win32" ? ["/c", "start", "", url] : [url];
+  const command = platform === "darwin" ? "open" : "xdg-open";
   return new Promise((resolve) => {
-    const child = spawn(command, args, { detached: true, stdio: "ignore", windowsHide: true });
+    const child = spawn(command, [url], { detached: true, stdio: "ignore" });
     child.once("error", () => resolve());
     child.once("spawn", () => {
       child.unref();

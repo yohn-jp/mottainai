@@ -45,7 +45,7 @@ assertion pathはproduction server objectをimportしない。fixture upstream�
 | unsupported method / unknown tool / invalid args | deterministic JSON-RPC error、process継続                        |
 | missing / malformed config                       | deterministic stderr、non-zero exit、stdout contaminationなし    |
 | client disconnect / stdin EOF                    | bounded gateway shutdown、upstream cleanup                       |
-| SIGINT / SIGTERM                                 | POSIX実signalでgraceful shutdown、Windowsはsignal semantics skip |
+| SIGINT / SIGTERM                                 | 実signalでgraceful shutdown |
 | unterminated stdout / blank stdout               | close後もprotocol violationとして保持                            |
 
 ## Upstream fault matrix
@@ -89,4 +89,6 @@ pollingはfixture filesystem stateの観測専用。arbitrary sleepでprotocol r
 
 ## Platform
 
-CIはUbuntu/Windows × Node 22/24。EOF、disconnect、built-dist protocol、package subsetは全matrix。SIGINT/SIGTERMはPOSIXだけ実deliveryし、WindowsはNode `ChildProcess.kill`が同じsignal handler semanticsを提供しないためskip。WindowsではNode同梱`npm-cli.js`/`tar.exe`のshellなしargv実行、path separator、launcher、junctionを実artifact経路で検証する。生成pathにspaceがあってもpack/extractを壊さない。
+LinuxがTier 1 / canonical runtime。WSL2はLinux runtimeとしてsupported、macOSはbest effort / Tier 2。native Windowsはunsupportedで、WindowsユーザーはWSL2を利用する。`v0.1.2`はnative Windowsのhistorical final release/tag。
+
+PR CIはUbuntuのNode 22 canonical full validationとNode 24 compatibility smokeで構成する。EOF、disconnect、built-dist protocol、package subset、SIGINT/SIGTERM、bounded cleanupはsupported Linux pathで検証する。生成pathにspaceがあってもpack/extractを壊さない。

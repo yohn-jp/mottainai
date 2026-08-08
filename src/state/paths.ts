@@ -10,7 +10,6 @@ export const STATE_DB_FILE_NAME = "state.sqlite3";
  *
  * - Linux: `$XDG_STATE_HOME/mottainai`（既定 `~/.local/state/mottainai`）
  * - macOS: `~/Library/Application Support/mottainai`
- * - Windows: `%LOCALAPPDATA%\mottainai`（既定 `~/AppData/Local/mottainai`）
  *
  * リポジトリ内・node_modules・OS 一時ディレクトリには置かない。
  */
@@ -20,15 +19,14 @@ export function resolveStateDir(env: NodeJS.ProcessEnv = process.env, platform: 
     return path.resolve(override);
   }
 
+  if (platform === "win32") {
+    throw new Error("native Windows is unsupported; run mottainai under WSL2");
+  }
+
   const home = env.HOME ?? os.homedir();
 
   if (platform === "darwin") {
     return path.join(home, "Library", "Application Support", APP_DIR_NAME);
-  }
-
-  if (platform === "win32") {
-    const localAppData = env.LOCALAPPDATA ?? path.join(home, "AppData", "Local");
-    return path.join(localAppData, APP_DIR_NAME);
   }
 
   const xdgStateHome = env.XDG_STATE_HOME;

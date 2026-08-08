@@ -210,12 +210,10 @@ test("file-backed store persists across close/reopen with owner-only permissions
   store.close();
 
   assert.ok(fs.existsSync(dbPath));
-  if (process.platform !== "win32") {
-    const mode = fs.statSync(dbPath).mode & 0o777;
-    assert.equal(mode, 0o600);
-    const dirMode = fs.statSync(dir).mode & 0o777;
-    assert.equal(dirMode, 0o700);
-  }
+  const mode = fs.statSync(dbPath).mode & 0o777;
+  assert.equal(mode, 0o600);
+  const dirMode = fs.statSync(dir).mode & 0o777;
+  assert.equal(dirMode, 0o700);
 
   const reopened = new WorkflowSqliteStateStore({ dbPath });
   reopened.init();

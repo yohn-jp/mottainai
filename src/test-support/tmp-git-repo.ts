@@ -4,7 +4,7 @@ import path from "node:path";
 import type { TestContext } from "node:test";
 import { createTempDir } from "./tmp-dir.js";
 
-const DEV_NULL = process.platform === "win32" ? "NUL" : "/dev/null";
+const DEV_NULL = "/dev/null";
 const TEST_AUTHOR_NAME = "Mottainai Test";
 const TEST_AUTHOR_EMAIL = "test@example.com";
 
