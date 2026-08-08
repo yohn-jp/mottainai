@@ -24,7 +24,7 @@
     "test:standards": "pnpm run architecture:test && pnpm run governance:test && pnpm run test:classification && pnpm run test:coverage:policy",
     "test:coverage:policy": "node --test scripts/coverage.test.mjs",
     "test:coverage": "node scripts/coverage.mjs",
-    "test:package": "pnpm run build && pnpm run smoke-test",
+    "test:package": "pnpm run build && node scripts/run-package-suite.mjs",
     "verify": "pnpm run verify:standards && pnpm run typecheck && pnpm test && pnpm run test:integration && pnpm run test:e2e && pnpm run test:coverage && pnpm run test:package",
     "mcp": "tsx scripts/mcp.ts",
     "policy": "tsx scripts/policy.ts",

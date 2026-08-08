@@ -112,7 +112,7 @@ test("test-support and e2e helpers may depend on any production layer, but nothi
   assert.equal(isDependencyAllowed("testInfrastructure", "persistence", "src/workflow/state/sqlite-store.ts"), true);
   assert.equal(isDependencyAllowed("testInfrastructure", "entry", "src/index.ts"), true);
   assert.equal(isDependencyAllowed("shared", "testInfrastructure", "src/test-support/env.ts"), false);
-  assert.equal(isDependencyAllowed("persistence", "testInfrastructure", "src/e2e/stdio-client.ts"), false);
+  assert.equal(isDependencyAllowed("persistence", "testInfrastructure", "src/e2e/mcp-stdio.e2e.spec.ts"), false);
 });
 
 // checkImports only reaches isDependencyAllowed when the resolved import target is itself

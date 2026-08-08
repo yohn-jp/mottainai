@@ -54,7 +54,8 @@ function main() {
     if (!fs.existsSync(tarballPath)) fail(`tarball not found: ${tarballPath}`);
   } else {
     console.log("packing tarball...");
-    const packResult = run("npm", ["pack", "--json"], { cwd: repoRoot });
+    // Build stageで作成済みのdistをそのまま検証する。prepackの暗黙再buildは禁止。
+    const packResult = run("npm", ["pack", "--json", "--ignore-scripts"], { cwd: repoRoot });
     const [packInfo] = JSON.parse(packResult.stdout);
     tarballPath = path.join(repoRoot, packInfo.filename);
     ownsTarball = true;
