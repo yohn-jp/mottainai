@@ -79,6 +79,33 @@ test("artifact store truncates oversized UTF-8 text on character boundaries", ()
   assert.ok(Buffer.byteLength(result.text, "utf8") <= 160);
 });
 
+test("artifact store keeps large bounded payloads within their exact serialized byte limit", () => {
+  const maxBytes = 4 * 1024;
+  const inputBytes = 1024 * 1024;
+  const escapedUnit = '"\\';
+  const cases = [
+    { name: "ascii", createText: () => "a".repeat(inputBytes) },
+    {
+      name: "escaped",
+      createText: () => escapedUnit.repeat(Math.ceil(inputBytes / escapedUnit.length)).slice(0, inputBytes),
+    },
+    { name: "utf8", createText: () => "あ".repeat(Math.floor(inputBytes / 3)) + "x".repeat(inputBytes % 3) },
+  ];
+
+  for (const { name, createText } of cases) {
+    const metadata = { operation: "large-boundary" };
+    const marker = `MARKER-${name}`;
+    const store = new InMemoryArtifactStore({ createId: () => name, maxBytes });
+    const id = store.putArtifact({ text: `${marker}${createText()}`, metadata });
+    const result = store.retrieve(id);
+    assert.ok(result, name);
+    assert.ok(result.text.includes("artifact truncated"), name);
+    assert.equal(result.text.includes("\uFFFD"), false, name);
+    assert.ok(Buffer.byteLength(JSON.stringify({ text: result.text, metadata }), "utf8") <= maxBytes, name);
+    assert.equal(store.search(marker)[0]?.operation, metadata.operation, name);
+  }
+});
+
 test("artifact store bounds oversized stdout and stderr fields", () => {
   const store = new InMemoryArtifactStore({ createId: () => "streams", maxBytes: 160 });
   const id = store.putArtifact({
