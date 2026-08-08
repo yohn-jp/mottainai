@@ -137,8 +137,7 @@ jobs:
           if-no-files-found: error
 
   node-compatibility-smoke:
-    # Existing Node 24 context retained while the job is narrowed to compatibility smoke.
-    name: install / typecheck / test / build (Node 24)
+    name: Node compatibility smoke (Ubuntu, Node 24)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -191,6 +190,10 @@ jobs:
       # POSIX の SIGINT/SIGTERM lifecycle suite は Windows smoke に含めない。
       - name: Build and packed Windows consumer / MCP compatibility smoke
         run: pnpm run test:package
+
+      # taskkill hang時も child.kill fallbackへ到達する bounded cleanup 契約をWindows実環境で確認する。
+      - name: Windows bounded cleanup contract
+        run: node --test --test-name-pattern "Windows forced cleanup falls back when taskkill remains hung" scripts/lib/mcp-blackbox-client.test.mjs
 
       # init.test.ts 全体は実行せず、Windows 固有の PATHEXT/executable discovery 契約だけ統合する。
       - name: Windows executable discovery contract

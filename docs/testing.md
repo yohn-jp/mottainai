@@ -16,6 +16,8 @@ Ubuntu + Node 22はexhaustive correctnessの正本。Node 24はruntime/package�
 
 完全直積を避ける理由は、OS差異とNode runtime差異が独立した軸だから。各環境でfull suiteを重複実行しても独立した保証が増えず、CI時間とWindows lifecycle hangの影響だけ増える。Windows child processはstdin EOFを第一選択とし、必要時だけboundedなWindows-native cleanupへ移行する。
 
+CI check名も検証責務に合わせる。Node 24のcheckは`Node compatibility smoke (Ubuntu, Node 24)`で、`pnpm run test:package`によるinstall、build、packed consumer/MCP smokeだけを実行する。既存rulesetの`install / typecheck / test / build (Node 24)`と`coverage (Node 24)`はこの構造では発行しないため、branch protection側で削除・置換する。Node 22 canonical checkとWindows smoke checkはそれぞれ実際の責務を表す。
+
 ## 層とコマンド
 
 | 層                    | 保証対象                                                                | ファイル規則                                                                                                                                                                    | コマンド                       | 実行目安       |

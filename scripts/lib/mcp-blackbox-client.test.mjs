@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import path from "node:path";
 import { test } from "node:test";
 import { cleanupClient, createWorkspace, isolatedEnv } from "./mcp-blackbox-test-support.mjs";
-import { MAX_STDERR_TAIL_BYTES, McpStdioClient } from "./mcp-blackbox-client.mjs";
+import { killProcessTree, MAX_STDERR_TAIL_BYTES, McpStdioClient } from "./mcp-blackbox-client.mjs";
 import { BLACKBOX_TIMEOUTS } from "./mcp-blackbox-timeouts.mjs";
 
 function fixturePath(workspace) {
@@ -123,6 +124,30 @@ test("harness forced cleanup terminates a stubborn child", { timeout: BLACKBOX_T
     await cleanupClient(client, workspace);
   }
 });
+
+test(
+  "Windows forced cleanup falls back when taskkill remains hung",
+  { skip: process.platform !== "win32", timeout: BLACKBOX_TIMEOUTS.test },
+  async () => {
+    const taskkill = new EventEmitter();
+    taskkill.kill = () => true;
+    const child = {
+      pid: 123,
+      killedWith: undefined,
+      kill(signal) {
+        this.killedWith = signal;
+        return true;
+      },
+    };
+    killProcessTree(child, {
+      platform: "win32",
+      timeoutMs: 50,
+      spawnTaskkill: () => taskkill,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(child.killedWith, "SIGKILL");
+  },
+);
 
 test("harness contains a stdin write error after the child closes its input", { timeout: BLACKBOX_TIMEOUTS.test }, async () => {
   const { client, workspace } = launchFixture(
