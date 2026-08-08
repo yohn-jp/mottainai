@@ -6,10 +6,7 @@ on:
   issue_comment:
     types: [created]
 
-permissions:
-  contents: read
-  pull-requests: write
-  issues: write
+permissions: {}
 
 jobs:
   eligibility:
@@ -20,6 +17,8 @@ jobs:
       github.event_name == 'pull_request' ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && github.event.comment.user.type != 'Bot')
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
     outputs:
       ok: ${{ steps.check.outputs.ok }}
     steps:
@@ -55,6 +54,10 @@ jobs:
     needs: eligibility
     if: needs.eligibility.outputs.ok == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
     steps:
       - name: PR Agent action step
         uses: qodo-ai/pr-agent@f6af7d77554ff8d26adffded077e6461329e92fa # v0.42.0
