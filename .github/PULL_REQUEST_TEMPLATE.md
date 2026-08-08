@@ -40,6 +40,7 @@ Test layers:
 - Fast / unit / contract: `pnpm test`
 - Integration / process: `pnpm run test:integration`
 - Package / E2E / smoke: `pnpm run test:e2e`, `pnpm run test:package`
+- Standards / static: `pnpm run verify:standards`
 - Coverage: `pnpm run test:coverage`
 - Full verification: `pnpm run verify`
 

@@ -28,7 +28,7 @@ export interface TempGitRepoOptions {
   initialCommit?: boolean;
 }
 
-/** 隔離済み環境変数で `git init` した一時リポジトリを作り、既定で初回コミットまで済ませて返す。 */
+// Gitのglobal設定と作業ツリーを汚染せず、repository境界を検証するため。
 export function createTempGitRepo(t: TestContext, options: TempGitRepoOptions = {}): string {
   const root = createTempDir(t, options.prefix ?? "mottainai-git-test-");
   const branch = options.defaultBranch ?? "main";

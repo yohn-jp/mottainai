@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build-and-test:
-    name: install / typecheck / fast / integration / e2e / build (Node ${{ matrix.node-version }})
+    name: install / typecheck / test / build (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -123,6 +123,16 @@ jobs:
 
       - name: Coverage (line / function / branch)
         run: pnpm run test:coverage
+
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-node-${{ matrix.node-version }}
+          path: |
+            coverage/lcov.info
+            coverage/summary.json
+          if-no-files-found: error
 
       - name: Upload coverage artifacts
         uses: actions/upload-artifact@v4

@@ -114,6 +114,8 @@ Repository files cannot enable a Ruleset. Configure a Ruleset for `main` manuall
 - Require the status check `Governance / validate-pr`
 - Require `CI / install / typecheck / test / build (Node 22)`
 - Require `CI / install / typecheck / test / build (Node 24)`
+- Require `CI / coverage (Node 22)`
+- Require `CI / coverage (Node 24)`
 
 `.github/CODEOWNERS` currently assigns the governance paths to the valid
 individual user `@yohnark`. A future migration to an existing Organization

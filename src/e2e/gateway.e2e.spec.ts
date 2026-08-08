@@ -23,7 +23,10 @@ test("gateway starts over stdio and serves local tools with a valid structured e
   assert.ok(toolNames.includes("mottainai_list"), `expected mottainai_list among: ${toolNames.join(", ")}`);
   for (const tool of tools) {
     assert.equal(typeof tool.description, "string");
-    assert.equal(typeof tool.inputSchema, "object");
+    assert.ok(
+      tool.inputSchema !== null && typeof tool.inputSchema === "object" && !Array.isArray(tool.inputSchema),
+      `tool ${tool.name} has an invalid inputSchema`,
+    );
   }
 
   const result = await connection.client.callTool({ name: "mottainai_list", arguments: {} });

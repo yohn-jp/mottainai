@@ -1,11 +1,7 @@
 import assert from "node:assert/strict";
 import { OUTPUT_SCHEMA } from "../envelope.js";
 
-/**
- * このリポジトリ全体で使われる `{ ok: true, ... } | { ok: false, ... }` 判別共用体向けの
- * narrowingアサーション。`assert.equal(result.ok, true); if (!result.ok) return;` の
- * 定型反復を1呼び出しに置き換える。
- */
+// 結果判別の定型反復を避け、各テストが境界契約の検証に集中できるようにする。
 export function assertOk<T extends { ok: boolean }>(result: T, message?: string): Extract<T, { ok: true }> {
   if (!result.ok) assert.fail(message ?? `expected ok result, got: ${JSON.stringify(result)}`);
   return result as Extract<T, { ok: true }>;
@@ -24,11 +20,7 @@ function matchesJsonSchemaType(value: unknown, type: string): boolean {
   return false;
 }
 
-/**
- * gateway自前ツールの共通structured output契約（src/envelope.ts の OUTPUT_SCHEMA）を
- * 満たしているかを検証する。フィールドの有無だけでなく型も見るのは、圧縮やproxy越しに
- * フィールドの中身が壊れる回帰（配列がオブジェクトになる等）を素通りさせないため。
- */
+// transport境界でstructured outputの型崩れを見逃さないため。
 export function assertEnvelopeShape(value: unknown): asserts value is Record<string, unknown> {
   assert.ok(
     value !== null && typeof value === "object" && !Array.isArray(value),

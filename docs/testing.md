@@ -21,7 +21,7 @@
 - `pnpm run test:package`: `build`後に`smoke-test`を実行。package層の入口。
 - `pnpm run verify:standards`: format、lint、architecture、governance、分類validator、coverage policy self-test。
 - `pnpm run test:coverage`: fast+integrationを一度ずつ実行し、coverage artifactとgate結果を生成。fast loopへinstrumentationを入れない。
-- `pnpm run verify`: `verify:standards`、typecheck、fast、integration/process、E2E、package smokeを決定的な順序で実行。
+- `pnpm run verify`: `verify:standards`、typecheck、fast、integration/process、E2E、coverage、package smokeを決定的な順序で実行。
 
 ## 機械的分類
 
@@ -81,7 +81,7 @@ fault-injection testはintegration/process層に置く。timeout、spawn failure
 | Function | 865 / 908 | 95.26% |
 | Branch | 2925 / 3393 | 86.21% |
 
-Baselineは品質targetそのものではない。repository-wide regression floorは`coverage-policy.json`の`baseline.thresholds`に保守的に設定し、現在値を大きく下回る意味のある回帰をCIで失敗させる。
+Baselineは品質targetそのものではない。repository-wide regression floorは`scripts/coverage-policy.json`の`baseline.thresholds`に保守的に設定し、現在値を大きく下回る意味のある回帰をCIで失敗させる。
 
 現行repository-wide floor:
 
@@ -109,7 +109,7 @@ gateはrepository floorとcritical targetの両方を評価し、moduleがartifa
 
 1. main相当のproduction sourceを専用worktreeで固定し、`pnpm install --frozen-lockfile`。
 2. `pnpm run test:coverage -- --measure-only`を実行し、`coverage/summary.json`と`coverage/lcov.info`を保存。
-3. 測定値、source revision、測定日を`coverage-policy.json`へ反映。thresholdは測定値から機械的に推測せず、regression floorまたはcritical targetの意図をreviewで明記する。
+3. 測定値、source revision、測定日を`scripts/coverage-policy.json`へ反映。thresholdは測定値から機械的に推測せず、regression floorまたはcritical targetの意図をreviewで明記する。
 4. `docs/testing.md`のbaseline/table、self-test、CI artifact名を同じPRで更新。
 5. `pnpm run test:coverage`、`pnpm run test:coverage:policy`、`pnpm run verify`を実行。policy JSONのthreshold変更は品質policy変更としてReview focusへ記載。
 

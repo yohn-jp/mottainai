@@ -21,7 +21,7 @@ export interface GatewayConnection {
   close(): Promise<void>;
 }
 
-/** dist成果物への依存を避けるため、tsx経由でsrc/index.tsを直接subprocess起動する。 */
+// 公開distの状態に依存せず、sourceからstdio protocol境界を検証するため。
 export async function startGatewayViaStdio(options: StartGatewayOptions): Promise<GatewayConnection> {
   const transport = new StdioClientTransport({
     command: process.execPath,

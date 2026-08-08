@@ -221,8 +221,8 @@ test("getTaskStatus returns undefined for an unknown task id", (t) => {
 });
 
 test("startTask rejects starting a second task from inside an already-active task worktree", async (t) => {
-  const root = initRepo(t);
-  const store = openStore(t);
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
   const policy = standardPolicy();
   const outer = await startTask({ workspaceRoot: root, store, policy, taskSlug: "outer" });
   assert.equal(outer.ok, true);
@@ -237,8 +237,8 @@ test("startTask rejects starting a second task from inside an already-active tas
 });
 
 test("getTaskStatusForWorkspace reports no active task for a plain repository", async (t) => {
-  const root = initRepo(t);
-  const store = openStore(t);
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
   const status = await getTaskStatusForWorkspace(root, store);
   assert.equal(status.ok, true);
   if (!status.ok) return;
@@ -248,8 +248,8 @@ test("getTaskStatusForWorkspace reports no active task for a plain repository", 
 });
 
 test("getTaskStatusForWorkspace reports the active task from inside its own worktree", async (t) => {
-  const root = initRepo(t);
-  const store = openStore(t);
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
   const started = await startTask({ workspaceRoot: root, store, policy: standardPolicy(), taskSlug: "status-ws" });
   assert.equal(started.ok, true);
   if (!started.ok) return;
@@ -264,10 +264,10 @@ test("getTaskStatusForWorkspace reports the active task from inside its own work
 });
 
 test("getTaskStatusForWorkspace surfaces detached HEAD as a warning instead of failing (no active task is a normal outcome)", async (t) => {
-  const root = initRepo(t);
-  const headCommit = git(["rev-parse", "HEAD"], root);
-  git(["checkout", "--quiet", headCommit], root);
-  const store = openStore(t);
+  const root = createTempGitRepo(t);
+  const headCommit = runGit(["rev-parse", "HEAD"], root);
+  runGit(["checkout", "--quiet", headCommit], root);
+  const store = createWorkflowStore(t);
   const status = await getTaskStatusForWorkspace(root, store);
   assert.equal(status.ok, true);
   if (!status.ok) return;
@@ -277,16 +277,16 @@ test("getTaskStatusForWorkspace surfaces detached HEAD as a warning instead of f
 });
 
 test("getTaskStatusForWorkspace fails closed for a non-git directory", async (t) => {
-  const dir = tmpDir(t, "mottainai-task-test-nongit-");
-  const store = openStore(t);
+  const dir = createTempDir(t, "mottainai-task-test-nongit-");
+  const store = createWorkflowStore(t);
   const status = await getTaskStatusForWorkspace(dir, store);
   assert.equal(status.ok, false);
 });
 
 test("getTaskStatusForWorkspace keeps two repositories' active tasks separate in a shared store", async (t) => {
-  const rootA = initRepo(t);
-  const rootB = initRepo(t);
-  const store = openStore(t);
+  const rootA = createTempGitRepo(t);
+  const rootB = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
   const startedA = await startTask({ workspaceRoot: rootA, store, policy: standardPolicy(), taskSlug: "repo-a-task" });
   assert.equal(startedA.ok, true);
   if (!startedA.ok) return;
@@ -303,8 +303,8 @@ test("getTaskStatusForWorkspace keeps two repositories' active tasks separate in
 });
 
 test("getTaskStatusForWorkspace distinguishes between two active worktrees of the same repository", async (t) => {
-  const root = initRepo(t);
-  const store = openStore(t);
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
   const policy = standardPolicy({ multipleActiveTasksPerIssue: "advisory" });
   const first = await startTask({ workspaceRoot: root, store, policy, taskSlug: "multi-a" });
   const second = await startTask({ workspaceRoot: root, store, policy, taskSlug: "multi-b" });
@@ -323,8 +323,8 @@ test("getTaskStatusForWorkspace distinguishes between two active worktrees of th
 });
 
 test("getTaskStatusForWorkspace survives a store restart against a file-backed database", async (t) => {
-  const root = initRepo(t);
-  const dbDir = tmpDir(t, "mottainai-task-test-db-");
+  const root = createTempGitRepo(t);
+  const dbDir = createTempDir(t, "mottainai-task-test-db-");
   const dbPath = path.join(dbDir, "state.sqlite3");
   const store1 = new WorkflowSqliteStateStore({ dbPath });
   store1.init();

@@ -1,8 +1,4 @@
-/**
- * テスト専用の共有fixture/helperの入口。責務と使い方は docs/testing.md を参照。
- * production コードから import されることはない（architecture-check の
- * testInfrastructure レイヤ、他レイヤから依存されない）。
- */
+// testInfrastructure境界をproductionコードから分離するため。
 export { assertEnvelopeShape, assertError, assertOk } from "./assertions.js";
 export { buildTestConfig, writeTestConfig } from "./config-fixture.js";
 export type { BuildTestConfigOptions } from "./config-fixture.js";

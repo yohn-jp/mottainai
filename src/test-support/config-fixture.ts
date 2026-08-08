@@ -8,10 +8,7 @@ export interface BuildTestConfigOptions {
   profiles?: MottainaiConfig["profiles"];
 }
 
-/**
- * upstreamプロセス起動やnetworkに依存しない最小構成を返す。既定は空mcpServers、
- * workspaceRootは設定ファイル自身のディレクトリ（"."）に固定する決定論的な値。
- */
+// 外部processやnetworkに依存しない決定論的な設定境界を検証するため。
 export function buildTestConfig(options: BuildTestConfigOptions = {}): MottainaiConfig {
   const config: MottainaiConfig = {
     version: 2,
@@ -22,7 +19,6 @@ export function buildTestConfig(options: BuildTestConfigOptions = {}): Mottainai
   return config;
 }
 
-/** buildTestConfigの結果をディレクトリへ書き出し、解決済みパスを返す。 */
 export function writeTestConfig(
   directory: string,
   options: BuildTestConfigOptions = {},
