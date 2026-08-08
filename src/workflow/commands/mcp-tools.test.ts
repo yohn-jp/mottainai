@@ -107,7 +107,7 @@ test("task_start rejects an invalid taskSlug at the MCP boundary", async (t) => 
   const store = openWorkflowStore();
   await assert.rejects(
     () => callWorkflowCommandTool("mottainai_workflow_task_start", { taskSlug: "Bad Slug" }, enabled(config), store),
-    /invalid taskSlug/,
+    /invalid task slug/,
   );
   store.close();
 });
@@ -117,7 +117,7 @@ test("task_start rejects an invalid issueRef at the MCP boundary", async (t) => 
   const store = openWorkflowStore();
   await assert.rejects(
     () => callWorkflowCommandTool("mottainai_workflow_task_start", { taskSlug: "ok", issueRef: "../evil" }, enabled(config), store),
-    /invalid issueRef/,
+    /invalid issue ref/,
   );
   store.close();
 });
@@ -127,7 +127,17 @@ test("task_start rejects an issueRef ending in .lock at the MCP boundary", async
   const store = openWorkflowStore();
   await assert.rejects(
     () => callWorkflowCommandTool("mottainai_workflow_task_start", { taskSlug: "ok", issueRef: "9.lock" }, enabled(config), store),
-    /invalid issueRef/,
+    /invalid issue ref/,
+  );
+  store.close();
+});
+
+test("task_start rejects an issueRef ending in . at the MCP boundary", async (t) => {
+  const { config } = await gitWorkspace(t);
+  const store = openWorkflowStore();
+  await assert.rejects(
+    () => callWorkflowCommandTool("mottainai_workflow_task_start", { taskSlug: "ok", issueRef: "issue." }, enabled(config), store),
+    /invalid issue ref/,
   );
   store.close();
 });

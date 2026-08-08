@@ -360,11 +360,11 @@ test("public CLI task start validates taskSlug/issueRef at the boundary, same as
 
   const badSlug = spawn("task", "start", "Bad Slug", "--workspace", directory);
   assert.equal(badSlug.status, 1);
-  assert.match(badSlug.stderr, /invalid taskSlug/);
+  assert.match(badSlug.stderr, /invalid task slug/);
 
   const badIssueRef = spawn("task", "start", "ok-slug", "--issue", "7..9", "--workspace", directory);
   assert.equal(badIssueRef.status, 1);
-  assert.match(badIssueRef.stderr, /invalid issueRef/);
+  assert.match(badIssueRef.stderr, /invalid issue ref/);
 
   const status = spawn("task", "status", "--workspace", directory);
   assert.equal(status.status, 0);
