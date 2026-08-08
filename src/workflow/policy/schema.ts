@@ -52,6 +52,17 @@ const cleanupRuleSchema = z.object({
 }).strict();
 export type CleanupRule = z.infer<typeof cleanupRuleSchema>;
 
+/** 未指定時は既存 policy と互換のデフォルト値を持つ。 */
+export const pullRequestRuleSchema = z.object({
+  issue: z.enum(["required", "optional"]).default("optional"),
+  closingIssue: z.enum(["exactly-one", "optional", "none"]).default("optional"),
+  requiredSections: z.array(z.string().min(1)).default([]),
+  acceptanceCriteriaSection: z.string().min(1).default("Acceptance criteria"),
+  acceptanceCriteriaChecklist: z.boolean().default(false),
+  templates: z.record(z.string()).default({}),
+}).strict();
+export type PullRequestRule = z.infer<typeof pullRequestRuleSchema>;
+
 /**
  * Git workflow policy document。`.mottainai/workflow.json` の中身と一致する。
  * 未知キー・未対応 version は呼び出し側で fail-closed に扱う（load.ts 側の責務）。
@@ -65,6 +76,7 @@ export const workflowPolicySchema = z.object({
   worktree: worktreeRuleSchema,
   stagingMode: stagingModeSchema,
   cleanup: cleanupRuleSchema,
+  pullRequest: pullRequestRuleSchema.optional(),
 }).strict();
 
 export type WorkflowPolicyDocument = z.infer<typeof workflowPolicySchema>;

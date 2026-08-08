@@ -168,6 +168,30 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 5,
+    description: "workflow: provider-neutral pull request records",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE pr_records (
+          record_id TEXT PRIMARY KEY,
+          task_id TEXT REFERENCES tasks (task_id) ON DELETE SET NULL,
+          provider TEXT NOT NULL,
+          repository_id TEXT NOT NULL,
+          pr_number INTEGER NOT NULL CHECK (pr_number > 0),
+          url TEXT NOT NULL,
+          head_sha TEXT NOT NULL,
+          lifecycle_state TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE (provider, repository_id, pr_number)
+        );
+        CREATE UNIQUE INDEX idx_pr_records_task ON pr_records (task_id) WHERE task_id IS NOT NULL;
+        CREATE INDEX idx_pr_records_repository ON pr_records (provider, repository_id);
+        CREATE INDEX idx_pr_records_lifecycle ON pr_records (lifecycle_state);
+      `);
+    },
+  },
 ];
 
 function currentVersion(db: DatabaseSync): number {

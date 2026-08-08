@@ -47,10 +47,10 @@ function seedTask(db: DatabaseSync, taskId: string, instanceId: string): void {
   ).run(taskId, instanceId);
 }
 
-test("version 4 creates tasks/worktrees tables reachable after migration", () => {
+test("version 5 creates tasks/worktrees and PR records tables reachable after migration", () => {
   const db = freshDb();
   try {
-    assert.equal(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()?.version, 4);
+    assert.equal(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()?.version, 5);
     seedInstance(db, "instance-1", "/repo/.git");
     seedTask(db, "task-1", "instance-1");
     const task = db.prepare("SELECT * FROM tasks WHERE task_id = ?").get("task-1") as { lifecycle_state: string };

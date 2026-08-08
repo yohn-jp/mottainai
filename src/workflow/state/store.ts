@@ -1,5 +1,6 @@
 import type { RepositoryInstanceId, RootCommitDigest } from "../domain/identity.js";
 import type { LifecycleState } from "../domain/lifecycle.js";
+import type { PullRequestLifecycleState } from "../providers/model.js";
 
 /**
  * Git workflow 専用の永続 state 抽象。`src/state/store.ts` の StateStore
@@ -53,6 +54,7 @@ export interface ObserveRepositoryInstanceResult {
 
 export type TaskId = string & { readonly __brand: "TaskId" };
 export type WorktreeId = string & { readonly __brand: "WorktreeId" };
+export type PullRequestRecordId = string & { readonly __brand: "PullRequestRecordId" };
 
 export interface TaskRecord {
   taskId: TaskId;
@@ -79,6 +81,30 @@ export interface WorktreeRecord {
   baseCommit: string;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface PullRequestRecord {
+  recordId: PullRequestRecordId;
+  taskId: TaskId | undefined;
+  provider: string;
+  repositoryId: string;
+  prNumber: number;
+  url: string;
+  headSha: string;
+  lifecycleState: PullRequestLifecycleState;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface RecordPullRequestInput {
+  taskId?: TaskId;
+  provider: string;
+  repositoryId: string;
+  prNumber: number;
+  url: string;
+  headSha: string;
+  lifecycleState: PullRequestLifecycleState;
+  recordedAt?: number;
 }
 
 export interface ReserveTaskInput {
@@ -180,6 +206,21 @@ export interface WorkflowStateStore {
   listWorktreesForTask(taskId: TaskId): WorktreeRecord[];
   /** instance 全体の worktree 一覧（task を横断）。衝突・stale metadata 検出のために使う。 */
   listWorktreesForInstance(instanceId: RepositoryInstanceId): WorktreeRecord[];
+
+  /** 外部 provider 成功後に、body/raw response を含めず PR の照合用 metadata だけ記録する。 */
+  recordPullRequest(input: RecordPullRequestInput): PullRequestRecord;
+  getPullRequestRecord(recordId: PullRequestRecordId): PullRequestRecord | undefined;
+  getPullRequestByProviderRepositoryNumber(
+    provider: string,
+    repositoryId: string,
+    prNumber: number,
+  ): PullRequestRecord | undefined;
+  listPullRequestRecordsForTask(taskId: TaskId): PullRequestRecord[];
+  updatePullRequestLifecycleState(
+    recordId: PullRequestRecordId,
+    lifecycleState: PullRequestLifecycleState,
+    updatedAt?: number,
+  ): PullRequestRecord;
 
   /** backend 固有のリソース解放（DB クローズ等）。プロセス終了時 best-effort で呼ぶ。 */
   close(): void;
