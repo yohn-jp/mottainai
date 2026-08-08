@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { TextDecoder } from "node:util";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { ArtifactIdentityMetadata } from "./context-runtime/identity.js";
 
 export interface RetrievedArtifact {
   id: string;
@@ -11,6 +12,7 @@ export interface RetrievedArtifact {
   returnedEndLine: number;
   omittedLines: number;
   matchLine?: number;
+  identity?: ArtifactIdentityMetadata;
 }
 
 export interface ArtifactStore {
@@ -43,6 +45,7 @@ export interface ArtifactMetadata {
   cwd?: string;
   summary?: string;
   diagnostics?: Array<{ severity: string; message: string; path?: string; line?: number }>;
+  identity?: ArtifactIdentityMetadata;
 }
 
 export interface ArtifactSearchResult {
@@ -184,6 +187,10 @@ function boundMetadata(
   if (metadata.diagnostics !== undefined) {
     const withDiagnostics = { ...bounded, diagnostics: metadata.diagnostics };
     if (payloadBytes({ ...payload, metadata: withDiagnostics }) <= maxBytes) bounded = withDiagnostics;
+  }
+  if (metadata.identity !== undefined) {
+    const withIdentity = { ...bounded, identity: metadata.identity };
+    if (payloadBytes({ ...payload, metadata: withIdentity }) <= maxBytes) bounded = withIdentity;
   }
   return bounded;
 }
@@ -347,6 +354,7 @@ export class InMemoryArtifactStore implements ArtifactStore {
       returnedEndLine: endLine,
       omittedLines: lines.length - selected.length,
       ...(matchIndex === -1 ? {} : { matchLine: matchIndex + 1 }),
+      ...(entry.metadata?.identity === undefined ? {} : { identity: entry.metadata.identity }),
     };
   }
 

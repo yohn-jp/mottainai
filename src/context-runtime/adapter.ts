@@ -4,8 +4,11 @@ import type { ArtifactStore } from "../retrieve.js";
 import { applyResponseBudget, DEFAULT_RESPONSE_BUDGET, projectedBytes, projectedTokens } from "./budget.js";
 import { applyBurstReduction, isBlockingProjection } from "./burst-budget.js";
 import type { BurstBudgetController, BurstReservation } from "./burst-budget.js";
+import { dedupeProjectedResult } from "./dedupe.js";
+import type { DedupeContext } from "./dedupe.js";
 import { hasStructuredEnvelope, markOmissionsRetrievable, projectResult, serializeProjectedResult } from "./project.js";
 import type { ProjectedResult, ProjectionStats } from "./types.js";
+import type { TelemetrySink } from "../telemetry.js";
 
 /** dispatch 前に取得済みの burst reservation。finalize 後の解放は呼び出し側（proxy.ts）が行う。 */
 export interface BurstContext {
@@ -16,6 +19,10 @@ export interface BurstContext {
 export interface FinalizedToolResult {
   result: CallToolResult;
   stats: ProjectionStats;
+}
+
+export interface IdentityDedupeContext extends DedupeContext {
+  telemetry?: Pick<TelemetrySink, "recordDedupe">;
 }
 
 function serializedBytes(value: unknown): number {
@@ -113,6 +120,7 @@ export function finalizeToolResult(
   config: ResolvedGatewayConfig,
   store: ArtifactStore,
   burst: BurstContext | undefined = undefined,
+  dedupe: IdentityDedupeContext | undefined = undefined,
 ): FinalizedToolResult {
   const rawBytes = serializedBytes(result);
   const structuredContent = result.structuredContent;
@@ -158,8 +166,24 @@ export function finalizeToolResult(
   }
 
   const bursted = burstAdmitted ? budgeted : applyBurstReduction(budgeted);
-  const finalized = toCallToolResult(result, serializeProjectedResult(bursted));
+  const beforeDedupe = toCallToolResult(result, serializeProjectedResult(bursted));
+  const deduplicated = dedupe === undefined
+    ? { result: bursted, eligible: false, hit: false, collision: false }
+    : dedupeProjectedResult(bursted, budget, store, dedupe);
+  const finalProjected = deduplicated.result;
+  const finalized = toCallToolResult(result, serializeProjectedResult(finalProjected));
   const returnedBytes = serializedBytes(finalized);
+  if (dedupe !== undefined && deduplicated.eligible) {
+    const beforeBytes = serializedBytes(beforeDedupe);
+    const avoidedBytes = deduplicated.hit ? Math.max(0, beforeBytes - returnedBytes) : 0;
+    dedupe.telemetry?.recordDedupe({
+      hit: deduplicated.hit,
+      bytesAvoided: avoidedBytes,
+      estimatedTokensAvoided: deduplicated.hit
+        ? Math.max(0, Math.ceil(beforeBytes / 4) - Math.ceil(returnedBytes / 4))
+        : 0,
+    });
+  }
   return {
     result: finalized,
     stats: {
@@ -167,7 +191,7 @@ export function finalizeToolResult(
       storedBytes,
       returnedBytes,
       omittedBytes: Math.max(0, rawBytes - returnedBytes),
-      estimatedProjectedTokens: projectedTokens(bursted),
+      estimatedProjectedTokens: projectedTokens(finalProjected),
     },
   };
 }

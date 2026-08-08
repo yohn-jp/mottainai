@@ -18,6 +18,7 @@ const REQUIRED_FIELDS = new Set([
   "truncated",
   "test_results",
   "projection",
+  "identity",
 ]);
 
 const ACTIONABLE_FIELDS = new Set([
@@ -125,6 +126,7 @@ export function projectResult(input: ProjectionInput): ProjectedResult {
     fields,
     omissions,
     content: input.content,
+    ...(raw.identity === undefined ? {} : { identity: raw.identity as ProjectedResult["identity"] }),
     ...(input.isError === undefined ? {} : { isError: input.isError }),
     ...(input.meta === undefined ? {} : { meta: input.meta }),
   };
@@ -150,6 +152,7 @@ function serializedStructuredContent(result: ProjectedResult): Record<string, un
     result_id: result.resultId,
     truncated: result.truncated || result.omissions.length > 0,
     ...(result.testResults === undefined ? {} : { test_results: result.testResults }),
+    ...(result.identity === undefined ? {} : { identity: result.identity }),
   };
   for (const field of fields) structuredContent[field.key] = field.value;
   structuredContent.projection = projectionMetadata(result.omissions);

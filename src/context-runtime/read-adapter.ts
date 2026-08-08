@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import type { NormalizedReadRequest, ReadFileMetadata } from "./read-policy.js";
 
@@ -5,6 +6,7 @@ const READ_SCAN_CHUNK_BYTES = 64 * 1024;
 
 export interface InspectedReadFile extends ReadFileMetadata {
   lineByteLengths: number[];
+  contentHash: string;
 }
 
 /** 本文を保持せず、policy判定に必要なbyte/line metadataだけ収集する。 */
@@ -12,6 +14,7 @@ export async function inspectReadFile(filePath: string): Promise<InspectedReadFi
   const handle = await fs.open(filePath, "r");
   const buffer = Buffer.alloc(READ_SCAN_CHUNK_BYTES);
   const lineByteLengths: number[] = [];
+  const contentHasher = createHash("sha256");
   let currentLineBytes = 0;
   let byteSize = 0;
   let lastByte = -1;
@@ -19,6 +22,7 @@ export async function inspectReadFile(filePath: string): Promise<InspectedReadFi
     while (true) {
       const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
       if (bytesRead === 0) break;
+      contentHasher.update(buffer.subarray(0, bytesRead));
       byteSize += bytesRead;
       for (let index = 0; index < bytesRead; index += 1) {
         const byte = buffer[index];
@@ -39,6 +43,7 @@ export async function inspectReadFile(filePath: string): Promise<InspectedReadFi
     lineCount: lineByteLengths.length,
     byteSize,
     lineByteLengths,
+    contentHash: contentHasher.digest("hex"),
   };
 }
 
