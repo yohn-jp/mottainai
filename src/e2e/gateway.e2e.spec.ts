@@ -34,3 +34,27 @@ test("gateway starts over stdio and serves local tools with a valid structured e
   assert.equal(result.structuredContent.operation, "list");
   assert.equal(result.structuredContent.status, "success");
 });
+
+test("stdio tools/call enforces the configured final response byte bound", { timeout: 15_000 }, async (t) => {
+  const workspace = createTempDir(t, "mottainai-e2e-context-runtime-");
+  const hardBytes = 1_600;
+  const configPath = writeTestConfig(workspace, {
+    gateway: {
+      workspaceRoot: ".",
+      responseBudget: { softTokens: 200, hardTokens: 400, hardBytes },
+    },
+  });
+  const connection = await startGatewayViaStdio({ workingDirectory: workspace, configPath });
+  t.after(() => connection.close());
+
+  const result = await connection.client.callTool({
+    name: "mottainai_exec",
+    arguments: { command: "yes black-box | head -n 2000" },
+  });
+  assert.ok(Buffer.byteLength(JSON.stringify(result), "utf8") <= hardBytes);
+  assertEnvelopeShape(result.structuredContent);
+  assert.equal(result.structuredContent.operation, "exec");
+  assert.equal(result.structuredContent.truncated, true);
+  assert.equal("output" in result.structuredContent, false);
+  assert.match(String(result.structuredContent.result_id), /^mx_/);
+});

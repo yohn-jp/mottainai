@@ -44,6 +44,7 @@ test("an enabled sink aggregates calls, errors, bytes and retrievals by provider
   sink.recordToolCall({ provider: "fff", capability: "text_matches", originalBytes: 1000, compressedBytes: 200, isError: false });
   sink.recordToolCall({ provider: "fff", capability: "text_matches", originalBytes: 500, compressedBytes: 500, isError: true });
   sink.recordToolCall({ provider: "codegraph", capability: "definitions", originalBytes: 300, compressedBytes: 300, isError: false });
+  sink.recordProjection({ rawBytes: 2_000, storedBytes: 1_800, returnedBytes: 600, omittedBytes: 1_400, projectedTokens: 150 });
   sink.recordRetrieval();
 
   const snapshot = sink.snapshot();
@@ -56,6 +57,9 @@ test("an enabled sink aggregates calls, errors, bytes and retrievals by provider
   assert.equal(snapshot.by_provider.codegraph.calls, 1);
   assert.equal(snapshot.by_capability.text_matches.calls, 2);
   assert.equal(snapshot.by_capability.definitions.calls, 1);
+  assert.deepEqual(snapshot.projection, {
+    raw_bytes: 2_000, stored_bytes: 1_800, returned_bytes: 600, omitted_bytes: 1_400, projected_tokens: 150,
+  });
 
   assert.equal(compressionRatio(snapshot.totals), 1000 / 1800);
   assert.equal(retrievalRate(snapshot.totals), 1 / 3);

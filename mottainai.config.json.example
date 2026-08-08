@@ -15,5 +15,12 @@
       "capabilities": ["github"],
       "enabled": false
     }
+  },
+  "gateway": {
+    "responseBudget": {
+      "softTokens": 1500,
+      "hardTokens": 3000,
+      "hardBytes": 12000
+    }
   }
 }

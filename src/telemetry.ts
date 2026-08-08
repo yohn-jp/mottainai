@@ -23,6 +23,7 @@ export interface TelemetrySnapshot {
   totals: TelemetryCounts & { retrievals: number };
   by_provider: Record<string, TelemetryCounts>;
   by_capability: Record<string, TelemetryCounts>;
+  projection: ProjectionCounts;
 }
 
 export interface RecordToolCallInput {
@@ -33,10 +34,27 @@ export interface RecordToolCallInput {
   isError: boolean;
 }
 
+export interface ProjectionCounts {
+  raw_bytes: number;
+  stored_bytes: number;
+  returned_bytes: number;
+  omitted_bytes: number;
+  projected_tokens: number;
+}
+
+export interface RecordProjectionInput {
+  rawBytes: number;
+  storedBytes: number;
+  returnedBytes: number;
+  omittedBytes: number;
+  projectedTokens: number;
+}
+
 export interface TelemetrySink {
   readonly enabled: boolean;
   readonly filePath?: string;
   recordToolCall(input: RecordToolCallInput): void;
+  recordProjection(input: RecordProjectionInput): void;
   recordRetrieval(): void;
   snapshot(): TelemetrySnapshot;
 }
@@ -45,6 +63,7 @@ interface TelemetryState {
   totals: TelemetryCounts & { retrievals: number };
   by_provider: Record<string, TelemetryCounts>;
   by_capability: Record<string, TelemetryCounts>;
+  projection: ProjectionCounts;
 }
 
 function emptyCounts(): TelemetryCounts {
@@ -52,14 +71,21 @@ function emptyCounts(): TelemetryCounts {
 }
 
 function emptyState(): TelemetryState {
-  return { totals: { ...emptyCounts(), retrievals: 0 }, by_provider: {}, by_capability: {} };
+  return {
+    totals: { ...emptyCounts(), retrievals: 0 }, by_provider: {}, by_capability: {},
+    projection: emptyProjection(),
+  };
+}
+
+function emptyProjection(): ProjectionCounts {
+  return { raw_bytes: 0, stored_bytes: 0, returned_bytes: 0, omitted_bytes: 0, projected_tokens: 0 };
 }
 
 function cloneCounts(counts: TelemetryCounts): TelemetryCounts {
   return { ...counts };
 }
 
-function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" | "by_provider" | "by_capability"> {
+function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" | "by_provider" | "by_capability" | "projection"> {
   return {
     totals: { ...state.totals },
     by_provider: Object.fromEntries(
@@ -68,6 +94,7 @@ function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" 
     by_capability: Object.fromEntries(
       Object.entries(state.by_capability).map(([key, counts]) => [key, cloneCounts(counts)]),
     ),
+    projection: { ...state.projection },
   };
 }
 
@@ -106,10 +133,20 @@ function loadState(filePath: string): TelemetryState | undefined {
     if (typeof byCapability !== "object" || byCapability === null) return undefined;
     for (const value of Object.values(byProvider as Record<string, unknown>)) if (!isCounts(value)) return undefined;
     for (const value of Object.values(byCapability as Record<string, unknown>)) if (!isCounts(value)) return undefined;
+    const projection = typeof parsed.projection === "object" && parsed.projection !== null
+      ? parsed.projection as Record<string, unknown>
+      : {};
     return {
       totals: totals as TelemetryState["totals"],
       by_provider: byProvider as Record<string, TelemetryCounts>,
       by_capability: byCapability as Record<string, TelemetryCounts>,
+      projection: {
+        raw_bytes: typeof projection.raw_bytes === "number" ? projection.raw_bytes : 0,
+        stored_bytes: typeof projection.stored_bytes === "number" ? projection.stored_bytes : 0,
+        returned_bytes: typeof projection.returned_bytes === "number" ? projection.returned_bytes : 0,
+        omitted_bytes: typeof projection.omitted_bytes === "number" ? projection.omitted_bytes : 0,
+        projected_tokens: typeof projection.projected_tokens === "number" ? projection.projected_tokens : 0,
+      },
     };
   } catch {
     return undefined;
@@ -126,9 +163,13 @@ function bump(counts: TelemetryCounts, input: RecordToolCallInput): void {
 const NOOP_SINK: TelemetrySink = {
   enabled: false,
   recordToolCall() { /* telemetry disabled */ },
+  recordProjection() { /* telemetry disabled */ },
   recordRetrieval() { /* telemetry disabled */ },
   snapshot() {
-    return { enabled: false, generated_at: new Date().toISOString(), totals: { ...emptyCounts(), retrievals: 0 }, by_provider: {}, by_capability: {} };
+    return {
+      enabled: false, generated_at: new Date().toISOString(), totals: { ...emptyCounts(), retrievals: 0 },
+      by_provider: {}, by_capability: {}, projection: emptyProjection(),
+    };
   },
 };
 
@@ -200,6 +241,14 @@ export function createTelemetrySink(env: NodeJS.ProcessEnv = process.env): Telem
         bump(capability, input);
         state.by_capability[input.capability] = capability;
       }
+      persist();
+    },
+    recordProjection(input) {
+      state.projection.raw_bytes += input.rawBytes;
+      state.projection.stored_bytes += input.storedBytes;
+      state.projection.returned_bytes += input.returnedBytes;
+      state.projection.omitted_bytes += input.omittedBytes;
+      state.projection.projected_tokens += input.projectedTokens;
       persist();
     },
     recordRetrieval() {
