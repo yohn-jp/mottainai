@@ -45,8 +45,22 @@ test("an enabled sink aggregates calls, errors, bytes and retrievals by provider
   sink.recordToolCall({ provider: "fff", capability: "text_matches", originalBytes: 500, compressedBytes: 500, isError: true });
   sink.recordToolCall({ provider: "codegraph", capability: "definitions", originalBytes: 300, compressedBytes: 300, isError: false });
   sink.recordProjection({ rawBytes: 2_000, storedBytes: 1_800, returnedBytes: 600, omittedBytes: 1_400, projectedTokens: 150 });
-  sink.recordReadGovernor({ outcome: "deny", requestedMode: "raw", rawLines: 0, rawBytes: 0, policyRule: "WHOLE_FILE_RAW_LINE_LIMIT" });
-  sink.recordReadGovernor({ outcome: "allow", requestedMode: "auto", rawLines: 20, rawBytes: 200, policyRule: "AUTO_BOUNDED_REPRESENTATION" });
+  sink.recordReadGovernor({
+    action: "deny",
+    requestedMode: "raw",
+    rawLinesReturned: 0,
+    rawBytesReturned: 0,
+    policyRule: "WHOLE_FILE_RAW_LINE_LIMIT",
+    reasonCategory: "line_limit",
+  });
+  sink.recordReadGovernor({
+    action: "allow",
+    requestedMode: "auto",
+    rawLinesReturned: 20,
+    rawBytesReturned: 200,
+    policyRule: "AUTO_BOUNDED_REPRESENTATION",
+    reasonCategory: "semantic_projection",
+  });
   sink.recordRetrieval();
 
   const snapshot = sink.snapshot();
@@ -63,9 +77,10 @@ test("an enabled sink aggregates calls, errors, bytes and retrievals by provider
     raw_bytes: 2_000, stored_bytes: 1_800, returned_bytes: 600, omitted_bytes: 1_400, projected_tokens: 150,
   });
   assert.deepEqual(snapshot.read_governor, {
-    allow: 1, observe: 0, warn: 0, deny: 1, raw_lines: 20, raw_bytes: 200,
-    requested_modes: { raw: 1, auto: 1 },
-    policy_rules: { WHOLE_FILE_RAW_LINE_LIMIT: 1, AUTO_BOUNDED_REPRESENTATION: 1 },
+    allow: 1, observe: 0, warn: 0, deny: 1, raw_lines_returned: 20, raw_bytes_returned: 200,
+    by_mode: { raw: 1, auto: 1 },
+    by_rule: { WHOLE_FILE_RAW_LINE_LIMIT: 1, AUTO_BOUNDED_REPRESENTATION: 1 },
+    by_reason_category: { line_limit: 1, semantic_projection: 1 },
   });
 
   assert.equal(compressionRatio(snapshot.totals), 1000 / 1800);
@@ -75,6 +90,45 @@ test("an enabled sink aggregates calls, errors, bytes and retrievals by provider
   await new Promise((resolve) => setTimeout(resolve, 50));
   const persisted = JSON.parse(await fs.readFile(filePath, "utf8")) as { totals: { calls: number } };
   assert.equal(persisted.totals.calls, 3);
+
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("telemetry loads legacy read-governor keys into the visible-disclosure schema", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-telemetry-legacy-"));
+  const filePath = path.join(dir, "telemetry", "summary.json");
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, `${JSON.stringify({
+    enabled: true,
+    generated_at: "2026-08-08T00:00:00.000Z",
+    totals: { calls: 0, errors: 0, original_bytes: 0, compressed_bytes: 0, retrievals: 0 },
+    by_provider: {},
+    by_capability: {},
+    projection: {},
+    read_governor: {
+      allow: 2,
+      observe: 0,
+      warn: 0,
+      deny: 1,
+      raw_lines: 12,
+      raw_bytes: 120,
+      requested_modes: { raw: 2 },
+      policy_rules: { NONE: 2 },
+    },
+  })}\n`);
+
+  const sink = createTelemetrySink({ MOTTAINAI_TELEMETRY: "1", MOTTAINAI_TELEMETRY_FILE: filePath });
+  assert.deepEqual(sink.snapshot().read_governor, {
+    allow: 2,
+    observe: 0,
+    warn: 0,
+    deny: 1,
+    raw_lines_returned: 12,
+    raw_bytes_returned: 120,
+    by_mode: { raw: 2 },
+    by_rule: { NONE: 2 },
+    by_reason_category: {},
+  });
 
   await fs.rm(dir, { recursive: true, force: true });
 });

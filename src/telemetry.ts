@@ -48,18 +48,20 @@ export interface ReadGovernorCounts {
   observe: number;
   warn: number;
   deny: number;
-  raw_lines: number;
-  raw_bytes: number;
-  requested_modes: Record<string, number>;
-  policy_rules: Record<string, number>;
+  raw_lines_returned: number;
+  raw_bytes_returned: number;
+  by_mode: Record<string, number>;
+  by_rule: Record<string, number>;
+  by_reason_category: Record<string, number>;
 }
 
 export interface RecordReadGovernorInput {
-  outcome: "allow" | "observe" | "warn" | "deny";
+  action: "allow" | "observe" | "warn" | "deny";
   requestedMode: string;
-  rawLines: number;
-  rawBytes: number;
+  rawLinesReturned: number;
+  rawBytesReturned: number;
   policyRule: string;
+  reasonCategory: string;
 }
 
 export interface RecordProjectionInput {
@@ -109,10 +111,11 @@ function emptyReadGovernor(): ReadGovernorCounts {
     observe: 0,
     warn: 0,
     deny: 0,
-    raw_lines: 0,
-    raw_bytes: 0,
-    requested_modes: {},
-    policy_rules: {},
+    raw_lines_returned: 0,
+    raw_bytes_returned: 0,
+    by_mode: {},
+    by_rule: {},
+    by_reason_category: {},
   };
 }
 
@@ -132,8 +135,9 @@ function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" 
     projection: { ...state.projection },
     read_governor: {
       ...state.read_governor,
-      requested_modes: { ...state.read_governor.requested_modes },
-      policy_rules: { ...state.read_governor.policy_rules },
+      by_mode: { ...state.read_governor.by_mode },
+      by_rule: { ...state.read_governor.by_rule },
+      by_reason_category: { ...state.read_governor.by_reason_category },
     },
   };
 }
@@ -152,12 +156,21 @@ function readGovernorState(value: unknown): ReadGovernorCounts {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return empty;
   const record = value as Record<string, unknown>;
   const counts = { ...empty };
-  for (const key of ["allow", "observe", "warn", "deny", "raw_lines", "raw_bytes"] as const) {
+  for (const key of ["allow", "observe", "warn", "deny"] as const) {
     const entry = record[key];
     if (typeof entry === "number" && Number.isFinite(entry) && entry >= 0) counts[key] = entry;
   }
-  counts.requested_modes = numberRecord(record.requested_modes);
-  counts.policy_rules = numberRecord(record.policy_rules);
+  const rawLinesReturned = record.raw_lines_returned ?? record.raw_lines;
+  const rawBytesReturned = record.raw_bytes_returned ?? record.raw_bytes;
+  if (typeof rawLinesReturned === "number" && Number.isFinite(rawLinesReturned) && rawLinesReturned >= 0) {
+    counts.raw_lines_returned = rawLinesReturned;
+  }
+  if (typeof rawBytesReturned === "number" && Number.isFinite(rawBytesReturned) && rawBytesReturned >= 0) {
+    counts.raw_bytes_returned = rawBytesReturned;
+  }
+  counts.by_mode = numberRecord(record.by_mode ?? record.requested_modes);
+  counts.by_rule = numberRecord(record.by_rule ?? record.policy_rules);
+  counts.by_reason_category = numberRecord(record.by_reason_category);
   return counts;
 }
 
@@ -317,16 +330,15 @@ export function createTelemetrySink(env: NodeJS.ProcessEnv = process.env): Telem
       persist();
     },
     recordReadGovernor(input) {
-      if (input.outcome in state.read_governor) {
-        const key = input.outcome as "allow" | "observe" | "warn" | "deny";
-        state.read_governor[key] += 1;
-      }
-      state.read_governor.raw_lines += Math.max(0, input.rawLines);
-      state.read_governor.raw_bytes += Math.max(0, input.rawBytes);
-      state.read_governor.requested_modes[input.requestedMode] =
-        (state.read_governor.requested_modes[input.requestedMode] ?? 0) + 1;
-      state.read_governor.policy_rules[input.policyRule] =
-        (state.read_governor.policy_rules[input.policyRule] ?? 0) + 1;
+      state.read_governor[input.action] += 1;
+      state.read_governor.raw_lines_returned += Math.max(0, input.rawLinesReturned);
+      state.read_governor.raw_bytes_returned += Math.max(0, input.rawBytesReturned);
+      state.read_governor.by_mode[input.requestedMode] =
+        (state.read_governor.by_mode[input.requestedMode] ?? 0) + 1;
+      state.read_governor.by_rule[input.policyRule] =
+        (state.read_governor.by_rule[input.policyRule] ?? 0) + 1;
+      state.read_governor.by_reason_category[input.reasonCategory] =
+        (state.read_governor.by_reason_category[input.reasonCategory] ?? 0) + 1;
       persist();
     },
     recordRetrieval() {

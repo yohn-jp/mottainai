@@ -7,8 +7,14 @@ import { compactToBudget } from "./compress/budget.js";
 import { compressText } from "./compress/index.js";
 import { detectCodeLanguage } from "./compress/code.js";
 import type { ResolvedGatewayConfig, ResolvedWorktreeConfig } from "./config.js";
-import { DEFAULT_READ_GOVERNOR_POLICY, decideRead, READ_MODES } from "./context-runtime/read-policy.js";
-import type { NormalizedReadRequest, ReadDecision, ReadFileMetadata } from "./context-runtime/read-policy.js";
+import {
+  DEFAULT_READ_GOVERNOR_POLICY,
+  decideRead,
+  READ_MODES,
+  resolveReadGovernorPolicy,
+} from "./context-runtime/read-policy.js";
+import type { NormalizedReadRequest, ReadDecision } from "./context-runtime/read-policy.js";
+import { inspectReadFile, readAuthorizedFile, readSemanticInspectionSource } from "./context-runtime/read-adapter.js";
 import { OUTPUT_SCHEMA, output } from "./envelope.js";
 import type { ArtifactStore } from "./retrieve.js";
 import { runChild, runProgram } from "./subprocess.js";
@@ -331,97 +337,53 @@ function nextCommand(resultId: string, failure: ExecFailure | undefined): string
   return query ? `mottainai_result_get id=${resultId} query=${JSON.stringify(query)}` : `mottainai_result_get id=${resultId}`;
 }
 
-interface ReadFileInspection extends ReadFileMetadata {
-  lineByteLengths: number[];
-}
-
-const READ_SCAN_CHUNK_BYTES = 64 * 1024;
-
-/** 本文を保持せず、policy が必要とする byte/line metadata だけ収集する。 */
-async function inspectReadFile(filePath: string): Promise<ReadFileInspection> {
-  const handle = await fs.open(filePath, "r");
-  const buffer = Buffer.alloc(READ_SCAN_CHUNK_BYTES);
-  const lineByteLengths: number[] = [];
-  let currentLineBytes = 0;
-  let byteSize = 0;
-  let lastByte = -1;
-  try {
-    while (true) {
-      const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
-      if (bytesRead === 0) break;
-      byteSize += bytesRead;
-      for (let index = 0; index < bytesRead; index += 1) {
-        const byte = buffer[index];
-        lastByte = byte;
-        if (byte === 0x0a) {
-          lineByteLengths.push(currentLineBytes);
-          currentLineBytes = 0;
-        } else {
-          currentLineBytes += 1;
-        }
-      }
-    }
-  } finally {
-    await handle.close();
-  }
-  if (lineByteLengths.length === 0 || lastByte !== 0x0a) lineByteLengths.push(currentLineBytes);
-  return {
-    lineCount: lineByteLengths.length,
-    byteSize,
-    lineByteLengths,
-    workspaceBoundaryValid: true,
-    symlinkBoundaryValid: true,
-  };
-}
-
-function lineStartByte(metadata: ReadFileInspection, line: number): number {
-  let offset = 0;
-  for (let index = 0; index < line - 1; index += 1) offset += metadata.lineByteLengths[index] + 1;
-  return offset;
-}
-
-async function readAuthorizedRange(
-  filePath: string,
-  metadata: ReadFileInspection,
-  startLine: number,
-  endLine: number,
-): Promise<string> {
-  if (startLine > metadata.lineCount) return "";
-  const startByte = lineStartByte(metadata, startLine);
-  const endByte = lineStartByte(metadata, endLine) + metadata.lineByteLengths[endLine - 1];
-  const length = Math.max(0, endByte - startByte);
-  if (length === 0) return "";
-
-  const handle = await fs.open(filePath, "r");
-  const chunks: Buffer[] = [];
-  let position = startByte;
-  let remaining = length;
-  try {
-    while (remaining > 0) {
-      const chunk = Buffer.alloc(Math.min(READ_SCAN_CHUNK_BYTES, remaining));
-      const { bytesRead } = await handle.read(chunk, 0, chunk.length, position);
-      if (bytesRead === 0) break;
-      chunks.push(chunk.subarray(0, bytesRead));
-      position += bytesRead;
-      remaining -= bytesRead;
-    }
-  } finally {
-    await handle.close();
-  }
-  return Buffer.concat(chunks).toString("utf8");
-}
-
-async function readAuthorizedSource(
-  filePath: string,
-  metadata: ReadFileInspection,
-  request: NormalizedReadRequest,
-): Promise<string> {
-  if (request.startLine === undefined || request.endLine === undefined) return fs.readFile(filePath, "utf8");
-  return readAuthorizedRange(filePath, metadata, request.startLine, request.endLine);
-}
-
 function boundedReadMessage(decision: ReadDecision): string {
   return decision.reason.length > 256 ? `${decision.reason.slice(0, 253)}...` : decision.reason;
+}
+
+const SEMANTIC_OMISSION_MARKER = "… semantic projection omitted …";
+
+function isSemanticMode(mode: NormalizedReadRequest["mode"]): boolean {
+  return mode === "outline" || mode === "symbols";
+}
+
+/** semantic factsの先頭・末尾を残し、後段の#71 budget前にも公開量をboundedにする。 */
+function boundedSemanticView(text: string, maxLines: number, maxBytes: number): string {
+  const byteLimit = Math.max(1, maxBytes);
+  const lines = text.split("\n");
+  const lineLimit = Math.min(Math.max(1, maxLines), lines.length);
+  if (lines.length <= lineLimit && Buffer.byteLength(text, "utf8") <= byteLimit) return text;
+
+  let head = Math.floor((lineLimit - 1) / 2);
+  let tail = Math.ceil((lineLimit - 1) / 2);
+  while (head > 0 || tail > 0) {
+    const tailStart = Math.max(head, lines.length - tail);
+    const candidate = [
+      ...lines.slice(0, head),
+      SEMANTIC_OMISSION_MARKER,
+      ...lines.slice(tailStart),
+    ].join("\n");
+    if (Buffer.byteLength(candidate, "utf8") <= byteLimit) return candidate;
+    if (head >= tail && head > 0) head -= 1;
+    else if (tail > 0) tail -= 1;
+  }
+
+  return trimIncompleteUtf8(Buffer.from(SEMANTIC_OMISSION_MARKER).subarray(0, byteLimit)).toString("utf8");
+}
+
+function readReasonCategory(decision: ReadDecision, extractionFailure = false): string {
+  if (extractionFailure) return "extraction_failure";
+  if (decision.policyRule === "NONE") return "within_policy";
+  if (decision.policyRule === "AUTO_BOUNDED_REPRESENTATION") return "semantic_projection";
+  if (decision.policyRule === "BOUNDED_RANGE") return "bounded_range";
+  if (decision.policyRule.includes("BYTE")) return "byte_limit";
+  if (decision.policyRule.includes("LINE")) return "line_limit";
+  if (
+    decision.policyRule.includes("BOUNDARY")
+    || decision.policyRule.includes("RANGE")
+    || decision.policyRule === "INVALID_FILE_METADATA"
+  ) return "boundary";
+  return "policy";
 }
 
 async function readTool(
@@ -444,17 +406,19 @@ async function readTool(
     ...(numberArg(args, "endLine") === undefined ? {} : { endLine: numberArg(args, "endLine") }),
   };
   const metadata = await inspectReadFile(filePath);
-  const decision = decideRead(request, metadata, config.readGovernor ?? DEFAULT_READ_GOVERNOR_POLICY);
+  const readGovernor = resolveReadGovernorPolicy(config.readGovernor ?? DEFAULT_READ_GOVERNOR_POLICY);
+  const decision = decideRead(request, metadata, readGovernor);
   const relativePath = request.path || ".";
   const normalized = decision.normalizedRequest;
 
   if (!decision.allowed) {
     telemetry?.recordReadGovernor({
-      outcome: "deny",
+      action: decision.action,
       requestedMode: decision.requestedMode,
-      rawLines: 0,
-      rawBytes: 0,
+      rawLinesReturned: 0,
+      rawBytesReturned: 0,
       policyRule: decision.policyRule,
+      reasonCategory: readReasonCategory(decision),
     });
     const summary = `DENY ${relativePath} mode=${decision.requestedMode} rule=${decision.policyRule}`;
     return output("read", "partial", summary, "", {
@@ -470,24 +434,33 @@ async function readTool(
       next_actions: decision.suggestedNextActions,
       facts: [{ kind: "read_governor", action: decision.action, rule: decision.policyRule }],
       diagnostics: decision.diagnostics,
-      metrics: { raw_lines: 0, raw_bytes: 0, file_lines: metadata.lineCount, file_bytes: metadata.byteSize },
+      metrics: { raw_lines_returned: 0, raw_bytes_returned: 0, file_lines: metadata.lineCount, file_bytes: metadata.byteSize },
       truncated: true,
     });
   }
 
-  const selected = await readAuthorizedSource(filePath, metadata, normalized);
+  const selected = await readAuthorizedFile(filePath, metadata, normalized);
+  const semanticSource = isSemanticMode(normalized.mode) && normalized.bounded
+    ? await readSemanticInspectionSource(filePath, normalized)
+    : selected;
   const rawLines = normalized.startLine === undefined || normalized.endLine === undefined
     ? metadata.lineCount
     : normalized.endLine - normalized.startLine + 1;
-  const rawBytes = Buffer.byteLength(selected);
+  const rawLinesReturned = normalized.mode === "raw" ? rawLines : 0;
+  const rawBytesReturned = normalized.mode === "raw" ? Buffer.byteLength(selected) : 0;
   let text: string | undefined;
   let extractionFailure = false;
+  let semanticProjectionTruncated = false;
   if (normalized.mode === "raw") {
     text = selected;
   } else {
     try {
-      text = codeView(selected, normalized.mode, filePath);
-      extractionFailure = selected.length > 0 && text.trim().length === 0;
+      const extracted = codeView(semanticSource, normalized.mode, filePath);
+      extractionFailure = semanticSource.length > 0 && extracted.trim().length === 0;
+      if (!extractionFailure) {
+        text = boundedSemanticView(extracted, readGovernor.maxRawLines, readGovernor.maxRawBytes);
+        semanticProjectionTruncated = text !== extracted;
+      }
     } catch {
       extractionFailure = true;
     }
@@ -508,14 +481,16 @@ async function readTool(
       ]
     : decision.diagnostics;
   const truncated = extractionFailure
+    || semanticProjectionTruncated
     || (normalized.startLine !== undefined && (normalized.startLine > 1 || normalized.endLine !== metadata.lineCount));
   const summary = `${relativePath} lines=${rawLines}/${metadata.lineCount} mode=${normalized.mode}`;
   telemetry?.recordReadGovernor({
-    outcome: decision.action === "observe" ? "observe" : decision.action === "warn" ? "warn" : "allow",
+    action: decision.action,
     requestedMode: decision.requestedMode,
-    rawLines,
-    rawBytes,
+    rawLinesReturned,
+    rawBytesReturned,
     policyRule: decision.policyRule,
+    reasonCategory: readReasonCategory(decision, extractionFailure),
   });
   return output("read", extractionFailure ? "partial" : "success", summary, sourceResultId, {
     path: relativePath,
@@ -531,7 +506,7 @@ async function readTool(
     next_actions: decision.suggestedNextActions,
     facts: [{ kind: "read_governor", action: decision.action, rule: decision.policyRule }],
     diagnostics,
-    metrics: { raw_lines: rawLines, raw_bytes: rawBytes, file_lines: metadata.lineCount, file_bytes: metadata.byteSize },
+    metrics: { raw_lines_returned: rawLinesReturned, raw_bytes_returned: rawBytesReturned, file_lines: metadata.lineCount, file_bytes: metadata.byteSize },
     truncated,
   });
 }
@@ -618,7 +593,8 @@ function telemetrySummaryTool(telemetry?: TelemetrySink): CallToolResult {
     by_provider: {}, by_capability: {},
     projection: { raw_bytes: 0, stored_bytes: 0, returned_bytes: 0, omitted_bytes: 0, projected_tokens: 0 },
     read_governor: {
-      allow: 0, observe: 0, warn: 0, deny: 0, raw_lines: 0, raw_bytes: 0, requested_modes: {}, policy_rules: {},
+      allow: 0, observe: 0, warn: 0, deny: 0,
+      raw_lines_returned: 0, raw_bytes_returned: 0, by_mode: {}, by_rule: {}, by_reason_category: {},
     },
   };
   if (!snapshot.enabled) {
