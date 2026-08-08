@@ -15,6 +15,7 @@ export const MAX_TRANSCRIPT_BYTES = 32 * 1024;
 export const MAX_STDERR_TAIL_BYTES = 16 * 1024;
 const MAX_UNFRAMED_STDOUT_BYTES = 32 * 1024;
 const MAX_STDIN_ERROR_BYTES = 1_024;
+const WINDOWS_KILL_TIMEOUT_MS = 2_000;
 
 /** 既存の dist を pack する。build は CI/local の明示的な Build stage で先に行う。 */
 export function packRepository(repoRoot, destinationDir) {
@@ -96,23 +97,7 @@ function appendTail(values, value, maxBytes) {
   }
 }
 
-function killProcessTree(child) {
-  if (child?.pid === undefined || child.pid === null) return;
-  if (process.platform === "win32") {
-    try {
-      execFileSync("taskkill", ["/pid", String(child.pid), "/t", "/f"], { stdio: "ignore" });
-      return;
-    } catch {
-      // taskkill が使えない環境では、親だけでも停止する。
-    }
-  } else {
-    try {
-      process.kill(-child.pid, "SIGKILL");
-      return;
-    } catch {
-      // process group が既に消えている場合は個別 kill へ進む。
-    }
-  }
+function killChild(child) {
   try {
     child.kill("SIGKILL");
   } catch {
@@ -120,10 +105,62 @@ function killProcessTree(child) {
   }
 }
 
+export function killProcessTree(child, options = {}) {
+  if (child?.pid === undefined || child.pid === null) return;
+  const platform = options.platform ?? process.platform;
+  if (platform === "win32") {
+    const timeoutMs = options.timeoutMs ?? WINDOWS_KILL_TIMEOUT_MS;
+    const spawnTaskkill = options.spawnTaskkill ?? ((pid) => spawn("taskkill", ["/pid", String(pid), "/t", "/f"], {
+      stdio: "ignore",
+      windowsHide: true,
+    }));
+    let taskkill;
+    try {
+      taskkill = spawnTaskkill(child.pid);
+    } catch {
+      killChild(child);
+      return;
+    }
+    let completed = false;
+    let timeout;
+    const finish = (succeeded) => {
+      if (completed) return;
+      completed = true;
+      if (timeout !== undefined) clearTimeout(timeout);
+      if (!succeeded) {
+        try {
+          taskkill.kill();
+        } catch {
+          // taskkill 自体が終了不能でも対象 child の停止を続ける。
+        }
+        killChild(child);
+      }
+    };
+    taskkill.once("error", () => finish(false));
+    taskkill.once("close", (code) => finish(code === 0));
+    timeout = setTimeout(() => finish(false), timeoutMs);
+    timeout.unref?.();
+    return;
+  }
+  if (platform !== "win32") {
+    try {
+      process.kill(-child.pid, "SIGKILL");
+      return;
+    } catch {
+      // process group が既に消えている場合は個別 kill へ進む。
+    }
+  }
+  killChild(child);
+}
+
 const trackedChildren = new Set();
 process.once("exit", () => {
   for (const child of trackedChildren) {
-    if (child.exitCode === null && child.signalCode === null) killProcessTree(child);
+    if (child.exitCode === null && child.signalCode === null) {
+      // exit eventでは非同期taskkillを待てないため、Windowsは直接killでbounded cleanupする。
+      if (process.platform === "win32") killChild(child);
+      else killProcessTree(child);
+    }
   }
 });
 
