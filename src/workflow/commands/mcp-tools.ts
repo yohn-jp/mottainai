@@ -32,10 +32,10 @@ const policyExplainTool: Tool = {
 
 const taskStartTool: Tool = {
   name: "mottainai_workflow_task_start",
-  description: "Start a Git workflow task: reserve it under Mottainai's task lifecycle, always create a dedicated worktree and branch off the current branch (never the current branch itself), and activate it.",
+  description: "Start a Git workflow task: reserve it under Mottainai's task lifecycle, generate a governance-validated <type>/<issue>-<slug> branch, create it below the canonical repository .mottainai/worktrees root, and activate it.",
   inputSchema: { type: "object", properties: {
-    taskSlug: { type: "string" }, issueRef: { type: "string" },
-  }, required: ["taskSlug"] },
+    taskSlug: { type: "string" }, branchType: { type: "string" }, issueRef: { type: "string" },
+  }, required: ["taskSlug", "branchType", "issueRef"] },
   outputSchema: OUTPUT_SCHEMA,
   // openWorldHint: true — policy.worktree.bootstrapMode: "automatic" runs
   // `pnpm install --frozen-lockfile` in the new worktree, which can reach package registries.
@@ -99,7 +99,8 @@ async function taskStartToolImpl(args: Args, config: ResolvedGatewayConfig, stor
   requireWorkflowTasksConfigured(config);
   const taskSlug = stringArg(args, "taskSlug", true)!;
   validateTaskSlug(taskSlug);
-  const issueRef = stringArg(args, "issueRef");
+  const branchType = stringArg(args, "branchType", true)!;
+  const issueRef = stringArg(args, "issueRef", true)!;
   validateIssueRef(issueRef);
 
   const policyResult = resolveEffectiveWorkflowPolicy(config.workspaceRoot);
@@ -111,7 +112,7 @@ async function taskStartToolImpl(args: Args, config: ResolvedGatewayConfig, stor
   // `skipWorktree` を渡さない — policy.worktree.required に関わらず常に専用 worktree/branch
   // を作らせる（task lifecycle の目的そのものが「今どの worktree/branch にいるか」の追跡であり、
   // 現在の branch（main を含む）をそのまま work branch にすることは決して起きない）。
-  const result = await startTask({ workspaceRoot: config.workspaceRoot, store, policy: policyResult.document, taskSlug, issueRef });
+  const result = await startTask({ workspaceRoot: config.workspaceRoot, store, policy: policyResult.document, taskSlug, branchType, issueRef });
   if (!result.ok) {
     const summary = `FAIL task_start (${result.reason}): ${result.detail}`;
     return output("workflow_task_start", "failed", summary, "", { reason: result.reason, diagnostics: [{ severity: "error", message: result.detail }] }, true);

@@ -24,10 +24,10 @@ const WORKER_TIMEOUT_MS = 30_000;
 
 /** worker がハングした場合に test runner 自体がブロックされないよう、
  * kill timer で上限を設ける（node:test は既定でこの種の子プロセス待ちに timeout を掛けない）。 */
-function runWorker(workspaceRoot: string, dbPath: string, taskSlug: string, issueRef: string): Promise<WorkerOutcome> {
+function runWorker(workspaceRoot: string, dbPath: string, taskSlug: string, issueRef: string, branchType = "fix"): Promise<WorkerOutcome> {
   const workerModule = path.join(import.meta.dirname, "task-start-worker.mjs");
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ["--import", "tsx", workerModule, workspaceRoot, dbPath, taskSlug, issueRef], {
+    const child = spawn(process.execPath, ["--import", "tsx", workerModule, workspaceRoot, dbPath, taskSlug, issueRef, branchType], {
       stdio: ["ignore", "pipe", "inherit"],
     });
     let stdout = "";
@@ -91,7 +91,7 @@ test("two concurrent processes starting a task with the same issueRef/taskSlug: 
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
     const taskCount = (db.prepare("SELECT COUNT(*) AS count FROM tasks WHERE issue_ref = ?").get("42") as { count: number }).count;
-    const worktreeCount = (db.prepare("SELECT COUNT(*) AS count FROM worktrees WHERE branch_name = ?").get("issue-42/concurrent-task") as {
+    const worktreeCount = (db.prepare("SELECT COUNT(*) AS count FROM worktrees WHERE branch_name = ?").get("fix/42-concurrent-task") as {
       count: number;
     }).count;
     assert.equal(taskCount, 1, "expected exactly one task row to persist for the contested issue");
@@ -101,14 +101,14 @@ test("two concurrent processes starting a task with the same issueRef/taskSlug: 
   }
 });
 
-test("two concurrent processes starting a task with the same taskSlug but no issueRef: branch collision leaves exactly one worktree", { timeout: WORKER_TIMEOUT_MS * 2 }, async (t) => {
+test("two concurrent processes starting a task with the same issueRef/taskSlug: branch collision leaves exactly one worktree", { timeout: WORKER_TIMEOUT_MS * 2 }, async (t) => {
   const root = createTempGitRepo(t);
   const dbDir = createTempDir(t, "mottainai-task-concurrency-db-");
   const dbPath = path.join(dbDir, "workflow.sqlite");
 
   const [resultA, resultB] = await Promise.all([
-    runWorker(root, dbPath, "no-issue-task", ""),
-    runWorker(root, dbPath, "no-issue-task", ""),
+    runWorker(root, dbPath, "no-issue-task", "43"),
+    runWorker(root, dbPath, "no-issue-task", "43"),
   ]);
 
   const outcomes = [resultA, resultB];
@@ -122,7 +122,7 @@ test("two concurrent processes starting a task with the same taskSlug but no iss
   const { DatabaseSync } = await import("node:sqlite");
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
-    const worktreeCount = (db.prepare("SELECT COUNT(*) AS count FROM worktrees WHERE branch_name = ?").get("task/no-issue-task") as {
+    const worktreeCount = (db.prepare("SELECT COUNT(*) AS count FROM worktrees WHERE branch_name = ?").get("fix/43-no-issue-task") as {
       count: number;
     }).count;
     assert.equal(worktreeCount, 1, "expected exactly one worktree row to persist for the contested branch");

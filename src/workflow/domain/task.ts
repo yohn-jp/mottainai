@@ -1,10 +1,11 @@
-import path from "node:path";
+import fs from "node:fs";
 import { runProgram } from "../../subprocess.js";
 import { decideProtectedBranchOperation } from "../policy/protected-branch.js";
 import type { WorkflowPolicyDocument } from "../policy/schema.js";
 import type { WorkflowStateStore, TaskId, TaskRecord, WorktreeRecord } from "../state/store.js";
-import { buildWorktreeNaming, createWorktree, decideBootstrap, detectWorktreeCollisions, runBootstrap } from "../git/worktree.js";
-import type { BootstrapDecision, RunBootstrapResult } from "../git/worktree.js";
+import { buildWorktreeNaming, createWorktree, decideBootstrap, detectWorktreeCollisions, ensureCanonicalManagedWorktreeRoot, resolveCanonicalWorktreePath, runBootstrap } from "../git/worktree.js";
+import type { BootstrapDecision, RunBootstrapResult, WorktreeNaming } from "../git/worktree.js";
+import { validateBranchNameAgainstGovernance } from "../governance/branch.js";
 import { resolveRepositoryIdentity } from "./identity.js";
 import type { RepositoryInstanceId } from "./identity.js";
 import { resolveRepoState } from "./repo-state.js";
@@ -77,13 +78,13 @@ export async function checkStaleBaseBranch(workspaceRoot: string, baseBranch: st
  * `src/envelope.ts` の output() 形式には依存しない。
  */
 
-const DEFAULT_WORKTREE_DIR_RELATIVE = ".worktrees";
-
 export interface StartTaskInput {
   workspaceRoot: string;
   store: WorkflowStateStore;
   policy: WorkflowPolicyDocument;
   taskSlug: string;
+  /** governance branch candidate に明示的に渡す type。taskSlug から推測しない。 */
+  branchType: string;
   issueRef?: string;
   /** worktree.required が off の場合のみ、呼び出し側が worktree 不要と明示できる。 */
   skipWorktree?: boolean;
@@ -96,6 +97,9 @@ export type StartTaskFailureReason =
   | "policy-denied"
   | "issue-required"
   | "issue-already-claimed"
+  | "invalid-branch-name"
+  | "branch-governance-unavailable"
+  | "worktree-root-unavailable"
   | "branch-collision"
   | "path-collision"
   | "active-task-in-workspace"
@@ -213,17 +217,47 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
     });
   }
 
-  // tasks/worktrees の instance_id は repository_instances への FK 制約を持つため、
-  // 予約前に必ず observeRepositoryInstance で instance 行を確立しておく
-  // （初回呼び出しの repository ではまだ行が存在しない）。
-  store.observeRepositoryInstance({
-    rootCommitDigest: identityResult.identity.rootCommitDigest,
-    instanceId: identityResult.identity.instanceId,
-    gitCommonDir: identityResult.identity.gitCommonDir,
-    canonicalWorktreePath: identityResult.identity.worktreePath,
-  });
-
   const instanceId = identityResult.identity.instanceId;
+  let naming: WorktreeNaming | undefined;
+  let candidateCanonicalPath: string | undefined;
+
+  // Git/DB mutation より先に、structured input から生成した候補を repository の
+  // governance authority で検証する。ここで reject された候補は state にも Git にも
+  // 到達しない。
+  if (wantsWorktree) {
+    if (issueRef === undefined) {
+      return { ok: false, reason: "issue-required", detail: "task workflow worktree branches require an issueRef for the repository governance pattern" };
+    }
+    naming = buildWorktreeNaming({ branchType: input.branchType, issueRef, taskSlug });
+    const branchValidation = await validateBranchNameAgainstGovernance(naming.branchName);
+    if (!branchValidation.ok) {
+      return {
+        ok: false,
+        reason: branchValidation.kind === "invalid" ? "invalid-branch-name" : "branch-governance-unavailable",
+        detail: `generated branch ${naming.branchName} was rejected before Git mutation: ${branchValidation.detail}`,
+      };
+    }
+
+    const managedRoot = ensureCanonicalManagedWorktreeRoot(identityResult.identity.canonicalRepositoryRoot);
+    if (!managedRoot.ok) {
+      return { ok: false, reason: "worktree-root-unavailable", detail: managedRoot.detail };
+    }
+
+    // caller worktree ではなく、identity が common-dir から検証した canonical root を
+    // anchor にする。collision check と createWorktree は同じ解決関数を使う。
+    candidateCanonicalPath = resolveCanonicalWorktreePath(identityResult.identity.canonicalRepositoryRoot, naming);
+    const collisions = detectWorktreeCollisions(store, instanceId, naming.branchName, candidateCanonicalPath);
+    if (collisions.branchCollision) {
+      return { ok: false, reason: "branch-collision", detail: `branch ${naming.branchName} is already claimed by an active worktree` };
+    }
+    if (collisions.pathCollision) {
+      return { ok: false, reason: "path-collision", detail: `canonical worktree path ${candidateCanonicalPath} is already claimed by an active worktree` };
+    }
+    if (fs.existsSync(candidateCanonicalPath)) {
+      return { ok: false, reason: "path-collision", detail: `canonical worktree path already exists: ${candidateCanonicalPath}` };
+    }
+  }
+
   const baseBranch = repoStateResult.state.branch ?? "HEAD";
   const baseCommit = await resolveBaseCommit(workspaceRoot, baseBranch);
   if (baseCommit === undefined) {
@@ -251,6 +285,16 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
     }
   }
 
+  // tasks/worktrees の instance_id は repository_instances への FK 制約を持つため、
+  // 予約前に必ず observeRepositoryInstance で instance 行を確立しておく
+  // （初回呼び出しの repository ではまだ行が存在しない）。branch preflight 後に行う。
+  store.observeRepositoryInstance({
+    rootCommitDigest: identityResult.identity.rootCommitDigest,
+    instanceId,
+    gitCommonDir: identityResult.identity.gitCommonDir,
+    canonicalWorktreePath: identityResult.identity.worktreePath,
+  });
+
   if (!wantsWorktree) {
     const reserveResult = store.reserveTask({
       instanceId,
@@ -267,19 +311,9 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
     return { ok: true, task: activated, worktree: undefined, bootstrap: undefined, bootstrapRun: undefined, warnings };
   }
 
-  const worktreeDirRelative = input.worktreeDirRelative ?? DEFAULT_WORKTREE_DIR_RELATIVE;
-  const naming = buildWorktreeNaming(taskSlug, issueRef, worktreeDirRelative);
-
-  // identity.worktreePath は resolveRepositoryIdentity 側で fs.realpathSync.native 済みの
-  // canonicalized path。createWorktree が成功時に返す canonicalPath（同じく realpathSync.native）
-  // と食い違わないよう、予約時点の候補パスもここから計算する（workspaceRoot の生入力ではなく）。
-  const candidateCanonicalPath = path.resolve(identityResult.identity.worktreePath, naming.relativePath);
-  const collisions = detectWorktreeCollisions(store, instanceId, naming.branchName, candidateCanonicalPath);
-  if (collisions.branchCollision) {
-    return { ok: false, reason: "branch-collision", detail: `branch ${naming.branchName} is already claimed by an active worktree` };
-  }
-  if (collisions.pathCollision) {
-    return { ok: false, reason: "path-collision", detail: `path ${naming.relativePath} is already claimed by an active worktree` };
+  // wantsWorktree=true の場合、上の preflight が naming/path を確定済み。
+  if (naming === undefined || candidateCanonicalPath === undefined) {
+    return { ok: false, reason: "unsupported-repo-state", detail: "worktree naming preflight did not produce a canonical target" };
   }
 
   const reserveTaskResult = store.reserveTask({
@@ -313,7 +347,11 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
   }
   const reservedWorktree = reserveWorktreeResult.worktree;
 
-  const createResult = await createWorktree({ workspaceRoot, naming, baseBranch });
+  const createResult = await createWorktree({
+    canonicalRepositoryRoot: identityResult.identity.canonicalRepositoryRoot,
+    naming,
+    baseCommit,
+  });
   if (!createResult.ok) {
     store.deleteReservedWorktree(reservedWorktree.worktreeId);
     store.deleteReservedTask(task.taskId);

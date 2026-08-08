@@ -11,7 +11,9 @@
     "dist",
     "README.md",
     "LICENSE",
-    "mottainai.config.json.example"
+    "mottainai.config.json.example",
+    "scripts/governance-lib.mjs",
+    "scripts/governance-rules.json"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/copy-dashboard-assets.mjs",

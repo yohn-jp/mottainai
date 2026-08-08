@@ -9,22 +9,17 @@ import { createWorkflowStore } from "../../test-support/workflow-store.js";
 import type { RepositoryInstanceId } from "../domain/identity.js";
 import { buildWorktreeNaming, createWorktree, decideBootstrap, detectWorktreeCollisions, runBootstrap } from "./worktree.js";
 
-test("buildWorktreeNaming without issueRef uses task/<slug>", () => {
-  const naming = buildWorktreeNaming("my-task", undefined, ".worktrees");
-  assert.equal(naming.branchName, "task/my-task");
-  assert.equal(naming.relativePath, path.join(".worktrees", "task-my-task"));
-});
-
-test("buildWorktreeNaming with issueRef uses issue-<n>/<slug>", () => {
-  const naming = buildWorktreeNaming("my-task", "33", ".worktrees");
-  assert.equal(naming.branchName, "issue-33/my-task");
-  assert.equal(naming.relativePath, path.join(".worktrees", "issue-33-my-task"));
+test("buildWorktreeNaming projects explicit structured input into the governance candidate and canonical root", () => {
+  const naming = buildWorktreeNaming({ branchType: "fix", issueRef: "33", taskSlug: "my-task" });
+  assert.equal(naming.branchName, "fix/33-my-task");
+  assert.equal(naming.relativePath, path.join(".mottainai", "worktrees", "fix-33-my-task"));
 });
 
 test("createWorktree succeeds against a real repository and records the base commit", async (t) => {
   const root = createTempGitRepo(t);
-  const naming = buildWorktreeNaming("my-task", undefined, ".worktrees");
-  const result = await createWorktree({ workspaceRoot: root, naming, baseBranch: "main" });
+  const naming = buildWorktreeNaming({ branchType: "fix", issueRef: "33", taskSlug: "my-task" });
+  const baseCommit = runGit(["rev-parse", "HEAD"], root);
+  const result = await createWorktree({ canonicalRepositoryRoot: root, naming, baseCommit });
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.ok(fs.existsSync(result.canonicalPath));
@@ -34,9 +29,9 @@ test("createWorktree succeeds against a real repository and records the base com
 
 test("createWorktree returns a structured failure when the branch already exists", async (t) => {
   const root = createTempGitRepo(t);
-  runGit(["branch", "task/dup"], root);
-  const naming = buildWorktreeNaming("dup", undefined, ".worktrees");
-  const result = await createWorktree({ workspaceRoot: root, naming, baseBranch: "main" });
+  runGit(["branch", "fix/33-dup"], root);
+  const naming = buildWorktreeNaming({ branchType: "fix", issueRef: "33", taskSlug: "dup" });
+  const result = await createWorktree({ canonicalRepositoryRoot: root, naming, baseCommit: runGit(["rev-parse", "HEAD"], root) });
   assert.equal(result.ok, false);
   if (result.ok) return;
   assert.equal(result.reason, "git-worktree-add-failed");
@@ -125,7 +120,7 @@ test("detectWorktreeCollisions reports branch/path collisions against active wor
   if (!worktreeResult.ok) return;
   store.activateWorktree(worktreeResult.worktree.worktreeId);
 
-  const branchCollision = detectWorktreeCollisions(store, instanceId, "task/existing", "/repo/.worktrees/new-path");
+  const branchCollision = detectWorktreeCollisions(store, instanceId, "task/existing", "/repo/.mottainai/worktrees/new-path");
   assert.equal(branchCollision.branchCollision, true);
   assert.equal(branchCollision.pathCollision, false);
 
@@ -156,7 +151,7 @@ test("detectWorktreeCollisions reports stale metadata for active rows whose path
   if (!worktreeResult.ok) return;
   store.activateWorktree(worktreeResult.worktree.worktreeId);
 
-  const result = detectWorktreeCollisions(store, instanceId, "task/other", "/repo/.worktrees/other");
+  const result = detectWorktreeCollisions(store, instanceId, "task/other", "/repo/.mottainai/worktrees/other");
   assert.equal(result.staleMetadata.length, 1);
   assert.equal(result.staleMetadata[0]?.branchName, "task/gone");
 });

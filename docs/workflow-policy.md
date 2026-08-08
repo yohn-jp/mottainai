@@ -129,6 +129,23 @@ observations, so root-commit-digest collisions never produce a
 duplicate source), tracks canonicalized worktree paths per instance,
 and reports whether an observation represents a detected move.
 
+### Canonical task worktrees (Issue #102)
+
+`mottainai_workflow_task_start` resolves the repository control-plane root
+from the canonical Git common-dir, not from `workspaceRoot`, caller cwd, or
+the current linked worktree. Managed task worktrees are always created below
+`<canonical repository root>/.mottainai/worktrees/`; the same resolved
+absolute path is used by collision detection, SQLite reservation, and
+`git worktree add`. Ambiguous common-dir layouts fail closed. The legacy
+`.worktrees` path is not a task-workflow fallback.
+
+The task-start input supplies `branchType` explicitly. The candidate is
+projected as `<type>/<issue>-<slug>` and validated through the existing
+`scripts/governance-lib.mjs` API backed by `scripts/governance-rules.json`.
+Branch validation runs before worktree-path collision checks, SQLite task or
+worktree reservation, and Git mutation; a rejected candidate leaves no task
+or worktree reservation.
+
 ## Protected-branch and control-plane decisions
 
 `src/workflow/policy/protected-branch.ts` decides whether a given

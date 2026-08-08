@@ -7,11 +7,9 @@ import type { WorktreeRule } from "../policy/schema.js";
 import type { WorkflowStateStore, WorktreeRecord } from "../state/store.js";
 
 /**
- * policy 駆動 worktree 作成（Issue #28 Child 4）。branch/path の命名は
- * schema 拡張ではなく固定規約とする（`mottainai_worktree_new` の既存慣習
- * `<prefix>/<slug>` を踏襲）。bootstrap コマンドも同様に固定規約
- * （`pnpm-lock.yaml` 存在時のみ `pnpm install --frozen-lockfile`）とし、
- * operator 設定可能な template 文字列は本 Issue の対象外。
+ * policy 駆動 worktree 作成（Issue #28 Child 4）。task workflow の worktree は
+ * repository identity が解決した canonical root 配下だけを使用する。bootstrap
+ * コマンドは従来どおり `pnpm-lock.yaml` 存在時のみ実行する。
  */
 
 const GIT_TIMEOUT_MS = 10_000;
@@ -22,17 +20,50 @@ export interface WorktreeNaming {
   relativePath: string;
 }
 
-/** issueRef 指定時は `issue-<n>/<slug>`、無ければ `task/<slug>`。path は branch 名の `/` を `-` に潰す。 */
-export function buildWorktreeNaming(taskSlug: string, issueRef: string | undefined, worktreeDirRelative: string): WorktreeNaming {
-  const branchName = issueRef !== undefined ? `issue-${issueRef}/${taskSlug}` : `task/${taskSlug}`;
-  const relativePath = path.join(worktreeDirRelative, branchName.replace(/\//g, "-"));
+export interface WorktreeNamingInput {
+  branchType: string;
+  issueRef: string;
+  taskSlug: string;
+}
+
+export const MANAGED_WORKTREE_DIR_RELATIVE = path.join(".mottainai", "worktrees");
+
+export type ManagedWorktreeRootResult =
+  | { ok: true; path: string }
+  | { ok: false; detail: string };
+
+/** Ensure the managed directory itself is not a symlink escape from the canonical root. */
+export function ensureCanonicalManagedWorktreeRoot(canonicalRepositoryRoot: string): ManagedWorktreeRootResult {
+  const configuredRoot = path.resolve(canonicalRepositoryRoot, MANAGED_WORKTREE_DIR_RELATIVE);
+  try {
+    fs.mkdirSync(configuredRoot, { recursive: true });
+    const actualRoot = fs.realpathSync.native(configuredRoot);
+    if (actualRoot !== configuredRoot) {
+      return { ok: false, detail: `managed worktree root resolves outside its canonical path: ${configuredRoot}` };
+    }
+    return { ok: true, path: configuredRoot };
+  } catch (err) {
+    return { ok: false, detail: `cannot prepare managed worktree root ${configuredRoot}: ${(err as Error).message}` };
+  }
+}
+
+/** branch rule は governance authority 側で検証する。ここでは structured input を
+ * そのまま `<type>/<issue>-<slug>` 候補へ射影し、rule の複製や推測を行わない。 */
+export function buildWorktreeNaming(input: WorktreeNamingInput): WorktreeNaming {
+  const branchName = `${input.branchType}/${input.issueRef}-${input.taskSlug}`;
+  const relativePath = path.join(MANAGED_WORKTREE_DIR_RELATIVE, branchName.replace(/\//g, "-"));
   return { branchName, relativePath };
 }
 
+/** collision check と `git worktree add` が同一の canonical target を使うための唯一の path 解決。 */
+export function resolveCanonicalWorktreePath(canonicalRepositoryRoot: string, naming: WorktreeNaming): string {
+  return path.resolve(canonicalRepositoryRoot, naming.relativePath);
+}
+
 export interface CreateWorktreeInput {
-  workspaceRoot: string;
+  canonicalRepositoryRoot: string;
   naming: WorktreeNaming;
-  baseBranch: string;
+  baseCommit: string;
 }
 
 export type CreateWorktreeResult =
@@ -42,11 +73,14 @@ export type CreateWorktreeResult =
 /** `git worktree add` を実行する。失敗は throw せず構造化結果で返す（衝突は呼び出し前に detectWorktreeCollisions で弾く想定だが、
  * TOCTOU で外部から先に取られる可能性は残るため、ここでも失敗経路を正常系として扱う）。 */
 export async function createWorktree(input: CreateWorktreeInput): Promise<CreateWorktreeResult> {
-  const { workspaceRoot, naming, baseBranch } = input;
+  const { canonicalRepositoryRoot, naming, baseCommit } = input;
+  const managedRoot = ensureCanonicalManagedWorktreeRoot(canonicalRepositoryRoot);
+  if (!managedRoot.ok) return { ok: false, reason: "git-worktree-add-failed", detail: managedRoot.detail };
+  const absolutePath = resolveCanonicalWorktreePath(canonicalRepositoryRoot, naming);
   const addResult = await runProgram(
     "git",
-    ["worktree", "add", "-b", naming.branchName, naming.relativePath, baseBranch],
-    workspaceRoot,
+    ["worktree", "add", "-b", naming.branchName, absolutePath, baseCommit],
+    canonicalRepositoryRoot,
     GIT_TIMEOUT_MS,
     GIT_MAX_OUTPUT_BYTES,
   );
@@ -55,7 +89,6 @@ export async function createWorktree(input: CreateWorktreeInput): Promise<Create
     return { ok: false, reason: "git-worktree-add-failed", detail };
   }
 
-  const absolutePath = path.resolve(workspaceRoot, naming.relativePath);
   let canonicalPath: string;
   try {
     canonicalPath = fs.realpathSync.native(absolutePath);
@@ -63,7 +96,7 @@ export async function createWorktree(input: CreateWorktreeInput): Promise<Create
     return { ok: false, reason: "git-worktree-add-failed", detail: `cannot resolve created worktree path: ${(err as Error).message}` };
   }
 
-  const headResult = await runProgram("git", ["-C", canonicalPath, "rev-parse", "HEAD"], workspaceRoot, GIT_TIMEOUT_MS, GIT_MAX_OUTPUT_BYTES);
+  const headResult = await runProgram("git", ["-C", canonicalPath, "rev-parse", "HEAD"], canonicalRepositoryRoot, GIT_TIMEOUT_MS, GIT_MAX_OUTPUT_BYTES);
   if (headResult.exitCode !== 0 || headResult.stdout.trim().length === 0) {
     return { ok: false, reason: "git-worktree-add-failed", detail: "worktree created but HEAD could not be resolved" };
   }
