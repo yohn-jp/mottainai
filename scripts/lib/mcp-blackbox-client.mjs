@@ -1,13 +1,12 @@
 // Issue #22: black-box stdio MCP client。src/ 内部関数は import せず、実プロセスの
-// stdin/stdout のみを介して protocol を検証する。#21 との重複を避けるため scripts/ 配下に
-// 局所実装する（#21 マージ後、共通 e2e helper へ統合できる）。
+// stdin/stdout のみを介して protocol を検証する。
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
 const useShell = process.platform === "win32";
-const MAX_TRANSCRIPT_BYTES = 32 * 1024;
-const MAX_STDERR_TAIL_BYTES = 16 * 1024;
+export const MAX_TRANSCRIPT_BYTES = 32 * 1024;
+export const MAX_STDERR_TAIL_BYTES = 16 * 1024;
 const MAX_UNFRAMED_STDOUT_BYTES = 32 * 1024;
 
 /** 既存の dist を pack する。build は CI/local の明示的な Build stage で先に行う。 */
@@ -72,7 +71,7 @@ export function resolvePackagedBin(extractedPackageDir, binName = "mottainai") {
 function boundedText(value, maxBytes) {
   const text = String(value);
   if (Buffer.byteLength(text) <= maxBytes) return text;
-  return text.slice(-maxBytes);
+  return Buffer.from(text).subarray(-maxBytes).toString("utf8");
 }
 
 function appendTail(values, value, maxBytes) {
@@ -215,7 +214,7 @@ export class McpStdioClient {
       this._recordStdoutLine(line);
     }
     if (Buffer.byteLength(this._stdoutBuffer) > MAX_UNFRAMED_STDOUT_BYTES) {
-      this._stdoutBuffer = this._stdoutBuffer.slice(-MAX_UNFRAMED_STDOUT_BYTES);
+      this._stdoutBuffer = boundedText(this._stdoutBuffer, MAX_UNFRAMED_STDOUT_BYTES);
       this._stdoutBufferOverflowed = true;
     }
   }
@@ -262,7 +261,7 @@ export class McpStdioClient {
       `exit_signal=${this.exitInfo?.signal ?? "none"}`,
     ].join(" ");
     return new Error(
-      `${reason}; method=${method} request_id=${id}; ${processState}` +
+      `${reason}; operation=${method} method=${method} request_id=${id}; ${processState}` +
         `; stderr_tail=${JSON.stringify(this.stderrText())}` +
         `; stdout_transcript=${JSON.stringify(this.stdoutLines.join("\n"))}`,
     );
@@ -281,7 +280,7 @@ export class McpStdioClient {
 
   /** malformed JSON-RPC 検証用。改行終端の生バイト列をそのまま stdin へ書く。 */
   writeRawLine(raw) {
-    this.writeRaw(raw.endsWith("\n") ? raw : `${raw}\n`);
+    return this.writeRaw(raw.endsWith("\n") ? raw : `${raw}\n`);
   }
 
   /** 改行を付けず、生の文字列/バイト列を stdin へ送る。partial JSON 検証に使う。 */
@@ -289,7 +288,12 @@ export class McpStdioClient {
     if (this.child === undefined || this.child.stdin.destroyed) {
       throw this._diagnosticError("raw", "none", "stdin is closed");
     }
-    this.child.stdin.write(raw);
+    return new Promise((resolve, reject) => {
+      this.child.stdin.write(raw, (error) => {
+        if (error !== undefined && error !== null) reject(error);
+        else resolve();
+      });
+    });
   }
 
   prepareRequest(method, params, timeoutMs = 10_000) {

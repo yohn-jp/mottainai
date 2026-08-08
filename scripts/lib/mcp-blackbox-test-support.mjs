@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { BLACKBOX_TIMEOUTS } from "./mcp-blackbox-timeouts.mjs";
 
 export const CLIENT_INFO = { name: "mottainai-blackbox-suite", version: "0.0.0" };
 export const INITIALIZE_PARAMS = {
@@ -80,11 +81,11 @@ export function createFixtureWorkspace(repoRoot, mode, options = {}) {
   return { workspace, configPath, pidFile, readyFile };
 }
 
-export async function waitForFile(filePath, timeoutMs = 3_000) {
+export async function waitForFile(filePath, timeoutMs = BLACKBOX_TIMEOUTS.fixtureReady) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (fs.existsSync(filePath)) return;
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await new Promise((resolve) => setTimeout(resolve, BLACKBOX_TIMEOUTS.statePoll));
   }
   throw new Error(`timed out after ${timeoutMs}ms waiting for fixture file: ${filePath}`);
 }
@@ -103,11 +104,11 @@ export function processIsAlive(pid) {
   }
 }
 
-export async function waitForProcessGone(pid, timeoutMs = 5_000) {
+export async function waitForProcessGone(pid, timeoutMs = BLACKBOX_TIMEOUTS.forcedCleanup) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (!processIsAlive(pid)) return;
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await new Promise((resolve) => setTimeout(resolve, BLACKBOX_TIMEOUTS.statePoll));
   }
   throw new Error(`process ${pid} remained alive after ${timeoutMs}ms`);
 }

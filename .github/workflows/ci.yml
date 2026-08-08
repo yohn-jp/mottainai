@@ -51,11 +51,11 @@ jobs:
       - name: Test (integration / process)
         run: pnpm run test:integration
 
-      - name: Test (e2e / black-box)
-        run: pnpm run test:e2e
-
       - name: Build
         run: pnpm run build
+
+      - name: Test (built dist e2e / black-box)
+        run: pnpm run test:e2e
 
   standards:
     name: format / lint / architecture (Node 22)
@@ -89,6 +89,9 @@ jobs:
 
       - name: Standards self-tests (architecture / governance / test policy)
         run: pnpm run test:standards
+
+      - name: Test classification
+        run: pnpm run test:classification
 
       - name: Architecture/static validation
         run: pnpm run architecture:check
@@ -203,10 +206,7 @@ jobs:
         run: pnpm run build
 
       - name: Built dist black-box protocol and lifecycle suite
-        run: pnpm run e2e:test
+        run: pnpm run test:e2e
 
-      - name: Smoke test packed tarball
-        run: node scripts/smoke-test.mjs
-
-      - name: Packed artifact black-box package subset
-        run: pnpm run e2e:package
+      - name: Packed artifact package suite and smoke test
+        run: pnpm run test:package

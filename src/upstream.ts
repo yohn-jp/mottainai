@@ -44,6 +44,52 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+export const UPSTREAM_STARTUP_TIMEOUT_MS = 2_000;
+const UPSTREAM_CLOSE_TIMEOUT_MS = 1_000;
+const UPSTREAM_STDERR_TAIL_BYTES = 16 * 1024;
+
+class UpstreamTimeoutError extends Error {}
+
+async function withDeadline<T>(operation: Promise<T>, config: UpstreamConfig, phase: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(
+            new UpstreamTimeoutError(
+              `upstream=${config.name} phase=${phase} timeout_ms=${UPSTREAM_STARTUP_TIMEOUT_MS}`,
+            ),
+          );
+        }, UPSTREAM_STARTUP_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+async function closeClient(client: Client): Promise<void> {
+  await Promise.race([
+    client.close().catch(() => {}),
+    new Promise<void>((resolve) => setTimeout(resolve, UPSTREAM_CLOSE_TIMEOUT_MS)),
+  ]);
+}
+
+function boundedText(value: string, maxBytes: number): string {
+  if (Buffer.byteLength(value) <= maxBytes) return value;
+  return Buffer.from(value).subarray(-maxBytes).toString("utf8");
+}
+
+function appendTail(values: string[], value: string): void {
+  values.push(value);
+  let bytes = values.reduce((total, entry) => total + Buffer.byteLength(entry), 0);
+  while (bytes > UPSTREAM_STDERR_TAIL_BYTES && values.length > 0) {
+    bytes -= Buffer.byteLength(values.shift() ?? "");
+  }
+}
+
 export const fetchWithoutRedirects: FetchLike = (url, init) => {
   return globalThis.fetch(url, { ...init, redirect: "error" });
 };
@@ -201,7 +247,13 @@ export async function createUpstreamTransport(
     });
   }
   if (config.command === undefined) throw new Error(`upstream command missing: ${config.name}`);
-  return new StdioClientTransport({ command: config.command, args: config.args, env: config.env, cwd: config.cwd });
+  return new StdioClientTransport({
+    command: config.command,
+    args: config.args,
+    env: config.env,
+    cwd: config.cwd,
+    stderr: "pipe",
+  });
 }
 
 export async function connectUpstream(
@@ -209,16 +261,36 @@ export async function connectUpstream(
   oauthCredentialProvider?: OAuthCredentialProvider,
   createClient: (config: UpstreamConfig) => Client = (c) => new Client({ name: `mottainai/${c.name}`, version: "0.1.0" }),
 ): Promise<UpstreamHandle> {
-  const transport = await createUpstreamTransport(config, oauthCredentialProvider);
-  const client = createClient(config);
+  let client: Client | undefined;
+  let phase = "transport";
+  const transcript: string[] = ["phase=transport started"];
+  const stderrTail: string[] = [];
   try {
-    await client.connect(transport);
-    const { tools } = await client.listTools();
+    const transport = await withDeadline(createUpstreamTransport(config, oauthCredentialProvider), config, phase);
+    if (transport instanceof StdioClientTransport) {
+      transport.stderr?.on("data", (chunk: Buffer | string) => {
+        const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
+        appendTail(stderrTail, boundedText(text, UPSTREAM_STDERR_TAIL_BYTES));
+        process.stderr.write(text);
+      });
+    }
+    client = createClient(config);
+    phase = "initialize";
+    transcript.push("phase=initialize started");
+    await withDeadline(client.connect(transport), config, phase);
+    transcript.push("phase=initialize completed");
+    phase = "listTools";
+    transcript.push("phase=listTools started");
+    const { tools } = await withDeadline(client.listTools(), config, phase);
+    transcript.push("phase=listTools completed");
     return { config, client, tools };
   } catch (error) {
     // connect() の途中失敗（stdio なら child process が spawn 済みの場合がある）も
     // listTools() の失敗も、同じスコープで client を閉じる。close 自体の失敗で元のエラーを隠さない。
-    await client.close().catch(() => {});
-    throw error;
+    if (client !== undefined) await closeClient(client);
+    const details = `provider=${config.name} phase=${phase} stderr_tail=${JSON.stringify(stderrTail.join(""))}`
+      + ` transcript=${JSON.stringify(transcript)}`;
+    if (error instanceof UpstreamTimeoutError) throw new Error(`${errorMessage(error)}; ${details}`);
+    throw new Error(`upstream=${config.name} phase=${phase} failed: ${errorMessage(error)}; ${details}`);
   }
 }

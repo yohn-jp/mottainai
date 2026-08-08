@@ -1,3 +1,4 @@
+// @ts-nocheck -- The shared MJS harness is intentionally consumed without a TypeScript wrapper.
 // Issue #22: built dist を実際の stdio MCP server として起動し、process外部から
 // JSON-RPC を送受信する black-box test。src/ の関数を直接 import しない。
 import assert from "node:assert/strict";
@@ -5,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { before, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { McpStdioClient } from "./lib/mcp-blackbox-client.mjs";
+import { McpStdioClient } from "../../scripts/lib/mcp-blackbox-client.mjs";
 import {
   cleanupClient,
   createFixtureWorkspace,
@@ -17,14 +18,14 @@ import {
   waitForFile,
   waitForProcessGone,
   writeConfig,
-} from "./lib/mcp-blackbox-test-support.mjs";
+} from "../../scripts/lib/mcp-blackbox-test-support.mjs";
+import { BLACKBOX_TIMEOUTS } from "../../scripts/lib/mcp-blackbox-timeouts.mjs";
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const distEntry = path.join(repoRoot, "dist", "index.js");
-const DEFAULT_REQUEST_TIMEOUT_MS = 3_000;
 
 before(() => {
-  if (!fs.existsSync(distEntry)) throw new Error("dist is missing; run pnpm run build before pnpm run e2e:test");
+  if (!fs.existsSync(distEntry)) throw new Error("dist is missing; run pnpm run build before pnpm run test:e2e");
 });
 
 function launch(cwd) {
@@ -32,14 +33,15 @@ function launch(cwd) {
 }
 
 async function initialize(client) {
-  const response = await client.request("initialize", INITIALIZE_PARAMS, DEFAULT_REQUEST_TIMEOUT_MS);
+  const response = await client.request("initialize", INITIALIZE_PARAMS, BLACKBOX_TIMEOUTS.request);
   assert.equal(response.error, undefined, `initialize failed: ${JSON.stringify(response.error)}`);
   client.notify("notifications/initialized", {});
+  assert.deepEqual(client.stdoutPurityViolations(), [], "stdout must carry only JSON-RPC frames");
   return response;
 }
 
 async function closeAndAssert(client) {
-  const exitInfo = await client.closeGracefully(5_000);
+  const exitInfo = await client.closeGracefully(BLACKBOX_TIMEOUTS.shutdown);
   assert.equal(exitInfo.code, 0, `expected clean exit: ${JSON.stringify(exitInfo)}`);
   assert.equal(exitInfo.signal, null);
   assert.deepEqual(client.stdoutPurityViolations(), [], "stdout must carry only JSON-RPC frames");
@@ -48,7 +50,7 @@ async function closeAndAssert(client) {
 
 test(
   "built dist completes MCP handshake, exposes tool contracts, and exits cleanly on EOF",
-  { timeout: 20_000 },
+  { timeout: BLACKBOX_TIMEOUTS.test },
   async () => {
     const workspace = createWorkspace();
     const client = launch(workspace);
@@ -60,8 +62,9 @@ test(
       assert.equal(typeof initializeResponse.result.protocolVersion, "string");
       assert.equal(typeof initializeResponse.result.capabilities.tools, "object");
 
-      const listResponse = await client.request("tools/list", {}, DEFAULT_REQUEST_TIMEOUT_MS);
+      const listResponse = await client.request("tools/list", {}, BLACKBOX_TIMEOUTS.request);
       assert.equal(listResponse.error, undefined);
+      assert.deepEqual(client.stdoutPurityViolations(), []);
       const tools = listResponse.result.tools;
       assert.ok(Array.isArray(tools) && tools.length > 5, "tools/list should expose a non-trivial tool catalog");
 
@@ -88,7 +91,7 @@ test(
 
 test(
   "built dist executes a representative local tools/call in an isolated workspace",
-  { timeout: 20_000 },
+  { timeout: BLACKBOX_TIMEOUTS.test },
   async () => {
     const workspace = createWorkspace({ extraFiles: { "sample-data/hello.txt": "black-box marker file\n" } });
     const client = launch(workspace);
@@ -97,9 +100,10 @@ test(
       const callResponse = await client.request(
         "tools/call",
         { name: "mottainai_list", arguments: {} },
-        DEFAULT_REQUEST_TIMEOUT_MS,
+        BLACKBOX_TIMEOUTS.request,
       );
       assert.equal(callResponse.error, undefined, `unexpected tool error: ${JSON.stringify(callResponse.error)}`);
+      assert.deepEqual(client.stdoutPurityViolations(), []);
       assert.equal(callResponse.result.isError, undefined);
       assert.equal(callResponse.result.content[0].type, "text");
       const structured = callResponse.result.structuredContent;
@@ -127,7 +131,7 @@ test(
 
 test(
   "malformed JSON-RPC input is dropped without crashing or desyncing later responses",
-  { timeout: 20_000 },
+  { timeout: BLACKBOX_TIMEOUTS.test },
   async () => {
     const workspace = createWorkspace();
     const client = launch(workspace);
@@ -135,7 +139,7 @@ test(
       await initialize(client);
       client.writeRawLine("{this is not valid json at all");
       assert.equal(client.exited, false);
-      const listResponse = await client.request("tools/list", {}, DEFAULT_REQUEST_TIMEOUT_MS);
+      const listResponse = await client.request("tools/list", {}, BLACKBOX_TIMEOUTS.request);
       assert.equal(listResponse.error, undefined);
       assert.ok(Array.isArray(listResponse.result.tools));
       await closeAndAssert(client);
@@ -145,17 +149,16 @@ test(
   },
 );
 
-test("partial JSON sent in two chunks is parsed as one request", { timeout: 20_000 }, async () => {
+test("partial JSON sent in two chunks is parsed as one request", { timeout: BLACKBOX_TIMEOUTS.test }, async () => {
   const workspace = createWorkspace();
   const client = launch(workspace);
   try {
     await initialize(client);
-    const prepared = client.prepareRequest("tools/list", {}, DEFAULT_REQUEST_TIMEOUT_MS);
+    const prepared = client.prepareRequest("tools/list", {}, BLACKBOX_TIMEOUTS.request);
     const serialized = `${JSON.stringify(prepared.message)}\n`;
     const splitAt = Math.max(1, Math.floor(serialized.length / 2));
-    client.writeRaw(serialized.slice(0, splitAt));
-    await new Promise((resolve) => setTimeout(resolve, 25));
-    client.writeRaw(serialized.slice(splitAt));
+    await client.writeRaw(serialized.slice(0, splitAt));
+    await client.writeRaw(serialized.slice(splitAt));
     const response = await prepared.response;
     assert.equal(response.error, undefined);
     assert.ok(Array.isArray(response.result.tools));
@@ -167,13 +170,13 @@ test("partial JSON sent in two chunks is parsed as one request", { timeout: 20_0
 
 test(
   "incomplete JSON followed by EOF has bounded cleanup and no stdout contamination",
-  { timeout: 20_000 },
+  { timeout: BLACKBOX_TIMEOUTS.test },
   async () => {
     const workspace = createWorkspace();
     const client = launch(workspace);
     try {
       client.writeRaw('{"jsonrpc":"2.0","id":1,"method":"initialize"');
-      const exitInfo = await client.closeGracefully(1_000);
+      const exitInfo = await client.closeGracefully(BLACKBOX_TIMEOUTS.shutdown);
       assert.ok(exitInfo.code !== undefined || exitInfo.signal !== undefined);
       assert.deepEqual(client.stdoutPurityViolations(), []);
     } finally {
@@ -184,18 +187,18 @@ test(
 
 test(
   "calls before initialization follow SDK behavior and the session can initialize afterward",
-  { timeout: 20_000 },
+  { timeout: BLACKBOX_TIMEOUTS.test },
   async () => {
     const workspace = createWorkspace();
     const client = launch(workspace);
     try {
-      const beforeInit = await client.request("tools/list", {}, DEFAULT_REQUEST_TIMEOUT_MS);
+      const beforeInit = await client.request("tools/list", {}, BLACKBOX_TIMEOUTS.request);
       // SDK 1.29 permits tools/list before initialize; the contract is no crash/desync.
       assert.equal(beforeInit.error, undefined);
       assert.ok(Array.isArray(beforeInit.result.tools));
       assert.equal(client.exited, false);
       await initialize(client);
-      const listResponse = await client.request("tools/list", {}, DEFAULT_REQUEST_TIMEOUT_MS);
+      const listResponse = await client.request("tools/list", {}, BLACKBOX_TIMEOUTS.request);
       assert.equal(listResponse.error, undefined);
       await closeAndAssert(client);
     } finally {
@@ -206,17 +209,17 @@ test(
 
 test(
   "duplicate initialization follows SDK behavior without desynchronizing later requests",
-  { timeout: 20_000 },
+  { timeout: BLACKBOX_TIMEOUTS.test },
   async () => {
     const workspace = createWorkspace();
     const client = launch(workspace);
     try {
       await initialize(client);
-      const duplicate = await client.request("initialize", INITIALIZE_PARAMS, DEFAULT_REQUEST_TIMEOUT_MS);
+      const duplicate = await client.request("initialize", INITIALIZE_PARAMS, BLACKBOX_TIMEOUTS.request);
       // SDK 1.29 treats a repeated initialize as an idempotent successful handshake.
       assert.equal(duplicate.error, undefined);
       assert.equal(duplicate.result.serverInfo.name, "mottainai");
-      const listResponse = await client.request("tools/list", {}, DEFAULT_REQUEST_TIMEOUT_MS);
+      const listResponse = await client.request("tools/list", {}, BLACKBOX_TIMEOUTS.request);
       assert.equal(listResponse.error, undefined);
       await closeAndAssert(client);
     } finally {
@@ -227,20 +230,20 @@ test(
 
 test(
   "unsupported method, unknown tool, and invalid tool arguments return errors while the process stays alive",
-  { timeout: 20_000 },
+  { timeout: BLACKBOX_TIMEOUTS.test },
   async () => {
     const workspace = createWorkspace();
     const client = launch(workspace);
     try {
       await initialize(client);
-      const unknownMethod = await client.request("definitely/not/a/method", {}, DEFAULT_REQUEST_TIMEOUT_MS);
+      const unknownMethod = await client.request("definitely/not/a/method", {}, BLACKBOX_TIMEOUTS.request);
       assert.equal(unknownMethod.result, undefined);
       assert.equal(unknownMethod.error.code, -32601);
 
       const unknownTool = await client.request(
         "tools/call",
         { name: "definitely_not_a_real_tool", arguments: {} },
-        DEFAULT_REQUEST_TIMEOUT_MS,
+        BLACKBOX_TIMEOUTS.request,
       );
       assert.equal(unknownTool.result, undefined);
       assert.equal(typeof unknownTool.error.code, "number");
@@ -249,7 +252,7 @@ test(
       const missingRequiredArg = await client.request(
         "tools/call",
         { name: "mottainai_exec", arguments: {} },
-        DEFAULT_REQUEST_TIMEOUT_MS,
+        BLACKBOX_TIMEOUTS.request,
       );
       assert.equal(missingRequiredArg.result, undefined);
       assert.match(missingRequiredArg.error.message, /command/);
@@ -260,13 +263,13 @@ test(
           name: "mottainai_list",
           arguments: { path: "../../../../../../etc" },
         },
-        DEFAULT_REQUEST_TIMEOUT_MS,
+        BLACKBOX_TIMEOUTS.request,
       );
       assert.equal(escapesWorkspace.result, undefined);
       assert.match(escapesWorkspace.error.message, /workspaceRoot/);
 
       assert.equal(client.exited, false);
-      const stillAlive = await client.request("tools/list", {}, DEFAULT_REQUEST_TIMEOUT_MS);
+      const stillAlive = await client.request("tools/list", {}, BLACKBOX_TIMEOUTS.request);
       assert.equal(stillAlive.error, undefined);
       await closeAndAssert(client);
     } finally {
@@ -280,7 +283,7 @@ async function runStartupFailure(configContent) {
   writeConfig(workspace, configContent);
   const client = launch(workspace);
   try {
-    const exitInfo = await client.waitForExit(3_000);
+    const exitInfo = await client.waitForExit(BLACKBOX_TIMEOUTS.processStartup);
     return { client, workspace, exitInfo, stderr: client.stderrText() };
   } catch (error) {
     await cleanupClient(client, workspace);
@@ -290,12 +293,12 @@ async function runStartupFailure(configContent) {
 
 test(
   "missing configuration emits deterministic stderr, non-zero exit, and no stdout protocol data",
-  { timeout: 20_000 },
+  { timeout: BLACKBOX_TIMEOUTS.test },
   async () => {
     const workspace = createWorkspace({ config: null });
     const client = launch(workspace);
     try {
-      const exitInfo = await client.waitForExit(3_000);
+      const exitInfo = await client.waitForExit(BLACKBOX_TIMEOUTS.processStartup);
       const configPath = path.join(workspace, "mottainai.config.json");
       assert.notEqual(exitInfo.code, 0);
       assert.equal(client.stdoutLines.length, 0);
@@ -319,34 +322,38 @@ test(
   },
 );
 
-test("malformed configuration is deterministic, non-zero, and stdout-clean", { timeout: 20_000 }, async () => {
-  const first = await runStartupFailure("{ not valid json");
-  const firstStderr = first.stderr;
-  assert.notEqual(first.exitInfo.code, 0);
-  assert.equal(first.client.stdoutLines.length, 0);
-  assert.deepEqual(first.client.stdoutPurityViolations(), []);
-  await cleanupClient(first.client, first.workspace);
+test(
+  "malformed configuration is deterministic, non-zero, and stdout-clean",
+  { timeout: BLACKBOX_TIMEOUTS.test },
+  async () => {
+    const first = await runStartupFailure("{ not valid json");
+    const firstStderr = first.stderr;
+    assert.notEqual(first.exitInfo.code, 0);
+    assert.equal(first.client.stdoutLines.length, 0);
+    assert.deepEqual(first.client.stdoutPurityViolations(), []);
+    await cleanupClient(first.client, first.workspace);
 
-  const second = await runStartupFailure("{ not valid json");
-  try {
-    assert.notEqual(second.exitInfo.code, 0);
-    assert.equal(second.stderr, firstStderr);
-    assert.match(second.stderr, /JSON|property name|Unexpected/);
-    assert.equal(second.client.stdoutLines.length, 0);
-    assert.deepEqual(second.client.stdoutPurityViolations(), []);
-  } finally {
-    await cleanupClient(second.client, second.workspace);
-  }
-});
+    const second = await runStartupFailure("{ not valid json");
+    try {
+      assert.notEqual(second.exitInfo.code, 0);
+      assert.equal(second.stderr, firstStderr);
+      assert.match(second.stderr, /JSON|property name|Unexpected/);
+      assert.equal(second.client.stdoutLines.length, 0);
+      assert.deepEqual(second.client.stdoutPurityViolations(), []);
+    } finally {
+      await cleanupClient(second.client, second.workspace);
+    }
+  },
+);
 
-test("spawn/startup errors are captured without leaving a child", { timeout: 20_000 }, async () => {
+test("spawn/startup errors are captured without leaving a child", { timeout: BLACKBOX_TIMEOUTS.test }, async () => {
   const workspace = createWorkspace();
   const client = new McpStdioClient(path.join(workspace, "command-does-not-exist"), [], {
     cwd: workspace,
     env: isolatedEnv(workspace),
   });
   try {
-    const exitInfo = await client.waitForExit(3_000);
+    const exitInfo = await client.waitForExit(BLACKBOX_TIMEOUTS.processStartup);
     assert.notEqual(exitInfo.code, 0);
     assert.match(client.startupError?.message ?? "", /ENOENT|not found/i);
     assert.deepEqual(client.stdoutPurityViolations(), []);
@@ -356,23 +363,31 @@ test("spawn/startup errors are captured without leaving a child", { timeout: 20_
 });
 
 async function runSignalTest(signal) {
-  const workspace = createWorkspace();
-  const client = launch(workspace);
+  const fixture = createFixtureWorkspace(repoRoot, "normal");
+  const client = launch(fixture.workspace);
   try {
-    await initialize(client);
+    const listPromise = client.request("tools/list", {}, BLACKBOX_TIMEOUTS.request);
+    await waitForFile(fixture.readyFile, BLACKBOX_TIMEOUTS.fixtureReady);
+    const listResponse = await listPromise;
+    assert.equal(listResponse.error, undefined);
+    const upstreamPid = readPid(fixture.pidFile);
     client.child.kill(signal);
-    const exitInfo = await client.waitForExit(5_000);
+    const exitInfo = await client.waitForExit(BLACKBOX_TIMEOUTS.shutdown);
     assert.equal(exitInfo.code, 0, `${signal} should reach the registered graceful shutdown handler`);
     assert.equal(exitInfo.signal, null);
+    await waitForProcessGone(upstreamPid, BLACKBOX_TIMEOUTS.forcedCleanup);
     assert.deepEqual(client.stdoutPurityViolations(), []);
   } finally {
-    await cleanupClient(client, workspace);
+    await cleanupClient(client, fixture.workspace);
   }
 }
 
 test(
   "SIGINT triggers bounded graceful shutdown on POSIX",
-  { timeout: 20_000, skip: process.platform === "win32" },
+  {
+    timeout: BLACKBOX_TIMEOUTS.test,
+    skip: process.platform === "win32" ? "Windows ChildProcess.kill does not deliver POSIX signal handlers" : false,
+  },
   async () => {
     await runSignalTest("SIGINT");
   },
@@ -380,35 +395,42 @@ test(
 
 test(
   "SIGTERM triggers bounded graceful shutdown on POSIX",
-  { timeout: 20_000, skip: process.platform === "win32" },
+  {
+    timeout: BLACKBOX_TIMEOUTS.test,
+    skip: process.platform === "win32" ? "Windows ChildProcess.kill does not deliver POSIX signal handlers" : false,
+  },
   async () => {
     await runSignalTest("SIGTERM");
   },
 );
 
-test("client disconnect is bounded and leaves no gateway process", { timeout: 20_000 }, async () => {
-  const workspace = createWorkspace();
-  const client = launch(workspace);
+test("client disconnect is bounded and leaves no gateway process", { timeout: BLACKBOX_TIMEOUTS.test }, async () => {
+  const fixture = createFixtureWorkspace(repoRoot, "normal");
+  const client = launch(fixture.workspace);
   try {
-    await initialize(client);
+    const listPromise = client.request("tools/list", {}, BLACKBOX_TIMEOUTS.request);
+    await waitForFile(fixture.readyFile, BLACKBOX_TIMEOUTS.fixtureReady);
+    assert.equal((await listPromise).error, undefined);
+    const upstreamPid = readPid(fixture.pidFile);
     client.disconnect();
-    const exitInfo = await client.closeGracefully(1_000);
+    const exitInfo = await client.waitForExit(BLACKBOX_TIMEOUTS.shutdown);
     assert.ok(exitInfo.code !== undefined || exitInfo.signal !== undefined);
+    await waitForProcessGone(upstreamPid, BLACKBOX_TIMEOUTS.forcedCleanup);
     assert.deepEqual(client.stdoutPurityViolations(), []);
   } finally {
-    await cleanupClient(client, workspace);
+    await cleanupClient(client, fixture.workspace);
   }
 });
 
 test(
   "normal upstream initializes through a real subprocess and is cleaned up on stdin EOF",
-  { timeout: 25_000 },
+  { timeout: BLACKBOX_TIMEOUTS.test },
   async () => {
     const fixture = createFixtureWorkspace(repoRoot, "normal");
     const client = launch(fixture.workspace);
     try {
-      const listPromise = client.request("tools/list", {}, DEFAULT_REQUEST_TIMEOUT_MS);
-      await waitForFile(fixture.readyFile);
+      const listPromise = client.request("tools/list", {}, BLACKBOX_TIMEOUTS.request);
+      await waitForFile(fixture.readyFile, BLACKBOX_TIMEOUTS.fixtureReady);
       const listResponse = await listPromise;
       assert.equal(listResponse.error, undefined);
       assert.ok(listResponse.result.tools.some((tool) => tool.name === FIXTURE_TOOL_NAME));
@@ -423,7 +445,7 @@ test(
 
 test(
   "upstream immediate exit is a bounded provider error and later requests remain synchronized",
-  { timeout: 25_000 },
+  { timeout: BLACKBOX_TIMEOUTS.test },
   async () => {
     const fixture = createFixtureWorkspace(repoRoot, "exit-immediately");
     const client = launch(fixture.workspace);
@@ -431,15 +453,15 @@ test(
       const callPromise = client.request(
         "tools/call",
         { name: FIXTURE_TOOL_NAME, arguments: {} },
-        DEFAULT_REQUEST_TIMEOUT_MS,
+        BLACKBOX_TIMEOUTS.request,
       );
-      await waitForFile(fixture.readyFile);
+      await waitForFile(fixture.readyFile, BLACKBOX_TIMEOUTS.fixtureReady);
       const callResponse = await callPromise;
       assert.equal(callResponse.result, undefined);
       assert.equal(typeof callResponse.error.code, "number");
       assert.equal(typeof callResponse.error.message, "string");
       assert.equal(client.exited, false);
-      const listResponse = await client.request("tools/list", {}, DEFAULT_REQUEST_TIMEOUT_MS);
+      const listResponse = await client.request("tools/list", {}, BLACKBOX_TIMEOUTS.request);
       assert.equal(listResponse.error, undefined);
       await closeAndAssert(client);
     } finally {
@@ -450,51 +472,57 @@ test(
 
 test(
   "startup-hanging upstream fails at the request deadline with diagnostics and tree cleanup",
-  { timeout: 25_000 },
+  { timeout: BLACKBOX_TIMEOUTS.test },
   async () => {
     const fixture = createFixtureWorkspace(repoRoot, "hang-startup");
     const client = launch(fixture.workspace);
     try {
-      const callPromise = client.request("tools/call", { name: FIXTURE_TOOL_NAME, arguments: {} }, 750);
-      await waitForFile(fixture.readyFile);
-      await assert.rejects(callPromise, (error) => {
-        assert.match(error.message, /timed out after 750ms/);
-        assert.match(error.message, /method=tools\/call/);
-        assert.match(error.message, /request_id=1/);
-        assert.match(error.message, /stderr_tail=/);
-        assert.match(error.message, /stdout_transcript=/);
-        return true;
-      });
+      const callPromise = client.request(
+        "tools/call",
+        { name: FIXTURE_TOOL_NAME, arguments: {} },
+        BLACKBOX_TIMEOUTS.request,
+      );
+      await waitForFile(fixture.readyFile, BLACKBOX_TIMEOUTS.fixtureReady);
+      const callResponse = await callPromise;
+      assert.equal(callResponse.result, undefined);
+      assert.match(callResponse.error.message, /upstream=fixture/);
+      assert.match(callResponse.error.message, /phase=initialize/);
+      assert.match(callResponse.error.message, /timeout_ms=2000/);
+      assert.match(callResponse.error.message, /stderr_tail=/);
+      assert.match(callResponse.error.message, /transcript=/);
       const upstreamPid = readPid(fixture.pidFile);
-      client.forceKill();
-      await client.waitForExit(3_000);
-      await waitForProcessGone(upstreamPid);
+      await waitForProcessGone(upstreamPid, BLACKBOX_TIMEOUTS.forcedCleanup);
+      await closeAndAssert(client);
     } finally {
       await cleanupClient(client, fixture.workspace);
     }
   },
 );
 
-test("large upstream stderr does not deadlock stdio or contaminate gateway stdout", { timeout: 25_000 }, async () => {
-  const fixture = createFixtureWorkspace(repoRoot, "large-stderr", { stderrBytes: 768 * 1024 });
-  const client = launch(fixture.workspace);
-  try {
-    const listPromise = client.request("tools/list", {}, DEFAULT_REQUEST_TIMEOUT_MS);
-    await waitForFile(fixture.readyFile);
-    const listResponse = await listPromise;
-    assert.equal(listResponse.error, undefined);
-    assert.ok(client.stderrBytes >= 768 * 1024);
-    assert.match(client.stderrText(), /fixture-large-stderr-end/);
-    await closeAndAssert(client);
-    await waitForProcessGone(readPid(fixture.pidFile));
-  } finally {
-    await cleanupClient(client, fixture.workspace);
-  }
-});
+test(
+  "large upstream stderr does not deadlock stdio or contaminate gateway stdout",
+  { timeout: BLACKBOX_TIMEOUTS.test },
+  async () => {
+    const fixture = createFixtureWorkspace(repoRoot, "large-stderr", { stderrBytes: 768 * 1024 });
+    const client = launch(fixture.workspace);
+    try {
+      const listPromise = client.request("tools/list", {}, BLACKBOX_TIMEOUTS.request);
+      await waitForFile(fixture.readyFile, BLACKBOX_TIMEOUTS.fixtureReady);
+      const listResponse = await listPromise;
+      assert.equal(listResponse.error, undefined);
+      await closeAndAssert(client);
+      assert.ok(client.stderrBytes >= 768 * 1024);
+      assert.match(client.stderrText(), /fixture-large-stderr-end/);
+      await waitForProcessGone(readPid(fixture.pidFile));
+    } finally {
+      await cleanupClient(client, fixture.workspace);
+    }
+  },
+);
 
 test(
   "listTools failure is surfaced through a JSON-RPC provider error and leaves the gateway usable",
-  { timeout: 25_000 },
+  { timeout: BLACKBOX_TIMEOUTS.test },
   async () => {
     const fixture = createFixtureWorkspace(repoRoot, "fail-list");
     const client = launch(fixture.workspace);
@@ -502,14 +530,14 @@ test(
       const callPromise = client.request(
         "tools/call",
         { name: FIXTURE_TOOL_NAME, arguments: {} },
-        DEFAULT_REQUEST_TIMEOUT_MS,
+        BLACKBOX_TIMEOUTS.request,
       );
-      await waitForFile(fixture.readyFile);
+      await waitForFile(fixture.readyFile, BLACKBOX_TIMEOUTS.fixtureReady);
       const callResponse = await callPromise;
       assert.equal(callResponse.result, undefined);
       assert.equal(typeof callResponse.error.code, "number");
       assert.match(callResponse.error.message, /fixture listTools failure|Connection closed|listTools/i);
-      const listResponse = await client.request("tools/list", {}, DEFAULT_REQUEST_TIMEOUT_MS);
+      const listResponse = await client.request("tools/list", {}, BLACKBOX_TIMEOUTS.request);
       assert.equal(listResponse.error, undefined);
       await closeAndAssert(client);
     } finally {
@@ -520,7 +548,7 @@ test(
 
 test(
   "malformed upstream result becomes a provider error without corrupting gateway stdout",
-  { timeout: 25_000 },
+  { timeout: BLACKBOX_TIMEOUTS.test },
   async () => {
     const fixture = createFixtureWorkspace(repoRoot, "malformed-result");
     const client = launch(fixture.workspace);
@@ -528,9 +556,9 @@ test(
       const callPromise = client.request(
         "tools/call",
         { name: FIXTURE_TOOL_NAME, arguments: {} },
-        DEFAULT_REQUEST_TIMEOUT_MS,
+        BLACKBOX_TIMEOUTS.request,
       );
-      await waitForFile(fixture.readyFile);
+      await waitForFile(fixture.readyFile, BLACKBOX_TIMEOUTS.fixtureReady);
       const callResponse = await callPromise;
       assert.equal(callResponse.result, undefined);
       assert.equal(typeof callResponse.error.code, "number");
@@ -542,39 +570,47 @@ test(
   },
 );
 
-test("termination-ignoring upstream is removed by forced process-tree cleanup", { timeout: 25_000 }, async () => {
-  const fixture = createFixtureWorkspace(repoRoot, "ignore-termination");
-  const client = launch(fixture.workspace);
-  try {
-    const listPromise = client.request("tools/list", {}, DEFAULT_REQUEST_TIMEOUT_MS);
-    await waitForFile(fixture.readyFile);
-    const listResponse = await listPromise;
-    assert.equal(listResponse.error, undefined);
-    const upstreamPid = readPid(fixture.pidFile);
-    const exitInfo = await client.closeGracefully(1_000);
-    assert.ok(exitInfo.code !== undefined || exitInfo.signal !== undefined);
-    await waitForProcessGone(upstreamPid);
-  } finally {
-    await cleanupClient(client, fixture.workspace);
-  }
-});
+test(
+  "termination-ignoring upstream is removed by forced process-tree cleanup",
+  { timeout: BLACKBOX_TIMEOUTS.test },
+  async () => {
+    const fixture = createFixtureWorkspace(repoRoot, "ignore-termination");
+    const client = launch(fixture.workspace);
+    try {
+      const listPromise = client.request("tools/list", {}, BLACKBOX_TIMEOUTS.request);
+      await waitForFile(fixture.readyFile, BLACKBOX_TIMEOUTS.fixtureReady);
+      const listResponse = await listPromise;
+      assert.equal(listResponse.error, undefined);
+      const upstreamPid = readPid(fixture.pidFile);
+      const exitInfo = await client.closeGracefully(BLACKBOX_TIMEOUTS.shutdown);
+      assert.ok(exitInfo.code !== undefined || exitInfo.signal !== undefined);
+      await waitForProcessGone(upstreamPid, BLACKBOX_TIMEOUTS.forcedCleanup);
+    } finally {
+      await cleanupClient(client, fixture.workspace);
+    }
+  },
+);
 
-test("unterminated stdout is retained as a protocol violation until close", { timeout: 20_000 }, async () => {
-  const workspace = createWorkspace({
-    config: null,
-    extraFiles: {
-      "write-garbage.mjs": "process.stdout.write('garbage'); process.exit(0);\n",
-    },
-  });
-  const client = McpStdioClient.launchNode(path.join(workspace, "write-garbage.mjs"), {
-    cwd: workspace,
-    env: isolatedEnv(workspace),
-  });
-  try {
-    await client.waitForExit(3_000);
-    assert.deepEqual(client.stdoutPurityViolations(), ["garbage"]);
-    assert.deepEqual(client.stdoutLines, ["garbage"]);
-  } finally {
-    await cleanupClient(client, workspace);
-  }
-});
+test(
+  "unterminated stdout is retained as a protocol violation until close",
+  { timeout: BLACKBOX_TIMEOUTS.test },
+  async () => {
+    const workspace = createWorkspace({
+      config: null,
+      extraFiles: {
+        "write-garbage.mjs": "process.stdout.write('garbage'); process.exit(0);\n",
+      },
+    });
+    const client = McpStdioClient.launchNode(path.join(workspace, "write-garbage.mjs"), {
+      cwd: workspace,
+      env: isolatedEnv(workspace),
+    });
+    try {
+      await client.waitForExit(BLACKBOX_TIMEOUTS.processStartup);
+      assert.deepEqual(client.stdoutPurityViolations(), ["garbage"]);
+      assert.deepEqual(client.stdoutLines, ["garbage"]);
+    } finally {
+      await cleanupClient(client, workspace);
+    }
+  },
+);
