@@ -404,9 +404,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow,
 commit conventions, and compression-change rules (every compression change
 needs both a "gets shortened" test and a "must NOT be transformed" test).
 
-Project conventions for coding agents (exploration order, self-dogfooding,
-git workflow) live in [AGENTS.md](AGENTS.md) — it's the canonical source;
-`CLAUDE.md` only sets response style and points back to it.
+The bounded agent execution contract lives in [AGENTS.md](AGENTS.md). It
+points to the authoritative documents and executable rules for exploration,
+self-dogfooding, Git workflow, testing, governance, and coding standards;
+`CLAUDE.md` only sets response style.
 
 ## Security model
 
