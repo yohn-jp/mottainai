@@ -58,16 +58,21 @@ test(
     linkDependencies(extracted, repoRoot);
     const spacedBinPath = resolvePackagedBin(extracted);
     const workspace = createWorkspace();
-    const client = McpStdioClient.launchPackaged(spacedBinPath, { cwd: workspace, env: isolatedEnv(workspace) });
+    let client;
     try {
+      client = McpStdioClient.launchPackaged(spacedBinPath, { cwd: workspace, env: isolatedEnv(workspace) });
       const response = await client.request("initialize", INITIALIZE_PARAMS, BLACKBOX_TIMEOUTS.request);
       assert.equal(response.error, undefined);
-      assert.deepEqual(client.stdoutPurityViolations(), []);
       const exitInfo = await client.closeGracefully(BLACKBOX_TIMEOUTS.shutdown);
       assert.equal(exitInfo.code, 0);
       assert.equal(exitInfo.signal, null);
+      assert.deepEqual(client.stdoutPurityViolations(), []);
     } finally {
-      await cleanupClient(client, workspace);
+      if (client === undefined) {
+        fs.rmSync(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      } else {
+        await cleanupClient(client, workspace);
+      }
     }
   },
 );
