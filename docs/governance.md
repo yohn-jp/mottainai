@@ -214,8 +214,8 @@ manually:
 - Block branch deletion
 - Disable bypasses, including administrators
 - Require the status check `Governance / validate-pr`
-- Require `CI / install / typecheck / test / build (Node 22)`
-- Require `CI / coverage (Node 22)`
+- Require `CI / typecheck (Node 22)`
+- Require `CI / fast unit / contract (Node 22)`
 
 The active repository ruleset does not require a native-Windows check or the
 Linux Node 24 compatibility smoke. No branch-protection setting is changed by

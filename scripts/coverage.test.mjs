@@ -4,7 +4,14 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { evaluateCoverage, parseLcov, summarizeCoverage, validateCoveragePolicy } from "./coverage.mjs";
+import {
+  evaluateCoverage,
+  mergeLcov,
+  parseLcov,
+  partitionTestFiles,
+  summarizeCoverage,
+  validateCoveragePolicy,
+} from "./coverage.mjs";
 
 const validPolicy = {
   schemaVersion: 1,
@@ -71,6 +78,51 @@ test("coverage gate checks repository and critical-module thresholds", () => {
   assert.equal(failing.passed, false);
   assert.ok(failing.failures.some((failure) => failure.includes("repository lines")));
   assert.ok(failing.failures.some((failure) => failure.includes("src/config.ts functions")));
+});
+
+test("coverage test files are partitioned exactly once across shards", () => {
+  const files = ["a.test.ts", "b.test.ts", "c.test.ts", "d.test.ts", "e.test.ts", "f.test.ts"];
+  const shards = [1, 2, 3].map((index) => partitionTestFiles(files, index, 3, () => 1));
+  assert.deepEqual(shards, [
+    ["a.test.ts", "d.test.ts"],
+    ["b.test.ts", "e.test.ts"],
+    ["c.test.ts", "f.test.ts"],
+  ]);
+  assert.deepEqual(shards.flat().sort(), files);
+  assert.throws(() => partitionTestFiles(files, 1, 7, () => 1), /exceeds test file count/);
+  assert.throws(() => partitionTestFiles(["a.test.ts", "a.test.ts"], 1, 2, () => 1), /contains duplicates/);
+  assert.deepEqual(
+    partitionTestFiles(files, 1, 2, (file) => (file === "a.test.ts" ? 100 : 1)),
+    ["a.test.ts"],
+  );
+});
+
+test("coverage LCOV merger sums line, function, and branch hit counts", () => {
+  const source = (hits, branchHits) =>
+    [
+      "TN:",
+      "SF:src/config.ts",
+      "FN:1,fixture",
+      `FNDA:${hits},fixture`,
+      "FNF:1",
+      `FNH:${hits > 0 ? 1 : 0}`,
+      `BRDA:1,0,0,${branchHits}`,
+      "BRF:1",
+      `BRH:${branchHits > 0 ? 1 : 0}`,
+      `DA:1,${hits}`,
+      "LF:1",
+      `LH:${hits > 0 ? 1 : 0}`,
+      "end_of_record",
+    ].join("\n");
+  const merged = mergeLcov([source(2, 3), source(4, 5)]);
+  assert.match(merged, /FNDA:6,fixture/u);
+  assert.match(merged, /BRDA:1,0,0,8/u);
+  assert.match(merged, /DA:1,6/u);
+  assert.deepEqual(summarizeCoverage(parseLcov(merged)).totals, {
+    lines: { covered: 1, total: 1, percent: 100 },
+    functions: { covered: 1, total: 1, percent: 100 },
+    branches: { covered: 1, total: 1, percent: 100 },
+  });
 });
 
 test("native test runner emits the machine-readable coverage artifact", () => {

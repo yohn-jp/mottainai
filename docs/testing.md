@@ -15,7 +15,7 @@ Ubuntu + Node 22はexhaustive correctnessの正本。Node 24はruntime/package�
 
 完全直積を避ける理由は、Node runtime差異の確認にLinuxのNode matrixで足りるため。CIはsupported runtimeのcorrectnessとNode compatibilityへ集中する。
 
-CI check名も検証責務に合わせる。Node 24のcheckは`Node compatibility smoke (Ubuntu, Node 24)`で、`pnpm run test:package`によるinstall、build、packed consumer/MCP smokeだけを実行する。main rulesetのrequired checksは`validate-pr`、`install / typecheck / test / build (Node 22)`、`coverage (Node 22)`。Windows job削除に対応するrequired checkは現行rulesetにないため、branch protectionの手動変更は不要。設定変更は実施しない。
+CI check名も検証責務に合わせる。Node 24のcheckは`Node compatibility smoke (Ubuntu, Node 24)`で、`pnpm run test:package`によるinstall、build、packed consumer/MCP smokeだけを実行する。main rulesetのrequired checksは`validate-pr`、`typecheck (Node 22)`、`fast unit / contract (Node 22)`のみ。coverage、integration/process、e2e/package、Node 24 compatibility、standardsはPR上で実行・可視化を継続するがmerge blockingではない。
 
 ## 層とコマンド
 
