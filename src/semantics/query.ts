@@ -18,6 +18,17 @@ export type SemanticDeltaKind = (typeof SEMANTIC_DELTA_KINDS)[number];
 export const REVIEW_LEVELS = ["L0", "L1", "L2", "L3"] as const;
 export type ReviewLevel = (typeof REVIEW_LEVELS)[number];
 
+import type {
+  AuthorizedActualComparison,
+  DerivedChange,
+  EvidenceRefreshNeed,
+  PropagationStopPoint,
+  SemanticDeltaRecord,
+  SymbolChange,
+  UnknownRegion,
+} from "./diff/types.js";
+import type { EffectViolation } from "./effects/types.js";
+
 export type EntityId = string;
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
@@ -295,6 +306,8 @@ export interface SemanticChangeEntry {
 
 export interface SemanticChangeSetView {
   apiVersion: typeof QUERY_API_VERSION;
+  /** Canonical #54 result version; legacy viewer fields remain for #83 consumers. */
+  version?: 1;
   baseRevision: string;
   headRevision: string;
   filesChanged: number;
@@ -308,6 +321,28 @@ export interface SemanticChangeSetView {
     entityIds: readonly EntityId[];
     stopReason: string;
   }[];
+  snapshotIds?: { base: string; head: string };
+  changedFileIds?: readonly EntityId[];
+  changedSymbolIds?: readonly EntityId[];
+  changedComponentIds?: readonly EntityId[];
+  derivedChanges?: readonly DerivedChange[];
+  symbolChanges?: readonly SymbolChange[];
+  semanticDeltas?: readonly SemanticDeltaRecord[];
+  contractChanges?: readonly SemanticDeltaRecord[];
+  effectChanges?: readonly SemanticDeltaRecord[];
+  invariantChanges?: readonly SemanticDeltaRecord[];
+  dependencyPolicyChanges?: readonly SemanticDeltaRecord[];
+  publicSurfaceChanges?: readonly SemanticDeltaRecord[];
+  responsibilityChanges?: readonly SemanticDeltaRecord[];
+  capabilityChanges?: readonly SemanticDeltaRecord[];
+  authorizedVsActual?: AuthorizedActualComparison;
+  affectedEntities?: readonly EntityId[];
+  propagationStopPoints?: readonly PropagationStopPoint[];
+  evidenceRefreshNeeds?: readonly EvidenceRefreshNeed[];
+  unknownRegions?: readonly UnknownRegion[];
+  reviewLevel?: ReviewLevel;
+  reviewReasons?: readonly string[];
+  effectViolations?: readonly EffectViolation[];
   provenance: Provenance;
 }
 
