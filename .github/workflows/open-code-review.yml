@@ -89,9 +89,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.eligibility.outputs.pr_number }}
-        run: >-
-          git -c "http.extraheader=AUTHORIZATION: bearer ${GITHUB_TOKEN}" fetch --no-tags origin
-          "pull/${PR_NUMBER}/head"
+        run: |
+          auth_header="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.extraheader=AUTHORIZATION: basic ${auth_header}" fetch --no-tags origin "pull/${PR_NUMBER}/head"
 
       - name: Run bounded review preflight
         id: preflight

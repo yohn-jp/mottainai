@@ -296,7 +296,8 @@ test("review workflows expose distinct manual commands and preserve the credenti
     assert.match(source, /head\.repo\.full_name === repoFullName/u);
     assert.match(source, /uses: actions\/checkout@[0-9a-f]{40}/u);
     assert.match(source, /persist-credentials: false/u);
-    assert.match(source, /http\.extraheader=AUTHORIZATION: bearer \$\{GITHUB_TOKEN\}/u);
+    assert.match(source, /auth_header=.*x-access-token:%s.*base64/u);
+    assert.match(source, /http\.extraheader=AUTHORIZATION: basic \$\{auth_header\}/u);
   }
   assert.match(prAgent, /github\.event\.comment\.user\.type != 'Bot'/u);
   assert.match(openCodeReview, /issue_comment:\s+types: \[created\]/u);
