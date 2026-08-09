@@ -5,7 +5,8 @@ import { adapterForClient, hookAdapters } from "./adapters/index.js";
 import type { HookClientAdapter, HookProjection } from "./adapters/types.js";
 import { deriveTrustedHookContext } from "./context.js";
 import { capabilityRegistryFromRuntime } from "./capabilities.js";
-import { dispatchHook } from "./dispatcher.js";
+import { dispatchHookDetailed } from "./dispatcher.js";
+import { createHookPolicyProviders } from "./providers/index.js";
 import { recordHookExplanation, readHookExplanation } from "./explain.js";
 import {
   applyHookLifecycle,
@@ -22,6 +23,11 @@ import {
   validateHookPolicy,
   writeHookPolicy,
 } from "./policy.js";
+import { loadConfigSnapshot } from "../config.js";
+import { createTelemetrySink } from "../telemetry.js";
+import type { TelemetrySink } from "../telemetry.js";
+import type { ReadGovernorPolicy } from "../context-runtime/read-policy.js";
+import type { HookPolicyProvider } from "./providers/types.js";
 import { boundHookDecision, boundHookText } from "./types.js";
 import type { HookDecision, HookEvent, HookFailureMode, HookOperation, HookRolloutMode } from "./types.js";
 
@@ -32,6 +38,10 @@ export interface HookCommandContext {
   dispatcherCommand?: string;
   dispatcherArguments?: readonly string[];
   exposedTools?: ReadonlySet<string>;
+  configPath?: string;
+  readPolicy?: ReadGovernorPolicy;
+  workflowProvider?: HookPolicyProvider;
+  telemetry?: Pick<TelemetrySink, "recordHookDecision" | "flush">;
 }
 
 export interface HookCommandResult {
@@ -147,6 +157,40 @@ function malformedDecision(policyResult: ReturnType<typeof loadHookPolicy>, clie
   });
 }
 
+function readPolicyFor(context: HookCommandContext): ReadGovernorPolicy | undefined {
+  if (context.readPolicy !== undefined) return context.readPolicy;
+  try {
+    return loadConfigSnapshot(context.configPath, context.workspaceRoot).gatewayConfig.readGovernor;
+  } catch {
+    return undefined;
+  }
+}
+
+function recordHookTrace(telemetry: Pick<TelemetrySink, "recordHookDecision">, trace: Awaited<ReturnType<typeof dispatchHookDetailed>>): void {
+  telemetry.recordHookDecision({
+    provider: "generic",
+    state: "authoritative",
+    decision: trace.baseline.decision,
+    reason: trace.baseline.reason,
+  });
+  for (const result of trace.providers) {
+    telemetry.recordHookDecision({
+      provider: result.provider,
+      state: result.state,
+      decision: result.action ?? "allow",
+      reason: result.reason,
+    });
+  }
+}
+
+async function flushHookTelemetry(telemetry: Pick<TelemetrySink, "flush">): Promise<void> {
+  try {
+    await telemetry.flush?.();
+  } catch {
+    // Telemetry is diagnostic-only and must not alter hook protocol behavior.
+  }
+}
+
 export async function dispatchClientHook(
   client: string,
   payload: unknown,
@@ -156,6 +200,7 @@ export async function dispatchClientHook(
   if (adapter === undefined) {
     return { exitCode: 0, stdout: "", stderr: "", decision: { version: 1, decision: "allow", reason: "adapter_unsupported" } };
   }
+  const telemetry = context.telemetry ?? createTelemetrySink(context.environment);
   const policyResult = loadHookPolicy(context.workspaceRoot);
   const trusted = deriveTrustedHookContext({ workspaceRoot: context.workspaceRoot });
   const normalized = adapter.normalize(payload, { workspaceRoot: context.workspaceRoot, ...trusted });
@@ -165,6 +210,8 @@ export async function dispatchClientHook(
       adapter.project(decision, fallbackEvent(adapter.client, context)),
       policyResult.ok ? policyResult.policy.maxOutputBytes : DEFAULT_HOOK_MAX_OUTPUT_BYTES,
     );
+    telemetry.recordHookDecision({ provider: "generic", state: "unavailable", decision: decision.decision, reason: decision.reason });
+    await flushHookTelemetry(telemetry);
     return { ...projection, decision };
   }
   if (!policyResult.ok) {
@@ -176,6 +223,8 @@ export async function dispatchClientHook(
       diagnostic: closed ? "failure_mode=closed" : "failure_mode=open",
     });
     const projection = boundedProjection(adapter.project(decision, normalized.event), DEFAULT_HOOK_MAX_OUTPUT_BYTES);
+    telemetry.recordHookDecision({ provider: "generic", state: "unavailable", decision: decision.decision, reason: decision.reason });
+    await flushHookTelemetry(telemetry);
     return { ...projection, decision, event: normalized.event };
   }
   const event = normalized.event;
@@ -189,14 +238,25 @@ export async function dispatchClientHook(
   // explicitly so the configured fail-open/fail-closed mode can be applied.
   const exposedTools = context.exposedTools ?? new Set<string>();
   const capabilities = capabilityRegistryFromRuntime({ dispatcherAvailable, exposedTools });
-  const decision = await dispatchHook(event, { policy: policyResult.policy, capabilities });
+  const trace = await dispatchHookDetailed(event, {
+    policy: policyResult.policy,
+    capabilities,
+    providers: createHookPolicyProviders({
+      workspaceRoot: context.workspaceRoot,
+      readPolicy: readPolicyFor(context),
+      workflowProvider: context.workflowProvider,
+    }),
+  });
+  const decision = trace.decision;
   try {
-    recordHookExplanation(context.workspaceRoot, event, decision, policyResult.policy, capabilities);
+    recordHookExplanation(context.workspaceRoot, event, decision, policyResult.policy, capabilities, trace.providers);
   } catch {
     // Explanation persistence is diagnostic-only. It must not turn an already
     // bounded policy decision into an unbounded hook error.
   }
+  recordHookTrace(telemetry, trace);
   const projection = boundedProjection(adapter.project(decision, event), policyResult.policy.maxOutputBytes);
+  await flushHookTelemetry(telemetry);
   return {
     exitCode: projection.exitCode,
     stdout: projection.stdout,
