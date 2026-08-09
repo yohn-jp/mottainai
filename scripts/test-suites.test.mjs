@@ -21,6 +21,28 @@ test("fast suite excludes expensive integration, process, package, and e2e files
   assert.equal(classifyTestFile("scripts/lib/mcp-blackbox-client.test.mjs"), "integration");
   assert.equal(classifyTestFile("scripts/smoke-test.mjs"), "package");
   assert.equal(classifyTestFile("scripts/mcp-stdio-package.test.mjs"), "package");
+  for (const integrationFile of [
+    "src/auth.test.ts",
+    "src/code-search.test.ts",
+    "src/config.test.ts",
+    "src/context-runtime/gh-checks.test.ts",
+    "src/context-runtime/identity.test.ts",
+    "src/context-runtime/read-adapter.test.ts",
+    "src/gitignore.test.ts",
+    "src/hooks/hooks.test.ts",
+    "src/proxy.test.ts",
+    "src/read-governor-cli.test.ts",
+    "src/runtime-diagnostic.test.ts",
+    "src/telemetry.test.ts",
+    "src/upstream.test.ts",
+  ]) {
+    assert.equal(architecture.suites.fast.includes(integrationFile), false, `${integrationFile} must stay out of fast`);
+    assert.equal(
+      architecture.suites.integration.includes(integrationFile),
+      true,
+      `${integrationFile} must stay covered`,
+    );
+  }
   assert.equal(architecture.suites.fast.includes("src/e2e/mcp-stdio.e2e.spec.ts"), false);
   assert.equal(architecture.suites.fast.includes("src/init.test.ts"), false);
   assert.equal(architecture.suites.fast.includes("scripts/smoke-test.mjs"), false);

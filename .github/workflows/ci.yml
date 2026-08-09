@@ -61,17 +61,8 @@ jobs:
           node-version: "22"
           cache: pnpm
 
-      - name: Install fast code-search dependency
-        run: |
-          # src/code-search.test.ts executes the rg fallback contract directly.
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Verify required test tool
-        run: rg --version
 
       - name: Test (fast unit / contract)
         run: pnpm test
@@ -277,7 +268,6 @@ jobs:
           name: coverage-shard-${{ matrix.shard }}
           path: coverage/shard-${{ matrix.shard }}
           if-no-files-found: error
-
           retention-days: 1
 
   coverage:
