@@ -3,13 +3,20 @@ import fs from "node:fs";
 import { runCli } from "./cli.js";
 import { resolveConfigPath } from "./config.js";
 import { closeDashboard, hasActiveDashboard } from "./dashboard/command.js";
+import { createRuntimeDiagnostic, formatRuntimeDiagnosticHuman } from "./runtime-diagnostic.js";
 import { runServer } from "./server.js";
 
 const args = process.argv.slice(2);
+const startupCwd = process.cwd();
 
 if (args.length === 0) {
+  const runtimeDiagnostic = createRuntimeDiagnostic({
+    cwd: startupCwd,
+    environment: process.env,
+    entryPoint: process.argv[1],
+  });
   try {
-    await runServer();
+    await runServer(undefined, startupCwd, runtimeDiagnostic, process.env.HOME ?? process.env.USERPROFILE);
   } catch (error) {
     const configPath = resolveConfigPath();
     const missingConfig = error instanceof Error
@@ -25,9 +32,9 @@ if (args.length === 0) {
         "",
         "ENOENT: no such file or directory",
       ].join("\n");
-      console.error(message);
+      console.error(`${message}\n\nRuntime diagnostic:\n${formatRuntimeDiagnosticHuman(runtimeDiagnostic)}`);
     } else {
-      console.error(error instanceof Error ? error.message : String(error));
+      console.error(`${error instanceof Error ? error.message : String(error)}\n\nRuntime diagnostic:\n${formatRuntimeDiagnosticHuman(runtimeDiagnostic)}`);
     }
     process.exitCode = 1;
   }

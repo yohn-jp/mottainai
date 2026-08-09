@@ -1,6 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { loadConfigSnapshot } from "../config.js";
+import {
+  createRuntimeDiagnostic,
+  enrichRuntimeDiagnostic,
+  formatRuntimeDiagnosticHuman,
+} from "../runtime-diagnostic.js";
+import type { RuntimeDiagnostic, RuntimeDiagnosticOptions } from "../runtime-diagnostic.js";
 
 export type DoctorCheckStatus = "pass" | "warning" | "error";
 
@@ -28,6 +34,7 @@ export interface DoctorReport {
   version: number;
   checked: number;
   problems: DoctorProblem[];
+  identity: RuntimeDiagnostic;
 }
 
 export interface DoctorDependencies {
@@ -42,6 +49,7 @@ export interface CollectDoctorReportOptions {
   configPath?: string;
   cwd?: string;
   dependencies?: Partial<DoctorDependencies>;
+  runtime?: Partial<RuntimeDiagnosticOptions>;
 }
 
 const MINIMUM_NODE_VERSION = [22, 13, 0] as const;
@@ -105,8 +113,36 @@ export function collectDoctorReport(options: CollectDoctorReportOptions = {}): D
   const cwd = options.cwd ?? process.cwd();
   const defaults = defaultDependencies();
   const dependencies: DoctorDependencies = { ...defaults, ...options.dependencies };
-  const snapshot = loadConfigSnapshot(options.configPath, cwd);
+  const identity = createRuntimeDiagnostic({
+    ...options.runtime,
+    configPath: options.configPath,
+    cwd,
+    environment: dependencies.environment,
+  });
+  let snapshot: ReturnType<typeof loadConfigSnapshot>;
+  try {
+    snapshot = loadConfigSnapshot(options.configPath, cwd);
+  } catch (error) {
+    if (!(error instanceof Error) || (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    const problem = { severity: "error" as const, message: `config not found: ${identity.config_path}` };
+    return {
+      ok: false,
+      errors: 1,
+      warnings: 0,
+      checks: [{ name: "config", status: "error", message: problem.message }],
+      config_file: identity.config_path,
+      version: 0,
+      checked: 0,
+      problems: [problem],
+      identity,
+    };
+  }
   const { config, configPath, gatewayConfig } = snapshot;
+  const resolvedIdentity = enrichRuntimeDiagnostic(
+    identity,
+    snapshot,
+    options.runtime?.homeDirectory ?? dependencies.environment.HOME ?? dependencies.environment.USERPROFILE,
+  );
   const configDirectory = path.dirname(configPath);
   const checks: Check[] = [];
   const add = (check: Check): void => { checks.push(check); };
@@ -184,12 +220,23 @@ export function collectDoctorReport(options: CollectDoctorReportOptions = {}): D
   }]);
   const errors = problems.filter((problem) => problem.severity === "error").length;
   const warnings = problems.length - errors;
-  return { ok: errors === 0, errors, warnings, checks, config_file: configPath, version: config.version ?? 1, checked: enabled.length, problems };
+  return {
+    ok: errors === 0,
+    errors,
+    warnings,
+    checks,
+    config_file: configPath,
+    version: config.version ?? 1,
+    checked: enabled.length,
+    problems,
+    identity: resolvedIdentity,
+  };
 }
 
 export function formatDoctorHuman(report: DoctorReport): string {
   const symbol: Record<DoctorCheckStatus, string> = { pass: "✓", warning: "⚠", error: "✗" };
-  const lines = ["Mottainai Doctor", "", ...report.checks.map((check) =>
+  const identityLines = formatRuntimeDiagnosticHuman(report.identity).split("\n").map((line) => `  ${line}`);
+  const lines = ["Mottainai Doctor", "", "Runtime identity", ...identityLines, "", ...report.checks.map((check) =>
     `${symbol[check.status]} ${check.upstream === undefined ? "" : `${check.upstream}: `}${check.message}`), "",
   `${report.errors} ${report.errors === 1 ? "error" : "errors"}, ${report.warnings} ${report.warnings === 1 ? "warning" : "warnings"}`];
   return lines.join("\n");

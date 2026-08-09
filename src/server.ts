@@ -7,10 +7,23 @@ import { loadConfigSnapshot } from "./config.js";
 import { createLogger } from "./logging.js";
 import { registerProxyHandlers } from "./proxy.js";
 import { InMemoryArtifactStore } from "./retrieve.js";
+import { createRuntimeDiagnostic, enrichRuntimeDiagnostic } from "./runtime-diagnostic.js";
+import type { RuntimeDiagnostic } from "./runtime-diagnostic.js";
 import { UpstreamRegistry } from "./upstream.js";
 
-export async function runServer(configPath?: string, cwd: string = process.cwd()): Promise<void> {
+export async function runServer(
+  configPath?: string,
+  cwd: string = process.cwd(),
+  runtimeDiagnostic: RuntimeDiagnostic = createRuntimeDiagnostic({
+    configPath,
+    cwd,
+    entryPoint: "unknown",
+    environment: {},
+  }),
+  homeDirectory?: string,
+): Promise<void> {
   const snapshot = loadConfigSnapshot(configPath, cwd);
+  const resolvedRuntimeDiagnostic = enrichRuntimeDiagnostic(runtimeDiagnostic, snapshot, homeDirectory);
   const oauthCredentialProvider = await loadOAuthCredentialProvider(
     snapshot.gatewayConfig.oauthProviderModule,
     path.dirname(snapshot.configPath),
@@ -39,6 +52,8 @@ export async function runServer(configPath?: string, cwd: string = process.cwd()
     snapshot.gatewayConfig,
     {},
     activeProfile,
+    undefined,
+    resolvedRuntimeDiagnostic,
   );
 
   const transport = new StdioServerTransport();
