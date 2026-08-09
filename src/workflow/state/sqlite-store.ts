@@ -7,6 +7,7 @@ import type { BoundaryOperations } from "../../boundary.js";
 import { applyMigrations } from "../../state/migrations.js";
 import type { Migration } from "../../state/migrations.js";
 import { resolveStateDbPath } from "../../state/paths.js";
+import { sanitizeAuditMetadata } from "../domain/audit.js";
 import type { RepositoryInstanceId, RootCommitDigest } from "../domain/identity.js";
 import type { LifecycleState } from "../domain/lifecycle.js";
 import type {
@@ -30,7 +31,11 @@ import type {
   CleanupLeaseState,
   CommitCleanupInput,
   CommitCleanupResult,
+  GuardrailAuditRecord,
+  GuardrailAuditDecision,
+  ListGuardrailAuditRecordsOptions,
   MarkCleanupLeaseInput,
+  RecordGuardrailDecisionInput,
   ReserveCleanupLeaseInput,
   ReserveCleanupLeaseResult,
   TaskId,
@@ -187,6 +192,47 @@ function toValidationEvidenceRecord(row: Record<string, unknown>): ValidationEvi
     headCommit: row.head_commit as string,
     name: row.name as string,
     status: row.status as ValidationEvidenceRecord["status"],
+    recordedAt: row.recorded_at as number,
+  };
+}
+
+const AUDIT_MAX_FIELD_LENGTH = 128;
+const AUDIT_SAFE_IDENTIFIER = /^[A-Za-z][A-Za-z0-9_.:-]{0,127}$/u;
+
+function boundedAuditField(value: string, field: string): string {
+  const normalized = value.trim();
+  if (normalized.length === 0) throw new Error(`${field} must not be empty`);
+  if (/[\u0000-\u001f\u007f]/u.test(normalized)) throw new Error(`${field} contains control characters`);
+  if (normalized.length > AUDIT_MAX_FIELD_LENGTH || !AUDIT_SAFE_IDENTIFIER.test(normalized))
+    throw new Error(`${field} must be a safe audit identifier`);
+  return normalized;
+}
+
+function toAuditMetadata(value: unknown): Record<string, string | number | boolean | null> {
+  try {
+    return { ...sanitizeAuditMetadata(value) };
+  } catch {
+    return {};
+  }
+}
+
+function toAuditRecord(row: Record<string, unknown>): GuardrailAuditRecord {
+  let metadata: Record<string, string | number | boolean | null> = {};
+  try {
+    metadata = toAuditMetadata(JSON.parse(String(row.metadata_json ?? "{}")));
+  } catch {
+    metadata = {};
+  }
+  return {
+    auditId: row.audit_id as string,
+    operation: row.operation as string,
+    decision: row.decision as GuardrailAuditDecision,
+    ruleId: row.rule_id as string,
+    reasonCode: row.reason_code as string,
+    instanceId: (row.instance_id as RepositoryInstanceId | null) ?? undefined,
+    taskId: (row.task_id as TaskId | null) ?? undefined,
+    policyProvenance: (row.policy_provenance as string | null) ?? undefined,
+    metadata,
     recordedAt: row.recorded_at as number,
   };
 }
@@ -391,6 +437,20 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     return rows.map(toPathRecord);
   }
 
+  listRepositorySources(): RepositorySourceRecord[] {
+    const rows = this.handle()
+      .prepare("SELECT * FROM repository_sources ORDER BY created_at ASC, source_id ASC")
+      .all() as Record<string, unknown>[];
+    return rows.map(toSourceRecord);
+  }
+
+  listRepositoryInstances(): RepositoryInstanceRecord[] {
+    const rows = this.handle()
+      .prepare("SELECT * FROM repository_instances ORDER BY created_at ASC, instance_id ASC")
+      .all() as Record<string, unknown>[];
+    return rows.map(toInstanceRecord);
+  }
+
   recordHookCheckpoint(input: RecordHookCheckpointInput): HookCheckpointRecord {
     const db = this.handle();
     const checkedAt = input.checkedAt ?? Date.now();
@@ -580,6 +640,16 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     return row === undefined ? undefined : toTaskRecord(row);
   }
 
+  listTasks(instanceId?: RepositoryInstanceId): TaskRecord[] {
+    const rows =
+      instanceId === undefined
+        ? this.handle().prepare("SELECT * FROM tasks ORDER BY created_at ASC, task_id ASC").all()
+        : this.handle()
+            .prepare("SELECT * FROM tasks WHERE instance_id = ? ORDER BY created_at ASC, task_id ASC")
+            .all(instanceId);
+    return (rows as Record<string, unknown>[]).map(toTaskRecord);
+  }
+
   listWorktreesForTask(taskId: TaskId): WorktreeRecord[] {
     const rows = this.handle()
       .prepare("SELECT * FROM worktrees WHERE task_id = ? ORDER BY created_at ASC")
@@ -592,6 +662,45 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       .prepare("SELECT * FROM worktrees WHERE instance_id = ? ORDER BY created_at ASC")
       .all(instanceId) as Record<string, unknown>[];
     return rows.map(toWorktreeRecord);
+  }
+
+  listWorktrees(instanceId?: RepositoryInstanceId): WorktreeRecord[] {
+    const rows =
+      instanceId === undefined
+        ? this.handle().prepare("SELECT * FROM worktrees ORDER BY created_at ASC, worktree_id ASC").all()
+        : this.handle()
+            .prepare("SELECT * FROM worktrees WHERE instance_id = ? ORDER BY created_at ASC, worktree_id ASC")
+            .all(instanceId);
+    return (rows as Record<string, unknown>[]).map(toWorktreeRecord);
+  }
+
+  listCleanupLeases(instanceId?: RepositoryInstanceId): CleanupLeaseRecord[] {
+    const rows =
+      instanceId === undefined
+        ? this.handle().prepare("SELECT * FROM cleanup_leases ORDER BY updated_at ASC, operation_id ASC").all()
+        : this.handle()
+            .prepare("SELECT * FROM cleanup_leases WHERE instance_id = ? ORDER BY updated_at ASC, operation_id ASC")
+            .all(instanceId);
+    return (rows as Record<string, unknown>[]).map((row) => toCleanupLeaseRecord(row as Record<string, unknown>));
+  }
+
+  markWorktreeRemoved(worktreeId: WorktreeId, updatedAt?: number): WorktreeRecord {
+    const now = updatedAt ?? Date.now();
+    const result = this.handle()
+      .prepare("UPDATE worktrees SET status = 'removed', updated_at = ? WHERE worktree_id = ? AND status != 'removed'")
+      .run(now, worktreeId);
+    if (result.changes === 0) {
+      const row = this.handle().prepare("SELECT * FROM worktrees WHERE worktree_id = ?").get(worktreeId) as
+        | Record<string, unknown>
+        | undefined;
+      if (row === undefined) throw new Error(`worktree not found: ${worktreeId}`);
+      return toWorktreeRecord(row);
+    }
+    const row = this.handle().prepare("SELECT * FROM worktrees WHERE worktree_id = ?").get(worktreeId) as Record<
+      string,
+      unknown
+    >;
+    return toWorktreeRecord(row);
   }
 
   reserveCleanupLease(input: ReserveCleanupLeaseInput): ReserveCleanupLeaseResult {
@@ -888,6 +997,7 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     return {
       recordId: row.record_id as PullRequestRecordId,
       taskId: (row.task_id as TaskId | null) ?? undefined,
+      instanceId: (row.instance_id as RepositoryInstanceId | null) ?? undefined,
       provider: row.provider as string,
       repositoryId: row.repository_id as string,
       prNumber: row.pr_number as number,
@@ -906,12 +1016,27 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     let result!: PullRequestRecord;
     db.exec("BEGIN IMMEDIATE");
     try {
+      const task =
+        input.taskId === undefined
+          ? undefined
+          : (db.prepare("SELECT instance_id FROM tasks WHERE task_id = ?").get(input.taskId) as
+              | { instance_id: RepositoryInstanceId }
+              | undefined);
+      if (input.taskId !== undefined && task === undefined) throw new Error(`task not found: ${input.taskId}`);
+      if (task !== undefined && input.instanceId !== undefined && input.instanceId !== task.instance_id) {
+        throw new Error(`pull request task repository mismatch: ${input.taskId}`);
+      }
+      const instanceId = input.instanceId ?? task?.instance_id;
       const existing = db
         .prepare("SELECT * FROM pr_records WHERE provider = ? AND repository_id = ? AND pr_number = ?")
         .get(input.provider, input.repositoryId, input.prNumber) as Record<string, unknown> | undefined;
       if (existing !== undefined) {
         const existingRecord = this.toPullRequestRecord(existing);
-        if (existingRecord.headSha !== input.headSha || existingRecord.taskId !== input.taskId) {
+        if (
+          existingRecord.headSha !== input.headSha ||
+          existingRecord.taskId !== input.taskId ||
+          existingRecord.instanceId !== instanceId
+        ) {
           throw new Error(
             `pull request record already exists with different identity: ${input.provider}/${input.repositoryId}#${input.prNumber}`,
           );
@@ -923,11 +1048,12 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       const recordId = crypto.randomUUID() as PullRequestRecordId;
       db.prepare(
         `INSERT INTO pr_records
-          (record_id, task_id, provider, repository_id, pr_number, url, head_sha, lifecycle_state, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (record_id, task_id, instance_id, provider, repository_id, pr_number, url, head_sha, lifecycle_state, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         recordId,
         input.taskId ?? null,
+        instanceId ?? null,
         input.provider,
         input.repositoryId,
         input.prNumber,
@@ -991,6 +1117,69 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       unknown
     >;
     return this.toPullRequestRecord(row);
+  }
+
+  listPullRequestRecords(): PullRequestRecord[] {
+    const rows = this.handle()
+      .prepare("SELECT * FROM pr_records ORDER BY created_at ASC, record_id ASC")
+      .all() as Record<string, unknown>[];
+    return rows.map((row) => this.toPullRequestRecord(row));
+  }
+
+  recordGuardrailDecision(input: RecordGuardrailDecisionInput): GuardrailAuditRecord {
+    const db = this.handle();
+    const auditId = crypto.randomUUID();
+    const recordedAt = input.recordedAt ?? Date.now();
+    const operation = boundedAuditField(input.operation, "operation");
+    const ruleId = boundedAuditField(input.ruleId, "ruleId");
+    const reasonCode = boundedAuditField(input.reasonCode, "reasonCode");
+    const policyProvenance =
+      input.policyProvenance === undefined ? null : boundedAuditField(input.policyProvenance, "policyProvenance");
+    const metadata = toAuditMetadata(input.metadata);
+    db.prepare(
+      `INSERT INTO audit_records
+        (audit_id, operation, decision, rule_id, reason_code, instance_id, task_id, policy_provenance, metadata_json, recorded_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      auditId,
+      operation,
+      input.decision,
+      ruleId,
+      reasonCode,
+      input.instanceId ?? null,
+      input.taskId ?? null,
+      policyProvenance,
+      JSON.stringify(metadata),
+      recordedAt,
+    );
+    const row = db.prepare("SELECT * FROM audit_records WHERE audit_id = ?").get(auditId) as Record<string, unknown>;
+    return toAuditRecord(row);
+  }
+
+  listGuardrailAuditRecords(options: ListGuardrailAuditRecordsOptions = {}): GuardrailAuditRecord[] {
+    const conditions: string[] = [];
+    const values: Array<string | number> = [];
+    if (options.instanceId !== undefined) {
+      conditions.push("instance_id = ?");
+      values.push(options.instanceId);
+    }
+    if (options.taskId !== undefined) {
+      conditions.push("task_id = ?");
+      values.push(options.taskId);
+    }
+    if (options.since !== undefined) {
+      conditions.push("recorded_at >= ?");
+      values.push(options.since);
+    }
+    if (options.until !== undefined) {
+      conditions.push("recorded_at <= ?");
+      values.push(options.until);
+    }
+    const where = conditions.length === 0 ? "" : ` WHERE ${conditions.join(" AND ")}`;
+    const rows = this.handle()
+      .prepare(`SELECT * FROM audit_records${where} ORDER BY recorded_at ASC, audit_id ASC`)
+      .all(...values) as Record<string, unknown>[];
+    return rows.map(toAuditRecord);
   }
 
   close(): void {
