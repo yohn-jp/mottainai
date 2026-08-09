@@ -1,6 +1,11 @@
 import { spawn } from "node:child_process";
-import { createFixtureQuery } from "../semantics/fixtures/dashboard-fixture.js";
 import { readDashboardViewer } from "./assets.js";
+import {
+  configuredDashboardProvider,
+  createDashboardQuery,
+  parseDashboardProvider,
+  type DashboardProvider,
+} from "./provider.js";
 import {
   DEFAULT_DASHBOARD_PORT,
   LOOPBACK_HOST,
@@ -8,11 +13,12 @@ import {
   type DashboardServerHandle,
 } from "./http.js";
 
-const DASHBOARD_USAGE = "usage: mottainai dashboard [--no-open] [--port <port>]";
+const DASHBOARD_USAGE = "usage: mottainai dashboard [--no-open] [--port <port>] [--provider fixture|live]";
 
 export interface DashboardCommandOptions {
   noOpen: boolean;
   port: number;
+  provider?: DashboardProvider;
 }
 
 export type BrowserOpener = (url: string) => Promise<void>;
@@ -20,6 +26,7 @@ export type BrowserOpener = (url: string) => Promise<void>;
 export interface DashboardStartOptions extends DashboardCommandOptions {
   viewerHtml?: string;
   browserOpener?: BrowserOpener;
+  environment?: NodeJS.ProcessEnv;
 }
 
 let activeDashboard: DashboardServerHandle | undefined;
@@ -44,6 +51,16 @@ export function parseDashboardOptions(args: readonly string[]): DashboardCommand
       port = parsed;
       continue;
     }
+    if (argument === "--provider") {
+      const value = args[index + 1];
+      if (value === undefined || value.startsWith("--")) throw new Error(`missing value for --provider\n${DASHBOARD_USAGE}`);
+      index += 1;
+      const provider = parseDashboardProvider(value);
+      return {
+        ...parseDashboardOptions([...args.slice(0, index - 1), ...args.slice(index + 1)]),
+        provider,
+      };
+    }
     throw new Error(`${DASHBOARD_USAGE}\nunknown dashboard option: ${argument}`);
   }
   return { noOpen, port };
@@ -62,10 +79,11 @@ export function openDashboardBrowser(url: string, platform: NodeJS.Platform): Pr
 }
 
 export async function startDashboard(options: DashboardStartOptions): Promise<DashboardServerHandle> {
+  const provider = options.provider ?? configuredDashboardProvider(options.environment);
   const handle = await startDashboardServer({
     host: LOOPBACK_HOST,
     port: options.port,
-    query: createFixtureQuery(),
+    query: createDashboardQuery(provider, process.cwd()),
     viewerHtml: options.viewerHtml ?? readDashboardViewer(),
   });
   activeDashboard = handle;

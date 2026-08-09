@@ -24,7 +24,7 @@ const USAGE = `usage:
   mottainai                                      start the MCP stdio server
   mottainai init [options]                       initialize a workspace configuration
   mottainai serve                                start the MCP stdio server explicitly
-  mottainai dashboard [options]                  start the local semantic project viewer
+  mottainai dashboard [options]                  start the local semantic project viewer (fixture|live)
   mottainai list                                 registered upstreams and profiles
   mottainai inspect <name>                       one upstream with defaults applied
   mottainai add <name> --command c [options]     register a stdio upstream
@@ -210,6 +210,7 @@ export async function runCli(args: string[]): Promise<number> {
       const dashboardOptions = parseDashboardOptions(argv);
       const dashboard = await startDashboard({
         ...dashboardOptions,
+        environment: process.env,
         browserOpener: dashboardOptions.noOpen
           ? undefined
           : (url) => openDashboardBrowser(url, process.platform),

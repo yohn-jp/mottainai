@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import packageMetadata from "../package.json" with { type: "json" };
+import { addSecondaryDiagnostic, DIRECT_BOUNDARIES } from "./boundary.js";
+import type { BoundaryOperations } from "./boundary.js";
 import { collectDoctorReport, formatDoctorHuman } from "./commands/doctor.js";
 import { resolveConfigPath, saveRawConfig } from "./config.js";
 import type { DoctorReport } from "./commands/doctor.js";
@@ -20,6 +22,8 @@ export interface InitRunOptions {
   cwd?: string;
   stdinIsTTY?: boolean;
   stdoutIsTTY?: boolean;
+  /** Internal fault-test seam; runtime configuration never supplies this. */
+  boundaries?: BoundaryOperations;
 }
 
 export interface InitClientResult {
@@ -258,7 +262,11 @@ function importedRegistration(name: string, value: unknown): ImportedRegistratio
   const command = typeof value.command === "string" ? value.command : undefined;
   if (url === undefined && command === undefined) return { warnings: [] };
   if (url !== undefined && !safeRemoteUrl(url)) {
-    return { warnings: [`${name} was not imported because its URL is not a plain http(s) URL without credentials or query/fragment data`] };
+    return {
+      warnings: [
+        `${name} was not imported because its URL is not a plain http(s) URL without credentials or query/fragment data`,
+      ],
+    };
   }
 
   const sanitizedArguments = sanitizeArguments(value.args);
@@ -272,19 +280,22 @@ function importedRegistration(name: string, value: unknown): ImportedRegistratio
     warnings.push(`${name} auth/header configuration was not copied because its URL is not https`);
   }
 
-  const imported: Record<string, unknown> = url === undefined
-    ? {
-      command,
-      ...(sanitizedArguments === undefined || sanitizedArguments.args.length === 0 ? {} : { args: sanitizedArguments.args }),
-      ...(typeof value.cwd === "string" ? { cwd: value.cwd } : {}),
-    }
-    : {
-      transport: "streamableHttp",
-      url,
-      ...(isHttps && isRecord(value.auth) && value.auth.type === "oauth" && typeof value.auth.profile === "string"
-        ? { auth: { type: "oauth", profile: value.auth.profile } }
-        : {}),
-    };
+  const imported: Record<string, unknown> =
+    url === undefined
+      ? {
+          command,
+          ...(sanitizedArguments === undefined || sanitizedArguments.args.length === 0
+            ? {}
+            : { args: sanitizedArguments.args }),
+          ...(typeof value.cwd === "string" ? { cwd: value.cwd } : {}),
+        }
+      : {
+          transport: "streamableHttp",
+          url,
+          ...(isHttps && isRecord(value.auth) && value.auth.type === "oauth" && typeof value.auth.profile === "string"
+            ? { auth: { type: "oauth", profile: value.auth.profile } }
+            : {}),
+        };
   const capabilities = stringArray(value.capabilities);
   if (capabilities !== undefined) imported.capabilities = capabilities;
   if (typeof value.enabled === "boolean") imported.enabled = value.enabled;
@@ -301,17 +312,14 @@ function importedRegistration(name: string, value: unknown): ImportedRegistratio
     if (Object.keys(headersFromEnv).length > 0) imported.headersFromEnv = headersFromEnv;
   }
 
-  if (isRecord(value.env) && Object.keys(value.env).length > 0) warnings.push(`${name} environment values were not copied`);
+  if (isRecord(value.env) && Object.keys(value.env).length > 0)
+    warnings.push(`${name} environment values were not copied`);
   return { server: { name, config: imported }, warnings };
 }
 
 function extractRegistrations(value: unknown): { servers: ImportedServer[]; warnings: string[] } {
   if (!isRecord(value)) return { servers: [], warnings: [] };
-  const candidates = isRecord(value.mcpServers)
-    ? value.mcpServers
-    : isRecord(value.servers)
-      ? value.servers
-      : value;
+  const candidates = isRecord(value.mcpServers) ? value.mcpServers : isRecord(value.servers) ? value.servers : value;
   const servers: ImportedServer[] = [];
   const warnings: string[] = [];
   for (const [name, registration] of Object.entries(candidates)) {
@@ -326,12 +334,16 @@ function runClientList(client: InitClient): ClientListResult {
   if (client === "none") return { output: "", commandAvailable: false, successful: false, timedOut: false };
   const executable = commandPath(client);
   if (executable === undefined) return { output: "", commandAvailable: false, successful: false, timedOut: false };
-  for (const args of [["mcp", "list", "--json"], ["mcp", "list"]]) {
+  for (const args of [
+    ["mcp", "list", "--json"],
+    ["mcp", "list"],
+  ]) {
     const result = spawnClientCommand(executable, args);
     if ((result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT") {
       return { output: "", commandAvailable: true, successful: false, timedOut: true };
     }
-    if (result.status === 0) return { output: result.stdout, commandAvailable: true, successful: true, timedOut: false };
+    if (result.status === 0)
+      return { output: result.stdout, commandAvailable: true, successful: true, timedOut: false };
   }
   return { output: "", commandAvailable: true, successful: false, timedOut: false };
 }
@@ -364,7 +376,9 @@ function importClientServers(source: InitImportSource): { servers: ImportedServe
 
 function gitExcludePath(workspace: string): string | undefined {
   try {
-    const result = execFileSync("git", ["-C", workspace, "rev-parse", "--git-path", "info/exclude"], { encoding: "utf8" }).trim();
+    const result = execFileSync("git", ["-C", workspace, "rev-parse", "--git-path", "info/exclude"], {
+      encoding: "utf8",
+    }).trim();
     if (result === "") return undefined;
     return path.resolve(workspace, result);
   } catch {
@@ -375,13 +389,20 @@ function gitExcludePath(workspace: string): string | undefined {
 function personalExcludeEntries(configPath: string, workspace: string): string[] {
   const relativeConfig = path.relative(workspace, configPath).split(path.sep).join("/");
   const entries = [".mottainai/"];
-  if (relativeConfig !== "" && !relativeConfig.startsWith("../") && relativeConfig !== "..") entries.unshift(relativeConfig);
+  if (relativeConfig !== "" && !relativeConfig.startsWith("../") && relativeConfig !== "..")
+    entries.unshift(relativeConfig);
   return entries;
 }
 
-function updateGitExclude(configPath: string, workspace: string, write: boolean): { changed: boolean; path?: string; warning?: string } {
+function updateGitExclude(
+  configPath: string,
+  workspace: string,
+  write: boolean,
+  boundaries: BoundaryOperations,
+): { changed: boolean; path?: string; warning?: string } {
   const excludePath = gitExcludePath(workspace);
-  if (excludePath === undefined) return { changed: false, warning: "personal scope requested, but this workspace is not a Git repository" };
+  if (excludePath === undefined)
+    return { changed: false, warning: "personal scope requested, but this workspace is not a Git repository" };
   const existing = fs.existsSync(excludePath) ? fs.readFileSync(excludePath, "utf8") : "";
   const missing = personalExcludeEntries(configPath, workspace).filter((entry) => {
     return !existing.split(/\r?\n/).some((line) => line.trim() === entry || line.trim() === `/${entry}`);
@@ -389,27 +410,91 @@ function updateGitExclude(configPath: string, workspace: string, write: boolean)
   if (missing.length === 0) return { changed: false, path: excludePath };
   if (!write) return { changed: true, path: excludePath };
   const prefix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
-  fs.appendFileSync(excludePath, `${prefix}# mottainai personal configuration\n${missing.join("\n")}\n`);
+  boundaries.file("config.git-exclude.append", () => {
+    fs.appendFileSync(excludePath, `${prefix}# mottainai personal configuration\n${missing.join("\n")}\n`);
+  });
   return { changed: true, path: excludePath };
 }
 
-function atomicWrite(filePath: string, config: Record<string, unknown>): void {
-  const directory = path.dirname(filePath);
-  fs.mkdirSync(directory, { recursive: true });
-  const temporaryDirectory = fs.mkdtempSync(path.join(directory, ".mottainai-init-"));
-  const temporaryPath = path.join(temporaryDirectory, path.basename(filePath));
+function cleanupTemporaryDirectory(
+  temporaryDirectory: string,
+  boundaries: BoundaryOperations,
+  primary?: unknown,
+): Error | undefined {
   try {
-    saveRawConfig(temporaryPath, config);
-    fs.renameSync(temporaryPath, filePath);
-  } finally {
-    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+    boundaries.file("config.temp.cleanup", () => fs.rmSync(temporaryDirectory, { recursive: true, force: true }));
+    return undefined;
+  } catch {
+    try {
+      boundaries.file("config.temp.cleanup.retry", () =>
+        fs.rmSync(temporaryDirectory, { recursive: true, force: true }),
+      );
+      return undefined;
+    } catch (retryError) {
+      // Fault injection fails before invoking the action. A direct final attempt
+      // keeps a test seam failure from leaving an otherwise removable directory
+      // behind while the injected failure remains secondary evidence.
+      try {
+        fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+      } catch (fallbackError) {
+        retryError = fallbackError;
+      }
+      if (primary === undefined) {
+        return retryError instanceof Error ? retryError : new Error(String(retryError));
+      }
+      return addSecondaryDiagnostic(primary, "config.temp.cleanup", retryError);
+    }
   }
 }
 
-function backupPath(filePath: string): string {
-  const basic = `${filePath}.bak`;
-  if (!fs.existsSync(basic)) return basic;
-  return `${filePath}.${Date.now()}.bak`;
+function atomicWrite(filePath: string, config: Record<string, unknown>, boundaries: BoundaryOperations): void {
+  const directory = path.dirname(filePath);
+  boundaries.file("config.directory.create", () => fs.mkdirSync(directory, { recursive: true }));
+  const temporaryDirectory = boundaries.file("config.temp.create", () =>
+    fs.mkdtempSync(path.join(directory, ".mottainai-init-")),
+  );
+  const temporaryPath = path.join(temporaryDirectory, path.basename(filePath));
+  let primary: unknown;
+  try {
+    saveRawConfig(temporaryPath, config, boundaries, "config.temp.write");
+    // writeFileSync owns the OS handle; this named checkpoint makes its close phase
+    // deterministic and injectable without replacing Node's filesystem globally.
+    boundaries.file("config.temp.close", () => undefined);
+    boundaries.file("config.temp.permission", () => fs.chmodSync(temporaryPath, 0o600));
+    boundaries.file("config.rename", () => fs.renameSync(temporaryPath, filePath));
+  } catch (error) {
+    primary = error;
+    const cleanupError = cleanupTemporaryDirectory(temporaryDirectory, boundaries, primary);
+    if (cleanupError !== undefined) throw cleanupError;
+    throw error;
+  }
+  const cleanupError = cleanupTemporaryDirectory(temporaryDirectory, boundaries);
+  if (cleanupError !== undefined) {
+    // A successful replacement must not be turned into a protocol-breaking failure
+    // merely because best-effort cleanup failed. The diagnostic is intentionally generic.
+    console.error("mottainai: temporary configuration cleanup failed; replacement completed");
+  }
+}
+
+const COPYFILE_EXCL = 1;
+
+function backupCandidate(filePath: string, index: number): string {
+  return index === 0 ? `${filePath}.bak` : `${filePath}.${index}.bak`;
+}
+
+function createBackup(filePath: string, boundaries: BoundaryOperations): string {
+  for (let index = 0; index < 10_000; index += 1) {
+    const candidate = backupCandidate(filePath, index);
+    if (boundaries.file("config.backup.exists", () => fs.existsSync(candidate))) continue;
+    try {
+      boundaries.file("config.backup.copy", () => fs.copyFileSync(filePath, candidate, COPYFILE_EXCL));
+      return candidate;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") continue;
+      throw error;
+    }
+  }
+  throw new Error(`unable to allocate a configuration backup name: ${filePath}`);
 }
 
 /** シェルへコピー&ペーストされる表示用コマンドなので、POSIX シングルクォート
@@ -424,18 +509,39 @@ function quoteForDisplay(value: string): string {
  * 起動コマンドへ絶対パスの --config を明示し、cwd 依存の設定解決に頼らない。 */
 function registrationCommand(client: InitClient, packageReference: string, configuration: string): string {
   const quotedConfiguration = quoteForDisplay(configuration);
-  if (client === "claude") return `claude mcp add -s user mottainai -- npx -y ${packageReference} serve --config ${quotedConfiguration}`;
-  if (client === "codex") return `codex mcp add mottainai -- npx -y ${packageReference} serve --config ${quotedConfiguration}`;
+  if (client === "claude")
+    return `claude mcp add -s user mottainai -- npx -y ${packageReference} serve --config ${quotedConfiguration}`;
+  if (client === "codex")
+    return `codex mcp add mottainai -- npx -y ${packageReference} serve --config ${quotedConfiguration}`;
   return "";
 }
 
 function registrationArguments(client: InitClient, packageReference: string, configuration: string): string[] {
-  if (client === "claude") return ["mcp", "add", "-s", "user", "mottainai", "--", "npx", "-y", packageReference, "serve", "--config", configuration];
-  if (client === "codex") return ["mcp", "add", "mottainai", "--", "npx", "-y", packageReference, "serve", "--config", configuration];
+  if (client === "claude")
+    return [
+      "mcp",
+      "add",
+      "-s",
+      "user",
+      "mottainai",
+      "--",
+      "npx",
+      "-y",
+      packageReference,
+      "serve",
+      "--config",
+      configuration,
+    ];
+  if (client === "codex")
+    return ["mcp", "add", "mottainai", "--", "npx", "-y", packageReference, "serve", "--config", configuration];
   return [];
 }
 
-function clientAlreadyHasMottainai(client: InitClient): { alreadyRegistered: boolean; successful: boolean; timedOut: boolean } {
+function clientAlreadyHasMottainai(client: InitClient): {
+  alreadyRegistered: boolean;
+  successful: boolean;
+  timedOut: boolean;
+} {
   const listed = runClientList(client);
   return {
     alreadyRegistered: listed.successful && listed.output.split(/\r?\n/).some((line) => /\bmottainai\b/.test(line)),
@@ -444,13 +550,19 @@ function clientAlreadyHasMottainai(client: InitClient): { alreadyRegistered: boo
   };
 }
 
-function registerClient(client: InitClient, packageReference: string, configuration: string, noRegister: boolean): InitClientResult {
+function registerClient(
+  client: InitClient,
+  packageReference: string,
+  configuration: string,
+  noRegister: boolean,
+): InitClientResult {
   const command = registrationCommand(client, packageReference, configuration);
   const executable = client === "none" ? undefined : commandPath(client);
   const available = executable !== undefined;
   if (client === "none") return { name: client, available: false, registrationCommand: "", status: "not-requested" };
   if (noRegister) return { name: client, available, registrationCommand: command, status: "not-requested" };
-  if (executable === undefined) return { name: client, available: false, registrationCommand: command, status: "unavailable" };
+  if (executable === undefined)
+    return { name: client, available: false, registrationCommand: command, status: "unavailable" };
   const listed = clientAlreadyHasMottainai(client);
   if (!listed.successful) {
     return {
@@ -506,7 +618,9 @@ async function chooseInteractive(
   const prompts = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
     if (argumentsValue.scope === undefined) {
-      const answer = (await prompts.question("How should this configuration be used? [personal/project] (personal): ")).trim();
+      const answer = (
+        await prompts.question("How should this configuration be used? [personal/project] (personal): ")
+      ).trim();
       argumentsValue.scope = answer === "project" ? "project" : "personal";
     }
     if (argumentsValue.client === undefined) {
@@ -519,19 +633,27 @@ async function chooseInteractive(
       argumentsValue.upstreamMode = answer === "import" || answer === "detect" || answer === "manual" ? answer : "none";
     }
     if (argumentsValue.upstreamMode === "import" && argumentsValue.importSource === undefined) {
-      const answer = (await prompts.question(`Import from [${clients.length === 0 ? "none" : clients.join(", ")}] (none): `)).trim();
+      const answer = (
+        await prompts.question(`Import from [${clients.length === 0 ? "none" : clients.join(", ")}] (none): `)
+      ).trim();
       argumentsValue.importSource = answer === "claude" || answer === "codex" ? answer : "none";
     }
     if (argumentsValue.upstreamMode === "detect") {
       const answer = (await prompts.question(`Detected commands [${commands.join(", ") || "none"}] (none): `)).trim();
-      argumentsValue.selectedCommands = answer.split(",").map((value) => value.trim()).filter((value) => commands.includes(value));
+      argumentsValue.selectedCommands = answer
+        .split(",")
+        .map((value) => value.trim())
+        .filter((value) => commands.includes(value));
     }
     if (argumentsValue.upstreamMode === "manual") {
       const name = (await prompts.question("Upstream name (blank to skip): ")).trim();
       if (name !== "") {
         const command = (await prompts.question("Command: ")).trim();
         if (command === "") throw new Error("manual upstream command is required");
-        const args = (await prompts.question("Arguments (space-separated, blank for none): ")).trim().split(" ").filter(Boolean);
+        const args = (await prompts.question("Arguments (space-separated, blank for none): "))
+          .trim()
+          .split(" ")
+          .filter(Boolean);
         argumentsValue.manualUpstreams = [{ name, config: { command, ...(args.length === 0 ? {} : { args }) } }];
       }
     }
@@ -553,10 +675,14 @@ async function runMcpHandshake(configPath: string, workspace: string): Promise<I
     env: { ...process.env, MOTTAINAI_CONFIG: configPath },
   });
   try {
-    const tools = await withTimeout((async () => {
-      await client.connect(transport);
-      return client.listTools();
-    })(), INIT_OPERATION_TIMEOUT_MS, "MCP handshake timed out");
+    const tools = await withTimeout(
+      (async () => {
+        await client.connect(transport);
+        return client.listTools();
+      })(),
+      INIT_OPERATION_TIMEOUT_MS,
+      "MCP handshake timed out",
+    );
     return { ok: true, tools: tools.tools.length };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
@@ -568,6 +694,7 @@ async function runMcpHandshake(configPath: string, workspace: string): Promise<I
 
 export async function runInit(options: InitRunOptions): Promise<InitSummary> {
   const cwd = options.cwd ?? process.cwd();
+  const boundaries = options.boundaries ?? DIRECT_BOUNDARIES;
   const parsed = parseArguments(options.args);
   const inputTTY = options.stdinIsTTY ?? process.stdin.isTTY === true;
   const outputTTY = options.stdoutIsTTY ?? process.stdout.isTTY === true;
@@ -602,33 +729,40 @@ export async function runInit(options: InitRunOptions): Promise<InitSummary> {
   }
   const importedUpstreams = Object.keys(registry);
   const existing = fs.existsSync(configuration);
-  if (existing && !parsed.force) throw new Error(`configuration already exists: ${configuration}; use --force to replace it`);
+  if (existing && !parsed.force)
+    throw new Error(`configuration already exists: ${configuration}; use --force to replace it`);
 
   let backup: string | undefined;
   if (existing && parsed.force) {
-    backup = backupPath(configuration);
-    if (!parsed.dryRun) fs.copyFileSync(configuration, backup);
+    if (!parsed.dryRun) backup = createBackup(configuration, boundaries);
+    else backup = backupCandidate(configuration, 0);
   }
 
-  const exclude = scope === "personal" ? updateGitExclude(configuration, workspace, !parsed.dryRun) : { changed: false };
+  const exclude =
+    scope === "personal" ? updateGitExclude(configuration, workspace, !parsed.dryRun, boundaries) : { changed: false };
   if (exclude.warning !== undefined) warnings.push(exclude.warning);
   if (parsed.dryRun && exclude.changed) {
     warnings.push(`dry-run would update ${exclude.path ?? ".git/info/exclude"}`);
   }
-  if (!parsed.dryRun) atomicWrite(configuration, config);
+  if (!parsed.dryRun) atomicWrite(configuration, config, boundaries);
 
   const packageReference = parsed.latest ? "mottainai" : `mottainai@${packageMetadata.version}`;
-  const clientResults = client === "none"
-    ? []
-    : [registerClient(client, packageReference, configuration, parsed.noRegister || parsed.dryRun)];
-  if (clientResults.some((result) => result.status === "unavailable")) warnings.push(`${client} command was not found; registration was not run`);
+  const clientResults =
+    client === "none"
+      ? []
+      : [registerClient(client, packageReference, configuration, parsed.noRegister || parsed.dryRun)];
+  if (clientResults.some((result) => result.status === "unavailable"))
+    warnings.push(`${client} command was not found; registration was not run`);
   if (clientResults.some((result) => result.status === "list-failed")) {
     const timedOut = clientResults.some((result) => result.status === "list-failed" && result.timed_out === true);
     warnings.push(`${client} MCP list ${timedOut ? "timed out" : "failed"}; registration was not run`);
   }
-  if (clientResults.some((result) => result.status === "failed")) warnings.push(`${client} registration command failed`);
-  if (clientResults.some((result) => result.status === "already-registered")) warnings.push(`${client} already has a mottainai registration; it was not replaced`);
-  if (clientResults.some((result) => result.status !== "list-failed" && result.timed_out === true)) warnings.push(`${client} command timed out; registration may be incomplete`);
+  if (clientResults.some((result) => result.status === "failed"))
+    warnings.push(`${client} registration command failed`);
+  if (clientResults.some((result) => result.status === "already-registered"))
+    warnings.push(`${client} already has a mottainai registration; it was not replaced`);
+  if (clientResults.some((result) => result.status !== "list-failed" && result.timed_out === true))
+    warnings.push(`${client} command timed out; registration may be incomplete`);
   const clientRegistrationFailed = clientResults.some(
     (result) => result.status === "unavailable" || result.status === "list-failed" || result.status === "failed",
   );
@@ -665,7 +799,11 @@ export async function runInit(options: InitRunOptions): Promise<InitSummary> {
 
 export function formatInitHuman(summary: InitSummary): string {
   const lines = [
-    summary.dry_run ? "Mottainai initialization preview" : summary.ok ? "Mottainai is ready" : "Mottainai setup incomplete",
+    summary.dry_run
+      ? "Mottainai initialization preview"
+      : summary.ok
+        ? "Mottainai is ready"
+        : "Mottainai setup incomplete",
     "",
     "Workspace",
     `  ${summary.workspace}`,
@@ -690,12 +828,19 @@ export function formatInitHuman(summary: InitSummary): string {
   if (summary.doctor !== undefined) lines.push("", formatDoctorHuman(summary.doctor));
   if (summary.handshake !== undefined) {
     const handshake = summary.handshake;
-    lines.push("", `MCP handshake: ${handshake.skipped === true ? "skipped" : handshake.ok ? `ok (${handshake.tools ?? 0} tools)` : "failed"}`);
+    lines.push(
+      "",
+      `MCP handshake: ${handshake.skipped === true ? "skipped" : handshake.ok ? `ok (${handshake.tools ?? 0} tools)` : "failed"}`,
+    );
   }
   if (summary.warnings.length > 0) lines.push("", "Warnings", ...summary.warnings.map((warning) => `  ⚠ ${warning}`));
   if (summary.clients.some((client) => client.registrationCommand !== "")) {
     lines.push("", "Registration commands", ...summary.clients.map((client) => `  ${client.registrationCommand}`));
   }
-  if (!summary.dry_run) lines.push("", `Next step\n  npx -y mottainai@${packageMetadata.version} doctor --config ${JSON.stringify(summary.configuration)}`);
+  if (!summary.dry_run)
+    lines.push(
+      "",
+      `Next step\n  npx -y mottainai@${packageMetadata.version} doctor --config ${JSON.stringify(summary.configuration)}`,
+    );
   return lines.join("\n");
 }
