@@ -28,3 +28,37 @@ test("early public CLI failure includes bounded runtime identity without stdout 
     fs.rmSync(workspace, { recursive: true, force: true });
   }
 });
+
+test("hooks repair restores an invalid policy through the public CLI", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-hooks-repair-"));
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-hooks-bin-"));
+  const client = path.join(bin, "claude");
+  try {
+    fs.mkdirSync(path.join(workspace, ".git"));
+    fs.mkdirSync(path.join(workspace, ".mottainai"));
+    fs.writeFileSync(path.join(workspace, ".mottainai", "hooks.json"), "{ invalid policy");
+    fs.writeFileSync(client, "#!/bin/sh\nprintf '%s\\n' 'claude 1.0.0'\n");
+    fs.chmodSync(client, 0o755);
+    const result = spawnSync(
+      process.execPath,
+      ["--import", "tsx", entryPoint, "hooks", "repair", "--client", "claude", "--workspace", workspace],
+      {
+        cwd: path.resolve(path.dirname(entryPoint), ".."),
+        env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`, HOME: workspace, USERPROFILE: workspace },
+        encoding: "utf8",
+      },
+    );
+    assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+    assert.equal(JSON.parse(result.stdout).ok, true);
+    const repaired = JSON.parse(fs.readFileSync(path.join(workspace, ".mottainai", "hooks.json"), "utf8")) as {
+      version: number;
+      failureModes: { "source.write": string; "process.exec": string };
+    };
+    assert.equal(repaired.version, 1);
+    assert.equal(repaired.failureModes["source.write"], "closed");
+    assert.equal(repaired.failureModes["process.exec"], "closed");
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+    fs.rmSync(bin, { recursive: true, force: true });
+  }
+});

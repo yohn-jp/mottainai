@@ -87,6 +87,7 @@ const environmentBoundaryFiles = new Set([
   "src/commands/doctor.ts",
   "src/compress/config.ts",
   "src/config.ts",
+  "src/dashboard/provider.ts",
   "src/index.ts",
   "src/init.ts",
   "src/logging.ts",
@@ -266,7 +267,7 @@ function layerForFile(relative) {
     relative === "src/telemetry.ts"
   )
     return "shared";
-  if (relative === "src/subprocess.ts") return "utility";
+  if (relative === "src/subprocess.ts" || relative === "src/boundary.ts") return "utility";
   return "shared";
 }
 

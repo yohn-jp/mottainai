@@ -1,7 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { addSecondaryDiagnostic, DIRECT_BOUNDARIES } from "../boundary.js";
+import type { BoundaryOperations } from "../boundary.js";
 import { applyMigrations } from "./migrations.js";
+import type { Migration } from "./migrations.js";
 import { resolveStateDbPath } from "./paths.js";
 import type {
   ListReadDecisionsFilter,
@@ -18,6 +21,10 @@ export interface SqliteStateStoreOptions {
   /** 明示指定時はこのパスを使う。省略時は resolveStateDbPath() を使う。 */
   dbPath?: string;
   env?: NodeJS.ProcessEnv;
+  /** Internal deterministic fault-test seam; not loaded from runtime config. */
+  boundaries?: BoundaryOperations;
+  /** Internal migration fixture seam used by rollback tests. */
+  migrations?: Migration[];
 }
 
 const DEFAULT_DECISION_LIMIT = 100;
@@ -86,10 +93,14 @@ function toReadDecisionRecord(row: Record<string, unknown>): ReadDecisionRecord 
  */
 export class SqliteStateStore implements StateStore {
   private readonly dbPath: string;
+  private readonly boundaries: BoundaryOperations;
+  private readonly migrations: Migration[];
   private db: DatabaseSync | undefined;
 
   constructor(options: SqliteStateStoreOptions = {}) {
     this.dbPath = options.dbPath ?? resolveStateDbPath(options.env ?? process.env);
+    this.boundaries = options.boundaries ?? DIRECT_BOUNDARIES;
+    this.migrations = options.migrations ?? [];
   }
 
   init(): void {
@@ -98,22 +109,33 @@ export class SqliteStateStore implements StateStore {
     if (isFileBacked) {
       const dir = path.dirname(this.dbPath);
       // mkdirSync の mode は umask の影響を受け、既存ディレクトリには適用されないため明示的に chmod する。
-      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-      restrictToOwner(dir, 0o700);
+      this.boundaries.file("sqlite.directory.create", () => fs.mkdirSync(dir, { recursive: true, mode: 0o700 }));
+      this.boundaries.file("sqlite.directory.permission", () => restrictToOwner(dir, 0o700));
     }
-    const db = new DatabaseSync(this.dbPath);
+    const db = this.boundaries.file("sqlite.open", () => new DatabaseSync(this.dbPath));
     try {
-      if (isFileBacked) restrictToOwner(this.dbPath, 0o600);
-      db.exec("PRAGMA journal_mode = WAL");
-      db.exec("PRAGMA foreign_keys = ON");
-      applyMigrations(db);
+      if (isFileBacked) this.boundaries.file("sqlite.file.permission", () => restrictToOwner(this.dbPath, 0o600));
+      this.boundaries.file("sqlite.journal", () => db.exec("PRAGMA journal_mode = WAL"));
+      this.boundaries.file("sqlite.foreign-keys", () => db.exec("PRAGMA foreign_keys = ON"));
+      this.boundaries.file("sqlite.migrations", () =>
+        applyMigrations(db, this.migrations.length === 0 ? undefined : this.migrations, this.boundaries),
+      );
       if (isFileBacked) {
         // WAL sidecar は書き込みが発生するまで存在しないことがあるため best-effort（無ければ無視）。
-        restrictToOwner(`${this.dbPath}-wal`, 0o600);
-        restrictToOwner(`${this.dbPath}-shm`, 0o600);
+        this.boundaries.file("sqlite.wal.permission", () => restrictToOwner(`${this.dbPath}-wal`, 0o600));
+        this.boundaries.file("sqlite.shm.permission", () => restrictToOwner(`${this.dbPath}-shm`, 0o600));
       }
     } catch (err) {
-      db.close();
+      try {
+        this.boundaries.file("sqlite.close.after-init-failure", () => db.close());
+      } catch (closeError) {
+        try {
+          db.close();
+        } catch {
+          // Keep the injected cleanup failure as the recorded secondary error.
+        }
+        throw addSecondaryDiagnostic(err, "sqlite.close.after-init-failure", closeError);
+      }
       throw err;
     }
     this.db = db;
@@ -130,11 +152,19 @@ export class SqliteStateStore implements StateStore {
     db.prepare(
       "INSERT INTO sessions (session_id, repository_id, worktree_id, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?)",
     ).run(input.sessionId, input.repositoryId, input.worktreeId, now, now);
-    return { sessionId: input.sessionId, repositoryId: input.repositoryId, worktreeId: input.worktreeId, createdAt: now, lastSeenAt: now };
+    return {
+      sessionId: input.sessionId,
+      repositoryId: input.repositoryId,
+      worktreeId: input.worktreeId,
+      createdAt: now,
+      lastSeenAt: now,
+    };
   }
 
   getSession(sessionId: string): SessionRecord | undefined {
-    const row = this.handle().prepare("SELECT * FROM sessions WHERE session_id = ?").get(sessionId) as Record<string, unknown> | undefined;
+    const row = this.handle().prepare("SELECT * FROM sessions WHERE session_id = ?").get(sessionId) as
+      | Record<string, unknown>
+      | undefined;
     return row === undefined ? undefined : toSessionRecord(row);
   }
 
@@ -143,49 +173,55 @@ export class SqliteStateStore implements StateStore {
   }
 
   recordReadEvidence(input: NewReadEvidenceRecord): ReadEvidenceRecord {
-    this.handle().prepare(
-      `INSERT INTO read_evidence
+    this.handle()
+      .prepare(
+        `INSERT INTO read_evidence
         (evidence_id, session_id, repository_id, worktree_id, provider, path, start_line, end_line, reason, created_at, expires_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      input.evidenceId,
-      input.sessionId,
-      input.repositoryId,
-      input.worktreeId,
-      input.provider,
-      input.path,
-      input.startLine,
-      input.endLine,
-      input.reason,
-      input.createdAt,
-      input.expiresAt,
-    );
+      )
+      .run(
+        input.evidenceId,
+        input.sessionId,
+        input.repositoryId,
+        input.worktreeId,
+        input.provider,
+        input.path,
+        input.startLine,
+        input.endLine,
+        input.reason,
+        input.createdAt,
+        input.expiresAt,
+      );
     return { ...input };
   }
 
   getReadEvidence(evidenceId: string): ReadEvidenceRecord | undefined {
-    const row = this.handle().prepare("SELECT * FROM read_evidence WHERE evidence_id = ?").get(evidenceId) as Record<string, unknown> | undefined;
+    const row = this.handle().prepare("SELECT * FROM read_evidence WHERE evidence_id = ?").get(evidenceId) as
+      | Record<string, unknown>
+      | undefined;
     return row === undefined ? undefined : toReadEvidenceRecord(row);
   }
 
   recordReadDecision(input: NewReadDecisionRecord): ReadDecisionRecord {
     const createdAt = input.createdAt ?? Date.now();
-    this.handle().prepare(
-      `INSERT INTO read_decisions
+    this.handle()
+      .prepare(
+        `INSERT INTO read_decisions
         (decision_id, session_id, path, action, file_class, capability, policy_code, reason, stage, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      input.decisionId,
-      input.sessionId,
-      input.path,
-      input.action,
-      input.fileClass,
-      input.capability,
-      input.policyCode,
-      input.reason,
-      input.stage,
-      createdAt,
-    );
+      )
+      .run(
+        input.decisionId,
+        input.sessionId,
+        input.path,
+        input.action,
+        input.fileClass,
+        input.capability,
+        input.policyCode,
+        input.reason,
+        input.stage,
+        createdAt,
+      );
     return { ...input, createdAt };
   }
 
@@ -196,14 +232,15 @@ export class SqliteStateStore implements StateStore {
     // 同一 created_at の安定順序には挿入順を表す rowid を tie-breaker に使う。
     const where = filter.sessionId === undefined ? "" : "WHERE session_id = ? ";
     const params = filter.sessionId === undefined ? [limit] : [filter.sessionId, limit];
-    const rows = db.prepare(
-      `SELECT * FROM read_decisions ${where}ORDER BY created_at DESC, rowid DESC LIMIT ?`,
-    ).all(...params) as Record<string, unknown>[];
+    const rows = db
+      .prepare(`SELECT * FROM read_decisions ${where}ORDER BY created_at DESC, rowid DESC LIMIT ?`)
+      .all(...params) as Record<string, unknown>[];
     return rows.map(toReadDecisionRecord);
   }
 
   close(): void {
-    this.db?.close();
+    const db = this.db;
     this.db = undefined;
+    if (db !== undefined) this.boundaries.file("sqlite.close", () => db.close());
   }
 }

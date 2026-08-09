@@ -26,6 +26,9 @@
     "test:standards": "pnpm run architecture:test && pnpm run governance:test && pnpm run test:classification && pnpm run test:coverage:policy",
     "test:coverage:policy": "node --test scripts/coverage.test.mjs",
     "test:coverage": "node scripts/coverage.mjs",
+    "test:property": "node --import tsx scripts/property-tests.mjs",
+    "test:mutation": "node scripts/mutation-test.mjs",
+    "test:effectiveness": "pnpm run test:property && pnpm run test:mutation",
     "test:package": "pnpm run build && node scripts/run-package-suite.mjs",
     "verify": "pnpm run verify:standards && pnpm run typecheck && pnpm test && pnpm run test:integration && pnpm run test:e2e && pnpm run test:coverage && pnpm run test:package",
     "mcp": "tsx scripts/mcp.ts",
@@ -37,8 +40,8 @@
     "governance:issue": "node scripts/validate-issue.mjs",
     "governance:branch": "node scripts/validate-branch-name.mjs",
     "governance:test": "node --test scripts/governance.test.mjs",
-    "format": "prettier --write 'scripts/architecture-check.mjs' 'scripts/architecture-check.test.mjs' 'scripts/coverage.mjs' 'scripts/coverage.test.mjs' 'scripts/copy-dashboard-assets.mjs' 'scripts/generate-build-metadata.mjs' 'scripts/run-test-suite.mjs' 'scripts/test-suites.mjs' 'scripts/test-suites.test.mjs' 'scripts/coverage-policy.json' 'eslint.config.mjs' 'prettier.config.mjs' 'package.json'",
-    "format:check": "prettier --check 'scripts/architecture-check.mjs' 'scripts/architecture-check.test.mjs' 'scripts/coverage.mjs' 'scripts/coverage.test.mjs' 'scripts/copy-dashboard-assets.mjs' 'scripts/generate-build-metadata.mjs' 'scripts/run-test-suite.mjs' 'scripts/test-suites.mjs' 'scripts/test-suites.test.mjs' 'scripts/coverage-policy.json' 'eslint.config.mjs' 'prettier.config.mjs' 'package.json'",
+    "format": "prettier --write 'scripts/architecture-check.mjs' 'scripts/architecture-check.test.mjs' 'scripts/coverage.mjs' 'scripts/coverage.test.mjs' 'scripts/copy-dashboard-assets.mjs' 'scripts/generate-build-metadata.mjs' 'scripts/mutation-catalog.mjs' 'scripts/mutation-test.mjs' 'scripts/property-tests.mjs' 'scripts/run-test-suite.mjs' 'scripts/test-suites.mjs' 'scripts/test-suites.test.mjs' 'scripts/coverage-policy.json' 'eslint.config.mjs' 'prettier.config.mjs' 'package.json'",
+    "format:check": "prettier --check 'scripts/architecture-check.mjs' 'scripts/architecture-check.test.mjs' 'scripts/coverage.mjs' 'scripts/coverage.test.mjs' 'scripts/copy-dashboard-assets.mjs' 'scripts/generate-build-metadata.mjs' 'scripts/mutation-catalog.mjs' 'scripts/mutation-test.mjs' 'scripts/property-tests.mjs' 'scripts/run-test-suite.mjs' 'scripts/test-suites.mjs' 'scripts/test-suites.test.mjs' 'scripts/coverage-policy.json' 'eslint.config.mjs' 'prettier.config.mjs' 'package.json'",
     "lint": "eslint 'src/**/*.ts' 'src/**/*.mjs' 'scripts/**/*.mjs' 'eslint.config.mjs'",
     "architecture:test": "node --test scripts/architecture-check.test.mjs",
     "architecture:check": "node scripts/architecture-check.mjs",
@@ -53,6 +56,7 @@
     "tree-sitter": "^0.22.4",
     "tree-sitter-javascript": "^0.23.1",
     "tree-sitter-typescript": "^0.23.2",
+    "typescript": "^5.8.3",
     "zod": "^3.24.4"
   },
   "devDependencies": {
@@ -60,7 +64,6 @@
     "eslint": "9.29.0",
     "prettier": "3.6.2",
     "tsx": "^4.19.4",
-    "typescript": "^5.8.3",
     "typescript-eslint": "8.66.0"
   },
   "engines": {
