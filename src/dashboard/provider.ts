@@ -13,7 +13,7 @@ export function parseDashboardProvider(value: string | undefined): DashboardProv
   throw new Error(`invalid dashboard provider: ${value} (expected fixture or live)`);
 }
 
-export function configuredDashboardProvider(environment: NodeJS.ProcessEnv = {}): DashboardProvider {
+export function configuredDashboardProvider(environment: NodeJS.ProcessEnv = process.env): DashboardProvider {
   return parseDashboardProvider(environment[DASHBOARD_PROVIDER_ENV]);
 }
 
