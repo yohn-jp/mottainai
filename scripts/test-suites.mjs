@@ -5,14 +5,41 @@ import { fileURLToPath } from "node:url";
 const ignoredDirectories = new Set([".git", ".codegraph", ".mottainai", "coverage", "dist", "node_modules"]);
 const testFilePattern = /\.(?:test|spec)\.(?:ts|mjs)$/u;
 
+// Fast is reserved for deterministic in-process unit/contract checks. Repository-scale
+// extraction, process/server/CLI boundaries, Git or filesystem fixtures, and polling or
+// retry behavior remain meaningful integration tests.
 const integrationPatterns = Object.freeze([
+  "src/auth.test.ts",
+  "src/code-search.test.ts",
   "src/commands/**/*.test.ts",
+  "src/config.test.ts",
+  "src/cli.test.ts",
+  "src/context-runtime/gh-checks.test.ts",
+  "src/context-runtime/identity.test.ts",
+  "src/context-runtime/process-registry.test.ts",
+  "src/context-runtime/read-adapter.test.ts",
+  "src/dashboard-cli.test.ts",
+  "src/dashboard/command.integration.test.ts",
+  "src/dashboard/http.test.ts",
+  "src/dashboard/provider.integration.test.ts",
+  "src/envelope.test.ts",
+  "src/gitignore.test.ts",
+  "src/hooks/hooks.test.ts",
+  "src/proxy.test.ts",
+  "src/read-governor-cli.test.ts",
+  "src/runtime-diagnostic.test.ts",
+  "src/semantics/effects/effects.test.ts",
+  "src/semantics/extractors/typescript/extractor.test.ts",
+  "src/semantics/model/query.test.ts",
+  "src/semantics/mutations.test.ts",
+  "src/telemetry.test.ts",
   "src/fault-injection.test.ts",
   "src/init.test.ts",
   "src/local-tools.test.ts",
   "src/logging.test.ts",
   "src/mcp-cli.test.ts",
   "src/state/**/*.test.ts",
+  "src/upstream.test.ts",
   "src/workflow/**/*.test.ts",
   "scripts/lib/mcp-blackbox-client.test.mjs",
 ]);
