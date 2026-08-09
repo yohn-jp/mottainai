@@ -22,9 +22,12 @@ export interface ManagedRuntimeAvailability {
 export const MANAGED_TOOL_FOR_OPERATION: Readonly<Record<HookOperation, { id: string; tool: string }>> = Object.freeze({
   "source.read": { id: "source.read", tool: "mottainai_read" },
   "source.search": { id: "source.search", tool: "mottainai_search" },
-  "source.write": { id: "source.write", tool: "mottainai_write" },
+  // The local exec gateway is the actual managed mutation surface. Keep the
+  // operation ids distinct for policy and explanation, but do not advertise
+  // replacement tools that are not exposed by the runtime.
+  "source.write": { id: "source.write", tool: "mottainai_exec" },
   "process.exec": { id: "process.exec", tool: "mottainai_exec" },
-  "git.mutate": { id: "git.mutate", tool: "mottainai_workflow_git_mutate" },
+  "git.mutate": { id: "git.mutate", tool: "mottainai_exec" },
   other: { id: "other", tool: "" },
 });
 

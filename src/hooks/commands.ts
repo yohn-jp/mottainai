@@ -127,10 +127,12 @@ function fallbackEvent(client: "claude" | "codex", context: HookCommandContext):
 }
 
 function malformedDecision(policyResult: ReturnType<typeof loadHookPolicy>, client: "claude" | "codex"): HookDecision {
+  const closed = policyResult.ok && policyResult.policy.failureModes.other === "closed";
   return boundHookDecision({
     version: 1,
-    decision: policyResult.ok && policyResult.policy.failureModes.other === "closed" ? "deny" : "allow",
+    decision: closed ? "deny" : "allow",
     reason: "malformed_client_event",
+    diagnostic: closed ? "failure_mode=closed" : "failure_mode=open",
   });
 }
 
@@ -214,11 +216,24 @@ export function runManagedHooksCommand(action: string, args: string[], context: 
   const lifecycle = lifecycleContext(context);
   if (action === "status") {
     const policy = loadHookPolicy(context.workspaceRoot);
+    const dispatcherAvailable = isDispatcherPathAvailable(context.dispatcherCommand ?? "mottainai", lifecycle.resolveCommand, context.workspaceRoot);
     const reports = discoverHookClients(hookAdapters, lifecycle).map((report) => ({
       ...report,
       effectiveMode: policy.ok ? policy.policy.mode : undefined,
     }));
-    return { ok: policy.ok, action, workspace: context.workspaceRoot, policy: policy.ok ? policy.policy : undefined, clients: reports };
+    const lifecycleHealthy = reports.every((report) => {
+      if (report.state === "unsupported" || report.state === "incompatible") return false;
+      return report.managedEntry !== "drifted" && report.managedEntry !== "unsupported";
+    });
+    const dispatcherRequired = reports.some((report) => report.managedEntry !== "missing");
+    return {
+      ok: policy.ok && lifecycleHealthy && (!dispatcherRequired || dispatcherAvailable),
+      action,
+      workspace: context.workspaceRoot,
+      dispatcherAvailable,
+      policy: policy.ok ? policy.policy : undefined,
+      clients: reports,
+    };
   }
   if (action === "install" || action === "repair" || action === "uninstall") {
     const selectedModeValue = selectedMode(args);

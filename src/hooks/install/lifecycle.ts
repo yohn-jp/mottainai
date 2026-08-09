@@ -1,7 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { HookClientAdapter, HookDiscoveryContext, ClientDiscovery, HookAdapterContext, ManagedHookDescriptor } from "../adapters/types.js";
-import { MOTTainAI_HOOK_MARKER, managedEntryHealth, readJsonHookConfig, removeManagedEntries, upsertManagedEntry, writeJsonHookConfig } from "./json-hooks.js";
+import type { HookClientAdapter, ClientDiscovery, ManagedHookDescriptor } from "../adapters/types.js";
+import {
+  JsonHookConfigChangedError,
+  MOTTainAI_HOOK_MARKER,
+  managedEntryHealth,
+  readJsonHookConfig,
+  readJsonHookConfigSnapshot,
+  removeManagedEntries,
+  upsertManagedEntry,
+  writeJsonHookConfig,
+} from "./json-hooks.js";
 
 export interface HookLifecycleContext {
   workspaceRoot: string;
@@ -92,39 +101,61 @@ function discover(adapter: HookClientAdapter, context: HookLifecycleContext): Cl
 }
 
 function reportFor(adapter: HookClientAdapter, context: HookLifecycleContext, action: "status" | "install" | "repair" | "uninstall"): HookClientReport {
-  const discovery = discover(adapter, context);
   const managedDescriptor = descriptor(adapter, context.dispatcherCommand, context.hookTimeoutMs, context.dispatcherArguments);
-  const config = readJsonHookConfig(discovery.configPath);
-  const supported = config.valid && config.value !== undefined && adapter.supportsDocument(config.value);
-  const health = !supported
-    ? "unsupported" : managedEntryHealth(config.value!, managedDescriptor);
   let changed = false;
   let error: string | undefined;
-  try {
-    if (action !== "status" && action !== "uninstall" && discovery.state === "installed" && supported) {
+  const maxAttempts = 3;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const discovery = discover(adapter, context);
+    const snapshot = readJsonHookConfigSnapshot(discovery.configPath);
+    const config = snapshot.config;
+    const supported = config.valid && config.value !== undefined && adapter.supportsDocument(config.value);
+    try {
+      if (action === "status") break;
+      if (!supported) {
+        error = config.reason ?? discovery.reason ?? "unsupported client configuration";
+        break;
+      }
+      if (action === "uninstall") {
+        const next = removeManagedEntries(config.value!);
+        if (JSON.stringify(next) !== JSON.stringify(config.value)) {
+          writeJsonHookConfig(discovery.configPath, next, snapshot.revision);
+          changed = true;
+        }
+        break;
+      }
+      if (discovery.state !== "installed") {
+        error = discovery.reason ?? discovery.state;
+        break;
+      }
+      if (!isDispatcherPathAvailable(context.dispatcherCommand, context.resolveCommand, context.workspaceRoot)) {
+        error = "dispatcher command is not resolvable";
+        break;
+      }
       const next = upsertManagedEntry(config.value!, managedDescriptor);
       if (JSON.stringify(next) !== JSON.stringify(config.value)) {
-        writeJsonHookConfig(discovery.configPath, next);
+        writeJsonHookConfig(discovery.configPath, next, snapshot.revision);
         changed = true;
       }
-    } else if (action === "uninstall" && supported) {
-      const next = removeManagedEntries(config.value!);
-      if (JSON.stringify(next) !== JSON.stringify(config.value)) {
-        writeJsonHookConfig(discovery.configPath, next);
-        changed = true;
-      }
-    } else if (action !== "status" && !supported) {
-      error = config.reason ?? discovery.reason ?? "unsupported client configuration";
-    } else if (action !== "status" && (discovery.state === "unsupported" || discovery.state === "incompatible")) {
-      error = discovery.reason ?? discovery.state;
+      break;
+    } catch (caught) {
+      if (caught instanceof JsonHookConfigChangedError && attempt + 1 < maxAttempts) continue;
+      error = caught instanceof Error ? caught.message : String(caught);
+      break;
     }
-  } catch (caught) {
-    error = caught instanceof Error ? caught.message : String(caught);
   }
+
+  const discovery = discover(adapter, context);
   const after = readJsonHookConfig(discovery.configPath);
   const afterHealth = !after.valid || after.value === undefined
     ? "unsupported"
-    : action === "uninstall" ? managedEntryHealth(after.value, managedDescriptor) : managedEntryHealth(after.value, managedDescriptor);
+    : managedEntryHealth(after.value, managedDescriptor);
+  if (error === undefined && action === "uninstall" && afterHealth !== "missing") {
+    error = `managed entry remains ${afterHealth} after uninstall`;
+  } else if (error === undefined && action !== "status" && action !== "uninstall" && afterHealth !== "healthy") {
+    error = `managed entry remains ${afterHealth} after ${action}`;
+  }
   return { ...discovery, managedEntry: afterHealth, changed, ...(error === undefined ? {} : { error }) };
 }
 

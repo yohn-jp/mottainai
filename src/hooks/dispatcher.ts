@@ -37,7 +37,13 @@ export function decideHook(event: HookEvent, options: HookDispatcherOptions): Ho
   const capability = options.capabilities.resolve(event.operation, event);
 
   if (capability?.available !== true || capability.replacement.trim() === "") {
-    return boundHookDecision({ ...base, decision: "allow", reason: event.operation === "other" ? "unsupported_operation" : "managed_capability_unavailable" });
+    const closed = resolveFailureMode(options.policy, event.operation) === "closed";
+    return boundHookDecision({
+      ...base,
+      decision: closed ? "deny" : "allow",
+      reason: event.operation === "other" ? "unsupported_operation" : "managed_capability_unavailable",
+      diagnostic: closed ? "failure_mode=closed" : "failure_mode=open",
+    });
   }
   if (mode === "observe") return boundHookDecision({ ...base, decision: "allow", reason: "observe_only", replacement: capability.replacement });
   if (mode === "warn") return boundHookDecision({ ...base, decision: "warn", reason: "managed_capability_available", replacement: capability.replacement });

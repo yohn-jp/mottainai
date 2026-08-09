@@ -12,19 +12,64 @@ export interface JsonHookReadResult {
   reason?: string;
 }
 
+/** Revision captured with the bytes that were parsed before a lifecycle write. */
+export interface JsonHookFileRevision {
+  exists: boolean;
+  content?: string;
+}
+
+export interface JsonHookConfigSnapshot {
+  config: JsonHookReadResult;
+  revision: JsonHookFileRevision;
+}
+
+export class JsonHookConfigChangedError extends Error {
+  readonly code = "HOOK_CONFIG_CHANGED" as const;
+
+  constructor(filePath: string) {
+    super(`hook configuration changed during lifecycle operation: ${filePath}`);
+    this.name = "JsonHookConfigChangedError";
+  }
+}
+
 export type ManagedEntryHealth = "missing" | "healthy" | "drifted" | "unsupported";
 
 export const MOTTainAI_HOOK_MARKER = "mottainai-managed-hook-v1";
 
-export function readJsonHookConfig(filePath: string): JsonHookReadResult {
-  if (!fs.existsSync(filePath)) return { exists: false, valid: true, value: {} };
+function readRevision(filePath: string): JsonHookFileRevision {
   try {
-    const parsed: unknown = JSON.parse(fs.readFileSync(filePath, "utf8"));
-    if (!isRecord(parsed)) return { exists: true, valid: false, reason: "root must be an object" };
-    return { exists: true, valid: true, value: parsed };
+    return { exists: true, content: fs.readFileSync(filePath, "utf8") };
   } catch (error) {
-    return { exists: true, valid: false, reason: error instanceof Error ? error.message : String(error) };
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { exists: false };
+    throw error;
   }
+}
+
+export function readJsonHookConfigSnapshot(filePath: string): JsonHookConfigSnapshot {
+  let revision: JsonHookFileRevision;
+  try {
+    revision = readRevision(filePath);
+  } catch (error) {
+    return {
+      config: { exists: true, valid: false, reason: error instanceof Error ? error.message : String(error) },
+      revision: { exists: true },
+    };
+  }
+  if (!revision.exists) return { config: { exists: false, valid: true, value: {} }, revision };
+  try {
+    const parsed: unknown = JSON.parse(revision.content!);
+    if (!isRecord(parsed)) return { config: { exists: true, valid: false, reason: "root must be an object" }, revision };
+    return { config: { exists: true, valid: true, value: parsed }, revision };
+  } catch (error) {
+    return {
+      config: { exists: true, valid: false, reason: error instanceof Error ? error.message : String(error) },
+      revision,
+    };
+  }
+}
+
+export function readJsonHookConfig(filePath: string): JsonHookReadResult {
+  return readJsonHookConfigSnapshot(filePath).config;
 }
 
 function hookObjects(value: unknown): JsonObject[] {
@@ -145,6 +190,13 @@ function atomicWrite(filePath: string, value: JsonObject): void {
   }
 }
 
-export function writeJsonHookConfig(filePath: string, value: JsonObject): void {
+function sameRevision(left: JsonHookFileRevision, right: JsonHookFileRevision): boolean {
+  return left.exists === right.exists && left.content === right.content;
+}
+
+export function writeJsonHookConfig(filePath: string, value: JsonObject, expectedRevision?: JsonHookFileRevision): void {
+  if (expectedRevision !== undefined && !sameRevision(readRevision(filePath), expectedRevision)) {
+    throw new JsonHookConfigChangedError(filePath);
+  }
   atomicWrite(filePath, value);
 }

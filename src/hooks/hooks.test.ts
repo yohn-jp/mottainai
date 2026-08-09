@@ -9,6 +9,11 @@ import { capabilityRegistryFromRuntime, createCapabilityRegistry } from "./capab
 import { decideHook, dispatchHook } from "./dispatcher.js";
 import { dispatchClientHook, runManagedHooksCommand } from "./commands.js";
 import { managedDescriptor } from "./install/lifecycle.js";
+import {
+  JsonHookConfigChangedError,
+  readJsonHookConfigSnapshot,
+  writeJsonHookConfig,
+} from "./install/json-hooks.js";
 import { loadHookPolicy } from "./policy.js";
 import type { HookCommandContext } from "./commands.js";
 import { boundHookText, serializeHookDecision } from "./types.js";
@@ -40,14 +45,42 @@ test("transport-independent dispatcher is deterministic and capability-based", (
   const capabilities = capabilityRegistryFromRuntime({ dispatcherAvailable: true, exposedTools: new Set(["mottainai_exec"]) });
   const enforce = { policy: policy("enforce"), capabilities };
   assert.equal(decideHook(event("process.exec"), enforce).decision, "redirect");
-  assert.equal(decideHook(event("source.write"), enforce).decision, "allow");
-  assert.equal(decideHook(event("source.write"), enforce).reason, "managed_capability_unavailable");
+  assert.equal(decideHook(event("source.write"), enforce).decision, "redirect");
+  assert.equal(decideHook(event("source.write"), enforce).replacement, "mottainai_exec");
+  assert.equal(decideHook(event("git.mutate"), enforce).decision, "redirect");
   assert.equal(decideHook(event("process.exec"), { ...enforce, policy: policy("warn") }).decision, "warn");
   assert.equal(decideHook(event("process.exec"), { ...enforce, policy: policy("observe") }).decision, "allow");
-  assert.equal(decideHook(event("process.exec"), {
+  const unavailable = decideHook(event("source.write"), {
     policy: policy("enforce"),
     capabilities: capabilityRegistryFromRuntime({ dispatcherAvailable: true, exposedTools: new Set() }),
-  }).reason, "managed_capability_unavailable");
+  });
+  assert.equal(unavailable.decision, "deny");
+  assert.equal(unavailable.reason, "managed_capability_unavailable");
+  assert.equal(unavailable.diagnostic, "failure_mode=closed");
+  const failOpen = decideHook(event("process.exec"), {
+    policy: { ...policy("enforce"), failureModes: { ...policy("enforce").failureModes, "process.exec": "open" } },
+    capabilities: capabilityRegistryFromRuntime({ dispatcherAvailable: true, exposedTools: new Set() }),
+  });
+  assert.equal(failOpen.decision, "allow");
+  assert.equal(failOpen.diagnostic, "failure_mode=open");
+});
+
+test("unknown native tools stay on the governed process boundary", () => {
+  const root = workspace();
+  const context = { workspaceRoot: root, ...deriveTrustedHookContext({ workspaceRoot: root }) };
+  const normalized = claudeAdapter.normalize({
+    hook_event_name: "PreToolUse",
+    tool_name: "future_native_executor",
+    tool_input: { command: "python -c 'write()'" },
+  }, context);
+  assert.equal(normalized.ok, true);
+  if (normalized.ok) {
+    assert.equal(normalized.event.operation, "process.exec");
+    assert.equal(decideHook(normalized.event, {
+      policy: policy("enforce"),
+      capabilities: capabilityRegistryFromRuntime({ dispatcherAvailable: true, exposedTools: new Set(["mottainai_exec"]) }),
+    }).decision, "redirect");
+  }
 });
 
 test("native process boundary does not inspect executable spellings", () => {
@@ -162,6 +195,10 @@ test("managed entries invoke the shared dispatcher with the selected client", ()
     managedDescriptor(codexAdapter, "/opt/mottainai").command,
     "/opt/mottainai hooks dispatch --client codex",
   );
+  assert.equal(
+    managedDescriptor(claudeAdapter, "/opt/mottainai", undefined, ["--workspace", "/repo with space", "--config", "/tmp/client.json"]).command,
+    "/opt/mottainai hooks dispatch --client claude --workspace '/repo with space' --config /tmp/client.json",
+  );
 });
 
 test("bounded hook serialization respects byte limits including tiny limits", () => {
@@ -229,6 +266,37 @@ test("install/repair/uninstall preserve unrelated structured hooks and are idemp
   assert.deepEqual(after.hooks.PreToolUse, [{ matcher: "Bash", hooks: [unrelated] }]);
 });
 
+test("lifecycle writes reject a stale client-config revision instead of losing external changes", () => {
+  const root = workspace();
+  const settingsPath = path.join(root, ".claude", "settings.json");
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  fs.writeFileSync(settingsPath, JSON.stringify({ permissions: { allow: ["Read"] } }));
+  const snapshot = readJsonHookConfigSnapshot(settingsPath);
+  fs.writeFileSync(settingsPath, JSON.stringify({ permissions: { allow: ["Read", "Write"] }, external: true }));
+
+  assert.throws(
+    () => writeJsonHookConfig(settingsPath, { overwritten: true }, snapshot.revision),
+    (error: unknown) => error instanceof JsonHookConfigChangedError,
+  );
+  assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, "utf8")), {
+    permissions: { allow: ["Read", "Write"] },
+    external: true,
+  });
+});
+
+test("install refuses to create a hook that cannot reach the configured dispatcher", () => {
+  const root = workspace();
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-client-bin-"));
+  fakeClient(bin, "claude");
+  const context = { ...lifecycleContext(root, bin), dispatcherCommand: "/does/not/exist" };
+  const result = runManagedHooksCommand("install", ["--client", "claude"], context);
+  assert.equal(result.ok, false);
+  const claude = (result.clients as Array<{ error?: string; managedEntry: string }>)[0];
+  assert.equal(claude.managedEntry, "missing");
+  assert.equal(claude.error, "dispatcher command is not resolvable");
+  assert.equal(fs.existsSync(path.join(root, ".claude", "settings.json")), false);
+});
+
 test("managed health detects duplicate entries and uninstall preserves non-object hook values", () => {
   const root = workspace();
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-client-bin-"));
@@ -247,6 +315,10 @@ test("managed health detects duplicate entries and uninstall preserves non-objec
   const status = runManagedHooksCommand("status", ["--client", "claude"], context);
   const claude = (status.clients as Array<{ managedEntry: string }>)[0];
   assert.equal(claude.managedEntry, "drifted");
+  assert.equal(status.ok, false);
+  const repaired = runManagedHooksCommand("repair", ["--client", "claude"], context);
+  assert.equal(repaired.ok, true);
+  assert.equal((repaired.clients as Array<{ managedEntry: string }>)[0].managedEntry, "healthy");
   const uninstalled = runManagedHooksCommand("uninstall", ["--client", "claude"], context);
   assert.equal(uninstalled.ok, true);
   const parsed = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as { hooks: { PreToolUse: Array<{ hooks: unknown[] }> } };

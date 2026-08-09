@@ -87,7 +87,10 @@ export function operationForTool(value: string | undefined): HookOperation {
     case "git_commit":
       return "git.mutate";
     default:
-      return "other";
+      // A client can add a native execution-capable tool without updating the
+      // adapter first. Treat an unknown PreToolUse tool as the process
+      // boundary; it must not silently become the fail-open `other` class.
+      return value === undefined ? "other" : "process.exec";
   }
 }
 
