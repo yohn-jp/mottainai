@@ -1,9 +1,12 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { collectDoctorReport, formatDoctorHuman } from "./commands/doctor.js";
-import { loadMottainaiConfig, loadRawConfig, resolveConfigPath, saveRawConfig } from "./config.js";
+import { loadConfigSnapshot, loadMottainaiConfig, loadRawConfig, resolveConfigPath, saveRawConfig } from "./config.js";
 import type { MottainaiConfig } from "./config.js";
 import { openDashboardBrowser, parseDashboardOptions, startDashboard } from "./dashboard/command.js";
+import { localTools } from "./local-tools.js";
+import { dispatchClientHook, runManagedHooksCommand } from "./hooks/commands.js";
+import type { HookCommandContext } from "./hooks/commands.js";
 import { formatInitHuman, runInit } from "./init.js";
 import { createRuntimeDiagnostic, formatRuntimeDiagnosticHuman } from "./runtime-diagnostic.js";
 import { runServer } from "./server.js";
@@ -38,6 +41,13 @@ const USAGE = `usage:
   mottainai policy explain [--workspace path]    resolved Git workflow policy (Issue #34)
   mottainai task start <slug> [options]          start a Git workflow task (dedicated worktree/branch)
   mottainai task status [--workspace path]       active Git workflow task for the current worktree
+  mottainai hooks install [options]              install owned Claude/Codex pre-operation hooks
+  mottainai hooks status                         report managed hook state
+  mottainai hooks doctor                         diagnose managed hook state
+  mottainai hooks repair [options]               repair only owned hook entries
+  mottainai hooks uninstall [options]            remove only owned hook entries
+  mottainai hooks explain <decision-id>          retrieve one detailed hook explanation
+  mottainai hooks dispatch --client <name>       run the bounded client adapter entrypoint
 
 add options:
   --transport streamableHttp  remote transport; inferred from --url
@@ -69,6 +79,10 @@ policy/task options:
   --workspace path      Git repository root; defaults to the current Git repository's top level
   --type type           explicit branch type for "task start" (required)
   --issue ref           issue reference for "task start" (required)
+
+hooks options:
+  --client claude|codex|all target one client (default: all)
+  --mode observe|warn|enforce set the managed rollout mode for install/repair
 `;
 
 function flag(argv: string[], name: string): string | undefined {
@@ -124,6 +138,57 @@ async function openWorkflowStateStore(): Promise<WorkflowStateStore> {
 
 function print(value: unknown): void {
   console.log(JSON.stringify(value, null, 2));
+}
+
+async function readStdin(): Promise<string> {
+  const chunks: string[] = [];
+  for await (const chunk of process.stdin) chunks.push(String(chunk));
+  return chunks.join("");
+}
+
+function shellWord(value: string): string {
+  return /^[A-Za-z0-9_./:@%+=-]+$/u.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function dispatcherCommand(entryPoint: string | undefined): string {
+  if (entryPoint === undefined) return "mottainai";
+  const resolvedEntryPoint = path.isAbsolute(entryPoint) ? entryPoint : path.resolve(process.cwd(), entryPoint);
+  if (resolvedEntryPoint.endsWith(".js")) return `${shellWord(process.execPath)} ${shellWord(resolvedEntryPoint)}`;
+  if (resolvedEntryPoint.endsWith(".ts")) return `${shellWord(process.execPath)} --import tsx ${shellWord(resolvedEntryPoint)}`;
+  return "mottainai";
+}
+
+/**
+ * Local replacements are only considered usable when the gateway can load the
+ * configuration for this repository. The source-level tool list alone is not a
+ * capability claim: an unavailable/invalid runtime must fail open for native
+ * operations rather than redirecting the client into a dead end.
+  */
+function exposedHookTools(workspaceRoot: string, configPath?: string): ReadonlySet<string> {
+  try {
+    loadConfigSnapshot(configPath, workspaceRoot);
+    return new Set(localTools.map((tool) => tool.name));
+  } catch {
+    return new Set();
+  }
+}
+
+function hookContext(
+  workspaceRoot: string,
+  environment: NodeJS.ProcessEnv,
+  entryPoint?: string,
+  configPath?: string,
+): HookCommandContext {
+  const resolvedConfigPath = configPath === undefined ? undefined : path.resolve(process.cwd(), configPath);
+  const dispatcherArguments = ["--workspace", workspaceRoot, ...(resolvedConfigPath === undefined ? [] : ["--config", resolvedConfigPath])];
+  return {
+    workspaceRoot,
+    homeDirectory: environment.HOME ?? environment.USERPROFILE ?? workspaceRoot,
+    environment,
+    dispatcherCommand: dispatcherCommand(entryPoint),
+    dispatcherArguments,
+    exposedTools: exposedHookTools(workspaceRoot, resolvedConfigPath),
+  };
 }
 
 class CliError extends Error {}
@@ -300,6 +365,36 @@ export async function runCli(args: string[]): Promise<number> {
   if (hasFlag(argv, "json")) print(report);
   else console.log(formatDoctorHuman(report));
   return report.ok ? 0 : 1;
+} else if (command === "hooks") {
+  const action = argv[0];
+  if (action === "dispatch") {
+    const client = flag(argv, "client");
+    if (client !== "claude" && client !== "codex") fail("hooks dispatch requires --client claude or codex");
+    const workspace = resolveWorkflowWorkspace(argv);
+    let payload: unknown;
+    try {
+      payload = JSON.parse(await readStdin());
+    } catch {
+      payload = undefined;
+    }
+    const result = await dispatchClientHook(
+      client,
+      payload,
+      hookContext(workspace, runtimeOptions.environment, runtimeOptions.entryPoint, configPath),
+    );
+    if (result.stdout.length > 0) process.stdout.write(result.stdout);
+    if (result.stderr.length > 0) process.stderr.write(result.stderr);
+    return result.exitCode;
+  }
+  if (action === undefined) fail(USAGE);
+  const workspace = resolveWorkflowWorkspace(argv);
+  const result = runManagedHooksCommand(
+    action,
+    argv.slice(1),
+    hookContext(workspace, runtimeOptions.environment, runtimeOptions.entryPoint, configPath),
+  );
+  print(result);
+  return result.ok ? 0 : 1;
 } else if (command === "policy" && argv[0] === "explain") {
   const workspace = resolveWorkflowWorkspace(argv);
   const result = explainWorkflowPolicy(workspace);
