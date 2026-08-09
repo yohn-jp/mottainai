@@ -29,6 +29,7 @@ import type {
   SemanticRelation,
   SemanticTransaction,
   SnapshotValidationResult,
+  SymbolEntity,
   VerificationEvidence,
   VerificationPerspective,
   VerificationRequirement,
@@ -642,6 +643,41 @@ const canonicalProsePolicySchema = z
   })
   .strict();
 
+const symbolOwnershipDeclarationSchema = z
+  .object({
+    id: logicalIdSchema,
+    symbolId: logicalIdSchema,
+    classification: z.enum(["managed", "shared"]),
+    componentId: logicalIdSchema.optional(),
+  })
+  .strict()
+  .superRefine((ownership, context) => {
+    if (ownership.classification === "managed" && ownership.componentId === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["componentId"],
+        message: "managed Symbol ownership requires exactly one Component",
+      });
+    }
+    if (ownership.classification === "shared" && ownership.componentId !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["componentId"],
+        message: "Shared Symbol ownership cannot name a single Component",
+      });
+    }
+  });
+
+const semanticDebtIntentSchema = z
+  .object({
+    id: logicalIdSchema,
+    subject: logicalIdSchema,
+    statement: proseSchema,
+    status: z.enum(["open", "accepted", "resolved"]),
+    priority: z.enum(["low", "medium", "high"]),
+  })
+  .strict();
+
 const declaredStateSchema = z
   .object({
     project: projectEntitySchema,
@@ -660,6 +696,8 @@ const declaredStateSchema = z
     terminology: z.array(terminologyLinkSchema),
     decisionLinks: z.array(decisionLinkSchema),
     commentPolicy: canonicalProsePolicySchema,
+    symbolOwnership: z.array(symbolOwnershipDeclarationSchema).optional(),
+    semanticDebt: z.array(semanticDebtIntentSchema).optional(),
     verificationPerspectives: z.array(verificationPerspectiveSchema).optional(),
     verificationRequirements: z.array(verificationRequirementSchema).optional(),
   })
@@ -869,6 +907,18 @@ export const semanticTransactionSchema = z
     intent: z.enum(["semantic-neutral", "semantic-change"]),
     delta: semanticDeltaSchema,
     provenance: provenanceSchema,
+    reason: proseSchema.optional(),
+    authorizedDeltaKinds: z.array(z.enum(SEMANTIC_DELTA_KINDS)).optional(),
+    protectedChanges: z.array(logicalIdSchema).optional(),
+    transactionProvenance: z
+      .object({
+        actor: z.string().min(1).optional(),
+        issue: z.string().min(1).optional(),
+        task: z.string().min(1).optional(),
+        ref: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((transaction, context) => {
@@ -1467,6 +1517,34 @@ function validateReferences(snapshot: RepositorySemanticSnapshot): SemanticDiagn
   });
 
   const symbols = new Map(snapshot.derived.symbols.map((symbol) => [symbol.id, symbol]));
+  const declaredOwnership = new Map<LogicalId, { classification: "managed" | "shared"; componentId?: LogicalId }>();
+  snapshot.declarations.symbolOwnership?.forEach((ownership, index) => {
+    if (declaredOwnership.has(ownership.symbolId)) {
+      diagnostics.push(
+        diagnostic(
+          "duplicate_symbol_ownership",
+          `duplicate declared ownership for Symbol: ${ownership.symbolId}`,
+          `declarations.symbolOwnership.${index}.symbolId`,
+        ),
+      );
+    }
+    declaredOwnership.set(ownership.symbolId, ownership);
+    checkReferenceKind(ownership.symbolId, ["symbol"], `declarations.symbolOwnership.${index}.symbolId`);
+    if (ownership.componentId !== undefined) {
+      checkReferenceKind(ownership.componentId, ["component"], `declarations.symbolOwnership.${index}.componentId`);
+    }
+    if (symbols.has(ownership.symbolId) === false) {
+      diagnostics.push(
+        diagnostic(
+          "symbol_ownership_target_missing",
+          `declared ownership targets a missing Symbol: ${ownership.symbolId}`,
+          `declarations.symbolOwnership.${index}.symbolId`,
+        ),
+      );
+    }
+  });
+  const classificationFor = (symbol: SymbolEntity): "managed" | "shared" =>
+    declaredOwnership.get(symbol.id)?.classification ?? symbol.classification;
   const ownedBy = new Map<LogicalId, LogicalId[]>();
   snapshot.graph.relations.forEach((relation) => {
     if (relation.kind !== "owns" && relation.kind !== "shares") return;
@@ -1488,7 +1566,7 @@ function validateReferences(snapshot: RepositorySemanticSnapshot): SemanticDiagn
       const owners = ownedBy.get(symbol.id) ?? [];
       owners.push(from.id);
       ownedBy.set(symbol.id, owners);
-      if (symbol.classification === "shared")
+      if (classificationFor(symbol) === "shared")
         diagnostics.push(
           diagnostic(
             "shared_symbol_has_owner",
@@ -1496,7 +1574,7 @@ function validateReferences(snapshot: RepositorySemanticSnapshot): SemanticDiagn
             `graph.relations.${relation.id}`,
           ),
         );
-    } else if (symbol.classification === "managed") {
+    } else if (classificationFor(symbol) === "managed") {
       diagnostics.push(
         diagnostic("managed_symbol_shared", "managed Symbol cannot use shares", `graph.relations.${relation.id}`),
       );
@@ -1504,7 +1582,9 @@ function validateReferences(snapshot: RepositorySemanticSnapshot): SemanticDiagn
   });
   symbols.forEach((symbol) => {
     const owners = ownedBy.get(symbol.id) ?? [];
-    if (symbol.classification === "managed" && owners.length !== 1) {
+    const declared = declaredOwnership.get(symbol.id);
+    const classification = classificationFor(symbol);
+    if (classification === "managed" && owners.length !== 1) {
       diagnostics.push(
         diagnostic(
           "invalid_symbol_ownership",
@@ -1514,12 +1594,21 @@ function validateReferences(snapshot: RepositorySemanticSnapshot): SemanticDiagn
         ),
       );
     }
-    if (symbol.classification === "shared" && owners.length > 0) {
+    if (classification === "shared" && owners.length > 0) {
       diagnostics.push(
         diagnostic(
           "shared_symbol_has_owner",
           "Shared Symbol must not have a single owns owner",
           `derived.symbols.${symbol.id}`,
+        ),
+      );
+    }
+    if (declared?.componentId !== undefined && owners.length === 1 && owners[0] !== declared.componentId) {
+      diagnostics.push(
+        diagnostic(
+          "declared_symbol_owner_mismatch",
+          `declared Symbol owner does not match the owns relation: ${symbol.id}`,
+          `declarations.symbolOwnership.${symbol.id}`,
         ),
       );
     }

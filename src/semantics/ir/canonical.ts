@@ -202,6 +202,16 @@ function canonicalizeDeclared(declarations: DeclaredState): DeclaredState {
       (item) => item,
     ),
     decisionLinks: sortByKey([...declarations.decisionLinks], (item) => item),
+    ...(declarations.symbolOwnership === undefined
+      ? {}
+      : {
+          symbolOwnership: sortByKey([...declarations.symbolOwnership], (item) => item),
+        }),
+    ...(declarations.semanticDebt === undefined
+      ? {}
+      : {
+          semanticDebt: sortByKey([...declarations.semanticDebt], (item) => item),
+        }),
     ...(declarations.verificationPerspectives === undefined
       ? {}
       : {
