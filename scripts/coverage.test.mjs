@@ -90,6 +90,11 @@ test("coverage test files are partitioned exactly once across shards", () => {
   ]);
   assert.deepEqual(shards.flat().sort(), files);
   assert.throws(() => partitionTestFiles(files, 1, 7, () => 1), /exceeds test file count/);
+  assert.throws(() => partitionTestFiles(["a.test.ts", "a.test.ts"], 1, 2, () => 1), /contains duplicates/);
+  assert.deepEqual(
+    partitionTestFiles(files, 1, 2, (file) => (file === "a.test.ts" ? 100 : 1)),
+    ["a.test.ts"],
+  );
 });
 
 test("coverage LCOV merger sums line, function, and branch hit counts", () => {
