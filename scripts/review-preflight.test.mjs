@@ -112,6 +112,20 @@ test("a fitting estimate cannot authorize OpenCodeReview without an enforceable 
   assert.match(decision.reason, /provider request bound is not proven/u);
 });
 
+test("OpenCodeReview ignores a legacy bound flag and remains fail-closed", async () => {
+  const result = await runPreflight({
+    REVIEWER: "OpenCodeReview",
+    REVIEW_MODEL: "moonshotai/Kimi-K3",
+    REVIEW_INPUT_TEXT: "small diff",
+    REVIEW_PROVIDER_REQUEST_BOUND: "true",
+  });
+
+  assert.equal(result.status, "review_not_generated");
+  assert.equal(result.providerRequestBound, false);
+  assert.equal(result.providerInvocationAllowed, false);
+  assert.match(result.reason, /provider request bound is not proven/u);
+});
+
 test("invalid configuration produces no provider authorization", async () => {
   const result = await runPreflight({
     REVIEWER: "PR-Agent",
@@ -198,7 +212,11 @@ test("review workflows expose distinct manual commands and preserve the credenti
   assert.match(openCodeReview, /body\.trim\(\) !== '\/open-code-review'/u);
   assert.match(openCodeReview, /OPEN_CODE_REVIEW_MODEL/u);
   assert.match(openCodeReview, /base_ref:/u);
-  assert.match(openCodeReview, /OPENCODEREVIEW_32K_CONFIRMED/u);
+  assert.match(openCodeReview, /REVIEW_PROVIDER_REQUEST_BOUND: "false"/u);
+  assert.match(openCodeReview, /disabled until an enforceable request bound exists/u);
+  assert.doesNotMatch(openCodeReview, /OPENCODEREVIEW_32K_CONFIRMED/u);
+  assert.doesNotMatch(openCodeReview, /llm_auth_token/u);
+  assert.doesNotMatch(openCodeReview, /alibaba\/open-code-review/u);
   assert.match(openCodeReview, /provider_invocation_allowed/u);
   assert.match(openCodeReview, /Passes:/u);
   assert.match(openCodeReview, /Chunks:/u);

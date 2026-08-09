@@ -16,6 +16,10 @@ export const MANUAL_REVIEW_COMMANDS = Object.freeze({
 
 export const TRUSTED_COMMENTER_ASSOCIATIONS = Object.freeze(["OWNER", "MEMBER", "COLLABORATOR"]);
 
+// OpenCodeReview's pinned action does not expose a repository-enforceable
+// request-token bound. It must remain disabled until that capability exists.
+export const UNBOUNDED_REVIEWERS = Object.freeze(["OpenCodeReview"]);
+
 export const NO_CHUNKING_METADATA = Object.freeze({
   chunking: false,
   passCount: 0,
@@ -41,6 +45,11 @@ function parseBoolean(value) {
       .trim()
       .toLowerCase() === "true"
   );
+}
+
+function providerRequestBoundFor(environment) {
+  if (UNBOUNDED_REVIEWERS.includes(environment.REVIEWER)) return false;
+  return parseBoolean(environment.REVIEW_PROVIDER_REQUEST_BOUND);
 }
 
 export function parseTokenCount(value, fieldName, { allowZero = false } = {}) {
@@ -369,7 +378,7 @@ export async function runPreflight(environment = process.env) {
     const requestDecision = evaluateReviewRequest({
       maximumInputTokens: budget.maximumInputTokens,
       estimatedInputTokens,
-      providerRequestBound: parseBoolean(environment.REVIEW_PROVIDER_REQUEST_BOUND),
+      providerRequestBound: providerRequestBoundFor(environment),
       reviewer: environment.REVIEWER,
     });
     return Object.freeze({ ...requestDecision, budget, estimatedInputTokens, inputBudget: decision });

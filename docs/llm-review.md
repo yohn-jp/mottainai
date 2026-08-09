@@ -38,7 +38,10 @@ OpenCodeReview variables:
 - `OPEN_CODE_REVIEW_CONTEXT_TOKENS`
 - `OPEN_CODE_REVIEW_OUTPUT_RESERVE_TOKENS`
 - `OPEN_CODE_REVIEW_SAFETY_MARGIN_TOKENS`
-- `OPENCODEREVIEW_32K_CONFIRMED` (default: unset/false; explicit upstream-bound escape hatch)
+
+OpenCodeReview has no repository variable that enables provider execution. The
+workflow is intentionally fail-closed because the pinned action does not
+expose an enforceable per-request token bound.
 
 When a custom model is selected, all three budget variables for that reviewer
 must be set explicitly. Unknown models and invalid budgets fail closed before
@@ -46,7 +49,7 @@ the provider is called.
 
 ## Secret and budget behavior
 
-Both workflows use the `OPENAI_API_KEY` repository secret for the Featherless
+Only PR-Agent uses the `OPENAI_API_KEY` repository secret for the Featherless
 OpenAI-compatible endpoint. The repository-owned preflight counts the review
 diff, pull-request metadata, and applicable `AGENTS.md` instructions using a
 conservative sizing upper bound. It derives:
@@ -55,27 +58,32 @@ conservative sizing upper bound. It derives:
 maximum input = total context - reserved output - safety margin
 ```
 
-That estimate is not proof of the final provider request: the pinned
-OpenCodeReview action constructs additional context internally. The exact
-upstream evidence is its pinned [`action.yml`](https://github.com/alibaba/open-code-review/blob/4bcc95acecd629e64ea984c962cfd08dd892a38e/action.yml), whose inputs contain no per-request token/context limit, and whose composite `ocr review` invocation has no such argument. The repository regression test keeps this limitation visible in the workflow contract.
+That estimate is sufficient for PR-Agent because its pinned action accepts an
+input-token bound. It is not proof of the final OpenCodeReview request: the
+pinned action constructs additional context internally. Its pinned
+[`action.yml`](https://github.com/alibaba/open-code-review/blob/4bcc95acecd629e64ea984c962cfd08dd892a38e/action.yml)
+contains no per-request token/context limit, and its composite `ocr review`
+invocation has no such argument.
 
 The PR-Agent path is different: its pinned source resolves
 `custom_model_max_tokens` and clips the assembled review prompt before the
 completion call ([token-limit implementation](https://github.com/qodo-ai/pr-agent/blob/f6af7d77554ff8d26adffded077e6461329e92fa/pr_agent/algo/utils.py#L993-L1028)). The workflow passes the preflight maximum to that setting and still refuses oversized or invalid inputs before the action starts.
 
-Consequently, `OPENCODEREVIEW_32K_CONFIRMED` defaults to false. The preflight
-estimator never enables it: OpenCodeReview's credential mask and provider step
-both require the explicit bound gate and a fitting preflight result. Until an
-upstream bound or repository-owned bounded wrapper is evidenced, the
-credentialed OpenCodeReview path is fail-closed.
+Consequently, the OpenCodeReview workflow has no credential mask or provider
+action step. Its request-bound output is fixed to `false`, and the preflight
+also ignores any legacy bound flag for that reviewer. `/open-code-review`
+therefore produces a non-secret `review_not_generated` summary without
+invoking a provider. Re-enabling it requires an upstream bound or a
+repository-owned bounded wrapper, plus focused regression coverage proving the
+same bound reaches the downstream request.
 
-Neither pinned action has repository-controlled safe multi-pass support. An
-oversized, uncollectable, invalid, or unproven request therefore produces
-`review_not_generated`; no provider request is attempted. The Actions summary
-always exposes `chunking=false`, `passes=0`, and `chunks=0`, alongside the
-provider-bound and invocation decisions. A successful provider step alone is
-reported as `review_generated`; skipped or failed provider execution remains
-`review_not_generated`.
+The repository has no controlled safe multi-pass support. PR-Agent rejects an
+oversized, uncollectable, invalid, or unproven request before its provider
+step; OpenCodeReview is always disabled until its downstream bound is proven.
+The Actions summary exposes `chunking=false`, `passes=0`, and `chunks=0`,
+alongside the provider-bound and invocation decisions. A successful PR-Agent
+provider step is reported as `review_generated`; disabled or failed execution
+remains `review_not_generated`.
 
 Manual routing is exact (`/qodo-review` and `/open-code-review`), limited to
 trusted commenter associations, and same-repository pull requests. Fork PRs
