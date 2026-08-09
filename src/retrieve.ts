@@ -110,6 +110,9 @@ function payloadBytes(payload: ArtifactPayload): number {
   return Buffer.byteLength(JSON.stringify(payload), "utf8");
 }
 
+/** UTF-8 byte length of the smallest serialized artifact payload: {"text":""}. */
+export const MIN_ARTIFACT_BYTES = 11;
+
 function jsonStringBytes(value: string): number {
   return Buffer.byteLength(JSON.stringify(value), "utf8");
 }
@@ -296,6 +299,9 @@ export class InMemoryArtifactStore implements ArtifactStore {
       throw new RangeError("maxEntries must be a finite positive integer");
     }
     if (!Number.isFinite(maxBytes) || maxBytes <= 0) throw new RangeError("maxBytes must be a finite positive number");
+    if (maxBytes < MIN_ARTIFACT_BYTES) {
+      throw new RangeError(`maxBytes must be at least ${MIN_ARTIFACT_BYTES} bytes`);
+    }
     this.ttlMs = ttlMs;
     this.maxEntries = maxEntries;
     this.maxBytes = maxBytes;

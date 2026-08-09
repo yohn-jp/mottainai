@@ -47,6 +47,8 @@ export type UpstreamConnector = (config: UpstreamConfig) => Promise<UpstreamHand
 export interface UpstreamLifecycleOptions {
   startupTimeoutMs?: number;
   closeTimeoutMs?: number;
+  /** Internal deterministic transport-creation seam; runtime config never supplies this. */
+  transportFactory?: (config: UpstreamConfig, oauthCredentialProvider?: OAuthCredentialProvider) => Promise<Transport>;
 }
 
 interface UpstreamDiagnosticError extends Error {
@@ -97,14 +99,38 @@ async function withDeadline<T>(
   config: UpstreamConfig,
   phase: string,
   timeoutMs: number,
+  onLateResult?: (value: T) => Promise<unknown | undefined> | unknown | undefined,
 ): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
+  let timeoutError: UpstreamTimeoutError | undefined;
+  const monitoredOperation = operation.then((value) => {
+    const expiredError = timeoutError;
+    if (expiredError !== undefined && onLateResult !== undefined) {
+      void Promise.resolve()
+        .then(() => onLateResult(value))
+        .then(
+          (cleanupError) => {
+            if (cleanupError !== undefined) {
+              addSecondaryDiagnostic(expiredError, `upstream.${phase}.late_cleanup`, cleanupError);
+            }
+          },
+          (cleanupError: unknown) => {
+            addSecondaryDiagnostic(expiredError, `upstream.${phase}.late_cleanup`, cleanupError);
+          },
+        )
+        .catch(() => {
+          // The timeout remains the primary error even if diagnostic attachment fails.
+        });
+    }
+    return value;
+  });
   try {
     return await Promise.race([
-      operation,
+      monitoredOperation,
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
-          reject(new UpstreamTimeoutError(`upstream=${config.name} phase=${phase} timeout_ms=${timeoutMs}`));
+          timeoutError = new UpstreamTimeoutError(`upstream=${config.name} phase=${phase} timeout_ms=${timeoutMs}`);
+          reject(timeoutError);
         }, timeoutMs);
       }),
     ]);
@@ -113,12 +139,21 @@ async function withDeadline<T>(
   }
 }
 
-async function closeClient(client: Client, providerName: string, timeoutMs: number): Promise<unknown | undefined> {
+interface ClosableResource {
+  close(): Promise<void>;
+}
+
+async function closeResource(
+  resource: ClosableResource,
+  providerName: string,
+  phase: string,
+  timeoutMs: number,
+): Promise<unknown | undefined> {
   let timer: NodeJS.Timeout | undefined;
   try {
     const result = await Promise.race([
       Promise.resolve()
-        .then(() => client.close())
+        .then(() => resource.close())
         .then(
           () => undefined,
           (error: unknown) => ({ error }),
@@ -126,7 +161,7 @@ async function closeClient(client: Client, providerName: string, timeoutMs: numb
       new Promise<{ error: Error }>((resolve) => {
         timer = setTimeout(() => {
           resolve({
-            error: new UpstreamTimeoutError(`upstream=${providerName} phase=close timeout_ms=${timeoutMs}`),
+            error: new UpstreamTimeoutError(`upstream=${providerName} phase=${phase} timeout_ms=${timeoutMs}`),
           });
         }, timeoutMs);
       }),
@@ -135,6 +170,10 @@ async function closeClient(client: Client, providerName: string, timeoutMs: numb
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
+}
+
+async function closeClient(client: Client, providerName: string, timeoutMs: number): Promise<unknown | undefined> {
+  return closeResource(client, providerName, "close", timeoutMs);
 }
 
 function boundedText(value: string, maxBytes: number): string {
@@ -349,16 +388,18 @@ export async function connectUpstream(
 ): Promise<UpstreamHandle> {
   const startupTimeoutMs = resolveTimeout(lifecycleOptions.startupTimeoutMs, UPSTREAM_STARTUP_TIMEOUT_MS);
   const closeTimeoutMs = resolveTimeout(lifecycleOptions.closeTimeoutMs, UPSTREAM_CLOSE_TIMEOUT_MS);
+  const transportFactory = lifecycleOptions.transportFactory ?? createUpstreamTransport;
   let client: Client | undefined;
   let phase = "transport";
   const transcript: string[] = ["phase=transport started"];
   const stderrTail: string[] = [];
   try {
     const transport = await withDeadline(
-      createUpstreamTransport(config, oauthCredentialProvider),
+      transportFactory(config, oauthCredentialProvider),
       config,
       phase,
       startupTimeoutMs,
+      (lateTransport) => closeResource(lateTransport, config.name, "transport.close", closeTimeoutMs),
     );
     if (transport instanceof StdioClientTransport) {
       transport.stderr?.on("data", (chunk: Buffer | string) => {

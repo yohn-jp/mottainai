@@ -5,11 +5,12 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { DIRECT_BOUNDARIES } from "./boundary.js";
 import { resolveGatewayConfig } from "./config.js";
 import { runInit } from "./init.js";
 import { createLogger } from "./logging.js";
-import { InMemoryArtifactStore } from "./retrieve.js";
+import { InMemoryArtifactStore, MIN_ARTIFACT_BYTES } from "./retrieve.js";
 import { runProgram, ManagedProcess } from "./subprocess.js";
 import { applyMigrations } from "./state/migrations.js";
 import { SqliteStateStore } from "./state/sqlite-store.js";
@@ -23,7 +24,7 @@ function temporaryDirectory(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), `mottainai-${prefix}-`));
 }
 
-async function initialize(workspace: string, boundaries = DIRECT_BOUNDARIES, force = false) {
+async function initialize(workspace: string, boundaries = DIRECT_BOUNDARIES, force = false, config?: string) {
   return runInit({
     args: [
       "--yes",
@@ -35,6 +36,7 @@ async function initialize(workspace: string, boundaries = DIRECT_BOUNDARIES, for
       "none",
       "--no-doctor",
       ...(force ? ["--force"] : []),
+      ...(config === undefined ? [] : ["--config", config]),
     ],
     cwd: workspace,
     stdinIsTTY: false,
@@ -63,7 +65,7 @@ test("configuration replacement preserves the original and cleans temporary stat
       const faults = new FaultInjector({ [operation]: { error: new Error(`primary ${operation}`) } });
       await assert.rejects(() => initialize(workspace, faults, true), new RegExp(`primary ${operation}`));
       assert.equal(fs.readFileSync(first.configuration, "utf8"), original, operation);
-      assert.deepEqual(temporaryFiles(workspace), [], operation);
+      assert.deepEqual(temporaryFiles(path.dirname(first.configuration)), [], operation);
     } finally {
       fs.rmSync(workspace, { recursive: true, force: true });
     }
@@ -91,7 +93,24 @@ test("configuration replacement preserves the primary error when cleanup fails a
       },
     );
     assert.equal(fs.readFileSync(first.configuration, "utf8"), original);
-    assert.deepEqual(temporaryFiles(workspace), []);
+    assert.deepEqual(temporaryFiles(path.dirname(first.configuration)), []);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("nested configuration replacement cleans temporary state beside the configuration", async () => {
+  const workspace = temporaryDirectory("fault-config-nested");
+  try {
+    const first = await initialize(workspace, DIRECT_BOUNDARIES, false, "nested/mottainai.config.json");
+    const original = fs.readFileSync(first.configuration, "utf8");
+    const faults = new FaultInjector({ "config.rename": { error: new Error("primary nested rename failure") } });
+    await assert.rejects(
+      () => initialize(workspace, faults, true, "nested/mottainai.config.json"),
+      /primary nested rename failure/,
+    );
+    assert.equal(fs.readFileSync(first.configuration, "utf8"), original);
+    assert.deepEqual(temporaryFiles(path.dirname(first.configuration)), []);
   } finally {
     fs.rmSync(workspace, { recursive: true, force: true });
   }
@@ -125,7 +144,7 @@ test("backup allocation retries a deterministic concurrent collision without ove
 
     assert.equal(replaced.backup, `${first.configuration}.1.bak`);
     assert.equal(fs.readFileSync(replaced.backup as string, "utf8"), original);
-    assert.deepEqual(temporaryFiles(workspace), []);
+    assert.deepEqual(temporaryFiles(path.dirname(first.configuration)), []);
   } finally {
     fs.rmSync(workspace, { recursive: true, force: true });
   }
@@ -371,10 +390,14 @@ test("execution does not expose a compression marker when artifact insertion fai
   assert.equal(store.search("unreachable").length, 0);
 });
 
-test("artifact storage rejects an impossible byte limit before publishing a reference", () => {
-  const store = new InMemoryArtifactStore({ maxBytes: 1, createId: () => "too-small" });
-  assert.throws(() => store.putArtifact({ text: "payload", metadata: { operation: "test" } }), /cannot fit/);
-  assert.equal(store.search("payload").length, 0);
+test("artifact storage rejects impossible byte limits at construction and accepts the minimum", () => {
+  assert.throws(
+    () => new InMemoryArtifactStore({ maxBytes: MIN_ARTIFACT_BYTES - 1 }),
+    new RegExp(`maxBytes must be at least ${MIN_ARTIFACT_BYTES} bytes`),
+  );
+  const store = new InMemoryArtifactStore({ maxBytes: MIN_ARTIFACT_BYTES, createId: () => "minimum" });
+  const id = store.putArtifact({ text: "payload", metadata: { operation: "test" } });
+  assert.equal(store.retrieve(id)?.text, "");
 });
 
 test("process launcher faults are deterministic and return a bounded spawn diagnostic", async () => {
@@ -417,6 +440,78 @@ test("upstream startup timeout closes the failed client and preserves the timeou
     /timeout_ms=1/,
   );
   assert.equal(closeCalls, 1);
+});
+
+test("upstream transport timeout closes a late transport before it can leak", async () => {
+  let release: ((transport: Transport) => void) | undefined;
+  const pendingTransport = new Promise<Transport>((resolve) => {
+    release = resolve;
+  });
+  let closeCalls = 0;
+  let closeCompleted!: () => void;
+  const closeFinished = new Promise<void>((resolve) => {
+    closeCompleted = resolve;
+  });
+  const lateTransport = {
+    close: async () => {
+      closeCalls += 1;
+      closeCompleted();
+    },
+  } as unknown as Transport;
+
+  await assert.rejects(
+    () =>
+      connectUpstream(
+        { name: "late-transport", command: "node" },
+        undefined,
+        () => {
+          throw new Error("client should not be created before transport resolves");
+        },
+        { startupTimeoutMs: 1, closeTimeoutMs: 10, transportFactory: () => pendingTransport },
+      ),
+    /phase=transport timeout_ms=1/,
+  );
+  assert.equal(closeCalls, 0);
+  release?.(lateTransport);
+  await closeFinished;
+  assert.equal(closeCalls, 1);
+});
+
+test("late transport cleanup preserves the timeout and records its failure secondarily", async () => {
+  let release: ((transport: Transport) => void) | undefined;
+  const pendingTransport = new Promise<Transport>((resolve) => {
+    release = resolve;
+  });
+  const cleanupError = new Error("late transport close failed");
+  const lateTransport = {
+    close: async () => {
+      throw cleanupError;
+    },
+  } as unknown as Transport;
+  let timeoutError: unknown;
+
+  await assert.rejects(
+    () =>
+      connectUpstream(
+        { name: "late-transport-failure", command: "node" },
+        undefined,
+        () => {
+          throw new Error("client should not be created before transport resolves");
+        },
+        { startupTimeoutMs: 1, closeTimeoutMs: 10, transportFactory: () => pendingTransport },
+      ),
+    (error: unknown) => {
+      timeoutError = error;
+      assert.match((error as Error).message, /phase=transport timeout_ms=1/);
+      return true;
+    },
+  );
+  release?.(lateTransport);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal((timeoutError as Error).message, "upstream=late-transport-failure phase=transport timeout_ms=1");
+  assert.deepEqual((timeoutError as { secondaryDiagnostics?: unknown[] }).secondaryDiagnostics, [
+    { operation: "upstream.transport.late_cleanup", message: cleanupError.message },
+  ]);
 });
 
 test("upstream cleanup failure is recorded as secondary evidence without replacing the startup error", async () => {
