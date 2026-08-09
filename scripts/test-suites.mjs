@@ -10,9 +10,12 @@ const testFilePattern = /\.(?:test|spec)\.(?:ts|mjs)$/u;
 // lifecycles remain meaningful integration tests.
 const integrationPatterns = Object.freeze([
   "src/commands/**/*.test.ts",
+  "src/cli.test.ts",
+  "src/context-runtime/process-registry.test.ts",
   "src/dashboard-cli.test.ts",
   "src/dashboard/command.integration.test.ts",
   "src/dashboard/http.test.ts",
+  "src/dashboard/provider.integration.test.ts",
   "src/semantics/effects/effects.test.ts",
   "src/semantics/extractors/typescript/extractor.test.ts",
   "src/semantics/model/query.test.ts",
