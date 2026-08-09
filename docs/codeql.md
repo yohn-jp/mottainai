@@ -40,6 +40,19 @@ in the pull request checks and under the repository's **Security → Code
 scanning** view. The checks are named `Analyze (javascript-typescript)` and
 `Analyze (actions)`.
 
+### Initial baseline (2026-08-09)
+
+- PR head `d943c687a99077c5ba4c2e2effb67c226bae6b06` (Issue #135, merging
+  `main` at `fad552f6e9681b771c5503586837289057146a10`): `Analyze
+  (javascript-typescript)` — success; `Analyze (actions)` — success;
+  `Governance / validate-pr` — success.
+- Code scanning alerts: 0 open alerts for the repository at merge time.
+  A successful job means both matrix jobs completed without error, not that
+  zero findings is guaranteed for all future commits; check **Security → Code
+  scanning** for the current alert state.
+- The weekly scheduled scan and the `push` trigger on `main` first run after
+  this PR merges, since `main` had no CodeQL workflow before it.
+
 An alert is handled by fixing the code, dismissing it in GitHub only with
 reviewable evidence and a documented reason, or filing a bounded follow-up
 Issue. Findings must not be suppressed generically to restore a green check.
