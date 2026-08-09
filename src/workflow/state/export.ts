@@ -32,6 +32,7 @@ export interface WorkflowStateExport {
   pullRequests: ReadonlyArray<{
     recordId: string;
     taskId?: string;
+    instanceId?: string;
     provider: string;
     repositoryId: string;
     prNumber: number;
@@ -125,6 +126,7 @@ export function createWorkflowStateExport(input: CreateWorkflowStateExportInput)
     pullRequests: pullRequests.map((record) => ({
       recordId: record.recordId,
       ...(record.taskId === undefined ? {} : { taskId: record.taskId }),
+      ...(record.instanceId === undefined ? {} : { instanceId: record.instanceId }),
       provider: record.provider,
       repositoryId: record.repositoryId,
       prNumber: record.prNumber,

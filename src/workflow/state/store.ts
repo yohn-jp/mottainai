@@ -88,6 +88,8 @@ export interface WorktreeRecord {
 export interface PullRequestRecord {
   recordId: PullRequestRecordId;
   taskId: TaskId | undefined;
+  /** Repository instance that owns this PR record; absent only for legacy unscoped rows. */
+  instanceId: RepositoryInstanceId | undefined;
   provider: string;
   repositoryId: string;
   prNumber: number;
@@ -137,6 +139,8 @@ export interface ListGuardrailAuditRecordsOptions {
 
 export interface RecordPullRequestInput {
   taskId?: TaskId;
+  /** Optional for legacy callers; task-bound records derive and validate this identity from the task. */
+  instanceId?: RepositoryInstanceId;
   provider: string;
   repositoryId: string;
   prNumber: number;

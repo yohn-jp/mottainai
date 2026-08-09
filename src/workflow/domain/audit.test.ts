@@ -107,3 +107,36 @@ test("workflow state export is versioned and redacts paths, URL credentials, and
   assert.equal(serialized.includes("secret_token"), false);
   assert.equal(serialized.includes("raw SQLite"), false);
 });
+
+test("audit metadata allowlisting rejects alternate sensitive keys and nested payload shapes", (t) => {
+  const store = createWorkflowStore(t);
+  store.observeRepositoryInstance({
+    rootCommitDigest: "privacy-shape-digest" as RootCommitDigest,
+    instanceId,
+    gitCommonDir: "/private/repository/.git",
+    canonicalWorktreePath: "/private/repository",
+    observedAt: 0,
+  });
+  const record = recordGuardrailDecision(store, {
+    operation: "export",
+    decision: "observe",
+    ruleId: "export-redaction",
+    reasonCode: "backup",
+    metadata: {
+      safe_count: 1,
+      path: "/private/repository/source.ts",
+      file_path: "/private/repository/source.ts",
+      authorization_value: "Bearer secret",
+      payload: { content: "source body" },
+      data: ["source body"],
+      state: "observed",
+    },
+  });
+  assert.deepEqual(record.metadata, { safe_count: 1, state: "observed" });
+  const exported = createWorkflowStateExport({ store, workspaceRoot: "/private/repository", now: () => 2 });
+  const serialized = serializeWorkflowStateExport(exported);
+  assert.equal(serialized.includes("source.ts"), false);
+  assert.equal(serialized.includes("Bearer secret"), false);
+  assert.equal(serialized.includes("source body"), false);
+  assert.equal(serialized.includes("safe_count"), true);
+});

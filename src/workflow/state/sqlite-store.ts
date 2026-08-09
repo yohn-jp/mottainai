@@ -198,14 +198,31 @@ function toValidationEvidenceRecord(row: Record<string, unknown>): ValidationEvi
 const AUDIT_MAX_FIELD_LENGTH = 128;
 const AUDIT_MAX_METADATA_ENTRIES = 32;
 const AUDIT_MAX_METADATA_STRING_LENGTH = 256;
-const AUDIT_FORBIDDEN_METADATA_KEY =
-  /secret|token|password|credential|diff|content|stdout|stderr|environment|env|header|argument|command|raw|output/iu;
+const AUDIT_SAFE_IDENTIFIER = /^[A-Za-z][A-Za-z0-9_.:-]{0,127}$/u;
+const AUDIT_SAFE_METADATA_KEYS = new Set([
+  "count",
+  "safe_count",
+  "attempts",
+  "duration_ms",
+  "size",
+  "state",
+  "status",
+  "phase",
+  "kind",
+  "provider",
+  "source",
+  "category",
+  "version",
+]);
+const AUDIT_SAFE_METADATA_STRING = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/u;
 
 function boundedAuditField(value: string, field: string): string {
   const normalized = value.trim();
   if (normalized.length === 0) throw new Error(`${field} must not be empty`);
   if (/[\u0000-\u001f\u007f]/u.test(normalized)) throw new Error(`${field} contains control characters`);
-  return normalized.slice(0, AUDIT_MAX_FIELD_LENGTH);
+  if (normalized.length > AUDIT_MAX_FIELD_LENGTH || !AUDIT_SAFE_IDENTIFIER.test(normalized))
+    throw new Error(`${field} must be a safe audit identifier`);
+  return normalized;
 }
 
 function toAuditMetadata(value: unknown): Record<string, string | number | boolean | null> {
@@ -213,16 +230,11 @@ function toAuditMetadata(value: unknown): Record<string, string | number | boole
   const result: Record<string, string | number | boolean | null> = {};
   for (const [key, candidate] of Object.entries(value)) {
     if (Object.keys(result).length >= AUDIT_MAX_METADATA_ENTRIES) break;
-    if (
-      !/^[a-z][a-z0-9_.-]{0,63}$/u.test(key) ||
-      AUDIT_FORBIDDEN_METADATA_KEY.test(key)
-    )
-      continue;
+    if (!AUDIT_SAFE_METADATA_KEYS.has(key)) continue;
     if (typeof candidate === "string") {
       const normalized = candidate.slice(0, AUDIT_MAX_METADATA_STRING_LENGTH);
-      if (!/[\u0000-\u001f\u007f]/u.test(normalized)) result[key] = normalized;
-    }
-    else if (typeof candidate === "number" && Number.isFinite(candidate)) result[key] = candidate;
+      if (AUDIT_SAFE_METADATA_STRING.test(normalized)) result[key] = normalized;
+    } else if (typeof candidate === "number" && Number.isFinite(candidate)) result[key] = candidate;
     else if (typeof candidate === "boolean" || candidate === null) result[key] = candidate;
   }
   return result;
@@ -1009,6 +1021,7 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     return {
       recordId: row.record_id as PullRequestRecordId,
       taskId: (row.task_id as TaskId | null) ?? undefined,
+      instanceId: (row.instance_id as RepositoryInstanceId | null) ?? undefined,
       provider: row.provider as string,
       repositoryId: row.repository_id as string,
       prNumber: row.pr_number as number,
@@ -1027,12 +1040,27 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     let result!: PullRequestRecord;
     db.exec("BEGIN IMMEDIATE");
     try {
+      const task =
+        input.taskId === undefined
+          ? undefined
+          : (db.prepare("SELECT instance_id FROM tasks WHERE task_id = ?").get(input.taskId) as
+              | { instance_id: RepositoryInstanceId }
+              | undefined);
+      if (input.taskId !== undefined && task === undefined) throw new Error(`task not found: ${input.taskId}`);
+      if (task !== undefined && input.instanceId !== undefined && input.instanceId !== task.instance_id) {
+        throw new Error(`pull request task repository mismatch: ${input.taskId}`);
+      }
+      const instanceId = input.instanceId ?? task?.instance_id;
       const existing = db
         .prepare("SELECT * FROM pr_records WHERE provider = ? AND repository_id = ? AND pr_number = ?")
         .get(input.provider, input.repositoryId, input.prNumber) as Record<string, unknown> | undefined;
       if (existing !== undefined) {
         const existingRecord = this.toPullRequestRecord(existing);
-        if (existingRecord.headSha !== input.headSha || existingRecord.taskId !== input.taskId) {
+        if (
+          existingRecord.headSha !== input.headSha ||
+          existingRecord.taskId !== input.taskId ||
+          existingRecord.instanceId !== instanceId
+        ) {
           throw new Error(
             `pull request record already exists with different identity: ${input.provider}/${input.repositoryId}#${input.prNumber}`,
           );
@@ -1044,11 +1072,12 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       const recordId = crypto.randomUUID() as PullRequestRecordId;
       db.prepare(
         `INSERT INTO pr_records
-          (record_id, task_id, provider, repository_id, pr_number, url, head_sha, lifecycle_state, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (record_id, task_id, instance_id, provider, repository_id, pr_number, url, head_sha, lifecycle_state, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         recordId,
         input.taskId ?? null,
+        instanceId ?? null,
         input.provider,
         input.repositoryId,
         input.prNumber,

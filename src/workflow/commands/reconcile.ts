@@ -5,11 +5,7 @@ import { GithubAdapter } from "../providers/github.js";
 import type { PullRequestLifecycleState } from "../providers/model.js";
 import { isLeaseActive } from "../domain/lease.js";
 import type { RepositoryInstanceId } from "../domain/identity.js";
-import type {
-  GuardrailAuditRecord,
-  TaskId,
-  WorkflowStateStore,
-} from "../state/store.js";
+import type { GuardrailAuditRecord, TaskId, WorkflowStateStore } from "../state/store.js";
 
 export const RECONCILIATION_SCHEMA_VERSION = 1;
 
@@ -18,6 +14,9 @@ export const DIVERGENCE_KINDS = [
   "unregistered-managed-root-worktree",
   "moved-repository",
   "branch-task-mismatch",
+  "task-worktree-instance-mismatch",
+  "pull-request-instance-mismatch",
+  "pull-request-task-mismatch",
   "stale-lock",
   "merged-but-uncleaned-task",
   "cleaned-record-with-surviving-path",
@@ -256,34 +255,64 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
 
   const snapshot = snapshotResult.snapshot;
   const diagnostics: ReconciliationDiagnostic[] = [];
-  const allInstances =
+  // A Git snapshot describes one repository instance.  Never use every row in the
+  // shared workflow store as the implicit scope: doing so can make a task, worktree,
+  // or PR from another checkout appear to belong to this repository.
+  const selectedInstance =
     input.repositoryInstanceId === undefined
-      ? input.store.listRepositoryInstances()
-      : [input.store.getRepositoryInstance(input.repositoryInstanceId)].filter(
-          (value): value is NonNullable<typeof value> => value !== undefined,
-        );
+      ? (input.store.getRepositoryInstanceByCommonDir(snapshot.gitCommonDir) ??
+        (() => {
+          // A single known instance can be reported as moved without ambiguity.
+          // With multiple instances and no common-dir match, do not guess which
+          // repository the snapshot belongs to.
+          const instances = input.store.listRepositoryInstances();
+          return instances.length === 1 ? instances[0] : undefined;
+        })())
+      : input.store.getRepositoryInstance(input.repositoryInstanceId);
+  const allInstances = selectedInstance === undefined ? [] : [selectedInstance];
   const instanceIds = new Set(allInstances.map((instance) => instance.instanceId));
+  const repositoryScopeMatches =
+    selectedInstance !== undefined &&
+    selectedInstance.gitCommonDir === snapshot.gitCommonDir &&
+    input.store
+      .listRepositoryPaths(selectedInstance.instanceId)
+      .some((record) => record.isCurrent && canonicalPath(record.canonicalPath) === snapshot.repositoryRoot);
   const isInScope = (instanceId: RepositoryInstanceId): boolean =>
-    input.repositoryInstanceId === undefined || instanceIds.has(instanceId);
-  if (input.repositoryInstanceId !== undefined && allInstances.length === 0) {
+    repositoryScopeMatches && instanceIds.has(instanceId);
+  if (allInstances.length === 0) {
     diagnostics.push({
       code: "repository-instance-not-found",
       severity: "error",
-      detail: `repository instance ${input.repositoryInstanceId} is not registered in workflow state`,
+      detail:
+        input.repositoryInstanceId === undefined
+          ? "the current Git repository instance is not registered in workflow state"
+          : `repository instance ${input.repositoryInstanceId} is not registered in workflow state`,
     });
   }
-  const recordedWorktrees = input.store
-    .listWorktrees()
-    .filter((worktree) => isInScope(worktree.instanceId));
-  const recordedTasks = input.store
-    .listTasks()
-    .filter((task) => isInScope(task.instanceId));
-  const recordedLeases = input.store
-    .listCleanupLeases()
-    .filter((lease) => isInScope(lease.instanceId));
-  const recordedPullRequests = input.store
-    .listPullRequestRecords()
-    .filter((record) => record.taskId === undefined || recordedTasks.some((task) => task.taskId === record.taskId));
+  const recordedWorktrees = input.store.listWorktrees().filter((worktree) => isInScope(worktree.instanceId));
+  const recordedTasks = input.store.listTasks().filter((task) => isInScope(task.instanceId));
+  const recordedLeases = input.store.listCleanupLeases().filter((lease) => isInScope(lease.instanceId));
+  const unscopedPullRequests: Array<{
+    taskId: TaskId | undefined;
+    instanceId: RepositoryInstanceId | undefined;
+    task: ReturnType<WorkflowStateStore["getTask"]>;
+  }> = [];
+  const recordedPullRequests = input.store.listPullRequestRecords().filter((record) => {
+    const task = record.taskId === undefined ? undefined : input.store.getTask(record.taskId);
+    if (record.taskId === undefined || task === undefined) {
+      if (record.instanceId === undefined || isInScope(record.instanceId))
+        unscopedPullRequests.push({ taskId: record.taskId, instanceId: record.instanceId, task });
+      return false;
+    }
+    if (!isInScope(task.instanceId)) return false;
+    if (record.instanceId !== undefined && record.instanceId !== task.instanceId) {
+      unscopedPullRequests.push({ taskId: record.taskId, instanceId: record.instanceId, task });
+      return false;
+    }
+    // Records belonging to another repository are deliberately ignored.  They must
+    // never be observed or used to derive a repair for the current snapshot.
+    return true;
+  });
   const pathExists = dependencies.pathExists ?? defaultPathExists;
   const managedWorktreeRoot =
     dependencies.managedWorktreeRoot?.(snapshot) ?? path.join(snapshot.repositoryRoot, ".mottainai", "worktrees");
@@ -302,13 +331,28 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
   ): void => {
     const divergenceId = `divergence:${kind}:${sequence++}`;
     const divergence: ReconciliationDivergence = { divergenceId, kind, severity: "error", detail, evidence, ...target };
-    if (repair !== undefined) {
+    if (repair !== undefined && repositoryScopeMatches) {
       const actionId = repairId(repair.kind, repair.targetId);
       repairPlan.push({ ...repair, actionId, divergenceId });
       divergence.repairActionId = actionId;
     }
     divergences.push(divergence);
   };
+
+  for (const record of unscopedPullRequests) {
+    addDivergence(
+      record.task === undefined ? "pull-request-task-mismatch" : "pull-request-instance-mismatch",
+      record.task === undefined
+        ? "pull-request metadata cannot be associated with a task in the current repository instance"
+        : "pull-request metadata is associated with a different repository instance than its task",
+      { instanceId: record.task?.instanceId, taskId: record.taskId },
+      {
+        task_present: record.task !== undefined,
+        record_instance_present: record.instanceId !== undefined,
+        instance_in_scope: record.instanceId === undefined ? null : isInScope(record.instanceId),
+      },
+    );
+  }
 
   for (const instance of allInstances) {
     const currentPaths = input.store.listRepositoryPaths(instance.instanceId).filter((record) => record.isCurrent);
@@ -331,22 +375,31 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
     const task = input.store.getTask(worktree.taskId);
     const actual = actualByPath.get(canonicalPath(worktree.canonicalPath));
     const live = worktree.status !== "removed";
-    if (task === undefined || task.instanceId !== worktree.instanceId) {
+    if (task === undefined) {
       addDivergence(
         "branch-task-mismatch",
         "recorded worktree is not associated with its recorded task",
         { instanceId: worktree.instanceId, taskId: worktree.taskId, worktreeId: worktree.worktreeId },
         { task_present: task !== undefined, branch: worktree.branchName },
       );
+    } else if (task.instanceId !== worktree.instanceId) {
+      addDivergence(
+        "task-worktree-instance-mismatch",
+        "worktree and task belong to different repository instances",
+        { instanceId: worktree.instanceId, taskId: worktree.taskId, worktreeId: worktree.worktreeId },
+        { task_instance_matches: false, task_present: true },
+      );
     }
     if (live && actual === undefined) {
-      const safeToMarkRemoved = !pathExists(worktree.canonicalPath);
+      const managedPath = pathIsInside(managedWorktreeRoot, worktree.canonicalPath);
+      const pathSurvives = pathExists(worktree.canonicalPath);
+      const safeToMarkRemoved = worktree.status === "active" && managedPath && !pathSurvives;
       addDivergence(
         "missing-managed-worktree",
         "recorded live worktree is absent from Git worktree list",
         { instanceId: worktree.instanceId, taskId: worktree.taskId, worktreeId: worktree.worktreeId },
-        { recorded_path: worktree.canonicalPath, path_exists: !safeToMarkRemoved },
-        safeToMarkRemoved
+        { managed_path: managedPath, path_exists: pathSurvives, status: worktree.status },
+        safeToMarkRemoved && task !== undefined && task.instanceId === worktree.instanceId
           ? {
               kind: "mark-worktree-removed",
               targetId: worktree.worktreeId,
@@ -361,7 +414,11 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
         "branch-task-mismatch",
         "Git worktree branch does not match the branch recorded for the task",
         { instanceId: worktree.instanceId, taskId: worktree.taskId, worktreeId: worktree.worktreeId },
-        { expected_branch: worktree.branchName, actual_branch: actual.branch ?? null, actual_detached: actual.detached },
+        {
+          expected_branch: worktree.branchName,
+          actual_branch: actual.branch ?? null,
+          actual_detached: actual.detached,
+        },
       );
     }
     if (
@@ -373,6 +430,21 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
         "cleaned workflow metadata still has a filesystem path or Git worktree",
         { instanceId: worktree.instanceId, taskId: worktree.taskId, worktreeId: worktree.worktreeId },
         { path_exists: pathExists(worktree.canonicalPath), git_registered: actual !== undefined },
+      );
+    }
+  }
+
+  // listWorktreesForTask is intentionally a task-keyed lookup.  Inspect every
+  // selected task's result as well so a corrupt row that claims the task id but
+  // another instance cannot disappear merely because instance-scoped listing hid it.
+  for (const task of recordedTasks) {
+    for (const worktree of input.store.listWorktreesForTask(task.taskId)) {
+      if (worktree.instanceId === task.instanceId) continue;
+      addDivergence(
+        "task-worktree-instance-mismatch",
+        "task and associated worktree do not belong to the same repository instance",
+        { instanceId: task.instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId },
+        { task_instance_matches: false, task_present: true },
       );
     }
   }
@@ -392,6 +464,28 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
   for (const lease of recordedLeases) {
     if (isLeaseActive(lease, observedAt)) continue;
     if (lease.state === "committed" || lease.state === "failed") continue;
+    const leaseTask = input.store.getTask(lease.taskId);
+    const leaseWorktree =
+      lease.worktreeId === undefined
+        ? undefined
+        : input.store.listWorktrees().find((candidate) => candidate.worktreeId === lease.worktreeId);
+    const leaseIdentityValid =
+      leaseTask !== undefined &&
+      leaseTask.instanceId === lease.instanceId &&
+      (leaseWorktree === undefined ||
+        (leaseWorktree.taskId === lease.taskId && leaseWorktree.instanceId === lease.instanceId));
+    if (!leaseIdentityValid) {
+      addDivergence(
+        "task-worktree-instance-mismatch",
+        "cleanup lease is not associated with the same repository instance as its task and worktree",
+        { instanceId: lease.instanceId, taskId: lease.taskId, worktreeId: lease.worktreeId },
+        {
+          task_present: leaseTask !== undefined,
+          worktree_present: lease.worktreeId === undefined || leaseWorktree !== undefined,
+        },
+      );
+      continue;
+    }
     const action: Omit<ReconciliationRepairAction, "actionId" | "divergenceId"> = {
       kind: "mark-expired-lock-failed",
       targetId: lease.operationId,
@@ -409,10 +503,12 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
   }
 
   const mergedTaskIds = new Set<TaskId>();
+  const providerObservations = new Map<string, PullRequestReconciliationObservation>();
   for (const task of recordedTasks) if (task.lifecycleState === "merged") mergedTaskIds.add(task.taskId);
   const observer = dependencies.pullRequestObserver ?? defaultPullRequestObserver(input.workspaceRoot);
   for (const record of recordedPullRequests) {
     const observed = await observer(record);
+    providerObservations.set(record.recordId, observed);
     if (!observed.ok) {
       diagnostics.push({
         code: "provider-observation-unavailable",
@@ -434,7 +530,9 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
           record_id: record.recordId,
           expected_lifecycle: record.lifecycleState,
           actual_lifecycle: observed.lifecycleState,
-          ...(observed.headSha === undefined ? {} : { expected_head_sha: record.headSha, actual_head_sha: observed.headSha }),
+          ...(observed.headSha === undefined
+            ? {}
+            : { expected_head_sha: record.headSha, actual_head_sha: observed.headSha }),
         },
       );
     }
@@ -445,23 +543,38 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
     if (task === undefined) continue;
     if (task.lifecycleState === "cleaned") continue;
     const worktrees = input.store.listWorktreesForTask(task.taskId);
+    const taskPullRequests = recordedPullRequests.filter((record) => record.taskId === task.taskId);
+    const providerRepairSafe = taskPullRequests.every((record) => {
+      const observed = providerObservations.get(record.recordId);
+      return observed?.ok === true && observed.lifecycleState === "merged" && observed.headSha === record.headSha;
+    });
     const surviving = worktrees.some(
       (worktree) =>
         worktree.status !== "removed" &&
         (actualByPath.has(canonicalPath(worktree.canonicalPath)) || pathExists(worktree.canonicalPath)),
     );
-    const canMarkCleaned = !surviving && worktrees.every((worktree) => worktree.status === "removed");
+    const canMarkCleaned =
+      providerRepairSafe &&
+      !surviving &&
+      worktrees.every(
+        (worktree) =>
+          worktree.instanceId === task.instanceId &&
+          worktree.status === "removed" &&
+          pathIsInside(managedWorktreeRoot, worktree.canonicalPath) &&
+          !actualByPath.has(canonicalPath(worktree.canonicalPath)) &&
+          !pathExists(worktree.canonicalPath),
+      );
     const action: Omit<ReconciliationRepairAction, "actionId" | "divergenceId"> | undefined =
       canMarkCleaned && task.lifecycleState === "merged"
-      ? {
-          kind: "mark-task-cleaned",
-          targetId: task.taskId,
-          requiresConfirmation: true,
-          filesystemMutation: false,
-          precondition:
-            "provider/task is merged and every associated worktree is already absent and removed in metadata",
-        }
-      : undefined;
+        ? {
+            kind: "mark-task-cleaned",
+            targetId: task.taskId,
+            requiresConfirmation: true,
+            filesystemMutation: false,
+            precondition:
+              "provider/task is merged and every associated worktree is already absent and removed in metadata",
+          }
+        : undefined;
     addDivergence(
       "merged-but-uncleaned-task",
       "provider or recorded task state is merged but task cleanup is incomplete",
@@ -490,6 +603,11 @@ export interface ExecuteReconciliationRepairsInput {
   report: ReconciliationReport;
   confirm?: boolean;
   actionIds?: readonly string[];
+  /** Workspace used for the live re-observation. Defaults to the report root. */
+  workspaceRoot?: string;
+  repositoryInstanceId?: RepositoryInstanceId;
+  dependencies?: ReconciliationDependencies;
+  reconcile?: (input: ReconcileWorkflowInput) => Promise<ReconciliationReport>;
   now?: () => number;
   pathExists?: (targetPath: string) => boolean;
 }
@@ -501,37 +619,113 @@ export interface ExecuteReconciliationRepairsResult {
   blocked: readonly string[];
 }
 
-export function executeReconciliationRepairs(
+export async function executeReconciliationRepairs(
   input: ExecuteReconciliationRepairsInput,
-): ExecuteReconciliationRepairsResult {
+): Promise<ExecuteReconciliationRepairsResult> {
   if (input.confirm !== true)
     return { ok: false, reason: "confirmation-required", applied: [], blocked: input.actionIds ?? [] };
   const selected = input.actionIds === undefined ? [] : [...input.actionIds];
   const actions = new Map(input.report.repairPlan.map((action) => [action.actionId, action]));
-  const pathExists = input.pathExists ?? defaultPathExists;
+  const workspaceRoot = input.workspaceRoot ?? input.report.repository?.repositoryRoot;
+  const reconcile = input.reconcile ?? reconcileWorkflow;
+  const dependencies = {
+    ...(input.dependencies ?? {}),
+    ...(input.now === undefined ? {} : { now: input.now }),
+    ...(input.pathExists === undefined ? {} : { pathExists: input.pathExists }),
+  };
   const applied: string[] = [];
   const blocked: string[] = [];
+  if (workspaceRoot === undefined) {
+    return {
+      ok: false,
+      reason: "precondition-failed",
+      applied,
+      blocked: selected,
+    };
+  }
   for (const actionId of selected) {
-    const action = actions.get(actionId);
-    if (action === undefined) {
+    const plannedAction = actions.get(actionId);
+    if (plannedAction === undefined) {
       blocked.push(actionId);
       continue;
     }
+
+    // The report is only a proposal. Reconcile again for each mutation so a stale
+    // Git/provider observation, or a mutation performed by another process after a
+    // previous action, cannot authorize the next metadata update.
+    let freshReport: ReconciliationReport;
+    try {
+      freshReport = await reconcile({
+        workspaceRoot,
+        store: input.store,
+        repositoryInstanceId: input.repositoryInstanceId,
+        dependencies,
+      });
+    } catch {
+      blocked.push(actionId);
+      continue;
+    }
+
+    if (
+      freshReport.repository === undefined ||
+      input.report.repository === undefined ||
+      freshReport.repository.repositoryRoot !== input.report.repository.repositoryRoot ||
+      freshReport.repository.gitCommonDir !== input.report.repository.gitCommonDir
+    ) {
+      blocked.push(actionId);
+      continue;
+    }
+
+    const action = freshReport.repairPlan.find((candidate) => candidate.actionId === actionId);
+    if (action === undefined || action.kind !== plannedAction.kind || action.targetId !== plannedAction.targetId) {
+      blocked.push(actionId);
+      continue;
+    }
+
+    const currentInstance = input.store.getRepositoryInstanceByCommonDir(freshReport.repository.gitCommonDir);
+    const expectedInstanceId = input.repositoryInstanceId ?? currentInstance?.instanceId;
+    if (expectedInstanceId === undefined) {
+      blocked.push(actionId);
+      continue;
+    }
+    const now = input.now?.() ?? Date.now();
+    const pathExists = input.pathExists ?? defaultPathExists;
     if (action.kind === "mark-worktree-removed") {
       const worktree = input.store.listWorktrees().find((candidate) => candidate.worktreeId === action.targetId);
-      const actual = input.report.repository?.worktrees.some(
+      const actual = freshReport.repository.worktrees.some(
         (candidate) => canonicalPath(candidate.path) === canonicalPath(worktree?.canonicalPath ?? ""),
       );
-      if (worktree === undefined || pathExists(worktree.canonicalPath) || actual) {
+      if (
+        worktree === undefined ||
+        worktree.instanceId !== expectedInstanceId ||
+        worktree.status !== "active" ||
+        !pathIsInside(freshReport.managedWorktreeRoot ?? "", worktree.canonicalPath) ||
+        pathExists(worktree.canonicalPath) ||
+        actual
+      ) {
         blocked.push(actionId);
         continue;
       }
-      input.store.markWorktreeRemoved(worktree.worktreeId, input.now?.() ?? Date.now());
+      input.store.markWorktreeRemoved(worktree.worktreeId, now);
       applied.push(actionId);
     } else if (action.kind === "mark-expired-lock-failed") {
       const lease = input.store.getCleanupLease(action.targetId);
-      const now = input.now?.() ?? Date.now();
-      if (lease === undefined || isLeaseActive(lease, now) || lease.state === "committed" || lease.state === "failed") {
+      const task = lease === undefined ? undefined : input.store.getTask(lease.taskId);
+      const worktree =
+        lease?.worktreeId === undefined
+          ? undefined
+          : input.store.listWorktrees().find((candidate) => candidate.worktreeId === lease.worktreeId);
+      if (
+        lease === undefined ||
+        lease.instanceId !== expectedInstanceId ||
+        task === undefined ||
+        task.instanceId !== expectedInstanceId ||
+        (lease.worktreeId !== undefined &&
+          (worktree === undefined || worktree.taskId !== lease.taskId || worktree.instanceId !== expectedInstanceId)) ||
+        isLeaseActive(lease, now) ||
+        lease.state === "committed" ||
+        lease.state === "failed"
+      ) {
         blocked.push(actionId);
         continue;
       }
@@ -545,18 +739,27 @@ export function executeReconciliationRepairs(
       applied.push(actionId);
     } else {
       const task = input.store.getTask(action.targetId as TaskId);
+      const worktrees = task === undefined ? [] : input.store.listWorktreesForTask(task.taskId);
       if (
         task === undefined ||
+        task.instanceId !== expectedInstanceId ||
         task.lifecycleState === "cleaned" ||
         task.lifecycleState !== "merged" ||
-        input.store
-          .listWorktreesForTask(task.taskId)
-          .some((worktree) => worktree.status !== "removed" || pathExists(worktree.canonicalPath))
+        worktrees.some(
+          (worktree) =>
+            worktree.instanceId !== expectedInstanceId ||
+            worktree.status !== "removed" ||
+            !pathIsInside(freshReport.managedWorktreeRoot ?? "", worktree.canonicalPath) ||
+            pathExists(worktree.canonicalPath) ||
+            freshReport.repository!.worktrees.some(
+              (candidate) => canonicalPath(candidate.path) === canonicalPath(worktree.canonicalPath),
+            ),
+        )
       ) {
         blocked.push(actionId);
         continue;
       }
-      input.store.updateTaskLifecycleState(task.taskId, "cleaned", input.now?.() ?? Date.now());
+      input.store.updateTaskLifecycleState(task.taskId, "cleaned", now);
       applied.push(actionId);
     }
   }

@@ -271,6 +271,21 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 10,
+    description: "workflow: repository-scoped pull request records",
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE pr_records ADD COLUMN instance_id TEXT REFERENCES repository_instances (instance_id);
+        UPDATE pr_records
+        SET instance_id = (
+          SELECT tasks.instance_id FROM tasks WHERE tasks.task_id = pr_records.task_id
+        )
+        WHERE instance_id IS NULL AND task_id IS NOT NULL;
+        CREATE INDEX idx_pr_records_instance ON pr_records (instance_id, task_id);
+      `);
+    },
+  },
 ];
 
 function currentVersion(db: DatabaseSync): number {

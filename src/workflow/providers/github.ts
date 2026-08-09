@@ -598,7 +598,8 @@ export class GithubAdapter {
           provider: GITHUB_PROVIDER,
           operation: "pull-request-create",
           code: "invalid-input",
-          message: "repository identity must resolve to an explicit owner/name; refusing to fall back to the cwd repository for a mutation",
+          message:
+            "repository identity must resolve to an explicit owner/name; refusing to fall back to the cwd repository for a mutation",
           retryable: false,
           attempts: 0,
         },
@@ -787,6 +788,7 @@ export async function openWorkflowPullRequest(input: OpenWorkflowPullRequestInpu
 
   const recordInput: RecordPullRequestInput = {
     taskId: input.taskId,
+    instanceId: task.instanceId,
     provider: provider.value.identity.provider,
     repositoryId: provider.value.repository.id,
     prNumber: provider.value.number,

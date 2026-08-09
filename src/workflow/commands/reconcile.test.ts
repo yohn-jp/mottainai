@@ -40,14 +40,24 @@ function input(
   };
 }
 
-function seedInstance(store: WorkflowStateStore): void {
+function seedInstanceFor(
+  store: WorkflowStateStore,
+  targetInstanceId: RepositoryInstanceId,
+  commonDir = "/repo/.git",
+  worktreePath = "/repo",
+  digest = "digest-38",
+): void {
   store.observeRepositoryInstance({
-    rootCommitDigest: "digest-38" as RootCommitDigest,
-    instanceId,
-    gitCommonDir: "/repo/.git",
-    canonicalWorktreePath: "/repo",
+    rootCommitDigest: digest as RootCommitDigest,
+    instanceId: targetInstanceId,
+    gitCommonDir: commonDir,
+    canonicalWorktreePath: worktreePath,
     observedAt: 0,
   });
+}
+
+function seedInstance(store: WorkflowStateStore): void {
+  seedInstanceFor(store, instanceId);
 }
 
 function seedTask(
@@ -55,8 +65,18 @@ function seedTask(
   slug = "task-38",
   issueRef = "38",
 ): { taskId: TaskId; worktreeId: WorktreeId } {
+  return seedTaskFor(store, instanceId, slug, issueRef);
+}
+
+function seedTaskFor(
+  store: WorkflowStateStore,
+  targetInstanceId: RepositoryInstanceId,
+  slug: string,
+  issueRef: string,
+  canonicalPath = `/repo/.mottainai/worktrees/feat-${issueRef}-${slug}`,
+): { taskId: TaskId; worktreeId: WorktreeId } {
   const reserved = store.reserveTask({
-    instanceId,
+    instanceId: targetInstanceId,
     taskSlug: slug,
     issueRef,
     baseBranch: "main",
@@ -69,9 +89,9 @@ function seedTask(
   store.updateTaskLifecycleState(task.taskId, "active", 1);
   const worktree = store.reserveWorktree({
     taskId: task.taskId,
-    instanceId,
+    instanceId: targetInstanceId,
     branchName: `feat/${issueRef}-${slug}`,
-    canonicalPath: `/repo/.mottainai/worktrees/feat-${issueRef}-${slug}`,
+    canonicalPath,
     baseBranch: "main",
     baseCommit: "base-sha",
     reservedAt: 0,
@@ -97,6 +117,71 @@ test("reconciliation detects a missing managed worktree", async (t) => {
   assert.equal(report.repairPlan[0]?.kind, "mark-worktree-removed");
   assert.equal(store.listWorktrees()[0]?.status, "active");
   assert.equal(seeded.worktreeId.length > 0, true);
+});
+
+test("reconciliation scopes implicit state to the current repository and never observes another repository PR", async (t) => {
+  const store = fresh(t);
+  seedInstance(store);
+  const otherInstance = "instance-other" as RepositoryInstanceId;
+  seedInstanceFor(store, otherInstance, "/other/.git", "/other", "digest-other");
+  const otherTask = seedTaskFor(store, otherInstance, "other", "99", "/other/.mottainai/worktrees/feat-99-other");
+  store.recordPullRequest({
+    taskId: otherTask.taskId,
+    provider: "github",
+    repositoryId: "other/repository",
+    prNumber: 99,
+    url: "https://github.com/other/repository/pull/99",
+    headSha: "other-head",
+    lifecycleState: "open",
+  });
+  const observed: string[] = [];
+  const baseInput = input(store, snapshot(), []);
+  const report = await reconcileWorkflow({
+    ...baseInput,
+    dependencies: {
+      ...baseInput.dependencies,
+      pullRequestObserver: async (record) => {
+        observed.push(record.repositoryId);
+        return { ok: true, lifecycleState: record.lifecycleState, headSha: record.headSha };
+      },
+    },
+  });
+  assert.equal(
+    report.divergences.some((divergence) => divergence.taskId === otherTask.taskId),
+    false,
+  );
+  assert.deepEqual(observed, []);
+});
+
+test("reconciliation reports an unscoped PR record without sending it to the provider observer", async (t) => {
+  const store = fresh(t);
+  seedInstance(store);
+  store.recordPullRequest({
+    instanceId,
+    provider: "github",
+    repositoryId: "org/repository",
+    prNumber: 77,
+    url: "https://github.com/org/repository/pull/77",
+    headSha: "head",
+    lifecycleState: "open",
+  });
+  let observed = false;
+  const baseInput = input(store, snapshot(), []);
+  const report = await reconcileWorkflow({
+    ...baseInput,
+    dependencies: {
+      ...baseInput.dependencies,
+      pullRequestObserver: async () => {
+        observed = true;
+        return { ok: true, lifecycleState: "open", headSha: "head" };
+      },
+    },
+  });
+  assert.equal(
+    report.divergences.some((divergence) => divergence.kind === "pull-request-task-mismatch"),
+    true,
+  );
+  assert.equal(observed, false);
 });
 
 test("reconciliation detects an unregistered worktree below the managed root", async (t) => {
@@ -306,10 +391,126 @@ test("repair execution requires explicit confirmation and never deletes a path",
   seedTask(store);
   const report = await reconcileWorkflow(input(store, snapshot(), []));
   const actionId = report.repairPlan[0]!.actionId;
-  const refused = executeReconciliationRepairs({ store, report, actionIds: [actionId] });
+  const refused = await executeReconciliationRepairs({ store, report, actionIds: [actionId] });
   assert.equal(refused.reason, "confirmation-required");
   assert.equal(store.listWorktrees()[0]?.status, "active");
-  const applied = executeReconciliationRepairs({ store, report, confirm: true, actionIds: [actionId] });
+  const applied = await executeReconciliationRepairs({
+    store,
+    report,
+    confirm: true,
+    actionIds: [actionId],
+    workspaceRoot: "/repo",
+    dependencies: {
+      now: () => 100,
+      pathExists: () => false,
+      gitSnapshot: async () => ({ ok: true, snapshot: snapshot() }),
+      pullRequestObserver: async (record) => ({
+        ok: true,
+        lifecycleState: record.lifecycleState,
+        headSha: record.headSha,
+      }),
+    },
+  });
   assert.deepEqual(applied.applied, [actionId]);
   assert.equal(store.listWorktrees()[0]?.status, "removed");
+});
+
+test("confirmed repair re-checks the live path and blocks a stale report", async (t) => {
+  const store = fresh(t);
+  seedInstance(store);
+  seedTask(store);
+  const report = await reconcileWorkflow(input(store, snapshot(), []));
+  const actionId = report.repairPlan[0]!.actionId;
+  const result = await executeReconciliationRepairs({
+    store,
+    report,
+    confirm: true,
+    actionIds: [actionId],
+    workspaceRoot: "/repo",
+    dependencies: {
+      now: () => 100,
+      pathExists: () => true,
+      gitSnapshot: async () => ({ ok: true, snapshot: snapshot() }),
+      pullRequestObserver: async (record) => ({
+        ok: true,
+        lifecycleState: record.lifecycleState,
+        headSha: record.headSha,
+      }),
+    },
+  });
+  assert.deepEqual(result.blocked, [actionId]);
+  assert.equal(store.listWorktrees()[0]?.status, "active");
+});
+
+test("reserved or unmanaged worktree metadata never receives a removal repair", async (t) => {
+  const reservedStore = fresh(t);
+  seedInstance(reservedStore);
+  const reserved = reservedStore.reserveTask({
+    instanceId,
+    taskSlug: "reserved",
+    issueRef: "reserved",
+    baseBranch: "main",
+    baseCommit: "base-sha",
+    allowMultipleActiveTasksPerIssue: true,
+    reservedAt: 0,
+  });
+  assert.equal(reserved.ok, true);
+  const reservedWorktree = reservedStore.reserveWorktree({
+    taskId: reserved.task.taskId,
+    instanceId,
+    branchName: "feat/reserved",
+    canonicalPath: "/repo/.mottainai/worktrees/feat-reserved",
+    baseBranch: "main",
+    baseCommit: "base-sha",
+    reservedAt: 0,
+  });
+  assert.equal(reservedWorktree.ok, true);
+  const reservedReport = await reconcileWorkflow(input(reservedStore, snapshot(), []));
+  assert.equal(reservedReport.repairPlan.length, 0);
+
+  const unmanagedStore = fresh(t);
+  seedInstance(unmanagedStore);
+  seedTaskFor(unmanagedStore, instanceId, "unmanaged", "unmanaged", "/external/feat-unmanaged");
+  const unmanagedReport = await reconcileWorkflow(input(unmanagedStore, snapshot(), []));
+  assert.equal(unmanagedReport.repairPlan.length, 0);
+  assert.equal(unmanagedReport.divergences[0]?.kind, "missing-managed-worktree");
+});
+
+test("stale provider state prevents task-cleaned metadata repair", async (t) => {
+  const store = fresh(t);
+  seedInstance(store);
+  const { taskId, worktreeId } = seedTask(store);
+  store.markWorktreeRemoved(worktreeId, 2);
+  store.updateTaskLifecycleState(taskId, "merged", 2);
+  store.recordPullRequest({
+    taskId,
+    provider: "github",
+    repositoryId: "org/repository",
+    prNumber: 38,
+    url: "https://github.com/org/repository/pull/38",
+    headSha: "task-sha",
+    lifecycleState: "merged",
+  });
+  const baseInput = input(store, snapshot(), []);
+  const report = await reconcileWorkflow({
+    ...baseInput,
+    dependencies: {
+      ...baseInput.dependencies,
+      pullRequestObserver: async () => ({ ok: true, lifecycleState: "merged", headSha: "task-sha" }),
+    },
+  });
+  const actionId = report.repairPlan[0]!.actionId;
+  const result = await executeReconciliationRepairs({
+    store,
+    report,
+    confirm: true,
+    actionIds: [actionId],
+    workspaceRoot: "/repo",
+    dependencies: {
+      ...baseInput.dependencies,
+      pullRequestObserver: async () => ({ ok: true, lifecycleState: "open", headSha: "task-sha" }),
+    },
+  });
+  assert.deepEqual(result.blocked, [actionId]);
+  assert.equal(store.getTask(taskId)?.lifecycleState, "merged");
 });
