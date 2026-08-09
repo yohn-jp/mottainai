@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import test from "node:test";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { extractTypeScriptFacts } from "./extractors/typescript/index.js";
 import { allSemanticFixtures, pureFunctionFixture } from "./fixtures/snapshots.js";
 import { createSnapshotSymbolBindingResolver, createSemanticMutationService } from "./mutations/index.js";
 import type { SemanticMutationRequest } from "./mutations/index.js";
-import { parseSemanticSource, serializeSemanticSource } from "./source/index.js";
+import {
+  loadSemanticSource,
+  parseSemanticSource,
+  persistSemanticMutation,
+  serializeSemanticSource,
+} from "./source/index.js";
 import { serializeSemanticTransaction } from "./ir/serialize.js";
 import { createComponentId, createLogicalId } from "./ir/ids.js";
 
@@ -60,6 +67,7 @@ test("one mutation service owns declarations, binds Symbols explicitly, and emit
     plan.expectedWrites.some((write) => write.path.endsWith("repository.json")),
     false,
   );
+  assert.ok(plan.expectedWrites.some((write) => write.path.includes("semantics/transactions/")));
 
   const result = service.apply(plan);
   assert.equal(result.ok, true);
@@ -155,6 +163,86 @@ test("all declared semantic categories are mutation operations and derived facts
   assert.deepEqual(plan.diagnostics, []);
   assert.deepEqual(plan.candidateSnapshot?.derived, base.derived);
   assert.deepEqual(plan.candidateSnapshot?.observed, base.observed);
+});
+
+test("apply rejects a tampered public plan before it can bypass the mutation boundary", () => {
+  const base = clone(pureFunctionFixture);
+  const component = base.declarations.components[0]!;
+  const { authority: _authority, provenance: _provenance, ...input } = component;
+  const service = createSemanticMutationService(base);
+  const plan = service.plan(
+    request(
+      [{ kind: "component", component: { ...input, responsibility: "A validated responsibility change." } }],
+      ["responsibility"],
+    ),
+  );
+  assert.ok(plan.candidateSnapshot);
+  if (plan.candidateSnapshot === undefined) return;
+  plan.candidateSnapshot.derived.symbols[0]!.name = "forged-derived-change";
+  const result = service.apply(plan);
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.diagnostics[0]?.code, "mutation_plan_invalid");
+  assert.equal(service.getSnapshot().derived.symbols[0]?.name, base.derived.symbols[0]?.name);
+});
+
+test("source persistence rejects central or non-declared writes", async () => {
+  const base = clone(pureFunctionFixture);
+  const component = base.declarations.components[0]!;
+  const { authority: _authority, provenance: _provenance, ...input } = component;
+  const plan = createSemanticMutationService(base).plan(
+    request(
+      [{ kind: "component", component: { ...input, responsibility: "Persist only a declared responsibility." } }],
+      ["responsibility"],
+    ),
+  );
+  const result = createSemanticMutationService(base).apply(plan);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  await assert.rejects(
+    persistSemanticMutation("/tmp/mottainai-issue-49-boundary-test", {
+      ...result,
+      writes: [{ path: ".mottainai/semantics/repository.json", operation: "write", content: "{}\n" }],
+    }),
+    /declared mutation boundary/,
+  );
+});
+
+test("successful mutation persistence round-trips declarations and transaction history", async () => {
+  const base = clone(pureFunctionFixture);
+  const component = base.declarations.components[0]!;
+  const { authority: _authority, provenance: _provenance, ...input } = component;
+  const service = createSemanticMutationService(base);
+  const plan = service.plan(
+    request(
+      [
+        {
+          kind: "component",
+          component: { ...input, responsibility: "Persist a deterministic declared responsibility." },
+        },
+      ],
+      ["responsibility"],
+    ),
+  );
+  const result = service.apply(plan);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const root = await mkdtemp(resolve(tmpdir(), "mottainai-issue-49-"));
+  try {
+    for (const write of serializeSemanticSource(base)) {
+      if (write.operation !== "write" || write.content === undefined) continue;
+      const target = resolve(root, write.path);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, write.content, "utf8");
+    }
+    await persistSemanticMutation(root, result);
+    const loaded = await loadSemanticSource(root);
+    assert.equal(loaded.ok, true);
+    if (loaded.ok) assert.deepEqual(serializeSemanticSource(loaded.snapshot), serializeSemanticSource(result.snapshot));
+    assert.ok(result.writes.some((write) => write.path.includes("semantics/transactions/")));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("ambiguous, missing, and stale bindings fail closed without ownership guessing", () => {

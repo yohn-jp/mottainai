@@ -2,7 +2,7 @@ import { canonicalizeSnapshot, computeIntegrityDigestsFromValidated, stableStrin
 import { createEdgeId, createLogicalId, createRevisionId } from "../ir/ids.js";
 import { validateSnapshot } from "../ir/schema.js";
 import { computeSnapshotDigest } from "../ir/serialize.js";
-import { serializeSemanticSourcePatch } from "../source/serialization.js";
+import { serializeSemanticSourcePatch, serializeSemanticTransactionSource } from "../source/serialization.js";
 import type {
   CapabilityEntity,
   ComponentEntity,
@@ -837,6 +837,7 @@ export function createSemanticMutationService(
   };
 
   const buildPlan = (base: RepositorySemanticSnapshot, request: SemanticMutationRequest): MutationPlan => {
+    const ownedRequest = clone(request);
     const baseValidation = validate(base);
     const baseSnapshot = baseValidation.ok ? baseValidation.snapshot : base;
     const baseDigest = (() => {
@@ -848,8 +849,8 @@ export function createSemanticMutationService(
     })();
     const diagnostics = [...(baseValidation.ok ? [] : baseValidation.diagnostics)];
     if (
-      request.expectedSnapshotDigest !== undefined &&
-      stableStringifyValue(request.expectedSnapshotDigest) !== stableStringifyValue(baseDigest)
+      ownedRequest.expectedSnapshotDigest !== undefined &&
+      stableStringifyValue(ownedRequest.expectedSnapshotDigest) !== stableStringifyValue(baseDigest)
     ) {
       diagnostics.push(
         diagnostic(
@@ -868,12 +869,12 @@ export function createSemanticMutationService(
             mutationAffectedEntities: [],
             diagnostics,
           }
-        : buildCandidate(baseSnapshot, request, resolver);
+        : buildCandidate(baseSnapshot, ownedRequest, resolver);
     const transaction =
       built.candidate === undefined
         ? undefined
         : transactionFor(
-            request,
+            ownedRequest,
             built.candidate,
             built.mutationSubjects,
             built.mutationAffectedEntities,
@@ -881,19 +882,58 @@ export function createSemanticMutationService(
           );
     return {
       baseSnapshot: clone(baseSnapshot),
-      ...(built.candidate === undefined ? {} : { candidateSnapshot: built.candidate }),
-      request,
+      ...(built.candidate === undefined ? {} : { candidateSnapshot: clone(built.candidate) }),
+      request: ownedRequest,
       baseSnapshotDigest: baseDigest,
-      affectedEntities: built.affected,
-      protectedChanges: built.protectedChanges,
-      bindingRequirements: built.bindings,
-      expectedWrites: built.candidate === undefined ? [] : serializeSemanticSourcePatch(baseSnapshot, built.candidate),
-      ...(transaction === undefined ? {} : { transaction }),
-      diagnostics: built.diagnostics,
+      affectedEntities: [...built.affected],
+      protectedChanges: [...built.protectedChanges],
+      bindingRequirements: clone(built.bindings),
+      expectedWrites:
+        built.candidate === undefined || transaction === undefined
+          ? []
+          : [
+              ...serializeSemanticSourcePatch(baseSnapshot, built.candidate),
+              ...(ownedRequest.mutations.length === 0 ? [] : [serializeSemanticTransactionSource(transaction)]),
+            ].sort((left, right) => left.path.localeCompare(right.path)),
+      ...(transaction === undefined ? {} : { transaction: clone(transaction) }),
+      diagnostics: [...built.diagnostics],
     };
   };
 
   const apply = (plan: MutationPlan): SemanticMutationResult => {
+    const validatedPlan = buildPlan(plan.baseSnapshot, plan.request);
+    const suppliedPlan = stableStringifyValue({
+      baseSnapshot: plan.baseSnapshot,
+      candidateSnapshot: plan.candidateSnapshot,
+      request: plan.request,
+      baseSnapshotDigest: plan.baseSnapshotDigest,
+      affectedEntities: plan.affectedEntities,
+      protectedChanges: plan.protectedChanges,
+      bindingRequirements: plan.bindingRequirements,
+      expectedWrites: plan.expectedWrites,
+      transaction: plan.transaction,
+      diagnostics: plan.diagnostics,
+    });
+    const rebuiltPlan = stableStringifyValue({
+      baseSnapshot: validatedPlan.baseSnapshot,
+      candidateSnapshot: validatedPlan.candidateSnapshot,
+      request: validatedPlan.request,
+      baseSnapshotDigest: validatedPlan.baseSnapshotDigest,
+      affectedEntities: validatedPlan.affectedEntities,
+      protectedChanges: validatedPlan.protectedChanges,
+      bindingRequirements: validatedPlan.bindingRequirements,
+      expectedWrites: validatedPlan.expectedWrites,
+      transaction: validatedPlan.transaction,
+      diagnostics: validatedPlan.diagnostics,
+    });
+    if (suppliedPlan !== rebuiltPlan) {
+      return {
+        ok: false,
+        diagnostics: [
+          diagnostic("mutation_plan_invalid", "mutation plan is not the validated plan produced by the service"),
+        ],
+      };
+    }
     const currentDigest = (() => {
       try {
         return computeSnapshotDigest(current);
@@ -901,10 +941,10 @@ export function createSemanticMutationService(
         return { algorithm: "sha256" as const, value: "0".repeat(64) };
       }
     })();
-    if (plan.diagnostics.length > 0) return { ok: false, diagnostics: plan.diagnostics };
-    if (stableStringifyValue(currentDigest) !== stableStringifyValue(plan.baseSnapshotDigest)) {
-      const changed = changedDeclarationIds(plan.baseSnapshot, current);
-      const overlap = plan.affectedEntities.filter((id) => changed.has(id));
+    if (validatedPlan.diagnostics.length > 0) return { ok: false, diagnostics: validatedPlan.diagnostics };
+    if (stableStringifyValue(currentDigest) !== stableStringifyValue(validatedPlan.baseSnapshotDigest)) {
+      const changed = changedDeclarationIds(validatedPlan.baseSnapshot, current);
+      const overlap = validatedPlan.affectedEntities.filter((id) => changed.has(id));
       if (overlap.length > 0) {
         return {
           ok: false,
@@ -918,11 +958,11 @@ export function createSemanticMutationService(
           ],
         };
       }
-      const rebased = buildPlan(current, plan.request);
+      const rebased = buildPlan(current, validatedPlan.request);
       if (rebased.diagnostics.length > 0) return { ok: false, diagnostics: rebased.diagnostics };
       return apply(rebased);
     }
-    if (plan.candidateSnapshot === undefined || plan.transaction === undefined) {
+    if (validatedPlan.candidateSnapshot === undefined || validatedPlan.transaction === undefined) {
       return {
         ok: false,
         diagnostics: [
@@ -930,14 +970,14 @@ export function createSemanticMutationService(
         ],
       };
     }
-    current = clone(plan.candidateSnapshot);
+    current = clone(validatedPlan.candidateSnapshot);
     return {
       ok: true,
       snapshot: clone(current),
-      transaction: clone(plan.transaction),
-      writes: [...plan.expectedWrites],
-      affectedEntities: plan.affectedEntities,
-      protectedChanges: plan.protectedChanges,
+      transaction: clone(validatedPlan.transaction),
+      writes: clone(validatedPlan.expectedWrites),
+      affectedEntities: [...validatedPlan.affectedEntities],
+      protectedChanges: [...validatedPlan.protectedChanges],
     };
   };
 

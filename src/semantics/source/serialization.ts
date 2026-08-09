@@ -4,6 +4,7 @@ import {
   digestCanonicalValue,
   stableStringifyValue,
 } from "../ir/canonical.js";
+import { serializeSemanticTransaction } from "../ir/serialize.js";
 import { validateSnapshot } from "../ir/schema.js";
 import type {
   AnalysisState,
@@ -12,16 +13,28 @@ import type {
   RepositorySemanticSnapshot,
   SemanticDiagnostic,
   SemanticRelation,
+  SemanticTransaction,
   SnapshotValidationResult,
 } from "../ir/types.js";
 
 export const SEMANTIC_SOURCE_ROOT = ".mottainai/semantics" as const;
 export const SEMANTIC_REPOSITORY_FILE = `${SEMANTIC_SOURCE_ROOT}/repository.json` as const;
+export const SEMANTIC_TRANSACTION_SOURCE_ROOT = `${SEMANTIC_SOURCE_ROOT}/transactions` as const;
 
 export interface SemanticSourceWrite {
   path: string;
   operation: "write" | "delete";
   content?: string;
+}
+
+/** A transaction is history, not declaration state, and is stored as its own deterministic event file. */
+export function serializeSemanticTransactionSource(transaction: SemanticTransaction): SemanticSourceWrite {
+  const digest = digestCanonicalValue(transaction).value;
+  return {
+    path: `${SEMANTIC_TRANSACTION_SOURCE_ROOT}/${digest}.json`,
+    operation: "write",
+    content: serializeSemanticTransaction(transaction),
+  };
 }
 
 type SourceIntegrity = Omit<RepositoryIntegrity, "semanticStateDigest" | "modelDigest" | "snapshotDigest">;
@@ -60,6 +73,7 @@ function collectionKey(value: unknown): string {
   if (typeof value !== "object" || value === null) return stableStringifyValue(value);
   const record = value as Record<string, unknown>;
   if (typeof record.id === "string") return record.id;
+  if (typeof record.term === "string") return record.term;
   if (typeof record.subject === "string") {
     return [
       record.subject,
