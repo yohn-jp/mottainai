@@ -8,6 +8,7 @@ import { add as gitAdd, status as gitStatus } from "simple-git";
 import { query } from "pg";
 import { mystery } from "mystery-effects";
 import { readFileSync as localReadFileSync } from "./local-helper.js";
+import { DatabaseSync } from "node:sqlite";
 
 export function primitiveEffects(path: string): Promise<unknown> {
   readFileSync(path, "utf8");
@@ -74,4 +75,10 @@ export function dynamicImport(moduleName: string): Promise<unknown> {
 
 export function opaqueExternal(): unknown {
   return mystery();
+}
+
+export function databaseEffects(path: string): unknown {
+  const database = new DatabaseSync(path);
+  database.exec("create table if not exists effects (value text)");
+  return database.prepare("select value from effects").get();
 }

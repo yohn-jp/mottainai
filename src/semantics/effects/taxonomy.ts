@@ -79,7 +79,7 @@ const CORE_DEFINITIONS: readonly EffectDefinition[] = [
 ];
 
 function definitionKey(definition: EffectDefinition): string {
-  return `${definition.id}|${definition.domain}|${definition.operation}`;
+  return definition.id;
 }
 
 function createTaxonomy(definitions: readonly EffectDefinition[]): EffectTaxonomy {
@@ -102,7 +102,7 @@ function createTaxonomy(definitions: readonly EffectDefinition[]): EffectTaxonom
 
 export const CORE_EFFECT_TAXONOMY: EffectTaxonomy = {
   version: 1,
-  definitions: CORE_DEFINITIONS,
+  definitions: createTaxonomy(CORE_DEFINITIONS).definitions,
   isKnown: (effect: EffectId): boolean => CORE_DEFINITIONS.some((definition) => definition.id === effect),
   extend: (extensions: readonly EffectDefinition[]): EffectTaxonomy =>
     createTaxonomy([...CORE_DEFINITIONS, ...extensions]),

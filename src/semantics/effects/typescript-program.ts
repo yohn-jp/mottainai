@@ -4,7 +4,7 @@ import * as ts from "typescript";
 import { createSymbolId } from "../ir/ids.js";
 import type { LogicalId } from "../ir/ids.js";
 import type { RepositorySemanticSnapshot, SourceRange, SymbolLocator } from "../ir/types.js";
-import type { ResolvedSymbolIdentity, TypeScriptEffectOptions } from "./types.js";
+import type { EffectUnknown, ResolvedSymbolIdentity, TypeScriptEffectOptions } from "./types.js";
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx"]);
 const NODE_BUILTIN_MODULES = new Set([
@@ -52,6 +52,7 @@ export interface TypeScriptEffectProgram {
   sourceFiles: readonly ts.SourceFile[];
   compilerOptions: ts.CompilerOptions;
   symbols: SymbolIdentityResolver;
+  completenessUnknowns: readonly Omit<EffectUnknown, "subjectId">[];
 }
 
 function normalizePath(filePath: string): string {
@@ -181,6 +182,39 @@ function declarationForSymbol(symbol: ts.Symbol | undefined): ts.Declaration | u
   return symbol?.declarations?.[0] ?? symbol?.valueDeclaration;
 }
 
+function isAmbientExternalModuleDeclaration(node: ts.Declaration): boolean {
+  let current: ts.Node | undefined = node.parent;
+  while (current !== undefined && !ts.isSourceFile(current)) {
+    if (ts.isModuleDeclaration(current) && ts.isStringLiteral(current.name)) return true;
+    current = current.parent;
+  }
+  return false;
+}
+
+function isTypeContainer(node: ts.Node): boolean {
+  return (
+    ts.isClassDeclaration(node) ||
+    ts.isClassExpression(node) ||
+    ts.isInterfaceDeclaration(node) ||
+    ts.isTypeAliasDeclaration(node) ||
+    ts.isEnumDeclaration(node)
+  );
+}
+
+function identityExportPath(declaration: ts.Declaration): string[] {
+  const names: string[] = [];
+  let current: ts.Node | undefined = declaration;
+  while (current !== undefined && !ts.isSourceFile(current)) {
+    if (current === declaration || isTypeContainer(current)) {
+      const name = declarationNameNode(current)?.getText();
+      if (name !== undefined) names.unshift(name);
+    }
+    current = current.parent;
+  }
+  const fallback = declarationNameNode(declaration)?.getText();
+  return names.length > 0 ? names : fallback === undefined ? [] : [fallback];
+}
+
 function nodeBuiltinModule(fileName: string): string | undefined {
   const normalized = toPosix(fileName);
   const marker = "/@types/node/";
@@ -269,14 +303,22 @@ export class SymbolIdentityResolver {
     if (ts.isParenthesizedExpression(expression)) return this.identityForExpression(expression.expression);
     if (ts.isPropertyAccessExpression(expression)) {
       const base = this.identityForExpression(expression.expression);
+      const property = this.identityFromSymbol(this.checker.getSymbolAtLocation(expression.name));
+      if (property?.kind === "project") return property;
+      if (base?.kind === "project") return property ?? this.withProperty(base, expression.name.text, expression);
+      if (property !== undefined && base === undefined) return property;
       if (base !== undefined) return this.withProperty(base, expression.name.text, expression);
-      return this.identityFromSymbol(this.checker.getSymbolAtLocation(expression));
+      return property;
     }
     if (ts.isElementAccessExpression(expression)) {
       const base = this.identityForExpression(expression.expression);
       const property = staticString(expression.argumentExpression);
+      const resolvedProperty = this.identityFromSymbol(this.checker.getSymbolAtLocation(expression));
+      if (resolvedProperty?.kind === "project") return resolvedProperty;
+      if (base?.kind === "project" && property !== undefined)
+        return resolvedProperty ?? this.withProperty(base, property, expression);
+      if (resolvedProperty !== undefined && base === undefined) return resolvedProperty;
       if (base !== undefined && property !== undefined) return this.withProperty(base, property, expression);
-      if (property !== undefined) return this.identityFromSymbol(this.checker.getSymbolAtLocation(expression));
       return undefined;
     }
     if (ts.isCallExpression(expression) && this.isCommonJsRequire(expression.expression)) {
@@ -466,7 +508,10 @@ export class SymbolIdentityResolver {
     const resolvedSymbol = symbol === undefined ? undefined : this.resolveAliasedSymbol(symbol);
     const declaration = declarationForSymbol(resolvedSymbol);
     const declarationFile = declaration?.getSourceFile().fileName;
-    const isProjectDeclaration = declaration !== undefined && this.declarationIds.has(declaration);
+    const isProjectDeclaration =
+      declaration !== undefined &&
+      this.declarationIds.has(declaration) &&
+      !isAmbientExternalModuleDeclaration(declaration);
     const kind = isRelativeModuleSpecifier(canonical)
       ? "project"
       : canonical.startsWith("node:")
@@ -475,7 +520,9 @@ export class SymbolIdentityResolver {
           : isProjectDeclaration
             ? "project"
             : "unknown"
-        : "external";
+        : isProjectDeclaration
+          ? "project"
+          : "external";
     return {
       kind,
       module: canonical,
@@ -515,11 +562,15 @@ export class SymbolIdentityResolver {
     const resolved = this.resolveAliasedSymbol(symbol);
     const declaration = declarationForSymbol(resolved);
     const declarationFile = declaration?.getSourceFile().fileName;
-    if (declarationFile === undefined) return undefined;
-    if (declaration !== undefined && this.declarationIds.has(declaration)) {
+    if (declaration === undefined || declarationFile === undefined) return undefined;
+    if (
+      declaration !== undefined &&
+      this.declarationIds.has(declaration) &&
+      !isAmbientExternalModuleDeclaration(declaration)
+    ) {
       return {
         kind: "project",
-        exportPath: [resolved.name],
+        exportPath: identityExportPath(declaration),
         declarationName: resolved.name,
         declarationFile,
         symbolName: resolved.name,
@@ -527,7 +578,7 @@ export class SymbolIdentityResolver {
     }
     const nodeModule = nodeBuiltinModule(declarationFile);
     if (nodeModule !== undefined) {
-      return this.moduleIdentity(nodeModule, [resolved.name], resolved);
+      return this.moduleIdentity(nodeModule, identityExportPath(declaration), resolved);
     }
     if (toPosix(declarationFile).endsWith("/globals.d.ts") && resolved.name === "process") {
       return this.moduleIdentity("node:process", [resolved.name], resolved);
@@ -536,10 +587,12 @@ export class SymbolIdentityResolver {
       return this.moduleIdentity("node:console", [resolved.name], resolved);
     }
     if (sourceIsGlobalLibrary(declarationFile)) {
+      const exportPath = identityExportPath(declaration);
+      const globalName = exportPath[0] ?? resolved.name;
       return {
         kind: "global",
-        module: `global:${resolved.name}`,
-        exportPath: [resolved.name],
+        module: `global:${globalName}`,
+        exportPath,
         declarationName: resolved.name,
         declarationFile,
         symbolName: resolved.name,
@@ -548,7 +601,7 @@ export class SymbolIdentityResolver {
     return {
       kind: "external",
       package: packageNameFromPath(declarationFile),
-      exportPath: [resolved.name],
+      exportPath: identityExportPath(declaration),
       declarationName: resolved.name,
       declarationFile,
       symbolName: resolved.name,
@@ -571,6 +624,14 @@ export function createTypeScriptEffectProgram(
     target: ts.ScriptTarget.ES2022,
   };
   let configuredRootNames: string[] = [];
+  const completenessUnknowns: Omit<EffectUnknown, "subjectId">[] = [];
+  const addCompletenessUnknown = (
+    code: EffectUnknown["code"],
+    message: string,
+    completeness: EffectUnknown["completeness"] = "partial",
+  ): void => {
+    completenessUnknowns.push({ code, message, completeness });
+  };
   if (existsSync(configPath)) {
     const configFile = ts.readConfigFile(configPath, (fileName) => readFileSync(fileName, "utf8"));
     if (configFile.error === undefined) {
@@ -583,10 +644,49 @@ export function createTypeScriptEffectProgram(
       );
       compilerOptions = parsed.options;
       configuredRootNames = parsed.fileNames;
+      for (const diagnostic of parsed.errors) {
+        addCompletenessUnknown(
+          "tsconfig-diagnostic",
+          `TypeScript configuration diagnostic: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, " ")}`,
+        );
+      }
+    } else {
+      addCompletenessUnknown(
+        "tsconfig-diagnostic",
+        `TypeScript configuration could not be read: ${ts.flattenDiagnosticMessageText(configFile.error.messageText, " ")}`,
+      );
     }
+  } else {
+    addCompletenessUnknown(
+      "tsconfig-diagnostic",
+      `TypeScript configuration is missing: ${relativePath(rootDir, configPath)}`,
+    );
   }
   const requestedRootNames =
     options.rootNames?.map((filePath) => normalizePath(resolve(rootDir, filePath))) ?? configuredRootNames;
+  const droppedRootNames = requestedRootNames.filter((filePath) => !pathInside(rootDir, filePath));
+  if (droppedRootNames.length > 0) {
+    addCompletenessUnknown(
+      "project-incomplete",
+      `TypeScript project roots outside rootDir were not analyzed: ${droppedRootNames
+        .map((filePath) => relativePath(rootDir, filePath))
+        .sort()
+        .join(", ")}`,
+    );
+  }
+  if (options.rootNames !== undefined) {
+    const configured = new Set(configuredRootNames);
+    const requested = new Set(requestedRootNames);
+    const omitted = [...configured].filter((filePath) => !requested.has(filePath));
+    if (omitted.length > 0 || configured.size === 0) {
+      addCompletenessUnknown(
+        "project-incomplete",
+        omitted.length > 0
+          ? `Explicit rootNames omit ${omitted.length} file(s) declared by the TypeScript project`
+          : "Explicit rootNames do not identify the complete TypeScript project",
+      );
+    }
+  }
   const rootNames =
     requestedRootNames.length > 0
       ? [...new Set(requestedRootNames.filter((filePath) => pathInside(rootDir, filePath)))].sort()
@@ -608,6 +708,37 @@ export function createTypeScriptEffectProgram(
         SOURCE_EXTENSIONS.has(extname(sourceFile.fileName).toLowerCase()),
     )
     .sort((left, right) => left.fileName.localeCompare(right.fileName));
+  const loadedRootNames = new Set(
+    program
+      .getSourceFiles()
+      .map((sourceFile) => normalizePath(sourceFile.fileName))
+      .filter((filePath) => pathInside(rootDir, filePath)),
+  );
+  for (const rootName of rootNames) {
+    if (!loadedRootNames.has(rootName) && SOURCE_EXTENSIONS.has(extname(rootName).toLowerCase())) {
+      addCompletenessUnknown(
+        "project-incomplete",
+        `TypeScript project root was not loaded: ${relativePath(rootDir, rootName)}`,
+      );
+    }
+  }
+  for (const diagnostic of [
+    ...program.getOptionsDiagnostics(),
+    ...program.getSyntacticDiagnostics(),
+    ...program.getSemanticDiagnostics(),
+  ]) {
+    addCompletenessUnknown(
+      "compiler-diagnostic",
+      `TypeScript program diagnostic: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, " ")}`,
+    );
+  }
+  const dedupedCompletenessUnknowns = completenessUnknowns.filter(
+    (unknown, index, values) =>
+      index ===
+      values.findIndex(
+        (candidate) => `${candidate.code}|${candidate.message}` === `${unknown.code}|${unknown.message}`,
+      ),
+  );
   const symbols = new SymbolIdentityResolver(rootDir, program.getTypeChecker(), sourceFiles, snapshot);
   return {
     rootDir,
@@ -616,6 +747,7 @@ export function createTypeScriptEffectProgram(
     sourceFiles,
     compilerOptions,
     symbols,
+    completenessUnknowns: dedupedCompletenessUnknowns,
   };
 }
 

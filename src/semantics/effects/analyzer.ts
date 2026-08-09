@@ -13,7 +13,7 @@ import type {
 } from "../ir/types.js";
 import { extractTypeScriptFacts } from "../extractors/typescript/extractor.js";
 import { DEFAULT_EFFECT_PRIMITIVE_ADAPTER } from "./primitives.js";
-import { createEffectTaxonomy, effectIdsFromAdapters } from "./taxonomy.js";
+import { createEffectTaxonomy } from "./taxonomy.js";
 import { createTypeScriptEffectProgram, type TypeScriptEffectProgram } from "./typescript-program.js";
 import type {
   EffectAnalysis,
@@ -225,6 +225,24 @@ function mutationEffect(effect: EffectId): boolean {
   return effect.endsWith(".write") || effect === "process.spawn" || effect === "process.state";
 }
 
+function mergeAllowedEffects(current: readonly EffectId[], next: readonly EffectId[]): EffectId[] {
+  return sortedUnique([...current, ...next]) as EffectId[];
+}
+
+function purityStrength(purity: NonNullable<EffectiveEffectPolicy["purity"]>): number {
+  return { unknown: 0, effectful: 1, readonly: 2, pure: 3 }[purity];
+}
+
+function mergePurity(
+  current: EffectiveEffectPolicy["purity"],
+  next: EffectiveEffectPolicy["purity"],
+): EffectiveEffectPolicy["purity"] {
+  if (current === undefined) return next;
+  if (next === undefined) return current;
+  if (current === "unknown" || next === "unknown") return "unknown";
+  return purityStrength(next) > purityStrength(current) ? next : current;
+}
+
 class TypeScriptEffectCollector {
   private readonly snapshot: RepositorySemanticSnapshot;
   private readonly options: TypeScriptEffectOptions;
@@ -275,6 +293,7 @@ class TypeScriptEffectCollector {
     } else {
       try {
         this.program = createTypeScriptEffectProgram(this.options, this.snapshot);
+        this.collectProgramUnknowns();
         this.collectSnapshotUnknowns();
         this.collectAstFacts();
       } catch (error) {
@@ -338,12 +357,42 @@ class TypeScriptEffectCollector {
         message: unknown.message,
         completeness: code === "analysis-unavailable" ? ("unknown" as const) : ("partial" as const),
       };
-      if (unknown.subjects === undefined || unknown.subjects.length === 0) this.addUnknown(base);
-      else for (const subjectId of unknown.subjects) this.addUnknown({ ...base, subjectId });
+      if (unknown.subjects === undefined || unknown.subjects.length === 0) {
+        const projectWide =
+          code === "analysis-unavailable" ||
+          code === "tsconfig-diagnostic" ||
+          code === "project-incomplete" ||
+          code === "compiler-diagnostic";
+        if (projectWide) this.addProjectUnknown(base);
+        else this.addUnknown(base);
+      } else for (const subjectId of unknown.subjects) this.addUnknown({ ...base, subjectId });
     }
   }
 
+  private collectProgramUnknowns(): void {
+    for (const unknown of this.program?.completenessUnknowns ?? []) this.addProjectUnknown(unknown);
+  }
+
+  private addProjectUnknown(unknown: Omit<EffectUnknown, "subjectId">): void {
+    this.addUnknown(unknown);
+    for (const symbolId of this.symbols) this.addUnknown({ ...unknown, subjectId: symbolId });
+  }
+
   private effectUnknownCode(code: string): EffectUnknown["code"] | undefined {
+    if (code === "root_name_outside_project") return "project-incomplete";
+    if (
+      code === "tsconfig_diagnostic" ||
+      code === "unsupported_module_mode" ||
+      code === "unsupported_module_resolution"
+    ) {
+      return code === "tsconfig_diagnostic" ? "tsconfig-diagnostic" : "analysis-unavailable";
+    }
+    if (
+      code === "compiler_options_diagnostic" ||
+      code === "typescript_syntax_diagnostic" ||
+      code === "typescript_semantic_diagnostic"
+    )
+      return "compiler-diagnostic";
     if (
       code === "dynamic_call_target" ||
       code === "dynamic_import_unresolved" ||
@@ -370,7 +419,6 @@ class TypeScriptEffectCollector {
       if (code === "opaque_external_symbol") return "opaque-external-call";
       return "unresolved-symbol";
     }
-    if (code === "unsupported_module_mode" || code === "unsupported_module_resolution") return "analysis-unavailable";
     return undefined;
   }
 
@@ -695,10 +743,7 @@ class TypeScriptEffectCollector {
           .filter((result): result is SymbolEffectResult => result !== undefined);
         const direct = sortEvidence(memberResults.flatMap((result) => result.direct));
         const transitive = sortEvidence(memberResults.flatMap((result) => result.transitive));
-        const unknowns = sortUnknowns([
-          ...memberResults.flatMap((result) => result.unknowns),
-          ...this.globalUnknowns.filter((unknown) => unknown.code === "analysis-unavailable"),
-        ]);
+        const unknowns = sortUnknowns([...memberResults.flatMap((result) => result.unknowns), ...this.globalUnknowns]);
         return {
           componentId: component.id,
           ownedSymbolIds,
@@ -753,7 +798,7 @@ class TypeScriptEffectCollector {
       const actualEffects = sortedUnique(evidence.map((item) => item.effect)) as EffectId[];
       const policyResolution = this.resolvePolicy(subjectId);
       const violations =
-        policyResolution === undefined
+        policyResolution === undefined || completeness !== "complete"
           ? []
           : this.evaluateViolations(subjectId, actualEffects, evidence, policyResolution);
       const status: EffectConformanceResult["status"] =
@@ -804,8 +849,9 @@ class TypeScriptEffectCollector {
     let initialized = false;
     const inheritedFrom: LogicalId[] = [];
     for (const record of records) {
-      const mode = record.extension.inheritance ?? (record.policy.subject === subjectId ? "extend" : "inherit");
-      if (!initialized || mode === "replace") {
+      const mode = record.extension.inheritance ?? "extend";
+      const wasInitialized = initialized;
+      if (!wasInitialized || mode === "replace") {
         allow = [...record.policy.allow];
         deny = [...record.policy.deny];
         allowSources.clear();
@@ -814,21 +860,22 @@ class TypeScriptEffectCollector {
         for (const effect of deny) denySources.set(effect, record.policy.id);
         initialized = true;
       } else if (mode === "extend") {
-        allow = sortedUnique([...allow, ...record.policy.allow]) as EffectId[];
+        allow = mergeAllowedEffects(allow, record.policy.allow);
         deny = sortedUnique([...deny, ...record.policy.deny]) as EffectId[];
         for (const effect of record.policy.allow) allowSources.set(effect, record.policy.id);
         for (const effect of record.policy.deny) denySources.set(effect, record.policy.id);
-      } else if (record.policy.allow.length > 0 || record.policy.deny.length > 0) {
-        allow = [...record.policy.allow];
-        deny = [...record.policy.deny];
-        allowSources.clear();
-        denySources.clear();
-        for (const effect of allow) allowSources.set(effect, record.policy.id);
-        for (const effect of deny) denySources.set(effect, record.policy.id);
+      } else {
+        // `inherit` keeps the already resolved parent policy intact. In
+        // particular, an empty or specialized child must not erase parent
+        // allow/deny constraints merely because it is present in the chain.
       }
-      if (record.extension.purity !== undefined && (mode !== "inherit" || purity === undefined)) {
+      if (!wasInitialized || mode === "replace") {
         purity = record.extension.purity;
-        puritySource = record.policy.id;
+        puritySource = record.extension.purity === undefined ? undefined : record.policy.id;
+      } else if (mode === "extend") {
+        const mergedPurity = mergePurity(purity, record.extension.purity);
+        if (mergedPurity !== purity) puritySource = record.policy.id;
+        purity = mergedPurity;
       }
       if (record.policy.subject !== subjectId && !inheritedFrom.includes(record.policy.subject))
         inheritedFrom.push(record.policy.subject);

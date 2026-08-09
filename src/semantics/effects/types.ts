@@ -57,7 +57,10 @@ export type EffectUnknownCode =
   | "unresolved-symbol"
   | "evidence-path-bounded"
   | "symbol-identity-unavailable"
-  | "analysis-unavailable";
+  | "analysis-unavailable"
+  | "tsconfig-diagnostic"
+  | "project-incomplete"
+  | "compiler-diagnostic";
 
 export interface EffectUnknown {
   code: EffectUnknownCode;

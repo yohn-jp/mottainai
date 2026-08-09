@@ -16,6 +16,7 @@ import {
   computeEffectAnalysisDelta,
   createEffectTaxonomy,
   CORE_EFFECT_TAXONOMY,
+  DEFAULT_EFFECT_PRIMITIVE_ADAPTER,
   projectEffectsToQuery,
 } from "./index.js";
 import type { EffectAnalysis } from "./types.js";
@@ -100,6 +101,27 @@ test("taxonomy is namespaced and extensible without replacing the #84 vocabulary
   ]);
   assert.equal(extended.isKnown(createEffectId("custom.queue.publish")), true);
   assert.ok(extended.definitions.some((definition) => definition.id === "filesystem.read"));
+  assert.equal(extended.definitions.filter((definition) => definition.id === "filesystem.read").length, 1);
+});
+
+test("primitive taxonomy separates process clock and Git branch identities and handles database constructors", () => {
+  const resolvePrimitive = (module: string, exportPath: string[], operation: "call" | "construct" | "read" | "write") =>
+    DEFAULT_EFFECT_PRIMITIVE_ADAPTER.resolve({
+      operation,
+      identity: {
+        kind: module.startsWith("node:") ? "builtin" : "external",
+        module,
+        exportPath,
+        declarationName: exportPath.at(-1) ?? module,
+      },
+      location: { path: "fixture.ts" },
+    });
+
+  assert.deepEqual(resolvePrimitive("node:process", ["hrtime"], "call"), ["clock.read"]);
+  assert.deepEqual(resolvePrimitive("node:process", ["uptime"], "call"), ["clock.read"]);
+  assert.deepEqual(resolvePrimitive("simple-git", ["branch"], "call"), ["git.read"]);
+  assert.deepEqual(resolvePrimitive("node:sqlite", ["DatabaseSync"], "construct"), ["database.write"]);
+  assert.deepEqual(resolvePrimitive("better-sqlite3", ["Database"], "construct"), ["database.write"]);
 });
 
 test("direct primitive rules use resolved Node/external identity and cover the initial domains", () => {
@@ -125,6 +147,16 @@ test("direct primitive rules use resolved Node/external identity and cover the i
     "randomness.read",
   ]);
   assert.equal(primitive.directCompleteness, "complete");
+});
+
+test("database instance methods retain TypeChecker-resolved module identity", () => {
+  const snapshot = extract();
+  const analysis = analyze(snapshot);
+  const database = analysis.symbols.find((result) => result.symbolId === symbol(snapshot, "databaseEffects").id);
+  assert.ok(database);
+  assert.ok(database.direct.some((item) => item.effect === "database.read"));
+  assert.ok(database.direct.some((item) => item.effect === "database.write"));
+  assert.ok(database.direct.every((item) => item.origin.identity.kind !== "project"));
 });
 
 test("same-name project APIs are not classified from text and direct/transitive effects stay distinct", () => {
@@ -253,6 +285,70 @@ test("component aggregation and inherited/specialized policies preserve proven v
   assert.ok(pureConformance.violations.some((violation) => violation.code === "declared-pure-violation"));
 });
 
+test("policy specialization preserves parent constraints and replace is the only reset", () => {
+  const snapshot = extract();
+  const primitive = symbol(snapshot, "primitiveEffects");
+  const componentId = createComponentId("effects");
+  const projectPolicy = {
+    id: createLogicalId("policy", "effects-project"),
+    subject: snapshot.declarations.project.id,
+    allow: [createEffectId("filesystem.read"), createEffectId("network.read")],
+    deny: [createEffectId("git.write")],
+    rationaleIds: [],
+    purity: "readonly",
+  };
+  const componentPolicy = {
+    id: createLogicalId("policy", "effects-component-specialized"),
+    subject: componentId,
+    allow: [createEffectId("filesystem.read"), createEffectId("filesystem.write")],
+    deny: [createEffectId("database.write")],
+    rationaleIds: [],
+    purity: "pure",
+  };
+  const inheritedSymbolPolicy = {
+    id: createLogicalId("policy", "effects-symbol-inherited"),
+    subject: primitive.id,
+    allow: [createEffectId("console.write")],
+    deny: [createEffectId("filesystem.read")],
+    rationaleIds: [],
+    purity: "effectful",
+    inheritance: "inherit",
+  };
+  const decorated = withPolicy(snapshot, [inheritedSymbolPolicy, componentPolicy, projectPolicy], [primitive.id]);
+  const analysis = analyze(decorated);
+  const conformance = analysis.conformance.find((result) => result.subjectId === primitive.id);
+  assert.ok(conformance?.policy);
+  assert.deepEqual(conformance.policy.allow, ["filesystem.read", "filesystem.write", "network.read"]);
+  assert.deepEqual(conformance.policy.deny, ["database.write", "git.write"]);
+  assert.equal(conformance.policy.purity, "pure");
+  assert.deepEqual(
+    [...conformance.policy.inheritedFrom].sort(),
+    [snapshot.declarations.project.id, componentId].sort(),
+  );
+
+  const replaced = analyze(
+    withPolicy(
+      snapshot,
+      [
+        projectPolicy,
+        componentPolicy,
+        {
+          ...inheritedSymbolPolicy,
+          inheritance: "replace",
+          allow: [],
+          deny: [],
+          purity: undefined,
+        },
+      ],
+      [primitive.id],
+    ),
+  ).conformance.find((result) => result.subjectId === primitive.id);
+  assert.ok(replaced?.policy);
+  assert.deepEqual(replaced.policy.allow, []);
+  assert.deepEqual(replaced.policy.deny, []);
+  assert.equal(replaced.policy.purity, undefined);
+});
+
 test("incomplete analysis is unknown, never a proven policy violation, and is consumable by #53/#54 surfaces", () => {
   const snapshot = extract();
   const dynamic = symbol(snapshot, "dynamicCall");
@@ -288,4 +384,28 @@ test("incomplete analysis is unknown, never a proven policy violation, and is co
   const delta = computeEffectAnalysisDelta(analyze(snapshot), policyAnalysis);
   assert.ok(delta.changes.some((change) => change.subjectId === primitive.id && change.conformanceChanged === true));
   assert.ok(delta.violations.some((violation) => violation.effect === "filesystem.write"));
+});
+
+test("explicitly narrowed TypeScript roots are partial and cannot produce a proven violation", () => {
+  const snapshot = extract();
+  const primitive = symbol(snapshot, "primitiveEffects");
+  const policy = {
+    id: createLogicalId("policy", "effects-partial-project"),
+    subject: primitive.id,
+    allow: [],
+    deny: [createEffectId("filesystem.write")],
+    rationaleIds: [],
+  };
+  const analysis = analyzeTypeScriptEffects({
+    rootDir: fixtureRoot,
+    tsconfigPath: resolve(fixtureRoot, "tsconfig.json"),
+    snapshot: withPolicy(snapshot, [policy], [primitive.id]),
+    rootNames: ["src/effects.ts"],
+  });
+  const result = analysis.conformance.find((item) => item.subjectId === primitive.id);
+  assert.ok(result);
+  assert.ok(analysis.unknowns.some((unknown) => unknown.code === "project-incomplete"));
+  assert.notEqual(result.completeness, "complete");
+  assert.equal(result.status, "unknown");
+  assert.deepEqual(result.violations, []);
 });
