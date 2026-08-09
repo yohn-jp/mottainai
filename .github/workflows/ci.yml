@@ -5,15 +5,19 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  # Main pushes are immutable release-of-truth events; only superseded PR
+  # commits are canceled.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
 jobs:
-  canonical-full:
-    # Existing required check context; this job is the Ubuntu + Node 22 canonical full role.
-    name: install / typecheck / test / build (Node 22)
+  typecheck:
+    name: typecheck (Node 22)
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,36 +35,44 @@ jobs:
           node-version: "22"
           cache: pnpm
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Typecheck
         run: pnpm run typecheck
 
+  fast-tests:
+    name: fast unit / contract (Node 22)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify required test tool
+        run: rg --version
+
       - name: Test (fast unit / contract)
         run: pnpm test
-
-      - name: Test (integration / process)
-        run: pnpm run test:integration
-
-      - name: Build
-        run: pnpm run build
-
-      - name: Test (built dist e2e / black-box)
-        run: pnpm run test:e2e
-
-      - name: Test (packed artifact package / consumer)
-        run: pnpm run test:package
 
   standards:
     name: format / lint / architecture (Node 22)
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -90,17 +102,12 @@ jobs:
       - name: Standards self-tests (architecture / governance / test policy)
         run: pnpm run test:standards
 
-      - name: Test classification
-        run: pnpm run test:classification
-
       - name: Architecture/static validation
         run: pnpm run architecture:check
 
-  coverage:
-    # Existing required check context; coverage remains canonical Node 22 validation.
-    name: coverage (Node 22)
+  integration:
+    name: integration / process (Node 22)
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -118,23 +125,69 @@ jobs:
           node-version: "22"
           cache: pnpm
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify required test tool
+        run: rg --version
+
+      - name: Test (integration / process)
+        run: pnpm run test:integration
+
+  artifact-validation:
+    name: build / built dist e2e / package (Node 22)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Coverage (line / function / branch)
-        run: pnpm run test:coverage
+      - name: Build
+        run: pnpm run build
 
-      - name: Upload coverage artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-node-22
-          path: coverage
-          if-no-files-found: error
+      # Both consumers use the same build. Running them concurrently removes
+      # the old build -> e2e -> package serialization without hiding either
+      # result; each log is printed and each exit status is checked.
+      - name: Test built dist e2e and packed artifact package concurrently
+        shell: bash
+        run: |
+          set -uo pipefail
+          e2e_log="$RUNNER_TEMP/mottainai-e2e.log"
+          package_log="$RUNNER_TEMP/mottainai-package.log"
+
+          pnpm run test:e2e >"$e2e_log" 2>&1 &
+          e2e_pid=$!
+          node scripts/run-package-suite.mjs >"$package_log" 2>&1 &
+          package_pid=$!
+
+          set +e
+          wait "$e2e_pid"
+          e2e_status=$?
+          wait "$package_pid"
+          package_status=$?
+          set -e
+
+          echo "=== built dist e2e ==="
+          cat "$e2e_log"
+          echo "=== packed artifact package ==="
+          cat "$package_log"
+          test "$e2e_status" -eq 0
+          test "$package_status" -eq 0
 
   node-compatibility-smoke:
     name: Node compatibility smoke (Ubuntu, Node 24)
@@ -159,6 +212,130 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Node 24 は full suite を再実行せず、build + packed consumer/MCP path を確認する。
+      # Node 24 still builds and consumes its own artifact; this remains a
+      # compatibility check rather than a reuse of the Node 22 build.
       - name: Build and packed consumer / MCP compatibility smoke
         run: pnpm run test:package
+
+  coverage-shard:
+    name: coverage shard ${{ matrix.shard }}/4 (Node 22)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify required test tool
+        run: rg --version
+
+      - name: Run complete coverage test-file shard
+        run: >-
+          pnpm run test:coverage -- --measure-only
+          --shard-index ${{ matrix.shard }} --shard-count 4
+          --output coverage/shard-${{ matrix.shard }}
+
+      - name: Upload coverage shard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-shard-${{ matrix.shard }}
+          path: coverage/shard-${{ matrix.shard }}
+          if-no-files-found: error
+          retention-days: 1
+
+  coverage:
+    # Existing required check context; the gate is evaluated only after every
+    # complete shard has passed and its LCOV counters have been merged.
+    name: coverage (Node 22)
+    if: always()
+    needs: coverage-shard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Download coverage shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-shard-*
+          path: coverage/shards
+          merge-multiple: false
+
+      - name: Merge coverage and enforce policy
+        run: >-
+          node scripts/coverage.mjs
+          --merge coverage/shards/coverage-shard-1
+          --merge coverage/shards/coverage-shard-2
+          --merge coverage/shards/coverage-shard-3
+          --merge coverage/shards/coverage-shard-4
+          --output coverage/merged
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-node-22
+          path: coverage/merged
+          if-no-files-found: error
+
+  canonical-full:
+    # Existing required check context. This is an explicit aggregate of every
+    # Node 22/24 correctness, standards, artifact, and coverage role.
+    name: install / typecheck / test / build (Node 22)
+    if: always()
+    needs:
+      - typecheck
+      - fast-tests
+      - standards
+      - integration
+      - artifact-validation
+      - node-compatibility-smoke
+      - coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every canonical validation role
+        env:
+          TYPECHECK_RESULT: ${{ needs.typecheck.result }}
+          FAST_TESTS_RESULT: ${{ needs['fast-tests'].result }}
+          STANDARDS_RESULT: ${{ needs.standards.result }}
+          INTEGRATION_RESULT: ${{ needs.integration.result }}
+          ARTIFACT_RESULT: ${{ needs['artifact-validation'].result }}
+          NODE24_RESULT: ${{ needs['node-compatibility-smoke'].result }}
+          COVERAGE_RESULT: ${{ needs.coverage.result }}
+        run: |
+          set -eu
+          for result in \
+            "$TYPECHECK_RESULT" \
+            "$FAST_TESTS_RESULT" \
+            "$STANDARDS_RESULT" \
+            "$INTEGRATION_RESULT" \
+            "$ARTIFACT_RESULT" \
+            "$NODE24_RESULT" \
+            "$COVERAGE_RESULT"; do
+            test "$result" = success
+          done
