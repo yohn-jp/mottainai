@@ -3,17 +3,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { spawn } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import { claudeAdapter, codexAdapter } from "./adapters/index.js";
 import { deriveTrustedHookContext } from "./context.js";
 import { capabilityRegistryFromRuntime, createCapabilityRegistry } from "./capabilities.js";
 import { decideHook, dispatchHook } from "./dispatcher.js";
 import { dispatchClientHook, runManagedHooksCommand } from "./commands.js";
+import { recordHookExplanation } from "./explain.js";
 import { managedDescriptor } from "./install/lifecycle.js";
-import {
-  JsonHookConfigChangedError,
-  readJsonHookConfigSnapshot,
-  writeJsonHookConfig,
-} from "./install/json-hooks.js";
+import { JsonHookConfigChangedError, readJsonHookConfigSnapshot, writeJsonHookConfig } from "./install/json-hooks.js";
 import { loadHookPolicy } from "./policy.js";
 import type { HookCommandContext } from "./commands.js";
 import { boundHookText, serializeHookDecision } from "./types.js";
@@ -42,12 +41,16 @@ function policy(mode: "observe" | "warn" | "enforce") {
 }
 
 test("transport-independent dispatcher is deterministic and capability-based", () => {
-  const capabilities = capabilityRegistryFromRuntime({ dispatcherAvailable: true, exposedTools: new Set(["mottainai_exec"]) });
+  const capabilities = capabilityRegistryFromRuntime({
+    dispatcherAvailable: true,
+    exposedTools: new Set(["mottainai_exec"]),
+  });
   const enforce = { policy: policy("enforce"), capabilities };
   assert.equal(decideHook(event("process.exec"), enforce).decision, "redirect");
   assert.equal(decideHook(event("source.write"), enforce).decision, "redirect");
   assert.equal(decideHook(event("source.write"), enforce).replacement, "mottainai_exec");
   assert.equal(decideHook(event("git.mutate"), enforce).decision, "redirect");
+  assert.equal(decideHook(event("git.mutate"), enforce).replacement, "mottainai_exec");
   assert.equal(decideHook(event("process.exec"), { ...enforce, policy: policy("warn") }).decision, "warn");
   assert.equal(decideHook(event("process.exec"), { ...enforce, policy: policy("observe") }).decision, "allow");
   const unavailable = decideHook(event("source.write"), {
@@ -57,6 +60,12 @@ test("transport-independent dispatcher is deterministic and capability-based", (
   assert.equal(unavailable.decision, "deny");
   assert.equal(unavailable.reason, "managed_capability_unavailable");
   assert.equal(unavailable.diagnostic, "failure_mode=closed");
+  const unavailableGit = decideHook(event("git.mutate"), {
+    policy: policy("enforce"),
+    capabilities: capabilityRegistryFromRuntime({ dispatcherAvailable: true, exposedTools: new Set() }),
+  });
+  assert.equal(unavailableGit.decision, "deny");
+  assert.equal(unavailableGit.reason, "managed_capability_unavailable");
   const failOpen = decideHook(event("process.exec"), {
     policy: { ...policy("enforce"), failureModes: { ...policy("enforce").failureModes, "process.exec": "open" } },
     capabilities: capabilityRegistryFromRuntime({ dispatcherAvailable: true, exposedTools: new Set() }),
@@ -65,26 +74,43 @@ test("transport-independent dispatcher is deterministic and capability-based", (
   assert.equal(failOpen.diagnostic, "failure_mode=open");
 });
 
-test("unknown native tools stay on the governed process boundary", () => {
+test("unknown native tools stay on the governed process boundary with bounded diagnostics", () => {
   const root = workspace();
   const context = { workspaceRoot: root, ...deriveTrustedHookContext({ workspaceRoot: root }) };
-  const normalized = claudeAdapter.normalize({
-    hook_event_name: "PreToolUse",
-    tool_name: "future_native_executor",
-    tool_input: { command: "python -c 'write()'" },
-  }, context);
-  assert.equal(normalized.ok, true);
-  if (normalized.ok) {
-    assert.equal(normalized.event.operation, "process.exec");
-    assert.equal(decideHook(normalized.event, {
-      policy: policy("enforce"),
-      capabilities: capabilityRegistryFromRuntime({ dispatcherAvailable: true, exposedTools: new Set(["mottainai_exec"]) }),
-    }).decision, "redirect");
+  for (const tool of ["future_native_executor", "mcp__server__shell", "unmapped_".repeat(20)]) {
+    const normalized = claudeAdapter.normalize(
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: tool,
+        tool_input: { command: "python -c 'write()'" },
+      },
+      context,
+    );
+    assert.equal(normalized.ok, true);
+    if (normalized.ok) {
+      assert.equal(normalized.event.operation, "process.exec");
+      const diagnosticTool = normalized.event.metadata?.tool;
+      assert.equal(typeof diagnosticTool, "string");
+      if (typeof diagnosticTool === "string") assert.equal(diagnosticTool.length <= 80, true);
+      assert.equal(
+        decideHook(normalized.event, {
+          policy: policy("enforce"),
+          capabilities: capabilityRegistryFromRuntime({
+            dispatcherAvailable: true,
+            exposedTools: new Set(["mottainai_exec"]),
+          }),
+        }).decision,
+        "redirect",
+      );
+    }
   }
 });
 
 test("native process boundary does not inspect executable spellings", () => {
-  const capabilities = capabilityRegistryFromRuntime({ dispatcherAvailable: true, exposedTools: new Set(["mottainai_exec"]) });
+  const capabilities = capabilityRegistryFromRuntime({
+    dispatcherAvailable: true,
+    exposedTools: new Set(["mottainai_exec"]),
+  });
   const context = deriveTrustedHookContext({ workspaceRoot: workspace() });
   const make = (command: string): HookEvent => ({
     ...event("process.exec"),
@@ -100,8 +126,19 @@ test("native process boundary does not inspect executable spellings", () => {
 });
 
 test("event metadata cannot weaken configured mode or failure semantics", async () => {
-  const capabilities = createCapabilityRegistry([{ operation: "process.exec", id: "process.exec", replacement: "mottainai_exec", available: true, source: "runtime" }]);
-  const malicious: HookEvent = { ...event("process.exec"), metadata: { mode: "observe", failureMode: "open", boundary: "native-process" } };
+  const capabilities = createCapabilityRegistry([
+    {
+      operation: "process.exec",
+      id: "process.exec",
+      replacement: "mottainai_exec",
+      available: true,
+      source: "runtime",
+    },
+  ]);
+  const malicious: HookEvent = {
+    ...event("process.exec"),
+    metadata: { mode: "observe", failureMode: "open", boundary: "native-process" },
+  };
   assert.equal(decideHook(malicious, { policy: policy("enforce"), capabilities }).decision, "redirect");
   const timedOut = await dispatchHook(malicious, {
     policy: { ...policy("enforce"), timeoutMs: 5 },
@@ -122,12 +159,26 @@ test("ordinary hook results stay empty while detailed explanation is explicit", 
     exposedTools: new Set(["mottainai_exec"]),
   };
   fs.mkdirSync(path.join(root, ".mottainai"), { recursive: true });
-  fs.writeFileSync(path.join(root, ".mottainai", "hooks.json"), JSON.stringify({
-    version: 1, mode: "enforce", operationModes: {}, failureModes: {}, timeoutMs: 1000, maxOutputBytes: 512,
-  }));
-  const result = await dispatchClientHook("claude", {
-    hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "cat file" },
-  }, context);
+  fs.writeFileSync(
+    path.join(root, ".mottainai", "hooks.json"),
+    JSON.stringify({
+      version: 1,
+      mode: "enforce",
+      operationModes: {},
+      failureModes: {},
+      timeoutMs: 1000,
+      maxOutputBytes: 512,
+    }),
+  );
+  const result = await dispatchClientHook(
+    "claude",
+    {
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "cat file" },
+    },
+    context,
+  );
   assert.equal(result.exitCode, 2);
   assert.equal(result.stdout, "");
   assert.ok(result.decision.decisionId !== undefined);
@@ -136,10 +187,67 @@ test("ordinary hook results stay empty while detailed explanation is explicit", 
   assert.equal((explained.explanation as { reason: string }).reason, "managed_capability_available");
 });
 
+test("invalid policy uses default operation failure modes and repair restores it", async () => {
+  const root = workspace();
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-client-bin-"));
+  fakeClient(bin, "claude");
+  const context: HookCommandContext = {
+    ...lifecycleContext(root, bin),
+    exposedTools: new Set(["mottainai_exec"]),
+  };
+  const policyPath = path.join(root, ".mottainai", "hooks.json");
+  fs.mkdirSync(path.dirname(policyPath), { recursive: true });
+  fs.writeFileSync(policyPath, "{ invalid policy");
+
+  const read = await dispatchClientHook(
+    "claude",
+    {
+      hook_event_name: "PreToolUse",
+      tool_name: "Read",
+      tool_input: { file_path: "file.txt" },
+    },
+    context,
+  );
+  assert.equal(read.event?.operation, "source.read");
+  assert.equal(read.decision.decision, "allow");
+  assert.equal(read.decision.reason, "policy_invalid");
+  assert.equal(read.decision.diagnostic, "failure_mode=open");
+
+  const write = await dispatchClientHook(
+    "claude",
+    {
+      hook_event_name: "PreToolUse",
+      tool_name: "Write",
+      tool_input: { file_path: "file.txt" },
+    },
+    context,
+  );
+  assert.equal(write.event?.operation, "source.write");
+  assert.equal(write.decision.decision, "deny");
+  assert.equal(write.decision.diagnostic, "failure_mode=closed");
+
+  const repaired = runManagedHooksCommand("repair", ["--client", "claude"], context);
+  assert.equal(repaired.ok, true);
+  const loaded = loadHookPolicy(root);
+  assert.equal(loaded.ok, true);
+  if (loaded.ok) {
+    assert.equal(loaded.policy.mode, "observe");
+    assert.equal(loaded.policy.failureModes["source.read"], "open");
+    assert.equal(loaded.policy.failureModes["source.write"], "closed");
+    assert.equal(loaded.policy.failureModes["process.exec"], "closed");
+    assert.equal(loaded.policy.failureModes["git.mutate"], "closed");
+  }
+});
+
 test("Claude and Codex adapters normalize to the same internal operation", () => {
   const root = workspace();
   const context = { workspaceRoot: root, ...deriveTrustedHookContext({ workspaceRoot: root }) };
-  const payload = { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "cat file" }, mode: "observe" };
+  const payload = {
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_input: { command: "cat file" },
+    mode: "observe",
+  };
   const claude = claudeAdapter.normalize(payload, context);
   const codex = codexAdapter.normalize(payload, context);
   assert.equal(claude.ok, true);
@@ -178,12 +286,18 @@ test("client projections use each native hook protocol without duplicating polic
     hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string };
   };
   assert.equal(codexResponse.hookSpecificOutput.permissionDecision, "deny");
-  assert.match(codexResponse.hookSpecificOutput.permissionDecisionReason, /^managed_capability_available;use=mottainai_exec/u);
+  assert.match(
+    codexResponse.hookSpecificOutput.permissionDecisionReason,
+    /^managed_capability_available;use=mottainai_exec/u,
+  );
 
   const warn = codexAdapter.project({ ...decision, decision: "warn" }, { ...event, client: "codex" });
   assert.equal(warn.exitCode, 0);
   assert.equal(warn.stderr, "");
-  assert.equal(JSON.parse(warn.stdout).systemMessage, "managed_capability_available;use=mottainai_exec;id=hd_0123456789abcdef");
+  assert.equal(
+    JSON.parse(warn.stdout).systemMessage,
+    "managed_capability_available;use=mottainai_exec;id=hd_0123456789abcdef",
+  );
 });
 
 test("managed entries invoke the shared dispatcher with the selected client", () => {
@@ -196,7 +310,12 @@ test("managed entries invoke the shared dispatcher with the selected client", ()
     "/opt/mottainai hooks dispatch --client codex",
   );
   assert.equal(
-    managedDescriptor(claudeAdapter, "/opt/mottainai", undefined, ["--workspace", "/repo with space", "--config", "/tmp/client.json"]).command,
+    managedDescriptor(claudeAdapter, "/opt/mottainai", undefined, [
+      "--workspace",
+      "/repo with space",
+      "--config",
+      "/tmp/client.json",
+    ]).command,
     "/opt/mottainai hooks dispatch --client claude --workspace '/repo with space' --config /tmp/client.json",
   );
 });
@@ -229,6 +348,81 @@ function lifecycleContext(root: string, bin: string): HookCommandContext {
   };
 }
 
+function explanationProcess(moduleUrl: string, root: string, decisionId: string): Promise<void> {
+  const source = `
+    import(${JSON.stringify(moduleUrl)}).then(({ recordHookExplanation }) => {
+      recordHookExplanation(${JSON.stringify(root)}, {
+        version: 1,
+        client: "claude",
+        clientEvent: "PreToolUse",
+        operation: "process.exec",
+        repository: { root: "/repo", identity: "worker" },
+      }, {
+        version: 1,
+        decision: "deny",
+        reason: "managed_capability_unavailable",
+        decisionId: ${JSON.stringify(decisionId)},
+      }, {
+        version: 1,
+        mode: "enforce",
+        operationModes: {},
+        failureModes: {
+          "source.read": "open",
+          "source.search": "open",
+          "source.write": "closed",
+          "process.exec": "closed",
+          "git.mutate": "closed",
+          other: "open",
+        },
+        timeoutMs: 1000,
+        maxOutputBytes: 512,
+      }, { resolve: () => undefined, all: () => [] });
+    }).catch((error) => {
+      console.error(String(error));
+      process.exitCode = 1;
+    });
+  `;
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", source], {
+      cwd: process.cwd(),
+      stdio: "ignore",
+    });
+    child.once("error", reject);
+    child.once("close", (code, signal) => {
+      if (code === 0) resolve();
+      else reject(new Error(`explanation process failed: ${code ?? signal}`));
+    });
+  });
+}
+
+test("concurrent explanation writers retain complete records", async () => {
+  const root = workspace();
+  const firstId = "hd_1111111111111111";
+  recordHookExplanation(
+    root,
+    event("process.exec"),
+    {
+      version: 1,
+      decision: "deny",
+      reason: "managed_capability_unavailable",
+      decisionId: firstId,
+    },
+    policy("enforce"),
+    createCapabilityRegistry([]),
+  );
+  const ids = Array.from({ length: 12 }, (_, index) => `hd_${(index + 2).toString(16).padStart(16, "0")}`);
+  const moduleUrl = pathToFileURL(path.resolve("src/hooks/explain.ts")).href;
+  await Promise.all(ids.map((decisionId) => explanationProcess(moduleUrl, root, decisionId)));
+
+  const lines = fs
+    .readFileSync(path.join(root, ".mottainai", "hook-explanations.jsonl"), "utf8")
+    .trimEnd()
+    .split(/\r?\n/u);
+  assert.equal(lines.length, ids.length + 1);
+  const recorded = new Set(lines.map((line) => (JSON.parse(line) as { decisionId: string }).decisionId));
+  assert.deepEqual(recorded, new Set([firstId, ...ids]));
+});
+
 test("install/repair/uninstall preserve unrelated structured hooks and are idempotent", () => {
   const root = workspace();
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-client-bin-"));
@@ -238,10 +432,20 @@ test("install/repair/uninstall preserve unrelated structured hooks and are idemp
   const settingsPath = path.join(root, ".claude", "settings.json");
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
   const unrelated = { type: "command", command: "echo unrelated" };
-  fs.writeFileSync(settingsPath, JSON.stringify({ permissions: { allow: ["Read"] }, hooks: {
-    PreToolUse: [{ matcher: "Bash", hooks: [unrelated] }],
-    SessionStart: [{ hooks: [{ type: "command", command: "echo session" }] }],
-  } }, null, 2));
+  fs.writeFileSync(
+    settingsPath,
+    JSON.stringify(
+      {
+        permissions: { allow: ["Read"] },
+        hooks: {
+          PreToolUse: ["keep-event-value", { matcher: "Bash", hooks: [unrelated] }],
+          SessionStart: [{ hooks: [{ type: "command", command: "echo session" }] }],
+        },
+      },
+      null,
+      2,
+    ),
+  );
 
   const installed = runManagedHooksCommand("install", ["--client", "claude", "--mode", "enforce"], context);
   assert.equal(installed.ok, true);
@@ -249,21 +453,36 @@ test("install/repair/uninstall preserve unrelated structured hooks and are idemp
   const again = runManagedHooksCommand("install", ["--client", "claude"], context);
   assert.equal(again.ok, true);
   assert.equal(fs.readFileSync(settingsPath, "utf8"), once);
-  const parsed = JSON.parse(once) as { permissions: unknown; hooks: { PreToolUse: Array<{ hooks: unknown[] }> } };
+  const parsed = JSON.parse(once) as { permissions: unknown; hooks: { PreToolUse: unknown[] } };
   assert.deepEqual(parsed.permissions, { allow: ["Read"] });
-  assert.equal(parsed.hooks.PreToolUse[0].hooks.length, 1);
-  assert.equal(parsed.hooks.PreToolUse.filter((group) => group.hooks.some((hook) => JSON.stringify(hook).includes("mottainai-managed-hook-v1"))).length, 1);
+  assert.equal(parsed.hooks.PreToolUse[0], "keep-event-value");
+  assert.equal((parsed.hooks.PreToolUse[1] as { hooks: unknown[] }).hooks.length, 1);
+  assert.equal(
+    parsed.hooks.PreToolUse.filter(
+      (group) =>
+        typeof group === "object" &&
+        group !== null &&
+        "hooks" in group &&
+        Array.isArray((group as { hooks?: unknown }).hooks) &&
+        (group as { hooks: unknown[] }).hooks.some((hook) =>
+          JSON.stringify(hook).includes("mottainai-managed-hook-v1"),
+        ),
+    ).length,
+    1,
+  );
   const status = runManagedHooksCommand("status", [], context);
   assert.equal(status.ok, true);
-  const claude = (status.clients as Array<{ client: string; managedEntry: string }>).find((client) => client.client === "claude");
+  const claude = (status.clients as Array<{ client: string; managedEntry: string }>).find(
+    (client) => client.client === "claude",
+  );
   assert.equal(claude?.managedEntry, "healthy");
 
   const repaired = runManagedHooksCommand("repair", ["--client", "claude"], context);
   assert.equal(repaired.ok, true);
   const uninstalled = runManagedHooksCommand("uninstall", ["--client", "claude"], context);
   assert.equal(uninstalled.ok, true);
-  const after = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as { hooks: { PreToolUse: Array<{ hooks: unknown[] }> } };
-  assert.deepEqual(after.hooks.PreToolUse, [{ matcher: "Bash", hooks: [unrelated] }]);
+  const after = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as { hooks: { PreToolUse: unknown[] } };
+  assert.deepEqual(after.hooks.PreToolUse, ["keep-event-value", { matcher: "Bash", hooks: [unrelated] }]);
 });
 
 test("lifecycle writes reject a stale client-config revision instead of losing external changes", () => {
@@ -297,6 +516,71 @@ test("install refuses to create a hook that cannot reach the configured dispatch
   assert.equal(fs.existsSync(path.join(root, ".claude", "settings.json")), false);
 });
 
+test("install rejects non-executable client and dispatcher candidates", () => {
+  const root = workspace();
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-client-bin-"));
+  const client = path.join(bin, "claude");
+  fs.writeFileSync(client, "#!/bin/sh\nprintf '%s\\n' 'claude 1.0.0'\n");
+  fs.chmodSync(client, 0o644);
+  const context = lifecycleContext(root, bin);
+  const missingClient = runManagedHooksCommand("install", ["--client", "claude"], context);
+  assert.equal(missingClient.ok, false);
+  const missingReport = (missingClient.clients as Array<{ state: string; error?: string }>)[0];
+  assert.equal(missingReport.state, "not-installed");
+  assert.equal(missingReport.error, "client executable not found");
+
+  fs.chmodSync(client, 0o755);
+  const dispatcher = path.join(root, "dispatcher");
+  fs.writeFileSync(dispatcher, "#!/bin/sh\n");
+  fs.chmodSync(dispatcher, 0o644);
+  const missingDispatcher = runManagedHooksCommand("install", ["--client", "claude"], {
+    ...context,
+    dispatcherCommand: dispatcher,
+  });
+  assert.equal(missingDispatcher.ok, false);
+  assert.equal(
+    (missingDispatcher.clients as Array<{ error?: string }>)[0].error,
+    "dispatcher command is not resolvable",
+  );
+});
+
+test("install fails for an unavailable client while uninstall removes stale managed entries", () => {
+  const root = workspace();
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-client-bin-"));
+  const context = lifecycleContext(root, bin);
+  const settingsPath = path.join(root, ".claude", "settings.json");
+  const descriptor = managedDescriptor(claudeAdapter, context.dispatcherCommand!);
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  fs.writeFileSync(
+    settingsPath,
+    JSON.stringify({
+      hooks: {
+        [descriptor.eventName]: [
+          {
+            matcher: descriptor.matcher,
+            hooks: [
+              {
+                type: "command",
+                command: descriptor.command,
+                statusMessage: descriptor.marker,
+              },
+            ],
+          },
+        ],
+      },
+    }),
+  );
+
+  const installed = runManagedHooksCommand("install", ["--client", "claude"], context);
+  assert.equal(installed.ok, false);
+  assert.equal((installed.clients as Array<{ error?: string }>)[0].error, "client executable not found");
+  assert.match(fs.readFileSync(settingsPath, "utf8"), /mottainai-managed-hook-v1/u);
+
+  const uninstalled = runManagedHooksCommand("uninstall", ["--client", "claude"], context);
+  assert.equal(uninstalled.ok, true);
+  assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, "utf8")), {});
+});
+
 test("managed health detects duplicate entries and uninstall preserves non-object hook values", () => {
   const root = workspace();
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-client-bin-"));
@@ -306,12 +590,17 @@ test("managed health detects duplicate entries and uninstall preserves non-objec
   const context = lifecycleContext(root, bin);
   const command = context.dispatcherCommand!;
   const managed = { type: "command", command, statusMessage: "mottainai-managed-hook-v1" };
-  fs.writeFileSync(settingsPath, JSON.stringify({ hooks: {
-    PreToolUse: [
-      { matcher: ".*", hooks: ["keep-this-value", managed] },
-      { matcher: ".*", hooks: [{ ...managed }] },
-    ],
-  } }));
+  fs.writeFileSync(
+    settingsPath,
+    JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          { matcher: ".*", hooks: ["keep-this-value", managed] },
+          { matcher: ".*", hooks: [{ ...managed }] },
+        ],
+      },
+    }),
+  );
   const status = runManagedHooksCommand("status", ["--client", "claude"], context);
   const claude = (status.clients as Array<{ managedEntry: string }>)[0];
   assert.equal(claude.managedEntry, "drifted");
@@ -321,7 +610,9 @@ test("managed health detects duplicate entries and uninstall preserves non-objec
   assert.equal((repaired.clients as Array<{ managedEntry: string }>)[0].managedEntry, "healthy");
   const uninstalled = runManagedHooksCommand("uninstall", ["--client", "claude"], context);
   assert.equal(uninstalled.ok, true);
-  const parsed = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as { hooks: { PreToolUse: Array<{ hooks: unknown[] }> } };
+  const parsed = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
+    hooks: { PreToolUse: Array<{ hooks: unknown[] }> };
+  };
   assert.deepEqual(parsed.hooks.PreToolUse, [{ matcher: ".*", hooks: ["keep-this-value"] }]);
 });
 

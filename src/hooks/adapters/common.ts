@@ -16,7 +16,8 @@ export function supportsHookDocument(value: unknown): boolean {
   return Object.values(value.hooks).every((groups) => {
     if (!Array.isArray(groups)) return false;
     return groups.every((group) => {
-      if (!isRecord(group)) return false;
+      // Preserve client-defined event entries that this adapter does not own.
+      if (!isRecord(group)) return true;
       // Preserve unknown hook entries verbatim. Client upgrades may add
       // structured forms that this adapter does not own.
       return group.hooks === undefined || Array.isArray(group.hooks);

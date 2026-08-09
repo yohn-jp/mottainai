@@ -200,6 +200,15 @@ function regularFile(filePath: string): boolean {
   }
 }
 
+function executableFile(filePath: string): boolean {
+  try {
+    const stats = fs.statSync(filePath);
+    return stats.isFile() && (process.platform === "win32" || (stats.mode & 0o111) !== 0);
+  } catch {
+    return false;
+  }
+}
+
 export function isDispatcherPathAvailable(
   command: string,
   resolveCommand: (value: string) => string | undefined,
@@ -208,7 +217,7 @@ export function isDispatcherPathAvailable(
   const words = commandWords(command);
   const first = words[0];
   if (first === undefined || first.length === 0) return false;
-  const executable = path.isAbsolute(first) ? (regularFile(first) ? first : undefined) : resolveCommand(first);
+  const executable = path.isAbsolute(first) ? (executableFile(first) ? first : undefined) : resolveCommand(first);
   if (executable === undefined) return false;
 
   // A node/tsx dispatcher is only resolvable when its entry script also exists.

@@ -153,7 +153,7 @@ function withoutManagedGroups(root: JsonObject): JsonObject {
 export function upsertManagedEntry(root: JsonObject, descriptor: ManagedHookDescriptor): JsonObject {
   const clean = withoutManagedGroups(root);
   const hooks = isRecord(clean.hooks) ? { ...clean.hooks } : {};
-  const groups = hookObjects(hooks[descriptor.eventName]);
+  const groups = hookValues(hooks[descriptor.eventName]);
   groups.push({
     matcher: descriptor.matcher,
     hooks: [{

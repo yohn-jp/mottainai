@@ -64,7 +64,7 @@ test("black-box dispatch does not claim a replacement when the gateway is unavai
     version: 1,
     mode: "enforce",
     operationModes: {},
-    failureModes: { other: "open" },
+    failureModes: { other: "open", "process.exec": "open" },
     timeoutMs: 1000,
     maxOutputBytes: 512,
   }));

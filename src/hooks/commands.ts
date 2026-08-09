@@ -14,7 +14,14 @@ import {
   type HookClientReport,
   type HookLifecycleContext,
 } from "./install/lifecycle.js";
-import { DEFAULT_HOOK_MAX_OUTPUT_BYTES, DEFAULT_HOOK_TIMEOUT_MS, loadHookPolicy, validateHookPolicy, writeHookPolicy } from "./policy.js";
+import {
+  DEFAULT_HOOK_MAX_OUTPUT_BYTES,
+  DEFAULT_HOOK_POLICY,
+  DEFAULT_HOOK_TIMEOUT_MS,
+  loadHookPolicy,
+  validateHookPolicy,
+  writeHookPolicy,
+} from "./policy.js";
 import { boundHookDecision, boundHookText } from "./types.js";
 import type { HookDecision, HookEvent, HookFailureMode, HookOperation, HookRolloutMode } from "./types.js";
 
@@ -44,21 +51,25 @@ export interface HookDispatchResult {
 function resolveCommand(command: string, environment: NodeJS.ProcessEnv): string | undefined {
   if (command.includes(path.sep) || command.startsWith(".")) {
     const candidate = path.resolve(command);
-    try {
-      return fs.statSync(candidate).isFile() ? candidate : undefined;
-    } catch {
-      return undefined;
-    }
+    return executableFile(candidate) ? candidate : undefined;
   }
   for (const directory of (environment.PATH ?? "").split(path.delimiter).filter(Boolean)) {
     const candidate = path.join(directory, command);
-    try {
-      if (fs.statSync(candidate).isFile()) return candidate;
-    } catch {
-      // PATH entries may disappear during a status check.
-    }
+    if (executableFile(candidate)) return candidate;
   }
   return undefined;
+}
+
+function executableFile(filePath: string): boolean {
+  try {
+    const stats = fs.statSync(filePath);
+    // Native Windows is unsupported by the hook installer; on POSIX systems
+    // the generated hook must not point at a file lacking any execute bit.
+    return stats.isFile() && (process.platform === "win32" || (stats.mode & 0o111) !== 0);
+  } catch {
+    // PATH entries may disappear during a status check.
+    return false;
+  }
 }
 
 function probeVersion(executable: string, environment: NodeJS.ProcessEnv): string | undefined {
@@ -146,17 +157,26 @@ export async function dispatchClientHook(
     return { exitCode: 0, stdout: "", stderr: "", decision: { version: 1, decision: "allow", reason: "adapter_unsupported" } };
   }
   const policyResult = loadHookPolicy(context.workspaceRoot);
-  if (!policyResult.ok) {
-    const decision = boundHookDecision({ version: 1, decision: "deny", reason: "policy_invalid", diagnostic: "policy_invalid" });
-    const projection = boundedProjection(adapter.project(decision, fallbackEvent(adapter.client, context)), DEFAULT_HOOK_MAX_OUTPUT_BYTES);
-    return { ...projection, decision };
-  }
   const trusted = deriveTrustedHookContext({ workspaceRoot: context.workspaceRoot });
   const normalized = adapter.normalize(payload, { workspaceRoot: context.workspaceRoot, ...trusted });
   if (!normalized.ok) {
     const decision = malformedDecision(policyResult, adapter.client);
-    const projection = boundedProjection(adapter.project(decision, fallbackEvent(adapter.client, context)), policyResult.policy.maxOutputBytes);
+    const projection = boundedProjection(
+      adapter.project(decision, fallbackEvent(adapter.client, context)),
+      policyResult.ok ? policyResult.policy.maxOutputBytes : DEFAULT_HOOK_MAX_OUTPUT_BYTES,
+    );
     return { ...projection, decision };
+  }
+  if (!policyResult.ok) {
+    const closed = DEFAULT_HOOK_POLICY.failureModes[normalized.event.operation] === "closed";
+    const decision = boundHookDecision({
+      version: 1,
+      decision: closed ? "deny" : "allow",
+      reason: "policy_invalid",
+      diagnostic: closed ? "failure_mode=closed" : "failure_mode=open",
+    });
+    const projection = boundedProjection(adapter.project(decision, normalized.event), DEFAULT_HOOK_MAX_OUTPUT_BYTES);
+    return { ...projection, decision, event: normalized.event };
   }
   const event = normalized.event;
   const dispatcherAvailable = isDispatcherPathAvailable(
@@ -237,6 +257,9 @@ export function runManagedHooksCommand(action: string, args: string[], context: 
   }
   if (action === "install" || action === "repair" || action === "uninstall") {
     const selectedModeValue = selectedMode(args);
+    if (action === "repair" && !loadHookPolicy(context.workspaceRoot).ok) {
+      writeHookPolicy(context.workspaceRoot, DEFAULT_HOOK_POLICY);
+    }
     if (selectedModeValue !== undefined) {
       const policy = policyWithMode(context, selectedModeValue);
       writeHookPolicy(context.workspaceRoot, policy.policy);
