@@ -215,6 +215,11 @@ ${JSON.stringify(telemetry, null, 2)}
 - status確認の外向き反復はselected gh awaitで内部pollへ移し、terminal/change時の1応答へ集約。
 - したがって、観測されたall-raw、30–40KB burst、反復read、41 waitsと約5.15M wait直後inputという方向に対し、bytes/calls/expansionの方向は逆。43.15M cumulative model-input numberの再現は行わない。
 
+## Counter-cost gate
+
+- 明示的な \`result_get\` expansion は ${telemetry.expansion.count} 件で、自動retry・mandatory expansionは観測されなかった。expansion/retry rateがmaterially増加した場合は、enforceを一般defaultへ進める前にprojection/read policyの原因を特定・解決し、observe/warnへ戻す。
+- この測定の \`enforce\` はisolated fixture設定のみ。一般defaultは変更していない。
+
 ## Privacy and correctness
 
 - telemetry summaryにscenario本文、fixture source、raw command output、environment dump、credentialを含めないことをassert。
@@ -407,7 +412,7 @@ test(
       assert.ok(telemetry.projection_totals.returned_bytes > 0);
       assert.ok(telemetry.projection_totals.omitted_bytes > 0);
       assert.ok(telemetry.projection_totals.omitted_tokens > 0);
-      assert.ok(telemetry.expansion.count >= 1);
+      assert.equal(telemetry.expansion.count, 1);
       assert.ok(telemetry.read_governor.deny >= 1);
       assert.ok(telemetry.read_governor.raw_lines_returned > 0);
       assert.ok(telemetry.burst.responses_reduced >= 1);

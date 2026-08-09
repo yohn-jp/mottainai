@@ -1,6 +1,6 @@
 # Context Runtime dogfood report
 
-測定日: 2026-08-09T15:00:54.163Z
+測定日: 2026-08-09T15:05:50.017Z
 
 ## 判定方法
 
@@ -14,14 +14,14 @@ Beforeは、2026-08-08に観測したpathologyを再現する「全raw/full-inli
 
 | scenario | before visible bytes | after visible bytes | before visible tokens | after visible tokens | reduction | calls before/after | expansions | retries/diagnostics |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| verbose success + explicit retrieval | 28524 | 1359 | 7131 | 340 | 95.2% | 1/2 | 1 | TAP success counts retained; full output omitted then retrieved |
+| verbose success + explicit retrieval | 28524 | 1356 | 7131 | 339 | 95.2% | 1/2 | 1 | TAP success counts retained; full output omitted then retrieved |
 | broad raw read denied + exact range allowed | 27144 | 3335 | 6786 | 834 | 87.7% | 1/2 | 0 | deny metadata/actionable next actions; exact lines remain usable |
-| four-call concurrent burst | 25404 | 10459 | 6351 | 2615 | 58.8% | 4/4 | 0 | four parallel reads; at least one response reduced by burst_budget |
+| four-call concurrent burst | 25404 | 3928 | 6351 | 982 | 84.5% | 4/4 | 0 | four parallel reads; at least one response reduced by burst_budget |
 | local start + await | 1087 | 1087 | 272 | 272 | 0.0% | 2/2 | 0 | opaque handle plus one terminal await response |
-| provider watch replaces repeated status | 284 | 598 | 71 | 150 | -110.6% | 4/1 | 0 | one await/watch response; internal polls replace four outward status responses |
+| provider watch replaces repeated status | 284 | 478 | 71 | 120 | -68.3% | 4/1 | 0 | one await/watch response; internal polls replace four outward status responses |
 | unchanged repeat | 7300 | 753 | 1825 | 189 | 89.7% | 1/1 | 0 | repeat transfer only; setup read and later change check are excluded from the threshold |
 | changed-content miss | 7300 | 840 | 1825 | 210 | 88.5% | 1/1 | 0 | changed file returns normal bounded content with a new identity |
-| actionable failure diagnostics | 17126 | 1213 | 4282 | 304 | 92.9% | 1/1 | 0 | classification, first cause, TAP failure, bounded diagnostic, result_id retained |
+| actionable failure diagnostics | 17126 | 1210 | 4282 | 303 | 92.9% | 1/1 | 0 | classification, first cause, TAP failure, bounded diagnostic, result_id retained |
 
 ## Telemetry evidence
 
@@ -30,12 +30,12 @@ Beforeは、2026-08-08に観測したpathologyを再現する「全raw/full-inli
 ```json
 {
   "projection": {
-    "raw_bytes": 102299,
-    "stored_bytes": 101831,
-    "returned_bytes": 26944,
-    "omitted_bytes": 75996,
-    "projected_tokens": 6743,
-    "omitted_tokens": 18996
+    "raw_bytes": 102293,
+    "stored_bytes": 101389,
+    "returned_bytes": 20287,
+    "omitted_bytes": 82458,
+    "projected_tokens": 5078,
+    "omitted_tokens": 20612
   },
   "expansion": {
     "count": 1,
@@ -63,19 +63,19 @@ Beforeは、2026-08-08に観測したpathologyを再現する「全raw/full-inli
   },
   "burst": {
     "pressure_samples": 15,
-    "pressure_total": 17.982666015625,
+    "pressure_total": 20.439208984375,
     "pressure_max": 3.65625,
-    "projected_tokens": 18866,
-    "projected_bytes": 75436,
-    "omitted_tokens": 11901,
-    "omitted_bytes": 47592,
+    "projected_tokens": 18864,
+    "projected_bytes": 75430,
+    "omitted_tokens": 13652,
+    "omitted_bytes": 54597,
     "responses_reduced": 6,
     "responses_would_reduce": 0
   },
   "await": {
     "awaits": 2,
     "poll_count": 3,
-    "elapsed_ms": 283,
+    "elapsed_ms": 245,
     "state_changes": 2,
     "avoided_responses": 2,
     "terminal": 2,
@@ -104,6 +104,11 @@ Beforeは、2026-08-08に観測したpathologyを再現する「全raw/full-inli
 - source readの反復はdedupe hitでunchanged metadataへ縮小。
 - status確認の外向き反復はselected gh awaitで内部pollへ移し、terminal/change時の1応答へ集約。
 - したがって、観測されたall-raw、30–40KB burst、反復read、41 waitsと約5.15M wait直後inputという方向に対し、bytes/calls/expansionの方向は逆。43.15M cumulative model-input numberの再現は行わない。
+
+## Counter-cost gate
+
+- 明示的な `result_get` expansion は 1 件で、自動retry・mandatory expansionは観測されなかった。expansion/retry rateがmaterially増加した場合は、enforceを一般defaultへ進める前にprojection/read policyの原因を特定・解決し、observe/warnへ戻す。
+- この測定の `enforce` はisolated fixture設定のみ。一般defaultは変更していない。
 
 ## Privacy and correctness
 

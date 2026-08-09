@@ -9,6 +9,8 @@ Context Runtime controls the agent-visible projection at the MCP boundary. Full 
 3. Move selected read paths to `warn` after retries and actionable diagnostics remain stable. Use `enforce` only for broad raw reads after exact range/outline/symbol fallbacks are verified.
 4. Move selected burst policies to `warn`, then `enforce`, only when the per-response hard cap and result retrieval path are known to preserve failure diagnostics. Keep failure projections protected and retain the backing `result_id`.
 
+Before promoting any selected path to `enforce`, compare expansion and retry rates against the observe window. If either rises materially, keep the path in `observe`/`warn`, identify the specific projection or read policy responsible, and resolve that correctness/measurement regression first. The dogfood suite's `enforce` configuration is isolated to its synthetic fixture and is not a general default.
+
 The staged controls are runtime approximations of context pressure. They cannot observe client-internal model-turn boundaries, context caching, replay, or billing.
 
 ## Inspecting local telemetry
