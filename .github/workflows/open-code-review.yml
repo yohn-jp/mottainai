@@ -3,38 +3,75 @@ name: OpenCodeReview
 on:
   pull_request:
     types: [opened, reopened, synchronize, ready_for_review]
+  issue_comment:
+    types: [created]
 
 permissions: {}
 
 jobs:
   eligibility:
     name: OpenCodeReview eligibility
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && github.event.comment.user.type != 'Bot')
     runs-on: ubuntu-latest
-    permissions: {}
+    permissions:
+      pull-requests: read
     outputs:
       ok: ${{ steps.check.outputs.ok }}
+      base_ref: ${{ steps.check.outputs.base_ref }}
+      base_sha: ${{ steps.check.outputs.base_sha }}
+      head_sha: ${{ steps.check.outputs.head_sha }}
+      pr_number: ${{ steps.check.outputs.pr_number }}
     steps:
-      - name: Allow same-repository pull requests only
+      - name: Verify internal PR and trusted commenter
         id: check
-        env:
-          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-          BASE_REPOSITORY: ${{ github.repository }}
-        run: |
-          set -eu
-          if [ "$HEAD_REPOSITORY" = "$BASE_REPOSITORY" ]; then
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ok=false" >> "$GITHUB_OUTPUT"
-            echo "Fork-originated pull request; OpenCodeReview is skipped."
-          fi
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        with:
+          script: |
+            const repoFullName = `${context.repo.owner}/${context.repo.repo}`;
+
+            if (context.eventName === 'pull_request') {
+              const pullRequest = context.payload.pull_request;
+              const ok = pullRequest.head.repo.full_name === repoFullName;
+              core.setOutput('ok', ok);
+              if (ok) {
+                core.setOutput('base_ref', pullRequest.base.ref);
+                core.setOutput('base_sha', pullRequest.base.sha);
+                core.setOutput('head_sha', pullRequest.head.sha);
+                core.setOutput('pr_number', pullRequest.number);
+              }
+              return;
+            }
+
+            const trustedAssociations = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+            const comment = context.payload.comment;
+            if (
+              comment.body.trim() !== '/open-code-review' ||
+              !trustedAssociations.includes(comment.author_association)
+            ) {
+              core.setOutput('ok', 'false');
+              return;
+            }
+
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            const ok = pr.head.repo.full_name === repoFullName;
+            core.setOutput('ok', ok);
+            if (ok) {
+              core.setOutput('base_ref', pr.base.ref);
+              core.setOutput('base_sha', pr.base.sha);
+              core.setOutput('head_sha', pr.head.sha);
+              core.setOutput('pr_number', pr.number);
+            }
 
   open-code-review:
-    name: OpenCodeReview (Kimi K3; fail-closed 32K gate)
+    name: OpenCodeReview (model-aware fail-closed budget)
     needs: eligibility
-    # v1.8.10 has no defensible per-request <=32K control. Keep the
-    # credentialed job disabled until the repository variable is explicitly
-    # enabled after upstream configuration or implementation evidence changes.
-    if: ${{ needs.eligibility.outputs.ok == 'true' && vars.OPENCODEREVIEW_32K_CONFIRMED == 'true' }}
+    if: needs.eligibility.outputs.ok == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -42,6 +79,33 @@ jobs:
       issues: write
       pull-requests: write
     steps:
+      - name: Checkout trusted workflow revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Fetch reviewed pull request head
+        env:
+          PR_NUMBER: ${{ needs.eligibility.outputs.pr_number }}
+        run: git fetch --no-tags origin "pull/${PR_NUMBER}/head"
+
+      - name: Run bounded review preflight
+        id: preflight
+        env:
+          REVIEWER: OpenCodeReview
+          REVIEW_MODEL: ${{ vars.OPEN_CODE_REVIEW_MODEL || 'moonshotai/Kimi-K3' }}
+          REVIEW_CONTEXT_TOKENS: ${{ vars.OPEN_CODE_REVIEW_CONTEXT_TOKENS || '32768' }}
+          REVIEW_OUTPUT_RESERVE_TOKENS: ${{ vars.OPEN_CODE_REVIEW_OUTPUT_RESERVE_TOKENS || '8192' }}
+          REVIEW_SAFETY_MARGIN_TOKENS: ${{ vars.OPEN_CODE_REVIEW_SAFETY_MARGIN_TOKENS || '2048' }}
+          REVIEW_BUDGET_EXPLICIT: ${{ vars.OPEN_CODE_REVIEW_CONTEXT_TOKENS != '' && vars.OPEN_CODE_REVIEW_OUTPUT_RESERVE_TOKENS != '' && vars.OPEN_CODE_REVIEW_SAFETY_MARGIN_TOKENS != '' }}
+          REVIEW_BASE_SHA: ${{ needs.eligibility.outputs.base_sha }}
+          REVIEW_HEAD_SHA: ${{ needs.eligibility.outputs.head_sha }}
+          REVIEW_PR_NUMBER: ${{ needs.eligibility.outputs.pr_number }}
+          REVIEW_REPO_CONTEXT_MAX_LINES: "240"
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/review-preflight.mjs
+
       - name: Mask Featherless credential
         env:
           FEATHERLESS_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -56,7 +120,7 @@ jobs:
         with:
           llm_url: https://api.featherless.ai/v1
           llm_auth_token: ${{ secrets.OPENAI_API_KEY }}
-          llm_model: moonshotai/Kimi-K3
+          llm_model: ${{ vars.OPEN_CODE_REVIEW_MODEL || 'moonshotai/Kimi-K3' }}
           llm_use_anthropic: "false"
           llm_extra_body: '{"thinking":{"type":"disabled"}}'
           review_concurrency: "1"
@@ -68,10 +132,21 @@ jobs:
           incremental_overlap_threshold: "0.6"
           route_severity_below: "medium"
           review_comment_batch_size: "20"
+          base_ref: ${{ needs.eligibility.outputs.base_ref }}
+          head_sha: ${{ needs.eligibility.outputs.head_sha }}
 
       - name: Publish non-secret review metadata
         if: always()
         env:
+          PREFLIGHT_STATUS: ${{ steps.preflight.outcome }}
+          PREFLIGHT_RESULT: ${{ steps.preflight.outputs.status }}
+          REVIEW_STATUS: ${{ steps.review.outcome }}
+          REVIEW_MODEL: ${{ vars.OPEN_CODE_REVIEW_MODEL || 'moonshotai/Kimi-K3' }}
+          REVIEW_CONTEXT_TOKENS: ${{ steps.preflight.outputs.total_context_tokens }}
+          REVIEW_OUTPUT_RESERVE_TOKENS: ${{ steps.preflight.outputs.reserved_output_tokens }}
+          REVIEW_SAFETY_MARGIN_TOKENS: ${{ steps.preflight.outputs.safety_margin_tokens }}
+          REVIEW_MAX_INPUT_TOKENS: ${{ steps.preflight.outputs.maximum_input_tokens }}
+          REVIEW_INPUT_TOKENS: ${{ steps.preflight.outputs.estimated_input_tokens }}
           COMMENTS_TOTAL: ${{ steps.review.outputs.comments_total }}
           COMMENTS_INLINE: ${{ steps.review.outputs.comments_inline }}
           COMMENTS_ROUTED: ${{ steps.review.outputs.comments_routed }}
@@ -82,9 +157,18 @@ jobs:
             echo "### OpenCodeReview"
             echo "- Harness: OpenCodeReview"
             echo "- Version: v1.8.10 (4bcc95acecd629e64ea984c962cfd08dd892a38e)"
-            echo "- Model: moonshotai/Kimi-K3 via Featherless OpenAI-compatible API"
+            echo "- Model: ${REVIEW_MODEL} via Featherless OpenAI-compatible API"
+            echo "- Preflight: ${PREFLIGHT_RESULT:-unavailable} (step=${PREFLIGHT_STATUS:-unavailable})"
+            echo "- Budget: context=${REVIEW_CONTEXT_TOKENS:-unavailable}, output-reserve=${REVIEW_OUTPUT_RESERVE_TOKENS:-unavailable}, safety-margin=${REVIEW_SAFETY_MARGIN_TOKENS:-unavailable}, effective-input=${REVIEW_MAX_INPUT_TOKENS:-unavailable}"
+            echo "- Estimated input: ${REVIEW_INPUT_TOKENS:-unavailable}"
+            echo "- Review step: ${REVIEW_STATUS:-not_started}"
             echo "- Incremental duplicate suppression: enabled"
             echo "- Severity routing: medium and low to summary; high and critical always inline (no category-based routing)"
             echo "- Raw artifacts: disabled"
             echo "- Findings: total=${COMMENTS_TOTAL:-unavailable}, inline=${COMMENTS_INLINE:-unavailable}, routed=${COMMENTS_ROUTED:-unavailable}, skipped=${COMMENTS_SKIPPED:-unavailable}, failed=${COMMENTS_FAILED:-unavailable}"
+            if [ "${REVIEW_STATUS:-}" = "success" ]; then
+              echo "- Status: review_generated"
+            else
+              echo "- Status: review_not_generated"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
