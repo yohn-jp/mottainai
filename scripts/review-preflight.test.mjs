@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -15,6 +16,7 @@ import {
   routeManualReview,
   runPreflight,
   resolveBudgetConfig,
+  writeOutput,
 } from "./review-preflight.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -118,6 +120,7 @@ test("OpenCodeReview ignores a legacy bound flag and remains fail-closed", async
     REVIEW_MODEL: "moonshotai/Kimi-K3",
     REVIEW_INPUT_TEXT: "small diff",
     REVIEW_PROVIDER_REQUEST_BOUND: "true",
+    OPENCODEREVIEW_32K_CONFIRMED: "true",
   });
 
   assert.equal(result.status, "review_not_generated");
@@ -188,6 +191,87 @@ test("preflight blocks a provider when the collected input overflows the configu
   assert.match(result.reason, /exceeds effective input budget/u);
 });
 
+test("GitHub metadata failures use event metadata and a bounded request", async () => {
+  const originalFetch = globalThis.fetch;
+  const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-review-preflight-"));
+  const eventPath = path.join(temporaryDirectory, "event.json");
+  fs.writeFileSync(eventPath, JSON.stringify({ pull_request: { title: "event title", body: "event body" } }));
+  let requestOptions;
+  globalThis.fetch = async (_url, options) => {
+    requestOptions = options;
+    throw new Error("simulated GitHub API failure");
+  };
+
+  try {
+    const result = await runPreflight({
+      REVIEWER: "PR-Agent",
+      REVIEW_MODEL: "moonshotai/Kimi-K3",
+      REVIEW_INPUT_TEXT: "small diff",
+      REVIEW_PROVIDER_REQUEST_BOUND: "true",
+      GITHUB_TOKEN: "test-token",
+      GITHUB_REPOSITORY: "yohn-jp/mottainai",
+      REVIEW_PR_NUMBER: "136",
+      GITHUB_EVENT_PATH: eventPath,
+    });
+
+    assert.equal(result.status, "ready");
+    assert.equal(
+      result.estimatedInputTokens,
+      estimateReviewInput(["small diff", "title: event title\nbody:\nevent body"]),
+    );
+    assert.ok(requestOptions.signal instanceof AbortSignal);
+    assert.equal(requestOptions.signal.aborted, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("non-success GitHub metadata responses use event metadata", async () => {
+  const originalFetch = globalThis.fetch;
+  const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-review-preflight-"));
+  const eventPath = path.join(temporaryDirectory, "event.json");
+  fs.writeFileSync(eventPath, JSON.stringify({ pull_request: { title: "fallback title", body: "fallback body" } }));
+  globalThis.fetch = async () => ({ ok: false, status: 503 });
+
+  try {
+    const result = await runPreflight({
+      REVIEWER: "PR-Agent",
+      REVIEW_INPUT_TEXT: "small diff",
+      REVIEW_PROVIDER_REQUEST_BOUND: "true",
+      GITHUB_TOKEN: "test-token",
+      GITHUB_REPOSITORY: "yohn-jp/mottainai",
+      REVIEW_PR_NUMBER: "136",
+      GITHUB_EVENT_PATH: eventPath,
+    });
+
+    assert.equal(result.status, "ready");
+    assert.equal(
+      result.estimatedInputTokens,
+      estimateReviewInput(["small diff", "title: fallback title\nbody:\nfallback body"]),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("preflight output keeps a multiline reason on one key-value line", () => {
+  const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-review-preflight-"));
+  const outputPath = path.join(temporaryDirectory, "output.txt");
+
+  try {
+    writeOutput({ GITHUB_OUTPUT: outputPath }, { status: "review_not_generated", reason: "first line\nsecond line" });
+    const reasonLines = fs
+      .readFileSync(outputPath, "utf8")
+      .split("\n")
+      .filter((line) => line.startsWith("reason="));
+    assert.deepEqual(reasonLines, ["reason=first line second line"]);
+  } finally {
+    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
 test("manual PR-Agent command is normalized to its upstream command only after exact routing", () => {
   const event = { comment: { body: "/qodo-review" }, issue: { number: 12 } };
   const normalized = normalizePrAgentManualEvent(event);
@@ -207,6 +291,13 @@ test("review workflows expose distinct manual commands and preserve the credenti
   assert.match(prAgent, /PR_AGENT_MODEL/u);
   assert.match(prAgent, /REVIEW_CONTEXT_TOKENS/u);
   assert.match(prAgent, /REVIEW_PROVIDER_REQUEST_BOUND: "true"/u);
+  for (const source of [prAgent, openCodeReview]) {
+    assert.match(source, /const trustedAssociations = \['OWNER', 'MEMBER', 'COLLABORATOR'\]/u);
+    assert.match(source, /head\.repo\.full_name === repoFullName/u);
+    assert.match(source, /uses: actions\/checkout@[0-9a-f]{40}/u);
+    assert.match(source, /persist-credentials: false/u);
+    assert.match(source, /http\.extraheader=AUTHORIZATION: bearer \$\{GITHUB_TOKEN\}/u);
+  }
   assert.match(prAgent, /github\.event\.comment\.user\.type != 'Bot'/u);
   assert.match(openCodeReview, /issue_comment:\s+types: \[created\]/u);
   assert.match(openCodeReview, /body\.trim\(\) !== '\/open-code-review'/u);
@@ -221,4 +312,8 @@ test("review workflows expose distinct manual commands and preserve the credenti
   assert.match(openCodeReview, /Passes:/u);
   assert.match(openCodeReview, /Chunks:/u);
   assert.match(openCodeReview, /github\.event\.comment\.user\.type != 'Bot'/u);
+  assert.doesNotMatch(openCodeReview, /\$\{\{\s*secrets\./u);
+  assert.doesNotMatch(openCodeReview, /::add-mask::/u);
+  assert.match(prAgent, /PR-Agent prompt input bound applied:/u);
+  assert.doesNotMatch(prAgent, /Provider request bound proven:/u);
 });

@@ -67,7 +67,7 @@ invocation has no such argument.
 
 The PR-Agent path is different: its pinned source resolves
 `custom_model_max_tokens` and clips the assembled review prompt before the
-completion call ([token-limit implementation](https://github.com/qodo-ai/pr-agent/blob/f6af7d77554ff8d26adffded077e6461329e92fa/pr_agent/algo/utils.py#L993-L1028)). The workflow passes the preflight maximum to that setting and still refuses oversized or invalid inputs before the action starts.
+completion call ([token-limit implementation](https://github.com/qodo-ai/pr-agent/blob/f6af7d77554ff8d26adffded077e6461329e92fa/pr_agent/algo/utils.py#L993-L1028)). This is prompt input sizing, not a provider-side request cap. The workflow passes the preflight maximum to that setting and still refuses oversized or invalid inputs before the action starts.
 
 Consequently, the OpenCodeReview workflow has no credential mask or provider
 action step. Its request-bound output is fixed to `false`, and the preflight

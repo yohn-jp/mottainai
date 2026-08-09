@@ -259,16 +259,21 @@ async function fetchPullRequestMetadata(environment) {
   const number = environment.REVIEW_PR_NUMBER;
   if (!token || !repository || !number) return undefined;
 
-  const response = await fetch(`https://api.github.com/repos/${repository}/pulls/${number}`, {
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${token}`,
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
-  });
-  if (!response.ok) throw new Error(`unable to fetch pull request metadata (HTTP ${response.status})`);
-  const pullRequest = await response.json();
-  return [`title: ${pullRequest.title ?? ""}`, `body:\n${pullRequest.body ?? ""}`].join("\n");
+  try {
+    const response = await fetch(`https://api.github.com/repos/${repository}/pulls/${number}`, {
+      signal: AbortSignal.timeout(10_000),
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+    if (!response.ok) return undefined;
+    const pullRequest = await response.json();
+    return [`title: ${pullRequest.title ?? ""}`, `body:\n${pullRequest.body ?? ""}`].join("\n");
+  } catch {
+    return undefined;
+  }
 }
 
 async function collectInputParts(environment) {
@@ -322,10 +327,11 @@ function normalizePrAgentEventFile(environment) {
   fs.writeFileSync(environment.GITHUB_EVENT_PATH, `${JSON.stringify(normalized)}\n`);
 }
 
-function writeOutput(environment, result) {
+export function writeOutput(environment, result) {
   if (!environment.GITHUB_OUTPUT) return;
   const lines = Object.entries({
     status: result.status,
+    reason: result.reason ?? "unavailable",
     model: result.budget?.model ?? "unavailable",
     total_context_tokens: result.budget?.totalContextTokens ?? "unavailable",
     reserved_output_tokens: result.budget?.reservedOutputTokens ?? "unavailable",
@@ -337,7 +343,7 @@ function writeOutput(environment, result) {
     chunking: result.chunking ?? NO_CHUNKING_METADATA.chunking,
     passes: result.passCount ?? NO_CHUNKING_METADATA.passCount,
     chunks: result.chunkCount ?? NO_CHUNKING_METADATA.chunkCount,
-  }).map(([key, value]) => `${key}=${String(value)}`);
+  }).map(([key, value]) => `${key}=${String(value).replace(/\r?\n|\r/gu, " ")}`);
   fs.appendFileSync(environment.GITHUB_OUTPUT, `${lines.join("\n")}\n`);
 }
 

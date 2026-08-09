@@ -81,15 +81,19 @@ jobs:
       issues: write
     steps:
       - name: Checkout trusted workflow revision
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Fetch reviewed pull request head
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.eligibility.outputs.pr_number }}
-        run: git fetch --no-tags origin "pull/${PR_NUMBER}/head"
+        run: >-
+          git -c "http.extraheader=AUTHORIZATION: bearer ${GITHUB_TOKEN}" fetch --no-tags origin
+          "pull/${PR_NUMBER}/head"
 
       - name: Run bounded review preflight
         id: preflight
@@ -100,8 +104,8 @@ jobs:
           REVIEW_OUTPUT_RESERVE_TOKENS: ${{ vars.PR_AGENT_OUTPUT_RESERVE_TOKENS || '8192' }}
           REVIEW_SAFETY_MARGIN_TOKENS: ${{ vars.PR_AGENT_SAFETY_MARGIN_TOKENS || '2048' }}
           REVIEW_BUDGET_EXPLICIT: ${{ vars.PR_AGENT_CONTEXT_TOKENS != '' && vars.PR_AGENT_OUTPUT_RESERVE_TOKENS != '' && vars.PR_AGENT_SAFETY_MARGIN_TOKENS != '' }}
-          # PR-Agent's CUSTOM_MODEL_MAX_TOKENS is the enforceable upstream
-          # request bound used by the provider step below.
+          # CUSTOM_MODEL_MAX_TOKENS applies prompt input sizing/clipping in
+          # PR-Agent; it is not a provider-side request cap.
           REVIEW_PROVIDER_REQUEST_BOUND: "true"
           REVIEW_BASE_SHA: ${{ needs.eligibility.outputs.base_sha }}
           REVIEW_HEAD_SHA: ${{ needs.eligibility.outputs.head_sha }}
@@ -150,7 +154,7 @@ jobs:
           REVIEW_SAFETY_MARGIN_TOKENS: ${{ steps.preflight.outputs.safety_margin_tokens }}
           REVIEW_MAX_INPUT_TOKENS: ${{ steps.preflight.outputs.maximum_input_tokens }}
           REVIEW_INPUT_TOKENS: ${{ steps.preflight.outputs.estimated_input_tokens }}
-          PROVIDER_BOUND: ${{ steps.preflight.outputs.provider_request_bound }}
+          INPUT_BOUND_APPLIED: ${{ steps.preflight.outputs.provider_request_bound }}
           PROVIDER_ALLOWED: ${{ steps.preflight.outputs.provider_invocation_allowed }}
           CHUNKING: ${{ steps.preflight.outputs.chunking }}
           PASS_COUNT: ${{ steps.preflight.outputs.passes }}
@@ -163,7 +167,7 @@ jobs:
             echo "- Model: ${REVIEW_MODEL:-unavailable}"
             echo "- Budget: context=${REVIEW_CONTEXT_TOKENS:-unavailable}, output-reserve=${REVIEW_OUTPUT_RESERVE_TOKENS:-unavailable}, safety-margin=${REVIEW_SAFETY_MARGIN_TOKENS:-unavailable}, effective-input=${REVIEW_MAX_INPUT_TOKENS:-unavailable}"
             echo "- Estimated input: ${REVIEW_INPUT_TOKENS:-unavailable}"
-            echo "- Provider request bound proven: ${PROVIDER_BOUND:-false}"
+            echo "- PR-Agent prompt input bound applied: ${INPUT_BOUND_APPLIED:-false} (prompt clipping/input sizing; not a provider-side request cap)"
             echo "- Credentialed provider invocation allowed: ${PROVIDER_ALLOWED:-false}"
             echo "- Chunking: ${CHUNKING:-false}"
             echo "- Passes: ${PASS_COUNT:-0}"
