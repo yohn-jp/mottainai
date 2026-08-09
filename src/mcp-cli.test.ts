@@ -309,6 +309,20 @@ test("public CLI policy explain reports the standard preset for a plain reposito
   assert.equal(result.json.policySourceAuthority, "preset");
   const rules = result.json.rules as { protectedBranchRule: { directPush: { mode: string; authority: string } } };
   assert.equal(rules.protectedBranchRule.directPush.mode, "enforce");
+  const effectivePolicy = result.json.effectivePolicy as { pullRequest: { issue: string } };
+  assert.equal(effectivePolicy.pullRequest.issue, "optional");
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+test("public CLI workflow doctor returns the read-only domain report", () => {
+  const directory = gitWorkspace();
+  const result = runWorkflow("workflow", "doctor", "--workspace", directory);
+  assert.equal(result.status, 1);
+  assert.equal(result.json.ok, false);
+  assert.equal(result.json.mode, "read-only");
+  assert.equal(result.json.workspace, directory);
+  assert.equal((result.json.problems as Array<{ code: string }>)[0]?.code, "repository-instance-not-found");
+  assert.equal((result.json.reconciliation as { mode: string }).mode, "read-only");
   fs.rmSync(directory, { recursive: true, force: true });
 });
 
@@ -342,6 +356,9 @@ test("public CLI task start creates a dedicated worktree/branch, and task status
   const statusInWorktree = spawn("task", "status", "--workspace", worktree.canonicalPath);
   assert.equal(statusInWorktree.status, 0);
   assert.equal(statusInWorktree.json.active, true);
+  assert.ok((statusInWorktree.json.allowedNextTransitions as string[]).includes("committed"));
+  assert.ok(Array.isArray(statusInWorktree.json.invalidTransitions));
+  assert.deepEqual(statusInWorktree.json.pullRequests, []);
 
   fs.rmSync(stateDir, { recursive: true, force: true });
   fs.rmSync(directory, { recursive: true, force: true });

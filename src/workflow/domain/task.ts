@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { runProgram } from "../../subprocess.js";
 import { decideProtectedBranchOperation } from "../policy/protected-branch.js";
 import type { WorkflowPolicyDocument } from "../policy/schema.js";
-import type { WorkflowStateStore, TaskId, TaskRecord, WorktreeRecord } from "../state/store.js";
+import type { PullRequestRecord, WorkflowStateStore, TaskId, TaskRecord, WorktreeRecord } from "../state/store.js";
 import { buildWorktreeNaming, createWorktree, decideBootstrap, ensureCanonicalManagedWorktreeRoot, resolveCanonicalWorktreePath, runBootstrap } from "../git/worktree.js";
 import type { BootstrapDecision, RunBootstrapResult, WorktreeNaming } from "../git/worktree.js";
 import { validateBranchNameAgainstGovernance } from "../governance/branch.js";
@@ -10,7 +10,7 @@ import { resolveRepositoryIdentity } from "./identity.js";
 import type { RepositoryInstanceId } from "./identity.js";
 import { resolveRepoState } from "./repo-state.js";
 import type { RepoStateKind } from "./repo-state.js";
-import { validateTransition, allowedNextTransitions } from "./lifecycle.js";
+import { lifecycleTransitionStatus, validateTransition } from "./lifecycle.js";
 import type { LifecycleState, TransitionBlockedInfo } from "./lifecycle.js";
 
 const GIT_TIMEOUT_MS = 5_000;
@@ -383,7 +383,10 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
 export interface TaskStatusResult {
   task: TaskRecord;
   worktrees: WorktreeRecord[];
+  pullRequests: PullRequestRecord[];
+  currentState: LifecycleState;
   allowedNextTransitions: LifecycleState[];
+  invalidTransitions: TransitionBlockedInfo[];
 }
 
 export function getTaskStatus(store: WorkflowStateStore, taskId: TaskId): TaskStatusResult | undefined {
@@ -392,7 +395,8 @@ export function getTaskStatus(store: WorkflowStateStore, taskId: TaskId): TaskSt
   return {
     task,
     worktrees: store.listWorktreesForTask(taskId),
-    allowedNextTransitions: allowedNextTransitions(task.lifecycleState),
+    pullRequests: store.listPullRequestRecordsForTask(taskId),
+    ...lifecycleTransitionStatus(task.lifecycleState),
   };
 }
 
@@ -470,7 +474,8 @@ export async function getTaskStatusForWorkspace(workspaceRoot: string, store: Wo
   const status: TaskStatusResult = {
     task: found.task,
     worktrees: store.listWorktreesForTask(found.task.taskId),
-    allowedNextTransitions: allowedNextTransitions(found.task.lifecycleState),
+    pullRequests: store.listPullRequestRecordsForTask(found.task.taskId),
+    ...lifecycleTransitionStatus(found.task.lifecycleState),
   };
   return { ok: true, active: true, status, ...location };
 }

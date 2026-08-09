@@ -11,7 +11,8 @@ import { formatInitHuman, runInit } from "./init.js";
 import { createRuntimeDiagnostic, formatRuntimeDiagnosticHuman } from "./runtime-diagnostic.js";
 import { runServer } from "./server.js";
 import { validateIssueRef, validateTaskSlug } from "./workflow/commands/validate.js";
-import { startTask, getTaskStatusForWorkspace } from "./workflow/domain/task.js";
+import { collectWorkflowDoctorReport } from "./workflow/commands/doctor.js";
+import { getTaskStatus, startTask, getTaskStatusForWorkspace } from "./workflow/domain/task.js";
 import { explainWorkflowPolicy } from "./workflow/policy/explain.js";
 import { resolveEffectiveWorkflowPolicy } from "./workflow/policy/load.js";
 import { createWorkflowHookProvider } from "./workflow/hook-provider.js";
@@ -42,6 +43,7 @@ const USAGE = `usage:
   mottainai policy explain [--workspace path]    resolved Git workflow policy (Issue #34)
   mottainai task start <slug> [options]          start a Git workflow task (dedicated worktree/branch)
   mottainai task status [--workspace path]       active Git workflow task for the current worktree
+  mottainai workflow doctor [--workspace path]   read-only workflow reconciliation report
   mottainai hooks install [options]              install owned Claude/Codex pre-operation hooks
   mottainai hooks status                         report managed hook state
   mottainai hooks doctor                         diagnose managed hook state
@@ -368,6 +370,16 @@ export async function runCli(args: string[]): Promise<number> {
   if (hasFlag(argv, "json")) print(report);
   else console.log(formatDoctorHuman(report));
   return report.ok ? 0 : 1;
+} else if (command === "workflow" && argv[0] === "doctor") {
+  const workspace = resolveWorkflowWorkspace(argv);
+  const store = await openWorkflowStateStore();
+  try {
+    const report = await collectWorkflowDoctorReport({ workspaceRoot: workspace, store });
+    print({ workspace, ...report });
+    return report.ok ? 0 : 1;
+  } finally {
+    store.close();
+  }
 } else if (command === "hooks") {
   const action = argv[0];
   if (action === "dispatch") {
@@ -430,7 +442,18 @@ export async function runCli(args: string[]): Promise<number> {
       print({ ok: false, workspace, reason: started.reason, error: started.detail });
       return 1;
     }
-    print({ ok: true, workspace, task: started.task, worktree: started.worktree, warnings: started.warnings });
+    const status = getTaskStatus(store, started.task.taskId);
+    print({
+      ok: true,
+      workspace,
+      task: started.task,
+      worktree: started.worktree,
+      warnings: started.warnings,
+      pullRequests: status?.pullRequests ?? [],
+      currentState: status?.currentState ?? started.task.lifecycleState,
+      allowedNextTransitions: status?.allowedNextTransitions ?? [],
+      invalidTransitions: status?.invalidTransitions ?? [],
+    });
   } finally {
     store.close();
   }
@@ -444,7 +467,17 @@ export async function runCli(args: string[]): Promise<number> {
       return 1;
     }
     const { ok: _ok, ...rest } = result;
-    print({ ok: true, workspace, ...rest });
+    const statusDetails = result.active
+      ? {
+          task: result.status.task,
+          worktrees: result.status.worktrees,
+          pullRequests: result.status.pullRequests,
+          currentState: result.status.currentState,
+          allowedNextTransitions: result.status.allowedNextTransitions,
+          invalidTransitions: result.status.invalidTransitions,
+        }
+      : {};
+    print({ ok: true, workspace, ...rest, ...statusDetails });
   } finally {
     store.close();
   }

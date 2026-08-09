@@ -73,6 +73,31 @@ test("explainWorkflowPolicy rejects weakening a declared preset's enforce rule (
   assert.equal(result.explained.rules.worktree.required.authority, "preset");
 });
 
+test("explainWorkflowPolicy projects the complete PR policy with provenance", () => {
+  const document = {
+    ...getPreset("standard"),
+    pullRequest: {
+      issue: "required",
+      closingIssue: "exactly-one",
+      requiredSections: ["Summary"],
+      acceptanceCriteriaSection: "Acceptance",
+      acceptanceCriteriaChecklist: true,
+      templates: { Summary: "{value}" },
+    },
+  };
+  const root = workspaceWithPolicy(JSON.stringify(document));
+  const result = explainWorkflowPolicy(root);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.explained.rules.pullRequest.issue, { value: "required", authority: "repository" });
+  assert.deepEqual(result.explained.rules.pullRequest.closingIssue, { value: "exactly-one", authority: "repository" });
+  assert.deepEqual(result.explained.effectivePolicy.pullRequest, document.pullRequest);
+  assert.deepEqual(result.explained.resolvedPolicy.pullRequest.requiredSections, {
+    value: ["Summary"],
+    authority: "repository",
+  });
+});
+
 test("explainWorkflowPolicy fails closed on a corrupted policy file instead of silently falling back to a preset", () => {
   const root = workspaceWithPolicy("{not valid json");
   const result = explainWorkflowPolicy(root);
