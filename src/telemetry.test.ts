@@ -44,7 +44,8 @@ test("an enabled sink aggregates calls, errors, bytes and retrievals by provider
   sink.recordToolCall({ provider: "fff", capability: "text_matches", originalBytes: 1000, compressedBytes: 200, isError: false });
   sink.recordToolCall({ provider: "fff", capability: "text_matches", originalBytes: 500, compressedBytes: 500, isError: true });
   sink.recordToolCall({ provider: "codegraph", capability: "definitions", originalBytes: 300, compressedBytes: 300, isError: false });
-  sink.recordProjection({ rawBytes: 2_000, storedBytes: 1_800, returnedBytes: 600, omittedBytes: 1_400, projectedTokens: 150 });
+  sink.recordProjection({ rawBytes: 2_000, storedBytes: 1_800, returnedBytes: 600, omittedBytes: 1_400, projectedTokens: 150, omittedTokens: 350 });
+  sink.recordExpansion({ bytes: 2_400, estimatedTokens: 600 });
   sink.recordReadGovernor({
     action: "deny",
     requestedMode: "raw",
@@ -76,8 +77,9 @@ test("an enabled sink aggregates calls, errors, bytes and retrievals by provider
   assert.equal(snapshot.by_capability.text_matches.calls, 2);
   assert.equal(snapshot.by_capability.definitions.calls, 1);
   assert.deepEqual(snapshot.projection, {
-    raw_bytes: 2_000, stored_bytes: 1_800, returned_bytes: 600, omitted_bytes: 1_400, projected_tokens: 150,
+    raw_bytes: 2_000, stored_bytes: 1_800, returned_bytes: 600, omitted_bytes: 1_400, projected_tokens: 150, omitted_tokens: 350,
   });
+  assert.deepEqual(snapshot.expansion, { count: 1, bytes: 2_400, estimated_tokens: 600 });
   assert.deepEqual(snapshot.read_governor, {
     allow: 1, observe: 0, warn: 0, deny: 1, raw_lines_returned: 20, raw_bytes_returned: 200,
     by_mode: { raw: 1, auto: 1 },
