@@ -11,9 +11,21 @@ permissions: {}
 jobs:
   eligibility:
     name: OpenCodeReview eligibility
+    # Automatic pull_request review is limited to normal PRs. The separate
+    # trusted issue_comment command path remains explicit and independently
+    # authenticated, including for excluded PR classifications.
     if: >-
-      github.event_name == 'pull_request' ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && github.event.comment.user.type != 'Bot')
+      (
+        github.event_name == 'pull_request' &&
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      ) ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request != null &&
+        github.event.comment.user.type != 'Bot'
+      )
     runs-on: ubuntu-latest
     permissions:
       pull-requests: read

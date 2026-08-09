@@ -17,6 +17,15 @@ permissions:
 jobs:
   typecheck:
     name: typecheck (Node 22)
+    # Keep the workflow subscribed so required checks resolve as skipped/success.
+    # Only normal pull requests consume the normal PR CI jobs.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      )
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -43,6 +52,13 @@ jobs:
 
   fast-tests:
     name: fast unit / contract (Node 22)
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      )
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -69,6 +85,13 @@ jobs:
 
   standards:
     name: format / lint / architecture (Node 22)
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      )
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -104,6 +127,13 @@ jobs:
 
   integration:
     name: integration / process (Node 22)
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      )
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -138,6 +168,13 @@ jobs:
 
   artifact-validation:
     name: build / built dist e2e / package (Node 22)
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -194,6 +231,13 @@ jobs:
 
   node-compatibility-smoke:
     name: Node compatibility smoke (Ubuntu, Node 24)
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      )
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -222,6 +266,13 @@ jobs:
 
   coverage-shard:
     name: coverage shard ${{ matrix.shard }}/7 (Node 22)
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      )
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -277,7 +328,16 @@ jobs:
     # is evaluated only after every complete shard has passed and its LCOV
     # counters have been merged.
     name: coverage (Node 22)
-    if: always()
+    if: >-
+      always() &&
+      (
+        github.event_name != 'pull_request' ||
+        (
+          github.actor != 'dependabot[bot]' &&
+          github.event.pull_request.user.login != 'dependabot[bot]' &&
+          !startsWith(github.event.pull_request.head.ref, 'release/')
+        )
+      )
     needs: coverage-shard
     runs-on: ubuntu-latest
     steps:

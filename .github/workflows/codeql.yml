@@ -17,6 +17,15 @@ permissions: {}
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
+    # Preserve push and scheduled analysis. Only normal pull_request events
+    # enter this job, so excluded PRs do not consume CodeQL runners.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      )
     runs-on: ubuntu-latest
     permissions:
       contents: read
