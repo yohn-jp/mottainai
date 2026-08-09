@@ -5,6 +5,7 @@ import type {
   ContractEntity,
   ContentDigest,
   DecisionEntity,
+  DecisionLink,
   DependencyPolicy,
   EffectPolicy,
   InvariantEntity,
@@ -45,6 +46,7 @@ export type SemanticMutation =
   | { kind: "rationale"; rationale: DeclaredEntityInput<RationaleEntity> }
   | { kind: "constraint"; constraint: DeclaredEntityInput<ConstraintEntity> }
   | { kind: "decision"; decision: DeclaredEntityInput<DecisionEntity> }
+  | { kind: "decision-link"; link: DecisionLink }
   | { kind: "effect-policy"; policy: EffectPolicy }
   | { kind: "dependency-policy"; policy: DependencyPolicy }
   | { kind: "review-guidance"; guidance: ReviewGuidance }

@@ -66,7 +66,16 @@ test("one mutation service owns declarations, binds Symbols explicitly, and emit
   if (!result.ok) return;
   assert.equal(result.transaction.reason, "Make the declared semantic boundary explicit for deterministic review.");
   assert.deepEqual(result.transaction.authorizedDeltaKinds, ["responsibility"]);
-  assert.deepEqual(result.transaction.protectedChanges, []);
+  assert.deepEqual(result.transaction.protectedChanges, [component.id]);
+  assert.deepEqual(
+    result.transaction.delta.entries.map((entry) => entry.subject),
+    [component.id, symbol.id],
+  );
+  assert.deepEqual(
+    result.transaction.delta.entries.map((entry) => entry.reviewLevel),
+    ["L3", "L3"],
+  );
+  assert.equal(plan.bindingRequirements[0]?.resolution.status, "resolved");
   assert.deepEqual(result.transaction.transactionProvenance, {
     actor: "test",
     issue: "49",
@@ -123,6 +132,7 @@ test("all declared semantic categories are mutation operations and derived facts
         { kind: "rationale", rationale },
         { kind: "constraint", constraint },
         { kind: "decision", decision },
+        { kind: "decision-link", link: base.declarations.decisionLinks[0]! },
         { kind: "effect-policy", policy: base.declarations.effectPolicies[0]! },
         { kind: "dependency-policy", policy: base.declarations.dependencyPolicies[0]! },
         { kind: "review-guidance", guidance: base.declarations.reviewGuidance[0]! },

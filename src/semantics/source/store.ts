@@ -55,7 +55,10 @@ export async function persistSemanticMutation(rootDir: string, result: SemanticM
       `cannot persist rejected semantic mutation: ${result.diagnostics.map((item) => item.code).join(",")}`,
     );
   const root = resolve(rootDir);
+  const sourcePrefix = `${SEMANTIC_SOURCE_ROOT}/`;
   for (const write of result.writes) {
+    if (!write.path.startsWith(sourcePrefix))
+      throw new Error(`semantic source write must stay under ${SEMANTIC_SOURCE_ROOT}: ${write.path}`);
     const target = targetPath(root, write.path);
     if (write.operation === "delete") {
       try {

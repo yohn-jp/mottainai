@@ -58,6 +58,7 @@ const DELTA_KIND_BY_MUTATION: Record<
   rationale: "public-surface",
   constraint: "public-surface",
   decision: "public-surface",
+  "decision-link": "public-surface",
   "effect-policy": "effect",
   "dependency-policy": "dependency-policy",
   "review-guidance": "public-surface",
@@ -97,6 +98,18 @@ function replaceBySubject<T extends { subject: LogicalId }>(values: readonly T[]
   return values.map((item, itemIndex) => (itemIndex === index ? value : item));
 }
 
+function replaceByKey<T>(values: readonly T[], value: T, keyOf: (item: T) => string): T[] {
+  const key = keyOf(value);
+  const index = values.findIndex((item) => keyOf(item) === key);
+  if (index < 0) return [...values, value];
+  return values.map((item, itemIndex) => (itemIndex === index ? value : item));
+}
+
+function addAffected(affected: Set<LogicalId>, mutationAffected: Set<LogicalId>, id: LogicalId): void {
+  affected.add(id);
+  mutationAffected.add(id);
+}
+
 function declaredProvenance(snapshot: RepositorySemanticSnapshot, actor: string): Provenance {
   return {
     kind: "declared",
@@ -116,14 +129,20 @@ function entityWithDeclaredAuthority<T extends SemanticEntity>(
 }
 
 function isProtectedEntity(entity: SemanticEntity | undefined): boolean {
-  return entity?.kind === "component" ||
-    entity?.kind === "project" ||
-    entity?.kind === "capability" ||
-    entity?.kind === "contract"
-    ? entity.stability === "stable" || entity.stability === "protected" || entity.reviewLevel === "L3"
-    : entity?.kind === "invariant"
-      ? entity.stability === "stable" || entity.stability === "protected"
-      : false;
+  if (entity === undefined) return false;
+  switch (entity.kind) {
+    case "project":
+    case "component":
+    case "capability":
+    case "contract":
+      return entity.stability === "stable" || entity.stability === "protected" || entity.reviewLevel === "L3";
+    case "invariant":
+      return entity.stability === "stable" || entity.stability === "protected";
+    case "constraint":
+      return entity.enforcement === "protected";
+    default:
+      return false;
+  }
 }
 
 function entityById(snapshot: RepositorySemanticSnapshot, id: LogicalId): SemanticEntity | undefined {
@@ -147,6 +166,20 @@ function entityById(snapshot: RepositorySemanticSnapshot, id: LogicalId): Semant
   return all.find((entity) => entity.id === id);
 }
 
+function isProtectedSubject(snapshot: RepositorySemanticSnapshot, id: LogicalId): boolean {
+  if (isProtectedEntity(entityById(snapshot, id))) return true;
+  const declaration = snapshot.declarations.stability.find((item) => item.subject === id);
+  return declaration?.stability === "stable" || declaration?.stability === "protected";
+}
+
+function markProtectedSubject(
+  snapshot: RepositorySemanticSnapshot,
+  id: LogicalId,
+  protectedChanges: Set<LogicalId>,
+): void {
+  if (isProtectedSubject(snapshot, id)) protectedChanges.add(id);
+}
+
 function formalEnglish(value: string): boolean {
   return value.length > 0 && value === value.trim() && /^[\x20-\x7e]+$/u.test(value) && /[A-Za-z]/u.test(value);
 }
@@ -161,6 +194,15 @@ const PROSE_KEYS = new Set([
   "definition",
   "summary",
   "reason",
+  "expression",
+  "type",
+  "domain",
+  "access",
+  "condition",
+  "trigger",
+  "payload",
+  "returnValue",
+  "rationale",
 ]);
 
 function collectProse(value: unknown, path: string, diagnostics: SemanticDiagnostic[], key?: string): void {
@@ -224,7 +266,11 @@ function resolveSymbol(
           diagnostic("symbol_binding_missing", `Symbol does not exist: ${selector.symbolId}`, selector.symbolId),
         ],
       };
-    return { symbol, diagnostics: [] };
+    return {
+      symbol,
+      resolution: { status: "resolved", symbolId: symbol.id, locator: symbol.locator },
+      diagnostics: [],
+    };
   }
   const resolution = resolver.resolve(selector.locator, selector.expectedRevision);
   if (resolution.status !== "resolved") {
@@ -271,18 +317,32 @@ function applyOwnership(
   resolver: SymbolBindingResolver,
   affected: Set<LogicalId>,
   bindings: BindingRequirement[],
+  mutationAffected: Set<LogicalId>,
+  protectedChanges: Set<LogicalId>,
   diagnostics: SemanticDiagnostic[],
-): void {
+): LogicalId | undefined {
   const resolved = resolveSymbol(snapshot, mutation.symbol, resolver);
   if (resolved.resolution !== undefined) bindings.push({ selector: mutation.symbol, resolution: resolved.resolution });
   diagnostics.push(...resolved.diagnostics);
   const symbol = resolved.symbol;
-  if (symbol === undefined) return;
-  affected.add(symbol.id);
+  if (symbol === undefined) return undefined;
+  addAffected(affected, mutationAffected, symbol.id);
+  markProtectedSubject(snapshot, symbol.id, protectedChanges);
   const components = new Map(snapshot.declarations.components.map((component) => [component.id, component]));
   const ownership = mutation.ownership;
   const sharedComponents =
     ownership.classification === "shared" ? [...new Set(ownership.sharedComponentIds ?? [])].sort() : [];
+
+  for (const previous of snapshot.graph.relations) {
+    if (
+      previous.authority === "declared" &&
+      (previous.kind === "owns" || previous.kind === "shares") &&
+      previous.to === symbol.id
+    ) {
+      addAffected(affected, mutationAffected, previous.from);
+      markProtectedSubject(snapshot, previous.from, protectedChanges);
+    }
+  }
   if (ownership.classification === "managed") {
     const component = components.get(ownership.componentId);
     if (component === undefined) {
@@ -295,14 +355,16 @@ function applyOwnership(
       );
       return;
     }
-    affected.add(component.id);
+    addAffected(affected, mutationAffected, component.id);
+    markProtectedSubject(snapshot, component.id, protectedChanges);
   } else {
     for (const componentId of sharedComponents) {
       if (!components.has(componentId))
         diagnostics.push(
           diagnostic("component_binding_missing", `Component does not exist: ${componentId}`, componentId),
         );
-      affected.add(componentId);
+      addAffected(affected, mutationAffected, componentId);
+      markProtectedSubject(snapshot, componentId, protectedChanges);
     }
   }
   const declaration: SymbolOwnershipDeclaration = {
@@ -321,6 +383,7 @@ function applyOwnership(
       ? [relation(snapshot, "owns", ownership.componentId, symbol.id, actor)]
       : sharedComponents.map((componentId) => relation(snapshot, "shares", componentId, symbol.id, actor));
   snapshot.graph.relations = [...retained, ...newRelations];
+  return symbol.id;
 }
 
 function applyMutation(
@@ -330,95 +393,140 @@ function applyMutation(
   resolver: SymbolBindingResolver,
   affected: Set<LogicalId>,
   bindings: BindingRequirement[],
+  mutationAffected: Set<LogicalId>,
   protectedChanges: Set<LogicalId>,
   diagnostics: SemanticDiagnostic[],
-): void {
+): LogicalId | undefined {
   const provenance = declaredProvenance(snapshot, actor);
   switch (mutation.kind) {
     case "component": {
       const previous = entityById(snapshot, mutation.component.id);
       const next = entityWithDeclaredAuthority(mutation.component, provenance);
       snapshot.declarations.components = replaceById(snapshot.declarations.components, next);
-      affected.add(next.id);
+      addAffected(affected, mutationAffected, next.id);
       if (isProtectedEntity(previous) || isProtectedEntity(next)) protectedChanges.add(next.id);
-      return;
+      return next.id;
     }
     case "symbol-ownership":
-      applyOwnership(snapshot, mutation, actor, resolver, affected, bindings, diagnostics);
-      return;
+      return applyOwnership(
+        snapshot,
+        mutation,
+        actor,
+        resolver,
+        affected,
+        bindings,
+        mutationAffected,
+        protectedChanges,
+        diagnostics,
+      );
     case "capability": {
       const previous = entityById(snapshot, mutation.capability.id);
       const next = entityWithDeclaredAuthority(mutation.capability, provenance);
       snapshot.declarations.capabilities = replaceById(snapshot.declarations.capabilities, next);
-      affected.add(next.id);
+      addAffected(affected, mutationAffected, next.id);
       if (isProtectedEntity(previous) || isProtectedEntity(next)) protectedChanges.add(next.id);
-      return;
+      return next.id;
     }
     case "contract": {
       const previous = entityById(snapshot, mutation.contract.id);
       const next = entityWithDeclaredAuthority(mutation.contract, provenance);
       snapshot.declarations.contracts = replaceById(snapshot.declarations.contracts, next);
-      affected.add(next.id);
+      addAffected(affected, mutationAffected, next.id);
       if (isProtectedEntity(previous) || isProtectedEntity(next)) protectedChanges.add(next.id);
-      return;
+      return next.id;
     }
     case "invariant": {
       const previous = entityById(snapshot, mutation.invariant.id);
       const next = entityWithDeclaredAuthority(mutation.invariant, provenance);
       snapshot.declarations.invariants = replaceById(snapshot.declarations.invariants, next);
-      affected.add(next.id);
+      addAffected(affected, mutationAffected, next.id);
       if (isProtectedEntity(previous) || isProtectedEntity(next)) protectedChanges.add(next.id);
-      return;
+      return next.id;
     }
     case "rationale": {
       const next = entityWithDeclaredAuthority(mutation.rationale, provenance);
       snapshot.declarations.rationales = replaceById(snapshot.declarations.rationales, next);
-      affected.add(next.id);
-      return;
+      addAffected(affected, mutationAffected, next.id);
+      markProtectedSubject(snapshot, next.id, protectedChanges);
+      return next.id;
     }
     case "constraint": {
+      const previous = entityById(snapshot, mutation.constraint.id);
       const next = entityWithDeclaredAuthority(mutation.constraint, provenance);
       snapshot.declarations.constraints = replaceById(snapshot.declarations.constraints, next);
-      affected.add(next.id);
-      return;
+      addAffected(affected, mutationAffected, next.id);
+      if (isProtectedEntity(previous) || isProtectedEntity(next)) protectedChanges.add(next.id);
+      return next.id;
     }
     case "decision": {
       const next = entityWithDeclaredAuthority(mutation.decision, provenance);
       snapshot.declarations.decisions = replaceById(snapshot.declarations.decisions, next);
-      affected.add(next.id);
-      return;
+      addAffected(affected, mutationAffected, next.id);
+      if (isProtectedEntity(next)) protectedChanges.add(next.id);
+      return next.id;
+    }
+    case "decision-link": {
+      snapshot.declarations.decisionLinks = replaceByKey(
+        snapshot.declarations.decisionLinks,
+        mutation.link,
+        (item) => `${item.subject}:${item.decisionId}:${item.relation}`,
+      );
+      addAffected(affected, mutationAffected, mutation.link.subject);
+      addAffected(affected, mutationAffected, mutation.link.decisionId);
+      markProtectedSubject(snapshot, mutation.link.subject, protectedChanges);
+      markProtectedSubject(snapshot, mutation.link.decisionId, protectedChanges);
+      return mutation.link.subject;
     }
     case "effect-policy":
       snapshot.declarations.effectPolicies = replaceById(snapshot.declarations.effectPolicies, mutation.policy);
-      affected.add(mutation.policy.subject);
-      return;
+      addAffected(affected, mutationAffected, mutation.policy.subject);
+      markProtectedSubject(snapshot, mutation.policy.subject, protectedChanges);
+      return mutation.policy.subject;
     case "dependency-policy":
       snapshot.declarations.dependencyPolicies = replaceById(snapshot.declarations.dependencyPolicies, mutation.policy);
-      affected.add(mutation.policy.subject);
-      return;
-    case "review-guidance":
+      addAffected(affected, mutationAffected, mutation.policy.subject);
+      markProtectedSubject(snapshot, mutation.policy.subject, protectedChanges);
+      return mutation.policy.subject;
+    case "review-guidance": {
+      const previous = snapshot.declarations.reviewGuidance.find((item) => item.id === mutation.guidance.id);
       snapshot.declarations.reviewGuidance = replaceById(snapshot.declarations.reviewGuidance, mutation.guidance);
-      affected.add(mutation.guidance.subject);
-      if (mutation.guidance.level === "L3") protectedChanges.add(mutation.guidance.subject);
-      return;
-    case "stability":
+      addAffected(affected, mutationAffected, mutation.guidance.subject);
+      if (previous?.level === "L3" || mutation.guidance.level === "L3") protectedChanges.add(mutation.guidance.subject);
+      markProtectedSubject(snapshot, mutation.guidance.subject, protectedChanges);
+      return mutation.guidance.subject;
+    }
+    case "stability": {
+      const previous = snapshot.declarations.stability.find((item) => item.subject === mutation.declaration.subject);
       snapshot.declarations.stability = replaceBySubject(snapshot.declarations.stability, mutation.declaration);
-      affected.add(mutation.declaration.subject);
-      if (mutation.declaration.stability === "stable" || mutation.declaration.stability === "protected") {
+      addAffected(affected, mutationAffected, mutation.declaration.subject);
+      if (
+        previous?.stability === "stable" ||
+        previous?.stability === "protected" ||
+        mutation.declaration.stability === "stable" ||
+        mutation.declaration.stability === "protected"
+      ) {
         protectedChanges.add(mutation.declaration.subject);
       }
-      return;
+      markProtectedSubject(snapshot, mutation.declaration.subject, protectedChanges);
+      return mutation.declaration.subject;
+    }
     case "terminology":
       snapshot.declarations.terminology = [
         ...snapshot.declarations.terminology.filter((item) => item.term !== mutation.link.term),
         mutation.link,
       ];
-      mutation.link.relatedEntityIds.forEach((id) => affected.add(id));
-      return;
+      if (mutation.link.relatedEntityIds.length === 0)
+        addAffected(affected, mutationAffected, snapshot.declarations.project.id);
+      mutation.link.relatedEntityIds.forEach((id) => {
+        addAffected(affected, mutationAffected, id);
+        markProtectedSubject(snapshot, id, protectedChanges);
+      });
+      return mutation.link.relatedEntityIds[0] ?? snapshot.declarations.project.id;
     case "semantic-debt":
       snapshot.declarations.semanticDebt = replaceById(snapshot.declarations.semanticDebt ?? [], mutation.debt);
-      affected.add(mutation.debt.subject);
-      return;
+      addAffected(affected, mutationAffected, mutation.debt.subject);
+      markProtectedSubject(snapshot, mutation.debt.subject, protectedChanges);
+      return mutation.debt.subject;
   }
 }
 
@@ -463,18 +571,20 @@ function refreshIntegrity(
 function transactionFor(
   request: SemanticMutationRequest,
   snapshot: RepositorySemanticSnapshot,
-  affected: readonly LogicalId[],
+  mutationSubjects: readonly LogicalId[],
+  mutationAffectedEntities: readonly (readonly LogicalId[])[],
   protectedChanges: readonly LogicalId[],
 ): SemanticTransaction {
   const authorizedDeltaKinds = [...new Set(request.authorizedDeltaKinds ?? [])].sort();
   const entries: SemanticDeltaEntry[] = request.mutations.map((mutation, index) => {
-    const subject = affected[index] ?? snapshot.declarations.project.id;
+    const subject = mutationSubjects[index] ?? snapshot.declarations.project.id;
+    const mutationAffected = mutationAffectedEntities[index] ?? [subject];
     return {
       id: createLogicalId("delta", `${index}-${encodeURIComponent(subject)}`),
       subject,
       kind: DELTA_KIND_BY_MUTATION[mutation.kind],
       summary: `Apply the declared ${mutation.kind} mutation through the semantic mutation boundary.`,
-      reviewLevel: protectedChanges.includes(subject) ? "L3" : "L2",
+      reviewLevel: mutationAffected.some((id) => protectedChanges.includes(id)) ? "L3" : "L2",
     };
   });
   return {
@@ -505,28 +615,51 @@ function buildCandidate(
   affected: readonly LogicalId[];
   protectedChanges: readonly LogicalId[];
   bindings: readonly BindingRequirement[];
+  mutationSubjects: readonly LogicalId[];
+  mutationAffectedEntities: readonly (readonly LogicalId[])[];
   diagnostics: readonly SemanticDiagnostic[];
 } {
   const diagnostics = validateMutationRequest(request);
-  if (diagnostics.length > 0) return { affected: [], protectedChanges: [], bindings: [], diagnostics };
+  if (diagnostics.length > 0)
+    return {
+      affected: [],
+      protectedChanges: [],
+      bindings: [],
+      mutationSubjects: [],
+      mutationAffectedEntities: [],
+      diagnostics,
+    };
   const candidate = clone(base);
   const affected = new Set<LogicalId>();
   const protectedChanges = new Set<LogicalId>();
   const bindings: BindingRequirement[] = [];
+  const mutationSubjects: LogicalId[] = [];
+  const mutationAffectedEntities: LogicalId[][] = [];
   for (const mutation of request.mutations) {
-    applyMutation(
+    const perMutation = new Set<LogicalId>();
+    const subject = applyMutation(
       candidate,
       mutation,
       request.provenance.actor,
       resolver,
       affected,
       bindings,
+      perMutation,
       protectedChanges,
       diagnostics,
     );
+    mutationAffectedEntities.push([...perMutation].sort());
+    if (subject !== undefined) mutationSubjects.push(subject);
   }
   if (diagnostics.length > 0)
-    return { affected: [...affected].sort(), protectedChanges: [...protectedChanges].sort(), bindings, diagnostics };
+    return {
+      affected: [...affected].sort(),
+      protectedChanges: [...protectedChanges].sort(),
+      bindings,
+      mutationSubjects,
+      mutationAffectedEntities,
+      diagnostics,
+    };
   const beforeNonDeclared = stableStringifyValue({
     derived: base.derived,
     observed: base.observed,
@@ -544,7 +677,14 @@ function buildCandidate(
         "declared semantic mutations cannot change derived or observed facts",
       ),
     );
-    return { affected: [...affected].sort(), protectedChanges: [...protectedChanges].sort(), bindings, diagnostics };
+    return {
+      affected: [...affected].sort(),
+      protectedChanges: [...protectedChanges].sort(),
+      bindings,
+      mutationSubjects,
+      mutationAffectedEntities,
+      diagnostics,
+    };
   }
   const refreshed = refreshIntegrity(candidate, base.integrity.status);
   const validation = validateSnapshot(refreshed);
@@ -553,6 +693,8 @@ function buildCandidate(
       affected: [...affected].sort(),
       protectedChanges: [...protectedChanges].sort(),
       bindings,
+      mutationSubjects,
+      mutationAffectedEntities,
       diagnostics: validation.diagnostics,
     };
   const proseDiagnostics = validateCanonicalProse(validation.snapshot);
@@ -561,6 +703,8 @@ function buildCandidate(
       affected: [...affected].sort(),
       protectedChanges: [...protectedChanges].sort(),
       bindings,
+      mutationSubjects,
+      mutationAffectedEntities,
       diagnostics: proseDiagnostics,
     };
   return {
@@ -568,6 +712,8 @@ function buildCandidate(
     affected: [...affected].sort(),
     protectedChanges: [...protectedChanges].sort(),
     bindings,
+    mutationSubjects,
+    mutationAffectedEntities,
     diagnostics: [],
   };
 }
@@ -714,12 +860,25 @@ export function createSemanticMutationService(
     }
     const built =
       diagnostics.length > 0
-        ? { affected: [], protectedChanges: [], bindings: [], diagnostics }
+        ? {
+            affected: [],
+            protectedChanges: [],
+            bindings: [],
+            mutationSubjects: [],
+            mutationAffectedEntities: [],
+            diagnostics,
+          }
         : buildCandidate(baseSnapshot, request, resolver);
     const transaction =
       built.candidate === undefined
         ? undefined
-        : transactionFor(request, built.candidate, built.affected, built.protectedChanges);
+        : transactionFor(
+            request,
+            built.candidate,
+            built.mutationSubjects,
+            built.mutationAffectedEntities,
+            built.protectedChanges,
+          );
     return {
       baseSnapshot: clone(baseSnapshot),
       ...(built.candidate === undefined ? {} : { candidateSnapshot: built.candidate }),
