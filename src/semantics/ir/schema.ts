@@ -16,6 +16,7 @@ import {
   REVIEW_LEVELS,
   SEMANTIC_DELTA_KINDS,
   SEMANTIC_VOCABULARY_VERSION,
+  VERIFICATION_REQUIREMENT_PROVENANCES,
 } from "./types.js";
 import type {
   JsonValue,
@@ -28,6 +29,10 @@ import type {
   SemanticRelation,
   SemanticTransaction,
   SnapshotValidationResult,
+  VerificationEvidence,
+  VerificationPerspective,
+  VerificationRequirement,
+  VerificationTarget,
 } from "./types.js";
 
 export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
@@ -153,6 +158,114 @@ const provenanceSchema = z
     confidence: z.number().finite().min(0).max(1).optional(),
     completeness: z.enum(["complete", "partial", "unknown"]).optional(),
     ambiguity: ambiguitySchema.optional(),
+  })
+  .strict();
+
+export const verificationTargetSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("project"), id: logicalIdSchema }).strict(),
+  z.object({ kind: z.literal("component"), id: logicalIdSchema }).strict(),
+  z.object({ kind: z.literal("symbol"), id: logicalIdSchema }).strict(),
+  z.object({ kind: z.literal("contract"), id: logicalIdSchema }).strict(),
+  z.object({ kind: z.literal("invariant"), id: logicalIdSchema }).strict(),
+]);
+
+export const verificationPerspectiveSchema = z
+  .object({
+    id: logicalIdSchema,
+    kind: z.string().min(1),
+    category: z.string().min(1),
+    name: proseSchema,
+    description: proseSchema.optional(),
+    known: z.boolean().optional(),
+    authority: z.literal("declared"),
+    provenance: provenanceSchema,
+    metadata: metadataSchema.optional(),
+  })
+  .strict();
+
+export const verificationRequirementSchema = z
+  .object({
+    id: logicalIdSchema,
+    target: verificationTargetSchema,
+    perspectiveId: logicalIdSchema,
+    strength: z.enum(["required", "recommended"]),
+    rationale: proseSchema,
+    requirementProvenance: z
+      .object({
+        kind: z.enum(VERIFICATION_REQUIREMENT_PROVENANCES),
+        sourceId: logicalIdSchema.optional(),
+        ruleId: z.string().min(1).optional(),
+      })
+      .strict(),
+    minimumEvidenceStrength: z.string().min(1).optional(),
+    authority: z.enum(["declared", "derived", "analysis"]),
+    provenance: provenanceSchema,
+    metadata: metadataSchema.optional(),
+  })
+  .strict();
+
+export const verificationEvidenceSchema = z
+  .object({
+    id: logicalIdSchema,
+    target: verificationTargetSchema,
+    perspectiveId: logicalIdSchema,
+    testId: logicalIdSchema.optional(),
+    kind: z.string().min(1),
+    strength: z.string().min(1),
+    freshness: z.enum(["current", "stale"]),
+    status: z.enum(["passed", "failed", "skipped", "inadequate", "missing"]),
+    reference: z.string().min(1),
+    summary: proseSchema,
+    coverage: z.number().finite().min(0).max(100).optional(),
+    authority: z.literal("observed"),
+    provenance: provenanceSchema,
+    metadata: metadataSchema.optional(),
+  })
+  .strict();
+
+const verificationAssessmentSchema = z
+  .object({
+    requirementId: logicalIdSchema,
+    target: verificationTargetSchema,
+    perspectiveId: logicalIdSchema,
+    strength: z.enum(["required", "recommended"]),
+    status: z.enum(["satisfied", "missing", "stale", "failed", "inadequate", "unknown"]),
+    evidenceIds: z.array(logicalIdSchema),
+    satisfyingEvidenceIds: z.array(logicalIdSchema),
+    missingEvidenceKinds: z.array(z.string().min(1)).optional(),
+  })
+  .strict();
+
+const verificationCountsSchema = z
+  .object({
+    total: z.number().int().min(0),
+    satisfied: z.number().int().min(0),
+    missing: z.number().int().min(0),
+    stale: z.number().int().min(0),
+    failed: z.number().int().min(0),
+    inadequate: z.number().int().min(0),
+    unknown: z.number().int().min(0),
+  })
+  .strict();
+
+const verificationSummarySchema = z
+  .object({
+    scope: z.enum(["symbol", "component", "project"]),
+    targetId: logicalIdSchema,
+    status: z.enum(["healthy", "incomplete", "failed", "unknown"]),
+    score: z.number().finite().min(0).max(100),
+    required: verificationCountsSchema,
+    recommended: verificationCountsSchema,
+    gapRequirementIds: z.array(logicalIdSchema),
+  })
+  .strict();
+
+const verificationAnalysisSchema = z
+  .object({
+    authority: z.literal("analysis"),
+    assessments: z.array(verificationAssessmentSchema),
+    summaries: z.array(verificationSummarySchema),
+    inferredRequirements: z.array(verificationRequirementSchema).optional(),
   })
   .strict();
 
@@ -547,6 +660,8 @@ const declaredStateSchema = z
     terminology: z.array(terminologyLinkSchema),
     decisionLinks: z.array(decisionLinkSchema),
     commentPolicy: canonicalProsePolicySchema,
+    verificationPerspectives: z.array(verificationPerspectiveSchema).optional(),
+    verificationRequirements: z.array(verificationRequirementSchema).optional(),
   })
   .strict();
 
@@ -558,6 +673,7 @@ const derivedStateSchema = z
     externalDependencies: z.array(externalDependencyEntitySchema),
     externalApis: z.array(externalApiEntitySchema),
     facts: z.array(semanticFactSchema),
+    verificationRequirements: z.array(verificationRequirementSchema).optional(),
   })
   .strict();
 
@@ -566,6 +682,7 @@ const observedStateSchema = z
     evidences: z.array(evidenceEntitySchema),
     tests: z.array(testEntitySchema),
     facts: z.array(semanticFactSchema),
+    verificationEvidence: z.array(verificationEvidenceSchema).optional(),
   })
   .strict();
 
@@ -643,6 +760,7 @@ const analysisSchema = z
         })
         .strict(),
     ),
+    verification: verificationAnalysisSchema.optional(),
   })
   .strict();
 
@@ -943,6 +1061,328 @@ function validateReferences(snapshot: RepositorySemanticSnapshot): SemanticDiagn
       checkReference(candidate, `${path}.ambiguity.candidates.${index}`),
     );
   };
+
+  const perspectives = snapshot.declarations.verificationPerspectives ?? [];
+  const perspectiveIds = new Set<LogicalId>();
+  perspectives.forEach((perspective: VerificationPerspective, index) => {
+    const path = `declarations.verificationPerspectives.${index}`;
+    if (perspectiveIds.has(perspective.id)) {
+      diagnostics.push(
+        diagnostic(
+          "duplicate_verification_perspective_id",
+          `duplicate perspective ID: ${perspective.id}`,
+          `${path}.id`,
+        ),
+      );
+    }
+    perspectiveIds.add(perspective.id);
+    if (perspective.authority !== "declared" || perspective.provenance.kind !== "declared") {
+      diagnostics.push(
+        diagnostic(
+          "verification_authority_mismatch",
+          "verification perspectives in declarations must carry declared authority and provenance",
+          path,
+        ),
+      );
+    }
+    checkProvenance(perspective.provenance, `${path}.provenance`);
+  });
+
+  const checkVerificationTarget = (target: VerificationTarget, path: string): void => {
+    checkReferenceKind(target.id, [target.kind], `${path}.id`);
+  };
+
+  const allRequirements = new Map<LogicalId, VerificationRequirement>();
+  const authoritativeRequirementIds = new Set<LogicalId>();
+  const checkVerificationRequirement = (
+    requirement: VerificationRequirement,
+    path: string,
+    expectedAuthority: "declared" | "derived" | "analysis",
+  ): void => {
+    if (allRequirements.has(requirement.id)) {
+      diagnostics.push(
+        diagnostic(
+          "duplicate_verification_requirement_id",
+          `duplicate requirement ID: ${requirement.id}`,
+          `${path}.id`,
+        ),
+      );
+    }
+    allRequirements.set(requirement.id, requirement);
+    if (expectedAuthority !== "analysis") authoritativeRequirementIds.add(requirement.id);
+    if (requirement.authority !== expectedAuthority) {
+      diagnostics.push(
+        diagnostic(
+          "verification_authority_mismatch",
+          `verification requirement in ${expectedAuthority} must carry authority ${expectedAuthority}, got ${requirement.authority}`,
+          `${path}.authority`,
+        ),
+      );
+    }
+    const expectedProvenance = expectedAuthority === "analysis" ? "inferred" : expectedAuthority;
+    if (requirement.provenance.kind !== expectedProvenance) {
+      diagnostics.push(
+        diagnostic(
+          "verification_provenance_mismatch",
+          `verification requirement in ${expectedAuthority} must carry provenance ${expectedProvenance}, got ${requirement.provenance.kind}`,
+          `${path}.provenance.kind`,
+        ),
+      );
+    }
+    if (expectedAuthority === "analysis" && requirement.requirementProvenance.kind !== "inferred") {
+      diagnostics.push(
+        diagnostic(
+          "analysis_requirement_not_inferred",
+          "analysis verification requirements must remain explicitly non-authoritative inferred suggestions",
+          `${path}.requirementProvenance.kind`,
+        ),
+      );
+    }
+    if (requirement.requirementProvenance.kind === "inferred" && expectedAuthority !== "analysis") {
+      diagnostics.push(
+        diagnostic(
+          "inferred_requirement_not_authoritative",
+          "inferred verification requirements cannot carry declared or derived authority",
+          path,
+        ),
+      );
+    }
+    if (requirement.requirementProvenance.kind === "deterministic-derived-rule") {
+      if (expectedAuthority !== "derived" || requirement.requirementProvenance.ruleId === undefined) {
+        diagnostics.push(
+          diagnostic(
+            "invalid_deterministic_requirement",
+            "deterministic-derived-rule requirements must be derived and carry ruleId",
+            `${path}.requirementProvenance`,
+          ),
+        );
+      }
+    }
+    if (requirement.requirementProvenance.kind === "project-policy") {
+      if (requirement.requirementProvenance.sourceId === undefined)
+        diagnostics.push(
+          diagnostic(
+            "missing_requirement_source",
+            "project-policy requirements require sourceId",
+            `${path}.requirementProvenance`,
+          ),
+        );
+      else
+        checkReferenceKind(
+          requirement.requirementProvenance.sourceId,
+          ["project"],
+          `${path}.requirementProvenance.sourceId`,
+        );
+    }
+    if (requirement.requirementProvenance.kind === "component-policy") {
+      if (requirement.requirementProvenance.sourceId === undefined)
+        diagnostics.push(
+          diagnostic(
+            "missing_requirement_source",
+            "component-policy requirements require sourceId",
+            `${path}.requirementProvenance`,
+          ),
+        );
+      else
+        checkReferenceKind(
+          requirement.requirementProvenance.sourceId,
+          ["component"],
+          `${path}.requirementProvenance.sourceId`,
+        );
+    }
+    if (requirement.requirementProvenance.kind === "contract") {
+      if (requirement.requirementProvenance.sourceId === undefined)
+        diagnostics.push(
+          diagnostic(
+            "missing_requirement_source",
+            "contract requirements require sourceId",
+            `${path}.requirementProvenance`,
+          ),
+        );
+      else
+        checkReferenceKind(
+          requirement.requirementProvenance.sourceId,
+          ["contract"],
+          `${path}.requirementProvenance.sourceId`,
+        );
+    }
+    if (requirement.requirementProvenance.kind === "invariant") {
+      if (requirement.requirementProvenance.sourceId === undefined)
+        diagnostics.push(
+          diagnostic(
+            "missing_requirement_source",
+            "invariant requirements require sourceId",
+            `${path}.requirementProvenance`,
+          ),
+        );
+      else
+        checkReferenceKind(
+          requirement.requirementProvenance.sourceId,
+          ["invariant"],
+          `${path}.requirementProvenance.sourceId`,
+        );
+    }
+    if (
+      requirement.requirementProvenance.sourceId !== undefined &&
+      requirement.requirementProvenance.kind === "explicit-declaration"
+    ) {
+      checkReference(requirement.requirementProvenance.sourceId, `${path}.requirementProvenance.sourceId`);
+    }
+    checkVerificationTarget(requirement.target, `${path}.target`);
+    if (!perspectiveIds.has(requirement.perspectiveId)) {
+      diagnostics.push(
+        diagnostic(
+          "dangling_verification_perspective",
+          `verification requirement perspective does not resolve locally: ${requirement.perspectiveId}`,
+          `${path}.perspectiveId`,
+        ),
+      );
+    }
+    checkProvenance(requirement.provenance, `${path}.provenance`);
+  };
+
+  (snapshot.declarations.verificationRequirements ?? []).forEach((requirement, index) =>
+    checkVerificationRequirement(requirement, `declarations.verificationRequirements.${index}`, "declared"),
+  );
+  (snapshot.derived.verificationRequirements ?? []).forEach((requirement, index) =>
+    checkVerificationRequirement(requirement, `derived.verificationRequirements.${index}`, "derived"),
+  );
+
+  const verificationEvidence = snapshot.observed.verificationEvidence ?? [];
+  const evidenceById = new Map<LogicalId, VerificationEvidence>();
+  const seenVerificationEvidenceIds = new Set<LogicalId>();
+  verificationEvidence.forEach((evidence: VerificationEvidence, index) => {
+    const path = `observed.verificationEvidence.${index}`;
+    if (seenVerificationEvidenceIds.has(evidence.id)) {
+      diagnostics.push(
+        diagnostic(
+          "duplicate_verification_evidence_id",
+          `duplicate verification evidence ID: ${evidence.id}`,
+          `${path}.id`,
+        ),
+      );
+    }
+    seenVerificationEvidenceIds.add(evidence.id);
+    evidenceById.set(evidence.id, evidence);
+    if (evidence.authority !== "observed" || evidence.provenance.kind !== "observed") {
+      diagnostics.push(
+        diagnostic(
+          "verification_authority_mismatch",
+          "verification evidence in observed must carry observed authority and provenance",
+          path,
+        ),
+      );
+    }
+    checkVerificationTarget(evidence.target, `${path}.target`);
+    if (evidence.testId !== undefined) checkReferenceKind(evidence.testId, ["test"], `${path}.testId`);
+    if (!perspectiveIds.has(evidence.perspectiveId)) {
+      diagnostics.push(
+        diagnostic(
+          "dangling_verification_perspective",
+          `verification evidence perspective does not resolve locally: ${evidence.perspectiveId}`,
+          `${path}.perspectiveId`,
+        ),
+      );
+    }
+    checkProvenance(evidence.provenance, `${path}.provenance`);
+  });
+
+  const verification = snapshot.analysis.verification;
+  if (verification !== undefined) {
+    if (verification.authority !== "analysis") {
+      diagnostics.push(
+        diagnostic(
+          "verification_authority_mismatch",
+          "verification analysis must carry analysis authority",
+          "analysis.verification.authority",
+        ),
+      );
+    }
+    const inferredRequirements = verification.inferredRequirements ?? [];
+    inferredRequirements.forEach((requirement, index) =>
+      checkVerificationRequirement(requirement, `analysis.verification.inferredRequirements.${index}`, "analysis"),
+    );
+    const assessmentIds = new Set<string>();
+    verification.assessments.forEach((assessment, index) => {
+      const path = `analysis.verification.assessments.${index}`;
+      if (!authoritativeRequirementIds.has(assessment.requirementId)) {
+        diagnostics.push(
+          diagnostic(
+            "dangling_verification_requirement",
+            `verification assessment requirement does not resolve locally: ${assessment.requirementId}`,
+            `${path}.requirementId`,
+          ),
+        );
+      }
+      const requirement = allRequirements.get(assessment.requirementId);
+      if (requirement !== undefined && authoritativeRequirementIds.has(assessment.requirementId)) {
+        if (
+          requirement.target.kind !== assessment.target.kind ||
+          requirement.target.id !== assessment.target.id ||
+          requirement.perspectiveId !== assessment.perspectiveId ||
+          requirement.strength !== assessment.strength
+        ) {
+          diagnostics.push(
+            diagnostic(
+              "verification_assessment_mismatch",
+              "verification assessment must retain the requirement target, perspective, and strength",
+              path,
+            ),
+          );
+        }
+      }
+      checkVerificationTarget(assessment.target, `${path}.target`);
+      if (!perspectiveIds.has(assessment.perspectiveId)) {
+        diagnostics.push(
+          diagnostic(
+            "dangling_verification_perspective",
+            `verification assessment perspective does not resolve locally: ${assessment.perspectiveId}`,
+            `${path}.perspectiveId`,
+          ),
+        );
+      }
+      assessment.evidenceIds.forEach((id, evidenceIndex) => {
+        if (!evidenceById.has(id))
+          diagnostics.push(
+            diagnostic(
+              "dangling_verification_evidence",
+              `verification assessment evidence does not resolve locally: ${id}`,
+              `${path}.evidenceIds.${evidenceIndex}`,
+            ),
+          );
+      });
+      assessment.satisfyingEvidenceIds.forEach((id, evidenceIndex) => {
+        if (!evidenceById.has(id))
+          diagnostics.push(
+            diagnostic(
+              "dangling_verification_evidence",
+              `verification assessment evidence does not resolve locally: ${id}`,
+              `${path}.satisfyingEvidenceIds.${evidenceIndex}`,
+            ),
+          );
+      });
+      const assessmentKey = `${assessment.requirementId}:${assessment.target.id}`;
+      if (assessmentIds.has(assessmentKey))
+        diagnostics.push(
+          diagnostic("duplicate_verification_assessment", `duplicate verification assessment: ${assessmentKey}`, path),
+        );
+      assessmentIds.add(assessmentKey);
+    });
+    verification.summaries.forEach((summary, index) => {
+      const path = `analysis.verification.summaries.${index}`;
+      checkReferenceKind(summary.targetId, [summary.scope], `${path}.targetId`);
+      summary.gapRequirementIds.forEach((id, gapIndex) => {
+        if (!authoritativeRequirementIds.has(id))
+          diagnostics.push(
+            diagnostic(
+              "dangling_verification_requirement",
+              `verification summary gap does not resolve locally: ${id}`,
+              `${path}.gapRequirementIds.${gapIndex}`,
+            ),
+          );
+      });
+    });
+  }
 
   const checkFact = (fact: SemanticFact, path: string): void => {
     checkReference(fact.subject, `${path}.subject`);

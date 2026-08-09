@@ -70,6 +70,56 @@ export type Completeness = "complete" | "partial" | "unknown";
 export type AmbiguityStatus = "none" | "possible" | "ambiguous";
 export type EnforcementAuthority = "none" | "advisory" | "authoritative";
 
+export const VERIFICATION_PERSPECTIVE_CATEGORIES = [
+  "generic",
+  "semantic",
+  "effect-specific",
+  "security",
+  "state",
+  "compatibility",
+] as const;
+export type VerificationPerspectiveCategory = (typeof VERIFICATION_PERSPECTIVE_CATEGORIES)[number] | (string & {});
+
+export const VERIFICATION_EVIDENCE_KINDS = [
+  "intended",
+  "static-linkage",
+  "execution",
+  "coverage",
+  "assertion",
+  "contract",
+] as const;
+export type VerificationEvidenceKind = (typeof VERIFICATION_EVIDENCE_KINDS)[number] | (string & {});
+
+export const VERIFICATION_EVIDENCE_STRENGTHS = ["association", "observation", "verification"] as const;
+export type VerificationEvidenceStrength = (typeof VERIFICATION_EVIDENCE_STRENGTHS)[number] | (string & {});
+
+export type VerificationEvidenceFreshness = "current" | "stale";
+export type VerificationEvidenceStatus = "passed" | "failed" | "skipped" | "inadequate" | "missing";
+export type VerificationRequirementStrength = "required" | "recommended";
+export type VerificationAssessmentStatus = "satisfied" | "missing" | "stale" | "failed" | "inadequate" | "unknown";
+export type VerificationHealthStatus = "healthy" | "incomplete" | "failed" | "unknown";
+
+export const VERIFICATION_TARGET_KINDS = ["project", "component", "symbol", "contract", "invariant"] as const;
+export type VerificationTargetKind = (typeof VERIFICATION_TARGET_KINDS)[number];
+
+export interface VerificationTarget {
+  kind: VerificationTargetKind;
+  id: LogicalId;
+}
+
+export const VERIFICATION_REQUIREMENT_PROVENANCES = [
+  "project-policy",
+  "component-policy",
+  "explicit-declaration",
+  "contract",
+  "invariant",
+  "deterministic-derived-rule",
+  "inferred",
+] as const;
+export type VerificationRequirementProvenanceKind =
+  | (typeof VERIFICATION_REQUIREMENT_PROVENANCES)[number]
+  | (string & {});
+
 export interface ProducerIdentity {
   name: string;
   version: string;
@@ -86,6 +136,97 @@ export interface EvidenceReference {
   target?: LogicalId;
   locator?: PhysicalLocator;
   note?: string;
+}
+
+/** Declared verification vocabulary; `kind` remains open for future perspectives. */
+export interface VerificationPerspective {
+  id: LogicalId;
+  kind: string;
+  category: VerificationPerspectiveCategory;
+  name: string;
+  description?: string;
+  /** False marks an intentionally preserved but not yet understood taxonomy entry. */
+  known?: boolean;
+  authority: "declared";
+  provenance: Provenance;
+  metadata?: ExtensionMetadata;
+}
+
+/** A requirement is authoritative only in declared/derived containers. Analysis may carry inferred suggestions. */
+export interface VerificationRequirement {
+  id: LogicalId;
+  target: VerificationTarget;
+  perspectiveId: LogicalId;
+  strength: VerificationRequirementStrength;
+  rationale: string;
+  requirementProvenance: {
+    kind: VerificationRequirementProvenanceKind;
+    sourceId?: LogicalId;
+    ruleId?: string;
+  };
+  minimumEvidenceStrength?: VerificationEvidenceStrength;
+  authority: "declared" | "derived" | "analysis";
+  provenance: Provenance;
+  metadata?: ExtensionMetadata;
+}
+
+/** Observed verification relation; association, observation and proof are deliberately distinct. */
+export interface VerificationEvidence {
+  id: LogicalId;
+  target: VerificationTarget;
+  perspectiveId: LogicalId;
+  testId?: LogicalId;
+  kind: VerificationEvidenceKind;
+  strength: VerificationEvidenceStrength;
+  freshness: VerificationEvidenceFreshness;
+  status: VerificationEvidenceStatus;
+  reference: string;
+  summary: string;
+  coverage?: number;
+  authority: "observed";
+  provenance: Provenance;
+  metadata?: ExtensionMetadata;
+}
+
+export interface VerificationAssessment {
+  requirementId: LogicalId;
+  target: VerificationTarget;
+  perspectiveId: LogicalId;
+  strength: VerificationRequirementStrength;
+  status: VerificationAssessmentStatus;
+  evidenceIds: LogicalId[];
+  satisfyingEvidenceIds: LogicalId[];
+  missingEvidenceKinds?: string[];
+}
+
+export interface VerificationCounts {
+  total: number;
+  satisfied: number;
+  missing: number;
+  stale: number;
+  failed: number;
+  inadequate: number;
+  unknown: number;
+}
+
+export type VerificationScopeKind = "symbol" | "component" | "project";
+
+export interface VerificationSummary {
+  scope: VerificationScopeKind;
+  targetId: LogicalId;
+  status: VerificationHealthStatus;
+  score: number;
+  required: VerificationCounts;
+  recommended: VerificationCounts;
+  gapRequirementIds: LogicalId[];
+}
+
+export interface VerificationAnalysis {
+  authority: "analysis";
+  assessments: VerificationAssessment[];
+  summaries: VerificationSummary[];
+  /** Non-authoritative suggestions; never consumed as requirements by adequacy. */
+  inferredRequirements?: VerificationRequirement[];
 }
 
 export interface AmbiguityMetadata {
@@ -501,6 +642,8 @@ export interface DeclaredState {
   terminology: TerminologyLink[];
   decisionLinks: DecisionLink[];
   commentPolicy: CanonicalProsePolicy;
+  verificationPerspectives?: VerificationPerspective[];
+  verificationRequirements?: VerificationRequirement[];
 }
 
 export interface DerivedState {
@@ -510,12 +653,14 @@ export interface DerivedState {
   externalDependencies: ExternalDependencyEntity[];
   externalApis: ExternalApiEntity[];
   facts: SemanticFact[];
+  verificationRequirements?: VerificationRequirement[];
 }
 
 export interface ObservedState {
   evidences: EvidenceEntity[];
   tests: TestEntity[];
   facts: SemanticFact[];
+  verificationEvidence?: VerificationEvidence[];
 }
 
 export interface SemanticDeltaEntry {
@@ -582,6 +727,7 @@ export interface AnalysisState {
   unknowns: AnalysisUnknown[];
   recommendedSourceReads: SourceReference[];
   diagnostics: SemanticDiagnostic[];
+  verification?: VerificationAnalysis;
 }
 
 export type DigestAlgorithm = "sha256" | (string & {});
