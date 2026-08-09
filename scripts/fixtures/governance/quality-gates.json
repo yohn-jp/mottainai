@@ -1,0 +1,112 @@
+{
+  "version": 1,
+  "evidenceClasses": [
+    "unit/contract",
+    "process/integration",
+    "package smoke",
+    "fault injection",
+    "lint/architecture",
+    "release",
+    "security/negative"
+  ],
+  "cases": [
+    {
+      "id": "accepted-generic",
+      "files": ["docs/governance.md"],
+      "expected": "accepted"
+    },
+    {
+      "id": "allowed-not-applicable",
+      "files": ["src/proxy.ts"],
+      "evidenceStatus": "not-applicable",
+      "expected": "accepted"
+    },
+    {
+      "id": "missing-evidence-report-only",
+      "files": ["docs/governance.md"],
+      "removeEvidence": ["unit/contract"],
+      "expected": "report-only",
+      "warningCodes": ["quality.evidence.missing"]
+    },
+    {
+      "id": "placeholder-evidence-report-only",
+      "files": ["docs/governance.md"],
+      "replaceEvidence": { "class": "unit/contract", "field": "result", "value": "TODO" },
+      "expected": "report-only",
+      "warningCodes": ["quality.evidence.placeholder"]
+    },
+    {
+      "id": "cli-path-specific-trigger",
+      "files": ["src/cli.ts", "src/cli.test.ts"],
+      "notApplicableEvidence": ["process/integration"],
+      "expected": "report-only",
+      "warningCodes": ["quality.evidence.not-applicable-forbidden"]
+    },
+    {
+      "id": "package-path-specific-trigger",
+      "files": ["package.json"],
+      "notApplicableEvidence": ["package smoke", "release"],
+      "expected": "report-only",
+      "warningCodes": ["quality.evidence.not-applicable-forbidden"]
+    },
+    {
+      "id": "persistence-path-specific-trigger",
+      "files": ["src/state/store.ts"],
+      "notApplicableEvidence": ["fault injection"],
+      "expected": "report-only",
+      "warningCodes": ["quality.evidence.not-applicable-forbidden"]
+    },
+    {
+      "id": "security-path-specific-trigger",
+      "files": ["src/auth.ts"],
+      "notApplicableEvidence": ["security/negative"],
+      "expected": "report-only",
+      "warningCodes": ["quality.evidence.not-applicable-forbidden"]
+    },
+    {
+      "id": "compatibility-path-trigger",
+      "files": ["src/config.ts"],
+      "removeSection": "Migration / compatibility",
+      "expected": "existing-rejection",
+      "errorText": "configuration changes require Migration / compatibility"
+    },
+    {
+      "id": "bug-fix-accepted",
+      "title": "fix(proxy): repair failure boundary",
+      "files": ["src/proxy.ts", "src/proxy.test.ts"],
+      "regression": "complete",
+      "expected": "accepted"
+    },
+    {
+      "id": "bug-fix-missing-regression-proof",
+      "title": "fix(proxy): repair failure boundary",
+      "files": ["src/proxy.ts"],
+      "regression": "missing",
+      "expected": "report-only",
+      "warningCodes": ["quality.regression.missing"]
+    },
+    {
+      "id": "bug-fix-placeholder-regression-proof",
+      "title": "fix(proxy): repair failure boundary",
+      "files": ["src/proxy.ts", "src/proxy.test.ts"],
+      "regression": "placeholder",
+      "expected": "report-only",
+      "warningCodes": ["quality.regression.placeholder"]
+    },
+    {
+      "id": "bug-fix-not-applicable-forbidden",
+      "title": "fix(proxy): repair failure boundary",
+      "files": ["src/proxy.ts"],
+      "regression": "not-applicable",
+      "expected": "report-only",
+      "warningCodes": ["quality.regression.not-applicable-forbidden"]
+    },
+    {
+      "id": "unsupported-automated-proof-attested",
+      "title": "fix(proxy): repair failure boundary",
+      "files": ["src/proxy.ts"],
+      "regression": "unsupported",
+      "expected": "accepted"
+    }
+  ]
+}
