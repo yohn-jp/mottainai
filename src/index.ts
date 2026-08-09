@@ -8,13 +8,13 @@ import { runServer } from "./server.js";
 
 const args = process.argv.slice(2);
 const startupCwd = process.cwd();
-const runtimeDiagnostic = createRuntimeDiagnostic({
-  cwd: startupCwd,
-  environment: process.env,
-  entryPoint: process.argv[1],
-});
 
 if (args.length === 0) {
+  const runtimeDiagnostic = createRuntimeDiagnostic({
+    cwd: startupCwd,
+    environment: process.env,
+    entryPoint: process.argv[1],
+  });
   try {
     await runServer(undefined, startupCwd, runtimeDiagnostic, process.env.HOME ?? process.env.USERPROFILE);
   } catch (error) {

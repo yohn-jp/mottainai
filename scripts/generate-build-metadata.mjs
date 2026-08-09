@@ -20,7 +20,7 @@ function git(args) {
 const gitSha = git(["rev-parse", "HEAD"]);
 const gitStatus = git(["status", "--porcelain=v1", "--untracked-files=all"]);
 const clean = gitSha !== undefined && gitStatus === "";
-const sourceState = gitSha === undefined ? "unavailable" : clean ? "clean" : "dirty";
+const sourceState = gitSha === undefined || gitStatus === undefined ? "unavailable" : clean ? "clean" : "dirty";
 const buildSuffix = clean ? `git.${gitSha}` : sourceState;
 const metadata = {
   schema_version: 1,

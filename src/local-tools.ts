@@ -191,10 +191,12 @@ function runtimeStatusTool(
   const providers = requested === undefined ? all : all.filter((provider) => provider.name === requested);
   const unhealthy = providers.filter((provider) => provider.state === "unhealthy");
   const projected = projectRuntimeUpstreams(providers);
-  const diagnostics = unhealthy.map((provider) => ({
-    severity: "error",
-    message: `${provider.name} unhealthy: ${projected.find((entry) => entry.name === provider.name)?.failure?.summary ?? "startup failed"}`,
-  }));
+  const diagnostics = projected
+    .filter((provider) => provider.health === "unhealthy")
+    .map((provider) => ({
+      severity: "error",
+      message: `${provider.name} unhealthy: ${provider.failure?.summary ?? "startup failed"}`,
+    }));
   const counts = providers.reduce<Record<string, number>>((totals, provider) => {
     totals[provider.state] = (totals[provider.state] ?? 0) + 1;
     return totals;

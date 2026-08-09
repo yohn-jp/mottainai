@@ -277,13 +277,17 @@ export function createRuntimeDiagnostic(options: RuntimeDiagnosticOptions = {}):
         : metadataIsValid(suppliedMetadata)
           ? suppliedMetadata
           : undefined;
-  const packageRoot = findPackageRoot(rawEntryPoint) ?? findPackageRoot(cwd);
+  const entryPackageRoot = findPackageRoot(rawEntryPoint);
+  const packageRoot = entryPackageRoot ?? findPackageRoot(cwd);
   const distributionKind = classifyDistribution(rawEntryPoint, packageRoot, metadata);
   const developmentSha =
     distributionKind === "development/source"
       ? options.gitSha === null
         ? undefined
-        : (options.gitSha ?? (metadata?.source_state === "dirty" ? undefined : (metadata?.git_sha ?? readGitSha(cwd))))
+        : (options.gitSha ??
+          (metadata?.source_state === "dirty"
+            ? undefined
+            : (metadata?.git_sha ?? (entryPackageRoot === undefined ? undefined : readGitSha(entryPackageRoot)))))
       : metadata?.git_sha;
   const buildId =
     metadata?.build_id ??
@@ -390,11 +394,16 @@ export function sanitizeUpstreamError(error: unknown): RuntimeUpstreamFailure {
       .replace(/https?:\/\/[^\s"'<>]+/giu, "[redacted-url]")
       .replace(/\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]+/giu, "$1 [redacted]")
       .replace(
-        /\b(?:authorization|token|secret|password|api[_-]?key|credential|cookie|raw|value|data)(?:\s*[:=]\s*|\s+)[^\s,;]+/giu,
+        /\b(?:authorization|token|secret|password|api[_-]?key|credential|cookie|raw|value|data)(?:\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;{}[\]]+(?:\s+[^\s,;{}[\]]+)*)(?=[,;\n}\]]|$)/giu,
+        "[redacted]",
+      )
+      .replace(
+        /\b(?:authorization|token|secret|password|api[_-]?key|credential|cookie|raw|value|data)\s+[^\s,;]+/giu,
         "[redacted]",
       )
       .replace(/\beyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/gu, "[redacted-token]")
       .replace(/\b(?:secret|token|key|password)_[A-Z0-9_-]+\b/giu, "[redacted]")
+      .replace(/\b(?:sk-proj|sk-live|sk-test|sk|ghp|gho|ghu|ghs|ghr|github_pat|xox[abpr])[-_][A-Za-z0-9_-]{10,}\b/giu, "[redacted]")
       .replace(/\b(?:[A-F0-9]{32,}|[A-Za-z0-9+/]{32,}={0,2})\b/gu, "[redacted]")
       .replace(/\s+/gu, " ")
       .trim(),

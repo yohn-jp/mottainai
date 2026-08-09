@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -14,6 +15,7 @@ import {
   projectRuntimeUpstreams,
   projectUpstreamStatus,
   RUNTIME_DIAGNOSTIC_SCHEMA_VERSION,
+  sanitizeUpstreamError,
 } from "./runtime-diagnostic.js";
 import type { RuntimeBuildMetadata } from "./runtime-diagnostic.js";
 
@@ -235,6 +237,7 @@ test("configured upstream projection is sorted and contains no config secrets", 
     ["alpha", "zeta"],
   );
   assert.doesNotMatch(JSON.stringify(enriched), /secret|SECRET_TOKEN|TOKEN_ENV|https:\/\//iu);
+  assert.doesNotMatch(JSON.stringify(enriched), /headersFromEnv|Authorization|--token/iu);
   assert.equal(enriched.provenance.workspace_root, "config");
   assert.equal(enriched.provenance.active_profile, "config");
 });
@@ -251,4 +254,58 @@ test("runtime upstream projection preserves only bounded safe health evidence", 
       { name: "zeta", health: "disabled", transport: "stdio" },
     ],
   );
+});
+
+test("development git_sha resolves from the entry point's package root, not an unrelated cwd checkout", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cross-repo-"));
+  try {
+    const repoA = path.join(root, "repo-a");
+    const repoB = path.join(root, "repo-b");
+    fs.mkdirSync(path.join(repoA, "src"), { recursive: true });
+    fs.mkdirSync(repoB, { recursive: true });
+    fs.writeFileSync(path.join(repoA, "package.json"), JSON.stringify({ name: "repo-a", version: "0.0.0" }));
+    fs.writeFileSync(path.join(repoA, "src", "index.ts"), "export {};\n");
+    fs.writeFileSync(path.join(repoB, "package.json"), JSON.stringify({ name: "repo-b", version: "0.0.0" }));
+
+    const initRepo = (dir: string): string => {
+      execFileSync("git", ["init", "-q"], { cwd: dir });
+      execFileSync("git", ["config", "user.email", "test@example.test"], { cwd: dir });
+      execFileSync("git", ["config", "user.name", "test"], { cwd: dir });
+      execFileSync("git", ["add", "-A"], { cwd: dir });
+      execFileSync("git", ["commit", "-q", "-m", "init"], { cwd: dir });
+      return execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim();
+    };
+    const shaA = initRepo(repoA);
+    const shaB = initRepo(repoB);
+    assert.notEqual(shaA, shaB);
+
+    const diagnostic = createRuntimeDiagnostic({
+      cwd: repoB,
+      environment: {},
+      entryPoint: path.join(repoA, "src", "index.ts"),
+      buildMetadata: null,
+    });
+
+    assert.equal(diagnostic.distribution_kind, "development/source");
+    assert.equal(diagnostic.git_sha, shaA);
+    assert.notEqual(diagnostic.git_sha, shaB);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("sanitizeUpstreamError redacts common standalone credential shapes without recognized labels", () => {
+  const cases = [
+    { message: "OpenAI request failed for sk-proj-qz8mVrtL4hXeK9wPsAyd7fJc", secret: "sk-proj-qz8mVrtL4hXeK9wPsAyd7fJc" },
+    { message: "GitHub API error using ghp_9wKq3rTzXm7bLpN0vYcJfDsA2eHg", secret: "ghp_9wKq3rTzXm7bLpN0vYcJfDsA2eHg" },
+    {
+      message: "GitHub App auth failed: github_pat_9wKq3rTzX_mLpN0vYcJfDsA2eHgQb5nRtZk8jWxCyFvUo",
+      secret: "github_pat_9wKq3rTzX_mLpN0vYcJfDsA2eHgQb5nRtZk8jWxCyFvUo",
+    },
+    { message: "Slack webhook rejected xoxb-8f3a29d6c1-7e5b04ac93-qzrtplmvkxwnhyjbc", secret: "xoxb-8f3a29d6c1-7e5b04ac93-qzrtplmvkxwnhyjbc" },
+  ];
+  for (const { message, secret } of cases) {
+    const { summary } = sanitizeUpstreamError(new Error(message));
+    assert.doesNotMatch(summary, new RegExp(secret.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+  }
 });
