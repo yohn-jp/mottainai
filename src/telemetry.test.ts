@@ -61,6 +61,8 @@ test("an enabled sink aggregates calls, errors, bytes and retrievals by provider
     policyRule: "AUTO_BOUNDED_REPRESENTATION",
     reasonCategory: "semantic_projection",
   });
+  sink.recordHookDecision({ provider: "workflow", state: "authoritative", decision: "deny", reason: "workflow_protected_branch" });
+  sink.recordHookDecision({ provider: "semantic", state: "unavailable", decision: "allow", reason: "semantic_authority_unavailable" });
   sink.recordRetrieval();
 
   const snapshot = sink.snapshot();
@@ -81,6 +83,13 @@ test("an enabled sink aggregates calls, errors, bytes and retrievals by provider
     by_mode: { raw: 1, auto: 1 },
     by_rule: { WHOLE_FILE_RAW_LINE_LIMIT: 1, AUTO_BOUNDED_REPRESENTATION: 1 },
     by_reason_category: { line_limit: 1, semantic_projection: 1 },
+  });
+  assert.deepEqual(snapshot.hooks, {
+    evaluations: 2,
+    by_provider: { workflow: 1, semantic: 1 },
+    by_state: { authoritative: 1, unavailable: 1 },
+    by_decision: { deny: 1, allow: 1 },
+    by_reason: { workflow_protected_branch: 1, semantic_authority_unavailable: 1 },
   });
 
   assert.equal(compressionRatio(snapshot.totals), 1000 / 1800);

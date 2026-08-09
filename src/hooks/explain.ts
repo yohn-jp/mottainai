@@ -4,6 +4,7 @@ import type { ManagedCapabilityRegistry } from "./capabilities.js";
 import { resolveHookMode } from "./policy.js";
 import type { HookPolicy } from "./policy.js";
 import type { HookDecision, HookEvent } from "./types.js";
+import type { HookProviderResult } from "./providers/types.js";
 
 const EXPLANATION_RETENTION = 100;
 const EXPLANATION_LOCK_ATTEMPTS = 200;
@@ -19,8 +20,20 @@ export interface HookExplanation {
   mode: HookPolicy["mode"];
   effectiveMode: HookPolicy["mode"];
   capabilityAvailable: boolean;
+  provider?: HookDecision["provider"];
+  providerState?: HookDecision["providerState"];
+  rule?: string;
+  providers?: readonly HookProviderEvidence[];
   recordedAt: number;
   repository?: string;
+}
+
+export interface HookProviderEvidence {
+  provider: HookProviderResult["provider"];
+  state: HookProviderResult["state"];
+  reason: HookProviderResult["reason"];
+  action?: HookProviderResult["action"];
+  rule?: string;
 }
 
 export function explanationPath(workspaceRoot: string): string {
@@ -75,6 +88,7 @@ export function recordHookExplanation(
   decision: HookDecision,
   policy: HookPolicy,
   capabilities: ManagedCapabilityRegistry,
+  providerResults: readonly HookProviderResult[] = [],
 ): void {
   if (decision.decisionId === undefined) return;
   const capability = capabilities.resolve(event.operation, event);
@@ -88,6 +102,18 @@ export function recordHookExplanation(
     mode: policy.mode,
     effectiveMode: resolveHookMode(policy, event.operation),
     capabilityAvailable: capability?.available === true,
+    ...(decision.provider === undefined ? {} : { provider: decision.provider }),
+    ...(decision.providerState === undefined ? {} : { providerState: decision.providerState }),
+    ...(decision.rule === undefined ? {} : { rule: decision.rule }),
+    ...(providerResults.length === 0 ? {} : {
+      providers: providerResults.map((result) => ({
+        provider: result.provider,
+        state: result.state,
+        reason: result.reason,
+        ...(result.action === undefined ? {} : { action: result.action }),
+        ...(result.rule === undefined ? {} : { rule: result.rule }),
+      })),
+    }),
     recordedAt: Date.now(),
     ...(event.repository === undefined ? {} : { repository: event.repository.identity }),
   };

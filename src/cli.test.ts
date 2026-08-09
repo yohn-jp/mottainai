@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { BUILTIN_PRESETS } from "./workflow/policy/presets.js";
 
 const entryPoint = path.join(path.dirname(fileURLToPath(import.meta.url)), "index.ts");
 
@@ -60,5 +62,38 @@ test("hooks repair restores an invalid policy through the public CLI", () => {
   } finally {
     fs.rmSync(workspace, { recursive: true, force: true });
     fs.rmSync(bin, { recursive: true, force: true });
+  }
+});
+
+test("public CLI dispatch projects the workflow authority through a supported client adapter", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-hooks-workflow-"));
+  const git = (args: string[]) => execFileSync("git", args, { cwd: workspace, stdio: ["ignore", "ignore", "pipe"] });
+  try {
+    git(["init", "-b", "release/v1"]);
+    git(["config", "user.email", "test@example.invalid"]);
+    git(["config", "user.name", "Hook Test"]);
+    fs.writeFileSync(path.join(workspace, "tracked.txt"), "tracked\n");
+    git(["add", "tracked.txt"]);
+    git(["commit", "-m", "initial"]);
+    fs.mkdirSync(path.join(workspace, ".mottainai"));
+    fs.writeFileSync(
+      path.join(workspace, ".mottainai", "workflow.json"),
+      JSON.stringify({ ...BUILTIN_PRESETS.standard, protectedBranches: ["release/*"], protectedBranchRule: { ...BUILTIN_PRESETS.standard.protectedBranchRule, sourceWrite: "enforce" } }),
+    );
+    const result = spawnSync(
+      process.execPath,
+      ["--import", "tsx", entryPoint, "hooks", "dispatch", "--client", "claude", "--workspace", workspace],
+      {
+        cwd: path.resolve(path.dirname(entryPoint), ".."),
+        env: { ...process.env, HOME: workspace, USERPROFILE: workspace },
+        input: JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: "tracked.txt" } }),
+        encoding: "utf8",
+      },
+    );
+    assert.equal(result.status, 2, `${result.stdout}${result.stderr}`);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /^DENY workflow_protected_branch/u);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
   }
 });
