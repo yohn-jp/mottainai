@@ -1,12 +1,18 @@
 import fs from "node:fs";
 import path from "node:path";
+import { DIRECT_BOUNDARIES } from "./boundary.js";
+import type { BoundaryOperations } from "./boundary.js";
 import { resolveResponseBudget } from "./context-runtime/budget.js";
 import { DEFAULT_BURST_BUDGET_POLICY, resolveBurstBudgetPolicy } from "./context-runtime/burst-budget.js";
 import type { BurstBudgetPolicy, BurstBudgetPolicyConfig } from "./context-runtime/burst-budget.js";
 import type { ProjectionBudget, ProjectionBudgetConfig } from "./context-runtime/types.js";
 import { DEFAULT_AWAIT_POLICY } from "./context-runtime/poll-policy.js";
 import type { AwaitPolicy } from "./context-runtime/poll-policy.js";
-import { DEFAULT_READ_GOVERNOR_POLICY, READ_GOVERNOR_MODES, resolveReadGovernorPolicy } from "./context-runtime/read-policy.js";
+import {
+  DEFAULT_READ_GOVERNOR_POLICY,
+  READ_GOVERNOR_MODES,
+  resolveReadGovernorPolicy,
+} from "./context-runtime/read-policy.js";
 import type { ReadGovernorMode, ReadGovernorPolicy } from "./context-runtime/read-policy.js";
 import { normalizeToolMetadataOverride, RISK_VALUES } from "./adaptive/metadata.js";
 import type { ToolMetadataOverride } from "./adaptive/metadata.js";
@@ -248,9 +254,10 @@ function resolveAwaitPolicy(config: AwaitPolicyConfig | undefined): AwaitPolicy 
   );
   const maxAwaitMs = positiveInteger(config?.maxAwaitMs, DEFAULT_AWAIT_POLICY.maxAwaitMs);
   const jitterRatio = config?.jitterRatio;
-  const resolvedJitterRatio = jitterRatio === undefined || !Number.isFinite(jitterRatio) || jitterRatio < 0 || jitterRatio > 1
-    ? DEFAULT_AWAIT_POLICY.jitterRatio
-    : jitterRatio;
+  const resolvedJitterRatio =
+    jitterRatio === undefined || !Number.isFinite(jitterRatio) || jitterRatio < 0 || jitterRatio > 1
+      ? DEFAULT_AWAIT_POLICY.jitterRatio
+      : jitterRatio;
   return { minPollIntervalMs, maxPollIntervalMs, maxAwaitMs, jitterRatio: resolvedJitterRatio };
 }
 
@@ -304,10 +311,15 @@ export function loadConfigSnapshot(configPath?: string, cwd: string = process.cw
   const loaded = loadMottainaiConfigPath(resolvedPath);
   const config: MottainaiConfig = {
     ...loaded,
-    mcpServers: Object.fromEntries(Object.entries(loaded.mcpServers).map(([name, upstream]) => [name, {
-      ...upstream,
-      ...(upstream.cwd === undefined ? {} : { cwd: path.resolve(configDirectory, upstream.cwd) }),
-    }])),
+    mcpServers: Object.fromEntries(
+      Object.entries(loaded.mcpServers).map(([name, upstream]) => [
+        name,
+        {
+          ...upstream,
+          ...(upstream.cwd === undefined ? {} : { cwd: path.resolve(configDirectory, upstream.cwd) }),
+        },
+      ]),
+    ),
   };
   // workspaceRoot 省略時だけ起動 cwd。明示時は既存の config 相対解決を維持。
   const gatewayCwd = config.gateway?.workspaceRoot === undefined ? cwd : configDirectory;
@@ -330,9 +342,14 @@ export function loadRawConfig(configPath?: string): { filePath: string; raw: Rec
 }
 
 /** 書き込み前に正規化で検証する。壊れた設定をディスクへ残さない。 */
-export function saveRawConfig(filePath: string, raw: Record<string, unknown>): void {
+export function saveRawConfig(
+  filePath: string,
+  raw: Record<string, unknown>,
+  boundaries: BoundaryOperations = DIRECT_BOUNDARIES,
+  operation = "config.write",
+): void {
   normalizeConfig(raw);
-  fs.writeFileSync(filePath, `${JSON.stringify(raw, null, 2)}\n`);
+  boundaries.file(operation, () => fs.writeFileSync(filePath, `${JSON.stringify(raw, null, 2)}\n`));
 }
 
 function normalizeConfig(value: unknown): MottainaiConfig {
@@ -390,7 +407,10 @@ function awaitPolicyConfig(value: unknown, field: string): AwaitPolicyConfig | u
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw new Error(field);
   const jitterRatio = value.jitterRatio;
-  if (jitterRatio !== undefined && (typeof jitterRatio !== "number" || !Number.isFinite(jitterRatio) || jitterRatio < 0 || jitterRatio > 1)) {
+  if (
+    jitterRatio !== undefined &&
+    (typeof jitterRatio !== "number" || !Number.isFinite(jitterRatio) || jitterRatio < 0 || jitterRatio > 1)
+  ) {
     throw new Error(`${field}.jitterRatio`);
   }
   return {
@@ -406,9 +426,9 @@ function worktreeConfig(value: unknown, field: string): WorktreeConfig | undefin
   if (!isRecord(value)) throw new Error(field);
   const allowedBranchPrefixes = stringArray(value.allowedBranchPrefixes, `${field}.allowedBranchPrefixes`);
   if (
-    allowedBranchPrefixes === undefined
-    || allowedBranchPrefixes.length === 0
-    || allowedBranchPrefixes.some((prefix) => prefix.length === 0)
+    allowedBranchPrefixes === undefined ||
+    allowedBranchPrefixes.length === 0 ||
+    allowedBranchPrefixes.some((prefix) => prefix.length === 0)
   ) {
     throw new Error(`${field}.allowedBranchPrefixes must be a non-empty string array of non-empty prefixes`);
   }
@@ -441,7 +461,9 @@ function tokenBudgetInput(value: unknown, field: string): TokenBudgetInput {
 function tokenBudgetInputRecord(value: unknown, field: string): Record<string, TokenBudgetInput> | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw new Error(field);
-  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, tokenBudgetInput(entry, `${field}.${key}`)]));
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, tokenBudgetInput(entry, `${field}.${key}`)]),
+  );
 }
 
 function tokenBudgetsConfig(value: unknown, field: string): TokenBudgetsConfig | undefined {
@@ -478,7 +500,10 @@ function readGovernorConfig(value: unknown, field: string): ReadGovernorConfig |
     mode: mode as ReadGovernorMode | undefined,
     maxRawLines: positiveIntegerConfig(value.maxRawLines, `${field}.maxRawLines`),
     maxRawBytes: positiveIntegerConfig(value.maxRawBytes, `${field}.maxRawBytes`),
-    allowWholeFileBelowLines: nonNegativeIntegerConfig(value.allowWholeFileBelowLines, `${field}.allowWholeFileBelowLines`),
+    allowWholeFileBelowLines: nonNegativeIntegerConfig(
+      value.allowWholeFileBelowLines,
+      `${field}.allowWholeFileBelowLines`,
+    ),
     preferAuto: optionalBoolean(value.preferAuto, `${field}.preferAuto`),
     allowWholeFile: optionalBoolean(value.allowWholeFile, `${field}.allowWholeFile`),
   };
@@ -531,7 +556,10 @@ function normalizeUpstream(name: string, value: unknown): Omit<UpstreamConfig, "
   if (value.profile !== undefined && typeof value.profile !== "string") {
     throw new Error(`invalid upstream profile: ${name}`);
   }
-  if (value.priority !== undefined && (typeof value.priority !== "number" || !Number.isSafeInteger(value.priority) || value.priority < 0)) {
+  if (
+    value.priority !== undefined &&
+    (typeof value.priority !== "number" || !Number.isSafeInteger(value.priority) || value.priority < 0)
+  ) {
     throw new Error(`invalid upstream priority: ${name}`);
   }
   const common = {
@@ -541,7 +569,8 @@ function normalizeUpstream(name: string, value: unknown): Omit<UpstreamConfig, "
     capabilities: stringArray(value.capabilities, `invalid upstream capabilities: ${name}`) ?? [],
     preferredFor: stringArray(value.preferredFor, `invalid upstream preferredFor: ${name}`) ?? [],
     fallbackFor: stringArray(value.fallbackFor, `invalid upstream fallbackFor: ${name}`) ?? [],
-    metadata: value.metadata === undefined ? undefined : normalizeToolMetadataOverride(value.metadata, `${name}.metadata`),
+    metadata:
+      value.metadata === undefined ? undefined : normalizeToolMetadataOverride(value.metadata, `${name}.metadata`),
   };
   if (transport === "streamableHttp") {
     const headersFromEnv = stringRecord(value.headersFromEnv, `invalid upstream headersFromEnv: ${name}`);
@@ -592,16 +621,21 @@ function normalizeProfiles(value: unknown): Record<string, ProfileConfig> {
   if (!isRecord(value)) {
     throw new Error("invalid profiles config");
   }
-  return Object.fromEntries(Object.entries(value).map(([name, profile]) => {
-    if (!isRecord(profile)) {
-      throw new Error(`invalid profile config: ${name}`);
-    }
-    return [name, {
-      includeCapabilities: stringArray(profile.includeCapabilities, `invalid profile capabilities: ${name}`),
-      denyRisk: denyRiskArray(profile.denyRisk, name),
-      rawToolAccess: rawToolAccessValue(profile.rawToolAccess, `invalid profile rawToolAccess: ${name}`),
-    }];
-  }));
+  return Object.fromEntries(
+    Object.entries(value).map(([name, profile]) => {
+      if (!isRecord(profile)) {
+        throw new Error(`invalid profile config: ${name}`);
+      }
+      return [
+        name,
+        {
+          includeCapabilities: stringArray(profile.includeCapabilities, `invalid profile capabilities: ${name}`),
+          denyRisk: denyRiskArray(profile.denyRisk, name),
+          rawToolAccess: rawToolAccessValue(profile.rawToolAccess, `invalid profile rawToolAccess: ${name}`),
+        },
+      ];
+    }),
+  );
 }
 
 /** 各要素を共有の risk enum（`RISK_VALUES`）に照らして検証する。typo は deny を静かに無効化するため。 */
@@ -656,7 +690,10 @@ function stringRecord(value: unknown, message: string): Record<string, string> |
 
 function stringArrayRecord(value: unknown, message: string): Record<string, string[]> | undefined {
   if (value === undefined) return undefined;
-  if (!isRecord(value) || Object.values(value).some((entry) => !Array.isArray(entry) || entry.some((item) => typeof item !== "string"))) {
+  if (
+    !isRecord(value) ||
+    Object.values(value).some((entry) => !Array.isArray(entry) || entry.some((item) => typeof item !== "string"))
+  ) {
     throw new Error(message);
   }
   return value as Record<string, string[]>;
