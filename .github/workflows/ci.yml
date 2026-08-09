@@ -61,6 +61,11 @@ jobs:
           node-version: "22"
           cache: pnpm
 
+      - name: Install required system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -124,6 +129,11 @@ jobs:
         with:
           node-version: "22"
           cache: pnpm
+
+      - name: Install required system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -240,6 +250,11 @@ jobs:
         with:
           node-version: "22"
           cache: pnpm
+
+      - name: Install required system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
