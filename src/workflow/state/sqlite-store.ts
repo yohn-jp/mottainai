@@ -2,7 +2,10 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { addSecondaryDiagnostic, DIRECT_BOUNDARIES } from "../../boundary.js";
+import type { BoundaryOperations } from "../../boundary.js";
 import { applyMigrations } from "../../state/migrations.js";
+import type { Migration } from "../../state/migrations.js";
 import { resolveStateDbPath } from "../../state/paths.js";
 import type { RepositoryInstanceId, RootCommitDigest } from "../domain/identity.js";
 import type { LifecycleState } from "../domain/lifecycle.js";
@@ -42,6 +45,10 @@ export interface WorkflowSqliteStateStoreOptions {
   /** 明示指定時はこのパスを使う。省略時は resolveStateDbPath() を使う（session 用と同じ DB ファイルを共有）。 */
   dbPath?: string;
   env?: NodeJS.ProcessEnv;
+  /** Internal deterministic fault-test seam; not loaded from runtime config. */
+  boundaries?: BoundaryOperations;
+  /** Internal migration fixture seam used by rollback tests. */
+  migrations?: Migration[];
 }
 
 /** state directory / DB ファイルを所有者のみ読める権限に絞る。 */
@@ -139,7 +146,11 @@ function toWorktreeRecord(row: Record<string, unknown>): WorktreeRecord {
 /** UNIQUE 制約違反を collision として扱うための判定。node:sqlite は専用の error class を
  * 公開しないため、code + message 文字列でマッチする（sanity script で確認済みの実挙動）。 */
 function isUniqueConstraintError(err: unknown): boolean {
-  return err instanceof Error && (err as NodeJS.ErrnoException).code === "ERR_SQLITE_ERROR" && err.message.includes("UNIQUE constraint failed");
+  return (
+    err instanceof Error &&
+    (err as NodeJS.ErrnoException).code === "ERR_SQLITE_ERROR" &&
+    err.message.includes("UNIQUE constraint failed")
+  );
 }
 
 /**
@@ -187,10 +198,14 @@ function toValidationEvidenceRecord(row: Record<string, unknown>): ValidationEvi
  */
 export class WorkflowSqliteStateStore implements WorkflowStateStore {
   private readonly dbPath: string;
+  private readonly boundaries: BoundaryOperations;
+  private readonly migrations: Migration[];
   private db: DatabaseSync | undefined;
 
   constructor(options: WorkflowSqliteStateStoreOptions = {}) {
     this.dbPath = options.dbPath ?? resolveStateDbPath(options.env ?? process.env);
+    this.boundaries = options.boundaries ?? DIRECT_BOUNDARIES;
+    this.migrations = options.migrations ?? [];
   }
 
   init(): void {
@@ -198,31 +213,42 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     const isFileBacked = this.dbPath !== ":memory:";
     if (isFileBacked) {
       const dir = path.dirname(this.dbPath);
-      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-      restrictToOwner(dir, 0o700);
+      this.boundaries.file("sqlite.directory.create", () => fs.mkdirSync(dir, { recursive: true, mode: 0o700 }));
+      this.boundaries.file("sqlite.directory.permission", () => restrictToOwner(dir, 0o700));
     }
 
     for (let attempt = 1; ; attempt += 1) {
-      const db = new DatabaseSync(this.dbPath);
+      const db = this.boundaries.file("sqlite.open", () => new DatabaseSync(this.dbPath));
       try {
-        if (isFileBacked) restrictToOwner(this.dbPath, 0o600);
+        if (isFileBacked) this.boundaries.file("sqlite.file.permission", () => restrictToOwner(this.dbPath, 0o600));
         // busy_timeout 未設定だと、他プロセスが BEGIN IMMEDIATE で書き込みロックを
         // 保持している間、即座に "database is locked" で失敗する（node:sqlite の
         // DatabaseSync は既定でリトライしない）。task.ts の 2 プロセス同時
         // reserveTask/reserveWorktree がロック解放を待って安全に直列化されるよう、
         // ロック待ちを許容する。
-        db.exec("PRAGMA busy_timeout = 5000");
+        this.boundaries.file("sqlite.busy-timeout", () => db.exec("PRAGMA busy_timeout = 5000"));
         // journal_mode=WAL への初回切替自体は busy_timeout の対象外の排他ロックを
         // 要求しうるため、その失敗はここで同期リトライする（下記 catch）。
-        db.exec("PRAGMA journal_mode = WAL");
-        db.exec("PRAGMA foreign_keys = ON");
-        applyMigrations(db);
+        this.boundaries.file("sqlite.journal", () => db.exec("PRAGMA journal_mode = WAL"));
+        this.boundaries.file("sqlite.foreign-keys", () => db.exec("PRAGMA foreign_keys = ON"));
+        this.boundaries.file("sqlite.migrations", () =>
+          applyMigrations(db, this.migrations.length === 0 ? undefined : this.migrations, this.boundaries),
+        );
         if (isFileBacked) {
-          restrictToOwner(`${this.dbPath}-wal`, 0o600);
-          restrictToOwner(`${this.dbPath}-shm`, 0o600);
+          this.boundaries.file("sqlite.wal.permission", () => restrictToOwner(`${this.dbPath}-wal`, 0o600));
+          this.boundaries.file("sqlite.shm.permission", () => restrictToOwner(`${this.dbPath}-shm`, 0o600));
         }
       } catch (err) {
-        db.close();
+        try {
+          this.boundaries.file("sqlite.close.after-init-failure", () => db.close());
+        } catch (closeError) {
+          try {
+            db.close();
+          } catch {
+            // Keep the injected cleanup failure as the recorded secondary error.
+          }
+          throw addSecondaryDiagnostic(err, "sqlite.close.after-init-failure", closeError);
+        }
         if (isFileBacked && isRetryableSqliteInitError(err) && attempt < SQLITE_INIT_MAX_ATTEMPTS) {
           sleepSync(SQLITE_INIT_RETRY_DELAY_MS * attempt);
           continue;
@@ -251,19 +277,21 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
         .get(input.rootCommitDigest) as Record<string, unknown> | undefined;
       if (existingSourceRow === undefined) {
         const newSourceId = crypto.randomUUID() as RepositorySourceId;
-        db.prepare("INSERT INTO repository_sources (source_id, root_commit_digest, created_at) VALUES (?, ?, ?)")
-          .run(newSourceId, input.rootCommitDigest, now);
+        db.prepare("INSERT INTO repository_sources (source_id, root_commit_digest, created_at) VALUES (?, ?, ?)").run(
+          newSourceId,
+          input.rootCommitDigest,
+          now,
+        );
       }
       const source = toSourceRecord(
-        db.prepare("SELECT * FROM repository_sources WHERE root_commit_digest = ?").get(input.rootCommitDigest) as Record<
-          string,
-          unknown
-        >,
+        db
+          .prepare("SELECT * FROM repository_sources WHERE root_commit_digest = ?")
+          .get(input.rootCommitDigest) as Record<string, unknown>,
       );
 
-      const existingInstance = db.prepare("SELECT * FROM repository_instances WHERE instance_id = ?").get(input.instanceId) as
-        | Record<string, unknown>
-        | undefined;
+      const existingInstance = db
+        .prepare("SELECT * FROM repository_instances WHERE instance_id = ?")
+        .get(input.instanceId) as Record<string, unknown> | undefined;
 
       if (existingInstance === undefined) {
         // instance marker ファイル削除後の再観測や、同一パスへの再 clone では
@@ -287,7 +315,10 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
         db.prepare("UPDATE repository_instances SET last_seen_at = ? WHERE instance_id = ?").run(now, input.instanceId);
       }
       const instance = toInstanceRecord(
-        db.prepare("SELECT * FROM repository_instances WHERE instance_id = ?").get(input.instanceId) as Record<string, unknown>,
+        db.prepare("SELECT * FROM repository_instances WHERE instance_id = ?").get(input.instanceId) as Record<
+          string,
+          unknown
+        >,
       );
 
       const currentPathRow = db
@@ -301,9 +332,10 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
           "INSERT INTO repository_paths (instance_id, canonical_path, is_current, observed_at) VALUES (?, ?, 1, ?)",
         ).run(input.instanceId, input.canonicalWorktreePath, now);
       } else if (moved) {
-        db.prepare(
-          "UPDATE repository_paths SET is_current = 0 WHERE instance_id = ? AND canonical_path = ?",
-        ).run(input.instanceId, previousCurrentPath);
+        db.prepare("UPDATE repository_paths SET is_current = 0 WHERE instance_id = ? AND canonical_path = ?").run(
+          input.instanceId,
+          previousCurrentPath,
+        );
         db.prepare(
           `INSERT INTO repository_paths (instance_id, canonical_path, is_current, observed_at)
            VALUES (?, ?, 1, ?)
@@ -332,9 +364,9 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
   }
 
   getRepositorySourceByDigest(rootCommitDigest: RootCommitDigest): RepositorySourceRecord | undefined {
-    const row = this.handle().prepare("SELECT * FROM repository_sources WHERE root_commit_digest = ?").get(rootCommitDigest) as
-      | Record<string, unknown>
-      | undefined;
+    const row = this.handle()
+      .prepare("SELECT * FROM repository_sources WHERE root_commit_digest = ?")
+      .get(rootCommitDigest) as Record<string, unknown> | undefined;
     return row === undefined ? undefined : toSourceRecord(row);
   }
 
@@ -346,9 +378,9 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
   }
 
   getRepositoryInstanceByCommonDir(gitCommonDir: string): RepositoryInstanceRecord | undefined {
-    const row = this.handle().prepare("SELECT * FROM repository_instances WHERE git_common_dir = ?").get(gitCommonDir) as
-      | Record<string, unknown>
-      | undefined;
+    const row = this.handle()
+      .prepare("SELECT * FROM repository_instances WHERE git_common_dir = ?")
+      .get(gitCommonDir) as Record<string, unknown> | undefined;
     return row === undefined ? undefined : toInstanceRecord(row);
   }
 
@@ -385,7 +417,13 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
        VALUES (?, ?, ?, ?, ?)
        ON CONFLICT (instance_id, head_commit, name) DO UPDATE SET status = excluded.status, recorded_at = excluded.recorded_at`,
     ).run(input.instanceId, input.headCommit, input.name, input.status, recordedAt);
-    return { instanceId: input.instanceId, headCommit: input.headCommit, name: input.name, status: input.status, recordedAt };
+    return {
+      instanceId: input.instanceId,
+      headCommit: input.headCommit,
+      name: input.name,
+      status: input.status,
+      recordedAt,
+    };
   }
 
   listValidationEvidence(instanceId: RepositoryInstanceId, headCommit: string): ValidationEvidenceRecord[] {
@@ -418,7 +456,16 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       db.prepare(
         `INSERT INTO tasks (task_id, instance_id, task_slug, issue_ref, lifecycle_state, task_version, base_branch, base_commit, created_at, updated_at)
          VALUES (?, ?, ?, ?, 'planned', 1, ?, ?, ?, ?)`,
-      ).run(taskId, input.instanceId, input.taskSlug, input.issueRef ?? null, input.baseBranch, input.baseCommit, now, now);
+      ).run(
+        taskId,
+        input.instanceId,
+        input.taskSlug,
+        input.issueRef ?? null,
+        input.baseBranch,
+        input.baseCommit,
+        now,
+        now,
+      );
       const row = db.prepare("SELECT * FROM tasks WHERE task_id = ?").get(taskId) as Record<string, unknown>;
       db.exec("COMMIT");
       result = { ok: true, task: toTaskRecord(row) };
@@ -443,8 +490,21 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       db.prepare(
         `INSERT INTO worktrees (worktree_id, task_id, instance_id, branch_name, canonical_path, status, base_branch, base_commit, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, 'reserved', ?, ?, ?, ?)`,
-      ).run(worktreeId, input.taskId, input.instanceId, input.branchName, input.canonicalPath, input.baseBranch, input.baseCommit, now, now);
-      const row = db.prepare("SELECT * FROM worktrees WHERE worktree_id = ?").get(worktreeId) as Record<string, unknown>;
+      ).run(
+        worktreeId,
+        input.taskId,
+        input.instanceId,
+        input.branchName,
+        input.canonicalPath,
+        input.baseBranch,
+        input.baseCommit,
+        now,
+        now,
+      );
+      const row = db.prepare("SELECT * FROM worktrees WHERE worktree_id = ?").get(worktreeId) as Record<
+        string,
+        unknown
+      >;
       db.exec("COMMIT");
       return { ok: true, worktree: toWorktreeRecord(row) };
     } catch (err) {
@@ -496,29 +556,34 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
   updateTaskLifecycleState(taskId: TaskId, next: LifecycleState, updatedAt?: number): TaskRecord {
     const db = this.handle();
     const now = updatedAt ?? Date.now();
-    db.prepare("UPDATE tasks SET lifecycle_state = ?, task_version = task_version + 1, updated_at = ? WHERE task_id = ?").run(next, now, taskId);
+    db.prepare(
+      "UPDATE tasks SET lifecycle_state = ?, task_version = task_version + 1, updated_at = ? WHERE task_id = ?",
+    ).run(next, now, taskId);
     const row = db.prepare("SELECT * FROM tasks WHERE task_id = ?").get(taskId) as Record<string, unknown> | undefined;
     if (row === undefined) throw new Error(`task not found: ${taskId}`);
     return toTaskRecord(row);
   }
 
   getTask(taskId: TaskId): TaskRecord | undefined {
-    const row = this.handle().prepare("SELECT * FROM tasks WHERE task_id = ?").get(taskId) as Record<string, unknown> | undefined;
+    const row = this.handle().prepare("SELECT * FROM tasks WHERE task_id = ?").get(taskId) as
+      | Record<string, unknown>
+      | undefined;
     return row === undefined ? undefined : toTaskRecord(row);
   }
 
   getActiveTaskByIssueRef(instanceId: RepositoryInstanceId, issueRef: string): TaskRecord | undefined {
     const row = this.handle()
-      .prepare("SELECT * FROM tasks WHERE instance_id = ? AND issue_ref = ? AND lifecycle_state NOT IN ('cleaned', 'abandoned')")
+      .prepare(
+        "SELECT * FROM tasks WHERE instance_id = ? AND issue_ref = ? AND lifecycle_state NOT IN ('cleaned', 'abandoned')",
+      )
       .get(instanceId, issueRef) as Record<string, unknown> | undefined;
     return row === undefined ? undefined : toTaskRecord(row);
   }
 
   listWorktreesForTask(taskId: TaskId): WorktreeRecord[] {
-    const rows = this.handle().prepare("SELECT * FROM worktrees WHERE task_id = ? ORDER BY created_at ASC").all(taskId) as Record<
-      string,
-      unknown
-    >[];
+    const rows = this.handle()
+      .prepare("SELECT * FROM worktrees WHERE task_id = ? ORDER BY created_at ASC")
+      .all(taskId) as Record<string, unknown>[];
     return rows.map(toWorktreeRecord);
   }
 
@@ -695,7 +760,9 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
               ] as const)),
         );
       if (result.changes === 0)
-        throw new Error(`cleanup lease state changed concurrently: ${input.operationId} (expected ${input.expectedState})`);
+        throw new Error(
+          `cleanup lease state changed concurrently: ${input.operationId} (expected ${input.expectedState})`,
+        );
       const row = db.prepare("SELECT * FROM cleanup_leases WHERE operation_id = ?").get(input.operationId) as Record<
         string,
         unknown
@@ -927,7 +994,8 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
   }
 
   close(): void {
-    this.db?.close();
+    const db = this.db;
     this.db = undefined;
+    if (db !== undefined) this.boundaries.file("sqlite.close", () => db.close());
   }
 }

@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { TextDecoder } from "node:util";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { DIRECT_BOUNDARIES } from "./boundary.js";
+import type { BoundaryOperations } from "./boundary.js";
 import type { ArtifactIdentityMetadata } from "./context-runtime/identity.js";
 
 export interface RetrievedArtifact {
@@ -62,6 +64,8 @@ export interface InMemoryArtifactStoreOptions {
   maxBytes?: number;
   now?: () => number;
   createId?: () => string;
+  /** Internal deterministic insertion seam; never configured through gateway config. */
+  boundaries?: BoundaryOperations;
 }
 
 interface StoredArtifact {
@@ -281,6 +285,7 @@ export class InMemoryArtifactStore implements ArtifactStore {
   private readonly maxBytes: number;
   private readonly now: () => number;
   private readonly createId: () => string;
+  private readonly boundaries: BoundaryOperations;
 
   constructor(options: InMemoryArtifactStoreOptions = {}) {
     const ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
@@ -296,6 +301,7 @@ export class InMemoryArtifactStore implements ArtifactStore {
     this.maxBytes = maxBytes;
     this.now = options.now ?? Date.now;
     this.createId = options.createId ?? randomUUID;
+    this.boundaries = options.boundaries ?? DIRECT_BOUNDARIES;
   }
 
   put(result: CallToolResult, id?: string): string {
@@ -303,27 +309,37 @@ export class InMemoryArtifactStore implements ArtifactStore {
   }
 
   putArtifact(artifact: StoredArtifactInput, id?: string): string {
-    this.deleteExpired();
-    while (this.entries.size >= this.maxEntries) {
-      const oldest = this.entries.keys().next().value;
+    // Stage all retention/eviction work in a copy. If insertion fails, the
+    // previously reachable references and their LRU order remain untouched.
+    const nextEntries = new Map(this.entries);
+    const now = this.now();
+    for (const [entryId, entry] of nextEntries) {
+      if (entry.expiresAt <= now) nextEntries.delete(entryId);
+    }
+    while (nextEntries.size >= this.maxEntries) {
+      const oldest = nextEntries.keys().next().value;
       if (oldest === undefined) break;
-      this.entries.delete(oldest);
+      nextEntries.delete(oldest);
     }
 
     const resolvedId = id ?? this.nextId();
     const bounded = boundArtifact(artifact, this.maxBytes);
-    this.entries.set(resolvedId, { ...bounded, expiresAt: this.now() + this.ttlMs });
+    if (payloadBytes(bounded) > this.maxBytes) {
+      throw new RangeError(`artifact payload cannot fit within maxBytes=${this.maxBytes}`);
+    }
+    nextEntries.set(resolvedId, { ...bounded, expiresAt: now + this.ttlMs });
+    this.boundaries.storage("artifact.insert", () => {
+      this.entries.clear();
+      for (const [entryId, entry] of nextEntries) this.entries.set(entryId, entry);
+    });
     return resolvedId;
   }
 
   nextId(): string {
-    return `mx_${this.createId()}`;
+    return this.boundaries.storage("artifact.id", () => `mx_${this.createId()}`);
   }
 
-  retrieve(
-    id: string,
-    options: RetrieveOptions = {},
-  ): RetrievedArtifact | undefined {
+  retrieve(id: string, options: RetrieveOptions = {}): RetrievedArtifact | undefined {
     const entry = this.entries.get(id);
     if (!entry) return undefined;
     if (entry.expiresAt <= this.now()) {
@@ -334,14 +350,15 @@ export class InMemoryArtifactStore implements ArtifactStore {
     this.entries.set(id, entry);
 
     const stream = options.stream ?? "combined";
-    const source = stream === "stdout" ? entry.stdout ?? "" : stream === "stderr" ? entry.stderr ?? "" : entry.text;
+    const source = stream === "stdout" ? (entry.stdout ?? "") : stream === "stderr" ? (entry.stderr ?? "") : entry.text;
     const lines = source.split("\n");
     const matchIndex = options.query ? lines.findIndex((line) => line.includes(options.query!)) : -1;
     const maxLines = Math.max(1, Math.min(options.maxLines ?? DEFAULT_MAX_LINES, DEFAULT_MAX_LINES));
     const contextLines = Math.max(0, Math.min(options.contextLines ?? 0, 20));
-    const startLine = matchIndex === -1
-      ? Math.max(0, options.startLine ?? 0)
-      : Math.max(0, matchIndex - Math.min(contextLines, maxLines - 1));
+    const startLine =
+      matchIndex === -1
+        ? Math.max(0, options.startLine ?? 0)
+        : Math.max(0, matchIndex - Math.min(contextLines, maxLines - 1));
     const selected = lines.slice(startLine, startLine + maxLines);
     const endLine = startLine + selected.length;
 

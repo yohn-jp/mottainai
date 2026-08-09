@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import { DIRECT_BOUNDARIES } from "./boundary.js";
+import type { BoundaryOperations } from "./boundary.js";
 
 /**
  * ローカル専用の利用状況・トークン節約テレメトリ（#27）。
@@ -156,6 +158,8 @@ export interface TelemetrySink {
   recordBurstReduced(input: RecordBurstReducedInput): void;
   recordDedupe?(input: RecordDedupeInput): void;
   snapshot(): TelemetrySnapshot;
+  /** Deterministically drain pending persistence in tests and orderly shutdown. */
+  flush?(): Promise<void>;
 }
 
 interface TelemetryState {
@@ -175,9 +179,14 @@ function emptyCounts(): TelemetryCounts {
 
 function emptyState(): TelemetryState {
   return {
-    totals: { ...emptyCounts(), retrievals: 0 }, by_provider: {}, by_capability: {},
-    projection: emptyProjection(), read_governor: emptyReadGovernor(), await: emptyAwait(),
-    burst: emptyBurst(), dedupe: emptyDedupe(),
+    totals: { ...emptyCounts(), retrievals: 0 },
+    by_provider: {},
+    by_capability: {},
+    projection: emptyProjection(),
+    read_governor: emptyReadGovernor(),
+    await: emptyAwait(),
+    burst: emptyBurst(),
+    dedupe: emptyDedupe(),
   };
 }
 
@@ -200,7 +209,16 @@ function emptyReadGovernor(): ReadGovernorCounts {
 }
 
 function emptyAwait(): AwaitCounts {
-  return { awaits: 0, poll_count: 0, elapsed_ms: 0, state_changes: 0, avoided_responses: 0, terminal: 0, timeouts: 0, cancelled: 0 };
+  return {
+    awaits: 0,
+    poll_count: 0,
+    elapsed_ms: 0,
+    state_changes: 0,
+    avoided_responses: 0,
+    terminal: 0,
+    timeouts: 0,
+    cancelled: 0,
+  };
 }
 
 function emptyBurst(): BurstCounts {
@@ -225,7 +243,12 @@ function cloneCounts(counts: TelemetryCounts): TelemetryCounts {
   return { ...counts };
 }
 
-function snapshotState(state: TelemetryState): Pick<TelemetrySnapshot, "totals" | "by_provider" | "by_capability" | "projection" | "read_governor" | "await" | "burst" | "dedupe"> {
+function snapshotState(
+  state: TelemetryState,
+): Pick<
+  TelemetrySnapshot,
+  "totals" | "by_provider" | "by_capability" | "projection" | "read_governor" | "await" | "burst" | "dedupe"
+> {
   return {
     totals: { ...state.totals },
     by_provider: Object.fromEntries(
@@ -281,7 +304,7 @@ function readGovernorState(value: unknown): ReadGovernorCounts {
 
 export function isTelemetryEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   const value = env.MOTTAINAI_TELEMETRY;
-  return value === "1" || (value?.toLowerCase() === "true");
+  return value === "1" || value?.toLowerCase() === "true";
 }
 
 export function resolveTelemetryPath(env: NodeJS.ProcessEnv = process.env): string {
@@ -291,22 +314,27 @@ export function resolveTelemetryPath(env: NodeJS.ProcessEnv = process.env): stri
 function isCounts(value: unknown): value is TelemetryCounts {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Record<string, unknown>;
-  return typeof record.calls === "number" && typeof record.errors === "number"
-    && typeof record.original_bytes === "number" && typeof record.compressed_bytes === "number";
+  return (
+    typeof record.calls === "number" &&
+    typeof record.errors === "number" &&
+    typeof record.original_bytes === "number" &&
+    typeof record.compressed_bytes === "number"
+  );
 }
 
 /** 破損・旧形式のファイルは読み捨てて 0 から再開する。集計値の再構築は失うが致命的ではない。 */
-function loadState(filePath: string): TelemetryState | undefined {
+function loadState(filePath: string, boundaries: BoundaryOperations): TelemetryState | undefined {
   let raw: string;
   try {
-    raw = fs.readFileSync(filePath, "utf8");
+    raw = boundaries.file("telemetry.read", () => fs.readFileSync(filePath, "utf8"));
   } catch {
     return undefined;
   }
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     const totals = parsed.totals;
-    const retrievals = typeof totals === "object" && totals !== null ? (totals as Record<string, unknown>).retrievals : undefined;
+    const retrievals =
+      typeof totals === "object" && totals !== null ? (totals as Record<string, unknown>).retrievals : undefined;
     if (!isCounts(totals) || typeof retrievals !== "number") return undefined;
     const byProvider = parsed.by_provider;
     const byCapability = parsed.by_capability;
@@ -314,18 +342,16 @@ function loadState(filePath: string): TelemetryState | undefined {
     if (typeof byCapability !== "object" || byCapability === null) return undefined;
     for (const value of Object.values(byProvider as Record<string, unknown>)) if (!isCounts(value)) return undefined;
     for (const value of Object.values(byCapability as Record<string, unknown>)) if (!isCounts(value)) return undefined;
-    const projection = typeof parsed.projection === "object" && parsed.projection !== null
-      ? parsed.projection as Record<string, unknown>
-      : {};
-    const awaitRaw = typeof parsed.await === "object" && parsed.await !== null
-      ? parsed.await as Record<string, unknown>
-      : {};
-    const burst = typeof parsed.burst === "object" && parsed.burst !== null
-      ? parsed.burst as Record<string, unknown>
-      : {};
-    const dedupe = typeof parsed.dedupe === "object" && parsed.dedupe !== null
-      ? parsed.dedupe as Record<string, unknown>
-      : {};
+    const projection =
+      typeof parsed.projection === "object" && parsed.projection !== null
+        ? (parsed.projection as Record<string, unknown>)
+        : {};
+    const awaitRaw =
+      typeof parsed.await === "object" && parsed.await !== null ? (parsed.await as Record<string, unknown>) : {};
+    const burst =
+      typeof parsed.burst === "object" && parsed.burst !== null ? (parsed.burst as Record<string, unknown>) : {};
+    const dedupe =
+      typeof parsed.dedupe === "object" && parsed.dedupe !== null ? (parsed.dedupe as Record<string, unknown>) : {};
     return {
       totals: totals as TelemetryState["totals"],
       by_provider: byProvider as Record<string, TelemetryCounts>,
@@ -363,7 +389,8 @@ function loadState(filePath: string): TelemetryState | undefined {
         hits: typeof dedupe.hits === "number" ? dedupe.hits : 0,
         misses: typeof dedupe.misses === "number" ? dedupe.misses : 0,
         bytes_avoided: typeof dedupe.bytes_avoided === "number" ? dedupe.bytes_avoided : 0,
-        estimated_tokens_avoided: typeof dedupe.estimated_tokens_avoided === "number" ? dedupe.estimated_tokens_avoided : 0,
+        estimated_tokens_avoided:
+          typeof dedupe.estimated_tokens_avoided === "number" ? dedupe.estimated_tokens_avoided : 0,
       },
     };
   } catch {
@@ -381,22 +408,49 @@ function bump(counts: TelemetryCounts, input: RecordToolCallInput): void {
 /** telemetry 無効時（または未接続時）の snapshot。呼び出し側が個別に同じ形を組み立てなくて済むよう公開する。 */
 export function disabledTelemetrySnapshot(): TelemetrySnapshot {
   return {
-    enabled: false, generated_at: new Date().toISOString(), totals: { ...emptyCounts(), retrievals: 0 },
-    by_provider: {}, by_capability: {}, projection: emptyProjection(), read_governor: emptyReadGovernor(), await: emptyAwait(), burst: emptyBurst(), dedupe: emptyDedupe(),
+    enabled: false,
+    generated_at: new Date().toISOString(),
+    totals: { ...emptyCounts(), retrievals: 0 },
+    by_provider: {},
+    by_capability: {},
+    projection: emptyProjection(),
+    read_governor: emptyReadGovernor(),
+    await: emptyAwait(),
+    burst: emptyBurst(),
+    dedupe: emptyDedupe(),
   };
 }
 
 const NOOP_SINK: TelemetrySink = {
   enabled: false,
-  recordToolCall() { /* telemetry disabled */ },
-  recordProjection() { /* telemetry disabled */ },
-  recordReadGovernor() { /* telemetry disabled */ },
-  recordRetrieval() { /* telemetry disabled */ },
-  recordAwait() { /* telemetry disabled */ },
-  recordBurstPressure() { /* telemetry disabled */ },
-  recordBurstReduced() { /* telemetry disabled */ },
-  recordDedupe() { /* telemetry disabled */ },
+  recordToolCall() {
+    /* telemetry disabled */
+  },
+  recordProjection() {
+    /* telemetry disabled */
+  },
+  recordReadGovernor() {
+    /* telemetry disabled */
+  },
+  recordRetrieval() {
+    /* telemetry disabled */
+  },
+  recordAwait() {
+    /* telemetry disabled */
+  },
+  recordBurstPressure() {
+    /* telemetry disabled */
+  },
+  recordBurstReduced() {
+    /* telemetry disabled */
+  },
+  recordDedupe() {
+    /* telemetry disabled */
+  },
   snapshot: disabledTelemetrySnapshot,
+  async flush() {
+    /* telemetry disabled */
+  },
 };
 
 /**
@@ -408,11 +462,14 @@ const NOOP_SINK: TelemetrySink = {
  * 無効時は fs へ一切触れない no-op sink を返す。有効時は既存ファイルがあれば読み込み、
  * プロセス再起動をまたいで集計を継続する。
  */
-export function createTelemetrySink(env: NodeJS.ProcessEnv = process.env): TelemetrySink {
+export function createTelemetrySink(
+  env: NodeJS.ProcessEnv = process.env,
+  boundaries: BoundaryOperations = DIRECT_BOUNDARIES,
+): TelemetrySink {
   if (!isTelemetryEnabled(env)) return NOOP_SINK;
 
   const filePath = resolveTelemetryPath(env);
-  const state = loadState(filePath) ?? emptyState();
+  const state = loadState(filePath, boundaries) ?? emptyState();
   let writeQueue: Promise<void> = Promise.resolve();
   let pendingUpdates = 0;
   let persistTimer: ReturnType<typeof setTimeout> | undefined;
@@ -422,17 +479,33 @@ export function createTelemetrySink(env: NodeJS.ProcessEnv = process.env): Telem
   function persistNow(): void {
     writeQueue = writeQueue
       .then(async () => {
-        await fs.promises.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
+        await boundaries.file("telemetry.directory.create", () =>
+          fs.promises.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 }),
+        );
         const snapshot: TelemetrySnapshot = {
           enabled: true,
           generated_at: new Date().toISOString(),
           ...snapshotState(state),
         };
-        await fs.promises.writeFile(filePath, `${JSON.stringify(snapshot, null, 2)}\n`, { mode: 0o600 });
+        await boundaries.file("telemetry.write", () =>
+          fs.promises.writeFile(filePath, `${JSON.stringify(snapshot, null, 2)}\n`, { mode: 0o600 }),
+        );
       })
-      .catch((err) => {
-        console.error("mottainai: failed to write telemetry summary", err);
+      .catch(() => {
+        // Keep protocol/runtime behavior independent from optional telemetry I/O;
+        // never print the underlying error because it may contain a path or secret.
+        console.error("mottainai: telemetry persistence unavailable; continuing");
       });
+  }
+
+  async function flush(): Promise<void> {
+    if (persistTimer !== undefined) {
+      clearTimeout(persistTimer);
+      persistTimer = undefined;
+      pendingUpdates = 0;
+      persistNow();
+    }
+    await writeQueue;
   }
 
   function persist(): void {
@@ -481,10 +554,8 @@ export function createTelemetrySink(env: NodeJS.ProcessEnv = process.env): Telem
       state.read_governor[input.action] += 1;
       state.read_governor.raw_lines_returned += Math.max(0, input.rawLinesReturned);
       state.read_governor.raw_bytes_returned += Math.max(0, input.rawBytesReturned);
-      state.read_governor.by_mode[input.requestedMode] =
-        (state.read_governor.by_mode[input.requestedMode] ?? 0) + 1;
-      state.read_governor.by_rule[input.policyRule] =
-        (state.read_governor.by_rule[input.policyRule] ?? 0) + 1;
+      state.read_governor.by_mode[input.requestedMode] = (state.read_governor.by_mode[input.requestedMode] ?? 0) + 1;
+      state.read_governor.by_rule[input.policyRule] = (state.read_governor.by_rule[input.policyRule] ?? 0) + 1;
       state.read_governor.by_reason_category[input.reasonCategory] =
         (state.read_governor.by_reason_category[input.reasonCategory] ?? 0) + 1;
       persist();
@@ -532,11 +603,14 @@ export function createTelemetrySink(env: NodeJS.ProcessEnv = process.env): Telem
     snapshot() {
       return { enabled: true, generated_at: new Date().toISOString(), ...snapshotState(state) };
     },
+    flush,
   };
 }
 
 /** 圧縮率（0〜1、1 は無変化）。呼び出しが無ければ `undefined`。 */
-export function compressionRatio(counts: Pick<TelemetryCounts, "original_bytes" | "compressed_bytes">): number | undefined {
+export function compressionRatio(
+  counts: Pick<TelemetryCounts, "original_bytes" | "compressed_bytes">,
+): number | undefined {
   return counts.original_bytes > 0 ? counts.compressed_bytes / counts.original_bytes : undefined;
 }
 
