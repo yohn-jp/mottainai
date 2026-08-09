@@ -83,8 +83,17 @@ function bounded(value: string | undefined, maximum: number): string | undefined
 }
 
 function truncateUtf8(value: string, maximumBytes: number): string {
+  if (maximumBytes <= 0) return "";
   if (Buffer.byteLength(value, "utf8") <= maximumBytes) return value;
   const suffix = "…";
+  if (maximumBytes < Buffer.byteLength(suffix, "utf8")) {
+    let prefix = "";
+    for (const character of value) {
+      if (Buffer.byteLength(prefix + character, "utf8") > maximumBytes) break;
+      prefix += character;
+    }
+    return prefix;
+  }
   const budget = Math.max(0, maximumBytes - Buffer.byteLength(suffix, "utf8"));
   let result = "";
   for (const character of value) {
@@ -117,14 +126,19 @@ export function boundHookDecision(decision: HookDecision, maximumBytes = HOOK_DE
 }
 
 export function serializeHookDecision(decision: HookDecision, maximumBytes = HOOK_DECISION_MAX_BYTES): string {
+  if (maximumBytes <= 0) return "";
   const boundedDecision = boundHookDecision(decision, maximumBytes);
   const serialized = JSON.stringify(boundedDecision);
   if (Buffer.byteLength(serialized, "utf8") <= maximumBytes) return serialized;
-  return JSON.stringify({ version: HOOK_CONTRACT_VERSION, decision: boundedDecision.decision, reason: boundedDecision.reason });
+  return boundHookText(
+    JSON.stringify({ version: HOOK_CONTRACT_VERSION, decision: boundedDecision.decision, reason: boundedDecision.reason }),
+    maximumBytes,
+  );
 }
 
 export function boundHookText(value: string, maximumBytes: number): string {
-  return truncateUtf8(value, Math.max(1, maximumBytes));
+  const limit = Number.isFinite(maximumBytes) ? Math.max(0, Math.floor(maximumBytes)) : 0;
+  return truncateUtf8(value, limit);
 }
 
 export function isHookOperation(value: unknown): value is HookOperation {

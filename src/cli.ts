@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { collectDoctorReport, formatDoctorHuman } from "./commands/doctor.js";
-import { loadMottainaiConfig, loadRawConfig, resolveConfigPath, saveRawConfig } from "./config.js";
+import { loadConfigSnapshot, loadMottainaiConfig, loadRawConfig, resolveConfigPath, saveRawConfig } from "./config.js";
 import type { MottainaiConfig } from "./config.js";
 import { openDashboardBrowser, parseDashboardOptions, startDashboard } from "./dashboard/command.js";
 import { localTools } from "./local-tools.js";
@@ -152,18 +152,42 @@ function shellWord(value: string): string {
 
 function dispatcherCommand(entryPoint: string | undefined): string {
   if (entryPoint === undefined) return "mottainai";
-  if (entryPoint.endsWith(".js")) return `${shellWord(process.execPath)} ${shellWord(entryPoint)}`;
-  if (entryPoint.endsWith(".ts")) return `${shellWord(process.execPath)} --import tsx ${shellWord(entryPoint)}`;
+  const resolvedEntryPoint = path.isAbsolute(entryPoint) ? entryPoint : path.resolve(process.cwd(), entryPoint);
+  if (resolvedEntryPoint.endsWith(".js")) return `${shellWord(process.execPath)} ${shellWord(resolvedEntryPoint)}`;
+  if (resolvedEntryPoint.endsWith(".ts")) return `${shellWord(process.execPath)} --import tsx ${shellWord(resolvedEntryPoint)}`;
   return "mottainai";
 }
 
-function hookContext(workspaceRoot: string, environment: NodeJS.ProcessEnv, entryPoint?: string): HookCommandContext {
+/**
+ * Local replacements are only considered usable when the gateway can load the
+ * configuration for this repository. The source-level tool list alone is not a
+ * capability claim: an unavailable/invalid runtime must fail open for native
+ * operations rather than redirecting the client into a dead end.
+  */
+function exposedHookTools(workspaceRoot: string, configPath?: string): ReadonlySet<string> {
+  try {
+    loadConfigSnapshot(configPath, workspaceRoot);
+    return new Set(localTools.map((tool) => tool.name));
+  } catch {
+    return new Set();
+  }
+}
+
+function hookContext(
+  workspaceRoot: string,
+  environment: NodeJS.ProcessEnv,
+  entryPoint?: string,
+  configPath?: string,
+): HookCommandContext {
+  const resolvedConfigPath = configPath === undefined ? undefined : path.resolve(process.cwd(), configPath);
+  const dispatcherArguments = ["--workspace", workspaceRoot, ...(resolvedConfigPath === undefined ? [] : ["--config", resolvedConfigPath])];
   return {
     workspaceRoot,
     homeDirectory: environment.HOME ?? environment.USERPROFILE ?? workspaceRoot,
     environment,
     dispatcherCommand: dispatcherCommand(entryPoint),
-    exposedTools: new Set(localTools.map((tool) => tool.name)),
+    dispatcherArguments,
+    exposedTools: exposedHookTools(workspaceRoot, resolvedConfigPath),
   };
 }
 
@@ -353,14 +377,22 @@ export async function runCli(args: string[]): Promise<number> {
     } catch {
       payload = undefined;
     }
-    const result = await dispatchClientHook(client, payload, hookContext(workspace, runtimeOptions.environment, runtimeOptions.entryPoint));
+    const result = await dispatchClientHook(
+      client,
+      payload,
+      hookContext(workspace, runtimeOptions.environment, runtimeOptions.entryPoint, configPath),
+    );
     if (result.stdout.length > 0) process.stdout.write(result.stdout);
     if (result.stderr.length > 0) process.stderr.write(result.stderr);
     return result.exitCode;
   }
   if (action === undefined) fail(USAGE);
   const workspace = resolveWorkflowWorkspace(argv);
-  const result = runManagedHooksCommand(action, argv.slice(1), hookContext(workspace, runtimeOptions.environment, runtimeOptions.entryPoint));
+  const result = runManagedHooksCommand(
+    action,
+    argv.slice(1),
+    hookContext(workspace, runtimeOptions.environment, runtimeOptions.entryPoint, configPath),
+  );
   print(result);
   return result.ok ? 0 : 1;
 } else if (command === "policy" && argv[0] === "explain") {

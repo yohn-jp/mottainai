@@ -1,5 +1,6 @@
 import type { HookAdapterContext, HookAdapterFailure, HookAdapterSuccess } from "./types.js";
 import type { HookClient, HookEvent, HookOperation, HookTarget } from "../types.js";
+import { HOOK_CONTRACT_VERSION } from "../types.js";
 
 const MAX_VALUE_LENGTH = 160;
 
@@ -16,7 +17,9 @@ export function supportsHookDocument(value: unknown): boolean {
     if (!Array.isArray(groups)) return false;
     return groups.every((group) => {
       if (!isRecord(group)) return false;
-      return group.hooks === undefined || (Array.isArray(group.hooks) && group.hooks.every(isRecord));
+      // Preserve unknown hook entries verbatim. Client upgrades may add
+      // structured forms that this adapter does not own.
+      return group.hooks === undefined || Array.isArray(group.hooks);
     });
   });
 }
@@ -45,12 +48,14 @@ export function operationForTool(value: string | undefined): HookOperation {
     case "Read":
     case "read_file":
     case "read_file_tool":
+    case "readFile":
       return "source.read";
     case "Glob":
     case "Grep":
     case "Search":
     case "grep":
     case "search":
+    case "file_search":
       return "source.search";
     case "Write":
     case "Edit":
@@ -58,10 +63,20 @@ export function operationForTool(value: string | undefined): HookOperation {
     case "NotebookEdit":
     case "ApplyPatch":
     case "apply_patch":
+    case "write_file":
       return "source.write";
     case "Bash":
+    case "Shell":
+    case "shell":
     case "shell_command":
     case "exec_command":
+    case "run_command":
+    case "run_shell_command":
+    case "unified_exec":
+    case "exec":
+    case "terminal":
+    case "Terminal":
+    case "local_shell":
     case "command":
     case "execute":
       // Every native process boundary is governed together. No executable-name matching occurs here.
@@ -69,6 +84,7 @@ export function operationForTool(value: string | undefined): HookOperation {
     case "Git":
     case "git":
     case "git_operation":
+    case "git_commit":
       return "git.mutate";
     default:
       return "other";
@@ -76,12 +92,12 @@ export function operationForTool(value: string | undefined): HookOperation {
 }
 
 function targetFor(operation: HookOperation, input: Record<string, unknown>): HookTarget | undefined {
-  const file = boundedValue(input.file_path ?? input.filePath ?? input.path ?? input.filename, 160);
-  if (file !== undefined) return { kind: "path", value: file };
   if (operation === "process.exec") {
     const command = boundedValue(input.command ?? input.cmd ?? input.shell_command, 160);
     if (command !== undefined) return { kind: "command", value: command };
   }
+  const file = boundedValue(input.file_path ?? input.filePath ?? input.path ?? input.filename, 160);
+  if (file !== undefined) return { kind: "path", value: file };
   return undefined;
 }
 
@@ -103,7 +119,7 @@ export function normalizeClientEvent(
     boundary: operation === "process.exec" ? "native-process" : "native-tool",
   } as const;
   const event: HookEvent = {
-    version: 1,
+    version: HOOK_CONTRACT_VERSION,
     client,
     clientEvent,
     operation,

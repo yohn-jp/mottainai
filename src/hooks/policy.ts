@@ -60,10 +60,13 @@ function failureMode(value: unknown): HookFailureMode | undefined {
   return value === "open" || value === "closed" ? value : undefined;
 }
 
-function positiveInteger(value: unknown, fallback: number, maximum: number): number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
-    ? Math.min(value, maximum)
-    : fallback;
+function positiveInteger(value: unknown, fallback: number, maximum: number, field: string): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`hooks policy ${field} must be a positive integer`);
+  }
+  if (value > maximum) throw new Error(`hooks policy ${field} must be at most ${maximum}`);
+  return value;
 }
 
 export function validateHookPolicy(value: unknown): HookPolicy {
@@ -94,8 +97,8 @@ export function validateHookPolicy(value: unknown): HookPolicy {
     mode: selectedMode,
     operationModes,
     failureModes,
-    timeoutMs: positiveInteger(value.timeoutMs, DEFAULT_HOOK_TIMEOUT_MS, 30_000),
-    maxOutputBytes: positiveInteger(value.maxOutputBytes, DEFAULT_HOOK_MAX_OUTPUT_BYTES, 4_096),
+    timeoutMs: positiveInteger(value.timeoutMs, DEFAULT_HOOK_TIMEOUT_MS, 30_000, "timeoutMs"),
+    maxOutputBytes: positiveInteger(value.maxOutputBytes, DEFAULT_HOOK_MAX_OUTPUT_BYTES, 4_096, "maxOutputBytes"),
   };
 }
 

@@ -19,12 +19,15 @@ mottainai hooks explain <decision-id>
 Project-scoped entries are managed in `.claude/settings.json` and
 `.codex/hooks.json`. Install, repair, and uninstall recognize the structured
 `statusMessage: "mottainai-managed-hook-v1"` entry and preserve all unrelated
-settings and hooks. Repeated install and repair are idempotent.
+settings and hooks. The owned command invokes `mottainai hooks dispatch` with
+the selected client, so installed hooks reach the same dispatcher used by the
+CLI. Repeated install and repair are idempotent.
 
 The rollout policy is stored in `.mottainai/hooks.json`. Its default is
 `observe`. Failure behavior is configured per operation class: read/search are
 fail-open by default, while write/process/Git classes are fail-closed when a
-strict policy is enabled. Event metadata cannot change either setting.
+strict policy is enabled, and the policy timeout is installed as the client
+command-hook timeout. Event metadata cannot change either setting.
 
 ## Capability availability
 
@@ -32,8 +35,10 @@ Anti-bypass decisions use the runtime capability surface, not the existence of a
 source module and not a list of executable names. The initial exposed local
 replacements are `mottainai_read`, `mottainai_search`, and `mottainai_exec`.
 Write/edit and Git mutation replacements remain unavailable until an actual
-managed tool is exposed, so those native operations are not denied solely by
-this hook layer.
+managed tool is exposed by a valid gateway runtime, so those native operations
+are not denied solely by this hook layer. An invalid or missing gateway
+configuration makes all replacements unavailable and therefore fails open for
+anti-bypass decisions.
 
 The process operation is classified at the native process boundary. Once
 `process.exec` is governed, `cat`, an absolute path, Python, Node, and other

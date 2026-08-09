@@ -47,7 +47,8 @@ function groupHasMarker(group: unknown): boolean {
 function hookMatches(hook: JsonObject, descriptor: ManagedHookDescriptor): boolean {
   return hook.type === "command"
     && hook.statusMessage === descriptor.marker
-    && hook.command === descriptor.command;
+    && hook.command === descriptor.command
+    && (descriptor.timeout === undefined || hook.timeout === descriptor.timeout);
 }
 
 function allManagedGroups(root: JsonObject): Array<{ eventName: string; index: number; group: JsonObject }> {
@@ -110,7 +111,12 @@ export function upsertManagedEntry(root: JsonObject, descriptor: ManagedHookDesc
   const groups = hookObjects(hooks[descriptor.eventName]);
   groups.push({
     matcher: descriptor.matcher,
-    hooks: [{ type: "command", command: descriptor.command, statusMessage: descriptor.marker }],
+    hooks: [{
+      type: "command",
+      command: descriptor.command,
+      statusMessage: descriptor.marker,
+      ...(descriptor.timeout === undefined ? {} : { timeout: descriptor.timeout }),
+    }],
   });
   hooks[descriptor.eventName] = groups;
   return { ...clean, hooks };
@@ -125,8 +131,14 @@ function atomicWrite(filePath: string, value: JsonObject): void {
   fs.mkdirSync(directory, { recursive: true });
   const temporaryDirectory = fs.mkdtempSync(path.join(directory, ".mottainai-hooks-"));
   const temporaryPath = path.join(temporaryDirectory, path.basename(filePath));
+  let fileMode = 0o600;
   try {
-    fs.writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+    fileMode = fs.statSync(filePath).mode & 0o777;
+  } catch {
+    // New managed configuration files are private by default.
+  }
+  try {
+    fs.writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { mode: fileMode });
     fs.renameSync(temporaryPath, filePath);
   } finally {
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });

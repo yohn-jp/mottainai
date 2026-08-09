@@ -31,8 +31,8 @@ export const claudeAdapter: HookClientAdapter = {
     if (decision.decision === "warn") {
       return { exitCode: 0, stdout: jsonResponse(event.clientEvent, decision, "ask"), stderr: "" };
     }
-    // Exit 2 is the portable Claude command-hook blocking semantic. Keep stderr compact.
-    return { exitCode: 2, stdout: "", stderr: `${decision.decision.toUpperCase()} ${decisionToken(decision)}\n` };
+    // Exit 2 is the portable command-hook blocking semantic. Keep stderr compact.
+    return { exitCode: 2, stdout: "", stderr: `DENY ${decisionToken(decision)}\n` };
   },
   supportsDocument: supportsHookDocument,
 };

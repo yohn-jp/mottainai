@@ -52,6 +52,8 @@ export interface ManagedHookDescriptor {
   eventName: string;
   matcher: string;
   command: string;
+  /** Client hook timeout in seconds, when the runtime policy supplies one. */
+  timeout?: number;
 }
 
 export interface HookClientAdapter {

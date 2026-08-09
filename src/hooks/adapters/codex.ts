@@ -9,11 +9,14 @@ function decisionToken(decision: HookDecision): string {
 }
 
 function response(decision: HookDecision): string {
+  const token = decisionToken(decision);
+  if (decision.decision === "warn") return JSON.stringify({ systemMessage: token });
   return JSON.stringify({
-    decision: decision.decision === "redirect" ? "deny" : decision.decision,
-    reason: decisionToken(decision),
-    ...(decision.replacement === undefined ? {} : { replacement: decision.replacement }),
-    ...(decision.decisionId === undefined ? {} : { decisionId: decision.decisionId }),
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: token,
+    },
   });
 }
 
@@ -27,8 +30,9 @@ export const codexAdapter: HookClientAdapter = {
   normalize: (raw, context) => normalizeClientEvent(raw, "codex", context),
   project: (decision) => {
     if (decision.decision === "allow") return { exitCode: 0, stdout: "", stderr: "" };
-    if (decision.decision === "warn") return { exitCode: 0, stdout: response(decision), stderr: "" };
-    return { exitCode: 2, stdout: response(decision), stderr: "" };
+    // Codex parses PreToolUse decisions from stdout. Keep the process successful
+    // so a structured deny is not converted into a generic hook failure.
+    return { exitCode: 0, stdout: response(decision), stderr: "" };
   },
   supportsDocument: supportsHookDocument,
 };

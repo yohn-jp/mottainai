@@ -8,9 +8,11 @@ import { deriveTrustedHookContext } from "./context.js";
 import { capabilityRegistryFromRuntime, createCapabilityRegistry } from "./capabilities.js";
 import { decideHook, dispatchHook } from "./dispatcher.js";
 import { dispatchClientHook, runManagedHooksCommand } from "./commands.js";
+import { managedDescriptor } from "./install/lifecycle.js";
 import { loadHookPolicy } from "./policy.js";
 import type { HookCommandContext } from "./commands.js";
-import type { HookEvent } from "./types.js";
+import { boundHookText, serializeHookDecision } from "./types.js";
+import type { HookDecision, HookEvent } from "./types.js";
 
 function workspace(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-hooks-"));
@@ -116,6 +118,63 @@ test("Claude and Codex adapters normalize to the same internal operation", () =>
   }
   const malformed = claudeAdapter.normalize({ tool_name: "Bash" }, context);
   assert.equal(malformed.ok, false);
+});
+
+test("client projections use each native hook protocol without duplicating policy", () => {
+  const decision: HookDecision = {
+    version: 1,
+    decision: "redirect",
+    reason: "managed_capability_available",
+    replacement: "mottainai_exec",
+    decisionId: "hd_0123456789abcdef",
+  };
+  const event = {
+    version: 1 as const,
+    client: "claude" as const,
+    clientEvent: "PreToolUse",
+    operation: "process.exec" as const,
+  };
+  const claude = claudeAdapter.project(decision, event);
+  const codex = codexAdapter.project(decision, { ...event, client: "codex" });
+  assert.equal(claude.exitCode, 2);
+  assert.equal(claude.stdout, "");
+  assert.match(claude.stderr, /^DENY managed_capability_available;use=mottainai_exec/u);
+  assert.equal(codex.exitCode, 0);
+  assert.equal(codex.stderr, "");
+  const codexResponse = JSON.parse(codex.stdout) as {
+    hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string };
+  };
+  assert.equal(codexResponse.hookSpecificOutput.permissionDecision, "deny");
+  assert.match(codexResponse.hookSpecificOutput.permissionDecisionReason, /^managed_capability_available;use=mottainai_exec/u);
+
+  const warn = codexAdapter.project({ ...decision, decision: "warn" }, { ...event, client: "codex" });
+  assert.equal(warn.exitCode, 0);
+  assert.equal(warn.stderr, "");
+  assert.equal(JSON.parse(warn.stdout).systemMessage, "managed_capability_available;use=mottainai_exec;id=hd_0123456789abcdef");
+});
+
+test("managed entries invoke the shared dispatcher with the selected client", () => {
+  assert.equal(
+    managedDescriptor(claudeAdapter, "/opt/mottainai").command,
+    "/opt/mottainai hooks dispatch --client claude",
+  );
+  assert.equal(
+    managedDescriptor(codexAdapter, "/opt/mottainai").command,
+    "/opt/mottainai hooks dispatch --client codex",
+  );
+});
+
+test("bounded hook serialization respects byte limits including tiny limits", () => {
+  const decision: HookDecision = {
+    version: 1,
+    decision: "deny",
+    reason: "hook_error",
+    diagnostic: "x".repeat(1_000),
+  };
+  for (const maximumBytes of [0, 1, 2, 32, 512]) {
+    assert.ok(Buffer.byteLength(serializeHookDecision(decision, maximumBytes), "utf8") <= maximumBytes);
+    assert.ok(Buffer.byteLength(boundHookText("あ".repeat(100), maximumBytes), "utf8") <= maximumBytes);
+  }
 });
 
 function fakeClient(bin: string, name: string): void {

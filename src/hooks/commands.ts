@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { adapterForClient, hookAdapters } from "./adapters/index.js";
-import type { HookClientAdapter } from "./adapters/types.js";
+import type { HookClientAdapter, HookProjection } from "./adapters/types.js";
 import { deriveTrustedHookContext } from "./context.js";
 import { capabilityRegistryFromRuntime } from "./capabilities.js";
 import { dispatchHook } from "./dispatcher.js";
@@ -14,8 +14,8 @@ import {
   type HookClientReport,
   type HookLifecycleContext,
 } from "./install/lifecycle.js";
-import { loadHookPolicy, validateHookPolicy, writeHookPolicy } from "./policy.js";
-import { boundHookText } from "./types.js";
+import { DEFAULT_HOOK_MAX_OUTPUT_BYTES, DEFAULT_HOOK_TIMEOUT_MS, loadHookPolicy, validateHookPolicy, writeHookPolicy } from "./policy.js";
+import { boundHookDecision, boundHookText } from "./types.js";
 import type { HookDecision, HookEvent, HookFailureMode, HookOperation, HookRolloutMode } from "./types.js";
 
 export interface HookCommandContext {
@@ -23,6 +23,7 @@ export interface HookCommandContext {
   homeDirectory: string;
   environment: NodeJS.ProcessEnv;
   dispatcherCommand?: string;
+  dispatcherArguments?: readonly string[];
   exposedTools?: ReadonlySet<string>;
 }
 
@@ -69,12 +70,15 @@ function probeVersion(executable: string, environment: NodeJS.ProcessEnv): strin
 
 function lifecycleContext(context: HookCommandContext): HookLifecycleContext {
   const dispatcherCommand = context.dispatcherCommand ?? "mottainai";
+  const loadedPolicy = loadHookPolicy(context.workspaceRoot);
   return {
     workspaceRoot: context.workspaceRoot,
     homeDirectory: context.homeDirectory,
     resolveCommand: (command) => resolveCommand(command, context.environment),
     probeVersion: (executable) => probeVersion(executable, context.environment),
     dispatcherCommand,
+    dispatcherArguments: context.dispatcherArguments,
+    hookTimeoutMs: loadedPolicy.ok ? loadedPolicy.policy.timeoutMs : DEFAULT_HOOK_TIMEOUT_MS,
   };
 }
 
@@ -98,6 +102,18 @@ function shortProjection(value: string, maximum: number): string {
   return boundHookText(value, maximum);
 }
 
+/** Bound stdout+stderr together; client processes observe both streams. */
+function boundedProjection(projection: HookProjection, maximum: number): HookProjection {
+  const limit = Math.max(0, maximum);
+  const stdout = shortProjection(projection.stdout, limit);
+  const remaining = Math.max(0, limit - Buffer.byteLength(stdout, "utf8"));
+  return {
+    exitCode: projection.exitCode,
+    stdout,
+    stderr: shortProjection(projection.stderr, remaining),
+  };
+}
+
 function fallbackEvent(client: "claude" | "codex", context: HookCommandContext): HookEvent {
   const trusted = deriveTrustedHookContext({ workspaceRoot: context.workspaceRoot });
   return {
@@ -111,11 +127,11 @@ function fallbackEvent(client: "claude" | "codex", context: HookCommandContext):
 }
 
 function malformedDecision(policyResult: ReturnType<typeof loadHookPolicy>, client: "claude" | "codex"): HookDecision {
-  return {
+  return boundHookDecision({
     version: 1,
     decision: policyResult.ok && policyResult.policy.failureModes.other === "closed" ? "deny" : "allow",
     reason: "malformed_client_event",
-  };
+  });
 }
 
 export async function dispatchClientHook(
@@ -129,31 +145,40 @@ export async function dispatchClientHook(
   }
   const policyResult = loadHookPolicy(context.workspaceRoot);
   if (!policyResult.ok) {
-    const decision: HookDecision = { version: 1, decision: "deny", reason: "policy_invalid", diagnostic: "policy_invalid" };
-    const projection = adapter.project(decision, fallbackEvent(adapter.client, context));
+    const decision = boundHookDecision({ version: 1, decision: "deny", reason: "policy_invalid", diagnostic: "policy_invalid" });
+    const projection = boundedProjection(adapter.project(decision, fallbackEvent(adapter.client, context)), DEFAULT_HOOK_MAX_OUTPUT_BYTES);
     return { ...projection, decision };
   }
   const trusted = deriveTrustedHookContext({ workspaceRoot: context.workspaceRoot });
   const normalized = adapter.normalize(payload, { workspaceRoot: context.workspaceRoot, ...trusted });
   if (!normalized.ok) {
     const decision = malformedDecision(policyResult, adapter.client);
-    const projection = adapter.project(decision, fallbackEvent(adapter.client, context));
+    const projection = boundedProjection(adapter.project(decision, fallbackEvent(adapter.client, context)), policyResult.policy.maxOutputBytes);
     return { ...projection, decision };
   }
   const event = normalized.event;
-  const dispatcherAvailable = isDispatcherPathAvailable(context.dispatcherCommand ?? "mottainai", (command) => resolveCommand(command, context.environment));
+  const dispatcherAvailable = isDispatcherPathAvailable(
+    context.dispatcherCommand ?? "mottainai",
+    (command) => resolveCommand(command, context.environment),
+    context.workspaceRoot,
+  );
   // Core policy never assumes that a replacement exists. The CLI supplies the
   // live local-tool surface at the runtime boundary; direct embedders must do so
   // explicitly or receive fail-open unavailable-capability decisions.
   const exposedTools = context.exposedTools ?? new Set<string>();
   const capabilities = capabilityRegistryFromRuntime({ dispatcherAvailable, exposedTools });
   const decision = await dispatchHook(event, { policy: policyResult.policy, capabilities });
-  recordHookExplanation(context.workspaceRoot, event, decision, policyResult.policy, capabilities);
-  const projection = adapter.project(decision, event);
+  try {
+    recordHookExplanation(context.workspaceRoot, event, decision, policyResult.policy, capabilities);
+  } catch {
+    // Explanation persistence is diagnostic-only. It must not turn an already
+    // bounded policy decision into an unbounded hook error.
+  }
+  const projection = boundedProjection(adapter.project(decision, event), policyResult.policy.maxOutputBytes);
   return {
     exitCode: projection.exitCode,
-    stdout: shortProjection(projection.stdout, policyResult.policy.maxOutputBytes),
-    stderr: shortProjection(projection.stderr, policyResult.policy.maxOutputBytes),
+    stdout: projection.stdout,
+    stderr: projection.stderr,
     decision,
     event,
   };
@@ -212,7 +237,7 @@ export function runManagedHooksCommand(action: string, args: string[], context: 
       ...report,
       effectiveMode: policy.ok ? policy.policy.mode : undefined,
     }));
-    const dispatcher = isDispatcherPathAvailable(context.dispatcherCommand ?? "mottainai", lifecycle.resolveCommand);
+  const dispatcher = isDispatcherPathAvailable(context.dispatcherCommand ?? "mottainai", lifecycle.resolveCommand, context.workspaceRoot);
     const problems = diagnostics(reports, policy.ok ? undefined : policy.reason, dispatcher);
     return { ok: problems.length === 0, action, workspace: context.workspaceRoot, clients: reports, problems };
   }

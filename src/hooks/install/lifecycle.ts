@@ -9,6 +9,9 @@ export interface HookLifecycleContext {
   resolveCommand: (command: string) => string | undefined;
   probeVersion: (executable: string) => string | undefined;
   dispatcherCommand: string;
+  hookTimeoutMs?: number;
+  /** Arguments pinned by the installer, after the `hooks dispatch` subcommand. */
+  dispatcherArguments?: readonly string[];
 }
 
 export interface HookClientReport extends ClientDiscovery {
@@ -27,8 +30,34 @@ function versionCompatible(version: string | undefined): { compatibility: Client
   return { compatibility: "compatible" };
 }
 
-function descriptor(adapter: HookClientAdapter, command: string): ManagedHookDescriptor {
-  return { marker: MOTTainAI_HOOK_MARKER, eventName: adapter.eventName, matcher: adapter.matcher, command };
+function shellWord(value: string): string {
+  return /^[A-Za-z0-9_./:@%+=-]+$/u.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function descriptor(
+  adapter: HookClientAdapter,
+  command: string,
+  hookTimeoutMs?: number,
+  dispatcherArguments: readonly string[] = [],
+): ManagedHookDescriptor {
+  // The configured command is the executable selected by the CLI (an installed
+  // binary, or the development entry point). Add the adapter at this boundary
+  // so both clients invoke the same transport-independent dispatcher path.
+  const timeout = hookTimeoutMs === undefined ? undefined : Math.max(1, Math.ceil(hookTimeoutMs / 1_000));
+  return {
+    marker: MOTTainAI_HOOK_MARKER,
+    eventName: adapter.eventName,
+    matcher: adapter.matcher,
+    command: [
+      command,
+      "hooks",
+      "dispatch",
+      "--client",
+      adapter.client,
+      ...dispatcherArguments.flatMap((argument) => [shellWord(argument)]),
+    ].join(" "),
+    ...(timeout === undefined ? {} : { timeout }),
+  };
 }
 
 function discover(adapter: HookClientAdapter, context: HookLifecycleContext): ClientDiscovery {
@@ -64,26 +93,33 @@ function discover(adapter: HookClientAdapter, context: HookLifecycleContext): Cl
 
 function reportFor(adapter: HookClientAdapter, context: HookLifecycleContext, action: "status" | "install" | "repair" | "uninstall"): HookClientReport {
   const discovery = discover(adapter, context);
-  const managedDescriptor = descriptor(adapter, context.dispatcherCommand);
+  const managedDescriptor = descriptor(adapter, context.dispatcherCommand, context.hookTimeoutMs, context.dispatcherArguments);
   const config = readJsonHookConfig(discovery.configPath);
-  const health = !config.valid || config.value === undefined || !adapter.supportsDocument(config.value)
-    ? "unsupported" : managedEntryHealth(config.value, managedDescriptor);
+  const supported = config.valid && config.value !== undefined && adapter.supportsDocument(config.value);
+  const health = !supported
+    ? "unsupported" : managedEntryHealth(config.value!, managedDescriptor);
   let changed = false;
   let error: string | undefined;
-  if (action !== "status" && action !== "uninstall" && discovery.state === "installed" && config.valid && config.value !== undefined) {
-    const next = upsertManagedEntry(config.value, managedDescriptor);
-    writeJsonHookConfig(discovery.configPath, next);
-    changed = true;
-  } else if (action === "uninstall" && config.valid && config.value !== undefined) {
-    const next = removeManagedEntries(config.value);
-    if (JSON.stringify(next) !== JSON.stringify(config.value)) {
-      writeJsonHookConfig(discovery.configPath, next);
-      changed = true;
+  try {
+    if (action !== "status" && action !== "uninstall" && discovery.state === "installed" && supported) {
+      const next = upsertManagedEntry(config.value!, managedDescriptor);
+      if (JSON.stringify(next) !== JSON.stringify(config.value)) {
+        writeJsonHookConfig(discovery.configPath, next);
+        changed = true;
+      }
+    } else if (action === "uninstall" && supported) {
+      const next = removeManagedEntries(config.value!);
+      if (JSON.stringify(next) !== JSON.stringify(config.value)) {
+        writeJsonHookConfig(discovery.configPath, next);
+        changed = true;
+      }
+    } else if (action !== "status" && !supported) {
+      error = config.reason ?? discovery.reason ?? "unsupported client configuration";
+    } else if (action !== "status" && (discovery.state === "unsupported" || discovery.state === "incompatible")) {
+      error = discovery.reason ?? discovery.state;
     }
-  } else if (action !== "status" && (discovery.state === "unsupported" || discovery.state === "incompatible")) {
-    error = discovery.reason ?? discovery.state;
-  } else if (action !== "status" && !config.valid) {
-    error = config.reason ?? "unsupported client configuration";
+  } catch (caught) {
+    error = caught instanceof Error ? caught.message : String(caught);
   }
   const after = readJsonHookConfig(discovery.configPath);
   const afterHealth = !after.valid || after.value === undefined
@@ -106,12 +142,48 @@ export function applyHookLifecycle(
     .map((adapter) => reportFor(adapter, context, action));
 }
 
-export function managedDescriptor(adapter: HookClientAdapter, dispatcherCommand: string): ManagedHookDescriptor {
-  return descriptor(adapter, dispatcherCommand);
+export function managedDescriptor(
+  adapter: HookClientAdapter,
+  dispatcherCommand: string,
+  hookTimeoutMs?: number,
+  dispatcherArguments?: readonly string[],
+): ManagedHookDescriptor {
+  return descriptor(adapter, dispatcherCommand, hookTimeoutMs, dispatcherArguments);
 }
 
-export function isDispatcherPathAvailable(command: string, resolveCommand: (value: string) => string | undefined): boolean {
-  const first = command.trim().split(/\s+/u)[0];
+function commandWords(command: string): string[] {
+  const words: string[] = [];
+  const pattern = /'((?:[^']|'\\'')*)'|"([^"]*)"|(\S+)/gu;
+  for (const match of command.matchAll(pattern)) {
+    const value = match[1] ?? match[2] ?? match[3];
+    if (value !== undefined) words.push(value.replace(/'\\''/g, "'"));
+  }
+  return words;
+}
+
+function regularFile(filePath: string): boolean {
+  try {
+    return fs.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+export function isDispatcherPathAvailable(
+  command: string,
+  resolveCommand: (value: string) => string | undefined,
+  workingDirectory = process.cwd(),
+): boolean {
+  const words = commandWords(command);
+  const first = words[0];
   if (first === undefined || first.length === 0) return false;
-  return path.isAbsolute(first) ? fs.existsSync(first) : resolveCommand(first) !== undefined;
+  const executable = path.isAbsolute(first) ? (regularFile(first) ? first : undefined) : resolveCommand(first);
+  if (executable === undefined) return false;
+
+  // A node/tsx dispatcher is only resolvable when its entry script also exists.
+  // This catches stale generated hook entries without trying to execute them.
+  const executableName = path.basename(executable).toLowerCase();
+  if (executableName !== "node" && executableName !== "nodejs" && executableName !== "tsx") return true;
+  const script = words.slice(1).find((word) => /\.(?:[cm]?js|ts)$/u.test(word) && !word.startsWith("-"));
+  return script === undefined || regularFile(path.isAbsolute(script) ? script : path.resolve(workingDirectory, script));
 }
