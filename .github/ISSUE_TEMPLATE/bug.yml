@@ -11,8 +11,17 @@ body:
     attributes: { label: Problem, description: Actual result, expected result, reproduction steps, and environment }
     validations: { required: true }
   - type: textarea
+    id: failing_scenario
+    attributes:
+      { label: Failing scenario, description: Minimal reproduction, observed failure, and affected environment }
+    validations: { required: true }
+  - type: textarea
     id: goal
     attributes: { label: Goal, description: State after the fix }
+    validations: { required: true }
+  - type: textarea
+    id: expected_contract
+    attributes: { label: Expected contract, description: Behavior and invariant that the fix must establish }
     validations: { required: true }
   - type: textarea
     id: non_goals
@@ -20,15 +29,43 @@ body:
     validations: { required: true }
   - type: textarea
     id: acceptance
-    attributes: { label: Acceptance criteria, description: Completion criteria including regression tests, value: "- [ ] " }
+    attributes:
+      { label: Acceptance criteria, description: Completion criteria including regression tests, value: "- [ ] " }
     validations: { required: true }
   - type: textarea
     id: affected
     attributes: { label: Affected areas, description: Affected areas }
     validations: { required: true }
   - type: textarea
+    id: test_layer
+    attributes:
+      {
+        label: Test layer,
+        description: Regression,
+        unit,
+        integration/process,
+        fault,
+        E2E,
+        or package layer that proves the fix,
+      }
+    validations: { required: true }
+  - type: textarea
     id: risks
     attributes: { label: Risks / compatibility, description: Fix risks and compatibility }
+    validations: { required: true }
+  - type: textarea
+    id: release_impact
+    attributes: { label: Release impact, description: Package, publish, artifact, or explicit no-release impact }
+    validations: { required: true }
+  - type: textarea
+    id: security_impact
+    attributes:
+      {
+        label: Security impact,
+        description: Security boundary impact,
+        negative scenario,
+        or explicit no-impact decision,
+      }
     validations: { required: true }
   - type: textarea
     id: dependencies

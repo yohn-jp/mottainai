@@ -54,7 +54,23 @@ jobs:
 
       - name: Validate PR contract
         working-directory: governance
-        run: node scripts/validate-pr.mjs --event "$GITHUB_EVENT_PATH" --files "$RUNNER_TEMP/changed-files.txt" --issue-number-file "$RUNNER_TEMP/issue-number.txt"
+        run: node scripts/validate-pr.mjs --event "$GITHUB_EVENT_PATH" --files "$RUNNER_TEMP/changed-files.txt" --issue-number-file "$RUNNER_TEMP/issue-number.txt" --report "$RUNNER_TEMP/governance-report.md" --regression-plan-file "$RUNNER_TEMP/regression-proof-plan.json"
+
+      - name: Publish report-only governance observations
+        if: always()
+        env:
+          GOVERNANCE_REPORT: ${{ runner.temp }}/governance-report.md
+        run: |
+          if test -f "$GOVERNANCE_REPORT"; then
+            cat "$GOVERNANCE_REPORT" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload regression-proof plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-proof-plan
+          path: ${{ runner.temp }}/regression-proof-plan.json
+          retention-days: 1
 
       - name: Fetch linked Issue
         env:
@@ -76,4 +92,71 @@ jobs:
           if jq -e '.labels | map(.name) | any(. == "status:invalid" or . == "needs:specification")' "$RUNNER_TEMP/linked-issue.json" >/dev/null; then
             echo "linked Issue has an invalid governance label" >&2
             exit 1
+          fi
+
+  # PR-authored regression-test code executes here as arbitrary code under the
+  # fixed runner. This job carries no permissions and no trusted follow-up step
+  # ever runs after it in this job or consumes its filesystem — its only output
+  # is a report appended to its own job summary. It does not gate validate-pr,
+  # and validate-pr's checkout is never shared with or reachable from this job.
+  regression-proof:
+    name: regression-proof
+    needs: validate-pr
+    if: always()
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout base governance validator
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: governance
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify trusted governance revision
+        working-directory: governance
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: test "$(git rev-parse HEAD)" = "$BASE_SHA"
+
+      - name: Download regression-proof plan
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: regression-proof-plan
+          path: ${{ runner.temp }}/plan
+
+      # The base validator selects only fixed argv from governance-rules.json.
+      # This report-only step may use a temporary worktree, but never executes
+      # a command or shell fragment copied from the PR body.
+      - name: Execute eligible regression proof in isolated worktree (report-only)
+        if: always()
+        continue-on-error: true
+        working-directory: governance
+        env:
+          BASE_ROOT: ${{ github.workspace }}/governance
+          HEAD_ROOT: ${{ github.workspace }}/pr
+        run: |
+          node scripts/run-regression-proof.mjs \
+            --plan-file "$RUNNER_TEMP/plan/regression-proof-plan.json" \
+            --base-root "$BASE_ROOT" \
+            --head-root "$HEAD_ROOT" \
+            --report "$RUNNER_TEMP/regression-proof-report.md"
+
+      - name: Publish regression-proof observation
+        if: always()
+        env:
+          REGRESSION_REPORT: ${{ runner.temp }}/regression-proof-report.md
+        run: |
+          if test -f "$REGRESSION_REPORT"; then
+            cat "$REGRESSION_REPORT" >> "$GITHUB_STEP_SUMMARY"
           fi
