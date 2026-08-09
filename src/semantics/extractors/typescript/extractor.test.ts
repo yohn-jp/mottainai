@@ -43,7 +43,10 @@ test("TypeScript facts form a valid deterministic #84 snapshot", () => {
   assert.ok(first.derived.facts.some((fact) => fact.predicate === "file.content_fingerprint"));
   assert.ok(first.integrity.trackedFiles.every((file) => file.physicalFingerprint.algorithm === "sha256"));
   assert.deepEqual(first.integrity.extractors.map((extractor) => extractor.id), ["typescript-symbol-facts"]);
-  assert.deepEqual(Object.keys(first).filter((key) => key.includes("caller") || key.includes("callee")), []);
+  const serialized = serializeSnapshot(first);
+  assert.equal(serialized.includes("\"caller"), false);
+  assert.equal(serialized.includes("\"callee"), false);
+  assert.ok(first.graph.relations.length > 0);
 });
 
 test("Compiler API declarations cover symbols, overloads, aliases, visibility, and export status", () => {
@@ -127,7 +130,9 @@ test("Package facts distinguish declared, resolved, imported, and actually used 
     ),
   );
   assert.ok(relations(snapshot, "uses_package").some((relation) => relation.to === externalPackage.id && relation.from.includes("consume")));
-  assert.ok(relations(snapshot, "depends_on").some((relation) => relation.from === "package:typescript-fixture" && relation.to === externalPackage.id));
+  const rootPackage = snapshot.derived.packages.find((item) => item.dependencyType === "internal");
+  assert.ok(rootPackage);
+  assert.ok(relations(snapshot, "depends_on").some((relation) => relation.from === rootPackage.id && relation.to === externalPackage.id));
 });
 
 test("Subpath imports keep one external API identity across import and call/reference projection", () => {
@@ -157,6 +162,7 @@ test("Unknown dynamic behavior is explicit and does not create fabricated call e
   ]);
   assert.equal(snapshot.analysis.health.status, "partial");
   const dynamicSymbols = snapshot.derived.symbols.filter((item) => ["anyMediated", "computedCall", "unresolvedImport"].includes(item.name));
+  assert.equal(dynamicSymbols.length, 3);
   assert.ok(dynamicSymbols.every((item) => !relations(snapshot, "calls").some((relation) => relation.from === item.id)));
 });
 

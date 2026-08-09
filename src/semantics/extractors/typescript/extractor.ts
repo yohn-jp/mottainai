@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
-import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { performance } from "node:perf_hooks";
 import * as ts from "typescript";
 import { computeIntegrityDigestsFromValidated, digestCanonicalValue } from "../../ir/canonical.js";
 import {
@@ -109,8 +110,11 @@ interface ProjectContext {
   remote?: string;
   revision: string;
   tree?: string;
+  gitTree?: string;
   gitRevision?: string;
   gitDirty?: boolean;
+  trackedFiles: Set<string> | undefined;
+  droppedRootNames: string[];
   inputPaths: string[];
 }
 
@@ -150,13 +154,19 @@ function toPosix(filePath: string): string {
   return filePath.split(sep).join("/");
 }
 
-function pathInside(rootDir: string, filePath: string): boolean {
-  const path = relative(rootDir, filePath);
-  return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolutePath(path));
+function realOrLexicalPath(filePath: string): string {
+  try {
+    return realpathSync(filePath);
+  } catch {
+    return filePath;
+  }
 }
 
-function isAbsolutePath(filePath: string): boolean {
-  return filePath.startsWith(sep) || /^[A-Za-z]:[\\/]/.test(filePath);
+function pathInside(rootDir: string, filePath: string): boolean {
+  const resolvedRoot = realOrLexicalPath(rootDir);
+  const resolvedPath = realOrLexicalPath(filePath);
+  const path = relative(resolvedRoot, resolvedPath);
+  return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path));
 }
 
 function relativePath(rootDir: string, filePath: string): string {
@@ -225,18 +235,34 @@ function readManifest(filePath: string): PackageManifest {
   };
 }
 
-function gitOutput(rootDir: string, args: string[]): string | undefined {
+const GIT_TIMEOUT_MS = 10_000;
+const GIT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
+
+interface GitCommandResult {
+  ok: boolean;
+  output: string | undefined;
+}
+
+function runGitCommand(rootDir: string, args: string[]): GitCommandResult {
   try {
     const result = execFileSync("git", args, {
       cwd: rootDir,
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: GIT_TIMEOUT_MS,
+      maxBuffer: GIT_MAX_BUFFER_BYTES,
     });
     const value = result.trim();
-    return value.length > 0 ? value : undefined;
-  } catch {
-    return undefined;
+    return { ok: true, output: value.length > 0 ? value : undefined };
+  } catch (error) {
+    const reason = error instanceof Error && "code" in error && error.code === "ENOENT" ? "git is not available" : "git command failed";
+    console.error(`[typescript-symbol-facts] ${reason}: git ${args.join(" ")} (${rootDir})`, error instanceof Error ? error.message : error);
+    return { ok: false, output: undefined };
   }
+}
+
+function gitOutput(rootDir: string, args: string[]): string | undefined {
+  return runGitCommand(rootDir, args).output;
 }
 
 function remoteRepositoryName(remote: string | undefined): string | undefined {
@@ -314,6 +340,7 @@ function loadProject(options: TypeScriptExtractorOptions): ProjectContext {
 
   const requestedRootNames = options.rootNames?.map((filePath) => normalizePath(resolve(rootDir, filePath))) ?? configuredFileNames;
   const rootNames = [...new Set(requestedRootNames)].sort();
+  const droppedRootNames = rootNames.filter((filePath) => !pathInside(rootDir, filePath));
   const projectPaths = new Set([...configuredFileNames, ...rootNames].filter((filePath) => pathInside(rootDir, filePath)));
   const program = ts.createProgram({ rootNames, options: compilerOptions });
   const sourceFiles = program
@@ -328,7 +355,9 @@ function loadProject(options: TypeScriptExtractorOptions): ProjectContext {
   const rootPackageName = options.packageName ?? packageManifest.name ?? basename(rootDir);
   const gitRevision = gitOutput(rootDir, ["rev-parse", "HEAD"]);
   const gitTree = gitOutput(rootDir, ["rev-parse", "HEAD^{tree}"]);
-  const gitStatus = gitOutput(rootDir, ["status", "--porcelain"]);
+  const gitStatusResult = runGitCommand(rootDir, ["status", "--porcelain"]);
+  const gitDirty = gitStatusResult.ok ? gitStatusResult.output !== undefined : undefined;
+  const trackedFiles = discoverTrackedFiles(rootDir);
   const inputPaths = [
     ...sourceFiles.map((sourceFile) => normalizePath(sourceFile.fileName)),
     ...(configPath === undefined ? [] : [configPath]),
@@ -362,10 +391,32 @@ function loadProject(options: TypeScriptExtractorOptions): ProjectContext {
     remote,
     revision,
     tree: gitTree ?? contentDigest,
+    gitTree,
     gitRevision,
-    gitDirty: gitStatus !== undefined,
+    gitDirty,
+    trackedFiles,
+    droppedRootNames,
     inputPaths,
   };
+}
+
+function discoverTrackedFiles(rootDir: string): Set<string> | undefined {
+  const insideWorkTree = runGitCommand(rootDir, ["rev-parse", "--is-inside-work-tree"]);
+  if (!insideWorkTree.ok || insideWorkTree.output !== "true") return undefined;
+  try {
+    const result = execFileSync("git", ["ls-files", "-z"], {
+      cwd: rootDir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: GIT_TIMEOUT_MS,
+      maxBuffer: GIT_MAX_BUFFER_BYTES,
+    });
+    const files = result.split("\0").filter((entry) => entry.length > 0);
+    return new Set(files.map((file) => normalizePath(join(rootDir, file))));
+  } catch (error) {
+    console.error(`[typescript-symbol-facts] git command failed: git ls-files -z (${rootDir})`, error instanceof Error ? error.message : error);
+    return undefined;
+  }
 }
 
 function sourceRange(sourceFile: ts.SourceFile, node: ts.Node): SourceRange {
@@ -571,7 +622,7 @@ function isTypeScriptLibraryFile(filePath: string): boolean {
 
 export class TypeScriptFactExtractor implements TypeScriptFactProvider {
   extract(options: TypeScriptExtractorOptions): TypeScriptFactResult {
-    const startedAt = Date.now();
+    const startedAt = performance.now();
     const context = loadProject(options);
     const collector = new FactCollector(context, options);
     const snapshot = collector.collect();
@@ -586,7 +637,7 @@ export class TypeScriptFactExtractor implements TypeScriptFactProvider {
       diagnostics: snapshot.analysis.diagnostics.length,
       partial: snapshot.analysis.health.status !== "healthy",
     };
-    return { snapshot, elapsedMs: Date.now() - startedAt, counts };
+    return { snapshot, elapsedMs: performance.now() - startedAt, counts };
   }
 }
 
@@ -605,6 +656,7 @@ class FactCollector {
   private readonly fileIds = new Map<string, ReturnType<typeof createProjectId>>();
   private readonly sourceFileByPath = new Map<string, ts.SourceFile>();
   private readonly records: SymbolRecord[] = [];
+  private readonly recordsById = new Map<string, SymbolRecord>();
   private readonly declarationRecords = new Map<ts.Node, SymbolRecord>();
   private readonly symbolRecords = new Map<ts.Symbol, SymbolRecord[]>();
   private readonly declarationNameNodes = new Set<ts.Node>();
@@ -622,6 +674,7 @@ class FactCollector {
   private readonly unknownKeys = new Set<string>();
   private readonly diagnosticKeys = new Set<string>();
   private readonly importedModuleKeys = new Set<string>();
+  private readonly manifestCache = new Map<string, { manifest: PackageManifest | undefined }>();
 
   constructor(context: ProjectContext, options: TypeScriptExtractorOptions) {
     this.context = context;
@@ -659,6 +712,9 @@ class FactCollector {
   private addConfigurationDiagnostics(): void {
     for (const diagnostic of this.context.configErrors) {
       this.addDiagnostic("tsconfig_diagnostic", "error", diagnosticText(diagnostic), diagnosticPath(diagnostic, this.context.rootDir));
+    }
+    for (const droppedPath of this.context.droppedRootNames) {
+      this.addUnknown("root_name_outside_project", `Requested root name is outside rootDir and was not analyzed: ${droppedPath}`);
     }
     const resolution = this.context.compilerOptions.moduleResolution;
     const supportedResolution = new Set<number>([
@@ -714,16 +770,12 @@ class FactCollector {
         kind: "file",
         path: relativeFile,
         ...(fileLanguage(filePath) === undefined ? {} : { language: fileLanguage(filePath) }),
-        tracked: this.isGitTracked(relativeFile),
+        tracked: this.isGitTracked(filePath),
       };
       this.files.push(entity);
       const bytes = this.readBytes(filePath);
       this.addFact(id, "file.content_fingerprint", bytes === undefined ? "unavailable" : bytes);
       if (fileLanguage(filePath) !== undefined) this.addFact(id, "file.language", fileLanguage(filePath) ?? "unknown");
-      const sourceFile = this.sourceFileByPath.get(normalizePath(filePath));
-      if (sourceFile !== undefined) {
-        this.addFact(id, "file.module", moduleNameForFile(this.context.rootDir, filePath));
-      }
     }
     for (const sourceFile of this.context.sourceFiles) {
       const path = normalizePath(sourceFile.fileName);
@@ -746,7 +798,6 @@ class FactCollector {
       if (metrics === undefined) continue;
       const visit = (node: ts.Node): void => {
         if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node) || ts.isImportEqualsDeclaration(node)) metrics.imports += 1;
-        if (ts.isExportAssignment(node)) metrics.exports += 1;
         ts.forEachChild(node, visit);
       };
       visit(sourceFile);
@@ -786,7 +837,7 @@ class FactCollector {
       range: sourceRange(sourceFile, node),
     };
     const id = createSymbolId(locator);
-    const previous = this.records.find((record) => record.id === id);
+    const previous = this.recordsById.get(id);
     if (previous !== undefined) {
       if (previous.compilerSymbol === compilerSymbol) {
         this.declarationRecords.set(node, previous);
@@ -830,6 +881,7 @@ class FactCollector {
       fileId: this.fileIdForPath(normalizePath(sourceFile.fileName)),
     };
     this.records.push(record);
+    this.recordsById.set(record.id, record);
     this.declarationRecords.set(node, record);
     this.declarationNameNodes.add(nameNode);
     const symbolRecords = this.symbolRecords.get(compilerSymbol) ?? [];
@@ -904,8 +956,7 @@ class FactCollector {
         this.processAlias(element, element.name, packageName, specifier, true, sourceFile, element.propertyName);
       }
     } else if (ts.isNamespaceExport(node.exportClause)) {
-      const record = this.declarationRecords.get(node.exportClause);
-      if (record !== undefined && specifier !== undefined) {
+      if (specifier !== undefined) {
         this.processAlias(node.exportClause, node.exportClause.name, packageName, specifier, true, sourceFile);
       }
     }
@@ -1043,7 +1094,7 @@ class FactCollector {
     sourceFile: ts.SourceFile,
     reExport: boolean,
   ): void {
-    const key = `${sourceFile.fileName}|${specifier}|${reExport ? "reexport" : "import"}`;
+    const key = `${sourceFile.fileName}|${from}|${specifier}|${reExport ? "reexport" : "import"}`;
     if (this.importedModuleKeys.has(key)) return;
     this.importedModuleKeys.add(key);
     if (packageName !== undefined) {
@@ -1080,7 +1131,12 @@ class FactCollector {
                 const target = this.resolveAliasedSymbol(symbol);
                 const targets = this.recordsForSymbol(target);
                 if (targets.length === 0) {
-                  if (!isTypeScriptLibraryFile(target.declarations?.[0]?.getSourceFile().fileName ?? "")) {
+                  if (this.isLibrarySymbol(target)) continue;
+                  const identity = this.externalIdentityForSymbol(target);
+                  const apiRecords = this.externalApiRecordsForSymbol(target, identity.packageName, identity.specifier);
+                  if (apiRecords.length > 0) {
+                    for (const api of apiRecords) this.recordExternalUse(owner.id, api);
+                  } else {
                     this.addUnknown("heritage_target_external", `${relationKind} target is outside the project fact set`, [owner.id], relativePath(this.context.rootDir, sourceFile.fileName));
                   }
                   continue;
@@ -1240,7 +1296,8 @@ class FactCollector {
 
   private addPackageEntitiesAndFacts(): void {
     for (const dependencyName of this.context.packageManifest.dependencies.keys()) this.ensureDependency(dependencyName, undefined);
-    for (const dependency of this.externalDependencies.values()) {
+    const sortedDependencies = [...this.externalDependencies.values()].sort((left, right) => left.name.localeCompare(right.name));
+    for (const dependency of sortedDependencies) {
       const id = this.externalDependencyId(dependency.name);
       const packageId = this.externalPackageId(dependency.name);
       const declared = this.context.packageManifest.dependencies.get(dependency.name);
@@ -1314,11 +1371,11 @@ class FactCollector {
   private addMetricsFacts(): void {
     for (const file of this.files) {
       const metrics = this.fileMetrics.get(file.id);
-      if (metrics !== undefined) this.addFact(file.id, "file.metrics", metrics);
+      if (metrics !== undefined) this.addFact(file.id, "file.metrics", { ...metrics });
     }
     for (const record of this.records) {
       const metrics = this.symbolMetrics.get(record.id);
-      if (metrics !== undefined) this.addFact(record.id, "symbol.metrics", metrics);
+      if (metrics !== undefined) this.addFact(record.id, "symbol.metrics", { ...metrics });
     }
     for (const api of this.externalApis.values()) {
       this.addFact(api.id, "external_api.imported", api.imported);
@@ -1404,14 +1461,16 @@ class FactCollector {
         symbols: this.records.map((record) => record.entity),
         packages: this.packageEntities,
         externalDependencies: this.externalDependencyEntities,
-        externalApis: [...this.externalApis.values()].map((api) => api.entity),
-        facts: [...this.facts.values()],
+        externalApis: [...this.externalApis.values()].map((api) => api.entity).sort((left, right) => left.id.localeCompare(right.id)),
+        facts: [...this.facts.values()].sort((left, right) => left.id.localeCompare(right.id)),
       },
       observed,
       analysis,
       integrity: {
         repositoryId: this.repositoryId,
-        ...(this.context.gitRevision === undefined ? {} : { git: { revision: this.context.gitRevision, tree: this.context.tree } }),
+        ...(this.context.gitRevision === undefined
+          ? {}
+          : { git: { revision: this.context.gitRevision, ...(this.context.gitTree === undefined ? {} : { tree: this.context.gitTree }) } }),
         worktree: {
           id: createWorktreeId(stableLocalId(this.context.repositoryName)),
           ...(this.context.gitDirty === undefined ? {} : { dirty: this.context.gitDirty }),
@@ -1430,7 +1489,7 @@ class FactCollector {
         snapshotDigest: digestCanonicalValue("pending-snapshot"),
         status: "fresh",
       },
-      graph: { relations: [...this.relations.values()] },
+      graph: { relations: [...this.relations.values()].sort((left, right) => left.id.localeCompare(right.id)) },
     };
     const digests = computeIntegrityDigestsFromValidated(snapshot);
     const completeSnapshot: RepositorySemanticSnapshot = {
@@ -1451,8 +1510,10 @@ class FactCollector {
       symbols.push(record.id);
       symbolsByFile.set(record.fileId, symbols);
     }
+    const sortedFacts = [...this.facts.values()].sort((left, right) => left.id.localeCompare(right.id));
+    const sortedRelations = [...this.relations.values()].sort((left, right) => left.id.localeCompare(right.id));
     const factsByFile = new Map<string, SemanticFact[]>();
-    for (const fact of this.facts.values()) {
+    for (const fact of sortedFacts) {
       if (fact.predicate === "file.content_fingerprint") continue;
       const fileId = this.symbolFileIds.get(fact.subject) ?? (fileIds.has(fact.subject) ? fact.subject : undefined);
       if (fileId === undefined) continue;
@@ -1461,7 +1522,7 @@ class FactCollector {
       factsByFile.set(fileId, facts);
     }
     const relationsByFile = new Map<string, SemanticRelation[]>();
-    for (const relation of this.relations.values()) {
+    for (const relation of sortedRelations) {
       const fileId = this.symbolFileIds.get(relation.from) ?? (fileIds.has(relation.from) ? relation.from : undefined);
       if (fileId === undefined) continue;
       const relations = relationsByFile.get(fileId) ?? [];
@@ -1517,8 +1578,8 @@ class FactCollector {
   }
 
   private isGitTracked(filePath: string): boolean {
-    if (gitOutput(this.context.rootDir, ["rev-parse", "--is-inside-work-tree"]) === undefined) return true;
-    return gitOutput(this.context.rootDir, ["ls-files", "--error-unmatch", "--", filePath]) !== undefined;
+    if (this.context.trackedFiles === undefined) return true;
+    return this.context.trackedFiles.has(normalizePath(filePath));
   }
 
   private fileIdForPath(filePath: string): ReturnType<typeof createProjectId> {
@@ -1590,12 +1651,28 @@ class FactCollector {
   }
 
   private findNearestManifest(filePath: string): PackageManifest | undefined {
+    const visited: string[] = [];
     let directory = dirname(filePath);
     while (true) {
+      const cached = this.manifestCache.get(directory);
+      if (cached !== undefined) {
+        for (const path of visited) this.manifestCache.set(path, cached);
+        return cached.manifest;
+      }
+      visited.push(directory);
       const manifestPath = join(directory, "package.json");
-      if (existsSync(manifestPath)) return readManifest(manifestPath);
+      if (existsSync(manifestPath)) {
+        const manifest = readManifest(manifestPath);
+        const entry = { manifest };
+        for (const path of visited) this.manifestCache.set(path, entry);
+        return manifest;
+      }
       const parent = dirname(directory);
-      if (parent === directory) return undefined;
+      if (parent === directory) {
+        const entry = { manifest: undefined };
+        for (const path of visited) this.manifestCache.set(path, entry);
+        return undefined;
+      }
       directory = parent;
     }
   }
