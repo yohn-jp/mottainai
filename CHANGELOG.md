@@ -11,6 +11,32 @@ in the Claude and Codex registration examples in `README.md` together.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-08-09
+
+Semantic workflow and CI-hardening release. See
+[docs/releases/0.1.4.md](docs/releases/0.1.4.md) for the full writeup.
+
+- **Added**: TypeScript semantic fact extractor, Symbol-level effect and
+  policy conformance analysis, a semantic mutation API (plan/bind/
+  validate/persist boundary, closes #49), a semantic verification
+  adequacy model, and a reconciliation doctor audit/export (Issue #38).
+- **Added**: live Repository Model compiler for the Semantic Project
+  Viewer, safe task cleanup and crash recovery (Issue #37), runtime
+  build identity domain object, and path-aware governance gates
+  (Issue #26).
+- **Added**: Managed Hooks review gate first vertical slice (transport-
+  independent `HookEvent`/`HookDecision`, capability-based anti-bypass).
+- **Added**: CodeQL advanced analysis, mutation/property test
+  effectiveness harness (Issue #24), fault-injection test boundaries
+  (closes #23), OpenCodeReview parallel evaluation workflow, dual LLM
+  review budget bounds (closes #119), and PR CI critical path reduced
+  below two minutes (closes #139).
+- **Fixed**: runtime diagnostic `git_sha` no longer leaks an unrelated
+  consumer checkout's commit hash; more credential shapes redacted in
+  `sanitizeUpstreamError`; stale `failed` verification evidence no
+  longer permanently blocks a requirement after a newer pass;
+  OpenCodeReview trigger/routing gaps closed.
+
 ## [0.1.3] - 2026-08-09
 
 Git workflow governance release. Publishes the workflow-task engine
@@ -151,7 +177,8 @@ log` for full history.
 - Raw-data logging of upstream requests/responses to `.mottainai/log/*.jsonl`
   with secret-key redaction, retention limits, and per-tool exclusion.
 
-[Unreleased]: https://github.com/yohn-jp/mottainai/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/yohn-jp/mottainai/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/yohn-jp/mottainai/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/yohn-jp/mottainai/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/yohn-jp/mottainai/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/yohn-jp/mottainai/compare/v0.1.0...v0.1.1
