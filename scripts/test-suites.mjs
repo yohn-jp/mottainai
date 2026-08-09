@@ -7,6 +7,7 @@ const testFilePattern = /\.(?:test|spec)\.(?:ts|mjs)$/u;
 
 const integrationPatterns = Object.freeze([
   "src/commands/**/*.test.ts",
+  "src/fault-injection.test.ts",
   "src/init.test.ts",
   "src/local-tools.test.ts",
   "src/logging.test.ts",

@@ -1,4 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
+import { addSecondaryDiagnostic, DIRECT_BOUNDARIES } from "../boundary.js";
+import type { BoundaryOperations } from "../boundary.js";
 
 /**
  * 1 migration = 1 version。`up` は単一 transaction 内で実行され、失敗時は
@@ -8,7 +10,7 @@ import type { DatabaseSync } from "node:sqlite";
 export interface Migration {
   version: number;
   description: string;
-  up: (db: DatabaseSync) => void;
+  up: (db: DatabaseSync, boundaries?: BoundaryOperations) => void;
 }
 
 export const MIGRATIONS: Migration[] = [
@@ -250,15 +252,21 @@ export const MIGRATIONS: Migration[] = [
 
 function currentVersion(db: DatabaseSync): number {
   db.exec("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
-  const row = db.prepare("SELECT MAX(version) as version FROM schema_migrations").get() as { version: number | null } | undefined;
+  const row = db.prepare("SELECT MAX(version) as version FROM schema_migrations").get() as
+    | { version: number | null }
+    | undefined;
   return row?.version ?? 0;
 }
 
 /** 未適用の migration を version 昇順に適用する。冪等（適用済みなら何もしない）。 */
-export function applyMigrations(db: DatabaseSync, migrations: Migration[] = MIGRATIONS): void {
+export function applyMigrations(
+  db: DatabaseSync,
+  migrations: Migration[] = MIGRATIONS,
+  boundaries: BoundaryOperations = DIRECT_BOUNDARIES,
+): void {
   const ordered = [...migrations].sort((left, right) => left.version - right.version);
   for (;;) {
-    db.exec("BEGIN IMMEDIATE");
+    boundaries.file("sqlite.begin", () => db.exec("BEGIN IMMEDIATE"));
     let migration: Migration | undefined;
     try {
       const applied = currentVersion(db);
@@ -268,18 +276,36 @@ export function applyMigrations(db: DatabaseSync, migrations: Migration[] = MIGR
         return;
       }
 
-      migration.up(db);
-      db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)")
-        .run(migration.version, Date.now());
-      db.exec("COMMIT");
+      migration.up(db, boundaries);
+      boundaries.file("sqlite.migration.after", () => undefined);
+      boundaries.file("sqlite.version.record", () => {
+        db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(
+          migration!.version,
+          Date.now(),
+        );
+      });
+      boundaries.file("sqlite.commit", () => db.exec("COMMIT"));
     } catch (err) {
+      let rollbackError: unknown;
       try {
-        db.exec("ROLLBACK");
-      } catch {
-        // 元の migration エラーを保持する
+        boundaries.file("sqlite.rollback", () => db.exec("ROLLBACK"));
+      } catch (error) {
+        rollbackError = error;
+        // A seam failure may happen before SQLite executes the rollback. Keep the
+        // handle retryable with one direct best-effort cleanup attempt.
+        try {
+          db.exec("ROLLBACK");
+        } catch (fallbackError) {
+          rollbackError = fallbackError;
+        }
       }
       if (migration === undefined) throw err;
-      throw new Error(`migration ${migration.version} (${migration.description}) failed: ${(err as Error).message}`);
+      const wrapped = new Error(
+        `migration ${migration.version} (${migration.description}) failed: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err },
+      );
+      if (rollbackError !== undefined) throw addSecondaryDiagnostic(wrapped, "sqlite.rollback", rollbackError);
+      throw wrapped;
     }
   }
 }

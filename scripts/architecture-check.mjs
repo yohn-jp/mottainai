@@ -267,7 +267,7 @@ function layerForFile(relative) {
     relative === "src/telemetry.ts"
   )
     return "shared";
-  if (relative === "src/subprocess.ts") return "utility";
+  if (relative === "src/subprocess.ts" || relative === "src/boundary.ts") return "utility";
   return "shared";
 }
 
