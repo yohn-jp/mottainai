@@ -38,6 +38,55 @@ export const ENTITY_STATUSES = ["healthy", "partial", "review-required", "protec
 export type EntityStatus = (typeof ENTITY_STATUSES)[number];
 export type FixtureStatus = "fixture" | "partial" | "unavailable";
 
+export const VERIFICATION_VIEW_STATUSES = ["satisfied", "missing", "stale", "failed", "inadequate", "unknown"] as const;
+export type VerificationViewStatus = (typeof VERIFICATION_VIEW_STATUSES)[number];
+export type VerificationViewStrength = "required" | "recommended";
+export type VerificationViewScope = "symbol" | "component" | "project";
+
+export interface VerificationCountView {
+  total: number;
+  satisfied: number;
+  missing: number;
+  stale: number;
+  failed: number;
+  inadequate: number;
+  unknown: number;
+}
+
+export interface VerificationGapView {
+  requirementId: EntityId;
+  perspectiveId: EntityId;
+  targetId: EntityId;
+  targetKind: "symbol" | "component" | "contract" | "invariant" | "project";
+  strength: VerificationViewStrength;
+  status: VerificationViewStatus;
+  evidenceIds: readonly EntityId[];
+  missingEvidenceKinds: readonly string[];
+}
+
+export interface VerificationHealthView {
+  scope: VerificationViewScope;
+  targetId: EntityId;
+  status: "healthy" | "incomplete" | "failed" | "unknown";
+  score: number;
+  required: VerificationCountView;
+  recommended: VerificationCountView;
+  gapRequirementIds: readonly EntityId[];
+  gaps: readonly VerificationGapView[];
+}
+
+export interface VerificationQuery {
+  targetId?: EntityId;
+  scope?: VerificationViewScope;
+}
+
+export interface VerificationView {
+  apiVersion: typeof QUERY_API_VERSION;
+  target: { id: EntityId; kind: VerificationViewScope };
+  health: VerificationHealthView;
+  provenance: Provenance;
+}
+
 export interface Provenance {
   authority: AuthorityLayer;
   status: FixtureStatus;
@@ -130,6 +179,7 @@ export interface AgentProjection {
     available: false;
     reason: string;
   };
+  verification?: VerificationHealthView;
 }
 
 export interface EntityView extends EntitySummary {
@@ -137,6 +187,7 @@ export interface EntityView extends EntitySummary {
   relations: readonly SemanticRelation[];
   history: readonly HistoryEntry[];
   agentProjection: AgentProjection;
+  verification?: VerificationHealthView;
 }
 
 export interface ProjectView {
@@ -154,6 +205,7 @@ export interface ProjectView {
     modelGaps: number;
     reviewRequired: number;
   };
+  verification?: VerificationHealthView;
   counts: Readonly<Record<EntityKind, number>>;
   componentIds: readonly EntityId[];
   entityIds: readonly EntityId[];
@@ -192,6 +244,7 @@ export interface ComponentView extends EntitySummary {
   evidenceIds: readonly EntityId[];
   packageIds: readonly EntityId[];
   metrics: Readonly<Record<string, JsonValue>>;
+  verification?: VerificationHealthView;
 }
 
 export interface DependencyQuery {
@@ -276,6 +329,7 @@ export interface RepositorySemanticQuery {
   getChangeSet(query?: ChangeQuery): SemanticChangeSetView | Promise<SemanticChangeSetView>;
   getKnowledge(query?: KnowledgeQuery): KnowledgeView | Promise<KnowledgeView>;
   getAgentProjection(id: EntityId): AgentProjection | Promise<AgentProjection>;
+  getVerification?(query?: VerificationQuery): VerificationView | undefined | Promise<VerificationView | undefined>;
 }
 
 export interface KnowledgeQuery {

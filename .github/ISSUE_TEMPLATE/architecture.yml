@@ -11,8 +11,28 @@ body:
     attributes: { label: Problem, description: Current design problem and evidence }
     validations: { required: true }
   - type: textarea
+    id: failing_scenario
+    attributes:
+      {
+        label: Failing scenario,
+        description: Failure,
+        boundary mismatch,
+        or concrete scenario motivating the architecture change; explain if no failure applies,
+      }
+    validations: { required: true }
+  - type: textarea
     id: goal
     attributes: { label: Goal, description: Target architecture and invariants to preserve }
+    validations: { required: true }
+  - type: textarea
+    id: expected_contract
+    attributes:
+      {
+        label: Expected contract,
+        description: Boundary,
+        invariant,
+        and observable contract expected after the decision,
+      }
     validations: { required: true }
   - type: textarea
     id: non_goals
@@ -27,8 +47,28 @@ body:
     attributes: { label: Affected areas, description: Affected layers and public contracts }
     validations: { required: true }
   - type: textarea
+    id: test_layer
+    attributes:
+      { label: Test layer, description: Layer that proves the boundary, contract, migration, or failure behavior }
+    validations: { required: true }
+  - type: textarea
     id: risks
     attributes: { label: Risks / compatibility, description: Migration, backward compatibility, and failure impact }
+    validations: { required: true }
+  - type: textarea
+    id: release_impact
+    attributes:
+      { label: Release impact, description: Package, publish, rollout, artifact, or explicit no-release impact }
+    validations: { required: true }
+  - type: textarea
+    id: security_impact
+    attributes:
+      {
+        label: Security impact,
+        description: Security boundary impact,
+        negative scenario,
+        or explicit no-impact decision,
+      }
     validations: { required: true }
   - type: textarea
     id: dependencies

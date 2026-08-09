@@ -252,6 +252,10 @@ test("server entry points report configuration failures without an unhandled rej
   assert.match(server.stderr, /Mottainai configuration was not found/);
   assert.match(server.stderr, /npx -y mottainai init/);
   assert.match(server.stderr, /ENOENT: no such file or directory/);
+  assert.match(server.stderr, /Runtime diagnostic:/);
+  assert.match(server.stderr, /package: mottainai@/);
+  assert.match(server.stderr, /distribution: development\/source/);
+  assert.match(server.stderr, /config_path:/);
   assert.doesNotMatch(server.stderr, /UnhandledPromiseRejection/);
 
   const developmentServe = spawnSync(process.execPath, ["--import", "tsx", cliPath, "serve", "--config"], {

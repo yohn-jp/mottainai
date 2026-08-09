@@ -48,4 +48,4 @@ const result = validatePullRequest({
   files: resolveFiles(args),
 });
 const errors = [...validateBranchName(resolveBranch(args)), ...result.errors];
-finish(errors, args.report);
+finish(errors, args.report, result.warnings);

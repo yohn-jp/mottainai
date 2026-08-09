@@ -135,6 +135,18 @@ architecture judgment.
   paths listed in `scripts/governance-rules.json`.
 - Do not mark a check complete unless it ran. Draft PRs may leave validation
   incomplete until they are ready for review.
+- Complete `Test contract`, `Regression proof`, `Validation evidence`, and
+  `Release impact` in addition to the existing template sections. Record one
+  concrete evidence item for each configured class; a Not applicable item needs
+  a reason and is allowed only when the changed paths do not trigger that
+  class.
+- For bug-fix PRs, identify the changed regression test, pre-fix observed
+  failure, and post-fix result. Use the fixed runner or an explicit
+  reviewer-attested unsupported-proof path described in
+  [`docs/governance.md`](docs/governance.md).
+- New quality-gate diagnostics are report-only until maintainers explicitly
+  promote the trusted rollout mode after post-merge observation. Existing
+  mandatory governance rules remain enforced.
 - Maintainers may ask for changes or close PRs that don't fit the project
   direction; an up-front issue discussion minimizes that risk.
 
