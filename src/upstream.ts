@@ -5,6 +5,7 @@ import type { FetchLike, Transport } from "@modelcontextprotocol/sdk/shared/tran
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { resolveBrokerEndpoint } from "./auth.js";
 import type { OAuthCredentialProvider } from "./auth.js";
+import { addSecondaryDiagnostic } from "./boundary.js";
 import type { UpstreamConfig } from "./config.js";
 
 export interface UpstreamHandle {
@@ -42,6 +43,14 @@ interface UpstreamRecord {
 
 export type UpstreamConnector = (config: UpstreamConfig) => Promise<UpstreamHandle>;
 
+/** Internal lifecycle knobs used by deterministic tests; runtime config never supplies these. */
+export interface UpstreamLifecycleOptions {
+  startupTimeoutMs?: number;
+  closeTimeoutMs?: number;
+  /** Internal deterministic transport-creation seam; runtime config never supplies this. */
+  transportFactory?: (config: UpstreamConfig, oauthCredentialProvider?: OAuthCredentialProvider) => Promise<Transport>;
+}
+
 interface UpstreamDiagnosticError extends Error {
   mottainaiUpstreamDiagnostic?: string;
 }
@@ -72,8 +81,7 @@ function upstreamDiagnosticSummary(diagnostic: string): string {
 }
 
 export function hasUpstreamDiagnostic(error: unknown): boolean {
-  return error instanceof Error
-    && (error as UpstreamDiagnosticError).mottainaiUpstreamDiagnostic !== undefined;
+  return error instanceof Error && (error as UpstreamDiagnosticError).mottainaiUpstreamDiagnostic !== undefined;
 }
 
 export const UPSTREAM_STARTUP_TIMEOUT_MS = 2_000;
@@ -82,19 +90,48 @@ const UPSTREAM_STDERR_TAIL_BYTES = 16 * 1024;
 
 class UpstreamTimeoutError extends Error {}
 
-async function withDeadline<T>(operation: Promise<T>, config: UpstreamConfig, phase: string): Promise<T> {
+function resolveTimeout(value: number | undefined, fallback: number): number {
+  return value === undefined || !Number.isFinite(value) || value < 0 ? fallback : value;
+}
+
+async function withDeadline<T>(
+  operation: Promise<T>,
+  config: UpstreamConfig,
+  phase: string,
+  timeoutMs: number,
+  onLateResult?: (value: T) => Promise<unknown | undefined> | unknown | undefined,
+): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
+  let timeoutError: UpstreamTimeoutError | undefined;
+  const monitoredOperation = operation.then((value) => {
+    const expiredError = timeoutError;
+    if (expiredError !== undefined && onLateResult !== undefined) {
+      void Promise.resolve()
+        .then(() => onLateResult(value))
+        .then(
+          (cleanupError) => {
+            if (cleanupError !== undefined) {
+              addSecondaryDiagnostic(expiredError, `upstream.${phase}.late_cleanup`, cleanupError);
+            }
+          },
+          (cleanupError: unknown) => {
+            addSecondaryDiagnostic(expiredError, `upstream.${phase}.late_cleanup`, cleanupError);
+          },
+        )
+        .catch(() => {
+          // The timeout remains the primary error even if diagnostic attachment fails.
+        });
+    }
+    return value;
+  });
   try {
     return await Promise.race([
-      operation,
+      monitoredOperation,
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
-          reject(
-            new UpstreamTimeoutError(
-              `upstream=${config.name} phase=${phase} timeout_ms=${UPSTREAM_STARTUP_TIMEOUT_MS}`,
-            ),
-          );
-        }, UPSTREAM_STARTUP_TIMEOUT_MS);
+          timeoutError = new UpstreamTimeoutError(`upstream=${config.name} phase=${phase} timeout_ms=${timeoutMs}`);
+          reject(timeoutError);
+        }, timeoutMs);
       }),
     ]);
   } finally {
@@ -102,18 +139,41 @@ async function withDeadline<T>(operation: Promise<T>, config: UpstreamConfig, ph
   }
 }
 
-async function closeClient(client: Client): Promise<void> {
+interface ClosableResource {
+  close(): Promise<void>;
+}
+
+async function closeResource(
+  resource: ClosableResource,
+  providerName: string,
+  phase: string,
+  timeoutMs: number,
+): Promise<unknown | undefined> {
   let timer: NodeJS.Timeout | undefined;
   try {
-    await Promise.race([
-      client.close().catch(() => {}),
-      new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, UPSTREAM_CLOSE_TIMEOUT_MS);
+    const result = await Promise.race([
+      Promise.resolve()
+        .then(() => resource.close())
+        .then(
+          () => undefined,
+          (error: unknown) => ({ error }),
+        ),
+      new Promise<{ error: Error }>((resolve) => {
+        timer = setTimeout(() => {
+          resolve({
+            error: new UpstreamTimeoutError(`upstream=${providerName} phase=${phase} timeout_ms=${timeoutMs}`),
+          });
+        }, timeoutMs);
       }),
     ]);
+    return result === undefined ? undefined : result.error;
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
+}
+
+async function closeClient(client: Client, providerName: string, timeoutMs: number): Promise<unknown | undefined> {
+  return closeResource(client, providerName, "close", timeoutMs);
 }
 
 function boundedText(value: string, maxBytes: number): string {
@@ -137,6 +197,7 @@ export const fetchWithoutRedirects: FetchLike = (url, init) => {
 export class UpstreamRegistry {
   private readonly records = new Map<string, UpstreamRecord>();
   private readonly connector: UpstreamConnector;
+  private readonly closeTimeoutMs: number;
   /** shutdown 開始後は in-flight start が ready handle を復活させられないようにする。 */
   private closing = false;
   private closingPromise?: Promise<void>;
@@ -145,8 +206,11 @@ export class UpstreamRegistry {
     configs: UpstreamConfig[],
     connector?: UpstreamConnector,
     oauthCredentialProvider?: OAuthCredentialProvider,
+    lifecycleOptions: UpstreamLifecycleOptions = {},
   ) {
-    this.connector = connector ?? ((config) => connectUpstream(config, oauthCredentialProvider));
+    this.closeTimeoutMs = resolveTimeout(lifecycleOptions.closeTimeoutMs, UPSTREAM_CLOSE_TIMEOUT_MS);
+    this.connector =
+      connector ?? ((config) => connectUpstream(config, oauthCredentialProvider, undefined, lifecycleOptions));
     for (const config of configs) {
       this.records.set(config.name, {
         config,
@@ -156,9 +220,15 @@ export class UpstreamRegistry {
     }
   }
 
-  state(name: string): UpstreamState | undefined { return this.records.get(name)?.state; }
-  configs(): UpstreamConfig[] { return [...this.records.values()].map((record) => record.config); }
-  readyHandles(): UpstreamHandle[] { return [...this.records.values()].flatMap((record) => record.handle ? [record.handle] : []); }
+  state(name: string): UpstreamState | undefined {
+    return this.records.get(name)?.state;
+  }
+  configs(): UpstreamConfig[] {
+    return [...this.records.values()].map((record) => record.config);
+  }
+  readyHandles(): UpstreamHandle[] {
+    return [...this.records.values()].flatMap((record) => (record.handle ? [record.handle] : []));
+  }
   enabledNames(): string[] {
     return [...this.records.values()]
       .filter((record) => record.state !== "disabled")
@@ -189,26 +259,33 @@ export class UpstreamRegistry {
     if (record.handle) return record.handle;
     if (record.starting) return record.starting;
     record.state = "starting";
-    record.starting = this.connector(record.config).then(async (handle) => {
-      if (this.closing) {
-        // shutdown が start と競合した。ready へ昇格させず、handle 自体を閉じてリークを防ぐ。
-        await closeClient(handle.client);
-        record.state = record.state === "disabled" ? "disabled" : "stopped";
-        throw new Error(`upstream registry closed while starting: ${name}`);
-      }
-      record.handle = handle;
-      record.state = "ready";
-      return handle;
-    }).catch((error: unknown) => {
-      if (!this.closing) {
-        // 次の実行要求で無条件に再試行するため、失敗回数は診断のためだけに持つ。
-        record.state = "unhealthy";
-        record.failureCount += 1;
-        record.lastError = upstreamBaseErrorMessage(error);
-        record.lastErrorAt = new Date().toISOString();
-      }
-      throw error;
-    }).finally(() => { record.starting = undefined; });
+    record.starting = this.connector(record.config)
+      .then(async (handle) => {
+        if (this.closing) {
+          // shutdown が start と競合した。ready へ昇格させず、handle 自体を閉じてリークを防ぐ。
+          const cleanupError = await closeClient(handle.client, name, this.closeTimeoutMs);
+          record.state = record.state === "disabled" ? "disabled" : "stopped";
+          const primary = new Error(`upstream registry closed while starting: ${name}`);
+          if (cleanupError !== undefined) throw addSecondaryDiagnostic(primary, "upstream.client.close", cleanupError);
+          throw primary;
+        }
+        record.handle = handle;
+        record.state = "ready";
+        return handle;
+      })
+      .catch((error: unknown) => {
+        if (!this.closing) {
+          // 次の実行要求で無条件に再試行するため、失敗回数は診断のためだけに持つ。
+          record.state = "unhealthy";
+          record.failureCount += 1;
+          record.lastError = upstreamBaseErrorMessage(error);
+          record.lastErrorAt = new Date().toISOString();
+        }
+        throw error;
+      })
+      .finally(() => {
+        record.starting = undefined;
+      });
     return record.starting;
   }
 
@@ -224,7 +301,8 @@ export class UpstreamRegistry {
     record.lastErrorAt = new Date().toISOString();
     if (handle) {
       try {
-        await closeClient(handle.client);
+        const cleanupError = await closeClient(handle.client, name, this.closeTimeoutMs);
+        if (cleanupError !== undefined) addSecondaryDiagnostic(error, "upstream.client.close", cleanupError);
       } catch {
         // 元の実行エラーを status に残し、close の二次エラーで原因を隠さない。
       }
@@ -240,18 +318,20 @@ export class UpstreamRegistry {
     if (this.closingPromise) return this.closingPromise;
     this.closing = true;
     this.closingPromise = (async () => {
-      await Promise.all([...this.records.values()].map(async (record) => {
-        const handle = record.handle;
-        record.handle = undefined;
-        record.state = record.state === "disabled" ? "disabled" : "stopped";
-        if (handle) {
-          try {
-            await closeClient(handle.client);
-          } catch {
-            // 1 つの upstream の close 失敗で他 upstream の停止を止めない。
+      await Promise.all(
+        [...this.records.values()].map(async (record) => {
+          const handle = record.handle;
+          record.handle = undefined;
+          record.state = record.state === "disabled" ? "disabled" : "stopped";
+          if (handle) {
+            try {
+              await closeClient(handle.client, record.config.name, this.closeTimeoutMs);
+            } catch {
+              // 1 つの upstream の close 失敗で他 upstream の停止を止めない。
+            }
           }
-        }
-      }));
+        }),
+      );
     })();
     return this.closingPromise;
   }
@@ -271,13 +351,16 @@ export async function createUpstreamTransport(
       }
       endpoint = await resolveBrokerEndpoint(oauthCredentialProvider, targetUrl, config.auth.profile);
     }
-    const headers = config.headersFromEnv === undefined
-      ? undefined
-      : Object.fromEntries(Object.entries(config.headersFromEnv).map(([header, environmentName]) => {
-        const value = process.env[environmentName];
-        if (value === undefined) throw new Error(`upstream header environment missing: ${environmentName}`);
-        return [header, value];
-      }));
+    const headers =
+      config.headersFromEnv === undefined
+        ? undefined
+        : Object.fromEntries(
+            Object.entries(config.headersFromEnv).map(([header, environmentName]) => {
+              const value = process.env[environmentName];
+              if (value === undefined) throw new Error(`upstream header environment missing: ${environmentName}`);
+              return [header, value];
+            }),
+          );
     if (headers !== undefined && endpoint.protocol !== "https:") {
       throw new Error(`credentialed upstream requires https: ${config.name}`);
     }
@@ -299,14 +382,25 @@ export async function createUpstreamTransport(
 export async function connectUpstream(
   config: UpstreamConfig,
   oauthCredentialProvider?: OAuthCredentialProvider,
-  createClient: (config: UpstreamConfig) => Client = (c) => new Client({ name: `mottainai/${c.name}`, version: "0.1.0" }),
+  createClient: (config: UpstreamConfig) => Client = (c) =>
+    new Client({ name: `mottainai/${c.name}`, version: "0.1.0" }),
+  lifecycleOptions: UpstreamLifecycleOptions = {},
 ): Promise<UpstreamHandle> {
+  const startupTimeoutMs = resolveTimeout(lifecycleOptions.startupTimeoutMs, UPSTREAM_STARTUP_TIMEOUT_MS);
+  const closeTimeoutMs = resolveTimeout(lifecycleOptions.closeTimeoutMs, UPSTREAM_CLOSE_TIMEOUT_MS);
+  const transportFactory = lifecycleOptions.transportFactory ?? createUpstreamTransport;
   let client: Client | undefined;
   let phase = "transport";
   const transcript: string[] = ["phase=transport started"];
   const stderrTail: string[] = [];
   try {
-    const transport = await withDeadline(createUpstreamTransport(config, oauthCredentialProvider), config, phase);
+    const transport = await withDeadline(
+      transportFactory(config, oauthCredentialProvider),
+      config,
+      phase,
+      startupTimeoutMs,
+      (lateTransport) => closeResource(lateTransport, config.name, "transport.close", closeTimeoutMs),
+    );
     if (transport instanceof StdioClientTransport) {
       transport.stderr?.on("data", (chunk: Buffer | string) => {
         const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
@@ -317,20 +411,22 @@ export async function connectUpstream(
     client = createClient(config);
     phase = "initialize";
     transcript.push("phase=initialize started");
-    await withDeadline(client.connect(transport), config, phase);
+    await withDeadline(client.connect(transport), config, phase, startupTimeoutMs);
     transcript.push("phase=initialize completed");
     phase = "listTools";
     transcript.push("phase=listTools started");
-    const { tools } = await withDeadline(client.listTools(), config, phase);
+    const { tools } = await withDeadline(client.listTools(), config, phase, startupTimeoutMs);
     transcript.push("phase=listTools completed");
     return { config, client, tools };
   } catch (error) {
     // connect() の途中失敗（stdio なら child process が spawn 済みの場合がある）も
     // listTools() の失敗も、同じスコープで client を閉じる。close 自体の失敗で元のエラーを隠さない。
-    if (client !== undefined) await closeClient(client);
-    const details = `provider=${config.name} phase=${phase} stderr_tail=${JSON.stringify(stderrTail.join(""))}`
-      + ` transcript=${JSON.stringify(transcript)}`;
+    const cleanupError = client === undefined ? undefined : await closeClient(client, config.name, closeTimeoutMs);
+    const details =
+      `provider=${config.name} phase=${phase} stderr_tail=${JSON.stringify(stderrTail.join(""))}` +
+      ` transcript=${JSON.stringify(transcript)}`;
     if (error instanceof Error) {
+      if (cleanupError !== undefined) addSecondaryDiagnostic(error, "upstream.client.close", cleanupError);
       Object.defineProperty(error, "mottainaiUpstreamDiagnostic", {
         configurable: true,
         value: details,
@@ -338,6 +434,7 @@ export async function connectUpstream(
       throw error;
     }
     const normalized = new Error(upstreamBaseErrorMessage(error));
+    if (cleanupError !== undefined) addSecondaryDiagnostic(normalized, "upstream.client.close", cleanupError);
     Object.defineProperty(normalized, "mottainaiUpstreamDiagnostic", {
       configurable: true,
       value: details,

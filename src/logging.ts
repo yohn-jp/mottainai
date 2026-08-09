@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
+import { DIRECT_BOUNDARIES } from "./boundary.js";
+import type { BoundaryOperations } from "./boundary.js";
 
 export interface LogRecord {
   /** ログ全体で一意なID。将来「圧縮前オリジナルを取得する」機能の参照キーとして使える。 */
@@ -110,10 +112,10 @@ function redact(value: unknown): unknown {
 }
 
 /** 起動時に保存期間を超えたjsonlを削除する。掃除の失敗はロギング続行を妨げない。 */
-function sweepExpiredLogs(logDir: string, maxAgeMs: number): void {
+function sweepExpiredLogs(logDir: string, maxAgeMs: number, boundaries: BoundaryOperations): void {
   let entries: fs.Dirent[];
   try {
-    entries = fs.readdirSync(logDir, { withFileTypes: true });
+    entries = boundaries.file("logging.retention.list", () => fs.readdirSync(logDir, { withFileTypes: true }));
   } catch {
     return;
   }
@@ -122,7 +124,9 @@ function sweepExpiredLogs(logDir: string, maxAgeMs: number): void {
     if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
     const filePath = path.join(logDir, entry.name);
     try {
-      if (fs.statSync(filePath).mtimeMs < cutoff) fs.unlinkSync(filePath);
+      if (boundaries.file("logging.retention.stat", () => fs.statSync(filePath).mtimeMs) < cutoff) {
+        boundaries.file("logging.retention.delete", () => fs.unlinkSync(filePath));
+      }
     } catch {
       // 掃除中の消失・権限エラーはロギング続行を妨げない
     }
@@ -140,12 +144,22 @@ function sweepExpiredLogs(logDir: string, maxAgeMs: number): void {
  * - MOTTAINAI_LOG_RETENTION_DAYS — 保存日数（既定14日）。起動時に期限切れjsonlを削除
  * - MOTTAINAI_LOG_MAX_FILE_BYTES — 1ファイルの上限バイト数（既定10MiB）。超過したら新規ファイルへロールオーバー
  */
-export function createLogger(env: NodeJS.ProcessEnv = process.env): Logger {
+export function createLogger(
+  env: NodeJS.ProcessEnv = process.env,
+  boundaries: BoundaryOperations = DIRECT_BOUNDARIES,
+): Logger {
   if (!isLoggingEnabled(env)) return NOOP_LOGGER;
 
   const logDir = resolveLogDir(env);
-  fs.mkdirSync(logDir, { recursive: true, mode: 0o700 });
-  sweepExpiredLogs(logDir, resolveRetentionMs(env));
+  try {
+    boundaries.file("logging.directory.create", () => fs.mkdirSync(logDir, { recursive: true, mode: 0o700 }));
+    sweepExpiredLogs(logDir, resolveRetentionMs(env), boundaries);
+  } catch {
+    // Logging must never prevent the MCP process from starting. Do not echo the
+    // underlying error because it may contain user-controlled or secret-bearing data.
+    console.error("mottainai: logging unavailable; continuing without file logging");
+    return NOOP_LOGGER;
+  }
 
   const redactEnabled = isRedactionEnabled(env);
   const excludedTools = resolveExcludedTools(env);
@@ -162,10 +176,7 @@ export function createLogger(env: NodeJS.ProcessEnv = process.env): Logger {
 
   return {
     async log(record) {
-      if (
-        excludedTools.has(record.toolName) ||
-        excludedTools.has(`${record.upstreamName}__${record.toolName}`)
-      ) {
+      if (excludedTools.has(record.toolName) || excludedTools.has(`${record.upstreamName}__${record.toolName}`)) {
         return;
       }
 
@@ -189,14 +200,18 @@ export function createLogger(env: NodeJS.ProcessEnv = process.env): Logger {
           const line = boundedLogLine(full, maxRecordBytes);
           const lineBytes = Buffer.byteLength(line, "utf8");
           if (currentFileBytes > 0 && currentFileBytes + lineBytes > maxFileBytes) {
-            filePath = path.join(logDir, logFileName());
-            currentFileBytes = 0;
+            await boundaries.file("logging.rotate", () => {
+              filePath = path.join(logDir, logFileName());
+              currentFileBytes = 0;
+            });
           }
           currentFileBytes += lineBytes;
-          await fs.promises.appendFile(filePath, line, { encoding: "utf8", mode: 0o600 });
+          await boundaries.file("logging.write", () =>
+            fs.promises.appendFile(filePath, line, { encoding: "utf8", mode: 0o600 }),
+          );
         })
-        .catch((err) => {
-          console.error("mottainai: failed to write log record", err);
+        .catch(() => {
+          console.error("mottainai: log persistence unavailable; continuing");
         });
       await writeQueue;
     },

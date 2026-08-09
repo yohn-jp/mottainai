@@ -71,6 +71,11 @@ the mechanical classification source.
    `pnpm run test:coverage` when production behavior or a critical module
    changes.
 
+   New critical persistent or process-boundary code must include a deterministic
+   fault case covering its failure operation, cleanup, and post-state. Follow
+   [`docs/fault-injection.md`](docs/fault-injection.md); do not use sleeps or
+   timing-sensitive races to induce the failure.
+
    Before a non-Draft pull request is ready, run `pnpm run verify` and report
    `pnpm run test:coverage` separately. If a configured package-impacting path
    changes, also complete Package check. The Governance check is a required

@@ -111,12 +111,16 @@ export type RelationKind =
   | "contains"
   | "owns"
   | "shares"
+  | "defines"
   | "provides"
   | "requires"
+  | "constrained-by"
   | "depends-on"
   | "calls"
   | "references"
   | "imports"
+  | "extends"
+  | "implements"
   | "uses-package"
   | "imports-api"
   | "tests"
@@ -216,6 +220,14 @@ export interface GraphQuery {
   componentId?: EntityId;
   entityId?: EntityId;
   relationKinds?: readonly RelationKind[];
+  /** Traverse from the selected entity in this direction. Defaults to both directions. */
+  direction?: "outgoing" | "incoming" | "both";
+  /** Maximum number of relation hops from the selected entity. Defaults to one. */
+  depth?: number;
+  /** Node budget. `limit` remains the backward-compatible alias. */
+  nodeLimit?: number;
+  /** Edge budget for the returned slice. */
+  edgeLimit?: number;
   limit?: number;
 }
 

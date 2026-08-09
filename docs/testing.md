@@ -6,10 +6,10 @@
 
 PR CIはnative Windowsを含めず、Linux上のNode matrixだけを採用する。LinuxはTier 1 / canonical、WSL2はLinux runtimeとしてsupported、macOSはbest effort / Tier 2、native Windowsはunsupported。WindowsユーザーはWSL2を利用する。Issue #78のWindows smoke前提はIssue #88でsupersedeされた。
 
-| 責務 | 環境 | CIで担う検証 |
-| --- | --- | --- |
+| 責務                      | 環境             | CIで担う検証                                                                                                                                                    |
+| ------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Canonical full validation | Ubuntu + Node 22 | `standards`、typecheck、fast unit/contract、integration/process、build、built-dist full E2E、coverage、package/consumer smoke。repositoryの完全な必須検証の正本 |
-| Node compatibility smoke | Ubuntu + Node 24 | install、build、packed consumer path、最小MCP handshake/list/call/EOF。Node 22のfull suiteを再実行しない |
+| Node compatibility smoke  | Ubuntu + Node 24 | install、build、packed consumer path、最小MCP handshake/list/call/EOF。Node 22のfull suiteを再実行しない                                                        |
 
 Ubuntu + Node 22はexhaustive correctnessの正本。Node 24はruntime/package差異だけ確認する。full E2Eのlifecycle・fault・POSIX SIGINT/SIGTERM検証はcanonical環境に残す。
 
@@ -19,14 +19,14 @@ CI check名も検証責務に合わせる。Node 24のcheckは`Node compatibilit
 
 ## 層とコマンド
 
-| 層                    | 保証対象                                                                | ファイル規則                                                                                                                                                                    | コマンド                       | 実行目安       |
-| --------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ | -------------- |
-| Fast                  | pure logic、unit、contract、MCP envelope/config schema、決定論的境界    | `src/**/*.test.ts`からintegrationルール対象を除外                                                                                                                               | `pnpm test`                    | 15秒以内を目標 |
-| Integration / process | 複数component、filesystem、git、SQLite、CLI・子process                  | `src/commands/**/*.test.ts`、`src/init.test.ts`、`src/local-tools.test.ts`、`src/logging.test.ts`、`src/mcp-cli.test.ts`、`src/state/**/*.test.ts`、`src/workflow/**/*.test.ts` | `pnpm run test:integration`    | 30秒以内を目標 |
-| E2E / black-box       | built `dist` gatewayを外部MCP clientからstdio接続                       | `src/e2e/**/*.spec.ts`                                                                                                                                                          | `pnpm run test:e2e`（build後） | 30秒以内を目標 |
-| Package               | packed artifactのprotocol subset、install、bin、init、missing-config    | `scripts/mcp-stdio-package.test.mjs`、`scripts/smoke-test.mjs`                                                                                                                  | `pnpm run test:package`        | 90秒以内を目標 |
-| Standards             | format、lint、architecture、governance、suite/coverage policy self-test | `scripts/**/*.test.mjs`                                                                                                                                                         | `pnpm run test:standards`      | 30秒以内を目標 |
-| Full verification     | 上記全層、typecheck、build、package smoke                               | `FULL_VERIFICATION_SUITES`全項目                                                                                                                                                | `pnpm run verify`              | CI/release前   |
+| 層                    | 保証対象                                                                | ファイル規則                                                                                                                                                                                                   | コマンド                       | 実行目安       |
+| --------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ | -------------- |
+| Fast                  | pure logic、unit、contract、MCP envelope/config schema、決定論的境界    | `src/**/*.test.ts`からintegrationルール対象を除外                                                                                                                                                              | `pnpm test`                    | 15秒以内を目標 |
+| Integration / process | 複数component、filesystem、git、SQLite、CLI・子process                  | `src/commands/**/*.test.ts`、`src/fault-injection.test.ts`、`src/init.test.ts`、`src/local-tools.test.ts`、`src/logging.test.ts`、`src/mcp-cli.test.ts`、`src/state/**/*.test.ts`、`src/workflow/**/*.test.ts` | `pnpm run test:integration`    | 30秒以内を目標 |
+| E2E / black-box       | built `dist` gatewayを外部MCP clientからstdio接続                       | `src/e2e/**/*.spec.ts`                                                                                                                                                                                         | `pnpm run test:e2e`（build後） | 30秒以内を目標 |
+| Package               | packed artifactのprotocol subset、install、bin、init、missing-config    | `scripts/mcp-stdio-package.test.mjs`、`scripts/smoke-test.mjs`                                                                                                                                                 | `pnpm run test:package`        | 90秒以内を目標 |
+| Standards             | format、lint、architecture、governance、suite/coverage policy self-test | `scripts/**/*.test.mjs`                                                                                                                                                                                        | `pnpm run test:standards`      | 30秒以内を目標 |
+| Full verification     | 上記全層、typecheck、build、package smoke                               | `FULL_VERIFICATION_SUITES`全項目                                                                                                                                                                               | `pnpm run verify`              | CI/release前   |
 
 `pnpm test`はTDD用のdefault loop。E2E、package smoke、coverageは含めない。`pnpm run test:all`はfast、integration/process、E2Eを順に実行する開発用aliasで、standards・build・package smokeを含むrelease判定ではない。
 
@@ -80,7 +80,7 @@ classのpath triggerとrequired fieldsの正本は
 
 integration/process層は実component間の契約と失敗境界を検証する。実filesystem、一時git repository、in-memory/temporary SQLite、CLI subprocessは許可するが、developerのHOME、global git config、global package installation、networkへ依存しない。
 
-fault-injection testはintegration/process層に置く。timeout、spawn failure、missing config、upstream failure、rollback、migration failureなど、制御可能なfaultを注入し、diagnostic、cleanup、exit status、protocol stdoutを検証する。fault testをfastへ混ぜる場合はpure deterministic failureだけに限定する。
+fault-injection testはintegration/process層に置く。timeout、spawn failure、missing config、upstream failure、rollback、migration failureなど、制御可能なfaultを注入し、diagnostic、cleanup、exit status、protocol stdoutを検証する。fault testをfastへ混ぜる場合はpure deterministic failureだけに限定する。操作名、pre/post-state、不変条件、retry/cleanupの規約は[`fault-injection.md`](fault-injection.md)を正本とする。critical persistent/process-boundary codeには成功ケースだけでなく、少なくとも1つの決定的fault caseを必須とする。
 
 共有fixtureは[`src/test-support/`](../src/test-support/)に置く。fixtureは`t.after()`でcleanupし、`isolatedGitEnvironment`、`withEnv`、`isolatedHomeDir`、`withDeterministicEnv`でhost stateを隔離する。`src/test-support/`と`src/e2e/`は`testInfrastructure` layerであり、productionから逆依存しない。`tsconfig.build.json`でpublished `dist/`から除外する。
 
