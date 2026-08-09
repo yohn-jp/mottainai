@@ -105,8 +105,6 @@ async function actionSatisfied(
     return result.ok && !result.exists;
   }
   if (action.id === "prune-worktrees") return action.candidates.length === 0 || safety.git.pruneCandidates.length === 0;
-  if (action.id === "mark-worktree-removed") return plan.worktree?.status === "removed";
-  if (action.id === "mark-task-cleaned") return false;
   return false;
 }
 
@@ -388,14 +386,17 @@ export async function executeCleanup(input: CleanupExecuteInput): Promise<Cleanu
         cleanupError: failed.cleanupError,
       });
     }
+    if (plan.task.version === undefined || plan.task.lifecycleState === "unknown") {
+      throw new Error("cleanup plan lacks the task version or lifecycle required for commit");
+    }
     const committed = input.store.commitCleanup({
       operationId: plan.planId,
       planDigest: plan.planDigest,
       instanceId: plan.task.instanceId,
       taskId: plan.task.taskId,
       worktreeId: plan.worktree?.worktreeId,
-      expectedTaskVersion: plan.task.version!,
-      expectedLifecycle: plan.task.lifecycleState as Exclude<CleanupPlan["disposition"], "cleaned" | "unknown">,
+      expectedTaskVersion: plan.task.version,
+      expectedLifecycle: plan.task.lifecycleState,
       completedActionIds,
       committedAt: input.now?.() ?? Date.now(),
     });

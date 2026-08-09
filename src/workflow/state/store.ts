@@ -210,6 +210,8 @@ export type ReserveCleanupLeaseResult =
 export interface MarkCleanupLeaseInput {
   operationId: string;
   state: CleanupLeaseState;
+  /** 楽観ガード。ストア内の state と一致しない更新は拒否される。 */
+  expectedState?: CleanupLeaseState;
   completedActionIds?: readonly string[];
   lastError?: string;
   updatedAt?: number;

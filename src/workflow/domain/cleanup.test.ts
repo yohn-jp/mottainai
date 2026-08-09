@@ -26,6 +26,8 @@ interface Fixture {
   policy: WorkflowPolicyDocument;
 }
 
+let issueRefCounter = 0;
+
 async function fixture(
   t: Parameters<typeof createTempGitRepo>[0],
   options: { ignoredBase?: boolean } = {},
@@ -43,7 +45,7 @@ async function fixture(
     policy: cleanupPolicy(),
     taskSlug: "cleanup-test",
     branchType: "fix",
-    issueRef: String(Math.floor(Math.random() * 1_000_000)),
+    issueRef: String((issueRefCounter += 1)),
   });
   assert.equal(started.ok, true);
   if (!started.ok || started.worktree === undefined) throw new Error("cleanup fixture task did not start");
@@ -399,6 +401,68 @@ test("crash after worktree removal is recovered by the exact plan and does not d
   if (!unrelatedLease.ok) return;
   markLease(unrelated.store, { operationId: unrelatedLease.lease.operationId, state: "mutating", updatedAt: 1_001 });
   runGit(["worktree", "remove", unrelated.worktree], unrelated.root);
+  fs.mkdirSync(unrelated.worktree, { recursive: true });
+  fs.writeFileSync(path.join(unrelated.worktree, "do-not-delete.txt"), "unrelated\n");
+  const blocked = await executeCleanup({ ...planInput(unrelated), plan: unrelatedPlan.plan, now: () => 2_000 });
+  assert.notEqual(blocked.status, "completed");
+  assert.equal(fs.existsSync(path.join(unrelated.worktree, "do-not-delete.txt")), true);
+});
+
+test("crash while verifying is recovered by the exact plan and does not delete an unrelated replacement", async (t) => {
+  const value = await fixture(t);
+  makeAbandoned(value);
+  const planned = await createCleanupPlan(planInput(value));
+  assert.equal(planned.ok, true);
+  const record = value.store.listWorktreesForTask(value.taskId)[0]!;
+  const leaseResult = reserveLease(value.store, {
+    operationId: planned.plan.planId,
+    planDigest: planned.plan.planDigest,
+    instanceId: record.instanceId,
+    taskId: record.taskId,
+    worktreeId: record.worktreeId,
+    owner: "crashed-process",
+    now: 1_000,
+    ttlMs: 10,
+  });
+  assert.equal(leaseResult.ok, true);
+  if (!leaseResult.ok) return;
+  markLease(value.store, { operationId: leaseResult.lease.operationId, state: "mutating", updatedAt: 1_001 });
+  runGit(["worktree", "remove", value.worktree], value.root);
+  markLease(value.store, {
+    operationId: leaseResult.lease.operationId,
+    state: "verifying",
+    completedActionIds: ["remove-worktree"],
+    updatedAt: 1_002,
+  });
+  const recovered = await executeCleanup({ ...planInput(value), plan: planned.plan, now: () => 2_000 });
+  assert.equal(recovered.status, "completed", JSON.stringify(recovered));
+  assert.equal(value.store.getTask(value.taskId)?.lifecycleState, "cleaned");
+
+  const unrelated = await fixture(t);
+  makeAbandoned(unrelated);
+  const unrelatedPlan = await createCleanupPlan(planInput(unrelated));
+  assert.equal(unrelatedPlan.ok, true);
+  const unrelatedRecord = unrelated.store.listWorktreesForTask(unrelated.taskId)[0]!;
+  const unrelatedLease = reserveLease(unrelated.store, {
+    operationId: unrelatedPlan.plan.planId,
+    planDigest: unrelatedPlan.plan.planDigest,
+    instanceId: unrelatedRecord.instanceId,
+    taskId: unrelated.taskId,
+    worktreeId: unrelatedRecord.worktreeId,
+    owner: "crashed-process",
+    now: 1_000,
+    ttlMs: 10,
+  });
+  assert.equal(unrelatedLease.ok, true);
+  if (!unrelatedLease.ok) return;
+  markLease(unrelated.store, { operationId: unrelatedLease.lease.operationId, state: "mutating", updatedAt: 1_001 });
+  runGit(["worktree", "remove", unrelated.worktree], unrelated.root);
+  markLease(unrelated.store, {
+    operationId: unrelatedLease.lease.operationId,
+    state: "verifying",
+    completedActionIds: ["remove-worktree"],
+    updatedAt: 1_002,
+  });
   fs.mkdirSync(unrelated.worktree, { recursive: true });
   fs.writeFileSync(path.join(unrelated.worktree, "do-not-delete.txt"), "unrelated\n");
   const blocked = await executeCleanup({ ...planInput(unrelated), plan: unrelatedPlan.plan, now: () => 2_000 });

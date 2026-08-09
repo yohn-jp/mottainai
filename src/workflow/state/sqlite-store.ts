@@ -555,6 +555,10 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
           return { ok: true, lease: operation };
         }
         if (operation.state !== "failed" && operation.expiresAt > now) {
+          if (operation.owner !== input.owner) {
+            db.exec("ROLLBACK");
+            return { ok: false, reason: "active-lease", existingLease: operation };
+          }
           db.exec("COMMIT");
           return { ok: true, lease: operation };
         }
@@ -664,14 +668,34 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
         | undefined;
       if (currentRow === undefined) throw new Error(`cleanup lease not found: ${input.operationId}`);
       const current = toCleanupLeaseRecord(currentRow);
+      if (input.expectedState !== undefined && current.state !== input.expectedState) {
+        throw new Error(
+          `cleanup lease state changed concurrently: ${input.operationId} (expected ${input.expectedState}, found ${current.state})`,
+        );
+      }
       const completedActionIds =
         input.completedActionIds === undefined ? current.completedActionIds : [...new Set(input.completedActionIds)];
       const lastError = input.lastError === undefined ? current.lastError : input.lastError;
-      db.prepare(
-        `UPDATE cleanup_leases
-         SET state = ?, updated_at = ?, completed_actions_json = ?, last_error = ?
-         WHERE operation_id = ?`,
-      ).run(input.state, now, JSON.stringify(completedActionIds), lastError ?? null, input.operationId);
+      const result = db
+        .prepare(
+          `UPDATE cleanup_leases
+           SET state = ?, updated_at = ?, completed_actions_json = ?, last_error = ?
+           WHERE operation_id = ?${input.expectedState === undefined ? "" : " AND state = ?"}`,
+        )
+        .run(
+          ...(input.expectedState === undefined
+            ? ([input.state, now, JSON.stringify(completedActionIds), lastError ?? null, input.operationId] as const)
+            : ([
+                input.state,
+                now,
+                JSON.stringify(completedActionIds),
+                lastError ?? null,
+                input.operationId,
+                input.expectedState,
+              ] as const)),
+        );
+      if (result.changes === 0)
+        throw new Error(`cleanup lease state changed concurrently: ${input.operationId} (expected ${input.expectedState})`);
       const row = db.prepare("SELECT * FROM cleanup_leases WHERE operation_id = ?").get(input.operationId) as Record<
         string,
         unknown
@@ -706,6 +730,27 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
         lease.worktreeId !== input.worktreeId
       ) {
         throw new Error(`cleanup lease identity mismatch: ${input.operationId}`);
+      }
+      if (lease.state === "committed") {
+        db.exec("COMMIT");
+        return {
+          task: toTaskRecord(
+            db.prepare("SELECT * FROM tasks WHERE task_id = ?").get(input.taskId) as Record<string, unknown>,
+          ),
+          worktree:
+            input.worktreeId === undefined
+              ? undefined
+              : toWorktreeRecord(
+                  db.prepare("SELECT * FROM worktrees WHERE worktree_id = ?").get(input.worktreeId) as Record<
+                    string,
+                    unknown
+                  >,
+                ),
+          lease,
+        };
+      }
+      if (lease.state !== "verifying") {
+        throw new Error(`cleanup lease is not verified: ${input.operationId} (${lease.state})`);
       }
 
       const taskRow = db.prepare("SELECT * FROM tasks WHERE task_id = ?").get(input.taskId) as

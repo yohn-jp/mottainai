@@ -188,8 +188,19 @@ function safeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([key, entry]) => [key, canonicalize(entry)]),
+  );
+}
+
 function digestPlan(plan: Omit<CleanupPlan, "planDigest">): string {
-  return crypto.createHash("sha256").update(JSON.stringify(plan)).digest("hex");
+  return crypto.createHash("sha256").update(JSON.stringify(canonicalize(plan))).digest("hex");
 }
 
 export function computeCleanupPlanDigest(plan: CleanupPlan): string {
@@ -344,10 +355,20 @@ function isSafeManagedWorktreePath(repositoryRoot: string, candidate: string): b
   return true;
 }
 
-function discoverNestedRepositories(worktreePath: string): string[] {
-  if (!fs.existsSync(worktreePath)) return [];
+const MAX_NESTED_SCAN_DEPTH = 8;
+const MAX_NESTED_SCAN_ENTRIES = 20_000;
+
+function discoverNestedRepositories(worktreePath: string): { paths: string[]; truncated: boolean } {
+  if (!fs.existsSync(worktreePath)) return { paths: [], truncated: false };
   const nested: string[] = [];
-  const visit = (directory: string): void => {
+  let visited = 0;
+  let truncated = false;
+  const visit = (directory: string, depth: number): void => {
+    if (nested.length > 0) return;
+    if (depth > MAX_NESTED_SCAN_DEPTH || visited > MAX_NESTED_SCAN_ENTRIES) {
+      truncated = true;
+      return;
+    }
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(directory, { withFileTypes: true });
@@ -355,17 +376,18 @@ function discoverNestedRepositories(worktreePath: string): string[] {
       return;
     }
     for (const entry of entries) {
+      visited += 1;
       const absolute = path.join(directory, entry.name);
       if (entry.name === ".git") {
         if (directory !== worktreePath) nested.push(path.relative(worktreePath, directory));
         continue;
       }
       if (entry.isSymbolicLink() || !entry.isDirectory()) continue;
-      visit(absolute);
+      visit(absolute, depth + 1);
     }
   };
-  visit(worktreePath);
-  return sortedLimited(nested);
+  visit(worktreePath, 0);
+  return { paths: sortedLimited(nested), truncated: truncated && nested.length === 0 };
 }
 
 function parseWorktreeList(output: string): WorktreeGitRecord[] {
@@ -445,14 +467,10 @@ function defaultActivityProbe(input: CleanupActivityInput): CleanupActivityObser
   }
 }
 
-async function observePullRequest(
-  records: PullRequestRecord[],
-  observer: CleanupPullRequestObserver | undefined,
+async function observeSinglePullRequest(
+  record: PullRequestRecord,
+  observer: CleanupPullRequestObserver,
 ): Promise<CleanupPullRequestObservation> {
-  const record = records[0];
-  if (record === undefined) return { state: "absent" };
-  if (observer === undefined)
-    return { state: "unknown", detail: "a fresh pull-request observer is required; local metadata is not merge proof" };
   try {
     const observation = await observer(record);
     if (!["absent", "open", "merged", "closed-unmerged", "unknown"].includes(observation.state)) {
@@ -466,6 +484,38 @@ async function observePullRequest(
   } catch (err) {
     return { state: "unknown", detail: `pull-request observation failed: ${safeError(err)}` };
   }
+}
+
+/**
+ * タスクに複数 PR レコードが存在しうる（listPullRequestRecordsForTask は複数を許容）。
+ * 全レコードを観測し、保守的に集約する: open が一つでもあれば open を優先して
+ * ブロックへ倒す。古い解決済みレコードが新しい未解決 PR を隠さないようにする。
+ */
+async function observePullRequest(
+  records: PullRequestRecord[],
+  observer: CleanupPullRequestObserver | undefined,
+): Promise<CleanupPullRequestObservation> {
+  if (records.length === 0) return { state: "absent" };
+  if (observer === undefined)
+    return { state: "unknown", detail: "a fresh pull-request observer is required; local metadata is not merge proof" };
+  const observations = await Promise.all(records.map((record) => observeSinglePullRequest(record, observer)));
+  const open = observations.find((observation) => observation.state === "open");
+  if (open !== undefined) return open;
+  const unknown = observations.find((observation) => observation.state === "unknown");
+  if (unknown !== undefined) return unknown;
+  const merged = observations.filter((observation) => observation.state === "merged");
+  if (merged.length > 0) {
+    const distinctHeads = new Set(merged.map((observation) => observation.headSha));
+    if (merged.length > 1 && distinctHeads.size > 1)
+      return {
+        state: "unknown",
+        detail: "multiple merged pull-request records disagree on head; refusing to treat as a single merge",
+      };
+    return merged[0]!;
+  }
+  const closedUnmerged = observations.find((observation) => observation.state === "closed-unmerged");
+  if (closedUnmerged !== undefined) return closedUnmerged;
+  return { state: "absent" };
 }
 
 async function readGitSnapshot(
@@ -557,7 +607,20 @@ async function readGitSnapshot(
     Object.assign(snapshot, parseStatus(statusResult.stdout));
   }
 
-  snapshot.nestedRepositoryPaths = targetExists ? discoverNestedRepositories(worktree.canonicalPath) : [];
+  if (targetExists) {
+    const nestedScan = discoverNestedRepositories(worktree.canonicalPath);
+    snapshot.nestedRepositoryPaths = nestedScan.paths;
+    if (nestedScan.truncated)
+      blockers.push(
+        blocker(
+          "nested-repository-scan-truncated",
+          "nested repository scan exceeded its depth or entry limit before proving safety",
+          "reduce the worktree's directory depth or entry count, then retry",
+        ),
+      );
+  } else {
+    snapshot.nestedRepositoryPaths = [];
+  }
 
   if (snapshot.branchHead !== undefined && snapshot.baseBranchHead !== undefined) {
     const mergedResult = await gitValue(
@@ -832,11 +895,11 @@ function policyActions(
 }
 
 async function buildPlan(input: CleanupPlanInput, now: number, rule: CleanupRule): Promise<CleanupPlan> {
-  let plan = emptyPlan(input, now, rule, input.store.getTask(input.taskId));
+  const task = input.store.getTask(input.taskId);
+  let plan = emptyPlan(input, now, rule, task);
   plan = { ...plan, expiresAt: now + (input.planTtlMs ?? DEFAULT_CLEANUP_PLAN_TTL_MS) };
   const blockers = plan.blockers;
   const warnings = plan.warnings;
-  const task = input.store.getTask(input.taskId);
   if (task === undefined) {
     blockers.push(
       blocker(
@@ -1080,14 +1143,13 @@ async function buildPlan(input: CleanupPlanInput, now: number, rule: CleanupRule
         "retry with a trusted activity probe",
       ),
     );
-  if (gitRead.snapshot.stashCount !== undefined)
-    validateCommonSafety(
-      task,
-      worktree,
-      gitRead.snapshot,
-      disposition === "unknown" ? "abandoned" : disposition,
-      blockers,
-    );
+  validateCommonSafety(
+    task,
+    worktree,
+    gitRead.snapshot,
+    disposition === "unknown" ? "abandoned" : disposition,
+    blockers,
+  );
   if (
     disposition === "merged" &&
     pullRequest.state === "merged" &&

@@ -53,7 +53,7 @@ function allowedLeaseTransition(from: CleanupLeaseState, to: CleanupLeaseState):
   if (from === to) return true;
   if (from === "reserved") return to === "mutating" || to === "failed";
   if (from === "mutating") return to === "verifying" || to === "failed";
-  if (from === "verifying") return to === "committed" || to === "failed";
+  if (from === "verifying") return to === "mutating" || to === "committed" || to === "failed";
   if (from === "failed") return to === "reserved";
   return false;
 }
@@ -64,8 +64,5 @@ export function markLease(store: WorkflowStateStore, input: MarkCleanupLeaseInpu
   if (!allowedLeaseTransition(current.state, input.state)) {
     throw new Error(`invalid cleanup lease transition: ${current.state} -> ${input.state}`);
   }
-  return store.markCleanupLease(input);
+  return store.markCleanupLease({ expectedState: current.state, ...input });
 }
-
-export const reserveCleanupLease = reserveLease;
-export const markCleanupLease = markLease;
