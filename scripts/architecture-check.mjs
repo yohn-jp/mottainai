@@ -87,6 +87,7 @@ const environmentBoundaryFiles = new Set([
   "src/commands/doctor.ts",
   "src/compress/config.ts",
   "src/config.ts",
+  "src/dashboard/provider.ts",
   "src/index.ts",
   "src/init.ts",
   "src/logging.ts",
