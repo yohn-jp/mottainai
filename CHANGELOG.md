@@ -11,10 +11,28 @@ in the Claude and Codex registration examples in `README.md` together.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-08-09
+
+Git workflow governance release. Publishes the workflow-task engine
+(policy schema, repository identity, SQLite state store, protected-branch
+decisions, task/worktree lifecycle — Issue #34 family) that accumulated on
+`main` since `0.1.2`, plus the read governor, burst budget, context/result
+response budgets, symbol-first semantic IR, and retirement of native
+Windows support. See [docs/releases/0.1.3.md](docs/releases/0.1.3.md) for
+the full writeup.
+
 - **Platform support policy**: Linux is Tier 1 / canonical, WSL2 is supported
   as a Linux runtime, macOS is best effort / Tier 2, and native Windows is
   unsupported. `v0.1.2` remains the historical final native-Windows
   release/tag; Windows users should use WSL2.
+- **Added**: `mottainai_workflow_policy_explain`, `mottainai_workflow_task_start`,
+  `mottainai_workflow_task_status` MCP tools, gated behind
+  `gateway.workflowTasks` (default `false`).
+- **Added**: read governor, burst budget, context/result response budgets,
+  symbol-first semantic IR, await/watch primitives.
+- **Fixed**: worktree creation collision/race conditions, task worktree path
+  canonicalization, advisory decision reason codes, repo-state fail-closed
+  detection, `recordPullRequest` TOCTOU.
 
 ## [0.1.2] - 2026-08-06
 
