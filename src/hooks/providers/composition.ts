@@ -29,7 +29,12 @@ function candidateFor(result: HookProviderResult, baseline: HookDecision): HookD
     version: baseline.version,
     decision: actionFor(result),
     reason: result.reason,
-    ...(result.replacement === undefined ? {} : { replacement: result.replacement }),
+    // A domain blocker still needs to point at the already-resolved managed
+    // operation when generic anti-bypass found one. Providers may replace it
+    // with a more specific capability, but must not erase a usable remedy.
+    ...(result.replacement === undefined && baseline.replacement === undefined
+      ? {}
+      : { replacement: result.replacement ?? baseline.replacement }),
     ...(baseline.decisionId === undefined ? {} : { decisionId: baseline.decisionId }),
     ...(result.diagnostic === undefined ? {} : { diagnostic: result.diagnostic }),
     provider: result.provider,

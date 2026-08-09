@@ -57,6 +57,15 @@ test("workflow provider consumes current #28 policy and repository state without
   assert.equal(forcePush.state, "authoritative");
   assert.equal(forcePush.action, "deny");
   assert.equal(forcePush.rule, "protectedBranchRule.forcePush");
+
+  const currentBranchForcePush = await provider.evaluate(event("process.exec", { kind: "command", value: "git push origin HEAD --force" }));
+  assert.equal(currentBranchForcePush.state, "authoritative");
+  assert.equal(currentBranchForcePush.action, "deny");
+  assert.equal(currentBranchForcePush.rule, "protectedBranchRule.forcePush");
+
+  const worktreeManagement = await provider.evaluate(event("process.exec", { kind: "command", value: "git worktree list" }));
+  assert.equal(worktreeManagement.state, "authoritative");
+  assert.equal(worktreeManagement.reason, "workflow_worktree");
 });
 
 test("context provider reuses #70 read-governor thresholds for broad and bounded reads", async (t) => {
@@ -99,6 +108,15 @@ test("composition is deterministic, preserves a stronger deny, and surfaces non-
   assert.equal(unavailable.decision.decision, "allow");
   assert.equal(unavailable.decision.provider, "semantic");
   assert.equal(unavailable.decision.providerState, "unavailable");
+});
+
+test("a domain deny preserves a usable generic managed replacement", () => {
+  const trace = composeHookDecision(
+    { version: 1, decision: "redirect", reason: "managed_capability_available", replacement: "mottainai_exec" },
+    [{ provider: "workflow", state: "authoritative", action: "deny", reason: "workflow_protected_branch", rule: "protectedBranchRule.commit" }],
+  );
+  assert.equal(trace.decision.decision, "deny");
+  assert.equal(trace.decision.replacement, "mottainai_exec");
 });
 
 test("supported Claude hook adapter projects workflow denial and read-governor denial", async (t) => {

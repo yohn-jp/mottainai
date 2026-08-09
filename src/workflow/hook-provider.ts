@@ -50,7 +50,11 @@ function pushBranch(command: string): string | undefined {
   if (refspec === undefined) return undefined;
   const destination = refspec.includes(":") ? refspec.slice(refspec.indexOf(":") + 1) : refspec;
   if (destination === "") return undefined;
-  return destination.replace(/^refs\/heads\//u, "");
+  const branch = destination.replace(/^refs\/heads\//u, "");
+  // `git push origin HEAD` delegates the destination branch resolution to Git;
+  // the workflow authority must therefore evaluate the current checked-out
+  // branch rather than treating the literal `HEAD` as a branch name.
+  return branch === "HEAD" ? undefined : branch;
 }
 
 function requestFor(event: HookEvent): WorkflowRequest | undefined {
@@ -147,11 +151,16 @@ export function createWorkflowHookProvider(options: WorkflowHookProviderOptions)
       const rule = PROTECTED_OPERATIONS.has(request.operation as ProtectedBranchOperation)
         ? `protectedBranchRule.${request.operation}`
         : `workflow.${request.operation}`;
+      const reason = decision.reason === "control-plane-source-denied"
+        ? "workflow_control_plane"
+        : request.operation === "repoSync" || request.operation === "worktreeManagement"
+          ? "workflow_worktree"
+          : "workflow_protected_branch";
       return {
         provider: "workflow",
         state: "authoritative",
         action: decision.allowed ? (decision.mode === "advisory" ? "warn" : "allow") : "deny",
-        reason: decision.reason === "control-plane-source-denied" ? "workflow_control_plane" : "workflow_protected_branch",
+        reason,
         rule,
         diagnostic: bounded(`mode=${decision.mode};reason=${decision.reason}`),
       };
