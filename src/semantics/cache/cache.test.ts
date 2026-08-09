@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { digestCanonicalValue } from "../ir/canonical.js";
 import { serializeSnapshot } from "../ir/serialize.js";
 import { createTypeScriptFactCacheIdentity, FileSystemSemanticFactCache, MemorySemanticFactCache } from "./index.js";
-import { CacheConflictError, type DerivedFactObject } from "./types.js";
+import { CacheConflictError, type DerivedFactObject, type FactCacheKey } from "./types.js";
 import { extractTypeScriptFacts } from "../extractors/typescript/index.js";
 import { compileRepositoryModel } from "../model/compiler.js";
 
@@ -30,6 +32,35 @@ function temporaryCopy(prefix: string): string {
   const root = mkdtempSync(join(tmpdir(), prefix));
   cpSync(fixtureRoot, root, { recursive: true });
   return root;
+}
+
+function runConcurrentWriter(cacheRoot: string, payloadPath: string, key: FactCacheKey): Promise<string> {
+  const storeModule = new URL("./store.ts", import.meta.url).href;
+  const script = `
+    import { readFileSync } from "node:fs";
+    const { FileSystemSemanticFactCache } = await import(${JSON.stringify(storeModule)});
+    const cache = new FileSystemSemanticFactCache({ rootDir: ${JSON.stringify(cacheRoot)} });
+    const result = cache.put(${JSON.stringify(key)}, JSON.parse(readFileSync(${JSON.stringify(payloadPath)}, "utf8")));
+    process.stdout.write(result.status);
+  `;
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (code === 0) resolve(stdout.trim());
+      else reject(new Error(`concurrent cache writer failed (${code}): ${stderr}`));
+    });
+  });
 }
 
 test("cache hit preserves #53 output and cached objects are immutable", () => {
@@ -76,6 +107,9 @@ test("source, dirty/untracked content, TypeScript options, and package graph cha
     writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
     const packageChanged = extractTypeScriptFacts({ rootDir: root, cache });
     assert.equal(packageChanged.cacheStatus, "miss");
+
+    symlinkSync("missing-source.ts", join(root, "src", "broken.ts"));
+    assert.equal(createTypeScriptFactCacheIdentity({ rootDir: root }).cacheable, false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -124,11 +158,47 @@ test("filesystem objects are atomic/idempotent and corruption is detected", asyn
     const conflicting = { ...object, counts: { ...object.counts, files: object.counts.files + 1 } };
     assert.throws(() => cache.put(identity.key, conflicting), CacheConflictError);
 
+    extractTypeScriptFacts({ rootDir: fixtureRoot, cache });
+
     const objectPath = join(cacheRoot, "objects", `${identity.key.value}.json`);
     writeFileSync(objectPath, "{\"formatVersion\":1");
     const corrupted = cache.get(identity.key);
     assert.equal(corrupted.status, "corrupt");
     assert.match(corrupted.status === "corrupt" ? corrupted.reason : "", /JSON/u);
+
+    const malformedKey = cache.get({ algorithm: "sha256", value: "../../outside" } as FactCacheKey);
+    assert.equal(malformedKey.status, "corrupt");
+
+    const manifest = cache.getManifest(identity.worktree.id);
+    assert.equal(manifest.status, "hit");
+    const manifestPath = join(cacheRoot, "manifests", `${digestCanonicalValue(identity.worktree.id).value}.json`);
+    writeFileSync(manifestPath, JSON.stringify({ formatVersion: 1, worktree: { id: identity.worktree.id } }));
+    const corruptedManifest = cache.getManifest(identity.worktree.id);
+    assert.equal(corruptedManifest.status, "corrupt");
+  } finally {
+    rmSync(cacheRoot, { recursive: true, force: true });
+  }
+});
+
+test("separate processes publish one complete object under concurrent writes", async () => {
+  const cacheRoot = mkdtempSync(join(tmpdir(), "mottainai-semantic-cache-process-race-"));
+  const cache = new FileSystemSemanticFactCache({ rootDir: cacheRoot });
+  const extracted = extractTypeScriptFacts({ rootDir: fixtureRoot });
+  const identity = createTypeScriptFactCacheIdentity({ rootDir: fixtureRoot });
+  const object: DerivedFactObject = {
+    kind: "typescript-fact-snapshot",
+    snapshot: extracted.snapshot,
+    counts: counts(extracted.snapshot),
+  };
+  const payloadPath = join(cacheRoot, "payload.json");
+  writeFileSync(payloadPath, JSON.stringify(object));
+  try {
+    const results = await Promise.all([
+      runConcurrentWriter(cacheRoot, payloadPath, identity.key),
+      runConcurrentWriter(cacheRoot, payloadPath, identity.key),
+    ]);
+    assert.deepEqual(results.sort(), ["existing", "written"]);
+    assert.equal(cache.get(identity.key).status, "hit");
   } finally {
     rmSync(cacheRoot, { recursive: true, force: true });
   }
@@ -143,7 +213,21 @@ test("model compiler consumes cache optionally and deletion returns to an equiva
     assert.equal(cold.benchmark.cacheStatus, "miss");
     assert.equal(warm.benchmark.cacheStatus, "hit");
     assert.equal(warm.benchmark.cacheHit, true);
+    assert.ok((cold.benchmark.factExtractionMs ?? 0) >= 0);
+    assert.ok((warm.benchmark.factExtractionMs ?? 0) >= 0);
     assert.equal(cold.query.getProject().project.id, warm.query.getProject().project.id);
+
+    const identity = createTypeScriptFactCacheIdentity({ rootDir: fixtureRoot });
+    const manifest = cache.getManifest(identity.worktree.id);
+    assert.equal(manifest.status, "hit");
+    if (manifest.status === "hit") {
+      assert.equal(manifest.value.repositoryId, cold.snapshot?.repositoryIdentity.id);
+      assert.equal(manifest.value.factKey.value, identity.key.value);
+      assert.equal(manifest.value.schemaVersion, cold.snapshot?.schemaVersion);
+      assert.equal(manifest.value.sourceFingerprint.value, identity.sourceFingerprint.value);
+      assert.equal(manifest.value.extractorFingerprint.value, identity.extractorFingerprint.value);
+      assert.equal(manifest.value.declarationFingerprint.value, digestCanonicalValue(null).value);
+    }
 
     rmSync(cacheRoot, { recursive: true, force: true });
     const rebuilt = compileRepositoryModel({ rootDir: fixtureRoot, cache: new FileSystemSemanticFactCache({ rootDir: cacheRoot }) });

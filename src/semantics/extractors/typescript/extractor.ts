@@ -667,7 +667,7 @@ export class TypeScriptFactExtractor implements TypeScriptFactProvider {
           snapshot,
           elapsedMs: performance.now() - startedAt,
           counts: { ...lookup.value.counts },
-          cacheStatus: "hit",
+          cacheStatus: manifestLookup.status === "corrupt" ? "corrupt" : "hit",
           cacheManifest,
         };
       } catch {

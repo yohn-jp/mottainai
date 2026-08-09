@@ -91,6 +91,7 @@ function compileSource(options: RepositoryModelCompilerOptions): {
   snapshot?: RepositorySemanticSnapshot;
   diagnostics: SemanticDiagnostic[];
   factCounts?: TypeScriptFactCounts;
+  factExtractionMs?: number;
   cacheStatus?: DerivedFactCacheStatus;
   cacheManifest?: SnapshotManifest;
 } {
@@ -121,6 +122,7 @@ function compileSource(options: RepositoryModelCompilerOptions): {
       snapshot: extracted.snapshot,
       diagnostics: [],
       factCounts: extracted.counts,
+      factExtractionMs: extracted.elapsedMs,
       ...(extracted.cacheStatus === undefined ? {} : { cacheStatus: extracted.cacheStatus }),
       ...(extracted.cacheManifest === undefined ? {} : { cacheManifest: extracted.cacheManifest }),
     };
@@ -130,12 +132,14 @@ function compileSource(options: RepositoryModelCompilerOptions): {
         snapshot: rebound.snapshot,
         diagnostics: [],
         factCounts: extracted.counts,
+        factExtractionMs: extracted.elapsedMs,
         ...(extracted.cacheStatus === undefined ? {} : { cacheStatus: extracted.cacheStatus }),
         ...(extracted.cacheManifest === undefined ? {} : { cacheManifest: extracted.cacheManifest }),
       }
     : {
         diagnostics: rebound.diagnostics,
         factCounts: extracted.counts,
+        factExtractionMs: extracted.elapsedMs,
         ...(extracted.cacheStatus === undefined ? {} : { cacheStatus: extracted.cacheStatus }),
         ...(extracted.cacheManifest === undefined ? {} : { cacheManifest: extracted.cacheManifest }),
       };
@@ -171,6 +175,7 @@ export function compileRepositoryModel(options: RepositoryModelCompilerOptions):
     queryCount: 0,
     queryMs: 0,
     ...(compiled.factCounts === undefined ? {} : { factCounts: compiled.factCounts }),
+    ...(compiled.factExtractionMs === undefined ? {} : { factExtractionMs: compiled.factExtractionMs }),
     ...(compiled.cacheStatus === undefined ? {} : { cacheStatus: compiled.cacheStatus }),
     ...(compiled.cacheStatus === undefined ? {} : { cacheHit: compiled.cacheStatus === "hit" }),
   };

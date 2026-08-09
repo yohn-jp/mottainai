@@ -19,6 +19,7 @@ try {
     return {
       wallMs: performance.now() - startedAt,
       compileMs: result.benchmark.compileMs,
+      factExtractionMs: result.benchmark.factExtractionMs,
       cacheStatus: result.benchmark.cacheStatus,
       cacheHit: result.benchmark.cacheHit ?? false,
       factCounts: result.benchmark.factCounts,

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { basename, extname, join, relative, resolve } from "node:path";
 import * as ts from "typescript";
 import { canonicalizeSnapshot, computeIntegrityDigestsFromValidated, digestCanonicalValue } from "../ir/canonical.js";
@@ -85,6 +85,18 @@ function git(rootDir: string, args: string[]): string | undefined {
   }
 }
 
+function gitDirty(rootDir: string): boolean | undefined {
+  try {
+    return execFileSync("git", ["status", "--porcelain"], {
+      cwd: rootDir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim().length > 0;
+  } catch {
+    return undefined;
+  }
+}
+
 function remoteRepositoryName(remote: string | undefined): string | undefined {
   if (remote === undefined) return undefined;
   const normalized = remote.replace(/\.git$/u, "").replace(/^git@github\.com:/u, "https://github.com/");
@@ -115,26 +127,36 @@ function isModuleResolutionFile(name: string): boolean {
   return name === "package.json" || LOCKFILE_NAMES.has(name) || isTsConfigName(name);
 }
 
-function addInputFile(rootDir: string, filePath: string, category: InputFile["category"], output: Map<string, InputFile>): void {
+function addInputFile(rootDir: string, filePath: string, category: InputFile["category"], output: Map<string, InputFile>): boolean {
+  try {
+    lstatSync(filePath);
+  } catch (error) {
+    // A package manifest that does not exist is not an unreadable input; it is
+    // a normal package-layout case. Any other failure must fail closed.
+    return (error as NodeJS.ErrnoException).code === "ENOENT";
+  }
   try {
     const normalized = realpathSync(filePath);
     const path = relativePath(rootDir, normalized);
     const existing = output.get(path);
     const input: InputFile = { path, category, digest: sha256Bytes(readFileSync(normalized)) };
     if (existing === undefined || existing.category !== "package-graph") output.set(path, input);
+    return true;
   } catch {
     // An unreadable input is represented by cacheable=false below; it must not
     // accidentally turn a failed read into a reusable cache hit.
+    return false;
   }
 }
 
-function collectPackageManifests(directory: string, rootDir: string, output: Map<string, InputFile>): void {
+function collectPackageManifests(directory: string, rootDir: string, output: Map<string, InputFile>): boolean {
   let entries;
   try {
     entries = readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name));
   } catch {
-    return;
+    return false;
   }
+  let readable = true;
   for (const entry of entries) {
     if (entry.name === ".bin") continue;
     const filePath = join(directory, entry.name);
@@ -144,15 +166,19 @@ function collectPackageManifests(directory: string, rootDir: string, output: Map
       try {
         scopedEntries = readdirSync(filePath, { withFileTypes: true });
       } catch {
+        readable = false;
         continue;
       }
       for (const scopedEntry of scopedEntries) {
-        if (scopedEntry.isDirectory()) addInputFile(rootDir, join(filePath, scopedEntry.name, "package.json"), "package-graph", output);
+        if (scopedEntry.isDirectory()) {
+          readable = addInputFile(rootDir, join(filePath, scopedEntry.name, "package.json"), "package-graph", output) && readable;
+        }
       }
       continue;
     }
-    addInputFile(rootDir, join(filePath, "package.json"), "package-graph", output);
+    readable = addInputFile(rootDir, join(filePath, "package.json"), "package-graph", output) && readable;
   }
+  return readable;
 }
 
 function collectInputFiles(rootDir: string): { files: InputFile[]; cacheable: boolean } {
@@ -168,7 +194,7 @@ function collectInputFiles(rootDir: string): { files: InputFile[]; cacheable: bo
     }
     for (const entry of entries) {
       if (entry.isDirectory() && entry.name === "node_modules") {
-        collectPackageManifests(join(directory, entry.name), rootDir, output);
+        cacheable = collectPackageManifests(join(directory, entry.name), rootDir, output) && cacheable;
         continue;
       }
       if (entry.isDirectory()) {
@@ -177,8 +203,11 @@ function collectInputFiles(rootDir: string): { files: InputFile[]; cacheable: bo
         continue;
       }
       const extension = extname(entry.name).toLowerCase();
-      if (SOURCE_EXTENSIONS.has(extension)) addInputFile(rootDir, join(directory, entry.name), "source", output);
-      else if (isModuleResolutionFile(entry.name)) addInputFile(rootDir, join(directory, entry.name), "module-resolution", output);
+      if (SOURCE_EXTENSIONS.has(extension)) {
+        cacheable = addInputFile(rootDir, join(directory, entry.name), "source", output) && cacheable;
+      } else if (isModuleResolutionFile(entry.name)) {
+        cacheable = addInputFile(rootDir, join(directory, entry.name), "module-resolution", output) && cacheable;
+      }
     }
   };
   visit(rootDir);
@@ -202,13 +231,12 @@ function currentGitState(rootDir: string): GitState {
   const commonDirRaw = git(rootDir, ["rev-parse", "--git-common-dir"]);
   const commonDir = commonDirRaw === undefined ? undefined : resolve(rootDir, commonDirRaw);
   const branch = git(rootDir, ["symbolic-ref", "--short", "HEAD"]);
-  const status = git(rootDir, ["status", "--porcelain"]);
   return {
     revision,
     tree,
     commonDir,
     branch,
-    dirty: status !== undefined,
+    dirty: gitDirty(rootDir),
     remote: git(rootDir, ["remote", "get-url", "origin"]),
   };
 }
@@ -279,7 +307,6 @@ export function createTypeScriptFactCacheIdentity(options: TypeScriptExtractorOp
       moduleResolutionFingerprint,
       packageGraphFingerprint,
       extractorFingerprint,
-      worktreeDirty: worktree.dirty,
     }).value,
   };
   return {

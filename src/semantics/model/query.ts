@@ -59,6 +59,8 @@ export interface RepositoryModelSource {
 
 export interface RepositoryModelBenchmark {
   compileMs: number;
+  /** #50 TypeScript fact extraction, including cache identity/lookup time. */
+  factExtractionMs?: number;
   queryCount: number;
   queryMs: number;
   lastQueryMs?: number;

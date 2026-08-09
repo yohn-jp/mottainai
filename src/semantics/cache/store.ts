@@ -14,7 +14,7 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { canonicalizeSnapshot, digestCanonicalValue, stableStringifyValue } from "../ir/canonical.js";
 import { validateSnapshot } from "../ir/schema.js";
-import type { ContentDigest, RepositorySemanticSnapshot } from "../ir/types.js";
+import { CURRENT_SCHEMA_VERSION, MODEL_VERSION, type ContentDigest, type RepositorySemanticSnapshot } from "../ir/types.js";
 import {
   CacheConflictError,
   DERIVED_FACT_CACHE_FORMAT_VERSION,
@@ -33,6 +33,8 @@ interface ObjectEnvelope {
   payload: DerivedFactObject;
 }
 
+const SHA256_HEX = /^[0-9a-f]{64}$/u;
+
 function clone<T>(value: T): T {
   return structuredClone(value);
 }
@@ -41,8 +43,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isDigest(value: unknown): value is { algorithm: string; value: string } {
-  return isRecord(value) && typeof value.algorithm === "string" && typeof value.value === "string" && value.value.length > 0;
+function isDigest(value: unknown): value is ContentDigest {
+  return isRecord(value) && value.algorithm === "sha256" && typeof value.value === "string" && SHA256_HEX.test(value.value);
+}
+
+function assertFactCacheKey(key: FactCacheKey): void {
+  if (!isDigest(key)) throw new TypeError("cache key must be a sha256 digest");
+}
+
+function objectTarget(objectsDir: string, key: FactCacheKey): string {
+  assertFactCacheKey(key);
+  return join(objectsDir, `${key.value}.json`);
 }
 
 function validateFactObject(value: unknown): value is DerivedFactObject {
@@ -52,8 +63,10 @@ function validateFactObject(value: unknown): value is DerivedFactObject {
   const snapshot = value.snapshot as RepositorySemanticSnapshot | undefined;
   const validation = snapshot === undefined ? undefined : validateSnapshot(snapshot);
   if (validation === undefined || !validation.ok) return false;
-  return ["files", "symbols", "relations", "facts", "externalPackages", "externalApis", "unknowns", "diagnostics"]
-    .every((field) => typeof counts[field] === "number" && Number.isFinite(counts[field]));
+  const countFields = ["files", "symbols", "relations", "facts", "externalPackages", "externalApis", "unknowns", "diagnostics"];
+  return countFields.every(
+    (field) => typeof counts[field] === "number" && Number.isSafeInteger(counts[field]) && counts[field] >= 0,
+  ) && typeof counts.partial === "boolean";
 }
 
 function canonicalFactObject(value: DerivedFactObject): DerivedFactObject {
@@ -105,15 +118,29 @@ function parseObjectEnvelope(raw: Buffer, expectedKey: FactCacheKey): CacheLooku
 function isSnapshotManifest(value: unknown, expectedWorktreeId: string): value is SnapshotManifest {
   if (!isRecord(value) || value.formatVersion !== DERIVED_FACT_CACHE_FORMAT_VERSION) return false;
   if (!isRecord(value.worktree) || value.worktree.id !== expectedWorktreeId) return false;
+  if (value.worktree.root !== undefined && typeof value.worktree.root !== "string") return false;
+  if (value.worktree.branch !== undefined && typeof value.worktree.branch !== "string") return false;
+  if (value.worktree.gitCommonDir !== undefined && typeof value.worktree.gitCommonDir !== "string") return false;
+  if (value.worktree.dirty !== undefined && typeof value.worktree.dirty !== "boolean") return false;
+  if (value.revision !== undefined && (!isRecord(value.revision) || typeof value.revision.id !== "string" || typeof value.revision.revision !== "string")) return false;
   if (!isDigest(value.repositoryFingerprint) || !isDigest(value.revisionFingerprint)) return false;
   if (!isDigest(value.extractorFingerprint) || !isDigest(value.declarationFingerprint)) return false;
   if (!isDigest(value.sourceFingerprint) || !isDigest(value.moduleResolutionFingerprint)) return false;
   if (!isDigest(value.packageGraphFingerprint) || !isDigest(value.factKey) || !isDigest(value.snapshotDigest)) return false;
-  return typeof value.repositoryId === "string"
-    && typeof value.schemaVersion === "number"
-    && typeof value.modelVersion === "string"
-    && Array.isArray(value.extractors)
-    && Array.isArray(value.trackedFiles);
+  if (value.factKey.algorithm !== "sha256") return false;
+  if (typeof value.repositoryId !== "string" || value.repositoryId.length === 0) return false;
+  if (value.schemaVersion !== CURRENT_SCHEMA_VERSION || value.modelVersion !== MODEL_VERSION) return false;
+  if (!Array.isArray(value.extractors) || value.extractors.some((extractor) => {
+    if (!isRecord(extractor) || typeof extractor.id !== "string" || extractor.id.length === 0) return true;
+    if (typeof extractor.version !== "string" || extractor.version.length === 0) return true;
+    return extractor.optionsFingerprint !== undefined && !isDigest(extractor.optionsFingerprint);
+  })) return false;
+  return Array.isArray(value.trackedFiles) && value.trackedFiles.every((file) => {
+    if (!isRecord(file) || typeof file.path !== "string" || file.path.length === 0) return false;
+    return isDigest(file.physicalFingerprint)
+      && (file.semanticFingerprint === undefined || isDigest(file.semanticFingerprint))
+      && (file.extractorFingerprint === undefined || isDigest(file.extractorFingerprint));
+  });
 }
 
 function parseManifest(raw: Buffer, expectedWorktreeId: string): CacheLookup<SnapshotManifest> {
@@ -136,12 +163,21 @@ function temporaryPath(target: string): string {
 function writeExclusiveAtomically(target: string, bytes: Buffer): CachePutResult {
   mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
   const temporary = temporaryPath(target);
-  const fd = openSync(temporary, "wx", 0o600);
   try {
-    writeFileSync(fd, bytes);
-    fsyncSync(fd);
-  } finally {
-    closeSync(fd);
+    const fd = openSync(temporary, "wx", 0o600);
+    try {
+      writeFileSync(fd, bytes);
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+  } catch (error) {
+    try {
+      unlinkSync(temporary);
+    } catch {
+      // Best effort cleanup; no target has been published.
+    }
+    throw error;
   }
   try {
     // link() publishes a complete temporary file without allowing a concurrent
@@ -170,8 +206,14 @@ function writeExclusiveAtomically(target: string, bytes: Buffer): CachePutResult
 function writeAtomically(target: string, bytes: Buffer): void {
   mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
   const temporary = temporaryPath(target);
-  writeFileSync(temporary, bytes, { flag: "wx", mode: 0o600 });
   try {
+    const fd = openSync(temporary, "wx", 0o600);
+    try {
+      writeFileSync(fd, bytes);
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
     renameSync(temporary, target);
   } finally {
     try {
@@ -198,7 +240,12 @@ export class FileSystemSemanticFactCache implements SemanticFactCache {
   }
 
   get(key: FactCacheKey): CacheLookup<DerivedFactObject> {
-    const target = join(this.objectsDir, `${key.value}.json`);
+    let target: string;
+    try {
+      target = objectTarget(this.objectsDir, key);
+    } catch (error) {
+      return { status: "corrupt", reason: error instanceof Error ? error.message : String(error) };
+    }
     if (!existsSync(target)) return { status: "miss" };
     try {
       return parseObjectEnvelope(readFileSync(target), key);
@@ -208,7 +255,7 @@ export class FileSystemSemanticFactCache implements SemanticFactCache {
   }
 
   put(key: FactCacheKey, value: DerivedFactObject): CachePutResult {
-    return writeExclusiveAtomically(join(this.objectsDir, `${key.value}.json`), envelopeBytes(key, value));
+    return writeExclusiveAtomically(objectTarget(this.objectsDir, key), envelopeBytes(key, value));
   }
 
   getManifest(worktreeId: SnapshotManifest["worktree"]["id"]): CacheLookup<SnapshotManifest> {
@@ -223,6 +270,7 @@ export class FileSystemSemanticFactCache implements SemanticFactCache {
   }
 
   putManifest(manifest: SnapshotManifest): void {
+    if (!isSnapshotManifest(manifest, manifest.worktree.id)) throw new TypeError("manifest failed identity or fingerprint validation");
     const manifestDigest = digestCanonicalValue(manifest.worktree.id).value;
     writeAtomically(join(this.manifestsDir, `${manifestDigest}.json`), Buffer.from(stableStringifyValue(manifest), "utf8"));
   }
@@ -234,11 +282,17 @@ export class MemorySemanticFactCache implements SemanticFactCache {
   private readonly manifests = new Map<string, SnapshotManifest>();
 
   get(key: FactCacheKey): CacheLookup<DerivedFactObject> {
+    try {
+      assertFactCacheKey(key);
+    } catch (error) {
+      return { status: "corrupt", reason: error instanceof Error ? error.message : String(error) };
+    }
     const value = this.objects.get(key.value);
     return value === undefined ? { status: "miss" } : { status: "hit", value: clone(value) };
   }
 
   put(key: FactCacheKey, value: DerivedFactObject): CachePutResult {
+    assertFactCacheKey(key);
     const canonical = canonicalFactObject(value);
     const existing = this.objects.get(key.value);
     if (existing === undefined) {
@@ -255,6 +309,7 @@ export class MemorySemanticFactCache implements SemanticFactCache {
   }
 
   putManifest(manifest: SnapshotManifest): void {
+    if (!isSnapshotManifest(manifest, manifest.worktree.id)) throw new TypeError("manifest failed identity or fingerprint validation");
     this.manifests.set(manifest.worktree.id, clone(manifest));
   }
 }
