@@ -1,0 +1,91 @@
+name: OpenCodeReview
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions: {}
+
+jobs:
+  eligibility:
+    name: OpenCodeReview eligibility
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      ok: ${{ steps.check.outputs.ok }}
+    steps:
+      - name: Allow same-repository pull requests only
+        id: check
+        env:
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -eu
+          if [ "$HEAD_REPOSITORY" = "$BASE_REPOSITORY" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "Fork-originated pull request; OpenCodeReview is skipped."
+          fi
+
+  open-code-review:
+    name: OpenCodeReview (Kimi K3; fail-closed 32K gate)
+    needs: eligibility
+    # v1.8.10 has no defensible per-request <=32K control. Keep the
+    # credentialed job disabled until the repository variable is explicitly
+    # enabled after upstream configuration or implementation evidence changes.
+    if: ${{ needs.eligibility.outputs.ok == 'true' && vars.OPENCODEREVIEW_32K_CONFIRMED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Mask Featherless credential
+        env:
+          FEATHERLESS_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -eu
+          test -n "$FEATHERLESS_API_KEY"
+          echo "::add-mask::$FEATHERLESS_API_KEY"
+
+      - name: Run OpenCodeReview
+        id: review
+        uses: alibaba/open-code-review@4bcc95acecd629e64ea984c962cfd08dd892a38e # v1.8.10
+        with:
+          llm_url: https://api.featherless.ai/v1
+          llm_auth_token: ${{ secrets.OPENAI_API_KEY }}
+          llm_model: moonshotai/Kimi-K3
+          llm_use_anthropic: "false"
+          llm_extra_body: '{"thinking":{"type":"disabled"}}'
+          review_concurrency: "1"
+          ocr_version: "1.8.10"
+          github_token: ${{ github.token }}
+          upload_artifacts: "false"
+          sticky_summary: "true"
+          incremental: "true"
+          incremental_overlap_threshold: "0.6"
+          route_severity_below: "medium"
+          route_categories: "style,documentation"
+          review_comment_batch_size: "20"
+
+      - name: Publish non-secret review metadata
+        if: always()
+        env:
+          COMMENTS_TOTAL: ${{ steps.review.outputs.comments_total }}
+          COMMENTS_INLINE: ${{ steps.review.outputs.comments_inline }}
+          COMMENTS_ROUTED: ${{ steps.review.outputs.comments_routed }}
+          COMMENTS_SKIPPED: ${{ steps.review.outputs.comments_skipped }}
+          COMMENTS_FAILED: ${{ steps.review.outputs.comments_failed }}
+        run: |
+          {
+            echo "### OpenCodeReview"
+            echo "- Harness: OpenCodeReview"
+            echo "- Version: v1.8.10 (4bcc95acecd629e64ea984c962cfd08dd892a38e)"
+            echo "- Model: moonshotai/Kimi-K3 via Featherless OpenAI-compatible API"
+            echo "- Incremental duplicate suppression: enabled"
+            echo "- Severity routing: medium and low to summary; high and critical inline"
+            echo "- Raw artifacts: disabled"
+            echo "- Findings: total=${COMMENTS_TOTAL:-unavailable}, inline=${COMMENTS_INLINE:-unavailable}, routed=${COMMENTS_ROUTED:-unavailable}, skipped=${COMMENTS_SKIPPED:-unavailable}, failed=${COMMENTS_FAILED:-unavailable}"
+          } >> "$GITHUB_STEP_SUMMARY"
