@@ -166,7 +166,7 @@ export async function dispatchClientHook(
   );
   // Core policy never assumes that a replacement exists. The CLI supplies the
   // live local-tool surface at the runtime boundary; direct embedders must do so
-  // explicitly or receive fail-open unavailable-capability decisions.
+  // explicitly so the configured fail-open/fail-closed mode can be applied.
   const exposedTools = context.exposedTools ?? new Set<string>();
   const capabilities = capabilityRegistryFromRuntime({ dispatcherAvailable, exposedTools });
   const decision = await dispatchHook(event, { policy: policyResult.policy, capabilities });
