@@ -248,6 +248,29 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 9,
+    description: "workflow: privacy-safe guardrail audit records",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE audit_records (
+          audit_id TEXT PRIMARY KEY,
+          operation TEXT NOT NULL,
+          decision TEXT NOT NULL CHECK (decision IN ('allow', 'deny', 'observe')),
+          rule_id TEXT NOT NULL,
+          reason_code TEXT NOT NULL,
+          instance_id TEXT REFERENCES repository_instances (instance_id),
+          task_id TEXT REFERENCES tasks (task_id) ON DELETE SET NULL,
+          policy_provenance TEXT,
+          metadata_json TEXT NOT NULL DEFAULT '{}',
+          recorded_at INTEGER NOT NULL
+        );
+        CREATE INDEX idx_audit_records_recorded_at ON audit_records (recorded_at);
+        CREATE INDEX idx_audit_records_operation ON audit_records (operation, decision);
+        CREATE INDEX idx_audit_records_instance ON audit_records (instance_id, task_id);
+      `);
+    },
+  },
 ];
 
 function currentVersion(db: DatabaseSync): number {

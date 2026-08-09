@@ -98,6 +98,43 @@ export interface PullRequestRecord {
   updatedAt: number;
 }
 
+export const GUARDRAIL_AUDIT_DECISIONS = ["allow", "deny", "observe"] as const;
+export type GuardrailAuditDecision = (typeof GUARDRAIL_AUDIT_DECISIONS)[number];
+export type AuditMetadataValue = string | number | boolean | null;
+export type AuditMetadata = Readonly<Record<string, AuditMetadataValue>>;
+
+export interface GuardrailAuditRecord {
+  auditId: string;
+  operation: string;
+  decision: GuardrailAuditDecision;
+  ruleId: string;
+  reasonCode: string;
+  instanceId: RepositoryInstanceId | undefined;
+  taskId: TaskId | undefined;
+  policyProvenance: string | undefined;
+  metadata: AuditMetadata;
+  recordedAt: number;
+}
+
+export interface RecordGuardrailDecisionInput {
+  operation: string;
+  decision: GuardrailAuditDecision;
+  ruleId: string;
+  reasonCode: string;
+  instanceId?: RepositoryInstanceId;
+  taskId?: TaskId;
+  policyProvenance?: string;
+  metadata?: AuditMetadata;
+  recordedAt?: number;
+}
+
+export interface ListGuardrailAuditRecordsOptions {
+  instanceId?: RepositoryInstanceId;
+  taskId?: TaskId;
+  since?: number;
+  until?: number;
+}
+
 export interface RecordPullRequestInput {
   taskId?: TaskId;
   provider: string;
@@ -252,6 +289,8 @@ export interface WorkflowStateStore {
   getRepositoryInstance(instanceId: RepositoryInstanceId): RepositoryInstanceRecord | undefined;
   getRepositoryInstanceByCommonDir(gitCommonDir: string): RepositoryInstanceRecord | undefined;
   listRepositoryPaths(instanceId: RepositoryInstanceId): RepositoryPathRecord[];
+  listRepositorySources(): RepositorySourceRecord[];
+  listRepositoryInstances(): RepositoryInstanceRecord[];
 
   /**
    * hook がある branch の commit で policy check を通過したことを記録する
@@ -293,9 +332,15 @@ export interface WorkflowStateStore {
   updateTaskLifecycleState(taskId: TaskId, next: LifecycleState, updatedAt?: number): TaskRecord;
   getTask(taskId: TaskId): TaskRecord | undefined;
   getActiveTaskByIssueRef(instanceId: RepositoryInstanceId, issueRef: string): TaskRecord | undefined;
+  listTasks(instanceId?: RepositoryInstanceId): TaskRecord[];
   listWorktreesForTask(taskId: TaskId): WorktreeRecord[];
   /** instance 全体の worktree 一覧（task を横断）。衝突・stale metadata 検出のために使う。 */
   listWorktreesForInstance(instanceId: RepositoryInstanceId): WorktreeRecord[];
+  listWorktrees(instanceId?: RepositoryInstanceId): WorktreeRecord[];
+  /** `reserved`/`mutating`/`verifying` の期限切れを reconciliation が検出するための全件参照。 */
+  listCleanupLeases(instanceId?: RepositoryInstanceId): CleanupLeaseRecord[];
+  /** 外部パスを削除せず、既に存在しない worktree のmetadataだけを明示的に確定する。 */
+  markWorktreeRemoved(worktreeId: WorktreeId, updatedAt?: number): WorktreeRecord;
 
   /** Cleanup lease operations are each short local transactions; callers do external work between them. */
   reserveCleanupLease(input: ReserveCleanupLeaseInput): ReserveCleanupLeaseResult;
@@ -323,6 +368,10 @@ export interface WorkflowStateStore {
     lifecycleState: PullRequestLifecycleState,
     updatedAt?: number,
   ): PullRequestRecord;
+  listPullRequestRecords(): PullRequestRecord[];
+
+  recordGuardrailDecision(input: RecordGuardrailDecisionInput): GuardrailAuditRecord;
+  listGuardrailAuditRecords(options?: ListGuardrailAuditRecordsOptions): GuardrailAuditRecord[];
 
   /** backend 固有のリソース解放（DB クローズ等）。プロセス終了時 best-effort で呼ぶ。 */
   close(): void;
