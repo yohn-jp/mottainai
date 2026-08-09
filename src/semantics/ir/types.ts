@@ -434,6 +434,14 @@ export interface SymbolEntity extends SemanticEntityBase {
   classification: "managed" | "shared";
 }
 
+/** Declared ownership is authoritative; derived Symbol classification is extractor-owned metadata. */
+export interface SymbolOwnershipDeclaration {
+  id: LogicalId;
+  symbolId: LogicalId;
+  classification: "managed" | "shared";
+  componentId?: LogicalId;
+}
+
 export interface CapabilityEntity extends SemanticEntityBase {
   kind: "capability";
   meaning: string;
@@ -474,6 +482,14 @@ export interface ConstraintEntity extends SemanticEntityBase {
   statement: string;
   scope: string;
   enforcement: "advisory" | "required" | "protected";
+}
+
+export interface SemanticDebtIntent {
+  id: LogicalId;
+  subject: LogicalId;
+  statement: string;
+  status: "open" | "accepted" | "resolved";
+  priority: "low" | "medium" | "high";
 }
 
 export interface FileEntity extends SemanticEntityBase {
@@ -642,6 +658,8 @@ export interface DeclaredState {
   terminology: TerminologyLink[];
   decisionLinks: DecisionLink[];
   commentPolicy: CanonicalProsePolicy;
+  symbolOwnership?: SymbolOwnershipDeclaration[];
+  semanticDebt?: SemanticDebtIntent[];
   verificationPerspectives?: VerificationPerspective[];
   verificationRequirements?: VerificationRequirement[];
 }
@@ -684,6 +702,15 @@ export interface SemanticTransaction {
   intent: SemanticIntent;
   delta: SemanticDelta;
   provenance: Provenance;
+  reason?: string;
+  authorizedDeltaKinds?: SemanticDeltaKind[];
+  protectedChanges?: LogicalId[];
+  transactionProvenance?: {
+    actor?: string;
+    issue?: string;
+    task?: string;
+    ref?: string;
+  };
 }
 
 export interface AnalysisUnknown {

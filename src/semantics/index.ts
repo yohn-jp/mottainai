@@ -2,4 +2,6 @@ export * from "./ir/ids.js";
 export * from "./ir/schema.js";
 export * from "./ir/serialize.js";
 export * from "./ir/types.js";
+export * from "./mutations/index.js";
+export * from "./source/index.js";
 export * from "./verification/adequacy.js";
