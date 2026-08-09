@@ -69,7 +69,7 @@ jobs:
             }
 
   open-code-review:
-    name: OpenCodeReview (model-aware fail-closed budget)
+    name: OpenCodeReview (explicit provider-bound gate)
     needs: eligibility
     if: needs.eligibility.outputs.ok == 'true'
     runs-on: ubuntu-latest
@@ -99,14 +99,22 @@ jobs:
           REVIEW_OUTPUT_RESERVE_TOKENS: ${{ vars.OPEN_CODE_REVIEW_OUTPUT_RESERVE_TOKENS || '8192' }}
           REVIEW_SAFETY_MARGIN_TOKENS: ${{ vars.OPEN_CODE_REVIEW_SAFETY_MARGIN_TOKENS || '2048' }}
           REVIEW_BUDGET_EXPLICIT: ${{ vars.OPEN_CODE_REVIEW_CONTEXT_TOKENS != '' && vars.OPEN_CODE_REVIEW_OUTPUT_RESERVE_TOKENS != '' && vars.OPEN_CODE_REVIEW_SAFETY_MARGIN_TOKENS != '' }}
+          # The pinned action has no request-token input. This remains the
+          # explicit escape hatch until an upstream or repository-owned bound
+          # is evidenced; the estimator cannot set it.
+          REVIEW_PROVIDER_REQUEST_BOUND: ${{ vars.OPENCODEREVIEW_32K_CONFIRMED || 'false' }}
           REVIEW_BASE_SHA: ${{ needs.eligibility.outputs.base_sha }}
           REVIEW_HEAD_SHA: ${{ needs.eligibility.outputs.head_sha }}
           REVIEW_PR_NUMBER: ${{ needs.eligibility.outputs.pr_number }}
           REVIEW_REPO_CONTEXT_MAX_LINES: "240"
           GITHUB_TOKEN: ${{ github.token }}
+        continue-on-error: true
         run: node scripts/review-preflight.mjs
 
       - name: Mask Featherless credential
+        if: >-
+          steps.preflight.outputs.status == 'ready' &&
+          steps.preflight.outputs.provider_invocation_allowed == 'true'
         env:
           FEATHERLESS_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
@@ -116,6 +124,9 @@ jobs:
 
       - name: Run OpenCodeReview
         id: review
+        if: >-
+          steps.preflight.outputs.status == 'ready' &&
+          steps.preflight.outputs.provider_invocation_allowed == 'true'
         uses: alibaba/open-code-review@4bcc95acecd629e64ea984c962cfd08dd892a38e # v1.8.10
         with:
           llm_url: https://api.featherless.ai/v1
@@ -141,12 +152,18 @@ jobs:
           PREFLIGHT_STATUS: ${{ steps.preflight.outcome }}
           PREFLIGHT_RESULT: ${{ steps.preflight.outputs.status }}
           REVIEW_STATUS: ${{ steps.review.outcome }}
+          PREFLIGHT_REASON: ${{ steps.preflight.outputs.reason }}
           REVIEW_MODEL: ${{ vars.OPEN_CODE_REVIEW_MODEL || 'moonshotai/Kimi-K3' }}
           REVIEW_CONTEXT_TOKENS: ${{ steps.preflight.outputs.total_context_tokens }}
           REVIEW_OUTPUT_RESERVE_TOKENS: ${{ steps.preflight.outputs.reserved_output_tokens }}
           REVIEW_SAFETY_MARGIN_TOKENS: ${{ steps.preflight.outputs.safety_margin_tokens }}
           REVIEW_MAX_INPUT_TOKENS: ${{ steps.preflight.outputs.maximum_input_tokens }}
           REVIEW_INPUT_TOKENS: ${{ steps.preflight.outputs.estimated_input_tokens }}
+          PROVIDER_BOUND: ${{ steps.preflight.outputs.provider_request_bound }}
+          PROVIDER_ALLOWED: ${{ steps.preflight.outputs.provider_invocation_allowed }}
+          CHUNKING: ${{ steps.preflight.outputs.chunking }}
+          PASS_COUNT: ${{ steps.preflight.outputs.passes }}
+          CHUNK_COUNT: ${{ steps.preflight.outputs.chunks }}
           COMMENTS_TOTAL: ${{ steps.review.outputs.comments_total }}
           COMMENTS_INLINE: ${{ steps.review.outputs.comments_inline }}
           COMMENTS_ROUTED: ${{ steps.review.outputs.comments_routed }}
@@ -161,11 +178,17 @@ jobs:
             echo "- Preflight: ${PREFLIGHT_RESULT:-unavailable} (step=${PREFLIGHT_STATUS:-unavailable})"
             echo "- Budget: context=${REVIEW_CONTEXT_TOKENS:-unavailable}, output-reserve=${REVIEW_OUTPUT_RESERVE_TOKENS:-unavailable}, safety-margin=${REVIEW_SAFETY_MARGIN_TOKENS:-unavailable}, effective-input=${REVIEW_MAX_INPUT_TOKENS:-unavailable}"
             echo "- Estimated input: ${REVIEW_INPUT_TOKENS:-unavailable}"
+            echo "- Provider request bound proven: ${PROVIDER_BOUND:-false}"
+            echo "- Credentialed provider invocation allowed: ${PROVIDER_ALLOWED:-false}"
+            echo "- Chunking: ${CHUNKING:-false}"
+            echo "- Passes: ${PASS_COUNT:-0}"
+            echo "- Chunks: ${CHUNK_COUNT:-0}"
             echo "- Review step: ${REVIEW_STATUS:-not_started}"
             echo "- Incremental duplicate suppression: enabled"
             echo "- Severity routing: medium and low to summary; high and critical always inline (no category-based routing)"
             echo "- Raw artifacts: disabled"
             echo "- Findings: total=${COMMENTS_TOTAL:-unavailable}, inline=${COMMENTS_INLINE:-unavailable}, routed=${COMMENTS_ROUTED:-unavailable}, skipped=${COMMENTS_SKIPPED:-unavailable}, failed=${COMMENTS_FAILED:-unavailable}"
+            echo "- Reason: ${PREFLIGHT_REASON:-unavailable}"
             if [ "${REVIEW_STATUS:-}" = "success" ]; then
               echo "- Status: review_generated"
             else

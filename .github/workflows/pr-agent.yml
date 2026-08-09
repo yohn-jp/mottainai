@@ -100,16 +100,23 @@ jobs:
           REVIEW_OUTPUT_RESERVE_TOKENS: ${{ vars.PR_AGENT_OUTPUT_RESERVE_TOKENS || '8192' }}
           REVIEW_SAFETY_MARGIN_TOKENS: ${{ vars.PR_AGENT_SAFETY_MARGIN_TOKENS || '2048' }}
           REVIEW_BUDGET_EXPLICIT: ${{ vars.PR_AGENT_CONTEXT_TOKENS != '' && vars.PR_AGENT_OUTPUT_RESERVE_TOKENS != '' && vars.PR_AGENT_SAFETY_MARGIN_TOKENS != '' }}
+          # PR-Agent's CUSTOM_MODEL_MAX_TOKENS is the enforceable upstream
+          # request bound used by the provider step below.
+          REVIEW_PROVIDER_REQUEST_BOUND: "true"
           REVIEW_BASE_SHA: ${{ needs.eligibility.outputs.base_sha }}
           REVIEW_HEAD_SHA: ${{ needs.eligibility.outputs.head_sha }}
           REVIEW_PR_NUMBER: ${{ needs.eligibility.outputs.pr_number }}
           REVIEW_REPO_CONTEXT_MAX_LINES: "240"
           REVIEW_NORMALIZE_PR_AGENT_COMMAND: "true"
           GITHUB_TOKEN: ${{ github.token }}
+        continue-on-error: true
         run: node scripts/review-preflight.mjs
 
       - name: PR Agent action step
         id: review
+        if: >-
+          steps.preflight.outputs.status == 'ready' &&
+          steps.preflight.outputs.provider_invocation_allowed == 'true'
         uses: qodo-ai/pr-agent@f6af7d77554ff8d26adffded077e6461329e92fa # v0.42.0
         env:
           OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -134,12 +141,35 @@ jobs:
         if: always()
         env:
           PREFLIGHT_STATUS: ${{ steps.preflight.outcome }}
+          PREFLIGHT_RESULT: ${{ steps.preflight.outputs.status }}
+          PREFLIGHT_REASON: ${{ steps.preflight.outputs.reason }}
           REVIEW_STATUS: ${{ steps.review.outcome }}
+          REVIEW_MODEL: ${{ vars.PR_AGENT_MODEL || 'openai/moonshotai/Kimi-K3' }}
+          REVIEW_CONTEXT_TOKENS: ${{ steps.preflight.outputs.total_context_tokens }}
+          REVIEW_OUTPUT_RESERVE_TOKENS: ${{ steps.preflight.outputs.reserved_output_tokens }}
+          REVIEW_SAFETY_MARGIN_TOKENS: ${{ steps.preflight.outputs.safety_margin_tokens }}
+          REVIEW_MAX_INPUT_TOKENS: ${{ steps.preflight.outputs.maximum_input_tokens }}
+          REVIEW_INPUT_TOKENS: ${{ steps.preflight.outputs.estimated_input_tokens }}
+          PROVIDER_BOUND: ${{ steps.preflight.outputs.provider_request_bound }}
+          PROVIDER_ALLOWED: ${{ steps.preflight.outputs.provider_invocation_allowed }}
+          CHUNKING: ${{ steps.preflight.outputs.chunking }}
+          PASS_COUNT: ${{ steps.preflight.outputs.passes }}
+          CHUNK_COUNT: ${{ steps.preflight.outputs.chunks }}
         run: |
           {
             echo "### PR-Agent outcome"
             echo "- Preflight step: ${PREFLIGHT_STATUS:-unavailable}"
+            echo "- Preflight result: ${PREFLIGHT_RESULT:-unavailable}"
+            echo "- Model: ${REVIEW_MODEL:-unavailable}"
+            echo "- Budget: context=${REVIEW_CONTEXT_TOKENS:-unavailable}, output-reserve=${REVIEW_OUTPUT_RESERVE_TOKENS:-unavailable}, safety-margin=${REVIEW_SAFETY_MARGIN_TOKENS:-unavailable}, effective-input=${REVIEW_MAX_INPUT_TOKENS:-unavailable}"
+            echo "- Estimated input: ${REVIEW_INPUT_TOKENS:-unavailable}"
+            echo "- Provider request bound proven: ${PROVIDER_BOUND:-false}"
+            echo "- Credentialed provider invocation allowed: ${PROVIDER_ALLOWED:-false}"
+            echo "- Chunking: ${CHUNKING:-false}"
+            echo "- Passes: ${PASS_COUNT:-0}"
+            echo "- Chunks: ${CHUNK_COUNT:-0}"
             echo "- Review action step: ${REVIEW_STATUS:-not_started}"
+            echo "- Reason: ${PREFLIGHT_REASON:-unavailable}"
             if [ "${REVIEW_STATUS:-}" = "success" ]; then
               echo "- Status: review_generated"
             else

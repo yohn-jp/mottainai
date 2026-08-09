@@ -9,6 +9,19 @@ export const DEFAULT_REVIEW_BUDGET = Object.freeze({
   safetyMarginTokens: 2_048,
 });
 
+export const MANUAL_REVIEW_COMMANDS = Object.freeze({
+  "PR-Agent": "/qodo-review",
+  OpenCodeReview: "/open-code-review",
+});
+
+export const TRUSTED_COMMENTER_ASSOCIATIONS = Object.freeze(["OWNER", "MEMBER", "COLLABORATOR"]);
+
+export const NO_CHUNKING_METADATA = Object.freeze({
+  chunking: false,
+  passCount: 0,
+  chunkCount: 0,
+});
+
 const GIT_OUTPUT_LIMIT_BYTES = 8 * 1024 * 1024;
 const CONTEXT_SECTION_OVERHEAD_TOKENS = 32;
 const DEFAULT_REPO_CONTEXT_MAX_LINES = 240;
@@ -102,6 +115,21 @@ export function estimateReviewInput(parts) {
     .reduce((total, part) => total + estimateUpperBoundTokens(part) + CONTEXT_SECTION_OVERHEAD_TOKENS, 0);
 }
 
+export function isTrustedCommenter({ authorAssociation, userType = "User" } = {}) {
+  return userType !== "Bot" && TRUSTED_COMMENTER_ASSOCIATIONS.includes(authorAssociation);
+}
+
+export function isSameRepositoryPullRequest({ headRepository, baseRepository } = {}) {
+  return Boolean(headRepository) && headRepository === baseRepository;
+}
+
+export function routeManualReview({ reviewer, body, authorAssociation, userType = "User" } = {}) {
+  const expectedCommand = MANUAL_REVIEW_COMMANDS[reviewer];
+  return (
+    Boolean(expectedCommand) && isTrustedCommenter({ authorAssociation, userType }) && body?.trim() === expectedCommand
+  );
+}
+
 export function evaluateReviewBudget({ maximumInputTokens, estimatedInputTokens }) {
   if (estimatedInputTokens <= maximumInputTokens) {
     return Object.freeze({
@@ -114,6 +142,42 @@ export function evaluateReviewBudget({ maximumInputTokens, estimatedInputTokens 
     ok: false,
     status: "review_not_generated",
     reason: `estimated input (${estimatedInputTokens}) exceeds effective input budget (${maximumInputTokens})`,
+  });
+}
+
+export function evaluateReviewRequest({
+  maximumInputTokens,
+  estimatedInputTokens,
+  providerRequestBound = false,
+  reviewer = "LLM reviewer",
+} = {}) {
+  const metadata = NO_CHUNKING_METADATA;
+  if (!providerRequestBound) {
+    return Object.freeze({
+      ok: false,
+      status: "review_not_generated",
+      providerRequestBound: false,
+      providerInvocationAllowed: false,
+      ...metadata,
+      reason: `${reviewer} provider request bound is not proven; credentialed execution is disabled`,
+    });
+  }
+
+  const budgetDecision = evaluateReviewBudget({ maximumInputTokens, estimatedInputTokens });
+  if (!budgetDecision.ok) {
+    return Object.freeze({
+      ...budgetDecision,
+      providerRequestBound: true,
+      providerInvocationAllowed: false,
+      ...metadata,
+    });
+  }
+
+  return Object.freeze({
+    ...budgetDecision,
+    providerRequestBound: true,
+    providerInvocationAllowed: true,
+    ...metadata,
   });
 }
 
@@ -259,7 +323,11 @@ function writeOutput(environment, result) {
     safety_margin_tokens: result.budget?.safetyMarginTokens ?? "unavailable",
     maximum_input_tokens: result.budget?.maximumInputTokens ?? "unavailable",
     estimated_input_tokens: result.estimatedInputTokens ?? "unavailable",
-    chunked: "false",
+    provider_request_bound: result.providerRequestBound ?? "false",
+    provider_invocation_allowed: result.providerInvocationAllowed ?? "false",
+    chunking: result.chunking ?? NO_CHUNKING_METADATA.chunking,
+    passes: result.passCount ?? NO_CHUNKING_METADATA.passCount,
+    chunks: result.chunkCount ?? NO_CHUNKING_METADATA.chunkCount,
   }).map(([key, value]) => `${key}=${String(value)}`);
   fs.appendFileSync(environment.GITHUB_OUTPUT, `${lines.join("\n")}\n`);
 }
@@ -277,7 +345,11 @@ function writeSummary(environment, result) {
     `- Safety margin: ${budget?.safetyMarginTokens ?? "unavailable"} tokens`,
     `- Effective maximum input: ${budget?.maximumInputTokens ?? "unavailable"} tokens`,
     `- Estimated input: ${result.estimatedInputTokens ?? "unavailable"} tokens`,
-    "- Chunking: unavailable for the pinned upstream action; oversized requests fail closed",
+    `- Provider request bound proven: ${result.providerRequestBound ?? false}`,
+    `- Provider invocation allowed: ${result.providerInvocationAllowed ?? false}`,
+    `- Chunking: ${result.chunking ?? NO_CHUNKING_METADATA.chunking}`,
+    `- Passes: ${result.passCount ?? NO_CHUNKING_METADATA.passCount}`,
+    `- Chunks: ${result.chunkCount ?? NO_CHUNKING_METADATA.chunkCount}`,
     `- Reason: ${result.reason}`,
   ];
   fs.appendFileSync(environment.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`);
@@ -294,13 +366,22 @@ export async function runPreflight(environment = process.env) {
       maximumInputTokens: budget.maximumInputTokens,
       estimatedInputTokens,
     });
-    return Object.freeze({ ...decision, budget, estimatedInputTokens });
+    const requestDecision = evaluateReviewRequest({
+      maximumInputTokens: budget.maximumInputTokens,
+      estimatedInputTokens,
+      providerRequestBound: parseBoolean(environment.REVIEW_PROVIDER_REQUEST_BOUND),
+      reviewer: environment.REVIEWER,
+    });
+    return Object.freeze({ ...requestDecision, budget, estimatedInputTokens, inputBudget: decision });
   } catch (error) {
     return Object.freeze({
       ok: false,
       status: "review_not_generated",
       reason: error instanceof Error ? error.message : "review preflight failed",
       budget,
+      providerRequestBound: false,
+      providerInvocationAllowed: false,
+      ...NO_CHUNKING_METADATA,
     });
   }
 }
