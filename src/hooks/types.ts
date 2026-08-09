@@ -22,6 +22,8 @@ export type HookOperation =
 export type HookRolloutMode = "observe" | "warn" | "enforce";
 export type HookFailureMode = "open" | "closed";
 export type HookDecisionKind = "allow" | "warn" | "deny" | "redirect";
+export type HookProviderName = "generic" | "workflow" | "context" | "semantic";
+export type HookProviderState = "not_applicable" | "authoritative" | "unavailable" | "unsupported" | "stale";
 
 export type HookReasonCode =
   | "managed_capability_available"
@@ -34,7 +36,20 @@ export type HookReasonCode =
   | "hook_timeout"
   | "hook_error"
   | "policy_invalid"
-  | "adapter_unsupported";
+  | "adapter_unsupported"
+  | "workflow_protected_branch"
+  | "workflow_control_plane"
+  | "workflow_worktree"
+  | "workflow_authority_unavailable"
+  | "workflow_unsupported"
+  | "context_read_governor"
+  | "context_authority_unavailable"
+  | "context_unsupported"
+  | "semantic_authority_unavailable"
+  | "semantic_stale"
+  | "provider_unavailable"
+  | "provider_unsupported"
+  | "provider_stale";
 
 export interface HookRepository {
   /** Real path derived by Mottainai, never copied from an untrusted event field. */
@@ -74,6 +89,12 @@ export interface HookDecision {
   decisionId?: string;
   /** Bounded diagnostic for an explicit explanation path, not raw subprocess output. */
   diagnostic?: string;
+  /** The authority that selected this result. Omitted on legacy generic decisions. */
+  provider?: HookProviderName;
+  /** Stable rule identifier owned by the selected provider. */
+  rule?: string;
+  /** Whether the selected provider state is authoritative. */
+  providerState?: HookProviderState;
 }
 
 function bounded(value: string | undefined, maximum: number): string | undefined {
@@ -116,6 +137,9 @@ export function boundHookDecision(decision: HookDecision, maximumBytes = HOOK_DE
     ...(bounded(decision.diagnostic, HOOK_DIAGNOSTIC_MAX_LENGTH) === undefined
       ? {}
       : { diagnostic: bounded(decision.diagnostic, HOOK_DIAGNOSTIC_MAX_LENGTH) }),
+    ...(decision.provider === undefined ? {} : { provider: decision.provider }),
+    ...(bounded(decision.rule, HOOK_REASON_MAX_LENGTH) === undefined ? {} : { rule: bounded(decision.rule, HOOK_REASON_MAX_LENGTH) }),
+    ...(decision.providerState === undefined ? {} : { providerState: decision.providerState }),
   };
   if (Buffer.byteLength(JSON.stringify(boundedDecision), "utf8") <= maximumBytes) return boundedDecision;
   return {

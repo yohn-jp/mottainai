@@ -805,6 +805,7 @@ function telemetrySummaryTool(telemetry?: TelemetrySink): CallToolResult {
     by_capability: snapshot.by_capability,
     projection: snapshot.projection,
     read_governor: snapshot.read_governor,
+    hooks: snapshot.hooks,
     burst: snapshot.burst,
     compression_ratio: ratio,
     retrieval_rate: rate,

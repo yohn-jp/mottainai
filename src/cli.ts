@@ -14,6 +14,7 @@ import { validateIssueRef, validateTaskSlug } from "./workflow/commands/validate
 import { startTask, getTaskStatusForWorkspace } from "./workflow/domain/task.js";
 import { explainWorkflowPolicy } from "./workflow/policy/explain.js";
 import { resolveEffectiveWorkflowPolicy } from "./workflow/policy/load.js";
+import { createWorkflowHookProvider } from "./workflow/hook-provider.js";
 import type { WorkflowStateStore } from "./workflow/state/store.js";
 
 /**
@@ -188,6 +189,8 @@ function hookContext(
     dispatcherCommand: dispatcherCommand(entryPoint),
     dispatcherArguments,
     exposedTools: exposedHookTools(workspaceRoot, resolvedConfigPath),
+    configPath: resolvedConfigPath,
+    workflowProvider: createWorkflowHookProvider({ workspaceRoot }),
   };
 }
 

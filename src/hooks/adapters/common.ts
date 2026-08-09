@@ -118,10 +118,19 @@ export function normalizeClientEvent(
   }
   const operation = operationForTool(tool);
   const input = toolInput(raw);
-  const metadata = {
+  const metadata: Record<string, string | number | boolean> = {
     tool,
     boundary: operation === "process.exec" ? "native-process" : "native-tool",
-  } as const;
+  };
+  if (operation === "source.read" || operation === "source.search") {
+    const mode = input.mode;
+    if (mode === "raw" || mode === "outline" || mode === "symbols" || mode === "auto") metadata.mode = mode;
+    for (const field of ["startLine", "endLine"] as const) {
+      const value = input[field];
+      if (typeof value === "number" && Number.isSafeInteger(value)) metadata[field] = value;
+    }
+  }
+  const target = targetFor(operation, input);
   const event: HookEvent = {
     version: HOOK_CONTRACT_VERSION,
     client,
@@ -129,7 +138,7 @@ export function normalizeClientEvent(
     operation,
     ...(context.repository === undefined ? {} : { repository: context.repository }),
     ...(context.worktree === undefined ? {} : { worktree: context.worktree }),
-    ...(targetFor(operation, input) === undefined ? {} : { target: targetFor(operation, input) }),
+    ...(target === undefined ? {} : { target }),
     metadata,
   };
   return { ok: true, event };

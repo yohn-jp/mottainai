@@ -48,3 +48,31 @@ list is consulted.
 Ordinary results are compact and carry stable reason codes such as
 `managed_capability_available` and `managed_capability_unavailable`. Detailed
 bounded records are available through `hooks explain` by decision id.
+
+## Domain policy providers
+
+After generic anti-bypass evaluation, the dispatcher evaluates the applicable
+domain providers in this fixed order: workflow (`#28`), context (`#70`), then
+semantic (`#47/#56`). The result with the strongest decision wins using
+`allow < warn < redirect < deny`; equal-strength results use the provider order.
+A lower-priority allow or warning cannot weaken a stronger blocker.
+
+The workflow provider resolves repository identity, current worktree state, the
+effective workflow document, and protected-branch decisions through the
+workflow domain. It never trusts a branch or repository identity supplied by a
+client event, and it does not contain a `main` rule. The context provider passes
+file metadata and normalized read ranges to the existing read governor; it does
+not define hook-local line or byte thresholds. Read denials point to
+`mottainai_read` as the bounded replacement.
+
+Provider states are recorded as compact identifiers. `unavailable`,
+`unsupported`, and `stale` are not authoritative allows; if no stronger
+decision already applies, the state is surfaced in the bounded decision and
+later `hooks explain` record. The current main baseline exposes no
+repository-bound fresh semantic pre-operation decision, so the semantic
+provider reports `semantic_authority_unavailable` for semantic mutation
+events. It does not infer semantic scope from hook paths or source text.
+
+When telemetry is enabled, `.mottainai/telemetry/summary.json` records only
+provider, state, decision, and reason counters under `hooks`; client payloads,
+commands, paths, and source contents are not stored.
