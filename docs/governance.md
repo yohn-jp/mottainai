@@ -120,13 +120,14 @@ revision's `regressionProof.runners` mapping. The validator never executes a
 shell command copied from the PR body, and the identifier is metadata rather
 than a shell fragment.
 
-When a proof is eligible, the governance workflow creates temporary CI
-worktrees separate from the Mottainai development task worktree. It applies
-only the declared regular test-file diff to a base worktree, runs the fixed
-runner expecting the pre-fix failure, then runs the same fixed runner in a head
-worktree expecting success. Both worktrees use a timeout, bounded output, a
-temporary HOME/config directory, no credentials, `shell: false`, and cleanup.
-No workflow task state is created or persisted by this proof.
+When a proof is eligible, the governance workflow's dedicated
+`regression-proof` job (see below) creates temporary CI worktrees separate
+from the Mottainai development task worktree. It applies only the declared
+regular test-file diff to a base worktree, runs the fixed runner expecting the
+pre-fix failure, then runs the same fixed runner in a head worktree expecting
+success. Both worktrees use a timeout, bounded output, a temporary
+HOME/config directory, no credentials, `shell: false`, and cleanup. No
+workflow task state is created or persisted by this proof.
 
 If the test diff cannot be safely narrowed to the configured class, use
 `unsupported automated proof` plus reviewer attestation. The validator reports
@@ -159,11 +160,20 @@ changed files and to provide a candidate test diff. It checks out
 revision. Checkout credentials remain disabled. The linked Issue step receives
 only the numeric Issue number written by the validator.
 
-The report-only regression step uses the fixed base/head worktree model above.
-It is not `pull_request_target`, does not run PR-provided shell text, and is
-allowed to observe a failed proof without changing the governance result.
-Governance changes therefore govern subsequent PRs after merge; they cannot
-self-authorize their own enforcement.
+Regression-proof execution runs PR-authored test code — a Git worktree
+isolates repository state, not OS-user or filesystem access, so that code must
+never share a job with trusted follow-up steps (such as the linked Issue
+validation) or with a checkout those steps still trust afterward. The
+`validate-pr` job only builds the regression-proof plan and uploads it as an
+artifact; it never executes the plan and never checks out a workspace that
+proof code could reach. Execution happens in a separate `regression-proof`
+job with `permissions: {}`, its own PR-head and governance-base checkouts, and
+no further trusted step afterward — its only output is a report appended to
+its own job summary. It is not `pull_request_target`, does not run PR-provided
+shell text (only fixed argv from the trusted base revision's
+`regressionProof.runners` mapping), and cannot influence the `validate-pr`
+result. Governance changes therefore govern subsequent PRs after merge; they
+cannot self-authorize their own enforcement.
 
 ## Local validation
 

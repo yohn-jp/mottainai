@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import {
   buildRegressionProofPlan,
-  executeRegressionProof,
   finish,
   parseArgs,
   readJson,
@@ -32,24 +31,5 @@ const regressionProof = buildRegressionProofPlan({
   headSha: pullRequest.head?.sha,
 });
 writeJson(args["regression-plan-file"], regressionProof);
-const warnings = [...result.warnings];
-if (args["run-regression-proof"] === true) {
-  if (!args["base-root"] || !args["head-root"]) {
-    warnings.push(
-      "quality.regression.execution: changed path(s)=none; matched path class/rule=regression-proof; missing evidence=base-root and head-root; how to satisfy=run the fixed runner only from isolated workflow checkouts",
-    );
-  } else {
-    const proof = executeRegressionProof({
-      plan: regressionProof,
-      baseRoot: args["base-root"],
-      headRoot: args["head-root"],
-    });
-    if (proof.status === "failed" || proof.status === "rejected") {
-      warnings.push(
-        `quality.regression.execution: changed path(s)=${proof.testPath ?? "none"}; matched path class/rule=regression-proof; missing evidence=${proof.status}; how to satisfy=${proof.output ?? proof.reason}`,
-      );
-    }
-  }
-}
 writeValue(args["issue-number-file"], result.closingIssues[0] ?? "");
-finish(result.errors, args.report, warnings);
+finish(result.errors, args.report, result.warnings);

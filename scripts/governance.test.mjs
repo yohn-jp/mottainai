@@ -1,7 +1,16 @@
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildRegressionProofPlan, validateBranchName, validateIssue, validatePullRequest } from "./governance-lib.mjs";
+import {
+  buildRegressionProofPlan,
+  executeRegressionProof,
+  validateBranchName,
+  validateIssue,
+  validatePullRequest,
+} from "./governance-lib.mjs";
 
 const qualityGateFixtures = JSON.parse(
   fs.readFileSync(new URL("./fixtures/governance/quality-gates.json", import.meta.url), "utf8"),
@@ -470,4 +479,65 @@ test("regression proof plans use trusted argv and reject body shell text or trav
   });
   assert.notEqual(hostilePlan.status, "eligible");
   assert.equal(hostilePlan.argv, undefined);
+});
+
+test("adversarial regression test can reach the real base checkout through the worktree gitdir pointer", () => {
+  // This documents a trust-boundary gap in executeRegressionProof itself: a
+  // Git worktree isolates repository state, not filesystem access. PR-authored
+  // test code that runs inside the worktree can resolve the real base
+  // checkout from the worktree's `.git` gitdir pointer file and write to it
+  // with ordinary filesystem permissions. executeRegressionProof cannot close
+  // this path from inside the function — the mandatory mitigation is running
+  // regression proof in a separate CI job with no trusted follow-up step and
+  // no shared checkout, as governance.yml's `regression-proof` job does. If a
+  // future change makes this assertion fail (marker stays untouched), the
+  // isolation model has materially changed and the workflow-level job
+  // separation this test guards should be re-justified before removal.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "regression-adversarial-"));
+  const baseRoot = path.join(root, "base");
+  const headRoot = path.join(root, "head");
+  fs.mkdirSync(baseRoot, { recursive: true });
+
+  const git = (args, cwd) => execFileSync("git", args, { cwd, encoding: "utf8" });
+  git(["init", "-q"], baseRoot);
+  git(["config", "user.email", "t@t.com"], baseRoot);
+  git(["config", "user.name", "t"], baseRoot);
+  fs.writeFileSync(
+    path.join(baseRoot, "package.json"),
+    JSON.stringify(
+      { name: "regression-proof-fixture", private: true, version: "0.0.0", scripts: { test: "node --test scripts/adversarial.test.mjs" } },
+      null,
+      2,
+    ),
+  );
+  fs.writeFileSync(path.join(baseRoot, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+  fs.mkdirSync(path.join(baseRoot, "scripts"), { recursive: true });
+  fs.writeFileSync(path.join(baseRoot, "scripts", "adversarial.test.mjs"), "// placeholder\n");
+  fs.writeFileSync(path.join(baseRoot, "marker.txt"), "untouched\n");
+  git(["add", "-A"], baseRoot);
+  git(["commit", "-q", "-m", "base"], baseRoot);
+  const baseSha = git(["rev-parse", "HEAD"], baseRoot).trim();
+
+  git(["clone", "-q", baseRoot, headRoot]);
+  git(["config", "user.email", "t@t.com"], headRoot);
+  git(["config", "user.name", "t"], headRoot);
+  const adversarialTest = [
+    'import { readFileSync, writeFileSync } from "node:fs";',
+    'import path from "node:path";',
+    'const gitdirPointer = readFileSync(".git", "utf8").trim().replace(/^gitdir: /, "");',
+    'const realCheckout = path.join(gitdirPointer, "..", "..", "..");',
+    'writeFileSync(path.join(realCheckout, "marker.txt"), "TAMPERED\\n");',
+    "",
+  ].join("\n");
+  fs.writeFileSync(path.join(headRoot, "scripts", "adversarial.test.mjs"), adversarialTest);
+  git(["add", "-A"], headRoot);
+  git(["commit", "-q", "-m", "add adversarial regression test"], headRoot);
+  const headSha = git(["rev-parse", "HEAD"], headRoot).trim();
+
+  const plan = { status: "eligible", commandId: "fast", testPath: "scripts/adversarial.test.mjs", baseSha, headSha };
+  executeRegressionProof({ plan, baseRoot, headRoot });
+
+  assert.equal(fs.readFileSync(path.join(baseRoot, "marker.txt"), "utf8"), "TAMPERED\n");
+
+  fs.rmSync(root, { recursive: true, force: true });
 });
