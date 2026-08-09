@@ -77,7 +77,8 @@ function main() {
     const binTargets = packageBinTargets(installedPackageDirectory);
     const expectedNames = ["mottainai", "mtnai"];
     for (const name of expectedNames) {
-      if (!binTargets.some((entry) => entry.name === name)) fail(`bin entry "${name}" missing from installed package.json`);
+      if (!binTargets.some((entry) => entry.name === name))
+        fail(`bin entry "${name}" missing from installed package.json`);
     }
 
     for (const { name, target } of binTargets) {
@@ -102,8 +103,29 @@ function main() {
       if (launcherResult.error) fail(`launcher "${name}" failed to start: ${launcherResult.error.message}`);
       if (launcherResult.status === 0) fail(`launcher "${name}" unexpectedly exited 0 against a missing configuration`);
       if (!launcherResult.stderr.includes("ENOENT")) {
-        fail(`launcher "${name}" did not report the expected ENOENT for a missing configuration:\n${launcherResult.stderr}`);
+        fail(
+          `launcher "${name}" did not report the expected ENOENT for a missing configuration:\n${launcherResult.stderr}`,
+        );
       }
+      const doctorResult = spawnSync(launcher, ["doctor", "--json", "--config", missingConfig], {
+        cwd: installDirectory,
+        env: { ...process.env, HOME: installDirectory, USERPROFILE: installDirectory },
+        encoding: "utf8",
+        timeout: 10_000,
+      });
+      if (doctorResult.status !== 1) fail(`launcher "${name}" doctor unexpectedly exited ${doctorResult.status}`);
+      let doctor;
+      try {
+        doctor = JSON.parse(doctorResult.stdout);
+      } catch {
+        fail(`launcher "${name}" doctor did not return JSON:\n${doctorResult.stdout}\n${doctorResult.stderr}`);
+      }
+      if (doctor.identity?.package_name !== "mottainai")
+        fail(`launcher "${name}" doctor identity missing package name: ${JSON.stringify(doctor)}`);
+      if (doctor.identity?.distribution_kind !== "packed/npm")
+        fail(`launcher "${name}" doctor identity kind mismatch: ${JSON.stringify(doctor.identity)}`);
+      if (doctor.identity?.provenance?.config_path !== "cli")
+        fail(`launcher "${name}" doctor config provenance mismatch: ${JSON.stringify(doctor.identity)}`);
     }
 
     const primaryBin = binTargets.find((entry) => entry.name === "mottainai").target;
@@ -112,10 +134,23 @@ function main() {
     console.log("running init --yes --scope project --client none --no-doctor --json...");
     const initResult = spawnSync(
       process.execPath,
-      [primaryBin, "init", "--yes", "--scope", "project", "--client", "none", "--no-doctor", "--json", "--config", configPath],
+      [
+        primaryBin,
+        "init",
+        "--yes",
+        "--scope",
+        "project",
+        "--client",
+        "none",
+        "--no-doctor",
+        "--json",
+        "--config",
+        configPath,
+      ],
       { cwd: installDirectory, encoding: "utf8", timeout: 10_000 },
     );
-    if (initResult.status !== 0) fail(`init exited with status ${initResult.status}:\n${initResult.stdout}\n${initResult.stderr}`);
+    if (initResult.status !== 0)
+      fail(`init exited with status ${initResult.status}:\n${initResult.stdout}\n${initResult.stderr}`);
     let initSummary;
     try {
       initSummary = JSON.parse(initResult.stdout);

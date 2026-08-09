@@ -5,6 +5,7 @@ import { loadMottainaiConfig, loadRawConfig, resolveConfigPath, saveRawConfig } 
 import type { MottainaiConfig } from "./config.js";
 import { openDashboardBrowser, parseDashboardOptions, startDashboard } from "./dashboard/command.js";
 import { formatInitHuman, runInit } from "./init.js";
+import { createRuntimeDiagnostic, formatRuntimeDiagnosticHuman } from "./runtime-diagnostic.js";
 import { runServer } from "./server.js";
 import { validateIssueRef, validateTaskSlug } from "./workflow/commands/validate.js";
 import { startTask, getTaskStatusForWorkspace } from "./workflow/domain/task.js";
@@ -194,6 +195,11 @@ export async function runCli(args: string[]): Promise<number> {
   try {
     const [command = "list", ...argv] = args;
     const configPath = flag(argv, "config");
+    const runtimeOptions = {
+      cwd: process.cwd(),
+      environment: process.env,
+      entryPoint: process.argv[1],
+    };
 
     if (command === "init") {
       const summary = await runInit({ args: argv });
@@ -213,7 +219,12 @@ export async function runCli(args: string[]): Promise<number> {
     } else if (command === "serve") {
   const configIndex = argv.indexOf("--config");
   if (configIndex !== -1 && argv[configIndex + 1] === undefined) fail("missing value for --config");
-  await runServer(configPath);
+  await runServer(
+    configPath,
+    runtimeOptions.cwd,
+    createRuntimeDiagnostic({ ...runtimeOptions, configPath }),
+    runtimeOptions.environment.HOME ?? runtimeOptions.environment.USERPROFILE,
+  );
 } else if (command === "list") {
   const filePath = resolveConfigPath(configPath);
   print(summarize(loadMottainaiConfig(configPath), filePath));
@@ -284,7 +295,7 @@ export async function runCli(args: string[]): Promise<number> {
   persist(filePath, raw);
   print({ active_profile: gateway(raw).activeProfile ?? null, config_file: filePath });
 } else if (command === "doctor") {
-  const report = collectDoctorReport({ configPath });
+  const report = collectDoctorReport({ configPath, runtime: runtimeOptions });
   if (hasFlag(argv, "json")) print(report);
   else console.log(formatDoctorHuman(report));
   return report.ok ? 0 : 1;
@@ -346,6 +357,12 @@ export async function runCli(args: string[]): Promise<number> {
     const message = error instanceof Error ? error.message : String(error);
     if (args[0] === "doctor" && hasFlag(args, "json")) {
       const problem = { severity: "error", message: `config invalid: ${message}` } as const;
+      const identity = createRuntimeDiagnostic({
+        cwd: process.cwd(),
+        environment: process.env,
+        entryPoint: process.argv[1],
+        configPath: flag(args, "config"),
+      });
       print({
         ok: false,
         errors: 1,
@@ -355,11 +372,19 @@ export async function runCli(args: string[]): Promise<number> {
         version: 0,
         checked: 0,
         problems: [problem],
+        identity,
       });
     } else if (args[0] === "init" && hasFlag(args, "json")) {
       print({ ok: false, error: message });
     } else {
-      console.error(message);
+      console.error(args[0] === "doctor"
+        ? `${message}\n\nRuntime diagnostic:\n${formatRuntimeDiagnosticHuman(createRuntimeDiagnostic({
+          cwd: process.cwd(),
+          environment: process.env,
+          entryPoint: process.argv[1],
+          configPath: flag(args, "config"),
+        }))}`
+        : message);
     }
     return 1;
   }
