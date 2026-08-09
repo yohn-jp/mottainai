@@ -37,6 +37,13 @@ import { runChild, runProgram } from "./subprocess.js";
 import type { RunResult } from "./subprocess.js";
 import { compressionRatio, disabledTelemetrySnapshot, retrievalRate } from "./telemetry.js";
 import type { TelemetrySink } from "./telemetry.js";
+import {
+  createRuntimeDiagnostic,
+  normalizeDiagnosticPath,
+  projectRuntimeUpstreams,
+  withRuntimeUpstreams,
+} from "./runtime-diagnostic.js";
+import type { RuntimeDiagnostic } from "./runtime-diagnostic.js";
 import type { UpstreamStatus } from "./upstream.js";
 
 const OMITTED_DIRECTORIES = new Set([".git", "node_modules", "dist", "build", "target", ".cache", ".venv", "coverage"]);
@@ -146,7 +153,7 @@ export interface RuntimeStatusSource {
 
 export async function callLocalTool(
   name: string, args: Args, config: ResolvedGatewayConfig, store: ArtifactStore, runtime?: RuntimeStatusSource,
-  telemetry?: TelemetrySink, processes?: ProcessRegistry, signal?: AbortSignal,
+  telemetry?: TelemetrySink, processes?: ProcessRegistry, signal?: AbortSignal, runtimeDiagnostic?: RuntimeDiagnostic,
 ): Promise<CallToolResult> {
   switch (name) {
     case "mottainai_exec": return execTool(args, config, store);
@@ -157,7 +164,7 @@ export async function callLocalTool(
     case "mottainai_list": return listTool(args, config, store);
     case "mottainai_result_get": return resultGetTool(args, store, telemetry);
     case "mottainai_result_search": return resultSearchTool(args, store, telemetry);
-    case "mottainai_runtime_status": return runtimeStatusTool(args, config, runtime);
+    case "mottainai_runtime_status": return runtimeStatusTool(args, config, runtime, runtimeDiagnostic);
     case "mottainai_telemetry_summary": return telemetrySummaryTool(telemetry);
     case "mottainai_issue_view": return issueViewToolImpl(args, config);
     case "mottainai_gh_checks_await": return ghChecksAwaitToolImpl(args, config, telemetry, signal);
@@ -170,7 +177,12 @@ function requireProcesses(processes: ProcessRegistry | undefined): ProcessRegist
   return processes;
 }
 
-function runtimeStatusTool(args: Args, config: ResolvedGatewayConfig, runtime?: RuntimeStatusSource): CallToolResult {
+function runtimeStatusTool(
+  args: Args,
+  config: ResolvedGatewayConfig,
+  runtime?: RuntimeStatusSource,
+  runtimeDiagnostic?: RuntimeDiagnostic,
+): CallToolResult {
   const requested = stringArg(args, "provider");
   const all = runtime?.status() ?? [];
   if (requested !== undefined && !all.some((provider) => provider.name === requested)) {
@@ -178,9 +190,10 @@ function runtimeStatusTool(args: Args, config: ResolvedGatewayConfig, runtime?: 
   }
   const providers = requested === undefined ? all : all.filter((provider) => provider.name === requested);
   const unhealthy = providers.filter((provider) => provider.state === "unhealthy");
+  const projected = projectRuntimeUpstreams(providers);
   const diagnostics = unhealthy.map((provider) => ({
     severity: "error",
-    message: `${provider.name} unhealthy: ${provider.lastError ?? "startup failed"}`,
+    message: `${provider.name} unhealthy: ${projected.find((entry) => entry.name === provider.name)?.failure?.summary ?? "startup failed"}`,
   }));
   const counts = providers.reduce<Record<string, number>>((totals, provider) => {
     totals[provider.state] = (totals[provider.state] ?? 0) + 1;
@@ -188,8 +201,14 @@ function runtimeStatusTool(args: Args, config: ResolvedGatewayConfig, runtime?: 
   }, {});
   const status = unhealthy.length === 0 ? "success" : "partial";
   const summary = `providers=${providers.length} ${Object.entries(counts).map(([state, count]) => `${state}=${count}`).join(" ")}`.trimEnd();
+  const identityBase = runtimeDiagnostic ?? {
+    ...createRuntimeDiagnostic({ cwd: config.workspaceRoot, entryPoint: "unknown", environment: {} }),
+    workspace_root: normalizeDiagnosticPath(config.workspaceRoot),
+    state_directory: normalizeDiagnosticPath(path.join(config.workspaceRoot, ".mottainai")),
+  };
+  const identity = withRuntimeUpstreams(identityBase, providers);
   return output("runtime_status", status, summary, "", {
-    facts: providers,
+    facts: projected,
     diagnostics,
     metrics: {
       providers: providers.length,
@@ -197,7 +216,8 @@ function runtimeStatusTool(args: Args, config: ResolvedGatewayConfig, runtime?: 
       unhealthy: unhealthy.length,
       disabled: counts.disabled ?? 0,
     },
-    workspace_root: config.workspaceRoot,
+    workspace_root: identity.workspace_root ?? normalizeDiagnosticPath(config.workspaceRoot),
+    identity,
   });
 }
 

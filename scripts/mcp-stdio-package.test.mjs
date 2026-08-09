@@ -1,7 +1,7 @@
 // Issue #22 package-compatible subset。full protocol/fault suiteは built dist suite にあり、
 // ここでは npm pack artifact の bin/runtime 解決と最小 MCP handshake を確認する。
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -46,38 +46,74 @@ after(() => {
 test("packed artifact contains its declared runtime entry and pack does not rebuild dist", () => {
   assert.ok(packedFiles.includes("package.json"));
   assert.ok(packedFiles.includes("dist/index.js"));
+  assert.ok(packedFiles.includes("dist/runtime-build-metadata.json"));
+  const metadata = JSON.parse(fs.readFileSync(path.join(path.dirname(binPath), "runtime-build-metadata.json"), "utf8"));
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(path.dirname(path.dirname(binPath)), "package.json"), "utf8"),
+  );
+  assert.equal(metadata.package_name, packageJson.name);
+  assert.equal(metadata.package_version, packageJson.version);
+  assert.equal(metadata.artifact, "npm");
+  assert.match(metadata.build_id, new RegExp(`^${packageJson.name}@${packageJson.version}\\+`, "u"));
   assert.equal(fs.statSync(path.join(repoRoot, "dist", "index.js")).mtimeMs, distMtimeBeforePack);
 });
 
-test(
-  "pack and extract helpers preserve paths containing spaces",
-  { timeout: BLACKBOX_TIMEOUTS.test },
-  async () => {
-    const spacedRoot = path.join(suiteRoot, "temporary package root");
-    fs.mkdirSync(spacedRoot, { recursive: true });
-    const packed = packRepository(repoRoot, spacedRoot);
-    const extracted = extractTarball(packed.tarballPath, path.join(spacedRoot, "extracted package"));
-    linkDependencies(extracted, repoRoot);
-    const spacedBinPath = resolvePackagedBin(extracted);
-    const workspace = createWorkspace();
-    let client;
-    try {
-      client = McpStdioClient.launchPackaged(spacedBinPath, { cwd: workspace, env: isolatedEnv(workspace) });
-      const response = await client.request("initialize", INITIALIZE_PARAMS, BLACKBOX_TIMEOUTS.request);
-      assert.equal(response.error, undefined);
-      const exitInfo = await client.closeGracefully(BLACKBOX_TIMEOUTS.shutdown);
-      assert.equal(exitInfo.code, 0);
-      assert.equal(exitInfo.signal, null);
-      assert.deepEqual(client.stdoutPurityViolations(), []);
-    } finally {
-      if (client === undefined) {
-        fs.rmSync(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-      } else {
-        await cleanupClient(client, workspace);
-      }
+test("packed identity survives consumer cwd, explicit config, environment config, and default config resolution", () => {
+  const consumer = createWorkspace();
+  const alternateCwd = createWorkspace();
+  const configPath = path.join(consumer, "mottainai.config.json");
+  const runDoctor = (cwd, env, args = []) => {
+    const result = spawnSync(binPath, ["doctor", "--json", ...args], { cwd, env, encoding: "utf8", timeout: 10_000 });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    return JSON.parse(result.stdout);
+  };
+  try {
+    const explicit = runDoctor(alternateCwd, isolatedEnv(alternateCwd), ["--config", configPath]);
+    const fromEnvironment = runDoctor(alternateCwd, { ...isolatedEnv(alternateCwd), MOTTAINAI_CONFIG: configPath });
+    const fromDefault = runDoctor(consumer, isolatedEnv(consumer));
+
+    for (const report of [explicit, fromEnvironment, fromDefault]) {
+      assert.equal(report.identity.package_name, "mottainai");
+      assert.equal(report.identity.distribution_kind, "packed/npm");
+      assert.equal(report.identity.provenance.build_id, "build");
+      assert.equal(report.identity.provenance.entry_point, "runtime");
     }
-  },
-);
+    assert.equal(explicit.identity.provenance.config_path, "cli");
+    assert.equal(fromEnvironment.identity.provenance.config_path, "environment");
+    assert.equal(fromDefault.identity.provenance.config_path, "default");
+    assert.match(fromDefault.identity.startup_cwd, /^~/u);
+    assert.deepEqual(fromDefault.identity.upstreams, []);
+  } finally {
+    fs.rmSync(consumer, { recursive: true, force: true });
+    fs.rmSync(alternateCwd, { recursive: true, force: true });
+  }
+});
+
+test("pack and extract helpers preserve paths containing spaces", { timeout: BLACKBOX_TIMEOUTS.test }, async () => {
+  const spacedRoot = path.join(suiteRoot, "temporary package root");
+  fs.mkdirSync(spacedRoot, { recursive: true });
+  const packed = packRepository(repoRoot, spacedRoot);
+  const extracted = extractTarball(packed.tarballPath, path.join(spacedRoot, "extracted package"));
+  linkDependencies(extracted, repoRoot);
+  const spacedBinPath = resolvePackagedBin(extracted);
+  const workspace = createWorkspace();
+  let client;
+  try {
+    client = McpStdioClient.launchPackaged(spacedBinPath, { cwd: workspace, env: isolatedEnv(workspace) });
+    const response = await client.request("initialize", INITIALIZE_PARAMS, BLACKBOX_TIMEOUTS.request);
+    assert.equal(response.error, undefined);
+    const exitInfo = await client.closeGracefully(BLACKBOX_TIMEOUTS.shutdown);
+    assert.equal(exitInfo.code, 0);
+    assert.equal(exitInfo.signal, null);
+    assert.deepEqual(client.stdoutPurityViolations(), []);
+  } finally {
+    if (client === undefined) {
+      fs.rmSync(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    } else {
+      await cleanupClient(client, workspace);
+    }
+  }
+});
 
 test(
   "packed artifact serves a minimal MCP handshake, list, call, and EOF shutdown",
@@ -103,6 +139,18 @@ test(
       );
       assert.equal(callResponse.error, undefined);
       assert.equal(callResponse.result.structuredContent.status, "success");
+      assert.deepEqual(client.stdoutPurityViolations(), []);
+
+      const statusResponse = await client.request(
+        "tools/call",
+        { name: "mottainai_runtime_status", arguments: {} },
+        BLACKBOX_TIMEOUTS.request,
+      );
+      assert.equal(statusResponse.error, undefined);
+      assert.equal(statusResponse.result.structuredContent.identity.package_name, "mottainai");
+      assert.equal(statusResponse.result.structuredContent.identity.distribution_kind, "packed/npm");
+      assert.equal(statusResponse.result.structuredContent.identity.provenance.build_id, "build");
+      assert.deepEqual(statusResponse.result.structuredContent.facts, []);
       assert.deepEqual(client.stdoutPurityViolations(), []);
 
       const exitInfo = await client.closeGracefully(BLACKBOX_TIMEOUTS.shutdown);
@@ -134,7 +182,9 @@ test(
         const match = stdout.match(/Mottainai dashboard listening at (http:\/\/127\.0\.0\.1:\d+\/)/);
         if (match?.[1] !== undefined) resolve(match[1]);
       });
-      child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk.toString();
+      });
       child.once("error", reject);
       child.once("exit", (code) => reject(new Error(`packed dashboard exited before ready: ${code}\n${stderr}`)));
     });

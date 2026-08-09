@@ -31,6 +31,7 @@ import { InMemoryArtifactStore } from "./retrieve.js";
 import type { ArtifactStore } from "./retrieve.js";
 import { createTelemetrySink } from "./telemetry.js";
 import type { TelemetrySink } from "./telemetry.js";
+import type { RuntimeDiagnostic } from "./runtime-diagnostic.js";
 import { hasUpstreamDiagnostic, upstreamBaseErrorMessage, upstreamErrorMessage, UpstreamRegistry } from "./upstream.js";
 import { callUpstreamTool, RETRIEVE_TOOL_NAME } from "./upstream-call.js";
 import { applyExecutionBudget, normalizeExecutionOutcome, providerErrorOutcome } from "./execution.js";
@@ -111,6 +112,7 @@ export function registerProxyHandlers(
   adaptiveOverrides: Partial<AdaptiveToolContext> = {},
   activeProfile: ProfileConfig | undefined = undefined,
   telemetry: TelemetrySink = createTelemetrySink(),
+  runtimeDiagnostic?: RuntimeDiagnostic,
 ): ProxyHandlers {
   const resolvedArtifactStore = artifactStore ?? new InMemoryArtifactStore({
     ttlMs: gatewayConfig.resultTtlMs,
@@ -347,7 +349,17 @@ export function registerProxyHandlers(
     }
 
     if (isLocal) {
-      const result = await callLocalTool(toolName, args, gatewayConfig, resolvedArtifactStore, upstreams, telemetry, processes, signal);
+      const result = await callLocalTool(
+        toolName,
+        args,
+        gatewayConfig,
+        resolvedArtifactStore,
+        upstreams,
+        telemetry,
+        processes,
+        signal,
+        runtimeDiagnostic,
+      );
       return normalizeExecutionOutcome({
         result,
         selectedProvider: "local",

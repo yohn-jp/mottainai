@@ -18,6 +18,8 @@ export type UpstreamState = "disabled" | "registered" | "starting" | "ready" | "
 /** 診断用の provider 状態。config の `env` と `args` は秘密を含みうるので載せない。 */
 export interface UpstreamStatus {
   name: string;
+  /** Safe transport discriminator for bounded diagnostic projections. */
+  transport?: "stdio" | "streamableHttp";
   state: UpstreamState;
   enabled: boolean;
   priority: number;
@@ -167,6 +169,7 @@ export class UpstreamRegistry {
   status(): UpstreamStatus[] {
     return [...this.records.values()].map((record) => ({
       name: record.config.name,
+      transport: record.config.transport ?? "stdio",
       state: record.state,
       enabled: record.config.enabled !== false,
       priority: record.config.priority ?? 0,

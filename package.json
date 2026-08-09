@@ -16,7 +16,7 @@
     "scripts/governance-rules.json"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node scripts/copy-dashboard-assets.mjs",
+    "build": "tsc -p tsconfig.build.json && node scripts/generate-build-metadata.mjs && node scripts/copy-dashboard-assets.mjs",
     "start": "node dist/index.js",
     "test": "node scripts/run-test-suite.mjs fast",
     "test:integration": "node scripts/run-test-suite.mjs integration",
@@ -37,8 +37,8 @@
     "governance:issue": "node scripts/validate-issue.mjs",
     "governance:branch": "node scripts/validate-branch-name.mjs",
     "governance:test": "node --test scripts/governance.test.mjs",
-    "format": "prettier --write 'scripts/architecture-check.mjs' 'scripts/architecture-check.test.mjs' 'scripts/coverage.mjs' 'scripts/coverage.test.mjs' 'scripts/copy-dashboard-assets.mjs' 'scripts/run-test-suite.mjs' 'scripts/test-suites.mjs' 'scripts/test-suites.test.mjs' 'scripts/coverage-policy.json' 'eslint.config.mjs' 'prettier.config.mjs' 'package.json'",
-    "format:check": "prettier --check 'scripts/architecture-check.mjs' 'scripts/architecture-check.test.mjs' 'scripts/coverage.mjs' 'scripts/coverage.test.mjs' 'scripts/copy-dashboard-assets.mjs' 'scripts/run-test-suite.mjs' 'scripts/test-suites.mjs' 'scripts/test-suites.test.mjs' 'scripts/coverage-policy.json' 'eslint.config.mjs' 'prettier.config.mjs' 'package.json'",
+    "format": "prettier --write 'scripts/architecture-check.mjs' 'scripts/architecture-check.test.mjs' 'scripts/coverage.mjs' 'scripts/coverage.test.mjs' 'scripts/copy-dashboard-assets.mjs' 'scripts/generate-build-metadata.mjs' 'scripts/run-test-suite.mjs' 'scripts/test-suites.mjs' 'scripts/test-suites.test.mjs' 'scripts/coverage-policy.json' 'eslint.config.mjs' 'prettier.config.mjs' 'package.json'",
+    "format:check": "prettier --check 'scripts/architecture-check.mjs' 'scripts/architecture-check.test.mjs' 'scripts/coverage.mjs' 'scripts/coverage.test.mjs' 'scripts/copy-dashboard-assets.mjs' 'scripts/generate-build-metadata.mjs' 'scripts/run-test-suite.mjs' 'scripts/test-suites.mjs' 'scripts/test-suites.test.mjs' 'scripts/coverage-policy.json' 'eslint.config.mjs' 'prettier.config.mjs' 'package.json'",
     "lint": "eslint 'src/**/*.ts' 'src/**/*.mjs' 'scripts/**/*.mjs' 'eslint.config.mjs'",
     "architecture:test": "node --test scripts/architecture-check.test.mjs",
     "architecture:check": "node scripts/architecture-check.mjs",
