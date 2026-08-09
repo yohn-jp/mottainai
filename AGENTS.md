@@ -125,7 +125,7 @@ Repository Semantics、永続task state、lifecycle enforcementなど将来ま�
 
 | 責務 | authority |
 |---|---|
-| Issue / PR contract、changed-file rule | [`docs/governance.md`](docs/governance.md)、[`scripts/governance-rules.json`](scripts/governance-rules.json)、`.github/PULL_REQUEST_TEMPLATE.md` |
+| Issue / PR contract、changed-file、evidence rule | [`docs/governance.md`](docs/governance.md)、[`scripts/governance-rules.json`](scripts/governance-rules.json)、`.github/PULL_REQUEST_TEMPLATE.md` |
 | Git workflow policy、repository state | [`docs/workflow-policy.md`](docs/workflow-policy.md)、trackedな`.mottainai/workflow.json`、対応するworkflow実装 |
 | test layer、classification、coverage、CI責務 | [`docs/testing.md`](docs/testing.md)、`scripts/test-suites.mjs`、`package.json`、`.github/workflows/ci.yml` |
 | executable coding standard | [`docs/coding-standards.md`](docs/coding-standards.md)、`eslint.config.mjs`、`prettier.config.mjs`、`scripts/architecture-check.mjs` |

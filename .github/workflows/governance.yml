@@ -54,7 +54,44 @@ jobs:
 
       - name: Validate PR contract
         working-directory: governance
-        run: node scripts/validate-pr.mjs --event "$GITHUB_EVENT_PATH" --files "$RUNNER_TEMP/changed-files.txt" --issue-number-file "$RUNNER_TEMP/issue-number.txt"
+        run: node scripts/validate-pr.mjs --event "$GITHUB_EVENT_PATH" --files "$RUNNER_TEMP/changed-files.txt" --issue-number-file "$RUNNER_TEMP/issue-number.txt" --report "$RUNNER_TEMP/governance-report.md" --regression-plan-file "$RUNNER_TEMP/regression-proof-plan.json"
+
+      - name: Publish report-only governance observations
+        if: always()
+        env:
+          GOVERNANCE_REPORT: ${{ runner.temp }}/governance-report.md
+        run: |
+          if test -f "$GOVERNANCE_REPORT"; then
+            cat "$GOVERNANCE_REPORT" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # The base validator selects only fixed argv from governance-rules.json.
+      # This report-only step may use a temporary worktree, but never executes
+      # a command or shell fragment copied from the PR body.
+      - name: Execute eligible regression proof in isolated worktree (report-only)
+        if: always()
+        continue-on-error: true
+        working-directory: governance
+        env:
+          BASE_ROOT: ${{ github.workspace }}/governance
+          HEAD_ROOT: ${{ github.workspace }}/pr
+        run: |
+          node scripts/validate-pr.mjs \
+            --event "$GITHUB_EVENT_PATH" \
+            --files "$RUNNER_TEMP/changed-files.txt" \
+            --run-regression-proof \
+            --base-root "$BASE_ROOT" \
+            --head-root "$HEAD_ROOT" \
+            --report "$RUNNER_TEMP/regression-proof-report.md"
+
+      - name: Publish regression-proof observation
+        if: always()
+        env:
+          REGRESSION_REPORT: ${{ runner.temp }}/regression-proof-report.md
+        run: |
+          if test -f "$REGRESSION_REPORT"; then
+            cat "$REGRESSION_REPORT" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Fetch linked Issue
         env:

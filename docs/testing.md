@@ -58,6 +58,24 @@ validatorは各認識ファイルについて、suite未所属、複数suite所�
 
 `scripts/**/*.test.mjs`は原則standards層。ただし`test-suites.mjs`の明示分類により、共通harness self-testはintegration、package protocol testはpackageへ所属する。
 
+## Governance evidence classes
+
+PRの`Validation evidence`は、下表のevidence classを既存test tierへ写像する。
+classのpath triggerとrequired fieldsの正本は
+[`scripts/governance-rules.json`](../scripts/governance-rules.json)であり、この表は層の意味だけを示す。
+
+| Evidence class        | 主なtest tier               | 保証対象                                                      |
+| --------------------- | --------------------------- | ------------------------------------------------------------- |
+| `unit/contract`       | Fast                        | pure logic、schema、envelope、決定論的contract                |
+| `process/integration` | Integration / process       | CLI、子process、filesystem、複数componentの境界               |
+| `package smoke`       | Package / E2E / smoke       | packed artifact、install、bin、consumer protocol              |
+| `fault injection`     | Integration / process       | timeout、spawn/upstream failure、rollback、migration failure  |
+| `lint/architecture`   | Standards                   | format、lint、architecture、governance、suite policy          |
+| `release`             | Package / Full verification | warning-free package metadata、pack/publish dry-run、artifact |
+| `security/negative`   | Integration / process       | security-sensitive pathの拒否・negative scenario              |
+
+各classは`pass`または`not-applicable`を1件ずつ記録する。`not-applicable`はchanged pathがclassをtriggerしない場合だけ許可し、具体的な理由を要する。package pathではpacked artifact、package smoke、`warnings: none`のrelease evidenceを省略しない。`pnpm test`の完了だけで全classをpass扱いしない。
+
 ## Integration、process、fault test
 
 integration/process層は実component間の契約と失敗境界を検証する。実filesystem、一時git repository、in-memory/temporary SQLite、CLI subprocessは許可するが、developerのHOME、global git config、global package installation、networkへ依存しない。
@@ -144,3 +162,5 @@ gateはrepository floorとcritical targetの両方を評価し、moduleがartifa
 | production変更をPR/release判定                      | `pnpm run verify` と`pnpm run test:coverage`      |
 
 非Draft PRのValidationには、実行した`format:check`、`lint`、`typecheck`、`pnpm test`、integration/process、E2E、build、package smoke、architecture/governance、coverageを明記する。未実行をpassとして記載しない。
+
+Governanceの`Validation` checklistは実行済みlayerの記録であり、evidence classの結果本文ではない。PRではchecklistを維持したうえで、classごとにcommand、target、result、必要ならartifact・scenario・warningsを記録する。未実行、pending、hung、環境境界はpassに変換しない。
