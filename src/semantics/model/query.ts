@@ -46,6 +46,7 @@ import type {
   VerificationSummary,
 } from "../ir/types.js";
 import type { TypeScriptFactCounts } from "../extractors/types.js";
+import type { DerivedFactCacheStatus } from "../cache/types.js";
 
 /** Source state supplied to the live query adapter after compilation and integrity validation. */
 export interface RepositoryModelSource {
@@ -62,6 +63,8 @@ export interface RepositoryModelBenchmark {
   queryMs: number;
   lastQueryMs?: number;
   factCounts?: TypeScriptFactCounts;
+  cacheStatus?: DerivedFactCacheStatus;
+  cacheHit?: boolean;
 }
 
 export const LIVE_REPOSITORY_MODEL_PROVIDER = "live-repository-model" as const;

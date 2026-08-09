@@ -48,6 +48,7 @@
     "verify:standards": "pnpm run format:check && pnpm run lint && pnpm run test:standards && pnpm run architecture:check",
     "typecheck": "tsc --noEmit",
     "smoke-test": "node scripts/smoke-test.mjs",
+    "benchmark:semantic-cache": "node --import tsx scripts/benchmark-semantic-fact-cache.mjs",
     "prepack": "pnpm run build",
     "prepublishOnly": "pnpm run typecheck && pnpm test"
   },

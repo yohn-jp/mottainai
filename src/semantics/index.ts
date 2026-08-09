@@ -7,3 +7,4 @@ export * from "./mutations/index.js";
 export * from "./source/index.js";
 export * from "./verification/adequacy.js";
 export * from "./effects/index.js";
+export * from "./cache/index.js";

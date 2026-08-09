@@ -44,6 +44,14 @@ import {
   type TypeScriptFactResult,
 } from "../types.js";
 import { validateSnapshot } from "../../ir/schema.js";
+import {
+  createSnapshotManifest,
+  createTypeScriptFactCacheIdentity,
+  materializeFactSnapshot,
+  toSharedFactSnapshot,
+  type DerivedFactObject,
+  type DerivedFactCacheStatus,
+} from "../../cache/index.js";
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx"]);
 const CONFIG_FILES = new Set(["package.json", "pnpm-lock.yaml", "package-lock.json", "yarn.lock", "npm-shrinkwrap.json"]);
@@ -623,6 +631,93 @@ function isTypeScriptLibraryFile(filePath: string): boolean {
 
 export class TypeScriptFactExtractor implements TypeScriptFactProvider {
   extract(options: TypeScriptExtractorOptions): TypeScriptFactResult {
+    const startedAt = performance.now();
+    if (options.cache === undefined) {
+      const result = this.extractUncached(options);
+      return { ...result, elapsedMs: performance.now() - startedAt, cacheStatus: "disabled" };
+    }
+
+    let identity;
+    try {
+      identity = createTypeScriptFactCacheIdentity(options);
+    } catch {
+      const result = this.extractUncached({ ...options, cache: undefined });
+      return { ...result, elapsedMs: performance.now() - startedAt, cacheStatus: "unavailable" };
+    }
+
+    let manifestLookup: ReturnType<NonNullable<TypeScriptExtractorOptions["cache"]>["getManifest"]> = { status: "miss" };
+    let lookup: ReturnType<NonNullable<TypeScriptExtractorOptions["cache"]>["get"]> = { status: "miss" };
+    try {
+      manifestLookup = options.cache.getManifest(identity.worktree.id);
+      lookup = identity.cacheable ? options.cache.get(identity.key) : { status: "miss" };
+    } catch {
+      const result = this.extractUncached({ ...options, cache: undefined });
+      return { ...result, elapsedMs: performance.now() - startedAt, cacheStatus: "unavailable" };
+    }
+
+    if (lookup.status === "hit") {
+      try {
+        const snapshot = materializeFactSnapshot(lookup.value.snapshot, identity);
+        const declarationFingerprint = manifestLookup.status === "hit"
+          ? manifestLookup.value.declarationFingerprint
+          : digestCanonicalValue(null);
+        const cacheManifest = createSnapshotManifest(identity, snapshot, declarationFingerprint);
+        options.cache.putManifest(cacheManifest);
+        return {
+          snapshot,
+          elapsedMs: performance.now() - startedAt,
+          counts: { ...lookup.value.counts },
+          cacheStatus: "hit",
+          cacheManifest,
+        };
+      } catch {
+        // A malformed object is never served as semantic truth. Fall through
+        // to the regular producer and report a cold rebuild.
+        lookup = { status: "corrupt", reason: "cached snapshot failed materialization" };
+      }
+    }
+
+    const cold = this.extractUncached({ ...options, cache: undefined });
+    let snapshot: RepositorySemanticSnapshot;
+    try {
+      snapshot = materializeFactSnapshot(cold.snapshot, identity);
+    } catch {
+      snapshot = cold.snapshot;
+    }
+    const declarationFingerprint = manifestLookup.status === "hit"
+      ? manifestLookup.value.declarationFingerprint
+      : digestCanonicalValue(null);
+    const cacheManifest = createSnapshotManifest(identity, snapshot, declarationFingerprint);
+    const object: DerivedFactObject = {
+      kind: "typescript-fact-snapshot",
+      snapshot: toSharedFactSnapshot(snapshot),
+      counts: { ...cold.counts },
+    };
+    let cacheStatus: DerivedFactCacheStatus = lookup.status === "corrupt" || manifestLookup.status === "corrupt" ? "corrupt" : "miss";
+    if (identity.cacheable) {
+      try {
+        options.cache.put(identity.key, object);
+      } catch {
+        if (cacheStatus !== "corrupt") cacheStatus = "conflict";
+      }
+    } else {
+      cacheStatus = "unavailable";
+    }
+    try {
+      options.cache.putManifest(cacheManifest);
+    } catch {
+      // Cache persistence is disposable; never make a valid cold extraction fail.
+    }
+    return {
+      ...cold,
+      snapshot,
+      elapsedMs: performance.now() - startedAt,
+      cacheStatus,
+      cacheManifest,
+    };
+  }
+
+  private extractUncached(options: TypeScriptExtractorOptions): TypeScriptFactResult {
     const startedAt = performance.now();
     const context = loadProject(options);
     const collector = new FactCollector(context, options);
