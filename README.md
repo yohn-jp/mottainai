@@ -144,13 +144,13 @@ from any working directory, so the registration command must point at the
 generated configuration with an absolute path:
 
 ```bash
-claude mcp add -s user mottainai -- npx -y mottainai@0.1.3 serve --config /absolute/path/to/mottainai.config.json
+claude mcp add -s user mottainai -- npx -y mottainai@0.1.4 serve --config /absolute/path/to/mottainai.config.json
 ```
 
 For Codex, register the same way:
 
 ```bash
-codex mcp add mottainai -- npx -y mottainai@0.1.3 serve --config /absolute/path/to/mottainai.config.json
+codex mcp add mottainai -- npx -y mottainai@0.1.4 serve --config /absolute/path/to/mottainai.config.json
 ```
 
 `mottainai init` prints the exact registration command for your detected
