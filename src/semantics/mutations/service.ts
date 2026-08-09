@@ -213,7 +213,7 @@ function collectProse(value: unknown, path: string, diagnostics: SemanticDiagnos
     return;
   }
   if (Array.isArray(value)) {
-    value.forEach((item, index) => collectProse(item, `${path}.${index}`, diagnostics));
+    value.forEach((item, index) => collectProse(item, `${path}.${index}`, diagnostics, key));
     return;
   }
   if (typeof value !== "object" || value === null) return;
@@ -574,6 +574,7 @@ function transactionFor(
   mutationSubjects: readonly LogicalId[],
   mutationAffectedEntities: readonly (readonly LogicalId[])[],
   protectedChanges: readonly LogicalId[],
+  sequence: number,
 ): SemanticTransaction {
   const authorizedDeltaKinds = [...new Set(request.authorizedDeltaKinds ?? [])].sort();
   const entries: SemanticDeltaEntry[] = request.mutations.map((mutation, index) => {
@@ -589,6 +590,7 @@ function transactionFor(
   });
   return {
     version: 1,
+    sequence,
     intent: request.intent,
     delta: { version: 1, intent: request.intent, entries, unauthorized: false },
     provenance: {
@@ -826,6 +828,13 @@ export function createSemanticMutationService(
   resolver: SymbolBindingResolver = createSnapshotSymbolBindingResolver(initialSnapshot),
 ): SemanticMutationService {
   let current = clone(initialSnapshot);
+  let transactionSequence = 0;
+  const appliedTransactionSequences = new Set<number>();
+
+  const nextTransactionSequence = (): number => {
+    transactionSequence += 1;
+    return transactionSequence;
+  };
 
   const validate = (state: RepositorySemanticSnapshot): MutationValidationResult => {
     const schema = validateSnapshot(state);
@@ -836,7 +845,11 @@ export function createSemanticMutationService(
       : { ok: false, diagnostics: proseDiagnostics };
   };
 
-  const buildPlan = (base: RepositorySemanticSnapshot, request: SemanticMutationRequest): MutationPlan => {
+  const buildPlan = (
+    base: RepositorySemanticSnapshot,
+    request: SemanticMutationRequest,
+    sequence = nextTransactionSequence(),
+  ): MutationPlan => {
     const ownedRequest = clone(request);
     const baseValidation = validate(base);
     const baseSnapshot = baseValidation.ok ? baseValidation.snapshot : base;
@@ -879,6 +892,7 @@ export function createSemanticMutationService(
             built.mutationSubjects,
             built.mutationAffectedEntities,
             built.protectedChanges,
+            sequence,
           );
     return {
       baseSnapshot: clone(baseSnapshot),
@@ -901,7 +915,7 @@ export function createSemanticMutationService(
   };
 
   const apply = (plan: MutationPlan): SemanticMutationResult => {
-    const validatedPlan = buildPlan(plan.baseSnapshot, plan.request);
+    const validatedPlan = buildPlan(plan.baseSnapshot, plan.request, plan.transaction?.sequence);
     const suppliedPlan = stableStringifyValue({
       baseSnapshot: plan.baseSnapshot,
       candidateSnapshot: plan.candidateSnapshot,
@@ -970,14 +984,29 @@ export function createSemanticMutationService(
         ],
       };
     }
-    current = clone(validatedPlan.candidateSnapshot);
+    const planToApply =
+      validatedPlan.transaction.sequence !== undefined &&
+      appliedTransactionSequences.has(validatedPlan.transaction.sequence)
+        ? buildPlan(plan.baseSnapshot, plan.request)
+        : validatedPlan;
+    if (planToApply.candidateSnapshot === undefined || planToApply.transaction === undefined) {
+      return {
+        ok: false,
+        diagnostics: [
+          diagnostic("mutation_plan_incomplete", "mutation plan has no validated candidate or transaction"),
+        ],
+      };
+    }
+    current = clone(planToApply.candidateSnapshot);
+    if (planToApply.transaction.sequence !== undefined)
+      appliedTransactionSequences.add(planToApply.transaction.sequence);
     return {
       ok: true,
       snapshot: clone(current),
-      transaction: clone(validatedPlan.transaction),
-      writes: clone(validatedPlan.expectedWrites),
-      affectedEntities: [...validatedPlan.affectedEntities],
-      protectedChanges: [...validatedPlan.protectedChanges],
+      transaction: clone(planToApply.transaction),
+      writes: clone(planToApply.expectedWrites),
+      affectedEntities: [...planToApply.affectedEntities],
+      protectedChanges: [...planToApply.protectedChanges],
     };
   };
 

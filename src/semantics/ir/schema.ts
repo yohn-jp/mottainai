@@ -904,6 +904,7 @@ export const repositorySemanticSnapshotSchema = z
 export const semanticTransactionSchema = z
   .object({
     version: z.literal(SEMANTIC_VOCABULARY_VERSION),
+    sequence: z.number().int().positive().optional(),
     intent: z.enum(["semantic-neutral", "semantic-change"]),
     delta: semanticDeltaSchema,
     provenance: provenanceSchema,

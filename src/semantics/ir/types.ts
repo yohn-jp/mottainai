@@ -699,6 +699,8 @@ export interface SemanticDelta {
 
 export interface SemanticTransaction {
   version: typeof SEMANTIC_VOCABULARY_VERSION;
+  /** Monotonic event identity assigned by the mutation service for new events. */
+  sequence?: number;
   intent: SemanticIntent;
   delta: SemanticDelta;
   provenance: Provenance;

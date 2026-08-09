@@ -98,6 +98,20 @@ test("one mutation service owns declarations, binds Symbols explicitly, and emit
     assert.deepEqual(serializeSemanticSource(roundTrip.snapshot), serializeSemanticSource(result.snapshot));
 });
 
+test("canonical prose validation reaches formal-English keys nested in arrays", () => {
+  const base = clone(pureFunctionFixture);
+  const component = base.declarations.components[0]!;
+  component.metadata = { description: ["日本語の説明"] };
+  base.integrity.status = "stale";
+  base.integrity.statusReason = "test added invalid metadata without recomputing fixture digests";
+  const { authority: _authority, provenance: _provenance, ...input } = component;
+  const plan = createSemanticMutationService(base).plan(
+    request([{ kind: "component", component: input }], ["responsibility"]),
+  );
+  assert.equal(plan.diagnostics[0]?.code, "canonical_prose_not_formal_english");
+  assert.match(plan.diagnostics[0]?.message ?? "", /declarations\.components\.0\.metadata\.description\.0/);
+});
+
 test("all declared semantic categories are mutation operations and derived facts stay untouched", () => {
   const base = clone(pureFunctionFixture);
   const component = base.declarations.components[0]!;
@@ -198,13 +212,18 @@ test("source persistence rejects central or non-declared writes", async () => {
   const result = createSemanticMutationService(base).apply(plan);
   assert.equal(result.ok, true);
   if (!result.ok) return;
-  await assert.rejects(
-    persistSemanticMutation("/tmp/mottainai-issue-49-boundary-test", {
-      ...result,
-      writes: [{ path: ".mottainai/semantics/repository.json", operation: "write", content: "{}\n" }],
-    }),
-    /declared mutation boundary/,
-  );
+  const root = await mkdtemp(resolve(tmpdir(), "mottainai-issue-49-boundary-"));
+  try {
+    await assert.rejects(
+      persistSemanticMutation(root, {
+        ...result,
+        writes: [{ path: ".mottainai/semantics/repository.json", operation: "write", content: "{}\n" }],
+      }),
+      /declared mutation boundary/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("successful mutation persistence round-trips declarations and transaction history", async () => {
@@ -309,6 +328,31 @@ test("formal-English reason is required for meaning-changing mutations", () => {
   invalid.reason = "責任を更新する";
   const plan = createSemanticMutationService(base).plan(invalid);
   assert.equal(plan.diagnostics[0]?.code, "missing_semantic_change_reason");
+});
+
+test("repeated semantic applications receive distinct transaction events", () => {
+  const base = clone(pureFunctionFixture);
+  const service = createSemanticMutationService(base);
+
+  const planForCurrentStability = () => {
+    const declaration = service.getSnapshot().declarations.stability[0]!;
+    return service.plan(request([{ kind: "stability", declaration }], ["public-surface"]));
+  };
+
+  const plan = planForCurrentStability();
+  const first = service.apply(plan);
+  const second = service.apply(plan);
+  assert.equal(first.ok, true);
+  assert.equal(second.ok, true);
+  if (!first.ok || !second.ok) return;
+  assert.equal(typeof first.transaction.sequence, "number");
+  assert.equal(typeof second.transaction.sequence, "number");
+  assert.notEqual(first.transaction.sequence, second.transaction.sequence);
+  const firstEvent = first.writes.find((write) => write.path.includes("semantics/transactions/"));
+  const secondEvent = second.writes.find((write) => write.path.includes("semantics/transactions/"));
+  assert.ok(firstEvent);
+  assert.ok(secondEvent);
+  assert.notEqual(firstEvent?.path, secondEvent?.path);
 });
 
 test("independent entity plans rebase, while concurrent protected edits conflict deterministically", () => {

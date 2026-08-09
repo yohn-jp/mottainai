@@ -1,5 +1,5 @@
 import { readdir, readFile, mkdir, unlink, writeFile } from "node:fs/promises";
-import { dirname, relative, resolve } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 import {
   parseSemanticSource,
   serializeSemanticSource,
@@ -51,7 +51,7 @@ export async function loadSemanticSource(rootDir: string): Promise<SnapshotValid
 
 function targetPath(root: string, relativePath: string): string {
   const target = resolve(root, relativePath);
-  const prefix = `${root}/`;
+  const prefix = root.endsWith(sep) ? root : `${root}${sep}`;
   if (target !== root && !target.startsWith(prefix))
     throw new Error(`semantic source path escapes repository root: ${relativePath}`);
   const normalized = relative(root, target).split("\\").join("/");
