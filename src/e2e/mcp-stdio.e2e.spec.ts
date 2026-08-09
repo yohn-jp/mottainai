@@ -304,19 +304,23 @@ test(
       assert.notEqual(exitInfo.code, 0);
       assert.equal(client.stdoutLines.length, 0);
       assert.deepEqual(client.stdoutPurityViolations(), []);
-      assert.equal(
-        client.stderrText(),
-        [
-          "Mottainai configuration was not found:",
-          `  ${configPath}`,
-          "",
-          "Initialize this workspace with:",
-          "  npx -y mottainai init",
-          "",
-          "ENOENT: no such file or directory",
-          "",
-        ].join("\n"),
+      const stderrText = client.stderrText();
+      assert.ok(
+        stderrText.startsWith(
+          [
+            "Mottainai configuration was not found:",
+            `  ${configPath}`,
+            "",
+            "Initialize this workspace with:",
+            "  npx -y mottainai init",
+            "",
+            "ENOENT: no such file or directory",
+            "",
+          ].join("\n"),
+        ),
+        `unexpected stderr prefix:\n${stderrText}`,
       );
+      assert.match(stderrText, /\nRuntime diagnostic:\npackage: mottainai@/u);
     } finally {
       await cleanupClient(client, workspace);
     }
