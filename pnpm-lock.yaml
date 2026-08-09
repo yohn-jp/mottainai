@@ -20,6 +20,9 @@ importers:
       tree-sitter-typescript:
         specifier: ^0.23.2
         version: 0.23.2(tree-sitter@0.22.4)
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
       zod:
         specifier: ^3.24.4
         version: 3.25.76
@@ -36,9 +39,6 @@ importers:
       tsx:
         specifier: ^4.19.4
         version: 4.23.1
-      typescript:
-        specifier: ^5.8.3
-        version: 5.9.3
       typescript-eslint:
         specifier: 8.66.0
         version: 8.66.0(eslint@9.29.0(supports-color@7.2.0))(supports-color@7.2.0)(typescript@5.9.3)

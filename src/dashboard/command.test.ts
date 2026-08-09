@@ -8,3 +8,7 @@ test("dashboard parser supports no-open and explicit ports", () => {
   assert.throws(() => parseDashboardOptions(["--port", "70000"]), /invalid dashboard port/);
   assert.throws(() => parseDashboardOptions(["--unexpected"]), /unknown dashboard option/);
 });
+
+test("dashboard parser selects the live provider without changing the query contract", () => {
+  assert.deepEqual(parseDashboardOptions(["--provider", "live"]), { noOpen: false, port: 4317, provider: "live" });
+});
