@@ -5,8 +5,18 @@ import { fileURLToPath } from "node:url";
 const ignoredDirectories = new Set([".git", ".codegraph", ".mottainai", "coverage", "dist", "node_modules"]);
 const testFilePattern = /\.(?:test|spec)\.(?:ts|mjs)$/u;
 
+// Fast is reserved for deterministic in-process unit/contract checks. Full-repository
+// live-model extraction, TypeScript compiler/typechecker extraction, and HTTP/CLI process
+// lifecycles remain meaningful integration tests.
 const integrationPatterns = Object.freeze([
   "src/commands/**/*.test.ts",
+  "src/dashboard-cli.test.ts",
+  "src/dashboard/command.integration.test.ts",
+  "src/dashboard/http.test.ts",
+  "src/semantics/effects/effects.test.ts",
+  "src/semantics/extractors/typescript/extractor.test.ts",
+  "src/semantics/model/query.test.ts",
+  "src/semantics/mutations.test.ts",
   "src/fault-injection.test.ts",
   "src/init.test.ts",
   "src/local-tools.test.ts",
