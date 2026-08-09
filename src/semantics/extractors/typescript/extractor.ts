@@ -341,8 +341,9 @@ function loadProject(options: TypeScriptExtractorOptions): ProjectContext {
   const requestedRootNames = options.rootNames?.map((filePath) => normalizePath(resolve(rootDir, filePath))) ?? configuredFileNames;
   const rootNames = [...new Set(requestedRootNames)].sort();
   const droppedRootNames = rootNames.filter((filePath) => !pathInside(rootDir, filePath));
-  const projectPaths = new Set([...configuredFileNames, ...rootNames].filter((filePath) => pathInside(rootDir, filePath)));
-  const program = ts.createProgram({ rootNames, options: compilerOptions });
+  const acceptedRootNames = rootNames.filter((filePath) => pathInside(rootDir, filePath));
+  const projectPaths = new Set([...configuredFileNames, ...acceptedRootNames].filter((filePath) => pathInside(rootDir, filePath)));
+  const program = ts.createProgram({ rootNames: acceptedRootNames, options: compilerOptions });
   const sourceFiles = program
     .getSourceFiles()
     .filter((sourceFile) => projectPaths.has(normalizePath(sourceFile.fileName)))
