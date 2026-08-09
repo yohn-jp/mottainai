@@ -213,6 +213,39 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 7,
+    description: "workflow: monotonic task versions for cleanup TOCTOU checks",
+    up: (db) => {
+      db.exec("ALTER TABLE tasks ADD COLUMN task_version INTEGER NOT NULL DEFAULT 1");
+    },
+  },
+  {
+    version: 8,
+    description: "workflow: cleanup leases for crash recovery",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE cleanup_leases (
+          operation_id TEXT PRIMARY KEY,
+          plan_digest TEXT NOT NULL,
+          instance_id TEXT NOT NULL REFERENCES repository_instances (instance_id),
+          task_id TEXT NOT NULL REFERENCES tasks (task_id),
+          worktree_id TEXT REFERENCES worktrees (worktree_id),
+          owner TEXT NOT NULL,
+          state TEXT NOT NULL CHECK (state IN ('reserved', 'mutating', 'verifying', 'committed', 'failed')),
+          acquired_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          completed_actions_json TEXT NOT NULL DEFAULT '[]',
+          last_error TEXT
+        );
+        CREATE INDEX idx_cleanup_leases_resource
+          ON cleanup_leases (instance_id, task_id, worktree_id, updated_at);
+        CREATE INDEX idx_cleanup_leases_expiry
+          ON cleanup_leases (state, expires_at);
+      `);
+    },
+  },
 ];
 
 function currentVersion(db: DatabaseSync): number {
