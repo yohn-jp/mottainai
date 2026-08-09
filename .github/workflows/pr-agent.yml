@@ -1,0 +1,75 @@
+name: PR-Agent
+
+on:
+  pull_request:
+    types: [opened, reopened]
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+jobs:
+  eligibility:
+    # Cheap entry filter: run only for pull_request events, or non-bot comments on a PR.
+    # The fork check itself (which needs an API call for issue_comment events, since that
+    # payload has no head.repo info) happens inside the script step below.
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && github.event.comment.user.type != 'Bot')
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      ok: ${{ steps.check.outputs.ok }}
+    steps:
+      - name: Verify internal PR and trusted commenter
+        id: check
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        with:
+          script: |
+            const repoFullName = `${context.repo.owner}/${context.repo.repo}`;
+
+            if (context.eventName === 'pull_request') {
+              const ok = context.payload.pull_request.head.repo.full_name === repoFullName;
+              core.setOutput('ok', ok);
+              return;
+            }
+
+            // issue_comment: restrict to trusted authors, then resolve the PR to
+            // confirm it isn't fork-originated (not present on the comment payload).
+            const trustedAssociations = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+            if (!trustedAssociations.includes(context.payload.comment.author_association)) {
+              core.setOutput('ok', false);
+              return;
+            }
+
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            core.setOutput('ok', pr.head.repo.full_name === repoFullName);
+
+  pr-agent:
+    needs: eligibility
+    if: needs.eligibility.outputs.ok == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: PR Agent action step
+        uses: qodo-ai/pr-agent@f6af7d77554ff8d26adffded077e6461329e92fa # v0.42.0
+        env:
+          OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI.API_BASE: "https://api.featherless.ai/v1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CONFIG.GIT_PROVIDER: "github"
+          CONFIG.MODEL: ${{ vars.PR_AGENT_MODEL || 'openai/moonshotai/Kimi-K3' }}
+          CONFIG.FALLBACK_MODELS: "[]"
+          CONFIG.CUSTOM_MODEL_MAX_TOKENS: "32000"
+          PR_DESCRIPTION.PUBLISH_DESCRIPTION_AS_COMMENT: "false"
+          github_action_config.auto_review: "true"
+          github_action_config.auto_describe: "false"
+          github_action_config.auto_improve: "false"
