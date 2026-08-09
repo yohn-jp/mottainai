@@ -1,0 +1,8 @@
+{
+  "name": "typescript-fixture",
+  "version": "1.0.0",
+  "dependencies": {
+    "fixture-external": "1.2.3",
+    "unused-dependency": "9.9.9"
+  }
+}
