@@ -111,7 +111,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isSourceBodyKey(key: string): boolean {
-  return /(?:^|[._-])(body|source[_-]?(?:body|text)|raw[_-]?source)(?:$|[._-])/i.test(key);
+  return /(?:^|[._-]|(?<=[a-z])(?=[A-Z]))(body|source[_-]?(?:body|text)|raw[_-]?source)(?:$|[._-])/i.test(key);
 }
 
 /** Strip source bodies from arbitrary fact payloads while retaining fingerprints, ranges and metrics. */
