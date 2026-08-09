@@ -187,10 +187,15 @@ function nodeBuiltinModule(fileName: string): string | undefined {
   const index = normalized.lastIndexOf(marker);
   if (index === -1) return undefined;
   let moduleName = normalized.slice(index + marker.length);
+  moduleName = moduleName.replace(/^ts\d+(?:\.\d+)*\//u, "");
   if (moduleName.endsWith(".d.ts")) moduleName = moduleName.slice(0, -5);
   if (moduleName.endsWith("/index")) moduleName = moduleName.slice(0, -6);
   if (moduleName === "globals" || moduleName === "internal") return undefined;
   return `node:${moduleName}`;
+}
+
+function isNodeDeclarationFile(fileName: string): boolean {
+  return toPosix(fileName).includes("/@types/node/");
 }
 
 function packageNameFromPath(fileName: string): string | undefined {
@@ -274,11 +279,7 @@ export class SymbolIdentityResolver {
       if (property !== undefined) return this.identityFromSymbol(this.checker.getSymbolAtLocation(expression));
       return undefined;
     }
-    if (
-      ts.isCallExpression(expression) &&
-      ts.isIdentifier(expression.expression) &&
-      expression.expression.text === "require"
-    ) {
+    if (ts.isCallExpression(expression) && this.isCommonJsRequire(expression.expression)) {
       const moduleName = staticString(expression.arguments[0]);
       if (moduleName !== undefined) return this.moduleIdentity(moduleName, []);
     }
@@ -296,6 +297,17 @@ export class SymbolIdentityResolver {
 
   isProjectIdentity(identity: ResolvedSymbolIdentity): boolean {
     return identity.kind === "project";
+  }
+
+  /** True only for the TypeScript-resolved Node CommonJS `require` binding. */
+  isCommonJsRequire(expression: ts.Expression): boolean {
+    if (!ts.isIdentifier(expression) || expression.text !== "require") return false;
+    const symbol = this.checker.getSymbolAtLocation(expression);
+    const resolved = symbol === undefined ? undefined : this.resolveAliasedSymbol(symbol);
+    const declaration = declarationForSymbol(resolved);
+    if (resolved === undefined || declaration === undefined) return false;
+    const fileName = toPosix(declaration.getSourceFile().fileName);
+    return resolved.name === "require" && isNodeDeclarationFile(fileName);
   }
 
   formatIdentity(identity: ResolvedSymbolIdentity): string {
@@ -401,11 +413,7 @@ export class SymbolIdentityResolver {
   }
 
   private identityForRequire(expression: ts.Expression): ResolvedSymbolIdentity | undefined {
-    if (
-      ts.isCallExpression(expression) &&
-      ts.isIdentifier(expression.expression) &&
-      expression.expression.text === "require"
-    ) {
+    if (ts.isCallExpression(expression) && this.isCommonJsRequire(expression.expression)) {
       const moduleName = staticString(expression.arguments[0]);
       return moduleName === undefined ? undefined : this.moduleIdentity(moduleName, []);
     }
@@ -455,12 +463,19 @@ export class SymbolIdentityResolver {
     symbol?: ts.Symbol,
   ): ResolvedSymbolIdentity {
     const canonical = canonicalModule(moduleName);
-    const kind = canonical.startsWith("node:")
-      ? "builtin"
-      : isRelativeModuleSpecifier(canonical)
-        ? "project"
+    const resolvedSymbol = symbol === undefined ? undefined : this.resolveAliasedSymbol(symbol);
+    const declaration = declarationForSymbol(resolvedSymbol);
+    const declarationFile = declaration?.getSourceFile().fileName;
+    const isProjectDeclaration = declaration !== undefined && this.declarationIds.has(declaration);
+    const kind = isRelativeModuleSpecifier(canonical)
+      ? "project"
+      : canonical.startsWith("node:")
+        ? declarationFile !== undefined && isNodeDeclarationFile(declarationFile)
+          ? "builtin"
+          : isProjectDeclaration
+            ? "project"
+            : "unknown"
         : "external";
-    const declaration = declarationForSymbol(symbol);
     return {
       kind,
       module: canonical,
@@ -476,8 +491,8 @@ export class SymbolIdentityResolver {
         declaration === undefined
           ? (exportPath.at(-1) ?? canonical)
           : (declarationNameNode(declaration)?.getText() ?? exportPath.at(-1) ?? canonical),
-      declarationFile: declaration?.getSourceFile().fileName,
-      symbolName: symbol?.name,
+      declarationFile,
+      symbolName: resolvedSymbol?.name,
     };
   }
 

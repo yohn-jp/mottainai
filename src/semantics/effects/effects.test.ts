@@ -147,6 +147,17 @@ test("same-name project APIs are not classified from text and direct/transitive 
   assert.ok(propagated);
   assert.ok(propagated.path.some((item) => item === helper.symbolId));
   assert.ok(propagated.path.some((item) => item.includes("node:fs.readFileSync")));
+
+  const localRequire = analysis.symbols.find((result) => result.symbolId === symbol(snapshot, "sameNameRequire").id);
+  assert.ok(localRequire);
+  assert.equal(
+    localRequire.direct.some((item) => item.effect === "filesystem.read"),
+    false,
+  );
+  assert.equal(
+    localRequire.transitive.some((item) => item.effect === "filesystem.read"),
+    false,
+  );
 });
 
 test("relative imports retain project identity even when the local export has an effectful name", () => {

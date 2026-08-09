@@ -92,6 +92,7 @@ function modulePath(identity: ResolvedSymbolIdentity): string {
 }
 
 function matchesRule(identity: ResolvedSymbolIdentity, rule: ModuleEffectRule): boolean {
+  if (identity.kind === "project" || identity.kind === "unknown") return false;
   if (identity.module !== rule.module) return false;
   const path = modulePath(identity);
   return rule.paths.some((candidate) => path === candidate || path.startsWith(`${candidate}.`));
@@ -127,13 +128,17 @@ function rulesForModules(
   return modules.map((module) => ({ module, paths, effects, operations }));
 }
 
+function fsModulePaths(paths: readonly string[]): string[] {
+  return [...paths, ...paths.map((path) => `promises.${path}`)];
+}
+
 let defaultRulesCache: readonly ModuleEffectRule[] | undefined;
 
 function defaultRules(): readonly ModuleEffectRule[] {
   if (defaultRulesCache !== undefined) return defaultRulesCache;
   const rules: ModuleEffectRule[] = [
-    ...rulesForModules(["node:fs", "node:fs/promises"], fsRead, [effect.filesystemRead]),
-    ...rulesForModules(["node:fs", "node:fs/promises"], fsWrite, [effect.filesystemWrite]),
+    ...rulesForModules(["node:fs", "node:fs/promises"], fsModulePaths(fsRead), [effect.filesystemRead]),
+    ...rulesForModules(["node:fs", "node:fs/promises"], fsModulePaths(fsWrite), [effect.filesystemWrite]),
     ...rulesForModules(["node:http", "node:https"], ["request", "get"], [effect.networkRead, effect.networkWrite]),
     ...rulesForModules(
       ["node:net", "node:tls"],

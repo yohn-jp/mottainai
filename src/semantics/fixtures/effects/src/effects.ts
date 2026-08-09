@@ -57,6 +57,13 @@ export function sameNameLocalApi(path: string): string {
   return readFile(path);
 }
 
+export function sameNameRequire(path: string): string {
+  function require(_moduleName: string): { readFileSync(value: string): string } {
+    return { readFileSync: (value) => value };
+  }
+  return require("node:fs").readFileSync(path);
+}
+
 export function dynamicCall(target: Record<string, () => unknown>, method: string): unknown {
   return target[method]?.();
 }

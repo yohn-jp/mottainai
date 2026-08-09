@@ -8,12 +8,6 @@
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
-      "node:fs": ["ambient-node.d.ts"],
-      "node:http": ["ambient-node.d.ts"],
-      "node:child_process": ["ambient-node.d.ts"],
-      "node:crypto": ["ambient-node.d.ts"],
-      "node:perf_hooks": ["ambient-node.d.ts"],
-      "node:process": ["ambient-node.d.ts"],
       "simple-git": ["ambient.d.ts"],
       "pg": ["ambient.d.ts"],
       "mystery-effects": ["ambient.d.ts"]

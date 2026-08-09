@@ -55,6 +55,7 @@ export type EffectUnknownCode =
   | "opaque-external-call"
   | "dynamic-import"
   | "unresolved-symbol"
+  | "evidence-path-bounded"
   | "symbol-identity-unavailable"
   | "analysis-unavailable";
 

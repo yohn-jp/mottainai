@@ -110,10 +110,6 @@ function isStaticImportArgument(
   return expression !== undefined && (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression));
 }
 
-function isRequireCall(node: ts.CallExpression): boolean {
-  return ts.isIdentifier(node.expression) && node.expression.text === "require";
-}
-
 function isDynamicProperty(node: ts.ElementAccessExpression): boolean {
   return !isStaticImportArgument(node.argumentExpression);
 }
@@ -287,6 +283,14 @@ class TypeScriptEffectCollector {
           message: error instanceof Error ? error.message : String(error),
           completeness: "unknown",
         });
+        for (const symbolId of this.symbols) {
+          this.addUnknown({
+            code: "analysis-unavailable",
+            subjectId: symbolId,
+            message: "The TypeScript effect program could not be constructed or traversed",
+            completeness: "unknown",
+          });
+        }
       }
     }
 
@@ -352,11 +356,17 @@ class TypeScriptEffectCollector {
       code === "module_unresolved" ||
       code === "module_exports_unresolved" ||
       code === "module_outside_project" ||
-      code === "opaque_external_symbol"
+      code === "opaque_external_symbol" ||
+      code === "ambiguous_symbol_identity"
     ) {
       if (code === "dynamic_import_unresolved") return "dynamic-import";
       if (code === "dynamic_call_target" || code === "any_mediated_target") return "dynamic-call";
-      if (code === "ambiguous_call_target" || code === "ambiguous_reference_target") return "unresolved-symbol";
+      if (
+        code === "ambiguous_call_target" ||
+        code === "ambiguous_reference_target" ||
+        code === "ambiguous_symbol_identity"
+      )
+        return "unresolved-symbol";
       if (code === "opaque_external_symbol") return "opaque-external-call";
       return "unresolved-symbol";
     }
@@ -405,7 +415,7 @@ class TypeScriptEffectCollector {
       }
       return;
     }
-    if (ts.isCallExpression(node) && isRequireCall(node)) {
+    if (ts.isCallExpression(node) && this.program?.symbols.isCommonJsRequire(node.expression)) {
       if (!isStaticImportArgument(node.arguments[0])) {
         this.addUnknown({
           code: "dynamic-import",
@@ -635,6 +645,12 @@ class TypeScriptEffectCollector {
         }
         for (const target of [...(this.calls.get(current) ?? [])].sort(compareText)) {
           if (path.length >= MAX_EVIDENCE_PATH_LENGTH) {
+            this.addUnknown({
+              code: "evidence-path-bounded",
+              subjectId: symbolId,
+              message: `Evidence path from ${symbolId} exceeded the deterministic bound of ${MAX_EVIDENCE_PATH_LENGTH}`,
+              completeness: "partial",
+            });
             this.addDiagnostic({
               code: "evidence_path_bounded",
               message: `Evidence path from ${symbolId} reached the deterministic bound of ${MAX_EVIDENCE_PATH_LENGTH}`,
@@ -664,7 +680,7 @@ class TypeScriptEffectCollector {
     const bySymbol = new Map(symbols.map((result) => [result.symbolId, result]));
     const componentSymbols = new Map<LogicalId, Set<LogicalId>>();
     for (const relation of this.snapshot.graph.relations) {
-      if (relation.kind !== "owns" && relation.kind !== "shares") continue;
+      if (relation.kind !== "owns" || relation.authority !== "declared") continue;
       if (!this.snapshot.declarations.components.some((component) => component.id === relation.from)) continue;
       if (!this.symbolSet.has(relation.to)) continue;
       const owned = componentSymbols.get(relation.from) ?? new Set<LogicalId>();
@@ -688,7 +704,10 @@ class TypeScriptEffectCollector {
           ownedSymbolIds,
           direct,
           transitive,
-          completeness: mergeCompleteness(memberResults.map((result) => result.transitiveCompleteness)),
+          completeness: mergeCompleteness([
+            completenessForUnknowns(unknowns),
+            ...memberResults.map((result) => result.transitiveCompleteness),
+          ]),
           unknowns,
           provenance: provenance(this.snapshot, "derived", completenessForUnknowns(unknowns)),
         };
@@ -834,7 +853,7 @@ class TypeScriptEffectCollector {
     const projectId = this.snapshot.declarations.project.id;
     const components = new Set<LogicalId>();
     for (const relation of this.snapshot.graph.relations) {
-      if (relation.kind !== "owns" && relation.kind !== "shares") continue;
+      if (relation.kind !== "owns" || relation.authority !== "declared") continue;
       if (relation.to !== subjectId) continue;
       if (this.snapshot.declarations.components.some((component) => component.id === relation.from))
         components.add(relation.from);
