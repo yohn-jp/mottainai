@@ -1,7 +1,10 @@
 import { performance } from "node:perf_hooks";
+import type { SemanticDiffOptions } from "../diff/types.js";
+import type { EffectAnalysisDelta } from "../effects/types.js";
 import { computeIntegrityDigestsFromValidated } from "../ir/canonical.js";
 import { validateSnapshot } from "../ir/schema.js";
 import type { DeclaredState, RepositorySemanticSnapshot, SemanticDiagnostic } from "../ir/types.js";
+import type { SemanticTransaction } from "../ir/types.js";
 import { extractTypeScriptFacts, typeScriptFactProvider } from "../extractors/typescript/index.js";
 import type { TypeScriptExtractorOptions, TypeScriptFactCounts, TypeScriptFactProvider } from "../extractors/types.js";
 import { LiveRepositoryModelQuery, type RepositoryModelBenchmark, type RepositoryModelSource } from "./query.js";
@@ -15,6 +18,11 @@ export interface RepositoryModelCompilerOptions {
   revision?: string;
   /** Validated or stale/invalid snapshots may be supplied for deterministic query tests/replay. */
   snapshot?: RepositorySemanticSnapshot;
+  /** Optional base snapshot for the canonical #54 Change Impact result. */
+  baseSnapshot?: RepositorySemanticSnapshot;
+  diffOptions?: SemanticDiffOptions;
+  transaction?: SemanticTransaction;
+  effectDelta?: EffectAnalysisDelta;
   /** Explicit #49 declarations. No ownership is synthesized when this is absent. */
   declarations?: DeclaredState;
   factProvider?: TypeScriptFactProvider;
@@ -137,6 +145,16 @@ export function compileRepositoryModel(options: RepositoryModelCompilerOptions):
   };
   const source: RepositoryModelSource = {
     snapshot: compiled.snapshot,
+    ...(options.baseSnapshot === undefined ? {} : { baseSnapshot: options.baseSnapshot }),
+    ...(options.diffOptions === undefined && options.transaction === undefined && options.effectDelta === undefined
+      ? {}
+      : {
+          diffOptions: {
+            ...options.diffOptions,
+            ...(options.transaction === undefined ? {} : { transaction: options.transaction }),
+            ...(options.effectDelta === undefined ? {} : { effectDelta: options.effectDelta }),
+          },
+        }),
     diagnostics: [...compiled.diagnostics, ...(compiled.snapshot?.analysis.diagnostics ?? [])],
     integrityStatus,
     ...(integrityReason === undefined ? {} : { integrityReason }),
