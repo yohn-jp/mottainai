@@ -616,7 +616,7 @@ class FactCollector {
   private readonly files: FileEntity[] = [];
   private readonly externalDependencies = new Map<string, PackageUsage>();
   private readonly externalApis = new Map<string, ExternalApiRecord>();
-  private readonly externalSymbolPackages = new Map<ts.Symbol, string>();
+  private readonly externalSymbolPackages = new Map<ts.Symbol, { packageName: string; specifier: string | undefined }>();
   private readonly unknowns: AnalysisUnknown[] = [];
   private readonly diagnostics: SemanticDiagnostic[] = [];
   private readonly unknownKeys = new Set<string>();
@@ -940,8 +940,8 @@ class FactCollector {
     }
     const targetSymbol = this.resolveAliasedSymbol(rawSymbol);
     if (packageName !== undefined) {
-      this.externalSymbolPackages.set(rawSymbol, packageName);
-      this.externalSymbolPackages.set(targetSymbol, packageName);
+      if (!this.externalSymbolPackages.has(rawSymbol)) this.externalSymbolPackages.set(rawSymbol, { packageName, specifier });
+      if (!this.externalSymbolPackages.has(targetSymbol)) this.externalSymbolPackages.set(targetSymbol, { packageName, specifier });
     }
     const targetRecords = this.recordsForSymbol(targetSymbol);
     if (targetRecords.length > 0) {
@@ -1162,7 +1162,8 @@ class FactCollector {
           this.addUnknown("ambiguous_call_target", "Call signature has multiple project declarations", this.symbolIdSubject(owner), relativePath(this.context.rootDir, sourceFile.fileName));
           return;
         }
-        const apiRecords = this.externalApiRecordsForSymbol(target, this.packageForSymbol(target), undefined);
+        const identity = this.externalIdentityForSymbol(target);
+        const apiRecords = this.externalApiRecordsForSymbol(target, identity.packageName, identity.specifier);
         if (apiRecords.length > 0) {
           for (const api of apiRecords) this.recordExternalUse(owner, api);
           return;
@@ -1183,7 +1184,8 @@ class FactCollector {
         this.addUnknown("ambiguous_call_target", "Call target has multiple project declarations", this.symbolIdSubject(owner), relativePath(this.context.rootDir, sourceFile.fileName));
         return;
       }
-      const apiRecords = this.externalApiRecordsForSymbol(target, this.packageForSymbol(target), undefined);
+      const identity = this.externalIdentityForSymbol(target);
+      const apiRecords = this.externalApiRecordsForSymbol(target, identity.packageName, identity.specifier);
       if (apiRecords.length > 0) {
         for (const api of apiRecords) this.recordExternalUse(owner, api);
         return;
@@ -1217,7 +1219,8 @@ class FactCollector {
       this.addUnknown("ambiguous_reference_target", `Reference ${node.getText()} has multiple project declarations`, this.symbolIdSubject(owner), relativePath(this.context.rootDir, sourceFile.fileName));
       return;
     }
-    const apiRecords = this.externalApiRecordsForSymbol(target, this.packageForSymbol(target), undefined);
+    const identity = this.externalIdentityForSymbol(target);
+    const apiRecords = this.externalApiRecordsForSymbol(target, identity.packageName, identity.specifier);
     if (apiRecords.length > 0) {
       for (const api of apiRecords) this.recordExternalUse(owner, api);
     }
@@ -1568,17 +1571,22 @@ class FactCollector {
   }
 
   private packageForSymbol(symbol: ts.Symbol): string | undefined {
+    return this.externalIdentityForSymbol(symbol).packageName;
+  }
+
+  private externalIdentityForSymbol(symbol: ts.Symbol): { packageName: string | undefined; specifier: string | undefined } {
     const known = this.externalSymbolPackages.get(symbol) ?? this.externalSymbolPackages.get(this.resolveAliasedSymbol(symbol));
     if (known !== undefined) return known;
     const declarationFile = (symbol.declarations?.[0] ?? symbol.valueDeclaration)?.getSourceFile().fileName;
-    if (declarationFile === undefined) return undefined;
-    if (isTypeScriptLibraryFile(declarationFile)) return undefined;
-    if (isTypeScriptLibraryFile(declarationFile)) return undefined;
+    if (declarationFile === undefined) return { packageName: undefined, specifier: undefined };
+    if (isTypeScriptLibraryFile(declarationFile)) return { packageName: undefined, specifier: undefined };
     const normalizedDeclarationFile = normalizePath(declarationFile);
-    if (this.context.projectPaths.has(normalizedDeclarationFile)) return undefined;
+    if (this.context.projectPaths.has(normalizedDeclarationFile)) return { packageName: undefined, specifier: undefined };
     const manifest = this.findNearestManifest(declarationFile);
-    if (manifest?.name === this.context.rootPackageName && pathInside(this.context.rootDir, normalizedDeclarationFile)) return undefined;
-    return manifest?.name;
+    if (manifest?.name === this.context.rootPackageName && pathInside(this.context.rootDir, normalizedDeclarationFile)) {
+      return { packageName: undefined, specifier: undefined };
+    }
+    return { packageName: manifest?.name, specifier: undefined };
   }
 
   private findNearestManifest(filePath: string): PackageManifest | undefined {

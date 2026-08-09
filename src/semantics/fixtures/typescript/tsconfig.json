@@ -8,7 +8,8 @@
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
-      "fixture-external": ["external/fixture-external/index.d.ts"]
+      "fixture-external": ["external/fixture-external/index.d.ts"],
+      "fixture-external/subpath": ["external/fixture-external/subpath.d.ts"]
     }
   },
   "include": ["src/**/*.ts"],

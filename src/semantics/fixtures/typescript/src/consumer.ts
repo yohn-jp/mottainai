@@ -1,5 +1,6 @@
 import { topLevel as aliasedTopLevel, overloaded, DerivedBox, ContractAlias } from "./definitions.js";
 import { externalFunction, ExternalClass, externalValue } from "fixture-external";
+import { subpathFunction } from "fixture-external/subpath";
 
 export { topLevel as reExportedTopLevel } from "./definitions.js";
 export { externalFunction as reExportedExternal } from "fixture-external";
@@ -26,4 +27,8 @@ export function shadowed(value: number): number {
 
 export function useImportedType(value: ContractAlias): number {
   return value.value;
+}
+
+export function useSubpath(value: number): number {
+  return subpathFunction(value);
 }

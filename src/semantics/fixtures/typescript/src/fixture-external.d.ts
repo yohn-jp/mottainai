@@ -5,3 +5,7 @@ declare module "fixture-external" {
   }
   export const externalValue: string;
 }
+
+declare module "fixture-external/subpath" {
+  export function subpathFunction(value: number): number;
+}

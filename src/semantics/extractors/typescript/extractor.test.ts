@@ -130,6 +130,24 @@ test("Package facts distinguish declared, resolved, imported, and actually used 
   assert.ok(relations(snapshot, "depends_on").some((relation) => relation.from === "package:typescript-fixture" && relation.to === externalPackage.id));
 });
 
+test("Subpath imports keep one external API identity across import and call/reference projection", () => {
+  const snapshot = extract();
+  const subpathApis = snapshot.derived.externalApis.filter((item) => item.apiName === "fixture-external/subpath.subpathFunction");
+  assert.equal(subpathApis.length, 1);
+  const subpathApi = subpathApis[0]!;
+  assert.deepEqual(facts(snapshot, subpathApi.id, "external_api.used").map((fact) => fact.value), [true]);
+  assert.ok(
+    relations(snapshot, "imports_api").some(
+      (relation) => relation.to === subpathApi.id && relation.metadata?.usage === "imported",
+    ),
+  );
+  assert.ok(
+    relations(snapshot, "imports_api").some(
+      (relation) => relation.to === subpathApi.id && relation.metadata?.usage === "used" && relation.from.includes("useSubpath"),
+    ),
+  );
+});
+
 test("Unknown dynamic behavior is explicit and does not create fabricated call edges", () => {
   const snapshot = extract();
   assert.deepEqual([...new Set(snapshot.analysis.unknowns.map((unknown) => unknown.code))].sort(), [
