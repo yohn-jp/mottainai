@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { test } from "node:test";
 import { computeIntegrityDigestsFromValidated } from "../ir/canonical.js";
-import { createEdgeId, createNodeId } from "../ir/ids.js";
+import { createEdgeId, createFactId, createNodeId } from "../ir/ids.js";
 import { validateSnapshot } from "../ir/schema.js";
 import type { RepositorySemanticSnapshot, SemanticRelation } from "../ir/types.js";
 import { extractTypeScriptFacts } from "../extractors/typescript/index.js";
@@ -109,6 +109,59 @@ test("live model preserves explicit ownership and joins Symbol dependencies/evid
   const implementsRelation = snapshot.graph.relations.find((relation) => relation.kind === "implements");
   assert.ok(implementsRelation);
   assert.ok(result.query.getEntity(implementsRelation.from)?.relations.some((relation) => relation.kind === "implements"));
+});
+
+test("live query redacts source-body aliases from inspector and agent projections", () => {
+  const snapshot = explicitFixtureSnapshot();
+  const subject = snapshot.derived.symbols[0]?.id;
+  assert.ok(subject);
+  const aliases = ["symbolBody", "sourceText", "source_body", "raw-source", "content"] as const;
+  const provenance = snapshot.declarations.project.provenance;
+  snapshot.analysis.facts.push(
+    ...aliases.map((predicate, index) => ({
+      id: createFactId(`redaction-alias-${index}`),
+      subject,
+      predicate,
+      value: `must-not-leak-${index}`,
+      authority: "analysis" as const,
+      provenance,
+    })),
+    {
+      id: createFactId("redaction-nested-aliases"),
+      subject,
+      predicate: "safeMetadata",
+      value: {
+        retained: "safe",
+        symbolBody: "nested-body",
+        sourceText: "nested-source-text",
+        content: "nested-content",
+      },
+      authority: "analysis" as const,
+      provenance,
+    },
+  );
+  snapshot.integrity = { ...snapshot.integrity, status: "stale", statusReason: "redaction alias regression fixture" };
+
+  const result = compileRepositoryModel({ snapshot });
+  assert.equal(result.integrityStatus, "stale", JSON.stringify(result.diagnostics));
+  const inspector = result.query.getEntity(subject);
+  assert.ok(inspector);
+  const agent = result.query.getAgentProjection(subject);
+  const projections = [inspector, agent];
+  for (const projection of projections) {
+    const serialized = JSON.stringify(projection);
+    for (const alias of aliases) {
+      assert.equal(serialized.includes(alias), false, `${alias} must not appear in the projection`);
+    }
+    assert.equal(serialized.includes("must-not-leak"), false);
+    assert.equal(serialized.includes("nested-body"), false);
+    assert.equal(serialized.includes("nested-source-text"), false);
+    assert.equal(serialized.includes("nested-content"), false);
+  }
+  assert.deepEqual(
+    inspector.facts.find((fact) => fact.name === "safeMetadata")?.value,
+    { retained: "safe" },
+  );
 });
 
 test("missing declarations remain model gaps and do not create Components", () => {

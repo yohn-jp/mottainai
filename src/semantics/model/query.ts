@@ -111,7 +111,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isSourceBodyKey(key: string): boolean {
-  return /(?:^|[._-]|(?<=[a-z])(?=[A-Z]))(body|source[_-]?(?:body|text)|raw[_-]?source)(?:$|[._-])/i.test(key);
+  const words = key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .split(/[^A-Za-z0-9]+/)
+    .filter((word) => word.length > 0)
+    .map((word) => word.toLowerCase());
+  if (words.length === 0 || words.some((word) => ["fingerprint", "hash", "digest"].includes(word))) return false;
+  return (
+    words.includes("body") ||
+    words.includes("content") ||
+    (words.includes("source") && (words.includes("body") || words.includes("text"))) ||
+    (words.includes("raw") && words.includes("source"))
+  );
 }
 
 /** Strip source bodies from arbitrary fact payloads while retaining fingerprints, ranges and metrics. */
