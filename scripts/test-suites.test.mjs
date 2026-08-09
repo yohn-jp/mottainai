@@ -28,6 +28,7 @@ test("fast suite excludes expensive integration, process, package, and e2e files
     "src/context-runtime/gh-checks.test.ts",
     "src/context-runtime/identity.test.ts",
     "src/context-runtime/read-adapter.test.ts",
+    "src/envelope.test.ts",
     "src/gitignore.test.ts",
     "src/hooks/hooks.test.ts",
     "src/proxy.test.ts",
