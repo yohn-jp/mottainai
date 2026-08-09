@@ -490,3 +490,302 @@ test("listWorktreesForInstance returns worktrees across multiple tasks", () => {
   });
   assert.equal(store.listWorktreesForInstance(instanceId).length, 2);
 });
+
+function reserveTaskWithWorktree(store: WorkflowSqliteStateStore, taskSlug: string) {
+  const task = reserveTask(store, taskSlug);
+  const worktree = store.reserveWorktree({
+    taskId: task.taskId, instanceId, branchName: `task/${taskSlug}`, canonicalPath: `/repo/.worktrees/${taskSlug}`,
+    baseBranch: "main", baseCommit: "deadbeef",
+  });
+  if (!worktree.ok) throw new Error("expected reserveWorktree to succeed in test setup");
+  return { task, worktree: worktree.worktree };
+}
+
+test("reserveCleanupLease creates a new lease in the reserved state", () => {
+  const store = openStoreWithInstance();
+  const { task, worktree } = reserveTaskWithWorktree(store, "task-a");
+  const result = store.reserveCleanupLease({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    owner: "owner-1", acquiredAt: 0, expiresAt: 1000,
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.lease.state, "reserved");
+  assert.equal(result.lease.owner, "owner-1");
+  assert.deepEqual(store.getCleanupLease("op-1"), result.lease);
+});
+
+test("reserveCleanupLease rejects a plan digest mismatch for an existing operation id", () => {
+  const store = openStoreWithInstance();
+  const { task, worktree } = reserveTaskWithWorktree(store, "task-a");
+  store.reserveCleanupLease({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    owner: "owner-1", acquiredAt: 0, expiresAt: 1000,
+  });
+  const result = store.reserveCleanupLease({
+    operationId: "op-1", planDigest: "digest-2", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    owner: "owner-1", acquiredAt: 0, expiresAt: 1000,
+  });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.reason, "plan-digest-mismatch");
+});
+
+test("reserveCleanupLease reuses an unexpired lease held by the same owner", () => {
+  const store = openStoreWithInstance();
+  const { task, worktree } = reserveTaskWithWorktree(store, "task-a");
+  const first = store.reserveCleanupLease({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    owner: "owner-1", acquiredAt: 0, expiresAt: 1000,
+  });
+  const second = store.reserveCleanupLease({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    owner: "owner-1", acquiredAt: 100, expiresAt: 2000,
+  });
+  assert.equal(first.ok, true);
+  assert.equal(second.ok, true);
+  if (!first.ok || !second.ok) return;
+  assert.equal(second.lease.state, "reserved");
+});
+
+test("reserveCleanupLease rejects an unexpired lease held by a different owner instead of returning ok:true", () => {
+  const store = openStoreWithInstance();
+  const { task, worktree } = reserveTaskWithWorktree(store, "task-a");
+  store.reserveCleanupLease({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    owner: "owner-1", acquiredAt: 0, expiresAt: 1000,
+  });
+  const result = store.reserveCleanupLease({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    owner: "owner-2", acquiredAt: 100, expiresAt: 2000,
+  });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.reason, "active-lease");
+  assert.equal(result.existingLease.owner, "owner-1");
+});
+
+test("reserveCleanupLease reuses an already-committed lease regardless of owner", () => {
+  const store = openStoreWithInstance();
+  const { task, worktree } = reserveTaskWithWorktree(store, "task-a");
+  const first = store.reserveCleanupLease({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    owner: "owner-1", acquiredAt: 0, expiresAt: 1000,
+  });
+  assert.equal(first.ok, true);
+  if (!first.ok) return;
+  store.markCleanupLease({ operationId: "op-1", state: "mutating" });
+  store.markCleanupLease({ operationId: "op-1", state: "verifying" });
+  store.commitCleanup({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    expectedTaskVersion: task.version, expectedLifecycle: task.lifecycleState, completedActionIds: [],
+  });
+  const reused = store.reserveCleanupLease({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    owner: "owner-2", acquiredAt: 100, expiresAt: 2000,
+  });
+  assert.equal(reused.ok, true);
+  if (!reused.ok) return;
+  assert.equal(reused.lease.state, "committed");
+});
+
+test("reserveCleanupLease recovers an expired mutating lease back into mutating, preserving completed actions", () => {
+  const store = openStoreWithInstance();
+  const { task, worktree } = reserveTaskWithWorktree(store, "task-a");
+  store.reserveCleanupLease({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    owner: "owner-1", acquiredAt: 0, expiresAt: 10,
+  });
+  store.markCleanupLease({ operationId: "op-1", state: "mutating", completedActionIds: ["remove-worktree"] });
+  const recovered = store.reserveCleanupLease({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    owner: "owner-2", acquiredAt: 1000, expiresAt: 2000,
+  });
+  assert.equal(recovered.ok, true);
+  if (!recovered.ok) return;
+  assert.equal(recovered.lease.state, "mutating");
+  assert.equal(recovered.lease.owner, "owner-2");
+  assert.deepEqual(recovered.lease.completedActionIds, ["remove-worktree"]);
+});
+
+test("reserveCleanupLease recovers a failed lease back into reserved, clearing completed actions", () => {
+  const store = openStoreWithInstance();
+  const { task, worktree } = reserveTaskWithWorktree(store, "task-a");
+  store.reserveCleanupLease({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    owner: "owner-1", acquiredAt: 0, expiresAt: 1000,
+  });
+  store.markCleanupLease({ operationId: "op-1", state: "failed", lastError: "boom" });
+  const recovered = store.reserveCleanupLease({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    owner: "owner-2", acquiredAt: 100, expiresAt: 2000,
+  });
+  assert.equal(recovered.ok, true);
+  if (!recovered.ok) return;
+  assert.equal(recovered.lease.state, "reserved");
+  assert.deepEqual(recovered.lease.completedActionIds, []);
+  assert.equal(recovered.lease.lastError, undefined);
+});
+
+test("reserveCleanupLease rejects a second concurrent operation while an active lease holds the same resource", () => {
+  const store = openStoreWithInstance();
+  const { task, worktree } = reserveTaskWithWorktree(store, "task-a");
+  store.reserveCleanupLease({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    owner: "owner-1", acquiredAt: 0, expiresAt: 1000,
+  });
+  const result = store.reserveCleanupLease({
+    operationId: "op-2", planDigest: "digest-2", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    owner: "owner-2", acquiredAt: 100, expiresAt: 2000,
+  });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.reason, "active-lease");
+  assert.equal(result.existingLease.operationId, "op-1");
+});
+
+test("getActiveCleanupLease returns undefined once no lease is held for the resource", () => {
+  const store = openStoreWithInstance();
+  const { task, worktree } = reserveTaskWithWorktree(store, "task-a");
+  assert.equal(store.getActiveCleanupLease(instanceId, task.taskId, worktree.worktreeId, 0), undefined);
+});
+
+test("markCleanupLease throws for an unknown operation id", () => {
+  const store = openStoreWithInstance();
+  assert.throws(() => store.markCleanupLease({ operationId: "missing", state: "mutating" }));
+});
+
+test("markCleanupLease succeeds when expectedState matches the stored state", () => {
+  const store = openStoreWithInstance();
+  const { task, worktree } = reserveTaskWithWorktree(store, "task-a");
+  store.reserveCleanupLease({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    owner: "owner-1", acquiredAt: 0, expiresAt: 1000,
+  });
+  const updated = store.markCleanupLease({ operationId: "op-1", state: "mutating", expectedState: "reserved" });
+  assert.equal(updated.state, "mutating");
+});
+
+test("markCleanupLease rejects a stale expectedState as a concurrent transition", () => {
+  const store = openStoreWithInstance();
+  const { task, worktree } = reserveTaskWithWorktree(store, "task-a");
+  store.reserveCleanupLease({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    owner: "owner-1", acquiredAt: 0, expiresAt: 1000,
+  });
+  store.markCleanupLease({ operationId: "op-1", state: "mutating" });
+  assert.throws(() => store.markCleanupLease({ operationId: "op-1", state: "verifying", expectedState: "reserved" }));
+});
+
+test("commitCleanup throws for an unknown operation id", () => {
+  const store = openStoreWithInstance();
+  assert.throws(() =>
+    store.commitCleanup({
+      operationId: "missing", planDigest: "digest-1", instanceId, taskId: "task-x" as never,
+      expectedTaskVersion: 1, expectedLifecycle: "abandoned", completedActionIds: [],
+    }),
+  );
+});
+
+test("commitCleanup throws on a lease identity mismatch", () => {
+  const store = openStoreWithInstance();
+  const { task, worktree } = reserveTaskWithWorktree(store, "task-a");
+  store.reserveCleanupLease({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    owner: "owner-1", acquiredAt: 0, expiresAt: 1000,
+  });
+  store.markCleanupLease({ operationId: "op-1", state: "mutating" });
+  store.markCleanupLease({ operationId: "op-1", state: "verifying" });
+  assert.throws(() =>
+    store.commitCleanup({
+      operationId: "op-1", planDigest: "wrong-digest", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+      expectedTaskVersion: task.version, expectedLifecycle: task.lifecycleState, completedActionIds: [],
+    }),
+  );
+});
+
+test("commitCleanup rejects a lease that has not reached verifying (reserved, mutating, failed)", () => {
+  const store = openStoreWithInstance();
+  const { task, worktree } = reserveTaskWithWorktree(store, "task-a");
+  store.reserveCleanupLease({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    owner: "owner-1", acquiredAt: 0, expiresAt: 1000,
+  });
+  assert.throws(() =>
+    store.commitCleanup({
+      operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+      expectedTaskVersion: task.version, expectedLifecycle: task.lifecycleState, completedActionIds: [],
+    }),
+  );
+  store.markCleanupLease({ operationId: "op-1", state: "mutating" });
+  assert.throws(() =>
+    store.commitCleanup({
+      operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+      expectedTaskVersion: task.version, expectedLifecycle: task.lifecycleState, completedActionIds: [],
+    }),
+  );
+  store.markCleanupLease({ operationId: "op-1", state: "failed" });
+  assert.throws(() =>
+    store.commitCleanup({
+      operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+      expectedTaskVersion: task.version, expectedLifecycle: task.lifecycleState, completedActionIds: [],
+    }),
+  );
+});
+
+test("commitCleanup from a verifying lease marks the task cleaned and the worktree removed", () => {
+  const store = openStoreWithInstance();
+  const { task, worktree } = reserveTaskWithWorktree(store, "task-a");
+  store.reserveCleanupLease({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    owner: "owner-1", acquiredAt: 0, expiresAt: 1000,
+  });
+  store.markCleanupLease({ operationId: "op-1", state: "mutating" });
+  store.markCleanupLease({ operationId: "op-1", state: "verifying" });
+  const result = store.commitCleanup({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    expectedTaskVersion: task.version, expectedLifecycle: task.lifecycleState, completedActionIds: ["remove-worktree"],
+  });
+  assert.equal(result.task.lifecycleState, "cleaned");
+  assert.equal(result.worktree?.status, "removed");
+  assert.equal(result.lease.state, "committed");
+});
+
+test("commitCleanup is idempotent when called again on an already-committed lease", () => {
+  const store = openStoreWithInstance();
+  const { task, worktree } = reserveTaskWithWorktree(store, "task-a");
+  store.reserveCleanupLease({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    owner: "owner-1", acquiredAt: 0, expiresAt: 1000,
+  });
+  store.markCleanupLease({ operationId: "op-1", state: "mutating" });
+  store.markCleanupLease({ operationId: "op-1", state: "verifying" });
+  const first = store.commitCleanup({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    expectedTaskVersion: task.version, expectedLifecycle: task.lifecycleState, completedActionIds: ["remove-worktree"],
+  });
+  const second = store.commitCleanup({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    expectedTaskVersion: task.version, expectedLifecycle: task.lifecycleState, completedActionIds: ["remove-worktree"],
+  });
+  assert.equal(second.lease.state, "committed");
+  assert.equal(second.task.taskId, first.task.taskId);
+  assert.equal(second.task.lifecycleState, "cleaned");
+});
+
+test("commitCleanup throws when the task changed (version/lifecycle) since planning", () => {
+  const store = openStoreWithInstance();
+  const { task, worktree } = reserveTaskWithWorktree(store, "task-a");
+  store.reserveCleanupLease({
+    operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+    owner: "owner-1", acquiredAt: 0, expiresAt: 1000,
+  });
+  store.markCleanupLease({ operationId: "op-1", state: "mutating" });
+  store.markCleanupLease({ operationId: "op-1", state: "verifying" });
+  assert.throws(() =>
+    store.commitCleanup({
+      operationId: "op-1", planDigest: "digest-1", instanceId, taskId: task.taskId, worktreeId: worktree.worktreeId,
+      expectedTaskVersion: task.version + 1, expectedLifecycle: task.lifecycleState, completedActionIds: [],
+    }),
+  );
+});
