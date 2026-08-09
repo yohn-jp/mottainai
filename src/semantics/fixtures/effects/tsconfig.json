@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "simple-git": ["ambient.d.ts"],
+      "pg": ["ambient.d.ts"],
+      "mystery-effects": ["ambient.d.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "ambient*.d.ts"]
+}
