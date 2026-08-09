@@ -164,3 +164,34 @@ gateはrepository floorとcritical targetの両方を評価し、moduleがartifa
 非Draft PRのValidationには、実行した`format:check`、`lint`、`typecheck`、`pnpm test`、integration/process、E2E、build、package smoke、architecture/governance、coverageを明記する。未実行をpassとして記載しない。
 
 Governanceの`Validation` checklistは実行済みlayerの記録であり、evidence classの結果本文ではない。PRではchecklistを維持したうえで、classごとにcommand、target、result、必要ならartifact・scenario・warningsを記録する。未実行、pending、hung、環境境界はpassに変換しない。
+
+## Mutation / property effectiveness
+
+Issue #24のeffectiveness layerは、広い入力空間と意味のある分岐を持つ手書きproduction logicだけを対象にする。初期scopeは次の通り。
+
+| Scope                                                                     | Risk                                           | Properties / mutation scenarios                                                            |
+| ------------------------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `src/config.ts`                                                           | 起動設定、transport validation、正規化の互換性 | nullish path default、HTTP(S) validation、version normalization、normalization idempotence |
+| `src/local-tools.ts`                                                      | workspace外へのread/exec、検索結果の再現性     | lexical/realpath containment、symlink escape rejection、first-seen result ordering         |
+| `src/compress/budget.ts`, `src/compress/json.ts`, `src/compress/lines.ts` | UTF-8情報損失、予算超過、境界off-by-one        | byte bound、head/tail preservation、depth/line/byte exact boundary                         |
+| `src/envelope.ts`, `src/execution.ts`                                     | MCP schema、error flag、result budget          | required fields、reserved-field isolation、JSON byte boundary、token-to-byte conversion    |
+| `src/retrieve.ts`                                                         | 圧縮前データの漏洩・無制限保持                 | UTF-8 bound、TTL exact boundary、LRU entry cap                                             |
+| `src/init.ts`                                                             | credential/URLの誤 import                      | plain HTTP(S) only、userinfo/query/fragment rejection、any-secret argument rejection       |
+
+固定seed `240824`、既定48ケース/property、最大200ケース/property、mutationごとの15秒timeoutで実行する。generatorはseedからのみ値を生成し、失敗時は`seed`、case番号、縮小済み`counterexample`をstderrへ出す。reportにはruntime inputやsecretを含めず、scope、mutation id、status、seed、件数だけを保存する。
+
+Targeted local commands:
+
+- `pnpm run test:property -- --seed 240824 --runs 48 --report test-artifacts/property-report.json`
+- `pnpm run test:mutation -- --seed 240824 --runs 48 --timeout-ms 15000 --report test-artifacts/mutation-report.json`
+- `pnpm run test:effectiveness`（上記2層の連続実行）
+
+これらは`pnpm test`、`test:all`、`verify`へ含めない。mutation runnerはrepository全体をmutationせず、`scripts/mutation-catalog.mjs`に列挙したscopeを一時sandboxへコピーしてproperty suiteだけを実行する。CIでは`.github/workflows/test-effectiveness.yml`のmanual dispatchまたは週次scheduleだけで実行し、JSON reportをartifactとして保存する。
+
+Mutation policy:
+
+- non-equivalent survivorまたはtimeoutは失敗。scoreは`killed / (selected - equivalent)`で計算し、baseline未満への低下を許可しない。
+- equivalent mutantは自動的に隠さず、mutation id、等価性の理由、denominatorから除外する承認をreportへ記録する。generated code、dependency、`dist/`、test helperはcatalog外であり、scope外である理由をこの文書とreportへ残す。
+- 初期baselineは23 non-equivalent mutantsを23件kill、survivor 0、score 1.0。baseline JSONは[`mutation-baseline.json`](mutation-baseline.json)。non-equivalent survivorが見つかった場合は、property/regression assertionを強化するか、理由・owner・IssueをPRのReview focusとreportへ記録する。意図的なscore低下・scope除外も同じ証跡なしには認めない。
+
+新しいcritical logicを追加・変更するPRでは、少なくとも1つのbounded property（不変条件、境界、順序、拒否条件のいずれか）と、比較演算子・上限・正規化・保持期限・security/protocol分岐のうち該当するmutation scenarioをcatalogへ追加する。pure logicの境界はunit/contract、filesystem/CLI/security実行はprocess/integrationまたはsecurity/negativeとしてValidation evidenceへ記録する。property/mutationが変更されないPRは、対象外の理由をReview focusへ明記する。

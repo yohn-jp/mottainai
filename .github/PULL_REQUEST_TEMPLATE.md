@@ -41,6 +41,7 @@ Test layers:
 - Package / E2E / smoke: `pnpm run test:e2e`, `pnpm run test:package`
 - Standards / static: `pnpm run verify:standards`
 - Coverage: `pnpm run test:coverage`
+- Test effectiveness (when critical logic changes): `pnpm run test:effectiveness`
 - Full verification: `pnpm run verify`
 
 ## Test contract
@@ -88,6 +89,13 @@ TODO, TBD, placeholder, or template-comment-only content. -->
 - class: `lint/architecture`; status: ; command: ; target: ; result: ; artifact:
 - class: `release`; status: ; command: ; target: ; result: ; artifact: ; warnings:
 - class: `security/negative`; status: ; command: ; target: ; result: ; scenario: ; artifact:
+
+Effectiveness evidence (when applicable):
+
+- property seed / runs:
+- mutation scope / score:
+- report artifact:
+- survivor or intentional exclusion disposition:
 
 ## Release impact
 

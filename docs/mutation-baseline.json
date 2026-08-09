@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "seed": 240824,
+  "propertyRuns": 48,
+  "mutationTimeoutMs": 15000,
+  "policy": {
+    "equivalentMutants": "reviewed separately; denominator exclusion requires an id and rationale",
+    "generatedCode": "excluded because only listed hand-written source files are mutated",
+    "timeout": "fail closed; timeout is not killed",
+    "minimumScore": 1
+  },
+  "scope": [
+    "src/config.ts",
+    "src/local-tools.ts",
+    "src/compress/budget.ts",
+    "src/compress/json.ts",
+    "src/compress/lines.ts",
+    "src/envelope.ts",
+    "src/execution.ts",
+    "src/retrieve.ts",
+    "src/init.ts"
+  ],
+  "totals": {
+    "selected": 23,
+    "killed": 23,
+    "survived": 0,
+    "equivalent": 0
+  },
+  "score": 1,
+  "mutations": [
+    { "id": "config-default-path-nullish", "file": "src/config.ts", "outcome": "killed" },
+    { "id": "config-http-url-protocol", "file": "src/config.ts", "outcome": "killed" },
+    { "id": "config-version-normalization", "file": "src/config.ts", "outcome": "killed" },
+    { "id": "path-lexical-containment", "file": "src/local-tools.ts", "outcome": "killed" },
+    { "id": "path-realpath-containment", "file": "src/local-tools.ts", "outcome": "killed" },
+    { "id": "search-order-sort", "file": "src/local-tools.ts", "outcome": "killed" },
+    { "id": "compression-token-budget-sign", "file": "src/compress/budget.ts", "outcome": "killed" },
+    { "id": "compression-exact-budget-boundary", "file": "src/compress/budget.ts", "outcome": "killed" },
+    { "id": "compression-head-ratio", "file": "src/compress/budget.ts", "outcome": "killed" },
+    { "id": "json-array-boundary", "file": "src/compress/json.ts", "outcome": "killed" },
+    { "id": "json-tail-cap", "file": "src/compress/json.ts", "outcome": "killed" },
+    { "id": "json-depth-boundary", "file": "src/compress/json.ts", "outcome": "killed" },
+    { "id": "lines-exact-limit", "file": "src/compress/lines.ts", "outcome": "killed" },
+    { "id": "envelope-facts-type-guard", "file": "src/envelope.ts", "outcome": "killed" },
+    { "id": "envelope-reserved-field-filter", "file": "src/envelope.ts", "outcome": "killed" },
+    { "id": "execution-budget-inclusive", "file": "src/execution.ts", "outcome": "killed" },
+    { "id": "execution-token-byte-conversion", "file": "src/execution.ts", "outcome": "killed" },
+    { "id": "retention-ttl-boundary", "file": "src/retrieve.ts", "outcome": "killed" },
+    { "id": "retention-lru-cap", "file": "src/retrieve.ts", "outcome": "killed" },
+    { "id": "sanitizer-protocol-guard", "file": "src/init.ts", "outcome": "killed" },
+    { "id": "sanitizer-fragment-guard", "file": "src/init.ts", "outcome": "killed" },
+    { "id": "sanitizer-any-secret", "file": "src/init.ts", "outcome": "killed" },
+    { "id": "sanitizer-secret-or-chain", "file": "src/init.ts", "outcome": "killed" }
+  ],
+  "survivingMutants": [],
+  "passed": true
+}
