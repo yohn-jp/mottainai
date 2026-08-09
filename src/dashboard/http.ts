@@ -81,12 +81,16 @@ function parseRelationKinds(value: string | null): RelationKind[] | undefined {
     "contains",
     "owns",
     "shares",
+    "defines",
     "provides",
     "requires",
+    "constrained-by",
     "depends-on",
     "calls",
     "references",
     "imports",
+    "extends",
+    "implements",
     "uses-package",
     "imports-api",
     "tests",
@@ -108,11 +112,27 @@ function parseEnum<T extends string>(value: string | null, allowed: readonly T[]
 
 function parseGraphQuery(url: URL): GraphQuery {
   const limit = parseOptionalLimit(url.searchParams.get("limit"));
+  const nodeLimit = parseOptionalLimit(url.searchParams.get("nodeLimit"));
+  const edgeLimit = parseOptionalLimit(url.searchParams.get("edgeLimit"));
+  const depthValue = url.searchParams.get("depth");
+  const depth = depthValue === null ? undefined : Number(depthValue);
+  if (depth !== undefined && (!Number.isInteger(depth) || depth < 0 || depth > 20)) {
+    throw new SemanticQueryError("invalid_query", "depth must be an integer between 0 and 20");
+  }
+  const directionValue = url.searchParams.get("direction");
+  const direction = directionValue === null ? undefined : directionValue;
+  if (direction !== undefined && direction !== "outgoing" && direction !== "incoming" && direction !== "both") {
+    throw new SemanticQueryError("invalid_query", `unknown graph direction: ${direction}`);
+  }
   const relationKinds = parseRelationKinds(url.searchParams.get("relationKinds"));
   return {
     ...(url.searchParams.get("componentId") === null ? {} : { componentId: url.searchParams.get("componentId") ?? undefined }),
     ...(url.searchParams.get("entityId") === null ? {} : { entityId: url.searchParams.get("entityId") ?? undefined }),
     ...(relationKinds === undefined ? {} : { relationKinds }),
+    ...(direction === undefined ? {} : { direction }),
+    ...(depth === undefined ? {} : { depth }),
+    ...(nodeLimit === undefined ? {} : { nodeLimit }),
+    ...(edgeLimit === undefined ? {} : { edgeLimit }),
     ...(limit === undefined ? {} : { limit }),
   };
 }

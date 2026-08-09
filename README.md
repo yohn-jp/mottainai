@@ -211,6 +211,7 @@ Launch the local fixture-backed, read-only Semantic Project Viewer:
 ```bash
 npx -y mottainai dashboard
 npx -y mottainai dashboard --no-open --port 4317
+npx -y mottainai dashboard --provider live
 ```
 
 The dashboard binds loopback, serves the versioned `/api/v1/*` Query API from
@@ -218,6 +219,11 @@ the same process, and opens a browser where practical. The canonical visual
 reference is `docs/mockups/semantic-project-viewer-v2.html`; the design
 contract is `docs/design/repository-semantic-model-v1.ts`. Fixture values are
 explicitly marked as fixture data and are not live repository analysis.
+
+The dashboard uses the deterministic fixture provider by default. Select the live
+Repository Model provider with `--provider live` or
+`MOTTAINAI_DASHBOARD_PROVIDER=live`; live compilation reads current TypeScript
+facts and reports partial, stale, or unavailable integrity state explicitly.
 
 ### Git workflow task lifecycle (early exposure, Issue #34)
 
