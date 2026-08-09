@@ -12,6 +12,12 @@ import type {
   SemanticEntity,
   SemanticFact,
   SemanticRelation,
+  VerificationAnalysis,
+  VerificationAssessment,
+  VerificationEvidence,
+  VerificationPerspective,
+  VerificationRequirement,
+  VerificationSummary,
 } from "./types.js";
 
 export function compareText(left: string, right: string): number {
@@ -104,6 +110,57 @@ function canonicalizeRelation(relation: SemanticRelation): SemanticRelation {
   return { ...relation, provenance: canonicalizeProvenance(relation.provenance) };
 }
 
+function canonicalizeVerificationPerspective(perspective: VerificationPerspective): VerificationPerspective {
+  return { ...perspective, provenance: canonicalizeProvenance(perspective.provenance) };
+}
+
+function canonicalizeVerificationRequirement(requirement: VerificationRequirement): VerificationRequirement {
+  return {
+    ...requirement,
+    provenance: canonicalizeProvenance(requirement.provenance),
+  };
+}
+
+function canonicalizeVerificationEvidence(evidence: VerificationEvidence): VerificationEvidence {
+  return { ...evidence, provenance: canonicalizeProvenance(evidence.provenance) };
+}
+
+function canonicalizeVerificationAssessment(assessment: VerificationAssessment): VerificationAssessment {
+  return {
+    ...assessment,
+    evidenceIds: [...assessment.evidenceIds].sort(compareText),
+    satisfyingEvidenceIds: [...assessment.satisfyingEvidenceIds].sort(compareText),
+    ...(assessment.missingEvidenceKinds === undefined
+      ? {}
+      : { missingEvidenceKinds: [...assessment.missingEvidenceKinds].sort(compareText) }),
+  };
+}
+
+function canonicalizeVerificationSummary(summary: VerificationSummary): VerificationSummary {
+  return { ...summary, gapRequirementIds: [...summary.gapRequirementIds].sort(compareText) };
+}
+
+function canonicalizeVerificationAnalysis(verification: VerificationAnalysis): VerificationAnalysis {
+  return {
+    ...verification,
+    assessments: verification.assessments
+      .map(canonicalizeVerificationAssessment)
+      .sort((left, right) =>
+        compareText(`${left.target.id}:${left.requirementId}`, `${right.target.id}:${right.requirementId}`),
+      ),
+    summaries: verification.summaries
+      .map(canonicalizeVerificationSummary)
+      .sort((left, right) => compareText(`${left.scope}:${left.targetId}`, `${right.scope}:${right.targetId}`)),
+    ...(verification.inferredRequirements === undefined
+      ? {}
+      : {
+          inferredRequirements: verification.inferredRequirements
+            .map(canonicalizeVerificationRequirement)
+            .sort((left, right) => compareText(left.id, right.id)),
+        }),
+  };
+}
+
 function canonicalizeDeclared(declarations: DeclaredState): DeclaredState {
   return {
     ...declarations,
@@ -145,6 +202,20 @@ function canonicalizeDeclared(declarations: DeclaredState): DeclaredState {
       (item) => item,
     ),
     decisionLinks: sortByKey([...declarations.decisionLinks], (item) => item),
+    ...(declarations.verificationPerspectives === undefined
+      ? {}
+      : {
+          verificationPerspectives: declarations.verificationPerspectives
+            .map(canonicalizeVerificationPerspective)
+            .sort((left, right) => compareText(left.id, right.id)),
+        }),
+    ...(declarations.verificationRequirements === undefined
+      ? {}
+      : {
+          verificationRequirements: declarations.verificationRequirements
+            .map(canonicalizeVerificationRequirement)
+            .sort((left, right) => compareText(left.id, right.id)),
+        }),
     commentPolicy: {
       ...declarations.commentPolicy,
       semanticCommentKinds: [...declarations.commentPolicy.semanticCommentKinds].sort(compareText),
@@ -164,6 +235,13 @@ function canonicalizeDerived(derived: DerivedState): DerivedState {
       .sort((left, right) => compareText(left.id, right.id)),
     externalApis: derived.externalApis.map(canonicalizeEntity).sort((left, right) => compareText(left.id, right.id)),
     facts: derived.facts.map(canonicalizeFact).sort((left, right) => compareText(left.id, right.id)),
+    ...(derived.verificationRequirements === undefined
+      ? {}
+      : {
+          verificationRequirements: derived.verificationRequirements
+            .map(canonicalizeVerificationRequirement)
+            .sort((left, right) => compareText(left.id, right.id)),
+        }),
   };
 }
 
@@ -174,6 +252,13 @@ function canonicalizeObserved(observed: ObservedState): ObservedState {
     evidences: evidences.sort((left, right) => compareText(left.id, right.id)),
     tests: observed.tests.map(canonicalizeEntity).sort((left, right) => compareText(left.id, right.id)),
     facts: observed.facts.map(canonicalizeFact).sort((left, right) => compareText(left.id, right.id)),
+    ...(observed.verificationEvidence === undefined
+      ? {}
+      : {
+          verificationEvidence: observed.verificationEvidence
+            .map(canonicalizeVerificationEvidence)
+            .sort((left, right) => compareText(left.id, right.id)),
+        }),
   };
 }
 
@@ -195,6 +280,9 @@ function canonicalizeAnalysis(analysis: AnalysisState): AnalysisState {
     ),
     recommendedSourceReads: sortByKey([...analysis.recommendedSourceReads], (item) => item),
     diagnostics: sortByKey([...analysis.diagnostics], (item) => item),
+    ...(analysis.verification === undefined
+      ? {}
+      : { verification: canonicalizeVerificationAnalysis(analysis.verification) }),
   };
 }
 

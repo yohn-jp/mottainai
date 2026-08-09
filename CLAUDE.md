@@ -1,8 +1,8 @@
 # CLAUDE.md — mottainai
 
-**Agent execution contractは [AGENTS.md](AGENTS.md)。** 全プロジェクト規則の正本ではなく、詳細なexact ruleは各machine-readable / executable authorityへ委譲する。矛盾はauthorityを確認し、差分を報告する。
+**作業開始前に [AGENTS.md](AGENTS.md) を必ず読み、その実行契約に従う。** 全プロジェクト規則の正本ではなく、詳細なexact ruleは各machine-readable / executable authorityへ委譲する。矛盾はauthorityを確認し、差分を報告する。
 
-このファイルは応答スタイルのみを定義する。
+このファイルは応答スタイルのみを定義する。実行規律・scope・validation・completion手順は定義しない。
 
 ---
 
