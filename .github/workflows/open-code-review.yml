@@ -2,7 +2,7 @@ name: OpenCodeReview
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize]
+    types: [opened, reopened, synchronize, ready_for_review]
 
 permissions: {}
 
@@ -67,7 +67,6 @@ jobs:
           incremental: "true"
           incremental_overlap_threshold: "0.6"
           route_severity_below: "medium"
-          route_categories: "style,documentation"
           review_comment_batch_size: "20"
 
       - name: Publish non-secret review metadata
@@ -85,7 +84,7 @@ jobs:
             echo "- Version: v1.8.10 (4bcc95acecd629e64ea984c962cfd08dd892a38e)"
             echo "- Model: moonshotai/Kimi-K3 via Featherless OpenAI-compatible API"
             echo "- Incremental duplicate suppression: enabled"
-            echo "- Severity routing: medium and low to summary; high and critical inline"
+            echo "- Severity routing: medium and low to summary; high and critical always inline (no category-based routing)"
             echo "- Raw artifacts: disabled"
             echo "- Findings: total=${COMMENTS_TOTAL:-unavailable}, inline=${COMMENTS_INLINE:-unavailable}, routed=${COMMENTS_ROUTED:-unavailable}, skipped=${COMMENTS_SKIPPED:-unavailable}, failed=${COMMENTS_FAILED:-unavailable}"
           } >> "$GITHUB_STEP_SUMMARY"
