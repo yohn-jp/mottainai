@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import packageMetadata from "../package.json" with { type: "json" };
 import { collectDoctorReport, formatDoctorHuman } from "./commands/doctor.js";
 import { resolveGatewayConfig } from "./config.js";
 import { callLocalTool } from "./local-tools.js";
@@ -18,9 +19,9 @@ import type { RuntimeBuildMetadata } from "./runtime-diagnostic.js";
 
 const BUILD_METADATA: RuntimeBuildMetadata = {
   schema_version: RUNTIME_DIAGNOSTIC_SCHEMA_VERSION,
-  package_name: "mottainai",
-  package_version: "0.1.2",
-  build_id: "mottainai@0.1.2+git.0123456789abcdef0123456789abcdef01234567",
+  package_name: packageMetadata.name,
+  package_version: packageMetadata.version,
+  build_id: `${packageMetadata.name}@${packageMetadata.version}+git.0123456789abcdef0123456789abcdef01234567`,
   git_sha: "0123456789abcdef0123456789abcdef01234567",
   source_state: "clean",
   artifact: "npm",

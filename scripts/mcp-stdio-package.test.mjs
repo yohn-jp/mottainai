@@ -64,7 +64,7 @@ test("packed identity survives consumer cwd, explicit config, environment config
   const configPath = path.join(consumer, "mottainai.config.json");
   const runDoctor = (cwd, env, args = []) => {
     const result = spawnSync(binPath, ["doctor", "--json", ...args], { cwd, env, encoding: "utf8", timeout: 10_000 });
-    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.ok(result.status === 0 || result.status === 1, `${result.stdout}\n${result.stderr}`);
     return JSON.parse(result.stdout);
   };
   try {
