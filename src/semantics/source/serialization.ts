@@ -65,6 +65,7 @@ function collectionKey(value: unknown): string {
       record.subject,
       typeof record.term === "string" ? record.term : "",
       typeof record.decisionId === "string" ? record.decisionId : "",
+      typeof record.relation === "string" ? record.relation : "",
     ].join("-");
   }
   return stableStringifyValue(value);
