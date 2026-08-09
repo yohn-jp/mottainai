@@ -41,6 +41,7 @@ Test layers:
 - Package / E2E / smoke: `pnpm run test:e2e`, `pnpm run test:package`
 - Standards / static: `pnpm run verify:standards`
 - Coverage: `pnpm run test:coverage`
+- Test effectiveness (when critical logic changes): `pnpm run test:effectiveness`
 - Full verification: `pnpm run verify`
 
 ## Test contract

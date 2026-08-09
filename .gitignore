@@ -23,6 +23,7 @@ yarn-error.log*
 .idea/
 
 coverage/
+test-artifacts/
 
 .codegraph
 .claude/worktrees/

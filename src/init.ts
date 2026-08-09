@@ -236,14 +236,14 @@ function containsSecret(argument: string): boolean {
 }
 
 /** 1個でも秘密値らしきトークンがあれば、その登録全体を拒否する（一部だけ落として壊れた引数列を残さない）。 */
-function sanitizeArguments(value: unknown): SanitizedArguments | undefined {
+export function sanitizeArguments(value: unknown): SanitizedArguments | undefined {
   const original = stringArray(value);
   if (original === undefined) return undefined;
   const rejected = original.some((argument) => containsSecret(argument));
   return { args: rejected ? [] : original, rejected };
 }
 
-function safeRemoteUrl(value: string): boolean {
+export function safeRemoteUrl(value: string): boolean {
   try {
     const parsed = new URL(value);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
