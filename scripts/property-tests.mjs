@@ -11,6 +11,7 @@ import { applyExecutionBudget, fitsResultBudget, normalizeExecutionOutcome } fro
 import { safeRemoteUrl, sanitizeArguments } from "../src/init.ts";
 import { parseRgJson, resolveInside } from "../src/local-tools.ts";
 import { InMemoryArtifactStore } from "../src/retrieve.ts";
+import { fileURLToPath } from "node:url";
 
 const DEFAULT_SEED = 240824;
 const DEFAULT_RUNS = 48;
@@ -67,7 +68,7 @@ function stableJson(value) {
   return JSON.stringify(value);
 }
 
-function shrinkValues(value) {
+export function shrinkValues(value) {
   if (typeof value === "string") {
     const half = Math.floor(value.length / 2);
     return [
@@ -90,6 +91,17 @@ function shrinkValues(value) {
   return [];
 }
 
+export async function minimizeCounterexample(value, property) {
+  for (const candidate of shrinkValues(value)) {
+    try {
+      await property(candidate);
+    } catch {
+      return candidate;
+    }
+  }
+  return value;
+}
+
 async function runProperty(name, random, runs, generate, property) {
   for (let index = 0; index < runs; index += 1) {
     const generated = generate(random, index);
@@ -97,18 +109,16 @@ async function runProperty(name, random, runs, generate, property) {
     try {
       await property(generated);
     } catch (error) {
-      for (const candidate of shrinkValues(generated)) {
-        try {
-          await property(candidate);
-          continue;
-        } catch {
-          counterexample = candidate;
-        }
-      }
+      counterexample = await minimizeCounterexample(generated, property);
       const detail = error instanceof Error ? error.message : String(error);
-      throw new Error(
+      const failure = new Error(
         `property=${name} seed=${random.seed} case=${index} counterexample=${stableJson(counterexample)}\n${detail}`,
       );
+      failure.propertyName = name;
+      failure.seed = random.seed;
+      failure.caseIndex = index;
+      failure.minimized = true;
+      throw failure;
     }
   }
   return { name, runs };
@@ -189,7 +199,11 @@ function retentionCase(random) {
   return { maxEntries: integer(random, 1, 4), count: integer(random, 1, 8), ttlMs: integer(random, 0, 100) };
 }
 
-async function pathProperty(root, random, runs) {
+export function isContainedPath(canonicalRoot, canonicalCandidate) {
+  return canonicalCandidate === canonicalRoot || canonicalCandidate.startsWith(`${canonicalRoot}${path.sep}`);
+}
+
+async function pathProperty(root, canonicalRoot, random, runs) {
   const cases = [
     { requested: ".", inside: true },
     { requested: "nested", inside: true },
@@ -207,7 +221,7 @@ async function pathProperty(root, random, runs) {
       try {
         const resolved = await resolveInside(root, value.requested);
         assert.equal(value.inside, true);
-        assert.ok(resolved === root || resolved.startsWith(`${root}${path.sep}`));
+        assert.ok(isContainedPath(canonicalRoot, resolved));
       } catch (error) {
         assert.equal(value.inside, false, error instanceof Error ? error.message : String(error));
       }
@@ -215,7 +229,24 @@ async function pathProperty(root, random, runs) {
   );
 }
 
-async function run() {
+export function buildPropertyReport(options, results, failure) {
+  return {
+    schemaVersion: 1,
+    seed: options.seed,
+    runs: options.runs,
+    passed: failure === undefined,
+    properties: results,
+    ...(failure === undefined ? {} : { failure }),
+  };
+}
+
+export function writePropertyReport(reportPath, report) {
+  const resolvedReportPath = path.resolve(reportPath);
+  fs.mkdirSync(path.dirname(resolvedReportPath), { recursive: true });
+  fs.writeFileSync(resolvedReportPath, `${JSON.stringify(report, null, 2)}\n`);
+}
+
+export async function run() {
   const options = parseOptions(process.argv.slice(2));
   const random = createRandom(options.seed);
   random.seed = options.seed;
@@ -225,6 +256,7 @@ async function run() {
   fs.mkdirSync(path.join(root, "nested"));
   fs.mkdirSync(outside);
   fs.symlinkSync(outside, path.join(root, "link"), "dir");
+  const canonicalRoot = fs.realpathSync(root);
   const originalConfigEnv = process.env.MOTTAINAI_CONFIG;
   delete process.env.MOTTAINAI_CONFIG;
   try {
@@ -294,7 +326,7 @@ async function run() {
       ),
     );
 
-    results.push(await pathProperty(root, random, options.runs));
+    results.push(await pathProperty(root, canonicalRoot, random, options.runs));
 
     results.push(
       await runProperty("deterministic-ordering", random, options.runs, rgCase, async (value) => {
@@ -511,6 +543,15 @@ async function run() {
         },
       ),
     );
+  } catch (error) {
+    const failure = {
+      property: typeof error?.propertyName === "string" ? error.propertyName : "unknown",
+      seed: Number.isSafeInteger(error?.seed) ? error.seed : options.seed,
+      case: Number.isInteger(error?.caseIndex) ? error.caseIndex : null,
+      minimized: error?.minimized === true,
+    };
+    writePropertyReport(options.report, buildPropertyReport(options, results, failure));
+    throw error;
   } finally {
     if (originalConfigEnv === undefined) delete process.env.MOTTAINAI_CONFIG;
     else process.env.MOTTAINAI_CONFIG = originalConfigEnv;
@@ -518,16 +559,17 @@ async function run() {
     fs.rmSync(outside, { recursive: true, force: true });
   }
 
-  const report = { schemaVersion: 1, seed: options.seed, runs: options.runs, passed: true, properties: results };
-  fs.mkdirSync(path.dirname(path.resolve(options.report)), { recursive: true });
-  fs.writeFileSync(options.report, `${JSON.stringify(report, null, 2)}\n`);
+  const report = buildPropertyReport(options, results);
+  writePropertyReport(options.report, report);
   console.log(
     `property tests: ${results.length} properties passed (${results.reduce((total, result) => total + result.runs, 0)} generated cases), seed=${options.seed}`,
   );
 }
 
-run().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(`property tests failed: ${message}`);
-  process.exitCode = 1;
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
+  run().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`property tests failed: ${message}\n`);
+    process.exitCode = 1;
+  });
+}

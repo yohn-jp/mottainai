@@ -190,8 +190,8 @@ Targeted local commands:
 
 Mutation policy:
 
-- non-equivalent survivorまたはtimeoutは失敗。scoreは`killed / (selected - equivalent)`で計算し、baseline未満への低下を許可しない。
-- equivalent mutantは自動的に隠さず、mutation id、等価性の理由、denominatorから除外する承認をreportへ記録する。generated code、dependency、`dist/`、test helperはcatalog外であり、scope外である理由をこの文書とreportへ残す。
+- non-equivalent survivorまたはtimeoutは失敗。scoreは`killed / (selected - equivalent)`で計算し、runnerがcanonicalな[`mutation-baseline.json`](mutation-baseline.json)を読み、catalogとのID・scope・operator・期待値の一致とbaseline以上のscoreを機械検証する。baseline更新は`--update-baseline`を明示した変更とreview可能な差分で行う。
+- equivalent mutantは自動的に隠さず、descriptorの`equivalence.status: equivalent`と非空の`rationale`を必須にしてreportへ記録する。generated code、dependency、`dist/`、test helperはcatalog外であり、scope外である理由をこの文書とreportへ残す。
 - 初期baselineは23 non-equivalent mutantsを23件kill、survivor 0、score 1.0。baseline JSONは[`mutation-baseline.json`](mutation-baseline.json)。non-equivalent survivorが見つかった場合は、property/regression assertionを強化するか、理由・owner・IssueをPRのReview focusとreportへ記録する。意図的なscore低下・scope除外も同じ証跡なしには認めない。
 
 新しいcritical logicを追加・変更するPRでは、少なくとも1つのbounded property（不変条件、境界、順序、拒否条件のいずれか）と、比較演算子・上限・正規化・保持期限・security/protocol分岐のうち該当するmutation scenarioをcatalogへ追加する。pure logicの境界はunit/contract、filesystem/CLI/security実行はprocess/integrationまたはsecurity/negativeとしてValidation evidenceへ記録する。property/mutationが変更されないPRは、対象外の理由をReview focusへ明記する。

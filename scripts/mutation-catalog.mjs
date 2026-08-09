@@ -1,14 +1,52 @@
+export const MUTATION_SCHEMA_VERSION = 1;
+
 export const MUTATION_POLICY = Object.freeze({
-  schemaVersion: 1,
+  schemaVersion: MUTATION_SCHEMA_VERSION,
   seed: 240824,
   propertyRuns: 48,
   timeoutMs: 15_000,
   minimumScore: 1,
-  equivalentMutants: "reviewed separately; they are excluded from the denominator only with an entry and rationale",
+  equivalentMutants: Object.freeze({
+    exclusion: "requires descriptor equivalence.status=equivalent and a non-empty rationale",
+  }),
   generatedCode: "ignored by scope because only the listed hand-written source files are mutated",
   timeout: "fail closed; a timed-out mutant is not killed and fails the command",
-  scoreRegression: "the command fails on any non-equivalent survivor and on a score below the committed baseline",
+  scoreRegression: Object.freeze({
+    baselinePath: "docs/mutation-baseline.json",
+    comparison: "current score must be at least the committed baseline score",
+  }),
 });
+
+export function mutationExpectation(mutation) {
+  return mutation.equivalence?.status === "equivalent" ? "equivalent" : "non-equivalent";
+}
+
+export function validateMutationCatalog(mutations = MUTATIONS) {
+  if (!Array.isArray(mutations) || mutations.length === 0) throw new Error("mutation catalog must not be empty");
+  const ids = new Set();
+  for (const mutation of mutations) {
+    if (mutation === null || typeof mutation !== "object") throw new Error("mutation descriptor must be an object");
+    if (typeof mutation.id !== "string" || mutation.id.length === 0 || ids.has(mutation.id)) {
+      throw new Error(`mutation catalog has an invalid or duplicate id: ${mutation.id ?? "<missing>"}`);
+    }
+    ids.add(mutation.id);
+    for (const field of ["file", "operator", "search", "replacement"]) {
+      if (typeof mutation[field] !== "string" || mutation[field].length === 0) {
+        throw new Error(`${mutation.id}: ${field} must be a non-empty string`);
+      }
+    }
+    if (mutation.equivalence === undefined) continue;
+    if (
+      mutation.equivalence === null ||
+      mutation.equivalence.status !== "equivalent" ||
+      typeof mutation.equivalence.rationale !== "string" ||
+      mutation.equivalence.rationale.trim().length === 0
+    ) {
+      throw new Error(`${mutation.id}: equivalent mutants require a non-empty equivalence rationale`);
+    }
+  }
+  return mutations;
+}
 
 export const MUTATIONS = Object.freeze([
   {

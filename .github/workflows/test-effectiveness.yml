@@ -41,10 +41,11 @@ jobs:
         run: pnpm run test:mutation -- --seed 240824 --runs 48 --timeout-ms 15000 --report "$RUNNER_TEMP/mutation-report.json"
 
       - name: Upload effectiveness reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-effectiveness-node-22
           path: |
             ${{ runner.temp }}/property-report.json
             ${{ runner.temp }}/mutation-report.json
-          if-no-files-found: error
+          if-no-files-found: warn

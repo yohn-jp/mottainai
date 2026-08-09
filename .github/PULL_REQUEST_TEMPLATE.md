@@ -90,13 +90,6 @@ TODO, TBD, placeholder, or template-comment-only content. -->
 - class: `release`; status: ; command: ; target: ; result: ; artifact: ; warnings:
 - class: `security/negative`; status: ; command: ; target: ; result: ; scenario: ; artifact:
 
-Effectiveness evidence (when applicable):
-
-- property seed / runs:
-- mutation scope / score:
-- report artifact:
-- survivor or intentional exclusion disposition:
-
 ## Release impact
 
 <!-- State none with a reason when no package or publish path changed. For
