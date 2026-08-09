@@ -23,6 +23,13 @@ import type {
   ReserveWorktreeInput,
   ReserveWorktreeResult,
   RecordValidationEvidenceInput,
+  CleanupLeaseRecord,
+  CleanupLeaseState,
+  CommitCleanupInput,
+  CommitCleanupResult,
+  MarkCleanupLeaseInput,
+  ReserveCleanupLeaseInput,
+  ReserveCleanupLeaseResult,
   TaskId,
   TaskRecord,
   ValidationEvidenceRecord,
@@ -80,10 +87,37 @@ function toTaskRecord(row: Record<string, unknown>): TaskRecord {
     taskSlug: row.task_slug as string,
     issueRef: (row.issue_ref as string | null) ?? undefined,
     lifecycleState: row.lifecycle_state as LifecycleState,
+    version: (row.task_version as number | undefined) ?? 1,
     baseBranch: row.base_branch as string,
     baseCommit: row.base_commit as string,
     createdAt: row.created_at as number,
     updatedAt: row.updated_at as number,
+  };
+}
+
+function toCleanupLeaseRecord(row: Record<string, unknown>): CleanupLeaseRecord {
+  let completedActionIds: string[];
+  try {
+    const parsed: unknown = JSON.parse(String(row.completed_actions_json ?? "[]"));
+    if (!Array.isArray(parsed) || parsed.some((value) => typeof value !== "string"))
+      throw new Error("invalid completed action list");
+    completedActionIds = [...parsed];
+  } catch (err) {
+    throw new Error(`invalid cleanup lease action state: ${(err as Error).message}`);
+  }
+  return {
+    operationId: row.operation_id as string,
+    planDigest: row.plan_digest as string,
+    instanceId: row.instance_id as RepositoryInstanceId,
+    taskId: row.task_id as TaskId,
+    worktreeId: (row.worktree_id as WorktreeId | null) ?? undefined,
+    owner: row.owner as string,
+    state: row.state as CleanupLeaseState,
+    acquiredAt: row.acquired_at as number,
+    expiresAt: row.expires_at as number,
+    updatedAt: row.updated_at as number,
+    completedActionIds,
+    lastError: (row.last_error as string | null) ?? undefined,
   };
 }
 
@@ -382,8 +416,8 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
 
       const taskId = crypto.randomUUID() as TaskId;
       db.prepare(
-        `INSERT INTO tasks (task_id, instance_id, task_slug, issue_ref, lifecycle_state, base_branch, base_commit, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'planned', ?, ?, ?, ?)`,
+        `INSERT INTO tasks (task_id, instance_id, task_slug, issue_ref, lifecycle_state, task_version, base_branch, base_commit, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'planned', 1, ?, ?, ?, ?)`,
       ).run(taskId, input.instanceId, input.taskSlug, input.issueRef ?? null, input.baseBranch, input.baseCommit, now, now);
       const row = db.prepare("SELECT * FROM tasks WHERE task_id = ?").get(taskId) as Record<string, unknown>;
       db.exec("COMMIT");
@@ -462,7 +496,7 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
   updateTaskLifecycleState(taskId: TaskId, next: LifecycleState, updatedAt?: number): TaskRecord {
     const db = this.handle();
     const now = updatedAt ?? Date.now();
-    db.prepare("UPDATE tasks SET lifecycle_state = ?, updated_at = ? WHERE task_id = ?").run(next, now, taskId);
+    db.prepare("UPDATE tasks SET lifecycle_state = ?, task_version = task_version + 1, updated_at = ? WHERE task_id = ?").run(next, now, taskId);
     const row = db.prepare("SELECT * FROM tasks WHERE task_id = ?").get(taskId) as Record<string, unknown> | undefined;
     if (row === undefined) throw new Error(`task not found: ${taskId}`);
     return toTaskRecord(row);
@@ -493,6 +527,249 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       .prepare("SELECT * FROM worktrees WHERE instance_id = ? ORDER BY created_at ASC")
       .all(instanceId) as Record<string, unknown>[];
     return rows.map(toWorktreeRecord);
+  }
+
+  reserveCleanupLease(input: ReserveCleanupLeaseInput): ReserveCleanupLeaseResult {
+    const db = this.handle();
+    const now = input.acquiredAt ?? Date.now();
+    const worktreeId = input.worktreeId ?? null;
+
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const operationRow = db.prepare("SELECT * FROM cleanup_leases WHERE operation_id = ?").get(input.operationId) as
+        | Record<string, unknown>
+        | undefined;
+      if (operationRow !== undefined) {
+        const operation = toCleanupLeaseRecord(operationRow);
+        if (
+          operation.planDigest !== input.planDigest ||
+          operation.instanceId !== input.instanceId ||
+          operation.taskId !== input.taskId ||
+          operation.worktreeId !== input.worktreeId
+        ) {
+          db.exec("ROLLBACK");
+          return { ok: false, reason: "plan-digest-mismatch", existingLease: operation };
+        }
+        if (operation.state === "committed") {
+          db.exec("COMMIT");
+          return { ok: true, lease: operation };
+        }
+        if (operation.state !== "failed" && operation.expiresAt > now) {
+          db.exec("COMMIT");
+          return { ok: true, lease: operation };
+        }
+
+        const recoveryState =
+          operation.state === "mutating" || operation.state === "verifying" ? operation.state : "reserved";
+        db.prepare(
+          `UPDATE cleanup_leases
+           SET state = ?, owner = ?, expires_at = ?, updated_at = ?,
+               completed_actions_json = ?, last_error = ?
+           WHERE operation_id = ?`,
+        ).run(
+          recoveryState,
+          input.owner,
+          input.expiresAt,
+          now,
+          recoveryState === "reserved" ? "[]" : JSON.stringify(operation.completedActionIds),
+          recoveryState === "reserved" ? null : (operation.lastError ?? null),
+          input.operationId,
+        );
+        const renewed = db
+          .prepare("SELECT * FROM cleanup_leases WHERE operation_id = ?")
+          .get(input.operationId) as Record<string, unknown>;
+        db.exec("COMMIT");
+        return { ok: true, lease: toCleanupLeaseRecord(renewed) };
+      }
+
+      const activeRow = db
+        .prepare(
+          `SELECT * FROM cleanup_leases
+           WHERE instance_id = ? AND task_id = ?
+             AND ((worktree_id = ?) OR (worktree_id IS NULL AND ? IS NULL))
+             AND state IN ('reserved', 'mutating', 'verifying')
+             AND expires_at > ?
+           ORDER BY updated_at DESC LIMIT 1`,
+        )
+        .get(input.instanceId, input.taskId, worktreeId, worktreeId, now) as Record<string, unknown> | undefined;
+      if (activeRow !== undefined) {
+        db.exec("ROLLBACK");
+        return { ok: false, reason: "active-lease", existingLease: toCleanupLeaseRecord(activeRow) };
+      }
+
+      db.prepare(
+        `INSERT INTO cleanup_leases
+          (operation_id, plan_digest, instance_id, task_id, worktree_id, owner, state, acquired_at, expires_at, updated_at, completed_actions_json)
+         VALUES (?, ?, ?, ?, ?, ?, 'reserved', ?, ?, ?, '[]')`,
+      ).run(
+        input.operationId,
+        input.planDigest,
+        input.instanceId,
+        input.taskId,
+        worktreeId,
+        input.owner,
+        now,
+        input.expiresAt,
+        now,
+      );
+      const row = db.prepare("SELECT * FROM cleanup_leases WHERE operation_id = ?").get(input.operationId) as Record<
+        string,
+        unknown
+      >;
+      db.exec("COMMIT");
+      return { ok: true, lease: toCleanupLeaseRecord(row) };
+    } catch (err) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // 元の lease 予約エラーを保持する
+      }
+      throw err;
+    }
+  }
+
+  getCleanupLease(operationId: string): CleanupLeaseRecord | undefined {
+    const row = this.handle().prepare("SELECT * FROM cleanup_leases WHERE operation_id = ?").get(operationId) as
+      | Record<string, unknown>
+      | undefined;
+    return row === undefined ? undefined : toCleanupLeaseRecord(row);
+  }
+
+  getActiveCleanupLease(
+    instanceId: RepositoryInstanceId,
+    taskId: TaskId,
+    worktreeId: WorktreeId | undefined,
+    now = Date.now(),
+  ): CleanupLeaseRecord | undefined {
+    const normalizedWorktreeId = worktreeId ?? null;
+    const row = this.handle()
+      .prepare(
+        `SELECT * FROM cleanup_leases
+         WHERE instance_id = ? AND task_id = ?
+           AND ((worktree_id = ?) OR (worktree_id IS NULL AND ? IS NULL))
+           AND state IN ('reserved', 'mutating', 'verifying') AND expires_at > ?
+         ORDER BY updated_at DESC LIMIT 1`,
+      )
+      .get(instanceId, taskId, normalizedWorktreeId, normalizedWorktreeId, now) as Record<string, unknown> | undefined;
+    return row === undefined ? undefined : toCleanupLeaseRecord(row);
+  }
+
+  markCleanupLease(input: MarkCleanupLeaseInput): CleanupLeaseRecord {
+    const db = this.handle();
+    const now = input.updatedAt ?? Date.now();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const currentRow = db.prepare("SELECT * FROM cleanup_leases WHERE operation_id = ?").get(input.operationId) as
+        | Record<string, unknown>
+        | undefined;
+      if (currentRow === undefined) throw new Error(`cleanup lease not found: ${input.operationId}`);
+      const current = toCleanupLeaseRecord(currentRow);
+      const completedActionIds =
+        input.completedActionIds === undefined ? current.completedActionIds : [...new Set(input.completedActionIds)];
+      const lastError = input.lastError === undefined ? current.lastError : input.lastError;
+      db.prepare(
+        `UPDATE cleanup_leases
+         SET state = ?, updated_at = ?, completed_actions_json = ?, last_error = ?
+         WHERE operation_id = ?`,
+      ).run(input.state, now, JSON.stringify(completedActionIds), lastError ?? null, input.operationId);
+      const row = db.prepare("SELECT * FROM cleanup_leases WHERE operation_id = ?").get(input.operationId) as Record<
+        string,
+        unknown
+      >;
+      db.exec("COMMIT");
+      return toCleanupLeaseRecord(row);
+    } catch (err) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // 元の lease 更新エラーを保持する
+      }
+      throw err;
+    }
+  }
+
+  commitCleanup(input: CommitCleanupInput): CommitCleanupResult {
+    const db = this.handle();
+    const now = input.committedAt ?? Date.now();
+    const completedActionIds = [...new Set(input.completedActionIds)];
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const leaseRow = db.prepare("SELECT * FROM cleanup_leases WHERE operation_id = ?").get(input.operationId) as
+        | Record<string, unknown>
+        | undefined;
+      if (leaseRow === undefined) throw new Error(`cleanup lease not found: ${input.operationId}`);
+      const lease = toCleanupLeaseRecord(leaseRow);
+      if (
+        lease.planDigest !== input.planDigest ||
+        lease.instanceId !== input.instanceId ||
+        lease.taskId !== input.taskId ||
+        lease.worktreeId !== input.worktreeId
+      ) {
+        throw new Error(`cleanup lease identity mismatch: ${input.operationId}`);
+      }
+
+      const taskRow = db.prepare("SELECT * FROM tasks WHERE task_id = ?").get(input.taskId) as
+        | Record<string, unknown>
+        | undefined;
+      if (taskRow === undefined) throw new Error(`task not found: ${input.taskId}`);
+      const currentTask = toTaskRecord(taskRow);
+      if (currentTask.instanceId !== input.instanceId) throw new Error(`task repository mismatch: ${input.taskId}`);
+      if (currentTask.lifecycleState !== "cleaned") {
+        if (
+          currentTask.version !== input.expectedTaskVersion ||
+          currentTask.lifecycleState !== input.expectedLifecycle
+        ) {
+          throw new Error(`task changed during cleanup: ${input.taskId}`);
+        }
+        db.prepare(
+          "UPDATE tasks SET lifecycle_state = 'cleaned', task_version = task_version + 1, updated_at = ? WHERE task_id = ? AND task_version = ? AND lifecycle_state = ?",
+        ).run(now, input.taskId, input.expectedTaskVersion, input.expectedLifecycle);
+      }
+
+      let worktree: WorktreeRecord | undefined;
+      if (input.worktreeId !== undefined) {
+        const worktreeRow = db.prepare("SELECT * FROM worktrees WHERE worktree_id = ?").get(input.worktreeId) as
+          | Record<string, unknown>
+          | undefined;
+        if (worktreeRow === undefined) throw new Error(`worktree not found: ${input.worktreeId}`);
+        const currentWorktree = toWorktreeRecord(worktreeRow);
+        if (currentWorktree.taskId !== input.taskId || currentWorktree.instanceId !== input.instanceId) {
+          throw new Error(`worktree cleanup association mismatch: ${input.worktreeId}`);
+        }
+        if (currentWorktree.status !== "removed") {
+          db.prepare("UPDATE worktrees SET status = 'removed', updated_at = ? WHERE worktree_id = ?").run(
+            now,
+            input.worktreeId,
+          );
+        }
+        const finalWorktreeRow = db
+          .prepare("SELECT * FROM worktrees WHERE worktree_id = ?")
+          .get(input.worktreeId) as Record<string, unknown>;
+        worktree = toWorktreeRecord(finalWorktreeRow);
+      }
+
+      db.prepare(
+        `UPDATE cleanup_leases
+         SET state = 'committed', expires_at = ?, updated_at = ?, completed_actions_json = ?, last_error = NULL
+         WHERE operation_id = ?`,
+      ).run(now, now, JSON.stringify(completedActionIds), input.operationId);
+      const finalTaskRow = db.prepare("SELECT * FROM tasks WHERE task_id = ?").get(input.taskId) as Record<
+        string,
+        unknown
+      >;
+      const finalLeaseRow = db
+        .prepare("SELECT * FROM cleanup_leases WHERE operation_id = ?")
+        .get(input.operationId) as Record<string, unknown>;
+      db.exec("COMMIT");
+      return { task: toTaskRecord(finalTaskRow), worktree, lease: toCleanupLeaseRecord(finalLeaseRow) };
+    } catch (err) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // 元の cleanup commit エラーを保持する
+      }
+      throw err;
+    }
   }
 
   private toPullRequestRecord(row: Record<string, unknown>): PullRequestRecord {

@@ -62,6 +62,8 @@ export interface TaskRecord {
   taskSlug: string;
   issueRef: string | undefined;
   lifecycleState: LifecycleState;
+  /** Monotonic optimistic-concurrency version. */
+  version: number;
   baseBranch: string;
   baseCommit: string;
   createdAt: number;
@@ -172,6 +174,65 @@ export interface RecordValidationEvidenceInput {
   recordedAt?: number;
 }
 
+export const CLEANUP_LEASE_STATES = ["reserved", "mutating", "verifying", "committed", "failed"] as const;
+export type CleanupLeaseState = (typeof CLEANUP_LEASE_STATES)[number];
+
+export interface CleanupLeaseRecord {
+  operationId: string;
+  planDigest: string;
+  instanceId: RepositoryInstanceId;
+  taskId: TaskId;
+  worktreeId: WorktreeId | undefined;
+  owner: string;
+  state: CleanupLeaseState;
+  acquiredAt: number;
+  expiresAt: number;
+  updatedAt: number;
+  completedActionIds: string[];
+  lastError: string | undefined;
+}
+
+export interface ReserveCleanupLeaseInput {
+  operationId: string;
+  planDigest: string;
+  instanceId: RepositoryInstanceId;
+  taskId: TaskId;
+  worktreeId?: WorktreeId;
+  owner: string;
+  expiresAt: number;
+  acquiredAt?: number;
+}
+
+export type ReserveCleanupLeaseResult =
+  | { ok: true; lease: CleanupLeaseRecord }
+  | { ok: false; reason: "active-lease" | "plan-digest-mismatch"; existingLease: CleanupLeaseRecord };
+
+export interface MarkCleanupLeaseInput {
+  operationId: string;
+  state: CleanupLeaseState;
+  completedActionIds?: readonly string[];
+  lastError?: string;
+  updatedAt?: number;
+}
+
+export interface CommitCleanupInput {
+  operationId: string;
+  planDigest: string;
+  instanceId: RepositoryInstanceId;
+  taskId: TaskId;
+  worktreeId?: WorktreeId;
+  expectedTaskVersion: number;
+  expectedLifecycle: LifecycleState;
+  completedActionIds: readonly string[];
+  committedAt?: number;
+}
+
+export interface CommitCleanupResult {
+  task: TaskRecord;
+  worktree: WorktreeRecord | undefined;
+  lease: CleanupLeaseRecord;
+}
+
 export interface WorkflowStateStore {
   /** backend 固有の初期化（DB オープン・migration 適用）。呼び出し前は他メソッドを使わない。 */
   init(): void;
@@ -233,6 +294,18 @@ export interface WorkflowStateStore {
   listWorktreesForTask(taskId: TaskId): WorktreeRecord[];
   /** instance 全体の worktree 一覧（task を横断）。衝突・stale metadata 検出のために使う。 */
   listWorktreesForInstance(instanceId: RepositoryInstanceId): WorktreeRecord[];
+
+  /** Cleanup lease operations are each short local transactions; callers do external work between them. */
+  reserveCleanupLease(input: ReserveCleanupLeaseInput): ReserveCleanupLeaseResult;
+  getCleanupLease(operationId: string): CleanupLeaseRecord | undefined;
+  getActiveCleanupLease(
+    instanceId: RepositoryInstanceId,
+    taskId: TaskId,
+    worktreeId: WorktreeId | undefined,
+    now?: number,
+  ): CleanupLeaseRecord | undefined;
+  markCleanupLease(input: MarkCleanupLeaseInput): CleanupLeaseRecord;
+  commitCleanup(input: CommitCleanupInput): CommitCleanupResult;
 
   /** 外部 provider 成功後に、body/raw response を含めず PR の照合用 metadata だけ記録する。 */
   recordPullRequest(input: RecordPullRequestInput): PullRequestRecord;
