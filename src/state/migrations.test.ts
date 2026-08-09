@@ -47,14 +47,48 @@ function seedTask(db: DatabaseSync, taskId: string, instanceId: string): void {
   ).run(taskId, instanceId);
 }
 
-test("version 6 creates tasks/worktrees/pr_records/validation_evidence tables reachable after migration", () => {
+test("tasks/worktrees/pr_records/validation_evidence tables are reachable after migration to the latest version", () => {
   const db = freshDb();
   try {
-    assert.equal(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()?.version, 6);
+    const latestVersion = Math.max(...MIGRATIONS.map((migration) => migration.version));
+    assert.equal(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()?.version, latestVersion);
     seedInstance(db, "instance-1", "/repo/.git");
     seedTask(db, "task-1", "instance-1");
     const task = db.prepare("SELECT * FROM tasks WHERE task_id = ?").get("task-1") as { lifecycle_state: string };
     assert.equal(task.lifecycle_state, "planned");
+  } finally {
+    db.close();
+  }
+});
+
+test("version 7 adds a monotonic task_version column defaulting to 1", () => {
+  const db = freshDb();
+  try {
+    seedInstance(db, "instance-1", "/repo/.git");
+    seedTask(db, "task-1", "instance-1");
+    const task = db.prepare("SELECT task_version FROM tasks WHERE task_id = ?").get("task-1") as {
+      task_version: number;
+    };
+    assert.equal(task.task_version, 1);
+  } finally {
+    db.close();
+  }
+});
+
+test("version 8 creates cleanup_leases reachable after migration", () => {
+  const db = freshDb();
+  try {
+    seedInstance(db, "instance-1", "/repo/.git");
+    seedTask(db, "task-1", "instance-1");
+    db.prepare(
+      `INSERT INTO cleanup_leases
+        (operation_id, plan_digest, instance_id, task_id, worktree_id, owner, state, acquired_at, expires_at, updated_at)
+       VALUES ('op-1', 'digest-1', 'instance-1', 'task-1', NULL, 'owner-1', 'reserved', 0, 1000, 0)`,
+    ).run();
+    const lease = db.prepare("SELECT * FROM cleanup_leases WHERE operation_id = ?").get("op-1") as {
+      state: string;
+    };
+    assert.equal(lease.state, "reserved");
   } finally {
     db.close();
   }
