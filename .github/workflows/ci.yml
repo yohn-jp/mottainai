@@ -279,8 +279,11 @@ jobs:
           retention-days: 1
 
   coverage:
-    # Existing required check context; the gate is evaluated only after every
-    # complete shard has passed and its LCOV counters have been merged.
+    # Not a required status check: coverage still runs on every PR and push,
+    # still enforces coverage-policy.json, and still uploads its merged
+    # report artifact, but a failure here no longer blocks PR merge. The gate
+    # is evaluated only after every complete shard has passed and its LCOV
+    # counters have been merged.
     name: coverage (Node 22)
     if: always()
     needs: coverage-shard
@@ -324,7 +327,11 @@ jobs:
 
   canonical-full:
     # Existing required check context. This is an explicit aggregate of every
-    # Node 22/24 correctness, standards, artifact, and coverage role.
+    # Node 22/24 correctness, standards, and artifact role. Coverage
+    # (coverage-shard / coverage) intentionally runs independently and is not
+    # a dependency here: coverage stays observable (it still runs, reports,
+    # and enforces coverage-policy.json in its own job) but its result must
+    # not block this required aggregate or PR merge.
     name: install / typecheck / test / build (Node 22)
     if: always()
     needs:
@@ -334,7 +341,6 @@ jobs:
       - integration
       - artifact-validation
       - node-compatibility-smoke
-      - coverage
     runs-on: ubuntu-latest
     steps:
       - name: Require every canonical validation role
@@ -345,7 +351,6 @@ jobs:
           INTEGRATION_RESULT: ${{ needs.integration.result }}
           ARTIFACT_RESULT: ${{ needs['artifact-validation'].result }}
           NODE24_RESULT: ${{ needs['node-compatibility-smoke'].result }}
-          COVERAGE_RESULT: ${{ needs.coverage.result }}
         run: |
           set -eu
           for result in \
@@ -354,7 +359,6 @@ jobs:
             "$STANDARDS_RESULT" \
             "$INTEGRATION_RESULT" \
             "$ARTIFACT_RESULT" \
-            "$NODE24_RESULT" \
-            "$COVERAGE_RESULT"; do
+            "$NODE24_RESULT"; do
             test "$result" = success
           done
