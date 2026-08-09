@@ -94,7 +94,9 @@ function assessmentFor(
     };
   }
 
-  const failed = matching.filter((item) => item.status === "failed");
+  // Precedence is scoped to current evidence only: a current failure blocks satisfaction outright,
+  // but a stale historical failure must not permanently override newer passing proof.
+  const failed = matching.filter((item) => item.status === "failed" && item.freshness === "current");
   if (failed.length > 0) {
     return {
       requirementId: requirement.id,

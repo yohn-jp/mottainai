@@ -216,6 +216,51 @@ test("stale and failed evidence are not current satisfaction", () => {
   assert.deepEqual(assessments.map((item) => item.status).sort(), ["failed", "stale"].sort());
 });
 
+test("a stale historical failure does not permanently block a current passing proof", () => {
+  const perspectiveId = createLogicalId("perspective", "stale-failure-recovery");
+  const req = requirement("stale-failure-recovery", target("symbol", symbolId), perspectiveId);
+  const assessments = evaluateVerification(
+    [req],
+    [
+      evidence("stale-failed-proof", target("symbol", symbolId), perspectiveId, {
+        kind: "assertion",
+        strength: "verification",
+        status: "failed",
+        freshness: "stale",
+      }),
+      evidence("current-passed-proof", target("symbol", symbolId), perspectiveId, {
+        kind: "assertion",
+        strength: "verification",
+      }),
+    ],
+    [perspective(perspectiveId)],
+  );
+  assert.equal(assessments[0]?.status, "satisfied");
+  assert.deepEqual(assessments[0]?.satisfyingEvidenceIds, [createLogicalId("verification", "current-passed-proof")]);
+});
+
+test("a current failure still blocks satisfaction even alongside stale passing proof", () => {
+  const perspectiveId = createLogicalId("perspective", "current-failure-blocks");
+  const req = requirement("current-failure-blocks", target("symbol", symbolId), perspectiveId);
+  const assessments = evaluateVerification(
+    [req],
+    [
+      evidence("current-failed-proof", target("symbol", symbolId), perspectiveId, {
+        kind: "assertion",
+        strength: "verification",
+        status: "failed",
+      }),
+      evidence("stale-passed-proof", target("symbol", symbolId), perspectiveId, {
+        kind: "assertion",
+        strength: "verification",
+        freshness: "stale",
+      }),
+    ],
+    [perspective(perspectiveId)],
+  );
+  assert.equal(assessments[0]?.status, "failed");
+});
+
 test("intended, static linkage, execution, and coverage remain insufficient without proof strength", () => {
   const kinds = [
     ["intended", "association"],
