@@ -15,6 +15,15 @@ permissions:
 jobs:
   validate-pr:
     name: validate-pr
+    # Job-level filtering keeps required validate-pr checks from remaining
+    # pending while excluding Dependabot and release PRs from normal governance.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      )
     runs-on: ubuntu-latest
     steps:
       - name: Checkout PR head
@@ -106,7 +115,16 @@ jobs:
   regression-proof:
     name: regression-proof
     needs: validate-pr
-    if: always()
+    if: >-
+      always() &&
+      (
+        github.event_name != 'pull_request' ||
+        (
+          github.actor != 'dependabot[bot]' &&
+          github.event.pull_request.user.login != 'dependabot[bot]' &&
+          !startsWith(github.event.pull_request.head.ref, 'release/')
+        )
+      )
     runs-on: ubuntu-latest
     permissions: {}
     steps:
