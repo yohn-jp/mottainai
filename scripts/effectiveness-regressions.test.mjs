@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { MUTATIONS, validateMutationCatalog } from "./mutation-catalog.mjs";
 import {
+  applyMutation,
   buildMutationReport,
   classifyPropertySuiteResult,
   compareMutationBaseline,
@@ -41,6 +43,51 @@ test("mutation runner treats spawn and abnormal exit failures as harness errors"
     return { status: 0, signal: null, stdout: "", stderr: "" };
   });
   assert.equal(spawnOptions.maxBuffer, PROPERTY_SUITE_MAX_BUFFER);
+});
+
+test("mutation replacements preserve special replacement sequences literally", () => {
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-mutation-replacement-"));
+  try {
+    const original = "prefix needle suffix";
+    const replacement = "$& $$ $` $' $1";
+    fs.writeFileSync(path.join(sandbox, "target.txt"), original);
+
+    const applied = applyMutation(sandbox, {
+      id: "literal-replacement",
+      file: "target.txt",
+      operator: "test",
+      search: "needle",
+      replacement,
+    });
+
+    assert.equal(applied.original, original);
+    assert.equal(fs.readFileSync(applied.filePath, "utf8"), `prefix ${replacement} suffix`);
+  } finally {
+    fs.rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("equivalent mutation descriptors require rationale and are excluded from the score", () => {
+  const equivalent = {
+    ...MUTATIONS[0],
+    id: "equivalent-test",
+    equivalence: { status: "equivalent", rationale: "the replacement preserves the observable result" },
+  };
+  assert.doesNotThrow(() => validateMutationCatalog([equivalent]));
+  assert.throws(
+    () => validateMutationCatalog([{ ...equivalent, equivalence: { status: "equivalent", rationale: " " } }]),
+    /non-empty equivalence rationale/u,
+  );
+
+  const report = buildMutationReport({
+    options: { seed: 1, runs: 1, timeoutMs: 100 },
+    results: [
+      { id: equivalent.id, expected: "equivalent", equivalence: equivalent.equivalence, outcome: "survived" },
+      { id: "non-equivalent-test", expected: "non-equivalent", outcome: "survived" },
+    ],
+  });
+  assert.deepEqual(report.totals, { selected: 2, killed: 0, survived: 1, equivalent: 1 });
+  assert.equal(report.score, 0);
 });
 
 test("mutation baseline is canonical and enforces catalog parity and score floors", () => {
@@ -102,6 +149,7 @@ test("property failure reports contain bounded metadata without generated payloa
 
 test("failed effectiveness runs still upload optional reports and template has no unenforced block", () => {
   const workflow = fs.readFileSync(path.join(root, ".github/workflows/test-effectiveness.yml"), "utf8");
+  assert.match(workflow, /timeout-minutes: 15/u);
   assert.match(workflow, /- name: Upload effectiveness reports\n\s+if: always\(\)/u);
   assert.match(workflow, /if-no-files-found: warn/u);
 

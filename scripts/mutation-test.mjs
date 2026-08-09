@@ -62,12 +62,15 @@ function copySandbox(destination) {
   fs.symlinkSync(path.join(root, "node_modules"), path.join(destination, "node_modules"), "dir");
 }
 
-function applyMutation(sandbox, mutation) {
+export function applyMutation(sandbox, mutation) {
   const filePath = path.join(sandbox, mutation.file);
   const original = fs.readFileSync(filePath, "utf8");
   const occurrences = original.split(mutation.search).length - 1;
   if (occurrences !== 1) throw new Error(`${mutation.id}: expected one source match, found ${occurrences}`);
-  fs.writeFileSync(filePath, original.replace(mutation.search, mutation.replacement));
+  fs.writeFileSync(
+    filePath,
+    original.replace(mutation.search, () => mutation.replacement),
+  );
   return { filePath, original };
 }
 
