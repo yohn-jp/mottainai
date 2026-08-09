@@ -7,6 +7,32 @@ function compareText(left: string, right: string): number {
 
 const CORE_DEFINITIONS: readonly EffectDefinition[] = [
   {
+    id: "clock.read" as EffectId,
+    domain: "clock",
+    operation: "read",
+    description: "Read wall-clock or monotonic clock state.",
+  },
+  {
+    id: "console.write" as EffectId,
+    domain: "console",
+    operation: "write",
+    description: "Write diagnostic or user-visible console output.",
+  },
+  { id: "database.read" as EffectId, domain: "database", operation: "read", description: "Read database state." },
+  { id: "database.write" as EffectId, domain: "database", operation: "write", description: "Mutate database state." },
+  {
+    id: "environment.read" as EffectId,
+    domain: "environment",
+    operation: "read",
+    description: "Read process or host environment state.",
+  },
+  {
+    id: "environment.write" as EffectId,
+    domain: "environment",
+    operation: "write",
+    description: "Mutate process or host environment state.",
+  },
+  {
     id: "filesystem.read" as EffectId,
     domain: "filesystem",
     operation: "read",
@@ -18,6 +44,8 @@ const CORE_DEFINITIONS: readonly EffectDefinition[] = [
     operation: "write",
     description: "Create or mutate filesystem state or content.",
   },
+  { id: "git.read" as EffectId, domain: "git", operation: "read", description: "Read Git repository state." },
+  { id: "git.write" as EffectId, domain: "git", operation: "write", description: "Mutate Git repository state." },
   {
     id: "network.read" as EffectId,
     domain: "network",
@@ -43,38 +71,10 @@ const CORE_DEFINITIONS: readonly EffectDefinition[] = [
     description: "Read or mutate process lifecycle/state.",
   },
   {
-    id: "environment.read" as EffectId,
-    domain: "environment",
-    operation: "read",
-    description: "Read process or host environment state.",
-  },
-  {
-    id: "environment.write" as EffectId,
-    domain: "environment",
-    operation: "write",
-    description: "Mutate process or host environment state.",
-  },
-  {
-    id: "clock.read" as EffectId,
-    domain: "clock",
-    operation: "read",
-    description: "Read wall-clock or monotonic clock state.",
-  },
-  {
     id: "randomness.read" as EffectId,
     domain: "randomness",
     operation: "read",
     description: "Read nondeterministic random state.",
-  },
-  { id: "git.read" as EffectId, domain: "git", operation: "read", description: "Read Git repository state." },
-  { id: "git.write" as EffectId, domain: "git", operation: "write", description: "Mutate Git repository state." },
-  { id: "database.read" as EffectId, domain: "database", operation: "read", description: "Read database state." },
-  { id: "database.write" as EffectId, domain: "database", operation: "write", description: "Mutate database state." },
-  {
-    id: "console.write" as EffectId,
-    domain: "console",
-    operation: "write",
-    description: "Write diagnostic or user-visible console output.",
   },
 ];
 
@@ -102,7 +102,7 @@ function createTaxonomy(definitions: readonly EffectDefinition[]): EffectTaxonom
 
 export const CORE_EFFECT_TAXONOMY: EffectTaxonomy = {
   version: 1,
-  definitions: createTaxonomy(CORE_DEFINITIONS).definitions,
+  definitions: CORE_DEFINITIONS,
   isKnown: (effect: EffectId): boolean => CORE_DEFINITIONS.some((definition) => definition.id === effect),
   extend: (extensions: readonly EffectDefinition[]): EffectTaxonomy =>
     createTaxonomy([...CORE_DEFINITIONS, ...extensions]),
