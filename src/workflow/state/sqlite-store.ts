@@ -7,6 +7,7 @@ import type { BoundaryOperations } from "../../boundary.js";
 import { applyMigrations } from "../../state/migrations.js";
 import type { Migration } from "../../state/migrations.js";
 import { resolveStateDbPath } from "../../state/paths.js";
+import { sanitizeAuditMetadata } from "../domain/audit.js";
 import type { RepositoryInstanceId, RootCommitDigest } from "../domain/identity.js";
 import type { LifecycleState } from "../domain/lifecycle.js";
 import type {
@@ -196,25 +197,7 @@ function toValidationEvidenceRecord(row: Record<string, unknown>): ValidationEvi
 }
 
 const AUDIT_MAX_FIELD_LENGTH = 128;
-const AUDIT_MAX_METADATA_ENTRIES = 32;
-const AUDIT_MAX_METADATA_STRING_LENGTH = 256;
 const AUDIT_SAFE_IDENTIFIER = /^[A-Za-z][A-Za-z0-9_.:-]{0,127}$/u;
-const AUDIT_SAFE_METADATA_KEYS = new Set([
-  "count",
-  "safe_count",
-  "attempts",
-  "duration_ms",
-  "size",
-  "state",
-  "status",
-  "phase",
-  "kind",
-  "provider",
-  "source",
-  "category",
-  "version",
-]);
-const AUDIT_SAFE_METADATA_STRING = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/u;
 
 function boundedAuditField(value: string, field: string): string {
   const normalized = value.trim();
@@ -226,18 +209,11 @@ function boundedAuditField(value: string, field: string): string {
 }
 
 function toAuditMetadata(value: unknown): Record<string, string | number | boolean | null> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
-  const result: Record<string, string | number | boolean | null> = {};
-  for (const [key, candidate] of Object.entries(value)) {
-    if (Object.keys(result).length >= AUDIT_MAX_METADATA_ENTRIES) break;
-    if (!AUDIT_SAFE_METADATA_KEYS.has(key)) continue;
-    if (typeof candidate === "string") {
-      const normalized = candidate.slice(0, AUDIT_MAX_METADATA_STRING_LENGTH);
-      if (AUDIT_SAFE_METADATA_STRING.test(normalized)) result[key] = normalized;
-    } else if (typeof candidate === "number" && Number.isFinite(candidate)) result[key] = candidate;
-    else if (typeof candidate === "boolean" || candidate === null) result[key] = candidate;
+  try {
+    return { ...sanitizeAuditMetadata(value) };
+  } catch {
+    return {};
   }
-  return result;
 }
 
 function toAuditRecord(row: Record<string, unknown>): GuardrailAuditRecord {

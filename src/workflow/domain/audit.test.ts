@@ -140,3 +140,39 @@ test("audit metadata allowlisting rejects alternate sensitive keys and nested pa
   assert.equal(serialized.includes("source body"), false);
   assert.equal(serialized.includes("safe_count"), true);
 });
+
+test("audit metadata rejects sensitive values even on permitted keys at write and export boundaries", (t) => {
+  const store = createWorkflowStore(t);
+  store.observeRepositoryInstance({
+    rootCommitDigest: "sensitive-value-digest" as RootCommitDigest,
+    instanceId,
+    gitCommonDir: "/private/repository/.git",
+    canonicalWorktreePath: "/private/repository",
+    observedAt: 0,
+  });
+  const sensitivePath = "/private/repository/source.ts";
+  const credentialUrl = "https://user:password@example.com/private";
+  const throughDomain = recordGuardrailDecision(store, {
+    operation: "export",
+    decision: "observe",
+    ruleId: "export-redaction",
+    reasonCode: "sensitive-value",
+    metadata: { state: sensitivePath, source: credentialUrl },
+  });
+  assert.deepEqual(throughDomain.metadata, {});
+
+  const throughStore = store.recordGuardrailDecision({
+    operation: "export",
+    decision: "observe",
+    ruleId: "export-redaction",
+    reasonCode: "sensitive-value",
+    metadata: { state: sensitivePath, source: credentialUrl },
+  });
+  assert.deepEqual(throughStore.metadata, {});
+
+  const exported = createWorkflowStateExport({ store, workspaceRoot: "/private/repository", now: () => 2 });
+  const serialized = serializeWorkflowStateExport(exported);
+  assert.equal(serialized.includes(sensitivePath), false);
+  assert.equal(serialized.includes(credentialUrl), false);
+  assert.equal(serialized.includes("password"), false);
+});

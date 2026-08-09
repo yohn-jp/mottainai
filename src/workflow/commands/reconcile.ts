@@ -5,7 +5,7 @@ import { GithubAdapter } from "../providers/github.js";
 import type { PullRequestLifecycleState } from "../providers/model.js";
 import { isLeaseActive } from "../domain/lease.js";
 import type { RepositoryInstanceId } from "../domain/identity.js";
-import type { GuardrailAuditRecord, TaskId, WorkflowStateStore } from "../state/store.js";
+import type { GuardrailAuditRecord, PullRequestRecord, TaskId, WorkflowStateStore } from "../state/store.js";
 
 export const RECONCILIATION_SCHEMA_VERSION = 1;
 
@@ -51,9 +51,7 @@ export interface PullRequestReconciliationObservation {
   detail?: string;
 }
 
-export type PullRequestObserver = (
-  record: Awaited<ReturnType<WorkflowStateStore["listPullRequestRecords"]>>[number],
-) => Promise<PullRequestReconciliationObservation>;
+export type PullRequestObserver = (record: PullRequestRecord) => Promise<PullRequestReconciliationObservation>;
 
 export interface ReconciliationDependencies {
   now?: () => number;
@@ -85,7 +83,7 @@ export interface ReconciliationRepairAction {
 export interface ReconciliationDivergence {
   divergenceId: string;
   kind: DivergenceKind;
-  severity: "warning" | "error";
+  severity: "error";
   instanceId?: string;
   taskId?: string;
   worktreeId?: string;
@@ -374,7 +372,7 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
   for (const worktree of recordedWorktrees) {
     const task = input.store.getTask(worktree.taskId);
     const actual = actualByPath.get(canonicalPath(worktree.canonicalPath));
-    const live = worktree.status !== "removed";
+    const live = worktree.status === "active";
     if (task === undefined) {
       addDivergence(
         "branch-task-mismatch",
@@ -454,7 +452,7 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
     if (recorded === undefined) {
       addDivergence(
         "unregistered-managed-root-worktree",
-        "Git reports a worktree below the managed root without a live workflow record",
+        "Git reports a worktree below the managed root without a workflow record",
         {},
         { path: actual.path, branch: actual.branch ?? "detached" },
       );
@@ -512,7 +510,7 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
     if (!observed.ok) {
       diagnostics.push({
         code: "provider-observation-unavailable",
-        severity: "error",
+        severity: "warning",
         detail:
           observed.detail ??
           `provider state unavailable for ${record.provider}/${record.repositoryId}#${record.prNumber}`,
@@ -602,6 +600,7 @@ export interface ExecuteReconciliationRepairsInput {
   store: WorkflowStateStore;
   report: ReconciliationReport;
   confirm?: boolean;
+  /** Omitted action IDs are rejected; a confirmed repair must name its actions explicitly. */
   actionIds?: readonly string[];
   /** Workspace used for the live re-observation. Defaults to the report root. */
   workspaceRoot?: string;
@@ -622,9 +621,10 @@ export interface ExecuteReconciliationRepairsResult {
 export async function executeReconciliationRepairs(
   input: ExecuteReconciliationRepairsInput,
 ): Promise<ExecuteReconciliationRepairsResult> {
+  if (input.actionIds === undefined) return { ok: false, reason: "precondition-failed", applied: [], blocked: [] };
   if (input.confirm !== true)
-    return { ok: false, reason: "confirmation-required", applied: [], blocked: input.actionIds ?? [] };
-  const selected = input.actionIds === undefined ? [] : [...input.actionIds];
+    return { ok: false, reason: "confirmation-required", applied: [], blocked: input.actionIds };
+  const selected = [...input.actionIds];
   const actions = new Map(input.report.repairPlan.map((action) => [action.actionId, action]));
   const workspaceRoot = input.workspaceRoot ?? input.report.repository?.repositoryRoot;
   const reconcile = input.reconcile ?? reconcileWorkflow;
@@ -692,11 +692,15 @@ export async function executeReconciliationRepairs(
     const pathExists = input.pathExists ?? defaultPathExists;
     if (action.kind === "mark-worktree-removed") {
       const worktree = input.store.listWorktrees().find((candidate) => candidate.worktreeId === action.targetId);
+      if (worktree === undefined) {
+        blocked.push(actionId);
+        continue;
+      }
+      const recordedPath = canonicalPath(worktree.canonicalPath);
       const actual = freshReport.repository.worktrees.some(
-        (candidate) => canonicalPath(candidate.path) === canonicalPath(worktree?.canonicalPath ?? ""),
+        (candidate) => canonicalPath(candidate.path) === recordedPath,
       );
       if (
-        worktree === undefined ||
         worktree.instanceId !== expectedInstanceId ||
         worktree.status !== "active" ||
         !pathIsInside(freshReport.managedWorktreeRoot ?? "", worktree.canonicalPath) ||
@@ -737,13 +741,12 @@ export async function executeReconciliationRepairs(
         updatedAt: now,
       });
       applied.push(actionId);
-    } else {
+    } else if (action.kind === "mark-task-cleaned") {
       const task = input.store.getTask(action.targetId as TaskId);
       const worktrees = task === undefined ? [] : input.store.listWorktreesForTask(task.taskId);
       if (
         task === undefined ||
         task.instanceId !== expectedInstanceId ||
-        task.lifecycleState === "cleaned" ||
         task.lifecycleState !== "merged" ||
         worktrees.some(
           (worktree) =>
@@ -761,6 +764,10 @@ export async function executeReconciliationRepairs(
       }
       input.store.updateTaskLifecycleState(task.taskId, "cleaned", now);
       applied.push(actionId);
+    } else {
+      const unreachable: never = action.kind;
+      blocked.push(actionId);
+      void unreachable;
     }
   }
   return {
@@ -770,5 +777,3 @@ export async function executeReconciliationRepairs(
     ...(blocked.length > 0 ? { reason: "precondition-failed" as const } : {}),
   };
 }
-
-export const reconcile = reconcileWorkflow;

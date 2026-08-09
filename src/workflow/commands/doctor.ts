@@ -60,14 +60,22 @@ export async function collectWorkflowDoctorReport(
     repositoryInstanceId: options.repositoryInstanceId,
     dependencies: options.reconciliation,
   });
+  const providerObservationStatus: WorkflowDoctorCheckStatus = reconciliation.diagnostics.some(
+    (diagnostic) => diagnostic.severity === "error",
+  )
+    ? "error"
+    : reconciliation.diagnostics.length > 0
+      ? "warning"
+      : "pass";
   const checks: WorkflowDoctorCheck[] = [
     {
       name: "reconciliation",
-      status: reconciliation.divergences.length === 0 ? "pass" : "error",
-      message:
-        reconciliation.divergences.length === 0
-          ? "workflow state matches observed Git/provider state"
-          : `${reconciliation.divergences.length} workflow divergence(s) detected`,
+      status: reconciliation.ok ? "pass" : "error",
+      message: reconciliation.ok
+        ? "workflow state matches observed Git/provider state"
+        : reconciliation.divergences.length > 0
+          ? `${reconciliation.divergences.length} workflow divergence(s) detected`
+          : "workflow reconciliation failed during observation",
     },
     {
       name: "repair-mode",
@@ -76,7 +84,7 @@ export async function collectWorkflowDoctorReport(
     },
     {
       name: "provider-observation",
-      status: reconciliation.diagnostics.some((diagnostic) => diagnostic.severity === "error") ? "error" : "pass",
+      status: providerObservationStatus,
       message:
         reconciliation.diagnostics.length === 0
           ? "bounded provider/Git observations completed"

@@ -286,6 +286,39 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 11,
+    description: "workflow: enforce audit task-instance membership",
+    up: (db) => {
+      db.exec(`
+        CREATE TRIGGER audit_records_task_instance_insert
+        BEFORE INSERT ON audit_records
+        FOR EACH ROW
+        WHEN NEW.task_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM tasks
+            WHERE tasks.task_id = NEW.task_id
+              AND tasks.instance_id = NEW.instance_id
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'audit record task and instance do not match');
+        END;
+
+        CREATE TRIGGER audit_records_task_instance_update
+        BEFORE UPDATE OF task_id, instance_id ON audit_records
+        FOR EACH ROW
+        WHEN NEW.task_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM tasks
+            WHERE tasks.task_id = NEW.task_id
+              AND tasks.instance_id = NEW.instance_id
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'audit record task and instance do not match');
+        END;
+      `);
+    },
+  },
 ];
 
 function currentVersion(db: DatabaseSync): number {

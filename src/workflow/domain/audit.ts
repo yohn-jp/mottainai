@@ -30,6 +30,16 @@ const SAFE_METADATA_KEYS = new Set([
 ]);
 const SAFE_METADATA_STRING = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/u;
 
+function containsSensitiveAuditValue(value: string): boolean {
+  if (/^(?:[A-Za-z]:[\\/]|[\\/]{2}|\/)/u.test(value)) return true;
+  try {
+    const parsed = new URL(value);
+    return parsed.username.length > 0 || parsed.password.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function bounded(value: string, field: string): string {
   const normalized = value.trim();
   if (normalized.length === 0) throw new Error(`${field} must not be empty`);
@@ -52,7 +62,7 @@ export function sanitizeAuditMetadata(input: unknown): AuditMetadata {
     if (!SAFE_METADATA_KEYS.has(key)) continue;
     if (typeof value === "string") {
       const normalized = value.slice(0, MAX_METADATA_STRING_LENGTH);
-      if (SAFE_METADATA_STRING.test(normalized)) result[key] = normalized;
+      if (!containsSensitiveAuditValue(normalized) && SAFE_METADATA_STRING.test(normalized)) result[key] = normalized;
     } else if (typeof value === "number" && Number.isFinite(value)) result[key] = value;
     else if (typeof value === "boolean" || value === null) result[key] = value;
   }

@@ -191,3 +191,34 @@ test("worktrees UNIQUE index allows reuse of a branch_name/canonical_path once t
     db.close();
   }
 });
+
+test("audit records enforce task-instance membership while preserving task deletion", () => {
+  const db = freshDb();
+  try {
+    seedInstance(db, "instance-1", "/repo-a/.git");
+    seedInstance(db, "instance-2", "/repo-b/.git");
+    seedTask(db, "task-1", "instance-1");
+    const insert = db.prepare(
+      `INSERT INTO audit_records
+        (audit_id, operation, decision, rule_id, reason_code, instance_id, task_id, policy_provenance, metadata_json, recorded_at)
+       VALUES (?, 'cleanup', 'deny', 'cleanup-safety', 'mismatch', ?, ?, NULL, '{}', 0)`,
+    );
+    insert.run("audit-valid", "instance-1", "task-1");
+    assert.throws(() => insert.run("audit-invalid", "instance-2", "task-1"));
+    assert.throws(() =>
+      db.prepare("UPDATE audit_records SET instance_id = ? WHERE audit_id = ?").run("instance-2", "audit-valid"),
+    );
+
+    db.prepare("DELETE FROM tasks WHERE task_id = ?").run("task-1");
+    const deletedTask = db
+      .prepare("SELECT task_id, instance_id FROM audit_records WHERE audit_id = ?")
+      .get("audit-valid") as {
+      task_id: string | null;
+      instance_id: string | null;
+    };
+    assert.equal(deletedTask.task_id, null);
+    assert.equal(deletedTask.instance_id, "instance-1");
+  } finally {
+    db.close();
+  }
+});

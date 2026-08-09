@@ -115,8 +115,8 @@ test("reconciliation detects a missing managed worktree", async (t) => {
     ["missing-managed-worktree"],
   );
   assert.equal(report.repairPlan[0]?.kind, "mark-worktree-removed");
+  assert.equal(report.repairPlan[0]?.targetId, seeded.worktreeId);
   assert.equal(store.listWorktrees()[0]?.status, "active");
-  assert.equal(seeded.worktreeId.length > 0, true);
 });
 
 test("reconciliation scopes implicit state to the current repository and never observes another repository PR", async (t) => {
@@ -148,6 +148,10 @@ test("reconciliation scopes implicit state to the current repository and never o
   });
   assert.equal(
     report.divergences.some((divergence) => divergence.taskId === otherTask.taskId),
+    false,
+  );
+  assert.equal(
+    report.divergences.some((divergence) => divergence.kind === "moved-repository"),
     false,
   );
   assert.deepEqual(observed, []);
@@ -286,6 +290,44 @@ test("reconciliation detects an expired cleanup lock", async (t) => {
   assert.equal(report.repairPlan[0]?.kind, "mark-expired-lock-failed");
 });
 
+test("confirmed repair marks an expired cleanup lock as failed", async (t) => {
+  const store = fresh(t);
+  seedInstance(store);
+  const reserved = store.reserveTask({
+    instanceId,
+    taskSlug: "lease-task",
+    issueRef: "lease-task",
+    baseBranch: "main",
+    baseCommit: "base-sha",
+    allowMultipleActiveTasksPerIssue: true,
+    reservedAt: 0,
+  });
+  assert.equal(reserved.ok, true);
+  store.updateTaskLifecycleState(reserved.task.taskId, "active", 1);
+  store.reserveCleanupLease({
+    operationId: "lease-repair",
+    planDigest: "digest",
+    instanceId,
+    taskId: reserved.task.taskId,
+    owner: "test",
+    expiresAt: 10,
+    acquiredAt: 0,
+  });
+  const baseInput = input(store, snapshot(), []);
+  const report = await reconcileWorkflow(baseInput);
+  const actionId = report.repairPlan[0]!.actionId;
+  const result = await executeReconciliationRepairs({
+    store,
+    report,
+    confirm: true,
+    actionIds: [actionId],
+    workspaceRoot: "/repo",
+    dependencies: baseInput.dependencies,
+  });
+  assert.deepEqual(result.applied, [actionId]);
+  assert.equal(store.getCleanupLease("lease-repair")?.state, "failed");
+});
+
 test("reconciliation detects a merged but uncleaned task", async (t) => {
   const store = fresh(t);
   seedInstance(store);
@@ -360,6 +402,44 @@ test("reconciliation reports provider lifecycle divergence instead of silently t
   );
 });
 
+test("provider observation unavailability is a warning and does not fail reconciliation", async (t) => {
+  const store = fresh(t);
+  seedInstance(store);
+  const reserved = store.reserveTask({
+    instanceId,
+    taskSlug: "provider-unavailable",
+    issueRef: "provider-unavailable",
+    baseBranch: "main",
+    baseCommit: "base-sha",
+    allowMultipleActiveTasksPerIssue: true,
+    reservedAt: 0,
+  });
+  assert.equal(reserved.ok, true);
+  store.updateTaskLifecycleState(reserved.task.taskId, "active", 1);
+  store.recordPullRequest({
+    taskId: reserved.task.taskId,
+    provider: "github",
+    repositoryId: "org/repository",
+    prNumber: 38,
+    url: "https://github.com/org/repository/pull/38",
+    headSha: "head-sha",
+    lifecycleState: "open",
+  });
+  const baseInput = input(store, snapshot(), []);
+  const report = await reconcileWorkflow({
+    ...baseInput,
+    dependencies: {
+      ...baseInput.dependencies,
+      pullRequestObserver: async () => ({ ok: false, lifecycleState: "unknown", detail: "provider unavailable" }),
+    },
+  });
+  assert.equal(report.ok, true);
+  assert.deepEqual(report.divergences, []);
+  assert.deepEqual(report.diagnostics, [
+    { code: "provider-observation-unavailable", severity: "warning", detail: "provider unavailable" },
+  ]);
+});
+
 test("reconciliation detects a cleaned record with a surviving path", async (t) => {
   const store = fresh(t);
   seedInstance(store);
@@ -383,6 +463,62 @@ test("reconciliation detects a cleaned record with a surviving path", async (t) 
     report.divergences.map((item) => item.kind),
     ["cleaned-record-with-surviving-path"],
   );
+});
+
+test("confirmed repair marks a verified merged task as cleaned", async (t) => {
+  const store = fresh(t);
+  seedInstance(store);
+  const { taskId, worktreeId } = seedTask(store);
+  store.markWorktreeRemoved(worktreeId, 2);
+  store.updateTaskLifecycleState(taskId, "merged", 2);
+  store.recordPullRequest({
+    taskId,
+    provider: "github",
+    repositoryId: "org/repository",
+    prNumber: 38,
+    url: "https://github.com/org/repository/pull/38",
+    headSha: "task-sha",
+    lifecycleState: "merged",
+  });
+  const baseInput = input(store, snapshot(), []);
+  const report = await reconcileWorkflow(baseInput);
+  const actionId = report.repairPlan[0]!.actionId;
+  const result = await executeReconciliationRepairs({
+    store,
+    report,
+    confirm: true,
+    actionIds: [actionId],
+    workspaceRoot: "/repo",
+    dependencies: baseInput.dependencies,
+  });
+  assert.deepEqual(result.applied, [actionId]);
+  assert.equal(store.getTask(taskId)?.lifecycleState, "cleaned");
+});
+
+test("reconciliation reports a failed Git snapshot without pretending it observed state", async (t) => {
+  const store = fresh(t);
+  const report = await reconcileWorkflow({
+    ...input(store, snapshot(), []),
+    dependencies: {
+      gitSnapshot: async () => ({
+        ok: false,
+        failure: {
+          code: "git-command-failed",
+          operation: "list-worktrees",
+          detail: "Git worktree list could not be completed",
+        },
+      }),
+    },
+  });
+  assert.equal(report.ok, false);
+  assert.equal(report.repository, undefined);
+  assert.deepEqual(report.diagnostics, [
+    {
+      code: "git-command-failed",
+      severity: "error",
+      detail: "Git worktree list could not be completed",
+    },
+  ]);
 });
 
 test("repair execution requires explicit confirmation and never deletes a path", async (t) => {
@@ -415,6 +551,16 @@ test("repair execution requires explicit confirmation and never deletes a path",
   assert.equal(store.listWorktrees()[0]?.status, "removed");
 });
 
+test("confirmed repair rejects an omitted action selection", async (t) => {
+  const store = fresh(t);
+  seedInstance(store);
+  seedTask(store);
+  const report = await reconcileWorkflow(input(store, snapshot(), []));
+  const result = await executeReconciliationRepairs({ store, report, confirm: true });
+  assert.deepEqual(result, { ok: false, reason: "precondition-failed", applied: [], blocked: [] });
+  assert.equal(store.listWorktrees()[0]?.status, "active");
+});
+
 test("confirmed repair re-checks the live path and blocks a stale report", async (t) => {
   const store = fresh(t);
   seedInstance(store);
@@ -439,6 +585,7 @@ test("confirmed repair re-checks the live path and blocks a stale report", async
     },
   });
   assert.deepEqual(result.blocked, [actionId]);
+  assert.equal(result.reason, "precondition-failed");
   assert.equal(store.listWorktrees()[0]?.status, "active");
 });
 
@@ -467,6 +614,10 @@ test("reserved or unmanaged worktree metadata never receives a removal repair", 
   assert.equal(reservedWorktree.ok, true);
   const reservedReport = await reconcileWorkflow(input(reservedStore, snapshot(), []));
   assert.equal(reservedReport.repairPlan.length, 0);
+  assert.equal(
+    reservedReport.divergences.some((divergence) => divergence.kind === "missing-managed-worktree"),
+    false,
+  );
 
   const unmanagedStore = fresh(t);
   seedInstance(unmanagedStore);
