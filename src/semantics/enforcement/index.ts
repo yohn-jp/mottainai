@@ -18,6 +18,7 @@ export {
   type SemanticBlocker,
   type SemanticCommentFinding,
   type SemanticCommentReport,
+  type SemanticDiffSummary,
   type SemanticEffectReport,
   type SemanticEnforcementDecision,
   type SemanticEnforcementMode,

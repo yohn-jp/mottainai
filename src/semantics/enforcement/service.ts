@@ -1,6 +1,7 @@
 import { compareRepositorySnapshots } from "../diff/index.js";
 import type { SemanticChangeSet } from "../diff/types.js";
 import type { EffectAnalysis } from "../effects/types.js";
+import { analyzeTypeScriptEffects } from "../effects/analyzer.js";
 import { validateSnapshot } from "../ir/schema.js";
 import type {
   CanonicalProsePolicy,
@@ -20,6 +21,7 @@ import { configuredSemanticEnforcementMode, semanticDecision } from "./policy.js
 import type {
   SemanticBlocker,
   SemanticCommentReport,
+  SemanticDiffSummary,
   SemanticEffectReport,
   SemanticEnforcementMode,
   SemanticEnforcementOptions,
@@ -241,12 +243,48 @@ function snapshotSourceIntegrity(snapshot: RepositorySemanticSnapshot): Semantic
   };
 }
 
+function diffSummary(changeSet: SemanticChangeSet | undefined): SemanticDiffSummary | undefined {
+  if (changeSet === undefined) return undefined;
+  const limit = <T>(values: readonly T[], count = 80): T[] => [...values].slice(0, count);
+  return {
+    baseSnapshotId: changeSet.baseSnapshotId,
+    headSnapshotId: changeSet.headSnapshotId,
+    changedFiles: limit(changeSet.changedFiles),
+    changedSymbols: limit(changeSet.changedSymbols),
+    changedComponents: limit(changeSet.changedComponents),
+    semanticDeltas: limit(changeSet.semanticDeltas, 64).map((item) => ({
+      subject: item.subject,
+      kind: item.kind,
+      summary: item.summary,
+      reviewLevel: item.reviewLevel,
+      compatibility: item.compatibility,
+      protected: item.protected,
+      breaking: item.breaking,
+    })),
+    affectedEntities: limit(changeSet.affectedEntities),
+    evidenceRefreshNeeds: limit(changeSet.evidenceRefreshNeeds.map((item) => item.id)),
+    unknownRegions: limit(changeSet.unknownRegions.map((item) => item.id)),
+    authorizedVsActual: {
+      status: changeSet.authorizedVsActual.status,
+      authorizedKinds: limit(changeSet.authorizedVsActual.authorizedKinds),
+      actualKinds: limit(changeSet.authorizedVsActual.actualKinds),
+      excessKinds: limit(changeSet.authorizedVsActual.excessKinds),
+      missingKinds: limit(changeSet.authorizedVsActual.missingKinds),
+      unauthorized: changeSet.authorizedVsActual.unauthorized,
+    },
+    reviewLevel: changeSet.reviewLevel,
+    reviewReasons: limit(changeSet.reviewReasons),
+    recommendedSourceReads: limit(changeSet.recommendedSourceReads),
+  };
+}
+
 async function snapshotFor(options: SemanticEnforcementOptions): Promise<{
   snapshot?: RepositorySemanticSnapshot;
   source?: SemanticSourceInspection;
   diagnostics: SemanticDiagnostic[];
   queryAvailable: boolean;
   queryReason?: string;
+  effectAnalysis?: EffectAnalysis;
 }> {
   const diagnostics: SemanticDiagnostic[] = [];
   if (options.snapshot !== undefined) {
@@ -263,6 +301,8 @@ async function snapshotFor(options: SemanticEnforcementOptions): Promise<{
     };
   const source = await inspectSemanticSource({
     rootDir: options.rootDir,
+    ...(options.baselineRef === undefined ? {} : { baselineRef: options.baselineRef }),
+    ...(options.environment === undefined ? {} : { environment: options.environment }),
     baselineSnapshot: options.baseSnapshot,
     transaction: options.transaction,
     supportedMutation: options.supportedMutation,
@@ -275,14 +315,31 @@ async function snapshotFor(options: SemanticEnforcementOptions): Promise<{
   const compiled = compileRepositoryModel({
     rootDir: options.rootDir,
     ...(declarations === undefined ? {} : { declarations }),
+    ...(options.baseSnapshot === undefined && source.baselineSnapshot === undefined
+      ? {}
+      : { baseSnapshot: options.baseSnapshot ?? source.baselineSnapshot }),
+    ...(options.transaction === undefined ? {} : { transaction: options.transaction }),
   });
   diagnostics.push(...compiled.diagnostics);
+  let effectAnalysis: EffectAnalysis | undefined;
+  if (compiled.snapshot !== undefined) {
+    try {
+      effectAnalysis = analyzeTypeScriptEffects({ rootDir: options.rootDir, snapshot: compiled.snapshot });
+    } catch (error) {
+      diagnostics.push({
+        code: "effect_analysis_unavailable",
+        severity: "warning",
+        message: error instanceof Error ? error.message : "effect analysis could not be completed",
+      });
+    }
+  }
   return {
     snapshot: compiled.snapshot,
     source,
     diagnostics,
     queryAvailable: compiled.snapshot !== undefined,
     queryReason: compiled.snapshot === undefined ? "live model compilation failed" : undefined,
+    ...(effectAnalysis === undefined ? {} : { effectAnalysis }),
   };
 }
 
@@ -335,12 +392,14 @@ export async function evaluateSemanticEnforcement(
           policy: snapshot.declarations.commentPolicy,
         })
       : emptyComments(managed.paths);
+  const baselineSnapshot = options.baseSnapshot ?? resolved.source?.baselineSnapshot;
   const changeSet =
     options.changeSet ??
-    (snapshot !== undefined && options.baseSnapshot !== undefined
-      ? compareRepositorySnapshots(options.baseSnapshot, snapshot, { transaction: options.transaction })
+    (snapshot !== undefined && baselineSnapshot !== undefined
+      ? compareRepositorySnapshots(baselineSnapshot, snapshot, { transaction: options.transaction })
       : undefined);
   const transaction = transactionReport(changeSet, options.transaction, integrity.directEdits.length > 0);
+  const diff = diffSummary(changeSet);
   const review =
     snapshot === undefined
       ? { level: "L3" as const, reasons: [], l3: true, protectedSubjects: [], recommendedSourceReads: [] }
@@ -352,7 +411,7 @@ export async function evaluateSemanticEnforcement(
   // Effect conformance remains #51-owned. Live callers may inject its analysis;
   // the bounded governance command does not silently launch a second repository
   // analysis pass merely to populate a report.
-  const effects: EffectAnalysis | undefined = options.effectAnalysis;
+  const effects: EffectAnalysis | undefined = options.effectAnalysis ?? resolved.effectAnalysis;
   const effectSummary = effectReport(effects);
   const blockers: SemanticBlocker[] = [];
   const warnings: SemanticBlocker[] = [];
@@ -490,6 +549,7 @@ export async function evaluateSemanticEnforcement(
     ownership,
     comments,
     transaction,
+    ...(diff === undefined ? {} : { diff }),
     review,
     verification,
     effects: effectSummary,

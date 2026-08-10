@@ -26,6 +26,7 @@ import type { SemanticIntegrityReport } from "./types.js";
 
 export interface SemanticSourceInspection extends SemanticIntegrityReport {
   snapshot?: RepositorySemanticSnapshot;
+  baselineSnapshot?: RepositorySemanticSnapshot;
   transactions: readonly SemanticTransaction[];
 }
 
@@ -99,9 +100,36 @@ function transactionAuthorizesChange(
   });
 }
 
-function baselineFromGit(rootDir: string): RepositorySemanticSnapshot | undefined {
+function baselineFromGit(
+  rootDir: string,
+  baselineRef?: string,
+  environment: NodeJS.ProcessEnv = {},
+): RepositorySemanticSnapshot | undefined {
   try {
-    const paths = execFileSync("git", ["ls-tree", "-r", "--name-only", "HEAD", "--", `${SEMANTIC_SOURCE_ROOT}/`], {
+    const configuredRef = baselineRef?.trim();
+    const environmentRef = environment.GITHUB_BASE_REF?.trim();
+    const candidates = [
+      ...(configuredRef === undefined || configuredRef.length === 0 ? [] : [configuredRef, `origin/${configuredRef}`]),
+      ...(environmentRef === undefined || environmentRef.length === 0 ? [] : [`origin/${environmentRef}`, environmentRef]),
+      "origin/main",
+      "main",
+      "HEAD^",
+    ];
+    let revision: string | undefined;
+    for (const candidate of candidates) {
+      try {
+        revision = execFileSync("git", ["merge-base", "HEAD", candidate], {
+          cwd: rootDir,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }).trim();
+        if (revision.length > 0) break;
+      } catch {
+        // Try the next locally available base. CI checkouts may be shallow.
+      }
+    }
+    if (revision === undefined || revision.length === 0) return undefined;
+    const paths = execFileSync("git", ["ls-tree", "-r", "--name-only", revision, "--", `${SEMANTIC_SOURCE_ROOT}/`], {
       cwd: rootDir,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
@@ -113,7 +141,7 @@ function baselineFromGit(rootDir: string): RepositorySemanticSnapshot | undefine
     const files: SemanticSourceWrite[] = paths.map((path) => ({
       path,
       operation: "write",
-      content: execFileSync("git", ["show", `HEAD:${path}`], {
+      content: execFileSync("git", ["show", `${revision}:${path}`], {
         cwd: rootDir,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
@@ -134,6 +162,8 @@ function baselineFromGit(rootDir: string): RepositorySemanticSnapshot | undefine
  */
 export async function inspectSemanticSource(options: {
   rootDir: string;
+  baselineRef?: string;
+  environment?: NodeJS.ProcessEnv;
   baselineSnapshot?: RepositorySemanticSnapshot;
   transaction?: SemanticTransaction;
   supportedMutation?: boolean;
@@ -211,7 +241,8 @@ export async function inspectSemanticSource(options: {
     transactions.push(parsedTransaction.transaction);
   }
 
-  const baselineSnapshot = options.baselineSnapshot ?? baselineFromGit(rootDir);
+  const baselineSnapshot =
+    options.baselineSnapshot ?? baselineFromGit(rootDir, options.baselineRef, options.environment);
   if (baselineSnapshot !== undefined) {
     const changed = changedCanonicalPaths(baselineSnapshot, snapshot);
     const supported =
@@ -256,6 +287,7 @@ export async function inspectSemanticSource(options: {
       ...new Map(diagnostics.map((item) => [`${item.code}:${item.path ?? ""}:${item.message}`, item])).values(),
     ],
     snapshot,
+    ...(baselineSnapshot === undefined ? {} : { baselineSnapshot }),
     transactions,
     snapshotDigest: snapshot.integrity.snapshotDigest,
   };

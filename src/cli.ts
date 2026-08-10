@@ -63,6 +63,7 @@ const USAGE = `usage:
   mottainai semantic transaction --request-file <path> [options]
                                                    apply declarations through the mutation service
   mottainai semantic migrate [options]           propose comment-to-debt migration (no implicit apply)
+                                                   --base-ref <ref> selects the CI semantic baseline
   mottainai list                                 registered upstreams and profiles
   mottainai inspect <name>                       one upstream with defaults applied
   mottainai add <name> --command c [options]     register a stdio upstream
@@ -355,6 +356,7 @@ async function runSemanticCommand(action: string | undefined, argv: string[]): P
   if (action === undefined) fail(USAGE);
   const workspace = resolveWorkflowWorkspace(argv);
   const mode = semanticMode(argv) ?? configuredSemanticEnforcementMode(process.env);
+  const baselineRef = requireFlagValue(argv, "base-ref") ?? process.env.GITHUB_BASE_REF;
   const managedPaths = semanticPaths(argv);
   const managedSymbolIds = csvFlag(argv, "managed-symbol-ids") ?? csvFlag(argv, "managed-symbol-id");
   const baseSnapshot = readSemanticSnapshot(argv, "base-snapshot");
@@ -380,6 +382,7 @@ async function runSemanticCommand(action: string | undefined, argv: string[]): P
   }
   const report = await evaluateSemanticEnforcement({
     rootDir: workspace,
+    ...(baselineRef === undefined ? {} : { baselineRef }),
     ...(mode === undefined ? {} : { mode }),
     ...(baseSnapshot === undefined ? {} : { baseSnapshot }),
     ...(managedPaths === undefined ? {} : { managedPaths }),
@@ -425,6 +428,34 @@ async function runSemanticCommand(action: string | undefined, argv: string[]): P
       report,
     });
     return report.mode === "enforce" && report.blockers.length > 0 ? 1 : 0;
+  }
+  if (action === "diff") {
+    print({
+      apiVersion: report.apiVersion,
+      mode: report.mode,
+      decision: report.decision,
+      authoritative: report.authoritative,
+      diff: report.diff,
+      transaction: report.transaction,
+      blockers: report.blockers,
+      warnings: report.warnings,
+    });
+    return report.mode === "enforce" && report.decision === "block" ? 1 : 0;
+  }
+  if (action === "review") {
+    print({
+      apiVersion: report.apiVersion,
+      mode: report.mode,
+      decision: report.decision,
+      authoritative: report.authoritative,
+      review: report.review,
+      diff: report.diff,
+      verification: report.verification,
+      effects: report.effects,
+      blockers: report.blockers,
+      warnings: report.warnings,
+    });
+    return report.mode === "enforce" && report.decision === "block" ? 1 : 0;
   }
   print(report);
   return report.mode === "enforce" && report.decision === "block" ? 1 : 0;

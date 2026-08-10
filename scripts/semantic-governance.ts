@@ -24,9 +24,11 @@ function csv(name: string): string[] | undefined {
 const modeValue = value("--mode");
 const mode: SemanticEnforcementMode =
   modeValue === undefined ? configuredSemanticEnforcementMode(process.env) : parseSemanticEnforcementMode(modeValue);
+const baselineRef = value("--base-ref") ?? process.env.GITHUB_BASE_REF;
 const report = await evaluateSemanticEnforcement({
   rootDir: resolve(process.cwd()),
   mode,
+  ...(baselineRef === undefined ? {} : { baselineRef }),
   managedPaths: csv("--managed-paths"),
   managedSymbolIds: (csv("--managed-symbols") ?? csv("--managed-symbol-ids")) as LogicalId[] | undefined,
   commentZero: value("--comment-zero") !== "false",
@@ -44,6 +46,7 @@ console.log(
       ownership: report.ownership,
       comments: report.comments,
       transaction: report.transaction,
+      diff: report.diff,
       review: report.review,
       verification: report.verification,
       effects: report.effects,

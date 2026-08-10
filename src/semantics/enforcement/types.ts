@@ -82,6 +82,38 @@ export interface SemanticReviewReport {
   recommendedSourceReads: readonly SourceReference[];
 }
 
+/** Bounded projection of the canonical #54 Change Set for CLI/CI consumers. */
+export interface SemanticDiffSummary {
+  baseSnapshotId: string;
+  headSnapshotId: string;
+  changedFiles: readonly LogicalId[];
+  changedSymbols: readonly LogicalId[];
+  changedComponents: readonly LogicalId[];
+  semanticDeltas: readonly {
+    subject: LogicalId;
+    kind: string;
+    summary: string;
+    reviewLevel: ReviewLevel;
+    compatibility: string;
+    protected: boolean;
+    breaking: boolean;
+  }[];
+  affectedEntities: readonly LogicalId[];
+  evidenceRefreshNeeds: readonly string[];
+  unknownRegions: readonly string[];
+  authorizedVsActual: {
+    status: string;
+    authorizedKinds: readonly string[];
+    actualKinds: readonly string[];
+    excessKinds: readonly string[];
+    missingKinds: readonly string[];
+    unauthorized: boolean;
+  };
+  reviewLevel: ReviewLevel;
+  reviewReasons: readonly string[];
+  recommendedSourceReads: readonly SourceReference[];
+}
+
 export interface SemanticVerificationReport {
   status: VerificationPlan["status"] | "unavailable";
   sufficient: boolean;
@@ -106,6 +138,8 @@ export interface SemanticManagedScope {
 
 export interface SemanticEnforcementOptions {
   rootDir?: string;
+  /** Optional Git ref used as the canonical source baseline for CI/direct-edit checks. */
+  baselineRef?: string;
   environment?: NodeJS.ProcessEnv;
   mode?: SemanticEnforcementMode;
   snapshot?: RepositorySemanticSnapshot;
@@ -134,6 +168,7 @@ export interface SemanticEnforcementReport {
   ownership: SemanticOwnershipReport;
   comments: SemanticCommentReport;
   transaction: SemanticTransactionReport;
+  diff?: SemanticDiffSummary;
   review: SemanticReviewReport;
   verification: SemanticVerificationReport;
   effects: SemanticEffectReport;
