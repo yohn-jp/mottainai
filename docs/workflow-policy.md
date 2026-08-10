@@ -150,9 +150,9 @@ or worktree reservation.
 
 `src/workflow/policy/protected-branch.ts` decides whether a given
 `(policy, branch, operation, repository role)` combination is allowed.
-The workflow domain operations and generated Git hooks call this decision
-authority before their respective mutations. Client-facing hooks are a
-defense-in-depth projection; they do not replace the domain checks.
+Workflow domain operations call this decision authority before their
+mutations. Generated Git hooks independently apply equivalent logic as
+defense-in-depth; they do not replace the domain checks.
 
 - `matchesProtectedBranch()` matches a branch name against
   `protectedBranches` glob patterns (`*` is the only wildcard; every
