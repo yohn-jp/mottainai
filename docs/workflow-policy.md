@@ -281,7 +281,7 @@ evidence-gated and is the only follow-up for an eventual `enforce` rollout.
 
 ## Issue #42 evidence review
 
-The Issue #42 gate was reviewed against the current `main` revision
+The Issue #42 gate was reviewed against the pre-#179 baseline revision
 `b132e83415397244b7521afab7318bebd140647b` (including merged PRs #177
 and #178, 2026-08-11) and the evidence available from Issue #41 and the
 Issue #38 audit/metrics contract. No rule is promoted by this review.
