@@ -7,6 +7,7 @@ import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { DEFAULT_READ_GOVERNOR_POLICY } from "../context-runtime/read-policy.js";
+import { DEFAULT_HOOK_POLICY } from "../hooks/policy.js";
 import { composeHookDecision } from "../hooks/providers/composition.js";
 import { createSemanticPolicyProvider } from "../hooks/providers/semantic.js";
 import { BUILTIN_PRESETS } from "../workflow/policy/presets.js";
@@ -14,7 +15,7 @@ import { BUILTIN_PRESETS } from "../workflow/policy/presets.js";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const sourceEntry = path.join(repoRoot, "src", "index.ts");
 const HOOK_MARKER = "mottainai-managed-hook-v1";
-const AGENTS_BASELINE_BYTES = 5_902;
+const AGENTS_BASELINE_BYTES = Buffer.byteLength(fs.readFileSync(path.join(repoRoot, "AGENTS.md")));
 
 type Client = "claude" | "codex";
 type Mode = "observe" | "warn" | "enforce";
@@ -63,14 +64,7 @@ function createWorkspace(): string {
   return root;
 }
 
-const BUILTIN_HOOK_FAILURE_MODES = {
-  "source.read": "open",
-  "source.search": "open",
-  "source.write": "closed",
-  "process.exec": "closed",
-  "git.mutate": "closed",
-  other: "open",
-} as const;
+const BUILTIN_HOOK_FAILURE_MODES = DEFAULT_HOOK_POLICY.failureModes;
 
 function writeHookPolicy(
   root: string,
@@ -172,14 +166,7 @@ function fakeClient(bin: string, client: Client, version = "1.0.0"): void {
 function strictWorkflow(): unknown {
   return {
     ...BUILTIN_PRESETS.standard,
-    protectedBranchRule: {
-      sourceWrite: "enforce",
-      stage: "enforce",
-      commit: "enforce",
-      directPush: "enforce",
-      forcePush: "enforce",
-      destructiveBranchOp: "enforce",
-    },
+    protectedBranchRule: BUILTIN_PRESETS["strict-worktree"].protectedBranchRule,
   };
 }
 
