@@ -164,20 +164,38 @@ function clientCommand(client, root) {
 
 function explanationSummary(root) {
   const filePath = path.join(root, ".mottainai", "hook-explanations.jsonl");
-  if (!fs.existsSync(filePath)) return { evaluations: 0, decisions: {} };
+  if (!fs.existsSync(filePath)) return { evaluations: 0, decisions: {}, operations: {} };
   const decisions = {};
+  const operations = {};
   let evaluations = 0;
   for (const line of fs.readFileSync(filePath, "utf8").split(/\r?\n/u).filter(Boolean)) {
     try {
       const record = JSON.parse(line);
+      if (record === null || typeof record !== "object" || Array.isArray(record)) continue;
       evaluations += 1;
       const key = `${record.decision ?? "unknown"}:${record.reason ?? "unknown"}`;
       decisions[key] = (decisions[key] ?? 0) + 1;
+      const operation = typeof record.operation === "string" ? record.operation : "unknown";
+      operations[operation] = (operations[operation] ?? 0) + 1;
     } catch {
       // A malformed diagnostic line is not surfaced as client evidence.
     }
   }
-  return { evaluations, decisions };
+  return { evaluations, decisions, operations };
+}
+
+function installedClientReports(output) {
+  try {
+    const parsed = JSON.parse(output);
+    if (!Array.isArray(parsed?.clients)) return {};
+    return Object.fromEntries(
+      parsed.clients
+        .filter((report) => report && typeof report.client === "string")
+        .map((report) => [report.client, report]),
+    );
+  } catch {
+    return {};
+  }
 }
 
 function resetExplanationEvidence(root) {
@@ -232,6 +250,7 @@ try {
     );
     process.exitCode = 1;
   } else {
+    const installationReports = installedClientReports(install.stdout);
     const results = {};
     for (const client of clients) {
       resetExplanationEvidence(root);
@@ -247,10 +266,7 @@ try {
       const clientEvents = eventSummary(result.stdout);
       const hookEvidenceObserved = summary.evaluations > 0;
       results[client] = {
-        clientVersion:
-          command === "claude"
-            ? "claude --version was resolved by hooks install"
-            : "codex --version was resolved by hooks install",
+        clientVersion: installationReports[client]?.clientVersion ?? "unknown",
         exitCode: result.status,
         timedOut: result.error?.code === "ETIMEDOUT" || result.signal === "SIGTERM",
         elapsedMs: Date.now() - started,
@@ -262,6 +278,7 @@ try {
         evidenceStatus: hookEvidenceObserved ? "observed" : "blocked",
         enforcementEvidence: hookEvidenceObserved ? "not-claimed-observe-mode" : "not-counted-no-hook-evaluations",
         decisions: summary.decisions,
+        hookOperations: summary.operations,
         ...clientEvents,
       };
     }

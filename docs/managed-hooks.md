@@ -141,3 +141,7 @@ and the runner reports that client's evidence as blocked. Zero evaluations can
 never count as real-client enforcement evidence. Do not commit prompts, session
 logs, source dumps, environment dumps, or credentials. Luna Cloud availability
 is reported separately rather than inferred from local adapter tests.
+Codex may require interactive review of a newly installed project hook through
+its own hooks UI before dispatching it; the runner does not grant trust through
+private state or `--dangerously-bypass-hook-trust`, so an unreviewed entry stays
+blocked until Codex itself reports a hook evaluation.
