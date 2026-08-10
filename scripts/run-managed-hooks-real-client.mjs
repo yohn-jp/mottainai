@@ -9,6 +9,29 @@ const repoRoot = process.cwd();
 const sourceEntry = path.join(repoRoot, "src", "index.ts");
 const requested = process.argv[2] ?? "all";
 const clients = requested === "all" ? ["claude", "codex"] : [requested];
+const CHILD_ENVIRONMENT_KEYS = Object.freeze([
+  "PATH",
+  "HOME",
+  "USERPROFILE",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "CODEX_HOME",
+  "CODEX_API_KEY",
+  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_AUTH_TOKEN",
+  "ANTHROPIC_BASE_URL",
+  "CLAUDE_CODE_USE_BEDROCK",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "AWS_SESSION_TOKEN",
+  "AWS_PROFILE",
+  "AWS_REGION",
+  "AWS_DEFAULT_REGION",
+  "NO_COLOR",
+  "CI",
+]);
 if (!clients.every((client) => client === "claude" || client === "codex")) {
   console.error("usage: node scripts/run-managed-hooks-real-client.mjs [claude|codex|all]");
   process.exitCode = 2;
@@ -24,6 +47,19 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
 }
 
+function allowListedEnvironment(overrides = {}) {
+  const environment = {};
+  for (const key of CHILD_ENVIRONMENT_KEYS) {
+    const value = process.env[key];
+    if (value !== undefined) environment[key] = value;
+  }
+  for (const [key, value] of Object.entries(overrides)) {
+    if (!CHILD_ENVIRONMENT_KEYS.includes(key)) throw new Error(`environment key is not allow-listed: ${key}`);
+    if (value !== undefined) environment[key] = String(value);
+  }
+  return environment;
+}
+
 function createWorkspace() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-managed-hooks-real-client-"));
   runGit(root, ["init", "-b", "main"]);
@@ -33,6 +69,7 @@ function createWorkspace() {
   runGit(root, ["add", "fixture.txt"]);
   runGit(root, ["commit", "-m", "real client fixture"]);
   fs.symlinkSync(path.join(repoRoot, "node_modules"), path.join(root, "node_modules"), "junction");
+  fs.mkdirSync(path.join(root, ".tmp"), { recursive: true });
   writeJson(path.join(root, "mottainai.config.json"), { version: 2, mcpServers: {} });
   writeJson(path.join(root, ".mottainai", "hooks.json"), {
     version: 1,
@@ -52,6 +89,17 @@ function createWorkspace() {
   return root;
 }
 
+function childEnvironment(root) {
+  const temporaryDirectory = path.join(root, ".tmp");
+  return allowListedEnvironment({
+    CI: "1",
+    NO_COLOR: "1",
+    TMPDIR: temporaryDirectory,
+    TMP: temporaryDirectory,
+    TEMP: temporaryDirectory,
+  });
+}
+
 function invokeMottainai(root, args) {
   return spawnSync(
     process.execPath,
@@ -67,7 +115,7 @@ function invokeMottainai(root, args) {
     ],
     {
       cwd: repoRoot,
-      env: { ...process.env },
+      env: childEnvironment(root),
       encoding: "utf8",
       timeout: 15_000,
     },
@@ -104,8 +152,10 @@ function clientCommand(client, root) {
       root,
       "--ephemeral",
       "--ignore-user-config",
-      "--dangerously-bypass-approvals-and-sandbox",
-      "--dangerously-bypass-hook-trust",
+      "--sandbox",
+      "workspace-write",
+      "-c",
+      'approval_policy="on-request"',
       "--json",
       prompt,
     ],
@@ -128,6 +178,10 @@ function explanationSummary(root) {
     }
   }
   return { evaluations, decisions };
+}
+
+function resetExplanationEvidence(root) {
+  fs.rmSync(path.join(root, ".mottainai", "hook-explanations.jsonl"), { force: true });
 }
 
 function managedEntryPresent(root, client) {
@@ -180,16 +234,18 @@ try {
   } else {
     const results = {};
     for (const client of clients) {
+      resetExplanationEvidence(root);
       const [command, args] = clientCommand(client, root);
       const started = Date.now();
       const result = spawnSync(command, args, {
         cwd: root,
-        env: { ...process.env, NO_COLOR: "1" },
+        env: childEnvironment(root),
         encoding: "utf8",
         timeout: 30_000,
       });
       const summary = explanationSummary(root);
       const clientEvents = eventSummary(result.stdout);
+      const hookEvidenceObserved = summary.evaluations > 0;
       results[client] = {
         clientVersion:
           command === "claude"
@@ -203,11 +259,24 @@ try {
         managedEntryPresent: managedEntryPresent(root, client),
         ...(result.status !== 0 ? { blocker: boundedError(result.stderr || result.stdout, root) } : {}),
         hookEvaluations: summary.evaluations,
+        evidenceStatus: hookEvidenceObserved ? "observed" : "blocked",
+        enforcementEvidence: hookEvidenceObserved ? "not-claimed-observe-mode" : "not-counted-no-hook-evaluations",
         decisions: summary.decisions,
         ...clientEvents,
       };
     }
-    console.log(JSON.stringify({ status: "completed", clients, mode: "observe", results }));
+    const blockedClients = clients.filter((client) => results[client].hookEvaluations === 0);
+    const blocked = blockedClients.length > 0;
+    console.log(
+      JSON.stringify({
+        status: blocked ? "blocked" : "completed",
+        ...(blocked ? { reason: `no hook evaluations: ${blockedClients.join(", ")}` } : {}),
+        clients,
+        mode: "observe",
+        results,
+      }),
+    );
+    if (blocked) process.exitCode = 1;
   }
 } finally {
   fs.rmSync(root, { recursive: true, force: true });

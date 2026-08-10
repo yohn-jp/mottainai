@@ -93,3 +93,4 @@ Then finish the requested lifecycle:
 - User instruction and accepted Issue define intent and scope.
 - Executable policy, schema, validator, and tests define exact machine behavior when relevant to the task.
 - This file defines execution discipline only.
+- If a hook blocks an action, its block is authoritative for that run unless the user explicitly changes the guard policy.

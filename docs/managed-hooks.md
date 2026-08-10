@@ -11,7 +11,7 @@ only parse and project the client protocol.
 mottainai hooks install [--client claude|codex|all] [--mode observe|warn|enforce]
 mottainai hooks status
 mottainai hooks doctor
-mottainai hooks repair [--client claude|codex|all]
+mottainai hooks repair [--client claude|codex|all] [--mode observe|warn|enforce]
 mottainai hooks uninstall [--client claude|codex|all]
 mottainai hooks explain <decision-id>
 ```
@@ -128,7 +128,16 @@ dogfood does not remove semantic guidance or claim semantic enforcement.
 
 Real-client evidence is environment-dependent. The deterministic suite is the
 CI gate; local Claude Code/Codex runs may be recorded only as aggregate status,
-version, mode, decision, and bounded response size. Do not commit prompts,
-session logs, source dumps, environment dumps, or credentials. Luna Cloud
-availability is reported separately rather than inferred from local adapter
-tests.
+version, mode, decision, and bounded response size. The real-client runner uses
+an explicit `--sandbox workspace-write` Codex invocation and an allow-listed
+child environment. It does not use approval/sandbox bypass flags or
+`--dangerously-bypass-hook-trust`; project-local Codex hooks that are not
+trusted by Codex remain a blocker rather than being trusted by the runner.
+
+Each client invocation gets a fresh explanation-evidence file. If a client exits
+without invoking a configured hook, record `no hook evaluations`; status,
+version, mode, response size, and client events are not enforcement evidence,
+and the runner reports that client's evidence as blocked. Zero evaluations can
+never count as real-client enforcement evidence. Do not commit prompts, session
+logs, source dumps, environment dumps, or credentials. Luna Cloud availability
+is reported separately rather than inferred from local adapter tests.

@@ -33,16 +33,16 @@ local process that edits configuration or skips a client hook.
 The baseline recurring `AGENTS.md` file is 5,902 bytes (about 1,476 tokens at
 the local 4 bytes/token estimate). Review classified its rules as repository
 scope/reasoning, task/worktree lifecycle, validation, fault safety, and
-authority precedence. Only the one-line instruction to treat a hook denial as
-authoritative was removed; the hook boundary already makes that operation
-unavailable and rollout/rollback authority is now in `docs/managed-hooks.md`.
-All task/worktree, validation, destructive-operation, and authority rules
-remain: the current repository fallback policy is `standard` (source
-write/stage/commit are advisory), and current semantic state is unavailable.
+authority precedence. The hook-denial authority rule remains in recurring
+guidance because fresh semantic state and valid real-client hook evidence are
+unavailable; deterministic adapter coverage does not prove equivalent
+enforcement for every supported client. The current repository fallback policy
+is `standard` (source write/stage/commit are advisory), and current semantic
+state is unavailable.
 
 | metric | observed value | method |
 | --- | ---: | --- |
-| mechanical guidance before / after | 5,902 / 5,779 bytes; 1,476 / 1,445 estimated tokens; 123 bytes / 31 tokens removed | UTF-8 byte count of tracked `AGENTS.md`; one hook-boundary duplicate removed |
+| mechanical guidance before / after | 5,902 / 5,902 bytes; 1,476 / 1,476 estimated tokens; 0 bytes removed | UTF-8 byte count of tracked `AGENTS.md`; no rule removed while real-client and fresh-semantic evidence remain unavailable |
 | hook-visible response bytes | 527 bytes / 132 estimated tokens | six rollout responses, UTF-8 bytes and ceil(bytes/4) |
 | hook counts | allow 4 / warn 2 / deny 6 / redirect 14 | rollout matrix plus bounded-read allow, protected Git/read denials, and native process redirects; client projection is Claude exit 2 or Codex structured deny |
 | retries / false denials | 0 / 0 observed | no retry loop; observe bounded-read control remained usable |
@@ -51,10 +51,9 @@ write/stage/commit are advisory), and current semantic state is unavailable.
 | explicit explain expansions | 0 in this matrix | ordinary output stayed bounded; explanations remain an explicit separate command |
 
 The hook-visible response is event-triggered counter-cost, not a model billing
-measurement. The measured net recurring guidance reduction is therefore **123
-bytes** (about 31 local-estimated tokens). A future rollout can remove only a
-rule whose exact operation boundary is active, reliable, and enforce-mode tested
-for every supported client.
+measurement. The measured net recurring guidance reduction is therefore **0
+bytes**. A future rollout can remove only a rule whose exact operation boundary
+is active, reliable, and enforce-mode tested for every supported client.
 
 ## Fault and recovery notes
 
@@ -88,21 +87,23 @@ Codex CLI 0.146.0
 ```
 
 The isolated real-client runner (`node scripts/run-managed-hooks-real-client.mjs
-all`) installed both managed entries, but did not produce valid dogfood
-evidence:
+all`) installed both managed entries, but returned a blocked evidence status and
+did not produce valid dogfood evidence:
 
 - Claude Code exited before a tool call with the exact bounded error
   `Not logged in · Please run /login` from `--print`; the local `claude auth
   status` command reports an account, but this noninteractive runtime did not
   accept that session.
 - Codex CLI completed a Luna-model invocation with the managed entry present and
-  two `command_execution` items, but the explanation log contained zero hook
-  evaluations. The client therefore did not consume this project hook entry or
-  did not emit the adapter's expected payload on this invocation. It is not
-  counted as real-client enforcement evidence.
+  two `command_execution` items, but the per-client explanation log contained
+  `no hook evaluations`. The client therefore did not consume this project hook
+  entry or did not emit the adapter's expected payload on this invocation. The
+  runner reports this client as blocked; it is not counted as real-client
+  enforcement evidence.
 
-This is the exact external/client-protocol blocker. The deterministic fixture
-is the reproducible CI evidence; prompts, sessions, source, environment, and
-credentials are excluded from this report. Luna Cloud availability is not
-inferred from adapter or fixture execution, and no real-client success is
-claimed until a client-generated hook evaluation is observed.
+This is the exact external/client-protocol and Codex hook-trust blocker. The
+deterministic fixture is the reproducible CI evidence; prompts, sessions,
+source, environment, and credentials are excluded from this report. Luna Cloud
+availability is not inferred from adapter or fixture execution, and no
+real-client success is claimed until a client-generated hook evaluation is
+observed without bypassing Codex's sandbox, approvals, or hook trust.

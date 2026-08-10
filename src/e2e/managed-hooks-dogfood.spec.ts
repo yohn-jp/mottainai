@@ -218,7 +218,7 @@ test("dogfood observes, warns, then enforces one decision path for both clients"
   // the dispatcher itself remains bounded by hooks.json timeoutMs.
   assert.ok(latencies.every((value) => Number.isFinite(value) && value < 10_000));
   const guidanceBytes = Buffer.byteLength(fs.readFileSync(path.join(repoRoot, "AGENTS.md")));
-  assert.equal(AGENTS_BASELINE_BYTES - guidanceBytes, 123);
+  assert.equal(AGENTS_BASELINE_BYTES - guidanceBytes, 0);
   console.log(
     `[managed-hooks-dogfood] mode counts=${JSON.stringify(counts)} hook_visible_bytes=${hookVisibleBytes} hook_visible_tokens_est=${Math.ceil(hookVisibleBytes / 4)} guidance_bytes={before:${AGENTS_BASELINE_BYTES},after:${guidanceBytes},removed:${AGENTS_BASELINE_BYTES - guidanceBytes}} latency_ms={p50:${percentile(latencies, 0.5)},p95:${percentile(latencies, 0.95)},max:${Math.round(Math.max(...latencies))}}`,
   );
