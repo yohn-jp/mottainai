@@ -11,7 +11,7 @@ only parse and project the client protocol.
 mottainai hooks install [--client claude|codex|all] [--mode observe|warn|enforce]
 mottainai hooks status
 mottainai hooks doctor
-mottainai hooks repair [--client claude|codex|all]
+mottainai hooks repair [--client claude|codex|all] [--mode observe|warn|enforce]
 mottainai hooks uninstall [--client claude|codex|all]
 mottainai hooks explain <decision-id>
 ```
@@ -76,3 +76,68 @@ events. It does not infer semantic scope from hook paths or source text.
 When telemetry is enabled, `.mottainai/telemetry/summary.json` records only
 provider, state, decision, and reason counters under `hooks`; client payloads,
 commands, paths, and source contents are not stored.
+
+## Supported clients and rollout
+
+The supported adapters are Claude Code and Codex CLI. The adapter version and
+client compatibility state are reported by `hooks status` and `hooks doctor`;
+an unknown or incompatible client is partial/unsupported, never silently
+treated as enforced. The installed entry for each client points to the same
+`mottainai hooks dispatch --client ...` boundary.
+
+Roll out per repository and per operation class:
+
+1. install in `observe`, then inspect status, explanations, and aggregate
+   telemetry for false positives and unavailable replacements;
+2. switch to `warn` after the observe window and confirm that redirects remain
+   bounded and retries do not grow;
+3. use `enforce` only after the configured replacement and its failure mode
+   have passed the dogfood fixtures.
+
+Rollback changes only the rollout mode and keeps the managed entries installed:
+
+```text
+mottainai hooks repair --mode warn
+mottainai hooks repair --mode observe
+```
+
+`hooks doctor` must be green before returning to `enforce`. A broken or
+unavailable replacement follows the explicit failure mode in
+`.mottainai/hooks.json`; it must not produce a `use=<tool>` response for a tool
+that is not exposed by the current runtime. `hooks repair` repairs only the
+Mottainai-owned entry; `hooks uninstall` removes only that entry and preserves
+unrelated client hooks.
+
+## Dogfood evidence and limits
+
+The deterministic regression matrix is
+`src/e2e/managed-hooks-dogfood.spec.ts`; the bounded aggregate and local
+measurement methodology are recorded in
+`docs/managed-hooks-dogfood-report.md`. It exercises both adapters through the
+same dispatcher and covers native interpreter/search spellings, protected Git,
+read-governor broad/bounded reads, lifecycle drift, duplicate installation,
+configuration preservation, missing dispatcher/capability behavior, and
+bounded output.
+
+The process boundary is an agent-compliance boundary, not an OS sandbox. A
+finite bypass suite cannot prove protection against a malicious local process,
+`--no-verify`, or a client that does not invoke its configured hook. A fresh
+repository-bound semantic pre-operation decision is not available on the
+current main baseline; the semantic adapter reports that state explicitly and
+dogfood does not remove semantic guidance or claim semantic enforcement.
+
+Real-client evidence is environment-dependent. The deterministic suite is the
+CI gate; local Claude Code/Codex runs may be recorded only as aggregate status,
+version, mode, decision, and bounded response size. The real-client runner uses
+an explicit `--sandbox workspace-write` Codex invocation and an allow-listed
+child environment. It does not use approval/sandbox bypass flags or
+`--dangerously-bypass-hook-trust`; project-local Codex hooks that are not
+trusted by Codex remain a blocker rather than being trusted by the runner.
+
+Each client invocation gets a fresh explanation-evidence file. If a client exits
+without invoking a configured hook, record `no hook evaluations`; status,
+version, mode, response size, and client events are not enforcement evidence,
+and the runner reports that client's evidence as blocked. Zero evaluations can
+never count as real-client enforcement evidence. Do not commit prompts, session
+logs, source dumps, environment dumps, or credentials. Luna Cloud availability
+is reported separately rather than inferred from local adapter tests.
