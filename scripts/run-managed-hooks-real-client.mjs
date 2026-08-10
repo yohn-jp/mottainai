@@ -171,6 +171,7 @@ function explanationSummary(root) {
   for (const line of fs.readFileSync(filePath, "utf8").split(/\r?\n/u).filter(Boolean)) {
     try {
       const record = JSON.parse(line);
+      if (record === null || typeof record !== "object" || Array.isArray(record)) continue;
       evaluations += 1;
       const key = `${record.decision ?? "unknown"}:${record.reason ?? "unknown"}`;
       decisions[key] = (decisions[key] ?? 0) + 1;
