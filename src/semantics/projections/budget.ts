@@ -130,7 +130,11 @@ function materialize<T extends Record<string, unknown>>(
 }
 
 function bytes(value: unknown): number {
-  return Buffer.byteLength(JSON.stringify(value) ?? "", "utf8");
+  try {
+    return Buffer.byteLength(JSON.stringify(value) ?? "", "utf8");
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
 }
 
 interface CompactLimits {
@@ -197,10 +201,39 @@ function compactEnvelopeValue(
 }
 
 function compactContractValue(value: unknown, key: string, limits: CompactLimits): unknown {
-  // Keep discriminator/status values valid while compacting descriptive text.
+  // Keep known discriminator/status values valid while compacting malformed text.
+  const knownContractValues = new Set([
+    "agent",
+    "review",
+    "jsdoc",
+    "project",
+    "component",
+    "symbol",
+    "file",
+    "entity",
+    "declared",
+    "derived",
+    "observed",
+    "analysis",
+    "integrity",
+    "fresh",
+    "stale",
+    "invalid",
+    "unavailable",
+    "unknown",
+    "partial",
+    "fixture",
+    "success",
+    "en",
+    "L0",
+    "L1",
+    "L2",
+    "L3",
+  ]);
   if (
     typeof value === "string" &&
-    ["canonicalLanguage", "kind", "scope", "authority", "status", "integrity", "reviewLevel"].includes(key)
+    ["canonicalLanguage", "kind", "scope", "authority", "status", "integrity", "reviewLevel"].includes(key) &&
+    knownContractValues.has(value)
   )
     return value;
   return compactEnvelopeValue(value, key, 0, limits);
@@ -357,16 +390,21 @@ function lastResortEnvelope(
   resolved: SemanticProjectionBudget,
   omissions: readonly ProjectionOmission[],
 ): { value: Record<string, unknown>; budget: ProjectionBudgetMetadata } {
-  const limits: CompactLimits = { maxArrayItems: 0, maxObjectEntries: 8, maxStringBytes: 1 };
-  const fallback = materializeWithBudget(
-    minimalEnvelope(base, limits),
-    compactFallbackGroups(groups, new Set(), limits),
-    new Set(),
-    compactOmissions(omissions, limits.maxStringBytes).slice(0, 1),
-    resolved,
-    true,
-  );
-  return { value: fallback.value, budget: fallback.budget };
+  const omissionMetadata = compactOmissions(omissions, 64).slice(0, 1);
+  let fallback: { value: Record<string, unknown>; budget: ProjectionBudgetMetadata } | undefined;
+  for (const maxStringBytes of [64, 32, 16, 8, 4, 3, 2, 1]) {
+    const limits: CompactLimits = { maxArrayItems: 0, maxObjectEntries: 8, maxStringBytes };
+    fallback = materializeWithBudget(
+      minimalEnvelope(base, limits),
+      compactFallbackGroups(groups, new Set(), limits),
+      new Set(),
+      omissionMetadata,
+      resolved,
+      true,
+    );
+    if (bytes(fallback.value) <= Math.min(resolved.hardBytes, resolved.hardTokens * 4)) return fallback;
+  }
+  return fallback!;
 }
 
 /**

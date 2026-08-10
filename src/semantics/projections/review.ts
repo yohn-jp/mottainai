@@ -161,7 +161,14 @@ export function projectReview(input: ReviewProjectionInput): ReviewProjection {
     "propagation stop boundaries exceeded their deterministic structural limit",
     "required",
   );
-  const symbols = referencesFor(model, affectedSymbolIds(changeSet, model).slice(0, resolved.maxSymbols));
+  const boundedAffectedSymbols = capItems(
+    affectedSymbolIds(changeSet, model),
+    resolved.maxSymbols,
+    "impact.affectedSymbols",
+    "affected Symbols exceeded their deterministic structural limit",
+    "required",
+  );
+  const symbols = referencesFor(model, [...boundedAffectedSymbols.items]);
   const boundedUnknowns = capItems(
     unknownRegions(changeSet),
     resolved.maxChanges,
@@ -333,6 +340,7 @@ export function projectReview(input: ReviewProjectionInput): ReviewProjection {
     boundedAffectedEntities.omission,
     boundedPaths.omission,
     boundedStopBoundaries.omission,
+    boundedAffectedSymbols.omission,
     boundedUnknowns.omission,
     boundedImplementation.omission,
     boundedSymbolChanges.omission,

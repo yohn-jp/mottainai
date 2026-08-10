@@ -217,7 +217,10 @@ function buildProjectionModel(snapshot: RepositorySemanticSnapshot): ProjectionM
     const entity = entities.get(id);
     if (entity === undefined) return [];
     return snapshot.analysis.recommendedSourceReads.filter((read) => {
-      if (entity.kind === "symbol") return read.symbol === entity.locator.symbol || read.path === entity.locator.file;
+      if (entity.kind === "symbol") {
+        if (read.path === entity.locator.file) return true;
+        return read.symbol === entity.locator.symbol && entity.locator.file === undefined;
+      }
       if (entity.kind === "file") return read.path === entity.path;
       return false;
     });

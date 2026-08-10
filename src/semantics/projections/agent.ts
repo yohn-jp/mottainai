@@ -322,9 +322,9 @@ function deltaForTarget(
   const implementationChanges = changeSet.derivedChanges
     .filter((item) => relevantIds.has(String(item.entityId)))
     .sort((left, right) => compareText(left.id, right.id));
-  const unknowns = changeSet.unknownRegions.filter(
-    (item) => item.subjects.some((id) => relevantIds.has(String(id))) || item.subjects.length === 0,
-  );
+  const unknowns = changeSet.unknownRegions
+    .filter((item) => item.subjects.some((id) => relevantIds.has(String(id))) || item.subjects.length === 0)
+    .sort((left, right) => compareText(left.id, right.id));
   if (semanticDeltas.length === 0 && implementationChanges.length === 0 && unknowns.length === 0) return undefined;
   return { reviewLevel: changeSet.reviewLevel, semanticDeltas, implementationChanges, unknowns };
 }

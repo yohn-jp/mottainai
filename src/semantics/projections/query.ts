@@ -98,6 +98,17 @@ function providerProjectionState(status: EntityView["provenance"]["status"]): {
   }
 }
 
+function providerProjectionReason(state: ReturnType<typeof providerProjectionState>): string {
+  switch (state.status) {
+    case "fresh":
+      return "fixture/query projection retains fresh provider provenance";
+    case "stale":
+      return "query provider is partial; projection retains stale provider state";
+    case "unavailable":
+      return "query provider is unavailable; projection retains unavailable provider state";
+  }
+}
+
 async function projectAgentFromQuery(
   query: RepositorySemanticQuery,
   id: EntityId,
@@ -137,6 +148,7 @@ async function projectAgentFromQuery(
   );
   const unknowns = (await query.getChangeSet()).unknownRegions ?? [];
   const providerState = providerProjectionState(entity.provenance.status);
+  const providerReason = providerProjectionReason(providerState);
   const base: Record<string, unknown> = {
     apiVersion: 1,
     kind: "agent",
@@ -154,7 +166,7 @@ async function projectAgentFromQuery(
       status: providerState.status,
       integrity: providerState.integrity,
       authoritative: false,
-      reason: "fixture/query projection retains fixture provenance",
+      reason: providerReason,
     },
     source: entity.agentProjection.source,
     provenance: {
@@ -162,7 +174,7 @@ async function projectAgentFromQuery(
       authority: entity.authority,
       status: providerState.status,
       authoritative: false,
-      note: "bounded projection over the same RepositorySemanticQuery provider used by Dashboard",
+      note: `${providerReason}; bounded projection over the same RepositorySemanticQuery provider used by Dashboard`,
     },
   };
   const emptyContext = {
