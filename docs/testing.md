@@ -71,7 +71,7 @@ Fast suite の correctness 判定は、子 process の test result のみ。`scr
 - `pnpm run test:package`: `build`後に同一tarballをpackし、package protocol subsetと`smoke-test`を実行。package層の入口。
 - `pnpm run verify:standards`: format、lint、architecture、governance、分類validator、coverage policy self-test。
 - `pnpm run test:coverage`: fast+integrationを一度ずつ実行し、coverage artifactとgate結果を生成。fast loopへinstrumentationを入れない。
-- `pnpm run verify`: `verify:standards`、typecheck、fast、integration/process、built-dist E2E、coverage、packageを決定的な順序で実行。
+- `pnpm run verify`: `verify:standards`、typecheck、fast、integration/process、明示的な`build`、built-dist E2E、coverage、packageを決定的な順序で実行する。単独の`test:e2e`は引き続きbuild済み`dist`を要求し、単独の`test:package`は自身のbuildを実行する。
 
 ## 機械的分類
 
