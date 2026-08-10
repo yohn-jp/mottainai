@@ -8,6 +8,7 @@ import type { RepositoryInstanceId } from "../domain/identity.js";
 import {
   getTaskStatusForWorkspace,
   transitionTaskForWorkspace,
+  type WorkflowPullRequestObserver,
   type WorkspaceTaskTransitionResult,
 } from "../domain/task.js";
 import type { RepositoryIdentity, RevisionIdentity } from "../providers/model.js";
@@ -102,6 +103,26 @@ function contextInput(
     worktreeId: task.worktreeId,
     expectedBranch: task.expectedBranch,
     ...(allowedLifecycleStates === undefined ? {} : { allowedLifecycleStates }),
+  };
+}
+
+function workflowPullRequestObserver(adapter: GithubAdapter): WorkflowPullRequestObserver {
+  return async (record) => {
+    if (record.provider !== "github") {
+      return { ok: false, detail: `unsupported pull-request provider: ${record.provider}` };
+    }
+    try {
+      const observed = await adapter.viewPullRequest(record.prNumber, {
+        provider: record.provider,
+        id: record.repositoryId,
+      });
+      return observed.ok ? { ok: true, pullRequest: observed.value } : { ok: false, detail: observed.error.message };
+    } catch (error) {
+      return {
+        ok: false,
+        detail: `provider pull-request observation failed: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
   };
 }
 
@@ -339,15 +360,23 @@ async function transitionWorkflowTask(
     to: "merged" | "abandoned";
     allowedLifecycleStates: readonly LifecycleState[];
     dryRun?: boolean;
+    allowIdempotentTerminalState?: boolean;
   },
+  dependencies: WorkflowWriteDependencies = {},
 ): Promise<WorkflowWriteResult> {
   const selected = await resolveWorkflowTask(input);
   if (!selected.ok) return selected;
+  const githubAdapter =
+    input.to === "merged"
+      ? (dependencies.githubAdapter ?? new GithubAdapter({ workspaceRoot: input.workspaceRoot }))
+      : undefined;
   const result: WorkspaceTaskTransitionResult = await transitionTaskForWorkspace({
     ...contextInput(input, selected, input.allowedLifecycleStates),
     policy: input.policy,
     to: input.to,
     dryRun: input.dryRun,
+    allowIdempotentTerminalState: input.allowIdempotentTerminalState,
+    ...(githubAdapter === undefined ? {} : { pullRequestObserver: workflowPullRequestObserver(githubAdapter) }),
   });
   if (!result.ok) return result;
   return { ok: true, dryRun: input.dryRun === true, task: result.task, taskId: selected.taskId, transition: input.to };
@@ -355,18 +384,32 @@ async function transitionWorkflowTask(
 
 export function finishWorkflowTask(
   input: WorkflowTaskSelector & { policy: WorkflowPolicyDocument; dryRun?: boolean },
+  dependencies: WorkflowWriteDependencies = {},
 ): Promise<WorkflowWriteResult> {
-  return transitionWorkflowTask({ ...input, to: "merged", allowedLifecycleStates: ["pull-request-open"] });
+  return transitionWorkflowTask(
+    {
+      ...input,
+      to: "merged",
+      allowedLifecycleStates: ["pull-request-open", "merged"],
+      allowIdempotentTerminalState: true,
+    },
+    dependencies,
+  );
 }
 
 export function abandonWorkflowTask(
   input: WorkflowTaskSelector & { policy: WorkflowPolicyDocument; dryRun?: boolean },
+  dependencies: WorkflowWriteDependencies = {},
 ): Promise<WorkflowWriteResult> {
-  return transitionWorkflowTask({
-    ...input,
-    to: "abandoned",
-    allowedLifecycleStates: ["active", "committed", "pushed", "pull-request-open", "orphaned"],
-  });
+  return transitionWorkflowTask(
+    {
+      ...input,
+      to: "abandoned",
+      allowedLifecycleStates: ["active", "committed", "pushed", "pull-request-open", "orphaned", "abandoned"],
+      allowIdempotentTerminalState: true,
+    },
+    dependencies,
+  );
 }
 
 export interface CleanupWorkflowInput extends WorkflowTaskSelector {

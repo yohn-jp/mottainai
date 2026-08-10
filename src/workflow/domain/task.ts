@@ -21,6 +21,7 @@ import { lifecycleTransitionStatus, validateTransition } from "./lifecycle.js";
 import type { LifecycleState, TransitionBlockedInfo } from "./lifecycle.js";
 import { verifyWorkflowContext } from "../git/context.js";
 import type { WorkflowContextInput, VerifiedWorkflowContext } from "../git/context.js";
+import type { PullRequest } from "../providers/model.js";
 
 const GIT_TIMEOUT_MS = 5_000;
 const GIT_MAX_OUTPUT_BYTES = 64 * 1024;
@@ -575,11 +576,93 @@ export interface WorkspaceTaskTransitionInput extends WorkflowContextInput {
   policy: WorkflowPolicyDocument;
   to: LifecycleState;
   dryRun?: boolean;
+  /** Terminal retries may return the already-persisted successful state. */
+  allowIdempotentTerminalState?: boolean;
+  /** Provider observation used before a task is marked merged. */
+  pullRequestObserver?: WorkflowPullRequestObserver;
 }
+
+export type WorkflowPullRequestObservation = { ok: true; pullRequest: PullRequest } | { ok: false; detail: string };
+
+export type WorkflowPullRequestObserver = (record: PullRequestRecord) => Promise<WorkflowPullRequestObservation>;
 
 export type WorkspaceTaskTransitionResult =
   | { ok: true; task: TaskRecord; context: VerifiedWorkflowContext }
   | { ok: false; reason: string; detail: string; blocked?: TransitionBlockedInfo };
+
+type MergedPullRequestVerification =
+  | { ok: true; record: PullRequestRecord }
+  | { ok: false; reason: string; detail: string };
+
+async function verifyMergedPullRequest(
+  context: VerifiedWorkflowContext,
+  store: WorkflowStateStore,
+  observer: WorkflowPullRequestObserver | undefined,
+): Promise<MergedPullRequestVerification> {
+  const records = store.listPullRequestRecordsForTask(context.task.taskId);
+  if (records.length === 0) {
+    return {
+      ok: false,
+      reason: "provider-state-unavailable",
+      detail: "a persisted provider pull-request record is required before marking the task merged",
+    };
+  }
+  if (records.length !== 1) {
+    return {
+      ok: false,
+      reason: "provider-state-ambiguous",
+      detail: "multiple persisted provider pull-request records are associated with the task",
+    };
+  }
+  if (observer === undefined) {
+    return {
+      ok: false,
+      reason: "provider-state-unavailable",
+      detail: "a fresh provider pull-request observation is required before marking the task merged",
+    };
+  }
+
+  const record = records[0]!;
+  let observation: WorkflowPullRequestObservation;
+  try {
+    observation = await observer(record);
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "provider-state-unavailable",
+      detail: `provider pull-request observation failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+  if (!observation.ok) {
+    return { ok: false, reason: "provider-state-unavailable", detail: observation.detail };
+  }
+
+  const pullRequest = observation.pullRequest;
+  const identityMismatches = [
+    pullRequest.identity.provider !== record.provider ? "provider" : undefined,
+    pullRequest.repository.provider !== record.provider ? "repository provider" : undefined,
+    pullRequest.repository.id !== record.repositoryId ? "repository" : undefined,
+    pullRequest.number !== record.prNumber ? "pull-request number" : undefined,
+    pullRequest.url !== record.url ? "pull-request URL" : undefined,
+    pullRequest.head.revision !== record.headSha ? "provider head" : undefined,
+    context.headCommit !== record.headSha ? "task head" : undefined,
+  ].filter((item): item is string => item !== undefined);
+  if (identityMismatches.length > 0) {
+    return {
+      ok: false,
+      reason: "provider-state-mismatch",
+      detail: `provider pull-request identity/head does not match persisted task record (${identityMismatches.join(", ")})`,
+    };
+  }
+  if (pullRequest.lifecycleState !== "merged") {
+    return {
+      ok: false,
+      reason: "provider-not-merged",
+      detail: `provider pull-request is ${pullRequest.lifecycleState}; refusing to mark the task merged without an observed merge`,
+    };
+  }
+  return { ok: true, record };
+}
 
 /**
  * State-only task transitions still require the same repository/worktree identity
@@ -607,6 +690,10 @@ export async function transitionTaskForWorkspace(
     };
   }
 
+  if (input.allowIdempotentTerminalState === true && context.task.lifecycleState === input.to) {
+    return { ok: true, task: context.task, context };
+  }
+
   const validation = validateTransition(context.task.lifecycleState, input.to);
   if (!validation.allowed) {
     return {
@@ -616,7 +703,26 @@ export async function transitionTaskForWorkspace(
       blocked: validation.blocked,
     };
   }
+
+  let mergedPullRequest: PullRequestRecord | undefined;
+  if (input.to === "merged") {
+    const verified = await verifyMergedPullRequest(context, input.store, input.pullRequestObserver);
+    if (!verified.ok) return verified;
+    mergedPullRequest = verified.record;
+  }
   if (input.dryRun) return { ok: true, task: context.task, context };
+
+  if (mergedPullRequest !== undefined) {
+    try {
+      input.store.updatePullRequestLifecycleState(mergedPullRequest.recordId, "merged");
+    } catch (error) {
+      return {
+        ok: false,
+        reason: "provider-state-write-failed",
+        detail: `persisted provider pull-request state could not be updated: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
 
   const transitioned = transitionTask(input.store, input.taskId, input.to);
   if (!transitioned.ok) {
