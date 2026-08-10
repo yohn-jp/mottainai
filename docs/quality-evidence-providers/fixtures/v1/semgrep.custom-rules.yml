@@ -1,0 +1,15 @@
+rules:
+  - id: no-eval
+    languages:
+      - javascript
+      - typescript
+    message: Avoid eval in repository code.
+    severity: WARNING
+    pattern: eval(...)
+  - id: no-new-function
+    languages:
+      - javascript
+      - typescript
+    message: Avoid the Function constructor in repository code.
+    severity: WARNING
+    pattern: new Function(...)
