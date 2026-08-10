@@ -50,6 +50,19 @@ import type {
 } from "../ir/types.js";
 import type { TypeScriptFactCounts } from "../extractors/types.js";
 import type { DerivedFactCacheStatus } from "../cache/types.js";
+import {
+  projectAgentContext,
+  projectJsdoc,
+  projectReview,
+  unavailableAgentContext,
+  unavailableJsdocProjection,
+  type AgentContextProjection,
+  type AgentProjectionOptions,
+  type JsdocProjection,
+  type JsdocProjectionOptions,
+  type ReviewProjection,
+  type ReviewProjectionOptions,
+} from "../projections/index.js";
 
 /** Source state supplied to the live query adapter after compilation and integrity validation. */
 export interface RepositoryModelSource {
@@ -528,6 +541,45 @@ export class LiveRepositoryModelQuery implements RepositorySemanticQuery {
     });
   }
 
+  /** #55 bounded Agent context over the same live snapshot used by Dashboard. */
+  getAgentContext(id: EntityId, options: AgentProjectionOptions = {}): AgentContextProjection {
+    return this.measure(() => {
+      if (this.snapshot === undefined)
+        return unavailableAgentContext(id, this.integrityReason ?? "live semantic model is unavailable", options);
+      this.requireEntity(id);
+      return projectAgentContext({
+        snapshot: this.snapshot,
+        targetId: id,
+        changeSet: this.canonicalChangeSet(),
+        options,
+      });
+    });
+  }
+
+  /** #55 Review projection consumes the canonical #54 result and never reclassifies it. */
+  getReviewProjection(options: ReviewProjectionOptions = {}): ReviewProjection {
+    return this.measure(() => {
+      if (this.snapshot !== undefined && this.baseSnapshot !== undefined) {
+        return projectReview({
+          changeSet: compareSemanticSnapshots(this.baseSnapshot, this.snapshot, this.diffOptions),
+          snapshot: this.snapshot,
+          options,
+        });
+      }
+      return projectReview({ changeSet: this.getChangeSet(), snapshot: this.snapshot, options });
+    });
+  }
+
+  /** #55 JSDoc remains a disposable projection of declarations plus exact signature facts. */
+  getJsdocProjection(id: EntityId, options: JsdocProjectionOptions = {}): JsdocProjection {
+    return this.measure(() => {
+      if (this.snapshot === undefined)
+        return unavailableJsdocProjection(id, this.integrityReason ?? "live semantic model is unavailable");
+      this.requireEntity(id);
+      return projectJsdoc({ snapshot: this.snapshot, targetId: id, options });
+    });
+  }
+
   getVerification(query: VerificationQuery = {}): VerificationView | undefined {
     return this.measure(() => {
       if (this.snapshot?.analysis.verification === undefined) return undefined;
@@ -562,6 +614,11 @@ export class LiveRepositoryModelQuery implements RepositorySemanticQuery {
       this.benchmark.queryMs += elapsed;
       this.benchmark.lastQueryMs = elapsed;
     }
+  }
+
+  private canonicalChangeSet(): ReturnType<typeof compareSemanticSnapshots> | undefined {
+    if (this.snapshot === undefined || this.baseSnapshot === undefined) return undefined;
+    return compareSemanticSnapshots(this.baseSnapshot, this.snapshot, this.diffOptions);
   }
 
   private indexSnapshot(snapshot: RepositorySemanticSnapshot): void {

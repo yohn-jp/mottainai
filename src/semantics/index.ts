@@ -11,3 +11,4 @@ export * from "./effects/index.js";
 export * from "./cache/index.js";
 export * from "./diff/index.js";
 export * from "./impact/index.js";
+export * from "./projections/index.js";

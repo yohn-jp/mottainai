@@ -34,6 +34,7 @@ interface EntityBody {
 
 interface ProjectionBody {
   source: { available: boolean };
+  kind?: string;
 }
 
 interface ErrorBody {
@@ -84,12 +85,26 @@ test("dashboard HTTP adapter serves the viewer and all versioned query routes", 
   const knowledge = await responseBody<EntriesBody>(`${handle.url}api/v1/knowledge`);
   assert.equal(knowledge.body.entries.length, 6);
 
-  const entity = await responseBody<EntityBody>(`${handle.url}api/v1/entities/${encodeURIComponent("component:read-authorization")}`);
+  const entity = await responseBody<EntityBody>(
+    `${handle.url}api/v1/entities/${encodeURIComponent("component:read-authorization")}`,
+  );
   assert.equal(entity.response.status, 200);
   assert.equal(entity.body.agentProjection.source.available, false);
-  const projection = await responseBody<ProjectionBody>(`${handle.url}api/v1/projections/agent/${encodeURIComponent("symbol:decide-read")}`);
+  const projection = await responseBody<ProjectionBody>(
+    `${handle.url}api/v1/projections/agent/${encodeURIComponent("symbol:decide-read")}`,
+  );
   assert.equal(projection.response.status, 200);
   assert.equal(projection.body.source.available, false);
+  assert.equal(projection.body.kind, "agent");
+  const review = await responseBody<ProjectionBody>(`${handle.url}api/v1/projections/review`);
+  assert.equal(review.response.status, 200);
+  assert.equal(review.body.kind, "review");
+  const jsdoc = await responseBody<ProjectionBody>(
+    `${handle.url}api/v1/projections/jsdoc/${encodeURIComponent("symbol:decide-read")}`,
+  );
+  assert.equal(jsdoc.response.status, 200);
+  assert.equal(jsdoc.body.kind, "jsdoc");
+  assert.equal(jsdoc.body.source.available, false);
 
   const missing = await responseBody<ErrorBody>(`${handle.url}api/v1/entities/${encodeURIComponent("entity:missing")}`);
   assert.equal(missing.response.status, 404);
@@ -106,20 +121,25 @@ test("dashboard HTTP adapter rejects non-loopback Host headers", async () => {
     query: createFixtureQuery(),
   });
   activeServers.push(handle);
-  const { statusCode, body } = await new Promise<{ statusCode: number | undefined; body: ErrorBody }>((resolve, reject) => {
-    const clientRequest = request(
-      { host: handle.host, port: handle.port, path: "/api/v1/project", headers: { host: "evil.example:1" } },
-      (response) => {
-        const chunks: Buffer[] = [];
-        response.on("data", (chunk: Buffer) => chunks.push(chunk));
-        response.on("end", () => {
-          resolve({ statusCode: response.statusCode, body: JSON.parse(Buffer.concat(chunks).toString()) as ErrorBody });
-        });
-      },
-    );
-    clientRequest.once("error", reject);
-    clientRequest.end();
-  });
+  const { statusCode, body } = await new Promise<{ statusCode: number | undefined; body: ErrorBody }>(
+    (resolve, reject) => {
+      const clientRequest = request(
+        { host: handle.host, port: handle.port, path: "/api/v1/project", headers: { host: "evil.example:1" } },
+        (response) => {
+          const chunks: Buffer[] = [];
+          response.on("data", (chunk: Buffer) => chunks.push(chunk));
+          response.on("end", () => {
+            resolve({
+              statusCode: response.statusCode,
+              body: JSON.parse(Buffer.concat(chunks).toString()) as ErrorBody,
+            });
+          });
+        },
+      );
+      clientRequest.once("error", reject);
+      clientRequest.end();
+    },
+  );
   assert.equal(statusCode, 403);
   assert.equal(body.error.code, "forbidden");
 });

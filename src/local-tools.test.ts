@@ -69,6 +69,12 @@ test("local tool definitions expose schemas, output schemas, and annotations", (
       "mottainai_result_search",
       "mottainai_runtime_status",
       "mottainai_telemetry_summary",
+      "mottainai_semantic_project",
+      "mottainai_semantic_entity",
+      "mottainai_semantic_context",
+      "mottainai_semantic_impact",
+      "mottainai_semantic_review",
+      "mottainai_semantic_jsdoc",
     ],
   );
   for (const tool of localTools) {
