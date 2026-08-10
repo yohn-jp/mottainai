@@ -28,6 +28,7 @@ import type {
   UnknownRegion,
 } from "./diff/types.js";
 import type { EffectViolation } from "./effects/types.js";
+import type { VerificationPlan } from "./verification/planner.js";
 
 export type EntityId = string;
 export type JsonPrimitive = string | number | boolean | null;
@@ -377,6 +378,8 @@ export interface RepositorySemanticQuery {
   getKnowledge(query?: KnowledgeQuery): KnowledgeView | Promise<KnowledgeView>;
   getAgentProjection(id: EntityId): AgentProjection | Promise<AgentProjection>;
   getVerification?(query?: VerificationQuery): VerificationView | undefined | Promise<VerificationView | undefined>;
+  /** Canonical #87 plan; adapters may project its state arrays without reclassification. */
+  getVerificationPlan?(): VerificationPlan | Promise<VerificationPlan>;
 }
 
 export interface KnowledgeQuery {

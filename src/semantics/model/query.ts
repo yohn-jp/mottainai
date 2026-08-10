@@ -3,6 +3,7 @@ import { compareSemanticSnapshots, projectSemanticChangeSet } from "../diff/inde
 import type { SemanticDiffOptions } from "../diff/types.js";
 import { compareText } from "../ir/canonical.js";
 import { toVerificationView } from "../verification/projection.js";
+import { planMinimumSufficientVerification, type VerificationPlan } from "../verification/planner.js";
 import {
   SemanticQueryError,
   boundedLimit,
@@ -538,6 +539,16 @@ export class LiveRepositoryModelQuery implements RepositorySemanticQuery {
       );
       if (summary === undefined) return undefined;
       return this.verificationView(summary);
+    });
+  }
+
+  getVerificationPlan(): VerificationPlan {
+    return this.measure(() => {
+      const changeSet =
+        this.snapshot !== undefined && this.baseSnapshot !== undefined
+          ? compareSemanticSnapshots(this.baseSnapshot, this.snapshot, this.diffOptions)
+          : undefined;
+      return planMinimumSufficientVerification({ snapshot: this.snapshot, changeSet });
     });
   }
 

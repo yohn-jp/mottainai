@@ -6,6 +6,7 @@ export * from "./model/index.js";
 export * from "./mutations/index.js";
 export * from "./source/index.js";
 export * from "./verification/adequacy.js";
+export * from "./verification/planner.js";
 export * from "./effects/index.js";
 export * from "./cache/index.js";
 export * from "./diff/index.js";
