@@ -15,6 +15,7 @@ import {
   INITIALIZE_PARAMS,
   isolatedEnv,
   readPid,
+  readStderrReport,
   waitForFile,
   waitForProcessGone,
   writeConfig,
@@ -503,15 +504,28 @@ test(
   "large upstream stderr does not deadlock stdio or contaminate gateway stdout",
   { timeout: BLACKBOX_TIMEOUTS.test },
   async () => {
-    const fixture = createFixtureWorkspace(repoRoot, "large-stderr", { stderrBytes: 768 * 1024 });
+    const largeStderrBytes = 768 * 1024;
+    const fixture = createFixtureWorkspace(repoRoot, "large-stderr", { stderrBytes: largeStderrBytes });
     const client = launch(fixture.workspace);
     try {
       const listPromise = client.request("tools/list", {}, BLACKBOX_TIMEOUTS.request);
       await waitForFile(fixture.readyFile, BLACKBOX_TIMEOUTS.fixtureReady);
+      const stderrReport = readStderrReport(fixture.stderrReportFile);
+      assert.equal(stderrReport.completed, true);
+      assert.equal(stderrReport.requestedBytes, largeStderrBytes);
+      assert.equal(stderrReport.payloadBytesAttempted, largeStderrBytes);
+      assert.ok(stderrReport.backpressureEvents > 0, "fixture must observe stderr pipe backpressure");
       const listResponse = await listPromise;
       assert.equal(listResponse.error, undefined);
+      const callResponse = await client.request(
+        "tools/call",
+        { name: FIXTURE_TOOL_NAME, arguments: {} },
+        BLACKBOX_TIMEOUTS.request,
+      );
+      assert.equal(callResponse.error, undefined);
+      assert.equal(callResponse.result.content[0].text, "fixture echo");
+      assert.deepEqual(client.stdoutPurityViolations(), []);
       await closeAndAssert(client);
-      assert.ok(client.stderrBytes >= 768 * 1024);
       assert.match(client.stderrText(), /fixture-large-stderr-end/);
       await waitForProcessGone(readPid(fixture.pidFile));
     } finally {

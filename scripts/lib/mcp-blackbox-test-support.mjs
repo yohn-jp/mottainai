@@ -56,6 +56,7 @@ export function createFixtureWorkspace(repoRoot, mode, options = {}) {
   const workspace = createWorkspace({ config: null });
   const pidFile = path.join(workspace, "fixture.pid");
   const readyFile = path.join(workspace, "fixture.ready");
+  const stderrReportFile = path.join(workspace, "fixture.stderr.json");
   const fixturePath = path.join(repoRoot, "scripts", "fixtures", "mcp-upstream.mjs");
   const config = {
     version: 2,
@@ -67,6 +68,7 @@ export function createFixtureWorkspace(repoRoot, mode, options = {}) {
           MOTTAINAI_FIXTURE_MODE: mode,
           MOTTAINAI_FIXTURE_PID_FILE: pidFile,
           MOTTAINAI_FIXTURE_READY_FILE: readyFile,
+          MOTTAINAI_FIXTURE_STDERR_REPORT_FILE: stderrReportFile,
           ...(options.stderrBytes === undefined
             ? {}
             : {
@@ -78,7 +80,7 @@ export function createFixtureWorkspace(repoRoot, mode, options = {}) {
     gateway: { workspaceRoot: "." },
   };
   const configPath = writeConfig(workspace, config);
-  return { workspace, configPath, pidFile, readyFile };
+  return { workspace, configPath, pidFile, readyFile, stderrReportFile };
 }
 
 export async function waitForFile(filePath, timeoutMs = BLACKBOX_TIMEOUTS.fixtureReady) {
@@ -92,6 +94,10 @@ export async function waitForFile(filePath, timeoutMs = BLACKBOX_TIMEOUTS.fixtur
 
 export function readPid(pidFile) {
   return Number.parseInt(fs.readFileSync(pidFile, "utf8").trim(), 10);
+}
+
+export function readStderrReport(reportFile) {
+  return JSON.parse(fs.readFileSync(reportFile, "utf8"));
 }
 
 export function processIsAlive(pid) {
