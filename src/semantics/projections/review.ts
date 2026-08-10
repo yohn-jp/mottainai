@@ -2,7 +2,7 @@ import type { RepositorySemanticSnapshot, SourceReference } from "../ir/types.js
 import { compareText } from "../ir/canonical.js";
 import type { DerivedChange, SemanticChangeSet, SemanticDeltaRecord, UnknownRegion } from "../diff/types.js";
 import type { SemanticChangeSetView } from "../query.js";
-import { budgetStructuredProjection, capItems } from "./budget.js";
+import { budgetStructuredProjection, capItems, resolveSemanticProjectionBudget } from "./budget.js";
 import {
   createProjectionModel,
   entityReference,
@@ -130,16 +130,57 @@ function statusForChangeSet(
 export function projectReview(input: ReviewProjectionInput): ReviewProjection {
   const changeSet = input.changeSet;
   const options = input.options ?? {};
+  const resolved = resolveSemanticProjectionBudget(options);
   const { model, state: snapshotState } = modelFor(input.snapshot);
-  const deltas = [...canonicalDeltas(changeSet)].sort((left, right) => left.id.localeCompare(right.id));
-  const symbols = referencesFor(model, affectedSymbolIds(changeSet, model));
-  const paths = (changeSet.impactPaths ?? []).slice(0, options.maxImpactPaths ?? 24);
-  const stopBoundaries = (changeSet.propagationStopPoints ?? []).slice(0, options.maxImpactPaths ?? 24);
-  const unknowns = unknownRegions(changeSet).map(unknownProjection);
+  const deltas = [...canonicalDeltas(changeSet)].sort((left, right) => compareText(left.id, right.id));
+  const boundedDeltas = capItems(
+    deltas,
+    resolved.maxChanges,
+    "semanticDelta",
+    "semantic deltas exceeded their deterministic structural limit",
+    "required",
+  );
+  const boundedAffectedEntities = capItems(
+    changeSet.affectedEntities ?? [],
+    resolved.maxSymbols,
+    "impact.affectedEntities",
+    "affected entities exceeded their deterministic structural limit",
+    "required",
+  );
+  const boundedPaths = capItems(
+    changeSet.impactPaths ?? [],
+    resolved.maxImpactPaths,
+    "impact.paths",
+    "impact paths exceeded their deterministic structural limit",
+    "required",
+  );
+  const boundedStopBoundaries = capItems(
+    changeSet.propagationStopPoints ?? [],
+    resolved.maxImpactPaths,
+    "impact.stopBoundaries",
+    "propagation stop boundaries exceeded their deterministic structural limit",
+    "required",
+  );
+  const boundedAffectedSymbols = capItems(
+    affectedSymbolIds(changeSet, model),
+    resolved.maxSymbols,
+    "impact.affectedSymbols",
+    "affected Symbols exceeded their deterministic structural limit",
+    "required",
+  );
+  const symbols = referencesFor(model, [...boundedAffectedSymbols.items]);
+  const boundedUnknowns = capItems(
+    unknownRegions(changeSet),
+    resolved.maxChanges,
+    "unknowns",
+    "review unknowns exceeded their deterministic structural limit",
+    "required",
+  );
+  const unknowns = boundedUnknowns.items.map(unknownProjection);
   const reads = sourceReads(changeSet, model);
   const boundedReads = capItems(
     reads,
-    options.maxSourceReads ?? 24,
+    resolved.maxSourceReads,
     "recommendedSourceReads",
     "additional exact review source reads omitted",
     "navigation",
@@ -179,11 +220,39 @@ export function projectReview(input: ReviewProjectionInput): ReviewProjection {
     reviewReasons: changeSet.reviewReasons ?? [],
     provenance,
   };
-  const semanticDelta = deltas.slice(0, options.maxChanges ?? 32);
-  const implementation = implementationChanges(changeSet).slice(0, options.maxChanges ?? 32);
-  const symbolChangeList = (changeSet.symbolChanges ?? []).slice(0, options.maxSymbols ?? 48);
-  const evidenceRefresh = (changeSet.evidenceRefreshNeeds ?? []).slice(0, options.maxEvidence ?? 24);
-  const effectViolations = (changeSet.effectViolations ?? []).slice(0, options.maxEvidence ?? 24);
+  const boundedImplementation = capItems(
+    implementationChanges(changeSet),
+    resolved.maxChanges,
+    "implementationChanges",
+    "implementation changes exceeded their deterministic structural limit",
+    "evidence",
+  );
+  const boundedSymbolChanges = capItems(
+    changeSet.symbolChanges ?? [],
+    resolved.maxSymbols,
+    "symbolChanges",
+    "Symbol changes exceeded their deterministic structural limit",
+    "verbose",
+  );
+  const boundedEvidenceRefresh = capItems(
+    changeSet.evidenceRefreshNeeds ?? [],
+    resolved.maxEvidence,
+    "evidenceRefresh",
+    "evidence refresh needs exceeded their deterministic structural limit",
+    "evidence",
+  );
+  const boundedEffectViolations = capItems(
+    changeSet.effectViolations ?? [],
+    resolved.maxEvidence,
+    "effectViolations",
+    "effect violations exceeded their deterministic structural limit",
+    "evidence",
+  );
+  const semanticDelta = boundedDeltas.items;
+  const implementation = boundedImplementation.items;
+  const symbolChangeList = boundedSymbolChanges.items;
+  const evidenceRefresh = boundedEvidenceRefresh.items;
+  const effectViolations = boundedEffectViolations.items;
   const groups = [
     {
       field: "semanticDelta",
@@ -196,10 +265,10 @@ export function projectReview(input: ReviewProjectionInput): ReviewProjection {
     {
       field: "impact",
       value: {
-        affectedEntities: changeSet.affectedEntities ?? [],
+        affectedEntities: boundedAffectedEntities.items,
         affectedSymbols: symbols,
-        paths,
-        stopBoundaries,
+        paths: boundedPaths.items,
+        stopBoundaries: boundedStopBoundaries.items,
       },
       priority: "required" as const,
       emptyValue: { affectedEntities: [], affectedSymbols: [], paths: [], stopBoundaries: [] },
@@ -266,12 +335,19 @@ export function projectReview(input: ReviewProjectionInput): ReviewProjection {
     },
   ];
   const initialOmissions: ProjectionOmission[] = [
-    ...(boundedReads.omission === undefined ? [] : [boundedReads.omission]),
-    ...(semanticDelta.length === deltas.length ? [] : [{ field: "semanticDelta", reason: "semantic delta structural limit applied", count: deltas.length - semanticDelta.length, priority: "required" as const }]),
-    ...(paths.length === (changeSet.impactPaths ?? []).length ? [] : [{ field: "impact.paths", reason: "impact path structural limit applied", count: (changeSet.impactPaths ?? []).length - paths.length, priority: "required" as const }]),
-    ...(stopBoundaries.length === (changeSet.propagationStopPoints ?? []).length ? [] : [{ field: "impact.stopBoundaries", reason: "propagation stop boundary structural limit applied", count: (changeSet.propagationStopPoints ?? []).length - stopBoundaries.length, priority: "required" as const }]),
-  ];
-  const bounded = budgetStructuredProjection(base, groups, options, initialOmissions);
+    boundedReads.omission,
+    boundedDeltas.omission,
+    boundedAffectedEntities.omission,
+    boundedPaths.omission,
+    boundedStopBoundaries.omission,
+    boundedAffectedSymbols.omission,
+    boundedUnknowns.omission,
+    boundedImplementation.omission,
+    boundedSymbolChanges.omission,
+    boundedEvidenceRefresh.omission,
+    boundedEffectViolations.omission,
+  ].filter((item): item is ProjectionOmission => item !== undefined);
+  const bounded = budgetStructuredProjection(base, groups, resolved, initialOmissions);
   return {
     ...bounded.value,
     apiVersion: 1,

@@ -5,7 +5,7 @@ import { SemanticQueryError } from "../query.js";
 import { unavailableAgentContext } from "./agent.js";
 import { unavailableJsdocProjection } from "./jsdoc.js";
 import { projectReview } from "./review.js";
-import { budgetStructuredProjection, capItems } from "./budget.js";
+import { budgetStructuredProjection, capItems, resolveSemanticProjectionBudget } from "./budget.js";
 import type {
   AgentContextProjection,
   AgentProjectionOptions,
@@ -84,11 +84,37 @@ function legacyRelation(relation: QueryRelation): Record<string, unknown> {
   };
 }
 
+function providerProjectionState(status: EntityView["provenance"]["status"]): {
+  status: "fresh" | "stale" | "unavailable";
+  integrity: "fresh" | "stale" | "invalid";
+} {
+  switch (status) {
+    case "fixture":
+      return { status: "fresh", integrity: "fresh" };
+    case "partial":
+      return { status: "stale", integrity: "stale" };
+    case "unavailable":
+      return { status: "unavailable", integrity: "invalid" };
+  }
+}
+
+function providerProjectionReason(state: ReturnType<typeof providerProjectionState>): string {
+  switch (state.status) {
+    case "fresh":
+      return "fixture/query projection retains fresh provider provenance";
+    case "stale":
+      return "query provider is partial; projection retains stale provider state";
+    case "unavailable":
+      return "query provider is unavailable; projection retains unavailable provider state";
+  }
+}
+
 async function projectAgentFromQuery(
   query: RepositorySemanticQuery,
   id: EntityId,
   options: AgentProjectionOptions,
 ): Promise<AgentContextProjection> {
+  const resolved = resolveSemanticProjectionBudget(options);
   const entity = await query.getEntity(id);
   if (entity === undefined) throw new SemanticQueryError("not_found", `unknown semantic entity: ${id}`);
   const relatedIds = [
@@ -115,12 +141,14 @@ async function projectAgentFromQuery(
     .filter((item): item is Record<string, unknown> => item !== undefined);
   const sourceReads = capItems(
     entity.agentProjection.recommendedReads,
-    options.maxSourceReads ?? 24,
+    resolved.maxSourceReads,
     "recommendedSourceReads",
     "additional exact source reads omitted",
     "navigation",
   );
   const unknowns = (await query.getChangeSet()).unknownRegions ?? [];
+  const providerState = providerProjectionState(entity.provenance.status);
+  const providerReason = providerProjectionReason(providerState);
   const base: Record<string, unknown> = {
     apiVersion: 1,
     kind: "agent",
@@ -135,18 +163,18 @@ async function projectAgentFromQuery(
       authoritative: entity.provenance.status === "fixture" && entity.authority !== "analysis",
     },
     model: {
-      status: "fresh",
-      integrity: "fresh",
+      status: providerState.status,
+      integrity: providerState.integrity,
       authoritative: false,
-      reason: "fixture/query projection retains fixture provenance",
+      reason: providerReason,
     },
     source: entity.agentProjection.source,
     provenance: {
       provider: entity.provenance.provider,
       authority: entity.authority,
-      status: "fresh",
+      status: providerState.status,
       authoritative: false,
-      note: "bounded projection over the same RepositorySemanticQuery provider used by Dashboard",
+      note: `${providerReason}; bounded projection over the same RepositorySemanticQuery provider used by Dashboard`,
     },
   };
   const emptyContext = {
@@ -240,7 +268,7 @@ async function projectAgentFromQuery(
     },
   ];
   const omissions: ProjectionOmission[] = sourceReads.omission === undefined ? [] : [sourceReads.omission];
-  const bounded = budgetStructuredProjection(base, groups, options, omissions);
+  const bounded = budgetStructuredProjection(base, groups, resolved, omissions);
   return {
     ...bounded.value,
     apiVersion: 1,

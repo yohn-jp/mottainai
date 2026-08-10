@@ -374,7 +374,7 @@ export interface ContractInputs {
 }
 
 export interface ContractOutputs {
-  returnValue?: string;
+  returnValue?: JsonValue;
   postconditions: ContractAssertion[];
   errors: ContractError[];
   stateTransitions: StateTransition[];

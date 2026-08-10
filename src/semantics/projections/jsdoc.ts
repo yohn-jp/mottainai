@@ -1,11 +1,12 @@
 import { compareText, stableStringifyValue } from "../ir/canonical.js";
 import type { LogicalId } from "../ir/ids.js";
 import type { Contract, JsonValue, RepositorySemanticSnapshot, SemanticEntity, SourceReference } from "../ir/types.js";
-import { budgetStructuredProjection, capItems } from "./budget.js";
+import { budgetStructuredProjection, capItems, resolveSemanticProjectionBudget } from "./budget.js";
 import {
   createProjectionModel,
   entityReference,
   projectedProvenance,
+  relationName,
   sourceReadsFor,
   uniqueReads,
   type ProjectionModel,
@@ -59,7 +60,7 @@ function targetComponent(model: ProjectionModel, targetId: EntityId): SemanticEn
   if (target?.kind === "component") return target;
   const owner = model.relationsFor(targetId).find((relation) => {
     const other = relation.from === targetId ? relation.to : relation.from;
-    return model.entity(other)?.kind === "component" && ["owns", "shares"].includes(relation.kind.replaceAll("_", "-"));
+    return model.entity(other)?.kind === "component" && ["owns", "shares"].includes(relationName(relation.kind));
   });
   return owner === undefined ? undefined : model.entity(owner.from === targetId ? owner.to : owner.from);
 }
@@ -208,6 +209,7 @@ function sourceReads(
 export function projectJsdoc(input: JsdocProjectionInput): JsdocProjection {
   const model = createProjectionModel(input.snapshot);
   const options = input.options ?? {};
+  const resolved = resolveSemanticProjectionBudget(options);
   const target = targetFallback(model, input.targetId);
   const contractIds = linkedIds(model, input.targetId, "contract");
   const contracts = contractIds
@@ -244,7 +246,10 @@ export function projectJsdoc(input: JsdocProjectionInput): JsdocProjection {
     contradictions.some((item) => item.field === "returns")
       ? undefined
       : {
-          value: String(returnValues.find((item) => item.value !== undefined)?.value),
+          value: (() => {
+            const found = returnValues.find((item) => item.value !== undefined)?.value;
+            return typeof found === "string" ? found : stableStringifyValue(found);
+          })(),
           sourceIds: returnValues.filter((item) => item.value !== undefined).map((item) => item.id),
         };
   const stability =
@@ -252,7 +257,7 @@ export function projectJsdoc(input: JsdocProjectionInput): JsdocProjection {
       ? undefined
       : { value: String(stabilityValues[0]!.value), sourceIds: stabilityValues.map((item) => item.id) };
   const throws = contradictions.some((item) => item.field === "throws") ? [] : projectThrows(contracts, contractIds);
-  const reads = sourceReads(model, input.targetId, options.maxSourceReads ?? 24);
+  const reads = sourceReads(model, input.targetId, resolved.maxSourceReads);
   const base: Record<string, unknown> = {
     apiVersion: 1,
     kind: "jsdoc",
@@ -347,7 +352,7 @@ export function projectJsdoc(input: JsdocProjectionInput): JsdocProjection {
     },
   ];
   const initialOmissions: ProjectionOmission[] = reads.omission === undefined ? [] : [reads.omission];
-  const bounded = budgetStructuredProjection(base, groups, options, initialOmissions);
+  const bounded = budgetStructuredProjection(base, groups, resolved, initialOmissions);
   return {
     ...bounded.value,
     apiVersion: 1,

@@ -130,7 +130,11 @@ function materialize<T extends Record<string, unknown>>(
 }
 
 function bytes(value: unknown): number {
-  return Buffer.byteLength(JSON.stringify(value) ?? "", "utf8");
+  try {
+    return Buffer.byteLength(JSON.stringify(value) ?? "", "utf8");
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
 }
 
 interface CompactLimits {
@@ -150,7 +154,7 @@ function compactString(value: string, maxBytes: number): string {
   if (Buffer.byteLength(value, "utf8") <= maxBytes) return value;
   const marker = "…";
   const markerBytes = Buffer.byteLength(marker, "utf8");
-  if (markerBytes >= maxBytes) return marker.slice(0, 1);
+  if (markerBytes > maxBytes) return "";
   const characters = Array.from(value);
   let low = 0;
   let high = characters.length;
@@ -173,22 +177,85 @@ function compactEnvelopeValue(
   key = "",
   depth = 0,
   limits: CompactLimits = DEFAULT_COMPACT_LIMITS,
+  preserveObjectKeys = false,
 ): unknown {
   if (typeof value === "string") return compactString(value, limits.maxStringBytes);
   if (value === null || typeof value === "number" || typeof value === "boolean") return value;
   if (Array.isArray(value))
-    return value.slice(0, limits.maxArrayItems).map((item) => compactEnvelopeValue(item, key, depth + 1, limits));
+    return value
+      .slice(0, limits.maxArrayItems)
+      .map((item) => compactEnvelopeValue(item, key, depth + 1, limits, preserveObjectKeys));
   if (typeof value === "object" && value !== null) {
     const entries = Object.entries(value as Record<string, unknown>);
-    const selected = entries.slice(0, depth > 2 ? Math.min(5, limits.maxObjectEntries) : limits.maxObjectEntries);
+    const selected = preserveObjectKeys
+      ? entries
+      : entries.slice(0, depth > 2 ? Math.min(5, limits.maxObjectEntries) : limits.maxObjectEntries);
     return Object.fromEntries(
       selected.map(([entryKey, entryValue]) => [
         entryKey,
-        compactEnvelopeValue(entryValue, entryKey, depth + 1, limits),
+        compactEnvelopeValue(entryValue, entryKey, depth + 1, limits, preserveObjectKeys),
       ]),
     );
   }
   return undefined;
+}
+
+function compactContractValue(value: unknown, key: string, limits: CompactLimits): unknown {
+  // Keep known discriminator/status values valid while compacting malformed text.
+  const knownContractValues = new Set([
+    "agent",
+    "review",
+    "jsdoc",
+    "project",
+    "component",
+    "symbol",
+    "file",
+    "entity",
+    "declared",
+    "derived",
+    "observed",
+    "analysis",
+    "integrity",
+    "fresh",
+    "stale",
+    "invalid",
+    "unavailable",
+    "unknown",
+    "partial",
+    "fixture",
+    "success",
+    "en",
+    "L0",
+    "L1",
+    "L2",
+    "L3",
+  ]);
+  if (
+    typeof value === "string" &&
+    ["canonicalLanguage", "kind", "scope", "authority", "status", "integrity", "reviewLevel"].includes(key) &&
+    knownContractValues.has(value)
+  )
+    return value;
+  return compactEnvelopeValue(value, key, 0, limits);
+}
+
+function compactEntityProvenance(value: unknown, limits: CompactLimits): Record<string, unknown> {
+  const provenance = value as Record<string, unknown> | undefined;
+  const producer = provenance?.producer as Record<string, unknown> | undefined;
+  const sourceRevision = provenance?.sourceRevision as Record<string, unknown> | undefined;
+  return {
+    kind: typeof provenance?.kind === "string" ? provenance.kind : "inferred",
+    producer: {
+      name: compactString(typeof producer?.name === "string" ? producer.name : "", limits.maxStringBytes),
+      version: compactString(typeof producer?.version === "string" ? producer.version : "", limits.maxStringBytes),
+    },
+    sourceRevision: {
+      repositoryId: compactString(
+        typeof sourceRevision?.repositoryId === "string" ? sourceRevision.repositoryId : "",
+        limits.maxStringBytes,
+      ),
+    },
+  };
 }
 
 function minimalEnvelope(
@@ -197,39 +264,47 @@ function minimalEnvelope(
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const key of ["apiVersion", "kind", "canonicalLanguage", "locale", "reviewLevel", "reviewReasons"]) {
-    if (base[key] !== undefined) result[key] = compactEnvelopeValue(base[key], key, 0, limits);
+    if (base[key] !== undefined) result[key] = compactContractValue(base[key], key, limits);
   }
   const target = base.target as Record<string, unknown> | undefined;
   if (target !== undefined) {
     result.target = Object.fromEntries(
-      ["id", "kind", "name", "scope", "authority", "authoritative"]
+      ["id", "kind", "name", "scope", "authority", "provenance", "authoritative"]
         .filter((key) => target[key] !== undefined)
-        .map((key) => [key, compactEnvelopeValue(target[key], key, 0, limits)]),
+        .map((key) => [
+          key,
+          key === "provenance"
+            ? compactEntityProvenance(target[key], limits)
+            : compactContractValue(target[key], key, limits),
+        ]),
     );
   }
   const model = base.model as Record<string, unknown> | undefined;
   if (model !== undefined) {
     result.model = Object.fromEntries(
-      ["status", "integrity", "authoritative", "revision", "reason"]
+      ["status", "integrity", "authoritative"]
         .filter((key) => model[key] !== undefined)
-        .map((key) => [key, compactEnvelopeValue(model[key], key, 0, limits)]),
+        .map((key) => [key, compactContractValue(model[key], key, limits)]),
     );
   }
   const source = base.source as Record<string, unknown> | undefined;
   if (source !== undefined)
-    result.source = { available: false, reason: "raw source bodies excluded; use explicit escalation targets" };
+    result.source = {
+      available: false,
+      reason: compactString("raw source bodies excluded; use explicit escalation targets", limits.maxStringBytes),
+    };
   const provenance = base.provenance as Record<string, unknown> | undefined;
   if (provenance !== undefined) {
     result.provenance = Object.fromEntries(
-      ["provider", "authority", "status", "authoritative"]
+      ["provider", "authority", "status", "authoritative", "note"]
         .filter((key) => provenance[key] !== undefined)
-        .map((key) => [key, compactEnvelopeValue(provenance[key], key, 0, limits)]),
+        .map((key) => [key, compactContractValue(provenance[key], key, limits)]),
     );
   }
   return result;
 }
 
-function compactOmissions(omissions: readonly ProjectionOmission[]): ProjectionOmission[] {
+function compactOmissions(omissions: readonly ProjectionOmission[], maxStringBytes = 96): ProjectionOmission[] {
   const seen = new Set<string>();
   return omissions
     .filter((item) => {
@@ -240,8 +315,8 @@ function compactOmissions(omissions: readonly ProjectionOmission[]): ProjectionO
     .slice(0, 8)
     .map((item) => ({
       ...item,
-      field: compactString(item.field, 96),
-      reason: compactString(item.reason, 96),
+      field: compactString(item.field, maxStringBytes),
+      reason: compactString(item.reason, maxStringBytes),
     }));
 }
 
@@ -269,7 +344,7 @@ function materializeWithBudget<T extends Record<string, unknown>>(
   resolved: SemanticProjectionBudget,
   truncated: boolean,
 ): { value: T; budget: ProjectionBudgetMetadata } {
-  let metadata: ProjectionBudgetMetadata = {
+  const initialMetadata: ProjectionBudgetMetadata = {
     softTokens: resolved.softTokens,
     hardTokens: resolved.hardTokens,
     hardBytes: resolved.hardBytes,
@@ -277,7 +352,7 @@ function materializeWithBudget<T extends Record<string, unknown>>(
     projectedTokens: 0,
     truncated,
   };
-  let value = materialize(base, groups, selected, omissions, metadata);
+  let value = materialize(base, groups, selected, omissions, initialMetadata);
   for (let attempt = 0; attempt < 32; attempt += 1) {
     const nextMetadata = budgetMetadata(resolved, value, truncated);
     const nextValue = materialize(base, groups, selected, omissions, nextMetadata);
@@ -287,7 +362,6 @@ function materializeWithBudget<T extends Record<string, unknown>>(
     ) {
       return { value: nextValue, budget: nextMetadata };
     }
-    metadata = nextMetadata;
     value = nextValue;
   }
   const finalMetadata = budgetMetadata(resolved, value, truncated);
@@ -303,42 +377,34 @@ function compactFallbackGroups(
   return groups.map((group) => ({
     ...group,
     value: selected.has(group.field) ? compactEnvelopeValue(group.value, group.field, 0, limits) : undefined,
-    emptyValue: selected.has(group.field) ? compactEnvelopeValue(group.emptyValue, group.field, 0, limits) : undefined,
+    // Every declared projection field is materialized on the fallback path.
+    // Preserve empty object keys as well as the top-level field itself so a
+    // compact envelope remains a valid projection contract.
+    emptyValue: compactEnvelopeValue(group.emptyValue, group.field, 0, limits, true),
   }));
 }
 
 function lastResortEnvelope(
   base: Record<string, unknown>,
+  groups: readonly ProjectionFieldGroup[],
   resolved: SemanticProjectionBudget,
   omissions: readonly ProjectionOmission[],
-): Record<string, unknown> {
-  const envelope: Record<string, unknown> = {
-    apiVersion: 1,
-    kind: compactString(typeof base.kind === "string" ? base.kind : "semantic_projection", 32),
-    model: { status: "unknown", integrity: "invalid", authoritative: false },
-    source: { available: false, reason: "required projection data exceeded the hard response budget" },
-    omissions: compactOmissions(omissions).slice(0, 1),
-    budget: {
-      softTokens: resolved.softTokens,
-      hardTokens: resolved.hardTokens,
-      hardBytes: resolved.hardBytes,
-      projectedBytes: 0,
-      projectedTokens: 0,
-      truncated: true,
-    },
-  };
-  for (let attempt = 0; attempt < 32; attempt += 1) {
-    const nextBudget = budgetMetadata(resolved, envelope, true);
-    const currentBudget = envelope.budget as ProjectionBudgetMetadata;
-    envelope.budget = nextBudget;
-    if (
-      nextBudget.projectedBytes === bytes(envelope) &&
-      nextBudget.projectedTokens === Math.ceil(nextBudget.projectedBytes / 4) &&
-      currentBudget.projectedBytes === nextBudget.projectedBytes
-    )
-      return envelope;
+): { value: Record<string, unknown>; budget: ProjectionBudgetMetadata } {
+  const omissionMetadata = compactOmissions(omissions, 64).slice(0, 1);
+  let fallback: { value: Record<string, unknown>; budget: ProjectionBudgetMetadata } | undefined;
+  for (const maxStringBytes of [64, 32, 16, 8, 4, 3, 2, 1]) {
+    const limits: CompactLimits = { maxArrayItems: 0, maxObjectEntries: 8, maxStringBytes };
+    fallback = materializeWithBudget(
+      minimalEnvelope(base, limits),
+      compactFallbackGroups(groups, new Set(), limits),
+      new Set(),
+      omissionMetadata,
+      resolved,
+      true,
+    );
+    if (bytes(fallback.value) <= Math.min(resolved.hardBytes, resolved.hardTokens * 4)) return fallback;
   }
-  return envelope;
+  return fallback!;
 }
 
 /**
@@ -426,7 +492,7 @@ export function budgetStructuredProjection<T extends Record<string, unknown>>(
       }
     }
 
-    const explicitFallback = lastResortEnvelope(base, resolved, [
+    const explicitFallback = lastResortEnvelope(base, groups, resolved, [
       ...fallbackOmissions,
       {
         field: "required_projection_data",
@@ -435,9 +501,9 @@ export function budgetStructuredProjection<T extends Record<string, unknown>>(
       },
     ]);
     return {
-      value: explicitFallback as T,
-      omissions: (explicitFallback.omissions as ProjectionOmission[] | undefined) ?? [],
-      budget: explicitFallback.budget as ProjectionBudgetMetadata,
+      value: explicitFallback.value as T,
+      omissions: (explicitFallback.value.omissions as ProjectionOmission[] | undefined) ?? [],
+      budget: explicitFallback.budget,
     };
   }
 

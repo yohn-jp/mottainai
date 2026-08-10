@@ -84,6 +84,53 @@ test("local tool definitions expose schemas, output schemas, and annotations", (
   }
 });
 
+test("semantic projection local dispatch enforces its declared input schema", async () => {
+  const { root, config } = await workspace();
+  const store = new InMemoryArtifactStore({ createId: () => "projection-validation" });
+  try {
+    await assert.rejects(
+      () => callLocalTool("mottainai_semantic_context", { provider: "fixture" }, config, store),
+      /id is required/,
+    );
+    await assert.rejects(
+      () => callLocalTool("mottainai_semantic_context", { provider: "fixture", id: 42 }, config, store),
+      /id must be a string/,
+    );
+    await assert.rejects(
+      () =>
+        callLocalTool(
+          "mottainai_semantic_context",
+          { provider: "fixture", id: "symbol:x", maxFacts: 0 },
+          config,
+          store,
+        ),
+      /maxFacts must be at least 1/,
+    );
+    await assert.rejects(
+      () =>
+        callLocalTool(
+          "mottainai_semantic_context",
+          { provider: "fixture", id: "symbol:x", includeRationale: "yes" },
+          config,
+          store,
+        ),
+      /includeRationale must be a boolean/,
+    );
+    await assert.rejects(
+      () =>
+        callLocalTool(
+          "mottainai_semantic_context",
+          { provider: "fixture", id: "symbol:x", extra: true },
+          config,
+          store,
+        ),
+      /unknown projection input property: extra/,
+    );
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("read supports line ranges and symbols while rejecting paths outside root", async () => {
   const { root, config } = await workspace();
   const store = new InMemoryArtifactStore({ createId: () => "read" });
