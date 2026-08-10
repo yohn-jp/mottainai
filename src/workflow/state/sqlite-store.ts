@@ -98,6 +98,9 @@ function toTaskRecord(row: Record<string, unknown>): TaskRecord {
     instanceId: row.instance_id as RepositoryInstanceId,
     taskSlug: row.task_slug as string,
     issueRef: (row.issue_ref as string | null) ?? undefined,
+    ...(row.start_idempotency_key === null || row.start_idempotency_key === undefined
+      ? {}
+      : { startIdempotencyKey: row.start_idempotency_key as string }),
     lifecycleState: row.lifecycle_state as LifecycleState,
     version: (row.task_version as number | undefined) ?? 1,
     baseBranch: row.base_branch as string,
@@ -500,6 +503,15 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     let result!: ReserveTaskResult;
     db.exec("BEGIN IMMEDIATE");
     try {
+      if (input.startIdempotencyKey !== undefined) {
+        const existingByKey = db
+          .prepare("SELECT * FROM tasks WHERE instance_id = ? AND start_idempotency_key = ?")
+          .get(input.instanceId, input.startIdempotencyKey) as Record<string, unknown> | undefined;
+        if (existingByKey !== undefined) {
+          db.exec("ROLLBACK");
+          return { ok: false, reason: "issue-already-claimed", existingTask: toTaskRecord(existingByKey) };
+        }
+      }
       if (!input.allowMultipleActiveTasksPerIssue && input.issueRef !== undefined) {
         const existingRow = db
           .prepare(
@@ -514,13 +526,14 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
 
       const taskId = crypto.randomUUID() as TaskId;
       db.prepare(
-        `INSERT INTO tasks (task_id, instance_id, task_slug, issue_ref, lifecycle_state, task_version, base_branch, base_commit, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'planned', 1, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (task_id, instance_id, task_slug, issue_ref, start_idempotency_key, lifecycle_state, task_version, base_branch, base_commit, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'planned', 1, ?, ?, ?, ?)`,
       ).run(
         taskId,
         input.instanceId,
         input.taskSlug,
         input.issueRef ?? null,
+        input.startIdempotencyKey ?? null,
         input.baseBranch,
         input.baseCommit,
         now,

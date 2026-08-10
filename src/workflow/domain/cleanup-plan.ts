@@ -15,6 +15,7 @@ import type {
 import { resolveRepositoryIdentity } from "./identity.js";
 import type { RepositoryInstanceId } from "./identity.js";
 import type { LifecycleState } from "./lifecycle.js";
+import { decideProtectedBranchOperation } from "../policy/protected-branch.js";
 
 export const CLEANUP_PLAN_SCHEMA_VERSION = 1;
 export const DEFAULT_CLEANUP_PLAN_TTL_MS = 5 * 60 * 1_000;
@@ -58,8 +59,13 @@ export interface CleanupPlanInput {
   store: WorkflowStateStore;
   taskId: TaskId;
   policy: CleanupRule | Pick<WorkflowPolicyDocument, "cleanup">;
+  /** Full policy is optional for legacy domain callers; write adapters supply it so
+   * protected-branch destructive-operation decisions stay in the #32 authority. */
+  protectedBranchPolicy?: WorkflowPolicyDocument;
   now?: () => number;
   planTtlMs?: number;
+  /** Stable operation identity supplied by a retried caller. */
+  idempotencyKey?: string;
   pullRequestObserver?: CleanupPullRequestObserver;
   activityProbe?: CleanupActivityProbe;
 }
@@ -200,7 +206,10 @@ function canonicalize(value: unknown): unknown {
 }
 
 function digestPlan(plan: Omit<CleanupPlan, "planDigest">): string {
-  return crypto.createHash("sha256").update(JSON.stringify(canonicalize(plan))).digest("hex");
+  return crypto
+    .createHash("sha256")
+    .update(JSON.stringify(canonicalize(plan)))
+    .digest("hex");
 }
 
 export function computeCleanupPlanDigest(plan: CleanupPlan): string {
@@ -256,7 +265,7 @@ function emptyPlan(input: CleanupPlanInput, now: number, rule: CleanupRule, task
         };
   return finalizePlan({
     schemaVersion: CLEANUP_PLAN_SCHEMA_VERSION,
-    planId: crypto.randomUUID(),
+    planId: input.idempotencyKey ?? crypto.randomUUID(),
     createdAt: now,
     expiresAt: now + DEFAULT_CLEANUP_PLAN_TTL_MS,
     status: "blocked",
@@ -1035,6 +1044,22 @@ async function buildPlan(input: CleanupPlanInput, now: number, rule: CleanupRule
           "do not delete the path; repair metadata manually",
         ),
       );
+    if (input.protectedBranchPolicy !== undefined) {
+      const branchDecision = decideProtectedBranchOperation({
+        policy: input.protectedBranchPolicy,
+        branch: worktree.branchName,
+        operation: "destructiveBranchOp",
+        repository: { isPrimaryCheckout: worktree.canonicalPath === identity.canonicalRepositoryRoot },
+      });
+      if (!branchDecision.allowed)
+        blockers.push(
+          blocker(
+            "protected-branch",
+            `destructive cleanup denied on protected branch ${worktree.branchName}: ${branchDecision.reason}`,
+            "use the task worktree and an authorized workflow policy",
+          ),
+        );
+    }
   }
 
   const records = input.store.listPullRequestRecordsForTask(task.taskId);
@@ -1205,6 +1230,9 @@ export async function createCleanupPlan(input: CleanupPlanInput): Promise<Cleanu
   const ttlMs = input.planTtlMs ?? DEFAULT_CLEANUP_PLAN_TTL_MS;
   const rule = policyRule(input.policy);
   if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0) throw new Error("cleanup plan ttl must be a positive safe integer");
+  if (input.idempotencyKey !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(input.idempotencyKey)) {
+    throw new Error("cleanup idempotencyKey must be a bounded branch-safe token");
+  }
   const plan = await buildPlan({ ...input, planTtlMs: ttlMs }, now, rule);
   return { ok: plan.status !== "blocked", plan };
 }

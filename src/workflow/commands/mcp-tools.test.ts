@@ -30,9 +30,19 @@ async function gitWorkspace(t: TestContext): Promise<{ root: string; config: Res
   execFileSync("git", ["add", "."], { cwd: root });
   execFileSync("git", ["commit", "-q", "-m", "initial"], { cwd: root });
   const config: ResolvedGatewayConfig = {
-    workspaceRoot: root, defaultTimeoutMs: 1_000, maxTimeoutMs: 2_000, maxOutputBytes: 1024, execTargetTokens: 1_000,
-    resultTtlMs: 10_000, resultMaxEntries: 10, capabilityMap: {}, toolMetadata: {}, tokenBudgets: { tools: {}, capabilities: {}, profiles: {} },
-    workflowTasks: false, await: DEFAULT_AWAIT_POLICY, burstBudget: DEFAULT_BURST_BUDGET_POLICY,
+    workspaceRoot: root,
+    defaultTimeoutMs: 1_000,
+    maxTimeoutMs: 2_000,
+    maxOutputBytes: 1024,
+    execTargetTokens: 1_000,
+    resultTtlMs: 10_000,
+    resultMaxEntries: 10,
+    capabilityMap: {},
+    toolMetadata: {},
+    tokenBudgets: { tools: {}, capabilities: {}, profiles: {} },
+    workflowTasks: false,
+    await: DEFAULT_AWAIT_POLICY,
+    burstBudget: DEFAULT_BURST_BUDGET_POLICY,
   };
   return { root, config };
 }
@@ -53,12 +63,21 @@ test("workflowCommandToolsFor returns nothing unless workflowTasks is configured
   const { config } = await gitWorkspace(t);
   assert.deepEqual(workflowCommandToolsFor(config), []);
   const names = workflowCommandToolsFor(enabled(config)).map((tool) => tool.name);
-  assert.deepEqual(names.sort(), [
-    "mottainai_workflow_policy_explain",
-    "mottainai_workflow_task_start",
-    "mottainai_workflow_task_status",
-    "mottainai_workflow_doctor",
-  ].sort());
+  assert.deepEqual(
+    names.sort(),
+    [
+      "mottainai_workflow_policy_explain",
+      "mottainai_workflow_task_start",
+      "mottainai_workflow_task_status",
+      "mottainai_workflow_doctor",
+      "mottainai_workflow_task_commit",
+      "mottainai_workflow_task_push",
+      "mottainai_workflow_task_open_pr",
+      "mottainai_workflow_task_finish",
+      "mottainai_workflow_task_abandon",
+      "mottainai_workflow_task_cleanup",
+    ].sort(),
+  );
 });
 
 test("every tool in workflowCommandTools is reachable through workflowCommandToolsFor once enabled", async (t) => {
@@ -85,6 +104,16 @@ test("each workflow command tool throws when workflowTasks is not configured", a
     () => callWorkflowCommandTool("mottainai_workflow_doctor", {}, config),
     /workflow command tools are not configured/,
   );
+  for (const name of [
+    "mottainai_workflow_task_commit",
+    "mottainai_workflow_task_push",
+    "mottainai_workflow_task_open_pr",
+    "mottainai_workflow_task_finish",
+    "mottainai_workflow_task_abandon",
+    "mottainai_workflow_task_cleanup",
+  ]) {
+    await assert.rejects(() => callWorkflowCommandTool(name, {}, config), /workflow command tools are not configured/);
+  }
 });
 
 // --- mottainai_workflow_policy_explain ---
@@ -120,7 +149,13 @@ test("task_start rejects an invalid taskSlug at the MCP boundary", async (t) => 
   const { config } = await gitWorkspace(t);
   const store = openWorkflowStore();
   await assert.rejects(
-    () => callWorkflowCommandTool("mottainai_workflow_task_start", { taskSlug: "Bad Slug", branchType: "fix", issueRef: "9" }, enabled(config), store),
+    () =>
+      callWorkflowCommandTool(
+        "mottainai_workflow_task_start",
+        { taskSlug: "Bad Slug", branchType: "fix", issueRef: "9" },
+        enabled(config),
+        store,
+      ),
     /invalid task slug/,
   );
   store.close();
@@ -130,7 +165,13 @@ test("task_start rejects an invalid issueRef at the MCP boundary", async (t) => 
   const { config } = await gitWorkspace(t);
   const store = openWorkflowStore();
   await assert.rejects(
-    () => callWorkflowCommandTool("mottainai_workflow_task_start", { taskSlug: "ok", branchType: "fix", issueRef: "../evil" }, enabled(config), store),
+    () =>
+      callWorkflowCommandTool(
+        "mottainai_workflow_task_start",
+        { taskSlug: "ok", branchType: "fix", issueRef: "../evil" },
+        enabled(config),
+        store,
+      ),
     /invalid issue ref/,
   );
   store.close();
@@ -140,7 +181,13 @@ test("task_start rejects an issueRef ending in .lock at the MCP boundary", async
   const { config } = await gitWorkspace(t);
   const store = openWorkflowStore();
   await assert.rejects(
-    () => callWorkflowCommandTool("mottainai_workflow_task_start", { taskSlug: "ok", branchType: "fix", issueRef: "9.lock" }, enabled(config), store),
+    () =>
+      callWorkflowCommandTool(
+        "mottainai_workflow_task_start",
+        { taskSlug: "ok", branchType: "fix", issueRef: "9.lock" },
+        enabled(config),
+        store,
+      ),
     /invalid issue ref/,
   );
   store.close();
@@ -150,7 +197,13 @@ test("task_start rejects an issueRef ending in . at the MCP boundary", async (t)
   const { config } = await gitWorkspace(t);
   const store = openWorkflowStore();
   await assert.rejects(
-    () => callWorkflowCommandTool("mottainai_workflow_task_start", { taskSlug: "ok", branchType: "fix", issueRef: "issue." }, enabled(config), store),
+    () =>
+      callWorkflowCommandTool(
+        "mottainai_workflow_task_start",
+        { taskSlug: "ok", branchType: "fix", issueRef: "issue." },
+        enabled(config),
+        store,
+      ),
     /invalid issue ref/,
   );
   store.close();
@@ -164,12 +217,17 @@ test("task_start's branchType input schema declares an enum matching the bundled
   assert.equal((properties.branchType?.enum as string[] | undefined)?.includes("research"), false);
 });
 
-test("task_start rejects an ungoverned branchType (e.g. \"research\") before any worktree/Git mutation", async (t) => {
+test('task_start rejects an ungoverned branchType (e.g. "research") before any worktree/Git mutation', async (t) => {
   const { root, config } = await gitWorkspace(t);
   const store = openWorkflowStore();
-  const result = structured(await callWorkflowCommandTool(
-    "mottainai_workflow_task_start", { taskSlug: "example", branchType: "research", issueRef: "9" }, enabled(config), store,
-  ));
+  const result = structured(
+    await callWorkflowCommandTool(
+      "mottainai_workflow_task_start",
+      { taskSlug: "example", branchType: "research", issueRef: "9" },
+      enabled(config),
+      store,
+    ),
+  );
   assert.equal(result.status, "failed");
   assert.equal(result.reason, "invalid-branch-name");
   const worktreesDir = path.join(root, ".mottainai", "worktrees");
@@ -181,23 +239,33 @@ test("task_start always creates a dedicated worktree/branch (never main itself),
   const { config } = await gitWorkspace(t);
   const store = openWorkflowStore();
 
-  const started = structured(await callWorkflowCommandTool(
-    "mottainai_workflow_task_start", { taskSlug: "example", branchType: "fix", issueRef: "9" }, enabled(config), store,
-  ));
+  const started = structured(
+    await callWorkflowCommandTool(
+      "mottainai_workflow_task_start",
+      { taskSlug: "example", branchType: "fix", issueRef: "9" },
+      enabled(config),
+      store,
+    ),
+  );
   assert.equal(started.status, "success");
   const worktree = started.worktree as { branchName: string; canonicalPath: string };
   assert.equal(worktree.branchName, "fix/9-example");
   assert.notEqual(worktree.branchName, "main");
 
-  const statusFromMainCheckout = structured(await callWorkflowCommandTool(
-    "mottainai_workflow_task_status", {}, enabled(config), store,
-  ));
+  const statusFromMainCheckout = structured(
+    await callWorkflowCommandTool("mottainai_workflow_task_status", {}, enabled(config), store),
+  );
   assert.equal(statusFromMainCheckout.status, "success");
   assert.equal(statusFromMainCheckout.active, false);
 
-  const statusFromWorktree = structured(await callWorkflowCommandTool(
-    "mottainai_workflow_task_status", {}, enabled({ ...config, workspaceRoot: worktree.canonicalPath }), store,
-  ));
+  const statusFromWorktree = structured(
+    await callWorkflowCommandTool(
+      "mottainai_workflow_task_status",
+      {},
+      enabled({ ...config, workspaceRoot: worktree.canonicalPath }),
+      store,
+    ),
+  );
   assert.equal(statusFromWorktree.active, true);
   assert.equal((statusFromWorktree.task as { taskId: string }).taskId, (started.task as { taskId: string }).taskId);
 
@@ -207,7 +275,9 @@ test("task_start always creates a dedicated worktree/branch (never main itself),
 test("task_status reports no active task as a normal, structured outcome (not an error)", async (t) => {
   const { config } = await gitWorkspace(t);
   const store = openWorkflowStore();
-  const status = structured(await callWorkflowCommandTool("mottainai_workflow_task_status", {}, enabled(config), store));
+  const status = structured(
+    await callWorkflowCommandTool("mottainai_workflow_task_status", {}, enabled(config), store),
+  );
   assert.equal(status.status, "success");
   assert.equal(status.active, false);
   assert.deepEqual(status.warnings, []);
@@ -217,9 +287,14 @@ test("task_status reports no active task as a normal, structured outcome (not an
 test("task_status reports complete lifecycle transition blockers and provider PR state", async (t) => {
   const { config } = await gitWorkspace(t);
   const store = openWorkflowStore();
-  const started = structured(await callWorkflowCommandTool(
-    "mottainai_workflow_task_start", { taskSlug: "provider-state", branchType: "fix", issueRef: "39" }, enabled(config), store,
-  ));
+  const started = structured(
+    await callWorkflowCommandTool(
+      "mottainai_workflow_task_start",
+      { taskSlug: "provider-state", branchType: "fix", issueRef: "39" },
+      enabled(config),
+      store,
+    ),
+  );
   assert.equal(started.status, "success");
   const task = started.task as { taskId: string; instanceId: string };
   store.recordPullRequest({
@@ -234,9 +309,14 @@ test("task_status reports complete lifecycle transition blockers and provider PR
   });
 
   const worktree = started.worktree as { canonicalPath: string };
-  const status = structured(await callWorkflowCommandTool(
-    "mottainai_workflow_task_status", {}, enabled({ ...config, workspaceRoot: worktree.canonicalPath }), store,
-  ));
+  const status = structured(
+    await callWorkflowCommandTool(
+      "mottainai_workflow_task_status",
+      {},
+      enabled({ ...config, workspaceRoot: worktree.canonicalPath }),
+      store,
+    ),
+  );
   assert.equal(status.active, true);
   assert.deepEqual(status.pullRequests, [
     {
@@ -255,7 +335,10 @@ test("task_status reports complete lifecycle transition blockers and provider PR
   ]);
   assert.ok((status.allowedNextTransitions as string[]).includes("committed"));
   const invalid = status.invalidTransitions as Array<{ requestedTransition: string; blockingRule: string }>;
-  assert.match(invalid.find((item) => item.requestedTransition === "merged")?.blockingRule ?? "", /no direct transition/);
+  assert.match(
+    invalid.find((item) => item.requestedTransition === "merged")?.blockingRule ?? "",
+    /no direct transition/,
+  );
   store.close();
 });
 
@@ -275,15 +358,25 @@ test("workflow doctor is exposed as a read-only structured MCP report", async (t
 test("task_start rejects starting a second task from inside its own already-active worktree (fail-closed guardrail)", async (t) => {
   const { config } = await gitWorkspace(t);
   const store = openWorkflowStore();
-  const started = structured(await callWorkflowCommandTool(
-    "mottainai_workflow_task_start", { taskSlug: "outer", branchType: "fix", issueRef: "10" }, enabled(config), store,
-  ));
+  const started = structured(
+    await callWorkflowCommandTool(
+      "mottainai_workflow_task_start",
+      { taskSlug: "outer", branchType: "fix", issueRef: "10" },
+      enabled(config),
+      store,
+    ),
+  );
   assert.equal(started.status, "success");
   const worktree = started.worktree as { canonicalPath: string };
 
-  const second = structured(await callWorkflowCommandTool(
-    "mottainai_workflow_task_start", { taskSlug: "inner", branchType: "fix", issueRef: "11" }, enabled({ ...config, workspaceRoot: worktree.canonicalPath }), store,
-  ));
+  const second = structured(
+    await callWorkflowCommandTool(
+      "mottainai_workflow_task_start",
+      { taskSlug: "inner", branchType: "fix", issueRef: "11" },
+      enabled({ ...config, workspaceRoot: worktree.canonicalPath }),
+      store,
+    ),
+  );
   assert.equal(second.status, "failed");
   assert.equal(second.reason, "active-task-in-workspace");
 
@@ -295,9 +388,14 @@ test("task_start fails closed on a corrupted .mottainai/workflow.json instead of
   await fs.mkdir(path.join(root, ".mottainai"), { recursive: true });
   await fs.writeFile(path.join(root, ".mottainai", "workflow.json"), "{ not json");
   const store = openWorkflowStore();
-  const result = structured(await callWorkflowCommandTool(
-    "mottainai_workflow_task_start", { taskSlug: "example", branchType: "fix", issueRef: "12" }, enabled(config), store,
-  ));
+  const result = structured(
+    await callWorkflowCommandTool(
+      "mottainai_workflow_task_start",
+      { taskSlug: "example", branchType: "fix", issueRef: "12" },
+      enabled(config),
+      store,
+    ),
+  );
   assert.equal(result.status, "failed");
   assert.equal(result.reason, "invalid-policy");
   store.close();

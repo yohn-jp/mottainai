@@ -45,6 +45,8 @@ import {
 } from "./runtime-diagnostic.js";
 import type { RuntimeDiagnostic } from "./runtime-diagnostic.js";
 import type { UpstreamStatus } from "./upstream.js";
+import { createWorkflowHookProvider } from "./workflow/hook-provider.js";
+import type { HookEvent } from "./hooks/types.js";
 
 const OMITTED_DIRECTORIES = new Set([".git", "node_modules", "dist", "build", "target", ".cache", ".venv", "coverage"]);
 
@@ -52,88 +54,175 @@ const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: t
 
 export const localTools: Tool[] = [
   {
-    name: "mottainai_exec", description: "Run a shell command in workspace and return compact diagnostics.",
-    inputSchema: { type: "object", properties: {
-      command: { type: "string" }, cwd: { type: "string" }, timeoutMs: { type: "integer", minimum: 1 }, targetTokens: { type: "integer", minimum: 128, maximum: 10000 },
-      compression: { type: "boolean" },
-    }, required: ["command"] }, outputSchema: OUTPUT_SCHEMA,
+    name: "mottainai_exec",
+    description: "Run a shell command in workspace and return compact diagnostics.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        command: { type: "string" },
+        cwd: { type: "string" },
+        timeoutMs: { type: "integer", minimum: 1 },
+        targetTokens: { type: "integer", minimum: 128, maximum: 10000 },
+        compression: { type: "boolean" },
+      },
+      required: ["command"],
+    },
+    outputSchema: OUTPUT_SCHEMA,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   },
   {
     name: "mottainai_exec_start",
-    description: "Start a shell command in workspace without waiting for it to finish; returns an opaque handle for mottainai_exec_await. Use this instead of mottainai_exec for long-running commands so you can await once instead of polling.",
-    inputSchema: { type: "object", properties: {
-      command: { type: "string" }, cwd: { type: "string" }, maxOutputBytes: { type: "integer", minimum: 1 },
-    }, required: ["command"] }, outputSchema: OUTPUT_SCHEMA,
+    description:
+      "Start a shell command in workspace without waiting for it to finish; returns an opaque handle for mottainai_exec_await. Use this instead of mottainai_exec for long-running commands so you can await once instead of polling.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        command: { type: "string" },
+        cwd: { type: "string" },
+        maxOutputBytes: { type: "integer", minimum: 1 },
+      },
+      required: ["command"],
+    },
+    outputSchema: OUTPUT_SCHEMA,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   },
   {
     name: "mottainai_exec_await",
-    description: "Block inside this call, up to a bounded runtime-enforced timeout, until a mottainai_exec_start handle reaches a terminal state. Returns terminal result, or an explicit timeout with last-known state — never repeats an unchanged snapshot silently.",
-    inputSchema: { type: "object", properties: {
-      handle: { type: "string" }, timeoutMs: { type: "integer", minimum: 1 }, targetTokens: { type: "integer", minimum: 128, maximum: 10000 },
-    }, required: ["handle"] }, outputSchema: OUTPUT_SCHEMA,
+    description:
+      "Block inside this call, up to a bounded runtime-enforced timeout, until a mottainai_exec_start handle reaches a terminal state. Returns terminal result, or an explicit timeout with last-known state — never repeats an unchanged snapshot silently.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        handle: { type: "string" },
+        timeoutMs: { type: "integer", minimum: 1 },
+        targetTokens: { type: "integer", minimum: 128, maximum: 10000 },
+      },
+      required: ["handle"],
+    },
+    outputSchema: OUTPUT_SCHEMA,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   },
   {
-    name: "mottainai_read", description: "Read a workspace file by auto/outline/symbol view or an explicit bounded raw range.",
-    inputSchema: { type: "object", properties: {
-      path: { type: "string" }, startLine: { type: "integer", minimum: 1 }, endLine: { type: "integer", minimum: 1 },
-      ifChangedFrom: { type: "string", description: "Opaque result identity from a prior read; return unchanged when it still matches." },
-      mode: { type: "string", enum: ["raw", "outline", "symbols", "auto"], default: "auto" },
-    }, required: ["path"] }, outputSchema: OUTPUT_SCHEMA, annotations: readOnly,
+    name: "mottainai_read",
+    description: "Read a workspace file by auto/outline/symbol view or an explicit bounded raw range.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        startLine: { type: "integer", minimum: 1 },
+        endLine: { type: "integer", minimum: 1 },
+        ifChangedFrom: {
+          type: "string",
+          description: "Opaque result identity from a prior read; return unchanged when it still matches.",
+        },
+        mode: { type: "string", enum: ["raw", "outline", "symbols", "auto"], default: "auto" },
+      },
+      required: ["path"],
+    },
+    outputSchema: OUTPUT_SCHEMA,
+    annotations: readOnly,
   },
   {
-    name: "mottainai_search", description: "Search workspace files with literal or regular-expression query.",
-    inputSchema: { type: "object", properties: {
-      query: { type: "string" }, path: { type: "string" }, mode: { type: "string", enum: ["literal", "regex"] },
-      contextLines: { type: "integer", minimum: 0, maximum: 20 }, maxResults: { type: "integer", minimum: 1, maximum: 100 },
-    }, required: ["query"] }, outputSchema: OUTPUT_SCHEMA, annotations: readOnly,
+    name: "mottainai_search",
+    description: "Search workspace files with literal or regular-expression query.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        path: { type: "string" },
+        mode: { type: "string", enum: ["literal", "regex"] },
+        contextLines: { type: "integer", minimum: 0, maximum: 20 },
+        maxResults: { type: "integer", minimum: 1, maximum: 100 },
+      },
+      required: ["query"],
+    },
+    outputSchema: OUTPUT_SCHEMA,
+    annotations: readOnly,
   },
   {
-    name: "mottainai_list", description: "List a workspace directory, omitting generated and cache directories.",
-    inputSchema: { type: "object", properties: { path: { type: "string" }, depth: { type: "integer", minimum: 0, maximum: 12 } } },
-    outputSchema: OUTPUT_SCHEMA, annotations: readOnly,
+    name: "mottainai_list",
+    description: "List a workspace directory, omitting generated and cache directories.",
+    inputSchema: {
+      type: "object",
+      properties: { path: { type: "string" }, depth: { type: "integer", minimum: 0, maximum: 12 } },
+    },
+    outputSchema: OUTPUT_SCHEMA,
+    annotations: readOnly,
   },
   {
-    name: "mottainai_result_get", description: "Get a bounded section of a stored raw result.",
-    inputSchema: { type: "object", properties: {
-      id: { type: "string" }, stream: { type: "string", enum: ["combined", "stdout", "stderr"] }, query: { type: "string" },
-      contextLines: { type: "integer", minimum: 0, maximum: 20 }, startLine: { type: "integer", minimum: 0 }, maxLines: { type: "integer", minimum: 1, maximum: 80 },
-    }, required: ["id"] }, outputSchema: OUTPUT_SCHEMA, annotations: readOnly,
+    name: "mottainai_result_get",
+    description: "Get a bounded section of a stored raw result.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        stream: { type: "string", enum: ["combined", "stdout", "stderr"] },
+        query: { type: "string" },
+        contextLines: { type: "integer", minimum: 0, maximum: 20 },
+        startLine: { type: "integer", minimum: 0 },
+        maxLines: { type: "integer", minimum: 1, maximum: 80 },
+      },
+      required: ["id"],
+    },
+    outputSchema: OUTPUT_SCHEMA,
+    annotations: readOnly,
   },
   {
-    name: "mottainai_result_search", description: "Search compact metadata and raw text from results in this MCP session.",
-    inputSchema: { type: "object", properties: { query: { type: "string" }, maxResults: { type: "integer", minimum: 1, maximum: 100 } }, required: ["query"] },
-    outputSchema: OUTPUT_SCHEMA, annotations: readOnly,
+    name: "mottainai_result_search",
+    description: "Search compact metadata and raw text from results in this MCP session.",
+    inputSchema: {
+      type: "object",
+      properties: { query: { type: "string" }, maxResults: { type: "integer", minimum: 1, maximum: 100 } },
+      required: ["query"],
+    },
+    outputSchema: OUTPUT_SCHEMA,
+    annotations: readOnly,
   },
   {
-    name: "mottainai_runtime_status", description: "Report gateway runtime state and per-upstream provider health.",
+    name: "mottainai_runtime_status",
+    description: "Report gateway runtime state and per-upstream provider health.",
     inputSchema: { type: "object", properties: { provider: { type: "string" } } },
-    outputSchema: OUTPUT_SCHEMA, annotations: readOnly,
+    outputSchema: OUTPUT_SCHEMA,
+    annotations: readOnly,
   },
   {
     name: "mottainai_telemetry_summary",
-    description: "Report aggregate local usage telemetry: call counts, compression ratio and artifact retrieval rate by provider and capability. Disabled unless MOTTAINAI_TELEMETRY=1.",
+    description:
+      "Report aggregate local usage telemetry: call counts, compression ratio and artifact retrieval rate by provider and capability. Disabled unless MOTTAINAI_TELEMETRY=1.",
     inputSchema: { type: "object", properties: {} },
-    outputSchema: OUTPUT_SCHEMA, annotations: readOnly,
+    outputSchema: OUTPUT_SCHEMA,
+    annotations: readOnly,
   },
 ];
 
 const issueViewTool: Tool = {
   name: "mottainai_issue_view",
   description: "Fetch one GitHub issue's number, title, state, labels, url, and body via gh CLI.",
-  inputSchema: { type: "object", properties: {
-    number: { type: "integer", minimum: 1 },
-  }, required: ["number"] }, outputSchema: OUTPUT_SCHEMA, annotations: readOnly,
+  inputSchema: {
+    type: "object",
+    properties: {
+      number: { type: "integer", minimum: 1 },
+    },
+    required: ["number"],
+  },
+  outputSchema: OUTPUT_SCHEMA,
+  annotations: readOnly,
 };
 
 const ghChecksAwaitTool: Tool = {
   name: "mottainai_gh_checks_await",
-  description: "Wait inside this call, up to a bounded runtime-enforced timeout, until a GitHub pull request's CI checks reach a terminal state or a meaningful state change. Returns a semantic delta (changed checks only), not a repeated full snapshot — replaces repeated gh pr checks polling with one call.",
-  inputSchema: { type: "object", properties: {
-    number: { type: "integer", minimum: 1 }, timeoutMs: { type: "integer", minimum: 1 },
-  }, required: ["number"] }, outputSchema: OUTPUT_SCHEMA, annotations: readOnly,
+  description:
+    "Wait inside this call, up to a bounded runtime-enforced timeout, until a GitHub pull request's CI checks reach a terminal state or a meaningful state change. Returns a semantic delta (changed checks only), not a repeated full snapshot — replaces repeated gh pr checks polling with one call.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      number: { type: "integer", minimum: 1 },
+      timeoutMs: { type: "integer", minimum: 1 },
+    },
+    required: ["number"],
+  },
+  outputSchema: OUTPUT_SCHEMA,
+  annotations: readOnly,
 };
 
 /** `worktree` 未設定のワークスペースでは GitHub 連携ツールを非公開にする。 */
@@ -152,28 +241,49 @@ export interface RuntimeStatusSource {
 }
 
 export async function callLocalTool(
-  name: string, args: Args, config: ResolvedGatewayConfig, store: ArtifactStore, runtime?: RuntimeStatusSource,
-  telemetry?: TelemetrySink, processes?: ProcessRegistry, signal?: AbortSignal, runtimeDiagnostic?: RuntimeDiagnostic,
+  name: string,
+  args: Args,
+  config: ResolvedGatewayConfig,
+  store: ArtifactStore,
+  runtime?: RuntimeStatusSource,
+  telemetry?: TelemetrySink,
+  processes?: ProcessRegistry,
+  signal?: AbortSignal,
+  runtimeDiagnostic?: RuntimeDiagnostic,
 ): Promise<CallToolResult> {
   switch (name) {
-    case "mottainai_exec": return execTool(args, config, store);
-    case "mottainai_exec_start": return execStartTool(args, config, requireProcesses(processes));
-    case "mottainai_exec_await": return execAwaitTool(args, config, store, requireProcesses(processes), telemetry, signal);
-    case "mottainai_read": return readTool(args, config, store, telemetry);
-    case "mottainai_search": return searchTool(args, config, store);
-    case "mottainai_list": return listTool(args, config, store);
-    case "mottainai_result_get": return resultGetTool(args, store, telemetry);
-    case "mottainai_result_search": return resultSearchTool(args, store, telemetry);
-    case "mottainai_runtime_status": return runtimeStatusTool(args, config, runtime, runtimeDiagnostic);
-    case "mottainai_telemetry_summary": return telemetrySummaryTool(telemetry);
-    case "mottainai_issue_view": return issueViewToolImpl(args, config);
-    case "mottainai_gh_checks_await": return ghChecksAwaitToolImpl(args, config, telemetry, signal);
-    default: throw new Error(`Unknown local tool: ${name}`);
+    case "mottainai_exec":
+      return execTool(args, config, store);
+    case "mottainai_exec_start":
+      return execStartTool(args, config, requireProcesses(processes));
+    case "mottainai_exec_await":
+      return execAwaitTool(args, config, store, requireProcesses(processes), telemetry, signal);
+    case "mottainai_read":
+      return readTool(args, config, store, telemetry);
+    case "mottainai_search":
+      return searchTool(args, config, store);
+    case "mottainai_list":
+      return listTool(args, config, store);
+    case "mottainai_result_get":
+      return resultGetTool(args, store, telemetry);
+    case "mottainai_result_search":
+      return resultSearchTool(args, store, telemetry);
+    case "mottainai_runtime_status":
+      return runtimeStatusTool(args, config, runtime, runtimeDiagnostic);
+    case "mottainai_telemetry_summary":
+      return telemetrySummaryTool(telemetry);
+    case "mottainai_issue_view":
+      return issueViewToolImpl(args, config);
+    case "mottainai_gh_checks_await":
+      return ghChecksAwaitToolImpl(args, config, telemetry, signal);
+    default:
+      throw new Error(`Unknown local tool: ${name}`);
   }
 }
 
 function requireProcesses(processes: ProcessRegistry | undefined): ProcessRegistry {
-  if (processes === undefined) throw new Error("mottainai_exec_start/await require a connection-scoped process registry");
+  if (processes === undefined)
+    throw new Error("mottainai_exec_start/await require a connection-scoped process registry");
   return processes;
 }
 
@@ -202,7 +312,9 @@ function runtimeStatusTool(
     return totals;
   }, {});
   const status = unhealthy.length === 0 ? "success" : "partial";
-  const summary = `providers=${providers.length} ${Object.entries(counts).map(([state, count]) => `${state}=${count}`).join(" ")}`.trimEnd();
+  const summary = `providers=${providers.length} ${Object.entries(counts)
+    .map(([state, count]) => `${state}=${count}`)
+    .join(" ")}`.trimEnd();
   const identityBase = runtimeDiagnostic ?? {
     ...createRuntimeDiagnostic({ cwd: config.workspaceRoot, entryPoint: "unknown", environment: {} }),
     workspace_root: normalizeDiagnosticPath(config.workspaceRoot),
@@ -223,11 +335,14 @@ function runtimeStatusTool(
   });
 }
 
-function value(args: Args, key: string): unknown { return args?.[key]; }
+function value(args: Args, key: string): unknown {
+  return args?.[key];
+}
 function stringArg(args: Args, key: string, required = false): string | undefined {
   const candidate = value(args, key);
   if (candidate === undefined && !required) return undefined;
-  if (typeof candidate !== "string" || (required && candidate.length === 0)) throw new Error(`${key} must be a non-empty string`);
+  if (typeof candidate !== "string" || (required && candidate.length === 0))
+    throw new Error(`${key} must be a non-empty string`);
   return candidate;
 }
 function numberArg(args: Args, key: string): number | undefined {
@@ -240,15 +355,19 @@ function numberArg(args: Args, key: string): number | undefined {
 export async function resolveInside(root: string, requested?: string): Promise<string> {
   const rootReal = await fs.realpath(root);
   const candidate = path.resolve(rootReal, requested ?? ".");
-  if (candidate !== rootReal && !candidate.startsWith(`${rootReal}${path.sep}`)) throw new Error("path must stay inside workspaceRoot");
+  if (candidate !== rootReal && !candidate.startsWith(`${rootReal}${path.sep}`))
+    throw new Error("path must stay inside workspaceRoot");
   const resolved = await fs.realpath(candidate);
-  if (resolved !== rootReal && !resolved.startsWith(`${rootReal}${path.sep}`)) throw new Error("path resolves outside workspaceRoot");
+  if (resolved !== rootReal && !resolved.startsWith(`${rootReal}${path.sep}`))
+    throw new Error("path resolves outside workspaceRoot");
   return resolved;
 }
 
 async function execTool(args: Args, config: ResolvedGatewayConfig, store: ArtifactStore): Promise<CallToolResult> {
   const command = stringArg(args, "command", true)!;
   const cwd = await resolveInside(config.workspaceRoot, stringArg(args, "cwd"));
+  const denied = await managedWriteGate(command, cwd, config);
+  if (denied !== undefined) return denied;
   const requestedTimeout = numberArg(args, "timeoutMs") ?? config.defaultTimeoutMs;
   if (requestedTimeout < 1) throw new Error("timeoutMs must be positive");
   const timeoutMs = Math.min(requestedTimeout, config.maxTimeoutMs);
@@ -261,13 +380,20 @@ async function execTool(args: Args, config: ResolvedGatewayConfig, store: Artifa
   return buildExecOutput(run, command, cwd, config.workspaceRoot, durationMs, targetTokens, preserveRaw, store);
 }
 
-async function execStartTool(args: Args, config: ResolvedGatewayConfig, processes: ProcessRegistry): Promise<CallToolResult> {
+async function execStartTool(
+  args: Args,
+  config: ResolvedGatewayConfig,
+  processes: ProcessRegistry,
+): Promise<CallToolResult> {
   const command = stringArg(args, "command", true)!;
   const cwd = await resolveInside(config.workspaceRoot, stringArg(args, "cwd"));
+  const denied = await managedWriteGate(command, cwd, config);
+  if (denied !== undefined) return denied;
   const requestedMaxOutputBytes = numberArg(args, "maxOutputBytes");
-  const maxOutputBytes = requestedMaxOutputBytes === undefined
-    ? config.maxOutputBytes
-    : Math.min(requestedMaxOutputBytes, config.maxOutputBytes);
+  const maxOutputBytes =
+    requestedMaxOutputBytes === undefined
+      ? config.maxOutputBytes
+      : Math.min(requestedMaxOutputBytes, config.maxOutputBytes);
   if (maxOutputBytes < 1) throw new Error("maxOutputBytes must be positive");
   const started = processes.start(command, cwd, maxOutputBytes, true);
   const summary = `started handle=${started.handle}${started.pid === undefined ? "" : ` pid=${started.pid}`}`;
@@ -278,8 +404,68 @@ async function execStartTool(args: Args, config: ResolvedGatewayConfig, processe
   });
 }
 
+/**
+ * `mottainai_exec` is the gateway's managed write-capable command surface.  The
+ * workflow provider is consulted before spawning it; the provider, rather than
+ * this adapter, owns repository identity, current worktree/branch, and policy
+ * decisions.  Git commands get their operation-specific decision first; other
+ * commands are treated as source writes because an arbitrary shell command can
+ * edit files and cannot be safely classified here.
+ */
+async function managedWriteGate(
+  command: string,
+  cwd: string,
+  config: ResolvedGatewayConfig,
+): Promise<CallToolResult | undefined> {
+  if (!config.workflowTasks) return undefined;
+  const provider = createWorkflowHookProvider({ workspaceRoot: cwd });
+  const event = (operation: HookEvent["operation"]): HookEvent => ({
+    version: 1,
+    client: "codex",
+    clientEvent: "MottainaiExec",
+    operation,
+    target: { kind: "command", value: command },
+  });
+  const gitDecision = await provider.evaluate(event("git.mutate"));
+  const decision =
+    gitDecision.state === "not_applicable" ? await provider.evaluate(event("source.write")) : gitDecision;
+  if (decision.state === "unavailable" || decision.state === "unsupported" || decision.state === "stale") {
+    return output(
+      "exec",
+      "failed",
+      `DENY exec: workflow authority unavailable (${decision.reason})`,
+      "",
+      {
+        diagnostics: [{ severity: "error", message: decision.diagnostic ?? decision.reason }],
+        policy_action: "deny",
+        policy_rule: decision.rule,
+      },
+      true,
+    );
+  }
+  if (decision.action === "deny") {
+    return output(
+      "exec",
+      "failed",
+      `DENY exec: workflow policy (${decision.reason})`,
+      "",
+      {
+        diagnostics: [{ severity: "error", message: decision.diagnostic ?? decision.reason }],
+        policy_action: decision.action,
+        policy_rule: decision.rule,
+      },
+      true,
+    );
+  }
+  return undefined;
+}
+
 async function execAwaitTool(
-  args: Args, config: ResolvedGatewayConfig, store: ArtifactStore, processes: ProcessRegistry, telemetry?: TelemetrySink,
+  args: Args,
+  config: ResolvedGatewayConfig,
+  store: ArtifactStore,
+  processes: ProcessRegistry,
+  telemetry?: TelemetrySink,
   signal?: AbortSignal,
 ): Promise<CallToolResult> {
   const handle = stringArg(args, "handle", true)!;
@@ -298,20 +484,35 @@ async function execAwaitTool(
   if (outcome === undefined) throw new Error(`invalid or unknown exec handle: ${handle}`);
 
   telemetry?.recordAwait({
-    pollCount: 0, elapsedMs, stateChanges: outcome.kind === "terminal" ? 1 : 0, avoidedResponses: 0,
+    pollCount: 0,
+    elapsedMs,
+    stateChanges: outcome.kind === "terminal" ? 1 : 0,
+    avoidedResponses: 0,
     outcome: outcome.kind,
   });
 
   if (outcome.kind === "terminal") {
     processes.release(handle);
-    return buildExecOutput(outcome.result, describe.command, describe.cwd, config.workspaceRoot, elapsedMs, targetTokens, false, store);
+    return buildExecOutput(
+      outcome.result,
+      describe.command,
+      describe.cwd,
+      config.workspaceRoot,
+      elapsedMs,
+      targetTokens,
+      false,
+      store,
+    );
   }
 
-  const summary = outcome.kind === "timeout"
-    ? `TIMEOUT handle=${handle} elapsed=${outcome.elapsedMs}ms still running`
-    : `CANCELLED handle=${handle} elapsed=${outcome.elapsedMs}ms`;
+  const summary =
+    outcome.kind === "timeout"
+      ? `TIMEOUT handle=${handle} elapsed=${outcome.elapsedMs}ms still running`
+      : `CANCELLED handle=${handle} elapsed=${outcome.elapsedMs}ms`;
   return output("exec_await", "partial", summary, "", {
-    handle, elapsed_ms: outcome.elapsedMs, timeout_ms: timeoutMs,
+    handle,
+    elapsed_ms: outcome.elapsedMs,
+    timeout_ms: timeoutMs,
     state: outcome.kind === "timeout" ? "running" : "cancelled",
     next_command: outcome.kind === "timeout" ? `mottainai_exec_await handle=${handle}` : undefined,
     truncated: false,
@@ -320,8 +521,14 @@ async function execAwaitTool(
 
 /** `runShell`/`ManagedProcess` の `RunResult` を exec envelope へ変換する。同期 exec と await 経路が共有する。 */
 async function buildExecOutput(
-  run: RunResult, command: string, cwd: string, workspaceRoot: string, durationMs: number,
-  targetTokens: number, preserveRawArg: boolean, store: ArtifactStore,
+  run: RunResult,
+  command: string,
+  cwd: string,
+  workspaceRoot: string,
+  durationMs: number,
+  targetTokens: number,
+  preserveRawArg: boolean,
+  store: ArtifactStore,
 ): Promise<CallToolResult> {
   const raw = [run.stdout, run.stderr].filter(Boolean).join(run.stdout && run.stderr ? "\n" : "");
   const status = run.exitCode === 0 && !run.timedOut && !run.outputLimit ? "success" : "failed";
@@ -330,22 +537,52 @@ async function buildExecOutput(
   const firstCause = failure?.firstCause ?? (firstLine(run.stderr || raw) || "command failed");
   // 競合markerはパッチ根拠。通常出力の圧縮対象にしない。
   const preserveRaw = preserveRawArg || failureClassification === "git_conflict";
-  const compressed = preserveRaw ? raw : compactToBudget(compressText(raw, { cli: { command } }), targetTokens, Buffer.byteLength(raw));
-  const summary = status === "success"
-    ? `OK exit=0 duration=${durationMs}ms${run.outputLimit ? " output_limit" : ""}`
-    : `FAIL ${failureClassification}: ${firstCause} exit=${run.exitCode ?? "signal"} duration=${durationMs}ms${run.timedOut ? " timeout" : ""}${run.outputLimit ? " output_limit" : ""}`;
+  const compressed = preserveRaw
+    ? raw
+    : compactToBudget(compressText(raw, { cli: { command } }), targetTokens, Buffer.byteLength(raw));
+  const summary =
+    status === "success"
+      ? `OK exit=0 duration=${durationMs}ms${run.outputLimit ? " output_limit" : ""}`
+      : `FAIL ${failureClassification}: ${firstCause} exit=${run.exitCode ?? "signal"} duration=${durationMs}ms${run.timedOut ? " timeout" : ""}${run.outputLimit ? " output_limit" : ""}`;
   const diagnostics = status === "failed" ? [{ severity: "error", message: firstCause }] : [];
-  const resultId = store.putArtifact({ text: raw, stdout: run.stdout, stderr: run.stderr, metadata: { operation: "exec", command, cwd, summary, diagnostics } });
+  const resultId = store.putArtifact({
+    text: raw,
+    stdout: run.stdout,
+    stderr: run.stderr,
+    metadata: { operation: "exec", command, cwd, summary, diagnostics },
+  });
   const truncated = run.outputLimit || compressed !== raw;
   const testResults = tapTestResults(raw, resultId, truncated);
-  return output("exec", status, summary, resultId, {
-    facts: failure?.facts ?? [], failure_classification: status === "failed" ? failureClassification : undefined,
-    next_command: status === "failed" ? nextCommand(resultId, failure ?? { classification: "command", firstCause, facts: [] }) : undefined,
-    diagnostics, metrics: { duration_ms: durationMs, stdout_bytes: Buffer.byteLength(run.stdout), stderr_bytes: Buffer.byteLength(run.stderr), returned_bytes: Buffer.byteLength(compressed), target_tokens: targetTokens },
-    exit_code: run.exitCode, signal: run.signal, timed_out: run.timedOut, output_limited: run.outputLimit, output: compressed,
-    truncated,
-    ...(testResults === undefined ? {} : { test_results: testResults }),
-  }, status === "failed");
+  return output(
+    "exec",
+    status,
+    summary,
+    resultId,
+    {
+      facts: failure?.facts ?? [],
+      failure_classification: status === "failed" ? failureClassification : undefined,
+      next_command:
+        status === "failed"
+          ? nextCommand(resultId, failure ?? { classification: "command", firstCause, facts: [] })
+          : undefined,
+      diagnostics,
+      metrics: {
+        duration_ms: durationMs,
+        stdout_bytes: Buffer.byteLength(run.stdout),
+        stderr_bytes: Buffer.byteLength(run.stderr),
+        returned_bytes: Buffer.byteLength(compressed),
+        target_tokens: targetTokens,
+      },
+      exit_code: run.exitCode,
+      signal: run.signal,
+      timed_out: run.timedOut,
+      output_limited: run.outputLimit,
+      output: compressed,
+      truncated,
+      ...(testResults === undefined ? {} : { test_results: testResults }),
+    },
+    status === "failed",
+  );
 }
 
 interface TapTestFailure {
@@ -376,7 +613,7 @@ function tapTestResults(raw: string, resultId: string, outputOmitted: boolean): 
   for (const line of lines) {
     const match = /^# (tests|pass|fail|cancelled|skipped|todo) (\d+)$/.exec(line.trim());
     if (match === null) continue;
-    const key = match[1] === "tests" ? "total" : match[1] as keyof typeof counters;
+    const key = match[1] === "tests" ? "total" : (match[1] as keyof typeof counters);
     counters[key] = Number(match[2]);
   }
   const failures: TapTestFailure[] = [];
@@ -389,7 +626,10 @@ function tapTestResults(raw: string, resultId: string, outputOmitted: boolean): 
     for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
       if (TAP_RESULT_LINE.test(lines[cursor].trim())) break;
       const diagnosticMatch = /^\s*(?:error|message):\s*(.*)$/.exec(lines[cursor]);
-      if (diagnosticMatch !== null) { diagnostic = diagnosticMatch[1].trim(); break; }
+      if (diagnosticMatch !== null) {
+        diagnostic = diagnosticMatch[1].trim();
+        break;
+      }
     }
     failures.push({ name: match[1], diagnostic: diagnostic.replace(/^['"]|['"]$/g, "") });
   }
@@ -398,25 +638,49 @@ function tapTestResults(raw: string, resultId: string, outputOmitted: boolean): 
 }
 
 interface ExecFailure {
-  classification: "timeout" | "output_limit" | "git_conflict" | "missing_build_artifact" | "typescript" | "spawn" | "command";
+  classification:
+    | "timeout"
+    | "output_limit"
+    | "git_conflict"
+    | "missing_build_artifact"
+    | "typescript"
+    | "spawn"
+    | "command";
   firstCause: string;
   facts: Array<Record<string, unknown>>;
   query?: string;
   recoveryCommands?: string[];
 }
 
-async function diagnoseExecFailure(run: RunResult, raw: string, cwd: string, workspaceRoot: string): Promise<ExecFailure> {
+async function diagnoseExecFailure(
+  run: RunResult,
+  raw: string,
+  cwd: string,
+  workspaceRoot: string,
+): Promise<ExecFailure> {
   if (run.timedOut) return { classification: "timeout", firstCause: "command timed out", facts: [], query: "timeout" };
-  if (run.outputLimit) return { classification: "output_limit", firstCause: "output limit reached", facts: [], query: "mottainai omitted" };
+  if (run.outputLimit)
+    return {
+      classification: "output_limit",
+      firstCause: "output limit reached",
+      facts: [],
+      query: "mottainai omitted",
+    };
   const conflict = gitConflictFacts(raw);
-  if (conflict.length > 0) return { classification: "git_conflict", firstCause: firstLine(raw), facts: conflict, query: "<<<<<<<" };
+  if (conflict.length > 0)
+    return { classification: "git_conflict", firstCause: firstLine(raw), facts: conflict, query: "<<<<<<<" };
   const missingArtifacts = await missingDistArtifacts(raw, cwd, workspaceRoot);
   if (missingArtifacts.length > 0) {
     const recoveryCommands = await buildRecoveryCommands(workspaceRoot);
     return {
-      classification: "missing_build_artifact", firstCause: `missing ${missingArtifacts[0]}`,
-      facts: [{ kind: "missing_build_artifacts", paths: missingArtifacts }, { kind: "recovery_commands", commands: recoveryCommands }],
-      query: missingArtifacts[0], recoveryCommands,
+      classification: "missing_build_artifact",
+      firstCause: `missing ${missingArtifacts[0]}`,
+      facts: [
+        { kind: "missing_build_artifacts", paths: missingArtifacts },
+        { kind: "recovery_commands", commands: recoveryCommands },
+      ],
+      query: missingArtifacts[0],
+      recoveryCommands,
     };
   }
   const typeScript = raw.split("\n").find((line) => /\berror TS\d+:/.test(line));
@@ -426,7 +690,9 @@ async function diagnoseExecFailure(run: RunResult, raw: string, cwd: string, wor
 }
 
 function gitConflictFacts(raw: string): Array<Record<string, unknown>> {
-  const paths = [...raw.matchAll(/(?:CONFLICT \([^)]*\): Merge conflict in |both modified:\s*)(.+)/g)].map((match) => match[1].trim());
+  const paths = [...raw.matchAll(/(?:CONFLICT \([^)]*\): Merge conflict in |both modified:\s*)(.+)/g)].map((match) =>
+    match[1].trim(),
+  );
   const markerCount = raw.split("\n").filter((line) => /^(?:<{7}|={7}|>{7})/.test(line)).length;
   if (paths.length === 0 && markerCount === 0) return [];
   return [
@@ -437,32 +703,49 @@ function gitConflictFacts(raw: string): Array<Record<string, unknown>> {
 }
 
 async function missingDistArtifacts(raw: string, cwd: string, workspaceRoot: string): Promise<string[]> {
-  const candidates = [...raw.matchAll(/(?:Cannot find module|ERR_MODULE_NOT_FOUND|not found)[:\s]+['"]?((?:[^'"\s]*[\\/])?dist[\\/][^'"\s]+)/gi)]
-    .map((match) => match[1].replace(/^file:\/\//, ""));
+  const candidates = [
+    ...raw.matchAll(
+      /(?:Cannot find module|ERR_MODULE_NOT_FOUND|not found)[:\s]+['"]?((?:[^'"\s]*[\\/])?dist[\\/][^'"\s]+)/gi,
+    ),
+  ].map((match) => match[1].replace(/^file:\/\//, ""));
   const missing: string[] = [];
   for (const candidate of candidates) {
     const resolved = path.resolve(cwd, candidate);
     if (resolved !== workspaceRoot && !resolved.startsWith(`${workspaceRoot}${path.sep}`)) continue;
-    try { await fs.access(resolved); } catch { missing.push(path.relative(workspaceRoot, resolved) || "."); }
+    try {
+      await fs.access(resolved);
+    } catch {
+      missing.push(path.relative(workspaceRoot, resolved) || ".");
+    }
   }
   return [...new Set(missing)];
 }
 
 async function buildRecoveryCommands(workspaceRoot: string): Promise<string[]> {
   try {
-    const packageJson = JSON.parse(await fs.readFile(path.join(workspaceRoot, "package.json"), "utf8")) as { scripts?: Record<string, string> };
+    const packageJson = JSON.parse(await fs.readFile(path.join(workspaceRoot, "package.json"), "utf8")) as {
+      scripts?: Record<string, string>;
+    };
     if (!packageJson.scripts?.build) return [];
     const commands: string[] = [];
-    try { await fs.access(path.join(workspaceRoot, "node_modules")); } catch { commands.push("pnpm install --frozen-lockfile"); }
+    try {
+      await fs.access(path.join(workspaceRoot, "node_modules"));
+    } catch {
+      commands.push("pnpm install --frozen-lockfile");
+    }
     commands.push("pnpm run build");
     return commands;
-  } catch { return []; }
+  } catch {
+    return [];
+  }
 }
 
 function nextCommand(resultId: string, failure: ExecFailure | undefined): string {
   if (failure?.recoveryCommands?.length) return failure.recoveryCommands[0];
   const query = failure?.query;
-  return query ? `mottainai_result_get id=${resultId} query=${JSON.stringify(query)}` : `mottainai_result_get id=${resultId}`;
+  return query
+    ? `mottainai_result_get id=${resultId} query=${JSON.stringify(query)}`
+    : `mottainai_result_get id=${resultId}`;
 }
 
 function boundedReadMessage(decision: ReadDecision): string {
@@ -486,11 +769,7 @@ function boundedSemanticView(text: string, maxLines: number, maxBytes: number): 
   let tail = Math.ceil((lineLimit - 1) / 2);
   while (head > 0 || tail > 0) {
     const tailStart = Math.max(head, lines.length - tail);
-    const candidate = [
-      ...lines.slice(0, head),
-      SEMANTIC_OMISSION_MARKER,
-      ...lines.slice(tailStart),
-    ].join("\n");
+    const candidate = [...lines.slice(0, head), SEMANTIC_OMISSION_MARKER, ...lines.slice(tailStart)].join("\n");
     if (Buffer.byteLength(candidate, "utf8") <= byteLimit) return candidate;
     if (head >= tail && head > 0) head -= 1;
     else if (tail > 0) tail -= 1;
@@ -507,10 +786,11 @@ function readReasonCategory(decision: ReadDecision, extractionFailure = false): 
   if (decision.policyRule.includes("BYTE")) return "byte_limit";
   if (decision.policyRule.includes("LINE")) return "line_limit";
   if (
-    decision.policyRule.includes("BOUNDARY")
-    || decision.policyRule.includes("RANGE")
-    || decision.policyRule === "INVALID_FILE_METADATA"
-  ) return "boundary";
+    decision.policyRule.includes("BOUNDARY") ||
+    decision.policyRule.includes("RANGE") ||
+    decision.policyRule === "INVALID_FILE_METADATA"
+  )
+    return "boundary";
   return "policy";
 }
 
@@ -526,14 +806,15 @@ async function readTool(
   if (!stat.isFile()) throw new Error("path must be a file");
 
   const modeValue = stringArg(args, "mode");
-  if (modeValue !== undefined && !(READ_MODES as readonly string[]).includes(modeValue)) throw new Error("invalid mode");
+  if (modeValue !== undefined && !(READ_MODES as readonly string[]).includes(modeValue))
+    throw new Error("invalid mode");
   const ifChangedFrom = stringArg(args, "ifChangedFrom");
   if (ifChangedFrom !== undefined && (ifChangedFrom.length === 0 || ifChangedFrom.length > 512)) {
     throw new Error("ifChangedFrom must be a non-empty identity up to 512 characters");
   }
   const request = {
     path: path.relative(config.workspaceRoot, filePath),
-    ...(modeValue === undefined ? {} : { mode: modeValue as typeof READ_MODES[number] }),
+    ...(modeValue === undefined ? {} : { mode: modeValue as (typeof READ_MODES)[number] }),
     ...(numberArg(args, "startLine") === undefined ? {} : { startLine: numberArg(args, "startLine") }),
     ...(numberArg(args, "endLine") === undefined ? {} : { endLine: numberArg(args, "endLine") }),
   };
@@ -546,14 +827,15 @@ async function readTool(
   const contentIdentity = identitySafe
     ? await resolveFileContentIdentity(filePath, config.workspaceRoot, metadata.contentHash)
     : undefined;
-  const artifactIdentity: FileContentIdentity | undefined = contentIdentity === undefined
-    ? undefined
-    : {
-        version: contentIdentity.version,
-        content_id: contentIdentity.id,
-        adapter: "local_file_read_v1",
-        source_key: `file:${relativePath}`,
-      };
+  const artifactIdentity: FileContentIdentity | undefined =
+    contentIdentity === undefined
+      ? undefined
+      : {
+          version: contentIdentity.version,
+          content_id: contentIdentity.id,
+          adapter: "local_file_read_v1",
+          source_key: `file:${relativePath}`,
+        };
 
   if (!decision.allowed) {
     telemetry?.recordReadGovernor({
@@ -578,15 +860,21 @@ async function readTool(
       next_actions: decision.suggestedNextActions,
       facts: [{ kind: "read_governor", action: decision.action, rule: decision.policyRule }],
       diagnostics: decision.diagnostics,
-      metrics: { raw_lines_returned: 0, raw_bytes_returned: 0, file_lines: metadata.lineCount, file_bytes: metadata.byteSize },
+      metrics: {
+        raw_lines_returned: 0,
+        raw_bytes_returned: 0,
+        file_lines: metadata.lineCount,
+        file_bytes: metadata.byteSize,
+      },
       truncated: true,
     });
   }
 
   const selected = await readAuthorizedFile(filePath, metadata, normalized);
-  const semanticSource = isSemanticMode(normalized.mode) && normalized.bounded
-    ? await readSemanticInspectionSource(filePath, normalized)
-    : selected;
+  const semanticSource =
+    isSemanticMode(normalized.mode) && normalized.bounded
+      ? await readSemanticInspectionSource(filePath, normalized)
+      : selected;
   // hash 計算 bytes と実際に返す bytes を束縛する TOCTOU 窓を閉じる: read 後に
   // content hash を再計算し、一致しなければ identity が古い hash に新しい bytes を
   // 紐付けてしまうので fail-closed に identity を破棄する（読み取り結果自体は
@@ -594,9 +882,10 @@ async function readTool(
   // 得るため使わない — content hash の再計算のみを correctness authority とする。
   const contentStillValid = await verifyFileContentUnchanged(filePath, { contentHash: metadata.contentHash });
   const verifiedArtifactIdentity = contentStillValid ? artifactIdentity : undefined;
-  const rawLines = normalized.startLine === undefined || normalized.endLine === undefined
-    ? metadata.lineCount
-    : normalized.endLine - normalized.startLine + 1;
+  const rawLines =
+    normalized.startLine === undefined || normalized.endLine === undefined
+      ? metadata.lineCount
+      : normalized.endLine - normalized.startLine + 1;
   const rawLinesReturned = normalized.mode === "raw" ? rawLines : 0;
   const rawBytesReturned = normalized.mode === "raw" ? Buffer.byteLength(selected) : 0;
   let text: string | undefined;
@@ -637,9 +926,10 @@ async function readTool(
     diagnostics,
     extractionFailure,
   });
-  const storedArtifactIdentity: ArtifactIdentityMetadata | undefined = verifiedArtifactIdentity === undefined
-    ? undefined
-    : { ...verifiedArtifactIdentity, origin_projection_key: readProjectionKey };
+  const storedArtifactIdentity: ArtifactIdentityMetadata | undefined =
+    verifiedArtifactIdentity === undefined
+      ? undefined
+      : { ...verifiedArtifactIdentity, origin_projection_key: readProjectionKey };
   const sourceResultId = store.putArtifact({
     text: selected,
     metadata: {
@@ -649,19 +939,21 @@ async function readTool(
       ...(storedArtifactIdentity === undefined ? {} : { identity: storedArtifactIdentity }),
     },
   });
-  const truncated = extractionFailure
-    || semanticProjectionTruncated
-    || (normalized.startLine !== undefined && (normalized.startLine > 1 || normalized.endLine !== metadata.lineCount));
+  const truncated =
+    extractionFailure ||
+    semanticProjectionTruncated ||
+    (normalized.startLine !== undefined && (normalized.startLine > 1 || normalized.endLine !== metadata.lineCount));
   const summary = `${relativePath} lines=${rawLines}/${metadata.lineCount} mode=${normalized.mode}`;
-  const identity = verifiedArtifactIdentity === undefined
-    ? undefined
-    : createIdentityHint({
-        content_id: verifiedArtifactIdentity.content_id,
-        adapter: "local_file_read_v1",
-        source_key: verifiedArtifactIdentity.source_key,
-        projection_key: readProjectionKey,
-        ...(ifChangedFrom === undefined ? {} : { if_changed_from: ifChangedFrom }),
-      });
+  const identity =
+    verifiedArtifactIdentity === undefined
+      ? undefined
+      : createIdentityHint({
+          content_id: verifiedArtifactIdentity.content_id,
+          adapter: "local_file_read_v1",
+          source_key: verifiedArtifactIdentity.source_key,
+          projection_key: readProjectionKey,
+          ...(ifChangedFrom === undefined ? {} : { if_changed_from: ifChangedFrom }),
+        });
   telemetry?.recordReadGovernor({
     action: decision.action,
     requestedMode: decision.requestedMode,
@@ -684,7 +976,12 @@ async function readTool(
     next_actions: decision.suggestedNextActions,
     facts: [{ kind: "read_governor", action: decision.action, rule: decision.policyRule }],
     diagnostics,
-    metrics: { raw_lines_returned: rawLinesReturned, raw_bytes_returned: rawBytesReturned, file_lines: metadata.lineCount, file_bytes: metadata.byteSize },
+    metrics: {
+      raw_lines_returned: rawLinesReturned,
+      raw_bytes_returned: rawBytesReturned,
+      file_lines: metadata.lineCount,
+      file_bytes: metadata.byteSize,
+    },
     truncated,
     ...(identity === undefined ? {} : { identity }),
   });
@@ -708,8 +1005,25 @@ async function searchTool(args: Args, config: ResolvedGatewayConfig, store: Arti
   const { groups, omitted } = truncateGroups(parseRgJson(run.stdout, config.workspaceRoot, context), maxResults);
   const matchCount = groups.reduce((count, group) => count + group.matches.length, 0);
   const summary = `${matchCount} matches in ${groups.length} files${omitted > 0 ? ` (truncated, omitted=${omitted})` : ""}`;
-  const resultId = store.putArtifact({ text: run.stdout, stderr: run.stderr, metadata: { operation: "search", command: query, cwd: searchPath, summary } });
-  return output("search", run.exitCode === 0 || run.exitCode === 1 ? "success" : "failed", summary, resultId, { query, mode, groups, metrics: { raw_bytes: Buffer.byteLength(run.stdout), omitted_matches: omitted }, truncated: omitted > 0 }, run.exitCode !== 0 && run.exitCode !== 1);
+  const resultId = store.putArtifact({
+    text: run.stdout,
+    stderr: run.stderr,
+    metadata: { operation: "search", command: query, cwd: searchPath, summary },
+  });
+  return output(
+    "search",
+    run.exitCode === 0 || run.exitCode === 1 ? "success" : "failed",
+    summary,
+    resultId,
+    {
+      query,
+      mode,
+      groups,
+      metrics: { raw_bytes: Buffer.byteLength(run.stdout), omitted_matches: omitted },
+      truncated: omitted > 0,
+    },
+    run.exitCode !== 0 && run.exitCode !== 1,
+  );
 }
 
 // --max-countはファイル単位上限。ここでparse後にグローバル件数で打ち切る（issue #5）。
@@ -722,7 +1036,10 @@ function truncateGroups(
   let omitted = 0;
   for (const group of groups) {
     const remaining = maxResults - used;
-    if (remaining <= 0) { omitted += group.matches.length; continue; }
+    if (remaining <= 0) {
+      omitted += group.matches.length;
+      continue;
+    }
     if (group.matches.length <= remaining) {
       limited.push(group);
       used += group.matches.length;
@@ -742,35 +1059,48 @@ async function listTool(args: Args, config: ResolvedGatewayConfig, store: Artifa
   const entries: string[] = [];
   await walk(directory, directory, depth, entries);
   const summary = `${entries.length} entries depth=${depth}`;
-  const resultId = store.putArtifact({ text: entries.join("\n"), metadata: { operation: "list", cwd: directory, summary } });
-  return output("list", "success", summary, resultId, { path: path.relative(config.workspaceRoot, directory) || ".", entries });
+  const resultId = store.putArtifact({
+    text: entries.join("\n"),
+    metadata: { operation: "list", cwd: directory, summary },
+  });
+  return output("list", "success", summary, resultId, {
+    path: path.relative(config.workspaceRoot, directory) || ".",
+    entries,
+  });
 }
 
 function resultGetTool(args: Args, store: ArtifactStore, telemetry?: TelemetrySink): CallToolResult {
   const id = stringArg(args, "id", true)!;
   const stream = stringArg(args, "stream") ?? "combined";
   if (stream !== "combined" && stream !== "stdout" && stream !== "stderr") throw new Error("invalid stream");
-  const retrieved = store.retrieve(id, { query: stringArg(args, "query"), contextLines: numberArg(args, "contextLines"), startLine: numberArg(args, "startLine"), maxLines: numberArg(args, "maxLines"), stream });
+  const retrieved = store.retrieve(id, {
+    query: stringArg(args, "query"),
+    contextLines: numberArg(args, "contextLines"),
+    startLine: numberArg(args, "startLine"),
+    maxLines: numberArg(args, "maxLines"),
+    stream,
+  });
   if (!retrieved) throw new Error(`Original result unavailable or expired: ${id}`);
   telemetry?.recordRetrieval();
   const expansionBytes = Buffer.byteLength(JSON.stringify(retrieved), "utf8");
   telemetry?.recordExpansion({ bytes: expansionBytes, estimatedTokens: Math.ceil(expansionBytes / 4) });
   const summary = `result=${id} ${retrieved.returnedStartLine}-${retrieved.returnedEndLine}/${retrieved.totalLines}`;
-  const identity = retrieved.identity === undefined
-    ? undefined
-    : createIdentityHint({
-        content_id: retrieved.identity.content_id,
-        adapter: "stored_artifact_v1",
-        source_key: retrieved.identity.source_key,
-        projection_key: createStoredProjectionKey({
-          stream,
-          ...(stringArg(args, "query") === undefined ? {} : { query: stringArg(args, "query") }),
-          ...(numberArg(args, "startLine") === undefined ? {} : { startLine: numberArg(args, "startLine") }),
-          ...(numberArg(args, "maxLines") === undefined ? {} : { maxLines: numberArg(args, "maxLines") }),
-          ...(numberArg(args, "contextLines") === undefined ? {} : { contextLines: numberArg(args, "contextLines") }),
-          originProjectionKey: retrieved.identity.origin_projection_key,
-        }),
-      });
+  const identity =
+    retrieved.identity === undefined
+      ? undefined
+      : createIdentityHint({
+          content_id: retrieved.identity.content_id,
+          adapter: "stored_artifact_v1",
+          source_key: retrieved.identity.source_key,
+          projection_key: createStoredProjectionKey({
+            stream,
+            ...(stringArg(args, "query") === undefined ? {} : { query: stringArg(args, "query") }),
+            ...(numberArg(args, "startLine") === undefined ? {} : { startLine: numberArg(args, "startLine") }),
+            ...(numberArg(args, "maxLines") === undefined ? {} : { maxLines: numberArg(args, "maxLines") }),
+            ...(numberArg(args, "contextLines") === undefined ? {} : { contextLines: numberArg(args, "contextLines") }),
+            originProjectionKey: retrieved.identity.origin_projection_key,
+          }),
+        });
   return output("result_get", "success", summary, id, {
     ...retrieved,
     ...(identity === undefined ? {} : { identity }),
@@ -795,14 +1125,25 @@ function telemetrySummaryTool(telemetry?: TelemetrySink): CallToolResult {
   }
   const ratio = compressionRatio(snapshot.totals);
   const rate = retrievalRate(snapshot.totals);
-  const summary = `calls=${snapshot.totals.calls} errors=${snapshot.totals.errors}`
-    + `${ratio !== undefined ? ` compression_ratio=${ratio.toFixed(3)}` : ""}`
-    + `${rate !== undefined ? ` retrieval_rate=${rate.toFixed(3)}` : ""}`;
+  const summary =
+    `calls=${snapshot.totals.calls} errors=${snapshot.totals.errors}` +
+    `${ratio !== undefined ? ` compression_ratio=${ratio.toFixed(3)}` : ""}` +
+    `${rate !== undefined ? ` retrieval_rate=${rate.toFixed(3)}` : ""}`;
   return output("telemetry_summary", "success", summary, "", {
     enabled: true,
     facts: [
-      ...Object.entries(snapshot.by_provider).map(([provider, counts]) => ({ kind: "provider", name: provider, ...counts, compression_ratio: compressionRatio(counts) })),
-      ...Object.entries(snapshot.by_capability).map(([capability, counts]) => ({ kind: "capability", name: capability, ...counts, compression_ratio: compressionRatio(counts) })),
+      ...Object.entries(snapshot.by_provider).map(([provider, counts]) => ({
+        kind: "provider",
+        name: provider,
+        ...counts,
+        compression_ratio: compressionRatio(counts),
+      })),
+      ...Object.entries(snapshot.by_capability).map(([capability, counts]) => ({
+        kind: "capability",
+        name: capability,
+        ...counts,
+        compression_ratio: compressionRatio(counts),
+      })),
     ],
     totals: snapshot.totals,
     by_provider: snapshot.by_provider,
@@ -821,7 +1162,9 @@ function telemetrySummaryTool(telemetry?: TelemetrySink): CallToolResult {
     retrieval_rate: rate,
     generated_at: snapshot.generated_at,
     metrics: {
-      calls: snapshot.totals.calls, errors: snapshot.totals.errors, retrievals: snapshot.totals.retrievals,
+      calls: snapshot.totals.calls,
+      errors: snapshot.totals.errors,
+      retrievals: snapshot.totals.retrievals,
       returned_bytes: snapshot.projection.returned_bytes,
       omitted_bytes: snapshot.projection.omitted_bytes,
       raw_bytes: snapshot.projection.raw_bytes,
@@ -843,7 +1186,14 @@ function telemetrySummaryTool(telemetry?: TelemetrySink): CallToolResult {
   });
 }
 
-export interface ParsedIssue { number: number; title: string; state: string; labels: string[]; url: string; body: string; }
+export interface ParsedIssue {
+  number: number;
+  title: string;
+  state: string;
+  labels: string[];
+  url: string;
+  body: string;
+}
 export type ParsedIssueResult = { ok: true; issue: ParsedIssue } | { ok: false; reason: string };
 
 /**
@@ -858,15 +1208,33 @@ export function parseIssueViewOutput(stdout: string): ParsedIssueResult {
     return { ok: false, reason: "unparsable JSON output" };
   }
   if (
-    typeof parsed.number !== "number" || typeof parsed.title !== "string"
-    || typeof parsed.state !== "string" || typeof parsed.url !== "string" || typeof parsed.body !== "string"
+    typeof parsed.number !== "number" ||
+    typeof parsed.title !== "string" ||
+    typeof parsed.state !== "string" ||
+    typeof parsed.url !== "string" ||
+    typeof parsed.body !== "string"
   ) {
     return { ok: false, reason: "missing required fields in output" };
   }
   const labels = Array.isArray(parsed.labels)
-    ? parsed.labels.filter((label): label is { name: string } => typeof label === "object" && label !== null && typeof (label as { name?: unknown }).name === "string").map((label) => label.name)
+    ? parsed.labels
+        .filter(
+          (label): label is { name: string } =>
+            typeof label === "object" && label !== null && typeof (label as { name?: unknown }).name === "string",
+        )
+        .map((label) => label.name)
     : [];
-  return { ok: true, issue: { number: parsed.number, title: parsed.title, state: parsed.state, labels, url: parsed.url, body: parsed.body } };
+  return {
+    ok: true,
+    issue: {
+      number: parsed.number,
+      title: parsed.title,
+      state: parsed.state,
+      labels,
+      url: parsed.url,
+      body: parsed.body,
+    },
+  };
 }
 
 async function issueViewToolImpl(args: Args, config: ResolvedGatewayConfig): Promise<CallToolResult> {
@@ -874,17 +1242,34 @@ async function issueViewToolImpl(args: Args, config: ResolvedGatewayConfig): Pro
   const number = numberArg(args, "number");
   if (number === undefined || number < 1) throw new Error("number must be a positive integer");
   const run = await runProgram(
-    "gh", ["issue", "view", String(number), "--json", "number,title,state,labels,body,url"],
-    config.workspaceRoot, config.maxTimeoutMs, config.maxOutputBytes,
+    "gh",
+    ["issue", "view", String(number), "--json", "number,title,state,labels,body,url"],
+    config.workspaceRoot,
+    config.maxTimeoutMs,
+    config.maxOutputBytes,
   );
   if (run.exitCode !== 0) {
     const summary = `FAIL gh issue view: ${firstLine(run.stderr || run.stdout) || "command failed"}`;
-    return output("issue_view", "failed", summary, "", { diagnostics: [{ severity: "error", message: summary }] }, true);
+    return output(
+      "issue_view",
+      "failed",
+      summary,
+      "",
+      { diagnostics: [{ severity: "error", message: summary }] },
+      true,
+    );
   }
   const parsed = parseIssueViewOutput(run.stdout);
   if (!parsed.ok) {
     const summary = `FAIL gh issue view: ${parsed.reason}`;
-    return output("issue_view", "failed", summary, "", { diagnostics: [{ severity: "error", message: summary }] }, true);
+    return output(
+      "issue_view",
+      "failed",
+      summary,
+      "",
+      { diagnostics: [{ severity: "error", message: summary }] },
+      true,
+    );
   }
   const { issue } = parsed;
   const summary = `#${issue.number} ${issue.state} ${issue.title}`;
@@ -895,7 +1280,7 @@ async function issueViewToolImpl(args: Args, config: ResolvedGatewayConfig): Pro
 function parseStatusCheckRollup(stdout: string): RawCheck[] {
   try {
     const parsed = JSON.parse(stdout) as { statusCheckRollup?: unknown };
-    return Array.isArray(parsed.statusCheckRollup) ? parsed.statusCheckRollup as RawCheck[] : [];
+    return Array.isArray(parsed.statusCheckRollup) ? (parsed.statusCheckRollup as RawCheck[]) : [];
   } catch {
     return [];
   }
@@ -907,7 +1292,10 @@ function parseStatusCheckRollup(stdout: string): RawCheck[] {
  * agent は interval を指定できない — `config.await` が唯一の polling policy 制御点。
  */
 async function ghChecksAwaitToolImpl(
-  args: Args, config: ResolvedGatewayConfig, telemetry?: TelemetrySink, signal?: AbortSignal,
+  args: Args,
+  config: ResolvedGatewayConfig,
+  telemetry?: TelemetrySink,
+  signal?: AbortSignal,
 ): Promise<CallToolResult> {
   if (config.worktree === undefined) throw new Error("gh checks tool is not configured for this workspace");
   const number = numberArg(args, "number");
@@ -919,8 +1307,11 @@ async function ghChecksAwaitToolImpl(
   let lastSpawnError: string | undefined;
   const fetchChecks = async (): Promise<CheckSnapshot[]> => {
     const run = await runProgram(
-      "gh", ["pr", "view", String(number), "--json", "statusCheckRollup"],
-      config.workspaceRoot, config.maxTimeoutMs, config.maxOutputBytes,
+      "gh",
+      ["pr", "view", String(number), "--json", "statusCheckRollup"],
+      config.workspaceRoot,
+      config.maxTimeoutMs,
+      config.maxOutputBytes,
     );
     if (run.exitCode !== 0) {
       lastSpawnError = firstLine(run.stderr || run.stdout) || "gh pr view failed";
@@ -931,46 +1322,71 @@ async function ghChecksAwaitToolImpl(
   };
 
   if (signal?.aborted === true) {
-    return output("gh_checks_await", "partial", `CANCELLED pr=${number}`, "", { pr: number, state: "cancelled", truncated: false });
+    return output("gh_checks_await", "partial", `CANCELLED pr=${number}`, "", {
+      pr: number,
+      state: "cancelled",
+      truncated: false,
+    });
   }
 
-  const abortPromise = signal === undefined
-    ? undefined
-    : new Promise<"cancelled">((resolve) => signal.addEventListener("abort", () => resolve("cancelled"), { once: true }));
+  const abortPromise =
+    signal === undefined
+      ? undefined
+      : new Promise<"cancelled">((resolve) =>
+          signal.addEventListener("abort", () => resolve("cancelled"), { once: true }),
+        );
 
   const waitPromise = waitUntilChanged({ fetchChecks, policy: config.await, timeoutMs });
   const result = abortPromise === undefined ? await waitPromise : await Promise.race([waitPromise, abortPromise]);
 
   if (result === "cancelled") {
     telemetry?.recordAwait({ pollCount: 0, elapsedMs: 0, stateChanges: 0, avoidedResponses: 0, outcome: "cancelled" });
-    return output("gh_checks_await", "partial", `CANCELLED pr=${number}`, "", { pr: number, state: "cancelled", truncated: false });
+    return output("gh_checks_await", "partial", `CANCELLED pr=${number}`, "", {
+      pr: number,
+      state: "cancelled",
+      truncated: false,
+    });
   }
 
   const avoidedResponses = Math.max(0, result.pollCount - 1);
   telemetry?.recordAwait({
-    pollCount: result.pollCount, elapsedMs: result.elapsedMs, stateChanges: result.changed.length,
-    avoidedResponses, outcome: result.timedOut === true ? "timeout" : "terminal",
+    pollCount: result.pollCount,
+    elapsedMs: result.elapsedMs,
+    stateChanges: result.changed.length,
+    avoidedResponses,
+    outcome: result.timedOut === true ? "timeout" : "terminal",
   });
 
   if (result.timedOut === true) {
     const summary = `TIMEOUT pr=${number} elapsed=${result.elapsedMs}ms checks=${result.checks.length}${lastSpawnError ? ` last_error=${lastSpawnError}` : ""}`;
     return output("gh_checks_await", "partial", summary, "", {
-      pr: number, elapsed_ms: result.elapsedMs, timeout_ms: timeoutMs, state: "timeout",
-      last_known_checks: result.checks, retrieval_hint: `mottainai_gh_checks_await number=${number}`,
+      pr: number,
+      elapsed_ms: result.elapsedMs,
+      timeout_ms: timeoutMs,
+      state: "timeout",
+      last_known_checks: result.checks,
+      retrieval_hint: `mottainai_gh_checks_await number=${number}`,
       truncated: false,
     });
   }
 
   const summary = `pr=${number} changed=${result.changed.length} terminal=${result.terminal}`;
   return output("gh_checks_await", "success", summary, "", {
-    pr: number, changed: result.changed, terminal: result.terminal, checks: result.checks,
+    pr: number,
+    changed: result.changed,
+    terminal: result.terminal,
+    checks: result.checks,
     metrics: { poll_count: result.pollCount, elapsed_ms: result.elapsedMs },
     truncated: false,
   });
 }
 
 function codeView(source: string, mode: string, filePath: string): string {
-  if (mode === "symbols") return source.split("\n").filter((line) => /\b(export\s+)?(async\s+)?(function|class|interface|type|enum|const)\b/.test(line)).join("\n");
+  if (mode === "symbols")
+    return source
+      .split("\n")
+      .filter((line) => /\b(export\s+)?(async\s+)?(function|class|interface|type|enum|const)\b/.test(line))
+      .join("\n");
   const language = detectCodeLanguage({ path: filePath });
   return compressText(source, { json: false, lines: false, code: language ? { language } : false });
 }
@@ -982,12 +1398,20 @@ async function walk(root: string, current: string, remaining: number, outputEntr
     const absolute = path.join(current, entry.name);
     const relative = path.relative(root, absolute) || ".";
     outputEntries.push(`${relative}${entry.isDirectory() ? "/" : ""}`);
-    if (entry.isDirectory() && remaining > 0 && !entry.isSymbolicLink()) await walk(root, absolute, remaining - 1, outputEntries);
+    if (entry.isDirectory() && remaining > 0 && !entry.isSymbolicLink())
+      await walk(root, absolute, remaining - 1, outputEntries);
   }
 }
 
-export interface RgContextLine { line: number; text: string; }
-export interface RgMatch { line: number; text: string; context?: RgContextLine[]; }
+export interface RgContextLine {
+  line: number;
+  text: string;
+}
+export interface RgMatch {
+  line: number;
+  text: string;
+  context?: RgContextLine[];
+}
 
 interface FileGroupState {
   path: string;
@@ -1009,7 +1433,10 @@ export function parseRgJson(raw: string, root: string, contextLines = 0): Array<
   for (const line of raw.split("\n")) {
     if (!line) continue;
     try {
-      const item = JSON.parse(line) as { type?: string; data?: { path?: { text?: string }; line_number?: number; lines?: { text?: string } } };
+      const item = JSON.parse(line) as {
+        type?: string;
+        data?: { path?: { text?: string }; line_number?: number; lines?: { text?: string } };
+      };
       if (item.type !== "match" && item.type !== "context") continue;
       if (!item.data?.path?.text || item.data.line_number === undefined) continue;
       const key = path.relative(root, item.data.path.text);
@@ -1024,7 +1451,10 @@ export function parseRgJson(raw: string, root: string, contextLines = 0): Array<
 
       if (item.type === "match") {
         const match: RgMatch = { line: lineNumber, text };
-        if (state.pendingBefore.length > 0) { match.context = state.pendingBefore; state.pendingBefore = []; }
+        if (state.pendingBefore.length > 0) {
+          match.context = state.pendingBefore;
+          state.pendingBefore = [];
+        }
         state.matches.push(match);
         continue;
       }
@@ -1036,7 +1466,9 @@ export function parseRgJson(raw: string, root: string, contextLines = 0): Array<
       } else {
         state.pendingBefore.push({ line: lineNumber, text });
       }
-    } catch { /* ignore malformed rg event */ }
+    } catch {
+      /* ignore malformed rg event */
+    }
   }
 
   return order.map((key) => {
@@ -1045,14 +1477,21 @@ export function parseRgJson(raw: string, root: string, contextLines = 0): Array<
   });
 }
 
-function firstLine(value: string): string { return value.split("\n").find(Boolean) ?? "command failed"; }
+function firstLine(value: string): string {
+  return value.split("\n").find(Boolean) ?? "command failed";
+}
 
 /** Skip TAP framing so the first actionable failure line, rather than `TAP version`, is surfaced. */
 function firstFailureCause(value: string): string {
-  const lines = value.split("\n").map((line) => line.trim()).filter(Boolean);
+  const lines = value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
   const diagnostic = lines.find((line) => /^(?:error|message):\s*/iu.test(line));
   if (diagnostic !== undefined) return diagnostic.replace(/^(?:error|message):\s*/iu, "");
-  const meaningful = lines.find((line) => !/^TAP version\b/iu.test(line) && !/^# /u.test(line) && !/^1\.\.\d+/u.test(line));
+  const meaningful = lines.find(
+    (line) => !/^TAP version\b/iu.test(line) && !/^# /u.test(line) && !/^1\.\.\d+/u.test(line),
+  );
   return meaningful ?? firstLine(value);
 }
 
@@ -1067,11 +1506,21 @@ async function runShell(command: string, cwd: string, timeoutMs: number, maxOutp
   try {
     const result = await runChild(
       `(${command}) > ${shellQuote(stdoutPath)} 2> ${shellQuote(stderrPath)}`,
-      [], cwd, timeoutMs, maxOutputBytes, true, { stdout: stdoutPath, stderr: stderrPath },
+      [],
+      cwd,
+      timeoutMs,
+      maxOutputBytes,
+      true,
+      { stdout: stdoutPath, stderr: stderrPath },
     );
     const stdout = await readLimited(stdoutPath, maxOutputBytes);
     const stderr = await readLimited(stderrPath, Math.max(0, maxOutputBytes - Buffer.byteLength(stdout.text, "utf8")));
-    return { ...result, stdout: stdout.text, stderr: stderr.text, outputLimit: result.outputLimit || stdout.truncated || stderr.truncated };
+    return {
+      ...result,
+      stdout: stdout.text,
+      stderr: stderr.text,
+      outputLimit: result.outputLimit || stdout.truncated || stderr.truncated,
+    };
   } finally {
     await fs.rm(temporaryDirectory, { recursive: true, force: true });
   }
@@ -1081,7 +1530,9 @@ function isPackageManagerCommand(command: string): boolean {
   return /^\s*(?:npm|pnpm|yarn|bun|npx)(?:\s|$)/.test(command);
 }
 
-function shellQuote(value: string): string { return `'${value.replace(/'/g, "'\\''")}'`; }
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
 
 async function readLimited(filePath: string, maxBytes: number): Promise<{ text: string; truncated: boolean }> {
   try {
@@ -1104,13 +1555,13 @@ function trimIncompleteUtf8(buffer: Buffer): Buffer {
   const maxSequenceLength = 4;
   let leadIndex = buffer.length;
   let scanned = 0;
-  while (leadIndex > 0 && scanned < maxSequenceLength && (buffer[leadIndex - 1] & 0xC0) === 0x80) {
+  while (leadIndex > 0 && scanned < maxSequenceLength && (buffer[leadIndex - 1] & 0xc0) === 0x80) {
     leadIndex -= 1;
     scanned += 1;
   }
   if (leadIndex === 0) return buffer;
   const leadByte = buffer[leadIndex - 1];
-  const sequenceLength = leadByte >= 0xF0 ? 4 : leadByte >= 0xE0 ? 3 : leadByte >= 0xC0 ? 2 : 1;
+  const sequenceLength = leadByte >= 0xf0 ? 4 : leadByte >= 0xe0 ? 3 : leadByte >= 0xc0 ? 2 : 1;
   const availableBytes = buffer.length - (leadIndex - 1);
   if (sequenceLength > 1 && availableBytes < sequenceLength) return buffer.subarray(0, leadIndex - 1);
   return buffer;

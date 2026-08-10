@@ -10,6 +10,7 @@ import type {
   WorktreeRecord,
   RepositoryInstanceRecord,
 } from "../state/store.js";
+import type { LifecycleState } from "../domain/lifecycle.js";
 
 export const GIT_OPERATION_TIMEOUT_MS = 10_000;
 export const GIT_OPERATION_MAX_OUTPUT_BYTES = 64 * 1024;
@@ -93,7 +94,12 @@ function parseStatusEntries(output: string): GitStatusEntry[] {
       originalPath = records[index + 1]!;
       index += 1;
     }
-    entries.push({ path: currentPath, indexStatus, worktreeStatus, ...(originalPath !== undefined ? { originalPath } : {}) });
+    entries.push({
+      path: currentPath,
+      indexStatus,
+      worktreeStatus,
+      ...(originalPath !== undefined ? { originalPath } : {}),
+    });
   }
   return entries;
 }
@@ -159,6 +165,8 @@ export interface WorkflowContextInput {
   worktreeId?: WorktreeId;
   /** Expected current branch. Required for a task without a managed worktree. */
   expectedBranch?: string;
+  /** Lifecycle states accepted by this operation. Defaults to the active state. */
+  allowedLifecycleStates?: readonly LifecycleState[];
 }
 
 export interface VerifiedWorkflowContext {
@@ -200,8 +208,13 @@ export async function verifyWorkflowContext(input: WorkflowContextInput): Promis
 
   const task = input.store.getTask(input.taskId);
   if (task === undefined) return { ok: false, code: "task-not-found", detail: "task was not found in workflow state" };
-  if (task.lifecycleState !== "active")
-    return { ok: false, code: "task-not-active", detail: `task lifecycle is ${task.lifecycleState}, expected active` };
+  const allowedLifecycleStates = input.allowedLifecycleStates ?? ["active"];
+  if (!allowedLifecycleStates.includes(task.lifecycleState))
+    return {
+      ok: false,
+      code: "task-not-active",
+      detail: `task lifecycle is ${task.lifecycleState}, expected ${allowedLifecycleStates.join(" or ")}`,
+    };
   if (task.instanceId !== repositoryInstanceId) {
     return {
       ok: false,

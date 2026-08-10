@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { collectDoctorReport, formatDoctorHuman } from "./commands/doctor.js";
 import { loadConfigSnapshot, loadMottainaiConfig, loadRawConfig, resolveConfigPath, saveRawConfig } from "./config.js";
@@ -17,6 +18,15 @@ import { explainWorkflowPolicy } from "./workflow/policy/explain.js";
 import { resolveEffectiveWorkflowPolicy } from "./workflow/policy/load.js";
 import { createWorkflowHookProvider } from "./workflow/hook-provider.js";
 import type { WorkflowStateStore } from "./workflow/state/store.js";
+import {
+  abandonWorkflowTask,
+  cleanupWorkflowTask,
+  commitWorkflowTask,
+  finishWorkflowTask,
+  openWorkflowTaskPullRequest,
+  pushWorkflowTask,
+} from "./workflow/commands/write.js";
+import type { CleanupPlan } from "./workflow/domain/cleanup-plan.js";
 
 /**
  * upstream と profile の管理 CLI。
@@ -43,6 +53,12 @@ const USAGE = `usage:
   mottainai policy explain [--workspace path]    resolved Git workflow policy (Issue #34)
   mottainai task start <slug> [options]          start a Git workflow task (dedicated worktree/branch)
   mottainai task status [--workspace path]       active Git workflow task for the current worktree
+  mottainai task commit [options]                commit the current managed task
+  mottainai task push [options]                  push the current managed task
+  mottainai task open-pr [options]               create or reuse the task pull request
+  mottainai task finish [options]                transition the task to merged
+  mottainai task abandon [options]               abandon the task
+  mottainai task cleanup [options]               plan and execute safe task cleanup
   mottainai workflow doctor [--workspace path]   read-only workflow reconciliation report
   mottainai hooks install [options]              install owned Claude/Codex pre-operation hooks
   mottainai hooks status                         report managed hook state
@@ -82,6 +98,9 @@ policy/task options:
   --workspace path      Git repository root; defaults to the current Git repository's top level
   --type type           explicit branch type for "task start" (required)
   --issue ref           issue reference for "task start" (required)
+  --task-id id          explicit task id; omitted only when current worktree identity is unique
+  --idempotency-key key retry key for create/cleanup operations
+  --dry-run              validate and show the write plan without mutation
 
 hooks options:
   --client claude|codex|all target one client (default: all)
@@ -106,6 +125,27 @@ function requireFlagValue(argv: string[], name: string): string | undefined {
   const value = flag(argv, name);
   if (value === undefined || value.startsWith("--")) fail(`missing value for --${name}`);
   return value;
+}
+
+function jsonFlag(argv: string[], name: string): unknown {
+  const raw = requireFlagValue(argv, name);
+  if (raw === undefined) return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    fail(`invalid JSON for --${name}`);
+  }
+}
+
+function csvFlag(argv: string[], name: string): string[] | undefined {
+  const raw = requireFlagValue(argv, name);
+  if (raw === undefined) return undefined;
+  const values = raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (values.length === 0) fail(`--${name} must contain at least one value`);
+  return values;
 }
 
 function gitTopLevel(cwd: string): string | undefined {
@@ -157,7 +197,8 @@ function dispatcherCommand(entryPoint: string | undefined): string {
   if (entryPoint === undefined) return "mottainai";
   const resolvedEntryPoint = path.isAbsolute(entryPoint) ? entryPoint : path.resolve(process.cwd(), entryPoint);
   if (resolvedEntryPoint.endsWith(".js")) return `${shellWord(process.execPath)} ${shellWord(resolvedEntryPoint)}`;
-  if (resolvedEntryPoint.endsWith(".ts")) return `${shellWord(process.execPath)} --import tsx ${shellWord(resolvedEntryPoint)}`;
+  if (resolvedEntryPoint.endsWith(".ts"))
+    return `${shellWord(process.execPath)} --import tsx ${shellWord(resolvedEntryPoint)}`;
   return "mottainai";
 }
 
@@ -166,7 +207,7 @@ function dispatcherCommand(entryPoint: string | undefined): string {
  * configuration for this repository. The source-level tool list alone is not a
  * capability claim: an unavailable/invalid runtime must fail open for native
  * operations rather than redirecting the client into a dead end.
-  */
+ */
 function exposedHookTools(workspaceRoot: string, configPath?: string): ReadonlySet<string> {
   try {
     loadConfigSnapshot(configPath, workspaceRoot);
@@ -183,7 +224,11 @@ function hookContext(
   configPath?: string,
 ): HookCommandContext {
   const resolvedConfigPath = configPath === undefined ? undefined : path.resolve(process.cwd(), configPath);
-  const dispatcherArguments = ["--workspace", workspaceRoot, ...(resolvedConfigPath === undefined ? [] : ["--config", resolvedConfigPath])];
+  const dispatcherArguments = [
+    "--workspace",
+    workspaceRoot,
+    ...(resolvedConfigPath === undefined ? [] : ["--config", resolvedConfigPath]),
+  ];
   return {
     workspaceRoot,
     homeDirectory: environment.HOME ?? environment.USERPROFILE ?? workspaceRoot,
@@ -198,7 +243,9 @@ function hookContext(
 
 class CliError extends Error {}
 
-function fail(message: string): never { throw new CliError(message); }
+function fail(message: string): never {
+  throw new CliError(message);
+}
 
 /** 検証エラーは CLI のエラー形式で返す。設定ファイルは不正なら書き換わっていない。 */
 function persist(filePath: string, raw: Record<string, unknown>): void {
@@ -281,209 +328,325 @@ export async function runCli(args: string[]): Promise<number> {
       const dashboard = await startDashboard({
         ...dashboardOptions,
         environment: process.env,
-        browserOpener: dashboardOptions.noOpen
-          ? undefined
-          : (url) => openDashboardBrowser(url, process.platform),
+        browserOpener: dashboardOptions.noOpen ? undefined : (url) => openDashboardBrowser(url, process.platform),
       });
       console.log(`Mottainai dashboard listening at ${dashboard.url}`);
       return 0;
     } else if (command === "serve") {
-  const configIndex = argv.indexOf("--config");
-  if (configIndex !== -1 && argv[configIndex + 1] === undefined) fail("missing value for --config");
-  await runServer(
-    configPath,
-    runtimeOptions.cwd,
-    createRuntimeDiagnostic({ ...runtimeOptions, configPath }),
-    runtimeOptions.environment.HOME ?? runtimeOptions.environment.USERPROFILE,
-  );
-} else if (command === "list") {
-  const filePath = resolveConfigPath(configPath);
-  print(summarize(loadMottainaiConfig(configPath), filePath));
-} else if (command === "inspect") {
-  const name = argv[0];
-  if (name === undefined) fail(USAGE);
-  const config = loadMottainaiConfig(configPath);
-  const upstream = config.mcpServers[name];
-  if (upstream === undefined) fail(`unknown upstream: ${name}`);
-  print({ name, ...upstream });
-} else if (command === "add") {
-  const name = argv[0];
-  const commandValue = flag(argv, "command");
-  const urlValue = flag(argv, "url");
-  const transport = flag(argv, "transport") ?? (urlValue === undefined ? "stdio" : "streamableHttp");
-  if (transport !== "stdio" && transport !== "streamableHttp") fail(USAGE);
-  if (name === undefined || name.startsWith("--") || (transport === "stdio" ? commandValue === undefined : urlValue === undefined)) {
-    fail(USAGE);
-  }
-  const { filePath, raw } = loadRawConfig(configPath);
-  const registry = servers(raw);
-  if (registry[name] !== undefined) fail(`upstream already exists: ${name}`);
-  const args = flag(argv, "args")?.split(" ").filter(Boolean);
-  const capabilities = flag(argv, "capabilities")?.split(",").map((value) => value.trim()).filter(Boolean);
-  const priority = flag(argv, "priority");
-  const authProfile = flag(argv, "auth-profile");
-  if (authProfile !== undefined && transport !== "streamableHttp") fail(USAGE);
-  registry[name] = {
-    ...(transport === "stdio" ? { command: commandValue } : { transport, url: urlValue }),
-    ...(authProfile === undefined ? {} : { auth: { type: "oauth", profile: authProfile } }),
-    ...(args !== undefined && args.length > 0 ? { args } : {}),
-    ...(flag(argv, "cwd") !== undefined ? { cwd: flag(argv, "cwd") } : {}),
-    ...(flag(argv, "profile") !== undefined ? { profile: flag(argv, "profile") } : {}),
-    ...(priority !== undefined ? { priority: Number(priority) } : {}),
-    ...(capabilities !== undefined && capabilities.length > 0 ? { capabilities } : {}),
-    ...(hasFlag(argv, "disabled") ? { enabled: false } : {}),
-  };
-  persist(filePath, raw);
-  print({ added: name, config_file: filePath, upstream: registry[name] });
-} else if (command === "remove") {
-  const name = argv[0];
-  if (name === undefined) fail(USAGE);
-  const { filePath, raw } = loadRawConfig(configPath);
-  upstreamOrFail(raw, name);
-  delete servers(raw)[name];
-  persist(filePath, raw);
-  print({ removed: name, config_file: filePath });
-} else if (command === "enable" || command === "disable") {
-  const name = argv[0];
-  if (name === undefined) fail(USAGE);
-  const { filePath, raw } = loadRawConfig(configPath);
-  const upstream = upstreamOrFail(raw, name);
-  upstream.enabled = command === "enable";
-  persist(filePath, raw);
-  print({ [command === "enable" ? "enabled" : "disabled"]: name, config_file: filePath });
-} else if (command === "profile") {
-  const action = argv[0];
-  const { filePath, raw } = loadRawConfig(configPath);
-  if (action === "use") {
-    const profile = argv[1];
-    if (profile === undefined) fail(USAGE);
-    gateway(raw).activeProfile = profile;
-  } else if (action === "clear") {
-    delete gateway(raw).activeProfile;
-  } else {
-    fail(USAGE);
-  }
-  persist(filePath, raw);
-  print({ active_profile: gateway(raw).activeProfile ?? null, config_file: filePath });
-} else if (command === "doctor") {
-  const report = collectDoctorReport({ configPath, runtime: runtimeOptions });
-  if (hasFlag(argv, "json")) print(report);
-  else console.log(formatDoctorHuman(report));
-  return report.ok ? 0 : 1;
-} else if (command === "workflow" && argv[0] === "doctor") {
-  const workspace = resolveWorkflowWorkspace(argv);
-  const store = await openWorkflowStateStore();
-  try {
-    const report = await collectWorkflowDoctorReport({ workspaceRoot: workspace, store });
-    print({ workspace, ...report });
-    return report.ok ? 0 : 1;
-  } finally {
-    store.close();
-  }
-} else if (command === "hooks") {
-  const action = argv[0];
-  if (action === "dispatch") {
-    const client = flag(argv, "client");
-    if (client !== "claude" && client !== "codex") fail("hooks dispatch requires --client claude or codex");
-    const workspace = resolveWorkflowWorkspace(argv);
-    let payload: unknown;
-    try {
-      payload = JSON.parse(await readStdin());
-    } catch {
-      payload = undefined;
-    }
-    const result = await dispatchClientHook(
-      client,
-      payload,
-      hookContext(workspace, runtimeOptions.environment, runtimeOptions.entryPoint, configPath),
-    );
-    if (result.stdout.length > 0) process.stdout.write(result.stdout);
-    if (result.stderr.length > 0) process.stderr.write(result.stderr);
-    return result.exitCode;
-  }
-  if (action === undefined) fail(USAGE);
-  const workspace = resolveWorkflowWorkspace(argv);
-  const result = runManagedHooksCommand(
-    action,
-    argv.slice(1),
-    hookContext(workspace, runtimeOptions.environment, runtimeOptions.entryPoint, configPath),
-  );
-  print(result);
-  return result.ok ? 0 : 1;
-} else if (command === "policy" && argv[0] === "explain") {
-  const workspace = resolveWorkflowWorkspace(argv);
-  const result = explainWorkflowPolicy(workspace);
-  if (!result.ok) {
-    print({ ok: false, workspace, error: result.reason });
-    return 1;
-  }
-  print({ ok: true, workspace, ...result.explained });
-} else if (command === "task" && argv[0] === "start") {
-  const taskSlug = argv[1];
-  if (taskSlug === undefined || taskSlug.startsWith("--")) fail(USAGE);
-  validateTaskSlug(taskSlug);
-  const workspace = resolveWorkflowWorkspace(argv);
-  const branchType = requireFlagValue(argv, "type");
-  if (branchType === undefined) fail("missing value for --type");
-  const issueRef = requireFlagValue(argv, "issue");
-  if (issueRef === undefined) fail("missing value for --issue");
-  validateIssueRef(issueRef);
-  const policyResult = resolveEffectiveWorkflowPolicy(workspace);
-  if (!policyResult.ok) {
-    print({ ok: false, workspace, error: policyResult.reason });
-    return 1;
-  }
-  const store = await openWorkflowStateStore();
-  try {
-    // `skipWorktree` を渡さない — task lifecycle は常に専用 worktree/branch を作る
-    // （main を含む現在の branch がそのまま work branch になることはない）。
-    const started = await startTask({ workspaceRoot: workspace, store, policy: policyResult.document, taskSlug, branchType, issueRef });
-    if (!started.ok) {
-      print({ ok: false, workspace, reason: started.reason, error: started.detail });
-      return 1;
-    }
-    const status = getTaskStatus(store, started.task.taskId);
-    print({
-      ok: true,
-      workspace,
-      task: started.task,
-      worktree: started.worktree,
-      warnings: started.warnings,
-      pullRequests: status?.pullRequests ?? [],
-      currentState: status?.currentState ?? started.task.lifecycleState,
-      allowedNextTransitions: status?.allowedNextTransitions ?? [],
-      invalidTransitions: status?.invalidTransitions ?? [],
-    });
-  } finally {
-    store.close();
-  }
-} else if (command === "task" && argv[0] === "status") {
-  const workspace = resolveWorkflowWorkspace(argv);
-  const store = await openWorkflowStateStore();
-  try {
-    const result = await getTaskStatusForWorkspace(workspace, store);
-    if (!result.ok) {
-      print({ ok: false, workspace, error: result.reason });
-      return 1;
-    }
-    const { ok: _ok, ...rest } = result;
-    const statusDetails = result.active
-      ? {
-          task: result.status.task,
-          worktrees: result.status.worktrees,
-          pullRequests: result.status.pullRequests,
-          currentState: result.status.currentState,
-          allowedNextTransitions: result.status.allowedNextTransitions,
-          invalidTransitions: result.status.invalidTransitions,
+      const configIndex = argv.indexOf("--config");
+      if (configIndex !== -1 && argv[configIndex + 1] === undefined) fail("missing value for --config");
+      await runServer(
+        configPath,
+        runtimeOptions.cwd,
+        createRuntimeDiagnostic({ ...runtimeOptions, configPath }),
+        runtimeOptions.environment.HOME ?? runtimeOptions.environment.USERPROFILE,
+      );
+    } else if (command === "list") {
+      const filePath = resolveConfigPath(configPath);
+      print(summarize(loadMottainaiConfig(configPath), filePath));
+    } else if (command === "inspect") {
+      const name = argv[0];
+      if (name === undefined) fail(USAGE);
+      const config = loadMottainaiConfig(configPath);
+      const upstream = config.mcpServers[name];
+      if (upstream === undefined) fail(`unknown upstream: ${name}`);
+      print({ name, ...upstream });
+    } else if (command === "add") {
+      const name = argv[0];
+      const commandValue = flag(argv, "command");
+      const urlValue = flag(argv, "url");
+      const transport = flag(argv, "transport") ?? (urlValue === undefined ? "stdio" : "streamableHttp");
+      if (transport !== "stdio" && transport !== "streamableHttp") fail(USAGE);
+      if (
+        name === undefined ||
+        name.startsWith("--") ||
+        (transport === "stdio" ? commandValue === undefined : urlValue === undefined)
+      ) {
+        fail(USAGE);
+      }
+      const { filePath, raw } = loadRawConfig(configPath);
+      const registry = servers(raw);
+      if (registry[name] !== undefined) fail(`upstream already exists: ${name}`);
+      const args = flag(argv, "args")?.split(" ").filter(Boolean);
+      const capabilities = flag(argv, "capabilities")
+        ?.split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const priority = flag(argv, "priority");
+      const authProfile = flag(argv, "auth-profile");
+      if (authProfile !== undefined && transport !== "streamableHttp") fail(USAGE);
+      registry[name] = {
+        ...(transport === "stdio" ? { command: commandValue } : { transport, url: urlValue }),
+        ...(authProfile === undefined ? {} : { auth: { type: "oauth", profile: authProfile } }),
+        ...(args !== undefined && args.length > 0 ? { args } : {}),
+        ...(flag(argv, "cwd") !== undefined ? { cwd: flag(argv, "cwd") } : {}),
+        ...(flag(argv, "profile") !== undefined ? { profile: flag(argv, "profile") } : {}),
+        ...(priority !== undefined ? { priority: Number(priority) } : {}),
+        ...(capabilities !== undefined && capabilities.length > 0 ? { capabilities } : {}),
+        ...(hasFlag(argv, "disabled") ? { enabled: false } : {}),
+      };
+      persist(filePath, raw);
+      print({ added: name, config_file: filePath, upstream: registry[name] });
+    } else if (command === "remove") {
+      const name = argv[0];
+      if (name === undefined) fail(USAGE);
+      const { filePath, raw } = loadRawConfig(configPath);
+      upstreamOrFail(raw, name);
+      delete servers(raw)[name];
+      persist(filePath, raw);
+      print({ removed: name, config_file: filePath });
+    } else if (command === "enable" || command === "disable") {
+      const name = argv[0];
+      if (name === undefined) fail(USAGE);
+      const { filePath, raw } = loadRawConfig(configPath);
+      const upstream = upstreamOrFail(raw, name);
+      upstream.enabled = command === "enable";
+      persist(filePath, raw);
+      print({ [command === "enable" ? "enabled" : "disabled"]: name, config_file: filePath });
+    } else if (command === "profile") {
+      const action = argv[0];
+      const { filePath, raw } = loadRawConfig(configPath);
+      if (action === "use") {
+        const profile = argv[1];
+        if (profile === undefined) fail(USAGE);
+        gateway(raw).activeProfile = profile;
+      } else if (action === "clear") {
+        delete gateway(raw).activeProfile;
+      } else {
+        fail(USAGE);
+      }
+      persist(filePath, raw);
+      print({ active_profile: gateway(raw).activeProfile ?? null, config_file: filePath });
+    } else if (command === "doctor") {
+      const report = collectDoctorReport({ configPath, runtime: runtimeOptions });
+      if (hasFlag(argv, "json")) print(report);
+      else console.log(formatDoctorHuman(report));
+      return report.ok ? 0 : 1;
+    } else if (command === "workflow" && argv[0] === "doctor") {
+      const workspace = resolveWorkflowWorkspace(argv);
+      const store = await openWorkflowStateStore();
+      try {
+        const report = await collectWorkflowDoctorReport({ workspaceRoot: workspace, store });
+        print({ workspace, ...report });
+        return report.ok ? 0 : 1;
+      } finally {
+        store.close();
+      }
+    } else if (command === "hooks") {
+      const action = argv[0];
+      if (action === "dispatch") {
+        const client = flag(argv, "client");
+        if (client !== "claude" && client !== "codex") fail("hooks dispatch requires --client claude or codex");
+        const workspace = resolveWorkflowWorkspace(argv);
+        let payload: unknown;
+        try {
+          payload = JSON.parse(await readStdin());
+        } catch {
+          payload = undefined;
         }
-      : {};
-    print({ ok: true, workspace, ...rest, ...statusDetails });
-  } finally {
-    store.close();
-  }
-} else {
-  fail(USAGE);
-}
+        const result = await dispatchClientHook(
+          client,
+          payload,
+          hookContext(workspace, runtimeOptions.environment, runtimeOptions.entryPoint, configPath),
+        );
+        if (result.stdout.length > 0) process.stdout.write(result.stdout);
+        if (result.stderr.length > 0) process.stderr.write(result.stderr);
+        return result.exitCode;
+      }
+      if (action === undefined) fail(USAGE);
+      const workspace = resolveWorkflowWorkspace(argv);
+      const result = runManagedHooksCommand(
+        action,
+        argv.slice(1),
+        hookContext(workspace, runtimeOptions.environment, runtimeOptions.entryPoint, configPath),
+      );
+      print(result);
+      return result.ok ? 0 : 1;
+    } else if (command === "policy" && argv[0] === "explain") {
+      const workspace = resolveWorkflowWorkspace(argv);
+      const result = explainWorkflowPolicy(workspace);
+      if (!result.ok) {
+        print({ ok: false, workspace, error: result.reason });
+        return 1;
+      }
+      print({ ok: true, workspace, ...result.explained });
+    } else if (command === "task" && argv[0] === "start") {
+      const taskSlug = argv[1];
+      if (taskSlug === undefined || taskSlug.startsWith("--")) fail(USAGE);
+      validateTaskSlug(taskSlug);
+      const workspace = resolveWorkflowWorkspace(argv);
+      const branchType = requireFlagValue(argv, "type");
+      if (branchType === undefined) fail("missing value for --type");
+      const issueRef = requireFlagValue(argv, "issue");
+      if (issueRef === undefined) fail("missing value for --issue");
+      validateIssueRef(issueRef);
+      const policyResult = resolveEffectiveWorkflowPolicy(workspace);
+      if (!policyResult.ok) {
+        print({ ok: false, workspace, error: policyResult.reason });
+        return 1;
+      }
+      const store = await openWorkflowStateStore();
+      try {
+        // `skipWorktree` を渡さない — task lifecycle は常に専用 worktree/branch を作る
+        // （main を含む現在の branch がそのまま work branch になることはない）。
+        const started = await startTask({
+          workspaceRoot: workspace,
+          store,
+          policy: policyResult.document,
+          taskSlug,
+          branchType,
+          issueRef,
+          idempotencyKey: flag(argv, "idempotency-key"),
+        });
+        if (!started.ok) {
+          print({ ok: false, workspace, reason: started.reason, error: started.detail });
+          return 1;
+        }
+        const status = getTaskStatus(store, started.task.taskId);
+        print({
+          ok: true,
+          workspace,
+          task: started.task,
+          worktree: started.worktree,
+          warnings: started.warnings,
+          pullRequests: status?.pullRequests ?? [],
+          currentState: status?.currentState ?? started.task.lifecycleState,
+          allowedNextTransitions: status?.allowedNextTransitions ?? [],
+          invalidTransitions: status?.invalidTransitions ?? [],
+        });
+      } finally {
+        store.close();
+      }
+    } else if (command === "task" && argv[0] === "status") {
+      const workspace = resolveWorkflowWorkspace(argv);
+      const store = await openWorkflowStateStore();
+      try {
+        const result = await getTaskStatusForWorkspace(workspace, store);
+        if (!result.ok) {
+          print({ ok: false, workspace, error: result.reason });
+          return 1;
+        }
+        const { ok: _ok, ...rest } = result;
+        const statusDetails = result.active
+          ? {
+              task: result.status.task,
+              worktrees: result.status.worktrees,
+              pullRequests: result.status.pullRequests,
+              currentState: result.status.currentState,
+              allowedNextTransitions: result.status.allowedNextTransitions,
+              invalidTransitions: result.status.invalidTransitions,
+            }
+          : {};
+        print({ ok: true, workspace, ...rest, ...statusDetails });
+      } finally {
+        store.close();
+      }
+    } else if (
+      command === "task" &&
+      ["commit", "push", "open-pr", "finish", "abandon", "cleanup"].includes(argv[0] ?? "")
+    ) {
+      const action = argv[0]!;
+      const workspace = resolveWorkflowWorkspace(argv);
+      const policyResult = resolveEffectiveWorkflowPolicy(workspace);
+      if (!policyResult.ok) {
+        print({ ok: false, workspace, error: policyResult.reason });
+        return 1;
+      }
+      const store = await openWorkflowStateStore();
+      const taskId = requireFlagValue(argv, "task-id");
+      const selector = { workspaceRoot: workspace, store, ...(taskId === undefined ? {} : { taskId }) };
+      const dryRun = hasFlag(argv, "dry-run");
+      try {
+        if (action === "commit") {
+          const subject = requireFlagValue(argv, "message");
+          if (subject === undefined) fail("missing value for --message");
+          const result = await commitWorkflowTask({
+            ...selector,
+            policy: policyResult.document,
+            message: {
+              subject,
+              type: flag(argv, "commit-type"),
+              scope: flag(argv, "scope"),
+              body: flag(argv, "message-body"),
+              footer: flag(argv, "message-footer"),
+              breaking: hasFlag(argv, "breaking"),
+            },
+            includePaths: csvFlag(argv, "include"),
+            dryRun,
+          });
+          print({ workspace, ...result });
+          return result.ok ? 0 : 1;
+        }
+        if (action === "push") {
+          const result = await pushWorkflowTask({
+            ...selector,
+            policy: policyResult.document,
+            remote: flag(argv, "remote"),
+            remoteBranch: flag(argv, "remote-branch"),
+            force: hasFlag(argv, "force"),
+            createUpstream: hasFlag(argv, "create-upstream"),
+            allowRemoteBehind: hasFlag(argv, "allow-remote-behind"),
+            allowDiverged: hasFlag(argv, "allow-diverged"),
+            dryRun,
+          });
+          print({ workspace, ...result });
+          return result.ok ? 0 : 1;
+        }
+        if (action === "open-pr") {
+          const title = requireFlagValue(argv, "title");
+          if (title === undefined) fail("missing value for --title");
+          const sectionsValue = jsonFlag(argv, "sections-json");
+          if (
+            sectionsValue !== undefined &&
+            (typeof sectionsValue !== "object" || sectionsValue === null || Array.isArray(sectionsValue))
+          ) {
+            fail("--sections-json must be a JSON object");
+          }
+          const result = await openWorkflowTaskPullRequest({
+            ...selector,
+            policy: policyResult.document,
+            title,
+            repository: flag(argv, "repo"),
+            issueReference: flag(argv, "issue-reference"),
+            sections: sectionsValue as Record<string, string | readonly string[]> | undefined,
+            acceptanceCriteria: csvFlag(argv, "acceptance-criteria"),
+            providerDraft: hasFlag(argv, "provider-draft"),
+            dryRun,
+          });
+          print({ workspace, ...result });
+          return result.ok ? 0 : 1;
+        }
+        if (action === "finish") {
+          const result = await finishWorkflowTask({ ...selector, policy: policyResult.document, dryRun });
+          print({ workspace, ...result });
+          return result.ok ? 0 : 1;
+        }
+        if (action === "abandon") {
+          const result = await abandonWorkflowTask({ ...selector, policy: policyResult.document, dryRun });
+          print({ workspace, ...result });
+          return result.ok ? 0 : 1;
+        }
+
+        const planPath = requireFlagValue(argv, "plan-file");
+        const plan =
+          planPath === undefined
+            ? undefined
+            : (JSON.parse(fs.readFileSync(path.resolve(process.cwd(), planPath), "utf8")) as CleanupPlan);
+        const result = await cleanupWorkflowTask({
+          ...selector,
+          policy: policyResult.document,
+          dryRun,
+          idempotencyKey: flag(argv, "idempotency-key"),
+          plan,
+        });
+        print({ workspace, ...result });
+        return result.ok ? 0 : 1;
+      } finally {
+        store.close();
+      }
+    } else {
+      fail(USAGE);
+    }
     return 0;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -509,14 +672,18 @@ export async function runCli(args: string[]): Promise<number> {
     } else if (args[0] === "init" && hasFlag(args, "json")) {
       print({ ok: false, error: message });
     } else {
-      console.error(args[0] === "doctor"
-        ? `${message}\n\nRuntime diagnostic:\n${formatRuntimeDiagnosticHuman(createRuntimeDiagnostic({
-          cwd: process.cwd(),
-          environment: process.env,
-          entryPoint: process.argv[1],
-          configPath: flag(args, "config"),
-        }))}`
-        : message);
+      console.error(
+        args[0] === "doctor"
+          ? `${message}\n\nRuntime diagnostic:\n${formatRuntimeDiagnosticHuman(
+              createRuntimeDiagnostic({
+                cwd: process.cwd(),
+                environment: process.env,
+                entryPoint: process.argv[1],
+                configPath: flag(args, "config"),
+              }),
+            )}`
+          : message,
+      );
     }
     return 1;
   }

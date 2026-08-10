@@ -508,15 +508,30 @@ export class GithubAdapter {
       };
     }
     const selectedRepository = repository ?? this.defaultRepository ?? { provider: GITHUB_PROVIDER, id: "unknown" };
+    const repositoryFlag = repositoryArgument(selectedRepository);
+    if (repositoryFlag === undefined) {
+      return {
+        ok: false,
+        error: {
+          provider: GITHUB_PROVIDER,
+          operation: "pull-request-view",
+          code: "invalid-input",
+          message:
+            "pull-request observation requires an explicit GitHub owner/name; refusing to fall back to the cwd repository",
+          retryable: false,
+          attempts: 0,
+        },
+      };
+    }
     const args = [
       "pr",
       "view",
       normalizedReference,
       "--json",
       "number,state,isDraft,mergedAt,url,headRefName,headRefOid,baseRefName,baseRefOid,repository",
+      "--repo",
+      repositoryFlag,
     ];
-    const repositoryFlag = repositoryArgument(selectedRepository);
-    if (repositoryFlag !== undefined) args.push("--repo", repositoryFlag);
     const command = await this.runGh(args, "pull-request-view", true);
     if (!command.ok) return command;
     const parsedJson = parseJson(command.stdout);
@@ -730,6 +745,17 @@ export async function openWorkflowPullRequest(input: OpenWorkflowPullRequestInpu
   const existingRecords = input.store.listPullRequestRecordsForTask(input.taskId);
   const existing = existingRecords[0];
   if (existing !== undefined) {
+    if (
+      (existing.instanceId !== undefined && existing.instanceId !== task.instanceId) ||
+      existing.provider !== GITHUB_PROVIDER ||
+      existing.repositoryId !== input.repository.id
+    ) {
+      return {
+        ok: false,
+        reason: "local-state-write-failed",
+        detail: "existing pull-request record does not match the requested repository identity",
+      };
+    }
     let reconciledTask = task;
     if (task.lifecycleState === "pushed") {
       const reconciled = transitionTask(input.store, input.taskId, "pull-request-open");

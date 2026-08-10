@@ -319,6 +319,18 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 12,
+    description: "workflow: idempotent task-start keys",
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE tasks ADD COLUMN start_idempotency_key TEXT;
+        CREATE UNIQUE INDEX idx_tasks_start_idempotency
+          ON tasks (instance_id, start_idempotency_key)
+          WHERE start_idempotency_key IS NOT NULL;
+      `);
+    },
+  },
 ];
 
 function currentVersion(db: DatabaseSync): number {

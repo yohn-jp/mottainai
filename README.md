@@ -69,21 +69,21 @@ callTool result
 
 ### Architecture layers
 
-| Layer | File(s) | Role |
-|---|---|---|
-| Startup | `src/index.ts` | load config → connect upstreams → run stdio server |
-| Relay | `src/proxy.ts` | routes `listTools` / `callTool`, applies the `<upstream>__<tool>` prefix |
-| Upstream connections | `src/upstream.ts` | spawns/connects upstream MCP servers (stdio or Streamable HTTP) |
-| Config | `src/config.ts` | loads `mottainai.config.json` (`mcpServers`, `profiles`, `gateway`) |
-| Compression | `src/compress/*` | ANSI strip, JSON sampling, line filter, known-CLI rules, code-skeleton (tree-sitter), tool-description compression |
-| Context Runtime | `src/context-runtime/*` | projects local results, applies deterministic retention priority and final token/byte budget |
-| Upstream execution | `src/upstream-call.ts` | shared start → call → log → compress → retain-original pipeline |
-| Tool catalog | `src/catalog.ts`, `src/broker.ts` | builds searchable `CatalogTool` entries; profile-based surface narrowing |
-| Adaptive routing | `src/adaptive/*` | task classification intake, capability→provider index, trace recording, stats, policy proposals |
-| Original retention | `src/retrieve.ts` | TTL-bounded in-memory store for pre-compression text (15 min / 200 entries by default) |
-| Local tools | `src/local-tools.ts` | gateway's own tools: `mottainai_exec`, `mottainai_read`, `mottainai_search`, `mottainai_list`, etc. |
-| Read Governor | `src/context-runtime/read-policy.ts`, `src/local-tools.ts` | progressive source disclosure for `mottainai_read`; `off` / `observe` / `warn` / `enforce` |
-| Logging | `src/logging.ts` | writes pre-compression raw records to `.mottainai/log/*.jsonl` |
+| Layer                | File(s)                                                    | Role                                                                                                               |
+| -------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Startup              | `src/index.ts`                                             | load config → connect upstreams → run stdio server                                                                 |
+| Relay                | `src/proxy.ts`                                             | routes `listTools` / `callTool`, applies the `<upstream>__<tool>` prefix                                           |
+| Upstream connections | `src/upstream.ts`                                          | spawns/connects upstream MCP servers (stdio or Streamable HTTP)                                                    |
+| Config               | `src/config.ts`                                            | loads `mottainai.config.json` (`mcpServers`, `profiles`, `gateway`)                                                |
+| Compression          | `src/compress/*`                                           | ANSI strip, JSON sampling, line filter, known-CLI rules, code-skeleton (tree-sitter), tool-description compression |
+| Context Runtime      | `src/context-runtime/*`                                    | projects local results, applies deterministic retention priority and final token/byte budget                       |
+| Upstream execution   | `src/upstream-call.ts`                                     | shared start → call → log → compress → retain-original pipeline                                                    |
+| Tool catalog         | `src/catalog.ts`, `src/broker.ts`                          | builds searchable `CatalogTool` entries; profile-based surface narrowing                                           |
+| Adaptive routing     | `src/adaptive/*`                                           | task classification intake, capability→provider index, trace recording, stats, policy proposals                    |
+| Original retention   | `src/retrieve.ts`                                          | TTL-bounded in-memory store for pre-compression text (15 min / 200 entries by default)                             |
+| Local tools          | `src/local-tools.ts`                                       | gateway's own tools: `mottainai_exec`, `mottainai_read`, `mottainai_search`, `mottainai_list`, etc.                |
+| Read Governor        | `src/context-runtime/read-policy.ts`, `src/local-tools.ts` | progressive source disclosure for `mottainai_read`; `off` / `observe` / `warn` / `enforce`                         |
+| Logging              | `src/logging.ts`                                           | writes pre-compression raw records to `.mottainai/log/*.jsonl`                                                     |
 
 Context Runtime treats model context as a managed working set, not a byte
 stream to be maximally compressed. The durable rationale is in
@@ -95,11 +95,11 @@ the supporting [2026-08-08 Headroom/Codex experiment](docs/experiments/2026-08-0
 Mottainai speaks standard MCP over stdio, so any MCP-compatible client
 should be able to use it. Actual verification is limited so far:
 
-| Client | stdio connection | Brokered/Materialized mode | Notes |
-|---|---|---|---|
-| Claude Code | ✅ verified | not yet verified | reconnect via `/mcp reconnect mottainai` after config changes |
-| Codex | not yet verified | not yet verified | |
-| Cursor | not yet verified | not yet verified | |
+| Client      | stdio connection | Brokered/Materialized mode | Notes                                                         |
+| ----------- | ---------------- | -------------------------- | ------------------------------------------------------------- |
+| Claude Code | ✅ verified      | not yet verified           | reconnect via `/mcp reconnect mottainai` after config changes |
+| Codex       | not yet verified | not yet verified           |                                                               |
+| Cursor      | not yet verified | not yet verified           |                                                               |
 
 "Not yet verified" means untested, not known-broken. Reports from other
 clients are welcome via PR.
@@ -225,32 +225,47 @@ Repository Model provider with `--provider live` or
 `MOTTAINAI_DASHBOARD_PROVIDER=live`; live compilation reads current TypeScript
 facts and reports partial, stale, or unavailable integrity state explicitly.
 
-### Git workflow task lifecycle (read-oriented exposure, Issue #39)
+### Git workflow task lifecycle (Issue #40)
 
 Behind `gateway.workflowTasks: true` in `mottainai.config.json`, the MCP
-tools `mottainai_workflow_policy_explain`, `mottainai_workflow_task_start`,
-`mottainai_workflow_task_status`, and `mottainai_workflow_doctor` expose the
-Git workflow engine (`src/workflow/*`, Issue #28) for dogfooding. `task
-start` always creates a governance-validated `<type>/<issue>-<slug>` branch
-below the canonical repository root's `.mottainai/worktrees/` directory —
-never the current branch itself, even on `main`; `branchType` is restricted
-to the branch types the repository's own governance rules actually declare
-(`feat`, `fix`, `docs`, `refactor`, `test`, `chore` by default). This is
-observation/dogfooding only: no commit/push/PR/cleanup exposure yet, and
-Mottainai's own managed write/edit tools don't yet enforce protected-branch
-rules (generated `pre-commit`/`pre-push` Git hooks may already block
-protected-branch operations independently of this; see
-`docs/workflow-policy.md`). The former `mottainai_worktree_new` tool has
-been removed; use `mottainai_workflow_task_start` instead.
+tools are:
 
-The same four operations are available from the CLI, independent of
+| Tool                                | Operation                                       |
+| ----------------------------------- | ----------------------------------------------- |
+| `mottainai_workflow_policy_explain` | resolve policy (read-only)                      |
+| `mottainai_workflow_task_start`     | reserve and create the managed task worktree    |
+| `mottainai_workflow_task_status`    | inspect the current task (read-only)            |
+| `mottainai_workflow_doctor`         | reconcile and report workflow state (read-only) |
+| `mottainai_workflow_task_commit`    | validate and commit                             |
+| `mottainai_workflow_task_push`      | validate and push                               |
+| `mottainai_workflow_task_open_pr`   | create or reuse a GitHub pull request           |
+| `mottainai_workflow_task_finish`    | transition a merged task                        |
+| `mottainai_workflow_task_abandon`   | abandon a task                                  |
+| `mottainai_workflow_task_cleanup`   | plan, revalidate, and safely clean up           |
+
+Write tools return the common `OUTPUT_SCHEMA` envelope, mark destructive
+operations accurately, and support `dryRun` where a plan is meaningful.
+Task start uses atomic branch/worktree reservations; pull-request records and
+cleanup leases provide retry-safe idempotency. Every managed command, Git
+write, commit, push, and task transition resolves repository/worktree identity
+and the workflow protected-branch decision before mutation. The former
+`mottainai_worktree_new` tool has been removed; use
+`mottainai_workflow_task_start` instead.
+
+The same lifecycle operations are available from the CLI, independent of
 `mottainai.config.json` (they act on a Git repository, given by `--workspace`
 or the current Git repository's top level):
 
 ```bash
 npx -y mottainai policy explain [--workspace path]
-npx -y mottainai task start <slug> --type type --issue ref [--workspace path]
+npx -y mottainai task start <slug> --type type --issue ref [--idempotency-key key] [--workspace path]
 npx -y mottainai task status [--workspace path]
+npx -y mottainai task commit --message subject [--workspace path]
+npx -y mottainai task push [--workspace path]
+npx -y mottainai task open-pr --title title [--repo owner/name] [--workspace path]
+npx -y mottainai task finish [--workspace path]
+npx -y mottainai task abandon [--workspace path]
+npx -y mottainai task cleanup [--workspace path]
 npx -y mottainai workflow doctor [--workspace path]
 ```
 
@@ -387,11 +402,11 @@ guardrail policy — see [docs/workflow-policy.md](docs/workflow-policy.md).
 As the number of upstream tools grows, listing everything up front burns
 context on its own. Mottainai exposes a searchable catalog instead:
 
-| Tool | Purpose |
-|---|---|
-| `mottainai_tool_search` | search the catalog by capability / tag / name / description |
-| `mottainai_tool_describe` | fetch a tool's original description and input schema, unmodified |
-| `mottainai_tool_call` | call a tool by catalog id, through the same compression/retention pipeline as prefixed calls |
+| Tool                      | Purpose                                                                                      |
+| ------------------------- | -------------------------------------------------------------------------------------------- |
+| `mottainai_tool_search`   | search the catalog by capability / tag / name / description                                  |
+| `mottainai_tool_describe` | fetch a tool's original description and input schema, unmodified                             |
+| `mottainai_tool_call`     | call a tool by catalog id, through the same compression/retention pipeline as prefixed calls |
 
 Search uses deterministic scoring, not a semantic/embedding model.
 
