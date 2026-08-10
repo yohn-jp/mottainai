@@ -730,6 +730,17 @@ export async function openWorkflowPullRequest(input: OpenWorkflowPullRequestInpu
   const existingRecords = input.store.listPullRequestRecordsForTask(input.taskId);
   const existing = existingRecords[0];
   if (existing !== undefined) {
+    if (
+      (existing.instanceId !== undefined && existing.instanceId !== task.instanceId) ||
+      existing.provider !== GITHUB_PROVIDER ||
+      existing.repositoryId !== input.repository.id
+    ) {
+      return {
+        ok: false,
+        reason: "local-state-write-failed",
+        detail: "existing pull-request record does not match the requested repository identity",
+      };
+    }
     let reconciledTask = task;
     if (task.lifecycleState === "pushed") {
       const reconciled = transitionTask(input.store, input.taskId, "pull-request-open");

@@ -4,22 +4,50 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { allLocalTools, callLocalTool, localTools, localToolsFor, parseIssueViewOutput, parseRgJson } from "./local-tools.js";
+import {
+  allLocalTools,
+  callLocalTool,
+  localTools,
+  localToolsFor,
+  parseIssueViewOutput,
+  parseRgJson,
+} from "./local-tools.js";
 import type { ResolvedGatewayConfig } from "./config.js";
 import { DEFAULT_BURST_BUDGET_POLICY } from "./context-runtime/burst-budget.js";
 import { ProcessRegistry } from "./context-runtime/process-registry.js";
 import { DEFAULT_AWAIT_POLICY } from "./context-runtime/poll-policy.js";
 import { InMemoryArtifactStore } from "./retrieve.js";
 import { createTelemetrySink } from "./telemetry.js";
+import { BUILTIN_PRESETS } from "./workflow/policy/presets.js";
 
 async function workspace(): Promise<{ root: string; config: ResolvedGatewayConfig }> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-local-tools-"));
   await fs.mkdir(path.join(root, "src"));
   await fs.mkdir(path.join(root, "node_modules"));
-  await fs.writeFile(path.join(root, "src", "sample.ts"), "export function useful() {\n  return 1;\n}\nexport const value = 2;\n");
+  await fs.writeFile(
+    path.join(root, "src", "sample.ts"),
+    "export function useful() {\n  return 1;\n}\nexport const value = 2;\n",
+  );
   await fs.writeFile(path.join(root, "needle.txt"), "one\nneedle here\nthree\n");
   await fs.writeFile(path.join(root, "node_modules", "ignored.txt"), "needle ignored");
-  return { root, config: { workspaceRoot: root, defaultTimeoutMs: 1_000, maxTimeoutMs: 2_000, maxOutputBytes: 1024, execTargetTokens: 1_000, resultTtlMs: 10_000, resultMaxEntries: 10, capabilityMap: {}, toolMetadata: {}, tokenBudgets: { tools: {}, capabilities: {}, profiles: {} }, workflowTasks: false, await: DEFAULT_AWAIT_POLICY, burstBudget: DEFAULT_BURST_BUDGET_POLICY } };
+  return {
+    root,
+    config: {
+      workspaceRoot: root,
+      defaultTimeoutMs: 1_000,
+      maxTimeoutMs: 2_000,
+      maxOutputBytes: 1024,
+      execTargetTokens: 1_000,
+      resultTtlMs: 10_000,
+      resultMaxEntries: 10,
+      capabilityMap: {},
+      toolMetadata: {},
+      tokenBudgets: { tools: {}, capabilities: {}, profiles: {} },
+      workflowTasks: false,
+      await: DEFAULT_AWAIT_POLICY,
+      burstBudget: DEFAULT_BURST_BUDGET_POLICY,
+    },
+  };
 }
 
 function structured(result: Awaited<ReturnType<typeof callLocalTool>>): Record<string, unknown> {
@@ -28,10 +56,21 @@ function structured(result: Awaited<ReturnType<typeof callLocalTool>>): Record<s
 }
 
 test("local tool definitions expose schemas, output schemas, and annotations", () => {
-  assert.deepEqual(localTools.map((tool) => tool.name), [
-    "mottainai_exec", "mottainai_exec_start", "mottainai_exec_await", "mottainai_read", "mottainai_search", "mottainai_list",
-    "mottainai_result_get", "mottainai_result_search", "mottainai_runtime_status", "mottainai_telemetry_summary",
-  ]);
+  assert.deepEqual(
+    localTools.map((tool) => tool.name),
+    [
+      "mottainai_exec",
+      "mottainai_exec_start",
+      "mottainai_exec_await",
+      "mottainai_read",
+      "mottainai_search",
+      "mottainai_list",
+      "mottainai_result_get",
+      "mottainai_result_search",
+      "mottainai_runtime_status",
+      "mottainai_telemetry_summary",
+    ],
+  );
   for (const tool of localTools) {
     assert.equal(tool.inputSchema.type, "object");
     assert.equal(tool.outputSchema?.type, "object");
@@ -42,9 +81,13 @@ test("local tool definitions expose schemas, output schemas, and annotations", (
 test("read supports line ranges and symbols while rejecting paths outside root", async () => {
   const { root, config } = await workspace();
   const store = new InMemoryArtifactStore({ createId: () => "read" });
-  const ranged = structured(await callLocalTool("mottainai_read", { path: "src/sample.ts", startLine: 2, endLine: 2 }, config, store));
+  const ranged = structured(
+    await callLocalTool("mottainai_read", { path: "src/sample.ts", startLine: 2, endLine: 2 }, config, store),
+  );
   assert.equal(ranged.text, "  return 1;");
-  const symbols = structured(await callLocalTool("mottainai_read", { path: "src/sample.ts", mode: "symbols" }, config, store));
+  const symbols = structured(
+    await callLocalTool("mottainai_read", { path: "src/sample.ts", mode: "symbols" }, config, store),
+  );
   assert.match(symbols.text as string, /useful/);
   assert.match(symbols.text as string, /value/);
   await assert.rejects(() => callLocalTool("mottainai_read", { path: "../outside" }, config, store));
@@ -54,7 +97,9 @@ test("read supports line ranges and symbols while rejecting paths outside root",
 test("read stores only the requested range so result_get cannot reach lines outside it", async () => {
   const { root, config } = await workspace();
   const store = new InMemoryArtifactStore({ createId: () => "read-ranged" });
-  const ranged = structured(await callLocalTool("mottainai_read", { path: "src/sample.ts", startLine: 2, endLine: 2 }, config, store));
+  const ranged = structured(
+    await callLocalTool("mottainai_read", { path: "src/sample.ts", startLine: 2, endLine: 2 }, config, store),
+  );
   const retrieved = structured(await callLocalTool("mottainai_result_get", { id: ranged.result_id }, config, store));
   assert.equal(retrieved.text, "  return 1;");
   assert.equal(retrieved.totalLines, 1);
@@ -71,7 +116,9 @@ test("search groups rg matches and list omits dependency directories", async (t)
     return;
   }
   const store = new InMemoryArtifactStore({ createId: () => crypto.randomUUID() });
-  const search = structured(await callLocalTool("mottainai_search", { query: "needle", path: ".", mode: "literal" }, config, store));
+  const search = structured(
+    await callLocalTool("mottainai_search", { query: "needle", path: ".", mode: "literal" }, config, store),
+  );
   assert.equal((search.groups as Array<unknown>).length, 1);
   const listed = structured(await callLocalTool("mottainai_list", { path: ".", depth: 2 }, config, store));
   assert.ok((listed.entries as string[]).includes("src/"));
@@ -93,12 +140,19 @@ test("search caps total matches across files at maxResults and reports truncatio
     await fs.writeFile(path.join(root, `many-${file}.txt`), `${manyLines}\n`);
   }
   const store = new InMemoryArtifactStore({ createId: () => crypto.randomUUID() });
-  const search = structured(await callLocalTool("mottainai_search", { query: "needle", path: ".", mode: "literal", maxResults: 5 }, { ...config, maxOutputBytes: 64 * 1024 }, store));
+  const search = structured(
+    await callLocalTool(
+      "mottainai_search",
+      { query: "needle", path: ".", mode: "literal", maxResults: 5 },
+      { ...config, maxOutputBytes: 64 * 1024 },
+      store,
+    ),
+  );
   const groups = search.groups as Array<{ matches: Array<unknown> }>;
   const totalMatches = groups.reduce((count, group) => count + group.matches.length, 0);
   assert.ok(totalMatches <= 5);
   assert.equal(search.truncated, true);
-  assert.ok(((search.metrics as Record<string, number>).omitted_matches) > 0);
+  assert.ok((search.metrics as Record<string, number>).omitted_matches > 0);
   await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -131,12 +185,14 @@ test("exec returns structured failure for timeout and output limit", async () =>
   const timeoutConfig = { ...config, maxOutputBytes: 20, defaultTimeoutMs: 50, maxTimeoutMs: 50 };
   const timed = structured(await callLocalTool("mottainai_exec", { command: "sleep 1" }, timeoutConfig, store));
   assert.equal(timed.timed_out, true);
-  const stubborn = structured(await callLocalTool(
-    "mottainai_exec",
-    { command: `${process.execPath} -e 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'` },
-    timeoutConfig,
-    store,
-  ));
+  const stubborn = structured(
+    await callLocalTool(
+      "mottainai_exec",
+      { command: `${process.execPath} -e 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'` },
+      timeoutConfig,
+      store,
+    ),
+  );
   assert.equal(stubborn.timed_out, true);
   await fs.rm(root, { recursive: true, force: true });
 });
@@ -144,7 +200,9 @@ test("exec returns structured failure for timeout and output limit", async () =>
 test("exec reports stdout-only and empty failures as diagnostics", async () => {
   const { root, config } = await workspace();
   const store = new InMemoryArtifactStore({ createId: () => "failure" });
-  const stdoutFailure = structured(await callLocalTool("mottainai_exec", { command: "printf failure; exit 1" }, config, store));
+  const stdoutFailure = structured(
+    await callLocalTool("mottainai_exec", { command: "printf failure; exit 1" }, config, store),
+  );
   assert.deepEqual(stdoutFailure.diagnostics, [{ severity: "error", message: "failure" }]);
   const emptyFailure = structured(await callLocalTool("mottainai_exec", { command: "false" }, config, store));
   assert.deepEqual(emptyFailure.diagnostics, [{ severity: "error", message: "command failed" }]);
@@ -154,7 +212,14 @@ test("exec reports stdout-only and empty failures as diagnostics", async () => {
 test("exec classifies TypeScript failures and gives a result retrieval command", async () => {
   const { root, config } = await workspace();
   const store = new InMemoryArtifactStore({ createId: () => "typescript" });
-  const result = structured(await callLocalTool("mottainai_exec", { command: "printf 'src/a.ts(1,1): error TS2322: bad type\\n' >&2; exit 1" }, config, store));
+  const result = structured(
+    await callLocalTool(
+      "mottainai_exec",
+      { command: "printf 'src/a.ts(1,1): error TS2322: bad type\\n' >&2; exit 1" },
+      config,
+      store,
+    ),
+  );
   assert.equal(result.failure_classification, "typescript");
   assert.deepEqual(result.diagnostics, [{ severity: "error", message: "src/a.ts(1,1): error TS2322: bad type" }]);
   assert.equal(result.next_command, 'mottainai_result_get id=mx_typescript query="error TS"');
@@ -165,9 +230,19 @@ test("exec diagnoses missing dist artifacts from package build scripts", async (
   const { root, config } = await workspace();
   await fs.writeFile(path.join(root, "package.json"), JSON.stringify({ scripts: { build: "tsc" } }));
   const store = new InMemoryArtifactStore({ createId: () => "dist" });
-  const result = structured(await callLocalTool("mottainai_exec", { command: "printf \"Error: Cannot find module 'dist/index.js'\\n\" >&2; exit 1" }, config, store));
+  const result = structured(
+    await callLocalTool(
+      "mottainai_exec",
+      { command: "printf \"Error: Cannot find module 'dist/index.js'\\n\" >&2; exit 1" },
+      config,
+      store,
+    ),
+  );
   assert.equal(result.failure_classification, "missing_build_artifact");
-  assert.deepEqual(result.facts, [{ kind: "missing_build_artifacts", paths: ["dist/index.js"] }, { kind: "recovery_commands", commands: ["pnpm run build"] }]);
+  assert.deepEqual(result.facts, [
+    { kind: "missing_build_artifacts", paths: ["dist/index.js"] },
+    { kind: "recovery_commands", commands: ["pnpm run build"] },
+  ]);
   assert.equal(result.next_command, "pnpm run build");
   await fs.rm(root, { recursive: true, force: true });
 });
@@ -175,7 +250,8 @@ test("exec diagnoses missing dist artifacts from package build scripts", async (
 test("exec preserves Git conflict output without compression", async () => {
   const { root, config } = await workspace();
   const store = new InMemoryArtifactStore({ createId: () => "conflict" });
-  const command = "printf 'CONFLICT (content): Merge conflict in src/a.ts\\n<<<<<<< HEAD\\nleft\\n=======\\nright\\n>>>>>>> branch\\n' >&2; exit 1";
+  const command =
+    "printf 'CONFLICT (content): Merge conflict in src/a.ts\\n<<<<<<< HEAD\\nleft\\n=======\\nright\\n>>>>>>> branch\\n' >&2; exit 1";
   const result = structured(await callLocalTool("mottainai_exec", { command, targetTokens: 128 }, config, store));
   assert.equal(result.failure_classification, "git_conflict");
   assert.match(result.output as string, /<<<<<<< HEAD/);
@@ -199,7 +275,9 @@ test("exec captures npm output through its file redirect adapter", async () => {
 test("exec captures every command in a package-manager command chain", async () => {
   const { root, config } = await workspace();
   const store = new InMemoryArtifactStore({ createId: () => "npm-chain" });
-  const result = structured(await callLocalTool("mottainai_exec", { command: "npm --version && printf chained >&2" }, config, store));
+  const result = structured(
+    await callLocalTool("mottainai_exec", { command: "npm --version && printf chained >&2" }, config, store),
+  );
   assert.equal(result.status, "success");
   assert.deepEqual(result.diagnostics, []);
   assert.match(result.output as string, /\d+\.\d+\.\d+/);
@@ -210,7 +288,9 @@ test("exec captures every command in a package-manager command chain", async () 
 test("exec bounds generic output to its target token budget", async () => {
   const { root, config } = await workspace();
   const store = new InMemoryArtifactStore({ createId: () => "budget" });
-  const result = structured(await callLocalTool("mottainai_exec", { command: "yes repeated | head -n 1000", targetTokens: 300 }, config, store));
+  const result = structured(
+    await callLocalTool("mottainai_exec", { command: "yes repeated | head -n 1000", targetTokens: 300 }, config, store),
+  );
   assert.equal(result.truncated, true);
   assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 1_300);
   await fs.rm(root, { recursive: true, force: true });
@@ -226,7 +306,10 @@ test("exec validates targetTokens before running the command: invalid values nev
       () => callLocalTool("mottainai_exec", { command: `touch "${marker}"`, targetTokens }, config, store),
       `targetTokens=${targetTokens} should be rejected`,
     );
-    const exists = await fs.access(marker).then(() => true, () => false);
+    const exists = await fs.access(marker).then(
+      () => true,
+      () => false,
+    );
     assert.equal(exists, false, `command must not run for targetTokens=${targetTokens}`);
   }
   await fs.rm(root, { recursive: true, force: true });
@@ -238,7 +321,13 @@ test("exec runs the command normally for boundary-valid targetTokens", async () 
     const store = new InMemoryArtifactStore();
     const marker = path.join(root, `valid-${targetTokens}.txt`);
     await callLocalTool("mottainai_exec", { command: `touch "${marker}"`, targetTokens }, config, store);
-    assert.equal(await fs.access(marker).then(() => true, () => false), true);
+    assert.equal(
+      await fs.access(marker).then(
+        () => true,
+        () => false,
+      ),
+      true,
+    );
   }
   await fs.rm(root, { recursive: true, force: true });
 });
@@ -252,7 +341,14 @@ test("exec keeps TAP counts and failure diagnostics structured when output is om
     "printf '1..1\\n# tests 1\\n# pass 0\\n# fail 1\\n# cancelled 0\\n# skipped 0\\n# todo 0\\n'",
     "exit 1",
   ].join("; ");
-  const failed = structured(await callLocalTool("mottainai_exec", { command, targetTokens: 128 }, { ...config, maxOutputBytes: 32 * 1024 }, store));
+  const failed = structured(
+    await callLocalTool(
+      "mottainai_exec",
+      { command, targetTokens: 128 },
+      { ...config, maxOutputBytes: 32 * 1024 },
+      store,
+    ),
+  );
   const tests = failed.test_results as Record<string, unknown>;
   assert.equal(failed.status, "failed");
   assert.equal(failed.exit_code, 1);
@@ -270,12 +366,17 @@ test("exec keeps TAP counts and failure diagnostics structured when output is om
     result_id: "mx_tap",
   });
 
-  const success = structured(await callLocalTool(
-    "mottainai_exec",
-    { command: "printf 'TAP version 13\\n1..1\\n# tests 1\\n# pass 1\\n# fail 0\\n# cancelled 0\\n# skipped 0\\n# todo 0\\n'" },
-    config,
-    new InMemoryArtifactStore({ createId: () => "tap-success" }),
-  ));
+  const success = structured(
+    await callLocalTool(
+      "mottainai_exec",
+      {
+        command:
+          "printf 'TAP version 13\\n1..1\\n# tests 1\\n# pass 1\\n# fail 0\\n# cancelled 0\\n# skipped 0\\n# todo 0\\n'",
+      },
+      config,
+      new InMemoryArtifactStore({ createId: () => "tap-success" }),
+    ),
+  );
   assert.equal(success.status, "success");
   assert.equal(success.exit_code, 0);
   assert.deepEqual(success.test_results, {
@@ -316,15 +417,31 @@ test("exec_start returns an opaque handle immediately, and exec_await blocks unt
   const { root, config } = await workspace();
   const store = new InMemoryArtifactStore({ createId: () => "await-success" });
   const processes = new ProcessRegistry();
-  const started = structured(await callLocalTool(
-    "mottainai_exec_start", { command: "printf hi" }, config, store, undefined, undefined, processes,
-  ));
+  const started = structured(
+    await callLocalTool(
+      "mottainai_exec_start",
+      { command: "printf hi" },
+      config,
+      store,
+      undefined,
+      undefined,
+      processes,
+    ),
+  );
   assert.equal(started.status, "success");
   assert.equal(typeof started.handle, "string");
 
-  const awaited = structured(await callLocalTool(
-    "mottainai_exec_await", { handle: started.handle }, config, store, undefined, undefined, processes,
-  ));
+  const awaited = structured(
+    await callLocalTool(
+      "mottainai_exec_await",
+      { handle: started.handle },
+      config,
+      store,
+      undefined,
+      undefined,
+      processes,
+    ),
+  );
   assert.equal(awaited.status, "success");
   assert.equal(awaited.exit_code, 0);
   await fs.rm(root, { recursive: true, force: true });
@@ -334,12 +451,28 @@ test("exec_await reports command failure via exit code without throwing", async 
   const { root, config } = await workspace();
   const store = new InMemoryArtifactStore({ createId: () => "await-failure" });
   const processes = new ProcessRegistry();
-  const started = structured(await callLocalTool(
-    "mottainai_exec_start", { command: "printf boom; exit 1" }, config, store, undefined, undefined, processes,
-  ));
-  const awaited = structured(await callLocalTool(
-    "mottainai_exec_await", { handle: started.handle }, config, store, undefined, undefined, processes,
-  ));
+  const started = structured(
+    await callLocalTool(
+      "mottainai_exec_start",
+      { command: "printf boom; exit 1" },
+      config,
+      store,
+      undefined,
+      undefined,
+      processes,
+    ),
+  );
+  const awaited = structured(
+    await callLocalTool(
+      "mottainai_exec_await",
+      { handle: started.handle },
+      config,
+      store,
+      undefined,
+      undefined,
+      processes,
+    ),
+  );
   assert.equal(awaited.status, "failed");
   assert.equal(awaited.exit_code, 1);
   await fs.rm(root, { recursive: true, force: true });
@@ -349,12 +482,28 @@ test("exec_await returns a bounded timeout result instead of blocking past the c
   const { root, config } = await workspace();
   const store = new InMemoryArtifactStore({ createId: () => "await-timeout" });
   const processes = new ProcessRegistry();
-  const started = structured(await callLocalTool(
-    "mottainai_exec_start", { command: `${process.execPath} -e "setTimeout(() => {}, 2000)"` }, config, store, undefined, undefined, processes,
-  ));
-  const awaited = structured(await callLocalTool(
-    "mottainai_exec_await", { handle: started.handle, timeoutMs: 50 }, config, store, undefined, undefined, processes,
-  ));
+  const started = structured(
+    await callLocalTool(
+      "mottainai_exec_start",
+      { command: `${process.execPath} -e "setTimeout(() => {}, 2000)"` },
+      config,
+      store,
+      undefined,
+      undefined,
+      processes,
+    ),
+  );
+  const awaited = structured(
+    await callLocalTool(
+      "mottainai_exec_await",
+      { handle: started.handle, timeoutMs: 50 },
+      config,
+      store,
+      undefined,
+      undefined,
+      processes,
+    ),
+  );
   assert.equal(awaited.status, "partial");
   assert.equal(awaited.state, "running");
   assert.equal(typeof awaited.elapsed_ms, "number");
@@ -366,12 +515,27 @@ test("exec_await is cancellable via AbortSignal without waiting for the process 
   const { root, config } = await workspace();
   const store = new InMemoryArtifactStore({ createId: () => "await-cancel" });
   const processes = new ProcessRegistry();
-  const started = structured(await callLocalTool(
-    "mottainai_exec_start", { command: `${process.execPath} -e "setTimeout(() => {}, 2000)"` }, config, store, undefined, undefined, processes,
-  ));
+  const started = structured(
+    await callLocalTool(
+      "mottainai_exec_start",
+      { command: `${process.execPath} -e "setTimeout(() => {}, 2000)"` },
+      config,
+      store,
+      undefined,
+      undefined,
+      processes,
+    ),
+  );
   const controller = new AbortController();
   const awaitPromise = callLocalTool(
-    "mottainai_exec_await", { handle: started.handle }, config, store, undefined, undefined, processes, controller.signal,
+    "mottainai_exec_await",
+    { handle: started.handle },
+    config,
+    store,
+    undefined,
+    undefined,
+    processes,
+    controller.signal,
   );
   controller.abort();
   const awaited = structured(await awaitPromise);
@@ -384,12 +548,28 @@ test("exec_await bounds inline output and stores full evidence for retrieval (ou
   const { root, config } = await workspace();
   const store = new InMemoryArtifactStore({ createId: () => "await-output-limit" });
   const processes = new ProcessRegistry();
-  const started = structured(await callLocalTool(
-    "mottainai_exec_start", { command: "yes x", maxOutputBytes: 32 }, config, store, undefined, undefined, processes,
-  ));
-  const awaited = structured(await callLocalTool(
-    "mottainai_exec_await", { handle: started.handle }, config, store, undefined, undefined, processes,
-  ));
+  const started = structured(
+    await callLocalTool(
+      "mottainai_exec_start",
+      { command: "yes x", maxOutputBytes: 32 },
+      config,
+      store,
+      undefined,
+      undefined,
+      processes,
+    ),
+  );
+  const awaited = structured(
+    await callLocalTool(
+      "mottainai_exec_await",
+      { handle: started.handle },
+      config,
+      store,
+      undefined,
+      undefined,
+      processes,
+    ),
+  );
   assert.equal(awaited.output_limited, true);
   assert.equal(typeof awaited.result_id, "string");
   assert.ok((awaited.result_id as string).length > 0);
@@ -401,7 +581,8 @@ test("exec_await on an unknown handle throws (invalid handle)", async () => {
   const store = new InMemoryArtifactStore();
   const processes = new ProcessRegistry();
   await assert.rejects(
-    () => callLocalTool("mottainai_exec_await", { handle: "mh_unknown" }, config, store, undefined, undefined, processes),
+    () =>
+      callLocalTool("mottainai_exec_await", { handle: "mh_unknown" }, config, store, undefined, undefined, processes),
     /invalid or unknown exec handle/,
   );
   await fs.rm(root, { recursive: true, force: true });
@@ -412,11 +593,28 @@ test("a handle started in one connection's process registry is rejected by anoth
   const store = new InMemoryArtifactStore();
   const processesA = new ProcessRegistry();
   const processesB = new ProcessRegistry();
-  const started = structured(await callLocalTool(
-    "mottainai_exec_start", { command: "printf hi" }, config, store, undefined, undefined, processesA,
-  ));
+  const started = structured(
+    await callLocalTool(
+      "mottainai_exec_start",
+      { command: "printf hi" },
+      config,
+      store,
+      undefined,
+      undefined,
+      processesA,
+    ),
+  );
   await assert.rejects(
-    () => callLocalTool("mottainai_exec_await", { handle: started.handle }, config, store, undefined, undefined, processesB),
+    () =>
+      callLocalTool(
+        "mottainai_exec_await",
+        { handle: started.handle },
+        config,
+        store,
+        undefined,
+        undefined,
+        processesB,
+      ),
     /invalid or unknown exec handle/,
   );
   processesA.dispose();
@@ -427,9 +625,17 @@ test("disposing the process registry force-terminates a still-running started pr
   const { root, config } = await workspace();
   const store = new InMemoryArtifactStore();
   const processes = new ProcessRegistry();
-  const started = structured(await callLocalTool(
-    "mottainai_exec_start", { command: `${process.execPath} -e "setTimeout(() => {}, 5000)"` }, config, store, undefined, undefined, processes,
-  ));
+  const started = structured(
+    await callLocalTool(
+      "mottainai_exec_start",
+      { command: `${process.execPath} -e "setTimeout(() => {}, 5000)"` },
+      config,
+      store,
+      undefined,
+      undefined,
+      processes,
+    ),
+  );
   assert.equal(processes.has(started.handle as string), true);
   processes.dispose();
   assert.equal(processes.has(started.handle as string), false);
@@ -451,9 +657,26 @@ test("runtime status reports provider health and diagnoses unhealthy upstreams",
   const store = new InMemoryArtifactStore();
   const runtime = {
     status: () => [
-      { name: "ready", state: "ready" as const, enabled: true, priority: 0, capabilities: ["code.search"], toolCount: 3, failureCount: 0 },
+      {
+        name: "ready",
+        state: "ready" as const,
+        enabled: true,
+        priority: 0,
+        capabilities: ["code.search"],
+        toolCount: 3,
+        failureCount: 0,
+      },
       { name: "off", state: "disabled" as const, enabled: false, priority: 0, capabilities: [], failureCount: 0 },
-      { name: "broken", state: "unhealthy" as const, enabled: true, priority: 0, capabilities: [], failureCount: 2, lastError: "spawn missing ENOENT", lastErrorAt: "2026-07-31T00:00:00.000Z" },
+      {
+        name: "broken",
+        state: "unhealthy" as const,
+        enabled: true,
+        priority: 0,
+        capabilities: [],
+        failureCount: 2,
+        lastError: "spawn missing ENOENT",
+        lastErrorAt: "2026-07-31T00:00:00.000Z",
+      },
     ],
   };
   const result = structured(await callLocalTool("mottainai_runtime_status", {}, config, store, runtime));
@@ -462,7 +685,9 @@ test("runtime status reports provider health and diagnoses unhealthy upstreams",
   assert.deepEqual(result.diagnostics, [{ severity: "error", message: "broken unhealthy: spawn missing ENOENT" }]);
   assert.equal(result.result_id, "");
 
-  const single = structured(await callLocalTool("mottainai_runtime_status", { provider: "ready" }, config, store, runtime));
+  const single = structured(
+    await callLocalTool("mottainai_runtime_status", { provider: "ready" }, config, store, runtime),
+  );
   assert.equal(single.status, "success");
   assert.deepEqual(single.diagnostics, []);
   assert.equal((single.facts as unknown[]).length, 1);
@@ -483,19 +708,38 @@ async function gitWorkspace(): Promise<{ root: string; config: ResolvedGatewayCo
   execFileSync("git", ["commit", "-q", "-m", "initial"], { cwd: root });
   return {
     root,
-    config: { ...config, worktree: { allowedBranchPrefixes: ["docs", "runtime"], baseBranch: "main", worktreeDir: ".worktrees" } },
+    config: {
+      ...config,
+      worktree: { allowedBranchPrefixes: ["docs", "runtime"], baseBranch: "main", worktreeDir: ".worktrees" },
+    },
   };
 }
 
 test("issue_view and gh_checks_await tools are only listed when a worktree config is present", () => {
   const bareConfig: ResolvedGatewayConfig = {
-    workspaceRoot: "/tmp", defaultTimeoutMs: 1_000, maxTimeoutMs: 2_000, maxOutputBytes: 1024, execTargetTokens: 1_000,
-    resultTtlMs: 10_000, resultMaxEntries: 10, capabilityMap: {}, toolMetadata: {}, tokenBudgets: { tools: {}, capabilities: {}, profiles: {} },
-    workflowTasks: false, await: DEFAULT_AWAIT_POLICY, burstBudget: DEFAULT_BURST_BUDGET_POLICY,
+    workspaceRoot: "/tmp",
+    defaultTimeoutMs: 1_000,
+    maxTimeoutMs: 2_000,
+    maxOutputBytes: 1024,
+    execTargetTokens: 1_000,
+    resultTtlMs: 10_000,
+    resultMaxEntries: 10,
+    capabilityMap: {},
+    toolMetadata: {},
+    tokenBudgets: { tools: {}, capabilities: {}, profiles: {} },
+    workflowTasks: false,
+    await: DEFAULT_AWAIT_POLICY,
+    burstBudget: DEFAULT_BURST_BUDGET_POLICY,
   };
-  assert.equal(localToolsFor(bareConfig).some((tool) => tool.name === "mottainai_issue_view"), false);
+  assert.equal(
+    localToolsFor(bareConfig).some((tool) => tool.name === "mottainai_issue_view"),
+    false,
+  );
 
-  const withWorktree: ResolvedGatewayConfig = { ...bareConfig, worktree: { allowedBranchPrefixes: ["docs"], baseBranch: "main", worktreeDir: ".worktrees" } };
+  const withWorktree: ResolvedGatewayConfig = {
+    ...bareConfig,
+    worktree: { allowedBranchPrefixes: ["docs"], baseBranch: "main", worktreeDir: ".worktrees" },
+  };
   const tools = localToolsFor(withWorktree);
   const names = tools.map((tool) => tool.name);
   assert.ok(names.includes("mottainai_issue_view"));
@@ -519,6 +763,31 @@ test("issue_view throws when the workspace has no worktree config", async () => 
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test("workflow-enabled managed exec blocks a source write on a protected branch before spawning it", async () => {
+  const { root, config } = await gitWorkspace();
+  await fs.mkdir(path.join(root, ".mottainai"), { recursive: true });
+  await fs.writeFile(
+    path.join(root, ".mottainai", "workflow.json"),
+    JSON.stringify({
+      ...BUILTIN_PRESETS.standard,
+      protectedBranchRule: { ...BUILTIN_PRESETS.standard.protectedBranchRule, sourceWrite: "enforce" },
+    }),
+  );
+  const store = new InMemoryArtifactStore();
+  const result = structured(
+    await callLocalTool(
+      "mottainai_exec",
+      { command: "printf blocked > should-not-exist.txt" },
+      { ...config, workflowTasks: true },
+      store,
+    ),
+  );
+  assert.equal(result.status, "failed");
+  assert.match(String(result.summary), /DENY exec/);
+  await assert.rejects(() => fs.access(path.join(root, "should-not-exist.txt")));
+  await fs.rm(root, { recursive: true, force: true });
+});
+
 // --- F: advertised tool surface == executable tool surface, table-driven over both configurations ---
 
 test("the advertised tool surface matches the executable tool surface for worktree-dependent tools", async () => {
@@ -528,7 +797,11 @@ test("the advertised tool surface matches the executable tool surface for worktr
     worktree: { allowedBranchPrefixes: ["docs"], baseBranch: "main", worktreeDir: ".worktrees" },
   };
   const store = new InMemoryArtifactStore();
-  const guardedTools: Array<{ name: string; args: Record<string, unknown>; enabled: (config: ResolvedGatewayConfig) => boolean }> = [
+  const guardedTools: Array<{
+    name: string;
+    args: Record<string, unknown>;
+    enabled: (config: ResolvedGatewayConfig) => boolean;
+  }> = [
     { name: "mottainai_issue_view", args: { number: 1 }, enabled: (config) => config.worktree !== undefined },
     { name: "mottainai_gh_checks_await", args: { number: 1 }, enabled: (config) => config.worktree !== undefined },
   ];
@@ -538,20 +811,22 @@ test("the advertised tool surface matches the executable tool surface for worktr
     const advertisedNames = new Set(localToolsFor(config).map((tool) => tool.name));
     for (const tool of guardedTools) {
       const isAdvertised = advertisedNames.has(tool.name);
-      assert.equal(isAdvertised, tool.enabled(config), `${tool.name} advertised state must track its gating config field`);
+      assert.equal(
+        isAdvertised,
+        tool.enabled(config),
+        `${tool.name} advertised state must track its gating config field`,
+      );
       if (!isAdvertised) {
         // hidden from localToolsFor: calling it directly by name must still be rejected by the
         // same runtime guard, so the advertised and executable surfaces stay in lockstep.
-        await assert.rejects(
-          () => callLocalTool(tool.name, tool.args, config, store),
-          /not configured/,
-        );
+        await assert.rejects(() => callLocalTool(tool.name, tool.args, config, store), /not configured/);
       }
     }
   }
   // every tool in allLocalTools is reachable through localToolsFor under some configuration.
   const everAdvertised = new Set(configs.flatMap((config) => localToolsFor(config).map((tool) => tool.name)));
-  for (const tool of allLocalTools) assert.ok(everAdvertised.has(tool.name), `${tool.name} must be advertised under some configuration`);
+  for (const tool of allLocalTools)
+    assert.ok(everAdvertised.has(tool.name), `${tool.name} must be advertised under some configuration`);
   await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -580,7 +855,9 @@ test("search accepts boundary-valid contextLines and maxResults", async (t) => {
   }
   const store = new InMemoryArtifactStore();
   for (const contextLines of [0, 20]) {
-    const result = structured(await callLocalTool("mottainai_search", { query: "needle", contextLines }, config, store));
+    const result = structured(
+      await callLocalTool("mottainai_search", { query: "needle", contextLines }, config, store),
+    );
     assert.notEqual(result.status, undefined);
   }
   for (const maxResults of [1, 100]) {
@@ -601,12 +878,18 @@ test("search contextLines has an observable effect on the returned match context
   }
   await fs.writeFile(path.join(root, "context.txt"), "line1\nline2\nneedle\nline4\nline5\n");
   const store = new InMemoryArtifactStore();
-  const withoutContext = structured(await callLocalTool("mottainai_search", { query: "needle", path: "context.txt" }, config, store));
+  const withoutContext = structured(
+    await callLocalTool("mottainai_search", { query: "needle", path: "context.txt" }, config, store),
+  );
   const noContextGroups = withoutContext.groups as Array<{ matches: Array<{ context?: unknown }> }>;
   assert.equal(noContextGroups[0].matches[0].context, undefined);
 
-  const withContext = structured(await callLocalTool("mottainai_search", { query: "needle", path: "context.txt", contextLines: 1 }, config, store));
-  const contextGroups = withContext.groups as Array<{ matches: Array<{ context?: Array<{ line: number; text: string }> }> }>;
+  const withContext = structured(
+    await callLocalTool("mottainai_search", { query: "needle", path: "context.txt", contextLines: 1 }, config, store),
+  );
+  const contextGroups = withContext.groups as Array<{
+    matches: Array<{ context?: Array<{ line: number; text: string }> }>;
+  }>;
   const contextTexts = (contextGroups[0].matches[0].context ?? []).map((entry) => entry.text);
   assert.deepEqual(contextTexts, ["line2", "line4"]);
   await fs.rm(root, { recursive: true, force: true });
@@ -631,19 +914,23 @@ test("parseRgJson: before and after context lines attach to the correct match", 
     rgEvent("context", "/root/file.txt", 7, "after-2"),
   ].join("\n");
   const groups = parseRgJson(raw, "/root", 2);
-  assert.deepEqual(groups, [{
-    path: "file.txt",
-    matches: [{
-      line: 5,
-      text: "needle here",
-      context: [
-        { line: 3, text: "before-2" },
-        { line: 4, text: "before-1" },
-        { line: 6, text: "after-1" },
-        { line: 7, text: "after-2" },
+  assert.deepEqual(groups, [
+    {
+      path: "file.txt",
+      matches: [
+        {
+          line: 5,
+          text: "needle here",
+          context: [
+            { line: 3, text: "before-2" },
+            { line: 4, text: "before-1" },
+            { line: 6, text: "after-1" },
+            { line: 7, text: "after-2" },
+          ],
+        },
       ],
-    }],
-  }]);
+    },
+  ]);
 });
 
 test("parseRgJson: multiple distant match groups in the same file keep their own context separate", () => {
@@ -658,8 +945,22 @@ test("parseRgJson: multiple distant match groups in the same file keep their own
   const groups = parseRgJson(raw, "/root", 2);
   assert.equal(groups.length, 1);
   assert.deepEqual(groups[0].matches, [
-    { line: 10, text: "first needle", context: [{ line: 8, text: "before-match-1" }, { line: 12, text: "after-match-1" }] },
-    { line: 50, text: "second needle", context: [{ line: 48, text: "before-match-2" }, { line: 52, text: "after-match-2" }] },
+    {
+      line: 10,
+      text: "first needle",
+      context: [
+        { line: 8, text: "before-match-1" },
+        { line: 12, text: "after-match-1" },
+      ],
+    },
+    {
+      line: 50,
+      text: "second needle",
+      context: [
+        { line: 48, text: "before-match-2" },
+        { line: 52, text: "after-match-2" },
+      ],
+    },
   ]);
 });
 
@@ -674,23 +975,49 @@ test("parseIssueViewOutput returns a structured failure and defaults labels safe
   const missingRequired = parseIssueViewOutput(JSON.stringify({ number: 1, title: "x" }));
   assert.equal(missingRequired.ok, false);
 
-  const missingLabels = parseIssueViewOutput(JSON.stringify({
-    number: 42, title: "no labels field", state: "OPEN", url: "https://example.test/1", body: "body text",
-  }));
+  const missingLabels = parseIssueViewOutput(
+    JSON.stringify({
+      number: 42,
+      title: "no labels field",
+      state: "OPEN",
+      url: "https://example.test/1",
+      body: "body text",
+    }),
+  );
   assert.deepEqual(missingLabels, {
     ok: true,
-    issue: { number: 42, title: "no labels field", state: "OPEN", labels: [], url: "https://example.test/1", body: "body text" },
+    issue: {
+      number: 42,
+      title: "no labels field",
+      state: "OPEN",
+      labels: [],
+      url: "https://example.test/1",
+      body: "body text",
+    },
   });
 });
 
 test("parseIssueViewOutput parses valid gh output including labels", () => {
-  const result = parseIssueViewOutput(JSON.stringify({
-    number: 7, title: "valid issue", state: "OPEN", url: "https://example.test/7", body: "body",
-    labels: [{ name: "bug" }, { name: "P1" }],
-  }));
+  const result = parseIssueViewOutput(
+    JSON.stringify({
+      number: 7,
+      title: "valid issue",
+      state: "OPEN",
+      url: "https://example.test/7",
+      body: "body",
+      labels: [{ name: "bug" }, { name: "P1" }],
+    }),
+  );
   assert.deepEqual(result, {
     ok: true,
-    issue: { number: 7, title: "valid issue", state: "OPEN", labels: ["bug", "P1"], url: "https://example.test/7", body: "body" },
+    issue: {
+      number: 7,
+      title: "valid issue",
+      state: "OPEN",
+      labels: ["bug", "P1"],
+      url: "https://example.test/7",
+      body: "body",
+    },
   });
 });
 
@@ -704,15 +1031,24 @@ test("exec keeps combined stdout+stderr within maxOutputBytes for multibyte cont
   const stdoutText = "あ".repeat(500);
   const stderrText = "い".repeat(500);
   const limitedConfig = { ...config, maxOutputBytes: 800 };
-  const result = structured(await callLocalTool(
-    "mottainai_exec",
-    { command: `npm --version >/dev/null; printf '${stdoutText}'; printf '${stderrText}' >&2`, targetTokens: 10_000, compression: false },
-    limitedConfig,
-    store,
-  ));
+  const result = structured(
+    await callLocalTool(
+      "mottainai_exec",
+      {
+        command: `npm --version >/dev/null; printf '${stdoutText}'; printf '${stderrText}' >&2`,
+        targetTokens: 10_000,
+        compression: false,
+      },
+      limitedConfig,
+      store,
+    ),
+  );
   const stdoutBytes = (result.metrics as Record<string, number>).stdout_bytes;
   const stderrBytes = (result.metrics as Record<string, number>).stderr_bytes;
-  assert.ok(stdoutBytes + stderrBytes <= limitedConfig.maxOutputBytes, `stdout(${stdoutBytes})+stderr(${stderrBytes}) must stay within maxOutputBytes(${limitedConfig.maxOutputBytes})`);
+  assert.ok(
+    stdoutBytes + stderrBytes <= limitedConfig.maxOutputBytes,
+    `stdout(${stdoutBytes})+stderr(${stderrBytes}) must stay within maxOutputBytes(${limitedConfig.maxOutputBytes})`,
+  );
   await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -733,12 +1069,14 @@ test("read governor denies large unrestricted raw before returning source conten
   const content = Array.from({ length: 600 }, (_, index) => `const secret_${index} = ${index};`).join("\n");
   await fs.writeFile(path.join(root, "src", "large.ts"), content);
   const store = new InMemoryArtifactStore({ createId: () => "denied" });
-  const result = structured(await callLocalTool(
-    "mottainai_read",
-    { path: "src/large.ts", mode: "raw" },
-    { ...config, readGovernor: readGovernorConfig() },
-    store,
-  ));
+  const result = structured(
+    await callLocalTool(
+      "mottainai_read",
+      { path: "src/large.ts", mode: "raw" },
+      { ...config, readGovernor: readGovernorConfig() },
+      store,
+    ),
+  );
   assert.equal(result.status, "partial");
   assert.equal(result.text, undefined);
   assert.equal(result.result_id, "");
@@ -750,14 +1088,19 @@ test("read governor denies large unrestricted raw before returning source conten
 
 test("read governor allows an explicit bounded raw range in enforce mode", async () => {
   const { root, config } = await workspace();
-  await fs.writeFile(path.join(root, "src", "large.ts"), Array.from({ length: 600 }, (_, index) => `line-${index}`).join("\n"));
+  await fs.writeFile(
+    path.join(root, "src", "large.ts"),
+    Array.from({ length: 600 }, (_, index) => `line-${index}`).join("\n"),
+  );
   const store = new InMemoryArtifactStore({ createId: () => "bounded" });
-  const result = structured(await callLocalTool(
-    "mottainai_read",
-    { path: "src/large.ts", mode: "raw", startLine: 120, endLine: 140 },
-    { ...config, readGovernor: readGovernorConfig() },
-    store,
-  ));
+  const result = structured(
+    await callLocalTool(
+      "mottainai_read",
+      { path: "src/large.ts", mode: "raw", startLine: 120, endLine: 140 },
+      { ...config, readGovernor: readGovernorConfig() },
+      store,
+    ),
+  );
   assert.equal(result.status, "success");
   assert.equal(result.mode, "raw");
   assert.match(String(result.text), /^line-119\nline-120/);
@@ -768,14 +1111,19 @@ test("read governor allows an explicit bounded raw range in enforce mode", async
 
 test("auto uses a bounded outline for a large file and never falls back to whole raw", async () => {
   const { root, config } = await workspace();
-  await fs.writeFile(path.join(root, "src", "large.ts"), Array.from({ length: 600 }, (_, index) => `export const value_${index} = ${index};`).join("\n"));
+  await fs.writeFile(
+    path.join(root, "src", "large.ts"),
+    Array.from({ length: 600 }, (_, index) => `export const value_${index} = ${index};`).join("\n"),
+  );
   const store = new InMemoryArtifactStore({ createId: () => "auto" });
-  const result = structured(await callLocalTool(
-    "mottainai_read",
-    { path: "src/large.ts", mode: "auto" },
-    { ...config, readGovernor: readGovernorConfig() },
-    store,
-  ));
+  const result = structured(
+    await callLocalTool(
+      "mottainai_read",
+      { path: "src/large.ts", mode: "auto" },
+      { ...config, readGovernor: readGovernorConfig() },
+      store,
+    ),
+  );
   assert.equal(result.status, "success");
   assert.equal(result.mode, "outline");
   assert.equal((result.metrics as Record<string, number>).raw_lines_returned, 0);
@@ -794,14 +1142,16 @@ test("semantic symbols inspect later source without exposing an unbounded raw vi
     MOTTAINAI_TELEMETRY_FILE: path.join(telemetryDirectory, "summary.json"),
   });
   try {
-    const result = structured(await callLocalTool(
-      "mottainai_read",
-      { path: "src/large.ts", mode: "symbols" },
-      { ...config, readGovernor: readGovernorConfig({ maxRawLines: 10, maxRawBytes: 10_000 }) },
-      store,
-      undefined,
-      telemetry,
-    ));
+    const result = structured(
+      await callLocalTool(
+        "mottainai_read",
+        { path: "src/large.ts", mode: "symbols" },
+        { ...config, readGovernor: readGovernorConfig({ maxRawLines: 10, maxRawBytes: 10_000 }) },
+        store,
+        undefined,
+        telemetry,
+      ),
+    );
     assert.equal(result.status, "success");
     assert.match(String(result.text), /value_0/);
     assert.match(String(result.text), /value_599/);
@@ -828,15 +1178,19 @@ test("outline or symbol extraction failure returns bounded diagnostics without r
   const { root, config } = await workspace();
   await fs.writeFile(path.join(root, "notes.txt"), "plain text without source symbols\n");
   const store = new InMemoryArtifactStore({ createId: () => "view-failure" });
-  const result = structured(await callLocalTool(
-    "mottainai_read",
-    { path: "notes.txt", mode: "symbols" },
-    { ...config, readGovernor: readGovernorConfig({ allowWholeFileBelowLines: 0 }) },
-    store,
-  ));
+  const result = structured(
+    await callLocalTool(
+      "mottainai_read",
+      { path: "notes.txt", mode: "symbols" },
+      { ...config, readGovernor: readGovernorConfig({ allowWholeFileBelowLines: 0 }) },
+      store,
+    ),
+  );
   assert.equal(result.status, "partial");
   assert.equal(result.text, undefined);
-  assert.ok((result.diagnostics as Array<{ code?: string }>).some((entry) => entry.code === "READ_VIEW_EXTRACTION_FAILED"));
+  assert.ok(
+    (result.diagnostics as Array<{ code?: string }>).some((entry) => entry.code === "READ_VIEW_EXTRACTION_FAILED"),
+  );
   assert.match(String(result.result_id), /^mx_view-failure$/);
   await fs.rm(root, { recursive: true, force: true });
 });
@@ -859,7 +1213,10 @@ test("read rejects a symlink that resolves outside workspaceRoot", async (t) => 
       throw error;
     }
     const store = new InMemoryArtifactStore({ createId: () => "symlink" });
-    await assert.rejects(() => callLocalTool("mottainai_read", { path: "src/outside.ts", mode: "raw" }, config, store), /path resolves outside workspaceRoot/);
+    await assert.rejects(
+      () => callLocalTool("mottainai_read", { path: "src/outside.ts", mode: "raw" }, config, store),
+      /path resolves outside workspaceRoot/,
+    );
   } finally {
     await fs.rm(root, { recursive: true, force: true });
     await fs.rm(outside, { recursive: true, force: true });

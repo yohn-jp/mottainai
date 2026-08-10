@@ -3,7 +3,14 @@ import { runProgram } from "../../subprocess.js";
 import { decideProtectedBranchOperation } from "../policy/protected-branch.js";
 import type { WorkflowPolicyDocument } from "../policy/schema.js";
 import type { PullRequestRecord, WorkflowStateStore, TaskId, TaskRecord, WorktreeRecord } from "../state/store.js";
-import { buildWorktreeNaming, createWorktree, decideBootstrap, ensureCanonicalManagedWorktreeRoot, resolveCanonicalWorktreePath, runBootstrap } from "../git/worktree.js";
+import {
+  buildWorktreeNaming,
+  createWorktree,
+  decideBootstrap,
+  ensureCanonicalManagedWorktreeRoot,
+  resolveCanonicalWorktreePath,
+  runBootstrap,
+} from "../git/worktree.js";
 import type { BootstrapDecision, RunBootstrapResult, WorktreeNaming } from "../git/worktree.js";
 import { validateBranchNameAgainstGovernance } from "../governance/branch.js";
 import { resolveRepositoryIdentity } from "./identity.js";
@@ -12,6 +19,8 @@ import { resolveRepoState } from "./repo-state.js";
 import type { RepoStateKind } from "./repo-state.js";
 import { lifecycleTransitionStatus, validateTransition } from "./lifecycle.js";
 import type { LifecycleState, TransitionBlockedInfo } from "./lifecycle.js";
+import { verifyWorkflowContext } from "../git/context.js";
+import type { WorkflowContextInput, VerifiedWorkflowContext } from "../git/context.js";
 
 const GIT_TIMEOUT_MS = 5_000;
 const GIT_MAX_OUTPUT_BYTES = 64 * 1024;
@@ -54,10 +63,15 @@ export type StaleBaseBranchCheck =
 /** baseBranch のローカル tip が `origin/<baseBranch>` の tip より古くないか検証する。
  * fetch は行わない（副作用を避けるため） — 呼び出し側が事前に fetch している前提で、
  * ローカルの認識している origin tracking ref とだけ比較する。 */
-export async function checkStaleBaseBranch(workspaceRoot: string, baseBranch: string, baseCommit: string): Promise<StaleBaseBranchCheck> {
+export async function checkStaleBaseBranch(
+  workspaceRoot: string,
+  baseBranch: string,
+  baseCommit: string,
+): Promise<StaleBaseBranchCheck> {
   const remoteRef = `origin/${baseBranch}`;
   const remoteRefResult = await git(["rev-parse", "--verify", "-q", remoteRef], workspaceRoot);
-  if (!remoteRefResult.usable) return { kind: "unknown", reason: `git rev-parse --verify ${remoteRef} did not complete` };
+  if (!remoteRefResult.usable)
+    return { kind: "unknown", reason: `git rev-parse --verify ${remoteRef} did not complete` };
   if (!remoteRefResult.ok || remoteRefResult.stdout.length === 0) {
     return { kind: "unavailable", reason: `no tracking ref ${remoteRef}` };
   }
@@ -89,9 +103,12 @@ export interface StartTaskInput {
   /** worktree.required が off の場合のみ、呼び出し側が worktree 不要と明示できる。 */
   skipWorktree?: boolean;
   expectedLockfileDigest?: string;
+  /** 同一task start再試行を既存結果へ束ねる、呼び出し側が保持する自然キー。 */
+  idempotencyKey?: string;
 }
 
 export type StartTaskFailureReason =
+  | "invalid-input"
   | "unsupported-repo-state"
   | "policy-denied"
   | "issue-required"
@@ -120,8 +137,12 @@ export type StartTaskResult =
       /** policy.worktree.staleBaseBranch=advisory がブロックせず記録した guardrail 警告。
        * block しなかった場合は常に undefined を含む空配列ではなく undefined そのもの。 */
       warnings: StartTaskWarning[];
+      /** 同一の生成branch/pathを再試行したため、既存taskを返した場合 true。 */
+      reused?: boolean;
     }
   | { ok: false; reason: StartTaskFailureReason; detail: string };
+
+type StartedTaskSuccess = Extract<StartTaskResult, { ok: true }>;
 
 function allowsMultipleActiveTasksPerIssue(policy: WorkflowPolicyDocument): boolean {
   const mode = policy.worktree.multipleActiveTasksPerIssue;
@@ -157,8 +178,68 @@ function findActiveTaskAtWorktreePath(
   return { task: store.getTask(worktree.taskId), worktree };
 }
 
+function sameOptional(left: string | undefined, right: string | undefined): boolean {
+  return left === right;
+}
+
+/**
+ * task start の自然な冪等キー（repository instance + issue + slug + base + generated
+ * worktree identity）に一致する、既に完全にactiveな結果だけを再利用する。部分予約や
+ * branch/pathだけが一致する別入力は再利用せず、呼び出し側へcollisionを返す。
+ */
+function reusableStartedTask(
+  store: WorkflowStateStore,
+  task: TaskRecord,
+  input: StartTaskInput,
+  baseBranch: string,
+  baseCommit: string,
+  branchName: string | undefined,
+  canonicalPath: string | undefined,
+): StartedTaskSuccess | undefined {
+  if (input.idempotencyKey === undefined) return undefined;
+  if (
+    task.lifecycleState !== "active" ||
+    task.taskSlug !== input.taskSlug ||
+    !sameOptional(task.issueRef, input.issueRef) ||
+    task.baseBranch !== baseBranch ||
+    task.baseCommit !== baseCommit
+  )
+    return undefined;
+  const worktrees = store.listWorktreesForTask(task.taskId).filter((candidate) => candidate.status === "active");
+  if (branchName === undefined || canonicalPath === undefined) {
+    if (worktrees.length !== 0) return undefined;
+    return {
+      ok: true,
+      task,
+      worktree: undefined,
+      bootstrap: undefined,
+      bootstrapRun: undefined,
+      warnings: [],
+      reused: true,
+    };
+  }
+  if (
+    worktrees.length !== 1 ||
+    worktrees[0]?.branchName !== branchName ||
+    worktrees[0]?.canonicalPath !== canonicalPath
+  )
+    return undefined;
+  return {
+    ok: true,
+    task,
+    worktree: worktrees[0],
+    bootstrap: undefined,
+    bootstrapRun: undefined,
+    warnings: [],
+    reused: true,
+  };
+}
+
 export async function startTask(input: StartTaskInput): Promise<StartTaskResult> {
   const { workspaceRoot, store, policy, taskSlug, issueRef } = input;
+
+  if (input.idempotencyKey !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(input.idempotencyKey))
+    return { ok: false, reason: "invalid-input", detail: "idempotencyKey must be a bounded branch-safe token" };
 
   const identityResult = resolveRepositoryIdentity(workspaceRoot);
   if (!identityResult.ok) {
@@ -176,11 +257,16 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
   // 新規 task を予約すると同じ物理 worktree に矛盾する2つの active task が
   // 存在しうる（ネストした worktree を作る、または no-worktree task を重ねる）。
   // policy 判定より前に、無条件で fail-closed に拒否する。
-  const conflicting = findActiveTaskAtWorktreePath(store, identityResult.identity.instanceId, identityResult.identity.worktreePath);
+  const conflicting = findActiveTaskAtWorktreePath(
+    store,
+    identityResult.identity.instanceId,
+    identityResult.identity.worktreePath,
+  );
   if (conflicting !== undefined) {
-    const taskDescription = conflicting.task !== undefined
-      ? `taskId=${conflicting.task.taskId}`
-      : `worktreeId=${conflicting.worktree.worktreeId} references a task missing from the store`;
+    const taskDescription =
+      conflicting.task !== undefined
+        ? `taskId=${conflicting.task.taskId}`
+        : `worktreeId=${conflicting.worktree.worktreeId} references a task missing from the store`;
     return {
       ok: false,
       reason: "active-task-in-workspace",
@@ -188,8 +274,15 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
     };
   }
 
-  if ((policy.worktree.issueRequired === "enforce" || policy.worktree.issueRequired === "confirm") && issueRef === undefined) {
-    return { ok: false, reason: "issue-required", detail: `policy.worktree.issueRequired=${policy.worktree.issueRequired} but no issueRef was provided` };
+  if (
+    (policy.worktree.issueRequired === "enforce" || policy.worktree.issueRequired === "confirm") &&
+    issueRef === undefined
+  ) {
+    return {
+      ok: false,
+      reason: "issue-required",
+      detail: `policy.worktree.issueRequired=${policy.worktree.issueRequired} but no issueRef was provided`,
+    };
   }
 
   const wantsWorktree = policy.worktree.required !== "off" || input.skipWorktree !== true;
@@ -202,7 +295,11 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
       repository: { isPrimaryCheckout: repoStateResult.state.isPrimaryCheckout },
     });
     if (!decision.allowed) {
-      return { ok: false, reason: "policy-denied", detail: `sourceWrite denied on branch ${repoStateResult.state.branch ?? "(detached)"}: ${decision.reason}` };
+      return {
+        ok: false,
+        reason: "policy-denied",
+        detail: `sourceWrite denied on branch ${repoStateResult.state.branch ?? "(detached)"}: ${decision.reason}`,
+      };
     }
   } else {
     // worktree management は control-plane role に関わらず常に許可される操作。
@@ -225,10 +322,17 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
   // 到達しない。
   if (wantsWorktree) {
     if (issueRef === undefined) {
-      return { ok: false, reason: "issue-required", detail: "task workflow worktree branches require an issueRef for the repository governance pattern" };
+      return {
+        ok: false,
+        reason: "issue-required",
+        detail: "task workflow worktree branches require an issueRef for the repository governance pattern",
+      };
     }
     naming = buildWorktreeNaming({ branchType: input.branchType, issueRef, taskSlug });
-    const branchValidation = await validateBranchNameAgainstGovernance(naming.branchName, identityResult.identity.canonicalRepositoryRoot);
+    const branchValidation = await validateBranchNameAgainstGovernance(
+      naming.branchName,
+      identityResult.identity.canonicalRepositoryRoot,
+    );
     if (!branchValidation.ok) {
       return {
         ok: false,
@@ -302,7 +406,21 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
       allowMultipleActiveTasksPerIssue: allowsMultipleActiveTasksPerIssue(policy),
     });
     if (!reserveResult.ok) {
-      return { ok: false, reason: "issue-already-claimed", detail: `issue ${issueRef} is already claimed by task ${reserveResult.existingTask.taskId}` };
+      const reused = reusableStartedTask(
+        store,
+        reserveResult.existingTask,
+        input,
+        baseBranch,
+        baseCommit,
+        undefined,
+        undefined,
+      );
+      if (reused !== undefined) return { ...reused, warnings };
+      return {
+        ok: false,
+        reason: "issue-already-claimed",
+        detail: `issue ${issueRef} is already claimed by task ${reserveResult.existingTask.taskId}`,
+      };
     }
     const activated = store.updateTaskLifecycleState(reserveResult.task.taskId, "active");
     return { ok: true, task: activated, worktree: undefined, bootstrap: undefined, bootstrapRun: undefined, warnings };
@@ -310,7 +428,11 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
 
   // wantsWorktree=true の場合、上の preflight が naming/path を確定済み。
   if (naming === undefined || candidateCanonicalPath === undefined) {
-    return { ok: false, reason: "unsupported-repo-state", detail: "worktree naming preflight did not produce a canonical target" };
+    return {
+      ok: false,
+      reason: "unsupported-repo-state",
+      detail: "worktree naming preflight did not produce a canonical target",
+    };
   }
 
   const reserveTaskResult = store.reserveTask({
@@ -322,7 +444,21 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
     allowMultipleActiveTasksPerIssue: allowsMultipleActiveTasksPerIssue(policy),
   });
   if (!reserveTaskResult.ok) {
-    return { ok: false, reason: "issue-already-claimed", detail: `issue ${issueRef} is already claimed by task ${reserveTaskResult.existingTask.taskId}` };
+    const reused = reusableStartedTask(
+      store,
+      reserveTaskResult.existingTask,
+      input,
+      baseBranch,
+      baseCommit,
+      naming.branchName,
+      candidateCanonicalPath,
+    );
+    if (reused !== undefined) return { ...reused, warnings };
+    return {
+      ok: false,
+      reason: "issue-already-claimed",
+      detail: `issue ${issueRef} is already claimed by task ${reserveTaskResult.existingTask.taskId}`,
+    };
   }
   const task = reserveTaskResult.task;
 
@@ -335,7 +471,21 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
     baseCommit,
   });
   if (!reserveWorktreeResult.ok) {
+    const existingTask = store.getTask(reserveWorktreeResult.existingWorktree.taskId);
+    const reused =
+      existingTask === undefined
+        ? undefined
+        : reusableStartedTask(
+            store,
+            existingTask,
+            input,
+            baseBranch,
+            baseCommit,
+            naming.branchName,
+            candidateCanonicalPath,
+          );
     store.deleteReservedTask(task.taskId);
+    if (reused !== undefined) return { ...reused, warnings };
     return {
       ok: false,
       reason: reserveWorktreeResult.reason === "branch-collision" ? "branch-collision" : "path-collision",
@@ -351,7 +501,11 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
   if (fs.existsSync(candidateCanonicalPath)) {
     store.deleteReservedWorktree(reservedWorktree.worktreeId);
     store.deleteReservedTask(task.taskId);
-    return { ok: false, reason: "path-collision", detail: `canonical worktree path already exists on disk (untracked): ${candidateCanonicalPath}` };
+    return {
+      ok: false,
+      reason: "path-collision",
+      detail: `canonical worktree path already exists on disk (untracked): ${candidateCanonicalPath}`,
+    };
   }
 
   const createResult = await createWorktree({
@@ -368,7 +522,11 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
   const activeWorktree = store.activateWorktree(reservedWorktree.worktreeId);
   const activeTask = store.updateTaskLifecycleState(task.taskId, "active");
 
-  const bootstrap = decideBootstrap(policy.worktree.bootstrapMode, createResult.canonicalPath, input.expectedLockfileDigest);
+  const bootstrap = decideBootstrap(
+    policy.worktree.bootstrapMode,
+    createResult.canonicalPath,
+    input.expectedLockfileDigest,
+  );
   let bootstrapRun: RunBootstrapResult | undefined;
   if (bootstrap.shouldExecute && bootstrap.command !== undefined) {
     // bootstrap 失敗は worktree/task のロールバック対象にしない — worktree 自体は
@@ -410,6 +568,65 @@ export function transitionTask(store: WorkflowStateStore, taskId: TaskId, to: Li
   return { ok: true, task: store.updateTaskLifecycleState(taskId, to) };
 }
 
+export interface WorkspaceTaskTransitionInput extends WorkflowContextInput {
+  policy: WorkflowPolicyDocument;
+  to: LifecycleState;
+  dryRun?: boolean;
+}
+
+export type WorkspaceTaskTransitionResult =
+  | { ok: true; task: TaskRecord; context: VerifiedWorkflowContext }
+  | { ok: false; reason: string; detail: string; blocked?: TransitionBlockedInfo };
+
+/**
+ * State-only task transitions still require the same repository/worktree identity
+ * proof as Git mutations.  The adapter supplies the lifecycle states from which
+ * this transition is valid; the lifecycle table remains the sole transition
+ * authority.
+ */
+export async function transitionTaskForWorkspace(
+  input: WorkspaceTaskTransitionInput,
+): Promise<WorkspaceTaskTransitionResult> {
+  const context = await verifyWorkflowContext(input);
+  if (!context.ok) return { ok: false, reason: context.code, detail: context.detail };
+
+  const decision = decideProtectedBranchOperation({
+    policy: input.policy,
+    branch: context.branch,
+    operation: "worktreeManagement",
+    repository: { isPrimaryCheckout: context.isPrimaryCheckout },
+  });
+  if (!decision.allowed) {
+    return {
+      ok: false,
+      reason: "policy-denied",
+      detail: `worktree management denied on branch ${context.branch}: ${decision.reason}`,
+    };
+  }
+
+  const validation = validateTransition(context.task.lifecycleState, input.to);
+  if (!validation.allowed) {
+    return {
+      ok: false,
+      reason: "lifecycle-blocked",
+      detail: validation.blocked.blockingRule,
+      blocked: validation.blocked,
+    };
+  }
+  if (input.dryRun) return { ok: true, task: context.task, context };
+
+  const transitioned = transitionTask(input.store, input.taskId, input.to);
+  if (!transitioned.ok) {
+    return {
+      ok: false,
+      reason: "lifecycle-blocked",
+      detail: transitioned.blocked.blockingRule,
+      blocked: transitioned.blocked,
+    };
+  }
+  return { ok: true, task: transitioned.task, context };
+}
+
 export interface WorkspaceGuardrailWarning {
   code: string;
   detail: string;
@@ -441,7 +658,10 @@ export type WorkspaceTaskStatusResult =
  * 推測して続行しない。detached HEAD 等の未サポート状態は `ok: true` のまま
  * `warnings` に記録する（task が無いこと自体は正常系のため）。
  */
-export async function getTaskStatusForWorkspace(workspaceRoot: string, store: WorkflowStateStore): Promise<WorkspaceTaskStatusResult> {
+export async function getTaskStatusForWorkspace(
+  workspaceRoot: string,
+  store: WorkflowStateStore,
+): Promise<WorkspaceTaskStatusResult> {
   const identityResult = resolveRepositoryIdentity(workspaceRoot);
   if (!identityResult.ok) return { ok: false, reason: identityResult.reason };
 
@@ -450,7 +670,10 @@ export async function getTaskStatusForWorkspace(workspaceRoot: string, store: Wo
 
   const warnings: WorkspaceGuardrailWarning[] = [];
   if (!repoStateResult.state.supported) {
-    warnings.push({ code: `unsupported-repo-state:${repoStateResult.state.kind}`, detail: repoStateResult.state.reason });
+    warnings.push({
+      code: `unsupported-repo-state:${repoStateResult.state.kind}`,
+      detail: repoStateResult.state.reason,
+    });
   }
 
   const location: WorkspaceLocation = {
@@ -461,12 +684,19 @@ export async function getTaskStatusForWorkspace(workspaceRoot: string, store: Wo
     warnings,
   };
 
-  const found = findActiveTaskAtWorktreePath(store, identityResult.identity.instanceId, identityResult.identity.worktreePath);
+  const found = findActiveTaskAtWorktreePath(
+    store,
+    identityResult.identity.instanceId,
+    identityResult.identity.worktreePath,
+  );
   if (found === undefined) {
     return { ok: true, active: false, ...location };
   }
   if (found.task === undefined) {
-    return { ok: false, reason: `active worktree ${found.worktree.worktreeId} references task ${found.worktree.taskId}, which is missing from the store` };
+    return {
+      ok: false,
+      reason: `active worktree ${found.worktree.worktreeId} references task ${found.worktree.taskId}, which is missing from the store`,
+    };
   }
 
   // found.task は既に store.getTask() 済みなので、getTaskStatus() で同じ id を
