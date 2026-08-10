@@ -114,6 +114,22 @@ function ownedSymbolIds(model: ProjectionModel, id: EntityId): EntityId[] {
     .sort(compareText);
 }
 
+/**
+ * Return the entities that are explicitly part of a target's local semantic
+ * neighborhood.  A change set's global affectedEntities list is not a target
+ * filter: it may contain changes for other targets in the same transaction.
+ */
+function relevantTargetIds(model: ProjectionModel, targetId: EntityId): ReadonlySet<EntityId> {
+  const seeds = [targetId, ...ownedSymbolIds(model, targetId), ...ownerIds(model, targetId)];
+  const relevant = new Set<EntityId>(seeds);
+  for (const id of seeds) {
+    for (const relation of model.relationsFor(id)) {
+      relevant.add(relation.from === id ? relation.to : relation.from);
+    }
+  }
+  return relevant;
+}
+
 function callRefs(
   model: ProjectionModel,
   symbolIds: readonly EntityId[],
@@ -294,14 +310,15 @@ function sourceReadsForTarget(
   return { reads: [...bounded.items], omission: bounded.omission };
 }
 
-function deltaForTarget(changeSet: SemanticChangeSet | undefined, targetId: EntityId): AgentDeltaContext | undefined {
+function deltaForTarget(
+  changeSet: SemanticChangeSet | undefined,
+  relevantIds: ReadonlySet<EntityId>,
+): AgentDeltaContext | undefined {
   if (changeSet === undefined) return undefined;
-  const semanticDeltas = changeSet.semanticDeltas.filter(
-    (item) => String(item.subject) === targetId || changeSet.affectedEntities.some((id) => String(id) === targetId),
-  );
-  const implementationChanges = changeSet.derivedChanges.filter((item) => String(item.entityId) === targetId);
+  const semanticDeltas = changeSet.semanticDeltas.filter((item) => relevantIds.has(String(item.subject)));
+  const implementationChanges = changeSet.derivedChanges.filter((item) => relevantIds.has(String(item.entityId)));
   const unknowns = changeSet.unknownRegions.filter(
-    (item) => item.subjects.some((id) => String(id) === targetId) || item.subjects.length === 0,
+    (item) => item.subjects.some((id) => relevantIds.has(String(id))) || item.subjects.length === 0,
   );
   if (semanticDeltas.length === 0 && implementationChanges.length === 0 && unknowns.length === 0) return undefined;
   return { reviewLevel: changeSet.reviewLevel, semanticDeltas, implementationChanges, unknowns };
@@ -312,7 +329,12 @@ function boundedContext(
   options: AgentProjectionOptions,
 ): { context: AgentProjectionContext; omissions: ProjectionOmission[] } {
   const omissions: ProjectionOmission[] = [];
-  const cap = <T>(field: string, items: readonly T[], limit: number, priority: ProjectionOmission["priority"]): readonly T[] => {
+  const cap = <T>(
+    field: string,
+    items: readonly T[],
+    limit: number,
+    priority: ProjectionOmission["priority"],
+  ): readonly T[] => {
     const bounded = capItems(items, limit, field, `${field} exceeded its deterministic structural limit`, priority);
     if (bounded.omission !== undefined) omissions.push(bounded.omission);
     return bounded.items;
@@ -353,25 +375,51 @@ export function projectAgentContext(input: AgentProjectionInput): AgentContextPr
     targetEntity === undefined
       ? undefined
       : entityText(model, targetEntity, targetEntity.description ?? targetEntity.name);
-  const unboundedDelta = deltaForTarget(input.changeSet, input.targetId);
-  const delta = unboundedDelta === undefined ? undefined : {
-    ...unboundedDelta,
-    semanticDeltas: capItems(unboundedDelta.semanticDeltas, options.maxChanges ?? 32, "delta.semanticDeltas", "semantic deltas exceeded their deterministic structural limit", "semantic").items,
-    implementationChanges: capItems(unboundedDelta.implementationChanges, options.maxChanges ?? 32, "delta.implementationChanges", "implementation changes exceeded their deterministic structural limit", "evidence").items,
-    unknowns: capItems(unboundedDelta.unknowns, options.maxChanges ?? 32, "delta.unknowns", "delta unknowns exceeded their deterministic structural limit", "required").items,
-  };
+  const relevantIds = relevantTargetIds(model, input.targetId);
+  const unboundedDelta = deltaForTarget(input.changeSet, relevantIds);
+  const delta =
+    unboundedDelta === undefined
+      ? undefined
+      : {
+          ...unboundedDelta,
+          semanticDeltas: capItems(
+            unboundedDelta.semanticDeltas,
+            options.maxChanges ?? 32,
+            "delta.semanticDeltas",
+            "semantic deltas exceeded their deterministic structural limit",
+            "semantic",
+          ).items,
+          implementationChanges: capItems(
+            unboundedDelta.implementationChanges,
+            options.maxChanges ?? 32,
+            "delta.implementationChanges",
+            "implementation changes exceeded their deterministic structural limit",
+            "evidence",
+          ).items,
+          unknowns: capItems(
+            unboundedDelta.unknowns,
+            options.maxChanges ?? 32,
+            "delta.unknowns",
+            "delta unknowns exceeded their deterministic structural limit",
+            "required",
+          ).items,
+        };
   const impact =
     input.changeSet === undefined
       ? undefined
       : ({
-          affectedEntities: input.changeSet.affectedEntities.slice(0, options.maxSymbols ?? 48),
-          paths: input.changeSet.impactPaths.slice(0, options.maxImpactPaths ?? 24).filter((path) =>
-            path.entityIds.some((id) => String(id) === input.targetId),
-          ),
-          stopBoundaries: input.changeSet.propagationStopPoints.slice(0, options.maxImpactPaths ?? 24).filter(
-            (point) =>
-              String(point.entityId) === input.targetId || point.path.some((id) => String(id) === input.targetId),
-          ),
+          affectedEntities: input.changeSet.affectedEntities
+            .filter((id) => relevantIds.has(String(id)))
+            .slice(0, options.maxSymbols ?? 48),
+          paths: input.changeSet.impactPaths
+            .filter((path) => path.entityIds.some((id) => relevantIds.has(String(id))))
+            .slice(0, options.maxImpactPaths ?? 24),
+          stopBoundaries: input.changeSet.propagationStopPoints
+            .filter(
+              (point) =>
+                relevantIds.has(String(point.entityId)) || point.path.some((id) => relevantIds.has(String(id))),
+            )
+            .slice(0, options.maxImpactPaths ?? 24),
         } satisfies AgentImpactContext);
   const facts = model.status === "invalid" ? [] : factsFor(model, input.targetId);
   const relations = model.status === "invalid" ? [] : relationsFor(model, input.targetId);
@@ -379,11 +427,40 @@ export function projectAgentContext(input: AgentProjectionInput): AgentContextPr
   const readsOmission: ProjectionOmission[] = [
     ...boundedContextResult.omissions,
     ...(source.omission === undefined ? [] : [source.omission]),
-    ...(unboundedDelta === undefined || delta === undefined ? [] : [
-      ...(unboundedDelta.semanticDeltas.length === delta.semanticDeltas.length ? [] : [{ field: "delta.semanticDeltas", reason: "semantic delta structural limit applied", count: unboundedDelta.semanticDeltas.length - delta.semanticDeltas.length, priority: "semantic" as const }]),
-      ...(unboundedDelta.implementationChanges.length === delta.implementationChanges.length ? [] : [{ field: "delta.implementationChanges", reason: "implementation change structural limit applied", count: unboundedDelta.implementationChanges.length - delta.implementationChanges.length, priority: "evidence" as const }]),
-      ...(unboundedDelta.unknowns.length === delta.unknowns.length ? [] : [{ field: "delta.unknowns", reason: "delta unknown structural limit applied", count: unboundedDelta.unknowns.length - delta.unknowns.length, priority: "required" as const }]),
-    ]),
+    ...(unboundedDelta === undefined || delta === undefined
+      ? []
+      : [
+          ...(unboundedDelta.semanticDeltas.length === delta.semanticDeltas.length
+            ? []
+            : [
+                {
+                  field: "delta.semanticDeltas",
+                  reason: "semantic delta structural limit applied",
+                  count: unboundedDelta.semanticDeltas.length - delta.semanticDeltas.length,
+                  priority: "semantic" as const,
+                },
+              ]),
+          ...(unboundedDelta.implementationChanges.length === delta.implementationChanges.length
+            ? []
+            : [
+                {
+                  field: "delta.implementationChanges",
+                  reason: "implementation change structural limit applied",
+                  count: unboundedDelta.implementationChanges.length - delta.implementationChanges.length,
+                  priority: "evidence" as const,
+                },
+              ]),
+          ...(unboundedDelta.unknowns.length === delta.unknowns.length
+            ? []
+            : [
+                {
+                  field: "delta.unknowns",
+                  reason: "delta unknown structural limit applied",
+                  count: unboundedDelta.unknowns.length - delta.unknowns.length,
+                  priority: "required" as const,
+                },
+              ]),
+        ]),
   ];
   const base: Record<string, unknown> = {
     apiVersion: 1,

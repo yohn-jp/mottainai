@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { compareSemanticSnapshots } from "../diff/index.js";
+import type { SemanticDeltaRecord } from "../diff/types.js";
 import { createEdgeId, createSymbolId } from "../ir/ids.js";
 import { ambiguousDynamicCallFixture, logicalComponentFixture, pureFunctionFixture } from "../fixtures/snapshots.js";
+import { budgetStructuredProjection } from "./budget.js";
 import { projectAgentContext, projectJsdoc, projectReview } from "./index.js";
+import type { ProjectionFieldGroup } from "./budget.js";
 
 const symbolId = createSymbolId(pureFunctionFixture.derived.symbols[0]!.locator);
 const componentId = pureFunctionFixture.declarations.components[0]!.id;
@@ -66,6 +69,72 @@ test("Review projection consumes #54 L0-L3 data and places impact before impleme
     assert.ok(review.recommendedSourceReads.some((candidate) => JSON.stringify(candidate) === JSON.stringify(read)));
 });
 
+test("Agent target filtering excludes unrelated deltas and retains target paths before the cap", () => {
+  const original = compareSemanticSnapshots(pureFunctionFixture, logicalComponentFixture);
+  const unrelated = "symbol:unrelated" as typeof symbolId;
+  const template: SemanticDeltaRecord = original.semanticDeltas[0] ?? {
+    id: "delta:template",
+    subject: symbolId,
+    kind: "responsibility",
+    summary: "target semantic change",
+    reviewLevel: "L2",
+    compatibility: "review-required",
+    sourceChangeIds: [],
+    protected: false,
+    breaking: false,
+  };
+  const changeSet = {
+    ...original,
+    semanticDeltas: [
+      { ...template, id: "delta:target", subject: symbolId },
+      { ...template, id: "delta:unrelated", subject: unrelated },
+    ],
+    derivedChanges: [
+      {
+        id: "change:unrelated",
+        entityId: unrelated,
+        entityKind: "symbol",
+        path: "src/unrelated.ts",
+        changeKind: "modified" as const,
+        summary: "unrelated implementation change",
+      },
+    ],
+    affectedEntities: [unrelated, symbolId],
+    impactPaths: [
+      { entityIds: [unrelated], stopReason: "unrelated", propagated: true },
+      { entityIds: [symbolId], stopReason: "target", propagated: true },
+    ],
+    propagationStopPoints: [
+      { entityId: unrelated, reason: "unrelated", path: [unrelated] },
+      { entityId: symbolId, reason: "target", path: [symbolId] },
+    ],
+  };
+  const projection = projectAgentContext({
+    snapshot: pureFunctionFixture,
+    targetId: symbolId,
+    changeSet,
+    options: { maxImpactPaths: 1 },
+  });
+
+  assert.deepEqual(
+    projection.delta?.semanticDeltas.map((delta) => delta.id),
+    ["delta:target"],
+  );
+  assert.equal(
+    projection.delta?.implementationChanges.some((change) => change.entityId === unrelated),
+    false,
+  );
+  assert.deepEqual(projection.impact?.affectedEntities, [symbolId]);
+  assert.deepEqual(
+    projection.impact?.paths.map((path) => path.stopReason),
+    ["target"],
+  );
+  assert.deepEqual(
+    projection.impact?.stopBoundaries.map((point) => point.reason),
+    ["target"],
+  );
+});
+
 test("JSDoc projection preserves exact signature and surfaces contradictory declared contracts", () => {
   const normal = projectJsdoc({ snapshot: pureFunctionFixture, targetId: symbolId });
   assert.equal(normal.canonicalLanguage, "en");
@@ -77,12 +146,16 @@ test("JSDoc projection preserves exact signature and surfaces contradictory decl
   const contradictory = structuredClone(pureFunctionFixture);
   const original = contradictory.declarations.contracts[0]!;
   const secondId = "contract:contradictory" as typeof original.id;
+  const contradictoryParameters = original.definition.inputs.parameters.map((parameter, index) =>
+    index === 0 ? { ...parameter, type: parameter.type === "string" ? "number" : "string" } : parameter,
+  );
   contradictory.declarations.contracts.push({
     ...original,
     id: secondId,
     name: "Contradictory contract",
     definition: {
       ...original.definition,
+      inputs: { ...original.definition.inputs, parameters: contradictoryParameters },
       outputs: { ...original.definition.outputs, returnValue: "a different value" },
     },
   });
@@ -96,6 +169,7 @@ test("JSDoc projection preserves exact signature and surfaces contradictory decl
   });
   const projection = projectJsdoc({ snapshot: contradictory, targetId: symbolId });
   assert.ok(projection.contradictions.some((item) => item.field === "returns"));
+  assert.equal(projection.contradictions.filter((item) => item.field === "parameters").length, 1);
   assert.equal(projection.returns, undefined);
 });
 
@@ -111,10 +185,106 @@ test("projection budgets omit whole structured fields and preserve omission meta
   assert.equal(JSON.parse(serialized).kind, "agent");
 });
 
+test("budgeting is pure and final serialized metadata fits the hard byte/token boundary", () => {
+  const base: Record<string, unknown> = {
+    apiVersion: 1,
+    kind: "agent",
+    target: { id: "symbol:target", kind: "symbol", name: "target", authoritative: true },
+    model: { status: "fresh", integrity: "fresh", authoritative: true },
+    source: { available: false, reason: "source bodies excluded" },
+    provenance: { provider: "test", authority: "derived", status: "fresh", authoritative: true },
+  };
+  const groups: ProjectionFieldGroup[] = [
+    {
+      field: "unknowns",
+      value: [{ id: "unknown:large", code: "incomplete", message: "unknown detail".repeat(200) }],
+      priority: "required",
+      emptyValue: [],
+      omissionReason: "unknowns omitted",
+    },
+    {
+      field: "recommendedSourceReads",
+      value: [{ path: "src/target.ts", symbol: "target", startLine: 1, endLine: 3, reason: "exact read" }],
+      priority: "required",
+      emptyValue: [],
+      omissionReason: "source reads omitted",
+    },
+    {
+      field: "optional",
+      value: "optional detail".repeat(500),
+      priority: "verbose",
+      emptyValue: undefined,
+      omissionReason: "optional detail omitted",
+    },
+  ];
+  const originalBase = structuredClone(base);
+  const originalGroups = structuredClone(groups);
+  const bounded = budgetStructuredProjection(base, groups, {
+    softTokens: 256,
+    hardTokens: 256,
+    hardBytes: 1_024,
+  });
+  const serialized = JSON.stringify(bounded.value);
+  const serializedBytes = Buffer.byteLength(serialized, "utf8");
+
+  assert.deepEqual(base, originalBase);
+  assert.deepEqual(groups, originalGroups);
+  assert.ok(serializedBytes <= bounded.budget.hardBytes);
+  assert.ok(Math.ceil(serializedBytes / 4) <= bounded.budget.hardTokens);
+  assert.equal(bounded.budget.projectedBytes, serializedBytes);
+  assert.equal(bounded.budget.projectedTokens, Math.ceil(serializedBytes / 4));
+});
+
+test("required uncertainty and exact source reads survive compact fallback", () => {
+  const read = { path: "src/target.ts", symbol: "target", startLine: 4, endLine: 8, reason: "exact read" };
+  const base: Record<string, unknown> = {
+    apiVersion: 1,
+    kind: "agent",
+    target: { id: "symbol:target", kind: "symbol", name: "target", authoritative: false },
+    model: { status: "stale", integrity: "stale", authoritative: false, reason: "stale model" },
+    source: { available: false, reason: "source bodies excluded" },
+    provenance: { provider: "test", authority: "integrity", status: "stale", authoritative: false },
+  };
+  const groups: ProjectionFieldGroup[] = [
+    {
+      field: "unknowns",
+      value: [
+        { id: "unknown:target", code: "incomplete", message: "uncertainty".repeat(2_000), subjects: ["symbol:target"] },
+      ],
+      priority: "required",
+      emptyValue: [],
+      omissionReason: "unknowns omitted",
+    },
+    {
+      field: "recommendedSourceReads",
+      value: [read],
+      priority: "required",
+      emptyValue: [],
+      omissionReason: "source reads omitted",
+    },
+  ];
+  const bounded = budgetStructuredProjection(base, groups, {
+    softTokens: 512,
+    hardTokens: 1_024,
+    hardBytes: 4_096,
+  });
+  const value = bounded.value as Record<string, unknown>;
+  const reads = value.recommendedSourceReads as Array<Record<string, unknown>>;
+  assert.deepEqual(reads[0], read);
+  assert.equal((value.unknowns as Array<Record<string, unknown>>)[0]?.id, "unknown:target");
+  assert.ok(Buffer.byteLength(JSON.stringify(value), "utf8") <= bounded.budget.hardBytes);
+});
+
 test("coding-agent flow starts with bounded semantic context, escalates only exact Symbols, then receives #54 review", () => {
-  const context = projectAgentContext({ snapshot: pureFunctionFixture, targetId: symbolId, options: { targetTask: "normalize input" } });
+  const context = projectAgentContext({
+    snapshot: pureFunctionFixture,
+    targetId: symbolId,
+    options: { targetTask: "normalize input" },
+  });
   assert.equal(context.source.available, false);
-  assert.ok(context.recommendedSourceReads.every((read) => read.symbol === undefined || read.symbol === "normalizeInput"));
+  assert.ok(
+    context.recommendedSourceReads.every((read) => read.symbol === undefined || read.symbol === "normalizeInput"),
+  );
   assert.ok(context.recommendedSourceReads.some((read) => read.symbol === "normalizeInput"));
 
   const changeSet = compareSemanticSnapshots(pureFunctionFixture, logicalComponentFixture);

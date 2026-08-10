@@ -215,23 +215,9 @@ export function projectJsdoc(input: JsdocProjectionInput): JsdocProjection {
     .filter((entity): entity is Extract<SemanticEntity, { kind: "contract" }> => entity?.kind === "contract")
     .map((entity) => entity.definition);
   const contradictions: JsdocContradiction[] = [];
-  const parameterContradiction = contradiction(
-    "parameters",
-    contractValues(contracts, contractIds, (contract) => toJsonValue(contract.inputs.parameters)),
-    "linked declared contracts disagree about API parameters",
-  );
-  if (parameterContradiction !== undefined) contradictions.push(parameterContradiction);
-  const parameterValues = contractValues(
-    contracts,
-    contractIds,
-    (contract) => toJsonValue(contract.inputs.parameters),
-  );
+  const parameterValues = contractValues(contracts, contractIds, (contract) => toJsonValue(contract.inputs.parameters));
   const returnValues = contractValues(contracts, contractIds, (contract) => contract.outputs.returnValue);
-  const errorValues = contractValues(
-    contracts,
-    contractIds,
-    (contract) => toJsonValue(contract.outputs.errors),
-  );
+  const errorValues = contractValues(contracts, contractIds, (contract) => toJsonValue(contract.outputs.errors));
   for (const item of [
     contradiction("parameters", parameterValues, "linked declared contracts disagree about API parameters"),
     contradiction("returns", returnValues, "linked declared contracts disagree about the return guarantee"),
