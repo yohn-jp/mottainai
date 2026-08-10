@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "preset": "strict-worktree",
+  "protectedBranches": ["main", "master", "release/*"],
+  "protectedBranchRule": {
+    "sourceWrite": "advisory",
+    "stage": "advisory",
+    "commit": "advisory",
+    "directPush": "advisory",
+    "forcePush": "advisory",
+    "destructiveBranchOp": "advisory"
+  },
+  "controlPlaneRole": "any",
+  "worktree": {
+    "required": "advisory",
+    "issueRequired": "advisory",
+    "bootstrapMode": "conditional",
+    "multipleActiveTasksPerIssue": "advisory",
+    "multipleWorktreesPerTask": "advisory",
+    "staleBaseBranch": "advisory"
+  },
+  "stagingMode": "explicit",
+  "cleanup": {
+    "worktreeRemoval": "advisory",
+    "localBranchDeletion": "advisory",
+    "remoteBranchDeletion": "advisory",
+    "worktreePrune": "advisory",
+    "forceCleanup": "advisory"
+  }
+}
