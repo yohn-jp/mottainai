@@ -75,3 +75,40 @@ export async function validateBranchNameAgainstGovernance(
     return { ok: false, kind: "unavailable", detail: `branch governance authority unavailable: ${(err as Error).message}` };
   }
 }
+
+const BUNDLED_GOVERNANCE_RULES_URL = new URL("../../../scripts/governance-rules.json", import.meta.url);
+
+/** `^(type1|type2|...)/...` 形の branchPattern から、先頭の type alternation だけを
+ * 抽出する。branchPattern 文字列そのものが唯一の正本であり、type 一覧を別途
+ * 手書きで複製しない。 */
+function branchTypesFromPattern(pattern: string): string[] | undefined {
+  const match = /^\^\((?<types>[a-z][a-z0-9-]*(?:\|[a-z][a-z0-9-]*)*)\)\//.exec(pattern);
+  return match?.groups?.types.split("|");
+}
+
+let cachedBundledBranchTypes: readonly string[] | undefined;
+
+/**
+ * Mottainai 自身が同梱する `scripts/governance-rules.json`（対象 repository が
+ * `.mottainai/governance-rules.json` で上書きしない場合の fallback authority）の
+ * branchPattern が宣言する branch type 集合。MCP tool の input schema（`enum`）は
+ * ここから導出する — schema 側に別途 type list を書かない。
+ *
+ * 対象 repository が独自の governance-rules.json を持つ場合、その branchPattern は
+ * type-alternation 形式とは限らない（`branch.test.ts` 参照）。このため本関数は
+ * bundled rules のみを対象とし、実行時の実際の許可判定は引き続き
+ * `validateBranchNameAgainstGovernance`（repository 固有の override を尊重する）が
+ * 単独の authority として担う。
+ */
+export function bundledGovernedBranchTypes(): readonly string[] {
+  if (cachedBundledBranchTypes !== undefined) return cachedBundledBranchTypes;
+  const raw = fs.readFileSync(BUNDLED_GOVERNANCE_RULES_URL, "utf8");
+  const parsed = JSON.parse(raw) as RepositoryGovernanceRulesFile;
+  const pattern = parsed.pullRequest?.branchPattern;
+  const types = typeof pattern === "string" ? branchTypesFromPattern(pattern) : undefined;
+  if (types === undefined || types.length === 0) {
+    throw new Error("cannot determine governed branch types from bundled scripts/governance-rules.json");
+  }
+  cachedBundledBranchTypes = types;
+  return types;
+}

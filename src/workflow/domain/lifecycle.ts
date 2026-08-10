@@ -31,6 +31,12 @@ export type TransitionValidation =
   | { allowed: true; from: LifecycleState; to: LifecycleState }
   | { allowed: false; blocked: TransitionBlockedInfo };
 
+export interface LifecycleTransitionStatus {
+  currentState: LifecycleState;
+  allowedNextTransitions: LifecycleState[];
+  invalidTransitions: TransitionBlockedInfo[];
+}
+
 /**
  * 遷移表。`orphaned`→`active`は、Child Issue 7/8のreconciliationが検出済みの
  * orphaned taskを再アダプションできるようにするための遷移で、この Child では
@@ -70,5 +76,18 @@ export function validateTransition(from: LifecycleState, to: LifecycleState): Tr
       blockingRule: blockingRuleFor(from, to),
       allowedNextTransitions: allowedNextTransitions(from),
     },
+  };
+}
+
+/** 現在状態からの全遷移候補を、許可/拒否理由付きでread-onlyに射影する。 */
+export function lifecycleTransitionStatus(state: LifecycleState): LifecycleTransitionStatus {
+  const invalidTransitions = LIFECYCLE_STATES.flatMap((candidate) => {
+    const validation = validateTransition(state, candidate);
+    return validation.allowed ? [] : [validation.blocked];
+  });
+  return {
+    currentState: state,
+    allowedNextTransitions: allowedNextTransitions(state),
+    invalidTransitions,
   };
 }

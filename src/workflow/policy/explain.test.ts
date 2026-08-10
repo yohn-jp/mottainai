@@ -73,6 +73,57 @@ test("explainWorkflowPolicy rejects weakening a declared preset's enforce rule (
   assert.equal(result.explained.rules.worktree.required.authority, "preset");
 });
 
+test("explainWorkflowPolicy projects the complete PR policy with provenance", () => {
+  const document = {
+    ...getPreset("standard"),
+    pullRequest: {
+      issue: "required",
+      closingIssue: "exactly-one",
+      requiredSections: ["Summary"],
+      acceptanceCriteriaSection: "Acceptance",
+      acceptanceCriteriaChecklist: true,
+      templates: { Summary: "{value}" },
+    },
+  };
+  const root = workspaceWithPolicy(JSON.stringify(document));
+  const result = explainWorkflowPolicy(root);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.explained.rules.pullRequest.issue, { value: "required", authority: "repository" });
+  assert.deepEqual(result.explained.rules.pullRequest.closingIssue, { value: "exactly-one", authority: "repository" });
+  assert.deepEqual(result.explained.effectivePolicy.pullRequest, document.pullRequest);
+  assert.deepEqual(result.explained.resolvedPolicy.pullRequest.requiredSections, {
+    value: ["Summary"],
+    authority: "repository",
+  });
+});
+
+test("explainWorkflowPolicy reports pullRequest authority=default when workflow.json omits the pullRequest block, even though other fields are repository-declared", () => {
+  const document = {
+    ...getPreset("standard"),
+    protectedBranchRule: { ...getPreset("standard").protectedBranchRule, sourceWrite: "enforce" },
+  };
+  assert.equal("pullRequest" in document, false);
+  const root = workspaceWithPolicy(JSON.stringify(document));
+  const result = explainWorkflowPolicy(root);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  // workflow.json exists and explicitly strengthens sourceWrite: that field is genuinely
+  // repository-declared authority.
+  assert.equal(result.explained.policySourceAuthority, "repository");
+  assert.equal(result.explained.rules.protectedBranchRule.sourceWrite.mode, "enforce");
+  assert.equal(result.explained.rules.protectedBranchRule.sourceWrite.authority, "repository");
+
+  // pullRequest itself was never declared by this repository (or by any preset), so its
+  // values are synthesized defaults — the mere existence of workflow.json must not cause
+  // them to be reported as repository authority.
+  assert.deepEqual(result.explained.rules.pullRequest.issue, { value: "optional", authority: "default" });
+  assert.deepEqual(result.explained.rules.pullRequest.closingIssue, { value: "optional", authority: "default" });
+  assert.deepEqual(result.explained.resolvedPolicy.pullRequest.requiredSections, { value: [], authority: "default" });
+  assert.equal(result.explained.effectivePolicy.pullRequest.issue, "optional");
+});
+
 test("explainWorkflowPolicy fails closed on a corrupted policy file instead of silently falling back to a preset", () => {
   const root = workspaceWithPolicy("{not valid json");
   const result = explainWorkflowPolicy(root);

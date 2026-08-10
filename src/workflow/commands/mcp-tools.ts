@@ -1,16 +1,19 @@
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ResolvedGatewayConfig } from "../../config.js";
 import { OUTPUT_SCHEMA, output } from "../../envelope.js";
-import { getTaskStatusForWorkspace, startTask } from "../domain/task.js";
+import { collectWorkflowDoctorReport } from "./doctor.js";
+import { getTaskStatus, getTaskStatusForWorkspace, startTask } from "../domain/task.js";
+import { bundledGovernedBranchTypes } from "../governance/branch.js";
 import { explainWorkflowPolicy } from "../policy/explain.js";
 import { resolveEffectiveWorkflowPolicy } from "../policy/load.js";
 import type { WorkflowStateStore } from "../state/store.js";
 import { validateIssueRef, validateTaskSlug } from "./validate.js";
 
 /**
- * Early dogfooding exposure of the Git workflow engine (Issue #34, Child Issue 9a-1's
- * thin precursor). `mottainai_workflow_policy_explain` / `mottainai_workflow_task_start` /
- * `mottainai_workflow_task_status` — following the same `Tool[]` + dispatch-function
+ * Read-oriented exposure of the Git workflow engine (Issue #39, extending Issue #34).
+ * `mottainai_workflow_policy_explain` / `mottainai_workflow_task_start` /
+ * `mottainai_workflow_task_status` / `mottainai_workflow_doctor` — following the same
+ * `Tool[]` + dispatch-function
  * pattern as `src/local-tools.ts`, but kept in their own module since this family has
  * its own gating (`config.workflowTasks`) and its own state dependency
  * (`WorkflowStateStore`) that the rest of `src/local-tools.ts` doesn't need.
@@ -25,41 +28,71 @@ const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: t
 const policyExplainTool: Tool = {
   name: "mottainai_workflow_policy_explain",
   description: "Explain the effective Git workflow policy for this workspace: for each protected-branch/worktree/cleanup rule, the resolved mode, which authority (preset vs. repository) set it, and whether it can still be weakened. Side-effect free.",
-  inputSchema: { type: "object", properties: {} },
+  inputSchema: { type: "object", properties: {}, additionalProperties: false },
   outputSchema: OUTPUT_SCHEMA,
   annotations: readOnly,
 };
 
-const taskStartTool: Tool = {
-  name: "mottainai_workflow_task_start",
-  description: "Start a Git workflow task: reserve it under Mottainai's task lifecycle, generate a governance-validated <type>/<issue>-<slug> branch, create it below the canonical repository .mottainai/worktrees root, and activate it.",
-  inputSchema: { type: "object", properties: {
-    taskSlug: { type: "string" }, branchType: { type: "string" }, issueRef: { type: "string" },
-  }, required: ["taskSlug", "branchType", "issueRef"] },
-  outputSchema: OUTPUT_SCHEMA,
-  // openWorldHint: true — policy.worktree.bootstrapMode: "automatic" runs
-  // `pnpm install --frozen-lockfile` in the new worktree, which can reach package registries.
-  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-};
+/** `branchType` の enum は Mottainai 自身の bundled governance-rules.json を読んで導出する
+ * （`bundledGovernedBranchTypes`）ため、この tool 定義の構築自体を import 時ではなく初回
+ * 参照時まで遅延させる（`architecture-check` の import-time-side-effect rule）。 */
+function buildTaskStartTool(): Tool {
+  return {
+    name: "mottainai_workflow_task_start",
+    description: "Start a Git workflow task: reserve it under Mottainai's task lifecycle, generate a governance-validated <type>/<issue>-<slug> branch, create it below the canonical repository .mottainai/worktrees root, and activate it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        taskSlug: { type: "string", minLength: 1, pattern: "^[a-z0-9][a-z0-9-]*$" },
+        // 対象 repository が `.mottainai/governance-rules.json` で独自の type 集合を宣言する場合は、
+        // この enum より広い/狭い可能性がある — 実際の許可判定は `startTask` 内の
+        // `validateBranchNameAgainstGovernance` が repository 固有の override を尊重して行う
+        // 唯一の authority であり続ける。
+        branchType: { type: "string", enum: [...bundledGovernedBranchTypes()] },
+        issueRef: { type: "string", minLength: 1, pattern: "^[A-Za-z0-9](?!.*\\.\\.)(?!.*\\.lock$)(?!.*\\.$)[A-Za-z0-9._-]*$" },
+      },
+      required: ["taskSlug", "branchType", "issueRef"],
+      additionalProperties: false,
+    },
+    outputSchema: OUTPUT_SCHEMA,
+    // openWorldHint: true — policy.worktree.bootstrapMode: "automatic" runs
+    // `pnpm install --frozen-lockfile` in the new worktree, which can reach package registries.
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  };
+}
 
 const taskStatusTool: Tool = {
   name: "mottainai_workflow_task_status",
   description: "Report the active Git workflow task (if any) for the current worktree: task id, lifecycle state, repository/worktree identity, branch, and guardrail warnings. Side-effect free.",
-  inputSchema: { type: "object", properties: {} },
+  inputSchema: { type: "object", properties: {}, additionalProperties: false },
   outputSchema: OUTPUT_SCHEMA,
   annotations: readOnly,
 };
 
-export const workflowCommandTools: Tool[] = [policyExplainTool, taskStartTool, taskStatusTool];
+const workflowDoctorTool: Tool = {
+  name: "mottainai_workflow_doctor",
+  description: "Run the workflow reconciliation doctor in read-only mode and return the same structured report used by the workflow doctor CLI. No repair or filesystem deletion is performed.",
+  inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  outputSchema: OUTPUT_SCHEMA,
+  annotations: readOnly,
+};
+
+let cachedWorkflowCommandTools: Tool[] | undefined;
+
+/** 初回呼び出し時に一度だけ構築し、以降はキャッシュを返す（`buildTaskStartTool` 参照）。 */
+export function workflowCommandTools(): Tool[] {
+  cachedWorkflowCommandTools ??= [policyExplainTool, buildTaskStartTool(), taskStatusTool, workflowDoctorTool];
+  return cachedWorkflowCommandTools;
+}
 
 /** `config.workflowTasks` 未設定のワークスペースではこのファミリー全体を公開しない
  * （worktree 作成等の副作用を持つため既定非公開）。 */
 export function workflowCommandToolsFor(config: ResolvedGatewayConfig): Tool[] {
-  return config.workflowTasks ? workflowCommandTools : [];
+  return config.workflowTasks ? workflowCommandTools() : [];
 }
 
 export function isWorkflowCommandTool(name: string): boolean {
-  return workflowCommandTools.some((tool) => tool.name === name);
+  return workflowCommandTools().some((tool) => tool.name === name);
 }
 
 type Args = Record<string, unknown> | undefined;
@@ -92,6 +125,8 @@ function policyExplainToolImpl(config: ResolvedGatewayConfig): CallToolResult {
     preset: result.explained.preset,
     descriptive: result.explained.descriptive,
     rules: result.explained.rules,
+    resolvedPolicy: result.explained.resolvedPolicy,
+    effectivePolicy: result.explained.effectivePolicy,
   });
 }
 
@@ -119,10 +154,15 @@ async function taskStartToolImpl(args: Args, config: ResolvedGatewayConfig, stor
   }
 
   const summary = `OK task=${result.task.taskId} state=${result.task.lifecycleState} branch=${result.worktree?.branchName ?? "(none)"}`;
+  const status = getTaskStatus(store, result.task.taskId);
   return output("workflow_task_start", "success", summary, "", {
     task: result.task,
     worktree: result.worktree,
     warnings: result.warnings,
+    pullRequests: status?.pullRequests ?? [],
+    currentState: status?.currentState ?? result.task.lifecycleState,
+    allowedNextTransitions: status?.allowedNextTransitions ?? [],
+    invalidTransitions: status?.invalidTransitions ?? [],
   });
 }
 
@@ -146,9 +186,24 @@ async function taskStatusToolImpl(config: ResolvedGatewayConfig, store: Workflow
     repository,
     task: result.status.task,
     worktrees: result.status.worktrees,
+    pullRequests: result.status.pullRequests,
+    currentState: result.status.currentState,
     allowedNextTransitions: result.status.allowedNextTransitions,
+    invalidTransitions: result.status.invalidTransitions,
     warnings: result.warnings,
   });
+}
+
+async function workflowDoctorToolImpl(config: ResolvedGatewayConfig, store: WorkflowStateStore): Promise<CallToolResult> {
+  requireWorkflowTasksConfigured(config);
+  const report = await collectWorkflowDoctorReport({ workspaceRoot: config.workspaceRoot, store });
+  const summary = report.ok
+    ? `OK workflow doctor checks=${report.checked} warnings=${report.warnings}`
+    : `FAIL workflow doctor errors=${report.errors} warnings=${report.warnings}`;
+  return output("workflow_doctor", report.ok ? "success" : "failed", summary, "", {
+    ...report,
+    diagnostics: report.problems,
+  }, !report.ok);
 }
 
 /**
@@ -194,6 +249,9 @@ export async function callWorkflowCommandTool(
     case "mottainai_workflow_task_status":
       requireWorkflowTasksConfigured(config);
       return taskStatusToolImpl(config, workflowStore ?? (await defaultWorkflowStore()));
+    case "mottainai_workflow_doctor":
+      requireWorkflowTasksConfigured(config);
+      return workflowDoctorToolImpl(config, workflowStore ?? (await defaultWorkflowStore()));
     default:
       throw new Error(`Unknown workflow command tool: ${name}`);
   }

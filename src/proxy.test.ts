@@ -1250,6 +1250,7 @@ test("mottainai_workflow_task_start/status/policy_explain are only listed and ca
     assert.ok(names.includes("mottainai_workflow_policy_explain"));
     assert.ok(names.includes("mottainai_workflow_task_start"));
     assert.ok(names.includes("mottainai_workflow_task_status"));
+    assert.ok(names.includes("mottainai_workflow_doctor"));
 
     const status = await enabledClient.callTool({ name: "mottainai_workflow_task_status", arguments: {} });
     const statusContent = status.structuredContent as Record<string, unknown>;
@@ -1258,6 +1259,12 @@ test("mottainai_workflow_task_start/status/policy_explain are only listed and ca
 
     const explain = await enabledClient.callTool({ name: "mottainai_workflow_policy_explain", arguments: {} });
     assert.equal((explain.structuredContent as Record<string, unknown>).status, "success");
+
+    const doctor = await enabledClient.callTool({ name: "mottainai_workflow_doctor", arguments: {} });
+    const doctorContent = doctor.structuredContent as Record<string, unknown>;
+    assert.equal(doctorContent.status, "failed");
+    assert.equal(doctorContent.ok, false);
+    assert.equal(doctorContent.mode, "read-only");
 
     await enabledClient.close();
   } finally {

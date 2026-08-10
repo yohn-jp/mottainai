@@ -10,6 +10,7 @@ import type { ResolvedGatewayConfig } from "../../config.js";
 import { DEFAULT_BURST_BUDGET_POLICY } from "../../context-runtime/burst-budget.js";
 import { DEFAULT_AWAIT_POLICY } from "../../context-runtime/poll-policy.js";
 import { callWorkflowCommandTool, workflowCommandTools, workflowCommandToolsFor } from "./mcp-tools.js";
+import { bundledGovernedBranchTypes } from "../governance/branch.js";
 import { WorkflowSqliteStateStore } from "../state/sqlite-store.js";
 
 function structured(result: CallToolResult): Record<string, unknown> {
@@ -56,13 +57,14 @@ test("workflowCommandToolsFor returns nothing unless workflowTasks is configured
     "mottainai_workflow_policy_explain",
     "mottainai_workflow_task_start",
     "mottainai_workflow_task_status",
+    "mottainai_workflow_doctor",
   ].sort());
 });
 
 test("every tool in workflowCommandTools is reachable through workflowCommandToolsFor once enabled", async (t) => {
   const { config } = await gitWorkspace(t);
   const advertised = new Set(workflowCommandToolsFor(enabled(config)).map((tool) => tool.name));
-  for (const tool of workflowCommandTools) assert.ok(advertised.has(tool.name));
+  for (const tool of workflowCommandTools()) assert.ok(advertised.has(tool.name));
 });
 
 test("each workflow command tool throws when workflowTasks is not configured", async (t) => {
@@ -79,6 +81,10 @@ test("each workflow command tool throws when workflowTasks is not configured", a
     () => callWorkflowCommandTool("mottainai_workflow_task_status", {}, config),
     /workflow command tools are not configured/,
   );
+  await assert.rejects(
+    () => callWorkflowCommandTool("mottainai_workflow_doctor", {}, config),
+    /workflow command tools are not configured/,
+  );
 });
 
 // --- mottainai_workflow_policy_explain ---
@@ -92,6 +98,12 @@ test("policy_explain reports the standard preset by default, with authority=pres
   const rules = result.rules as { protectedBranchRule: { directPush: { mode: string; authority: string } } };
   assert.equal(rules.protectedBranchRule.directPush.mode, "enforce");
   assert.equal(rules.protectedBranchRule.directPush.authority, "preset");
+  const resolvedPolicy = result.resolvedPolicy as {
+    pullRequest: { issue: { value: string; authority: string } };
+  };
+  // No preset declares `pullRequest` (see presets.ts) — its value here is a synthesized
+  // default, not something the "standard" preset actually declared.
+  assert.deepEqual(resolvedPolicy.pullRequest.issue, { value: "optional", authority: "default" });
 });
 
 test("policy_explain fails closed on a corrupted .mottainai/workflow.json", async (t) => {
@@ -144,6 +156,27 @@ test("task_start rejects an issueRef ending in . at the MCP boundary", async (t)
   store.close();
 });
 
+test("task_start's branchType input schema declares an enum matching the bundled governed branch types (no duplicated/hand-written list)", () => {
+  const taskStart = workflowCommandTools().find((tool) => tool.name === "mottainai_workflow_task_start");
+  assert.ok(taskStart);
+  const properties = taskStart.inputSchema.properties as { branchType?: { enum?: unknown } };
+  assert.deepEqual(properties.branchType?.enum, bundledGovernedBranchTypes());
+  assert.equal((properties.branchType?.enum as string[] | undefined)?.includes("research"), false);
+});
+
+test("task_start rejects an ungoverned branchType (e.g. \"research\") before any worktree/Git mutation", async (t) => {
+  const { root, config } = await gitWorkspace(t);
+  const store = openWorkflowStore();
+  const result = structured(await callWorkflowCommandTool(
+    "mottainai_workflow_task_start", { taskSlug: "example", branchType: "research", issueRef: "9" }, enabled(config), store,
+  ));
+  assert.equal(result.status, "failed");
+  assert.equal(result.reason, "invalid-branch-name");
+  const worktreesDir = path.join(root, ".mottainai", "worktrees");
+  await assert.rejects(() => fs.access(worktreesDir));
+  store.close();
+});
+
 test("task_start always creates a dedicated worktree/branch (never main itself), and task_status reports it only from inside that worktree", async (t) => {
   const { config } = await gitWorkspace(t);
   const store = openWorkflowStore();
@@ -178,6 +211,64 @@ test("task_status reports no active task as a normal, structured outcome (not an
   assert.equal(status.status, "success");
   assert.equal(status.active, false);
   assert.deepEqual(status.warnings, []);
+  store.close();
+});
+
+test("task_status reports complete lifecycle transition blockers and provider PR state", async (t) => {
+  const { config } = await gitWorkspace(t);
+  const store = openWorkflowStore();
+  const started = structured(await callWorkflowCommandTool(
+    "mottainai_workflow_task_start", { taskSlug: "provider-state", branchType: "fix", issueRef: "39" }, enabled(config), store,
+  ));
+  assert.equal(started.status, "success");
+  const task = started.task as { taskId: string; instanceId: string };
+  store.recordPullRequest({
+    taskId: task.taskId as never,
+    instanceId: task.instanceId as never,
+    provider: "github",
+    repositoryId: "org/repository",
+    prNumber: 39,
+    url: "https://github.com/org/repository/pull/39",
+    headSha: "head-sha",
+    lifecycleState: "open",
+  });
+
+  const worktree = started.worktree as { canonicalPath: string };
+  const status = structured(await callWorkflowCommandTool(
+    "mottainai_workflow_task_status", {}, enabled({ ...config, workspaceRoot: worktree.canonicalPath }), store,
+  ));
+  assert.equal(status.active, true);
+  assert.deepEqual(status.pullRequests, [
+    {
+      recordId: (status.pullRequests as Array<{ recordId: string }>)[0]?.recordId,
+      taskId: task.taskId,
+      instanceId: task.instanceId,
+      provider: "github",
+      repositoryId: "org/repository",
+      prNumber: 39,
+      url: "https://github.com/org/repository/pull/39",
+      headSha: "head-sha",
+      lifecycleState: "open",
+      createdAt: (status.pullRequests as Array<{ createdAt: number }>)[0]?.createdAt,
+      updatedAt: (status.pullRequests as Array<{ updatedAt: number }>)[0]?.updatedAt,
+    },
+  ]);
+  assert.ok((status.allowedNextTransitions as string[]).includes("committed"));
+  const invalid = status.invalidTransitions as Array<{ requestedTransition: string; blockingRule: string }>;
+  assert.match(invalid.find((item) => item.requestedTransition === "merged")?.blockingRule ?? "", /no direct transition/);
+  store.close();
+});
+
+test("workflow doctor is exposed as a read-only structured MCP report", async (t) => {
+  const { config } = await gitWorkspace(t);
+  const store = openWorkflowStore();
+  const result = structured(await callWorkflowCommandTool("mottainai_workflow_doctor", {}, enabled(config), store));
+  assert.equal(result.operation, "workflow_doctor");
+  assert.equal(result.status, "failed");
+  assert.equal(result.mode, "read-only");
+  assert.equal(result.ok, false);
+  assert.equal((result.problems as Array<{ code: string }>)[0]?.code, "repository-instance-not-found");
+  assert.equal((result.reconciliation as { mode: string }).mode, "read-only");
   store.close();
 });
 
