@@ -200,6 +200,7 @@ function reusableStartedTask(
   if (
     task.lifecycleState !== "active" ||
     task.taskSlug !== input.taskSlug ||
+    task.startIdempotencyKey !== input.idempotencyKey ||
     !sameOptional(task.issueRef, input.issueRef) ||
     task.baseBranch !== baseBranch ||
     task.baseCommit !== baseCommit
@@ -401,6 +402,7 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
       instanceId,
       taskSlug,
       issueRef,
+      startIdempotencyKey: input.idempotencyKey,
       baseBranch,
       baseCommit,
       allowMultipleActiveTasksPerIssue: allowsMultipleActiveTasksPerIssue(policy),
@@ -439,6 +441,7 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
     instanceId,
     taskSlug,
     issueRef,
+    startIdempotencyKey: input.idempotencyKey,
     baseBranch,
     baseCommit,
     allowMultipleActiveTasksPerIssue: allowsMultipleActiveTasksPerIssue(policy),

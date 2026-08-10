@@ -80,6 +80,19 @@ test("cleanup idempotency key reuses the same cleanup operation without a second
   assert.equal(started.ok, true);
   if (!started.ok || started.worktree === undefined) return;
   store.updateTaskLifecycleState(started.task.taskId, "abandoned");
+  const preview = await cleanupWorkflowTask({
+    workspaceRoot: root,
+    store,
+    taskId: started.task.taskId,
+    policy: BUILTIN_PRESETS["strict-worktree"],
+    dryRun: true,
+    idempotencyKey: "cleanup-write-preview",
+  });
+  assert.equal(preview.ok, true, JSON.stringify(preview));
+  if (preview.ok) assert.equal(preview.dryRun, true);
+  assert.equal(store.getTask(started.task.taskId)?.lifecycleState, "abandoned");
+  assert.equal(fs.existsSync(started.worktree.canonicalPath), true);
+
   const first = await cleanupWorkflowTask({
     workspaceRoot: root,
     store,

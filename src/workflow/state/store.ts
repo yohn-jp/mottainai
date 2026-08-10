@@ -61,6 +61,8 @@ export interface TaskRecord {
   instanceId: RepositoryInstanceId;
   taskSlug: string;
   issueRef: string | undefined;
+  /** Stable caller key for an idempotent task-start operation, when supplied. */
+  startIdempotencyKey?: string;
   lifecycleState: LifecycleState;
   /** Monotonic optimistic-concurrency version. */
   version: number;
@@ -154,6 +156,8 @@ export interface ReserveTaskInput {
   instanceId: RepositoryInstanceId;
   taskSlug: string;
   issueRef: string | undefined;
+  /** Stable caller key used to make task creation retry-safe. */
+  startIdempotencyKey?: string;
   baseBranch: string;
   baseCommit: string;
   /** false の場合、同一 (instanceId, issueRef) に既存の未終了 task があれば拒否する。 */

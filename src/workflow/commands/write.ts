@@ -414,7 +414,7 @@ function cleanupObserver(adapter: GithubAdapter): CleanupPullRequestObserver {
 export async function cleanupWorkflowTask(
   input: CleanupWorkflowInput,
   dependencies: WorkflowWriteDependencies = {},
-): Promise<WorkflowWriteResult<{ plan: CleanupPlan; execution?: CleanupExecutionResult }>> {
+): Promise<WorkflowWriteResult<{ plan: CleanupPlan; execution?: CleanupExecutionResult; dryRun?: boolean }>> {
   if (input.idempotencyKey !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(input.idempotencyKey))
     return failure("invalid-input", "idempotencyKey must be a bounded branch-safe token");
   const selected = await resolveWorkflowTask(input);
@@ -438,11 +438,12 @@ export async function cleanupWorkflowTask(
       : { ok: input.plan.status !== "blocked", plan: input.plan };
   if (input.dryRun === true) {
     return planResult.ok
-      ? { ok: true, plan: planResult.plan }
+      ? { ok: true, dryRun: true, plan: planResult.plan }
       : {
           ok: false,
           reason: "cleanup-plan-blocked",
           detail: planResult.plan.blockers.map((item) => item.detail).join("; "),
+          dryRun: true,
           plan: planResult.plan,
         };
   }
