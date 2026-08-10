@@ -1,0 +1,21 @@
+{
+  "$schema": "https://raw.githubusercontent.com/sverweij/dependency-cruiser/v18.1.1/src/schema.json",
+  "forbidden": [
+    {
+      "name": "no-circular",
+      "severity": "error",
+      "from": {},
+      "to": {
+        "circular": true
+      }
+    }
+  ],
+  "options": {
+    "doNotFollow": {
+      "path": "node_modules"
+    },
+    "tsConfig": {
+      "fileName": "tsconfig.json"
+    }
+  }
+}

@@ -20,19 +20,55 @@ authority.
   environments; they were not added to `package.json` or `pnpm-lock.yaml`.
 - The raw reports were written outside the repository and summarized below.
   They are not an agent-facing output contract.
+- Configuration-sensitive inputs are versioned as research fixtures: the
+  dependency-cruiser config and Semgrep rules under
+  [`docs/quality-evidence-providers/fixtures/v1`](quality-evidence-providers/fixtures/v1).
+  These files are evidence inputs only; they are not loaded by CI and do not
+  define Repository Semantics, governance, or another policy authority.
 - This PR changes no workflow and adds no candidate analyzer to a required
   CI context.
 
 Bounded invocation record (temporary configs/reports only):
 
-| Candidate          | Invocation shape                                                                                                    |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| Knip               | `knip@6.32.0 --production --reporter json`                                                                          |
-| dependency-cruiser | `dependency-cruiser@18.1.1` + TypeScript `5.9.3`, temporary `no-circular` config, JSON output over `src/`           |
-| Semgrep            | `semgrep@1.172.0 scan --json --metrics=off`, two temporary rules, `--include '*.ts' --exclude '*.d.ts' src scripts` |
-| zizmor             | `zizmor@1.29.0 --format=json --offline --no-progress .github/workflows`                                             |
-| OSV-Scanner        | `osv-scanner@2.5.0 scan source -L pnpm-lock.yaml --format json`                                                     |
-| type-coverage      | `type-coverage@2.30.1` against current main's TypeScript `5.9.3`                                                    |
+| Candidate          | Invocation shape                                                                                                                           |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Knip               | `knip@6.32.0 --production --reporter json`                                                                                                 |
+| dependency-cruiser | `dependency-cruiser@18.1.1` + TypeScript `5.9.3`, fixture-v1 `no-circular` config, JSON output over `src/`                                 |
+| Semgrep            | `semgrep@1.172.0 scan --config <fixture-v1> --json --metrics=off`, two fixture-v1 rules, `--include '*.ts' --exclude '*.d.ts' src scripts` |
+| zizmor             | `zizmor@1.29.0 --format=json --offline --no-progress .github/workflows`                                                                    |
+| OSV-Scanner        | `osv-scanner@2.5.0 scan source -L pnpm-lock.yaml --format json`                                                                            |
+| type-coverage      | `type-coverage@2.30.1` against current main's TypeScript `5.9.3`                                                                           |
+
+The timing convention for every row and cost table below is process wall-clock
+from the analyzer invocation to the captured machine-readable report, rounded
+to one decimal place; temporary-environment setup and wrapper/report
+collection are excluded. A `~` value is rounded, not a second measurement.
+Consequently, zizmor is `0.1 s` in both places. A future wrapper measurement
+may report its own value only when it labels the wrapper and collection
+overhead separately.
+
+### Reproducible input manifest
+
+The two configuration-sensitive runs use the following immutable fixture bytes.
+The hash is over the file's exact UTF-8 bytes, including its final newline.
+The command is an argv-equivalent invocation from the repository root; no
+shell glob or ambient configuration is part of the run. Replaying a result
+requires the listed source revision, tool/runtime versions, fixture digest,
+target paths, output format, and include/exclude arguments. A normalized report
+digest should additionally sort findings by path, line, column, rule id, and
+message before hashing, so timestamps or object order cannot change identity.
+
+| Analyzer           | Versioned input                                                                                                                    | SHA-256                                                            | Complete invocation inputs                                                                                                                                                                                                                    |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| dependency-cruiser | [`dependency-cruiser.no-circular.json`](quality-evidence-providers/fixtures/v1/dependency-cruiser.no-circular.json) (`fixture-v1`) | `e53af1f3476d0cdd2aebce6e13f44f8556735fe181155ce70d7c42e3b69c26b5` | cwd `repo root`; `pnpm dlx dependency-cruiser@18.1.1 --config docs/quality-evidence-providers/fixtures/v1/dependency-cruiser.no-circular.json --output-type json src`; resolver `tsconfig.json`; source revision and Node/pnpm versions above |
+| Semgrep            | [`semgrep.custom-rules.yml`](quality-evidence-providers/fixtures/v1/semgrep.custom-rules.yml) (`fixture-v1`)                       | `f9e4aabb9ce137496fa58149f9655c190c19ed7ab5435e0e5d3b24ab64e41d41` | cwd `repo root`; `semgrep@1.172.0 scan --config docs/quality-evidence-providers/fixtures/v1/semgrep.custom-rules.yml --json --metrics=off --include '*.ts' --exclude '*.d.ts' src scripts`; source revision and Node/pnpm versions above      |
+
+Changing either fixture requires a new fixture version and a new digest; it is
+not a silent modification of the historical evidence. The fixture digest is
+also an identity input below, so a changed rule/config cannot overwrite facts
+from the previous run. The historical report remains outside the repository;
+the manifest makes a bounded repeat run auditable without routing raw output to
+an agent.
 
 The current repository already has distinct, repository-owned authorities:
 
@@ -69,15 +105,15 @@ The three decision classes mean:
   with a stronger or more targeted implementation, and the candidate would
   add a second authority without a demonstrated gap.
 
-| Candidate            | Distinct signal                                                                             | Current-main overlap and evidence                                                                                                                                                                                                                                                                                                  | Bounded result                                                                                                                                                                                                                                                                                                                                                                                            | Decision                                                                                                                 |
-| -------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Knip                 | Unused files, exports, types, dependencies, and unlisted dependencies                       | Typecheck, lint, architecture, tests, and coverage do not prove reachability/dead-code absence. It must instead infer entry points across the CLI, scripts, tests, package bin, dynamic child-process paths, and published files.                                                                                                  | Knip `6.32.0`, `--production --reporter json`: 1.0 s, 68,297-byte report, exit 1; 90 unused files, 172 exports, 229 types, 3 duplicates, 0 unlisted dependencies, 0 unresolved imports. The first unused files include `scripts/architecture-check.mjs`, `scripts/benchmark-artifact-bounding.mjs`, and `scripts/mcp.ts`, demonstrating that an unconfigured run treats operational entry points as dead. | **integrate only through a Mottainai provider later**                                                                    |
-| dependency-cruiser   | Configurable forbidden/allowed/required dependency rules, cycles, orphans, and graph output | Architecture checks already resolve the TypeScript import graph and enforce layer direction. Semantics already owns the canonical package/API/dependency relation vocabulary. A second hand-authored boundary rule set would drift.                                                                                                | dependency-cruiser `18.1.1` with TypeScript `5.9.3`, JSON output, and a temporary `no-circular` rule over `src/`: ~2.7 s, 307 modules, 1,092 dependencies, 0 cycles, 0 rule violations. The raw graph was 642,069 bytes; 23 dependencies were unresolved and need explicit interpretation rather than blind CI failure.                                                                                   | **integrate only through a Mottainai provider later**                                                                    |
-| Semgrep custom rules | Small, selective AST/pattern rules for project-specific forbidden API/policy patterns       | Architecture/governance/CodeQL/Managed Hooks already own several policy boundaries. A Semgrep rule must therefore be a verification projection over a named semantic/policy decision, not a second policy file that silently becomes canonical.                                                                                    | Semgrep `1.172.0`, two temporary rules (`eval` and `new Function`), JSON output over `src scripts` with tracked TypeScript and declaration files excluded: ~2.3 s, 275 tracked / 275 scanned targets, 2 rules, 0 findings, 0 errors, 10,278-byte report. The output is machine-readable and selective, but rule quality and false-positive control remain repository maintenance work.                    | **integrate only through a Mottainai provider later**                                                                    |
-| zizmor               | GitHub Actions-specific hardening and workflow security audits                              | CodeQL scans the `actions` language and current governance checks workflow structure, but neither is a specialized Actions audit for pinning, permissions, cache, or workflow idioms. The gap is especially visible in the current workflow set.                                                                                   | zizmor `1.29.0`, offline JSON v1 over `.github/workflows`: 0.1 s, 82,323-byte report, exit 14, 47 findings across 6 paths: 43 `unpinned-uses`, 1 `excessive-permissions`, 2 `cache-poisoning`, and 1 `adhoc-packages`.                                                                                                                                                                                    | **adopt now** as a non-required advisory/report-only follow-up, then expose bounded findings through a provider          |
-| OSV-Scanner          | Versioned dependency vulnerability matching against OSV data                                | Current CodeQL configuration is code/workflow security analysis; no OSV/Dependabot job or lockfile vulnerability authority exists in current main. This is a materially distinct supply-chain signal.                                                                                                                              | OSV-Scanner `2.5.0`, JSON scan of `pnpm-lock.yaml`: ~1.6 s, 28,468-byte report, 3 affected packages and 6 vulnerability records, exit 1. Affected packages were `@hono/node-server@1.19.17`, `fast-uri@3.1.4`, and `hono@4.12.32`; the six IDs were `GHSA-frvp-7c67-39w9`, `GHSA-7p8r-x3mc-p8w7`, `GHSA-54fx-42gc-7vw4`, `GHSA-79qm-7rj5-m7r9`, `GHSA-8j4g-w8fx-2239`, and `GHSA-f23p-vx2j-j53r`.         | **adopt now** as a non-required advisory/security follow-up; remediation and required-gate policy are separate decisions |
-| StrykerJS            | General-purpose JavaScript/TypeScript mutation testing, including incremental mutation      | The repository already has a bounded property/mutation backend, explicit mutation catalog, equivalent-mutant handling, fixed seed/timeout, baseline score, and a manual/weekly effectiveness workflow. Stryker's incremental mode is useful in general, but replacing the current targeted authority has no demonstrated gap here. | No Stryker package was installed or added. Current `scripts/mutation-test.mjs` and `docs/testing.md` provide the baseline evidence and execution contract.                                                                                                                                                                                                                                                | **do not add / redundant** for the current baseline                                                                      |
-| type-coverage        | Type annotation/`any` coverage, which is not identical to compiler correctness              | `strict: true` improves type safety but is not a type-coverage threshold. However, current main has no declared type-coverage target or public-surface policy to make a percentage actionable. A provider would need a semantic target rather than an arbitrary repository-wide number.                                            | The bounded `type-coverage@2.30.1` invocation failed before producing a report with `TypeError: Cannot read properties of undefined (reading 'Unknown')` in `type-coverage-core` while loading current main's TypeScript `5.9.3` API. This is a compatibility/maintenance signal, not a pass.                                                                                                             | **integrate only through a Mottainai provider later**, only after a declared public-surface/type policy exists           |
+| Candidate            | Distinct signal                                                                             | Current-main overlap and evidence                                                                                                                                                                                                                                                                                                  | Bounded result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Decision                                                                                                                 |
+| -------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Knip                 | Unused files, exports, types, dependencies, and unlisted dependencies                       | Typecheck, lint, architecture, tests, and coverage do not prove reachability/dead-code absence. It must instead infer entry points across the CLI, scripts, tests, package bin, dynamic child-process paths, and published files.                                                                                                  | Knip `6.32.0`, `--production --reporter json`: 1.0 s, 68,297-byte report, exit 1; 90 unused files, 172 exports, 229 types, 3 duplicates, 0 unlisted dependencies, 0 unresolved imports. The first unused files include `scripts/architecture-check.mjs`, `scripts/benchmark-artifact-bounding.mjs`, and `scripts/mcp.ts`, demonstrating that an unconfigured run treats operational entry points as dead.                                                                                                                                                                                    | **integrate only through a Mottainai provider later**                                                                    |
+| dependency-cruiser   | Configurable forbidden/allowed/required dependency rules, cycles, orphans, and graph output | Architecture checks already resolve the TypeScript import graph and enforce layer direction. Semantics already owns the canonical package/API/dependency relation vocabulary. A second hand-authored boundary rule set would drift.                                                                                                | dependency-cruiser `18.1.1` with TypeScript `5.9.3`, JSON output, and fixture-v1 `no-circular` rule over `src/`: ~2.7 s, 307 modules, 1,092 dependencies, 0 cycles, 0 rule violations. The raw graph was 642,069 bytes; 23 dependencies were unresolved and need explicit interpretation rather than blind CI failure.                                                                                                                                                                                                                                                                       | **integrate only through a Mottainai provider later**                                                                    |
+| Semgrep custom rules | Small, selective AST/pattern rules for project-specific forbidden API/policy patterns       | Architecture/governance/CodeQL/Managed Hooks already own several policy boundaries. A Semgrep rule must therefore be a verification projection over a named semantic/policy decision, not a second policy file that silently becomes canonical.                                                                                    | Semgrep `1.172.0`, fixture-v1 rules (`eval` and `new Function`), JSON output over `src scripts` with tracked TypeScript and declaration files excluded: ~2.3 s, 275 tracked / 275 scanned targets, 2 rules, 0 findings, 0 errors, 10,278-byte report. The output is machine-readable and selective, but rule quality and false-positive control remain repository maintenance work.                                                                                                                                                                                                          | **integrate only through a Mottainai provider later**                                                                    |
+| zizmor               | GitHub Actions-specific hardening and workflow security audits                              | CodeQL scans the `actions` language and current governance checks workflow structure, but neither is a specialized Actions audit for pinning, permissions, cache, or workflow idioms. The gap is especially visible in the current workflow set.                                                                                   | zizmor `1.29.0`, offline JSON v1 over `.github/workflows`: 0.1 s, 82,323-byte report, exit 14, 47 findings across 6 paths: 43 `unpinned-uses`, 1 `excessive-permissions`, 2 `cache-poisoning`, and 1 `adhoc-packages`.                                                                                                                                                                                                                                                                                                                                                                       | **adopt now** as a non-required advisory/report-only follow-up, then expose bounded findings through a provider          |
+| OSV-Scanner          | Versioned dependency vulnerability matching against OSV data                                | Current CodeQL configuration is code/workflow security analysis; no OSV/Dependabot job or lockfile vulnerability authority exists in current main. This is a materially distinct supply-chain signal.                                                                                                                              | OSV-Scanner `2.5.0`, JSON scan of `pnpm-lock.yaml`: ~1.6 s, 28,468-byte report, 3 affected packages and 6 vulnerability records, exit 1. Affected packages were `@hono/node-server@1.19.17`, `fast-uri@3.1.4`, and `hono@4.12.32`; the six IDs were `GHSA-frvp-7c67-39w9`, `GHSA-7p8r-x3mc-p8w7`, `GHSA-54fx-42gc-7vw4`, `GHSA-79qm-7rj5-m7r9`, `GHSA-8j4g-w8fx-2239`, and `GHSA-f23p-vx2j-j53r`. The scanner report did not carry an OSV data-source/snapshot identity, so this historical observation is `inadequate` under the provenance contract below until that metadata is captured. | **adopt now** as a non-required advisory/security follow-up; remediation and required-gate policy are separate decisions |
+| StrykerJS            | General-purpose JavaScript/TypeScript mutation testing, including incremental mutation      | The repository already has a bounded property/mutation backend, explicit mutation catalog, equivalent-mutant handling, fixed seed/timeout, baseline score, and a manual/weekly effectiveness workflow. Stryker's incremental mode is useful in general, but replacing the current targeted authority has no demonstrated gap here. | No Stryker package was installed or added. Current `scripts/mutation-test.mjs` and `docs/testing.md` provide the baseline evidence and execution contract.                                                                                                                                                                                                                                                                                                                                                                                                                                   | **do not add / redundant** for the current baseline                                                                      |
+| type-coverage        | Type annotation/`any` coverage, which is not identical to compiler correctness              | `strict: true` improves type safety but is not a type-coverage threshold. However, current main has no declared type-coverage target or public-surface policy to make a percentage actionable. A provider would need a semantic target rather than an arbitrary repository-wide number.                                            | The bounded `type-coverage@2.30.1` invocation failed before producing a report with `TypeError: Cannot read properties of undefined (reading 'Unknown')` in `type-coverage-core` while loading current main's TypeScript `5.9.3` API. This is a compatibility/maintenance signal, not a pass.                                                                                                                                                                                                                                                                                                | **integrate only through a Mottainai provider later**, only after a declared public-surface/type policy exists           |
 
 ### Primary candidate execution and cost assessment
 
@@ -93,7 +129,7 @@ model-dependent, and no raw report was sent to an agent.
 | Knip                 | `--production` narrows the analysis to declared production entry/project patterns. A safe diff-only run was not demonstrated: entry points must cover the CLI, scripts, tests, package bin, dynamic child-process paths, and published files. | ~1.0 s and 68,297 bytes for JSON. The signal is valuable for reachability/dead code, but unconfigured entry-point inference produced 90 apparent unused files including operational scripts; configuration and dynamic-path ownership are the principal maintenance/false-positive costs. |
 | dependency-cruiser   | The CLI supports `--affected`, `--include-only`, `--focus`, and `--reaches`; a provider can select the semantic delta's affected source graph instead of cruising all `src/`.                                                                 | ~2.7 s and 642,069 bytes for the full bounded `src/` graph. The graph cannot be sent to an agent as raw context; rules must remain aligned with Repository Semantics, and 23 unresolved dependencies require explicit parser policy.                                                      |
 | Semgrep custom rules | Rules and path includes can be limited to named policy targets; the bounded run used only tracked TypeScript targets. Incremental reuse is not assumed, so a provider must bound target bytes and rule count.                                 | ~2.3 s and 10,278 bytes for two rules. It is the most selective primary candidate, but every rule needs an owner, severity rationale, positive/negative fixtures, and false-positive review; zero findings proves only those two patterns matched nothing.                                |
-| zizmor               | The input can be limited to `.github/workflows` and run offline; CI can select it only when workflow, permission, cache, or action-reference scope changes.                                                                                   | ~0.2 s and 82,323 bytes for JSON v1. The 47 findings are immediately reviewable, but pinning, cache, permissions, and package-install findings require repository-policy triage; advisory output must not become a required failure without that decision.                                |
+| zizmor               | The input can be limited to `.github/workflows` and run offline; CI can select it only when workflow, permission, cache, or action-reference scope changes.                                                                                   | 0.1 s and 82,323 bytes for JSON v1. The 47 findings are immediately reviewable, but pinning, cache, permissions, and package-install findings require repository-policy triage; advisory output must not become a required failure without that decision.                                 |
 
 The two immediate recommendations are deliberately advisory. The observed
 zizmor and OSV results justify follow-up work, but this PR does not add either
@@ -110,16 +146,98 @@ produce the same bounded logical record.
 
 Every provider run must expose:
 
-| Field           | Requirement                                                                                                                                                     |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `schemaVersion` | Versioned contract identifier, independent of the analyzer's output version                                                                                     |
-| `provider`      | Stable provider id, tool version, adapter version, and capability (`unused`, `dependency-graph`, `pattern`, `workflow-security`, or `dependency-vulnerability`) |
-| `subject`       | Repository identity, source revision, and optional diff base; never an unverified path-only identity                                                            |
-| `selection`     | Scope paths/semantic targets, risk or delta class, and the reason this provider was selected                                                                    |
-| `status`        | `passed`, `findings`, `error`, or `skipped`; a finding is not automatically a policy failure                                                                    |
-| `summary`       | Bounded finding count, severity counts, duration, exit classification, omitted count, and `truncated` flag                                                      |
-| `provenance`    | Command identity, configuration/ruleset digest, source revision, tool version, and timestamp; no raw stdout required                                            |
-| `artifactRef`   | Optional `result_id`, byte count, retention/expiry, and retrieval selector for the bounded raw report                                                           |
+| Field           | Requirement                                                                                                                                                                                             |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schemaVersion` | Versioned contract identifier, independent of the analyzer's output version                                                                                                                             |
+| `provider`      | Stable provider id, tool version, adapter version, and capability (`unused`, `dependency-graph`, `pattern`, `workflow-security`, or `dependency-vulnerability`)                                         |
+| `subject`       | Repository identity, source revision, and optional diff base; never an unverified path-only identity                                                                                                    |
+| `selection`     | Scope paths/semantic targets, risk or delta class, and the reason this provider was selected                                                                                                            |
+| `status`        | `passed`, `findings`, `error`, `inadequate`, or `skipped`; only `passed`/`findings` are complete observations, and a finding is not automatically a policy failure                                      |
+| `summary`       | Bounded finding count, severity counts, duration, exit classification, omitted count, and `truncated` flag                                                                                              |
+| `provenance`    | Exact argv and cwd, configuration/ruleset and input-snapshot digests, source revision, tool/runtime/adapter versions, timestamp, and any required data-source/snapshot identity; no raw stdout required |
+| `artifactRef`   | Optional `result_id`, byte count, retention/expiry, and retrieval selector for the bounded raw report                                                                                                   |
+
+### Deterministic identity and replay
+
+IDs are hashes, not timestamps or generated UUIDs. Canonical serialization is
+UTF-8 JSON with object keys sorted by Unicode code point, no insignificant
+whitespace, omitted absent fields (no implicit `null`), `/`-normalized
+repository-relative paths, 1-based line/column numbers, and arrays ordered by
+the contract (paths and selected targets are sorted; argv retains invocation
+order; finding arrays are sorted by path, line, column, rule id, and normalized
+fingerprint). The hash
+domain separator is included to prevent a run hash from being interpreted as a
+fact hash.
+
+- `providerRunId` is
+  `pr_` plus SHA-256 of
+  `mottainai/provider-run/v1\n` followed by the canonical JSON of
+  `schemaVersion`, provider id/name/version, adapter version, subject
+  repository id and source revision, diff base, normalized selection, exact
+  argv and cwd, tool/runtime versions, fixture/config/ruleset digest, input
+  snapshot digest, network mode, and data-source/snapshot identity when
+  required. `startedAt`, host name, process id, and `attemptId` are excluded.
+- An `attemptId` is unique execution metadata linked under the same
+  `providerRunId`; it is not an identity input. A retry with exactly the same
+  inputs therefore has the same run id, even if it starts at another time.
+- `factId` is `qf_` plus SHA-256 of
+  `mottainai/quality-fact/v1\n` followed by the canonical JSON of subject
+  repository id, provider id, adapter version, fixture/config/ruleset digest,
+  selection target, controlled fact kind, rule id, and a normalized finding
+  key. The key uses a stable external identifier when available; otherwise it
+  uses the normalized semantic target/path and code or dependency fingerprint.
+  Message wording, severity, line-only movement, timestamp, run id, and source
+  revision are not keys. Source revision is retained in provenance so the same
+  finding can be reconciled across revisions without making a line number the
+  identity or colliding across repositories.
+
+Writes are idempotent and reconciliation is explicit:
+
+1. Upsert a run by `providerRunId`, retaining each `attemptId` and its exit,
+   timing, and diagnostic metadata. Upsert facts by `factId`; a retry or replay
+   cannot append a duplicate fact.
+2. Replaying the same complete run reasserts the same fact set and produces no
+   new identity. A changed revision, selection, fixture/ruleset, input
+   snapshot, tool, or adapter version creates a new run id. A parser or
+   contract change must never overwrite the old run; it gets a new adapter or
+   schema identity.
+3. A new run may reconcile only within the same provider, adapter/ruleset,
+   subject repository/selection scope (the repository identity, not its
+   revision), and only when its evidence is complete
+   (`status=passed` or `findings`, `truncated=false`, no omitted target or
+   parser error). Facts observed again are updated to the new run; facts in
+   the previous complete set that are absent are marked `resolved` with the
+   resolving run id, not deleted. Resolved facts remain audit-only under
+   retention limits and are excluded from the active Context Runtime facts
+   projection.
+4. `error`, `inadequate`, `skipped`, timeout, cancellation, or truncated/omitted
+   output never resolves an earlier fact. The prior fact remains retained with
+   stale/unknown or inadequate freshness and a bounded reason; the incomplete
+   run is linked for audit. This prevents a retry failure or an unavailable
+   data source from erasing a real finding.
+
+The run/evidence mapping is exact and one-way; no non-complete state is a pass:
+
+| Provider run status | Required condition                                                                                                      | Evidence state                        | Fact/reconciliation behavior                                                    |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------- |
+| `passed`            | Invocation, collection, parsing, target selection, and required provenance complete; zero normalized findings           | `observed` with conclusion `passed`   | Reconcile the complete empty set; absent prior facts in scope become `resolved` |
+| `findings`          | Same completeness conditions; one or more normalized findings                                                           | `observed` with conclusion `findings` | Upsert facts and reconcile the complete set                                     |
+| `error`             | Invocation, transport, timeout, or parser failure prevents a trustworthy complete observation                           | `unknown`                             | Emit only a bounded diagnostic; retain prior facts; no reconciliation           |
+| `inadequate`        | The provider ran or returned data, but required provenance, target coverage, parser completeness, or bounds are missing | `inadequate`                          | Do not claim pass or resolve facts; retain prior facts and the reason           |
+| `skipped`           | Selection, budget, cancellation, or explicit disablement prevented a run                                                | `unknown`                             | Emit no quality facts and perform no reconciliation                             |
+
+`unknown` means that no quality conclusion can be made; `inadequate` means the
+missing requirement is known. Neither is equivalent to zero findings. If an
+OSV scan lacks the required data-source or snapshot identity, it is explicitly
+`inadequate`, even when the scanner exit code and parsed findings look valid.
+
+OSV provenance is mandatory: record the exact source (for example the OSV.dev
+endpoint or offline database origin), an immutable snapshot/revision or the
+SHA-256 of the local database archive, acquisition time, and scan time. The
+standard OSV-Scanner JSON does not supply this database identity. If any
+required source or snapshot field is unavailable, the adapter must set
+`status=inadequate` and evidence state `inadequate`, retain the bounded report
+only as supporting evidence, and prohibit `passed`/`findings` reconciliation.
 
 ### Quality Fact
 
@@ -136,10 +254,12 @@ navigation:
 - `unknown`/`inadequate` information instead of an invented pass when parsing,
   timeout, or collection was incomplete.
 
-The adapter maps a completed run into the existing observed/evidence model:
+The adapter maps each run according to the status table into the existing
+observed/evidence model:
 
-- `VerificationEvidence` remains observed evidence with current/stale
-  freshness, status, reference, summary, and provenance;
+- `VerificationEvidence` carries observed, unknown, or inadequate state with
+  current/stale freshness, status, reference, summary, and provenance; only
+  observed `passed`/`findings` is a quality conclusion;
 - individual analyzer findings remain bounded facts linked by
   `evidence_for`; they do not become declared contracts, derived semantic
   entities, or policy rules;
@@ -215,8 +335,8 @@ repository's executable scripts, test infrastructure, dynamic process paths,
 published `dist` boundary, and semantic graph.
 
 Semgrep was fast and selective, but a zero-result custom scan proves only that
-the two temporary patterns matched nothing; it does not prove a complete policy
-or security analysis. Every adopted rule set needs rule tests, a named owner,
+the two fixture-v1 patterns matched nothing; it does not prove a complete
+policy or security analysis. Every adopted rule set needs rule tests, a named owner,
 severity rationale, and positive/negative fixtures. CodeQL remains the
 security source/sink authority where such a path is modeled.
 
@@ -225,7 +345,8 @@ decision. The 43 unpinned-use findings require triage against the repository's
 pinning policy and existing action updates; cache, permissions, and ad-hoc
 package findings require separate review. OSV's six lockfile vulnerabilities
 are a stronger immediate signal, but vulnerability status is time-dependent,
-database-dependent, and must retain advisory provenance and scan date.
+database-dependent, and the historical report is `inadequate` until its exact
+OSV data source and immutable snapshot are recorded alongside the scan date.
 
 Stryker would duplicate the current targeted mutation/effectiveness contract.
 Type-coverage has a potentially distinct signal but no declared target and did
@@ -236,13 +357,15 @@ new required path from this research alone.
 
 Tool contracts consulted for this bounded evaluation:
 
+Links without a version tag are pinned by the access date shown here.
+
 - [Knip production mode](https://knip.dev/features/production-mode) and
-  [JSON/SARIF reporters](https://knip.dev/features/reporters)
-- [dependency-cruiser CLI and JSON output](https://github.com/sverweij/dependency-cruiser/blob/main/doc/cli.md)
+  [JSON/SARIF reporters](https://knip.dev/features/reporters) (accessed 2026-08-10)
+- [dependency-cruiser CLI and JSON output](https://github.com/sverweij/dependency-cruiser/blob/v18.1.1/doc/cli.md)
 - [Semgrep CLI JSON output](https://semgrep.dev/docs/cli-reference/) and
-  [custom rule syntax](https://semgrep.dev/docs/writing-rules/rule-syntax)
-- [zizmor usage and versioned JSON v1](https://github.com/zizmorcore/zizmor/blob/main/docs/usage.md)
+  [custom rule syntax](https://semgrep.dev/docs/writing-rules/rule-syntax) (accessed 2026-08-10)
+- [zizmor usage and versioned JSON v1](https://github.com/zizmorcore/zizmor/blob/v1.29.0/docs/usage.md)
 - [OSV-Scanner usage](https://google.github.io/osv-scanner/usage/) and
-  [supported lockfiles](https://google.github.io/osv-scanner/supported-languages-and-lockfiles/)
-- [StrykerJS incremental mode](https://stryker-mutator.io/docs/stryker-js/incremental/)
-- [type-coverage](https://www.npmjs.com/package/type-coverage)
+  [supported lockfiles](https://google.github.io/osv-scanner/supported-languages-and-lockfiles/) (accessed 2026-08-10)
+- [StrykerJS incremental mode](https://stryker-mutator.io/docs/stryker-js/incremental/) (accessed 2026-08-10)
+- [type-coverage 2.30.1](https://www.npmjs.com/package/type-coverage/v/2.30.1)
