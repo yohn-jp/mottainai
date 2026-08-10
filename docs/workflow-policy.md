@@ -245,8 +245,39 @@ enforcement itself. Full write-path enforcement remains Child Issue
 
 ## Rollout status
 
-Not yet dogfooded in this repository. Per Issue #28's own risk
-guidance, `strict-worktree` will be adopted here only after an
-`advisory`-mode observation period shows no destructive false
-positives, then flipped to `enforce` rule by rule. Tracked as separate
-child Issues once the full enforcement path (MCP/CLI exposure) exists.
+Issue #41 starts repository dogfooding with the tracked
+`.mottainai/workflow.json`. It declares the `strict-worktree` preset, but
+sets every schema `RuleMode` in the repository document and its
+`effectivePolicy` projection to `advisory`; no repository rule is set to
+`enforce`.
+`controlPlaneRole` is `any` during this observation period because
+`primary-checkout` unconditionally denies source changes outside the
+RuleMode matrix and would therefore violate the advisory-only rollout.
+The strict preset's protected-branch patterns, explicit staging, and
+conditional bootstrap remain declared for observation.
+
+`policy explain` also exposes the authority-resolved `rules` and
+`resolvedPolicy` projections. Those projections intentionally retain a
+preset's stronger mode when the repository has no human-approval record for
+weakening it; this is provenance, not an enforcement enablement. Workflow
+operations consume the repository `effectivePolicy` document for this
+rollout.
+
+The advisory baseline is recorded at the start of this rollout:
+
+- Observation start: 2026-08-10, base revision `b2c7038`.
+- Configuration digest: SHA-256
+  `97ab684cdeea2bae225a04b75bce35e0f5de549dba119387036cf974daa960ce`.
+- `policy explain` baseline: `preset=strict-worktree`,
+  `policySourceAuthority=repository`, and every `effectivePolicy` RuleMode
+  is `advisory`.
+- Initial event counts: zero recorded violations, false positives, or
+  blocked operations; this is an observation-start baseline, not evidence
+  that the window is clean.
+- A clean window means at least 14 consecutive days and 10 pull requests
+  with zero unexpected denials or destructive false positives, with every
+  advisory event either explained or tracked to a follow-up Issue.
+
+Enforcement remains disabled. The baseline and subsequent audit/metrics
+observations must be reviewed before any rule is strengthened. #42 remains
+evidence-gated and is the only follow-up for an eventual `enforce` rollout.
