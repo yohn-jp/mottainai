@@ -150,8 +150,9 @@ or worktree reservation.
 
 `src/workflow/policy/protected-branch.ts` decides whether a given
 `(policy, branch, operation, repository role)` combination is allowed.
-It does not execute or intercept any Git operation itself — see
-"What's not here yet" below.
+Workflow domain operations call this decision authority before their
+mutations. Generated Git hooks independently apply equivalent logic as
+defense-in-depth; they do not replace the domain checks.
 
 - `matchesProtectedBranch()` matches a branch name against
   `protectedBranches` glob patterns (`*` is the only wildcard; every
@@ -207,41 +208,37 @@ or a client that doesn't run hooks at all). Failure to resolve the
 requested branch's tip throws rather than reporting a false
 divergence.
 
-## What's not here yet
+## Current integration and boundaries
 
-This Issue (#32) provides the decision API, hook generation, and
-repository-state detection only — **not enforced write-path
-interception**. Generated hooks only intercept `git commit`/`git
-push`; they cannot stop a plain editor write to a file on `main`, and
-they can be bypassed with `--no-verify` or from hook-unaware clients.
-Actual enforcement over Mottainai's own write/edit tools — wiring every
-managed write path through `decideProtectedBranchOperation()` before
-it runs — lands in the MCP/CLI exposure child Issue (9a-2). Full
-reconciliation reporting of detected hook-bypass events is Child Issue
-8.
+The workflow implementation from #38–#40 is present on `main`. The
+`src/workflow/commands/mcp-tools.ts` family exposes policy explanation,
+task start/status, read-only doctor, commit, push, open-PR, finish,
+abandon, and cleanup through one domain/policy path when
+`gateway.workflowTasks: true`; the CLI exposes the same lifecycle. The
+family remains unpublished by default because task creation and write
+operations have side effects.
 
-Task/worktree lifecycle, commit/push execution, provider integration,
-cleanup, and reconciliation remain separate child Issues under the
-Issue #28 Epic and land incrementally. See Issue #28 for the full
-child-Issue sequence.
+Write operations delegate validation and mutation to the workflow domain:
+repository/worktree identity, lifecycle, staging, protected-branch
+decisions, provider state, freshness checks, and cleanup leases are not
+reimplemented in the MCP or CLI adapters. `workflow doctor` and
+`mottainai_workflow_doctor` are read-only reconciliation surfaces; they
+report blockers and never repair or delete state implicitly.
 
-Issue #34 added a thin, early-dogfooding MCP/CLI exposure of three
-gated workflow operations — `policy explain` (read-only), `task
-start` (creates a dedicated worktree/branch), `task status`
-(read-only) (`src/workflow/commands/mcp-tools.ts`, gated by
-`gateway.workflowTasks`) — ahead of the full exposure in Child Issue
-9a-1/9a-2. `policy explain` resolves only the genuine `RuleMode`
-fields (`protectedBranchRule.*` / `worktree.{required,issueRequired,
-multipleActiveTasksPerIssue,multipleWorktreesPerTask,staleBaseBranch}`
-/ `cleanup.*`) through `resolveRule()`; `protectedBranches`,
-`controlPlaneRole`, `stagingMode`, and `worktree.bootstrapMode` are
-returned as plain descriptive values since the schema has no
-associated mode for them yet. `task start`/`task status` still consult
-the effective policy document directly (`resolveEffectiveWorkflowPolicy`),
-not the authority-resolved view `policy explain` shows — the
-resolution/weakening-guard engine is not yet wired into task-start
-enforcement itself. Full write-path enforcement remains Child Issue
-9a-2.
+The repository's `.mottainai/workflow.json` is intentionally an advisory
+dogfood configuration. The policy engine and hooks support `enforce` and
+`confirm`, but Issue #42's evidence gate found no rule-specific clean
+observation window, so no repository rule is promoted. See the rollout
+section below for the exact evidence and rollback contract.
+
+The managed hook layer applies the same workflow decision at supported
+Claude Code and Codex pre-operation boundaries. It cannot intercept a
+plain editor write, a hostile local process, `--no-verify`, or a client
+that does not invoke its configured hook. Codex project-hook trust and a
+fresh repository-bound semantic pre-operation authority remain explicit
+external/owner blockers; deterministic adapter tests do not claim those
+runtime conditions. See [`managed-hooks.md`](managed-hooks.md) for the
+supported boundary and evidence limits.
 
 ## Rollout status
 
@@ -284,10 +281,10 @@ evidence-gated and is the only follow-up for an eventual `enforce` rollout.
 
 ## Issue #42 evidence review
 
-The Issue #42 gate was reviewed against the current `main` revision
-`440666c9ad72fe783e1cdfb081c6bf4b11379cd8` (merged PR #170,
-2026-08-10) and the evidence available from Issue #41 and the Issue #38
-audit/metrics contract. No rule is promoted by this review.
+The Issue #42 gate was reviewed against the pre-#179 baseline revision
+`b132e83415397244b7521afab7318bebd140647b` (including merged PRs #177
+and #178, 2026-08-11) and the evidence available from Issue #41 and the
+Issue #38 audit/metrics contract. No rule is promoted by this review.
 
 The available evidence is only an observation-start baseline:
 

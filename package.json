@@ -16,7 +16,7 @@
     "scripts/governance-rules.json"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node scripts/generate-build-metadata.mjs && node scripts/copy-dashboard-assets.mjs",
+    "build": "tsc -p tsconfig.build.json --incremental false && node scripts/generate-build-metadata.mjs && node scripts/copy-dashboard-assets.mjs",
     "start": "node dist/index.js",
     "test": "node scripts/run-test-suite.mjs fast",
     "test:integration": "node scripts/run-test-suite.mjs integration",
@@ -30,7 +30,7 @@
     "test:mutation": "node scripts/mutation-test.mjs",
     "test:effectiveness": "pnpm run test:property && pnpm run test:mutation",
     "test:package": "pnpm run build && node scripts/run-package-suite.mjs",
-    "verify": "pnpm run verify:standards && pnpm run typecheck && pnpm test && pnpm run test:integration && pnpm run test:e2e && pnpm run test:coverage && pnpm run test:package",
+    "verify": "pnpm run verify:standards && pnpm run typecheck && pnpm test && pnpm run test:integration && pnpm run build && pnpm run test:e2e && pnpm run test:coverage && pnpm run test:package",
     "mcp": "tsx scripts/mcp.ts",
     "policy": "tsx scripts/policy.ts",
     "read-governor": "tsx scripts/read-governor.ts",

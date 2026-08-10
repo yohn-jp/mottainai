@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import test from "node:test";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { run as runTestSuite } from "./run-test-suite.mjs";
 import {
   FULL_VERIFICATION_SUITES,
@@ -9,6 +12,8 @@ import {
 } from "./test-suites.mjs";
 
 const architecture = validateTestArchitecture();
+const packageJsonPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../package.json");
+const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
 
 test("every recognized repository test belongs to exactly one suite", () => {
   assert.deepEqual(architecture.errors, []);
@@ -62,6 +67,20 @@ test("full verification names every classified suite exactly once", () => {
   ]);
   const fullFiles = FULL_VERIFICATION_SUITES.flatMap((suiteName) => architecture.suites[suiteName]);
   assert.deepEqual([...new Set(fullFiles)].sort(), discoverRepositoryTestFiles());
+});
+
+test("full verification builds before any built-dist E2E test", () => {
+  const steps = packageJson.scripts.verify.split(" && ");
+  const buildIndex = steps.indexOf("pnpm run build");
+  const e2eIndex = steps.indexOf("pnpm run test:e2e");
+
+  assert.notEqual(buildIndex, -1, "verify must build its artifact explicitly");
+  assert.notEqual(e2eIndex, -1, "verify must run the E2E suite");
+  assert.ok(buildIndex < e2eIndex, "verify must build before running built-dist E2E tests");
+});
+
+test("build configuration does not trust stale incremental metadata for dist output", () => {
+  assert.match(packageJson.scripts.build, /^tsc -p tsconfig\.build\.json --incremental false\b/);
 });
 
 test("a slow hosted-runner sample does not fail a passing fast suite", () => {
