@@ -78,7 +78,7 @@ function prepareUpstreamToolDefinition(upstreamName: string, tool: Tool): Tool {
 }
 
 function gatewayToolRisk(name: string): ToolRisk {
-  const definition = [...allLocalTools, ...workflowCommandTools, ...adaptiveTools, ...brokerTools, ...codeSearchTools, retrieveTool]
+  const definition = [...allLocalTools, ...workflowCommandTools(), ...adaptiveTools, ...brokerTools, ...codeSearchTools, retrieveTool]
     .find((tool) => tool.name === name);
   return riskOf(definition?.annotations);
 }

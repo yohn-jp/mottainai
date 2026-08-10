@@ -26,6 +26,15 @@ import type { PullRequestRenderPolicy } from "../domain/pr-render.js";
  * "repository" として扱う。ファイルが無ければ built-in `standard` preset のみを
  * "preset" として使う（`resolveEffectiveWorkflowPolicy` と同じ既定 fallback）。
  *
+ * `pullRequest` は schema 上 optional（`schema.ts` の `pullRequestRuleSchema.optional()`）で、
+ * かつ built-in preset は誰も `pullRequest` を宣言しない（`presets.ts` 参照）。そのため
+ * `workflow.json` が存在していても `pullRequest` ブロック自体を省略している場合、実際の値は
+ * `resolvePullRequestRenderPolicy()` が合成した組み込み既定値であり、"repository" が宣言した
+ * 値ではない。ここを document 全体の `policySourceAuthority` で一律に扱うと、workflow.json の
+ * 存在だけで暗黙値まで "repository" 権威と誤報告してしまう。pullRequest グループだけは
+ * `repositoryDocument.pullRequest` が実際に存在するかどうかで独立に authority
+ * （"repository" | "default"）を決める。
+ *
  * task startの実際の許可判定は従来どおり domain が受け取る実効 documentで行う。
  * このprojection自体は読み取り専用であり、policyの弱体化を許可するAPIではない。
  */
@@ -44,7 +53,10 @@ export interface ExplainedRuleGroups {
 
 export interface ExplainedValue<Value> {
   value: Value;
-  authority: "preset" | "repository";
+  /** "default" は preset にも repository にも declare されておらず、組み込み既定値であることを示す
+   * （現状 `pullRequest` グループにのみ発生し得る — 他の `ExplainedValue` フィールドは schema 上
+   * 必須のため、document が存在すれば必ずどちらかの authority が declare している）。 */
+  authority: "preset" | "repository" | "default";
 }
 
 export interface ExplainedPullRequestRule {
@@ -130,6 +142,11 @@ export function explainWorkflowPolicy(workspaceRoot: string): ExplainWorkflowPol
   const pullRequest = resolvePullRequestRenderPolicy(effective.pullRequest);
   const sourceAuthority: "preset" | "repository" = policySourceAuthority;
   const explainedValue = <Value>(value: Value): ExplainedValue<Value> => ({ value, authority: sourceAuthority });
+  // `pullRequest` はどの preset も宣言しない optional field なので、repository が実際に
+  // このブロックを宣言したかどうかだけで authority を決める — workflow.json の存在自体は
+  // pullRequest の authority に影響しない。
+  const pullRequestAuthority: "repository" | "default" = repositoryDocument?.pullRequest !== undefined ? "repository" : "default";
+  const explainedPullRequestValue = <Value>(value: Value): ExplainedValue<Value> => ({ value, authority: pullRequestAuthority });
 
   const protectedBranchRule = {
     sourceWrite: resolveModeField(presetDocument, repositoryDocument, (document) => document.protectedBranchRule.sourceWrite),
@@ -157,12 +174,12 @@ export function explainWorkflowPolicy(workspaceRoot: string): ExplainWorkflowPol
   } satisfies ExplainedRuleGroups["cleanup"];
 
   const explainedPullRequest: ExplainedPullRequestRule = {
-    issue: explainedValue(pullRequest.issue ?? "optional"),
-    closingIssue: explainedValue(pullRequest.closingIssue ?? "optional"),
-    requiredSections: explainedValue([...(pullRequest.requiredSections ?? [])]),
-    acceptanceCriteriaSection: explainedValue(pullRequest.acceptanceCriteriaSection ?? "Acceptance criteria"),
-    acceptanceCriteriaChecklist: explainedValue(pullRequest.acceptanceCriteriaChecklist ?? false),
-    templates: explainedValue({ ...(pullRequest.templates ?? {}) }),
+    issue: explainedPullRequestValue(pullRequest.issue ?? "optional"),
+    closingIssue: explainedPullRequestValue(pullRequest.closingIssue ?? "optional"),
+    requiredSections: explainedPullRequestValue([...(pullRequest.requiredSections ?? [])]),
+    acceptanceCriteriaSection: explainedPullRequestValue(pullRequest.acceptanceCriteriaSection ?? "Acceptance criteria"),
+    acceptanceCriteriaChecklist: explainedPullRequestValue(pullRequest.acceptanceCriteriaChecklist ?? false),
+    templates: explainedPullRequestValue({ ...(pullRequest.templates ?? {}) }),
   };
   const explainedWorktree = { ...worktree, bootstrapMode: explainedValue(effective.worktree.bootstrapMode) } satisfies ExplainedRuleGroups["worktree"];
   const rules = { protectedBranchRule, worktree: explainedWorktree, cleanup, pullRequest: explainedPullRequest } satisfies ExplainedRuleGroups;

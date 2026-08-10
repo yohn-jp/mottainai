@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { createTempDir } from "../../test-support/tmp-dir.js";
-import { validateBranchNameAgainstGovernance } from "./branch.js";
+import { bundledGovernedBranchTypes, validateBranchNameAgainstGovernance } from "./branch.js";
 
 test("validateBranchNameAgainstGovernance falls back to the bundled Mottainai rules when the target repository has none", async (t) => {
   const root = createTempDir(t, "mottainai-branch-governance-test-");
@@ -40,4 +40,18 @@ test("validateBranchNameAgainstGovernance falls back to bundled rules when the r
 
   const result = await validateBranchNameAgainstGovernance("fix/33-my-task", root);
   assert.deepEqual(result, { ok: true });
+});
+
+test("bundledGovernedBranchTypes is derived from the bundled governance-rules.json branchPattern and rejects ungoverned types", () => {
+  const types = bundledGovernedBranchTypes();
+  assert.deepEqual([...types].sort(), ["chore", "docs", "feat", "fix", "refactor", "test"]);
+  assert.equal(types.includes("research"), false);
+});
+
+test("validateBranchNameAgainstGovernance rejects a branch type outside the bundled governed set (e.g. \"research\")", async (t) => {
+  const root = createTempDir(t, "mottainai-branch-governance-test-");
+  const result = await validateBranchNameAgainstGovernance("research/1-my-task", root);
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.kind, "invalid");
 });

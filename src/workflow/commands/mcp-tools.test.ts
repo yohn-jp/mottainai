@@ -10,6 +10,7 @@ import type { ResolvedGatewayConfig } from "../../config.js";
 import { DEFAULT_BURST_BUDGET_POLICY } from "../../context-runtime/burst-budget.js";
 import { DEFAULT_AWAIT_POLICY } from "../../context-runtime/poll-policy.js";
 import { callWorkflowCommandTool, workflowCommandTools, workflowCommandToolsFor } from "./mcp-tools.js";
+import { bundledGovernedBranchTypes } from "../governance/branch.js";
 import { WorkflowSqliteStateStore } from "../state/sqlite-store.js";
 
 function structured(result: CallToolResult): Record<string, unknown> {
@@ -63,7 +64,7 @@ test("workflowCommandToolsFor returns nothing unless workflowTasks is configured
 test("every tool in workflowCommandTools is reachable through workflowCommandToolsFor once enabled", async (t) => {
   const { config } = await gitWorkspace(t);
   const advertised = new Set(workflowCommandToolsFor(enabled(config)).map((tool) => tool.name));
-  for (const tool of workflowCommandTools) assert.ok(advertised.has(tool.name));
+  for (const tool of workflowCommandTools()) assert.ok(advertised.has(tool.name));
 });
 
 test("each workflow command tool throws when workflowTasks is not configured", async (t) => {
@@ -100,7 +101,9 @@ test("policy_explain reports the standard preset by default, with authority=pres
   const resolvedPolicy = result.resolvedPolicy as {
     pullRequest: { issue: { value: string; authority: string } };
   };
-  assert.deepEqual(resolvedPolicy.pullRequest.issue, { value: "optional", authority: "preset" });
+  // No preset declares `pullRequest` (see presets.ts) — its value here is a synthesized
+  // default, not something the "standard" preset actually declared.
+  assert.deepEqual(resolvedPolicy.pullRequest.issue, { value: "optional", authority: "default" });
 });
 
 test("policy_explain fails closed on a corrupted .mottainai/workflow.json", async (t) => {
@@ -150,6 +153,27 @@ test("task_start rejects an issueRef ending in . at the MCP boundary", async (t)
     () => callWorkflowCommandTool("mottainai_workflow_task_start", { taskSlug: "ok", branchType: "fix", issueRef: "issue." }, enabled(config), store),
     /invalid issue ref/,
   );
+  store.close();
+});
+
+test("task_start's branchType input schema declares an enum matching the bundled governed branch types (no duplicated/hand-written list)", () => {
+  const taskStart = workflowCommandTools().find((tool) => tool.name === "mottainai_workflow_task_start");
+  assert.ok(taskStart);
+  const properties = taskStart.inputSchema.properties as { branchType?: { enum?: unknown } };
+  assert.deepEqual(properties.branchType?.enum, bundledGovernedBranchTypes());
+  assert.equal((properties.branchType?.enum as string[] | undefined)?.includes("research"), false);
+});
+
+test("task_start rejects an ungoverned branchType (e.g. \"research\") before any worktree/Git mutation", async (t) => {
+  const { root, config } = await gitWorkspace(t);
+  const store = openWorkflowStore();
+  const result = structured(await callWorkflowCommandTool(
+    "mottainai_workflow_task_start", { taskSlug: "example", branchType: "research", issueRef: "9" }, enabled(config), store,
+  ));
+  assert.equal(result.status, "failed");
+  assert.equal(result.reason, "invalid-branch-name");
+  const worktreesDir = path.join(root, ".mottainai", "worktrees");
+  await assert.rejects(() => fs.access(worktreesDir));
   store.close();
 });
 

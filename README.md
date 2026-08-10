@@ -225,22 +225,25 @@ Repository Model provider with `--provider live` or
 `MOTTAINAI_DASHBOARD_PROVIDER=live`; live compilation reads current TypeScript
 facts and reports partial, stale, or unavailable integrity state explicitly.
 
-### Git workflow task lifecycle (early exposure, Issue #34)
+### Git workflow task lifecycle (read-oriented exposure, Issue #39)
 
 Behind `gateway.workflowTasks: true` in `mottainai.config.json`, the MCP
 tools `mottainai_workflow_policy_explain`, `mottainai_workflow_task_start`,
-and `mottainai_workflow_task_status` expose the Git workflow engine
-(`src/workflow/*`, Issue #28) for early dogfooding. `task start` always
-creates a governance-validated `<type>/<issue>-<slug>` branch below the
-canonical repository root's `.mottainai/worktrees/` directory — never the
-current branch itself, even on `main`. This is observation/dogfooding only:
-no commit/push/PR/cleanup exposure yet, and Mottainai's own managed write/edit
-tools don't yet enforce protected-branch rules (generated `pre-commit`/`pre-push`
-Git hooks may already block protected-branch operations independently of this;
-see `docs/workflow-policy.md`). The former `mottainai_worktree_new` tool has
+`mottainai_workflow_task_status`, and `mottainai_workflow_doctor` expose the
+Git workflow engine (`src/workflow/*`, Issue #28) for dogfooding. `task
+start` always creates a governance-validated `<type>/<issue>-<slug>` branch
+below the canonical repository root's `.mottainai/worktrees/` directory —
+never the current branch itself, even on `main`; `branchType` is restricted
+to the branch types the repository's own governance rules actually declare
+(`feat`, `fix`, `docs`, `refactor`, `test`, `chore` by default). This is
+observation/dogfooding only: no commit/push/PR/cleanup exposure yet, and
+Mottainai's own managed write/edit tools don't yet enforce protected-branch
+rules (generated `pre-commit`/`pre-push` Git hooks may already block
+protected-branch operations independently of this; see
+`docs/workflow-policy.md`). The former `mottainai_worktree_new` tool has
 been removed; use `mottainai_workflow_task_start` instead.
 
-The same three operations are available from the CLI, independent of
+The same four operations are available from the CLI, independent of
 `mottainai.config.json` (they act on a Git repository, given by `--workspace`
 or the current Git repository's top level):
 
@@ -248,7 +251,13 @@ or the current Git repository's top level):
 npx -y mottainai policy explain [--workspace path]
 npx -y mottainai task start <slug> --type type --issue ref [--workspace path]
 npx -y mottainai task status [--workspace path]
+npx -y mottainai workflow doctor [--workspace path]
 ```
+
+`workflow doctor` runs the same read-only reconciliation report as the MCP
+tool: it never repairs or deletes anything, and exits non-zero when it
+observes a reconciliation problem while still printing the structured
+report.
 
 Initialization options include `--workspace`, `--scope personal|project`,
 `--client claude|codex|none`, `--import claude|codex|none`, `--force`,

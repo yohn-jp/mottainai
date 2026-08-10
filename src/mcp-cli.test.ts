@@ -316,14 +316,17 @@ test("public CLI policy explain reports the standard preset for a plain reposito
 
 test("public CLI workflow doctor returns the read-only domain report", () => {
   const directory = gitWorkspace();
-  const result = runWorkflow("workflow", "doctor", "--workspace", directory);
-  assert.equal(result.status, 1);
-  assert.equal(result.json.ok, false);
-  assert.equal(result.json.mode, "read-only");
-  assert.equal(result.json.workspace, directory);
-  assert.equal((result.json.problems as Array<{ code: string }>)[0]?.code, "repository-instance-not-found");
-  assert.equal((result.json.reconciliation as { mode: string }).mode, "read-only");
-  fs.rmSync(directory, { recursive: true, force: true });
+  try {
+    const result = runWorkflow("workflow", "doctor", "--workspace", directory);
+    assert.equal(result.status, 1);
+    assert.equal(result.json.ok, false);
+    assert.equal(result.json.mode, "read-only");
+    assert.equal(result.json.workspace, directory);
+    assert.equal((result.json.problems as Array<{ code: string }>)[0]?.code, "repository-instance-not-found");
+    assert.equal((result.json.reconciliation as { mode: string }).mode, "read-only");
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("public CLI task start creates a dedicated worktree/branch, and task status reports it from inside that worktree", () => {
