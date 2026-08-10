@@ -240,6 +240,49 @@ test("required missing evidence is explicit and blocks sufficiency", () => {
   assert.equal(plan.fullVerification.state, "must-run");
 });
 
+test("an unresolved evidence test ID is explicit uncertainty and a blocking reason", () => {
+  const perspectiveValue = perspective(createLogicalId("perspective", "unresolved-test"));
+  const requirementValue = requirement("unresolved-test", target("symbol", symbolId), perspectiveValue.id);
+  const unresolvedTestId = createLogicalId("test", "unresolved-evidence");
+  const evidenceValue = {
+    ...evidence("unresolved-test", target("symbol", symbolId), perspectiveValue.id),
+    testId: unresolvedTestId,
+  };
+  const snapshot = freshSnapshot({
+    requirements: [requirementValue],
+    perspectives: [perspectiveValue],
+    evidence: [evidenceValue],
+  });
+  const plan = planMinimumSufficientVerification({
+    snapshot,
+    changeSet: changeSet(snapshot, {
+      evidenceRefreshNeeds: [
+        {
+          id: "refresh:unresolved-test",
+          subject: symbolId,
+          evidenceIds: [evidenceValue.id],
+          testIds: [unresolvedTestId],
+          required: true,
+          reason: "the changed Symbol invalidates its previous verification evidence",
+          sourceReads: [],
+        },
+      ],
+    }),
+  });
+
+  const unresolved = plan.uncertain.find((item) => item.testId === unresolvedTestId);
+  assert.ok(unresolved);
+  assert.equal(unresolved?.provenance.reasonCode, "unresolved-evidence-test-id");
+  assert.ok(unresolved?.provenance.sourceIds.includes(unresolvedTestId));
+  assert.equal(plan.broaderVerification?.reasonCodes.includes("unresolved-evidence-test-id"), true);
+  assert.equal(plan.sufficient, false);
+  assert.equal(plan.fullVerification.state, "must-run");
+  assert.equal(
+    plan.requiredTests.some((item) => item.testId === unresolvedTestId),
+    false,
+  );
+});
+
 test("stale evidence is reported separately and conservatively escalates", () => {
   const perspectiveValue = perspective(createLogicalId("perspective", "stale-evidence"));
   const requirementValue = requirement("stale-evidence", target("symbol", symbolId), perspectiveValue.id);
@@ -354,6 +397,58 @@ test("shadow comparison records an unpredicted full-suite failure and never auth
   assert.equal(comparison.misses[0]?.observedItemId, unexpectedFailure);
   assert.equal(comparison.misses[0]?.provenance.reasonCode, "full-failure-outside-prediction");
   assert.equal(comparison.promotion.eligible, false);
+});
+
+test("shadow metrics count canonical predictions once while test aliases match observations", () => {
+  const fixture = exactFixture();
+  const plan = planMinimumSufficientVerification({
+    snapshot: fixture.snapshot,
+    changeSet: changeSet(fixture.snapshot, {
+      evidenceRefreshNeeds: [
+        {
+          id: "refresh:shadow-alias",
+          subject: symbolId,
+          evidenceIds: [fixture.evidence.id],
+          testIds: [testId],
+          required: true,
+          reason: "the changed Symbol invalidates its previous verification evidence",
+          sourceReads: [],
+        },
+      ],
+    }),
+  });
+  const canonicalTest = plan.requiredTests.find((item) => item.testId === testId);
+  assert.ok(canonicalTest);
+
+  const comparison = compareVerificationShadow({
+    plan,
+    selected: {
+      suite: "selected",
+      status: "passed",
+      executedItemIds: plan.predictedItemIds,
+      failedItemIds: [],
+      durationMs: 25,
+    },
+    full: {
+      suite: "full",
+      status: "passed",
+      executedItemIds: [testId, ...plan.predictedItemIds],
+      failedItemIds: [],
+      relevantItemIds: [testId],
+      durationMs: 100,
+    },
+  });
+
+  const unnecessaryCount = plan.predictedItemIds.length - 1;
+  assert.equal(comparison.status, "no-miss");
+  assert.equal(comparison.metrics.selectionRecall, 1);
+  assert.equal(comparison.metrics.coveredRelevantItemCount, 1);
+  assert.equal(comparison.metrics.predictedItemCount, plan.predictedItemIds.length);
+  assert.equal(comparison.metrics.unnecessarySelectionCount, unnecessaryCount);
+  assert.equal(comparison.metrics.overSelectionRate, unnecessaryCount / plan.predictedItemIds.length);
+  assert.equal(comparison.metrics.unnecessarySelectionCount <= plan.predictedItemIds.length, true);
+  assert.equal(plan.predictedItemIds.includes(testId), false);
+  assert.equal(plan.predictedItemIds.includes(canonicalTest!.id), true);
 });
 
 test("live model query exposes the canonical planner without replacing the query contract", async () => {

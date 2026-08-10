@@ -579,6 +579,7 @@ export function planMinimumSufficientVerification(input: VerificationPlannerInpu
       evidenceIds: Set<LogicalId>;
     }
   >();
+  const unresolvedTestIds: LogicalId[] = [];
 
   for (const requirement of relevantRequirements) {
     const assessment = assessmentFor(requirement, assessments, evidence);
@@ -689,11 +690,37 @@ export function planMinimumSufficientVerification(input: VerificationPlannerInpu
   for (const testId of [...testSelections.keys()].sort(compareText)) {
     const test = testEntities.get(testId);
     const selection = testSelections.get(testId)!;
-    if (test === undefined) continue;
     const requirementIds = uniqueSorted([...selection.requirementIds]);
     const perspectiveIds = uniqueSorted([...selection.perspectiveIds]);
     const targetIds = uniqueSorted([...selection.targetIds]);
     const evidenceIds = uniqueSorted([...selection.evidenceIds]);
+    if (test === undefined) {
+      unresolvedTestIds.push(testId);
+      planItems.push({
+        id: `verification-item:test:unresolved:${testId}`,
+        kind: "test",
+        state: "uncertain",
+        label: `unresolved verification test ${testId}`,
+        testId,
+        targetIds,
+        requirementIds,
+        perspectiveIds,
+        evidenceIds,
+        required: false,
+        provenance: makeProvenance({
+          ruleId: "requirement-test-association",
+          reasonCode: "unresolved-evidence-test-id",
+          sourceKinds: ["verification-requirement", "verification-evidence", "model-integrity"],
+          sourceIds: [testId, ...requirementIds, ...evidenceIds],
+          changedSymbolIds,
+          affectedEntityIds: selectionTargetIds,
+          explanation:
+            "Authoritative verification evidence references a test absent from the live model; the test association cannot be resolved and broader verification is required.",
+          confidence: "conservative",
+        }),
+      });
+      continue;
+    }
     planItems.push({
       id: `verification-item:test:${test.id}`,
       kind: "test",
@@ -716,6 +743,15 @@ export function planMinimumSufficientVerification(input: VerificationPlannerInpu
         explanation:
           "An explicit test/evidence association is selected to establish the affected required perspective.",
       }),
+    });
+  }
+  if (unresolvedTestIds.length > 0) {
+    addReason(reasons, {
+      code: "unresolved-evidence-test-id",
+      explanation:
+        "Required verification evidence references one or more tests absent from the live model; focused selection cannot establish complete coverage.",
+      sourceKinds: ["verification-requirement", "verification-evidence", "model-integrity"],
+      sourceIds: unresolvedTestIds,
     });
   }
 
@@ -872,7 +908,8 @@ function observationIds(observation: VerificationRunObservation): string[] {
   return uniqueSorted([...observation.executedItemIds, ...observation.failedItemIds]);
 }
 
-function predictedAliases(plan: VerificationPlan): Set<string> {
+/** IDs accepted when matching shadow observations; metrics remain canonical-only. */
+function shadowMatchIds(plan: VerificationPlan): Set<string> {
   const aliases = new Set<string>(plan.predictedItemIds);
   for (const item of plan.requiredTests) if (item.testId !== undefined) aliases.add(item.testId);
   return aliases;
@@ -905,12 +942,13 @@ export function compareVerificationShadow(input: {
   full: VerificationRunObservation;
 }): VerificationShadowComparison {
   const { plan, selected, full } = input;
-  const predicted = predictedAliases(plan);
+  const predictedItemIds = uniqueSorted(plan.predictedItemIds);
+  const shadowIds = shadowMatchIds(plan);
   const failedIds = uniqueSorted(full.failedItemIds);
   const misses: VerificationShadowMiss[] = [];
   const itemsById = indexItemsById(plan.items);
   for (const observedItemId of failedIds) {
-    if (predicted.has(observedItemId)) continue;
+    if (shadowIds.has(observedItemId)) continue;
     const matching = itemsById.get(observedItemId) ?? plan.items.find((item) => item.testId === observedItemId);
     misses.push({
       id: `shadow-miss:${observedItemId}`,
@@ -947,9 +985,13 @@ export function compareVerificationShadow(input: {
   }
 
   const relevant = uniqueSorted(full.relevantItemIds ?? failedIds);
-  const covered = relevant.filter((id) => predicted.has(id));
+  const covered = relevant.filter((id) => shadowIds.has(id));
   const oracle = uniqueSorted(full.relevantItemIds ?? observationIds(full));
-  const unnecessary = [...predicted].filter((id) => !oracle.includes(id)).sort(compareText);
+  const oracleSet = new Set(oracle);
+  const testAliases = new Map(
+    plan.requiredTests.filter((item) => item.testId !== undefined).map((item) => [item.id, item.testId!] as const),
+  );
+  const unnecessary = predictedItemIds.filter((id) => !oracleSet.has(id) && !oracleSet.has(testAliases.get(id) ?? id));
   const selectionRecall = relevant.length === 0 ? (misses.length === 0 ? 1 : 0) : covered.length / relevant.length;
   const selectedRuntimeMs = Number.isFinite(selected.durationMs) ? selected.durationMs : 0;
   const fullRuntimeMs = Number.isFinite(full.durationMs) ? full.durationMs : 0;
@@ -957,12 +999,12 @@ export function compareVerificationShadow(input: {
   const runtimeReductionRatio = fullRuntimeMs === 0 ? 0 : runtimeReductionMs / fullRuntimeMs;
   const metrics: VerificationShadowMetrics = {
     selectionRecall,
-    predictedItemCount: predicted.size,
+    predictedItemCount: predictedItemIds.length,
     observedRelevantItemCount: relevant.length,
     coveredRelevantItemCount: covered.length,
     missCount: misses.length,
     unnecessarySelectionCount: unnecessary.length,
-    overSelectionRate: predicted.size === 0 ? 0 : unnecessary.length / predicted.size,
+    overSelectionRate: predictedItemIds.length === 0 ? 0 : unnecessary.length / predictedItemIds.length,
     selectedRuntimeMs,
     fullRuntimeMs,
     runtimeReductionMs,
