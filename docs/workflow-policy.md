@@ -281,3 +281,64 @@ The advisory baseline is recorded at the start of this rollout:
 Enforcement remains disabled. The baseline and subsequent audit/metrics
 observations must be reviewed before any rule is strengthened. #42 remains
 evidence-gated and is the only follow-up for an eventual `enforce` rollout.
+
+## Issue #42 evidence review
+
+The Issue #42 gate was reviewed against the current `main` revision
+`440666c9ad72fe783e1cdfb081c6bf4b11379cd8` (merged PR #170,
+2026-08-10) and the evidence available from Issue #41 and the Issue #38
+audit/metrics contract. No rule is promoted by this review.
+
+The available evidence is only an observation-start baseline:
+
+- PR #170 records zero initial violations, false positives, and blocked
+  operations; it does not contain a subsequent observation window.
+- The repository-scoped #38 audit export required for rule-specific review is
+  not present. The local audit store inspected during this review contained
+  zero `audit_records`; that absence of telemetry is not evidence of a clean
+  period.
+- The required clean window therefore remains `0/14` consecutive days and
+  `0/10` qualifying pull requests after the #41 baseline. There is no
+  rule-specific event set from which to establish zero unexpected denials or
+  destructive false positives.
+
+Because the evidence contract is rule-specific, all 16 RuleMode fields remain
+`advisory`:
+
+| Rule | Decision | Missing evidence / blocker |
+| --- | --- | --- |
+| `protectedBranchRule.sourceWrite` | Keep advisory | No 14-day/10-PR rule-specific observation of protected-branch source-write decisions |
+| `protectedBranchRule.stage` | Keep advisory | No 14-day/10-PR rule-specific observation of staging decisions |
+| `protectedBranchRule.commit` | Keep advisory | No 14-day/10-PR rule-specific observation of commit decisions |
+| `protectedBranchRule.directPush` | Keep advisory | No 14-day/10-PR rule-specific observation of direct-push decisions |
+| `protectedBranchRule.forcePush` | Keep advisory | No 14-day/10-PR rule-specific observation of force-push decisions |
+| `protectedBranchRule.destructiveBranchOp` | Keep advisory | No 14-day/10-PR rule-specific observation of destructive branch-operation decisions |
+| `worktree.required` | Keep advisory | No rule-specific evidence that managed worktree requirements caused no unexpected denials |
+| `worktree.issueRequired` | Keep advisory | No rule-specific evidence for Issue-bound task-start workflows |
+| `worktree.multipleActiveTasksPerIssue` | Keep advisory | No collision/duplicate-task observation set |
+| `worktree.multipleWorktreesPerTask` | Keep advisory | No multiple-worktree observation set |
+| `worktree.staleBaseBranch` | Keep advisory | No stale-base observation set and no false-positive review |
+| `cleanup.worktreeRemoval` | Keep advisory | No rule-specific evidence for safe post-merge worktree removal |
+| `cleanup.localBranchDeletion` | Keep advisory | No rule-specific evidence for local-branch cleanup decisions |
+| `cleanup.remoteBranchDeletion` | Keep advisory | No rule-specific evidence; remote deletion remains conservatively advisory |
+| `cleanup.worktreePrune` | Keep advisory | No rule-specific evidence for prune decisions |
+| `cleanup.forceCleanup` | Keep advisory | No rule-specific evidence for force-cleanup blockers |
+
+`controlPlaneRole: any`, `stagingMode: explicit`, and
+`worktree.bootstrapMode: conditional` are descriptive policy fields rather
+than RuleMode fields. They are unchanged; in particular, switching the
+control-plane role during an advisory-only window would introduce an
+unconditional source-write denial outside the RuleMode matrix. The
+authority-resolved `rules`/`resolvedPolicy` projection may still show the
+strict preset's `enforce` values; the repository `effectivePolicy` remains
+the advisory document used by workflow operations, so this provenance view
+must not be counted as enforcement evidence.
+
+### Rule-level rollback
+
+Each future promotion must change only the individually evidenced field in
+`.mottainai/workflow.json` from `advisory` to `enforce`. If that rule causes
+unexpected friction or a false positive, revert that same field to
+`advisory`, rerun `policy explain` and the focused denial/managed-workflow
+checks, preserve the audit export, and stop further promotions. No resolver,
+hook, MCP, or CLI implementation change is part of this rollback.
