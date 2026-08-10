@@ -656,24 +656,33 @@ export class TypeScriptFactExtractor implements TypeScriptFactProvider {
     }
 
     if (lookup.status === "hit") {
+      let hit: { snapshot: RepositorySemanticSnapshot; counts: DerivedFactObject["counts"]; cacheManifest: ReturnType<typeof createSnapshotManifest> } | undefined;
       try {
         const snapshot = materializeFactSnapshot(lookup.value.snapshot, identity);
-        const declarationFingerprint = manifestLookup.status === "hit"
-          ? manifestLookup.value.declarationFingerprint
-          : digestCanonicalValue(null);
-        const cacheManifest = createSnapshotManifest(identity, snapshot, declarationFingerprint);
-        options.cache.putManifest(cacheManifest);
-        return {
-          snapshot,
-          elapsedMs: performance.now() - startedAt,
-          counts: { ...lookup.value.counts },
-          cacheStatus: manifestLookup.status === "corrupt" ? "corrupt" : "hit",
-          cacheManifest,
-        };
+        // An extractor-only run never observes #49 declarations, so it must
+        // never inherit a stale declarationFingerprint from a prior manifest;
+        // compileRepositoryModel is the only writer of the real value.
+        const cacheManifest = createSnapshotManifest(identity, snapshot, digestCanonicalValue(null));
+        hit = { snapshot, counts: { ...lookup.value.counts }, cacheManifest };
       } catch {
         // A malformed object is never served as semantic truth. Fall through
         // to the regular producer and report a cold rebuild.
         lookup = { status: "corrupt", reason: "cached snapshot failed materialization" };
+      }
+      if (hit !== undefined) {
+        try {
+          options.cache.putManifest(hit.cacheManifest);
+        } catch {
+          // Manifest persistence is disposable; never discard a valid cache hit
+          // because the manifest write failed.
+        }
+        return {
+          snapshot: hit.snapshot,
+          elapsedMs: performance.now() - startedAt,
+          counts: hit.counts,
+          cacheStatus: manifestLookup.status === "corrupt" ? "corrupt" : "hit",
+          cacheManifest: hit.cacheManifest,
+        };
       }
     }
 
@@ -684,10 +693,10 @@ export class TypeScriptFactExtractor implements TypeScriptFactProvider {
     } catch {
       snapshot = cold.snapshot;
     }
-    const declarationFingerprint = manifestLookup.status === "hit"
-      ? manifestLookup.value.declarationFingerprint
-      : digestCanonicalValue(null);
-    const cacheManifest = createSnapshotManifest(identity, snapshot, declarationFingerprint);
+    // An extractor-only run never observes #49 declarations, so it must never
+    // inherit a stale declarationFingerprint from a prior manifest;
+    // compileRepositoryModel is the only writer of the real value.
+    const cacheManifest = createSnapshotManifest(identity, snapshot, digestCanonicalValue(null));
     const object: DerivedFactObject = {
       kind: "typescript-fact-snapshot",
       snapshot: toSharedFactSnapshot(snapshot),

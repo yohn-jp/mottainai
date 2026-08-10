@@ -1,14 +1,21 @@
 import assert from "node:assert/strict";
 import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { digestCanonicalValue } from "../ir/canonical.js";
+import { canonicalizeSnapshot, digestCanonicalValue } from "../ir/canonical.js";
 import { serializeSnapshot } from "../ir/serialize.js";
-import { createTypeScriptFactCacheIdentity, FileSystemSemanticFactCache, MemorySemanticFactCache } from "./index.js";
-import { CacheConflictError, type DerivedFactObject, type FactCacheKey } from "./types.js";
+import {
+  createSnapshotManifest,
+  createTypeScriptFactCacheIdentity,
+  FileSystemSemanticFactCache,
+  materializeFactSnapshot,
+  MemorySemanticFactCache,
+  toSharedFactSnapshot,
+} from "./index.js";
+import { CacheConflictError, type DerivedFactObject, type FactCacheKey, type SnapshotManifest } from "./types.js";
 import { extractTypeScriptFacts } from "../extractors/typescript/index.js";
 import { compileRepositoryModel } from "../model/compiler.js";
 
@@ -158,7 +165,8 @@ test("filesystem objects are atomic/idempotent and corruption is detected", asyn
     const conflicting = { ...object, counts: { ...object.counts, files: object.counts.files + 1 } };
     assert.throws(() => cache.put(identity.key, conflicting), CacheConflictError);
 
-    extractTypeScriptFacts({ rootDir: fixtureRoot, cache });
+    const manuallySeeded = extractTypeScriptFacts({ rootDir: fixtureRoot, cache });
+    assert.equal(manuallySeeded.cacheStatus, "hit");
 
     const objectPath = join(cacheRoot, "objects", `${identity.key.value}.json`);
     writeFileSync(objectPath, "{\"formatVersion\":1");
@@ -233,6 +241,211 @@ test("model compiler consumes cache optionally and deletion returns to an equiva
     const rebuilt = compileRepositoryModel({ rootDir: fixtureRoot, cache: new FileSystemSemanticFactCache({ rootDir: cacheRoot }) });
     assert.equal(rebuilt.benchmark.cacheStatus, "miss");
     assert.equal(serializeSnapshot(cold.snapshot!), serializeSnapshot(rebuilt.snapshot!));
+  } finally {
+    rmSync(cacheRoot, { recursive: true, force: true });
+  }
+});
+
+function initGitRepo(root: string, remote?: string): void {
+  execFileSync("git", ["init", "-q"], { cwd: root });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: root });
+  execFileSync("git", ["config", "user.name", "Mottainai Test"], { cwd: root });
+  if (remote !== undefined) execFileSync("git", ["remote", "add", "origin", remote], { cwd: root });
+  execFileSync("git", ["add", "-A"], { cwd: root });
+  execFileSync("git", ["commit", "-q", "-m", "initial"], { cwd: root });
+}
+
+test("cross-worktree reuse is not blocked by differing repository identity or revision", () => {
+  const firstRoot = temporaryCopy("mottainai-semantic-cache-revision-a-");
+  const secondRoot = temporaryCopy("mottainai-semantic-cache-revision-b-");
+  const cacheRoot = mkdtempSync(join(tmpdir(), "mottainai-semantic-cache-revision-store-"));
+  const cache = new FileSystemSemanticFactCache({ rootDir: cacheRoot });
+  try {
+    // Distinct remotes (not an explicit repositoryName/packageName option,
+    // which legitimately participates in the extractor's optionsFingerprint)
+    // so repositoryFingerprint differs purely from automatically-derived git
+    // identity.
+    initGitRepo(firstRoot, "https://github.com/example/repo-a.git");
+    initGitRepo(secondRoot, "https://github.com/example/repo-b.git");
+    // Explicit distinct revisions: a rebase/amend/merge that leaves the tree
+    // unchanged still moves the commit SHA, so this must not gate reuse.
+    const firstOptions = { rootDir: firstRoot, revision: "revision-a" };
+    const secondOptions = { rootDir: secondRoot, revision: "revision-b" };
+    const firstIdentity = createTypeScriptFactCacheIdentity(firstOptions);
+    const secondIdentity = createTypeScriptFactCacheIdentity(secondOptions);
+    assert.notEqual(firstIdentity.repositoryFingerprint.value, secondIdentity.repositoryFingerprint.value);
+    assert.notEqual(firstIdentity.revisionFingerprint.value, secondIdentity.revisionFingerprint.value);
+    // Neither fingerprint is correctness-relevant to the shared fact object:
+    // materializeFactSnapshot always overwrites repositoryIdentity,
+    // revisionIdentity, and integrity.worktree with the caller's identity.
+    assert.equal(firstIdentity.key.value, secondIdentity.key.value);
+
+    const first = extractTypeScriptFacts({ ...firstOptions, cache });
+    const second = extractTypeScriptFacts({ ...secondOptions, cache });
+    assert.equal(first.cacheStatus, "miss");
+    assert.equal(second.cacheStatus, "hit");
+    assert.deepEqual(first.snapshot.derived, second.snapshot.derived);
+    assert.notEqual(first.snapshot.repositoryIdentity.id, second.snapshot.repositoryIdentity.id);
+    assert.notEqual(first.snapshot.revisionIdentity?.id, second.snapshot.revisionIdentity?.id);
+  } finally {
+    rmSync(firstRoot, { recursive: true, force: true });
+    rmSync(secondRoot, { recursive: true, force: true });
+    rmSync(cacheRoot, { recursive: true, force: true });
+  }
+});
+
+function reverseLocaleCompare(this: string, other: string): number {
+  return other < this ? -1 : other > this ? 1 : 0;
+}
+
+test("digest-relevant file ordering is independent of String.prototype.localeCompare", () => {
+  const root = temporaryCopy("mottainai-semantic-cache-locale-");
+  const original = String.prototype.localeCompare;
+  try {
+    const baseline = createTypeScriptFactCacheIdentity({ rootDir: root });
+    // Simulate a locale/ICU environment whose collation disagrees with
+    // code-unit order; the digest-relevant sort must be fully insensitive.
+    String.prototype.localeCompare = reverseLocaleCompare;
+    const underAdversarialLocale = createTypeScriptFactCacheIdentity({ rootDir: root });
+    assert.equal(underAdversarialLocale.sourceFingerprint.value, baseline.sourceFingerprint.value);
+    assert.equal(underAdversarialLocale.moduleResolutionFingerprint.value, baseline.moduleResolutionFingerprint.value);
+    assert.equal(underAdversarialLocale.packageGraphFingerprint.value, baseline.packageGraphFingerprint.value);
+    assert.equal(underAdversarialLocale.key.value, baseline.key.value);
+  } finally {
+    String.prototype.localeCompare = original;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a dirty worktree whose git status output exceeds the buffer limit is still reported as dirty", () => {
+  const root = temporaryCopy("mottainai-semantic-cache-large-dirty-");
+  try {
+    initGitRepo(root);
+    // git status --porcelain output must exceed gitDirty's maxBuffer (64 KiB)
+    // so the ENOBUFS path is exercised instead of a clean single-file diff.
+    for (let index = 0; index < 6000; index += 1) {
+      writeFileSync(join(root, `untracked-${index}.txt`), "");
+    }
+    const identity = createTypeScriptFactCacheIdentity({ rootDir: root });
+    assert.equal(identity.worktree.dirty, true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("manifest persistence failure does not invalidate a valid cache hit", () => {
+  const cache = new MemorySemanticFactCache();
+  const cold = extractTypeScriptFacts({ rootDir: fixtureRoot, cache });
+  assert.equal(cold.cacheStatus, "miss");
+
+  const originalPutManifest = cache.putManifest.bind(cache);
+  let putManifestAttempts = 0;
+  cache.putManifest = (manifest: SnapshotManifest): void => {
+    putManifestAttempts += 1;
+    throw new Error("simulated manifest write failure");
+  };
+  try {
+    const warm = extractTypeScriptFacts({ rootDir: fixtureRoot, cache });
+    assert.equal(warm.cacheStatus, "hit");
+    assert.equal(serializeSnapshot(warm.snapshot), serializeSnapshot(cold.snapshot));
+    assert.ok(putManifestAttempts > 0);
+  } finally {
+    cache.putManifest = originalPutManifest;
+  }
+});
+
+test("deleting a cache object or manifest between calls is a miss, not corruption", () => {
+  const cacheRoot = mkdtempSync(join(tmpdir(), "mottainai-semantic-cache-deleted-"));
+  const cache = new FileSystemSemanticFactCache({ rootDir: cacheRoot });
+  try {
+    extractTypeScriptFacts({ rootDir: fixtureRoot, cache });
+    const identity = createTypeScriptFactCacheIdentity({ rootDir: fixtureRoot });
+
+    const objectPath = join(cacheRoot, "objects", `${identity.key.value}.json`);
+    rmSync(objectPath);
+    assert.equal(cache.get(identity.key).status, "miss");
+
+    const manifestPath = join(cacheRoot, "manifests", `${digestCanonicalValue(identity.worktree.id).value}.json`);
+    rmSync(manifestPath);
+    assert.equal(cache.getManifest(identity.worktree.id).status, "miss");
+
+    const rebuilt = extractTypeScriptFacts({ rootDir: fixtureRoot, cache });
+    assert.equal(rebuilt.cacheStatus, "miss");
+  } finally {
+    rmSync(cacheRoot, { recursive: true, force: true });
+  }
+});
+
+test("manifest validation rejects a degenerate empty worktree id", () => {
+  const cache = new MemorySemanticFactCache();
+  const extracted = extractTypeScriptFacts({ rootDir: fixtureRoot });
+  const identity = createTypeScriptFactCacheIdentity({ rootDir: fixtureRoot });
+  const manifest = createSnapshotManifest(identity, extracted.snapshot, digestCanonicalValue(null));
+  const degenerate: SnapshotManifest = {
+    ...manifest,
+    worktree: { ...manifest.worktree, id: "" as SnapshotManifest["worktree"]["id"] },
+  };
+  assert.throws(() => cache.putManifest(degenerate), TypeError);
+});
+
+test("shared and materialized fact snapshots stay canonically ordered even when the source object is shuffled", () => {
+  const extracted = extractTypeScriptFacts({ rootDir: fixtureRoot });
+  const identity = createTypeScriptFactCacheIdentity({ rootDir: fixtureRoot });
+  const canonicalIntegrity = canonicalizeSnapshot(extracted.snapshot).integrity;
+  assert.ok(canonicalIntegrity.trackedFiles.length > 1);
+
+  const shuffled = {
+    ...extracted.snapshot,
+    integrity: {
+      ...extracted.snapshot.integrity,
+      trackedFiles: [...extracted.snapshot.integrity.trackedFiles].reverse(),
+      extractors: [...extracted.snapshot.integrity.extractors].reverse(),
+    },
+  };
+  const shared = toSharedFactSnapshot(shuffled);
+  assert.deepEqual(shared.integrity.trackedFiles.map((file) => file.path), canonicalIntegrity.trackedFiles.map((file) => file.path));
+  assert.deepEqual(shared.integrity.extractors, canonicalIntegrity.extractors);
+
+  const shuffledShared = {
+    ...shared,
+    integrity: {
+      ...shared.integrity,
+      trackedFiles: [...shared.integrity.trackedFiles].reverse(),
+      extractors: [...shared.integrity.extractors].reverse(),
+    },
+  };
+  const materialized = materializeFactSnapshot(shuffledShared, identity);
+  assert.deepEqual(
+    materialized.integrity.trackedFiles.map((file) => file.path),
+    canonicalIntegrity.trackedFiles.map((file) => file.path),
+  );
+  assert.deepEqual(materialized.integrity.extractors, canonicalIntegrity.extractors);
+});
+
+test("extractor-only runs never inherit a stale declarationFingerprint from a previous compile", () => {
+  const cacheRoot = mkdtempSync(join(tmpdir(), "mottainai-semantic-cache-declaration-"));
+  const cache = new FileSystemSemanticFactCache({ rootDir: cacheRoot });
+  try {
+    const baseline = extractTypeScriptFacts({ rootDir: fixtureRoot });
+    const compiled = compileRepositoryModel({ rootDir: fixtureRoot, cache, declarations: baseline.snapshot.declarations });
+    assert.equal(compiled.benchmark.cacheStatus, "miss");
+
+    const identity = createTypeScriptFactCacheIdentity({ rootDir: fixtureRoot });
+    const manifestAfterCompile = cache.getManifest(identity.worktree.id);
+    assert.equal(manifestAfterCompile.status, "hit");
+    if (manifestAfterCompile.status === "hit") {
+      assert.notEqual(manifestAfterCompile.value.declarationFingerprint.value, digestCanonicalValue(null).value);
+    }
+
+    const extractorOnly = extractTypeScriptFacts({ rootDir: fixtureRoot, cache });
+    assert.equal(extractorOnly.cacheStatus, "hit");
+    assert.equal(extractorOnly.cacheManifest?.declarationFingerprint.value, digestCanonicalValue(null).value);
+
+    const manifestAfterExtractorOnly = cache.getManifest(identity.worktree.id);
+    assert.equal(manifestAfterExtractorOnly.status, "hit");
+    if (manifestAfterExtractorOnly.status === "hit") {
+      assert.equal(manifestAfterExtractorOnly.value.declarationFingerprint.value, digestCanonicalValue(null).value);
+    }
   } finally {
     rmSync(cacheRoot, { recursive: true, force: true });
   }

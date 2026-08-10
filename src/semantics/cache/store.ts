@@ -56,17 +56,33 @@ function objectTarget(objectsDir: string, key: FactCacheKey): string {
   return join(objectsDir, `${key.value}.json`);
 }
 
-function validateFactObject(value: unknown): value is DerivedFactObject {
-  if (!isRecord(value) || value.kind !== "typescript-fact-snapshot") return false;
+function parseFactObject(value: unknown): DerivedFactObject | undefined {
+  if (!isRecord(value) || value.kind !== "typescript-fact-snapshot") return undefined;
   const counts = value.counts;
-  if (!isRecord(counts)) return false;
+  if (!isRecord(counts)) return undefined;
   const snapshot = value.snapshot as RepositorySemanticSnapshot | undefined;
   const validation = snapshot === undefined ? undefined : validateSnapshot(snapshot);
-  if (validation === undefined || !validation.ok) return false;
+  if (validation === undefined || !validation.ok) return undefined;
   const countFields = ["files", "symbols", "relations", "facts", "externalPackages", "externalApis", "unknowns", "diagnostics"];
-  return countFields.every(
+  const countsValid = countFields.every(
     (field) => typeof counts[field] === "number" && Number.isSafeInteger(counts[field]) && counts[field] >= 0,
   ) && typeof counts.partial === "boolean";
+  if (!countsValid) return undefined;
+  return {
+    kind: "typescript-fact-snapshot",
+    snapshot: canonicalizeSnapshot(validation.snapshot),
+    counts: {
+      files: counts.files as number,
+      symbols: counts.symbols as number,
+      relations: counts.relations as number,
+      facts: counts.facts as number,
+      externalPackages: counts.externalPackages as number,
+      externalApis: counts.externalApis as number,
+      unknowns: counts.unknowns as number,
+      diagnostics: counts.diagnostics as number,
+      partial: counts.partial as boolean,
+    },
+  };
 }
 
 function canonicalFactObject(value: DerivedFactObject): DerivedFactObject {
@@ -105,19 +121,24 @@ function parseObjectEnvelope(raw: Buffer, expectedKey: FactCacheKey): CacheLooku
   if (!isDigest(parsed.key) || parsed.key.algorithm !== expectedKey.algorithm || parsed.key.value !== expectedKey.value) {
     return { status: "corrupt", reason: "cache key does not match the requested object" };
   }
-  if (!isDigest(parsed.payloadDigest) || !validateFactObject(parsed.payload)) {
+  if (!isDigest(parsed.payloadDigest)) {
+    return { status: "corrupt", reason: "cache payload digest is missing or malformed" };
+  }
+  const payload = parseFactObject(parsed.payload);
+  if (payload === undefined) {
     return { status: "corrupt", reason: "cache payload failed snapshot validation" };
   }
   const payloadDigest = digestCanonicalValue(parsed.payload).value;
   if (payloadDigest !== parsed.payloadDigest.value) {
     return { status: "corrupt", reason: "cache payload digest mismatch" };
   }
-  return { status: "hit", value: clone(canonicalFactObject(parsed.payload)) };
+  return { status: "hit", value: payload };
 }
 
 function isSnapshotManifest(value: unknown, expectedWorktreeId: string): value is SnapshotManifest {
   if (!isRecord(value) || value.formatVersion !== DERIVED_FACT_CACHE_FORMAT_VERSION) return false;
-  if (!isRecord(value.worktree) || value.worktree.id !== expectedWorktreeId) return false;
+  if (!isRecord(value.worktree) || typeof value.worktree.id !== "string" || value.worktree.id.length === 0) return false;
+  if (value.worktree.id !== expectedWorktreeId) return false;
   if (value.worktree.root !== undefined && typeof value.worktree.root !== "string") return false;
   if (value.worktree.branch !== undefined && typeof value.worktree.branch !== "string") return false;
   if (value.worktree.gitCommonDir !== undefined && typeof value.worktree.gitCommonDir !== "string") return false;
@@ -185,7 +206,22 @@ function writeExclusiveAtomically(target: string, bytes: Buffer): CachePutResult
     linkSync(temporary, target);
     return { status: "written" };
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    const code = (error as NodeJS.ErrnoException).code;
+    // Some filesystems (network mounts, FAT volumes) do not support hard
+    // links at all. That is an environment limitation, not a content
+    // conflict, so fall back to a rename-based publish instead of reporting
+    // "conflict" for an unrelated cause.
+    const hardLinkUnsupported = code === "EPERM" || code === "ENOSYS" || code === "EXDEV";
+    if (hardLinkUnsupported && !existsSync(target)) {
+      try {
+        renameSync(temporary, target);
+        return { status: "written" };
+      } catch {
+        // Lost the race, or the rename itself is unsupported; fall through
+        // to the exists/conflict comparison below.
+      }
+    }
+    if (code !== "EEXIST" && !hardLinkUnsupported) throw error;
     let existing: Buffer;
     try {
       existing = readFileSync(target);
@@ -246,10 +282,13 @@ export class FileSystemSemanticFactCache implements SemanticFactCache {
     } catch (error) {
       return { status: "corrupt", reason: error instanceof Error ? error.message : String(error) };
     }
-    if (!existsSync(target)) return { status: "miss" };
     try {
       return parseObjectEnvelope(readFileSync(target), key);
     } catch (error) {
+      // Cache deletion is a supported, disposable operation: a concurrent
+      // delete between two calls must produce a miss and a cold rebuild,
+      // never a corruption report.
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { status: "miss" };
       return { status: "corrupt", reason: `cache object cannot be read: ${error instanceof Error ? error.message : String(error)}` };
     }
   }
@@ -261,10 +300,10 @@ export class FileSystemSemanticFactCache implements SemanticFactCache {
   getManifest(worktreeId: SnapshotManifest["worktree"]["id"]): CacheLookup<SnapshotManifest> {
     const manifestDigest = digestCanonicalValue(worktreeId).value;
     const target = join(this.manifestsDir, `${manifestDigest}.json`);
-    if (!existsSync(target)) return { status: "miss" };
     try {
       return parseManifest(readFileSync(target), worktreeId);
     } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { status: "miss" };
       return { status: "corrupt", reason: `manifest cannot be read: ${error instanceof Error ? error.message : String(error)}` };
     }
   }

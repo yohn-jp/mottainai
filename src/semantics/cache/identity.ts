@@ -76,9 +76,16 @@ function stableLocalId(value: string): string {
     : `sha256-${digestCanonicalValue(value).value.slice(0, 32)}`;
 }
 
+const GIT_TIMEOUT_MS = 10_000;
+
 function git(rootDir: string, args: string[]): string | undefined {
   try {
-    const result = execFileSync("git", args, { cwd: rootDir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const result = execFileSync("git", args, {
+      cwd: rootDir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: GIT_TIMEOUT_MS,
+    }).trim();
     return result.length === 0 ? undefined : result;
   } catch {
     return undefined;
@@ -91,8 +98,12 @@ function gitDirty(rootDir: string): boolean | undefined {
       cwd: rootDir,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
+      timeout: GIT_TIMEOUT_MS,
+      maxBuffer: 64 * 1024,
     }).trim().length > 0;
-  } catch {
+  } catch (error) {
+    // Exceeding maxBuffer is itself proof that porcelain output is non-empty.
+    if ((error as NodeJS.ErrnoException).code === "ENOBUFS") return true;
     return undefined;
   }
 }
@@ -211,7 +222,11 @@ function collectInputFiles(rootDir: string): { files: InputFile[]; cacheable: bo
     }
   };
   visit(rootDir);
-  return { files: [...output.values()].sort((left, right) => left.path.localeCompare(right.path)), cacheable };
+  // Code-unit ordering (not localeCompare) keeps this order stable across
+  // machines/locales, since it directly determines sourceFingerprint,
+  // moduleResolutionFingerprint, and packageGraphFingerprint.
+  const files = [...output.values()].sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+  return { files, cacheable };
 }
 
 function inputDigest(files: readonly InputFile[], category: InputFile["category"]): ContentDigest {
@@ -295,14 +310,20 @@ export function createTypeScriptFactCacheIdentity(options: TypeScriptExtractorOp
   const trackedFiles: TrackedFileFingerprint[] = files
     .filter((file) => file.category === "source")
     .map((file) => ({ path: file.path, physicalFingerprint: file.digest }));
+  // repositoryFingerprint and revisionFingerprint deliberately stay out of the
+  // fact key. materializeFactSnapshot always overwrites repositoryIdentity,
+  // revisionIdentity, and integrity.repositoryId with the caller's identity,
+  // and toSharedFactSnapshot normalizes stored objects to SHARED_WORKTREE_ID,
+  // so the stored derived facts never depend on repository name, remote URL,
+  // or commit SHA. Keying on them would block cross-worktree/cross-revision
+  // reuse of byte-identical source without adding correctness. Both
+  // fingerprints remain part of SnapshotManifest, which is worktree-scoped.
   const key: FactCacheKey = {
     algorithm: "sha256",
     value: digestCanonicalValue({
       cacheFormatVersion: DERIVED_FACT_CACHE_FORMAT_VERSION,
       schemaVersion: CURRENT_SCHEMA_VERSION,
       modelVersion: MODEL_VERSION,
-      repositoryFingerprint,
-      revisionFingerprint,
       sourceFingerprint,
       moduleResolutionFingerprint,
       packageGraphFingerprint,
@@ -330,10 +351,11 @@ export function createTypeScriptFactCacheIdentity(options: TypeScriptExtractorOp
 export function toSharedFactSnapshot(snapshot: RepositorySemanticSnapshot): RepositorySemanticSnapshot {
   const validation = validateSnapshot(snapshot);
   if (!validation.ok) throw new Error(`cannot cache invalid snapshot: ${validation.diagnostics.map((item) => item.code).join(",")}`);
+  const canonical = canonicalizeSnapshot(validation.snapshot);
   const shared: RepositorySemanticSnapshot = {
-    ...canonicalizeSnapshot(validation.snapshot),
+    ...canonical,
     integrity: {
-      ...validation.snapshot.integrity,
+      ...canonical.integrity,
       worktree: { id: SHARED_WORKTREE_ID, dirty: false },
       status: "fresh",
       statusReason: undefined,
@@ -348,12 +370,13 @@ export function materializeFactSnapshot(
 ): RepositorySemanticSnapshot {
   const validation = validateSnapshot(sharedSnapshot);
   if (!validation.ok) throw new Error(`cached snapshot is invalid: ${validation.diagnostics.map((item) => item.code).join(",")}`);
+  const canonical = canonicalizeSnapshot(validation.snapshot);
   const snapshot: RepositorySemanticSnapshot = {
-    ...canonicalizeSnapshot(validation.snapshot),
+    ...canonical,
     repositoryIdentity: identity.repository,
     revisionIdentity: identity.revision,
     integrity: {
-      ...validation.snapshot.integrity,
+      ...canonical.integrity,
       repositoryId: identity.repository.id,
       ...(identity.git === undefined ? {} : { git: identity.git }),
       worktree: identity.worktree,
@@ -379,10 +402,7 @@ export function materializeFactSnapshot(
     integrity: { ...refreshed.integrity, ...computeIntegrityDigestsFromValidated(refreshed) },
   });
   if (!finalValidation.ok) throw new Error(`cached snapshot failed identity materialization: ${finalValidation.diagnostics.map((item) => item.code).join(",")}`);
-  return {
-    ...finalValidation.snapshot,
-    integrity: { ...finalValidation.snapshot.integrity, ...computeIntegrityDigestsFromValidated(finalValidation.snapshot) },
-  };
+  return finalValidation.snapshot;
 }
 
 export function createSnapshotManifest(
