@@ -1,9 +1,11 @@
 // Issue #22用。networkなしで、gatewayから見れば実MCP upstream subprocessになるfixture。
+import { once } from "node:events";
 import fs from "node:fs";
 
 const mode = process.env.MOTTAINAI_FIXTURE_MODE ?? "normal";
 const pidFile = process.env.MOTTAINAI_FIXTURE_PID_FILE;
 const readyFile = process.env.MOTTAINAI_FIXTURE_READY_FILE;
+const stderrReportFile = process.env.MOTTAINAI_FIXTURE_STDERR_REPORT_FILE;
 
 if (pidFile !== undefined) fs.writeFileSync(pidFile, `${process.pid}\n`);
 
@@ -19,15 +21,34 @@ function ignoreTermination() {
 
 if (mode === "hang-startup" || mode === "ignore-termination") ignoreTermination();
 
-if (mode === "large-stderr") {
-  const size = Number(process.env.MOTTAINAI_FIXTURE_STDERR_BYTES ?? 512 * 1024);
-  process.stderr.write("fixture-large-stderr-start\n");
-  const chunk = "x".repeat(64 * 1024);
-  for (let remaining = size; remaining > 0; remaining -= chunk.length) {
-    process.stderr.write(chunk.slice(0, Math.min(remaining, chunk.length)));
+async function writeLargeStderr() {
+  const requestedBytes = Number(process.env.MOTTAINAI_FIXTURE_STDERR_BYTES ?? 512 * 1024);
+  const chunk = Buffer.alloc(64 * 1024, "x");
+  let payloadBytesAttempted = 0;
+  let backpressureEvents = 0;
+
+  async function writeAndDrain(value) {
+    if (process.stderr.write(value)) return;
+    backpressureEvents += 1;
+    await once(process.stderr, "drain");
   }
-  process.stderr.write("\nfixture-large-stderr-end\n");
+
+  await writeAndDrain("fixture-large-stderr-start\n");
+  for (let remaining = requestedBytes; remaining > 0; remaining -= chunk.length) {
+    const payload = chunk.subarray(0, Math.min(remaining, chunk.length));
+    payloadBytesAttempted += payload.byteLength;
+    await writeAndDrain(payload);
+  }
+  await writeAndDrain("\nfixture-large-stderr-end\n");
+  if (stderrReportFile !== undefined) {
+    fs.writeFileSync(
+      stderrReportFile,
+      `${JSON.stringify({ requestedBytes, payloadBytesAttempted, backpressureEvents, completed: true })}\n`,
+    );
+  }
 }
+
+if (mode === "large-stderr") await writeLargeStderr();
 
 if (mode === "fail-list-secret") process.stderr.write("SECRET_SHOULD_NOT_LEAK_123\n");
 

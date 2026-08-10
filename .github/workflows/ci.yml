@@ -81,7 +81,24 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Test (fast unit / contract)
-        run: pnpm test
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm test 2>&1 | tee "$RUNNER_TEMP/fast-suite.log"
+
+      - name: Record fast-suite performance observation
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Fast suite performance observation"
+            if timing="$(grep -E '^test suite timing: fast [0-9]+ms$' "$RUNNER_TEMP/fast-suite.log" | tail -n 1)"; then
+              echo "- $timing"
+            else
+              echo "- Timing was not emitted because the correctness step produced no timing record."
+            fi
+            echo "- Hosted-runner wall-clock timing is observation-only; correctness is determined by the test result."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   standards:
     name: format / lint / architecture (Node 22)

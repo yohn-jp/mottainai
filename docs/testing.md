@@ -21,7 +21,7 @@ CI check名も検証責務に合わせる。Node 24のcheckは`Node compatibilit
 
 | 層                    | 保証対象                                                                | ファイル規則                                                                                                                                                                                                   | コマンド                       | 実行目安       |
 | --------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ | -------------- |
-| Fast                  | pure logic、unit、contract、MCP envelope/config schema、決定論的境界    | `src/**/*.test.ts`からintegrationルール対象を除外                                                                                                                                                              | `pnpm test`                    | 15秒以内を目標 |
+| Fast                  | pure logic、unit、contract、MCP envelope/config schema、決定論的境界    | `src/**/*.test.ts`からintegrationルール対象を除外                                                                                                                                                              | `pnpm test`                    | 観測のみ       |
 | Integration / process | 複数component、filesystem、git、SQLite、CLI・子process                  | `src/commands/**/*.test.ts`、`src/fault-injection.test.ts`、`src/init.test.ts`、`src/local-tools.test.ts`、`src/logging.test.ts`、`src/mcp-cli.test.ts`、`src/state/**/*.test.ts`、`src/workflow/**/*.test.ts` | `pnpm run test:integration`    | 30秒以内を目標 |
 | E2E / black-box       | built `dist` gatewayを外部MCP clientからstdio接続                       | `src/e2e/**/*.spec.ts`                                                                                                                                                                                         | `pnpm run test:e2e`（build後） | 30秒以内を目標 |
 | Package               | packed artifactのprotocol subset、install、bin、init、missing-config    | `scripts/mcp-stdio-package.test.mjs`、`scripts/smoke-test.mjs`                                                                                                                                                 | `pnpm run test:package`        | 90秒以内を目標 |
@@ -29,6 +29,8 @@ CI check名も検証責務に合わせる。Node 24のcheckは`Node compatibilit
 | Full verification     | 上記全層、typecheck、build、package smoke                               | `FULL_VERIFICATION_SUITES`全項目                                                                                                                                                                               | `pnpm run verify`              | CI/release前   |
 
 `pnpm test`はTDD用のdefault loop。E2E、package smoke、coverageは含めない。`pnpm run test:all`はfast、integration/process、E2Eを順に実行する開発用aliasで、standards・build・package smokeを含むrelease判定ではない。
+
+Fast suite の correctness 判定は、子 process の test result のみ。`scripts/run-test-suite.mjs` は elapsed execution time を `test suite timing: ...` として常に出力し、PR CI はその記録を Step Summary の performance observation に保存する。GitHub-hosted runner の scheduling variance が大きいため、単一実行の wall-clock 値に絶対 budget を設定せず、retry もしない。性能回帰は複数実行の観測として扱い、correctness gate と混同しない。
 
 既存コマンドの責務:
 

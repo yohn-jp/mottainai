@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { run as runTestSuite } from "./run-test-suite.mjs";
 import {
   FULL_VERIFICATION_SUITES,
   classifyTestFile,
@@ -61,4 +62,21 @@ test("full verification names every classified suite exactly once", () => {
   ]);
   const fullFiles = FULL_VERIFICATION_SUITES.flatMap((suiteName) => architecture.suites[suiteName]);
   assert.deepEqual([...new Set(fullFiles)].sort(), discoverRepositoryTestFiles());
+});
+
+test("a slow hosted-runner sample does not fail a passing fast suite", () => {
+  const output = [];
+  const errors = [];
+  const clockValues = [0, 10_907];
+  const status = runTestSuite({
+    argv: ["node", "scripts/run-test-suite.mjs", "fast"],
+    spawnSyncImpl: () => ({ error: undefined, status: 0 }),
+    now: () => clockValues.shift(),
+    write: (message) => output.push(message),
+    writeError: (message) => errors.push(message),
+  });
+
+  assert.equal(status, 0);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(output, ["test suite timing: fast 10907ms"]);
 });
