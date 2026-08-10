@@ -4,8 +4,10 @@ import { compareSemanticSnapshots } from "../diff/index.js";
 import type { SemanticDeltaRecord } from "../diff/types.js";
 import { createEdgeId, createSymbolId } from "../ir/ids.js";
 import { ambiguousDynamicCallFixture, logicalComponentFixture, pureFunctionFixture } from "../fixtures/snapshots.js";
+import { createFixtureQuery } from "../fixtures/dashboard-fixture.js";
 import { budgetStructuredProjection } from "./budget.js";
 import { projectAgentContext, projectJsdoc, projectReview } from "./index.js";
+import { createSemanticProjectionQuery } from "./query.js";
 import type { ProjectionFieldGroup } from "./budget.js";
 
 const symbolId = createSymbolId(pureFunctionFixture.derived.symbols[0]!.locator);
@@ -49,6 +51,33 @@ test("stale, invalid, and inferred state remain non-authoritative in Agent conte
   const inferred = projectAgentContext({ snapshot: ambiguousDynamicCallFixture, targetId: symbolId });
   assert.ok(inferred.unknowns.some((item) => item.code === "dynamic_call_target"));
   assert.ok(inferred.unknowns.every((item) => item.authoritative === false));
+});
+
+test("analysis source reads stay scoped to the target Symbol/file and stale unknown", () => {
+  const snapshot = structuredClone(pureFunctionFixture);
+  const targetFile = snapshot.derived.symbols[0]!.locator.file!;
+  const template = snapshot.analysis.recommendedSourceReads[0]!;
+  snapshot.analysis.recommendedSourceReads = [
+    { ...template, path: targetFile, symbol: undefined },
+    { ...template, path: "src/unrelated.ts", symbol: "unrelated" },
+    { ...template, path: "src/unrelated-contract.ts", symbol: undefined },
+  ];
+  const projection = projectAgentContext({ snapshot, targetId: symbolId });
+  assert.ok(projection.recommendedSourceReads.some((read) => read.path === targetFile));
+  assert.equal(
+    projection.recommendedSourceReads.some((read) => read.path.includes("unrelated")),
+    false,
+  );
+
+  snapshot.integrity.status = "stale";
+  const stale = projectAgentContext({ snapshot, targetId: symbolId });
+  const unknown = stale.unknowns.find((item) => item.code === "stale-model");
+  assert.ok(unknown);
+  assert.ok(unknown.recommendedSourceReads.some((read) => read.path === targetFile));
+  assert.equal(
+    unknown.recommendedSourceReads.some((read) => read.path.includes("unrelated")),
+    false,
+  );
 });
 
 test("Review projection consumes #54 L0-L3 data and places impact before implementation churn", () => {
@@ -135,6 +164,37 @@ test("Agent target filtering excludes unrelated deltas and retains target paths 
   );
 });
 
+test("Agent impact caps target-relevant collections with explicit omission metadata", () => {
+  const original = compareSemanticSnapshots(pureFunctionFixture, logicalComponentFixture);
+  const path = original.impactPaths[0] ?? { entityIds: [symbolId], stopReason: "target", propagated: true };
+  const stop = original.propagationStopPoints[0] ?? { entityId: symbolId, reason: "target", path: [symbolId] };
+  const changeSet = {
+    ...original,
+    affectedEntities: [symbolId, symbolId, symbolId],
+    impactPaths: [
+      { ...path, entityIds: [symbolId], stopReason: "target-1" },
+      { ...path, entityIds: [symbolId], stopReason: "target-2" },
+    ],
+    propagationStopPoints: [
+      { ...stop, entityId: symbolId, reason: "target-1" },
+      { ...stop, entityId: symbolId, reason: "target-2" },
+    ],
+  };
+  const projection = projectAgentContext({
+    snapshot: pureFunctionFixture,
+    targetId: symbolId,
+    changeSet,
+    options: { maxSymbols: 1, maxImpactPaths: 1 },
+  });
+
+  assert.equal(projection.impact?.affectedEntities.length, 1);
+  assert.equal(projection.impact?.paths.length, 1);
+  assert.equal(projection.impact?.stopBoundaries.length, 1);
+  assert.ok(projection.omissions.some((item) => item.field === "impact.affectedEntities"));
+  assert.ok(projection.omissions.some((item) => item.field === "impact.paths"));
+  assert.ok(projection.omissions.some((item) => item.field === "impact.stopBoundaries"));
+});
+
 test("JSDoc projection preserves exact signature and surfaces contradictory declared contracts", () => {
   const normal = projectJsdoc({ snapshot: pureFunctionFixture, targetId: symbolId });
   assert.equal(normal.canonicalLanguage, "en");
@@ -171,6 +231,123 @@ test("JSDoc projection preserves exact signature and surfaces contradictory decl
   assert.ok(projection.contradictions.some((item) => item.field === "returns"));
   assert.equal(projection.contradictions.filter((item) => item.field === "parameters").length, 1);
   assert.equal(projection.returns, undefined);
+});
+
+test("JSDoc serializes structured return guarantees deterministically", () => {
+  const snapshot = structuredClone(pureFunctionFixture);
+  snapshot.declarations.contracts[0]!.definition.outputs.returnValue = {
+    z: 1,
+    a: ["value", { b: 2, a: 1 }],
+  };
+  const projection = projectJsdoc({ snapshot, targetId: symbolId });
+  assert.equal(projection.returns?.value, '{"a":["value",{"a":1,"b":2}],"z":1}');
+  assert.equal(projection.returns?.value.includes("[object Object]"), false);
+});
+
+test("query fallback derives freshness and integrity from provider provenance", async () => {
+  const query = createFixtureQuery();
+  const targetId = "symbol:decide-read";
+  const entity = await query.getEntity(targetId);
+  assert.ok(entity);
+  const staleQuery = new Proxy(query, {
+    get(target, property, receiver) {
+      if (property === "getEntity")
+        return () => ({ ...entity, provenance: { ...entity.provenance, status: "partial" as const } });
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  const projection = await createSemanticProjectionQuery(staleQuery).getAgentContext(targetId);
+  assert.equal(projection.model.status, "stale");
+  assert.equal(projection.model.integrity, "stale");
+  assert.equal(projection.provenance.status, "stale");
+});
+
+test("minimum hard budget keeps every declared projection contract key and byte cap", () => {
+  const options = { softTokens: 128, hardTokens: 256, hardBytes: 1_024 };
+  const agent = projectAgentContext({ snapshot: pureFunctionFixture, targetId: componentId, options });
+  const review = projectReview({
+    changeSet: compareSemanticSnapshots(pureFunctionFixture, logicalComponentFixture),
+    snapshot: logicalComponentFixture,
+    options,
+  });
+  const jsdoc = projectJsdoc({ snapshot: pureFunctionFixture, targetId: symbolId, options });
+  const projections = [agent, review, jsdoc] as const;
+  for (const projection of projections) {
+    const serialized = JSON.stringify(projection);
+    const serializedBytes = Buffer.byteLength(serialized, "utf8");
+    assert.ok(serializedBytes <= options.hardBytes, `${projection.kind} exceeded hard byte budget`);
+    assert.equal(projection.budget.projectedBytes, serializedBytes);
+    assert.equal(projection.budget.projectedTokens, Math.ceil(serializedBytes / 4));
+  }
+  for (const key of [
+    "apiVersion",
+    "kind",
+    "target",
+    "model",
+    "context",
+    "facts",
+    "relations",
+    "unknowns",
+    "recommendedSourceReads",
+    "expansionTargets",
+    "source",
+    "provenance",
+    "omissions",
+    "budget",
+  ])
+    assert.ok(Object.hasOwn(agent, key), `agent missing ${key}`);
+  for (const key of [
+    "apiVersion",
+    "kind",
+    "model",
+    "reviewReasons",
+    "semanticDelta",
+    "impact",
+    "evidenceRefresh",
+    "unknowns",
+    "implementationChanges",
+    "symbolChanges",
+    "effectViolations",
+    "recommendedSourceReads",
+    "provenance",
+    "omissions",
+    "budget",
+  ])
+    assert.ok(Object.hasOwn(review, key), `review missing ${key}`);
+  for (const key of [
+    "apiVersion",
+    "kind",
+    "canonicalLanguage",
+    "locale",
+    "target",
+    "model",
+    "parameters",
+    "constraints",
+    "throws",
+    "contradictions",
+    "recommendedSourceReads",
+    "source",
+    "provenance",
+    "omissions",
+    "budget",
+  ])
+    assert.ok(Object.hasOwn(jsdoc, key), `jsdoc missing ${key}`);
+  assert.ok(Object.hasOwn(agent.target, "provenance"));
+  assert.deepEqual(Object.keys(agent.context), [
+    "symbols",
+    "capabilities",
+    "contracts",
+    "invariants",
+    "constraints",
+    "effects",
+    "dependencies",
+    "callers",
+    "callees",
+    "evidence",
+    "tests",
+    "rationales",
+    "reviewGuidance",
+  ]);
 });
 
 test("projection budgets omit whole structured fields and preserve omission metadata", () => {

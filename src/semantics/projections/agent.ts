@@ -1,7 +1,7 @@
 import { compareText } from "../ir/canonical.js";
 import type { RepositorySemanticSnapshot, SemanticEntity, SourceReference } from "../ir/types.js";
 import type { SemanticChangeSet, UnknownRegion } from "../diff/types.js";
-import { budgetStructuredProjection, capItems } from "./budget.js";
+import { budgetStructuredProjection, capItems, resolveSemanticProjectionBudget } from "./budget.js";
 import {
   allEntityReferences,
   createProjectionModel,
@@ -28,6 +28,7 @@ import type {
   ProjectedRelation,
   ProjectedText,
   SemanticProjectionBudgetOptions,
+  SemanticProjectionBudget,
   EntityId,
 } from "./types.js";
 
@@ -315,8 +316,12 @@ function deltaForTarget(
   relevantIds: ReadonlySet<EntityId>,
 ): AgentDeltaContext | undefined {
   if (changeSet === undefined) return undefined;
-  const semanticDeltas = changeSet.semanticDeltas.filter((item) => relevantIds.has(String(item.subject)));
-  const implementationChanges = changeSet.derivedChanges.filter((item) => relevantIds.has(String(item.entityId)));
+  const semanticDeltas = changeSet.semanticDeltas
+    .filter((item) => relevantIds.has(String(item.subject)))
+    .sort((left, right) => compareText(left.id, right.id));
+  const implementationChanges = changeSet.derivedChanges
+    .filter((item) => relevantIds.has(String(item.entityId)))
+    .sort((left, right) => compareText(left.id, right.id));
   const unknowns = changeSet.unknownRegions.filter(
     (item) => item.subjects.some((id) => relevantIds.has(String(id))) || item.subjects.length === 0,
   );
@@ -326,7 +331,7 @@ function deltaForTarget(
 
 function boundedContext(
   context: AgentProjectionContext,
-  options: AgentProjectionOptions,
+  budget: SemanticProjectionBudget,
 ): { context: AgentProjectionContext; omissions: ProjectionOmission[] } {
   const omissions: ProjectionOmission[] = [];
   const cap = <T>(
@@ -342,19 +347,19 @@ function boundedContext(
   return {
     context: {
       ...context,
-      symbols: cap("context.symbols", context.symbols, options.maxSymbols ?? 48, "semantic"),
-      capabilities: cap("context.capabilities", context.capabilities, options.maxFacts ?? 48, "semantic"),
-      contracts: cap("context.contracts", context.contracts, options.maxFacts ?? 48, "semantic"),
-      invariants: cap("context.invariants", context.invariants, options.maxFacts ?? 48, "semantic"),
-      constraints: cap("context.constraints", context.constraints, options.maxFacts ?? 48, "semantic"),
-      effects: cap("context.effects", context.effects, options.maxFacts ?? 48, "semantic"),
-      dependencies: cap("context.dependencies", context.dependencies, options.maxRelations ?? 64, "navigation"),
-      callers: cap("context.callers", context.callers, options.maxRelations ?? 64, "navigation"),
-      callees: cap("context.callees", context.callees, options.maxRelations ?? 64, "navigation"),
-      evidence: cap("context.evidence", context.evidence, options.maxEvidence ?? 24, "evidence"),
-      tests: cap("context.tests", context.tests, options.maxEvidence ?? 24, "evidence"),
-      rationales: cap("context.rationales", context.rationales, options.maxRationales ?? 8, "semantic"),
-      reviewGuidance: cap("context.reviewGuidance", context.reviewGuidance, options.maxGuidance ?? 8, "semantic"),
+      symbols: cap("context.symbols", context.symbols, budget.maxSymbols, "semantic"),
+      capabilities: cap("context.capabilities", context.capabilities, budget.maxFacts, "semantic"),
+      contracts: cap("context.contracts", context.contracts, budget.maxFacts, "semantic"),
+      invariants: cap("context.invariants", context.invariants, budget.maxFacts, "semantic"),
+      constraints: cap("context.constraints", context.constraints, budget.maxFacts, "semantic"),
+      effects: cap("context.effects", context.effects, budget.maxFacts, "semantic"),
+      dependencies: cap("context.dependencies", context.dependencies, budget.maxRelations, "navigation"),
+      callers: cap("context.callers", context.callers, budget.maxRelations, "navigation"),
+      callees: cap("context.callees", context.callees, budget.maxRelations, "navigation"),
+      evidence: cap("context.evidence", context.evidence, budget.maxEvidence, "evidence"),
+      tests: cap("context.tests", context.tests, budget.maxEvidence, "evidence"),
+      rationales: cap("context.rationales", context.rationales, budget.maxRationales, "semantic"),
+      reviewGuidance: cap("context.reviewGuidance", context.reviewGuidance, budget.maxGuidance, "semantic"),
     },
     omissions,
   };
@@ -363,12 +368,13 @@ function boundedContext(
 export function projectAgentContext(input: AgentProjectionInput): AgentContextProjection {
   const model = createProjectionModel(input.snapshot);
   const options = input.options ?? {};
+  const resolved = resolveSemanticProjectionBudget(options);
   const target = targetFallback(model, input.targetId);
   const scope =
     target.kind === "symbol" || target.kind === "component" || target.kind === "project" ? target.kind : "entity";
-  const source = sourceReadsForTarget(model, input.targetId, options.maxSourceReads ?? 24);
+  const source = sourceReadsForTarget(model, input.targetId, resolved.maxSourceReads);
   const unknowns = projectAgentUnknowns(model, input.targetId, input.changeSet);
-  const boundedContextResult = boundedContext(contextFor(model, input.targetId, options), options);
+  const boundedContextResult = boundedContext(contextFor(model, input.targetId, options), resolved);
   const guidance = boundedContextResult.context;
   const targetEntity = model.entity(input.targetId);
   const summary =
@@ -377,49 +383,77 @@ export function projectAgentContext(input: AgentProjectionInput): AgentContextPr
       : entityText(model, targetEntity, targetEntity.description ?? targetEntity.name);
   const relevantIds = relevantTargetIds(model, input.targetId);
   const unboundedDelta = deltaForTarget(input.changeSet, relevantIds);
-  const delta =
+  const deltaCaps =
     unboundedDelta === undefined
       ? undefined
       : {
-          ...unboundedDelta,
           semanticDeltas: capItems(
             unboundedDelta.semanticDeltas,
-            options.maxChanges ?? 32,
+            resolved.maxChanges,
             "delta.semanticDeltas",
             "semantic deltas exceeded their deterministic structural limit",
             "semantic",
-          ).items,
+          ),
           implementationChanges: capItems(
             unboundedDelta.implementationChanges,
-            options.maxChanges ?? 32,
+            resolved.maxChanges,
             "delta.implementationChanges",
             "implementation changes exceeded their deterministic structural limit",
             "evidence",
-          ).items,
+          ),
           unknowns: capItems(
             unboundedDelta.unknowns,
-            options.maxChanges ?? 32,
+            resolved.maxChanges,
             "delta.unknowns",
             "delta unknowns exceeded their deterministic structural limit",
             "required",
-          ).items,
+          ),
         };
-  const impact =
+  const delta =
+    unboundedDelta === undefined || deltaCaps === undefined
+      ? undefined
+      : {
+          ...unboundedDelta,
+          semanticDeltas: deltaCaps.semanticDeltas.items,
+          implementationChanges: deltaCaps.implementationChanges.items,
+          unknowns: deltaCaps.unknowns.items,
+        };
+  const impactCaps =
     input.changeSet === undefined
       ? undefined
-      : ({
-          affectedEntities: input.changeSet.affectedEntities
-            .filter((id) => relevantIds.has(String(id)))
-            .slice(0, options.maxSymbols ?? 48),
-          paths: input.changeSet.impactPaths
-            .filter((path) => path.entityIds.some((id) => relevantIds.has(String(id))))
-            .slice(0, options.maxImpactPaths ?? 24),
-          stopBoundaries: input.changeSet.propagationStopPoints
-            .filter(
+      : {
+          affectedEntities: capItems(
+            input.changeSet.affectedEntities.filter((id) => relevantIds.has(String(id))),
+            resolved.maxSymbols,
+            "impact.affectedEntities",
+            "affected entities exceeded their deterministic structural limit",
+            "semantic",
+          ),
+          paths: capItems(
+            input.changeSet.impactPaths.filter((path) => path.entityIds.some((id) => relevantIds.has(String(id)))),
+            resolved.maxImpactPaths,
+            "impact.paths",
+            "impact paths exceeded their deterministic structural limit",
+            "semantic",
+          ),
+          stopBoundaries: capItems(
+            input.changeSet.propagationStopPoints.filter(
               (point) =>
                 relevantIds.has(String(point.entityId)) || point.path.some((id) => relevantIds.has(String(id))),
-            )
-            .slice(0, options.maxImpactPaths ?? 24),
+            ),
+            resolved.maxImpactPaths,
+            "impact.stopBoundaries",
+            "propagation stop boundaries exceeded their deterministic structural limit",
+            "semantic",
+          ),
+        };
+  const impact =
+    impactCaps === undefined
+      ? undefined
+      : ({
+          affectedEntities: impactCaps.affectedEntities.items,
+          paths: impactCaps.paths.items,
+          stopBoundaries: impactCaps.stopBoundaries.items,
         } satisfies AgentImpactContext);
   const facts = model.status === "invalid" ? [] : factsFor(model, input.targetId);
   const relations = model.status === "invalid" ? [] : relationsFor(model, input.targetId);
@@ -427,39 +461,19 @@ export function projectAgentContext(input: AgentProjectionInput): AgentContextPr
   const readsOmission: ProjectionOmission[] = [
     ...boundedContextResult.omissions,
     ...(source.omission === undefined ? [] : [source.omission]),
-    ...(unboundedDelta === undefined || delta === undefined
+    ...(deltaCaps === undefined
       ? []
       : [
-          ...(unboundedDelta.semanticDeltas.length === delta.semanticDeltas.length
-            ? []
-            : [
-                {
-                  field: "delta.semanticDeltas",
-                  reason: "semantic delta structural limit applied",
-                  count: unboundedDelta.semanticDeltas.length - delta.semanticDeltas.length,
-                  priority: "semantic" as const,
-                },
-              ]),
-          ...(unboundedDelta.implementationChanges.length === delta.implementationChanges.length
-            ? []
-            : [
-                {
-                  field: "delta.implementationChanges",
-                  reason: "implementation change structural limit applied",
-                  count: unboundedDelta.implementationChanges.length - delta.implementationChanges.length,
-                  priority: "evidence" as const,
-                },
-              ]),
-          ...(unboundedDelta.unknowns.length === delta.unknowns.length
-            ? []
-            : [
-                {
-                  field: "delta.unknowns",
-                  reason: "delta unknown structural limit applied",
-                  count: unboundedDelta.unknowns.length - delta.unknowns.length,
-                  priority: "required" as const,
-                },
-              ]),
+          ...(deltaCaps.semanticDeltas.omission === undefined ? [] : [deltaCaps.semanticDeltas.omission]),
+          ...(deltaCaps.implementationChanges.omission === undefined ? [] : [deltaCaps.implementationChanges.omission]),
+          ...(deltaCaps.unknowns.omission === undefined ? [] : [deltaCaps.unknowns.omission]),
+        ]),
+    ...(impactCaps === undefined
+      ? []
+      : [
+          ...(impactCaps.affectedEntities.omission === undefined ? [] : [impactCaps.affectedEntities.omission]),
+          ...(impactCaps.paths.omission === undefined ? [] : [impactCaps.paths.omission]),
+          ...(impactCaps.stopBoundaries.omission === undefined ? [] : [impactCaps.stopBoundaries.omission]),
         ]),
   ];
   const base: Record<string, unknown> = {
@@ -549,7 +563,7 @@ export function projectAgentContext(input: AgentProjectionInput): AgentContextPr
       count: source.reads.length,
     },
   ];
-  const bounded = budgetStructuredProjection(base, groups, options, readsOmission);
+  const bounded = budgetStructuredProjection(base, groups, resolved, readsOmission);
   return {
     ...bounded.value,
     apiVersion: 1,

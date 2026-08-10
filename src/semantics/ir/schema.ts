@@ -348,7 +348,7 @@ const contractSchema = z
       .strict(),
     outputs: z
       .object({
-        returnValue: proseSchema.optional(),
+        returnValue: jsonValueSchema.optional(),
         postconditions: z.array(contractAssertionSchema),
         errors: z.array(contractErrorSchema),
         stateTransitions: z.array(stateTransitionSchema),

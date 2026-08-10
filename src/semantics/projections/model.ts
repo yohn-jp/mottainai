@@ -213,6 +213,15 @@ function buildProjectionModel(snapshot: RepositorySemanticSnapshot): ProjectionM
   }
   const relations = [...snapshot.graph.relations].sort((left, right) => compareText(left.id, right.id));
   const projectionStatus = normalizeStatus(snapshot);
+  const analysisReadsForEntity = (id: EntityId): SourceReference[] => {
+    const entity = entities.get(id);
+    if (entity === undefined) return [];
+    return snapshot.analysis.recommendedSourceReads.filter((read) => {
+      if (entity.kind === "symbol") return read.symbol === entity.locator.symbol || read.path === entity.locator.file;
+      if (entity.kind === "file") return read.path === entity.path;
+      return false;
+    });
+  };
   return {
     snapshot,
     entities,
@@ -264,12 +273,7 @@ function buildProjectionModel(snapshot: RepositorySemanticSnapshot): ProjectionM
       const entity = entities.get(id);
       const direct =
         entity === undefined ? undefined : sourceReferenceForEntity(entity, "exact Symbol/file metadata escalation");
-      const fromAnalysis = snapshot.analysis.recommendedSourceReads.filter((read) => {
-        if (read.symbol === undefined) return read.path === (entity?.kind === "file" ? entity.path : undefined);
-        return entity?.kind === "symbol"
-          ? read.symbol === entity.locator.symbol || read.path === entity.locator.file
-          : true;
-      });
+      const fromAnalysis = entity === undefined ? [] : analysisReadsForEntity(id);
       const directReads: SourceReference[] = direct === undefined ? [] : [direct];
       return uniqueSourceReads([...directReads, ...fromAnalysis]);
     },
@@ -288,8 +292,7 @@ function buildProjectionModel(snapshot: RepositorySemanticSnapshot): ProjectionM
           subjects: unknown.subjects ?? (id === undefined ? [] : [id]),
           material: true,
           authoritative: false as const,
-          recommendedSourceReads:
-            id === undefined ? [] : snapshot.analysis.recommendedSourceReads.filter((read) => read.symbol === id),
+          recommendedSourceReads: id === undefined ? [] : analysisReadsForEntity(id),
         }));
       if (projectionStatus === "invalid") {
         unknowns.unshift({
@@ -310,8 +313,7 @@ function buildProjectionModel(snapshot: RepositorySemanticSnapshot): ProjectionM
           subjects: id === undefined ? [] : [id],
           material: true,
           authoritative: false as const,
-          recommendedSourceReads:
-            id === undefined ? [] : uniqueSourceReads([...(snapshot.analysis.recommendedSourceReads ?? [])]),
+          recommendedSourceReads: id === undefined ? [] : analysisReadsForEntity(id),
         });
       }
       return unknowns;

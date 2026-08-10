@@ -1,7 +1,7 @@
 import { performance } from "node:perf_hooks";
 import { compareSemanticSnapshots, projectSemanticChangeSet } from "../diff/index.js";
 import type { SemanticDiffOptions } from "../diff/types.js";
-import { compareText } from "../ir/canonical.js";
+import { compareText, stableStringifyValue } from "../ir/canonical.js";
 import { toVerificationView } from "../verification/projection.js";
 import { planMinimumSufficientVerification, type VerificationPlan } from "../verification/planner.js";
 import {
@@ -244,7 +244,11 @@ function entityDescription(entity: IrEntity): string {
     case "capability":
       return entity.meaning;
     case "contract":
-      return entity.definition.outputs.returnValue ?? "Declared contract";
+      return entity.definition.outputs.returnValue === undefined
+        ? "Declared contract"
+        : typeof entity.definition.outputs.returnValue === "string"
+          ? entity.definition.outputs.returnValue
+          : stableStringifyValue(entity.definition.outputs.returnValue);
     case "invariant":
     case "decision":
     case "rationale":
