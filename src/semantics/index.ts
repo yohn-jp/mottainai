@@ -12,3 +12,4 @@ export * from "./cache/index.js";
 export * from "./diff/index.js";
 export * from "./impact/index.js";
 export * from "./projections/index.js";
+export * from "./enforcement/index.js";

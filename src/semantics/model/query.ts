@@ -331,6 +331,17 @@ export class LiveRepositoryModelQuery implements RepositorySemanticQuery {
             .map((item) => ({ id: item.source.id })),
         ).map((item) => item.id),
         entityIds: [...this.entitiesById.keys()].sort(compareText),
+        semantic: {
+          integrity: this.integrityStatus,
+          reviewLevel: this.snapshot?.analysis.reviewLevel ?? "L0",
+          managed:
+            this.snapshot !== undefined &&
+            this.snapshot.derived.symbols.length > 0 &&
+            this.snapshot.derived.symbols.every((symbol) =>
+              (this.snapshot?.declarations.symbolOwnership ?? []).some((ownership) => ownership.symbolId === symbol.id),
+            ),
+          modelGaps,
+        },
         provenance: this.provenance(
           "integrity",
           "project summary and health are derived from the live repository model",

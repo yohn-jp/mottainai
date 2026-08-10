@@ -139,6 +139,12 @@ jobs:
       - name: Standards self-tests (architecture / governance / test policy)
         run: pnpm run test:standards
 
+      - name: Repository Semantics governance (observe)
+        run: pnpm run semantic:validate -- --mode observe
+
+      - name: Repository Semantics managed dogfood (enforce)
+        run: pnpm run semantic:dogfood
+
       - name: Architecture/static validation
         run: pnpm run architecture:check
 

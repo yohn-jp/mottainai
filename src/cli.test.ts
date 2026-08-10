@@ -97,3 +97,40 @@ test("public CLI dispatch projects the workflow authority through a supported cl
     fs.rmSync(workspace, { recursive: true, force: true });
   }
 });
+
+test("semantic status and review expose bounded non-authoritative blockers through the public CLI", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-semantic-status-"));
+  const run = (action: string) =>
+    spawnSync(
+      process.execPath,
+      ["--import", "tsx", entryPoint, "semantic", action, "--mode", "observe", "--workspace", workspace],
+      {
+        cwd: path.resolve(path.dirname(entryPoint), ".."),
+        env: { ...process.env, HOME: workspace, USERPROFILE: workspace },
+        encoding: "utf8",
+      },
+    );
+  try {
+    const status = run("status");
+    assert.equal(status.status, 0, `${status.stdout}${status.stderr}`);
+    const statusReport = JSON.parse(status.stdout) as {
+      integrity: { status: string };
+      authoritative: boolean;
+      blockers: readonly { code: string }[];
+    };
+    assert.equal(statusReport.integrity.status, "invalid");
+    assert.equal(statusReport.authoritative, false);
+    assert.ok(statusReport.blockers.some((item) => item.code === "semantic_integrity_invalid"));
+
+    const review = run("review");
+    assert.equal(review.status, 0, `${review.stdout}${review.stderr}`);
+    const reviewReport = JSON.parse(review.stdout) as {
+      review: { level: string };
+      blockers: readonly { code: string }[];
+    };
+    assert.equal(reviewReport.review.level, "L3");
+    assert.ok(reviewReport.blockers.some((item) => item.code === "semantic_integrity_invalid"));
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});

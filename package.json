@@ -40,6 +40,8 @@
     "governance:issue:local": "node scripts/governance-check-issue-local.mjs",
     "governance:issue": "node scripts/validate-issue.mjs",
     "governance:branch": "node scripts/validate-branch-name.mjs",
+    "semantic:validate": "tsx scripts/semantic-governance.ts",
+    "semantic:dogfood": "node --import tsx --test src/semantics/enforcement.test.ts",
     "governance:test": "node --test scripts/governance.test.mjs",
     "test:actions": "node --test scripts/validate-actions.test.mjs",
     "format": "prettier --write 'scripts/architecture-check.mjs' 'scripts/architecture-check.test.mjs' 'scripts/coverage.mjs' 'scripts/coverage.test.mjs' 'scripts/copy-dashboard-assets.mjs' 'scripts/generate-build-metadata.mjs' 'scripts/mutation-catalog.mjs' 'scripts/mutation-test.mjs' 'scripts/property-tests.mjs' 'scripts/run-test-suite.mjs' 'scripts/test-suites.mjs' 'scripts/test-suites.test.mjs' 'scripts/validate-actions.mjs' 'scripts/validate-actions.test.mjs' 'scripts/coverage-policy.json' 'eslint.config.mjs' 'prettier.config.mjs' 'package.json'",
