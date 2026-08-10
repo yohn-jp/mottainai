@@ -8,6 +8,9 @@ import type { SemanticTransaction } from "../ir/types.js";
 import { extractTypeScriptFacts, typeScriptFactProvider } from "../extractors/typescript/index.js";
 import type { TypeScriptExtractorOptions, TypeScriptFactCounts, TypeScriptFactProvider } from "../extractors/types.js";
 import { LiveRepositoryModelQuery, type RepositoryModelBenchmark, type RepositoryModelSource } from "./query.js";
+import { digestCanonicalValue } from "../ir/canonical.js";
+import type { SemanticFactCache } from "../cache/index.js";
+import type { DerivedFactCacheStatus, SnapshotManifest } from "../cache/index.js";
 
 export interface RepositoryModelCompilerOptions {
   /** Worktree root for live TypeScript fact extraction. */
@@ -26,6 +29,8 @@ export interface RepositoryModelCompilerOptions {
   /** Explicit #49 declarations. No ownership is synthesized when this is absent. */
   declarations?: DeclaredState;
   factProvider?: TypeScriptFactProvider;
+  /** Optional disposable cache; cache absence remains a valid cold path. */
+  cache?: SemanticFactCache;
 }
 
 export interface RepositoryModelCompileResult {
@@ -94,6 +99,9 @@ function compileSource(options: RepositoryModelCompilerOptions): {
   snapshot?: RepositorySemanticSnapshot;
   diagnostics: SemanticDiagnostic[];
   factCounts?: TypeScriptFactCounts;
+  factExtractionMs?: number;
+  cacheStatus?: DerivedFactCacheStatus;
+  cacheManifest?: SnapshotManifest;
 } {
   if (options.snapshot !== undefined) {
     const validation = validateSnapshot(options.snapshot);
@@ -114,14 +122,35 @@ function compileSource(options: RepositoryModelCompilerOptions): {
     ...(options.repositoryName === undefined ? {} : { repositoryName: options.repositoryName }),
     ...(options.packageName === undefined ? {} : { packageName: options.packageName }),
     ...(options.revision === undefined ? {} : { revision: options.revision }),
+    ...(options.cache === undefined ? {} : { cache: options.cache }),
   };
   const extracted = provider.extract(extractorOptions);
   if (options.declarations === undefined)
-    return { snapshot: extracted.snapshot, diagnostics: [], factCounts: extracted.counts };
+    return {
+      snapshot: extracted.snapshot,
+      diagnostics: [],
+      factCounts: extracted.counts,
+      factExtractionMs: extracted.elapsedMs,
+      ...(extracted.cacheStatus === undefined ? {} : { cacheStatus: extracted.cacheStatus }),
+      ...(extracted.cacheManifest === undefined ? {} : { cacheManifest: extracted.cacheManifest }),
+    };
   const rebound = bindDeclarations(extracted.snapshot, options.declarations);
   return rebound.ok
-    ? { snapshot: rebound.snapshot, diagnostics: [], factCounts: extracted.counts }
-    : { diagnostics: rebound.diagnostics, factCounts: extracted.counts };
+    ? {
+        snapshot: rebound.snapshot,
+        diagnostics: [],
+        factCounts: extracted.counts,
+        factExtractionMs: extracted.elapsedMs,
+        ...(extracted.cacheStatus === undefined ? {} : { cacheStatus: extracted.cacheStatus }),
+        ...(extracted.cacheManifest === undefined ? {} : { cacheManifest: extracted.cacheManifest }),
+      }
+    : {
+        diagnostics: rebound.diagnostics,
+        factCounts: extracted.counts,
+        factExtractionMs: extracted.elapsedMs,
+        ...(extracted.cacheStatus === undefined ? {} : { cacheStatus: extracted.cacheStatus }),
+        ...(extracted.cacheManifest === undefined ? {} : { cacheManifest: extracted.cacheManifest }),
+      };
 }
 
 export function compileRepositoryModel(options: RepositoryModelCompilerOptions): RepositoryModelCompileResult {
@@ -135,6 +164,18 @@ export function compileRepositoryModel(options: RepositoryModelCompilerOptions):
       diagnostics: [diagnostic("model_compile_failed", `live Repository Model compilation failed: ${message}`)],
     };
   }
+  if (options.cache !== undefined && compiled.cacheManifest !== undefined && compiled.snapshot !== undefined) {
+    try {
+      options.cache.putManifest({
+        ...compiled.cacheManifest,
+        declarationFingerprint: digestCanonicalValue(options.declarations ?? null),
+        trackedFiles: structuredClone(compiled.snapshot.integrity.trackedFiles),
+        snapshotDigest: compiled.snapshot.integrity.snapshotDigest,
+      });
+    } catch {
+      // A disposable manifest must never change the compiler's semantic result.
+    }
+  }
   const integrityStatus = compiled.snapshot?.integrity.status ?? "invalid";
   const integrityReason = compiled.snapshot?.integrity.statusReason ?? compiled.diagnostics[0]?.message;
   const benchmark: RepositoryModelBenchmark = {
@@ -142,6 +183,9 @@ export function compileRepositoryModel(options: RepositoryModelCompilerOptions):
     queryCount: 0,
     queryMs: 0,
     ...(compiled.factCounts === undefined ? {} : { factCounts: compiled.factCounts }),
+    ...(compiled.factExtractionMs === undefined ? {} : { factExtractionMs: compiled.factExtractionMs }),
+    ...(compiled.cacheStatus === undefined ? {} : { cacheStatus: compiled.cacheStatus }),
+    ...(compiled.cacheStatus === undefined ? {} : { cacheHit: compiled.cacheStatus === "hit" }),
   };
   const source: RepositoryModelSource = {
     snapshot: compiled.snapshot,

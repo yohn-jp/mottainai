@@ -28,6 +28,7 @@ const integrationPatterns = Object.freeze([
   "src/proxy.test.ts",
   "src/read-governor-cli.test.ts",
   "src/runtime-diagnostic.test.ts",
+  "src/semantics/cache/cache.test.ts",
   "src/semantics/effects/effects.test.ts",
   "src/semantics/extractors/typescript/extractor.test.ts",
   "src/semantics/model/query.test.ts",
