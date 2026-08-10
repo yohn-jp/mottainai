@@ -11,6 +11,20 @@ import type { HookCommandContext } from "./hooks/commands.js";
 import { formatInitHuman, runInit } from "./init.js";
 import { createRuntimeDiagnostic, formatRuntimeDiagnosticHuman } from "./runtime-diagnostic.js";
 import { runServer } from "./server.js";
+import {
+  applySemanticTransaction,
+  configuredSemanticEnforcementMode,
+  evaluateSemanticEnforcement,
+  parseSemanticEnforcementMode,
+  proposeSemanticDebt,
+} from "./semantics/enforcement/index.js";
+import { compileRepositoryModel } from "./semantics/model/compiler.js";
+import { loadSemanticSource } from "./semantics/source/index.js";
+import { validateSnapshot } from "./semantics/ir/schema.js";
+import type { SemanticEnforcementMode } from "./semantics/enforcement/index.js";
+import type { SemanticMutationRequest } from "./semantics/mutations/types.js";
+import type { RepositorySemanticSnapshot } from "./semantics/ir/types.js";
+import type { LogicalId } from "./semantics/ir/ids.js";
 import { validateIssueRef, validateTaskSlug } from "./workflow/commands/validate.js";
 import { collectWorkflowDoctorReport } from "./workflow/commands/doctor.js";
 import { getTaskStatus, startTask, getTaskStatusForWorkspace } from "./workflow/domain/task.js";
@@ -40,6 +54,15 @@ const USAGE = `usage:
   mottainai init [options]                       initialize a workspace configuration
   mottainai serve                                start the MCP stdio server explicitly
   mottainai dashboard [options]                  start the local semantic project viewer (fixture|live)
+  mottainai semantic validate [options]          validate semantic integrity and managed-scope blockers
+  mottainai semantic status [options]            show bounded semantic enforcement status
+  mottainai semantic context --id <id> [options] bounded authoritative agent context
+  mottainai semantic diff [options]              show bounded semantic delta/review summary
+  mottainai semantic review [options]            show bounded L0-L3 review summary
+  mottainai semantic doctor [options]            diagnose semantic source and managed adoption
+  mottainai semantic transaction --request-file <path> [options]
+                                                   apply declarations through the mutation service
+  mottainai semantic migrate [options]           propose comment-to-debt migration (no implicit apply)
   mottainai list                                 registered upstreams and profiles
   mottainai inspect <name>                       one upstream with defaults applied
   mottainai add <name> --command c [options]     register a stdio upstream
@@ -308,6 +331,105 @@ function summarize(config: MottainaiConfig, filePath: string): unknown {
   };
 }
 
+function semanticMode(argv: string[]): SemanticEnforcementMode | undefined {
+  const value = requireFlagValue(argv, "mode");
+  return value === undefined ? undefined : parseSemanticEnforcementMode(value);
+}
+
+function readSemanticSnapshot(argv: string[], name: string): RepositorySemanticSnapshot | undefined {
+  const file = requireFlagValue(argv, name);
+  if (file === undefined) return undefined;
+  const serialized = fs.readFileSync(path.resolve(process.cwd(), file), "utf8");
+  const parsed = JSON.parse(serialized) as unknown;
+  const validation = validateSnapshot(parsed);
+  if (!validation.ok)
+    fail(`${name} is not a valid semantic snapshot: ${validation.diagnostics.map((item) => item.code).join(",")}`);
+  return validation.snapshot;
+}
+
+function semanticPaths(argv: string[]): string[] | undefined {
+  return csvFlag(argv, "managed-paths") ?? csvFlag(argv, "managed-path");
+}
+
+async function runSemanticCommand(action: string | undefined, argv: string[]): Promise<number> {
+  if (action === undefined) fail(USAGE);
+  const workspace = resolveWorkflowWorkspace(argv);
+  const mode = semanticMode(argv) ?? configuredSemanticEnforcementMode(process.env);
+  const managedPaths = semanticPaths(argv);
+  const managedSymbolIds = csvFlag(argv, "managed-symbol-ids") ?? csvFlag(argv, "managed-symbol-id");
+  const baseSnapshot = readSemanticSnapshot(argv, "base-snapshot");
+  if (action === "transaction") {
+    const requestFile = requireFlagValue(argv, "request-file");
+    if (requestFile === undefined) fail("semantic transaction requires --request-file");
+    const request = JSON.parse(
+      fs.readFileSync(path.resolve(process.cwd(), requestFile), "utf8"),
+    ) as SemanticMutationRequest;
+    const result = await applySemanticTransaction(workspace, request);
+    print({
+      ok: result.ok,
+      ...(result.ok
+        ? {
+            transaction: result.transaction,
+            affectedEntities: result.affectedEntities,
+            protectedChanges: result.protectedChanges,
+            writes: result.writes.map((write) => ({ path: write.path, operation: write.operation })),
+          }
+        : { diagnostics: result.diagnostics }),
+    });
+    return result.ok ? 0 : 1;
+  }
+  const report = await evaluateSemanticEnforcement({
+    rootDir: workspace,
+    ...(mode === undefined ? {} : { mode }),
+    ...(baseSnapshot === undefined ? {} : { baseSnapshot }),
+    ...(managedPaths === undefined ? {} : { managedPaths }),
+    ...(managedSymbolIds === undefined ? {} : { managedSymbolIds: managedSymbolIds as LogicalId[] }),
+    commentZero: action === "migrate" || !hasFlag(argv, "no-comment-zero"),
+  });
+  if (action === "context") {
+    const id = requireFlagValue(argv, "id");
+    if (id === undefined) fail("semantic context requires --id");
+    if (!report.authoritative) {
+      print({ ok: false, error: "semantic context is not authoritative", report });
+      return 1;
+    }
+    const loaded = await loadSemanticSource(workspace);
+    const compiled = compileRepositoryModel({
+      rootDir: workspace,
+      ...(loaded.ok ? { declarations: loaded.snapshot.declarations } : {}),
+    });
+    if (compiled.snapshot === undefined) {
+      print({ ok: false, error: "live semantic query unavailable", diagnostics: compiled.diagnostics });
+      return 1;
+    }
+    const context = compiled.query.getAgentContext(id);
+    print({
+      ok: true,
+      report: {
+        decision: report.decision,
+        authoritative: report.authoritative,
+        integrity: report.integrity,
+        review: report.review,
+      },
+      context,
+    });
+    return 0;
+  }
+  if (action === "migrate") {
+    print({
+      ok: report.blockers.length === 0,
+      proposalOnly: true,
+      message:
+        "Migration proposes structured semantic debt; apply an explicit mutation transaction, review, then remove comments through a separate source change.",
+      debtProposals: proposeSemanticDebt(report.comments),
+      report,
+    });
+    return report.mode === "enforce" && report.blockers.length > 0 ? 1 : 0;
+  }
+  print(report);
+  return report.mode === "enforce" && report.decision === "block" ? 1 : 0;
+}
+
 export async function runCli(args: string[]): Promise<number> {
   try {
     const [command = "list", ...argv] = args;
@@ -323,6 +445,8 @@ export async function runCli(args: string[]): Promise<number> {
       if (hasFlag(argv, "json")) print(summary);
       else console.log(formatInitHuman(summary));
       return summary.ok ? 0 : 1;
+    } else if (command === "semantic") {
+      return runSemanticCommand(argv[0], argv.slice(1));
     } else if (command === "dashboard") {
       const dashboardOptions = parseDashboardOptions(argv);
       const dashboard = await startDashboard({

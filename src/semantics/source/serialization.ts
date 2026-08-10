@@ -53,6 +53,9 @@ interface SourceRepository {
 
 interface SourceMetadata {
   commentPolicy: DeclaredState["commentPolicy"];
+  semanticStateDigest?: RepositorySemanticSnapshot["integrity"]["semanticStateDigest"];
+  modelDigest?: RepositorySemanticSnapshot["integrity"]["modelDigest"];
+  snapshotDigest?: RepositorySemanticSnapshot["integrity"]["snapshotDigest"];
   verificationPerspectives?: DeclaredState["verificationPerspectives"];
   verificationRequirements?: DeclaredState["verificationRequirements"];
 }
@@ -113,6 +116,9 @@ function sourceFiles(snapshot: RepositorySemanticSnapshot): SemanticSourceWrite[
     writeJson(`${SEMANTIC_SOURCE_ROOT}/declarations/project.json`, declarations.project),
     writeJson(`${SEMANTIC_SOURCE_ROOT}/declarations/metadata.json`, {
       commentPolicy: declarations.commentPolicy,
+      semanticStateDigest: canonical.integrity.semanticStateDigest,
+      modelDigest: canonical.integrity.modelDigest,
+      snapshotDigest: canonical.integrity.snapshotDigest,
       ...(declarations.verificationPerspectives === undefined
         ? {}
         : { verificationPerspectives: declarations.verificationPerspectives }),
@@ -251,9 +257,9 @@ export function parseSemanticSource(writes: readonly SemanticSourceWrite[]): Sna
       analysis: repository.analysis,
       integrity: {
         ...repository.integrity,
-        semanticStateDigest: pending,
-        modelDigest: pending,
-        snapshotDigest: pending,
+        semanticStateDigest: metadata.semanticStateDigest ?? pending,
+        modelDigest: metadata.modelDigest ?? pending,
+        snapshotDigest: metadata.snapshotDigest ?? pending,
         status: repository.integrity.status === "fresh" ? "stale" : repository.integrity.status,
         ...(repository.integrity.status === "fresh"
           ? { statusReason: "integrity is recomputed from canonical source files" }

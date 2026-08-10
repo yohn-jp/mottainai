@@ -33,6 +33,7 @@ const integrationPatterns = Object.freeze([
   "src/semantics/extractors/typescript/extractor.test.ts",
   "src/semantics/model/query.test.ts",
   "src/semantics/mutations.test.ts",
+  "src/semantics/enforcement.test.ts",
   "src/telemetry.test.ts",
   "src/fault-injection.test.ts",
   "src/init.test.ts",

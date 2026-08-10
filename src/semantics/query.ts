@@ -225,6 +225,13 @@ export interface ProjectView {
   counts: Readonly<Record<EntityKind, number>>;
   componentIds: readonly EntityId[];
   entityIds: readonly EntityId[];
+  /** Additive live-model state consumed by Dashboard; no enforcement facts are recomputed here. */
+  semantic?: {
+    integrity: "fresh" | "stale" | "invalid";
+    reviewLevel: ReviewLevel;
+    managed: boolean;
+    modelGaps: number;
+  };
   provenance: Provenance;
 }
 
