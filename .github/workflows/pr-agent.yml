@@ -10,12 +10,21 @@ permissions: {}
 
 jobs:
   eligibility:
-    # Cheap entry filter: run only for pull_request events, or non-bot comments on a PR.
-    # The fork check itself (which needs an API call for issue_comment events, since that
-    # payload has no head.repo info) happens inside the script step below.
+    # Automatic pull_request review is limited to normal PRs. The separate
+    # trusted issue_comment command path remains explicit and independently
+    # authenticated, including for excluded PR classifications.
     if: >-
-      github.event_name == 'pull_request' ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && github.event.comment.user.type != 'Bot')
+      (
+        github.event_name == 'pull_request' &&
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      ) ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request != null &&
+        github.event.comment.user.type != 'Bot'
+      )
     runs-on: ubuntu-latest
     permissions:
       pull-requests: read
@@ -28,7 +37,7 @@ jobs:
     steps:
       - name: Verify internal PR and trusted commenter
         id: check
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const repoFullName = `${context.repo.owner}/${context.repo.repo}`;
@@ -81,7 +90,7 @@ jobs:
       issues: write
     steps:
       - name: Checkout trusted workflow revision
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0

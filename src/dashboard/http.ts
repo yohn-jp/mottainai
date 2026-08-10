@@ -267,6 +267,15 @@ export async function startDashboardServer(options: DashboardServerOptions): Pro
   const address = await new Promise<AddressInfo>((resolve, reject) => {
     const onError = (error: Error): void => {
       server.off("listening", onListening);
+      if ((error as NodeJS.ErrnoException).code === "EADDRINUSE") {
+        reject(
+          new Error(
+            `dashboard port ${port} is already in use (another dashboard may already be running)\n` +
+              `stop it first, or retry with: mottainai dashboard --port <port>`,
+          ),
+        );
+        return;
+      }
       reject(error);
     };
     const onListening = (): void => {

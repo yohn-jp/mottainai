@@ -86,6 +86,14 @@ export function resolveBurstBudgetPolicy(config?: BurstBudgetPolicyConfig): Burs
 /** #71 の envelope 最小コスト見積り。operation/status/summary/result_id/truncated/omissions の下限。 */
 export const MIN_ENVELOPE_TOKENS = 64;
 
+// A failure keeps a slightly larger bounded envelope so classification, first
+// cause, and compact TAP counts survive burst reduction without expansion.
+const BLOCKING_RESPONSE_BUDGET = {
+  softTokens: 256,
+  hardTokens: 512,
+  hardBytes: 2_048,
+} as const;
+
 export interface BurstReservation {
   readonly callId: number;
 }
@@ -308,13 +316,14 @@ export class BurstBudgetController {
  * `minimalResult` 経路がそのまま働く — burst 用の圧縮ロジックを別途複製しない。
  */
 export function applyBurstReduction(result: ProjectedResult): ProjectedResult {
+  const budget = isBlockingProjection(result) ? BLOCKING_RESPONSE_BUDGET : MIN_RESPONSE_BUDGET;
   return applyResponseBudget(
     addOmission(result, {
       field: "optional_result_data",
       reason: "burst_budget",
       retrievalAvailable: result.resultId.length > 0,
     }),
-    MIN_RESPONSE_BUDGET,
+    budget,
   );
 }
 

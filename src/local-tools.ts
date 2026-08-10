@@ -326,19 +326,21 @@ async function buildExecOutput(
   const raw = [run.stdout, run.stderr].filter(Boolean).join(run.stdout && run.stderr ? "\n" : "");
   const status = run.exitCode === 0 && !run.timedOut && !run.outputLimit ? "success" : "failed";
   const failure = status === "failed" ? await diagnoseExecFailure(run, raw, cwd, workspaceRoot) : undefined;
+  const failureClassification = failure?.classification ?? "command";
+  const firstCause = failure?.firstCause ?? (firstLine(run.stderr || raw) || "command failed");
   // 競合markerはパッチ根拠。通常出力の圧縮対象にしない。
-  const preserveRaw = preserveRawArg || failure?.classification === "git_conflict";
+  const preserveRaw = preserveRawArg || failureClassification === "git_conflict";
   const compressed = preserveRaw ? raw : compactToBudget(compressText(raw, { cli: { command } }), targetTokens, Buffer.byteLength(raw));
   const summary = status === "success"
     ? `OK exit=0 duration=${durationMs}ms${run.outputLimit ? " output_limit" : ""}`
-    : `FAIL ${failure?.classification ?? "command"}: ${failure?.firstCause ?? "command failed"} exit=${run.exitCode ?? "signal"} duration=${durationMs}ms${run.timedOut ? " timeout" : ""}${run.outputLimit ? " output_limit" : ""}`;
-  const diagnostics = status === "failed" ? [{ severity: "error", message: failure?.firstCause ?? "command failed" }] : [];
+    : `FAIL ${failureClassification}: ${firstCause} exit=${run.exitCode ?? "signal"} duration=${durationMs}ms${run.timedOut ? " timeout" : ""}${run.outputLimit ? " output_limit" : ""}`;
+  const diagnostics = status === "failed" ? [{ severity: "error", message: firstCause }] : [];
   const resultId = store.putArtifact({ text: raw, stdout: run.stdout, stderr: run.stderr, metadata: { operation: "exec", command, cwd, summary, diagnostics } });
   const truncated = run.outputLimit || compressed !== raw;
   const testResults = tapTestResults(raw, resultId, truncated);
   return output("exec", status, summary, resultId, {
-    facts: failure?.facts ?? [], failure_classification: failure?.classification,
-    next_command: status === "failed" ? nextCommand(resultId, failure) : undefined,
+    facts: failure?.facts ?? [], failure_classification: status === "failed" ? failureClassification : undefined,
+    next_command: status === "failed" ? nextCommand(resultId, failure ?? { classification: "command", firstCause, facts: [] }) : undefined,
     diagnostics, metrics: { duration_ms: durationMs, stdout_bytes: Buffer.byteLength(run.stdout), stderr_bytes: Buffer.byteLength(run.stderr), returned_bytes: Buffer.byteLength(compressed), target_tokens: targetTokens },
     exit_code: run.exitCode, signal: run.signal, timed_out: run.timedOut, output_limited: run.outputLimit, output: compressed,
     truncated,
@@ -420,7 +422,7 @@ async function diagnoseExecFailure(run: RunResult, raw: string, cwd: string, wor
   const typeScript = raw.split("\n").find((line) => /\berror TS\d+:/.test(line));
   if (typeScript) return { classification: "typescript", firstCause: typeScript, facts: [], query: "error TS" };
   if (run.spawnError) return { classification: "spawn", firstCause: run.spawnError, facts: [], query: run.spawnError };
-  return { classification: "command", firstCause: firstLine(run.stderr || raw) || "command failed", facts: [], query: undefined };
+  return { classification: "command", firstCause: firstFailureCause(run.stderr || raw), facts: [], query: undefined };
 }
 
 function gitConflictFacts(raw: string): Array<Record<string, unknown>> {
@@ -751,6 +753,8 @@ function resultGetTool(args: Args, store: ArtifactStore, telemetry?: TelemetrySi
   const retrieved = store.retrieve(id, { query: stringArg(args, "query"), contextLines: numberArg(args, "contextLines"), startLine: numberArg(args, "startLine"), maxLines: numberArg(args, "maxLines"), stream });
   if (!retrieved) throw new Error(`Original result unavailable or expired: ${id}`);
   telemetry?.recordRetrieval();
+  const expansionBytes = Buffer.byteLength(JSON.stringify(retrieved), "utf8");
+  telemetry?.recordExpansion({ bytes: expansionBytes, estimatedTokens: Math.ceil(expansionBytes / 4) });
   const summary = `result=${id} ${retrieved.returnedStartLine}-${retrieved.returnedEndLine}/${retrieved.totalLines}`;
   const identity = retrieved.identity === undefined
     ? undefined
@@ -805,7 +809,14 @@ function telemetrySummaryTool(telemetry?: TelemetrySink): CallToolResult {
     by_capability: snapshot.by_capability,
     projection: snapshot.projection,
     read_governor: snapshot.read_governor,
+    hooks: snapshot.hooks,
+    await: snapshot.await,
     burst: snapshot.burst,
+    dedupe: snapshot.dedupe,
+    expansion: snapshot.expansion,
+    // `projection` is a reserved envelope metadata field; expose the
+    // aggregate counter under an unambiguous non-reserved name as well.
+    projection_totals: snapshot.projection,
     compression_ratio: ratio,
     retrieval_rate: rate,
     generated_at: snapshot.generated_at,
@@ -813,9 +824,21 @@ function telemetrySummaryTool(telemetry?: TelemetrySink): CallToolResult {
       calls: snapshot.totals.calls, errors: snapshot.totals.errors, retrievals: snapshot.totals.retrievals,
       returned_bytes: snapshot.projection.returned_bytes,
       omitted_bytes: snapshot.projection.omitted_bytes,
+      raw_bytes: snapshot.projection.raw_bytes,
+      stored_bytes: snapshot.projection.stored_bytes,
+      omitted_tokens: snapshot.projection.omitted_tokens,
       projected_tokens: snapshot.projection.projected_tokens,
+      expansion_count: snapshot.expansion.count,
+      expansion_rate: snapshot.totals.calls > 0 ? snapshot.expansion.count / snapshot.totals.calls : undefined,
+      expansion_bytes: snapshot.expansion.bytes,
+      expansion_tokens: snapshot.expansion.estimated_tokens,
+      await_poll_count: snapshot.await.poll_count,
+      await_avoided_responses: snapshot.await.avoided_responses,
       burst_responses_reduced: snapshot.burst.responses_reduced,
       burst_pressure_max: snapshot.burst.pressure_max,
+      dedupe_hits: snapshot.dedupe?.hits ?? 0,
+      dedupe_misses: snapshot.dedupe?.misses ?? 0,
+      dedupe_bytes_avoided: snapshot.dedupe?.bytes_avoided ?? 0,
     },
   });
 }
@@ -1023,6 +1046,15 @@ export function parseRgJson(raw: string, root: string, contextLines = 0): Array<
 }
 
 function firstLine(value: string): string { return value.split("\n").find(Boolean) ?? "command failed"; }
+
+/** Skip TAP framing so the first actionable failure line, rather than `TAP version`, is surfaced. */
+function firstFailureCause(value: string): string {
+  const lines = value.split("\n").map((line) => line.trim()).filter(Boolean);
+  const diagnostic = lines.find((line) => /^(?:error|message):\s*/iu.test(line));
+  if (diagnostic !== undefined) return diagnostic.replace(/^(?:error|message):\s*/iu, "");
+  const meaningful = lines.find((line) => !/^TAP version\b/iu.test(line) && !/^# /u.test(line) && !/^1\.\.\d+/u.test(line));
+  return meaningful ?? firstLine(value);
+}
 
 export type { RunResult };
 export { runProgram };

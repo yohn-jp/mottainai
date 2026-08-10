@@ -44,7 +44,8 @@ test("an enabled sink aggregates calls, errors, bytes and retrievals by provider
   sink.recordToolCall({ provider: "fff", capability: "text_matches", originalBytes: 1000, compressedBytes: 200, isError: false });
   sink.recordToolCall({ provider: "fff", capability: "text_matches", originalBytes: 500, compressedBytes: 500, isError: true });
   sink.recordToolCall({ provider: "codegraph", capability: "definitions", originalBytes: 300, compressedBytes: 300, isError: false });
-  sink.recordProjection({ rawBytes: 2_000, storedBytes: 1_800, returnedBytes: 600, omittedBytes: 1_400, projectedTokens: 150 });
+  sink.recordProjection({ rawBytes: 2_000, storedBytes: 1_800, returnedBytes: 600, omittedBytes: 1_400, projectedTokens: 150, omittedTokens: 350 });
+  sink.recordExpansion({ bytes: 2_400, estimatedTokens: 600 });
   sink.recordReadGovernor({
     action: "deny",
     requestedMode: "raw",
@@ -61,6 +62,8 @@ test("an enabled sink aggregates calls, errors, bytes and retrievals by provider
     policyRule: "AUTO_BOUNDED_REPRESENTATION",
     reasonCategory: "semantic_projection",
   });
+  sink.recordHookDecision({ provider: "workflow", state: "authoritative", decision: "deny", reason: "workflow_protected_branch" });
+  sink.recordHookDecision({ provider: "semantic", state: "unavailable", decision: "allow", reason: "semantic_authority_unavailable" });
   sink.recordRetrieval();
 
   const snapshot = sink.snapshot();
@@ -74,13 +77,21 @@ test("an enabled sink aggregates calls, errors, bytes and retrievals by provider
   assert.equal(snapshot.by_capability.text_matches.calls, 2);
   assert.equal(snapshot.by_capability.definitions.calls, 1);
   assert.deepEqual(snapshot.projection, {
-    raw_bytes: 2_000, stored_bytes: 1_800, returned_bytes: 600, omitted_bytes: 1_400, projected_tokens: 150,
+    raw_bytes: 2_000, stored_bytes: 1_800, returned_bytes: 600, omitted_bytes: 1_400, projected_tokens: 150, omitted_tokens: 350,
   });
+  assert.deepEqual(snapshot.expansion, { count: 1, bytes: 2_400, estimated_tokens: 600 });
   assert.deepEqual(snapshot.read_governor, {
     allow: 1, observe: 0, warn: 0, deny: 1, raw_lines_returned: 20, raw_bytes_returned: 200,
     by_mode: { raw: 1, auto: 1 },
     by_rule: { WHOLE_FILE_RAW_LINE_LIMIT: 1, AUTO_BOUNDED_REPRESENTATION: 1 },
     by_reason_category: { line_limit: 1, semantic_projection: 1 },
+  });
+  assert.deepEqual(snapshot.hooks, {
+    evaluations: 2,
+    by_provider: { workflow: 1, semantic: 1 },
+    by_state: { authoritative: 1, unavailable: 1 },
+    by_decision: { deny: 1, allow: 1 },
+    by_reason: { workflow_protected_branch: 1, semantic_authority_unavailable: 1 },
   });
 
   assert.equal(compressionRatio(snapshot.totals), 1000 / 1800);

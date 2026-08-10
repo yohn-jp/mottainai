@@ -194,6 +194,12 @@ function compactTestResults(value: Record<string, unknown>): Record<string, unkn
   return result;
 }
 
+function compactActionableFields(fields: ProjectedField[]): ProjectedField[] {
+  return fields
+    .filter((field) => field.priority === "actionable")
+    .map((field) => ({ ...field, value: compactValue(field.value, 256) }));
+}
+
 function compactExcerptFields(result: ProjectedResult): ProjectedResult {
   let changed = false;
   const fields = result.fields.map((field) => {
@@ -352,7 +358,10 @@ function reduceTo(result: ProjectedResult, targetBytes: number, dropProtected: b
   current = dropTestResults(current);
   if (fits(current, targetBytes)) return current;
 
-  for (const priority of ["test", "actionable"] as const) {
+  // Actionable failure fields are protected. If they cannot fit after test
+  // details are removed, minimalResult performs the final bounded compaction
+  // while retaining the highest-value failure identity fields.
+  for (const priority of ["test"] as const) {
     current = dropFieldsByPriority(current, priority);
     if (fits(current, targetBytes)) return current;
   }
@@ -380,14 +389,64 @@ function compactOmissions(result: ProjectedResult): ProjectedResult {
   return { ...result, omissions };
 }
 
+/**
+ * resultId is the artifact store lookup key: it must never be shortened or
+ * otherwise mutated in a candidate that still claims to be retrievable. When
+ * no candidate keeping the full identifier fits the hard byte budget, the
+ * only safe fallback is to drop the identifier entirely and mark the result
+ * explicitly non-retrievable, rather than return a truncated key that looks
+ * valid but cannot resolve to the stored artifact.
+ */
+function nonRetrievableFallback(result: ProjectedResult, targetBytes: number): ProjectedResult {
+  // This omission is the explicit, load-bearing signal that the result is
+  // not retrievable — it must survive every candidate below, never trimmed
+  // away alongside the ordinary lower-priority omissions.
+  const droppedIdentifier = {
+    field: "result_id",
+    reason: "retrieval identifier exceeds hard response budget; result is not retrievable",
+    retrievalAvailable: false,
+  };
+  const otherOmissions = result.omissions
+    .filter((omission) => omission.field !== "result_id")
+    .map((omission) => ({ ...omission, retrievalAvailable: false }));
+  const stripped: ProjectedResult = {
+    ...result,
+    resultId: "",
+    truncated: true,
+    omissions: [droppedIdentifier, ...otherOmissions],
+  };
+  const omissionSets = [
+    stripped.omissions,
+    [droppedIdentifier, ...otherOmissions.slice(0, 1)],
+    [droppedIdentifier],
+  ];
+  for (const omissions of omissionSets) {
+    for (const size of [512, 256, 128, 64, 32, 16, 8, 0]) {
+      const candidate: ProjectedResult = {
+        ...stripped,
+        omissions,
+        operation: compactString(stripped.operation, Math.max(8, size)),
+        status: compactString(stripped.status, Math.max(8, Math.min(size, 32))),
+        summary: compactString(stripped.summary, size),
+      };
+      if (fits(candidate, targetBytes)) return candidate;
+    }
+  }
+  return { ...stripped, omissions: [droppedIdentifier] };
+}
+
 function minimalResult(result: ProjectedResult, targetBytes: number): ProjectedResult {
+  const actionableFields = compactActionableFields(result.fields);
+  const testResults = result.testResults === undefined ? undefined : compactTestResults(result.testResults);
   const base = compactOmissions({
     ...result,
     facts: [],
     diagnostics: compactDiagnostics(result.diagnostics).slice(0, 2),
     metrics: {},
-    testResults: undefined,
-    fields: [],
+    testResults,
+    // Failure classification/exit state are actionable and must survive the
+    // minimal burst envelope; verbose fields remain omitted.
+    fields: actionableFields,
     content: [],
     meta: undefined,
     truncated: true,
@@ -397,26 +456,35 @@ function minimalResult(result: ProjectedResult, targetBytes: number): ProjectedR
     reason: "hard response budget requires minimal envelope",
     retrievalAvailable: base.resultId.length > 0,
   });
-  const omissionSets = [
-    withBudgetOmission.omissions,
-    withBudgetOmission.omissions.slice(0, 2),
-    withBudgetOmission.omissions.slice(0, 1),
-    [],
+  const variants: ProjectedResult[] = [
+    withBudgetOmission,
+    { ...withBudgetOmission, testResults: undefined },
+    { ...withBudgetOmission, testResults: undefined, fields: actionableFields.slice(0, 4) },
+    { ...withBudgetOmission, testResults: undefined, fields: actionableFields.slice(0, 2) },
   ];
-  for (const omissions of omissionSets) {
-    for (const size of [512, 256, 128, 64, 32, 16, 8, 0]) {
-      const candidate = {
-        ...withBudgetOmission,
-        omissions,
-        operation: compactString(withBudgetOmission.operation, Math.max(8, size)),
-        status: compactString(withBudgetOmission.status, Math.max(8, Math.min(size, 32))),
-        summary: compactString(withBudgetOmission.summary, size),
-        resultId: compactString(withBudgetOmission.resultId, Math.max(8, size)),
-      };
-      if (fits(candidate, targetBytes)) return candidate;
+  for (const variant of variants) {
+    const omissionSets = [
+      variant.omissions,
+      variant.omissions.slice(0, 2),
+      variant.omissions.slice(0, 1),
+      [],
+    ];
+    for (const omissions of omissionSets) {
+      for (const size of [512, 256, 128, 64, 32, 16, 8, 0]) {
+        const candidate = {
+          ...variant,
+          omissions,
+          operation: compactString(variant.operation, Math.max(8, size)),
+          status: compactString(variant.status, Math.max(8, Math.min(size, 32))),
+          summary: compactString(variant.summary, size),
+        };
+        // resultId is the artifact retrieval key and is kept intact (or
+        // omitted entirely below) — it is never partially truncated.
+        if (fits(candidate, targetBytes)) return candidate;
+      }
     }
   }
-  return withBudgetOmission;
+  return nonRetrievableFallback(variants[variants.length - 1], targetBytes);
 }
 
 export function applyResponseBudget(input: ProjectedResult, budget: ProjectionBudget): ProjectedResult {

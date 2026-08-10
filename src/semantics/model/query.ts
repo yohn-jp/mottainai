@@ -1,4 +1,6 @@
 import { performance } from "node:perf_hooks";
+import { compareSemanticSnapshots, projectSemanticChangeSet } from "../diff/index.js";
+import type { SemanticDiffOptions } from "../diff/types.js";
 import { compareText } from "../ir/canonical.js";
 import { toVerificationView } from "../verification/projection.js";
 import {
@@ -51,6 +53,9 @@ import type { DerivedFactCacheStatus } from "../cache/types.js";
 /** Source state supplied to the live query adapter after compilation and integrity validation. */
 export interface RepositoryModelSource {
   snapshot?: RepositorySemanticSnapshot;
+  /** Optional base model supplied by the live-model owner for #54 Change Impact. */
+  baseSnapshot?: RepositorySemanticSnapshot;
+  diffOptions?: SemanticDiffOptions;
   diagnostics: readonly SemanticDiagnostic[];
   integrityStatus: IntegrityStatus;
   integrityReason?: string;
@@ -261,10 +266,14 @@ export class LiveRepositoryModelQuery implements RepositorySemanticQuery {
   private readonly ownership: OwnershipIndex = { owned: new Map(), shared: new Map() };
   private readonly modelGapSymbols = new Set<EntityId>();
   private readonly projectId: EntityId | undefined;
+  private readonly baseSnapshot: RepositorySemanticSnapshot | undefined;
+  private readonly diffOptions: SemanticDiffOptions;
   private readonly unavailableProjectId = "project:unavailable";
 
   constructor(source: RepositoryModelSource) {
     this.snapshot = source.snapshot;
+    this.baseSnapshot = source.baseSnapshot;
+    this.diffOptions = source.diffOptions ?? {};
     this.diagnostics = source.diagnostics;
     this.integrityStatus = source.integrityStatus;
     this.integrityReason = source.integrityReason;
@@ -460,8 +469,16 @@ export class LiveRepositoryModelQuery implements RepositorySemanticQuery {
 
   getChangeSet(query: { reviewLevel?: "L0" | "L1" | "L2" | "L3" } = {}): SemanticChangeSetView {
     return this.measure(() => {
-      // #54 owns semantic delta computation. An empty unavailable set is explicit, rather
-      // than a fixture-shaped change result; the optional filter has no data to filter.
+      if (this.snapshot !== undefined && this.baseSnapshot !== undefined) {
+        return clone(
+          projectSemanticChangeSet(
+            compareSemanticSnapshots(this.baseSnapshot, this.snapshot, this.diffOptions),
+            query.reviewLevel,
+          ),
+        );
+      }
+      // A live model without a supplied base is not silently compared to a guessed revision.
+      // The existing Change Impact surface remains available and explicitly unavailable.
       const entries: SemanticChangeSetView["entries"] = [];
       return clone({
         apiVersion: "v1" as const,

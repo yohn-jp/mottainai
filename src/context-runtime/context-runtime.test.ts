@@ -203,6 +203,59 @@ function burstContext(controller: BurstBudgetController): BurstContext {
   return { controller, reservation: controller.reserveEnvelope() };
 }
 
+test("hard budget keeps a long resultId whole when it still fits after trimming other fields", () => {
+  const longResultId = `mx_${"a".repeat(400)}`;
+  const result = applyResponseBudget(
+    projected({
+      result_id: longResultId,
+      status: "failed",
+      failure_classification: "typescript",
+      diagnostics: [{ severity: "error", message: "root cause ".repeat(500) }],
+      metrics: Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`metric_${index}`, "x".repeat(100)])),
+    }),
+    hardBudget,
+  );
+  assert.equal(result.resultId, longResultId, "resultId must survive intact, never partially truncated");
+  assert.ok(projectedBytes(result) <= hardBudget.hardBytes);
+});
+
+test("hard budget drops an oversized resultId entirely instead of returning a truncated retrieval key", () => {
+  const longResultId = `mx_${"a".repeat(2_000)}`;
+  const result = applyResponseBudget(
+    projected({
+      result_id: longResultId,
+      status: "failed",
+      failure_classification: "typescript",
+      diagnostics: [{ severity: "error", message: "root cause ".repeat(500) }],
+      metrics: Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`metric_${index}`, "x".repeat(100)])),
+    }),
+    MIN_RESPONSE_BUDGET,
+  );
+  assert.ok(projectedBytes(result) <= MIN_RESPONSE_BUDGET.hardBytes, "the returned envelope must satisfy the hard byte budget");
+  assert.notEqual(result.resultId, longResultId);
+  assert.equal(result.resultId, "", "an identifier that cannot fit must be dropped, never shortened");
+  assert.ok(
+    result.omissions.every((omission) => omission.retrievalAvailable === false),
+    "no omission may claim retrieval is available once the identifier is dropped",
+  );
+  assert.ok(result.omissions.some((omission) => omission.field === "result_id"));
+});
+
+test("finalizeToolResult: an artifact-store resultId too long for the hard budget is never truncated into a broken key", () => {
+  const store = new InMemoryArtifactStore({ createId: () => "x".repeat(2_000) });
+  const config = resolveGatewayConfig({
+    workspaceRoot: process.cwd(),
+    responseBudget: MIN_RESPONSE_BUDGET,
+  });
+  const finalized = finalizeToolResult(successResult("hello world"), config, store);
+  assert.ok(Buffer.byteLength(JSON.stringify(finalized.result), "utf8") <= MIN_RESPONSE_BUDGET.hardBytes);
+  const structured = finalized.result.structuredContent as Record<string, unknown>;
+  const resultId = String(structured.result_id ?? "");
+  if (resultId.length > 0) {
+    assert.ok(store.retrieve(resultId), "any returned resultId must resolve to the stored artifact");
+  }
+});
+
 test("finalizeToolResult: burst budget never discards tool execution or the retrievable full result", () => {
   const store = new InMemoryArtifactStore({ createId: () => "burst" });
   const config = resolveGatewayConfig({ workspaceRoot: process.cwd() });

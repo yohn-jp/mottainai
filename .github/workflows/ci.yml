@@ -17,10 +17,19 @@ permissions:
 jobs:
   typecheck:
     name: typecheck (Node 22)
+    # Keep the workflow subscribed so required checks resolve as skipped/success.
+    # Only normal pull requests consume the normal PR CI jobs.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      )
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -30,7 +39,7 @@ jobs:
           version: 11.18.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
           cache: pnpm
@@ -43,10 +52,17 @@ jobs:
 
   fast-tests:
     name: fast unit / contract (Node 22)
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      )
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -56,7 +72,7 @@ jobs:
           version: 11.18.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
           cache: pnpm
@@ -69,10 +85,17 @@ jobs:
 
   standards:
     name: format / lint / architecture (Node 22)
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      )
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -82,7 +105,7 @@ jobs:
           version: 11.18.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
           cache: pnpm
@@ -104,10 +127,17 @@ jobs:
 
   integration:
     name: integration / process (Node 22)
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      )
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -117,7 +147,7 @@ jobs:
           version: 11.18.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
           cache: pnpm
@@ -138,11 +168,18 @@ jobs:
 
   artifact-validation:
     name: build / built dist e2e / package (Node 22)
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -152,7 +189,7 @@ jobs:
           version: 11.18.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
           cache: pnpm
@@ -194,10 +231,17 @@ jobs:
 
   node-compatibility-smoke:
     name: Node compatibility smoke (Ubuntu, Node 24)
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      )
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -207,7 +251,7 @@ jobs:
           version: 11.18.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
           cache: pnpm
@@ -222,6 +266,13 @@ jobs:
 
   coverage-shard:
     name: coverage shard ${{ matrix.shard }}/7 (Node 22)
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      )
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -229,7 +280,7 @@ jobs:
         shard: [1, 2, 3, 4, 5, 6, 7]
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -239,7 +290,7 @@ jobs:
           version: 11.18.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
           cache: pnpm
@@ -263,7 +314,7 @@ jobs:
 
       - name: Upload coverage shard
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-shard-${{ matrix.shard }}
           path: coverage/shard-${{ matrix.shard }}
@@ -277,22 +328,31 @@ jobs:
     # is evaluated only after every complete shard has passed and its LCOV
     # counters have been merged.
     name: coverage (Node 22)
-    if: always()
+    if: >-
+      always() &&
+      (
+        github.event_name != 'pull_request' ||
+        (
+          github.actor != 'dependabot[bot]' &&
+          github.event.pull_request.user.login != 'dependabot[bot]' &&
+          !startsWith(github.event.pull_request.head.ref, 'release/')
+        )
+      )
     needs: coverage-shard
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
 
       - name: Download coverage shards
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: coverage-shard-*
           path: coverage/shards
@@ -311,7 +371,7 @@ jobs:
           --output coverage/merged
 
       - name: Upload coverage artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-node-22
           path: coverage/merged

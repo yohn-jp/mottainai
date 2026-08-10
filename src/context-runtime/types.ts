@@ -69,4 +69,5 @@ export interface ProjectionStats {
   returnedBytes: number;
   omittedBytes: number;
   estimatedProjectedTokens: number;
+  estimatedOmittedTokens: number;
 }

@@ -19,6 +19,15 @@ export interface TelemetryCounts {
   compressed_bytes: number;
 }
 
+/** Hook telemetry stores identifiers and counters only; event payloads are never retained. */
+export interface HookCounts {
+  evaluations: number;
+  by_provider: Record<string, number>;
+  by_state: Record<string, number>;
+  by_decision: Record<string, number>;
+  by_reason: Record<string, number>;
+}
+
 export interface TelemetrySnapshot {
   enabled: boolean;
   generated_at: string;
@@ -26,7 +35,9 @@ export interface TelemetrySnapshot {
   by_provider: Record<string, TelemetryCounts>;
   by_capability: Record<string, TelemetryCounts>;
   projection: ProjectionCounts;
+  expansion: ExpansionCounts;
   read_governor: ReadGovernorCounts;
+  hooks: HookCounts;
   await: AwaitCounts;
   burst: BurstCounts;
   /** このパッケージが生成する snapshot は常にゼロ初期化済みで返す。外部実装の後方互換性のため optional。 */
@@ -84,6 +95,19 @@ export interface ProjectionCounts {
   returned_bytes: number;
   omitted_bytes: number;
   projected_tokens: number;
+  omitted_tokens: number;
+}
+
+/** Explicit result expansion events, separate from retrieval/search call count. */
+export interface ExpansionCounts {
+  count: number;
+  bytes: number;
+  estimated_tokens: number;
+}
+
+export interface RecordExpansionInput {
+  bytes: number;
+  estimatedTokens: number;
 }
 
 export interface ReadGovernorCounts {
@@ -107,12 +131,20 @@ export interface RecordReadGovernorInput {
   reasonCategory: string;
 }
 
+export interface RecordHookDecisionInput {
+  provider: string;
+  state: string;
+  decision: string;
+  reason: string;
+}
+
 export interface RecordProjectionInput {
   rawBytes: number;
   storedBytes: number;
   returnedBytes: number;
   omittedBytes: number;
   projectedTokens: number;
+  omittedTokens: number;
 }
 
 /** #73: connection burst budget の集計値。content 本体は一切持たない。 */
@@ -151,7 +183,9 @@ export interface TelemetrySink {
   readonly filePath?: string;
   recordToolCall(input: RecordToolCallInput): void;
   recordProjection(input: RecordProjectionInput): void;
+  recordExpansion(input: RecordExpansionInput): void;
   recordReadGovernor(input: RecordReadGovernorInput): void;
+  recordHookDecision(input: RecordHookDecisionInput): void;
   recordRetrieval(): void;
   recordAwait(input: RecordAwaitInput): void;
   recordBurstPressure(input: RecordBurstPressureInput): void;
@@ -167,7 +201,9 @@ interface TelemetryState {
   by_provider: Record<string, TelemetryCounts>;
   by_capability: Record<string, TelemetryCounts>;
   projection: ProjectionCounts;
+  expansion: ExpansionCounts;
   read_governor: ReadGovernorCounts;
+  hooks: HookCounts;
   await: AwaitCounts;
   burst: BurstCounts;
   dedupe: DedupeCounts;
@@ -183,7 +219,9 @@ function emptyState(): TelemetryState {
     by_provider: {},
     by_capability: {},
     projection: emptyProjection(),
+    expansion: emptyExpansion(),
     read_governor: emptyReadGovernor(),
+    hooks: emptyHooks(),
     await: emptyAwait(),
     burst: emptyBurst(),
     dedupe: emptyDedupe(),
@@ -191,7 +229,11 @@ function emptyState(): TelemetryState {
 }
 
 function emptyProjection(): ProjectionCounts {
-  return { raw_bytes: 0, stored_bytes: 0, returned_bytes: 0, omitted_bytes: 0, projected_tokens: 0 };
+  return { raw_bytes: 0, stored_bytes: 0, returned_bytes: 0, omitted_bytes: 0, projected_tokens: 0, omitted_tokens: 0 };
+}
+
+function emptyExpansion(): ExpansionCounts {
+  return { count: 0, bytes: 0, estimated_tokens: 0 };
 }
 
 function emptyReadGovernor(): ReadGovernorCounts {
@@ -206,6 +248,10 @@ function emptyReadGovernor(): ReadGovernorCounts {
     by_rule: {},
     by_reason_category: {},
   };
+}
+
+function emptyHooks(): HookCounts {
+  return { evaluations: 0, by_provider: {}, by_state: {}, by_decision: {}, by_reason: {} };
 }
 
 function emptyAwait(): AwaitCounts {
@@ -247,7 +293,16 @@ function snapshotState(
   state: TelemetryState,
 ): Pick<
   TelemetrySnapshot,
-  "totals" | "by_provider" | "by_capability" | "projection" | "read_governor" | "await" | "burst" | "dedupe"
+  | "totals"
+  | "by_provider"
+  | "by_capability"
+  | "projection"
+  | "expansion"
+  | "read_governor"
+  | "hooks"
+  | "await"
+  | "burst"
+  | "dedupe"
 > {
   return {
     totals: { ...state.totals },
@@ -258,11 +313,19 @@ function snapshotState(
       Object.entries(state.by_capability).map(([key, counts]) => [key, cloneCounts(counts)]),
     ),
     projection: { ...state.projection },
+    expansion: { ...state.expansion },
     read_governor: {
       ...state.read_governor,
       by_mode: { ...state.read_governor.by_mode },
       by_rule: { ...state.read_governor.by_rule },
       by_reason_category: { ...state.read_governor.by_reason_category },
+    },
+    hooks: {
+      evaluations: state.hooks.evaluations,
+      by_provider: { ...state.hooks.by_provider },
+      by_state: { ...state.hooks.by_state },
+      by_decision: { ...state.hooks.by_decision },
+      by_reason: { ...state.hooks.by_reason },
     },
     await: { ...state.await },
     burst: { ...state.burst },
@@ -352,6 +415,12 @@ function loadState(filePath: string, boundaries: BoundaryOperations): TelemetryS
       typeof parsed.burst === "object" && parsed.burst !== null ? (parsed.burst as Record<string, unknown>) : {};
     const dedupe =
       typeof parsed.dedupe === "object" && parsed.dedupe !== null ? (parsed.dedupe as Record<string, unknown>) : {};
+    const hooks =
+      typeof parsed.hooks === "object" && parsed.hooks !== null ? (parsed.hooks as Record<string, unknown>) : {};
+    const expansion =
+      typeof parsed.expansion === "object" && parsed.expansion !== null
+        ? (parsed.expansion as Record<string, unknown>)
+        : {};
     return {
       totals: totals as TelemetryState["totals"],
       by_provider: byProvider as Record<string, TelemetryCounts>,
@@ -362,8 +431,21 @@ function loadState(filePath: string, boundaries: BoundaryOperations): TelemetryS
         returned_bytes: typeof projection.returned_bytes === "number" ? projection.returned_bytes : 0,
         omitted_bytes: typeof projection.omitted_bytes === "number" ? projection.omitted_bytes : 0,
         projected_tokens: typeof projection.projected_tokens === "number" ? projection.projected_tokens : 0,
+        omitted_tokens: typeof projection.omitted_tokens === "number" ? projection.omitted_tokens : 0,
+      },
+      expansion: {
+        count: typeof expansion.count === "number" ? expansion.count : 0,
+        bytes: typeof expansion.bytes === "number" ? expansion.bytes : 0,
+        estimated_tokens: typeof expansion.estimated_tokens === "number" ? expansion.estimated_tokens : 0,
       },
       read_governor: readGovernorState(parsed.read_governor),
+      hooks: {
+        evaluations: typeof hooks.evaluations === "number" && hooks.evaluations >= 0 ? hooks.evaluations : 0,
+        by_provider: numberRecord(hooks.by_provider),
+        by_state: numberRecord(hooks.by_state),
+        by_decision: numberRecord(hooks.by_decision),
+        by_reason: numberRecord(hooks.by_reason),
+      },
       await: {
         awaits: typeof awaitRaw.awaits === "number" ? awaitRaw.awaits : 0,
         poll_count: typeof awaitRaw.poll_count === "number" ? awaitRaw.poll_count : 0,
@@ -414,7 +496,9 @@ export function disabledTelemetrySnapshot(): TelemetrySnapshot {
     by_provider: {},
     by_capability: {},
     projection: emptyProjection(),
+    expansion: emptyExpansion(),
     read_governor: emptyReadGovernor(),
+    hooks: emptyHooks(),
     await: emptyAwait(),
     burst: emptyBurst(),
     dedupe: emptyDedupe(),
@@ -429,7 +513,13 @@ const NOOP_SINK: TelemetrySink = {
   recordProjection() {
     /* telemetry disabled */
   },
+  recordExpansion() {
+    /* telemetry disabled */
+  },
   recordReadGovernor() {
+    /* telemetry disabled */
+  },
+  recordHookDecision() {
     /* telemetry disabled */
   },
   recordRetrieval() {
@@ -548,6 +638,13 @@ export function createTelemetrySink(
       state.projection.returned_bytes += input.returnedBytes;
       state.projection.omitted_bytes += input.omittedBytes;
       state.projection.projected_tokens += input.projectedTokens;
+      state.projection.omitted_tokens += input.omittedTokens;
+      persist();
+    },
+    recordExpansion(input) {
+      state.expansion.count += 1;
+      state.expansion.bytes += Math.max(0, input.bytes);
+      state.expansion.estimated_tokens += Math.max(0, input.estimatedTokens);
       persist();
     },
     recordReadGovernor(input) {
@@ -558,6 +655,14 @@ export function createTelemetrySink(
       state.read_governor.by_rule[input.policyRule] = (state.read_governor.by_rule[input.policyRule] ?? 0) + 1;
       state.read_governor.by_reason_category[input.reasonCategory] =
         (state.read_governor.by_reason_category[input.reasonCategory] ?? 0) + 1;
+      persist();
+    },
+    recordHookDecision(input) {
+      state.hooks.evaluations += 1;
+      state.hooks.by_provider[input.provider] = (state.hooks.by_provider[input.provider] ?? 0) + 1;
+      state.hooks.by_state[input.state] = (state.hooks.by_state[input.state] ?? 0) + 1;
+      state.hooks.by_decision[input.decision] = (state.hooks.by_decision[input.decision] ?? 0) + 1;
+      state.hooks.by_reason[input.reason] = (state.hooks.by_reason[input.reason] ?? 0) + 1;
       persist();
     },
     recordRetrieval() {

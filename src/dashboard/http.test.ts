@@ -136,3 +136,25 @@ test("dashboard HTTP adapter rejects unknown enum query values", async () => {
   const body = (await response.json()) as ErrorBody;
   assert.equal(body.error.code, "invalid_query");
 });
+
+test("dashboard HTTP adapter reports a clear error when the port is already in use", async () => {
+  const handle = await startDashboardServer({
+    port: 0,
+    viewerHtml: "<!doctype html><title>fixture viewer</title>",
+    query: createFixtureQuery(),
+  });
+  activeServers.push(handle);
+  await assert.rejects(
+    startDashboardServer({
+      port: handle.port,
+      viewerHtml: "<!doctype html><title>fixture viewer</title>",
+      query: createFixtureQuery(),
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /already in use/);
+      assert.match(error.message, /--port/);
+      return true;
+    },
+  );
+});
