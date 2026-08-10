@@ -1,6 +1,6 @@
 # Context Runtime dogfood report
 
-測定日: 2026-08-09T15:05:50.017Z
+測定日: 2026-08-10T05:25:16.560Z
 
 ## 判定方法
 
@@ -63,7 +63,7 @@ Beforeは、2026-08-08に観測したpathologyを再現する「全raw/full-inli
   },
   "burst": {
     "pressure_samples": 15,
-    "pressure_total": 20.439208984375,
+    "pressure_total": 21.353271484375,
     "pressure_max": 3.65625,
     "projected_tokens": 18864,
     "projected_bytes": 75430,
@@ -75,7 +75,7 @@ Beforeは、2026-08-08に観測したpathologyを再現する「全raw/full-inli
   "await": {
     "awaits": 2,
     "poll_count": 3,
-    "elapsed_ms": 245,
+    "elapsed_ms": 228,
     "state_changes": 2,
     "avoided_responses": 2,
     "terminal": 2,
@@ -102,8 +102,8 @@ Beforeは、2026-08-08に観測したpathologyを再現する「全raw/full-inli
 
 - 大きなraw source/resultと成功burstは、projection/read governor/burstでagent-visible payloadを縮小し、full evidenceはresult_idから取得可能。
 - source readの反復はdedupe hitでunchanged metadataへ縮小。
-- status確認の外向き反復はselected gh awaitで内部pollへ移し、terminal/change時の1応答へ集約。
-- したがって、観測されたall-raw、30–40KB burst、反復read、41 waitsと約5.15M wait直後inputという方向に対し、bytes/calls/expansionの方向は逆。43.15M cumulative model-input numberの再現は行わない。
+- status確認の外向き反復はselected gh awaitで内部pollへ移し、terminal/change時の1応答へ集約。bytesはpoll応答が単一のawait応答へ置き換わるため増加し得る（観測: 284→478 bytes）が、外向きcall数は4→1へ縮小する。
+- したがって、観測されたall-raw、30–40KB burst、反復readという方向に対し、bytes/expansionの方向は逆。status pollの反復という方向に対しては、outward call数の方向が逆（bytesはscenario依存で増加する場合がある）。41 waitsと約5.15M wait直後input、43.15M cumulative model-input numberの再現は行わない。
 
 ## Counter-cost gate
 

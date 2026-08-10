@@ -161,6 +161,26 @@ function omissionReasons(result) {
   return (structured(result).projection?.omissions ?? []).map((entry) => entry.reason);
 }
 
+/**
+ * Telemetry persistence is debounced (see PERSIST_DEBOUNCE_MS in
+ * src/telemetry.ts) and writes asynchronously, so the file is polled with a
+ * bounded retry instead of read exactly once immediately after the request
+ * that should have triggered the final write.
+ */
+async function readPersistedTelemetry(telemetryPath) {
+  const deadline = Date.now() + BLACKBOX_TIMEOUTS.request;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      return fs.readFileSync(telemetryPath, "utf8");
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, BLACKBOX_TIMEOUTS.statePoll));
+    }
+  }
+  throw new Error(`telemetry summary file was never persisted at ${telemetryPath}: ${lastError}`);
+}
+
 function scenario(name, beforeBytes, afterValues, beforeCalls, afterCalls, expansions, notes) {
   const afterBytes = afterValues.reduce((total, value) => total + bytes(value), 0);
   return {
@@ -212,8 +232,8 @@ ${JSON.stringify(telemetry, null, 2)}
 
 - 大きなraw source/resultと成功burstは、projection/read governor/burstでagent-visible payloadを縮小し、full evidenceはresult_idから取得可能。
 - source readの反復はdedupe hitでunchanged metadataへ縮小。
-- status確認の外向き反復はselected gh awaitで内部pollへ移し、terminal/change時の1応答へ集約。
-- したがって、観測されたall-raw、30–40KB burst、反復read、41 waitsと約5.15M wait直後inputという方向に対し、bytes/calls/expansionの方向は逆。43.15M cumulative model-input numberの再現は行わない。
+- status確認の外向き反復はselected gh awaitで内部pollへ移し、terminal/change時の1応答へ集約。bytesはpoll応答が単一のawait応答へ置き換わるため増加し得る（観測: 284→478 bytes）が、外向きcall数は4→1へ縮小する。
+- したがって、観測されたall-raw、30–40KB burst、反復readという方向に対し、bytes/expansionの方向は逆。status pollの反復という方向に対しては、outward call数の方向が逆（bytesはscenario依存で増加する場合がある）。41 waitsと約5.15M wait直後input、43.15M cumulative model-input numberの再現は行わない。
 
 ## Counter-cost gate
 
@@ -421,10 +441,37 @@ test(
       assert.ok(telemetry.dedupe.hits >= 1);
       assert.ok(telemetry.dedupe.misses >= 1);
       const privateOutput = `${DOGFOOD_MARKER} ${successOutput} ${failureOutput}`;
-      assert.doesNotMatch(JSON.stringify(telemetryResult), new RegExp(DOGFOOD_MARKER));
-      assert.doesNotMatch(JSON.stringify(telemetryResult), /deterministic build fixture/);
-      assert.doesNotMatch(JSON.stringify(telemetryResult), /diagnostic-1:/);
-      assert.doesNotMatch(JSON.stringify(telemetry), new RegExp(privateOutput.slice(0, 80)));
+      const privateOutputMarker = privateOutput.slice(0, 80);
+      const serializedTelemetryResult = JSON.stringify(telemetryResult);
+      assert.equal(serializedTelemetryResult.includes(DOGFOOD_MARKER), false);
+      assert.doesNotMatch(serializedTelemetryResult, /deterministic build fixture/);
+      assert.doesNotMatch(serializedTelemetryResult, /diagnostic-1:/);
+      assert.equal(JSON.stringify(telemetry).includes(privateOutputMarker), false);
+
+      // The MCP response only proves the in-memory snapshot is bounded and
+      // private; the persisted summary file is a separate write path (see
+      // createTelemetrySink in src/telemetry.ts) and must be validated on
+      // its own so a persistence-only aggregation or privacy defect cannot
+      // pass undetected.
+      const persistedRaw = await readPersistedTelemetry(fixture.telemetryPath);
+      const persisted = JSON.parse(persistedRaw);
+      assert.equal(persisted.enabled, true, "persisted telemetry summary must be enabled");
+      assert.ok(persisted.projection.raw_bytes > 0, persistedRaw);
+      assert.ok(persisted.projection.returned_bytes > 0);
+      assert.ok(persisted.projection.omitted_bytes > 0);
+      assert.ok(persisted.projection.omitted_tokens > 0);
+      assert.equal(persisted.expansion.count, telemetry.expansion.count);
+      assert.ok(persisted.read_governor.deny >= 1);
+      assert.ok(persisted.read_governor.raw_lines_returned > 0);
+      assert.ok(persisted.burst.responses_reduced >= 1);
+      assert.ok(persisted.await.poll_count >= 1);
+      assert.ok(persisted.await.avoided_responses >= 1);
+      assert.ok(persisted.dedupe.hits >= 1);
+      assert.ok(persisted.dedupe.misses >= 1);
+      assert.equal(persistedRaw.includes(DOGFOOD_MARKER), false);
+      assert.doesNotMatch(persistedRaw, /deterministic build fixture/);
+      assert.doesNotMatch(persistedRaw, /diagnostic-1:/);
+      assert.equal(persistedRaw.includes(privateOutputMarker), false);
 
       const report = {
         measured_at: new Date().toISOString(),

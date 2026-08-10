@@ -389,6 +389,52 @@ function compactOmissions(result: ProjectedResult): ProjectedResult {
   return { ...result, omissions };
 }
 
+/**
+ * resultId is the artifact store lookup key: it must never be shortened or
+ * otherwise mutated in a candidate that still claims to be retrievable. When
+ * no candidate keeping the full identifier fits the hard byte budget, the
+ * only safe fallback is to drop the identifier entirely and mark the result
+ * explicitly non-retrievable, rather than return a truncated key that looks
+ * valid but cannot resolve to the stored artifact.
+ */
+function nonRetrievableFallback(result: ProjectedResult, targetBytes: number): ProjectedResult {
+  // This omission is the explicit, load-bearing signal that the result is
+  // not retrievable — it must survive every candidate below, never trimmed
+  // away alongside the ordinary lower-priority omissions.
+  const droppedIdentifier = {
+    field: "result_id",
+    reason: "retrieval identifier exceeds hard response budget; result is not retrievable",
+    retrievalAvailable: false,
+  };
+  const otherOmissions = result.omissions
+    .filter((omission) => omission.field !== "result_id")
+    .map((omission) => ({ ...omission, retrievalAvailable: false }));
+  const stripped: ProjectedResult = {
+    ...result,
+    resultId: "",
+    truncated: true,
+    omissions: [droppedIdentifier, ...otherOmissions],
+  };
+  const omissionSets = [
+    stripped.omissions,
+    [droppedIdentifier, ...otherOmissions.slice(0, 1)],
+    [droppedIdentifier],
+  ];
+  for (const omissions of omissionSets) {
+    for (const size of [512, 256, 128, 64, 32, 16, 8, 0]) {
+      const candidate: ProjectedResult = {
+        ...stripped,
+        omissions,
+        operation: compactString(stripped.operation, Math.max(8, size)),
+        status: compactString(stripped.status, Math.max(8, Math.min(size, 32))),
+        summary: compactString(stripped.summary, size),
+      };
+      if (fits(candidate, targetBytes)) return candidate;
+    }
+  }
+  return { ...stripped, omissions: [droppedIdentifier] };
+}
+
 function minimalResult(result: ProjectedResult, targetBytes: number): ProjectedResult {
   const actionableFields = compactActionableFields(result.fields);
   const testResults = result.testResults === undefined ? undefined : compactTestResults(result.testResults);
@@ -431,13 +477,14 @@ function minimalResult(result: ProjectedResult, targetBytes: number): ProjectedR
           operation: compactString(variant.operation, Math.max(8, size)),
           status: compactString(variant.status, Math.max(8, Math.min(size, 32))),
           summary: compactString(variant.summary, size),
-          resultId: compactString(variant.resultId, Math.max(8, size)),
         };
+        // resultId is the artifact retrieval key and is kept intact (or
+        // omitted entirely below) — it is never partially truncated.
         if (fits(candidate, targetBytes)) return candidate;
       }
     }
   }
-  return withBudgetOmission;
+  return nonRetrievableFallback(variants[variants.length - 1], targetBytes);
 }
 
 export function applyResponseBudget(input: ProjectedResult, budget: ProjectionBudget): ProjectedResult {
