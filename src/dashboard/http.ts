@@ -18,6 +18,7 @@ import {
   type RepositorySemanticQuery,
   type ReviewLevel,
 } from "../semantics/query.js";
+import { createSemanticProjectionQuery, type SemanticProjectionQuery } from "../semantics/projections/index.js";
 
 export const LOOPBACK_HOST = "127.0.0.1";
 export const DEFAULT_DASHBOARD_PORT = 4317;
@@ -25,6 +26,8 @@ const API_PREFIX = "/api/v1";
 
 export interface DashboardServerOptions {
   query: RepositorySemanticQuery;
+  /** Optional domain projection adapter; defaults to the same query provider. */
+  projections?: SemanticProjectionQuery;
   viewerHtml: string;
   host?: string;
   port?: number;
@@ -98,7 +101,10 @@ function parseRelationKinds(value: string | null): RelationKind[] | undefined {
     "governs",
     "evidence-for",
   ];
-  const requested = value.split(",").map((item) => item.trim()).filter(Boolean);
+  const requested = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
   const invalid = requested.find((item) => !allowed.includes(item as RelationKind));
   if (invalid !== undefined) throw new SemanticQueryError("invalid_query", `unknown relation kind: ${invalid}`);
   return requested as RelationKind[];
@@ -126,7 +132,9 @@ function parseGraphQuery(url: URL): GraphQuery {
   }
   const relationKinds = parseRelationKinds(url.searchParams.get("relationKinds"));
   return {
-    ...(url.searchParams.get("componentId") === null ? {} : { componentId: url.searchParams.get("componentId") ?? undefined }),
+    ...(url.searchParams.get("componentId") === null
+      ? {}
+      : { componentId: url.searchParams.get("componentId") ?? undefined }),
     ...(url.searchParams.get("entityId") === null ? {} : { entityId: url.searchParams.get("entityId") ?? undefined }),
     ...(relationKinds === undefined ? {} : { relationKinds }),
     ...(direction === undefined ? {} : { direction }),
@@ -141,6 +149,7 @@ async function routeApi(
   url: URL,
   response: ServerResponse,
   query: RepositorySemanticQuery,
+  projections: SemanticProjectionQuery,
 ): Promise<void> {
   const segments = url.pathname.slice(API_PREFIX.length).split("/").filter(Boolean);
   const [resource, identifier] = segments;
@@ -180,7 +189,9 @@ async function routeApi(
   }
   if (resource === "dependencies" && segments.length === 1) {
     const dependencyQuery: DependencyQuery = {
-      ...(url.searchParams.get("componentId") === null ? {} : { componentId: url.searchParams.get("componentId") ?? undefined }),
+      ...(url.searchParams.get("componentId") === null
+        ? {}
+        : { componentId: url.searchParams.get("componentId") ?? undefined }),
       ...(parseOptionalLimit(url.searchParams.get("limit")) === undefined
         ? {}
         : { limit: parseOptionalLimit(url.searchParams.get("limit")) }),
@@ -195,8 +206,16 @@ async function routeApi(
     return;
   }
   if (resource === "knowledge" && segments.length === 1) {
-    const kind = parseEnum<KnowledgeEntry["kind"]>(url.searchParams.get("kind"), KNOWLEDGE_ENTRY_KINDS, "knowledge kind");
-    const status = parseEnum<KnowledgeEntry["status"]>(url.searchParams.get("status"), KNOWLEDGE_ENTRY_STATUSES, "knowledge status");
+    const kind = parseEnum<KnowledgeEntry["kind"]>(
+      url.searchParams.get("kind"),
+      KNOWLEDGE_ENTRY_KINDS,
+      "knowledge kind",
+    );
+    const status = parseEnum<KnowledgeEntry["status"]>(
+      url.searchParams.get("status"),
+      KNOWLEDGE_ENTRY_STATUSES,
+      "knowledge status",
+    );
     const knowledgeQuery: KnowledgeQuery = {
       ...(kind === undefined ? {} : { kind }),
       ...(status === undefined ? {} : { status }),
@@ -206,7 +225,16 @@ async function routeApi(
   }
   if (resource === "projections" && identifier === "agent" && segments.length === 3) {
     const entityId = decodeURIComponent(segments[2] ?? "");
-    sendJson(response, 200, await query.getAgentProjection(entityId));
+    sendJson(response, 200, await projections.getAgentContext(entityId));
+    return;
+  }
+  if (resource === "projections" && identifier === "review" && segments.length === 2) {
+    sendJson(response, 200, await projections.getReviewProjection());
+    return;
+  }
+  if (resource === "projections" && identifier === "jsdoc" && segments.length === 3) {
+    const entityId = decodeURIComponent(segments[2] ?? "");
+    sendJson(response, 200, await projections.getJsdocProjection(entityId));
     return;
   }
   sendError(response, 404, "not_found", "API route not found", url.pathname);
@@ -234,7 +262,7 @@ async function route(
     return;
   }
   if (url.pathname === API_PREFIX || url.pathname.startsWith(`${API_PREFIX}/`)) {
-    await routeApi(url, response, options.query);
+    await routeApi(url, response, options.query, options.projections ?? createSemanticProjectionQuery(options.query));
     return;
   }
   sendError(response, 404, "not_found", "dashboard route not found", url.pathname);
@@ -250,11 +278,16 @@ function errorDetails(error: unknown): { statusCode: number; code: string; messa
 export async function startDashboardServer(options: DashboardServerOptions): Promise<DashboardServerHandle> {
   const host = options.host ?? LOOPBACK_HOST;
   const port = options.port ?? DEFAULT_DASHBOARD_PORT;
-  if (!Number.isInteger(port) || port < 0 || port > 65_535) throw new Error("dashboard port must be an integer between 0 and 65535");
+  if (!Number.isInteger(port) || port < 0 || port > 65_535)
+    throw new Error("dashboard port must be an integer between 0 and 65535");
   if (host !== LOOPBACK_HOST && host !== "localhost") throw new Error("dashboard host must be loopback");
 
   const server: Server = createServer((request, response) => {
-    void route(request, response, { ...options, host }).catch((error: unknown) => {
+    void route(request, response, {
+      ...options,
+      host,
+      projections: options.projections ?? createSemanticProjectionQuery(options.query),
+    }).catch((error: unknown) => {
       if (response.headersSent) {
         response.destroy();
         return;

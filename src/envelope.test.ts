@@ -105,6 +105,12 @@ test("all local tools return the required result envelope", async () => {
     ["mottainai_result_search", { query: "envelope" }],
     ["mottainai_runtime_status", {}],
     ["mottainai_telemetry_summary", {}],
+    ["mottainai_semantic_project", { provider: "fixture" }],
+    ["mottainai_semantic_entity", { provider: "fixture", id: "project:mottainai" }],
+    ["mottainai_semantic_context", { provider: "fixture", id: "component:semantic-core" }],
+    ["mottainai_semantic_impact", { provider: "fixture" }],
+    ["mottainai_semantic_review", { provider: "fixture" }],
+    ["mottainai_semantic_jsdoc", { provider: "fixture", id: "symbol:compile-model" }],
   ];
   for (const [name, args] of cases) {
     assertEnvelope(await callLocalTool(name, args, config, store, undefined, undefined, processes), name);

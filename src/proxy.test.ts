@@ -117,6 +117,8 @@ test("listTools prefixes each upstream's tool names with '<upstream>__'", async 
       "codegraph__codegraph_explore", "fff__grep",
       "mottainai_exec", "mottainai_exec_start", "mottainai_exec_await", "mottainai_read", "mottainai_search", "mottainai_list",
       "mottainai_result_get", "mottainai_result_search", "mottainai_runtime_status", "mottainai_telemetry_summary",
+      "mottainai_semantic_project", "mottainai_semantic_entity", "mottainai_semantic_context", "mottainai_semantic_impact",
+      "mottainai_semantic_review", "mottainai_semantic_jsdoc",
       "mottainai_plan", "mottainai_review", "mottainai_execution_review", "mottainai_policy_stats", "mottainai_policy_propose",
       "mottainai_tool_search", "mottainai_tool_describe", "mottainai_tool_call",
       "mottainai_code_search", "mottainai_code_symbol",

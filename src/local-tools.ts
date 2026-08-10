@@ -47,6 +47,7 @@ import type { RuntimeDiagnostic } from "./runtime-diagnostic.js";
 import type { UpstreamStatus } from "./upstream.js";
 import { createWorkflowHookProvider } from "./workflow/hook-provider.js";
 import type { HookEvent } from "./hooks/types.js";
+import { callSemanticProjectionTool, semanticProjectionTools } from "./semantics/projections/mcp.js";
 
 const OMITTED_DIRECTORIES = new Set([".git", "node_modules", "dist", "build", "target", ".cache", ".venv", "coverage"]);
 
@@ -193,6 +194,7 @@ export const localTools: Tool[] = [
     outputSchema: OUTPUT_SCHEMA,
     annotations: readOnly,
   },
+  ...semanticProjectionTools,
 ];
 
 const issueViewTool: Tool = {
@@ -277,6 +279,8 @@ export async function callLocalTool(
     case "mottainai_gh_checks_await":
       return ghChecksAwaitToolImpl(args, config, telemetry, signal);
     default:
+      if (semanticProjectionTools.some((tool) => tool.name === name))
+        return callSemanticProjectionTool(name, args, config.workspaceRoot);
       throw new Error(`Unknown local tool: ${name}`);
   }
 }
