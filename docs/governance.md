@@ -104,6 +104,37 @@ section rule, and configuration compatibility rule remain active. The new
 path classes add structured evidence; they do not replace those existing
 changed-file rules.
 
+## Current v1 enforcement and evidence state
+
+The current `main` chain is:
+
+```text
+canonical rule/config
+  -> named test layer and command
+  -> PR validation evidence
+  -> packed artifact / release proof when the package path is affected
+  -> runtime/build identity tied to that verified artifact
+```
+
+The source of truth for each arrow remains the executable owner linked above;
+this document describes how to navigate the result. Source-level build or test
+success does not prove that an npm consumer can install or execute the packed
+artifact. Conversely, runtime identity is provenance for an already verified
+artifact, not a replacement for its package test.
+
+| Check or policy | Current status on `main` | Evidence boundary |
+| --- | --- | --- |
+| Issue/PR contract, title/branch rules, existing `Validation` checkboxes, linked Issue validation, and existing changed-file rules | Enforced. `Governance / validate-pr` is a required Ruleset check; the linked Issue and branch are validated by the governance workflow. | `scripts/governance-rules.json` + `scripts/governance-lib.mjs`; command failures are errors. |
+| `CI / typecheck (Node 22)` and `CI / fast unit / contract (Node 22)` | Enforced required checks. | `package.json` scripts and [`scripts/test-suites.mjs`](../scripts/test-suites.mjs); fast correctness is deterministic test result, not wall-clock timing. |
+| Standards, integration/process, built-dist E2E, package/consumer, Node 24 compatibility, and coverage jobs | Executed on normal PRs and each job evaluates its command/policy, but not required status checks in the current Ruleset; their results are evidence and a failed non-required job does not itself block merge. | `.github/workflows/ci.yml` and the named commands in [`docs/testing.md`](testing.md). |
+| Structured fields/records in path-aware `Test contract`, `Validation evidence`, `Release impact`, and regression-proof diagnostics | **Report-only**. The section headings remain part of the enforced PR contract, while `qualityGates.rollout.mode` is `report-only`; missing/invalid quality records become warnings with changed paths, matched rules, missing evidence, and remediation. | [`scripts/governance-rules.json`](../scripts/governance-rules.json) and [`scripts/governance-lib.mjs`](../scripts/governance-lib.mjs). Do not describe a warning as an enforcement failure or an unrun layer as passed. |
+| Property/mutation effectiveness | Scheduled or manual, advisory to normal PR merge. The runner enforces its own catalog/baseline/timeout result and uploads JSON reports, but the workflow is not a PR required check and is excluded from `verify`. | `.github/workflows/test-effectiveness.yml`, [`scripts/mutation-catalog.mjs`](../scripts/mutation-catalog.mjs), [`mutation-baseline.json`](mutation-baseline.json). |
+| Packed artifact and runtime/build identity | Required as package/release evidence when the configured package path applies; not a source-test shortcut. | [`docs/mcp-stdio-blackbox.md`](mcp-stdio-blackbox.md), `scripts/run-package-suite.mjs`, `scripts/generate-build-metadata.mjs`, `src/runtime-diagnostic.ts`. |
+
+This status table describes current `main`, not the observation state of PR
+#116 or an intended future promotion. The detailed #21–#27 map and test-layer
+ownership are in [`docs/testing.md`](testing.md).
+
 ## Regression-first proof and trust boundary
 
 For a bug-fix PR (`fix(...)` or `change type: bug-fix`), `Regression proof` must
@@ -133,13 +164,15 @@ If the test diff cannot be safely narrowed to the configured class, use
 `unsupported automated proof` plus reviewer attestation. The validator reports
 that evidence as an explicit path; it does not turn an unverified case green.
 
-## Rollout
+## Report-only quality-gate rollout (current)
 
-New evidence and regression rules are configured as `report-only`. The
-validator emits diagnostics with the changed path, matched path class/rule,
+The trusted current configuration sets `pullRequest.qualityGates.rollout.mode`
+to `report-only` in [`scripts/governance-rules.json`](../scripts/governance-rules.json).
+The validator emits diagnostics with the changed path, matched path class/rule,
 missing evidence, and the exact way to satisfy it, but does not fail the PR for
-those new diagnostics. Existing mandatory rules still fail normally. Draft PRs
-may leave quality evidence incomplete.
+those quality diagnostics. Existing mandatory rules still fail normally. Draft
+PRs may leave quality evidence incomplete; non-Draft PRs must still complete
+the existing enforced validation checkboxes.
 
 Promotion is a three-stage operational gate:
 
@@ -147,10 +180,11 @@ Promotion is a three-stage operational gate:
 report-only -> observed -> explicit mode=enforced change
 ```
 
-This implementation establishes the report-only mechanism locally. Observation
-data and false-positive review must occur after merge; this PR does not claim
-that enforcement rollout is complete. A maintainer must explicitly change the
-trusted rollout mode after that observation period.
+This is the current v1 enforcement state after the quality-gate implementation
+has landed on `main`; it is not a historical claim that rollout is complete.
+Observation data and false-positive review are prerequisites for promotion. A
+maintainer would have to explicitly change the trusted rollout mode after that
+review; no such promotion is documented or implied here.
 
 ## Workflow trust boundary
 
@@ -198,6 +232,19 @@ pnpm run build
 Do not report report-only observations as enforcement failures or as proof that
 post-merge operational observation has completed. Do not report an unrun,
 pending, hung, or environment-unavailable layer as passed.
+
+## Failed-result navigation
+
+Use the diagnostic's changed paths and matched rule to select the next owner;
+do not infer a new rule from the prose of a PR.
+
+| Failed result or warning | Canonical owner | Next proof / evidence |
+| --- | --- | --- |
+| Test file is unclassified, overlaps suites, or leaks into fast | [`scripts/test-suites.mjs`](../scripts/test-suites.mjs) | `pnpm run test:classification` / `pnpm run test:standards`; record the affected test layer. |
+| Format, lint, architecture, or governance self-test | [`eslint.config.mjs`](../eslint.config.mjs), [`prettier.config.mjs`](../prettier.config.mjs), [`scripts/architecture-check.mjs`](../scripts/architecture-check.mjs) | `pnpm run verify:standards`; `lint/architecture` evidence for governance paths. |
+| `quality.evidence.*`, path class, or `quality.regression.*` warning | [`scripts/governance-rules.json`](../scripts/governance-rules.json) + [`scripts/governance-lib.mjs`](../scripts/governance-lib.mjs) | Run the mapped test, add the exact class fields, and record the concrete result. Current quality warning remains report-only. |
+| Package/artifact or release result | [`scripts/run-package-suite.mjs`](../scripts/run-package-suite.mjs), [`scripts/smoke-test.mjs`](../scripts/smoke-test.mjs), release workflow | Verify the same packed tarball in an isolated consumer; include artifact and `warnings: none` release evidence. |
+| Runtime identity or startup diagnostic mismatch | [`scripts/generate-build-metadata.mjs`](../scripts/generate-build-metadata.mjs), [`src/runtime-diagnostic.ts`](../src/runtime-diagnostic.ts) | Rebuild the candidate, run package identity assertions, then inspect `doctor --json` or `mottainai_runtime_status` for the verified artifact's `build_id` and distribution kind. |
 
 ## GitHub Ruleset
 

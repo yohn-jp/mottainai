@@ -16,6 +16,36 @@ Issue #22は、Mottainai内部関数をimportせず、公開entrypointを実proc
 
 `npm pack`は`prepack`を使わない。buildを先に明示し、その時点の`dist`を`--ignore-scripts` artifactとして検証する。
 
+## Runtime/build identity（Issue #27）
+
+`pnpm run build`は[`scripts/generate-build-metadata.mjs`](../scripts/generate-build-metadata.mjs)
+を実行し、`dist/runtime-build-metadata.json`を生成する。metadataはschema、package
+name/version、`build_id`、source state、`artifact: "npm"`を持つ。cleanなsourceでは
+build IDにGit SHAを含め、dirty/unavailableなsourceではその状態を明示する。これは
+pack前のbuild identityであり、package testの合格を意味しない。
+
+実行時のcanonical projectionは[`src/runtime-diagnostic.ts`](../src/runtime-diagnostic.ts)
+が作るversioned・bounded allowlistである。packed metadataをentrypointのpackage
+rootから読めれば`distribution_kind: "packed/npm"`として、package/version/build ID
+をbuild provenanceとして返す。source実行はdevelopment identity、metadataのない
+再梱包は`unknown/repackaged`となり、consumerのcwdにある無関係なGit checkoutを
+artifact identityとして採用しない。診断にはconfig pathのsource、Node/platform、
+entrypoint、workspace/state、upstreamのbounded health/failureも含まれるが、secretや
+raw credentialは含めない。
+
+`doctor --json`、early-startup errorの`Runtime diagnostic`、MCPの
+`mottainai_runtime_status`はこの同じidentity projectionを利用する。したがって
+release/consumer proofは、package testが検証したtarballの`build_id`・package version・
+`distribution_kind`を、実行時診断で再確認できる証跡までを一つのartifact chainとして
+記録する。runtime statusだけ、またはsource-level `build`/`test`だけではpackage/release
+proofにならない。
+
+`scripts/mcp-stdio-package.test.mjs`はmetadataがtarballに含まれ、packが検証対象の
+`dist`を再buildしないこと、consumer cwd/config解決をまたいでもpacked identityが
+維持されること、`runtime_status`が同じidentityを返すことを検証する。release workflow
+はbuildしたtarballをartifactとして保存し、Node 22/24のisolated consumer smokeを
+通過した同一tarballをpublishする。
+
 ## Black-box harness
 
 共通`McpStdioClient`は次を担当する。

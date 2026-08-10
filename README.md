@@ -289,7 +289,9 @@ your client sees `codegraph__*` / `fff__*` tools, plus the gateway's own
 `mottainai_*` tools, all passing through compression.
 
 At runtime, call `mottainai_runtime_status` from the MCP client to inspect
-registered upstreams and their health.
+registered upstreams, their health, and the package/build identity. The
+packed-artifact and runtime-diagnostic contract is documented in
+[`docs/mcp-stdio-blackbox.md`](docs/mcp-stdio-blackbox.md).
 
 ### Await/watch primitives (Issue #74)
 
