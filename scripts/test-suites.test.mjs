@@ -79,6 +79,10 @@ test("full verification builds before any built-dist E2E test", () => {
   assert.ok(buildIndex < e2eIndex, "verify must build before running built-dist E2E tests");
 });
 
+test("build configuration does not trust stale incremental metadata for dist output", () => {
+  assert.match(packageJson.scripts.build, /^tsc -p tsconfig\.build\.json --incremental false\b/);
+});
+
 test("a slow hosted-runner sample does not fail a passing fast suite", () => {
   const output = [];
   const errors = [];

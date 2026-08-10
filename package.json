@@ -16,7 +16,7 @@
     "scripts/governance-rules.json"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node scripts/generate-build-metadata.mjs && node scripts/copy-dashboard-assets.mjs",
+    "build": "tsc -p tsconfig.build.json --incremental false && node scripts/generate-build-metadata.mjs && node scripts/copy-dashboard-assets.mjs",
     "start": "node dist/index.js",
     "test": "node scripts/run-test-suite.mjs fast",
     "test:integration": "node scripts/run-test-suite.mjs integration",
