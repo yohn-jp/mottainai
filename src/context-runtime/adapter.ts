@@ -137,6 +137,7 @@ export function finalizeToolResult(
         returnedBytes,
         omittedBytes: Math.max(0, rawBytes - returnedBytes),
         estimatedProjectedTokens: Math.ceil(returnedBytes / 4),
+        estimatedOmittedTokens: Math.max(0, Math.ceil(rawBytes / 4) - Math.ceil(returnedBytes / 4)),
       },
     };
   }
@@ -192,6 +193,7 @@ export function finalizeToolResult(
       returnedBytes,
       omittedBytes: Math.max(0, rawBytes - returnedBytes),
       estimatedProjectedTokens: projectedTokens(finalProjected),
+      estimatedOmittedTokens: Math.max(0, Math.ceil(rawBytes / 4) - projectedTokens(finalProjected)),
     },
   };
 }

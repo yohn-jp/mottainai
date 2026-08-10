@@ -284,6 +284,7 @@ export function registerProxyHandlers(
         returnedBytes: finalized.stats.returnedBytes,
         omittedBytes: finalized.stats.omittedBytes,
         projectedTokens: finalized.stats.estimatedProjectedTokens,
+        omittedTokens: finalized.stats.estimatedOmittedTokens,
       });
       return finalized.result;
     } finally {
@@ -327,6 +328,8 @@ export function registerProxyHandlers(
       });
       if (!retrieved) throw new Error(`Original result unavailable or expired: ${id}`);
       telemetry.recordRetrieval();
+      const expansionBytes = Buffer.byteLength(JSON.stringify(retrieved), "utf8");
+      telemetry.recordExpansion({ bytes: expansionBytes, estimatedTokens: Math.ceil(expansionBytes / 4) });
       const result = { content: [{ type: "text" as const, text: JSON.stringify(retrieved) }] };
       return normalizeExecutionOutcome({
         result,
