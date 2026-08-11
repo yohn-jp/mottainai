@@ -331,6 +331,34 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 13,
+    description: "manager: durable Zellij-backed agent session records",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE manager_sessions (
+          session_id TEXT PRIMARY KEY,
+          workspace_root TEXT NOT NULL,
+          task_id TEXT,
+          worktree_id TEXT,
+          worktree_path TEXT NOT NULL,
+          branch_name TEXT,
+          agent_kind TEXT NOT NULL CHECK (agent_kind = 'codex'),
+          launch_command TEXT NOT NULL,
+          launch_args_json TEXT NOT NULL,
+          runtime_name TEXT NOT NULL UNIQUE,
+          lifecycle_state TEXT NOT NULL CHECK (lifecycle_state IN ('starting', 'running', 'exited', 'stopped', 'failed')),
+          started_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          exit_code INTEGER,
+          termination_state TEXT CHECK (termination_state IS NULL OR termination_state IN ('running', 'exited', 'stopped', 'failed')),
+          error_message TEXT
+        );
+        CREATE INDEX idx_manager_sessions_workspace ON manager_sessions (workspace_root, started_at DESC);
+        CREATE INDEX idx_manager_sessions_task ON manager_sessions (task_id);
+      `);
+    },
+  },
 ];
 
 function currentVersion(db: DatabaseSync): number {

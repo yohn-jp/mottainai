@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mottainai Manager v0</title>
+<style>
+:root{color-scheme:dark;font:14px/1.45 system-ui,sans-serif;background:#0b1017;color:#e7edf5}body{max-width:1100px;margin:0 auto;padding:28px}h1{font-size:24px;margin:0 0 4px}p{color:#9ba8b8}.card{background:#121a24;border:1px solid #263448;border-radius:10px;padding:18px;margin:18px 0}label{display:block;color:#aebbd0;margin:10px 0 4px}input,textarea,select{display:block;width:100%;box-sizing:border-box;background:#0b1119;border:1px solid #33435b;color:#eef4ff;border-radius:6px;padding:9px}textarea{min-height:110px;resize:vertical}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.actions{display:flex;gap:8px;align-items:end;margin-top:14px}button{background:#1d4d91;color:white;border:0;border-radius:6px;padding:9px 14px;cursor:pointer}button.secondary{background:#29384c}.error{color:#ff9b9b;white-space:pre-wrap}.session{border-top:1px solid #27354a;padding:12px 0;display:grid;grid-template-columns:1fr auto;gap:12px}.session:first-child{border-top:0}.meta{color:#9ba8b8;font-size:12px}.mono{font-family:ui-monospace,monospace;overflow-wrap:anywhere}.pill{display:inline-block;border:1px solid #3e526d;border-radius:999px;padding:2px 7px;font-size:12px;margin-left:6px}.running{color:#8be0ad;border-color:#2d7050}.failed,.exited{color:#ffaeae;border-color:#76404a}@media(max-width:700px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<h1>Mottainai Manager v0</h1>
+<p>Local execution control plane. Mottainai owns task/worktree/session state; Zellij owns the terminal.</p>
+<section class="card"><h2>New session</h2>
+<form id="new-session">
+<label for="instruction">Implementation instruction</label><textarea id="instruction" required placeholder="Describe the implementation task for Codex"></textarea>
+<div class="grid"><div><label for="agent">Agent</label><select id="agent"><option value="codex">Codex CLI</option></select></div><div><label for="runtime">Runtime</label><select id="runtime" disabled><option>Zellij</option></select></div><div><label for="model">Model (optional)</label><input id="model" placeholder="Use Codex default"></div><div><label for="branch-type">Branch type</label><input id="branch-type" value="feat"></div></div>
+<div class="grid"><div><label for="task-slug">Task slug (optional)</label><input id="task-slug" pattern="[a-z0-9][a-z0-9-]*" placeholder="my-task"></div><div><label for="issue-ref">Issue ref (with task slug)</label><input id="issue-ref" placeholder="182"></div><div class="actions"><button type="submit">Start managed session</button><button type="button" class="secondary" id="refresh">Refresh</button></div></div>
+<p id="form-error" class="error"></p></form></section>
+<section class="card"><h2>Sessions</h2><div id="sessions"><p>Loading…</p></div></section>
+<script>
+const sessions=document.getElementById('sessions'),formError=document.getElementById('form-error');
+const api=(path,options)=>fetch('/api/v1/manager'+path,{headers:{'content-type':'application/json'},...options}).then(async r=>{const b=await r.json();if(!r.ok)throw new Error(b.error?.message||'request failed');return b});
+function render(list){sessions.replaceChildren();if(!list.length){const p=document.createElement('p');p.textContent='No sessions yet.';sessions.append(p);return}for(const s of list){const row=document.createElement('div');row.className='session';const info=document.createElement('div');const title=document.createElement('div');title.className='mono';title.textContent=s.sessionId;const pill=document.createElement('span');pill.className='pill '+s.lifecycleState;pill.textContent=s.lifecycleState;title.append(pill);info.append(title);const meta=document.createElement('div');meta.className='meta';meta.textContent=`${s.agentKind} · task ${s.taskId||'unbound'} · ${s.branchName||'unbound'} · ${s.worktreePath} · runtime ${s.runtimeName} · started ${new Date(s.startedAt).toLocaleString()}`;info.append(meta);if(s.errorMessage){const error=document.createElement('div');error.className='error';error.textContent=s.errorMessage;info.append(error)}const buttons=document.createElement('div');if(s.lifecycleState==='running'){const open=document.createElement('button');open.textContent='Open terminal';open.onclick=()=>action(`/sessions/${encodeURIComponent(s.sessionId)}/open-terminal`);buttons.append(open);const stop=document.createElement('button');stop.className='secondary';stop.textContent='Stop';stop.onclick=()=>action(`/sessions/${encodeURIComponent(s.sessionId)}/stop`);buttons.append(stop)}row.append(info,buttons);sessions.append(row)}}
+async function refresh(){try{const b=await api('/sessions');render(b.sessions)}catch(e){sessions.textContent=e.message}}
+async function action(path){try{await api(path,{method:'POST',body:'{}'});await refresh()}catch(e){alert(e.message)}}
+document.getElementById('refresh').onclick=refresh;document.getElementById('new-session').onsubmit=async e=>{e.preventDefault();formError.textContent='';const body={instruction:document.getElementById('instruction').value,agentKind:document.getElementById('agent').value,model:document.getElementById('model').value||undefined,taskSlug:document.getElementById('task-slug').value||undefined,issueRef:document.getElementById('issue-ref').value||undefined,branchType:document.getElementById('branch-type').value||undefined};try{await api('/sessions',{method:'POST',body:JSON.stringify(body)});e.target.reset();document.getElementById('branch-type').value='feat';await refresh()}catch(err){formError.textContent=err.message}};refresh();setInterval(refresh,5000);
+</script>
+</body>
+</html>

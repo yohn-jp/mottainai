@@ -97,6 +97,8 @@ const environmentBoundaryFiles = new Set([
   "src/workflow/git/worktree.ts",
   "src/upstream.ts",
   "src/workflow/state/sqlite-store.ts",
+  // Manager CLI is the explicit environment injection boundary for its optional runtime binary/provider.
+  "src/manager/command.ts",
   // テスト間でHOME/TZ/LANG等を一時的に差し替え、実行後に必ず復元する隔離境界（docs/testing.md）。
   "src/test-support/env.ts",
   // developer machineのglobal/system git設定から隔離したenvを組み立てるための境界（docs/testing.md）。
@@ -237,6 +239,9 @@ function resolveRelativeImport(sourceFile, specifier, root, resolutionCache) {
 
 function layerForFile(relative) {
   if (relative.startsWith("src/test-support/") || relative.startsWith("src/e2e/")) return "testInfrastructure";
+  if (relative === "src/manager/command.ts" || relative === "src/manager/http.ts") return "entry";
+  if (relative === "src/manager/service.ts") return "persistence";
+  if (relative === "src/manager/zellij.ts") return "utility";
   if (
     relative === "src/index.ts" ||
     relative === "src/cli.ts" ||

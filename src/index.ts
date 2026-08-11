@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { runCli } from "./cli.js";
 import { resolveConfigPath } from "./config.js";
 import { closeDashboard, hasActiveDashboard } from "./dashboard/command.js";
+import { closeManager, hasActiveManager } from "./manager/command.js";
 import { createRuntimeDiagnostic, formatRuntimeDiagnosticHuman } from "./runtime-diagnostic.js";
 import { runServer } from "./server.js";
 
@@ -19,9 +20,8 @@ if (args.length === 0) {
     await runServer(undefined, startupCwd, runtimeDiagnostic, process.env.HOME ?? process.env.USERPROFILE);
   } catch (error) {
     const configPath = resolveConfigPath();
-    const missingConfig = error instanceof Error
-      && (error as NodeJS.ErrnoException).code === "ENOENT"
-      && !fs.existsSync(configPath);
+    const missingConfig =
+      error instanceof Error && (error as NodeJS.ErrnoException).code === "ENOENT" && !fs.existsSync(configPath);
     if (missingConfig) {
       const message = [
         "Mottainai configuration was not found:",
@@ -34,20 +34,25 @@ if (args.length === 0) {
       ].join("\n");
       console.error(`${message}\n\nRuntime diagnostic:\n${formatRuntimeDiagnosticHuman(runtimeDiagnostic)}`);
     } else {
-      console.error(`${error instanceof Error ? error.message : String(error)}\n\nRuntime diagnostic:\n${formatRuntimeDiagnosticHuman(runtimeDiagnostic)}`);
+      console.error(
+        `${error instanceof Error ? error.message : String(error)}\n\nRuntime diagnostic:\n${formatRuntimeDiagnosticHuman(runtimeDiagnostic)}`,
+      );
     }
     process.exitCode = 1;
   }
 } else {
   process.exitCode = await runCli(args);
-  if (args[0] === "dashboard" && hasActiveDashboard()) {
+  if ((args[0] === "dashboard" && hasActiveDashboard()) || (args[0] === "manager" && hasActiveManager())) {
     const shutdown = (): void => {
-      void closeDashboard().catch((error: unknown) => {
-        console.error(error instanceof Error ? error.message : String(error));
-      }).finally(() => {
-        process.off("SIGINT", shutdown);
-        process.off("SIGTERM", shutdown);
-      });
+      const close = args[0] === "manager" ? closeManager : closeDashboard;
+      void close()
+        .catch((error: unknown) => {
+          console.error(error instanceof Error ? error.message : String(error));
+        })
+        .finally(() => {
+          process.off("SIGINT", shutdown);
+          process.off("SIGTERM", shutdown);
+        });
     };
     process.once("SIGINT", shutdown);
     process.once("SIGTERM", shutdown);

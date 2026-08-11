@@ -23,6 +23,11 @@ import { createSemanticProjectionQuery, type SemanticProjectionQuery } from "../
 export const LOOPBACK_HOST = "127.0.0.1";
 export const DEFAULT_DASHBOARD_PORT = 4317;
 const API_PREFIX = "/api/v1";
+export const MANAGER_API_PREFIX = "/api/v1/manager";
+
+export interface ManagerHttpHandler {
+  handle(request: IncomingMessage, response: ServerResponse, url: URL): Promise<void>;
+}
 
 export interface DashboardServerOptions {
   query: RepositorySemanticQuery;
@@ -31,6 +36,7 @@ export interface DashboardServerOptions {
   viewerHtml: string;
   host?: string;
   port?: number;
+  manager?: ManagerHttpHandler;
 }
 
 export interface DashboardServerHandle {
@@ -250,6 +256,13 @@ async function route(
   const hostName = (request.headers.host ?? "").split(":")[0];
   if (hostName !== LOOPBACK_HOST && hostName !== "localhost") {
     sendError(response, 403, "forbidden", "dashboard accepts loopback host headers only", url.pathname);
+    return;
+  }
+  if (
+    options.manager !== undefined &&
+    (url.pathname === MANAGER_API_PREFIX || url.pathname.startsWith(`${MANAGER_API_PREFIX}/`))
+  ) {
+    await options.manager.handle(request, response, url);
     return;
   }
   if (method !== "GET") {

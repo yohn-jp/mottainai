@@ -56,6 +56,52 @@ export type TaskId = string & { readonly __brand: "TaskId" };
 export type WorktreeId = string & { readonly __brand: "WorktreeId" };
 export type PullRequestRecordId = string & { readonly __brand: "PullRequestRecordId" };
 
+export type ManagerSessionId = string & { readonly __brand: "ManagerSessionId" };
+export const MANAGER_SESSION_LIFECYCLE_STATES = ["starting", "running", "exited", "stopped", "failed"] as const;
+export type ManagerSessionLifecycleState = (typeof MANAGER_SESSION_LIFECYCLE_STATES)[number];
+
+export interface ManagerSessionRecord {
+  sessionId: ManagerSessionId;
+  workspaceRoot: string;
+  taskId: TaskId | undefined;
+  worktreeId: WorktreeId | undefined;
+  worktreePath: string;
+  branchName: string | undefined;
+  agentKind: "codex";
+  launchCommand: string;
+  launchArgs: string[];
+  runtimeName: string;
+  lifecycleState: ManagerSessionLifecycleState;
+  startedAt: number;
+  updatedAt: number;
+  exitCode: number | undefined;
+  terminationState: "running" | "exited" | "stopped" | "failed" | undefined;
+  errorMessage: string | undefined;
+}
+
+export interface CreateManagerSessionInput {
+  sessionId: ManagerSessionId;
+  workspaceRoot: string;
+  taskId?: TaskId;
+  worktreeId?: WorktreeId;
+  worktreePath: string;
+  branchName?: string;
+  agentKind: "codex";
+  launchCommand: string;
+  launchArgs: readonly string[];
+  runtimeName: string;
+  lifecycleState?: ManagerSessionLifecycleState;
+  startedAt?: number;
+}
+
+export interface UpdateManagerSessionInput {
+  lifecycleState?: ManagerSessionLifecycleState;
+  exitCode?: number;
+  terminationState?: ManagerSessionRecord["terminationState"];
+  errorMessage?: string;
+  updatedAt?: number;
+}
+
 export interface TaskRecord {
   taskId: TaskId;
   instanceId: RepositoryInstanceId;
@@ -345,6 +391,10 @@ export interface WorkflowStateStore {
   /** instance 全体の worktree 一覧（task を横断）。衝突・stale metadata 検出のために使う。 */
   listWorktreesForInstance(instanceId: RepositoryInstanceId): WorktreeRecord[];
   listWorktrees(instanceId?: RepositoryInstanceId): WorktreeRecord[];
+  createManagerSession(input: CreateManagerSessionInput): ManagerSessionRecord;
+  getManagerSession(sessionId: ManagerSessionId): ManagerSessionRecord | undefined;
+  listManagerSessions(workspaceRoot?: string): ManagerSessionRecord[];
+  updateManagerSession(sessionId: ManagerSessionId, input: UpdateManagerSessionInput): ManagerSessionRecord;
   /** `reserved`/`mutating`/`verifying` の期限切れを reconciliation が検出するための全件参照。 */
   listCleanupLeases(instanceId?: RepositoryInstanceId): CleanupLeaseRecord[];
   /** 外部パスを削除せず、既に存在しない worktree のmetadataだけを明示的に確定する。 */

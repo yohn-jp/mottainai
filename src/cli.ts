@@ -5,6 +5,7 @@ import { collectDoctorReport, formatDoctorHuman } from "./commands/doctor.js";
 import { loadConfigSnapshot, loadMottainaiConfig, loadRawConfig, resolveConfigPath, saveRawConfig } from "./config.js";
 import type { MottainaiConfig } from "./config.js";
 import { openDashboardBrowser, parseDashboardOptions, startDashboard } from "./dashboard/command.js";
+import { openDashboardBrowser as openManagerBrowser, parseManagerOptions, startManager } from "./manager/command.js";
 import { localTools } from "./local-tools.js";
 import { dispatchClientHook, runManagedHooksCommand } from "./hooks/commands.js";
 import type { HookCommandContext } from "./hooks/commands.js";
@@ -54,6 +55,7 @@ const USAGE = `usage:
   mottainai init [options]                       initialize a workspace configuration
   mottainai serve                                start the MCP stdio server explicitly
   mottainai dashboard [options]                  start the local semantic project viewer (fixture|live)
+  mottainai manager [options]                    start the local Zellij-backed agent Manager
   mottainai semantic validate [options]          validate semantic integrity and managed-scope blockers
   mottainai semantic status [options]            show bounded semantic enforcement status
   mottainai semantic context --id <id> [options] bounded authoritative agent context
@@ -486,6 +488,15 @@ export async function runCli(args: string[]): Promise<number> {
         browserOpener: dashboardOptions.noOpen ? undefined : (url) => openDashboardBrowser(url, process.platform),
       });
       console.log(`Mottainai dashboard listening at ${dashboard.url}`);
+      return 0;
+    } else if (command === "manager") {
+      const managerOptions = parseManagerOptions(argv);
+      const manager = await startManager({
+        ...managerOptions,
+        environment: process.env,
+        browserOpener: managerOptions.noOpen ? undefined : (url) => openManagerBrowser(url, process.platform),
+      });
+      console.log(`Mottainai manager listening at ${manager.url}`);
       return 0;
     } else if (command === "serve") {
       const configIndex = argv.indexOf("--config");

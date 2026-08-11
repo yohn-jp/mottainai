@@ -31,15 +31,19 @@ import type {
   CleanupLeaseState,
   CommitCleanupInput,
   CommitCleanupResult,
+  CreateManagerSessionInput,
   GuardrailAuditRecord,
   GuardrailAuditDecision,
   ListGuardrailAuditRecordsOptions,
+  ManagerSessionId,
+  ManagerSessionRecord,
   MarkCleanupLeaseInput,
   RecordGuardrailDecisionInput,
   ReserveCleanupLeaseInput,
   ReserveCleanupLeaseResult,
   TaskId,
   TaskRecord,
+  UpdateManagerSessionInput,
   ValidationEvidenceRecord,
   WorkflowStateStore,
   WorktreeId,
@@ -148,6 +152,35 @@ function toWorktreeRecord(row: Record<string, unknown>): WorktreeRecord {
     baseCommit: row.base_commit as string,
     createdAt: row.created_at as number,
     updatedAt: row.updated_at as number,
+  };
+}
+
+function toManagerSessionRecord(row: Record<string, unknown>): ManagerSessionRecord {
+  let launchArgs: string[];
+  try {
+    const parsed: unknown = JSON.parse(String(row.launch_args_json ?? "[]"));
+    if (!Array.isArray(parsed) || parsed.some((value) => typeof value !== "string")) throw new Error("invalid argv");
+    launchArgs = [...parsed];
+  } catch (error) {
+    throw new Error(`invalid manager session launch args: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return {
+    sessionId: row.session_id as ManagerSessionId,
+    workspaceRoot: row.workspace_root as string,
+    taskId: (row.task_id as TaskId | null) ?? undefined,
+    worktreeId: (row.worktree_id as WorktreeId | null) ?? undefined,
+    worktreePath: row.worktree_path as string,
+    branchName: (row.branch_name as string | null) ?? undefined,
+    agentKind: row.agent_kind as "codex",
+    launchCommand: row.launch_command as string,
+    launchArgs,
+    runtimeName: row.runtime_name as string,
+    lifecycleState: row.lifecycle_state as ManagerSessionRecord["lifecycleState"],
+    startedAt: row.started_at as number,
+    updatedAt: row.updated_at as number,
+    exitCode: (row.exit_code as number | null) ?? undefined,
+    terminationState: (row.termination_state as ManagerSessionRecord["terminationState"] | null) ?? undefined,
+    errorMessage: (row.error_message as string | null) ?? undefined,
   };
 }
 
@@ -685,6 +718,74 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
             .prepare("SELECT * FROM worktrees WHERE instance_id = ? ORDER BY created_at ASC, worktree_id ASC")
             .all(instanceId);
     return (rows as Record<string, unknown>[]).map(toWorktreeRecord);
+  }
+
+  createManagerSession(input: CreateManagerSessionInput): ManagerSessionRecord {
+    const startedAt = input.startedAt ?? Date.now();
+    const lifecycleState = input.lifecycleState ?? "starting";
+    this.handle()
+      .prepare(
+        `INSERT INTO manager_sessions
+          (session_id, workspace_root, task_id, worktree_id, worktree_path, branch_name, agent_kind,
+           launch_command, launch_args_json, runtime_name, lifecycle_state, started_at, updated_at,
+           termination_state)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.sessionId,
+        input.workspaceRoot,
+        input.taskId ?? null,
+        input.worktreeId ?? null,
+        input.worktreePath,
+        input.branchName ?? null,
+        input.agentKind,
+        input.launchCommand,
+        JSON.stringify([...input.launchArgs]),
+        input.runtimeName,
+        lifecycleState,
+        startedAt,
+        startedAt,
+        lifecycleState === "running" ? "running" : null,
+      );
+    return this.getManagerSession(input.sessionId)!;
+  }
+
+  getManagerSession(sessionId: ManagerSessionId): ManagerSessionRecord | undefined {
+    const row = this.handle().prepare("SELECT * FROM manager_sessions WHERE session_id = ?").get(sessionId) as
+      | Record<string, unknown>
+      | undefined;
+    return row === undefined ? undefined : toManagerSessionRecord(row);
+  }
+
+  listManagerSessions(workspaceRoot?: string): ManagerSessionRecord[] {
+    const rows = (
+      workspaceRoot === undefined
+        ? this.handle().prepare("SELECT * FROM manager_sessions ORDER BY started_at DESC, session_id DESC").all()
+        : this.handle()
+            .prepare(
+              "SELECT * FROM manager_sessions WHERE workspace_root = ? ORDER BY started_at DESC, session_id DESC",
+            )
+            .all(workspaceRoot)
+    ) as Record<string, unknown>[];
+    return rows.map(toManagerSessionRecord);
+  }
+
+  updateManagerSession(sessionId: ManagerSessionId, input: UpdateManagerSessionInput): ManagerSessionRecord {
+    const current = this.getManagerSession(sessionId);
+    if (current === undefined) throw new Error(`manager session not found: ${sessionId}`);
+    const updatedAt = input.updatedAt ?? Date.now();
+    const nextState = input.lifecycleState ?? current.lifecycleState;
+    const nextExitCode = input.exitCode ?? current.exitCode;
+    const nextTermination = input.terminationState === undefined ? current.terminationState : input.terminationState;
+    const nextError = input.errorMessage === undefined ? current.errorMessage : input.errorMessage;
+    this.handle()
+      .prepare(
+        `UPDATE manager_sessions
+         SET lifecycle_state = ?, updated_at = ?, exit_code = ?, termination_state = ?, error_message = ?
+         WHERE session_id = ?`,
+      )
+      .run(nextState, updatedAt, nextExitCode ?? null, nextTermination ?? null, nextError ?? null, sessionId);
+    return this.getManagerSession(sessionId)!;
   }
 
   listCleanupLeases(instanceId?: RepositoryInstanceId): CleanupLeaseRecord[] {
