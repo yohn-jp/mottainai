@@ -331,6 +331,41 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 13,
+    description: "workflow: check_runs (managed validation governor executions, issue #184)",
+    up: (db) => {
+      db.exec(`
+        -- managed check（issue #184 validation governor）の実行記録。repository instance +
+        -- worktree で分離し、同じ (check, state fingerprint, config digest) の組に対して
+        -- 直近の PASSED 行だけが reuse の根拠になる（governor.ts の findReusableCheckRun）。
+        -- FAILED 行は再利用対象にならないので実行のたびに新しい行として残る。
+        CREATE TABLE check_runs (
+          run_id TEXT PRIMARY KEY,
+          instance_id TEXT NOT NULL REFERENCES repository_instances (instance_id),
+          worktree_id TEXT NOT NULL,
+          check_id TEXT NOT NULL,
+          command_digest TEXT NOT NULL,
+          state_fingerprint TEXT NOT NULL,
+          config_digest TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('passed', 'failed')),
+          execution TEXT NOT NULL CHECK (execution IN ('executed', 'reused')),
+          started_at INTEGER NOT NULL,
+          duration_ms INTEGER NOT NULL,
+          recorded_at INTEGER NOT NULL,
+          summary TEXT NOT NULL,
+          artifact_ref TEXT,
+          provenance_reason_code TEXT NOT NULL,
+          provenance_explanation TEXT NOT NULL
+        );
+        CREATE INDEX idx_check_runs_reuse
+          ON check_runs (instance_id, worktree_id, check_id, state_fingerprint, config_digest, recorded_at DESC)
+          WHERE status = 'passed';
+        CREATE INDEX idx_check_runs_latest
+          ON check_runs (instance_id, worktree_id, check_id, recorded_at DESC);
+      `);
+    },
+  },
 ];
 
 function currentVersion(db: DatabaseSync): number {

@@ -789,3 +789,82 @@ test("commitCleanup throws when the task changed (version/lifecycle) since plann
     }),
   );
 });
+
+function recordCheckRunInput(overrides: Partial<Parameters<WorkflowSqliteStateStore["recordCheckRun"]>[0]> = {}) {
+  return {
+    runId: "cr-1",
+    instanceId,
+    worktreeId: "wt-1",
+    checkId: "test",
+    commandDigest: "cmd-digest-1",
+    stateFingerprint: "sf-1",
+    configDigest: "cfg-1",
+    status: "passed" as const,
+    execution: "executed" as const,
+    startedAt: 1000,
+    durationMs: 500,
+    summary: "test passed",
+    provenance: { reasonCode: "no-matching-prior-success", explanation: "first execution" },
+    ...overrides,
+  };
+}
+
+test("recordCheckRun persists a run retrievable via listCheckRuns", () => {
+  const store = openStoreWithInstance();
+  const recorded = store.recordCheckRun(recordCheckRunInput());
+  assert.equal(recorded.runId, "cr-1");
+  assert.equal(recorded.status, "passed");
+  assert.equal(recorded.execution, "executed");
+
+  const listed = store.listCheckRuns({ instanceId, worktreeId: "wt-1" });
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0]?.runId, "cr-1");
+  assert.equal(listed[0]?.artifactRef, undefined);
+});
+
+test("findReusableCheckRun returns the matching passed run for identical fingerprint and config digest", () => {
+  const store = openStoreWithInstance();
+  store.recordCheckRun(recordCheckRunInput());
+  const match = store.findReusableCheckRun(instanceId, "wt-1", "test", "sf-1", "cfg-1");
+  assert.equal(match?.runId, "cr-1");
+});
+
+test("findReusableCheckRun returns undefined when the state fingerprint differs (state changed)", () => {
+  const store = openStoreWithInstance();
+  store.recordCheckRun(recordCheckRunInput());
+  assert.equal(store.findReusableCheckRun(instanceId, "wt-1", "test", "sf-2", "cfg-1"), undefined);
+});
+
+test("findReusableCheckRun returns undefined when the config digest differs (command/config changed)", () => {
+  const store = openStoreWithInstance();
+  store.recordCheckRun(recordCheckRunInput());
+  assert.equal(store.findReusableCheckRun(instanceId, "wt-1", "test", "sf-1", "cfg-2"), undefined);
+});
+
+test("findReusableCheckRun never returns a failed run (no silent fail-to-pass reuse)", () => {
+  const store = openStoreWithInstance();
+  store.recordCheckRun(recordCheckRunInput({ runId: "cr-failed", status: "failed" }));
+  assert.equal(store.findReusableCheckRun(instanceId, "wt-1", "test", "sf-1", "cfg-1"), undefined);
+});
+
+test("check runs are isolated per worktree even under the same instance and check id", () => {
+  const store = openStoreWithInstance();
+  store.recordCheckRun(recordCheckRunInput({ runId: "cr-a", worktreeId: "wt-a" }));
+  assert.equal(store.findReusableCheckRun(instanceId, "wt-b", "test", "sf-1", "cfg-1"), undefined);
+  assert.equal(store.findReusableCheckRun(instanceId, "wt-a", "test", "sf-1", "cfg-1")?.runId, "cr-a");
+});
+
+test("findReusableCheckRun returns the most recently recorded matching passed run", () => {
+  const store = openStoreWithInstance();
+  store.recordCheckRun(recordCheckRunInput({ runId: "cr-old", recordedAt: 1000 }));
+  store.recordCheckRun(recordCheckRunInput({ runId: "cr-new", recordedAt: 2000 }));
+  assert.equal(store.findReusableCheckRun(instanceId, "wt-1", "test", "sf-1", "cfg-1")?.runId, "cr-new");
+});
+
+test("listCheckRuns filters by checkId when provided", () => {
+  const store = openStoreWithInstance();
+  store.recordCheckRun(recordCheckRunInput({ runId: "cr-test", checkId: "test" }));
+  store.recordCheckRun(recordCheckRunInput({ runId: "cr-lint", checkId: "lint", stateFingerprint: "sf-lint" }));
+  const testOnly = store.listCheckRuns({ instanceId, worktreeId: "wt-1", checkId: "test" });
+  assert.deepEqual(testOnly.map((run) => run.runId), ["cr-test"]);
+});
