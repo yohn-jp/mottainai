@@ -226,6 +226,12 @@ export interface RecordValidationEvidenceInput {
  * governor が PASS を `validation_evidence` へも橋渡しする（`recordValidationEvidence` 経由）。
  */
 export type CheckRunStatus = "passed" | "failed";
+/**
+ * `"reused"` is reserved for a future reuse-audit trail — governor.ts's current reuse path
+ * (`runManagedCheck` matching a prior `status='passed'` row) cites the existing row's data
+ * directly in the receipt and never inserts a new `"reused"` row, to avoid unbounded growth
+ * from repeated no-op reuse. Only `"executed"` rows are persisted today.
+ */
 export type CheckRunExecution = "executed" | "reused";
 
 export interface CheckRunProvenance {

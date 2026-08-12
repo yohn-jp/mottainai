@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import type { ArtifactStore } from "../../retrieve.js";
 import { runProgram } from "../../subprocess.js";
+import { readGitStatus } from "../git/context.js";
 import type { RepositoryInstanceId } from "../domain/identity.js";
 import type { CheckRunProvenance, CheckRunRecord, WorkflowStateStore } from "../state/store.js";
 import { computeStateFingerprint, type StateFingerprintResult } from "./fingerprint.js";
@@ -191,6 +192,19 @@ function evidenceBridgeStatus(passed: boolean): "passed" | "failed" {
 }
 
 /**
+ * `identity.fingerprintResult.snapshot.overallClean` is measured before the check's process
+ * starts. A check that mutates tracked files as a side effect (a formatter, codegen, a build
+ * step that writes into a tracked path) can leave the worktree dirty by the time it finishes,
+ * even though it started clean. Bridging evidence into `validation_evidence` must not trust
+ * that stale, pre-execution snapshot — re-read Git status right before the write so the bridge
+ * only ever fires when the worktree is still clean at `headCommit` after the check ran.
+ */
+async function isWorkspaceCleanNow(workspaceRoot: string): Promise<boolean> {
+  const status = await readGitStatus(workspaceRoot);
+  return status.ok && status.status.entries.length === 0;
+}
+
+/**
  * Execute-or-reuse a managed check. A matching prior PASS (same instance/worktree/check/
  * fingerprint/config digest) is returned without starting a process (issue #184
  * "duplicate-success execution suppression"). A matching prior FAILURE is never reused
@@ -275,7 +289,7 @@ export async function runManagedCheck(
       artifactRef,
       provenance,
     });
-    if (check.evidenceName !== undefined && identity.fingerprintResult.snapshot.overallClean) {
+    if (check.evidenceName !== undefined && (await isWorkspaceCleanNow(context.workspaceRoot))) {
       context.store.recordValidationEvidence({
         instanceId: context.instanceId,
         headCommit: identity.fingerprintResult.headCommit,

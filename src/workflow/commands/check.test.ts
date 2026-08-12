@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import { test } from "node:test";
 import type { TestContext } from "node:test";
 import { InMemoryArtifactStore } from "../../retrieve.js";
@@ -6,6 +8,7 @@ import { createTempGitRepo } from "../../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../../test-support/workflow-store.js";
 import { getPreset } from "../policy/presets.js";
 import { startTask } from "../domain/task.js";
+import { computeStateFingerprint } from "../validation/fingerprint.js";
 import { getWorkflowValidationReceipt, runWorkflowCheck } from "./check.js";
 
 async function taskFixture(t: TestContext) {
@@ -22,7 +25,7 @@ async function taskFixture(t: TestContext) {
   });
   assert.equal(started.ok, true);
   if (!started.ok || started.worktree === undefined) throw new Error("test fixture task did not create a worktree");
-  return { store, worktree: started.worktree };
+  return { root, store, task: started.task, worktree: started.worktree };
 }
 
 const checks = [
@@ -61,6 +64,24 @@ test("getWorkflowValidationReceipt reports pending required checks without execu
   if (!result.ok) return;
   assert.equal(result.receipt.satisfied, false);
   assert.deepEqual(result.receipt.requiredPending, ["test"]);
+});
+
+test("runWorkflowCheck fingerprints and executes in the selected task's worktree, not an unrelated caller workspaceRoot (regression)", async (t) => {
+  const { root, store, task, worktree } = await taskFixture(t);
+  // Dirty the primary checkout (root) only — the task's dedicated worktree stays clean.
+  fs.writeFileSync(path.join(root, "unrelated-in-root.txt"), "dirty root, not the task worktree\n");
+
+  const expected = await computeStateFingerprint({ workspaceRoot: worktree.canonicalPath });
+  assert.equal(expected.ok, true);
+  if (!expected.ok) return;
+
+  const result = await runWorkflowCheck(
+    { workspaceRoot: root, store, taskId: task.taskId, checkId: "test" },
+    { artifactStore: new InMemoryArtifactStore(), checks },
+  );
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.receipt.fingerprint, expected.fingerprint);
 });
 
 test("a second runWorkflowCheck call for the same task reuses the prior passing execution", async (t) => {

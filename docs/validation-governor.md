@@ -7,7 +7,7 @@ state-aware な検証実行の管理層。「同じ repository/worktree の状�
 ## 設計不変条件
 
 1. Mottainai は検証の実行を最適化するだけで、要求される検証そのものを弱めない。
-2. 再利用された PASS は、特定の過去実行と一致した state に必ず帰属する（`provenance` に runId・fingerprint・configDigest を残す）。
+2. 再利用された PASS は、特定の過去実行と一致した state に必ず帰属する（receipt の `runId`/`fingerprint` と、`provenance.reasonCode`/`provenance.explanation` に一致した実行の詳細を残す）。
 3. state/configuration が確立できない、または一致しない場合は必ず実行する（不確実性は実行を強制する）。
 4. raw な stdout/stderr は成功時に model へ渡さない。`ArtifactStore` へ bounded 保存し、失敗時のみ bounded な診断行を返す。
 5. repository/worktree をまたいで結果が漏れない（`instance_id` + `worktree_id` で分離）。
@@ -26,7 +26,7 @@ state-aware な検証実行の管理層。「同じ repository/worktree の状�
 
 ## State fingerprint
 
-`scope` を宣言しない（既定）場合は worktree 全体の変更を対象にする — 最も保守的な既定値。`scope` を宣言した check は、その glob に一致する変更パスだけを fingerprint に含める。宣言された `configPaths`（例: `tsconfig.json`）は scope に関わらず常に内容を折り込む。
+`scope` を宣言しない（既定）場合は worktree 全体の変更を対象にする — 最も保守的な既定値。`scope` を宣言した check は、その glob に一致する変更パスだけを fingerprint に含める。パス名だけでなく、各変更パスの内容（`git hash-object` の blob digest）を折り込むため、同じパスでも内容が変われば fingerprint は必ず変わる。宣言された `configPaths`（例: `tsconfig.json`）は scope に関わらず常に内容を折り込む。
 
 これは issue #184 が明示的に除外する「投機的な依存グラフ」ではない — 宣言された literal path pattern を `git status` の出力へ機械的に突き合わせるだけで、意味解析・依存推論を行わない。
 
@@ -66,4 +66,4 @@ state-aware な検証実行の管理層。「同じ repository/worktree の状�
 }
 ```
 
-6 回の呼び出しのうち 3 回が無関係な変更後の再利用（プロセス起動なし）になり、model-visible な byte 数は約 96% 削減される。
+6 回の呼び出しのうち 3 回がプロセスを起動しない reuse になる（うち2回は無関係な変更後の再実行、1回は変更なしでの再実行）。model-visible な byte 数は約 96% 削減される。

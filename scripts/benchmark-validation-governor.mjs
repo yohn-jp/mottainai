@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -128,6 +129,18 @@ async function main() {
     const totalGovernedExecutions = results.filter((row) => row.governedExecuted).length;
     const totalNaiveBytes = results.reduce((sum, row) => sum + row.naiveBytes, 0);
     const totalGovernedBytes = results.reduce((sum, row) => sum + row.governedBytes, 0);
+
+    // A broken governor (e.g. a reuse regression) must fail this benchmark, not just print a
+    // weaker number silently — assert the exact predicted execution/reuse sequence for this
+    // session and that governed output is materially smaller than the naive baseline.
+    const expectedExecution = ["executed", "reused", "reused", "executed", "executed", "reused"];
+    const actualExecution = results.map((row) => row.governedExecution);
+    assert.deepStrictEqual(
+      actualExecution,
+      expectedExecution,
+      `unexpected governed execution sequence: ${JSON.stringify(actualExecution)}`,
+    );
+    assert.ok(totalGovernedBytes < totalNaiveBytes, "governed output must be smaller than the naive baseline");
 
     const summary = {
       benchmark: "validation-governor",

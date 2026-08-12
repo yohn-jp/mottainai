@@ -227,3 +227,21 @@ test("evidence is not bridged into validation_evidence when the worktree is dirt
   const evidence = ctx.store.listValidationEvidence(instanceId, headResult);
   assert.equal(evidence.length, 0);
 });
+
+test("evidence is not bridged when the check itself leaves the worktree dirty as a side effect (regression: cleanliness must be re-checked after execution, not before)", async (t) => {
+  const root = createTempGitRepo(t);
+  const ctx = context(t, root);
+  const targetPath = path.join(root, "file.txt").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const check = nodeCheck({
+    evidenceName: "test",
+    // The repository starts clean, so `overallClean` measured *before* execution is true.
+    // This script then mutates a tracked file as a side effect before exiting successfully,
+    // leaving the worktree dirty by the time the check finishes.
+    args: ["-e", `require('fs').writeFileSync('${targetPath}', 'mutated by check\\n')`],
+  });
+  const receipt = await runManagedCheck(ctx, check);
+  assert.equal(receipt.status, "passed");
+  const headResult = runGit(["rev-parse", "HEAD"], root);
+  const evidence = ctx.store.listValidationEvidence(instanceId, headResult);
+  assert.equal(evidence.length, 0);
+});

@@ -4,6 +4,20 @@ import type { ManagedCheckDefinition } from "./registry.js";
 const DEFAULT_MAX_DIAGNOSTIC_LINES = 40;
 const DEFAULT_MAX_DIAGNOSTIC_BYTES = 4_000;
 
+/** UTF-8 の途中で切らない末尾切り詰め（マルチバイト文字を壊さない）。 */
+function truncateUtf8(value: string, maxBytes: number): string {
+  const bytes = Buffer.from(value, "utf8");
+  if (bytes.byteLength <= maxBytes || maxBytes <= 0) return maxBytes <= 0 ? "" : value;
+  for (let end = maxBytes; end >= 0; end -= 1) {
+    try {
+      return new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, end));
+    } catch {
+      // 切断位置がマルチバイト文字の途中だった。1 byte 戻して再試行する。
+    }
+  }
+  return "";
+}
+
 /**
  * issue #184 の「bounded retrievable failure detail」: 失敗時に model へ渡すのは
  * stderr/stdout の末尾を bounded に切り出した診断だけ。完全な raw 出力は呼び出し側が
@@ -22,7 +36,16 @@ export function boundedFailureDiagnostics(
   for (let index = tail.length - 1; index >= 0; index -= 1) {
     const line = tail[index]!;
     const lineBytes = Buffer.byteLength(line, "utf8") + 1;
-    if (bytes + lineBytes > maxBytes) break;
+    if (bytes + lineBytes > maxBytes) {
+      // 末尾（最新）の1行が単独で予算を超える場合でも、診断を空にせず切り詰めて残す
+      // （1行しかない失敗ログ、例: 1行の JSON エラーや minify 済みスタック、が
+      // 「診断なし」に潰れないようにする）。
+      if (bounded.length === 0) {
+        const truncated = truncateUtf8(line, Math.max(0, maxBytes - 1));
+        if (truncated.length > 0) bounded.push(truncated);
+      }
+      break;
+    }
     bounded.unshift(line);
     bytes += lineBytes;
   }

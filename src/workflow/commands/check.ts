@@ -24,16 +24,30 @@ function failure(reason: string, detail: string): WorkflowWriteFailure {
   return { ok: false, reason, detail };
 }
 
+/**
+ * A caller-supplied `taskId` can select a task whose active worktree differs from the
+ * caller's own `workspaceRoot` (e.g. `input.workspaceRoot` is the repository root while the
+ * selected task runs in a dedicated `.mottainai/worktrees/*` checkout). Fingerprinting and
+ * executing the check in the wrong directory while recording evidence under the selected
+ * worktree's identity would be silently incorrect, so resolve the actual worktree path.
+ */
 async function resolveContext(
   input: WorkflowTaskSelector,
   dependencies: WorkflowCheckDependencies,
 ): Promise<WorkflowWriteResult<{ context: ManagedCheckContext }>> {
   const selected = await resolveWorkflowTask(input);
   if (!selected.ok) return selected;
+  let workspaceRoot = input.workspaceRoot;
+  if (selected.worktreeId !== undefined) {
+    const worktree = input.store
+      .listWorktreesForTask(selected.taskId)
+      .find((candidate) => candidate.worktreeId === selected.worktreeId);
+    if (worktree !== undefined) workspaceRoot = worktree.canonicalPath;
+  }
   return {
     ok: true,
     context: {
-      workspaceRoot: input.workspaceRoot,
+      workspaceRoot,
       store: input.store,
       artifactStore: dependencies.artifactStore,
       instanceId: selected.instanceId,

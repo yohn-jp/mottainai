@@ -1,7 +1,12 @@
 /**
- * Managed check identity/configuration (issue #184 Phase 1). This is the only place a
- * check command may be declared for governor reuse — it deliberately does not accept
- * arbitrary caller-supplied commands (issue #184 excludes "arbitrary command caching").
+ * Managed check identity/configuration (issue #184 Phase 1). `runManagedCheck`/
+ * `assessManagedCheck` in governor.ts accept any `ManagedCheckDefinition` object directly —
+ * that low-level entry point is used by tests and the benchmark fixture. The allowlist
+ * guarantee ("no arbitrary caller-supplied commands", issue #184) is enforced one layer up,
+ * at the only agent/caller-facing entry points: `src/workflow/commands/check.ts` and the
+ * `mottainai_workflow_check_run`/`mottainai_workflow_validation_receipt` MCP tools, which
+ * accept only a `checkId` string and resolve it against this registry (or an explicit
+ * repository-configured override, never a per-call caller-supplied command).
  * Identities intentionally reuse `src/semantics/verification/planner.ts`'s
  * `DEFAULT_VERIFICATION_CHECKS`/`DEFAULT_FULL_VERIFICATION` command strings so the
  * governor is not a second, drifting authority for what "lint"/"typecheck"/"build"/"verify"

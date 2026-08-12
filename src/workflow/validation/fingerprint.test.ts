@@ -136,3 +136,18 @@ test("a git repo with no commits (unborn HEAD) yields ok: false", async (t) => {
   const result = await computeStateFingerprint({ workspaceRoot: root });
   assert.equal(result.ok, false);
 });
+
+test("a staged deletion does not break fingerprint computation (regression: fully-staged delete must be excluded from hash-object)", async (t) => {
+  const root = createTempGitRepo(t);
+  fs.writeFileSync(path.join(root, "removable.txt"), "bye\n");
+  runGit(["add", "removable.txt"], root);
+  runGit(["commit", "--quiet", "-m", "add removable"], root);
+
+  runGit(["rm", "--quiet", "removable.txt"], root);
+  const afterStagedDelete = await computeStateFingerprint({ workspaceRoot: root });
+  assert.equal(afterStagedDelete.ok, true);
+  if (!afterStagedDelete.ok) return;
+  const entry = afterStagedDelete.snapshot.changed.find((item) => item.path === "removable.txt");
+  assert.notEqual(entry, undefined);
+  assert.equal(entry?.contentDigest, "deleted");
+});
