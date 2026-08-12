@@ -75,13 +75,22 @@ test("runWorkflowCheck fingerprints and executes in the selected task's worktree
   assert.equal(expected.ok, true);
   if (!expected.ok) return;
 
+  const artifactStore = new InMemoryArtifactStore();
+  const cwdEchoingChecks = [
+    { id: "test", label: "fast tests", command: process.execPath, args: ["-e", "console.log(process.cwd())"], required: true },
+  ];
   const result = await runWorkflowCheck(
     { workspaceRoot: root, store, taskId: task.taskId, checkId: "test" },
-    { artifactStore: new InMemoryArtifactStore(), checks },
+    { artifactStore, checks: cwdEchoingChecks },
   );
   assert.equal(result.ok, true);
   if (!result.ok) return;
+  // The fingerprint proves the worktree's repository state was used...
   assert.equal(result.receipt.fingerprint, expected.fingerprint);
+  // ...and this proves the check process itself actually ran there, not at `root`.
+  assert.notEqual(result.receipt.artifactRef, undefined);
+  const artifact = artifactStore.retrieve(result.receipt.artifactRef!);
+  assert.equal(artifact?.text.trim(), fs.realpathSync(worktree.canonicalPath));
 });
 
 test("a second runWorkflowCheck call for the same task reuses the prior passing execution", async (t) => {
