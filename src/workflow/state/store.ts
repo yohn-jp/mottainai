@@ -57,23 +57,64 @@ export type WorktreeId = string & { readonly __brand: "WorktreeId" };
 export type PullRequestRecordId = string & { readonly __brand: "PullRequestRecordId" };
 
 export type ManagerSessionId = string & { readonly __brand: "ManagerSessionId" };
+export type ManagerExecutionMode = "task-bound" | "workspace";
+export const MANAGER_AGENT_KINDS = ["codex", "claude"] as const;
+export type ManagerAgentKind = (typeof MANAGER_AGENT_KINDS)[number];
+export const MANAGER_RUNTIME_STATES = [
+  "starting",
+  "running",
+  "detached",
+  "exited",
+  "failed",
+  "stopped",
+  "stale",
+] as const;
+export type ManagerRuntimeState = (typeof MANAGER_RUNTIME_STATES)[number];
+export const MANAGER_RECONCILIATION_STATES = ["synced", "drifted", "unresolved"] as const;
+export type ManagerReconciliationState = (typeof MANAGER_RECONCILIATION_STATES)[number];
 export const MANAGER_SESSION_LIFECYCLE_STATES = ["starting", "running", "exited", "stopped", "failed"] as const;
 export type ManagerSessionLifecycleState = (typeof MANAGER_SESSION_LIFECYCLE_STATES)[number];
+
+export interface ManagerSessionReceipt {
+  code: string;
+  message: string;
+  source: "manager" | "zellij" | "workflow" | "runtime";
+  recordedAt: number;
+}
 
 export interface ManagerSessionRecord {
   sessionId: ManagerSessionId;
   workspaceRoot: string;
   taskId: TaskId | undefined;
+  /** Opaque external execution reference; ownership remains outside Manager. */
+  executionSessionId: string | undefined;
+  executionMode: ManagerExecutionMode;
   worktreeId: WorktreeId | undefined;
   worktreePath: string;
   branchName: string | undefined;
-  agentKind: "codex";
+  agentKind: ManagerAgentKind;
+  launchProfile: ManagerAgentKind;
+  instruction: string;
+  model: string | undefined;
+  taskSlug: string | undefined;
+  issueRef: string | undefined;
+  branchType: string | undefined;
   launchCommand: string;
   launchArgs: string[];
   runtimeName: string;
   lifecycleState: ManagerSessionLifecycleState;
+  runtimeState: ManagerRuntimeState;
+  semanticLifecycleState: LifecycleState | "unbound";
+  attachable: boolean;
+  reconciliationState: ManagerReconciliationState;
+  reconciliationMessage: string | undefined;
+  latestStatus: string | undefined;
+  latestReceipt: ManagerSessionReceipt | undefined;
   startedAt: number;
   updatedAt: number;
+  finishedAt: number | undefined;
+  runtimeObservedAt: number | undefined;
+  restartCount: number;
   exitCode: number | undefined;
   terminationState: "running" | "exited" | "stopped" | "failed" | undefined;
   errorMessage: string | undefined;
@@ -83,23 +124,53 @@ export interface CreateManagerSessionInput {
   sessionId: ManagerSessionId;
   workspaceRoot: string;
   taskId?: TaskId;
+  executionSessionId?: string;
+  executionMode?: ManagerExecutionMode;
   worktreeId?: WorktreeId;
   worktreePath: string;
   branchName?: string;
-  agentKind: "codex";
+  agentKind: ManagerAgentKind;
+  launchProfile?: ManagerAgentKind;
+  instruction?: string;
+  model?: string;
+  taskSlug?: string;
+  issueRef?: string;
+  branchType?: string;
   launchCommand: string;
   launchArgs: readonly string[];
   runtimeName: string;
   lifecycleState?: ManagerSessionLifecycleState;
+  runtimeState?: ManagerRuntimeState;
+  semanticLifecycleState?: LifecycleState | "unbound";
+  attachable?: boolean;
+  reconciliationState?: ManagerReconciliationState;
+  reconciliationMessage?: string | null;
+  latestStatus?: string | null;
+  latestReceipt?: ManagerSessionReceipt;
   startedAt?: number;
 }
 
 export interface UpdateManagerSessionInput {
   lifecycleState?: ManagerSessionLifecycleState;
-  exitCode?: number;
+  runtimeState?: ManagerRuntimeState;
+  semanticLifecycleState?: LifecycleState | "unbound";
+  attachable?: boolean;
+  reconciliationState?: ManagerReconciliationState;
+  reconciliationMessage?: string | null;
+  latestStatus?: string | null;
+  latestReceipt?: ManagerSessionReceipt;
+  exitCode?: number | null;
+  finishedAt?: number | null;
+  runtimeObservedAt?: number | null;
+  restartCount?: number;
   terminationState?: ManagerSessionRecord["terminationState"];
-  errorMessage?: string;
+  errorMessage?: string | null;
   updatedAt?: number;
+}
+
+export interface ListManagerSessionsOptions {
+  limit?: number;
+  runtimeStates?: readonly ManagerRuntimeState[];
 }
 
 export interface TaskRecord {
@@ -474,7 +545,7 @@ export interface WorkflowStateStore {
   listWorktrees(instanceId?: RepositoryInstanceId): WorktreeRecord[];
   createManagerSession(input: CreateManagerSessionInput): ManagerSessionRecord;
   getManagerSession(sessionId: ManagerSessionId): ManagerSessionRecord | undefined;
-  listManagerSessions(workspaceRoot?: string): ManagerSessionRecord[];
+  listManagerSessions(workspaceRoot?: string, options?: ListManagerSessionsOptions): ManagerSessionRecord[];
   updateManagerSession(sessionId: ManagerSessionId, input: UpdateManagerSessionInput): ManagerSessionRecord;
   /** `reserved`/`mutating`/`verifying` の期限切れを reconciliation が検出するための全件参照。 */
   listCleanupLeases(instanceId?: RepositoryInstanceId): CleanupLeaseRecord[];

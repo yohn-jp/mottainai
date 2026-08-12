@@ -65,6 +65,12 @@ test("Manager HTTP API exposes session state and selected open/stop actions", as
   const listed = await fetch(`${handle.url}api/v1/manager/sessions`);
   assert.equal(listed.status, 200);
   assert.equal((await listed.json()).sessions.length, 1);
+  const filtered = await fetch(`${handle.url}api/v1/manager/sessions?runtimeState=running&agent=codex&limit=1`);
+  assert.equal(filtered.status, 200);
+  assert.equal((await filtered.json()).sessions.length, 1);
+  const detail = await fetch(`${handle.url}api/v1/manager/sessions/${created.sessionId}`);
+  assert.equal(detail.status, 200);
+  assert.equal((await detail.json()).session.runtimeName, created.runtimeName);
   const opened = await fetch(`${handle.url}api/v1/manager/sessions/${created.sessionId}/open-terminal`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -79,6 +85,19 @@ test("Manager HTTP API exposes session state and selected open/stop actions", as
   });
   assert.equal(stopped.status, 200);
   assert.equal((await stopped.json()).session.lifecycleState, "stopped");
+  const restarted = await fetch(`${handle.url}api/v1/manager/sessions/${created.sessionId}/restart`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(restarted.status, 200);
+  assert.equal((await restarted.json()).session.runtimeState, "running");
+  const reconciled = await fetch(`${handle.url}api/v1/manager/reconcile`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(reconciled.status, 200);
 
   const rejected = await fetch(`${handle.url}api/v1/manager/sessions`, {
     method: "POST",

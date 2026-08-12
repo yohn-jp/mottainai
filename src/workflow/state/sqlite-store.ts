@@ -40,6 +40,7 @@ import type {
   ListGuardrailAuditRecordsOptions,
   ManagerSessionId,
   ManagerSessionRecord,
+  ManagerSessionReceipt,
   MarkCleanupLeaseInput,
   RecordGuardrailDecisionInput,
   ReserveCleanupLeaseInput,
@@ -70,6 +71,13 @@ function restrictToOwner(targetPath: string, mode: number): void {
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
   }
+}
+
+const MAX_MANAGER_DIAGNOSTIC_LENGTH = 512;
+
+function managerDiagnostic(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  return String(value).slice(0, MAX_MANAGER_DIAGNOSTIC_LENGTH);
 }
 
 function toSourceRecord(row: Record<string, unknown>): RepositorySourceRecord {
@@ -167,23 +175,75 @@ function toManagerSessionRecord(row: Record<string, unknown>): ManagerSessionRec
   } catch (error) {
     throw new Error(`invalid manager session launch args: ${error instanceof Error ? error.message : String(error)}`);
   }
+  let latestReceipt: ManagerSessionReceipt | undefined;
+  if (typeof row.latest_receipt_json === "string" && row.latest_receipt_json.length > 0) {
+    try {
+      const parsed: unknown = JSON.parse(row.latest_receipt_json);
+      if (
+        typeof parsed === "object" &&
+        parsed !== null &&
+        typeof (parsed as Record<string, unknown>).code === "string" &&
+        typeof (parsed as Record<string, unknown>).message === "string" &&
+        ["manager", "zellij", "workflow", "runtime"].includes(String((parsed as Record<string, unknown>).source)) &&
+        typeof (parsed as Record<string, unknown>).recordedAt === "number"
+      ) {
+        latestReceipt = {
+          ...(parsed as ManagerSessionReceipt),
+          message: String((parsed as ManagerSessionReceipt).message).slice(0, MAX_MANAGER_DIAGNOSTIC_LENGTH),
+        };
+      }
+    } catch {
+      // A malformed optional receipt must not make the whole bounded session list unreadable.
+    }
+  }
+  const lifecycleState = row.lifecycle_state as ManagerSessionRecord["lifecycleState"];
+  const runtimeState = (row.runtime_state as ManagerSessionRecord["runtimeState"] | null) ?? lifecycleState;
+  const instruction =
+    typeof row.instruction === "string" && row.instruction.length > 0 ? row.instruction : (launchArgs.at(-1) ?? "");
   return {
     sessionId: row.session_id as ManagerSessionId,
     workspaceRoot: row.workspace_root as string,
     taskId: (row.task_id as TaskId | null) ?? undefined,
+    executionSessionId: (row.execution_session_id as string | null) ?? undefined,
+    executionMode:
+      (row.execution_mode as ManagerSessionRecord["executionMode"] | null) ??
+      (row.task_id === null ? "workspace" : "task-bound"),
     worktreeId: (row.worktree_id as WorktreeId | null) ?? undefined,
     worktreePath: row.worktree_path as string,
     branchName: (row.branch_name as string | null) ?? undefined,
-    agentKind: row.agent_kind as "codex",
+    agentKind: row.agent_kind as ManagerSessionRecord["agentKind"],
+    launchProfile:
+      (row.launch_profile as ManagerSessionRecord["launchProfile"] | null) ??
+      (row.agent_kind as ManagerSessionRecord["agentKind"]),
+    instruction,
+    model: (row.model as string | null) ?? undefined,
+    taskSlug: (row.task_slug as string | null) ?? undefined,
+    issueRef: (row.issue_ref as string | null) ?? undefined,
+    branchType: (row.branch_type as string | null) ?? undefined,
     launchCommand: row.launch_command as string,
     launchArgs,
     runtimeName: row.runtime_name as string,
-    lifecycleState: row.lifecycle_state as ManagerSessionRecord["lifecycleState"],
+    lifecycleState,
+    runtimeState,
+    semanticLifecycleState:
+      (row.semantic_lifecycle_state as ManagerSessionRecord["semanticLifecycleState"] | null) ??
+      (row.task_id === null || row.task_id === undefined ? "unbound" : "active"),
+    attachable:
+      row.attachable === undefined || row.attachable === null
+        ? runtimeState === "running" || runtimeState === "detached"
+        : row.attachable === 1,
+    reconciliationState: (row.reconciliation_state as ManagerSessionRecord["reconciliationState"] | null) ?? "synced",
+    reconciliationMessage: managerDiagnostic(row.reconciliation_message),
+    latestStatus: managerDiagnostic(row.latest_status),
+    latestReceipt,
     startedAt: row.started_at as number,
     updatedAt: row.updated_at as number,
+    finishedAt: (row.finished_at as number | null) ?? undefined,
+    runtimeObservedAt: (row.runtime_observed_at as number | null) ?? undefined,
+    restartCount: (row.restart_count as number | null) ?? 0,
     exitCode: (row.exit_code as number | null) ?? undefined,
     terminationState: (row.termination_state as ManagerSessionRecord["terminationState"] | null) ?? undefined,
-    errorMessage: (row.error_message as string | null) ?? undefined,
+    errorMessage: managerDiagnostic(row.error_message),
   };
 }
 
@@ -631,7 +691,10 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
 
   listCheckRuns(filter: ListCheckRunsFilter): CheckRunRecord[] {
     const limit = normalizeCheckRunLimit(filter.limit);
-    const where = filter.checkId === undefined ? "WHERE instance_id = ? AND worktree_id = ? " : "WHERE instance_id = ? AND worktree_id = ? AND check_id = ? ";
+    const where =
+      filter.checkId === undefined
+        ? "WHERE instance_id = ? AND worktree_id = ? "
+        : "WHERE instance_id = ? AND worktree_id = ? AND check_id = ? ";
     const params =
       filter.checkId === undefined
         ? [filter.instanceId, filter.worktreeId, limit]
@@ -836,28 +899,57 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
   createManagerSession(input: CreateManagerSessionInput): ManagerSessionRecord {
     const startedAt = input.startedAt ?? Date.now();
     const lifecycleState = input.lifecycleState ?? "starting";
+    const runtimeState = input.runtimeState ?? lifecycleState;
+    const semanticLifecycleState = input.semanticLifecycleState ?? (input.taskId === undefined ? "unbound" : "active");
+    const instruction = input.instruction ?? input.launchArgs.at(-1) ?? "";
+    const launchProfile = input.launchProfile ?? input.agentKind;
+    const attachable = input.attachable ?? (runtimeState === "running" || runtimeState === "detached");
+    const reconciliationState = input.reconciliationState ?? "synced";
     this.handle()
       .prepare(
         `INSERT INTO manager_sessions
-          (session_id, workspace_root, task_id, worktree_id, worktree_path, branch_name, agent_kind,
-           launch_command, launch_args_json, runtime_name, lifecycle_state, started_at, updated_at,
-           termination_state)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (session_id, workspace_root, task_id, execution_session_id, execution_mode, worktree_id, worktree_path, branch_name,
+           task_slug, issue_ref, branch_type, agent_kind, launch_profile, instruction, model,
+           launch_command, launch_args_json, runtime_name, lifecycle_state, runtime_state,
+           semantic_lifecycle_state, attachable, reconciliation_state, reconciliation_message,
+           latest_status, latest_receipt_json, started_at, updated_at, finished_at,
+           runtime_observed_at, restart_count, termination_state)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32)`,
       )
       .run(
         input.sessionId,
         input.workspaceRoot,
         input.taskId ?? null,
+        input.executionSessionId ?? null,
+        input.executionMode ?? (input.taskId === undefined ? "workspace" : "task-bound"),
         input.worktreeId ?? null,
         input.worktreePath,
         input.branchName ?? null,
+        input.taskSlug ?? null,
+        input.issueRef ?? null,
+        input.branchType ?? null,
         input.agentKind,
+        launchProfile,
+        instruction,
+        input.model ?? null,
         input.launchCommand,
         JSON.stringify([...input.launchArgs]),
         input.runtimeName,
         lifecycleState,
+        runtimeState,
+        semanticLifecycleState,
+        attachable ? 1 : 0,
+        reconciliationState,
+        managerDiagnostic(input.reconciliationMessage) ?? null,
+        managerDiagnostic(input.latestStatus) ?? null,
+        input.latestReceipt === undefined
+          ? null
+          : JSON.stringify({ ...input.latestReceipt, message: managerDiagnostic(input.latestReceipt.message) ?? "" }),
         startedAt,
         startedAt,
+        null,
+        null,
+        0,
         lifecycleState === "running" ? "running" : null,
       );
     return this.getManagerSession(input.sessionId)!;
@@ -870,16 +962,31 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     return row === undefined ? undefined : toManagerSessionRecord(row);
   }
 
-  listManagerSessions(workspaceRoot?: string): ManagerSessionRecord[] {
-    const rows = (
-      workspaceRoot === undefined
-        ? this.handle().prepare("SELECT * FROM manager_sessions ORDER BY started_at DESC, session_id DESC").all()
-        : this.handle()
-            .prepare(
-              "SELECT * FROM manager_sessions WHERE workspace_root = ? ORDER BY started_at DESC, session_id DESC",
-            )
-            .all(workspaceRoot)
-    ) as Record<string, unknown>[];
+  listManagerSessions(
+    workspaceRoot?: string,
+    options: { limit?: number; runtimeStates?: readonly ManagerSessionRecord["runtimeState"][] } = {},
+  ): ManagerSessionRecord[] {
+    const requestedLimit = options.limit;
+    const limit =
+      requestedLimit === undefined || !Number.isFinite(requestedLimit)
+        ? 500
+        : Math.min(Math.max(Math.trunc(requestedLimit), 1), 1000);
+    const runtimeStates = [...new Set(options.runtimeStates ?? [])];
+    if (options.runtimeStates !== undefined && runtimeStates.length === 0) return [];
+    const clauses: string[] = [];
+    const parameters: Array<string | number> = [];
+    if (workspaceRoot !== undefined) {
+      clauses.push("workspace_root = ?");
+      parameters.push(workspaceRoot);
+    }
+    if (runtimeStates.length > 0) {
+      clauses.push(`runtime_state IN (${runtimeStates.map(() => "?").join(", ")})`);
+      parameters.push(...runtimeStates);
+    }
+    const where = clauses.length === 0 ? "" : ` WHERE ${clauses.join(" AND ")}`;
+    const rows = this.handle()
+      .prepare(`SELECT * FROM manager_sessions${where} ORDER BY started_at DESC, session_id DESC LIMIT ?`)
+      .all(...parameters, limit) as Record<string, unknown>[];
     return rows.map(toManagerSessionRecord);
   }
 
@@ -891,14 +998,48 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       if (current === undefined) throw new Error(`manager session not found: ${sessionId}`);
       const updatedAt = input.updatedAt ?? Date.now();
       const nextState = input.lifecycleState ?? current.lifecycleState;
-      const nextExitCode = input.exitCode ?? current.exitCode;
+      const nextRuntimeState = input.runtimeState ?? current.runtimeState;
+      const nextSemanticState = input.semanticLifecycleState ?? current.semanticLifecycleState;
+      const nextAttachable = input.attachable ?? current.attachable;
+      const nextReconciliation = input.reconciliationState ?? current.reconciliationState;
+      const nextReconciliationMessage =
+        input.reconciliationMessage === undefined ? current.reconciliationMessage : input.reconciliationMessage;
+      const nextLatestStatus = input.latestStatus === undefined ? current.latestStatus : input.latestStatus;
+      const nextReceipt = input.latestReceipt === undefined ? current.latestReceipt : input.latestReceipt;
+      const nextExitCode = input.exitCode === undefined ? current.exitCode : input.exitCode;
+      const nextFinishedAt = input.finishedAt === undefined ? current.finishedAt : input.finishedAt;
+      const nextObservedAt =
+        input.runtimeObservedAt === undefined ? current.runtimeObservedAt : input.runtimeObservedAt;
+      const nextRestartCount = input.restartCount ?? current.restartCount;
       const nextTermination = input.terminationState === undefined ? current.terminationState : input.terminationState;
       const nextError = input.errorMessage === undefined ? current.errorMessage : input.errorMessage;
       db.prepare(
         `UPDATE manager_sessions
-         SET lifecycle_state = ?, updated_at = ?, exit_code = ?, termination_state = ?, error_message = ?
+         SET lifecycle_state = ?, runtime_state = ?, semantic_lifecycle_state = ?, attachable = ?,
+             reconciliation_state = ?, reconciliation_message = ?, latest_status = ?, latest_receipt_json = ?,
+             updated_at = ?, finished_at = ?, runtime_observed_at = ?, restart_count = ?,
+             exit_code = ?, termination_state = ?, error_message = ?
          WHERE session_id = ?`,
-      ).run(nextState, updatedAt, nextExitCode ?? null, nextTermination ?? null, nextError ?? null, sessionId);
+      ).run(
+        nextState,
+        nextRuntimeState,
+        nextSemanticState,
+        nextAttachable ? 1 : 0,
+        nextReconciliation,
+        managerDiagnostic(nextReconciliationMessage) ?? null,
+        managerDiagnostic(nextLatestStatus) ?? null,
+        nextReceipt === undefined
+          ? null
+          : JSON.stringify({ ...nextReceipt, message: managerDiagnostic(nextReceipt.message) ?? "" }),
+        updatedAt,
+        nextFinishedAt ?? null,
+        nextObservedAt ?? null,
+        nextRestartCount,
+        nextExitCode ?? null,
+        nextTermination ?? null,
+        managerDiagnostic(nextError) ?? null,
+        sessionId,
+      );
       const updated = this.getManagerSession(sessionId)!;
       db.exec("COMMIT");
       return updated;
