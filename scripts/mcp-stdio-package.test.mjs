@@ -291,3 +291,58 @@ test(
     }
   },
 );
+
+test(
+  "packed artifact starts Manager and serves the strengthened control-plane asset",
+  { timeout: BLACKBOX_TIMEOUTS.test },
+  async () => {
+    const workspace = createWorkspace();
+    const fakeZellij = path.join(workspace, "zellij");
+    fs.writeFileSync(
+      fakeZellij,
+      "#!/usr/bin/env node\nconst args=process.argv.slice(2);if(args[0]==='--version'){console.log('zellij 0.40.0');process.exit(0)}if(args[0]==='list-sessions'){process.exit(0)}process.exit(0);\n",
+      { mode: 0o755 },
+    );
+    const { command, args } = resolvePackagedCommand(binPath);
+    const child = spawn(command, [...args, "manager", "--no-open", "--port", "0"], {
+      cwd: workspace,
+      env: { ...isolatedEnv(workspace), MOTTAINAI_ZELLIJ_BINARY: fakeZellij },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    const ready = new Promise((resolve, reject) => {
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk.toString();
+        const match = stdout.match(/Mottainai manager listening at (http:\/\/127\.0\.0\.1:\d+\/)/u);
+        if (match?.[1] !== undefined) resolve(match[1]);
+      });
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk.toString();
+      });
+      child.once("error", reject);
+      child.once("exit", (code) => reject(new Error(`packed Manager exited before ready: ${code}\n${stderr}`)));
+    });
+    try {
+      const url = await ready;
+      const health = await fetch(`${url}api/v1/manager/health`);
+      assert.equal(health.status, 200);
+      assert.equal((await health.json()).zellij.version, "zellij 0.40.0");
+      const viewer = await fetch(url);
+      assert.match(viewer.headers.get("content-type") ?? "", /^text\/html/u);
+      const html = await viewer.text();
+      assert.match(html, /Mottainai Manager/u);
+      assert.match(html, /Claude Code CLI/u);
+      child.kill("SIGTERM");
+      const exit = await new Promise((resolve, reject) => {
+        child.once("error", reject);
+        child.once("exit", (code, signal) => resolve({ code, signal }));
+      });
+      assert.equal(exit.code, 0);
+      assert.equal(exit.signal, null);
+    } finally {
+      if (!child.killed) child.kill("SIGTERM");
+      fs.rmSync(workspace, { recursive: true, force: true });
+    }
+  },
+);

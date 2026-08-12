@@ -17,7 +17,8 @@ class HermeticZellijRuntime implements ZellijRuntime {
 
   async inspect(name: string): Promise<ZellijObservedState> {
     const child = this.children.get(name);
-    return child !== undefined && child.exitCode === null ? "running" : "absent";
+    if (child === undefined) return "absent";
+    return child.exitCode === null ? "running" : "exited";
   }
 
   async start(input: { sessionName: string; cwd: string; command: string; args: readonly string[] }): Promise<void> {
@@ -77,6 +78,7 @@ test("Manager -> managed worktree -> hermetic Zellij runtime -> disposable CLI p
   const reconciled = await service.list();
   const restored = reconciled.find((candidate) => candidate.sessionId === session.sessionId);
   assert.equal(restored?.lifecycleState, "exited");
+  assert.equal(restored?.runtimeState, "exited");
   assert.equal(restored?.worktreePath, session.worktreePath);
   assert.equal(fs.readFileSync(`${session.worktreePath}/manager-e2e-marker`, "utf8"), "ok");
 });
