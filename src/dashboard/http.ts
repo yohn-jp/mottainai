@@ -23,14 +23,21 @@ import { createSemanticProjectionQuery, type SemanticProjectionQuery } from "../
 export const LOOPBACK_HOST = "127.0.0.1";
 export const DEFAULT_DASHBOARD_PORT = 4317;
 const API_PREFIX = "/api/v1";
+export const MANAGER_API_PREFIX = "/api/v1/manager";
+
+export interface ManagerHttpHandler {
+  handle(request: IncomingMessage, response: ServerResponse, url: URL): Promise<void>;
+}
 
 export interface DashboardServerOptions {
   query: RepositorySemanticQuery;
   /** Optional domain projection adapter; defaults to the same query provider. */
   projections?: SemanticProjectionQuery;
   viewerHtml: string;
+  serviceName?: string;
   host?: string;
   port?: number;
+  manager?: ManagerHttpHandler;
 }
 
 export interface DashboardServerHandle {
@@ -252,6 +259,13 @@ async function route(
     sendError(response, 403, "forbidden", "dashboard accepts loopback host headers only", url.pathname);
     return;
   }
+  if (
+    options.manager !== undefined &&
+    (url.pathname === MANAGER_API_PREFIX || url.pathname.startsWith(`${MANAGER_API_PREFIX}/`))
+  ) {
+    await options.manager.handle(request, response, url);
+    return;
+  }
   if (method !== "GET") {
     response.setHeader("allow", "GET");
     sendError(response, 405, "method_not_allowed", "dashboard accepts GET requests only", url.pathname);
@@ -278,6 +292,7 @@ function errorDetails(error: unknown): { statusCode: number; code: string; messa
 export async function startDashboardServer(options: DashboardServerOptions): Promise<DashboardServerHandle> {
   const host = options.host ?? LOOPBACK_HOST;
   const port = options.port ?? DEFAULT_DASHBOARD_PORT;
+  const serviceName = options.serviceName ?? "dashboard";
   if (!Number.isInteger(port) || port < 0 || port > 65_535)
     throw new Error("dashboard port must be an integer between 0 and 65535");
   if (host !== LOOPBACK_HOST && host !== "localhost") throw new Error("dashboard host must be loopback");
@@ -303,8 +318,8 @@ export async function startDashboardServer(options: DashboardServerOptions): Pro
       if ((error as NodeJS.ErrnoException).code === "EADDRINUSE") {
         reject(
           new Error(
-            `dashboard port ${port} is already in use (another dashboard may already be running)\n` +
-              `stop it first, or retry with: mottainai dashboard --port <port>`,
+            `${serviceName} port ${port} is already in use (another ${serviceName} may already be running)\n` +
+              `stop it first, or retry with: mottainai ${serviceName} --port <port>`,
           ),
         );
         return;

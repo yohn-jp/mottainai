@@ -169,6 +169,8 @@ test(
   async () => {
     const workspace = createWorkspace();
     const { command, args } = resolvePackagedCommand(binPath);
+    const managerAsset = path.join(path.dirname(binPath), "dashboard", "manager-v0.html");
+    assert.equal(fs.existsSync(managerAsset), true, "packed artifact must include the Manager UI asset");
     const child = spawn(command, [...args, "dashboard", "--no-open", "--port", "0"], {
       cwd: workspace,
       env: isolatedEnv(workspace),

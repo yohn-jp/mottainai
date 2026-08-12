@@ -225,6 +225,22 @@ Repository Model provider with `--provider live` or
 `MOTTAINAI_DASHBOARD_PROVIDER=live`; live compilation reads current TypeScript
 facts and reports partial, stale, or unavailable integrity state explicitly.
 
+### Zellij-backed Manager v0 (Issue #182)
+
+Launch the local Manager UI for durable, parallel Codex CLI sessions:
+
+```bash
+npx -y mottainai manager
+npx -y mottainai manager --no-open --port 4318
+```
+
+The Manager binds to `127.0.0.1` by default and requires an executable Zellij.
+It creates task-bound sessions through the existing managed task/worktree
+lifecycle, then starts Codex in the canonical worktree through a named Zellij
+session. Mottainai stores the task/session relationship and reconciles runtime
+state; Zellij remains responsible for terminal transport, attach/detach, panes,
+and persistence. Existing Mottainai commands do not require Zellij.
+
 ### Git workflow task lifecycle (Issue #40)
 
 Behind `gateway.workflowTasks: true` in `mottainai.config.json`, the MCP

@@ -22,6 +22,7 @@ const integrationPatterns = Object.freeze([
   "src/dashboard/command.integration.test.ts",
   "src/dashboard/http.test.ts",
   "src/dashboard/provider.integration.test.ts",
+  "src/manager/**/*.test.ts",
   "src/envelope.test.ts",
   "src/gitignore.test.ts",
   "src/hooks/hooks.test.ts",
