@@ -13,6 +13,7 @@ import type { ManagerExecutionAuthority } from "../workflow/domain/manager-execu
 import { ManagerHttpApi } from "./http.js";
 import { readManagerViewer } from "./assets.js";
 import { ManagerSessionService } from "./service.js";
+import { NawabariExecutionClient } from "../workflow/nawabari.js";
 import { ZellijCliRuntime, type ZellijRuntime } from "./zellij.js";
 
 export const DEFAULT_MANAGER_PORT = 4318;
@@ -112,6 +113,7 @@ export async function startManager(options: ManagerStartOptions): Promise<Dashbo
     workspaceRoot,
     store,
     runtime,
+    nawabari: new NawabariExecutionClient(),
     agentCommands: options.agentCommands,
     executionAuthority: options.executionAuthority,
   });

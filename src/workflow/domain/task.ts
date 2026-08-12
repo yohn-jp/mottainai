@@ -237,6 +237,10 @@ function reusableStartedTask(
   };
 }
 
+/**
+ * @deprecated Legacy state/worktree reference path retained for migration and
+ * regression evidence only. Production task entrypoints use NawabariTaskStart.
+ */
 export async function startTask(input: StartTaskInput): Promise<StartTaskResult> {
   const { workspaceRoot, store, policy, taskSlug, issueRef } = input;
 

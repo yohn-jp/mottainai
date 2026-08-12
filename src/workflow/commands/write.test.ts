@@ -1,14 +1,23 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { test, type TestContext } from "node:test";
-import { abandonWorkflowTask, cleanupWorkflowTask, commitWorkflowTask, finishWorkflowTask } from "./write.js";
+import {
+  abandonWorkflowTask,
+  cleanupWorkflowTask,
+  commitWorkflowTask,
+  finishWorkflowTask,
+  pushWorkflowTask,
+} from "./write.js";
 import { BUILTIN_PRESETS } from "../policy/presets.js";
 import { startTask } from "../domain/task.js";
 import { createTempGitRepo, runGit } from "../../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../../test-support/workflow-store.js";
 import { GithubAdapter, type RunProgramFunction } from "../providers/github.js";
 import type { RunResult } from "../../subprocess.js";
+import { startNawabariTask } from "../domain/nawabari-task.js";
+import { NawabariExecutionClient } from "../nawabari.js";
 
 function providerResult(stdout: string, stderr = "", overrides: Partial<RunResult> = {}): RunResult {
   return { stdout, stderr, exitCode: 0, signal: null, timedOut: false, outputLimit: false, ...overrides };
@@ -107,9 +116,134 @@ test("commit dry-run returns the domain verification plan without changing Git o
   assert.equal(store.getTask(started.task.taskId)?.lifecycleState, "active");
 });
 
-test("task start idempotency key reuses the exact active task and worktree", async (t) => {
+test("managed commit delegates the only Git mutation to Nawabari", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
+  const nawabari = new NawabariExecutionClient();
+  const started = await startNawabariTask({
+    workspaceRoot: root,
+    store,
+    policy: BUILTIN_PRESETS.standard,
+    taskSlug: "nawabari-commit",
+    branchType: "fix",
+    issueRef: "41",
+    nawabari,
+  });
+  assert.equal(started.ok, true, JSON.stringify(started));
+  if (!started.ok) return;
+  t.after(() =>
+    nawabari
+      .closeSession({ cwd: started.execution.worktree, sessionId: started.execution.sessionId })
+      .catch(() => undefined),
+  );
+  fs.appendFileSync(path.join(started.execution.worktree, "file.txt"), "delegated\n");
+
+  const result = await commitWorkflowTask({
+    workspaceRoot: root,
+    store,
+    taskId: started.task.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "delegated workflow commit" },
+    nawabari,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(store.getTask(started.task.taskId)?.lifecycleState, "committed");
+  if (result.ok)
+    assert.equal(
+      (result.commit as { commitId?: string }).commitId,
+      runGit(["rev-parse", "HEAD"], started.execution.worktree),
+      "the mutation identity must come from Nawabari's governed commit result",
+    );
+  assert.equal(
+    store.getHookCheckpoint(started.task.instanceId, started.execution.branch)?.lastCheckedCommit,
+    runGit(["rev-parse", "HEAD"], started.execution.worktree),
+    "Git-observable Nawabari checkpoint evidence must reconcile into Mottainai state",
+  );
+  assert.notEqual(runGit(["rev-parse", "HEAD"], started.execution.worktree), runGit(["rev-parse", "HEAD"], root));
+});
+
+test("legacy task rows cannot fall back to the retired Mottainai commit executor", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const started = await startTask({
+    workspaceRoot: root,
+    store,
+    policy: BUILTIN_PRESETS.standard,
+    taskSlug: "legacy-no-fallback",
+    branchType: "fix",
+    issueRef: "42",
+  });
+  assert.equal(started.ok, true);
+  if (!started.ok || started.worktree === undefined) return;
+  fs.appendFileSync(path.join(started.worktree.canonicalPath, "file.txt"), "must not mutate\n");
+  const before = runGit(["rev-parse", "HEAD"], started.worktree.canonicalPath);
+  const result = await commitWorkflowTask({
+    workspaceRoot: started.worktree.canonicalPath,
+    store,
+    taskId: started.task.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "legacy fallback" },
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.reason, "legacy-task-adoption-required");
+  assert.equal(runGit(["rev-parse", "HEAD"], started.worktree.canonicalPath), before);
+});
+
+test("managed push delegates target and divergence safety to Nawabari", async (t) => {
+  const root = createTempGitRepo(t);
+  const remote = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-nawabari-remote-"));
+  t.after(() => fs.rmSync(remote, { recursive: true, force: true }));
+  runGit(["init", "--bare", "--quiet"], remote);
+  runGit(["remote", "add", "origin", remote], root);
+
+  const store = createWorkflowStore(t);
+  const nawabari = new NawabariExecutionClient();
+  const started = await startNawabariTask({
+    workspaceRoot: root,
+    store,
+    policy: BUILTIN_PRESETS.standard,
+    taskSlug: "nawabari-push",
+    branchType: "fix",
+    issueRef: "43",
+    nawabari,
+  });
+  assert.equal(started.ok, true, JSON.stringify(started));
+  if (!started.ok) return;
+  t.after(() =>
+    nawabari
+      .closeSession({ cwd: started.execution.worktree, sessionId: started.execution.sessionId })
+      .catch(() => undefined),
+  );
+  fs.appendFileSync(path.join(started.execution.worktree, "file.txt"), "pushed\n");
+  const committed = await commitWorkflowTask({
+    workspaceRoot: root,
+    store,
+    taskId: started.task.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "delegated workflow push" },
+    nawabari,
+  });
+  assert.equal(committed.ok, true, JSON.stringify(committed));
+  const pushed = await pushWorkflowTask({
+    workspaceRoot: root,
+    store,
+    taskId: started.task.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    remote: "origin",
+    createUpstream: true,
+    nawabari,
+  });
+  assert.equal(pushed.ok, true, JSON.stringify(pushed));
+  assert.equal(
+    runGit(["--git-dir", remote, "rev-parse", "refs/heads/fix/43-nawabari-push"], root),
+    runGit(["rev-parse", "HEAD"], started.execution.worktree),
+  );
+});
+
+test("Nawabari task start idempotency reuses the exact task and external session", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const nawabari = new NawabariExecutionClient();
   const input = {
     workspaceRoot: root,
     store,
@@ -118,64 +252,77 @@ test("task start idempotency key reuses the exact active task and worktree", asy
     branchType: "fix",
     issueRef: "40",
     idempotencyKey: "start-write-test",
+    nawabari,
   } as const;
-  const first = await startTask(input);
+  const first = await startNawabariTask(input);
   assert.equal(first.ok, true);
-  if (!first.ok || first.worktree === undefined) return;
-  const repeated = await startTask(input);
+  if (!first.ok) return;
+  t.after(() =>
+    nawabari
+      .closeSession({ cwd: first.execution.worktree, sessionId: first.execution.sessionId })
+      .catch(() => undefined),
+  );
+  const repeated = await startNawabariTask(input);
   assert.equal(repeated.ok, true, JSON.stringify(repeated));
   if (repeated.ok) {
     assert.equal(repeated.reused, true);
     assert.equal(repeated.task.taskId, first.task.taskId);
-    assert.equal(repeated.worktree?.worktreeId, first.worktree.worktreeId);
+    assert.equal(repeated.execution.sessionId, first.execution.sessionId);
+    assert.equal(repeated.execution.worktree, first.execution.worktree);
   }
   assert.equal(store.listTasks().length, 1);
-  assert.equal(store.listWorktrees().filter((worktree) => worktree.status === "active").length, 1);
+  assert.equal(store.listWorktrees().length, 0, "Mottainai must not reserve an external worktree locally");
 });
 
 test("cleanup idempotency key reuses the same cleanup operation without a second deletion", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
-  const started = await startTask({
+  const nawabari = new NawabariExecutionClient();
+  const started = await startNawabariTask({
     workspaceRoot: root,
     store,
     policy: BUILTIN_PRESETS["strict-worktree"],
     taskSlug: "write-cleanup",
     branchType: "fix",
     issueRef: "40",
+    nawabari,
   });
   assert.equal(started.ok, true);
-  if (!started.ok || started.worktree === undefined) return;
+  if (!started.ok) return;
+  const worktreePath = started.execution.worktree;
   store.updateTaskLifecycleState(started.task.taskId, "abandoned");
   const preview = await cleanupWorkflowTask({
     workspaceRoot: root,
     store,
     taskId: started.task.taskId,
     policy: BUILTIN_PRESETS["strict-worktree"],
+    nawabari,
     dryRun: true,
     idempotencyKey: "cleanup-write-preview",
   });
   assert.equal(preview.ok, true, JSON.stringify(preview));
   if (preview.ok) assert.equal(preview.dryRun, true);
   assert.equal(store.getTask(started.task.taskId)?.lifecycleState, "abandoned");
-  assert.equal(fs.existsSync(started.worktree.canonicalPath), true);
+  assert.equal(fs.existsSync(worktreePath), true);
 
   const first = await cleanupWorkflowTask({
     workspaceRoot: root,
     store,
     taskId: started.task.taskId,
     policy: BUILTIN_PRESETS["strict-worktree"],
+    nawabari,
     idempotencyKey: "cleanup-write-test",
   });
   assert.equal(first.ok, true, JSON.stringify(first));
   assert.equal(store.getTask(started.task.taskId)?.lifecycleState, "cleaned");
-  assert.equal(fs.existsSync(started.worktree.canonicalPath), false);
+  assert.equal(fs.existsSync(worktreePath), false);
 
   const repeated = await cleanupWorkflowTask({
     workspaceRoot: root,
     store,
     taskId: started.task.taskId,
     policy: BUILTIN_PRESETS["strict-worktree"],
+    nawabari,
     idempotencyKey: "cleanup-write-test",
   });
   assert.equal(repeated.ok, true, JSON.stringify(repeated));

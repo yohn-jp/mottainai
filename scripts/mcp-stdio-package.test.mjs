@@ -89,6 +89,85 @@ test("packed identity survives consumer cwd, explicit config, environment config
   }
 });
 
+function initializeGitWorkspace(workspace) {
+  const commands = [
+    ["init", "-b", "main"],
+    ["config", "user.email", "package-test@example.invalid"],
+    ["config", "user.name", "Mottainai Package Test"],
+  ];
+  fs.writeFileSync(path.join(workspace, "README.md"), "package companion test\n");
+  commands.push(["add", "README.md"], ["commit", "-m", "initial"]);
+  for (const args of commands) {
+    const result = spawnSync("git", args, { cwd: workspace, encoding: "utf8" });
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  }
+}
+
+test("packed managed task reports a missing companion and uses a compatible standalone Nawabari", (t) => {
+  const missingWorkspace = createWorkspace();
+  const compatibleWorkspace = createWorkspace();
+  try {
+    initializeGitWorkspace(missingWorkspace);
+    initializeGitWorkspace(compatibleWorkspace);
+    const gitPath = spawnSync("which", ["git"], { encoding: "utf8" }).stdout.trim();
+    assert.ok(gitPath.length > 0);
+    const isolatedPath = path.join(suiteRoot, "git-only-bin");
+    fs.mkdirSync(isolatedPath, { recursive: true });
+    fs.symlinkSync(gitPath, path.join(isolatedPath, "git"));
+
+    const missing = spawnSync(
+      process.execPath,
+      [binPath, "task", "start", "missing-companion", "--type", "fix", "--issue", "181"],
+      {
+        cwd: missingWorkspace,
+        env: { ...isolatedEnv(missingWorkspace), PATH: isolatedPath },
+        encoding: "utf8",
+        timeout: 10_000,
+      },
+    );
+    assert.equal(missing.status, 1, `${missing.stdout}\n${missing.stderr}`);
+    assert.equal(JSON.parse(missing.stdout).reason, "nawabari-unavailable");
+
+    if (
+      spawnSync("which", ["nawabari"], { encoding: "utf8", env: isolatedEnv(compatibleWorkspace) }).status !== 0
+    ) {
+      t.skip("nawabari companion is not installed");
+      return;
+    }
+
+    const compatible = spawnSync(
+      process.execPath,
+      [binPath, "task", "start", "compatible-companion", "--type", "fix", "--issue", "181"],
+      {
+        cwd: compatibleWorkspace,
+        env: isolatedEnv(compatibleWorkspace),
+        encoding: "utf8",
+        timeout: 15_000,
+      },
+    );
+    assert.equal(compatible.status, 0, `${compatible.stdout}\n${compatible.stderr}`);
+    const started = JSON.parse(compatible.stdout);
+    assert.equal(started.ok, true);
+    assert.equal(typeof started.execution?.sessionId, "string");
+    assert.equal(started.semanticExecutionPlan?.claimGeneration?.strategy, "conservative-broad");
+
+    const closed = spawnSync(
+      "nawabari",
+      ["session", "close", "--session", started.execution.sessionId, "--json"],
+      {
+        cwd: started.execution.worktree,
+        env: isolatedEnv(compatibleWorkspace),
+        encoding: "utf8",
+        timeout: 10_000,
+      },
+    );
+    assert.equal(closed.status, 0, `${closed.stdout}\n${closed.stderr}`);
+  } finally {
+    fs.rmSync(missingWorkspace, { recursive: true, force: true });
+    fs.rmSync(compatibleWorkspace, { recursive: true, force: true });
+  }
+});
+
 test("pack and extract helpers preserve paths containing spaces", { timeout: BLACKBOX_TIMEOUTS.test }, async () => {
   const spacedRoot = path.join(suiteRoot, "temporary package root");
   fs.mkdirSync(spacedRoot, { recursive: true });

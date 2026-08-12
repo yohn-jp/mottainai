@@ -46,6 +46,7 @@ import {
 import type { RuntimeDiagnostic } from "./runtime-diagnostic.js";
 import type { UpstreamStatus } from "./upstream.js";
 import { createWorkflowHookProvider } from "./workflow/hook-provider.js";
+import { NawabariExecutionClient } from "./workflow/nawabari.js";
 import type { HookEvent } from "./hooks/types.js";
 import { callSemanticProjectionTool, semanticProjectionTools } from "./semantics/projections/mcp.js";
 
@@ -422,7 +423,7 @@ async function managedWriteGate(
   config: ResolvedGatewayConfig,
 ): Promise<CallToolResult | undefined> {
   if (!config.workflowTasks) return undefined;
-  const provider = createWorkflowHookProvider({ workspaceRoot: cwd });
+  const provider = createWorkflowHookProvider({ workspaceRoot: cwd, nawabari: new NawabariExecutionClient() });
   const event = (operation: HookEvent["operation"]): HookEvent => ({
     version: 1,
     client: "codex",

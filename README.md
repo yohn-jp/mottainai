@@ -235,36 +235,46 @@ npx -y mottainai manager --no-open --port 4318
 ```
 
 The Manager binds to `127.0.0.1` by default and requires an executable Zellij.
-It creates task-bound sessions through the existing managed task/worktree
-lifecycle, then starts Codex in the canonical worktree through a named Zellij
-session. Mottainai stores the task/session relationship and reconciles runtime
-state; Zellij remains responsible for terminal transport, attach/detach, panes,
-and persistence. Existing Mottainai commands do not require Zellij.
+It creates task-bound sessions through Mottainai's orchestration boundary, which
+delegates the physical session/worktree/branch to Nawabari, then starts Codex in
+the returned worktree through a named Zellij session. Manager retains only the
+task/session relationship and a launch-path projection; it does not reserve,
+verify, mutate, or clean repository resources. Zellij remains responsible for
+terminal transport, attach/detach, panes, and persistence. Existing Mottainai
+commands do not require Zellij.
 
 ### Git workflow task lifecycle (Issue #40)
+
+Managed repository execution now delegates to the standalone Nawabari
+companion. See [docs/nawabari-execution.md](docs/nawabari-execution.md) for the
+authority boundary and the supported `nawabari.standalone-execution.v1`
+contract. Mottainai retains task/semantic/provider orchestration and stores only
+an opaque Nawabari session reference; it does not auto-install Nawabari or fall
+back to its retired local mutation engine.
 
 Behind `gateway.workflowTasks: true` in `mottainai.config.json`, the MCP
 tools are:
 
-| Tool                                | Operation                                       |
-| ----------------------------------- | ----------------------------------------------- |
-| `mottainai_workflow_policy_explain` | resolve policy (read-only)                      |
-| `mottainai_workflow_task_start`     | reserve and create the managed task worktree    |
-| `mottainai_workflow_task_status`    | inspect the current task (read-only)            |
-| `mottainai_workflow_doctor`         | reconcile and report workflow state (read-only) |
-| `mottainai_workflow_task_commit`    | validate and commit                             |
-| `mottainai_workflow_task_push`      | validate and push                               |
-| `mottainai_workflow_task_open_pr`   | create or reuse a GitHub pull request           |
-| `mottainai_workflow_task_finish`    | transition a merged task                        |
-| `mottainai_workflow_task_abandon`   | abandon a task                                  |
-| `mottainai_workflow_task_cleanup`   | plan, revalidate, and safely clean up           |
+| Tool                                | Operation                                                 |
+| ----------------------------------- | --------------------------------------------------------- |
+| `mottainai_workflow_policy_explain` | resolve policy (read-only)                                |
+| `mottainai_workflow_task_start`     | create the task intent and delegate execution to Nawabari |
+| `mottainai_workflow_task_status`    | inspect the current task (read-only)                      |
+| `mottainai_workflow_doctor`         | reconcile and report workflow state (read-only)           |
+| `mottainai_workflow_task_commit`    | validate and commit                                       |
+| `mottainai_workflow_task_push`      | validate and push                                         |
+| `mottainai_workflow_task_open_pr`   | create or reuse a GitHub pull request                     |
+| `mottainai_workflow_task_finish`    | transition a merged task                                  |
+| `mottainai_workflow_task_abandon`   | abandon a task                                            |
+| `mottainai_workflow_task_cleanup`   | plan, revalidate, and safely clean up                     |
 
 Write tools return the common `OUTPUT_SCHEMA` envelope, mark destructive
 operations accurately, and support `dryRun` where a plan is meaningful.
-Task start uses atomic branch/worktree reservations; pull-request records and
-cleanup leases provide retry-safe idempotency. Every managed command, Git
-write, commit, push, and task transition resolves repository/worktree identity
-and the workflow protected-branch decision before mutation. The former
+Task start uses an idempotent task reservation plus Nawabari's atomic
+session/claim lifecycle; Mottainai no longer reserves physical worktrees.
+Pull-request records and cleanup leases provide retry-safe orchestration state.
+Every managed repository mutation resolves the semantic/task decision and
+Nawabari's physical authorization before mutation. The former
 `mottainai_worktree_new` tool has been removed; use
 `mottainai_workflow_task_start` instead.
 
@@ -284,6 +294,12 @@ npx -y mottainai task abandon [--workspace path]
 npx -y mottainai task cleanup [--workspace path]
 npx -y mottainai workflow doctor [--workspace path]
 ```
+
+`task start` delegates worktree creation to Nawabari and returns the
+canonical worktree path in `execution.worktree`. Every follow-up command
+(`--workspace path`) must use that returned path, not the repository root or
+a hand-constructed path; Nawabari owns that worktree for the life of the
+task.
 
 `workflow doctor` runs the same read-only reconciliation report as the MCP
 tool: it never repairs or deletes anything, and exits non-zero when it

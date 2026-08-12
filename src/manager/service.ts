@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { NawabariExecutionClient } from "../workflow/nawabari.js";
 import type {
   ManagerAgentKind,
   ManagerReconciliationState,
@@ -11,7 +12,7 @@ import type {
 } from "../workflow/state/store.js";
 import { validateIssueRef, validateTaskSlug } from "../workflow/commands/validate.js";
 import {
-  createWorkflowManagerExecutionAuthority,
+  createNawabariManagerExecutionAuthority,
   type ManagerExecutionAuthority,
   type ManagerExecutionContext,
 } from "../workflow/domain/manager-execution.js";
@@ -209,19 +210,33 @@ export class ManagerSessionService {
   private readonly execution: ManagerExecutionAuthority;
   private readonly sessionOperations = new Map<ManagerSessionId, Promise<void>>();
 
-  constructor(
-    private readonly options: {
-      workspaceRoot: string;
-      store: WorkflowStateStore;
-      runtime: ZellijRuntime;
-      /** Hermetic process-test seam; production defaults to the Codex/Claude CLIs. */
-      agentCommand?: { command: string; baseArgs?: readonly string[] };
-      agentCommands?: Partial<Record<ManagerAgentKind, { command: string; baseArgs?: readonly string[] }>>;
-      executionAuthority?: ManagerExecutionAuthority;
-    },
-  ) {
+  private readonly options: {
+    workspaceRoot: string;
+    store: WorkflowStateStore;
+    runtime: ZellijRuntime;
+    /** The sole local execution boundary used by task-bound Manager sessions. */
+    nawabari: NawabariExecutionClient;
+    /** Hermetic process-test seam; production defaults to the Codex/Claude CLIs. */
+    agentCommand?: { command: string; baseArgs?: readonly string[] };
+    agentCommands?: Partial<Record<ManagerAgentKind, { command: string; baseArgs?: readonly string[] }>>;
+  };
+
+  constructor(options: {
+    workspaceRoot: string;
+    store: WorkflowStateStore;
+    runtime: ZellijRuntime;
+    /** Optional injection seam; production and tests default to the installed contract client. */
+    nawabari?: NawabariExecutionClient;
+    /** Hermetic process-test seam; production defaults to the Codex/Claude CLIs. */
+    agentCommand?: { command: string; baseArgs?: readonly string[] };
+    agentCommands?: Partial<Record<ManagerAgentKind, { command: string; baseArgs?: readonly string[] }>>;
+    /** Optional injection seam; production defaults to the Nawabari-backed adapter. */
+    executionAuthority?: ManagerExecutionAuthority;
+  }) {
+    const nawabari = options.nawabari ?? new NawabariExecutionClient();
+    this.options = { ...options, nawabari };
     this.execution =
-      options.executionAuthority ?? createWorkflowManagerExecutionAuthority(options.store, options.workspaceRoot);
+      options.executionAuthority ?? createNawabariManagerExecutionAuthority(options.store, options.workspaceRoot, nawabari);
   }
 
   async initialize(): Promise<ManagerHealth> {

@@ -54,6 +54,7 @@ test("Manager starts concurrent task-bound Codex sessions on distinct managed wo
   assert.notEqual(first.worktreePath, second.worktreePath);
   assert.equal(first.lifecycleState, "running");
   assert.equal(second.lifecycleState, "running");
+  assert.equal(runtime.started.length, 2);
   assert.deepEqual(
     runtime.started.map((entry) => entry.command),
     ["codex", "codex"],
@@ -62,7 +63,9 @@ test("Manager starts concurrent task-bound Codex sessions on distinct managed wo
     "--",
     "first; $(not shell)",
   ]);
-  assert.ok(runtime.started.every((entry) => entry.cwd.includes(".mottainai/worktrees")));
+  // The canonical worktree root belongs to Nawabari; Manager only consumes
+  // the returned launch directory and must not prescribe Mottainai's former root.
+  assert.ok(runtime.started.every((entry) => entry.cwd !== root));
 
   await service.openTerminal(first.sessionId);
   assert.deepEqual(runtime.attached, [first.runtimeName]);

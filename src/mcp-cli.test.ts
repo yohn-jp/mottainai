@@ -352,13 +352,13 @@ test("public CLI task start creates a dedicated worktree/branch, and task status
   const started = spawn("task", "start", "my-task", "--type", "fix", "--issue", "9", "--workspace", directory);
   assert.equal(started.status, 0);
   assert.equal(started.json.ok, true);
-  const worktree = started.json.worktree as { branchName: string; canonicalPath: string };
-  assert.equal(worktree.branchName, "fix/9-my-task");
-  assert.notEqual(worktree.branchName, "main");
+  const execution = started.json.execution as { branch: string; worktree: string };
+  assert.equal(execution.branch, "fix/9-my-task");
+  assert.notEqual(execution.branch, "main");
 
-  const statusInWorktree = spawn("task", "status", "--workspace", worktree.canonicalPath);
+  const statusInWorktree = spawn("task", "status", "--workspace", execution.worktree);
   assert.equal(statusInWorktree.status, 0);
-  assert.equal(statusInWorktree.json.active, true);
+  assert.equal(statusInWorktree.json.currentState, "active");
   assert.ok((statusInWorktree.json.allowedNextTransitions as string[]).includes("committed"));
   assert.ok(Array.isArray(statusInWorktree.json.invalidTransitions));
   assert.deepEqual(statusInWorktree.json.pullRequests, []);
@@ -415,9 +415,9 @@ test("public CLI task start rejects starting a second task from inside its own a
 
   const outer = spawn("task", "start", "outer", "--type", "fix", "--issue", "13", "--workspace", directory);
   assert.equal(outer.status, 0);
-  const worktree = outer.json.worktree as { canonicalPath: string };
+  const execution = outer.json.execution as { worktree: string };
 
-  const inner = spawn("task", "start", "inner", "--type", "fix", "--issue", "14", "--workspace", worktree.canonicalPath);
+  const inner = spawn("task", "start", "inner", "--type", "fix", "--issue", "14", "--workspace", execution.worktree);
   assert.equal(inner.status, 1);
   assert.equal(inner.json.ok, false);
   assert.equal(inner.json.reason, "active-task-in-workspace");

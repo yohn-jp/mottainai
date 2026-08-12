@@ -20,6 +20,10 @@ function cleanReport(): ReconciliationReport {
   };
 }
 
+async function cleanNawabari() {
+  return { ok: true, command: "doctor" } as const;
+}
+
 test("workflow doctor is a separate injectable read-only report contract", async (t) => {
   const store = createWorkflowStore(t);
   let called = false;
@@ -27,6 +31,7 @@ test("workflow doctor is a separate injectable read-only report contract", async
     workspaceRoot: "/repo",
     store,
     dependencies: {
+      inspectNawabari: cleanNawabari,
       reconcile: async () => {
         called = true;
         return cleanReport();
@@ -40,6 +45,8 @@ test("workflow doctor is a separate injectable read-only report contract", async
   assert.deepEqual(
     report.checks.map((check) => ({ name: check.name, status: check.status })),
     [
+      { name: "nawabari-execution-authority", status: "pass" },
+      { name: "legacy-execution-state", status: "pass" },
       { name: "reconciliation", status: "pass" },
       { name: "repair-mode", status: "pass" },
       { name: "provider-observation", status: "pass" },
@@ -70,6 +77,7 @@ test("workflow doctor reports task/PR instance mismatches instead of observing f
   const report = await collectWorkflowDoctorReport({
     workspaceRoot: "/repo",
     store,
+    dependencies: { inspectNawabari: cleanNawabari },
     reconciliation: {
       pathExists: () => false,
       gitSnapshot: async () => ({
@@ -102,6 +110,7 @@ test("workflow doctor reports a reconciliation failure even without divergences"
     workspaceRoot: "/repo",
     store,
     dependencies: {
+      inspectNawabari: cleanNawabari,
       reconcile: async () => ({
         ...cleanReport(),
         ok: false,
@@ -121,6 +130,7 @@ test("workflow doctor maps divergence and diagnostic severity into report metric
     workspaceRoot: "/repo",
     store,
     dependencies: {
+      inspectNawabari: cleanNawabari,
       reconcile: async () => ({
         ...cleanReport(),
         ok: false,
@@ -142,7 +152,7 @@ test("workflow doctor maps divergence and diagnostic severity into report metric
   assert.equal(report.ok, false);
   assert.equal(report.errors, 1);
   assert.equal(report.warnings, 1);
-  assert.equal(report.checked, 3);
+  assert.equal(report.checked, 5);
   assert.equal(report.checks.find((check) => check.name === "reconciliation")?.status, "error");
   assert.deepEqual(
     report.problems.map((problem) => ({ code: problem.code, severity: problem.severity })),
@@ -159,6 +169,7 @@ test("workflow doctor marks provider observation warnings without treating them 
     workspaceRoot: "/repo",
     store,
     dependencies: {
+      inspectNawabari: cleanNawabari,
       reconcile: async () => ({
         ...cleanReport(),
         diagnostics: [
@@ -171,4 +182,50 @@ test("workflow doctor marks provider observation warnings without treating them 
   assert.equal(providerCheck?.status, "warning");
   assert.equal(report.ok, true);
   assert.equal(report.warnings, 1);
+});
+
+test("workflow doctor reports a missing Nawabari companion without falling back to legacy execution", async (t) => {
+  const store = createWorkflowStore(t);
+  const report = await collectWorkflowDoctorReport({
+    workspaceRoot: "/repo",
+    store,
+    dependencies: {
+      reconcile: async () => cleanReport(),
+      inspectNawabari: async () => {
+        throw new Error("spawn nawabari ENOENT");
+      },
+    },
+  });
+  assert.equal(report.ok, false);
+  assert.equal(report.checks.find((check) => check.name === "nawabari-execution-authority")?.status, "error");
+  assert.equal(report.problems.some((problem) => problem.code === "nawabari-command-failed"), true);
+});
+
+test("workflow doctor blocks unresolved pre-cutover task rows without claiming legacy ownership", async (t) => {
+  const store = createWorkflowStore(t);
+  const instanceId = "legacy-instance" as RepositoryInstanceId;
+  store.observeRepositoryInstance({
+    rootCommitDigest: "legacy-digest" as RootCommitDigest,
+    instanceId,
+    gitCommonDir: "/repo/.git",
+    canonicalWorktreePath: "/repo",
+  });
+  const reserved = store.reserveTask({
+    instanceId,
+    taskSlug: "legacy-task",
+    issueRef: "181",
+    baseBranch: "main",
+    baseCommit: "head",
+    allowMultipleActiveTasksPerIssue: true,
+  });
+  assert.equal(reserved.ok, true);
+  const report = await collectWorkflowDoctorReport({
+    workspaceRoot: "/repo",
+    store,
+    repositoryInstanceId: instanceId,
+    dependencies: { reconcile: async () => cleanReport(), inspectNawabari: cleanNawabari },
+  });
+  assert.equal(report.ok, false);
+  assert.equal(report.checks.find((check) => check.name === "legacy-execution-state")?.status, "error");
+  assert.equal(report.problems.some((problem) => problem.code === "legacy-task-resolution-required"), true);
 });

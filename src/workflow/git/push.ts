@@ -326,6 +326,10 @@ export async function verifyPush(input: PushOperationInput): Promise<PushVerific
   };
 }
 
+/**
+ * @deprecated The Mottainai push executor is legacy regression/reference code.
+ * Managed production writes go through NawabariExecutionClient.
+ */
 export async function pushTask(input: PushOperationInput): Promise<PushResult> {
   const verification = await verifyPush(input);
   if (!verification.ok) return verification;

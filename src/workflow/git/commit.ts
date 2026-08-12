@@ -341,6 +341,10 @@ export async function reverifyBeforeMutation(
   return { ok: true };
 }
 
+/**
+ * @deprecated The Mottainai commit executor is legacy regression/reference
+ * code. Managed production writes go through NawabariExecutionClient.
+ */
 export async function commitTask(input: CommitOperationInput): Promise<CommitResult> {
   const verification = await verifyCommit(input);
   if (!verification.ok) return verification;

@@ -54,6 +54,8 @@ export interface ObserveRepositoryInstanceResult {
 
 export type TaskId = string & { readonly __brand: "TaskId" };
 export type WorktreeId = string & { readonly __brand: "WorktreeId" };
+/** Opaque reference only; Nawabari owns the referenced session record. */
+export type NawabariSessionId = string & { readonly __brand: "NawabariSessionId" };
 export type PullRequestRecordId = string & { readonly __brand: "PullRequestRecordId" };
 
 export type ManagerSessionId = string & { readonly __brand: "ManagerSessionId" };
@@ -178,6 +180,8 @@ export interface TaskRecord {
   instanceId: RepositoryInstanceId;
   taskSlug: string;
   issueRef: string | undefined;
+  /** Opaque reference to Nawabari's authoritative local execution session. */
+  nawabariSessionId?: NawabariSessionId;
   /** Stable caller key for an idempotent task-start operation, when supplied. */
   startIdempotencyKey?: string;
   lifecycleState: LifecycleState;
@@ -536,6 +540,8 @@ export interface WorkflowStateStore {
   deleteReservedWorktree(worktreeId: WorktreeId): void;
 
   updateTaskLifecycleState(taskId: TaskId, next: LifecycleState, updatedAt?: number): TaskRecord;
+  /** Attach exactly one external execution session; never stores its ownership fields locally. */
+  attachNawabariSession(taskId: TaskId, sessionId: NawabariSessionId, updatedAt?: number): TaskRecord;
   getTask(taskId: TaskId): TaskRecord | undefined;
   getActiveTaskByIssueRef(instanceId: RepositoryInstanceId, issueRef: string): TaskRecord | undefined;
   listTasks(instanceId?: RepositoryInstanceId): TaskRecord[];

@@ -45,6 +45,11 @@ export function run({
   }
 
   const argumentsForNode = [];
+  // The integration suite runs live TypeScript Repository Model extraction
+  // (src/dashboard/command.integration.test.ts) alongside the rest of the
+  // suite in one process; the default V8 heap is not enough headroom on
+  // standard CI runners and the process aborts with an OOM.
+  if (suiteName === "integration") argumentsForNode.push("--max-old-space-size=8192");
   if (files.some((file) => file.endsWith(".ts"))) argumentsForNode.push("--import", "tsx");
   argumentsForNode.push("--test", ...files);
   const startedAt = now();

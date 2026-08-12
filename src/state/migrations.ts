@@ -395,6 +395,18 @@ export const MIGRATIONS: Migration[] = [
     },
   },
   {
+    version: 15,
+    description: "workflow: opaque Nawabari execution-session references",
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE tasks ADD COLUMN nawabari_session_id TEXT;
+        CREATE UNIQUE INDEX idx_tasks_nawabari_session
+          ON tasks (nawabari_session_id)
+          WHERE nawabari_session_id IS NOT NULL;
+      `);
+    },
+  },
+  {
     // Keep this migration independent of issue #181's v15 task-reference migration.
     // It can therefore be applied on either side of that concurrent change.
     version: 16,
