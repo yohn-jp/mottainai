@@ -79,7 +79,7 @@ function reconcileCheckpoint(
   // snake_case, while governed Git results use the contract's camelCase
   // fields). Keep this reconciliation limited to the Git-observable head;
   // path/evidence meaning remains a Mottainai concern.
-  const head = evidence.headId ?? evidence.head;
+  const head = evidence.headId ?? evidence.head_id ?? evidence.head;
   if (typeof head !== "string" || branch === undefined) return;
   store.recordHookCheckpoint({ instanceId, branch, commit: head });
 }
@@ -307,13 +307,12 @@ export interface PushWorkflowInput extends WorkflowTaskSelector {
 }
 
 async function pushResources(workspaceRoot: string, baseCommit: string): Promise<string[]> {
-  const observed = await runGitCommand(workspaceRoot, ["diff", "--name-only", `${baseCommit}..HEAD`]);
+  const observed = await runGitCommand(workspaceRoot, ["diff", "--name-only", "-z", `${baseCommit}..HEAD`]);
   if (!observed.usable || observed.result.exitCode !== 0)
     throw new Error("could not derive committed resource paths for Nawabari push");
-  const paths = observed.result.stdout
-    .split(/\r?\n/u)
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0 && !value.startsWith("-"));
+  // NUL-delimited output preserves paths verbatim, including ones containing
+  // newlines, quotes, or a leading "-" that a newline-split/trim would corrupt.
+  const paths = observed.result.stdout.split("\0").filter((value) => value.length > 0);
   // A push can be a retry after a successful external commit. Keep the claim
   // request conservative rather than inventing a narrower path set.
   return paths.length === 0 ? ["**"] : paths;

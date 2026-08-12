@@ -50,6 +50,7 @@ test("Manager starts concurrent task-bound Codex sessions on distinct managed wo
   assert.notEqual(first.worktreePath, second.worktreePath);
   assert.equal(first.lifecycleState, "running");
   assert.equal(second.lifecycleState, "running");
+  assert.equal(runtime.started.length, 2);
   assert.deepEqual(
     runtime.started.map((entry) => entry.command),
     ["codex", "codex"],

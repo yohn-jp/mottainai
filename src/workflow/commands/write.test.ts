@@ -131,6 +131,11 @@ test("managed commit delegates the only Git mutation to Nawabari", async (t) => 
   });
   assert.equal(started.ok, true, JSON.stringify(started));
   if (!started.ok) return;
+  t.after(() =>
+    nawabari
+      .closeSession({ cwd: started.execution.worktree, sessionId: started.execution.sessionId })
+      .catch(() => undefined),
+  );
   fs.appendFileSync(path.join(started.execution.worktree, "file.txt"), "delegated\n");
 
   const result = await commitWorkflowTask({
@@ -252,6 +257,11 @@ test("Nawabari task start idempotency reuses the exact task and external session
   const first = await startNawabariTask(input);
   assert.equal(first.ok, true);
   if (!first.ok) return;
+  t.after(() =>
+    nawabari
+      .closeSession({ cwd: first.execution.worktree, sessionId: first.execution.sessionId })
+      .catch(() => undefined),
+  );
   const repeated = await startNawabariTask(input);
   assert.equal(repeated.ok, true, JSON.stringify(repeated));
   if (repeated.ok) {

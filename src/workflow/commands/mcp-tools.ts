@@ -484,43 +484,58 @@ async function taskStartToolImpl(
 async function taskStatusToolImpl(config: ResolvedGatewayConfig, store: WorkflowStateStore): Promise<CallToolResult> {
   requireWorkflowTasksConfigured(config);
   const nawabari = new NawabariExecutionClient();
+  let sessionId: string | undefined;
   try {
-    const sessionId = await nawabari.currentSessionId(config.workspaceRoot);
-    const task = store.listTasks().find((candidate) => candidate.nawabariSessionId === sessionId);
-    if (task !== undefined) {
-      const session = await nawabari.showSession({ cwd: config.workspaceRoot, sessionId });
-      const status = getTaskStatus(store, task.taskId);
-      return output(
-        "workflow_task_status",
-        "success",
-        `OK task=${task.taskId} state=${task.lifecycleState} branch=${session.branch}`,
-        "",
-        {
-          active: true,
-          repository: {
-            instanceId: task.instanceId,
-            worktreePath: session.worktree,
-            branch: session.branch,
-            repoStateKind: "nawabari-managed",
-          },
-          task,
-          execution: {
-            sessionId: session.sessionId,
-            worktree: session.worktree,
-            branch: session.branch,
-            state: session.state,
-          },
-          pullRequests: status?.pullRequests ?? [],
-          currentState: status?.currentState ?? task.lifecycleState,
-          allowedNextTransitions: status?.allowedNextTransitions ?? [],
-          invalidTransitions: status?.invalidTransitions ?? [],
-          warnings: [],
-        },
-      );
-    }
+    sessionId = await nawabari.currentSessionId(config.workspaceRoot);
   } catch {
     // A primary checkout or a legacy worktree has no current Nawabari session;
     // retain the read-only Mottainai projection below.
+  }
+  if (sessionId !== undefined) {
+    const task = store.listTasks().find((candidate) => candidate.nawabariSessionId === sessionId);
+    if (task !== undefined) {
+      try {
+        const session = await nawabari.showSession({ cwd: config.workspaceRoot, sessionId });
+        const status = getTaskStatus(store, task.taskId);
+        return output(
+          "workflow_task_status",
+          "success",
+          `OK task=${task.taskId} state=${task.lifecycleState} branch=${session.branch}`,
+          "",
+          {
+            active: true,
+            repository: {
+              instanceId: task.instanceId,
+              worktreePath: session.worktree,
+              branch: session.branch,
+              repoStateKind: "nawabari-managed",
+            },
+            task,
+            execution: {
+              sessionId: session.sessionId,
+              worktree: session.worktree,
+              branch: session.branch,
+              state: session.state,
+            },
+            pullRequests: status?.pullRequests ?? [],
+            currentState: status?.currentState ?? task.lifecycleState,
+            allowedNextTransitions: status?.allowedNextTransitions ?? [],
+            invalidTransitions: status?.invalidTransitions ?? [],
+            warnings: [],
+          },
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return output(
+          "workflow_task_status",
+          "failed",
+          `FAIL task_status: ${message}`,
+          "",
+          { diagnostics: [{ severity: "error", message }] },
+          true,
+        );
+      }
+    }
   }
   const result = await getTaskStatusForWorkspace(config.workspaceRoot, store);
   if (!result.ok) {

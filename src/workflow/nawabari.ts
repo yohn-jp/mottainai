@@ -269,7 +269,19 @@ export class NawabariExecutionClient {
     const result = await this.invoke(["checkpoint", "--session", input.sessionId], input.cwd);
     requireResultString(result, ["headId", "head_id", "head"], "headId");
     requireResultString(result, ["sessionId", "session_id"], "session_id");
-    for (const field of ["changed", "staged", "unstaged", "untracked", "in_claim", "out_of_claim"] as const) {
+    // The evidence.v1 schema nests changed/staged/unstaged/untracked under
+    // `paths`; in_claim/out_of_claim stay top-level.
+    const paths = object(result.paths) ?? {};
+    for (const field of ["changed", "staged", "unstaged", "untracked"] as const) {
+      if (!Array.isArray(paths[field]) || !(paths[field] as unknown[]).every((value) => typeof value === "string"))
+        throw new NawabariExecutionError(
+          "nawabari-contract-invalid",
+          `Nawabari checkpoint result is missing paths.${field}`,
+          undefined,
+          result,
+        );
+    }
+    for (const field of ["in_claim", "out_of_claim"] as const) {
       if (!Array.isArray(result[field]) || !(result[field] as unknown[]).every((value) => typeof value === "string"))
         throw new NawabariExecutionError(
           "nawabari-contract-invalid",

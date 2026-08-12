@@ -103,7 +103,7 @@ function initializeGitWorkspace(workspace) {
   }
 }
 
-test("packed managed task reports a missing companion and uses a compatible standalone Nawabari", () => {
+test("packed managed task reports a missing companion and uses a compatible standalone Nawabari", (t) => {
   const missingWorkspace = createWorkspace();
   const compatibleWorkspace = createWorkspace();
   try {
@@ -127,6 +127,13 @@ test("packed managed task reports a missing companion and uses a compatible stan
     );
     assert.equal(missing.status, 1, `${missing.stdout}\n${missing.stderr}`);
     assert.equal(JSON.parse(missing.stdout).reason, "nawabari-unavailable");
+
+    if (
+      spawnSync("which", ["nawabari"], { encoding: "utf8", env: isolatedEnv(compatibleWorkspace) }).status !== 0
+    ) {
+      t.skip("nawabari companion is not installed");
+      return;
+    }
 
     const compatible = spawnSync(
       process.execPath,

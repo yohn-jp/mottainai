@@ -295,6 +295,12 @@ npx -y mottainai task cleanup [--workspace path]
 npx -y mottainai workflow doctor [--workspace path]
 ```
 
+`task start` delegates worktree creation to Nawabari and returns the
+canonical worktree path in `execution.worktree`. Every follow-up command
+(`--workspace path`) must use that returned path, not the repository root or
+a hand-constructed path; Nawabari owns that worktree for the life of the
+task.
+
 `workflow doctor` runs the same read-only reconciliation report as the MCP
 tool: it never repairs or deletes anything, and exits non-zero when it
 observes a reconciliation problem while still printing the structured

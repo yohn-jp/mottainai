@@ -11,6 +11,9 @@ export const INITIALIZE_PARAMS = {
 };
 export const FIXTURE_TOOL_NAME = "fixture__fixture_echo";
 
+const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "..");
+const repoBinDir = path.join(repoRoot, "node_modules", ".bin");
+
 export function isolatedEnv(homeDir) {
   const env = { ...process.env };
   env.HOME = homeDir;
@@ -18,6 +21,9 @@ export function isolatedEnv(homeDir) {
   env.XDG_STATE_HOME = path.join(homeDir, "xdg-state");
   env.XDG_CONFIG_HOME = path.join(homeDir, "xdg-config");
   env.XDG_CACHE_HOME = path.join(homeDir, "xdg-cache");
+  // nawabari is a devDependency resolved via node_modules/.bin; pnpm scripts
+  // add that to PATH automatically, but these tests spawn node directly.
+  env.PATH = [repoBinDir, env.PATH ?? ""].filter((segment) => segment.length > 0).join(path.delimiter);
   for (const name of [
     "MOTTAINAI_CONFIG",
     "MOTTAINAI_TELEMETRY",

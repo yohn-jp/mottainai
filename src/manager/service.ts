@@ -213,7 +213,8 @@ export class ManagerSessionService {
         }),
         nawabari: this.options.nawabari,
       });
-      if (!taskResult.ok) throw new ManagerError("task_start_failed", taskResult.detail, 409);
+      if (!taskResult.ok)
+        throw new ManagerError("task_start_failed", `${taskResult.reason}: ${taskResult.detail}`, 409);
       taskId = taskResult.task.taskId;
       worktreePath = taskResult.execution.worktree;
       branchName = taskResult.execution.branch;
