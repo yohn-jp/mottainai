@@ -12,6 +12,9 @@ import {
   type ManagerSessionId,
   type ManagerSessionRecord,
 } from "../workflow/state/store.js";
+import { LIFECYCLE_STATES } from "../workflow/domain/lifecycle.js";
+
+const SEMANTIC_LIFECYCLE_STATES = [...LIFECYCLE_STATES, "unbound"] as const;
 
 const MAX_BODY_BYTES = 1 * 1024 * 1024;
 
@@ -76,7 +79,10 @@ function inputFromBody(value: unknown): NewManagerSessionInput {
 
 function filterFromQuery(url: URL): ManagerSessionFilter {
   const runtimeState = url.searchParams.get("runtimeState") ?? url.searchParams.get("state");
-  if (runtimeState !== null && !MANAGER_RUNTIME_STATES.includes(runtimeState as (typeof MANAGER_RUNTIME_STATES)[number])) {
+  if (
+    runtimeState !== null &&
+    !MANAGER_RUNTIME_STATES.includes(runtimeState as (typeof MANAGER_RUNTIME_STATES)[number])
+  ) {
     throw new ManagerError("invalid_request", `unknown runtime state: ${runtimeState}`, 400);
   }
   const agent = url.searchParams.get("agent") ?? url.searchParams.get("agentKind");
@@ -88,13 +94,22 @@ function filterFromQuery(url: URL): ManagerSessionFilter {
   if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 500)) {
     throw new ManagerError("invalid_request", "limit must be an integer between 1 and 500", 400);
   }
+  const semanticLifecycleState = url.searchParams.get("semanticLifecycleState");
+  if (
+    semanticLifecycleState !== null &&
+    !SEMANTIC_LIFECYCLE_STATES.includes(semanticLifecycleState as (typeof SEMANTIC_LIFECYCLE_STATES)[number])
+  ) {
+    throw new ManagerError("invalid_request", `unknown semantic lifecycle state: ${semanticLifecycleState}`, 400);
+  }
   return {
     ...(runtimeState === null ? {} : { runtimeState: runtimeState as ManagerSessionFilter["runtimeState"] }),
     ...(agent === null ? {} : { agentKind: (agent === "claude-code" ? "claude" : agent) as ManagerAgentKind }),
-    ...(url.searchParams.get("semanticLifecycleState") === null
+    ...(semanticLifecycleState === null
       ? {}
-      : { semanticLifecycleState: url.searchParams.get("semanticLifecycleState") as ManagerSessionRecord["semanticLifecycleState"] }),
-    ...(url.searchParams.get("taskId") === null ? {} : { taskId: url.searchParams.get("taskId") as ManagerSessionFilter["taskId"] }),
+      : { semanticLifecycleState: semanticLifecycleState as ManagerSessionRecord["semanticLifecycleState"] }),
+    ...(url.searchParams.get("taskId") === null
+      ? {}
+      : { taskId: url.searchParams.get("taskId") as ManagerSessionFilter["taskId"] }),
     ...(url.searchParams.get("issueRef") === null ? {} : { issueRef: url.searchParams.get("issueRef") ?? undefined }),
     ...(url.searchParams.get("search") === null ? {} : { search: url.searchParams.get("search") ?? undefined }),
     ...(limit === undefined ? {} : { limit }),
@@ -103,10 +118,7 @@ function filterFromQuery(url: URL): ManagerSessionFilter {
 
 function requireJsonContentType(request: IncomingMessage): void {
   const contentType = request.headers["content-type"];
-  if (
-    typeof contentType !== "string" ||
-    contentType.split(";", 1)[0]?.trim().toLowerCase() !== "application/json"
-  ) {
+  if (typeof contentType !== "string" || contentType.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") {
     throw new ManagerError("invalid_request", "Manager POST requests require Content-Type: application/json", 415);
   }
 }

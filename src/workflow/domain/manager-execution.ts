@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import { startTask } from "./task.js";
 import type { LifecycleState } from "./lifecycle.js";
 import { resolveEffectiveWorkflowPolicy } from "../policy/load.js";
@@ -49,7 +50,10 @@ function receipt(code: string, message: string, source: ManagerSessionReceipt["s
 }
 
 /** Existing-main implementation behind the replaceable Manager boundary. */
-export function createWorkflowManagerExecutionAuthority(initialStore?: WorkflowStateStore, initialWorkspaceRoot?: string): ManagerExecutionAuthority {
+export function createWorkflowManagerExecutionAuthority(
+  initialStore?: WorkflowStateStore,
+  initialWorkspaceRoot?: string,
+): ManagerExecutionAuthority {
   let boundStore: WorkflowStateStore | undefined = initialStore;
   let boundWorkspaceRoot: string | undefined = initialWorkspaceRoot;
   return {
@@ -98,14 +102,27 @@ export function createWorkflowManagerExecutionAuthority(initialStore?: WorkflowS
         },
         ...(result.warnings.length === 0
           ? {}
-          : { receipt: receipt("workflow_warning", result.warnings.map((warning) => warning.detail).join("; "), "workflow") }),
+          : {
+              receipt: receipt(
+                "workflow_warning",
+                result.warnings.map((warning) => warning.detail).join("; "),
+                "workflow",
+              ),
+            }),
       };
     },
 
     async validate(context) {
       try {
-        if (boundWorkspaceRoot !== undefined && context.taskId === undefined && context.worktreePath !== boundWorkspaceRoot) {
-          return { ok: false, detail: `unbound execution path is not the Manager workspace root: ${context.worktreePath}` };
+        if (
+          boundWorkspaceRoot !== undefined &&
+          context.taskId === undefined &&
+          path.resolve(context.worktreePath) !== path.resolve(boundWorkspaceRoot)
+        ) {
+          return {
+            ok: false,
+            detail: `unbound execution path is not the Manager workspace root: ${context.worktreePath}`,
+          };
         }
         if (context.taskId !== undefined) {
           const task = boundStore?.getTask(context.taskId);
@@ -114,12 +131,12 @@ export function createWorkflowManagerExecutionAuthority(initialStore?: WorkflowS
             const worktree = boundStore
               ?.listWorktreesForTask(context.taskId)
               .find((candidate) => candidate.worktreeId === context.worktreeId && candidate.status === "active");
-            if (worktree === undefined || worktree.canonicalPath !== context.worktreePath) {
+            if (worktree === undefined || path.resolve(worktree.canonicalPath) !== path.resolve(context.worktreePath)) {
               return { ok: false, detail: `managed worktree identity is unresolved for task: ${context.taskId}` };
             }
           }
         }
-        if (!fs.statSync(context.worktreePath).isDirectory()) {
+        if (!(await fs.promises.stat(context.worktreePath)).isDirectory()) {
           return { ok: false, detail: `execution directory is not a directory: ${context.worktreePath}` };
         }
         return { ok: true };
@@ -132,12 +149,16 @@ export function createWorkflowManagerExecutionAuthority(initialStore?: WorkflowS
       if (context.taskId === undefined) {
         return { semanticLifecycleState: "unbound", status: undefined, receipt: undefined };
       }
-      const task = boundStore?.getTask(context.taskId!);
+      const task = boundStore?.getTask(context.taskId);
       if (task === undefined) {
         return {
           semanticLifecycleState: "orphaned",
           status: "task record is unavailable; execution identity was not recreated",
-          receipt: receipt("task_unresolved", "task record is unavailable; execution identity was not recreated", "workflow"),
+          receipt: receipt(
+            "task_unresolved",
+            "task record is unavailable; execution identity was not recreated",
+            "workflow",
+          ),
         };
       }
       return {

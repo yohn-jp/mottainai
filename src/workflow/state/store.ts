@@ -60,7 +60,15 @@ export type ManagerSessionId = string & { readonly __brand: "ManagerSessionId" }
 export type ManagerExecutionMode = "task-bound" | "workspace";
 export const MANAGER_AGENT_KINDS = ["codex", "claude"] as const;
 export type ManagerAgentKind = (typeof MANAGER_AGENT_KINDS)[number];
-export const MANAGER_RUNTIME_STATES = ["starting", "running", "detached", "exited", "failed", "stopped", "stale"] as const;
+export const MANAGER_RUNTIME_STATES = [
+  "starting",
+  "running",
+  "detached",
+  "exited",
+  "failed",
+  "stopped",
+  "stale",
+] as const;
 export type ManagerRuntimeState = (typeof MANAGER_RUNTIME_STATES)[number];
 export const MANAGER_RECONCILIATION_STATES = ["synced", "drifted", "unresolved"] as const;
 export type ManagerReconciliationState = (typeof MANAGER_RECONCILIATION_STATES)[number];
@@ -151,7 +159,7 @@ export interface UpdateManagerSessionInput {
   reconciliationMessage?: string | null;
   latestStatus?: string | null;
   latestReceipt?: ManagerSessionReceipt;
-  exitCode?: number;
+  exitCode?: number | null;
   finishedAt?: number | null;
   runtimeObservedAt?: number | null;
   restartCount?: number;
@@ -162,6 +170,7 @@ export interface UpdateManagerSessionInput {
 
 export interface ListManagerSessionsOptions {
   limit?: number;
+  runtimeStates?: readonly ManagerRuntimeState[];
 }
 
 export interface TaskRecord {

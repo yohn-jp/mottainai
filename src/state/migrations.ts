@@ -486,11 +486,15 @@ export function applyMigrations(
   // than MAX(version). This keeps independently developed migrations
   // composable: #186 may land its Manager projection before #181's v15
   // Nawabari task-reference migration, and the latter must still be applied.
-  const applied = appliedVersions(db);
   for (;;) {
     boundaries.file("sqlite.begin", () => db.exec("BEGIN IMMEDIATE"));
     let migration: Migration | undefined;
     try {
+      // Re-read applied versions inside the write-locked transaction: a
+      // snapshot taken before BEGIN IMMEDIATE can be stale when another
+      // process committed the same migration while this one waited for the
+      // lock, which would otherwise re-run `up` and violate its assumptions.
+      const applied = appliedVersions(db);
       migration = ordered.find((candidate) => !applied.has(candidate.version));
       if (migration === undefined) {
         db.exec("COMMIT");
@@ -505,7 +509,6 @@ export function applyMigrations(
           Date.now(),
         );
       });
-      applied.add(migration.version);
       boundaries.file("sqlite.commit", () => db.exec("COMMIT"));
     } catch (err) {
       let rollbackError: unknown;

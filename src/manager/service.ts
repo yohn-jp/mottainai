@@ -21,6 +21,13 @@ const MAX_INSTRUCTION_LENGTH = 64 * 1024;
 const MAX_MODEL_LENGTH = 128;
 const MAX_STATUS_LENGTH = 512;
 const MAX_LIST_LIMIT = 500;
+const ACTIVE_RUNTIME_STATES = ["starting", "running", "detached"] as const satisfies readonly ManagerRuntimeState[];
+const RECENT_RUNTIME_STATES = [
+  "exited",
+  "failed",
+  "stopped",
+  "stale",
+] as const satisfies readonly ManagerRuntimeState[];
 
 function boundedStatus(value: string): string {
   return value.slice(0, MAX_STATUS_LENGTH);
@@ -80,7 +87,7 @@ export class ManagerError extends Error {
       ? 404
       : code === "runtime_name_collision" || code === "worktree_missing" || code === "session_restart_rejected"
         ? 409
-      : code === "zellij_unavailable" || code === "zellij_incompatible"
+        : code === "zellij_unavailable" || code === "zellij_incompatible"
           ? 503
           : 400,
   ) {
@@ -118,11 +125,12 @@ function normalizeAgentKind(input: unknown): ManagerAgentKind {
 function managerError(error: unknown): ManagerError {
   if (error instanceof ManagerError) return error;
   if (error instanceof ZellijRuntimeError) {
-    const status = error.code === "zellij_unavailable" || error.code === "zellij_incompatible"
-      ? 503
-      : error.code === "zellij_launch_failed"
-        ? 502
-        : 500;
+    const status =
+      error.code === "zellij_unavailable" || error.code === "zellij_incompatible"
+        ? 503
+        : error.code === "zellij_launch_failed"
+          ? 502
+          : 500;
     return new ManagerError(
       error.code === "zellij_unavailable"
         ? "zellij_unavailable"
@@ -151,7 +159,8 @@ export function buildManagerLaunchInvocation(input: {
   commands?: Partial<Record<ManagerAgentKind, { command: string; baseArgs?: readonly string[] }>>;
 }): ManagerLaunchInvocation {
   const configured = input.commands?.[input.agentKind];
-  const defaultProfile = input.agentKind === "claude" ? { command: "claude", baseArgs: ["--print"] } : { command: "codex", baseArgs: [] };
+  const defaultProfile =
+    input.agentKind === "claude" ? { command: "claude", baseArgs: [] } : { command: "codex", baseArgs: [] };
   const profile = configured ?? defaultProfile;
   const args = [
     ...(profile.baseArgs ?? []),
@@ -167,7 +176,10 @@ function runtimeStateForObservation(observed: ZellijObservedState): ManagerRunti
   return observed;
 }
 
-function lifecycleForRuntime(runtimeState: ManagerRuntimeState, current: ManagerSessionRecord["lifecycleState"]): ManagerSessionRecord["lifecycleState"] {
+function lifecycleForRuntime(
+  runtimeState: ManagerRuntimeState,
+  current: ManagerSessionRecord["lifecycleState"],
+): ManagerSessionRecord["lifecycleState"] {
   if (runtimeState === "running" || runtimeState === "detached") return "running";
   if (runtimeState === "starting") return "starting";
   if (runtimeState === "stopped") return "stopped";
@@ -182,12 +194,20 @@ function lifecycleForRuntime(runtimeState: ManagerRuntimeState, current: Manager
 }
 
 function isTerminalSemanticState(state: ManagerSessionRecord["semanticLifecycleState"]): boolean {
-  return state === "committed" || state === "pushed" || state === "pull-request-open" || state === "merged" || state === "abandoned" || state === "cleaned";
+  return (
+    state === "committed" ||
+    state === "pushed" ||
+    state === "pull-request-open" ||
+    state === "merged" ||
+    state === "abandoned" ||
+    state === "cleaned"
+  );
 }
 
 export class ManagerSessionService {
   private zellijVersion: string | undefined;
   private readonly execution: ManagerExecutionAuthority;
+  private readonly sessionOperations = new Map<ManagerSessionId, Promise<void>>();
 
   constructor(
     private readonly options: {
@@ -200,7 +220,8 @@ export class ManagerSessionService {
       executionAuthority?: ManagerExecutionAuthority;
     },
   ) {
-    this.execution = options.executionAuthority ?? createWorkflowManagerExecutionAuthority(options.store, options.workspaceRoot);
+    this.execution =
+      options.executionAuthority ?? createWorkflowManagerExecutionAuthority(options.store, options.workspaceRoot);
   }
 
   async initialize(): Promise<ManagerHealth> {
@@ -217,8 +238,13 @@ export class ManagerSessionService {
   health(): ManagerHealth {
     if (this.zellijVersion === undefined)
       throw new ManagerError("zellij_unavailable", "Zellij availability has not been established", 503);
-    const sessions = this.options.store.listManagerSessions(this.options.workspaceRoot, { limit: MAX_LIST_LIMIT });
-    const active = sessions.filter((session) => session.runtimeState === "starting" || session.runtimeState === "running" || session.runtimeState === "detached").length;
+    const sessions = this.loadControlPlaneSessions();
+    const active = sessions.filter(
+      (session) =>
+        session.runtimeState === "starting" ||
+        session.runtimeState === "running" ||
+        session.runtimeState === "detached",
+    ).length;
     return {
       manager: "ready",
       workspaceRoot: this.options.workspaceRoot,
@@ -229,30 +255,62 @@ export class ManagerSessionService {
 
   async list(filter: ManagerSessionFilter = {}): Promise<ManagerSessionRecord[]> {
     await this.reconcile();
-    const sessions = this.options.store
-      .listManagerSessions(this.options.workspaceRoot, { limit: MAX_LIST_LIMIT })
+    return this.projectSessions(this.loadControlPlaneSessions(), filter);
+  }
+
+  private projectSessions(sessions: ManagerSessionRecord[], filter: ManagerSessionFilter): ManagerSessionRecord[] {
+    const projected = sessions
       .filter((session) => filter.runtimeState === undefined || session.runtimeState === filter.runtimeState)
       .filter((session) => filter.agentKind === undefined || session.agentKind === filter.agentKind)
-      .filter((session) => filter.semanticLifecycleState === undefined || session.semanticLifecycleState === filter.semanticLifecycleState)
+      .filter(
+        (session) =>
+          filter.semanticLifecycleState === undefined ||
+          session.semanticLifecycleState === filter.semanticLifecycleState,
+      )
       .filter((session) => filter.taskId === undefined || session.taskId === filter.taskId)
       .filter((session) => filter.issueRef === undefined || session.issueRef === filter.issueRef)
       .filter((session) => {
         if (filter.search === undefined || filter.search.trim().length === 0) return true;
         const needle = filter.search.trim().toLowerCase();
-        return [session.sessionId, session.taskId, session.issueRef, session.branchName, session.runtimeName, session.latestStatus]
+        return [
+          session.sessionId,
+          session.taskId,
+          session.issueRef,
+          session.branchName,
+          session.runtimeName,
+          session.latestStatus,
+        ]
           .filter((value): value is string => typeof value === "string")
           .some((value) => value.toLowerCase().includes(needle));
       });
-    sessions.sort((left, right) => {
-      const leftActive = left.runtimeState === "starting" || left.runtimeState === "running" || left.runtimeState === "detached";
-      const rightActive = right.runtimeState === "starting" || right.runtimeState === "running" || right.runtimeState === "detached";
-      return Number(rightActive) - Number(leftActive) || right.startedAt - left.startedAt || left.sessionId.localeCompare(right.sessionId);
+    projected.sort((left, right) => {
+      const leftActive =
+        left.runtimeState === "starting" || left.runtimeState === "running" || left.runtimeState === "detached";
+      const rightActive =
+        right.runtimeState === "starting" || right.runtimeState === "running" || right.runtimeState === "detached";
+      return (
+        Number(rightActive) - Number(leftActive) ||
+        right.startedAt - left.startedAt ||
+        left.sessionId.localeCompare(right.sessionId)
+      );
     });
-    return sessions.slice(0, Math.min(Math.max(Math.trunc(filter.limit ?? MAX_LIST_LIMIT), 1), MAX_LIST_LIMIT));
+    return projected.slice(0, Math.min(Math.max(Math.trunc(filter.limit ?? MAX_LIST_LIMIT), 1), MAX_LIST_LIMIT));
+  }
+
+  private loadControlPlaneSessions(): ManagerSessionRecord[] {
+    const active = this.options.store.listManagerSessions(this.options.workspaceRoot, {
+      limit: MAX_LIST_LIMIT,
+      runtimeStates: ACTIVE_RUNTIME_STATES,
+    });
+    const recent = this.options.store.listManagerSessions(this.options.workspaceRoot, {
+      limit: MAX_LIST_LIMIT,
+      runtimeStates: RECENT_RUNTIME_STATES,
+    });
+    return [...active, ...recent];
   }
 
   async get(sessionId: ManagerSessionId): Promise<ManagerSessionRecord> {
-    return this.reconcileOne(this.requireSession(sessionId));
+    return this.withSessionOperation(sessionId, () => this.reconcileOneUnlocked(this.requireSession(sessionId)));
   }
 
   async start(input: NewManagerSessionInput): Promise<ManagerSessionRecord> {
@@ -274,253 +332,290 @@ export class ManagerSessionService {
     if (this.zellijVersion === undefined) await this.initialize();
     const sessionId = crypto.randomUUID() as ManagerSessionId;
     const runtimeName = deriveZellijSessionName(sessionId);
-    let existingRuntime: ZellijObservedState;
-    try {
-      existingRuntime = await this.options.runtime.inspect(runtimeName);
-    } catch (error) {
-      throw managerError(error);
-    }
-    if (existingRuntime !== "absent")
-      throw new ManagerError("runtime_name_collision", `Zellij session name is already in use: ${runtimeName}`, 409);
-    if (this.options.store.listManagerSessions(this.options.workspaceRoot).some((candidate) => candidate.runtimeName === runtimeName))
-      throw new ManagerError("runtime_name_collision", `Mottainai runtime name is already recorded: ${runtimeName}`, 409);
+    return this.withSessionOperation(sessionId, async () => {
+      let existingRuntime: ZellijObservedState;
+      try {
+        existingRuntime = await this.options.runtime.inspect(runtimeName);
+      } catch (error) {
+        throw managerError(error);
+      }
+      if (existingRuntime !== "absent")
+        throw new ManagerError("runtime_name_collision", `Zellij session name is already in use: ${runtimeName}`, 409);
+      if (
+        this.options.store
+          .listManagerSessions(this.options.workspaceRoot)
+          .some((candidate) => candidate.runtimeName === runtimeName)
+      )
+        throw new ManagerError(
+          "runtime_name_collision",
+          `Mottainai runtime name is already recorded: ${runtimeName}`,
+          409,
+        );
 
-    let executionContext: ManagerExecutionContext;
-    let executionReceipt: ManagerSessionReceipt | undefined;
-    try {
-      const execution = await this.execution.start({
+      let executionContext: ManagerExecutionContext;
+      let executionReceipt: ManagerSessionReceipt | undefined;
+      try {
+        const execution = await this.execution.start({
+          workspaceRoot: this.options.workspaceRoot,
+          store: this.options.store,
+          taskSlug,
+          issueRef,
+          branchType,
+          idempotencyKey: sessionId,
+        });
+        executionContext = execution.context;
+        executionReceipt = execution.receipt;
+      } catch (error) {
+        throw new ManagerError("task_start_failed", error instanceof Error ? error.message : String(error), 409);
+      }
+
+      const invocation = buildManagerLaunchInvocation({
+        agentKind,
+        model,
+        instruction,
+        commands: {
+          ...(this.options.agentCommands ?? {}),
+          ...(this.options.agentCommand === undefined ? {} : { codex: this.options.agentCommand }),
+        },
+      });
+      const session = this.options.store.createManagerSession({
+        sessionId,
         workspaceRoot: this.options.workspaceRoot,
-        store: this.options.store,
-        taskSlug,
-        issueRef,
-        branchType,
-        idempotencyKey: sessionId,
+        taskId: executionContext.taskId,
+        executionSessionId: executionContext.executionSessionId,
+        executionMode: executionContext.taskId === undefined ? "workspace" : "task-bound",
+        worktreeId: executionContext.worktreeId,
+        worktreePath: executionContext.worktreePath,
+        branchName: executionContext.branchName,
+        taskSlug: executionContext.taskSlug,
+        issueRef: executionContext.issueRef,
+        branchType: executionContext.branchType,
+        agentKind,
+        launchProfile: agentKind,
+        instruction,
+        model,
+        launchCommand: invocation.command,
+        launchArgs: invocation.args,
+        runtimeName,
+        semanticLifecycleState: executionContext.semanticLifecycleState,
+        latestStatus: "execution context acquired; launching agent runtime",
+        latestReceipt: executionReceipt,
       });
-      executionContext = execution.context;
-      executionReceipt = execution.receipt;
-    } catch (error) {
-      throw new ManagerError("task_start_failed", error instanceof Error ? error.message : String(error), 409);
-    }
-
-    const invocation = buildManagerLaunchInvocation({
-      agentKind,
-      model,
-      instruction,
-      commands: {
-        ...(this.options.agentCommands ?? {}),
-        ...(this.options.agentCommand === undefined ? {} : { codex: this.options.agentCommand }),
-      },
+      const validation = await this.execution.validate(executionContext);
+      if (!validation.ok) {
+        const detail = validation.detail.slice(0, MAX_STATUS_LENGTH);
+        this.options.store.updateManagerSession(sessionId, {
+          lifecycleState: "failed",
+          runtimeState: "failed",
+          reconciliationState: "unresolved",
+          reconciliationMessage: detail,
+          latestStatus: detail,
+          latestReceipt: receipt("execution_unavailable", detail, "workflow"),
+          terminationState: "failed",
+          errorMessage: detail,
+          finishedAt: Date.now(),
+          runtimeObservedAt: Date.now(),
+        });
+        throw new ManagerError("worktree_missing", detail, 409);
+      }
+      try {
+        await this.options.runtime.start({
+          sessionName: runtimeName,
+          cwd: executionContext.worktreePath,
+          command: invocation.command,
+          args: invocation.args,
+        });
+        return this.options.store.updateManagerSession(sessionId, {
+          lifecycleState: "running",
+          runtimeState: "running",
+          attachable: true,
+          reconciliationState: "synced",
+          latestStatus: `${agentKind} runtime started in managed execution context`,
+          latestReceipt: receipt("runtime_started", `${agentKind} runtime started`, "runtime"),
+          terminationState: "running",
+          runtimeObservedAt: Date.now(),
+        });
+      } catch (error) {
+        const failure = managerError(error);
+        this.options.store.updateManagerSession(sessionId, {
+          lifecycleState: "failed",
+          runtimeState: "failed",
+          attachable: false,
+          reconciliationState: "drifted",
+          reconciliationMessage: failure.message,
+          latestStatus: failure.message,
+          latestReceipt: receipt("runtime_start_failed", failure.message, "zellij"),
+          terminationState: "failed",
+          errorMessage: failure.message,
+          finishedAt: Date.now(),
+          runtimeObservedAt: Date.now(),
+        });
+        throw failure;
+      }
     });
-    const session = this.options.store.createManagerSession({
-      sessionId,
-      workspaceRoot: this.options.workspaceRoot,
-      taskId: executionContext.taskId,
-      executionSessionId: executionContext.executionSessionId,
-      executionMode: executionContext.taskId === undefined ? "workspace" : "task-bound",
-      worktreeId: executionContext.worktreeId,
-      worktreePath: executionContext.worktreePath,
-      branchName: executionContext.branchName,
-      taskSlug: executionContext.taskSlug,
-      issueRef: executionContext.issueRef,
-      branchType: executionContext.branchType,
-      agentKind,
-      launchProfile: agentKind,
-      instruction,
-      model,
-      launchCommand: invocation.command,
-      launchArgs: invocation.args,
-      runtimeName,
-      semanticLifecycleState: executionContext.semanticLifecycleState,
-      latestStatus: "execution context acquired; launching agent runtime",
-      latestReceipt: executionReceipt,
-    });
-    const validation = await this.execution.validate(executionContext);
-    if (!validation.ok) {
-      const detail = validation.detail.slice(0, MAX_STATUS_LENGTH);
-      this.options.store.updateManagerSession(sessionId, {
-        lifecycleState: "failed",
-        runtimeState: "failed",
-        reconciliationState: "unresolved",
-        reconciliationMessage: detail,
-        latestStatus: detail,
-        latestReceipt: receipt("execution_unavailable", detail, "workflow"),
-        terminationState: "failed",
-        errorMessage: detail,
-        finishedAt: Date.now(),
-        runtimeObservedAt: Date.now(),
-      });
-      throw new ManagerError("worktree_missing", detail, 409);
-    }
-    try {
-      await this.options.runtime.start({
-        sessionName: runtimeName,
-        cwd: executionContext.worktreePath,
-        command: invocation.command,
-        args: invocation.args,
-      });
-      return this.options.store.updateManagerSession(sessionId, {
-        lifecycleState: "running",
-        runtimeState: "running",
-        attachable: true,
-        reconciliationState: "synced",
-        latestStatus: `${agentKind} runtime started in managed execution context`,
-        latestReceipt: receipt("runtime_started", `${agentKind} runtime started`, "runtime"),
-        terminationState: "running",
-        runtimeObservedAt: Date.now(),
-      });
-    } catch (error) {
-      const failure = managerError(error);
-      this.options.store.updateManagerSession(sessionId, {
-        lifecycleState: "failed",
-        runtimeState: "failed",
-        attachable: false,
-        reconciliationState: "drifted",
-        reconciliationMessage: failure.message,
-        latestStatus: failure.message,
-        latestReceipt: receipt("runtime_start_failed", failure.message, "zellij"),
-        terminationState: "failed",
-        errorMessage: failure.message,
-        finishedAt: Date.now(),
-        runtimeObservedAt: Date.now(),
-      });
-      throw failure;
-    }
   }
 
   async openTerminal(sessionId: ManagerSessionId): Promise<ManagerSessionRecord> {
-    const session = await this.reconcileOne(this.requireSession(sessionId));
-    if (session.runtimeState !== "running" && session.runtimeState !== "detached")
-      throw new ManagerError("session_not_running", `session is not running: ${sessionId}`, 409);
-    if (!session.attachable) throw new ManagerError("session_not_attachable", `session is not attachable: ${sessionId}`, 409);
-    try {
-      await this.options.runtime.attach(session.runtimeName, session.worktreePath);
-      return this.options.store.updateManagerSession(sessionId, {
-        latestStatus: "selected Zellij session opened",
-        latestReceipt: receipt("runtime_attached", "selected Zellij session opened", "zellij"),
-        reconciliationState: "synced",
-        reconciliationMessage: null,
-        runtimeObservedAt: Date.now(),
-      });
-    } catch (error) {
-      throw managerError(error);
-    }
+    return this.withSessionOperation(sessionId, async () => {
+      const session = await this.reconcileOneUnlocked(this.requireSession(sessionId));
+      if (session.runtimeState !== "running" && session.runtimeState !== "detached")
+        throw new ManagerError("session_not_running", `session is not running: ${sessionId}`, 409);
+      if (!session.attachable)
+        throw new ManagerError("session_not_attachable", `session is not attachable: ${sessionId}`, 409);
+      try {
+        await this.options.runtime.attach(session.runtimeName, session.worktreePath);
+        return this.options.store.updateManagerSession(sessionId, {
+          latestStatus: "selected Zellij session opened",
+          latestReceipt: receipt("runtime_attached", "selected Zellij session opened", "zellij"),
+          reconciliationState: "synced",
+          reconciliationMessage: null,
+          runtimeObservedAt: Date.now(),
+        });
+      } catch (error) {
+        throw managerError(error);
+      }
+    });
   }
 
   async stop(sessionId: ManagerSessionId): Promise<ManagerSessionRecord> {
-    const session = await this.reconcileOne(this.requireSession(sessionId));
-    if (session.runtimeState !== "running" && session.runtimeState !== "detached" && session.runtimeState !== "starting") return session;
-    try {
-      const observed = await this.options.runtime.inspect(session.runtimeName, session.worktreePath);
-      if (observed !== "running" && observed !== "detached") {
+    return this.withSessionOperation(sessionId, async () => {
+      const session = await this.reconcileOneUnlocked(this.requireSession(sessionId));
+      if (
+        session.runtimeState !== "running" &&
+        session.runtimeState !== "detached" &&
+        session.runtimeState !== "starting"
+      )
+        return session;
+      try {
+        const observed = await this.options.runtime.inspect(session.runtimeName, session.worktreePath);
+        if (observed !== "running" && observed !== "detached" && observed !== "exited") {
+          return this.options.store.updateManagerSession(session.sessionId, {
+            runtimeState: "stale",
+            attachable: false,
+            reconciliationState: "unresolved",
+            reconciliationMessage: `refusing to stop selected runtime because its identity is ${observed}`,
+            latestStatus: `refusing to stop selected runtime because its identity is ${observed}`,
+            latestReceipt: receipt(
+              "runtime_stop_rejected",
+              `refusing to stop selected runtime because its identity is ${observed}`,
+              "zellij",
+            ),
+            runtimeObservedAt: Date.now(),
+          });
+        }
+        await this.options.runtime.terminate(session.runtimeName, session.worktreePath);
+        const now = Date.now();
         return this.options.store.updateManagerSession(session.sessionId, {
-          runtimeState: "stale",
+          lifecycleState: "stopped",
+          runtimeState: "stopped",
           attachable: false,
-          reconciliationState: "unresolved",
-          reconciliationMessage: `refusing to stop selected runtime because its identity is ${observed}`,
-          latestStatus: `refusing to stop selected runtime because its identity is ${observed}`,
-          latestReceipt: receipt("runtime_stop_rejected", `refusing to stop selected runtime because its identity is ${observed}`, "zellij"),
-          runtimeObservedAt: Date.now(),
+          terminationState: "stopped",
+          finishedAt: now,
+          runtimeObservedAt: now,
+          latestStatus: "selected managed runtime stopped",
+          latestReceipt: receipt("runtime_stopped", "selected managed runtime stopped", "zellij"),
+          reconciliationState: "synced",
+          reconciliationMessage: null,
         });
+      } catch (error) {
+        throw managerError(error);
       }
-      await this.options.runtime.terminate(session.runtimeName, session.worktreePath);
-      const now = Date.now();
-      return this.options.store.updateManagerSession(session.sessionId, {
-        lifecycleState: "stopped",
-        runtimeState: "stopped",
-        attachable: false,
-        terminationState: "stopped",
-        finishedAt: now,
-        runtimeObservedAt: now,
-        latestStatus: "selected managed runtime stopped",
-        latestReceipt: receipt("runtime_stopped", "selected managed runtime stopped", "zellij"),
-        reconciliationState: "synced",
-        reconciliationMessage: null,
-      });
-    } catch (error) {
-      throw managerError(error);
-    }
+    });
   }
 
   async restart(sessionId: ManagerSessionId): Promise<ManagerSessionRecord> {
-    const current = await this.reconcileOne(this.requireSession(sessionId));
-    if (isTerminalSemanticState(current.semanticLifecycleState)) {
-      throw new ManagerError(
-        "session_restart_rejected",
-        `cannot restart a session whose semantic task lifecycle is ${current.semanticLifecycleState}`,
-        409,
-      );
-    }
-    if (current.runtimeState === "running" || current.runtimeState === "detached" || current.runtimeState === "starting") {
-      throw new ManagerError("session_restart_rejected", "restart is only valid for a non-running managed runtime", 409);
-    }
-    if (current.runtimeState === "stale") {
-      const observed = await this.options.runtime.inspect(current.runtimeName, current.worktreePath);
-      if (observed !== "absent") {
+    return this.withSessionOperation(sessionId, async () => {
+      const current = await this.reconcileOneUnlocked(this.requireSession(sessionId));
+      if (isTerminalSemanticState(current.semanticLifecycleState)) {
         throw new ManagerError(
           "session_restart_rejected",
-          `cannot restart because the managed Zellij identity is ${observed}; no unrelated session will be adopted`,
+          `cannot restart a session whose semantic task lifecycle is ${current.semanticLifecycleState}`,
           409,
         );
       }
-    }
-    const context = this.contextFromRecord(current);
-    const validation = await this.execution.validate(context);
-    if (!validation.ok) throw new ManagerError("execution_unresolved", validation.detail, 409);
-    const restartCount = current.restartCount + 1;
-    const started = this.options.store.updateManagerSession(current.sessionId, {
-      lifecycleState: "starting",
-      runtimeState: "starting",
-      attachable: false,
-      reconciliationState: "drifted",
-      reconciliationMessage: "restart requested for the selected managed runtime",
-      latestStatus: "relaunching selected agent runtime",
-      latestReceipt: receipt("runtime_restart_requested", "relaunching selected agent runtime", "manager"),
-      restartCount,
-      terminationState: "running",
-      errorMessage: null,
-      finishedAt: null,
-      runtimeObservedAt: Date.now(),
-    });
-    try {
-      if (current.runtimeState === "exited") await this.options.runtime.terminate(current.runtimeName, current.worktreePath).catch(() => undefined);
-      await this.options.runtime.start({
-        sessionName: started.runtimeName,
-        cwd: started.worktreePath,
-        command: started.launchCommand,
-        args: started.launchArgs,
-      });
-      return this.options.store.updateManagerSession(sessionId, {
-        lifecycleState: "running",
-        runtimeState: "running",
-        attachable: true,
-        reconciliationState: "synced",
-        reconciliationMessage: null,
-        latestStatus: "agent runtime relaunched in the existing execution context",
-        latestReceipt: receipt("runtime_restarted", "agent runtime relaunched", "runtime"),
-        terminationState: "running",
-        runtimeObservedAt: Date.now(),
-      });
-    } catch (error) {
-      const failure = managerError(error);
-      return this.options.store.updateManagerSession(sessionId, {
-        lifecycleState: "failed",
-        runtimeState: "failed",
+      if (
+        current.runtimeState === "running" ||
+        current.runtimeState === "detached" ||
+        current.runtimeState === "starting"
+      ) {
+        throw new ManagerError(
+          "session_restart_rejected",
+          "restart is only valid for a non-running managed runtime",
+          409,
+        );
+      }
+      if (current.runtimeState === "stale") {
+        const observed = await this.options.runtime.inspect(current.runtimeName, current.worktreePath);
+        if (observed !== "absent") {
+          throw new ManagerError(
+            "session_restart_rejected",
+            `cannot restart because the managed Zellij identity is ${observed}; no unrelated session will be adopted`,
+            409,
+          );
+        }
+      }
+      const context = this.contextFromRecord(current);
+      const validation = await this.execution.validate(context);
+      if (!validation.ok) throw new ManagerError("execution_unresolved", validation.detail, 409);
+      const restartCount = current.restartCount + 1;
+      const started = this.options.store.updateManagerSession(current.sessionId, {
+        lifecycleState: "starting",
+        runtimeState: "starting",
         attachable: false,
         reconciliationState: "drifted",
-        reconciliationMessage: failure.message,
-        latestStatus: failure.message,
-        latestReceipt: receipt("runtime_restart_failed", failure.message, "zellij"),
-        terminationState: "failed",
-        errorMessage: failure.message,
-        finishedAt: Date.now(),
+        reconciliationMessage: "restart requested for the selected managed runtime",
+        latestStatus: "relaunching selected agent runtime",
+        latestReceipt: receipt("runtime_restart_requested", "relaunching selected agent runtime", "manager"),
+        restartCount,
+        terminationState: "running",
+        errorMessage: null,
+        finishedAt: null,
+        exitCode: null,
         runtimeObservedAt: Date.now(),
       });
-    }
+      try {
+        if (current.runtimeState === "exited")
+          await this.options.runtime.terminate(current.runtimeName, current.worktreePath).catch(() => undefined);
+        await this.options.runtime.start({
+          sessionName: started.runtimeName,
+          cwd: started.worktreePath,
+          command: started.launchCommand,
+          args: started.launchArgs,
+        });
+        return this.options.store.updateManagerSession(sessionId, {
+          lifecycleState: "running",
+          runtimeState: "running",
+          attachable: true,
+          reconciliationState: "synced",
+          reconciliationMessage: null,
+          latestStatus: "agent runtime relaunched in the existing execution context",
+          latestReceipt: receipt("runtime_restarted", "agent runtime relaunched", "runtime"),
+          terminationState: "running",
+          runtimeObservedAt: Date.now(),
+        });
+      } catch (error) {
+        const failure = managerError(error);
+        this.options.store.updateManagerSession(sessionId, {
+          lifecycleState: "failed",
+          runtimeState: "failed",
+          attachable: false,
+          reconciliationState: "drifted",
+          reconciliationMessage: failure.message,
+          latestStatus: failure.message,
+          latestReceipt: receipt("runtime_restart_failed", failure.message, "zellij"),
+          terminationState: "failed",
+          errorMessage: failure.message,
+          finishedAt: Date.now(),
+          runtimeObservedAt: Date.now(),
+        });
+        throw failure;
+      }
+    });
   }
 
   async reconcileNow(): Promise<ManagerSessionRecord[]> {
     await this.reconcile();
-    return this.list();
+    return this.projectSessions(this.loadControlPlaneSessions(), {});
   }
 
   private requireSession(sessionId: ManagerSessionId): ManagerSessionRecord {
@@ -544,11 +639,7 @@ export class ManagerSessionService {
     };
   }
 
-  private async reconcileOne(session: ManagerSessionRecord): Promise<ManagerSessionRecord> {
-    // A failed/stopped record is terminal for the Manager runtime. Keep its
-    // diagnostic stable instead of turning a known failure into an unrelated
-    // "stale" observation on every refresh.
-    if (session.lifecycleState === "failed" || session.lifecycleState === "stopped") return session;
+  private async reconcileOneUnlocked(session: ManagerSessionRecord): Promise<ManagerSessionRecord> {
     let semantic = session.semanticLifecycleState;
     let status = session.latestStatus;
     let semanticReceipt = session.latestReceipt;
@@ -558,15 +649,33 @@ export class ManagerSessionService {
       status = observed.status === undefined ? status : boundedStatus(observed.status);
       semanticReceipt = observed.receipt ?? semanticReceipt;
     } catch (error) {
-      status = `workflow observation failed: ${error instanceof Error ? error.message : String(error)}`.slice(0, MAX_STATUS_LENGTH);
+      status = `workflow observation failed: ${error instanceof Error ? error.message : String(error)}`.slice(
+        0,
+        MAX_STATUS_LENGTH,
+      );
       semanticReceipt = receipt("workflow_observation_failed", status, "workflow");
     }
 
-    const validation = await this.execution.validate(this.contextFromRecord({ ...session, semanticLifecycleState: semantic }));
+    // Runtime-terminal records still observe workflow semantics so restart
+    // decisions cannot use a stale pre-completion task lifecycle.
+    if (session.lifecycleState === "failed" || session.lifecycleState === "stopped") {
+      return this.options.store.updateManagerSession(session.sessionId, {
+        semanticLifecycleState: semantic,
+        latestStatus: status,
+        ...(semanticReceipt === undefined ? {} : { latestReceipt: semanticReceipt }),
+        runtimeObservedAt: Date.now(),
+      });
+    }
+
+    const validation = await this.execution.validate(
+      this.contextFromRecord({ ...session, semanticLifecycleState: semantic }),
+    );
     if (!validation.ok) {
       const now = Date.now();
       const detail = boundedStatus(validation.detail);
-      const observed = await this.options.runtime.inspect(session.runtimeName, session.worktreePath).catch(() => "unresolved" as const);
+      const observed = await this.options.runtime
+        .inspect(session.runtimeName, session.worktreePath)
+        .catch(() => "unresolved" as const);
       if (observed === "running" || observed === "detached") {
         await this.options.runtime.terminate(session.runtimeName, session.worktreePath).catch(() => undefined);
       }
@@ -603,25 +712,29 @@ export class ManagerSessionService {
       });
     }
     const runtimeState =
-      observed === "absent" && session.runtimeState === "exited"
-        ? "exited"
-        : runtimeStateForObservation(observed);
+      observed === "absent" && session.runtimeState === "exited" ? "exited" : runtimeStateForObservation(observed);
     const now = Date.now();
     const attachable = runtimeState === "running" || runtimeState === "detached";
     const stale = runtimeState === "stale";
     const nextLifecycle = lifecycleForRuntime(runtimeState, session.lifecycleState);
-    const detail = stale && observed === "unresolved"
-      ? "managed Zellij runtime identity is unresolved; no unrelated session was adopted"
-      : stale
-        ? "managed Zellij session is missing; no unrelated session was adopted"
-      : runtimeState === "exited"
-        ? "managed Zellij agent pane exited; semantic task completion was not inferred"
-        : runtimeState === "detached"
-          ? "managed Zellij session is detached and attachable"
-          : `managed Zellij session is ${runtimeState}`;
-    const nextReceipt = stale || runtimeState === "exited" || runtimeState === "detached"
-      ? receipt(stale ? "runtime_stale" : runtimeState === "exited" ? "runtime_exited" : "runtime_detached", detail, "zellij")
-      : semanticReceipt;
+    const detail =
+      stale && observed === "unresolved"
+        ? "managed Zellij runtime identity is unresolved; no unrelated session was adopted"
+        : stale
+          ? "managed Zellij session is missing; no unrelated session was adopted"
+          : runtimeState === "exited"
+            ? "managed Zellij agent pane exited; semantic task completion was not inferred"
+            : runtimeState === "detached"
+              ? "managed Zellij session is detached and attachable"
+              : `managed Zellij session is ${runtimeState}`;
+    const nextReceipt =
+      stale || runtimeState === "exited" || runtimeState === "detached"
+        ? receipt(
+            stale ? "runtime_stale" : runtimeState === "exited" ? "runtime_exited" : "runtime_detached",
+            detail,
+            "zellij",
+          )
+        : semanticReceipt;
     return this.options.store.updateManagerSession(session.sessionId, {
       lifecycleState: nextLifecycle,
       runtimeState,
@@ -631,16 +744,46 @@ export class ManagerSessionService {
       reconciliationMessage: stale ? detail : null,
       latestStatus: status ?? detail,
       latestReceipt: nextReceipt,
-      finishedAt: runtimeState === "exited" || runtimeState === "stale" ? session.finishedAt ?? now : null,
+      finishedAt: runtimeState === "exited" || runtimeState === "stale" ? (session.finishedAt ?? now) : null,
       runtimeObservedAt: now,
       terminationState:
-        runtimeState === "running" || runtimeState === "detached" ? "running" : runtimeState === "stopped" ? "stopped" : runtimeState === "failed" ? "failed" : "exited",
-      errorMessage: stale ? session.errorMessage ?? detail : runtimeState === "exited" ? session.errorMessage : null,
+        runtimeState === "running" || runtimeState === "detached"
+          ? "running"
+          : runtimeState === "stopped"
+            ? "stopped"
+            : runtimeState === "failed"
+              ? "failed"
+              : "exited",
+      errorMessage: stale ? (session.errorMessage ?? detail) : runtimeState === "exited" ? session.errorMessage : null,
     });
   }
 
   private async reconcile(): Promise<void> {
-    const sessions = this.options.store.listManagerSessions(this.options.workspaceRoot, { limit: MAX_LIST_LIMIT });
-    for (const session of sessions) await this.reconcileOne(session);
+    const sessions = this.loadControlPlaneSessions();
+    for (const session of sessions) {
+      await this.withSessionOperation(session.sessionId, () =>
+        this.reconcileOneUnlocked(this.requireSession(session.sessionId)),
+      );
+    }
+  }
+
+  private async withSessionOperation<T>(sessionId: ManagerSessionId, operation: () => Promise<T>): Promise<T> {
+    const previous = this.sessionOperations.get(sessionId) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.then(
+      () => gate,
+      () => gate,
+    );
+    this.sessionOperations.set(sessionId, tail);
+    await previous.catch(() => undefined);
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.sessionOperations.get(sessionId) === tail) this.sessionOperations.delete(sessionId);
+    }
   }
 }

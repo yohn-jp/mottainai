@@ -3,7 +3,7 @@ import { runProgram } from "../subprocess.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_OUTPUT_BYTES = 64 * 1024;
-const MINIMUM_ZELLIJ_VERSION = [0, 39, 0] as const;
+const MINIMUM_ZELLIJ_VERSION = [0, 40, 0] as const;
 const SESSION_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/u;
 
 export type ZellijObservedState = "running" | "detached" | "exited" | "absent" | "unresolved";
@@ -46,9 +46,13 @@ function parseVersion(output: string): [number, number, number] | undefined {
 }
 
 function isBeforeMinimum(version: readonly [number, number, number]): boolean {
-  return version[0] < MINIMUM_ZELLIJ_VERSION[0]
-    || (version[0] === MINIMUM_ZELLIJ_VERSION[0] && version[1] < MINIMUM_ZELLIJ_VERSION[1])
-    || (version[0] === MINIMUM_ZELLIJ_VERSION[0] && version[1] === MINIMUM_ZELLIJ_VERSION[1] && version[2] < MINIMUM_ZELLIJ_VERSION[2]);
+  return (
+    version[0] < MINIMUM_ZELLIJ_VERSION[0] ||
+    (version[0] === MINIMUM_ZELLIJ_VERSION[0] && version[1] < MINIMUM_ZELLIJ_VERSION[1]) ||
+    (version[0] === MINIMUM_ZELLIJ_VERSION[0] &&
+      version[1] === MINIMUM_ZELLIJ_VERSION[1] &&
+      version[2] < MINIMUM_ZELLIJ_VERSION[2])
+  );
 }
 
 function assertSessionName(sessionName: string): void {
@@ -75,7 +79,15 @@ function sessionRow(stdout: string, sessionName: string): string | undefined {
     .find((line) => line === sessionName || line.startsWith(`${sessionName} `));
 }
 
-function exitedPane(stdout: string, expectedCwd: string | undefined): boolean | undefined {
+function agentPaneName(sessionName: string): string {
+  return `${sessionName}-agent`;
+}
+
+function resolvePane(
+  stdout: string,
+  expectedCwd: string | undefined,
+  expectedPaneName: string,
+): Record<string, unknown> | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(stdout) as unknown;
@@ -85,15 +97,16 @@ function exitedPane(stdout: string, expectedCwd: string | undefined): boolean | 
   if (!Array.isArray(parsed)) return undefined;
   const panes = parsed.filter((pane): pane is Record<string, unknown> => typeof pane === "object" && pane !== null);
   const namedTarget = panes.find(
-    (pane) => pane.pane_name === "mottainai-agent" || pane.name === "mottainai-agent" || pane.title === "mottainai-agent",
+    (pane) => pane.pane_name === expectedPaneName || pane.name === expectedPaneName || pane.title === expectedPaneName,
   );
-  const target =
+  return (
     namedTarget ??
-    panes.find(
-      (pane) => expectedCwd !== undefined && (pane.pane_cwd === expectedCwd || pane.cwd === expectedCwd),
-    );
-  if (target === undefined) return undefined;
-  return target.exited === true || (target.exit_status !== null && target.exit_status !== undefined);
+    panes.find((pane) => expectedCwd !== undefined && (pane.pane_cwd === expectedCwd || pane.cwd === expectedCwd))
+  );
+}
+
+function paneExited(pane: Record<string, unknown>): boolean {
+  return pane.exited === true || (pane.exit_status !== null && pane.exit_status !== undefined);
 }
 
 /** Thin argv-only adapter. Terminal transport and pane/session lifetime remain Zellij responsibilities. */
@@ -160,35 +173,23 @@ export class ZellijCliRuntime implements ZellijRuntime {
     }
     const row = sessionRow(result.stdout, sessionName);
     if (row === undefined) return "absent";
-    const rowExited = /\bEXITED\b/iu.test(row);
-    if (expectedCwd === undefined && rowExited) return "exited";
+    // An exited session cannot answer `action list-panes`; trust the row
+    // regardless of expectedCwd, or a cwd-scoped inspect of a dead session
+    // throws zellij_command_failed instead of reporting "exited".
+    if (/\bEXITED\b/iu.test(row)) return "exited";
     const panes = await this.run(["--session", sessionName, "action", "list-panes", "--json"], this.defaultCwd);
     if (panes.spawnError !== undefined) {
       throw new ZellijRuntimeError("zellij_command_failed", `Zellij pane inspection failed: ${panes.spawnError}`);
     }
     if (panes.exitCode === 0) {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(panes.stdout);
-      } catch {
-        return "unresolved";
-      }
-      if (!Array.isArray(parsed)) return "unresolved";
-      const namedPane = parsed.find(
-        (pane): pane is Record<string, unknown> =>
-          typeof pane === "object" &&
-          pane !== null &&
-          ((pane as Record<string, unknown>).pane_name === "mottainai-agent" ||
-            (pane as Record<string, unknown>).name === "mottainai-agent" ||
-            (pane as Record<string, unknown>).title === "mottainai-agent"),
-      );
-      if (namedPane === undefined) return "unresolved";
+      const expectedPaneName = agentPaneName(sessionName);
+      const pane = resolvePane(panes.stdout, expectedCwd, expectedPaneName);
+      if (pane === undefined) return "unresolved";
       if (expectedCwd !== undefined) {
-        const paneCwd = namedPane.pane_cwd ?? namedPane.cwd;
+        const paneCwd = pane.pane_cwd ?? pane.cwd;
         if (paneCwd !== expectedCwd) return "unresolved";
       }
-      const exited = exitedPane(panes.stdout, expectedCwd);
-      if (exited === true || rowExited) return "exited";
+      if (paneExited(pane)) return "exited";
       if (/\bDETACHED\b|\bATTACHABLE\b/iu.test(row)) return "detached";
     } else {
       throw new ZellijRuntimeError(
@@ -201,6 +202,13 @@ export class ZellijCliRuntime implements ZellijRuntime {
 
   async start(input: { sessionName: string; cwd: string; command: string; args: readonly string[] }): Promise<void> {
     assertSessionName(input.sessionName);
+    const existing = await this.inspect(input.sessionName);
+    if (existing !== "absent") {
+      throw new ZellijRuntimeError(
+        "zellij_launch_failed",
+        `refusing to create Zellij session ${input.sessionName}: runtime identity is already ${existing}`,
+      );
+    }
     const background = await this.run(["attach", "--create-background", input.sessionName], input.cwd);
     if (background.spawnError !== undefined || background.exitCode !== 0) {
       throw new ZellijRuntimeError(
@@ -217,7 +225,7 @@ export class ZellijCliRuntime implements ZellijRuntime {
         "--cwd",
         input.cwd,
         "--name",
-        "mottainai-agent",
+        agentPaneName(input.sessionName),
         "--",
         input.command,
         ...input.args,
@@ -225,10 +233,25 @@ export class ZellijCliRuntime implements ZellijRuntime {
       input.cwd,
     );
     if (pane.spawnError !== undefined || pane.exitCode !== 0) {
-      await this.terminate(input.sessionName, input.cwd).catch(() => undefined);
+      // The session was created by this invocation but has no managed pane yet,
+      // so the normal identity-gated terminate path cannot safely recognize it.
+      await this.killSessionCreatedByStart(input.sessionName, input.cwd).catch(() => undefined);
       throw new ZellijRuntimeError(
         "zellij_launch_failed",
         `Zellij agent pane launch failed for ${input.sessionName}: ${pane.spawnError ?? (pane.stderr.trim() || `exit ${pane.exitCode}`)}`,
+      );
+    }
+  }
+
+  private async killSessionCreatedByStart(sessionName: string, cwd: string): Promise<void> {
+    const result = await this.run(["kill-session", sessionName], cwd);
+    if (
+      result.spawnError !== undefined ||
+      (result.exitCode !== 0 && !/no session|not found|does not exist/iu.test(result.stderr))
+    ) {
+      throw new ZellijRuntimeError(
+        "zellij_command_failed",
+        `Zellij session cleanup failed for ${sessionName}: ${result.spawnError ?? (result.stderr.trim() || `exit ${result.exitCode}`)}`,
       );
     }
   }

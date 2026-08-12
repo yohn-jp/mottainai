@@ -199,20 +199,22 @@ function toManagerSessionRecord(row: Record<string, unknown>): ManagerSessionRec
   const lifecycleState = row.lifecycle_state as ManagerSessionRecord["lifecycleState"];
   const runtimeState = (row.runtime_state as ManagerSessionRecord["runtimeState"] | null) ?? lifecycleState;
   const instruction =
-    typeof row.instruction === "string" && row.instruction.length > 0
-      ? row.instruction
-      : launchArgs.at(-1) ?? "";
+    typeof row.instruction === "string" && row.instruction.length > 0 ? row.instruction : (launchArgs.at(-1) ?? "");
   return {
     sessionId: row.session_id as ManagerSessionId,
     workspaceRoot: row.workspace_root as string,
     taskId: (row.task_id as TaskId | null) ?? undefined,
     executionSessionId: (row.execution_session_id as string | null) ?? undefined,
-    executionMode: (row.execution_mode as ManagerSessionRecord["executionMode"] | null) ?? (row.task_id === null ? "workspace" : "task-bound"),
+    executionMode:
+      (row.execution_mode as ManagerSessionRecord["executionMode"] | null) ??
+      (row.task_id === null ? "workspace" : "task-bound"),
     worktreeId: (row.worktree_id as WorktreeId | null) ?? undefined,
     worktreePath: row.worktree_path as string,
     branchName: (row.branch_name as string | null) ?? undefined,
     agentKind: row.agent_kind as ManagerSessionRecord["agentKind"],
-    launchProfile: (row.launch_profile as ManagerSessionRecord["launchProfile"] | null) ?? (row.agent_kind as ManagerSessionRecord["agentKind"]),
+    launchProfile:
+      (row.launch_profile as ManagerSessionRecord["launchProfile"] | null) ??
+      (row.agent_kind as ManagerSessionRecord["agentKind"]),
     instruction,
     model: (row.model as string | null) ?? undefined,
     taskSlug: (row.task_slug as string | null) ?? undefined,
@@ -226,9 +228,11 @@ function toManagerSessionRecord(row: Record<string, unknown>): ManagerSessionRec
     semanticLifecycleState:
       (row.semantic_lifecycle_state as ManagerSessionRecord["semanticLifecycleState"] | null) ??
       (row.task_id === null || row.task_id === undefined ? "unbound" : "active"),
-    attachable: row.attachable === undefined || row.attachable === null ? runtimeState === "running" || runtimeState === "detached" : row.attachable === 1,
-    reconciliationState:
-      (row.reconciliation_state as ManagerSessionRecord["reconciliationState"] | null) ?? "synced",
+    attachable:
+      row.attachable === undefined || row.attachable === null
+        ? runtimeState === "running" || runtimeState === "detached"
+        : row.attachable === 1,
+    reconciliationState: (row.reconciliation_state as ManagerSessionRecord["reconciliationState"] | null) ?? "synced",
     reconciliationMessage: managerDiagnostic(row.reconciliation_message),
     latestStatus: managerDiagnostic(row.latest_status),
     latestReceipt,
@@ -687,7 +691,10 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
 
   listCheckRuns(filter: ListCheckRunsFilter): CheckRunRecord[] {
     const limit = normalizeCheckRunLimit(filter.limit);
-    const where = filter.checkId === undefined ? "WHERE instance_id = ? AND worktree_id = ? " : "WHERE instance_id = ? AND worktree_id = ? AND check_id = ? ";
+    const where =
+      filter.checkId === undefined
+        ? "WHERE instance_id = ? AND worktree_id = ? "
+        : "WHERE instance_id = ? AND worktree_id = ? AND check_id = ? ";
     const params =
       filter.checkId === undefined
         ? [filter.instanceId, filter.worktreeId, limit]
@@ -941,7 +948,7 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
         startedAt,
         startedAt,
         null,
-        startedAt,
+        null,
         0,
         lifecycleState === "running" ? "running" : null,
       );
@@ -955,23 +962,31 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     return row === undefined ? undefined : toManagerSessionRecord(row);
   }
 
-  listManagerSessions(workspaceRoot?: string, options: { limit?: number } = {}): ManagerSessionRecord[] {
+  listManagerSessions(
+    workspaceRoot?: string,
+    options: { limit?: number; runtimeStates?: readonly ManagerSessionRecord["runtimeState"][] } = {},
+  ): ManagerSessionRecord[] {
     const requestedLimit = options.limit;
     const limit =
       requestedLimit === undefined || !Number.isFinite(requestedLimit)
         ? 500
         : Math.min(Math.max(Math.trunc(requestedLimit), 1), 1000);
-    const rows = (
-      workspaceRoot === undefined
-        ? this.handle()
-            .prepare("SELECT * FROM manager_sessions ORDER BY started_at DESC, session_id DESC LIMIT ?")
-            .all(limit)
-        : this.handle()
-            .prepare(
-              "SELECT * FROM manager_sessions WHERE workspace_root = ? ORDER BY started_at DESC, session_id DESC LIMIT ?",
-            )
-            .all(workspaceRoot, limit)
-    ) as Record<string, unknown>[];
+    const runtimeStates = [...new Set(options.runtimeStates ?? [])];
+    if (options.runtimeStates !== undefined && runtimeStates.length === 0) return [];
+    const clauses: string[] = [];
+    const parameters: Array<string | number> = [];
+    if (workspaceRoot !== undefined) {
+      clauses.push("workspace_root = ?");
+      parameters.push(workspaceRoot);
+    }
+    if (runtimeStates.length > 0) {
+      clauses.push(`runtime_state IN (${runtimeStates.map(() => "?").join(", ")})`);
+      parameters.push(...runtimeStates);
+    }
+    const where = clauses.length === 0 ? "" : ` WHERE ${clauses.join(" AND ")}`;
+    const rows = this.handle()
+      .prepare(`SELECT * FROM manager_sessions${where} ORDER BY started_at DESC, session_id DESC LIMIT ?`)
+      .all(...parameters, limit) as Record<string, unknown>[];
     return rows.map(toManagerSessionRecord);
   }
 
@@ -991,9 +1006,10 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
         input.reconciliationMessage === undefined ? current.reconciliationMessage : input.reconciliationMessage;
       const nextLatestStatus = input.latestStatus === undefined ? current.latestStatus : input.latestStatus;
       const nextReceipt = input.latestReceipt === undefined ? current.latestReceipt : input.latestReceipt;
-      const nextExitCode = input.exitCode ?? current.exitCode;
+      const nextExitCode = input.exitCode === undefined ? current.exitCode : input.exitCode;
       const nextFinishedAt = input.finishedAt === undefined ? current.finishedAt : input.finishedAt;
-      const nextObservedAt = input.runtimeObservedAt === undefined ? current.runtimeObservedAt : input.runtimeObservedAt;
+      const nextObservedAt =
+        input.runtimeObservedAt === undefined ? current.runtimeObservedAt : input.runtimeObservedAt;
       const nextRestartCount = input.restartCount ?? current.restartCount;
       const nextTermination = input.terminationState === undefined ? current.terminationState : input.terminationState;
       const nextError = input.errorMessage === undefined ? current.errorMessage : input.errorMessage;
