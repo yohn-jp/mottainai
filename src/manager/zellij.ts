@@ -191,7 +191,7 @@ export class ZellijCliRuntime implements ZellijRuntime {
 
   async terminate(sessionName: string, cwd: string): Promise<void> {
     assertSessionName(sessionName);
-    const result = await this.run(["kill-sessions", sessionName], cwd);
+    const result = await this.run(["kill-session", sessionName], cwd);
     if (
       result.spawnError !== undefined ||
       (result.exitCode !== 0 && !/no session|not found|does not exist/iu.test(result.stderr))

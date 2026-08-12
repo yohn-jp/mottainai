@@ -56,7 +56,7 @@ test("Zellij adapter builds argv-safe background, pane, inspect, and terminate c
     "instruction with; shell syntax",
     "$(not executed)",
   ]);
-  assert.deepEqual(calls[5], ["kill-sessions", "mottainai-12345678-1234-4234-8234-123456789abc"]);
+  assert.deepEqual(calls[5], ["kill-session", "mottainai-12345678-1234-4234-8234-123456789abc"]);
 });
 
 test("Zellij availability failure has a stable actionable diagnostic", async () => {

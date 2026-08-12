@@ -195,6 +195,7 @@ export class ManagerSessionService {
     const launchArgs = [
       ...(agentCommand.baseArgs ?? []),
       ...(model === undefined ? [] : ["--model", model]),
+      "--",
       instruction,
     ];
     const session = this.options.store.createManagerSession({

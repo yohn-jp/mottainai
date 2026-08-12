@@ -25,9 +25,9 @@ class HermeticZellijRuntime implements ZellijRuntime {
     this.children.set(input.sessionName, child);
     this.completions.set(
       input.sessionName,
-      new Promise<void>((resolve, reject) => {
+      new Promise<void>((resolve) => {
         child.once("close", () => resolve());
-        child.once("error", reject);
+        child.once("error", () => resolve());
       }),
     );
     await new Promise<void>((resolve, reject) => {

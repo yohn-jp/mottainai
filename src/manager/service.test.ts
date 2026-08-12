@@ -54,6 +54,10 @@ test("Manager starts concurrent task-bound Codex sessions on distinct managed wo
     runtime.started.map((entry) => entry.command),
     ["codex", "codex"],
   );
+  assert.deepEqual(
+    runtime.started.find((entry) => entry.args.includes("first; $(not shell)"))?.args,
+    ["--", "first; $(not shell)"],
+  );
   assert.ok(runtime.started.every((entry) => entry.cwd.includes(".mottainai/worktrees")));
 
   runtime.sessions.delete(first.runtimeName);

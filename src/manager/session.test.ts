@@ -35,4 +35,18 @@ test("Manager session records persist launch metadata and lifecycle across store
   assert.equal(restored?.taskId, "task-1");
   assert.equal(restored?.lifecycleState, "running");
   assert.equal(reopened.listManagerSessions("/repo").length, 1);
+
+  const completed = reopened.updateManagerSession(sessionId, {
+    lifecycleState: "exited",
+    exitCode: 0,
+    terminationState: "exited",
+    errorMessage: "completed",
+    updatedAt: 300,
+  });
+  assert.equal(completed.exitCode, 0);
+  assert.equal(completed.errorMessage, "completed");
+  assert.throws(
+    () => reopened.updateManagerSession("87654321-4321-4324-8234-123456789abc" as ManagerSessionId, {}),
+    /manager session not found/,
+  );
 });

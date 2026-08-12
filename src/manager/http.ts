@@ -63,12 +63,23 @@ function inputFromBody(value: unknown): NewManagerSessionInput {
   };
 }
 
+function requireJsonContentType(request: IncomingMessage): void {
+  const contentType = request.headers["content-type"];
+  if (
+    typeof contentType !== "string" ||
+    contentType.split(";", 1)[0]?.trim().toLowerCase() !== "application/json"
+  ) {
+    throw new ManagerError("invalid_request", "Manager POST requests require Content-Type: application/json", 415);
+  }
+}
+
 export class ManagerHttpApi implements ManagerHttpHandler {
   constructor(private readonly service: ManagerSessionService) {}
 
   async handle(request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
     try {
       const method = request.method ?? "GET";
+      if (method === "POST") requireJsonContentType(request);
       const segments = url.pathname.slice(MANAGER_API_PREFIX.length).split("/").filter(Boolean);
       if (segments.length === 1 && segments[0] === "health" && method === "GET") {
         sendJson(response, 200, this.service.health());

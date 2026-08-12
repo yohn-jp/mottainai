@@ -111,6 +111,7 @@ export async function startManager(options: ManagerStartOptions): Promise<Dashbo
     const handle = await startDashboardServer({
       host: LOOPBACK_HOST,
       port: options.port,
+      serviceName: "manager",
       query: createDashboardQuery(options.provider ?? configuredDashboardProvider(environment), workspaceRoot),
       viewerHtml: options.viewerHtml ?? readManagerViewer(),
       manager: new ManagerHttpApi(service),

@@ -771,21 +771,32 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
   }
 
   updateManagerSession(sessionId: ManagerSessionId, input: UpdateManagerSessionInput): ManagerSessionRecord {
-    const current = this.getManagerSession(sessionId);
-    if (current === undefined) throw new Error(`manager session not found: ${sessionId}`);
-    const updatedAt = input.updatedAt ?? Date.now();
-    const nextState = input.lifecycleState ?? current.lifecycleState;
-    const nextExitCode = input.exitCode ?? current.exitCode;
-    const nextTermination = input.terminationState === undefined ? current.terminationState : input.terminationState;
-    const nextError = input.errorMessage === undefined ? current.errorMessage : input.errorMessage;
-    this.handle()
-      .prepare(
+    const db = this.handle();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const current = this.getManagerSession(sessionId);
+      if (current === undefined) throw new Error(`manager session not found: ${sessionId}`);
+      const updatedAt = input.updatedAt ?? Date.now();
+      const nextState = input.lifecycleState ?? current.lifecycleState;
+      const nextExitCode = input.exitCode ?? current.exitCode;
+      const nextTermination = input.terminationState === undefined ? current.terminationState : input.terminationState;
+      const nextError = input.errorMessage === undefined ? current.errorMessage : input.errorMessage;
+      db.prepare(
         `UPDATE manager_sessions
          SET lifecycle_state = ?, updated_at = ?, exit_code = ?, termination_state = ?, error_message = ?
          WHERE session_id = ?`,
-      )
-      .run(nextState, updatedAt, nextExitCode ?? null, nextTermination ?? null, nextError ?? null, sessionId);
-    return this.getManagerSession(sessionId)!;
+      ).run(nextState, updatedAt, nextExitCode ?? null, nextTermination ?? null, nextError ?? null, sessionId);
+      const updated = this.getManagerSession(sessionId)!;
+      db.exec("COMMIT");
+      return updated;
+    } catch (err) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // 元の更新エラーを保持する
+      }
+      throw err;
+    }
   }
 
   listCleanupLeases(instanceId?: RepositoryInstanceId): CleanupLeaseRecord[] {

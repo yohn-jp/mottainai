@@ -34,6 +34,7 @@ export interface DashboardServerOptions {
   /** Optional domain projection adapter; defaults to the same query provider. */
   projections?: SemanticProjectionQuery;
   viewerHtml: string;
+  serviceName?: string;
   host?: string;
   port?: number;
   manager?: ManagerHttpHandler;
@@ -291,6 +292,7 @@ function errorDetails(error: unknown): { statusCode: number; code: string; messa
 export async function startDashboardServer(options: DashboardServerOptions): Promise<DashboardServerHandle> {
   const host = options.host ?? LOOPBACK_HOST;
   const port = options.port ?? DEFAULT_DASHBOARD_PORT;
+  const serviceName = options.serviceName ?? "dashboard";
   if (!Number.isInteger(port) || port < 0 || port > 65_535)
     throw new Error("dashboard port must be an integer between 0 and 65535");
   if (host !== LOOPBACK_HOST && host !== "localhost") throw new Error("dashboard host must be loopback");
@@ -316,8 +318,8 @@ export async function startDashboardServer(options: DashboardServerOptions): Pro
       if ((error as NodeJS.ErrnoException).code === "EADDRINUSE") {
         reject(
           new Error(
-            `dashboard port ${port} is already in use (another dashboard may already be running)\n` +
-              `stop it first, or retry with: mottainai dashboard --port <port>`,
+            `${serviceName} port ${port} is already in use (another ${serviceName} may already be running)\n` +
+              `stop it first, or retry with: mottainai ${serviceName} --port <port>`,
           ),
         );
         return;

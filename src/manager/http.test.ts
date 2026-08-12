@@ -67,16 +67,25 @@ test("Manager HTTP API exposes session state and selected open/stop actions", as
   assert.equal((await listed.json()).sessions.length, 1);
   const opened = await fetch(`${handle.url}api/v1/manager/sessions/${created.sessionId}/open-terminal`, {
     method: "POST",
+    headers: { "content-type": "application/json" },
     body: "{}",
   });
   assert.equal(opened.status, 200);
   assert.equal(runtime.attached, 1);
   const stopped = await fetch(`${handle.url}api/v1/manager/sessions/${created.sessionId}/stop`, {
     method: "POST",
+    headers: { "content-type": "application/json" },
     body: "{}",
   });
   assert.equal(stopped.status, 200);
   assert.equal((await stopped.json()).session.lifecycleState, "stopped");
+
+  const rejected = await fetch(`${handle.url}api/v1/manager/sessions`, {
+    method: "POST",
+    headers: { "content-type": "text/plain" },
+    body: "{}",
+  });
+  assert.equal(rejected.status, 415);
 });
 
 test("Manager API remains loopback host protected and rejects malformed session ids", async (t) => {
@@ -94,7 +103,11 @@ test("Manager API remains loopback host protected and rejects malformed session 
     manager: new ManagerHttpApi(service),
   });
   activeServers.push(handle);
-  const malformed = await fetch(`${handle.url}api/v1/manager/sessions/not-safe/stop`, { method: "POST", body: "{}" });
+  const malformed = await fetch(`${handle.url}api/v1/manager/sessions/not-safe/stop`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
   assert.equal(malformed.status, 400);
   const hostile = await new Promise<number | undefined>((resolve, reject) => {
     const client = request(
