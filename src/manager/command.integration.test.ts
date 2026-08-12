@@ -13,7 +13,7 @@ test("mottainai manager starts a loopback endpoint and reports the Zellij runtim
   const fakeZellij = path.join(temporary, "zellij");
   fs.writeFileSync(
     fakeZellij,
-    "#!/usr/bin/env node\nconst args=process.argv.slice(2); if(args[0]==='--version'){console.log('zellij fake-0.1');process.exit(0)} if(args[0]==='list-sessions'){process.exit(0)} process.exit(0);\n",
+    "#!/usr/bin/env node\nconst args=process.argv.slice(2); if(args[0]==='--version'){console.log('zellij 0.40.0');process.exit(0)} if(args[0]==='list-sessions'){process.exit(0)} process.exit(0);\n",
     { mode: 0o755 },
   );
   fs.chmodSync(fakeZellij, 0o755);
@@ -50,7 +50,7 @@ test("mottainai manager starts a loopback endpoint and reports the Zellij runtim
   const health = (await response.json()) as { manager: string; zellij: { available: boolean; version: string } };
   assert.equal(health.manager, "ready");
   assert.equal(health.zellij.available, true);
-  assert.equal(health.zellij.version, "zellij fake-0.1");
+  assert.equal(health.zellij.version, "zellij 0.40.0");
   child.kill("SIGTERM");
   const exit = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
     child.once("error", reject);

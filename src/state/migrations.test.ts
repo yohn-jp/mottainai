@@ -25,6 +25,21 @@ test("applyMigrations discovers and applies one ordered migration per transactio
   }
 });
 
+test("applyMigrations still applies an independently added lower version after a higher one", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    applyMigrations(db, [{ version: 2, description: "later", up: () => undefined }]);
+    applyMigrations(db, [
+      { version: 1, description: "concurrent", up: (database) => database.exec("CREATE TABLE concurrent_migration (value TEXT)") },
+      { version: 2, description: "later", up: () => { throw new Error("must not rerun"); } },
+    ]);
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get()?.count, 2);
+    assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE name = 'concurrent_migration'").get());
+  } finally {
+    db.close();
+  }
+});
+
 function freshDb(): DatabaseSync {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON");

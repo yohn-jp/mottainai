@@ -1,7 +1,17 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { MANAGER_API_PREFIX, type ManagerHttpHandler } from "../dashboard/http.js";
-import { ManagerError, ManagerSessionService, type NewManagerSessionInput } from "./service.js";
-import type { ManagerSessionId } from "../workflow/state/store.js";
+import {
+  ManagerError,
+  ManagerSessionService,
+  type ManagerSessionFilter,
+  type NewManagerSessionInput,
+} from "./service.js";
+import {
+  MANAGER_RUNTIME_STATES,
+  type ManagerAgentKind,
+  type ManagerSessionId,
+  type ManagerSessionRecord,
+} from "../workflow/state/store.js";
 
 const MAX_BODY_BYTES = 1 * 1024 * 1024;
 
@@ -56,10 +66,38 @@ function inputFromBody(value: unknown): NewManagerSessionInput {
   return {
     instruction: body.instruction as string,
     ...(body.agentKind === undefined ? {} : { agentKind: body.agentKind as string }),
+    ...(body.launchProfile === undefined ? {} : { launchProfile: body.launchProfile as string }),
     ...(body.model === undefined ? {} : { model: body.model as string }),
     ...(body.taskSlug === undefined ? {} : { taskSlug: body.taskSlug as string }),
     ...(body.issueRef === undefined ? {} : { issueRef: body.issueRef as string }),
     ...(body.branchType === undefined ? {} : { branchType: body.branchType as string }),
+  };
+}
+
+function filterFromQuery(url: URL): ManagerSessionFilter {
+  const runtimeState = url.searchParams.get("runtimeState") ?? url.searchParams.get("state");
+  if (runtimeState !== null && !MANAGER_RUNTIME_STATES.includes(runtimeState as (typeof MANAGER_RUNTIME_STATES)[number])) {
+    throw new ManagerError("invalid_request", `unknown runtime state: ${runtimeState}`, 400);
+  }
+  const agent = url.searchParams.get("agent") ?? url.searchParams.get("agentKind");
+  if (agent !== null && agent !== "codex" && agent !== "claude" && agent !== "claude-code") {
+    throw new ManagerError("invalid_request", `unknown agent kind: ${agent}`, 400);
+  }
+  const limitValue = url.searchParams.get("limit");
+  const limit = limitValue === null ? undefined : Number(limitValue);
+  if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 500)) {
+    throw new ManagerError("invalid_request", "limit must be an integer between 1 and 500", 400);
+  }
+  return {
+    ...(runtimeState === null ? {} : { runtimeState: runtimeState as ManagerSessionFilter["runtimeState"] }),
+    ...(agent === null ? {} : { agentKind: (agent === "claude-code" ? "claude" : agent) as ManagerAgentKind }),
+    ...(url.searchParams.get("semanticLifecycleState") === null
+      ? {}
+      : { semanticLifecycleState: url.searchParams.get("semanticLifecycleState") as ManagerSessionRecord["semanticLifecycleState"] }),
+    ...(url.searchParams.get("taskId") === null ? {} : { taskId: url.searchParams.get("taskId") as ManagerSessionFilter["taskId"] }),
+    ...(url.searchParams.get("issueRef") === null ? {} : { issueRef: url.searchParams.get("issueRef") ?? undefined }),
+    ...(url.searchParams.get("search") === null ? {} : { search: url.searchParams.get("search") ?? undefined }),
+    ...(limit === undefined ? {} : { limit }),
   };
 }
 
@@ -86,11 +124,19 @@ export class ManagerHttpApi implements ManagerHttpHandler {
         return;
       }
       if (segments.length === 1 && segments[0] === "sessions" && method === "GET") {
-        sendJson(response, 200, { sessions: await this.service.list() });
+        sendJson(response, 200, { sessions: await this.service.list(filterFromQuery(url)) });
         return;
       }
       if (segments.length === 1 && segments[0] === "sessions" && method === "POST") {
         sendJson(response, 201, { session: await this.service.start(inputFromBody(await readJsonBody(request))) });
+        return;
+      }
+      if (segments.length === 2 && segments[0] === "sessions" && method === "GET") {
+        sendJson(response, 200, { session: await this.service.get(sessionIdFromPath(segments[1] ?? "")) });
+        return;
+      }
+      if (segments.length === 1 && segments[0] === "reconcile" && method === "POST") {
+        sendJson(response, 200, { sessions: await this.service.reconcileNow() });
         return;
       }
       if (segments.length === 3 && segments[0] === "sessions" && method === "POST") {
@@ -101,6 +147,10 @@ export class ManagerHttpApi implements ManagerHttpHandler {
         }
         if (segments[2] === "stop") {
           sendJson(response, 200, { session: await this.service.stop(sessionId) });
+          return;
+        }
+        if (segments[2] === "restart") {
+          sendJson(response, 200, { session: await this.service.restart(sessionId) });
           return;
         }
       }

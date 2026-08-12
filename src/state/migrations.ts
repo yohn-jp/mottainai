@@ -394,14 +394,85 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    // Keep this migration independent of issue #181's v15 task-reference migration.
+    // It can therefore be applied on either side of that concurrent change.
+    version: 16,
+    description: "manager: launch profiles and bounded runtime reconciliation projection",
+    up: (db) => {
+      db.exec(`
+        DROP INDEX IF EXISTS idx_manager_sessions_workspace;
+        DROP INDEX IF EXISTS idx_manager_sessions_task;
+
+        CREATE TABLE manager_sessions_v16 (
+          session_id TEXT PRIMARY KEY,
+          workspace_root TEXT NOT NULL,
+          task_id TEXT,
+          execution_session_id TEXT,
+          execution_mode TEXT NOT NULL CHECK (execution_mode IN ('task-bound', 'workspace')),
+          worktree_id TEXT,
+          worktree_path TEXT NOT NULL,
+          branch_name TEXT,
+          task_slug TEXT,
+          issue_ref TEXT,
+          branch_type TEXT,
+          agent_kind TEXT NOT NULL CHECK (agent_kind IN ('codex', 'claude')),
+          launch_profile TEXT NOT NULL CHECK (launch_profile IN ('codex', 'claude')),
+          instruction TEXT NOT NULL,
+          model TEXT,
+          launch_command TEXT NOT NULL,
+          launch_args_json TEXT NOT NULL,
+          runtime_name TEXT NOT NULL UNIQUE,
+          lifecycle_state TEXT NOT NULL CHECK (lifecycle_state IN ('starting', 'running', 'exited', 'stopped', 'failed')),
+          runtime_state TEXT NOT NULL CHECK (runtime_state IN ('starting', 'running', 'detached', 'exited', 'failed', 'stopped', 'stale')),
+          semantic_lifecycle_state TEXT NOT NULL CHECK (semantic_lifecycle_state IN ('unbound', 'planned', 'active', 'committed', 'pushed', 'pull-request-open', 'merged', 'abandoned', 'orphaned', 'cleaned')),
+          attachable INTEGER NOT NULL CHECK (attachable IN (0, 1)),
+          reconciliation_state TEXT NOT NULL CHECK (reconciliation_state IN ('synced', 'drifted', 'unresolved')),
+          reconciliation_message TEXT,
+          latest_status TEXT,
+          latest_receipt_json TEXT,
+          started_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          finished_at INTEGER,
+          runtime_observed_at INTEGER,
+          restart_count INTEGER NOT NULL DEFAULT 0,
+          exit_code INTEGER,
+          termination_state TEXT CHECK (termination_state IS NULL OR termination_state IN ('running', 'exited', 'stopped', 'failed')),
+          error_message TEXT
+        );
+
+        INSERT INTO manager_sessions_v16 (
+          session_id, workspace_root, task_id, execution_session_id, execution_mode, worktree_id, worktree_path, branch_name,
+          task_slug, issue_ref, branch_type, agent_kind, launch_profile, instruction, model,
+          launch_command, launch_args_json, runtime_name, lifecycle_state, runtime_state,
+          semantic_lifecycle_state, attachable, reconciliation_state, latest_status,
+          started_at, updated_at, finished_at, exit_code, termination_state, error_message
+        )
+        SELECT
+          session_id, workspace_root, task_id, NULL, CASE WHEN task_id IS NULL THEN 'workspace' ELSE 'task-bound' END, worktree_id, worktree_path, branch_name,
+          NULL, NULL, NULL, agent_kind, 'codex', '', NULL,
+          launch_command, launch_args_json, runtime_name, lifecycle_state,
+          lifecycle_state, CASE WHEN task_id IS NULL THEN 'unbound' ELSE 'active' END,
+          CASE WHEN lifecycle_state = 'running' THEN 1 ELSE 0 END, 'synced',
+          error_message, started_at, updated_at,
+          CASE WHEN lifecycle_state IN ('exited', 'stopped', 'failed') THEN updated_at ELSE NULL END,
+          exit_code, termination_state, error_message
+        FROM manager_sessions;
+
+        DROP TABLE manager_sessions;
+        ALTER TABLE manager_sessions_v16 RENAME TO manager_sessions;
+        CREATE INDEX idx_manager_sessions_workspace ON manager_sessions (workspace_root, started_at DESC, session_id DESC);
+        CREATE INDEX idx_manager_sessions_task ON manager_sessions (task_id);
+        CREATE INDEX idx_manager_sessions_runtime ON manager_sessions (workspace_root, runtime_state, started_at DESC);
+      `);
+    },
+  },
 ];
 
-function currentVersion(db: DatabaseSync): number {
+function appliedVersions(db: DatabaseSync): Set<number> {
   db.exec("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
-  const row = db.prepare("SELECT MAX(version) as version FROM schema_migrations").get() as
-    | { version: number | null }
-    | undefined;
-  return row?.version ?? 0;
+  const rows = db.prepare("SELECT version FROM schema_migrations").all() as { version: number }[];
+  return new Set(rows.map((row) => row.version));
 }
 
 /** 未適用の migration を version 昇順に適用する。冪等（適用済みなら何もしない）。 */
@@ -411,12 +482,16 @@ export function applyMigrations(
   boundaries: BoundaryOperations = DIRECT_BOUNDARIES,
 ): void {
   const ordered = [...migrations].sort((left, right) => left.version - right.version);
+  // Apply the lowest unapplied migration, rather than only versions greater
+  // than MAX(version). This keeps independently developed migrations
+  // composable: #186 may land its Manager projection before #181's v15
+  // Nawabari task-reference migration, and the latter must still be applied.
+  const applied = appliedVersions(db);
   for (;;) {
     boundaries.file("sqlite.begin", () => db.exec("BEGIN IMMEDIATE"));
     let migration: Migration | undefined;
     try {
-      const applied = currentVersion(db);
-      migration = ordered.find((candidate) => candidate.version > applied);
+      migration = ordered.find((candidate) => !applied.has(candidate.version));
       if (migration === undefined) {
         db.exec("COMMIT");
         return;
@@ -430,6 +505,7 @@ export function applyMigrations(
           Date.now(),
         );
       });
+      applied.add(migration.version);
       boundaries.file("sqlite.commit", () => db.exec("COMMIT"));
     } catch (err) {
       let rollbackError: unknown;

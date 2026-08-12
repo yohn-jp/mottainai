@@ -3,7 +3,8 @@ import { test } from "node:test";
 import { createTempGitRepo, runGit } from "../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../test-support/workflow-store.js";
 import type { ZellijRuntime, ZellijObservedState } from "./zellij.js";
-import { ManagerSessionService } from "./service.js";
+import { buildManagerLaunchInvocation, ManagerError, ManagerSessionService } from "./service.js";
+import type { ManagerExecutionAuthority } from "../workflow/domain/manager-execution.js";
 
 class FakeRuntime implements ZellijRuntime {
   readonly sessions = new Set<string>();
@@ -100,4 +101,102 @@ test("Manager reconciles a deleted managed worktree as failed and terminates its
   const reconciled = await service.list();
   assert.equal(reconciled[0]?.lifecycleState, "failed");
   assert.deepEqual(runtime.terminated, [session.runtimeName]);
+});
+
+test("launch profiles construct deterministic argv without shell interpolation", () => {
+  assert.deepEqual(
+    buildManagerLaunchInvocation({
+      agentKind: "codex",
+      model: "o4-mini",
+      instruction: "$(not shell); --flag",
+    }),
+    { agentKind: "codex", command: "codex", args: ["--model", "o4-mini", "--", "$(not shell); --flag"] },
+  );
+  assert.deepEqual(
+    buildManagerLaunchInvocation({ agentKind: "claude", instruction: "review this" }),
+    { agentKind: "claude", command: "claude", args: ["--print", "--", "review this"] },
+  );
+});
+
+test("Manager starts Claude sessions and exposes bounded status/filter projections", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const runtime = new FakeRuntime();
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime });
+  await service.initialize();
+  const session = await service.start({ agentKind: "claude", instruction: "claude task", issueRef: undefined });
+  assert.equal(session.agentKind, "claude");
+  assert.equal(session.launchProfile, "claude");
+  assert.deepEqual(session.launchArgs, ["--print", "--", "claude task"]);
+  assert.equal(session.runtimeState, "running");
+  assert.equal((await service.list({ agentKind: "claude", limit: 1 })).length, 1);
+  assert.equal((await service.list({ agentKind: "codex" })).length, 0);
+});
+
+test("Manager restart reuses the selected persisted execution context only after runtime disappearance", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const runtime = new FakeRuntime();
+  const firstService = new ManagerSessionService({ workspaceRoot: root, store, runtime });
+  await firstService.initialize();
+  const created = await firstService.start({ instruction: "restart me" });
+  runtime.sessions.delete(created.runtimeName);
+
+  const restartedManager = new ManagerSessionService({ workspaceRoot: root, store, runtime });
+  await restartedManager.initialize();
+  const stale = await restartedManager.get(created.sessionId);
+  assert.equal(stale.runtimeState, "stale");
+  assert.equal(stale.reconciliationState, "unresolved");
+  const relaunched = await restartedManager.restart(created.sessionId);
+  assert.equal(relaunched.runtimeState, "running");
+  assert.equal(relaunched.restartCount, 1);
+  assert.equal(relaunched.worktreePath, created.worktreePath);
+});
+
+test("Manager rejects restart when the runtime name is present but its managed identity is unresolved", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const runtime = new FakeRuntime();
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime });
+  await service.initialize();
+  const session = await service.start({ instruction: "identity check" });
+  runtime.sessions.delete(session.runtimeName);
+  const stale = await service.get(session.sessionId);
+  assert.equal(stale.runtimeState, "stale");
+  runtime.sessions.add(session.runtimeName);
+  await assert.rejects(
+    service.restart(session.sessionId),
+    (error: unknown) => error instanceof ManagerError && error.code === "session_restart_rejected",
+  );
+});
+
+test("Manager restart is rejected after semantic task completion", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const runtime = new FakeRuntime();
+  const authority: ManagerExecutionAuthority = {
+    async start(input) {
+      return {
+        context: {
+          taskId: undefined,
+          executionSessionId: undefined,
+          worktreeId: undefined,
+          worktreePath: input.workspaceRoot,
+          branchName: undefined,
+          taskSlug: undefined,
+          issueRef: undefined,
+          branchType: undefined,
+          semanticLifecycleState: "merged",
+        },
+      };
+    },
+    async validate() { return { ok: true }; },
+    async observe(context) { return { semanticLifecycleState: context.semanticLifecycleState, status: "task is merged", receipt: undefined }; },
+  };
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime, executionAuthority: authority });
+  await service.initialize();
+  const session = await service.start({ instruction: "completed semantic task" });
+  runtime.sessions.delete(session.runtimeName);
+  await service.get(session.sessionId);
+  await assert.rejects(service.restart(session.sessionId), /semantic task lifecycle is merged/);
 });

@@ -19,7 +19,12 @@ test("Zellij adapter builds argv-safe background, pane, inspect, and terminate c
       if (args[0] === "--version") return { stdout: "zellij 0.40.0\n", stderr: "", exitCode: 0 };
       if (args[0] === "list-sessions")
         return { stdout: "mottainai-12345678-1234-4234-8234-123456789abc [Created]\n", stderr: "", exitCode: 0 };
-      if (args[0] === "--session") return { stdout: "[]", stderr: "", exitCode: 0 };
+      if (args[0] === "--session")
+        return {
+          stdout: JSON.stringify([{ title: "mottainai-agent", pane_cwd: "/repo", exited: false, exit_status: null }]),
+          stderr: "",
+          exitCode: 0,
+        };
       return { stdout: "", stderr: "", exitCode: 0 };
     },
   });
@@ -56,7 +61,15 @@ test("Zellij adapter builds argv-safe background, pane, inspect, and terminate c
     "instruction with; shell syntax",
     "$(not executed)",
   ]);
-  assert.deepEqual(calls[5], ["kill-session", "mottainai-12345678-1234-4234-8234-123456789abc"]);
+  assert.deepEqual(calls[5], ["list-sessions"]);
+  assert.deepEqual(calls[6], [
+    "--session",
+    "mottainai-12345678-1234-4234-8234-123456789abc",
+    "action",
+    "list-panes",
+    "--json",
+  ]);
+  assert.deepEqual(calls[7], ["kill-session", "mottainai-12345678-1234-4234-8234-123456789abc"]);
 });
 
 test("Zellij availability failure has a stable actionable diagnostic", async () => {
@@ -68,6 +81,22 @@ test("Zellij availability failure has a stable actionable diagnostic", async () 
     assert.ok(error instanceof ZellijRuntimeError);
     assert.equal(error.code, "zellij_unavailable");
     assert.match(error.message, /install Zellij/);
+    return true;
+  });
+});
+
+test("Zellij availability rejects an incompatible version with an actionable diagnostic", async () => {
+  const runtime = new ZellijCliRuntime({
+    cwd: "/repo",
+    run: async (args) =>
+      args[0] === "--version"
+        ? { stdout: "zellij 0.10.0\n", stderr: "", exitCode: 0 }
+        : { stdout: "", stderr: "", exitCode: 0 },
+  });
+  await assert.rejects(runtime.checkAvailability(), (error: unknown) => {
+    assert.ok(error instanceof ZellijRuntimeError);
+    assert.equal(error.code, "zellij_incompatible");
+    assert.match(error.message, /Zellij >= 0\.39\.0/);
     return true;
   });
 });
@@ -91,5 +120,24 @@ test("Zellij inspection prefers the named agent pane over the session shell", as
   assert.equal(
     await runtime.inspect("mottainai-12345678-1234-4234-8234-123456789abc", "/repo/.mottainai/worktrees/task"),
     "exited",
+  );
+});
+
+test("Zellij inspection refuses to adopt a same-name session with no matching managed pane identity", async () => {
+  const runtime = new ZellijCliRuntime({
+    cwd: "/repo",
+    run: async (args) => {
+      if (args[0] === "list-sessions")
+        return { stdout: "mottainai-12345678-1234-4234-8234-123456789abc\n", stderr: "", exitCode: 0 };
+      return {
+        stdout: JSON.stringify([{ title: "unrelated-shell", pane_cwd: "/other/repository", exited: false, exit_status: null }]),
+        stderr: "",
+        exitCode: 0,
+      };
+    },
+  });
+  assert.equal(
+    await runtime.inspect("mottainai-12345678-1234-4234-8234-123456789abc", "/repo/.mottainai/worktrees/task"),
+    "unresolved",
   );
 });

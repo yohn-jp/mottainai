@@ -8,7 +8,8 @@ import {
   type DashboardProvider,
 } from "../dashboard/provider.js";
 import { LOOPBACK_HOST, startDashboardServer, type DashboardServerHandle } from "../dashboard/http.js";
-import type { WorkflowStateStore } from "../workflow/state/store.js";
+import type { ManagerAgentKind, WorkflowStateStore } from "../workflow/state/store.js";
+import type { ManagerExecutionAuthority } from "../workflow/domain/manager-execution.js";
 import { ManagerHttpApi } from "./http.js";
 import { readManagerViewer } from "./assets.js";
 import { ManagerSessionService } from "./service.js";
@@ -31,6 +32,8 @@ export interface ManagerStartOptions extends ManagerCommandOptions {
   browserOpener?: (url: string) => Promise<void>;
   runtime?: ZellijRuntime;
   store?: WorkflowStateStore;
+  agentCommands?: Partial<Record<ManagerAgentKind, { command: string; baseArgs?: readonly string[] }>>;
+  executionAuthority?: ManagerExecutionAuthority;
 }
 
 let activeManager: DashboardServerHandle | undefined;
@@ -105,7 +108,13 @@ export async function startManager(options: ManagerStartOptions): Promise<Dashbo
       environment,
       binary: environment.MOTTAINAI_ZELLIJ_BINARY ?? "zellij",
     });
-  const service = new ManagerSessionService({ workspaceRoot, store, runtime });
+  const service = new ManagerSessionService({
+    workspaceRoot,
+    store,
+    runtime,
+    agentCommands: options.agentCommands,
+    executionAuthority: options.executionAuthority,
+  });
   try {
     await service.initialize();
     const handle = await startDashboardServer({

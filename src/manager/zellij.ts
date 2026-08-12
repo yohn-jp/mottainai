@@ -3,9 +3,10 @@ import { runProgram } from "../subprocess.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_OUTPUT_BYTES = 64 * 1024;
+const MINIMUM_ZELLIJ_VERSION = [0, 39, 0] as const;
 const SESSION_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/u;
 
-export type ZellijObservedState = "running" | "exited" | "absent";
+export type ZellijObservedState = "running" | "detached" | "exited" | "absent" | "unresolved";
 
 export interface ZellijCommandResult {
   stdout: string;
@@ -26,12 +27,28 @@ export interface ZellijRuntime {
 
 export class ZellijRuntimeError extends Error {
   constructor(
-    readonly code: "zellij_unavailable" | "zellij_launch_failed" | "zellij_session_missing" | "zellij_command_failed",
+    readonly code:
+      | "zellij_unavailable"
+      | "zellij_incompatible"
+      | "zellij_launch_failed"
+      | "zellij_session_missing"
+      | "zellij_command_failed",
     message: string,
   ) {
     super(message);
     this.name = "ZellijRuntimeError";
   }
+}
+
+function parseVersion(output: string): [number, number, number] | undefined {
+  const match = /\b(\d+)\.(\d+)(?:\.(\d+))?\b/u.exec(output);
+  return match === null ? undefined : [Number(match[1]), Number(match[2]), Number(match[3] ?? 0)];
+}
+
+function isBeforeMinimum(version: readonly [number, number, number]): boolean {
+  return version[0] < MINIMUM_ZELLIJ_VERSION[0]
+    || (version[0] === MINIMUM_ZELLIJ_VERSION[0] && version[1] < MINIMUM_ZELLIJ_VERSION[1])
+    || (version[0] === MINIMUM_ZELLIJ_VERSION[0] && version[1] === MINIMUM_ZELLIJ_VERSION[1] && version[2] < MINIMUM_ZELLIJ_VERSION[2]);
 }
 
 function assertSessionName(sessionName: string): void {
@@ -111,6 +128,19 @@ export class ZellijCliRuntime implements ZellijRuntime {
         `Zellij is required for mottainai manager but is unavailable; install Zellij and ensure "${this.binary}" is on PATH`,
       );
     }
+    const version = parseVersion(result.stdout);
+    if (version === undefined) {
+      throw new ZellijRuntimeError(
+        "zellij_incompatible",
+        `Zellij version output is incompatible or unrecognized: ${result.stdout.trim().slice(0, 256)}`,
+      );
+    }
+    if (isBeforeMinimum(version)) {
+      throw new ZellijRuntimeError(
+        "zellij_incompatible",
+        `Zellij ${version.join(".")} is too old for Manager; install Zellij >= ${MINIMUM_ZELLIJ_VERSION.join(".")}`,
+      );
+    }
     this.availability = { version: result.stdout.trim().split(/\r?\n/u)[0] ?? result.stdout.trim() };
     return this.availability;
   }
@@ -121,14 +151,50 @@ export class ZellijCliRuntime implements ZellijRuntime {
     if (result.spawnError !== undefined) {
       throw new ZellijRuntimeError("zellij_unavailable", `Zellij session inspection failed: ${result.spawnError}`);
     }
-    if (result.exitCode !== 0 && result.stdout.trim().length === 0) return "absent";
+    if (result.exitCode !== 0) {
+      if (/no session|not found|does not exist/iu.test(result.stderr)) return "absent";
+      throw new ZellijRuntimeError(
+        "zellij_command_failed",
+        `Zellij session inspection failed: ${result.spawnError ?? (result.stderr.trim() || `exit ${result.exitCode}`)}`,
+      );
+    }
     const row = sessionRow(result.stdout, sessionName);
     if (row === undefined) return "absent";
-    if (/\bEXITED\b/u.test(row)) return "exited";
+    const rowExited = /\bEXITED\b/iu.test(row);
+    if (expectedCwd === undefined && rowExited) return "exited";
     const panes = await this.run(["--session", sessionName, "action", "list-panes", "--json"], this.defaultCwd);
+    if (panes.spawnError !== undefined) {
+      throw new ZellijRuntimeError("zellij_command_failed", `Zellij pane inspection failed: ${panes.spawnError}`);
+    }
     if (panes.exitCode === 0) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(panes.stdout);
+      } catch {
+        return "unresolved";
+      }
+      if (!Array.isArray(parsed)) return "unresolved";
+      const namedPane = parsed.find(
+        (pane): pane is Record<string, unknown> =>
+          typeof pane === "object" &&
+          pane !== null &&
+          ((pane as Record<string, unknown>).pane_name === "mottainai-agent" ||
+            (pane as Record<string, unknown>).name === "mottainai-agent" ||
+            (pane as Record<string, unknown>).title === "mottainai-agent"),
+      );
+      if (namedPane === undefined) return "unresolved";
+      if (expectedCwd !== undefined) {
+        const paneCwd = namedPane.pane_cwd ?? namedPane.cwd;
+        if (paneCwd !== expectedCwd) return "unresolved";
+      }
       const exited = exitedPane(panes.stdout, expectedCwd);
-      if (exited === true) return "exited";
+      if (exited === true || rowExited) return "exited";
+      if (/\bDETACHED\b|\bATTACHABLE\b/iu.test(row)) return "detached";
+    } else {
+      throw new ZellijRuntimeError(
+        "zellij_command_failed",
+        `Zellij pane inspection failed: ${panes.stderr.trim() || `exit ${panes.exitCode}`}`,
+      );
     }
     return "running";
   }
@@ -167,9 +233,16 @@ export class ZellijCliRuntime implements ZellijRuntime {
     }
   }
 
-  attach(sessionName: string, cwd: string): Promise<void> {
+  async attach(sessionName: string, cwd: string): Promise<void> {
     assertSessionName(sessionName);
-    return new Promise((resolve, reject) => {
+    const observed = await this.inspect(sessionName, cwd);
+    if (observed !== "running" && observed !== "detached") {
+      throw new ZellijRuntimeError(
+        "zellij_session_missing",
+        `refusing to attach Zellij session ${sessionName}: managed runtime identity is ${observed}`,
+      );
+    }
+    await new Promise<void>((resolve, reject) => {
       let child: ChildProcess;
       try {
         child = this.spawnImpl(this.binary, ["attach", sessionName], { cwd, shell: false, stdio: "inherit" });
@@ -191,6 +264,13 @@ export class ZellijCliRuntime implements ZellijRuntime {
 
   async terminate(sessionName: string, cwd: string): Promise<void> {
     assertSessionName(sessionName);
+    const observed = await this.inspect(sessionName, cwd);
+    if (observed !== "running" && observed !== "detached" && observed !== "exited") {
+      throw new ZellijRuntimeError(
+        "zellij_session_missing",
+        `refusing to terminate Zellij session ${sessionName}: managed runtime identity is ${observed}`,
+      );
+    }
     const result = await this.run(["kill-session", sessionName], cwd);
     if (
       result.spawnError !== undefined ||
