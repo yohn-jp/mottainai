@@ -53,6 +53,7 @@
     "typecheck": "tsc --noEmit",
     "smoke-test": "node scripts/smoke-test.mjs",
     "benchmark:semantic-cache": "node --import tsx scripts/benchmark-semantic-fact-cache.mjs",
+    "benchmark:validation-governor": "node --import tsx scripts/benchmark-validation-governor.mjs",
     "prepack": "pnpm run build",
     "prepublishOnly": "pnpm run typecheck && pnpm test"
   },

@@ -76,6 +76,8 @@ test("workflowCommandToolsFor returns nothing unless workflowTasks is configured
       "mottainai_workflow_task_finish",
       "mottainai_workflow_task_abandon",
       "mottainai_workflow_task_cleanup",
+      "mottainai_workflow_check_run",
+      "mottainai_workflow_validation_receipt",
     ].sort(),
   );
 });

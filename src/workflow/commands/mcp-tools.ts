@@ -1,8 +1,11 @@
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ResolvedGatewayConfig } from "../../config.js";
 import { OUTPUT_SCHEMA, output } from "../../envelope.js";
+import { InMemoryArtifactStore, type ArtifactStore } from "../../retrieve.js";
 import { collectWorkflowDoctorReport } from "./doctor.js";
 import { getTaskStatus, getTaskStatusForWorkspace, startTask } from "../domain/task.js";
+import { getWorkflowValidationReceipt, runWorkflowCheck } from "./check.js";
+import { DEFAULT_MANAGED_CHECKS } from "../validation/registry.js";
 import {
   abandonWorkflowTask,
   cleanupWorkflowTask,
@@ -196,6 +199,44 @@ const taskStatusTool: Tool = {
   annotations: readOnly,
 };
 
+/** `DEFAULT_MANAGED_CHECKS` から enum を導出するため、`buildTaskStartTool` と同様に
+ * import 時ではなく初回参照時まで構築を遅らせる（architecture-check の import-time-side-effect rule）。 */
+function buildCheckRunTool(): Tool {
+  return {
+    name: "mottainai_workflow_check_run",
+    description:
+      "Execute a managed validation check (issue #184 governor) for the current task, or reuse a prior passing execution when the repository state and check configuration match exactly. Returns a compact receipt; successful stdout/stderr is not streamed by default (see result_id). force=true bypasses reuse.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        taskId: { type: "string" },
+        checkId: { type: "string", minLength: 1, enum: DEFAULT_MANAGED_CHECKS.map((check) => check.id) },
+        force: { type: "boolean" },
+      },
+      required: ["checkId"],
+      additionalProperties: false,
+    },
+    outputSchema: OUTPUT_SCHEMA,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  };
+}
+
+const validationReceiptTool: Tool = {
+  name: "mottainai_workflow_validation_receipt",
+  description:
+    "Read-only aggregate validation status for the current task's managed checks: never spawns a process. Reports each check as reused-pass/stale/not-required against currently persisted governor evidence, so an agent can know whether required checks are already satisfied before rerunning them.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      taskId: { type: "string" },
+      checkIds: { type: "array", items: { type: "string" } },
+    },
+    additionalProperties: false,
+  },
+  outputSchema: OUTPUT_SCHEMA,
+  annotations: readOnly,
+};
+
 const workflowDoctorTool: Tool = {
   name: "mottainai_workflow_doctor",
   description:
@@ -220,6 +261,8 @@ export function workflowCommandTools(): Tool[] {
     taskFinishTool,
     taskAbandonTool,
     taskCleanupTool,
+    buildCheckRunTool(),
+    validationReceiptTool,
   ];
   return cachedWorkflowCommandTools;
 }
@@ -420,6 +463,91 @@ async function workflowDoctorToolImpl(
   );
 }
 
+function checkReceiptResult(operation: string, result: Awaited<ReturnType<typeof runWorkflowCheck>>): CallToolResult {
+  if (!result.ok) {
+    return output(
+      operation,
+      "failed",
+      `FAIL ${operation} (${result.reason}): ${result.detail}`,
+      "",
+      { ...result, diagnostics: [{ severity: "error", message: result.detail }] },
+      true,
+    );
+  }
+  const { receipt } = result;
+  const summary = `${receipt.status.toUpperCase()} ${receipt.check} (${receipt.execution}, ${receipt.durationMs}ms)`;
+  return output(
+    operation,
+    receipt.status === "failed" ? "failed" : "success",
+    summary,
+    receipt.artifactRef ?? "",
+    { receipt },
+    receipt.status === "failed",
+  );
+}
+
+function validationReceiptResult(
+  operation: string,
+  result: Awaited<ReturnType<typeof getWorkflowValidationReceipt>>,
+): CallToolResult {
+  if (!result.ok) {
+    return output(
+      operation,
+      "failed",
+      `FAIL ${operation} (${result.reason}): ${result.detail}`,
+      "",
+      { ...result, diagnostics: [{ severity: "error", message: result.detail }] },
+      true,
+    );
+  }
+  const { receipt } = result;
+  const summary = receipt.satisfied
+    ? `OK all required checks satisfied (${receipt.checks.length} checks assessed)`
+    : `PENDING required checks not satisfied: ${receipt.requiredPending.join(", ")}`;
+  return output(operation, "success", summary, "", { receipt });
+}
+
+async function checkRunToolImpl(
+  args: Args,
+  config: ResolvedGatewayConfig,
+  store: WorkflowStateStore,
+  artifactStore: ArtifactStore,
+): Promise<CallToolResult> {
+  requireWorkflowTasksConfigured(config);
+  const taskId = stringArg(args, "taskId");
+  const result = await runWorkflowCheck(
+    {
+      workspaceRoot: config.workspaceRoot,
+      store,
+      ...(taskId === undefined ? {} : { taskId }),
+      checkId: stringArg(args, "checkId", true)!,
+      force: boolArg(args, "force"),
+    },
+    { artifactStore },
+  );
+  return checkReceiptResult("workflow_check_run", result);
+}
+
+async function validationReceiptToolImpl(
+  args: Args,
+  config: ResolvedGatewayConfig,
+  store: WorkflowStateStore,
+  artifactStore: ArtifactStore,
+): Promise<CallToolResult> {
+  requireWorkflowTasksConfigured(config);
+  const taskId = stringArg(args, "taskId");
+  const result = await getWorkflowValidationReceipt(
+    {
+      workspaceRoot: config.workspaceRoot,
+      store,
+      ...(taskId === undefined ? {} : { taskId }),
+      checkIds: stringArrayArg(args, "checkIds"),
+    },
+    { artifactStore },
+  );
+  return validationReceiptResult("workflow_validation_receipt", result);
+}
+
 function writeResult(operation: string, result: Awaited<ReturnType<typeof commitWorkflowTask>>): CallToolResult {
   if (result.ok)
     return output(operation, "success", `OK ${operation}${result.dryRun === true ? " (dry-run)" : ""}`, "", result);
@@ -559,11 +687,24 @@ export function defaultWorkflowStore(): Promise<WorkflowStateStore> {
   return defaultWorkflowStorePromise;
 }
 
+/**
+ * 既定の `ArtifactStore`。managed check の raw stdout/stderr は既定でこのプロセス内
+ * インスタンスへ bounded 保存する — `src/proxy.ts` の gateway 経路は connection ごとの
+ * `resolvedArtifactStore` を明示的に渡すため、この既定値は CLI 等スタンドアロン呼び出しの
+ * fallback としてのみ使われる。
+ */
+let defaultArtifactStore: ArtifactStore | undefined;
+function defaultCheckArtifactStore(): ArtifactStore {
+  defaultArtifactStore ??= new InMemoryArtifactStore();
+  return defaultArtifactStore;
+}
+
 export async function callWorkflowCommandTool(
   name: string,
   args: Args,
   config: ResolvedGatewayConfig,
   workflowStore?: WorkflowStateStore,
+  artifactStore?: ArtifactStore,
 ): Promise<CallToolResult> {
   switch (name) {
     case "mottainai_workflow_policy_explain":
@@ -580,6 +721,17 @@ export async function callWorkflowCommandTool(
     case "mottainai_workflow_doctor":
       requireWorkflowTasksConfigured(config);
       return workflowDoctorToolImpl(config, workflowStore ?? (await defaultWorkflowStore()));
+    case "mottainai_workflow_check_run":
+      requireWorkflowTasksConfigured(config);
+      return checkRunToolImpl(args, config, workflowStore ?? (await defaultWorkflowStore()), artifactStore ?? defaultCheckArtifactStore());
+    case "mottainai_workflow_validation_receipt":
+      requireWorkflowTasksConfigured(config);
+      return validationReceiptToolImpl(
+        args,
+        config,
+        workflowStore ?? (await defaultWorkflowStore()),
+        artifactStore ?? defaultCheckArtifactStore(),
+      );
     case "mottainai_workflow_task_commit":
     case "mottainai_workflow_task_push":
     case "mottainai_workflow_task_open_pr":
