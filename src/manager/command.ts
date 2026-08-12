@@ -12,6 +12,7 @@ import type { WorkflowStateStore } from "../workflow/state/store.js";
 import { ManagerHttpApi } from "./http.js";
 import { readManagerViewer } from "./assets.js";
 import { ManagerSessionService } from "./service.js";
+import { NawabariExecutionClient } from "../workflow/nawabari.js";
 import { ZellijCliRuntime, type ZellijRuntime } from "./zellij.js";
 
 export const DEFAULT_MANAGER_PORT = 4318;
@@ -105,7 +106,7 @@ export async function startManager(options: ManagerStartOptions): Promise<Dashbo
       environment,
       binary: environment.MOTTAINAI_ZELLIJ_BINARY ?? "zellij",
     });
-  const service = new ManagerSessionService({ workspaceRoot, store, runtime });
+  const service = new ManagerSessionService({ workspaceRoot, store, runtime, nawabari: new NawabariExecutionClient() });
   try {
     await service.initialize();
     const handle = await startDashboardServer({

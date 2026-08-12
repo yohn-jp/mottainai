@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
-import { startTask } from "../workflow/domain/task.js";
+import { startNawabariTask } from "../workflow/domain/nawabari-task.js";
+import { NawabariExecutionClient } from "../workflow/nawabari.js";
+import { createSemanticExecutionPlan } from "../semantics/execution-plan.js";
 import type {
   WorkflowStateStore,
   ManagerSessionId,
@@ -91,15 +93,27 @@ function managerError(error: unknown): ManagerError {
 export class ManagerSessionService {
   private zellijVersion: string | undefined;
 
-  constructor(
-    private readonly options: {
-      workspaceRoot: string;
-      store: WorkflowStateStore;
-      runtime: ZellijRuntime;
-      /** Hermetic process-test seam; production defaults to the Codex CLI. */
-      agentCommand?: { command: string; baseArgs?: readonly string[] };
-    },
-  ) {}
+  private readonly options: {
+    workspaceRoot: string;
+    store: WorkflowStateStore;
+    runtime: ZellijRuntime;
+    /** The sole local execution boundary used by task-bound Manager sessions. */
+    nawabari: NawabariExecutionClient;
+    /** Hermetic process-test seam; production defaults to the Codex CLI. */
+    agentCommand?: { command: string; baseArgs?: readonly string[] };
+  };
+
+  constructor(options: {
+    workspaceRoot: string;
+    store: WorkflowStateStore;
+    runtime: ZellijRuntime;
+    /** Optional injection seam; production and tests default to the installed contract client. */
+    nawabari?: NawabariExecutionClient;
+    /** Hermetic process-test seam; production defaults to the Codex CLI. */
+    agentCommand?: { command: string; baseArgs?: readonly string[] };
+  }) {
+    this.options = { ...options, nawabari: options.nawabari ?? new NawabariExecutionClient() };
+  }
 
   async initialize(): Promise<ManagerHealth> {
     try {
@@ -162,8 +176,16 @@ export class ManagerSessionService {
     }
     if (existingRuntime !== "absent")
       throw new ManagerError("runtime_name_collision", `Zellij session name is already in use: ${runtimeName}`, 409);
-    if (this.options.store.listManagerSessions(this.options.workspaceRoot).some((candidate) => candidate.runtimeName === runtimeName))
-      throw new ManagerError("runtime_name_collision", `Mottainai runtime name is already recorded: ${runtimeName}`, 409);
+    if (
+      this.options.store
+        .listManagerSessions(this.options.workspaceRoot)
+        .some((candidate) => candidate.runtimeName === runtimeName)
+    )
+      throw new ManagerError(
+        "runtime_name_collision",
+        `Mottainai runtime name is already recorded: ${runtimeName}`,
+        409,
+      );
 
     let taskId: TaskId | undefined;
     let worktreeId: WorktreeId | undefined;
@@ -173,7 +195,7 @@ export class ManagerSessionService {
       const policyResult = resolveEffectiveWorkflowPolicy(this.options.workspaceRoot);
       if (!policyResult.ok)
         throw new ManagerError("task_start_failed", `workflow policy is invalid: ${policyResult.reason}`, 409);
-      const taskResult = await startTask({
+      const taskResult = await startNawabariTask({
         workspaceRoot: this.options.workspaceRoot,
         store: this.options.store,
         policy: policyResult.document,
@@ -181,14 +203,20 @@ export class ManagerSessionService {
         branchType,
         issueRef,
         idempotencyKey: sessionId,
+        // Manager establishes an inspection-only execution boundary at launch.
+        // A later semantic/task operation must replace it with concrete write claims;
+        // this keeps concurrent control-plane sessions from claiming unknown source
+        // scope while never granting them mutation authority by implication.
+        semanticPlan: createSemanticExecutionPlan({
+          claims: [{ resource: "**", mode: "read" }],
+          verification: { rationale: "Manager launch context is read-only until semantic scope is declared" },
+        }),
+        nawabari: this.options.nawabari,
       });
       if (!taskResult.ok) throw new ManagerError("task_start_failed", taskResult.detail, 409);
       taskId = taskResult.task.taskId;
-      if (taskResult.worktree !== undefined) {
-        worktreeId = taskResult.worktree.worktreeId;
-        worktreePath = taskResult.worktree.canonicalPath;
-        branchName = taskResult.worktree.branchName;
-      }
+      worktreePath = taskResult.execution.worktree;
+      branchName = taskResult.execution.branch;
     }
 
     const agentCommand = this.options.agentCommand ?? { command: "codex", baseArgs: [] };

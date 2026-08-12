@@ -3,7 +3,10 @@ import type { ResolvedGatewayConfig } from "../../config.js";
 import { OUTPUT_SCHEMA, output } from "../../envelope.js";
 import { InMemoryArtifactStore, type ArtifactStore } from "../../retrieve.js";
 import { collectWorkflowDoctorReport } from "./doctor.js";
-import { getTaskStatus, getTaskStatusForWorkspace, startTask } from "../domain/task.js";
+import { getTaskStatus, getTaskStatusForWorkspace } from "../domain/task.js";
+import { startNawabariTask } from "../domain/nawabari-task.js";
+import { NawabariExecutionClient } from "../nawabari.js";
+import { createSemanticExecutionPlan, type CreateSemanticExecutionPlanInput } from "../../semantics/execution-plan.js";
 import { getWorkflowValidationReceipt, runWorkflowCheck } from "./check.js";
 import { DEFAULT_MANAGED_CHECKS } from "../validation/registry.js";
 import {
@@ -163,7 +166,7 @@ function buildTaskStartTool(): Tool {
   return {
     name: "mottainai_workflow_task_start",
     description:
-      "Start a Git workflow task: reserve it under Mottainai's task lifecycle, generate a governance-validated <type>/<issue>-<slug> branch, create it below the canonical repository .mottainai/worktrees root, and activate it.",
+      "Start a semantic/task orchestration record and delegate the local session, worktree, branch, and claims to the installed Nawabari standalone-execution.v1 companion.",
     inputSchema: {
       type: "object",
       properties: {
@@ -179,6 +182,17 @@ function buildTaskStartTool(): Tool {
           pattern: "^[A-Za-z0-9](?!.*\\.\\.)(?!.*\\.lock$)(?!.*\\.$)[A-Za-z0-9._-]*$",
         },
         idempotencyKey: { type: "string", minLength: 1, maxLength: 128 },
+        semanticPlan: {
+          type: "object",
+          properties: {
+            semanticTargets: { type: "array", items: { type: "object" } },
+            explicitPaths: { type: "array", items: { type: "string" } },
+            claims: { type: "array", items: { type: "object" } },
+            verification: { type: "object" },
+            strict: { type: "boolean" },
+          },
+          additionalProperties: false,
+        },
       },
       required: ["taskSlug", "branchType", "issueRef"],
       additionalProperties: false,
@@ -305,6 +319,70 @@ function stringArrayArg(args: Args, key: string): string[] | undefined {
   return [...candidate] as string[];
 }
 
+function semanticPlanArg(args: Args): CreateSemanticExecutionPlanInput | undefined {
+  const raw = value(args, "semanticPlan");
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new Error("semanticPlan must be an object");
+  const plan = raw as Record<string, unknown>;
+  const strings = (candidate: unknown, field: string): string[] | undefined => {
+    if (candidate === undefined) return undefined;
+    if (!Array.isArray(candidate) || candidate.some((item) => typeof item !== "string"))
+      throw new Error(`${field} must be an array of strings`);
+    return candidate;
+  };
+  const claims = plan.claims;
+  if (
+    claims !== undefined &&
+    (!Array.isArray(claims) ||
+      claims.some((claim) => {
+        if (typeof claim !== "object" || claim === null || Array.isArray(claim)) return true;
+        const item = claim as Record<string, unknown>;
+        return typeof item.resource !== "string" || !["read", "write", "exclusive-write"].includes(String(item.mode));
+      }))
+  )
+    throw new Error("semanticPlan.claims must contain resource/mode declarations");
+  const semanticTargets = plan.semanticTargets;
+  if (
+    semanticTargets !== undefined &&
+    (!Array.isArray(semanticTargets) ||
+      semanticTargets.some((target) => {
+        if (typeof target !== "object" || target === null || Array.isArray(target)) return true;
+        const item = target as Record<string, unknown>;
+        return (
+          !["symbol", "component", "path"].includes(String(item.kind)) ||
+          typeof item.id !== "string" ||
+          (item.paths !== undefined &&
+            (!Array.isArray(item.paths) || item.paths.some((path) => typeof path !== "string")))
+        );
+      }))
+  )
+    throw new Error("semanticPlan.semanticTargets is invalid");
+  const verification = plan.verification;
+  if (
+    verification !== undefined &&
+    (typeof verification !== "object" || verification === null || Array.isArray(verification))
+  )
+    throw new Error("semanticPlan.verification must be an object");
+  const verificationObject = verification as Record<string, unknown> | undefined;
+  if (verificationObject?.rationale !== undefined && typeof verificationObject.rationale !== "string")
+    throw new Error("semanticPlan.verification.rationale must be a string");
+  if (plan.strict !== undefined && typeof plan.strict !== "boolean")
+    throw new Error("semanticPlan.strict must be a boolean");
+  return {
+    semanticTargets: semanticTargets as CreateSemanticExecutionPlanInput["semanticTargets"],
+    explicitPaths: strings(plan.explicitPaths, "semanticPlan.explicitPaths"),
+    claims: claims as CreateSemanticExecutionPlanInput["claims"],
+    verification:
+      verificationObject === undefined
+        ? undefined
+        : {
+            requiredChecks: strings(verificationObject.requiredChecks, "semanticPlan.verification.requiredChecks"),
+            rationale: verificationObject.rationale as string | undefined,
+          },
+    strict: plan.strict as boolean | undefined,
+  };
+}
+
 function requireWorkflowTasksConfigured(config: ResolvedGatewayConfig): void {
   if (!config.workflowTasks) throw new Error("workflow command tools are not configured for this workspace");
 }
@@ -360,10 +438,7 @@ async function taskStartToolImpl(
     );
   }
 
-  // `skipWorktree` を渡さない — policy.worktree.required に関わらず常に専用 worktree/branch
-  // を作らせる（task lifecycle の目的そのものが「今どの worktree/branch にいるか」の追跡であり、
-  // 現在の branch（main を含む）をそのまま work branch にすることは決して起きない）。
-  const result = await startTask({
+  const result = await startNawabariTask({
     workspaceRoot: config.workspaceRoot,
     store,
     policy: policyResult.document,
@@ -371,6 +446,11 @@ async function taskStartToolImpl(
     branchType,
     issueRef,
     idempotencyKey: stringArg(args, "idempotencyKey"),
+    semanticPlan: (() => {
+      const input = semanticPlanArg(args);
+      return input === undefined ? undefined : createSemanticExecutionPlan(input);
+    })(),
+    nawabari: new NawabariExecutionClient(),
   });
   if (!result.ok) {
     const summary = `FAIL task_start (${result.reason}): ${result.detail}`;
@@ -384,11 +464,15 @@ async function taskStartToolImpl(
     );
   }
 
-  const summary = `OK task=${result.task.taskId} state=${result.task.lifecycleState} branch=${result.worktree?.branchName ?? "(none)"}`;
+  const summary = `OK task=${result.task.taskId} state=${result.task.lifecycleState} branch=${result.execution.branch} session=${result.execution.sessionId}`;
   const status = getTaskStatus(store, result.task.taskId);
   return output("workflow_task_start", "success", summary, "", {
     task: result.task,
-    worktree: result.worktree,
+    execution: result.execution,
+    // Compatibility projection for clients that only need a launch directory.
+    // It is not persisted ownership state; Nawabari remains authoritative.
+    worktree: { canonicalPath: result.execution.worktree, branchName: result.execution.branch },
+    semanticExecutionPlan: result.semanticPlan,
     warnings: result.warnings,
     pullRequests: status?.pullRequests ?? [],
     currentState: status?.currentState ?? result.task.lifecycleState,
@@ -399,6 +483,45 @@ async function taskStartToolImpl(
 
 async function taskStatusToolImpl(config: ResolvedGatewayConfig, store: WorkflowStateStore): Promise<CallToolResult> {
   requireWorkflowTasksConfigured(config);
+  const nawabari = new NawabariExecutionClient();
+  try {
+    const sessionId = await nawabari.currentSessionId(config.workspaceRoot);
+    const task = store.listTasks().find((candidate) => candidate.nawabariSessionId === sessionId);
+    if (task !== undefined) {
+      const session = await nawabari.showSession({ cwd: config.workspaceRoot, sessionId });
+      const status = getTaskStatus(store, task.taskId);
+      return output(
+        "workflow_task_status",
+        "success",
+        `OK task=${task.taskId} state=${task.lifecycleState} branch=${session.branch}`,
+        "",
+        {
+          active: true,
+          repository: {
+            instanceId: task.instanceId,
+            worktreePath: session.worktree,
+            branch: session.branch,
+            repoStateKind: "nawabari-managed",
+          },
+          task,
+          execution: {
+            sessionId: session.sessionId,
+            worktree: session.worktree,
+            branch: session.branch,
+            state: session.state,
+          },
+          pullRequests: status?.pullRequests ?? [],
+          currentState: status?.currentState ?? task.lifecycleState,
+          allowedNextTransitions: status?.allowedNextTransitions ?? [],
+          invalidTransitions: status?.invalidTransitions ?? [],
+          warnings: [],
+        },
+      );
+    }
+  } catch {
+    // A primary checkout or a legacy worktree has no current Nawabari session;
+    // retain the read-only Mottainai projection below.
+  }
   const result = await getTaskStatusForWorkspace(config.workspaceRoot, store);
   if (!result.ok) {
     const summary = `FAIL task_status: ${result.reason}`;
@@ -587,7 +710,12 @@ async function workflowWriteToolImpl(
       true,
     );
   }
-  const selector = { workspaceRoot: config.workspaceRoot, store, ...(taskId === undefined ? {} : { taskId }) };
+  const selector = {
+    workspaceRoot: config.workspaceRoot,
+    store,
+    nawabari: new NawabariExecutionClient(),
+    ...(taskId === undefined ? {} : { taskId }),
+  };
   if (name === "mottainai_workflow_task_commit") {
     const message = value(args, "message");
     if (message === null || typeof message !== "object" || Array.isArray(message))
@@ -723,7 +851,12 @@ export async function callWorkflowCommandTool(
       return workflowDoctorToolImpl(config, workflowStore ?? (await defaultWorkflowStore()));
     case "mottainai_workflow_check_run":
       requireWorkflowTasksConfigured(config);
-      return checkRunToolImpl(args, config, workflowStore ?? (await defaultWorkflowStore()), artifactStore ?? defaultCheckArtifactStore());
+      return checkRunToolImpl(
+        args,
+        config,
+        workflowStore ?? (await defaultWorkflowStore()),
+        artifactStore ?? defaultCheckArtifactStore(),
+      );
     case "mottainai_workflow_validation_receipt":
       requireWorkflowTasksConfigured(config);
       return validationReceiptToolImpl(

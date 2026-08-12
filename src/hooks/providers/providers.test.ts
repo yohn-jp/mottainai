@@ -7,6 +7,8 @@ import test from "node:test";
 import { DEFAULT_READ_GOVERNOR_POLICY } from "../../context-runtime/read-policy.js";
 import { BUILTIN_PRESETS } from "../../workflow/policy/presets.js";
 import { createWorkflowHookProvider } from "../../workflow/hook-provider.js";
+import { NawabariExecutionClient } from "../../workflow/nawabari.js";
+import type { RunResult } from "../../subprocess.js";
 import { dispatchClientHook } from "../commands.js";
 import { composeHookDecision } from "./composition.js";
 import { createContextReadPolicyProvider } from "./context.js";
@@ -42,6 +44,50 @@ function gitRepository(): string {
   return root;
 }
 
+function nawabariDecisionClient(allowed: boolean, calls: string[][]): NawabariExecutionClient {
+  const response = (value: unknown, exitCode = 0): RunResult => ({
+    stdout: JSON.stringify(value),
+    stderr: "",
+    exitCode,
+    signal: null,
+    timedOut: false,
+    outputLimit: false,
+  });
+  return new NawabariExecutionClient({
+    runner: {
+      async run(_command, args): Promise<RunResult> {
+        calls.push([...args]);
+        if (args[0] === "capabilities")
+          return response({
+            ok: true,
+            command: "capabilities",
+            schema_version: 1,
+            contract_id: "nawabari.standalone-execution.v1",
+            package_version: "0.2.0",
+            capabilities: [{
+              commands: [
+                "session create", "session id", "session show", "session list", "session claim", "session claims",
+                "session close", "authorize", "checkpoint", "commit", "push", "gc",
+              ],
+            }],
+          });
+        if (args[0] === "authorize")
+          return response(
+            {
+              ok: allowed,
+              command: "authorize",
+              allowed,
+              code: allowed ? "ALLOWED" : "MISSING_RESOURCE_CLAIM",
+              message: allowed ? "allowed" : "claim denied",
+            },
+            allowed ? 0 : 3,
+          );
+        throw new Error(`unexpected Nawabari command: ${args.join(" ")}`);
+      },
+    },
+  });
+}
+
 test("workflow provider consumes current #28 policy and repository state without a branch-name rule in hooks", async (t) => {
   const root = gitRepository();
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -66,6 +112,38 @@ test("workflow provider consumes current #28 policy and repository state without
   const worktreeManagement = await provider.evaluate(event("process.exec", { kind: "command", value: "git worktree list" }));
   assert.equal(worktreeManagement.state, "authoritative");
   assert.equal(worktreeManagement.reason, "workflow_worktree");
+});
+
+test("workflow hook obtains source-write authorization from Nawabari and fails closed when unavailable", async (t) => {
+  const root = gitRepository();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  shellGit(["checkout", "-b", "feat/hook-authorization"], root);
+
+  const missing = await createWorkflowHookProvider({ workspaceRoot: root }).evaluate(
+    event("source.write", { kind: "path", value: "tracked.txt" }),
+  );
+  assert.equal(missing.state, "unavailable");
+  assert.equal(missing.rule, "nawabari.contract");
+
+  const allowedCalls: string[][] = [];
+  const allowed = await createWorkflowHookProvider({
+    workspaceRoot: root,
+    nawabari: nawabariDecisionClient(true, allowedCalls),
+  }).evaluate(event("source.write", { kind: "path", value: "tracked.txt" }));
+  assert.equal(allowed.state, "authoritative");
+  assert.equal(allowed.action, "allow");
+  const authorization = allowedCalls.find((args) => args[0] === "authorize");
+  assert.ok(authorization?.includes("source-write"));
+  assert.ok(authorization?.includes("tracked.txt"));
+
+  const denied = await createWorkflowHookProvider({
+    workspaceRoot: root,
+    nawabari: nawabariDecisionClient(false, []),
+  }).evaluate(event("source.write", { kind: "path", value: "tracked.txt" }));
+  assert.equal(denied.state, "authoritative");
+  assert.equal(denied.action, "deny");
+  assert.equal(denied.rule, "nawabari.authorize");
+  assert.match(denied.diagnostic ?? "", /MISSING_RESOURCE_CLAIM/u);
 });
 
 test("context provider reuses #70 read-governor thresholds for broad and bounded reads", async (t) => {

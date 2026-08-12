@@ -105,6 +105,9 @@ function toTaskRecord(row: Record<string, unknown>): TaskRecord {
     instanceId: row.instance_id as RepositoryInstanceId,
     taskSlug: row.task_slug as string,
     issueRef: (row.issue_ref as string | null) ?? undefined,
+    ...(row.nawabari_session_id === null || row.nawabari_session_id === undefined
+      ? {}
+      : { nawabariSessionId: row.nawabari_session_id as TaskRecord["nawabariSessionId"] }),
     ...(row.start_idempotency_key === null || row.start_idempotency_key === undefined
       ? {}
       : { startIdempotencyKey: row.start_idempotency_key as string }),
@@ -631,7 +634,10 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
 
   listCheckRuns(filter: ListCheckRunsFilter): CheckRunRecord[] {
     const limit = normalizeCheckRunLimit(filter.limit);
-    const where = filter.checkId === undefined ? "WHERE instance_id = ? AND worktree_id = ? " : "WHERE instance_id = ? AND worktree_id = ? AND check_id = ? ";
+    const where =
+      filter.checkId === undefined
+        ? "WHERE instance_id = ? AND worktree_id = ? "
+        : "WHERE instance_id = ? AND worktree_id = ? AND check_id = ? ";
     const params =
       filter.checkId === undefined
         ? [filter.instanceId, filter.worktreeId, limit]
@@ -781,6 +787,27 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     const row = db.prepare("SELECT * FROM tasks WHERE task_id = ?").get(taskId) as Record<string, unknown> | undefined;
     if (row === undefined) throw new Error(`task not found: ${taskId}`);
     return toTaskRecord(row);
+  }
+
+  attachNawabariSession(
+    taskId: TaskId,
+    sessionId: NonNullable<TaskRecord["nawabariSessionId"]>,
+    updatedAt?: number,
+  ): TaskRecord {
+    const now = updatedAt ?? Date.now();
+    const result = this.handle()
+      .prepare(
+        `UPDATE tasks
+         SET nawabari_session_id = ?, task_version = task_version + 1, updated_at = ?
+         WHERE task_id = ? AND (nawabari_session_id IS NULL OR nawabari_session_id = ?)`,
+      )
+      .run(sessionId, now, taskId, sessionId);
+    if (result.changes === 0) {
+      const existing = this.getTask(taskId);
+      if (existing === undefined) throw new Error(`task not found: ${taskId}`);
+      throw new Error(`task already references a different Nawabari session: ${taskId}`);
+    }
+    return this.getTask(taskId)!;
   }
 
   getTask(taskId: TaskId): TaskRecord | undefined {

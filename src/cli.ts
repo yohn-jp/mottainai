@@ -28,7 +28,9 @@ import type { RepositorySemanticSnapshot } from "./semantics/ir/types.js";
 import type { LogicalId } from "./semantics/ir/ids.js";
 import { validateIssueRef, validateTaskSlug } from "./workflow/commands/validate.js";
 import { collectWorkflowDoctorReport } from "./workflow/commands/doctor.js";
-import { getTaskStatus, startTask, getTaskStatusForWorkspace } from "./workflow/domain/task.js";
+import { getTaskStatus, getTaskStatusForWorkspace } from "./workflow/domain/task.js";
+import { startNawabariTask } from "./workflow/domain/nawabari-task.js";
+import { NawabariExecutionClient } from "./workflow/nawabari.js";
 import { explainWorkflowPolicy } from "./workflow/policy/explain.js";
 import { resolveEffectiveWorkflowPolicy } from "./workflow/policy/load.js";
 import { createWorkflowHookProvider } from "./workflow/hook-provider.js";
@@ -263,7 +265,7 @@ function hookContext(
     dispatcherArguments,
     exposedTools: exposedHookTools(workspaceRoot, resolvedConfigPath),
     configPath: resolvedConfigPath,
-    workflowProvider: createWorkflowHookProvider({ workspaceRoot }),
+    workflowProvider: createWorkflowHookProvider({ workspaceRoot, nawabari: new NawabariExecutionClient() }),
   };
 }
 
@@ -653,9 +655,7 @@ export async function runCli(args: string[]): Promise<number> {
       }
       const store = await openWorkflowStateStore();
       try {
-        // `skipWorktree` を渡さない — task lifecycle は常に専用 worktree/branch を作る
-        // （main を含む現在の branch がそのまま work branch になることはない）。
-        const started = await startTask({
+        const started = await startNawabariTask({
           workspaceRoot: workspace,
           store,
           policy: policyResult.document,
@@ -663,6 +663,7 @@ export async function runCli(args: string[]): Promise<number> {
           branchType,
           issueRef,
           idempotencyKey: flag(argv, "idempotency-key"),
+          nawabari: new NawabariExecutionClient(),
         });
         if (!started.ok) {
           print({ ok: false, workspace, reason: started.reason, error: started.detail });
@@ -673,7 +674,8 @@ export async function runCli(args: string[]): Promise<number> {
           ok: true,
           workspace,
           task: started.task,
-          worktree: started.worktree,
+          execution: started.execution,
+          semanticExecutionPlan: started.semanticPlan,
           warnings: started.warnings,
           pullRequests: status?.pullRequests ?? [],
           currentState: status?.currentState ?? started.task.lifecycleState,
@@ -687,6 +689,34 @@ export async function runCli(args: string[]): Promise<number> {
       const workspace = resolveWorkflowWorkspace(argv);
       const store = await openWorkflowStateStore();
       try {
+        const nawabari = new NawabariExecutionClient();
+        try {
+          const sessionId = await nawabari.currentSessionId(workspace);
+          const externalTask = store.listTasks().find((task) => task.nawabariSessionId === sessionId);
+          if (externalTask !== undefined) {
+            const session = await nawabari.showSession({ cwd: workspace, sessionId });
+            const status = getTaskStatus(store, externalTask.taskId);
+            print({
+              ok: true,
+              workspace,
+              task: externalTask,
+              execution: {
+                sessionId: session.sessionId,
+                worktree: session.worktree,
+                branch: session.branch,
+                state: session.state,
+              },
+              pullRequests: status?.pullRequests ?? [],
+              currentState: status?.currentState ?? externalTask.lifecycleState,
+              allowedNextTransitions: status?.allowedNextTransitions ?? [],
+              invalidTransitions: status?.invalidTransitions ?? [],
+            });
+            return 0;
+          }
+        } catch {
+          // A non-Nawabari worktree has no external session; the read-only
+          // Mottainai status projection remains useful in that case.
+        }
         const result = await getTaskStatusForWorkspace(workspace, store);
         if (!result.ok) {
           print({ ok: false, workspace, error: result.reason });
@@ -720,7 +750,8 @@ export async function runCli(args: string[]): Promise<number> {
       }
       const store = await openWorkflowStateStore();
       const taskId = requireFlagValue(argv, "task-id");
-      const selector = { workspaceRoot: workspace, store, ...(taskId === undefined ? {} : { taskId }) };
+      const nawabari = new NawabariExecutionClient();
+      const selector = { workspaceRoot: workspace, store, nawabari, ...(taskId === undefined ? {} : { taskId }) };
       const dryRun = hasFlag(argv, "dry-run");
       try {
         if (action === "commit") {

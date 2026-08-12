@@ -68,6 +68,7 @@
   "devDependencies": {
     "@types/node": "^22.15.3",
     "eslint": "9.29.0",
+    "nawabari": "0.2.0",
     "prettier": "3.6.2",
     "tsx": "^4.19.4",
     "typescript-eslint": "8.66.0"

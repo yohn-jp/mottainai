@@ -147,6 +147,10 @@ async function markFailed(
   }
 }
 
+/**
+ * @deprecated Legacy physical cleanup executor retained for migration/reference
+ * tests only. Managed cleanup is requested from and decided by Nawabari.
+ */
 export async function executeCleanup(input: CleanupExecuteInput): Promise<CleanupExecutionResult> {
   const plan = input.plan;
   const now = input.now?.() ?? Date.now();
