@@ -265,6 +265,70 @@ export interface RecordValidationEvidenceInput {
   recordedAt?: number;
 }
 
+/**
+ * Managed check governor（issue #184）の永続実行記録。`validation_evidence` は push gate
+ * が信頼する commit 単位の pass/fail サマリだが、reuse 判定に必要な fingerprint/config
+ * digest/duration/artifact 参照までは持たない。ここではそれらを別テーブルとして持ち、
+ * governor が PASS を `validation_evidence` へも橋渡しする（`recordValidationEvidence` 経由）。
+ */
+export type CheckRunStatus = "passed" | "failed";
+/**
+ * `"reused"` is reserved for a future reuse-audit trail — governor.ts's current reuse path
+ * (`runManagedCheck` matching a prior `status='passed'` row) cites the existing row's data
+ * directly in the receipt and never inserts a new `"reused"` row, to avoid unbounded growth
+ * from repeated no-op reuse. Only `"executed"` rows are persisted today.
+ */
+export type CheckRunExecution = "executed" | "reused";
+
+export interface CheckRunProvenance {
+  reasonCode: string;
+  explanation: string;
+}
+
+export interface CheckRunRecord {
+  runId: string;
+  instanceId: RepositoryInstanceId;
+  /** managed worktree が無い呼び出しは `""` を使う（repository instance 単位で分離される）。 */
+  worktreeId: string;
+  checkId: string;
+  commandDigest: string;
+  stateFingerprint: string;
+  configDigest: string;
+  status: CheckRunStatus;
+  execution: CheckRunExecution;
+  startedAt: number;
+  durationMs: number;
+  recordedAt: number;
+  summary: string;
+  artifactRef: string | undefined;
+  provenance: CheckRunProvenance;
+}
+
+export interface RecordCheckRunInput {
+  runId: string;
+  instanceId: RepositoryInstanceId;
+  worktreeId: string;
+  checkId: string;
+  commandDigest: string;
+  stateFingerprint: string;
+  configDigest: string;
+  status: CheckRunStatus;
+  execution: CheckRunExecution;
+  startedAt: number;
+  durationMs: number;
+  summary: string;
+  artifactRef?: string;
+  provenance: CheckRunProvenance;
+  recordedAt?: number;
+}
+
+export interface ListCheckRunsFilter {
+  instanceId: RepositoryInstanceId;
+  worktreeId: string;
+  checkId?: string;
+  limit?: number;
+}
+
 export const CLEANUP_LEASE_STATES = ["reserved", "mutating", "verifying", "committed", "failed"] as const;
 export type CleanupLeaseState = (typeof CLEANUP_LEASE_STATES)[number];
 
@@ -358,6 +422,23 @@ export interface WorkflowStateStore {
   recordValidationEvidence(input: RecordValidationEvidenceInput): ValidationEvidenceRecord;
   /** 指定 commit に記録済みの検証結果を name ごとに引く。未記録の name は結果に含まれない。 */
   listValidationEvidence(instanceId: RepositoryInstanceId, headCommit: string): ValidationEvidenceRecord[];
+
+  /** Managed check governor（issue #184）の実行結果を記録する。runId は呼び出し側が発行する。 */
+  recordCheckRun(input: RecordCheckRunInput): CheckRunRecord;
+  /**
+   * 指定 (instance, worktree, check, fingerprint, config) に一致する直近の PASSED 実行を返す。
+   * status='failed' の記録は決して再利用対象にならない（issue #184: "silently converting
+   * failed checks into passes" を除外）。一致が無ければ undefined — 呼び出し側は必ず実行する。
+   */
+  findReusableCheckRun(
+    instanceId: RepositoryInstanceId,
+    worktreeId: string,
+    checkId: string,
+    stateFingerprint: string,
+    configDigest: string,
+  ): CheckRunRecord | undefined;
+  /** 受信 receipt/observability 用に直近の実行を新しい順で返す（bounded）。 */
+  listCheckRuns(filter: ListCheckRunsFilter): CheckRunRecord[];
 
   /**
    * task を `planned` 状態で予約する。`allowMultipleActiveTasksPerIssue: false` かつ

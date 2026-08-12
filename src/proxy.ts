@@ -373,7 +373,7 @@ export function registerProxyHandlers(
     }
 
     if (isWorkflowCommand) {
-      const result = await callWorkflowCommandTool(toolName, args, gatewayConfig);
+      const result = await callWorkflowCommandTool(toolName, args, gatewayConfig, undefined, resolvedArtifactStore);
       return normalizeExecutionOutcome({
         result,
         selectedProvider: "local",

@@ -27,6 +27,9 @@ import type {
   ReserveWorktreeInput,
   ReserveWorktreeResult,
   RecordValidationEvidenceInput,
+  CheckRunRecord,
+  ListCheckRunsFilter,
+  RecordCheckRunInput,
   CleanupLeaseRecord,
   CleanupLeaseState,
   CommitCleanupInput,
@@ -230,6 +233,37 @@ function toValidationEvidenceRecord(row: Record<string, unknown>): ValidationEvi
     status: row.status as ValidationEvidenceRecord["status"],
     recordedAt: row.recorded_at as number,
   };
+}
+
+function toCheckRunRecord(row: Record<string, unknown>): CheckRunRecord {
+  return {
+    runId: row.run_id as string,
+    instanceId: row.instance_id as RepositoryInstanceId,
+    worktreeId: row.worktree_id as string,
+    checkId: row.check_id as string,
+    commandDigest: row.command_digest as string,
+    stateFingerprint: row.state_fingerprint as string,
+    configDigest: row.config_digest as string,
+    status: row.status as CheckRunRecord["status"],
+    execution: row.execution as CheckRunRecord["execution"],
+    startedAt: row.started_at as number,
+    durationMs: row.duration_ms as number,
+    recordedAt: row.recorded_at as number,
+    summary: row.summary as string,
+    artifactRef: (row.artifact_ref as string | null) ?? undefined,
+    provenance: {
+      reasonCode: row.provenance_reason_code as string,
+      explanation: row.provenance_explanation as string,
+    },
+  };
+}
+
+const DEFAULT_CHECK_RUN_LIMIT = 50;
+const MAX_CHECK_RUN_LIMIT = 500;
+
+function normalizeCheckRunLimit(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) return DEFAULT_CHECK_RUN_LIMIT;
+  return Math.min(Math.max(Math.trunc(value), 1), MAX_CHECK_RUN_LIMIT);
 }
 
 const AUDIT_MAX_FIELD_LENGTH = 128;
@@ -527,6 +561,85 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       .prepare("SELECT * FROM validation_evidence WHERE instance_id = ? AND head_commit = ?")
       .all(instanceId, headCommit) as Record<string, unknown>[];
     return rows.map(toValidationEvidenceRecord);
+  }
+
+  recordCheckRun(input: RecordCheckRunInput): CheckRunRecord {
+    const recordedAt = input.recordedAt ?? Date.now();
+    this.handle()
+      .prepare(
+        `INSERT INTO check_runs
+        (run_id, instance_id, worktree_id, check_id, command_digest, state_fingerprint, config_digest,
+         status, execution, started_at, duration_ms, recorded_at, summary, artifact_ref,
+         provenance_reason_code, provenance_explanation)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.runId,
+        input.instanceId,
+        input.worktreeId,
+        input.checkId,
+        input.commandDigest,
+        input.stateFingerprint,
+        input.configDigest,
+        input.status,
+        input.execution,
+        input.startedAt,
+        input.durationMs,
+        recordedAt,
+        input.summary,
+        input.artifactRef ?? null,
+        input.provenance.reasonCode,
+        input.provenance.explanation,
+      );
+    return {
+      runId: input.runId,
+      instanceId: input.instanceId,
+      worktreeId: input.worktreeId,
+      checkId: input.checkId,
+      commandDigest: input.commandDigest,
+      stateFingerprint: input.stateFingerprint,
+      configDigest: input.configDigest,
+      status: input.status,
+      execution: input.execution,
+      startedAt: input.startedAt,
+      durationMs: input.durationMs,
+      recordedAt,
+      summary: input.summary,
+      artifactRef: input.artifactRef,
+      provenance: input.provenance,
+    };
+  }
+
+  findReusableCheckRun(
+    instanceId: RepositoryInstanceId,
+    worktreeId: string,
+    checkId: string,
+    stateFingerprint: string,
+    configDigest: string,
+  ): CheckRunRecord | undefined {
+    const row = this.handle()
+      .prepare(
+        `SELECT * FROM check_runs
+         WHERE instance_id = ? AND worktree_id = ? AND check_id = ? AND state_fingerprint = ? AND config_digest = ?
+           AND status = 'passed'
+         ORDER BY recorded_at DESC, rowid DESC
+         LIMIT 1`,
+      )
+      .get(instanceId, worktreeId, checkId, stateFingerprint, configDigest) as Record<string, unknown> | undefined;
+    return row === undefined ? undefined : toCheckRunRecord(row);
+  }
+
+  listCheckRuns(filter: ListCheckRunsFilter): CheckRunRecord[] {
+    const limit = normalizeCheckRunLimit(filter.limit);
+    const where = filter.checkId === undefined ? "WHERE instance_id = ? AND worktree_id = ? " : "WHERE instance_id = ? AND worktree_id = ? AND check_id = ? ";
+    const params =
+      filter.checkId === undefined
+        ? [filter.instanceId, filter.worktreeId, limit]
+        : [filter.instanceId, filter.worktreeId, filter.checkId, limit];
+    const rows = this.handle()
+      .prepare(`SELECT * FROM check_runs ${where}ORDER BY recorded_at DESC, rowid DESC LIMIT ?`)
+      .all(...params) as Record<string, unknown>[];
+    return rows.map(toCheckRunRecord);
   }
 
   reserveTask(input: ReserveTaskInput): ReserveTaskResult {
