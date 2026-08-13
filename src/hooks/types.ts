@@ -40,6 +40,8 @@ export type HookReasonCode =
   | "workflow_protected_branch"
   | "workflow_control_plane"
   | "workflow_worktree"
+  | "workflow_typed_operation_required"
+  | "workflow_git_mutation_unsupported"
   | "workflow_authority_unavailable"
   | "workflow_unsupported"
   | "context_read_governor"

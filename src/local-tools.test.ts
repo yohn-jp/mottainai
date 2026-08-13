@@ -841,6 +841,59 @@ test("workflow-enabled managed exec blocks a source write on a protected branch 
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test("workflow-enabled managed exec redirects raw commit and push without spawning Git", async () => {
+  const { root, config } = await gitWorkspace();
+  const store = new InMemoryArtifactStore();
+  try {
+    for (const [command, marker, replacement] of [
+      ["touch raw-commit-ran && git commit -m raw", "raw-commit-ran", "mottainai_workflow_task_commit"],
+      ["touch raw-push-ran && git push origin HEAD", "raw-push-ran", "mottainai_workflow_task_push"],
+    ] as const) {
+      const result = structured(
+        await callLocalTool("mottainai_exec", { command }, { ...config, workflowTasks: true }, store),
+      );
+      assert.equal(result.status, "failed");
+      assert.equal(result.policy_action, "redirect");
+      assert.equal(result.reason, "workflow_typed_operation_required");
+      assert.equal(result.replacement, replacement);
+      assert.match(String(result.summary), /REDIRECT exec: use/u);
+      await assert.rejects(() => fs.access(path.join(root, marker)));
+    }
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("workflow-enabled managed exec fails closed for unsupported Git mutations without guessed resources", async () => {
+  const { root, config } = await gitWorkspace();
+  const store = new InMemoryArtifactStore();
+  try {
+    for (const [gitCommand, marker] of [
+      ["git add guessed/path.txt", "raw-stage-ran"],
+      ["git reset --hard guessed-ref", "raw-reset-ran"],
+      ["git branch -D guessed", "raw-branch-ran"],
+      ["git worktree remove guessed", "raw-worktree-ran"],
+    ] as const) {
+      const result = structured(
+        await callLocalTool(
+          "mottainai_exec",
+          { command: `touch ${marker} && ${gitCommand}` },
+          { ...config, workflowTasks: true },
+          store,
+        ),
+      );
+      assert.equal(result.status, "failed");
+      assert.equal(result.policy_action, "deny");
+      assert.equal(result.reason, "workflow_git_mutation_unsupported");
+      assert.equal(result.replacement, undefined);
+      assert.deepEqual(result.diagnostics, [{ severity: "error", message: "typed_resource_required" }]);
+      await assert.rejects(() => fs.access(path.join(root, marker)));
+    }
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 // --- F: advertised tool surface == executable tool surface, table-driven over both configurations ---
 
 test("the advertised tool surface matches the executable tool surface for worktree-dependent tools", async () => {

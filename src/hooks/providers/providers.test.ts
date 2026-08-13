@@ -101,17 +101,88 @@ test("workflow provider consumes current #28 policy and repository state without
 
   const forcePush = await provider.evaluate(event("process.exec", { kind: "command", value: "git push origin HEAD:release/v1 --force" }));
   assert.equal(forcePush.state, "authoritative");
-  assert.equal(forcePush.action, "deny");
-  assert.equal(forcePush.rule, "protectedBranchRule.forcePush");
+  assert.equal(forcePush.action, "redirect");
+  assert.equal(forcePush.reason, "workflow_typed_operation_required");
+  assert.equal(forcePush.replacement, "mottainai_workflow_task_push");
 
   const currentBranchForcePush = await provider.evaluate(event("process.exec", { kind: "command", value: "git push origin HEAD --force" }));
   assert.equal(currentBranchForcePush.state, "authoritative");
-  assert.equal(currentBranchForcePush.action, "deny");
-  assert.equal(currentBranchForcePush.rule, "protectedBranchRule.forcePush");
+  assert.equal(currentBranchForcePush.action, "redirect");
+  assert.equal(currentBranchForcePush.replacement, "mottainai_workflow_task_push");
 
   const worktreeManagement = await provider.evaluate(event("process.exec", { kind: "command", value: "git worktree list" }));
   assert.equal(worktreeManagement.state, "authoritative");
   assert.equal(worktreeManagement.reason, "workflow_worktree");
+});
+
+test("raw Git mutations redirect only supported commit/push operations and never authorize shell claims", async (t) => {
+  const root = gitRepository();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  shellGit(["checkout", "-b", "feature/typed-git"], root);
+  const calls: string[][] = [];
+  const provider = createWorkflowHookProvider({
+    workspaceRoot: root,
+    nawabari: nawabariDecisionClient(true, calls),
+  });
+
+  const commit = await provider.evaluate(
+    event("git.mutate", { kind: "command", value: "git commit -m 'message that is not a resource'" }),
+  );
+  assert.equal(commit.state, "authoritative");
+  assert.equal(commit.action, "redirect");
+  assert.equal(commit.reason, "workflow_typed_operation_required");
+  assert.equal(commit.replacement, "mottainai_workflow_task_commit");
+
+  const push = await provider.evaluate(
+    event("git.mutate", { kind: "command", value: "git push origin HEAD:release/guessed --force" }),
+  );
+  assert.equal(push.state, "authoritative");
+  assert.equal(push.action, "redirect");
+  assert.equal(push.replacement, "mottainai_workflow_task_push");
+
+  for (const command of [
+    "git add guessed/path.txt",
+    "git reset --hard guessed-ref",
+    "git branch -D guessed",
+    "git worktree remove guessed",
+    "git worktree list && git worktree remove guessed",
+    "git worktree list && rm -rf guessed",
+  ]) {
+    const unsupported = await provider.evaluate(event("git.mutate", { kind: "command", value: command }));
+    assert.equal(unsupported.state, "authoritative");
+    assert.equal(unsupported.action, "deny");
+    assert.equal(unsupported.reason, "workflow_git_mutation_unsupported");
+    assert.equal(unsupported.diagnostic, "typed_resource_required");
+  }
+  assert.equal(
+    calls.some((args) => args[0] === "authorize"),
+    false,
+  );
+});
+
+test("typed Git workflow events retain concrete Nawabari resources", async (t) => {
+  const root = gitRepository();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  shellGit(["checkout", "-b", "feature/typed-resource"], root);
+  const calls: string[][] = [];
+  const provider = createWorkflowHookProvider({
+    workspaceRoot: root,
+    nawabari: nawabariDecisionClient(true, calls),
+  });
+
+  const commit = await provider.evaluate({
+    ...event("git.mutate"),
+    metadata: { workflowOperation: "commit", resource: "tracked.txt" },
+  });
+  assert.equal(commit.action, "allow");
+  assert.ok(calls.some((args) => args[0] === "authorize" && args.includes("commit") && args.includes("tracked.txt")));
+
+  const push = await provider.evaluate({
+    ...event("git.mutate"),
+    metadata: { workflowOperation: "directPush", resource: "tracked.txt" },
+  });
+  assert.equal(push.action, "allow");
+  assert.ok(calls.some((args) => args[0] === "authorize" && args.includes("push") && args.includes("tracked.txt")));
 });
 
 test("workflow hook obtains source-write authorization from Nawabari and fails closed when unavailable", async (t) => {
