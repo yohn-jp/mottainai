@@ -24,6 +24,7 @@ import type {
   RecordPullRequestInput,
   ReserveTaskInput,
   ReserveTaskResult,
+  BeginTaskStartReconciliationInput,
   ReserveWorktreeInput,
   ReserveWorktreeResult,
   RecordValidationEvidenceInput,
@@ -42,11 +43,14 @@ import type {
   ManagerSessionRecord,
   ManagerSessionReceipt,
   MarkCleanupLeaseInput,
+  NawabariSessionId,
   RecordGuardrailDecisionInput,
   ReserveCleanupLeaseInput,
   ReserveCleanupLeaseResult,
   TaskId,
   TaskRecord,
+  TaskStartReconciliationRecord,
+  TaskStartReconciliationState,
   UpdateManagerSessionInput,
   ValidationEvidenceRecord,
   WorkflowStateStore,
@@ -123,6 +127,24 @@ function toTaskRecord(row: Record<string, unknown>): TaskRecord {
     version: (row.task_version as number | undefined) ?? 1,
     baseBranch: row.base_branch as string,
     baseCommit: row.base_commit as string,
+    createdAt: row.created_at as number,
+    updatedAt: row.updated_at as number,
+  };
+}
+
+function toTaskStartReconciliationRecord(row: Record<string, unknown>): TaskStartReconciliationRecord {
+  return {
+    taskId: row.task_id as TaskId,
+    instanceId: row.instance_id as RepositoryInstanceId,
+    taskLabel: row.task_label as string,
+    branchName: row.branch_name as string,
+    baseBranch: row.base_branch as string,
+    baseCommit: row.base_commit as string,
+    ...(row.nawabari_session_id === null || row.nawabari_session_id === undefined
+      ? {}
+      : { nawabariSessionId: row.nawabari_session_id as TaskStartReconciliationRecord["nawabariSessionId"] }),
+    state: row.state as TaskStartReconciliationState,
+    ...(row.detail === null || row.detail === undefined ? {} : { detail: row.detail as string }),
     createdAt: row.created_at as number,
     updatedAt: row.updated_at as number,
   };
@@ -763,6 +785,84 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       throw err;
     }
     return result;
+  }
+
+  beginTaskStartReconciliation(input: BeginTaskStartReconciliationInput): TaskStartReconciliationRecord {
+    const db = this.handle();
+    const now = input.createdAt ?? Date.now();
+    const existing = db.prepare("SELECT * FROM task_start_reconciliations WHERE task_id = ?").get(input.taskId) as
+      | Record<string, unknown>
+      | undefined;
+    if (existing !== undefined) {
+      const record = toTaskStartReconciliationRecord(existing);
+      const identityMatches =
+        record.instanceId === input.instanceId &&
+        record.taskLabel === input.taskLabel &&
+        record.branchName === input.branchName &&
+        record.baseBranch === input.baseBranch &&
+        record.baseCommit === input.baseCommit;
+      if (!identityMatches) throw new Error(`task-start reconciliation identity mismatch: ${input.taskId}`);
+      return record;
+    }
+    db.prepare(
+      `INSERT INTO task_start_reconciliations
+       (task_id, instance_id, task_label, branch_name, base_branch, base_commit, state, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'reserved', ?, ?)`,
+    ).run(
+      input.taskId,
+      input.instanceId,
+      input.taskLabel,
+      input.branchName,
+      input.baseBranch,
+      input.baseCommit,
+      now,
+      now,
+    );
+    return this.getTaskStartReconciliation(input.taskId)!;
+  }
+
+  recordTaskStartSession(
+    taskId: TaskId,
+    sessionId: NawabariSessionId,
+    updatedAt?: number,
+  ): TaskStartReconciliationRecord {
+    if (sessionId === undefined) throw new Error(`task-start session identity is required: ${taskId}`);
+    const now = updatedAt ?? Date.now();
+    const result = this.handle()
+      .prepare(
+        `UPDATE task_start_reconciliations
+         SET nawabari_session_id = ?, state = CASE WHEN state = 'reserved' THEN 'session-created' ELSE state END,
+             updated_at = ?
+         WHERE task_id = ? AND (nawabari_session_id IS NULL OR nawabari_session_id = ?)`,
+      )
+      .run(sessionId, now, taskId, sessionId);
+    if (result.changes === 0) {
+      const existing = this.getTaskStartReconciliation(taskId);
+      if (existing === undefined) throw new Error(`task-start reconciliation not found: ${taskId}`);
+      throw new Error(`task-start reconciliation references a different Nawabari session: ${taskId}`);
+    }
+    return this.getTaskStartReconciliation(taskId)!;
+  }
+
+  updateTaskStartReconciliation(
+    taskId: TaskId,
+    state: TaskStartReconciliationState,
+    detail?: string,
+    updatedAt?: number,
+  ): TaskStartReconciliationRecord {
+    const now = updatedAt ?? Date.now();
+    const result = this.handle()
+      .prepare("UPDATE task_start_reconciliations SET state = ?, detail = ?, updated_at = ? WHERE task_id = ?")
+      .run(state, detail === undefined ? null : detail.slice(0, 512), now, taskId);
+    if (result.changes === 0) throw new Error(`task-start reconciliation not found: ${taskId}`);
+    return this.getTaskStartReconciliation(taskId)!;
+  }
+
+  getTaskStartReconciliation(taskId: TaskId): TaskStartReconciliationRecord | undefined {
+    const row = this.handle().prepare("SELECT * FROM task_start_reconciliations WHERE task_id = ?").get(taskId) as
+      | Record<string, unknown>
+      | undefined;
+    return row === undefined ? undefined : toTaskStartReconciliationRecord(row);
   }
 
   reserveWorktree(input: ReserveWorktreeInput): ReserveWorktreeResult {

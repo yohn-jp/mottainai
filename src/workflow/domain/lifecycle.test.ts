@@ -6,6 +6,7 @@ import type { LifecycleState } from "./lifecycle.js";
 const VALID_EDGES: ReadonlyArray<[LifecycleState, LifecycleState]> = [
   ["planned", "active"],
   ["planned", "abandoned"],
+  ["planned", "orphaned"],
   ["active", "committed"],
   ["active", "abandoned"],
   ["active", "orphaned"],
@@ -22,6 +23,7 @@ const VALID_EDGES: ReadonlyArray<[LifecycleState, LifecycleState]> = [
   ["abandoned", "cleaned"],
   ["orphaned", "cleaned"],
   ["orphaned", "active"],
+  ["orphaned", "abandoned"],
 ];
 
 function isValidEdge(from: LifecycleState, to: LifecycleState): boolean {

@@ -193,6 +193,41 @@ export interface TaskRecord {
   updatedAt: number;
 }
 
+/** Durable state for the task-start boundary with Nawabari. */
+export const TASK_START_RECONCILIATION_STATES = [
+  "reserved",
+  "session-created",
+  "attached",
+  "active",
+  "abandoned",
+  "orphaned",
+] as const;
+export type TaskStartReconciliationState = (typeof TASK_START_RECONCILIATION_STATES)[number];
+
+export interface TaskStartReconciliationRecord {
+  taskId: TaskId;
+  instanceId: RepositoryInstanceId;
+  taskLabel: string;
+  branchName: string;
+  baseBranch: string;
+  baseCommit: string;
+  nawabariSessionId?: NawabariSessionId;
+  state: TaskStartReconciliationState;
+  detail?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface BeginTaskStartReconciliationInput {
+  taskId: TaskId;
+  instanceId: RepositoryInstanceId;
+  taskLabel: string;
+  branchName: string;
+  baseBranch: string;
+  baseCommit: string;
+  createdAt?: number;
+}
+
 export type WorktreeStatus = "reserved" | "active" | "removed";
 
 export interface WorktreeRecord {
@@ -523,6 +558,23 @@ export interface WorkflowStateStore {
    * 待つことで一意性が保証される（git/gh 等の外部プロセス呼び出しはこの中で行わない）。
    */
   reserveTask(input: ReserveTaskInput): ReserveTaskResult;
+
+  /** Create or recover the durable intent for one Nawabari-backed task start. */
+  beginTaskStartReconciliation(input: BeginTaskStartReconciliationInput): TaskStartReconciliationRecord;
+  /** Persist the external session identity immediately after Nawabari creates it. */
+  recordTaskStartSession(
+    taskId: TaskId,
+    sessionId: NawabariSessionId,
+    updatedAt?: number,
+  ): TaskStartReconciliationRecord;
+  /** Advance the task-start reconciliation projection with a bounded diagnostic. */
+  updateTaskStartReconciliation(
+    taskId: TaskId,
+    state: TaskStartReconciliationState,
+    detail?: string,
+    updatedAt?: number,
+  ): TaskStartReconciliationRecord;
+  getTaskStartReconciliation(taskId: TaskId): TaskStartReconciliationRecord | undefined;
 
   /**
    * worktree を `reserved` 状態で予約する。branch_name/canonical_path の一意性は

@@ -62,7 +62,7 @@ function seedTask(db: DatabaseSync, taskId: string, instanceId: string): void {
   ).run(taskId, instanceId);
 }
 
-test("tasks/worktrees/pr_records/validation_evidence tables are reachable after migration to the latest version", () => {
+test("workflow tables including task-start reconciliation are reachable after migration to the latest version", () => {
   const db = freshDb();
   try {
     const latestVersion = Math.max(...MIGRATIONS.map((migration) => migration.version));
@@ -71,6 +71,7 @@ test("tasks/worktrees/pr_records/validation_evidence tables are reachable after 
     seedTask(db, "task-1", "instance-1");
     const task = db.prepare("SELECT * FROM tasks WHERE task_id = ?").get("task-1") as { lifecycle_state: string };
     assert.equal(task.lifecycle_state, "planned");
+    assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_start_reconciliations'").get());
   } finally {
     db.close();
   }

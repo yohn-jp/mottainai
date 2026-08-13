@@ -43,14 +43,16 @@ export interface LifecycleTransitionStatus {
  * 到達するcaller自体は無い（状態機械としての定義のみが受入基準の対象）。
  */
 const TRANSITIONS: Record<LifecycleState, readonly LifecycleState[]> = {
-  planned: ["active", "abandoned"],
+  // A session identity may be durably recorded before Mottainai can prove
+  // ownership. Such a task must be recoverable/orphaned, never silently active.
+  planned: ["active", "abandoned", "orphaned"],
   active: ["committed", "abandoned", "orphaned"],
   committed: ["pushed", "abandoned", "orphaned"],
   pushed: ["pull-request-open", "abandoned", "orphaned"],
   "pull-request-open": ["merged", "abandoned", "orphaned"],
   merged: ["cleaned"],
   abandoned: ["cleaned"],
-  orphaned: ["cleaned", "active"],
+  orphaned: ["cleaned", "active", "abandoned"],
   cleaned: [],
 };
 

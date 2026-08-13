@@ -470,6 +470,10 @@ export async function startNawabariExecution(input: {
   base?: string;
   taskLabel?: string;
   plan: SemanticExecutionPlan;
+  /** Called synchronously after create returns, before any claim mutation. */
+  onSessionCreated?: (session: NawabariSession) => void;
+  /** Task-start compensation must verify ownership before requesting close. */
+  closeOnClaimFailure?: boolean;
 }): Promise<NawabariStartResult> {
   const declaration = projectNawabariDeclaration({ plan: input.plan, branch: input.branch, base: input.base });
   const session = await input.client.createSession({
@@ -478,6 +482,7 @@ export async function startNawabariExecution(input: {
     base: declaration.base,
     label: input.taskLabel,
   });
+  input.onSessionCreated?.(session);
   try {
     const decisions = await input.client.claimSession({
       cwd: session.worktree,
@@ -486,7 +491,8 @@ export async function startNawabariExecution(input: {
     });
     return { session, declaration, evidence: { decisions, warnings: input.plan.claimGeneration.warnings } };
   } catch (error) {
-    await input.client.closeSession({ cwd: session.worktree, sessionId: session.sessionId }).catch(() => undefined);
+    if (input.closeOnClaimFailure !== false)
+      await input.client.closeSession({ cwd: session.worktree, sessionId: session.sessionId }).catch(() => undefined);
     throw error;
   }
 }
