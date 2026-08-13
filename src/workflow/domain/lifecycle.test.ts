@@ -23,6 +23,7 @@ const VALID_EDGES: ReadonlyArray<[LifecycleState, LifecycleState]> = [
   ["abandoned", "cleaned"],
   ["orphaned", "cleaned"],
   ["orphaned", "active"],
+  ["orphaned", "abandoned"],
 ];
 
 function isValidEdge(from: LifecycleState, to: LifecycleState): boolean {

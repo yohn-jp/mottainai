@@ -159,6 +159,50 @@ function reconciliationIdentityMatches(
   );
 }
 
+function sameTaskStartInput(
+  store: WorkflowStateStore,
+  task: TaskRecord,
+  input: NawabariTaskStartInput,
+  expected: TaskStartExpectation,
+): boolean {
+  if (
+    !["planned", "active", "orphaned"].includes(task.lifecycleState) ||
+    task.instanceId !== expected.instanceId ||
+    task.taskSlug !== input.taskSlug ||
+    task.issueRef !== input.issueRef ||
+    task.startIdempotencyKey !== input.idempotencyKey ||
+    task.baseBranch !== expected.baseBranch ||
+    task.baseCommit !== expected.baseCommit
+  )
+    return false;
+  const record = store.getTaskStartReconciliation(task.taskId);
+  return record !== undefined && reconciliationIdentityMatches(record, task, expected);
+}
+
+function findRecoverableTaskStart(input: {
+  store: WorkflowStateStore;
+  instanceId: RepositoryInstanceId;
+  taskInput: NawabariTaskStartInput;
+  branchName: string;
+  baseBranch: string;
+  baseCommit: string;
+  canonicalRepositoryRoot: string;
+  gitCommonDir: string;
+}): { task?: TaskRecord; ambiguous: boolean } {
+  const candidates = input.store.listTasks(input.instanceId).filter((task) =>
+    sameTaskStartInput(input.store, task, input.taskInput, {
+      taskLabel: `mottainai-task-${task.taskId}`,
+      branchName: input.branchName,
+      baseBranch: input.baseBranch,
+      baseCommit: input.baseCommit,
+      instanceId: input.instanceId,
+      canonicalRepositoryRoot: input.canonicalRepositoryRoot,
+      gitCommonDir: input.gitCommonDir,
+    }),
+  );
+  return candidates.length === 1 ? { task: candidates[0], ambiguous: false } : { ambiguous: candidates.length > 1 };
+}
+
 function bestEffortReconciliationState(
   store: WorkflowStateStore,
   taskId: TaskId,
@@ -177,11 +221,22 @@ function transitionTaskBestEffort(
   store: WorkflowStateStore,
   taskId: TaskId,
   next: "active" | "abandoned" | "orphaned",
-): void {
-  const current = store.getTask(taskId);
-  if (current === undefined || current.lifecycleState === next) return;
-  const transitioned = transitionTask(store, taskId, next);
-  if (!transitioned.ok) throw new Error(transitioned.blocked.blockingRule);
+): boolean {
+  try {
+    const current = store.getTask(taskId);
+    if (current === undefined || current.lifecycleState === next) return true;
+    const transitioned = transitionTask(store, taskId, next);
+    // Compensation must not turn an already-advanced lifecycle into a second
+    // failure. The reconciliation record still carries the diagnostic; when a
+    // later lifecycle transition is not legal, preserve that authoritative
+    // state instead of retrying a planned-row deletion.
+    return transitioned.ok;
+  } catch {
+    // A failed lifecycle write is a hard boundary: callers that are about to
+    // mutate Nawabari must stop, while ordinary error paths preserve their
+    // original failure and durable reconciliation evidence where possible.
+    return false;
+  }
 }
 
 async function compensateTaskStart(input: {
@@ -196,6 +251,31 @@ async function compensateTaskStart(input: {
   ownsReservation: boolean;
 }): Promise<void> {
   const sessionId = input.reconciliation.nawabariSessionId ?? input.task.nawabariSessionId ?? input.session?.sessionId;
+  const currentBeforeObservation = input.store.getTask(input.task.taskId);
+  const demotedActiveTask = currentBeforeObservation?.lifecycleState === "active";
+
+  // Make the orchestration row non-active before observing or closing an
+  // external session. If the process dies after Nawabari reports a closed
+  // session (or after close succeeds), the durable row cannot remain a normal
+  // active task pointing at that session.
+  if (demotedActiveTask) {
+    bestEffortReconciliationState(
+      input.store,
+      input.task.taskId,
+      "orphaned",
+      `task-start compensation is verifying Nawabari session ${sessionId ?? "(unknown)"}`,
+    );
+    if (!transitionTaskBestEffort(input.store, input.task.taskId, "orphaned")) return;
+  } else if (sessionId !== undefined && currentBeforeObservation?.lifecycleState === "planned") {
+    // Keep a planned reservation recoverable if the process dies in the
+    // external-close window; it can still be deleted after close is proven.
+    bestEffortReconciliationState(
+      input.store,
+      input.task.taskId,
+      "orphaned",
+      `task-start compensation is closing Nawabari session ${sessionId}`,
+    );
+  }
   if (sessionId === undefined) {
     if (
       input.ownsReservation &&
@@ -271,14 +351,20 @@ async function compensateTaskStart(input: {
     input.store.deleteReservedTask(input.task.taskId);
     return;
   }
-  const compensatedState = current?.lifecycleState === "orphaned" ? "orphaned" : "abandoned";
+  const compensatedState = demotedActiveTask
+    ? "abandoned"
+    : current?.lifecycleState === "orphaned"
+      ? "orphaned"
+      : "abandoned";
   bestEffortReconciliationState(
     input.store,
     input.task.taskId,
     compensatedState,
     `task-start compensated Nawabari session ${sessionId}`,
   );
-  if (current !== undefined && current.lifecycleState !== "orphaned" && current.lifecycleState !== "abandoned") {
+  if (demotedActiveTask && current?.lifecycleState === "orphaned") {
+    transitionTaskBestEffort(input.store, input.task.taskId, "abandoned");
+  } else if (current !== undefined && current.lifecycleState !== "orphaned" && current.lifecycleState !== "abandoned") {
     transitionTaskBestEffort(input.store, input.task.taskId, "abandoned");
   }
 }
@@ -417,27 +503,53 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
     canonicalWorktreePath: identity.identity.worktreePath,
   });
 
-  const reservation = input.store.reserveTask({
-    instanceId: identity.identity.instanceId as RepositoryInstanceId,
-    taskSlug: input.taskSlug,
-    issueRef: input.issueRef,
-    startIdempotencyKey: input.idempotencyKey,
+  const instanceId = identity.identity.instanceId as RepositoryInstanceId;
+  const recoverable = findRecoverableTaskStart({
+    store: input.store,
+    instanceId,
+    taskInput: input,
+    branchName: branch,
     baseBranch: base,
     baseCommit: baseTip,
-    allowMultipleActiveTasksPerIssue:
-      input.policy.worktree.multipleActiveTasksPerIssue === "off" ||
-      input.policy.worktree.multipleActiveTasksPerIssue === "advisory",
+    canonicalRepositoryRoot: identity.identity.canonicalRepositoryRoot,
+    gitCommonDir: identity.identity.gitCommonDir,
   });
-  const ownsReservation = reservation.ok;
+  if (recoverable.ambiguous)
+    return ownershipFailure(
+      `multiple recoverable task-start records match ${input.taskSlug}/${input.issueRef ?? "(none)"}; refusing to create another Nawabari session`,
+    );
+
+  const reservation =
+    recoverable.task === undefined
+      ? input.store.reserveTask({
+          instanceId,
+          taskSlug: input.taskSlug,
+          issueRef: input.issueRef,
+          startIdempotencyKey: input.idempotencyKey,
+          baseBranch: base,
+          baseCommit: baseTip,
+          allowMultipleActiveTasksPerIssue:
+            input.policy.worktree.multipleActiveTasksPerIssue === "off" ||
+            input.policy.worktree.multipleActiveTasksPerIssue === "advisory",
+        })
+      : { ok: true as const, task: recoverable.task };
+  const ownsReservation = recoverable.task === undefined && reservation.ok;
   let task: TaskRecord;
   if (!reservation.ok) {
     const existing = reservation.existingTask;
     if (
-      input.idempotencyKey !== undefined &&
-      existing.startIdempotencyKey === input.idempotencyKey &&
-      (existing.lifecycleState === "planned" ||
-        existing.lifecycleState === "active" ||
-        existing.lifecycleState === "orphaned")
+      (input.idempotencyKey !== undefined &&
+        existing.startIdempotencyKey === input.idempotencyKey &&
+        ["planned", "active", "orphaned"].includes(existing.lifecycleState)) ||
+      sameTaskStartInput(input.store, existing, input, {
+        taskLabel: `mottainai-task-${existing.taskId}`,
+        branchName: branch,
+        baseBranch: base,
+        baseCommit: baseTip,
+        instanceId,
+        canonicalRepositoryRoot: identity.identity.canonicalRepositoryRoot,
+        gitCommonDir: identity.identity.gitCommonDir,
+      })
     ) {
       // A prior process may have stopped at any task-start boundary. Continue
       // the same durable operation instead of creating a second task identity.
@@ -511,24 +623,48 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
   }
 
   const persistedSessionId = reconciliation.nawabariSessionId ?? taskSessionId;
+  let demotedActiveForRecovery = false;
+  if (input.store.getTask(task.taskId)?.lifecycleState === "active") {
+    bestEffortReconciliationState(
+      input.store,
+      task.taskId,
+      "orphaned",
+      `task-start recovery is verifying Nawabari session ${persistedSessionId ?? "(unknown)"}`,
+    );
+    if (!transitionTaskBestEffort(input.store, task.taskId, "orphaned"))
+      return ownershipFailure(`could not durably enter reconciliation state for active task ${task.taskId}`);
+    demotedActiveForRecovery = true;
+  }
   if (persistedSessionId !== undefined) {
     const recovered = await recoverSessionById(client, input.workspaceRoot, persistedSessionId, expected);
     if (!recovered.ok) {
       const current = input.store.getTask(task.taskId);
-      const state = recovered.closed && current?.lifecycleState !== "orphaned" ? "abandoned" : "orphaned";
+      const state =
+        recovered.closed && (demotedActiveForRecovery || current?.lifecycleState !== "orphaned")
+          ? "abandoned"
+          : "orphaned";
       bestEffortReconciliationState(input.store, task.taskId, state, recovered.detail);
-      transitionTaskBestEffort(input.store, task.taskId, state);
+      if (!transitionTaskBestEffort(input.store, task.taskId, state)) return ownershipFailure(recovered.detail);
       return recovered.closed
         ? { ok: false, reason: "nawabari-rejected", detail: recovered.detail }
         : ownershipFailure(recovered.detail);
     }
-    if (task.lifecycleState === "active") {
+    if (demotedActiveForRecovery) {
       try {
         const attached = input.store.attachNawabariSession(task.taskId, persistedSessionId as NawabariSessionId);
+        const current = input.store.getTask(task.taskId);
+        const active =
+          current?.lifecycleState === "active"
+            ? attached
+            : (() => {
+                const transitioned = transitionTask(input.store, task.taskId, "active");
+                if (!transitioned.ok) throw new Error(transitioned.blocked.blockingRule);
+                return transitioned.task;
+              })();
         bestEffortReconciliationState(input.store, task.taskId, "active");
         return {
           ok: true,
-          task: attached,
+          task: active,
           execution: execution(recovered.session),
           semanticPlan,
           warnings: staleWarning === undefined ? [] : [staleWarning],
@@ -542,10 +678,10 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
       }
     }
   }
-  if (task.lifecycleState === "active") {
+  if (input.store.getTask(task.taskId)?.lifecycleState === "active") {
     const detail = `active task ${task.taskId} has no provable Nawabari session identity`;
     bestEffortReconciliationState(input.store, task.taskId, "orphaned", detail);
-    transitionTaskBestEffort(input.store, task.taskId, "orphaned");
+    if (!transitionTaskBestEffort(input.store, task.taskId, "orphaned")) return ownershipFailure(detail);
     return ownershipFailure(detail);
   }
 
@@ -558,9 +694,29 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
       if (!recovered.ok) throw new NawabariExecutionError("nawabari-rejected", recovered.detail, "OWNERSHIP_MISMATCH");
       resumeSession = recovered.session;
     } else {
-      const sessions = (await client.listSessions(input.workspaceRoot)).filter(
-        (session) => session.label === taskLabel,
+      // Once external session state is being inspected, a failed observation
+      // can no longer prove that no session exists. Never compensate by
+      // deleting the planned task on that ambiguity; the recovery path must
+      // retain an orphaned record instead.
+      externalSessionMayExist = true;
+      const listedSessions = await client.listSessions(input.workspaceRoot);
+      const sessions = listedSessions.filter((session) => session.label === taskLabel);
+      const unlabelledRelatedSessions = listedSessions.filter(
+        (session) =>
+          session.state === "active" &&
+          session.label === undefined &&
+          session.branch === expected.branchName &&
+          session.repository !== undefined &&
+          (sameCanonicalPath(session.repository, expected.canonicalRepositoryRoot) ||
+            sameCanonicalPath(session.repository, expected.gitCommonDir)),
       );
+      if (unlabelledRelatedSessions.length > 0)
+        throw new NawabariExecutionError(
+          "nawabari-rejected",
+          `active Nawabari session has no task label for branch ${expected.branchName}; ownership is ambiguous`,
+          "OWNERSHIP_MISMATCH",
+          unlabelledRelatedSessions,
+        );
       if (sessions.length > 1) {
         throw new NawabariExecutionError(
           "nawabari-rejected",
@@ -600,6 +756,12 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
       }
     }
 
+    if (demotedActiveForRecovery && resumeSession === undefined) {
+      const detail = `active task ${task.taskId} has no recoverable Nawabari session identity`;
+      bestEffortReconciliationState(input.store, task.taskId, "orphaned", detail);
+      return ownershipFailure(detail);
+    }
+
     started =
       resumeSession === undefined
         ? await startNawabariExecution({
@@ -609,9 +771,25 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
             base,
             taskLabel,
             plan: semanticPlan,
+            closeOnClaimFailure: false,
             onSessionCreated: (session) => {
               externalSessionMayExist = true;
               input.store.recordTaskStartSession(task.taskId, session.sessionId as NawabariSessionId);
+              const mismatches = sessionIdentityMismatches(session, expected, session.sessionId);
+              if (mismatches.length > 0)
+                throw new NawabariExecutionError(
+                  "nawabari-rejected",
+                  `Nawabari session failed identity verification before claims (${mismatches.join(", ")})`,
+                  "OWNERSHIP_MISMATCH",
+                  session.raw,
+                );
+              if (session.state !== "active")
+                throw new NawabariExecutionError(
+                  "nawabari-rejected",
+                  `Nawabari session ${session.sessionId} is ${session.state}, not active`,
+                  "SESSION_NOT_ACTIVE",
+                  session.raw,
+                );
               input.faultInjection?.("after-session-created");
             },
           })
@@ -635,6 +813,8 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
       externalSessionMayExist,
       ownsReservation,
     });
+    const compensated = input.store.getTaskStartReconciliation(task.taskId);
+    if (compensated?.state === "orphaned") return ownershipFailure(compensated.detail ?? String(error));
     return failureFrom(error);
   }
 
@@ -704,6 +884,8 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
       externalSessionMayExist: true,
       ownsReservation,
     });
+    const compensated = input.store.getTaskStartReconciliation(task.taskId);
+    if (compensated?.state === "orphaned") return ownershipFailure(compensated.detail ?? String(error));
     return failureFrom(error);
   }
 }

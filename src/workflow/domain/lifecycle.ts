@@ -52,7 +52,7 @@ const TRANSITIONS: Record<LifecycleState, readonly LifecycleState[]> = {
   "pull-request-open": ["merged", "abandoned", "orphaned"],
   merged: ["cleaned"],
   abandoned: ["cleaned"],
-  orphaned: ["cleaned", "active"],
+  orphaned: ["cleaned", "active", "abandoned"],
   cleaned: [],
 };
 

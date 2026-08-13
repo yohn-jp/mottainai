@@ -74,7 +74,14 @@ const FAKE_NAWABARI_COMMANDS = [
 
 function fakeNawabari(
   repositoryRoot: string,
-  options: { repository?: string; calls?: string[][]; sessions?: Map<string, Record<string, unknown>> } = {},
+  options: {
+    repository?: string;
+    calls?: string[][];
+    sessions?: Map<string, Record<string, unknown>>;
+    failSessionList?: boolean;
+    failSessionClaim?: boolean;
+    beforeSessionClose?: () => void;
+  } = {},
 ): NawabariExecutionClient {
   const calls = options.calls ?? [];
   const sessions = options.sessions ?? new Map<string, Record<string, unknown>>();
@@ -122,10 +129,17 @@ function fakeNawabari(
           claims.set(sessionId, []);
           return providerResult(JSON.stringify(session));
         }
-        if (args[0] === "session" && args[1] === "list")
+        if (args[0] === "session" && args[1] === "list") {
+          if (options.failSessionList)
+            return providerResult(
+              JSON.stringify({ ok: false, command: "session list", code: "TEMPORARY_FAILURE", message: "unavailable" }),
+              "",
+              { exitCode: 3 },
+            );
           return providerResult(
             JSON.stringify({ ok: true, command: "session list", sessions: [...sessions.values()] }),
           );
+        }
         if (args[0] === "session" && args[1] === "show") {
           const sessionId = args[args.indexOf("--session") + 1]!;
           const session = sessions.get(sessionId);
@@ -149,6 +163,12 @@ function fakeNawabari(
           const sessionId = args[args.indexOf("--session") + 1]!;
           const resource = args[args.indexOf("--resource") + 1]!;
           const mode = args[args.indexOf("--mode") + 1]!;
+          if (options.failSessionClaim)
+            return providerResult(
+              JSON.stringify({ ok: false, command: "session claim", code: "CLAIM_FAILED", message: "injected" }),
+              "",
+              { exitCode: 3 },
+            );
           const claim = { resource, mode };
           claims.get(sessionId)?.push(claim);
           return providerResult(
@@ -157,6 +177,7 @@ function fakeNawabari(
         }
         if (args[0] === "session" && args[1] === "close") {
           const sessionId = args[args.indexOf("--session") + 1]!;
+          options.beforeSessionClose?.();
           const session = sessions.get(sessionId);
           if (session !== undefined) session.state = "closed";
           return providerResult(
@@ -395,7 +416,12 @@ for (const point of ["after-session-created", "after-attachment-persistence", "a
     const store = createWorkflowStore(t);
     const calls: string[][] = [];
     const sessions = new Map<string, Record<string, unknown>>();
-    const nawabari = fakeNawabari(root, { calls, sessions });
+    const lifecycleStatesAtClose: string[] = [];
+    const nawabari = fakeNawabari(root, {
+      calls,
+      sessions,
+      beforeSessionClose: () => lifecycleStatesAtClose.push(store.listTasks()[0]?.lifecycleState ?? "deleted"),
+    });
     const result = await startNawabariTask({
       workspaceRoot: root,
       store,
@@ -421,6 +447,7 @@ for (const point of ["after-session-created", "after-attachment-persistence", "a
     assert.equal([...sessions.values()].filter((session) => session.state === "active").length, 0);
     assert.equal(calls.filter((args) => args[0] === "session" && args[1] === "create").length, 1);
     assert.equal(calls.filter((args) => args[0] === "session" && args[1] === "close").length, 1);
+    assert.notEqual(lifecycleStatesAtClose[0], "active", "lifecycle must be non-active before Nawabari close");
   });
 }
 
@@ -507,6 +534,104 @@ test("task-start restart/retry adopts the durably recorded session without creat
   assert.equal(calls.filter((args) => args[0] === "session" && args[1] === "create").length, 0);
 });
 
+test("task-start restart/retry discovers a session created before its identity record was persisted", async (t) => {
+  const root = createTempGitRepo(t);
+  const dbDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-task-start-unrecorded-restart-"));
+  t.after(() => fs.rmSync(dbDirectory, { recursive: true, force: true }));
+  const dbPath = path.join(dbDirectory, "workflow.sqlite");
+  const identity = resolveRepositoryIdentity(root);
+  assert.equal(identity.ok, true);
+  if (!identity.ok) return;
+  const baseCommit = runGit(["rev-parse", "main"], root);
+  const taskSlug = "unrecorded-restart";
+  const issueRef = "193-unrecorded-restart";
+  const branch = buildWorktreeNaming({ branchType: "fix", issueRef, taskSlug }).branchName;
+  const sessions = new Map<string, Record<string, unknown>>();
+  const calls: string[][] = [];
+  const firstStore = new WorkflowSqliteStateStore({ dbPath });
+  firstStore.init();
+  firstStore.observeRepositoryInstance({
+    rootCommitDigest: identity.identity.rootCommitDigest,
+    instanceId: identity.identity.instanceId,
+    gitCommonDir: identity.identity.gitCommonDir,
+    canonicalWorktreePath: identity.identity.worktreePath,
+  });
+  const reserved = firstStore.reserveTask({
+    instanceId: identity.identity.instanceId,
+    taskSlug,
+    issueRef,
+    baseBranch: "main",
+    baseCommit,
+    allowMultipleActiveTasksPerIssue: false,
+  });
+  assert.equal(reserved.ok, true);
+  if (!reserved.ok) return;
+  const taskLabel = `mottainai-task-${reserved.task.taskId}`;
+  firstStore.beginTaskStartReconciliation({
+    taskId: reserved.task.taskId,
+    instanceId: identity.identity.instanceId,
+    taskLabel,
+    branchName: branch,
+    baseBranch: "main",
+    baseCommit,
+  });
+
+  // Model a process dying after Nawabari has durably created the session but
+  // before the Mottainai callback can persist the returned session ID.
+  const firstNawabari = fakeNawabari(root, { calls, sessions });
+  const created = await firstNawabari.createSession({
+    cwd: root,
+    branch,
+    base: "main",
+    label: taskLabel,
+  });
+  assert.equal(created.state, "active");
+  firstStore.close();
+
+  const secondStore = new WorkflowSqliteStateStore({ dbPath });
+  secondStore.init();
+  t.after(() => secondStore.close());
+  const retried = await startNawabariTask({
+    workspaceRoot: root,
+    store: secondStore,
+    policy: BUILTIN_PRESETS.standard,
+    taskSlug,
+    branchType: "fix",
+    issueRef,
+    nawabari: fakeNawabari(root, { calls, sessions }),
+  });
+  assert.equal(retried.ok, true, JSON.stringify(retried));
+  if (!retried.ok) return;
+  assert.equal(retried.task.taskId, reserved.task.taskId);
+  assert.equal(retried.execution.sessionId, created.sessionId);
+  assert.equal(secondStore.getTaskStartReconciliation(reserved.task.taskId)?.nawabariSessionId, created.sessionId);
+  assert.equal(secondStore.getTask(reserved.task.taskId)?.lifecycleState, "active");
+  assert.equal(calls.filter((args) => args[0] === "session" && args[1] === "create").length, 1);
+});
+
+test("task-start keeps an orphaned record when Nawabari ownership cannot be observed", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const calls: string[][] = [];
+  const result = await startNawabariTask({
+    workspaceRoot: root,
+    store,
+    policy: BUILTIN_PRESETS.standard,
+    taskSlug: "unobservable-session",
+    branchType: "fix",
+    issueRef: "193-unobservable",
+    idempotencyKey: "unobservable-session-key",
+    nawabari: fakeNawabari(root, { calls, failSessionList: true }),
+  });
+  assert.equal(result.ok, false);
+  const task = store.listTasks()[0];
+  assert.notEqual(task, undefined);
+  assert.equal(task?.lifecycleState, "orphaned");
+  assert.equal(store.getTaskStartReconciliation(task!.taskId)?.state, "orphaned");
+  assert.equal(calls.filter((args) => args[0] === "session" && args[1] === "create").length, 0);
+  assert.equal(calls.filter((args) => args[0] === "session" && args[1] === "close").length, 0);
+});
+
 test("task-start refuses to adopt or close a session whose repository identity is ambiguous", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
@@ -526,6 +651,34 @@ test("task-start refuses to adopt or close a session whose repository identity i
   const task = store.listTasks()[0];
   assert.equal(task?.lifecycleState, "orphaned");
   assert.equal(store.getTaskStartReconciliation(task!.taskId)?.state, "orphaned");
+  assert.equal(calls.filter((args) => args[0] === "session" && args[1] === "claim").length, 0);
+  assert.equal(calls.filter((args) => args[0] === "session" && args[1] === "close").length, 0);
+});
+
+test("task-start verifies a newly created session before compensating a claim failure", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const calls: string[][] = [];
+  const result = await startNawabariTask({
+    workspaceRoot: root,
+    store,
+    policy: BUILTIN_PRESETS.standard,
+    taskSlug: "claim-failure-ownership",
+    branchType: "fix",
+    issueRef: "193-claim-failure",
+    idempotencyKey: "claim-failure-ownership-key",
+    nawabari: fakeNawabari(root, {
+      calls,
+      repository: path.join(root, "foreign-repository.git"),
+      failSessionClaim: true,
+    }),
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.reason, "nawabari-ownership-ambiguous");
+  const task = store.listTasks()[0];
+  assert.equal(task?.lifecycleState, "orphaned");
+  assert.equal(store.getTaskStartReconciliation(task!.taskId)?.state, "orphaned");
+  assert.equal(calls.filter((args) => args[0] === "session" && args[1] === "claim").length, 0);
   assert.equal(calls.filter((args) => args[0] === "session" && args[1] === "close").length, 0);
 });
 
