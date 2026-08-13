@@ -400,7 +400,7 @@ for (const point of ["after-session-created", "after-attachment-persistence", "a
       workspaceRoot: root,
       store,
       policy: BUILTIN_PRESETS.standard,
-      taskSlug: `fault-${point.replaceAll("-", "-")}`,
+      taskSlug: `fault-${point}`,
       branchType: "fix",
       issueRef: "193",
       idempotencyKey: `fault-${point}`,
