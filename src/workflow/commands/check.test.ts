@@ -4,10 +4,13 @@ import path from "node:path";
 import { test } from "node:test";
 import type { TestContext } from "node:test";
 import { InMemoryArtifactStore } from "../../retrieve.js";
-import { createTempGitRepo } from "../../test-support/tmp-git-repo.js";
+import { createTempDir } from "../../test-support/tmp-dir.js";
+import { createTempGitRepo, runGit } from "../../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../../test-support/workflow-store.js";
 import { getPreset } from "../policy/presets.js";
 import { startTask } from "../domain/task.js";
+import type { NawabariExecutionClient } from "../nawabari.js";
+import type { NawabariSessionId } from "../state/store.js";
 import { computeStateFingerprint } from "../validation/fingerprint.js";
 import { getWorkflowValidationReceipt, runWorkflowCheck } from "./check.js";
 
@@ -31,6 +34,53 @@ async function taskFixture(t: TestContext) {
 const checks = [
   { id: "test", label: "fast tests", command: process.execPath, args: ["-e", "process.exit(0)"], required: true },
 ];
+
+function cloneCheckout(t: TestContext, source: string, prefix: string): string {
+  const checkout = createTempDir(t, prefix);
+  runGit(["clone", "--quiet", source, checkout], source);
+  return checkout;
+}
+
+async function attachNawabariTask(
+  root: string,
+  store: ReturnType<typeof createWorkflowStore>,
+  issueRef: string,
+  sessionId: string,
+) {
+  const started = await startTask({
+    workspaceRoot: root,
+    store,
+    policy: getPreset("minimal"),
+    taskSlug: `nawabari-check-${issueRef}`,
+    branchType: "fix",
+    issueRef,
+    skipWorktree: true,
+  });
+  assert.equal(started.ok, true);
+  if (!started.ok) throw new Error("test fixture task did not start");
+  return store.attachNawabariSession(started.task.taskId, sessionId as NawabariSessionId);
+}
+
+function fakeNawabari(
+  sessions: ReadonlyMap<string, string>,
+  calls: Array<{ cwd: string; sessionId: string }>,
+): NawabariExecutionClient {
+  return {
+    showSession: async ({ cwd, sessionId }: { cwd: string; sessionId: string }) => {
+      calls.push({ cwd, sessionId });
+      const worktree = sessions.get(sessionId);
+      if (worktree === undefined) throw new Error(`unknown test session: ${sessionId}`);
+      return {
+        sessionId,
+        repository: "test-repository",
+        worktree,
+        branch: `fix/${sessionId}`,
+        state: "active",
+        raw: { ok: true, command: "session show" },
+      };
+    },
+  } as unknown as NawabariExecutionClient;
+}
 
 test("runWorkflowCheck executes a registered managed check for the active task", async (t) => {
   const { store, worktree } = await taskFixture(t);
@@ -91,6 +141,87 @@ test("runWorkflowCheck fingerprints and executes in the selected task's worktree
   assert.notEqual(result.receipt.artifactRef, undefined);
   const artifact = artifactStore.retrieve(result.receipt.artifactRef!);
   assert.equal(artifact?.text.trim(), fs.realpathSync(worktree.canonicalPath));
+});
+
+test("runWorkflowCheck uses an explicit Nawabari task's execution worktree for execution, receipts, and reuse identity", async (t) => {
+  const root = createTempGitRepo(t);
+  const checkoutB = cloneCheckout(t, root, "mottainai-nawabari-checkout-b-");
+  const checkoutC = cloneCheckout(t, root, "mottainai-nawabari-checkout-c-");
+  const store = createWorkflowStore(t);
+  const taskB = await attachNawabariTask(root, store, "197-b", "session-b");
+  const taskC = await attachNawabariTask(root, store, "197-c", "session-c");
+  assert.equal(taskB.instanceId, taskC.instanceId);
+
+  // The caller's primary checkout has a different state; both managed session checkouts stay identical.
+  fs.writeFileSync(path.join(root, "primary-only.txt"), "must not be fingerprinted for task B\n");
+  const expectedPrimary = await computeStateFingerprint({ workspaceRoot: root });
+  const expectedB = await computeStateFingerprint({ workspaceRoot: checkoutB });
+  assert.equal(expectedPrimary.ok, true);
+  assert.equal(expectedB.ok, true);
+  if (!expectedPrimary.ok || !expectedB.ok) return;
+  assert.notEqual(expectedPrimary.fingerprint, expectedB.fingerprint);
+
+  const showCalls: Array<{ cwd: string; sessionId: string }> = [];
+  const nawabari = fakeNawabari(
+    new Map([
+      ["session-b", checkoutB],
+      ["session-c", checkoutC],
+    ]),
+    showCalls,
+  );
+  const artifactStore = new InMemoryArtifactStore();
+  const cwdEchoingChecks = [
+    { id: "cwd", label: "cwd", command: process.execPath, args: ["-e", "console.log(process.cwd())"], required: true },
+  ];
+  const dependencies = { artifactStore, checks: cwdEchoingChecks };
+
+  const resultB = await runWorkflowCheck(
+    { workspaceRoot: root, store, taskId: taskB.taskId, nawabari, checkId: "cwd" },
+    dependencies,
+  );
+  assert.equal(resultB.ok, true);
+  if (!resultB.ok) return;
+  assert.equal(resultB.receipt.execution, "executed");
+  assert.equal(resultB.receipt.fingerprint, expectedB.fingerprint);
+  assert.notEqual(resultB.receipt.fingerprint, expectedPrimary.fingerprint);
+  const artifactB = artifactStore.retrieve(resultB.receipt.artifactRef!);
+  assert.equal(artifactB?.text.trim(), fs.realpathSync(checkoutB));
+
+  const assessedB = await getWorkflowValidationReceipt(
+    { workspaceRoot: root, store, taskId: taskB.taskId, nawabari },
+    dependencies,
+  );
+  assert.equal(assessedB.ok, true);
+  if (!assessedB.ok) return;
+  assert.equal(assessedB.receipt.checks[0]?.state, "reused-pass");
+  assert.equal(assessedB.receipt.checks[0]?.fingerprint, expectedB.fingerprint);
+  assert.equal(
+    artifactStore.retrieve(assessedB.receipt.checks[0]?.artifactRef ?? "")?.text.trim(),
+    fs.realpathSync(checkoutB),
+  );
+
+  // The second session has the same repository state but a distinct execution boundary.
+  const resultC = await runWorkflowCheck(
+    { workspaceRoot: root, store, taskId: taskC.taskId, nawabari, checkId: "cwd" },
+    dependencies,
+  );
+  assert.equal(resultC.ok, true);
+  if (!resultC.ok) return;
+  assert.equal(resultC.receipt.execution, "executed");
+  const artifactC = artifactStore.retrieve(resultC.receipt.artifactRef!);
+  assert.equal(artifactC?.text.trim(), fs.realpathSync(checkoutC));
+
+  const bRuns = store.listCheckRuns({ instanceId: taskB.instanceId, worktreeId: "nawabari:session-b" });
+  const cRuns = store.listCheckRuns({ instanceId: taskC.instanceId, worktreeId: "nawabari:session-c" });
+  assert.equal(bRuns.length, 1);
+  assert.equal(cRuns.length, 1);
+  assert.notEqual(bRuns[0]?.worktreeId, cRuns[0]?.worktreeId);
+  assert.equal(store.listCheckRuns({ instanceId: taskB.instanceId, worktreeId: "" }).length, 0);
+  assert.deepEqual(showCalls, [
+    { cwd: root, sessionId: "session-b" },
+    { cwd: root, sessionId: "session-b" },
+    { cwd: root, sessionId: "session-c" },
+  ]);
 });
 
 test("a second runWorkflowCheck call for the same task reuses the prior passing execution", async (t) => {
