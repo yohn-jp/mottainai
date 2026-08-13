@@ -43,7 +43,7 @@ export interface ManagedCheckContext {
   store: WorkflowStateStore;
   artifactStore: ArtifactStore;
   instanceId: RepositoryInstanceId;
-  /** managed worktree が無い呼び出しは省略する（内部で `""` として分離される）。 */
+  /** Validation boundary identity: a legacy WorktreeId or a namespaced Nawabari session key. */
   worktreeId?: string;
   env?: NodeJS.ProcessEnv;
   now?: () => number;

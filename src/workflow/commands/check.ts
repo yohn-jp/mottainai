@@ -38,12 +38,20 @@ async function resolveContext(
   const selected = await resolveWorkflowTask(input);
   if (!selected.ok) return selected;
   let workspaceRoot = input.workspaceRoot;
-  if (selected.worktreeId !== undefined) {
+  if (selected.executionWorkspaceRoot !== undefined) {
+    workspaceRoot = selected.executionWorkspaceRoot;
+  } else if (selected.nawabariSessionId === undefined && selected.worktreeId !== undefined) {
     const worktree = input.store
       .listWorktreesForTask(selected.taskId)
       .find((candidate) => candidate.worktreeId === selected.worktreeId);
     if (worktree !== undefined) workspaceRoot = worktree.canonicalPath;
   }
+
+  // Nawabari owns the physical checkout. Its session identity is the validation
+  // worktree key because no legacy Mottainai worktree row exists for that checkout.
+  // Legacy worktree IDs remain unchanged and are resolved only for legacy tasks.
+  const validationWorktreeId =
+    selected.nawabariSessionId === undefined ? selected.worktreeId : `nawabari:${selected.nawabariSessionId}`;
   return {
     ok: true,
     context: {
@@ -51,7 +59,7 @@ async function resolveContext(
       store: input.store,
       artifactStore: dependencies.artifactStore,
       instanceId: selected.instanceId,
-      worktreeId: selected.worktreeId,
+      worktreeId: validationWorktreeId,
     },
   };
 }
