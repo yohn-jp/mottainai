@@ -15,6 +15,8 @@ export interface WorkflowHookProviderOptions {
 interface WorkflowRequest {
   operation: WorkflowOperation;
   branch?: string;
+  rawGitAction?: "redirect" | "deny";
+  replacement?: string;
 }
 
 const PROTECTED_OPERATIONS = new Set<ProtectedBranchOperation>([
@@ -43,27 +45,86 @@ function commandAfterGit(command: string, subcommand: string): string | undefine
   return match?.[1]?.trim();
 }
 
-function words(value: string): string[] {
-  return (
-    value
-      .match(/(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\\S+)/gu)
-      ?.map((word) => word.replace(/^(?:"|')|(?:"|')$/gu, "")) ?? []
+const TYPED_WORKFLOW_REPLACEMENTS = {
+  commit: "mottainai_workflow_task_commit",
+  push: "mottainai_workflow_task_push",
+} as const;
+
+/**
+ * This is deliberately only an operation classifier.  It must never extract
+ * paths, refs, messages, or other authorization claims from shell text.
+ */
+function gitSubcommands(command: string): string[] {
+  return [...command.matchAll(
+    /(?:^|[;&|]\s*)(?:env\s+[^;&|]+\s+|sudo\s+)?git\s+(?:-[^\s;&|]+\s+)*([a-z][a-z0-9-]*)\b/giu,
+  )].flatMap((match) => (match[1] === undefined ? [] : [match[1].toLowerCase()]));
+}
+
+function looksLikeGitInvocation(command: string): boolean {
+  return /(?:^|[;&|]\s*)(?:env\s+[^;&|]+\s+|sudo\s+)?git(?:\s|$)/u.test(command);
+}
+
+function readOnlyBranchCommand(tail: string): boolean {
+  return /^(?:-l|--list|-a|--all|-r|--remotes|--contains|--no-contains|--merged|--no-merged|--format)(?:\s|$)/u.test(
+    tail,
   );
 }
 
-function pushBranch(command: string): string | undefined {
-  const tail = commandAfterGit(command, "push");
-  if (tail === undefined) return undefined;
-  const args = words(tail).filter((arg) => !arg.startsWith("-"));
-  const refspec = args.length > 1 ? args[1] : undefined;
-  if (refspec === undefined) return undefined;
-  const destination = refspec.includes(":") ? refspec.slice(refspec.indexOf(":") + 1) : refspec;
-  if (destination === "") return undefined;
-  const branch = destination.replace(/^refs\/heads\//u, "");
-  // `git push origin HEAD` delegates the destination branch resolution to Git;
-  // the workflow authority must therefore evaluate the current checked-out
-  // branch rather than treating the literal `HEAD` as a branch name.
-  return branch === "HEAD" ? undefined : branch;
+function containsShellComposition(command: string): boolean {
+  return /[;&|><`$()]/u.test(command);
+}
+
+function rawGitRequest(command: string): WorkflowRequest | undefined {
+  const subcommands = gitSubcommands(command);
+  if (subcommands.length === 0) return undefined;
+  if (subcommands.length !== 1) return { operation: "destructiveBranchOp", rawGitAction: "deny" };
+  const subcommand = subcommands[0];
+  if (subcommand === undefined) return { operation: "destructiveBranchOp", rawGitAction: "deny" };
+
+  if (subcommand === "commit") {
+    return {
+      operation: "commit",
+      rawGitAction: "redirect",
+      replacement: TYPED_WORKFLOW_REPLACEMENTS.commit,
+    };
+  }
+  if (subcommand === "push") {
+    const tail = commandAfterGit(command, "push") ?? "";
+    // Remote ref deletion is not representable by the typed push operation.
+    // Do not reinterpret it as an ordinary push.
+    if (/(?:^|\s)(?:--delete|-d)(?:\s|$)/u.test(tail)) {
+      return { operation: "directPush", rawGitAction: "deny" };
+    }
+    const force = /(?:^|\s)(?:--force(?:-with-lease)?|-f)(?:\s|$)/u.test(tail);
+    return {
+      operation: force ? "forcePush" : "directPush",
+      rawGitAction: "redirect",
+      replacement: TYPED_WORKFLOW_REPLACEMENTS.push,
+    };
+  }
+
+  // `git worktree list` is observational. Mutating worktree subcommands are
+  // denied below; no path from the command is treated as an authority claim.
+  if (
+    subcommand === "worktree" &&
+    !containsShellComposition(command) &&
+    /^(?:list|help)(?:\s|$)/u.test(commandAfterGit(command, "worktree") ?? "")
+  )
+    return { operation: "worktreeManagement" };
+  if (subcommand === "branch" && readOnlyBranchCommand(commandAfterGit(command, "branch") ?? "")) return undefined;
+  if (["status", "diff", "log", "show", "reflog", "rev-parse", "ls-files"].includes(subcommand)) return undefined;
+
+  const operation: WorkflowOperation =
+    subcommand === "add"
+      ? "stage"
+      : subcommand === "fetch" || subcommand === "pull"
+        ? "repoSync"
+        : subcommand === "worktree"
+          ? "worktreeManagement"
+          : subcommand === "branch" || subcommand === "reset"
+            ? "destructiveBranchOp"
+            : "destructiveBranchOp";
+  return { operation, rawGitAction: "deny" };
 }
 
 function requestFor(event: HookEvent): WorkflowRequest | undefined {
@@ -76,25 +137,13 @@ function requestFor(event: HookEvent): WorkflowRequest | undefined {
       return { operation: operation as ProtectedBranchOperation };
     }
     if (operation === "repoSync" || operation === "worktreeManagement") return { operation };
-    return undefined;
+    return { operation: "destructiveBranchOp", rawGitAction: "deny" };
   }
   if (command === undefined) return undefined;
 
-  const push = commandAfterGit(command, "push");
-  if (push !== undefined) {
-    const force = /(?:^|\s)(?:--force(?:-with-lease)?|-f)(?:\s|$)/u.test(push);
-    return { operation: force ? "forcePush" : "directPush", branch: pushBranch(command) };
-  }
-  if (commandAfterGit(command, "commit") !== undefined) return { operation: "commit" };
-  if (commandAfterGit(command, "add") !== undefined) return { operation: "stage" };
-  if (/(?:^|\s)(?:--delete|-d|-D)(?:\s|$)/u.test(commandAfterGit(command, "branch") ?? "")) {
-    return { operation: "destructiveBranchOp" };
-  }
-  if (commandAfterGit(command, "worktree") !== undefined) return { operation: "worktreeManagement" };
-  if (commandAfterGit(command, "fetch") !== undefined || commandAfterGit(command, "pull") !== undefined) {
-    return { operation: "repoSync" };
-  }
-  if (commandAfterGit(command, "reset")?.includes("--hard") === true) return { operation: "destructiveBranchOp" };
+  const rawGit = rawGitRequest(command);
+  if (rawGit !== undefined) return rawGit;
+  if (looksLikeGitInvocation(command)) return { operation: "destructiveBranchOp", rawGitAction: "deny" };
   return undefined;
 }
 
@@ -134,6 +183,29 @@ export function createWorkflowHookProvider(options: WorkflowHookProviderOptions)
     async evaluate(event): Promise<HookProviderResult> {
       const request = requestFor(event);
       if (request === undefined) return notApplicable();
+
+      if (request.rawGitAction === "deny") {
+        return {
+          provider: "workflow",
+          state: "authoritative",
+          action: "deny",
+          reason: "workflow_git_mutation_unsupported",
+          rule: "workflow.git.typed_resource",
+          diagnostic: "typed_resource_required",
+        };
+      }
+
+      if (request.rawGitAction === "redirect") {
+        return {
+          provider: "workflow",
+          state: "authoritative",
+          action: "redirect",
+          reason: "workflow_typed_operation_required",
+          replacement: request.replacement,
+          rule: `workflow.git.${request.operation}`,
+          diagnostic: "raw_git_requires_typed_workflow",
+        };
+      }
 
       const identity = resolveRepositoryIdentity(options.workspaceRoot);
       if (!identity.ok) {

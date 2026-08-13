@@ -441,9 +441,26 @@ async function managedWriteGate(
       `DENY exec: workflow authority unavailable (${decision.reason})`,
       "",
       {
+        reason: decision.reason,
         diagnostics: [{ severity: "error", message: decision.diagnostic ?? decision.reason }],
         policy_action: "deny",
         policy_rule: decision.rule,
+      },
+      true,
+    );
+  }
+  if (decision.action === "redirect") {
+    return output(
+      "exec",
+      "failed",
+      `REDIRECT exec: use ${decision.replacement ?? "typed workflow operation"}`,
+      "",
+      {
+        reason: decision.reason,
+        diagnostics: [{ severity: "error", message: decision.diagnostic ?? decision.reason }],
+        policy_action: "redirect",
+        policy_rule: decision.rule,
+        replacement: decision.replacement,
       },
       true,
     );
@@ -455,6 +472,7 @@ async function managedWriteGate(
       `DENY exec: workflow policy (${decision.reason})`,
       "",
       {
+        reason: decision.reason,
         diagnostics: [{ severity: "error", message: decision.diagnostic ?? decision.reason }],
         policy_action: decision.action,
         policy_rule: decision.rule,
