@@ -18,6 +18,9 @@ import { GithubAdapter, type RunProgramFunction } from "../providers/github.js";
 import type { RunResult } from "../../subprocess.js";
 import { startNawabariTask } from "../domain/nawabari-task.js";
 import { NawabariExecutionClient } from "../nawabari.js";
+import { resolveRepositoryIdentity } from "../domain/identity.js";
+import { buildWorktreeNaming } from "../git/worktree.js";
+import { WorkflowSqliteStateStore } from "../state/sqlite-store.js";
 
 function providerResult(stdout: string, stderr = "", overrides: Partial<RunResult> = {}): RunResult {
   return { stdout, stderr, exitCode: 0, signal: null, timedOut: false, outputLimit: false, ...overrides };
@@ -52,6 +55,118 @@ function githubAdapter(workspaceRoot: string, result: RunResult, calls: string[]
     return result;
   };
   return new GithubAdapter({ workspaceRoot, runProgram: execute, sleep: async () => undefined });
+}
+
+const FAKE_NAWABARI_COMMANDS = [
+  "session create",
+  "session id",
+  "session show",
+  "session list",
+  "session claim",
+  "session claims",
+  "session close",
+  "authorize",
+  "checkpoint",
+  "commit",
+  "push",
+  "gc",
+];
+
+function fakeNawabari(
+  repositoryRoot: string,
+  options: { repository?: string; calls?: string[][]; sessions?: Map<string, Record<string, unknown>> } = {},
+): NawabariExecutionClient {
+  const calls = options.calls ?? [];
+  const sessions = options.sessions ?? new Map<string, Record<string, unknown>>();
+  let sequence = 0;
+  const claims = new Map<string, Record<string, unknown>[]>();
+  return new NawabariExecutionClient({
+    runner: {
+      async run(_command, args): Promise<RunResult> {
+        calls.push([...args]);
+        if (args[0] === "capabilities")
+          return providerResult(
+            JSON.stringify({
+              ok: true,
+              command: "capabilities",
+              schema_version: 1,
+              contract_id: "nawabari.standalone-execution.v1",
+              package_version: "0.2.0",
+              capabilities: [{ commands: FAKE_NAWABARI_COMMANDS }],
+            }),
+          );
+        if (args[0] === "session" && args[1] === "id")
+          return providerResult(
+            JSON.stringify({ ok: false, command: "session id", code: "NO_SESSION", message: "none" }),
+            "",
+            {
+              exitCode: 3,
+            },
+          );
+        if (args[0] === "session" && args[1] === "create") {
+          const sessionId = `fake-session-${++sequence}`;
+          const branch = args[args.indexOf("--branch") + 1]!;
+          const labelIndex = args.indexOf("--label");
+          const label = labelIndex < 0 ? undefined : args[labelIndex + 1];
+          const session = {
+            ok: true,
+            command: "session create",
+            session_id: sessionId,
+            repository: options.repository ?? path.join(repositoryRoot, ".git"),
+            worktree: path.join(repositoryRoot, `.fake-worktree-${sessionId}`),
+            branch,
+            state: "active",
+            ...(label === undefined ? {} : { label }),
+          };
+          sessions.set(sessionId, session);
+          claims.set(sessionId, []);
+          return providerResult(JSON.stringify(session));
+        }
+        if (args[0] === "session" && args[1] === "list")
+          return providerResult(
+            JSON.stringify({ ok: true, command: "session list", sessions: [...sessions.values()] }),
+          );
+        if (args[0] === "session" && args[1] === "show") {
+          const sessionId = args[args.indexOf("--session") + 1]!;
+          const session = sessions.get(sessionId);
+          if (session === undefined)
+            return providerResult(
+              JSON.stringify({ ok: false, command: "session show", code: "NOT_FOUND", message: "missing" }),
+              "",
+              {
+                exitCode: 3,
+              },
+            );
+          return providerResult(JSON.stringify(session));
+        }
+        if (args[0] === "session" && args[1] === "claims") {
+          const sessionId = args[args.indexOf("--session") + 1]!;
+          return providerResult(
+            JSON.stringify({ ok: true, command: "session claims", claims: claims.get(sessionId) ?? [] }),
+          );
+        }
+        if (args[0] === "session" && args[1] === "claim") {
+          const sessionId = args[args.indexOf("--session") + 1]!;
+          const resource = args[args.indexOf("--resource") + 1]!;
+          const mode = args[args.indexOf("--mode") + 1]!;
+          const claim = { resource, mode };
+          claims.get(sessionId)?.push(claim);
+          return providerResult(
+            JSON.stringify({ ok: true, command: "session claim", session_id: sessionId, ...claim }),
+          );
+        }
+        if (args[0] === "session" && args[1] === "close") {
+          const sessionId = args[args.indexOf("--session") + 1]!;
+          const session = sessions.get(sessionId);
+          if (session !== undefined) session.state = "closed";
+          return providerResult(
+            JSON.stringify({ ok: true, command: "session close", session_id: sessionId, state: "closed" }),
+          );
+        }
+        throw new Error(`unexpected fake Nawabari command: ${args.join(" ")}`);
+      },
+    },
+  });
 }
 
 async function finishFixture(t: TestContext) {
@@ -272,6 +387,146 @@ test("Nawabari task start idempotency reuses the exact task and external session
   }
   assert.equal(store.listTasks().length, 1);
   assert.equal(store.listWorktrees().length, 0, "Mottainai must not reserve an external worktree locally");
+});
+
+for (const point of ["after-session-created", "after-attachment-persistence", "after-lifecycle-activation"] as const) {
+  test(`task-start compensation after ${point} never leaves a normal active task`, async (t) => {
+    const root = createTempGitRepo(t);
+    const store = createWorkflowStore(t);
+    const calls: string[][] = [];
+    const sessions = new Map<string, Record<string, unknown>>();
+    const nawabari = fakeNawabari(root, { calls, sessions });
+    const result = await startNawabariTask({
+      workspaceRoot: root,
+      store,
+      policy: BUILTIN_PRESETS.standard,
+      taskSlug: `fault-${point.replaceAll("-", "-")}`,
+      branchType: "fix",
+      issueRef: "193",
+      idempotencyKey: `fault-${point}`,
+      nawabari,
+      faultInjection: (observed) => {
+        if (observed === point) throw new Error(`injected ${point}`);
+      },
+    });
+    assert.equal(result.ok, false);
+    const task = store.listTasks()[0];
+    if (point === "after-lifecycle-activation") {
+      assert.notEqual(task, undefined);
+      assert.equal(task?.lifecycleState, "abandoned");
+      assert.equal(store.getTaskStartReconciliation(task!.taskId)?.state, "abandoned");
+    } else {
+      assert.equal(task, undefined, "planned task-start reservations are safely rolled back after owned close");
+    }
+    assert.equal([...sessions.values()].filter((session) => session.state === "active").length, 0);
+    assert.equal(calls.filter((args) => args[0] === "session" && args[1] === "create").length, 1);
+    assert.equal(calls.filter((args) => args[0] === "session" && args[1] === "close").length, 1);
+  });
+}
+
+test("task-start restart/retry adopts the durably recorded session without creating a duplicate", async (t) => {
+  const root = createTempGitRepo(t);
+  const dbDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-task-start-restart-"));
+  t.after(() => fs.rmSync(dbDirectory, { recursive: true, force: true }));
+  const dbPath = path.join(dbDirectory, "workflow.sqlite");
+  const identity = resolveRepositoryIdentity(root);
+  assert.equal(identity.ok, true);
+  if (!identity.ok) return;
+  const baseCommit = runGit(["rev-parse", "main"], root);
+  const taskSlug = "restart-retry";
+  const issueRef = "193-restart";
+  const branch = buildWorktreeNaming({ branchType: "fix", issueRef, taskSlug }).branchName;
+  const sessions = new Map<string, Record<string, unknown>>([
+    [
+      "persisted-session-1",
+      {
+        ok: true,
+        command: "session show",
+        session_id: "persisted-session-1",
+        repository: identity.identity.gitCommonDir,
+        worktree: path.join(root, ".fake-restart-worktree"),
+        branch,
+        state: "active",
+        label: "placeholder",
+      },
+    ],
+  ]);
+  const firstStore = new WorkflowSqliteStateStore({ dbPath });
+  firstStore.init();
+  firstStore.observeRepositoryInstance({
+    rootCommitDigest: identity.identity.rootCommitDigest,
+    instanceId: identity.identity.instanceId,
+    gitCommonDir: identity.identity.gitCommonDir,
+    canonicalWorktreePath: identity.identity.worktreePath,
+  });
+  const reserved = firstStore.reserveTask({
+    instanceId: identity.identity.instanceId,
+    taskSlug,
+    issueRef,
+    startIdempotencyKey: "restart-retry-key",
+    baseBranch: "main",
+    baseCommit,
+    allowMultipleActiveTasksPerIssue: false,
+  });
+  assert.equal(reserved.ok, true);
+  if (!reserved.ok) return;
+  const taskLabel = `mottainai-task-${reserved.task.taskId}`;
+  const reconciliation = firstStore.beginTaskStartReconciliation({
+    taskId: reserved.task.taskId,
+    instanceId: identity.identity.instanceId,
+    taskLabel,
+    branchName: branch,
+    baseBranch: "main",
+    baseCommit,
+  });
+  sessions.get("persisted-session-1")!.label = taskLabel;
+  firstStore.recordTaskStartSession(reserved.task.taskId, "persisted-session-1" as never);
+  assert.equal(reconciliation.state, "reserved");
+  firstStore.close();
+
+  const calls: string[][] = [];
+  const secondStore = new WorkflowSqliteStateStore({ dbPath });
+  secondStore.init();
+  const retried = await startNawabariTask({
+    workspaceRoot: root,
+    store: secondStore,
+    policy: BUILTIN_PRESETS.standard,
+    taskSlug,
+    branchType: "fix",
+    issueRef,
+    idempotencyKey: "restart-retry-key",
+    nawabari: fakeNawabari(root, { calls, sessions }),
+  });
+  t.after(() => secondStore.close());
+  assert.equal(retried.ok, true, JSON.stringify(retried));
+  if (!retried.ok) return;
+  assert.equal(retried.task.taskId, reserved.task.taskId);
+  assert.equal(retried.execution.sessionId, "persisted-session-1");
+  assert.equal(secondStore.getTask(reserved.task.taskId)?.lifecycleState, "active");
+  assert.equal(secondStore.getTaskStartReconciliation(reserved.task.taskId)?.state, "active");
+  assert.equal(calls.filter((args) => args[0] === "session" && args[1] === "create").length, 0);
+});
+
+test("task-start refuses to adopt or close a session whose repository identity is ambiguous", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const calls: string[][] = [];
+  const result = await startNawabariTask({
+    workspaceRoot: root,
+    store,
+    policy: BUILTIN_PRESETS.standard,
+    taskSlug: "ownership-mismatch",
+    branchType: "fix",
+    issueRef: "193-mismatch",
+    idempotencyKey: "ownership-mismatch-key",
+    nawabari: fakeNawabari(root, { calls, repository: path.join(root, "not-the-repository.git") }),
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.reason, "nawabari-ownership-ambiguous");
+  const task = store.listTasks()[0];
+  assert.equal(task?.lifecycleState, "orphaned");
+  assert.equal(store.getTaskStartReconciliation(task!.taskId)?.state, "orphaned");
+  assert.equal(calls.filter((args) => args[0] === "session" && args[1] === "close").length, 0);
 });
 
 test("cleanup idempotency key reuses the same cleanup operation without a second deletion", async (t) => {

@@ -275,6 +275,39 @@ test("reserveTask creates a task in the planned state", () => {
   assert.equal(store.getTask(result.task.taskId)?.taskId, result.task.taskId);
 });
 
+
+test("task-start reconciliation records the external session before attachment and is idempotent", () => {
+  const store = openStoreWithInstance();
+  const task = reserveTask(store, "reconcile-task");
+  const first = store.beginTaskStartReconciliation({
+    taskId: task.taskId,
+    instanceId,
+    taskLabel: `mottainai-task-${task.taskId}`,
+    branchName: "fix/33-reconcile-task",
+    baseBranch: "main",
+    baseCommit: "deadbeef",
+    createdAt: 100,
+  });
+  assert.equal(first.state, "reserved");
+  const recorded = store.recordTaskStartSession(task.taskId, "session-reconcile" as never, 200);
+  assert.equal(recorded.state, "session-created");
+  assert.equal(recorded.nawabariSessionId, "session-reconcile");
+  assert.equal(store.getTask(task.taskId)?.nawabariSessionId, undefined);
+  assert.deepEqual(
+    store.beginTaskStartReconciliation({
+      taskId: task.taskId,
+      instanceId,
+      taskLabel: `mottainai-task-${task.taskId}`,
+      branchName: "fix/33-reconcile-task",
+      baseBranch: "main",
+      baseCommit: "deadbeef",
+    }),
+    recorded,
+  );
+  store.deleteReservedTask(task.taskId);
+  assert.equal(store.getTaskStartReconciliation(task.taskId), undefined);
+});
+
 test("reserveTask rejects a second active task for the same issue when multipleActiveTasksPerIssue is disallowed", () => {
   const store = openStoreWithInstance();
   const first = store.reserveTask({

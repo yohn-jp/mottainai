@@ -470,6 +470,8 @@ export async function startNawabariExecution(input: {
   base?: string;
   taskLabel?: string;
   plan: SemanticExecutionPlan;
+  /** Called synchronously after create returns, before any claim mutation. */
+  onSessionCreated?: (session: NawabariSession) => void;
 }): Promise<NawabariStartResult> {
   const declaration = projectNawabariDeclaration({ plan: input.plan, branch: input.branch, base: input.base });
   const session = await input.client.createSession({
@@ -478,6 +480,7 @@ export async function startNawabariExecution(input: {
     base: declaration.base,
     label: input.taskLabel,
   });
+  input.onSessionCreated?.(session);
   try {
     const decisions = await input.client.claimSession({
       cwd: session.worktree,

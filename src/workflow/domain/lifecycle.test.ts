@@ -6,6 +6,7 @@ import type { LifecycleState } from "./lifecycle.js";
 const VALID_EDGES: ReadonlyArray<[LifecycleState, LifecycleState]> = [
   ["planned", "active"],
   ["planned", "abandoned"],
+  ["planned", "orphaned"],
   ["active", "committed"],
   ["active", "abandoned"],
   ["active", "orphaned"],
