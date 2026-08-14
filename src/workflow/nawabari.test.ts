@@ -191,6 +191,47 @@ test("malformed mutation and evidence results fail the companion contract", asyn
   );
 });
 
+test("push results require the stable remote-generation evidence contract", async () => {
+  const client = new NawabariExecutionClient({
+    runner: {
+      async run(_command, args): Promise<RunResult> {
+        if (args[0] === "capabilities")
+          return result({
+            ok: true,
+            command: "capabilities",
+            schema_version: 1,
+            contract_id: "nawabari.standalone-execution.v1",
+            package_version: "0.2.0",
+            capabilities: [{
+              commands: [
+                "session create", "session id", "session show", "session list", "session claim", "session claims",
+                "session close", "authorize", "checkpoint", "commit", "push", "gc",
+              ],
+            }],
+          });
+        return result({
+          ok: true,
+          command: "push",
+          remote: "origin",
+          branch: "fix/example",
+          target: "origin/fix/example",
+          relation: "up-to-date",
+        });
+      },
+    },
+  });
+  await assert.rejects(
+    client.push({
+      cwd: "/repo",
+      sessionId: "session-1",
+      remote: "origin",
+      branch: "fix/example",
+      resources: ["src/app.ts"],
+    }),
+    (error: unknown) => error instanceof NawabariExecutionError && error.code === "nawabari-contract-invalid",
+  );
+});
+
 test("crash retry resumes the labeled session and adds only missing declared claims", async () => {
   const calls: string[][] = [];
   const client = new NawabariExecutionClient({

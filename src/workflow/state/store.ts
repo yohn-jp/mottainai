@@ -218,6 +218,59 @@ export interface TaskStartReconciliationRecord {
   updatedAt: number;
 }
 
+/** Durable identity/evidence for the externally-effectful push boundary. */
+export const PUSH_RECONCILIATION_STATES = ["prepared", "attempting", "succeeded", "ambiguous", "reconciled"] as const;
+export type PushReconciliationState = (typeof PUSH_RECONCILIATION_STATES)[number];
+
+export interface PushReconciliationRecord {
+  operationId: string;
+  taskId: TaskId;
+  instanceId: RepositoryInstanceId;
+  nawabariSessionId: NawabariSessionId;
+  sourceCommit: string;
+  remote: string;
+  targetBranch: string;
+  targetRef: string;
+  forceRequested: boolean;
+  createUpstream: boolean;
+  state: PushReconciliationState;
+  observedRemoteSha?: string;
+  recoveryObservedRemoteSha?: string;
+  resultRemoteSha?: string;
+  relation?: string;
+  evidenceComplete: boolean;
+  detail?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface BeginPushReconciliationInput {
+  taskId: TaskId;
+  instanceId: RepositoryInstanceId;
+  nawabariSessionId: NawabariSessionId;
+  sourceCommit: string;
+  remote: string;
+  targetBranch: string;
+  targetRef: string;
+  forceRequested: boolean;
+  createUpstream: boolean;
+  createdAt?: number;
+}
+
+export interface RecordPushResultInput {
+  taskId: TaskId;
+  sourceCommit: string;
+  remote: string;
+  targetBranch: string;
+  targetRef: string;
+  observedRemoteSha?: string;
+  recoveryObservedRemoteSha?: string;
+  resultRemoteSha: string;
+  relation: string;
+  evidenceComplete: boolean;
+  recordedAt?: number;
+}
+
 export interface BeginTaskStartReconciliationInput {
   taskId: TaskId;
   instanceId: RepositoryInstanceId;
@@ -575,6 +628,18 @@ export interface WorkflowStateStore {
     updatedAt?: number,
   ): TaskStartReconciliationRecord;
   getTaskStartReconciliation(taskId: TaskId): TaskStartReconciliationRecord | undefined;
+
+  /** Reserve immutable push identity before crossing the Nawabari mutation boundary. */
+  beginPushReconciliation(input: BeginPushReconciliationInput): PushReconciliationRecord;
+  /** Mark the reserved operation as having entered the external mutation boundary. */
+  markPushAttempting(taskId: TaskId, updatedAt?: number): PushReconciliationRecord;
+  /** Persist Nawabari's bounded push evidence before checkpoint/lifecycle persistence. */
+  recordPushResult(input: RecordPushResultInput): PushReconciliationRecord;
+  /** Record a bounded fail-closed diagnostic without changing immutable push identity. */
+  markPushAmbiguous(taskId: TaskId, detail: string, updatedAt?: number): PushReconciliationRecord;
+  /** Mark the local lifecycle reconciliation complete after identity/evidence checks. */
+  markPushReconciled(taskId: TaskId, updatedAt?: number): PushReconciliationRecord;
+  getPushReconciliation(taskId: TaskId): PushReconciliationRecord | undefined;
 
   /**
    * worktree を `reserved` 状態で予約する。branch_name/canonical_path の一意性は

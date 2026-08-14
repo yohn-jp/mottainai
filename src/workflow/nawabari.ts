@@ -48,6 +48,19 @@ export interface NawabariCommandResult {
   readonly [key: string]: unknown;
 }
 
+export type NawabariPushRelation = "no-upstream" | "up-to-date" | "ahead" | "behind" | "diverged";
+
+/** Stable push.v1 evidence returned by Nawabari #61. */
+export interface NawabariPushResult extends NawabariCommandResult {
+  readonly source_sha: string;
+  readonly remote: string;
+  readonly branch: string;
+  readonly target: string;
+  readonly target_ref: string;
+  readonly observed_remote_sha: string | null;
+  readonly relation: NawabariPushRelation;
+}
+
 export interface NawabariCommandRunner {
   run(command: string, args: readonly string[], cwd: string): Promise<RunResult>;
 }
@@ -111,7 +124,48 @@ function requireResultString(result: NawabariCommandResult, fields: readonly str
   for (const field of fields) {
     if (typeof result[field] === "string" && result[field].length > 0) return result[field] as string;
   }
-  throw new NawabariExecutionError("nawabari-contract-invalid", `Nawabari result is missing ${label}`, undefined, result);
+  throw new NawabariExecutionError(
+    "nawabari-contract-invalid",
+    `Nawabari result is missing ${label}`,
+    undefined,
+    result,
+  );
+}
+
+function requireNullableResultString(result: NawabariCommandResult, fields: readonly string[], label: string): void {
+  const field = fields.find((candidate) => candidate in result);
+  if (field === undefined)
+    throw new NawabariExecutionError(
+      "nawabari-contract-invalid",
+      `Nawabari result is missing ${label}`,
+      undefined,
+      result,
+    );
+  if (result[field] === null) return;
+  if (typeof result[field] === "string" && (result[field] as string).length > 0) return;
+  throw new NawabariExecutionError(
+    "nawabari-contract-invalid",
+    `Nawabari result has invalid ${label}`,
+    undefined,
+    result,
+  );
+}
+
+function requirePushResult(result: NawabariCommandResult): NawabariPushResult {
+  requireResultString(result, ["source_sha", "sourceSha"], "source_sha");
+  requireResultString(result, ["remote"], "remote");
+  requireResultString(result, ["branch"], "branch");
+  requireResultString(result, ["target"], "target");
+  requireResultString(result, ["target_ref", "targetRef"], "target_ref");
+  requireNullableResultString(result, ["observed_remote_sha", "observedRemoteSha"], "observed_remote_sha");
+  if (!["no-upstream", "up-to-date", "ahead", "behind", "diverged"].includes(result.relation as string))
+    throw new NawabariExecutionError(
+      "nawabari-contract-invalid",
+      "Nawabari result has invalid relation",
+      undefined,
+      result,
+    );
+  return result as NawabariPushResult;
 }
 
 function requireDecision(result: NawabariCommandResult): NawabariCommandResult {
@@ -322,7 +376,7 @@ export class NawabariExecutionClient {
     resources: readonly string[];
     force?: boolean;
     createUpstream?: boolean;
-  }): Promise<NawabariCommandResult> {
+  }): Promise<NawabariPushResult> {
     const args = [
       "push",
       "--session",
@@ -336,10 +390,7 @@ export class NawabariExecutionClient {
     if (input.force === true) args.push("--force");
     if (input.createUpstream === true) args.push("--create-upstream");
     const result = await this.invoke(args, input.cwd);
-    requireResultString(result, ["remote"], "remote");
-    requireResultString(result, ["branch"], "branch");
-    requireResultString(result, ["target"], "target");
-    return result;
+    return requirePushResult(result);
   }
 
   async showSession(input: { cwd: string; sessionId: string }): Promise<NawabariSession> {

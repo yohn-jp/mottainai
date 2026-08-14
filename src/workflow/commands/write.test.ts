@@ -15,9 +15,9 @@ import { startTask } from "../domain/task.js";
 import { createTempGitRepo, runGit } from "../../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../../test-support/workflow-store.js";
 import { GithubAdapter, type RunProgramFunction } from "../providers/github.js";
-import type { RunResult } from "../../subprocess.js";
+import { runProgram, type RunResult } from "../../subprocess.js";
 import { startNawabariTask } from "../domain/nawabari-task.js";
-import { NawabariExecutionClient } from "../nawabari.js";
+import { NawabariExecutionClient, type NawabariPushResult } from "../nawabari.js";
 import { resolveRepositoryIdentity } from "../domain/identity.js";
 import { buildWorktreeNaming } from "../git/worktree.js";
 import { WorkflowSqliteStateStore } from "../state/sqlite-store.js";
@@ -333,7 +333,7 @@ test("managed push delegates target and divergence safety to Nawabari", async (t
   runGit(["remote", "add", "origin", remote], root);
 
   const store = createWorkflowStore(t);
-  const nawabari = new NawabariExecutionClient();
+  const nawabari = new PushEvidenceNawabari();
   const started = await startNawabariTask({
     workspaceRoot: root,
     store,
@@ -373,6 +373,235 @@ test("managed push delegates target and divergence safety to Nawabari", async (t
   assert.equal(
     runGit(["--git-dir", remote, "rev-parse", "refs/heads/fix/43-nawabari-push"], root),
     runGit(["rev-parse", "HEAD"], started.execution.worktree),
+  );
+});
+
+/** Inject the merged Nawabari #61 push.v1 fields while tests use the pre-#61 npm artifact. */
+class PushEvidenceNawabari extends NawabariExecutionClient {
+  pushCalls = 0;
+
+  constructor() {
+    super({
+      runner: {
+        async run(command, args, cwd) {
+          let observedRemoteSha: string | null = null;
+          if (args[0] === "push") {
+            const remote = args[args.indexOf("--remote") + 1];
+            const branch = args[args.indexOf("--branch") + 1];
+            if (remote !== undefined && branch !== undefined) {
+              const output = runGit(["ls-remote", "--heads", remote, `refs/heads/${branch}`], cwd).trim();
+              observedRemoteSha = output.length === 0 ? null : (output.split(/\s+/u)[0] ?? null);
+            }
+          }
+          const result = await runProgram(command, [...args], cwd, 12_000, 64 * 1024);
+          if (args[0] !== "push" || result.spawnError !== undefined || result.stdout.trim().length === 0) return result;
+          const parsed = JSON.parse(result.stdout) as Record<string, unknown>;
+          if (parsed.ok !== true) return result;
+          return {
+            ...result,
+            stdout: JSON.stringify({
+              ...parsed,
+              source_sha: runGit(["rev-parse", "HEAD"], cwd),
+              target_ref: `refs/heads/${args[args.indexOf("--branch") + 1]}`,
+              observed_remote_sha: observedRemoteSha,
+            }),
+          };
+        },
+      },
+    });
+  }
+
+  override async push(input: Parameters<NawabariExecutionClient["push"]>[0]): Promise<NawabariPushResult> {
+    this.pushCalls += 1;
+    return super.push(input);
+  }
+}
+
+test("push receipt recovers a successful external push after lifecycle persistence fails and a process restarts", async (t) => {
+  const root = createTempGitRepo(t);
+  const remote = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-push-receipt-remote-"));
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-push-receipt-state-"));
+  const dbPath = path.join(stateDir, "workflow.sqlite");
+  t.after(() => {
+    fs.rmSync(remote, { recursive: true, force: true });
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  });
+  runGit(["init", "--bare", "--quiet"], remote);
+  runGit(["remote", "add", "origin", remote], root);
+
+  const store = new WorkflowSqliteStateStore({ dbPath });
+  store.init();
+  const nawabari = new PushEvidenceNawabari();
+  const started = await startNawabariTask({
+    workspaceRoot: root,
+    store,
+    policy: BUILTIN_PRESETS.standard,
+    taskSlug: "push-receipt-recovery",
+    branchType: "fix",
+    issueRef: "195",
+    nawabari,
+  });
+  assert.equal(started.ok, true, JSON.stringify(started));
+  if (!started.ok) return;
+  t.after(() =>
+    nawabari
+      .closeSession({ cwd: started.execution.worktree, sessionId: started.execution.sessionId })
+      .catch(() => undefined),
+  );
+  fs.appendFileSync(path.join(started.execution.worktree, "file.txt"), "receipt\n");
+  const committed = await commitWorkflowTask({
+    workspaceRoot: root,
+    store,
+    taskId: started.task.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "push receipt recovery" },
+    nawabari,
+  });
+  assert.equal(committed.ok, true, JSON.stringify(committed));
+
+  const originalUpdate = store.updateTaskLifecycleState.bind(store);
+  let failLifecycle = true;
+  store.updateTaskLifecycleState = ((taskId, next, updatedAt) => {
+    if (failLifecycle && next === "pushed") {
+      failLifecycle = false;
+      throw new Error("injected lifecycle persistence failure");
+    }
+    return originalUpdate(taskId, next, updatedAt);
+  }) as typeof store.updateTaskLifecycleState;
+
+  const first = await pushWorkflowTask({
+    workspaceRoot: root,
+    store,
+    taskId: started.task.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    remote: "origin",
+    createUpstream: true,
+    nawabari,
+  });
+  assert.equal(first.ok, false, JSON.stringify(first));
+  const sourceCommit = runGit(["rev-parse", "HEAD"], started.execution.worktree);
+  assert.equal(
+    runGit(["--git-dir", remote, "rev-parse", `refs/heads/${started.execution.branch}`], root),
+    sourceCommit,
+  );
+  const firstReceipt = store.getPushReconciliation(started.task.taskId);
+  assert.equal(firstReceipt?.sourceCommit, sourceCommit);
+  assert.equal(firstReceipt?.remote, "origin");
+  assert.equal(firstReceipt?.targetBranch, started.execution.branch);
+  assert.equal(firstReceipt?.targetRef, `refs/heads/${started.execution.branch}`);
+  assert.equal(firstReceipt?.resultRemoteSha, sourceCommit);
+  assert.equal(firstReceipt?.evidenceComplete, true);
+  assert.equal(store.getTask(started.task.taskId)?.lifecycleState, "committed");
+  store.close();
+
+  const restarted = new WorkflowSqliteStateStore({ dbPath });
+  restarted.init();
+  t.after(() => restarted.close());
+  const recovered = await pushWorkflowTask({
+    workspaceRoot: root,
+    store: restarted,
+    taskId: started.task.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    remote: "origin",
+    nawabari,
+  });
+  assert.equal(recovered.ok, true, JSON.stringify(recovered));
+  assert.equal(restarted.getTask(started.task.taskId)?.lifecycleState, "pushed");
+  const recoveredReceipt = restarted.getPushReconciliation(started.task.taskId);
+  assert.equal(recoveredReceipt?.state, "reconciled");
+  assert.equal(recoveredReceipt?.recoveryObservedRemoteSha, sourceCommit);
+  assert.equal(nawabari.pushCalls, 2, "recovery must inspect through Nawabari before converging");
+  assert.equal(
+    runGit(["--git-dir", remote, "rev-parse", `refs/heads/${started.execution.branch}`], root),
+    sourceCommit,
+  );
+});
+
+test("push receipt fails closed when the remote advances before restart recovery", async (t) => {
+  const root = createTempGitRepo(t);
+  const remote = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-push-race-remote-"));
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-push-race-state-"));
+  const dbPath = path.join(stateDir, "workflow.sqlite");
+  t.after(() => {
+    fs.rmSync(remote, { recursive: true, force: true });
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  });
+  runGit(["init", "--bare", "--quiet"], remote);
+  runGit(["remote", "add", "origin", remote], root);
+  const store = new WorkflowSqliteStateStore({ dbPath });
+  store.init();
+  const nawabari = new PushEvidenceNawabari();
+  const started = await startNawabariTask({
+    workspaceRoot: root,
+    store,
+    policy: BUILTIN_PRESETS.standard,
+    taskSlug: "push-remote-race",
+    branchType: "fix",
+    issueRef: "195",
+    nawabari,
+  });
+  assert.equal(started.ok, true, JSON.stringify(started));
+  if (!started.ok) return;
+  t.after(() =>
+    nawabari
+      .closeSession({ cwd: started.execution.worktree, sessionId: started.execution.sessionId })
+      .catch(() => undefined),
+  );
+  fs.appendFileSync(path.join(started.execution.worktree, "file.txt"), "race\n");
+  const committed = await commitWorkflowTask({
+    workspaceRoot: root,
+    store,
+    taskId: started.task.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "push remote race" },
+    nawabari,
+  });
+  assert.equal(committed.ok, true, JSON.stringify(committed));
+  const originalUpdate = store.updateTaskLifecycleState.bind(store);
+  store.updateTaskLifecycleState = ((taskId, next, updatedAt) => {
+    if (next === "pushed") throw new Error("injected lifecycle persistence failure");
+    return originalUpdate(taskId, next, updatedAt);
+  }) as typeof store.updateTaskLifecycleState;
+  const first = await pushWorkflowTask({
+    workspaceRoot: root,
+    store,
+    taskId: started.task.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    remote: "origin",
+    createUpstream: true,
+    nawabari,
+  });
+  assert.equal(first.ok, false, JSON.stringify(first));
+
+  const clone = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-push-race-clone-"));
+  t.after(() => fs.rmSync(clone, { recursive: true, force: true }));
+  runGit(["clone", "--quiet", "--branch", started.execution.branch, remote, clone], path.dirname(clone));
+  runGit(["config", "user.email", "race@example.invalid"], clone);
+  runGit(["config", "user.name", "Remote Race"], clone);
+  fs.appendFileSync(path.join(clone, "file.txt"), "remote generation\n");
+  runGit(["commit", "--quiet", "-am", "remote generation"], clone);
+  runGit(["push", "--quiet", "origin", `HEAD:refs/heads/${started.execution.branch}`], clone);
+  const remoteGeneration = runGit(["--git-dir", remote, "rev-parse", `refs/heads/${started.execution.branch}`], root);
+  store.close();
+
+  const restarted = new WorkflowSqliteStateStore({ dbPath });
+  restarted.init();
+  t.after(() => restarted.close());
+  const recovered = await pushWorkflowTask({
+    workspaceRoot: root,
+    store: restarted,
+    taskId: started.task.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    remote: "origin",
+    nawabari,
+  });
+  assert.equal(recovered.ok, false, JSON.stringify(recovered));
+  assert.equal((recovered as { reason?: string }).reason, "push-reconciliation-ambiguous");
+  assert.equal(restarted.getTask(started.task.taskId)?.lifecycleState, "committed");
+  assert.equal(restarted.getPushReconciliation(started.task.taskId)?.state, "ambiguous");
+  assert.equal(
+    runGit(["--git-dir", remote, "rev-parse", `refs/heads/${started.execution.branch}`], root),
+    remoteGeneration,
   );
 });
 
