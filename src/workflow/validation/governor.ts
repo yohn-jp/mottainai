@@ -243,6 +243,21 @@ export async function runManagedCheck(
   const passed = result.spawnError === undefined && !result.timedOut && !result.outputLimit && result.exitCode === 0;
   const summary = executionOutcomeSummary(check, passed, result, durationMs);
 
+  // A pre-execution fingerprint alone cannot prove what state the check actually validated.
+  // Always acquire the post-execution observation, including when the pre-state was already
+  // unavailable, and only persist evidence when both observations are usable and identical.
+  const postFingerprintResult = await computeStateFingerprint({
+    workspaceRoot: context.workspaceRoot,
+    scope: check.scope,
+    configPaths: check.configPaths,
+  });
+  const stableFingerprintResult =
+    identity.fingerprintResult.ok &&
+    postFingerprintResult.ok &&
+    identity.fingerprintResult.fingerprint === postFingerprintResult.fingerprint
+      ? identity.fingerprintResult
+      : undefined;
+
   const artifactRef = context.artifactStore.putArtifact({
     text: combinedOutputText(result),
     stdout: result.stdout,
@@ -256,30 +271,39 @@ export async function runManagedCheck(
   });
   const diagnostics = passed ? undefined : boundedFailureDiagnostics(result);
 
-  const reasonCode = !identity.fingerprintResult.ok
-    ? "fingerprint-unavailable"
-    : options.force === true
-      ? "force-requested"
-      : "no-matching-prior-success";
-  const explanation = !identity.fingerprintResult.ok
-    ? `Repository state fingerprint could not be established (${identity.fingerprintResult.reason}: ${identity.fingerprintResult.detail}); the check executed rather than reusing evidence.`
-    : options.force === true
-      ? "Execution was explicitly forced; reuse was not considered."
-      : "No prior successful execution matched the current repository state and configuration digest.";
+  const reasonCode =
+    stableFingerprintResult === undefined
+      ? !identity.fingerprintResult.ok
+        ? "fingerprint-unavailable"
+        : !postFingerprintResult.ok
+          ? "fingerprint-unavailable"
+          : "fingerprint-unstable"
+      : options.force === true
+        ? "force-requested"
+        : "no-matching-prior-success";
+  const explanation =
+    stableFingerprintResult === undefined
+      ? !identity.fingerprintResult.ok
+        ? `Repository state fingerprint could not be established before execution (${identity.fingerprintResult.reason}: ${identity.fingerprintResult.detail}); the check executed without persisting reusable evidence.`
+        : !postFingerprintResult.ok
+          ? `Repository state fingerprint could not be established after execution (${postFingerprintResult.reason}: ${postFingerprintResult.detail}); the check executed without persisting reusable evidence.`
+          : "Repository state fingerprint changed between pre- and post-execution observations; the check executed without persisting reusable evidence."
+      : options.force === true
+        ? "Execution was explicitly forced; reuse was not considered."
+        : "No prior successful execution matched the current repository state and configuration digest.";
   const provenance: CheckRunProvenance = { reasonCode, explanation };
 
-  // Fingerprint unavailable: recording a keyed run would create evidence that can never be
-  // matched again (and could misleadingly resemble reusable evidence). Report the execution
-  // without persisting reuse evidence in that case.
-  const persistedRunId = identity.fingerprintResult.ok ? `cr_${crypto.randomUUID()}` : undefined;
-  if (identity.fingerprintResult.ok && persistedRunId !== undefined) {
+  // Unstable or unavailable pre/post observations cannot be attributed to one repository
+  // state. Report the execution, but do not persist a run or bridge validation evidence.
+  const persistedRunId = stableFingerprintResult !== undefined ? `cr_${crypto.randomUUID()}` : undefined;
+  if (stableFingerprintResult !== undefined && persistedRunId !== undefined) {
     context.store.recordCheckRun({
       runId: persistedRunId,
       instanceId: context.instanceId,
       worktreeId: worktreeKey(context.worktreeId),
       checkId: check.id,
       commandDigest: identity.commandDigest,
-      stateFingerprint: identity.fingerprintResult.fingerprint,
+      stateFingerprint: stableFingerprintResult.fingerprint,
       configDigest: identity.configDigest!,
       status: evidenceBridgeStatus(passed),
       execution: "executed",
@@ -292,7 +316,7 @@ export async function runManagedCheck(
     if (check.evidenceName !== undefined && (await isWorkspaceCleanNow(context.workspaceRoot))) {
       context.store.recordValidationEvidence({
         instanceId: context.instanceId,
-        headCommit: identity.fingerprintResult.headCommit,
+        headCommit: stableFingerprintResult.headCommit,
         name: check.evidenceName,
         status: evidenceBridgeStatus(passed),
       });
@@ -307,7 +331,7 @@ export async function runManagedCheck(
     execution: "executed",
     state: passed ? "executed-pass" : "executed-fail",
     durationMs,
-    fingerprint: identity.fingerprintResult.ok ? identity.fingerprintResult.fingerprint : undefined,
+    fingerprint: stableFingerprintResult?.fingerprint,
     runId: persistedRunId,
     reusedFromRunId: undefined,
     summary,
