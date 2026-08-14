@@ -51,6 +51,20 @@ function failingCheck(overrides: Partial<ManagedCheckDefinition> = {}): ManagedC
   });
 }
 
+function mutateTrackedFileScript(root: string): string {
+  const file = JSON.stringify(path.join(root, "file.txt"));
+  return `require("fs").writeFileSync(${file}, ${JSON.stringify("changed during check\n")})`;
+}
+
+function commitTrackedFileScript(root: string): string {
+  const repo = JSON.stringify(root);
+  return [
+    mutateTrackedFileScript(root),
+    `require("child_process").execFileSync("git", ["add", "file.txt"], { cwd: ${repo} })`,
+    `require("child_process").execFileSync("git", ["-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--quiet", "-m", "during check"], { cwd: ${repo} })`,
+  ].join(";");
+}
+
 test("a check with no prior evidence executes and records a passing run", async (t) => {
   const root = createTempGitRepo(t);
   const receipt = await runManagedCheck(context(t, root), nodeCheck());
@@ -84,6 +98,36 @@ test("editing a tracked file invalidates reuse and forces real execution", async
   assert.equal(second.execution, "executed");
   assert.equal(second.state, "executed-pass");
   assert.notEqual(second.runId, first.runId);
+});
+
+test("tracked content changed during execution is not persisted under the pre-run fingerprint", async (t) => {
+  const root = createTempGitRepo(t);
+  const ctx = context(t, root);
+  const changed = await runManagedCheck(ctx, nodeCheck({ args: ["-e", mutateTrackedFileScript(root)] }));
+
+  assert.equal(changed.status, "passed");
+  assert.equal(changed.runId, undefined);
+  assert.equal(changed.fingerprint, undefined);
+  assert.equal(changed.provenance.reasonCode, "fingerprint-unstable");
+
+  const afterMutation = await runManagedCheck(ctx, nodeCheck());
+  assert.equal(afterMutation.execution, "executed");
+  assert.notEqual(afterMutation.runId, undefined);
+});
+
+test("a clean post-run state with a different HEAD is not reusable under the pre-run fingerprint", async (t) => {
+  const root = createTempGitRepo(t);
+  const ctx = context(t, root);
+  const committed = await runManagedCheck(ctx, nodeCheck({ args: ["-e", commitTrackedFileScript(root)] }));
+
+  assert.equal(committed.status, "passed");
+  assert.equal(committed.runId, undefined);
+  assert.equal(committed.fingerprint, undefined);
+  assert.equal(committed.provenance.reasonCode, "fingerprint-unstable");
+
+  const afterCommit = await runManagedCheck(ctx, nodeCheck());
+  assert.equal(afterCommit.execution, "executed");
+  assert.notEqual(afterCommit.runId, undefined);
 });
 
 test("a different command for the same check id invalidates reuse (config identity changed)", async (t) => {
