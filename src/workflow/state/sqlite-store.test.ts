@@ -308,6 +308,51 @@ test("task-start reconciliation records the external session before attachment a
   assert.equal(store.getTaskStartReconciliation(task.taskId), undefined);
 });
 
+test("commit reconciliation preserves the result identity and refuses a different operation", () => {
+  const store = openStoreWithInstance();
+  const task = reserveTask(store, "commit-reconcile-task");
+  const first = store.beginCommitReconciliation({
+    taskId: task.taskId,
+    instanceId,
+    nawabariSessionId: "session-commit" as never,
+    branchName: "fix/194-commit-reconcile-task",
+    beforeCommit: "before-sha",
+    resources: ["file.txt"],
+    message: "commit message",
+    createdAt: 100,
+  });
+  assert.equal(first.state, "not-attempted");
+  assert.deepEqual(
+    store.beginCommitReconciliation({
+      taskId: task.taskId,
+      instanceId,
+      nawabariSessionId: "session-commit" as never,
+      branchName: "fix/194-commit-reconcile-task",
+      beforeCommit: "before-sha",
+      resources: ["file.txt"],
+      message: "commit message",
+    }),
+    first,
+  );
+  const succeeded = store.recordCommitResult(task.taskId, "commit-sha", 200);
+  assert.equal(succeeded.state, "succeeded");
+  assert.equal(succeeded.commitSha, "commit-sha");
+  assert.throws(() =>
+    store.beginCommitReconciliation({
+      taskId: task.taskId,
+      instanceId,
+      nawabariSessionId: "session-commit" as never,
+      branchName: "fix/194-other-branch",
+      beforeCommit: "before-sha",
+      resources: ["file.txt"],
+      message: "commit message",
+    }),
+  );
+  const reconciled = store.markCommitReconciliationReconciled(task.taskId, 300);
+  assert.equal(reconciled.state, "reconciled");
+  assert.equal(store.getCommitReconciliation(task.taskId)?.commitSha, "commit-sha");
+});
+
 test("reserveTask rejects a second active task for the same issue when multipleActiveTasksPerIssue is disallowed", () => {
   const store = openStoreWithInstance();
   const first = store.reserveTask({

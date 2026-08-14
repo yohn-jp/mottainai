@@ -190,6 +190,175 @@ function fakeNawabari(
   });
 }
 
+type CommitFaultPoint = "result-persistence" | "checkpoint-persistence" | "lifecycle-transition";
+
+class FaultingCommitStore extends WorkflowSqliteStateStore {
+  private fault: CommitFaultPoint | undefined;
+
+  armCommitFault(point: CommitFaultPoint): void {
+    this.fault = point;
+  }
+
+  override recordCommitResult(...args: Parameters<WorkflowSqliteStateStore["recordCommitResult"]>) {
+    if (this.fault === "result-persistence") {
+      this.fault = undefined;
+      throw new Error("injected commit result persistence failure");
+    }
+    return super.recordCommitResult(...args);
+  }
+
+  override recordHookCheckpoint(...args: Parameters<WorkflowSqliteStateStore["recordHookCheckpoint"]>) {
+    if (this.fault === "checkpoint-persistence") {
+      this.fault = undefined;
+      throw new Error("injected checkpoint persistence failure");
+    }
+    return super.recordHookCheckpoint(...args);
+  }
+
+  override updateTaskLifecycleState(...args: Parameters<WorkflowSqliteStateStore["updateTaskLifecycleState"]>) {
+    if (this.fault === "lifecycle-transition") {
+      this.fault = undefined;
+      throw new Error("injected lifecycle transition failure");
+    }
+    return super.updateTaskLifecycleState(...args);
+  }
+}
+
+function commitBoundaryNawabari(
+  repositoryRoot: string,
+  worktree: string,
+  branch: string,
+  options: { failCheckpointOnce?: boolean; denyAuthorizationAfterCommit?: boolean } = {},
+): { client: NawabariExecutionClient; commitCalls: () => number } {
+  const sessionId = "commit-boundary-session";
+  let commitCalls = 0;
+  let checkpointCalls = 0;
+  return {
+    client: new NawabariExecutionClient({
+      runner: {
+        async run(_command, args, cwd): Promise<RunResult> {
+          if (args[0] === "capabilities")
+            return providerResult(
+              JSON.stringify({
+                ok: true,
+                command: "capabilities",
+                schema_version: 1,
+                contract_id: "nawabari.standalone-execution.v1",
+                package_version: "0.2.0",
+                capabilities: [{ commands: FAKE_NAWABARI_COMMANDS }],
+              }),
+            );
+          if (args[0] === "session" && args[1] === "show")
+            return providerResult(
+              JSON.stringify({
+                ok: true,
+                command: "session show",
+                session_id: sessionId,
+                repository: path.join(repositoryRoot, ".git"),
+                worktree,
+                branch,
+                state: "active",
+              }),
+            );
+          if (args[0] === "authorize")
+            return providerResult(
+              JSON.stringify({
+                ok: true,
+                command: "authorize",
+                allowed: !(options.denyAuthorizationAfterCommit === true && commitCalls > 0),
+                session_id: sessionId,
+              }),
+            );
+          if (args[0] === "commit") {
+            commitCalls += 1;
+            const message = args[args.indexOf("--message") + 1]!;
+            runGit(["commit", "--quiet", "-am", message], cwd);
+            return providerResult(
+              JSON.stringify({
+                ok: true,
+                command: "commit",
+                session_id: sessionId,
+                commit_sha: runGit(["rev-parse", "HEAD"], cwd),
+              }),
+            );
+          }
+          if (args[0] === "checkpoint") {
+            checkpointCalls += 1;
+            if (options.failCheckpointOnce && checkpointCalls === 1)
+              return providerResult(
+                JSON.stringify({ ok: false, command: "checkpoint", code: "CHECKPOINT_FAILED", message: "injected" }),
+                "",
+                { exitCode: 3 },
+              );
+            return providerResult(
+              JSON.stringify({
+                ok: true,
+                command: "checkpoint",
+                session_id: sessionId,
+                head_id: runGit(["rev-parse", "HEAD"], cwd),
+                paths: { changed: [], staged: [], unstaged: [], untracked: [] },
+                in_claim: [],
+                out_of_claim: [],
+              }),
+            );
+          }
+          throw new Error(`unexpected fake commit-boundary command: ${args.join(" ")}`);
+        },
+      },
+    }),
+    commitCalls: () => commitCalls,
+  };
+}
+
+async function commitRecoveryFixture(
+  t: TestContext,
+  fault: CommitFaultPoint,
+  options: { denyAuthorizationAfterCommit?: boolean } = {},
+): Promise<{
+  root: string;
+  dbPath: string;
+  store: FaultingCommitStore;
+  taskId: string;
+  nawabari: NawabariExecutionClient;
+  commitCalls: () => number;
+  worktree: string;
+}> {
+  const root = createTempGitRepo(t);
+  const dbDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-commit-recovery-"));
+  t.after(() => fs.rmSync(dbDirectory, { recursive: true, force: true }));
+  const dbPath = path.join(dbDirectory, "workflow.sqlite");
+  const store = new FaultingCommitStore({ dbPath });
+  store.init();
+  const started = await startTask({
+    workspaceRoot: root,
+    store,
+    policy: BUILTIN_PRESETS.standard,
+    taskSlug: `commit-recovery-${fault}`,
+    branchType: "fix",
+    issueRef: "194",
+  });
+  assert.equal(started.ok, true, JSON.stringify(started));
+  if (!started.ok || started.worktree === undefined) throw new Error("commit recovery fixture setup failed");
+  const sessionId = "commit-boundary-session" as never;
+  store.attachNawabariSession(started.task.taskId, sessionId);
+  fs.appendFileSync(path.join(started.worktree.canonicalPath, "file.txt"), `${fault}\n`);
+  const boundary = commitBoundaryNawabari(root, started.worktree.canonicalPath, started.worktree.branchName, {
+    failCheckpointOnce: false,
+    denyAuthorizationAfterCommit: options.denyAuthorizationAfterCommit,
+  });
+  store.armCommitFault(fault);
+  t.after(() => store.close());
+  return {
+    root,
+    dbPath,
+    store,
+    taskId: started.task.taskId,
+    nawabari: boundary.client,
+    commitCalls: boundary.commitCalls,
+    worktree: started.worktree.canonicalPath,
+  };
+}
+
 async function finishFixture(t: TestContext) {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
@@ -296,6 +465,145 @@ test("managed commit delegates the only Git mutation to Nawabari", async (t) => 
     "Git-observable Nawabari checkpoint evidence must reconcile into Mottainai state",
   );
   assert.notEqual(runGit(["rev-parse", "HEAD"], started.execution.worktree), runGit(["rev-parse", "HEAD"], root));
+});
+
+for (const fault of ["checkpoint-persistence", "lifecycle-transition"] as const) {
+  test(`commit recovery converges after ${fault} without a second commit`, async (t) => {
+    const fixture = await commitRecoveryFixture(t, fault);
+    const first = await commitWorkflowTask({
+      workspaceRoot: fixture.root,
+      store: fixture.store,
+      taskId: fixture.taskId,
+      policy: BUILTIN_PRESETS.standard,
+      message: { subject: `commit recovery ${fault}` },
+      nawabari: fixture.nawabari,
+    });
+    assert.equal(first.ok, false, JSON.stringify(first));
+    assert.equal(fixture.commitCalls(), 1);
+    assert.equal(fixture.store.getTask(fixture.taskId as never)?.lifecycleState, "active");
+    fixture.store.close();
+
+    const recoveredStore = new WorkflowSqliteStateStore({ dbPath: fixture.dbPath });
+    recoveredStore.init();
+    t.after(() => recoveredStore.close());
+    const recovered = await commitWorkflowTask({
+      workspaceRoot: fixture.root,
+      store: recoveredStore,
+      taskId: fixture.taskId,
+      policy: BUILTIN_PRESETS.standard,
+      message: { subject: `commit recovery ${fault}` },
+      nawabari: fixture.nawabari,
+    });
+    assert.equal(recovered.ok, true, JSON.stringify(recovered));
+    assert.equal(fixture.commitCalls(), 1, "recovery must not invoke Nawabari commit again");
+    assert.equal(recoveredStore.getTask(fixture.taskId as never)?.lifecycleState, "committed");
+    assert.equal(runGit(["status", "--porcelain"], fixture.worktree), "");
+    assert.equal(
+      recoveredStore.getCommitReconciliation(fixture.taskId as never)?.commitSha,
+      runGit(["rev-parse", "HEAD"], fixture.worktree),
+    );
+    assert.equal(recoveredStore.getCommitReconciliation(fixture.taskId as never)?.state, "reconciled");
+  });
+}
+
+test("commit recovery fails closed when the persisted resources are no longer authorized", async (t) => {
+  const fixture = await commitRecoveryFixture(t, "checkpoint-persistence", { denyAuthorizationAfterCommit: true });
+  const first = await commitWorkflowTask({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    taskId: fixture.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "commit recovery resource authorization" },
+    nawabari: fixture.nawabari,
+  });
+  assert.equal(first.ok, false, JSON.stringify(first));
+  assert.equal(fixture.commitCalls(), 1);
+  fixture.store.close();
+
+  const recoveredStore = new WorkflowSqliteStateStore({ dbPath: fixture.dbPath });
+  recoveredStore.init();
+  t.after(() => recoveredStore.close());
+  const retry = await commitWorkflowTask({
+    workspaceRoot: fixture.root,
+    store: recoveredStore,
+    taskId: fixture.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "commit recovery resource authorization" },
+    nawabari: fixture.nawabari,
+  });
+  assert.equal(retry.ok, false, JSON.stringify(retry));
+  if (!retry.ok) assert.equal(retry.reason, "commit-result-ambiguous");
+  assert.equal(fixture.commitCalls(), 1);
+  assert.equal(recoveredStore.getCommitReconciliation(fixture.taskId as never)?.state, "ambiguous");
+  assert.equal(recoveredStore.getTask(fixture.taskId as never)?.lifecycleState, "active");
+});
+
+test("commit result SHA remains in diagnostics when result persistence fails, and retry fails closed", async (t) => {
+  const fixture = await commitRecoveryFixture(t, "result-persistence");
+  const first = await commitWorkflowTask({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    taskId: fixture.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "commit recovery result-persistence" },
+    nawabari: fixture.nawabari,
+  });
+  assert.equal(first.ok, false, JSON.stringify(first));
+  assert.equal(fixture.commitCalls(), 1);
+  if (!first.ok) {
+    assert.equal(first.reason, "commit-result-persistence-failed");
+    assert.equal(first.commitId, runGit(["rev-parse", "HEAD"], fixture.worktree));
+    assert.equal(first.recovery?.commitSha, first.commitId);
+  }
+  fixture.store.close();
+
+  const recoveredStore = new WorkflowSqliteStateStore({ dbPath: fixture.dbPath });
+  recoveredStore.init();
+  t.after(() => recoveredStore.close());
+  const retry = await commitWorkflowTask({
+    workspaceRoot: fixture.root,
+    store: recoveredStore,
+    taskId: fixture.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "commit recovery result-persistence" },
+    nawabari: fixture.nawabari,
+  });
+  assert.equal(retry.ok, false, JSON.stringify(retry));
+  if (!retry.ok) assert.equal(retry.reason, "commit-result-ambiguous");
+  assert.equal(fixture.commitCalls(), 1);
+  assert.equal(recoveredStore.getCommitReconciliation(fixture.taskId as never)?.state, "ambiguous");
+  assert.equal(recoveredStore.getTask(fixture.taskId as never)?.lifecycleState, "active");
+});
+
+test("commit recovery fails closed when an advanced HEAD cannot be proven to be the intended result", async (t) => {
+  const fixture = await commitRecoveryFixture(t, "result-persistence");
+  const task = fixture.store.getTask(fixture.taskId as never);
+  assert.notEqual(task, undefined);
+  const beforeCommit = runGit(["rev-parse", "HEAD"], fixture.worktree);
+  fixture.store.beginCommitReconciliation({
+    taskId: fixture.taskId as never,
+    instanceId: task!.instanceId,
+    nawabariSessionId: "commit-boundary-session" as never,
+    branchName: runGit(["branch", "--show-current"], fixture.worktree),
+    beforeCommit,
+    resources: ["file.txt"],
+    message: "intended commit",
+  });
+  runGit(["commit", "--quiet", "-am", "unrelated commit"], fixture.worktree);
+
+  const result = await commitWorkflowTask({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    taskId: fixture.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "intended commit" },
+    nawabari: fixture.nawabari,
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.reason, "commit-result-ambiguous");
+  assert.equal(fixture.commitCalls(), 0);
+  assert.equal(fixture.store.getCommitReconciliation(fixture.taskId as never)?.state, "ambiguous");
+  assert.equal(fixture.store.getTask(fixture.taskId as never)?.lifecycleState, "active");
 });
 
 test("legacy task rows cannot fall back to the retired Mottainai commit executor", async (t) => {

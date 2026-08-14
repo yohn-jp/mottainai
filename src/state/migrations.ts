@@ -539,6 +539,33 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 19,
+    description: "workflow: durable Nawabari commit reconciliation records",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE commit_reconciliations (
+          task_id TEXT PRIMARY KEY,
+          instance_id TEXT NOT NULL,
+          nawabari_session_id TEXT NOT NULL,
+          branch_name TEXT NOT NULL,
+          before_commit TEXT NOT NULL,
+          resources_json TEXT NOT NULL,
+          message TEXT NOT NULL,
+          state TEXT NOT NULL CHECK (state IN ('not-attempted', 'succeeded', 'ambiguous', 'reconciled')),
+          commit_sha TEXT,
+          detail TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          FOREIGN KEY (task_id, instance_id) REFERENCES tasks (task_id, instance_id) ON DELETE CASCADE
+        );
+        CREATE UNIQUE INDEX idx_commit_reconciliation_session
+          ON commit_reconciliations (nawabari_session_id);
+        CREATE INDEX idx_commit_reconciliation_instance
+          ON commit_reconciliations (instance_id, state, updated_at DESC);
+      `);
+    },
+  },
 ];
 
 function appliedVersions(db: DatabaseSync): Set<number> {
