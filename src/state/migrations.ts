@@ -506,6 +506,39 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 18,
+    description: "workflow: durable Nawabari push reconciliation evidence",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE push_reconciliations (
+          operation_id TEXT PRIMARY KEY,
+          task_id TEXT NOT NULL,
+          instance_id TEXT NOT NULL,
+          nawabari_session_id TEXT NOT NULL,
+          source_commit TEXT NOT NULL,
+          remote TEXT NOT NULL,
+          target_branch TEXT NOT NULL,
+          target_ref TEXT NOT NULL,
+          force_requested INTEGER NOT NULL,
+          create_upstream INTEGER NOT NULL,
+          state TEXT NOT NULL CHECK (state IN ('prepared', 'attempting', 'succeeded', 'ambiguous', 'reconciled')),
+          observed_remote_sha TEXT,
+          recovery_observed_remote_sha TEXT,
+          result_remote_sha TEXT,
+          relation TEXT,
+          evidence_complete INTEGER NOT NULL DEFAULT 0,
+          detail TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          FOREIGN KEY (task_id, instance_id) REFERENCES tasks (task_id, instance_id) ON DELETE CASCADE
+        );
+        CREATE UNIQUE INDEX idx_push_reconciliations_task ON push_reconciliations (task_id);
+        CREATE INDEX idx_push_reconciliations_instance_state
+          ON push_reconciliations (instance_id, state, updated_at DESC);
+      `);
+    },
+  },
 ];
 
 function appliedVersions(db: DatabaseSync): Set<number> {

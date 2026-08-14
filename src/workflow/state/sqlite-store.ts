@@ -25,6 +25,10 @@ import type {
   ReserveTaskInput,
   ReserveTaskResult,
   BeginTaskStartReconciliationInput,
+  BeginPushReconciliationInput,
+  PushReconciliationRecord,
+  PushReconciliationState,
+  RecordPushResultInput,
   ReserveWorktreeInput,
   ReserveWorktreeResult,
   RecordValidationEvidenceInput,
@@ -148,6 +152,46 @@ function toTaskStartReconciliationRecord(row: Record<string, unknown>): TaskStar
     createdAt: row.created_at as number,
     updatedAt: row.updated_at as number,
   };
+}
+
+function toPushReconciliationRecord(row: Record<string, unknown>): PushReconciliationRecord {
+  return {
+    operationId: row.operation_id as string,
+    taskId: row.task_id as TaskId,
+    instanceId: row.instance_id as RepositoryInstanceId,
+    nawabariSessionId: row.nawabari_session_id as PushReconciliationRecord["nawabariSessionId"],
+    sourceCommit: row.source_commit as string,
+    remote: row.remote as string,
+    targetBranch: row.target_branch as string,
+    targetRef: row.target_ref as string,
+    forceRequested: (row.force_requested as number) === 1,
+    createUpstream: (row.create_upstream as number) === 1,
+    state: row.state as PushReconciliationState,
+    ...(row.observed_remote_sha === null || row.observed_remote_sha === undefined
+      ? {}
+      : { observedRemoteSha: row.observed_remote_sha as string }),
+    ...(row.recovery_observed_remote_sha === null || row.recovery_observed_remote_sha === undefined
+      ? {}
+      : { recoveryObservedRemoteSha: row.recovery_observed_remote_sha as string }),
+    ...(row.result_remote_sha === null || row.result_remote_sha === undefined
+      ? {}
+      : { resultRemoteSha: row.result_remote_sha as string }),
+    ...(row.relation === null || row.relation === undefined ? {} : { relation: row.relation as string }),
+    evidenceComplete: (row.evidence_complete as number) === 1,
+    ...(row.detail === null || row.detail === undefined ? {} : { detail: row.detail as string }),
+    createdAt: row.created_at as number,
+    updatedAt: row.updated_at as number,
+  };
+}
+
+function assertPushIdentity(existing: PushReconciliationRecord, input: RecordPushResultInput): void {
+  const mismatches = [
+    existing.sourceCommit !== input.sourceCommit ? "source commit" : undefined,
+    existing.remote !== input.remote ? "remote" : undefined,
+    existing.targetBranch !== input.targetBranch ? "target branch" : undefined,
+    existing.targetRef !== input.targetRef ? "target ref" : undefined,
+  ].filter((value): value is string => value !== undefined);
+  if (mismatches.length > 0) throw new Error(`push reconciliation identity mismatch: ${mismatches.join(", ")}`);
 }
 
 function toCleanupLeaseRecord(row: Record<string, unknown>): CleanupLeaseRecord {
@@ -863,6 +907,141 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       | Record<string, unknown>
       | undefined;
     return row === undefined ? undefined : toTaskStartReconciliationRecord(row);
+  }
+
+  beginPushReconciliation(input: BeginPushReconciliationInput): PushReconciliationRecord {
+    const db = this.handle();
+    const now = input.createdAt ?? Date.now();
+    const existing = this.getPushReconciliation(input.taskId);
+    if (existing !== undefined) {
+      const mismatches = [
+        existing.instanceId !== input.instanceId ? "instance" : undefined,
+        existing.nawabariSessionId !== input.nawabariSessionId ? "Nawabari session" : undefined,
+        existing.sourceCommit !== input.sourceCommit ? "source commit" : undefined,
+        existing.remote !== input.remote ? "remote" : undefined,
+        existing.targetBranch !== input.targetBranch ? "target branch" : undefined,
+        existing.targetRef !== input.targetRef ? "target ref" : undefined,
+      ].filter((value): value is string => value !== undefined);
+      if (mismatches.length > 0) throw new Error(`push reconciliation identity mismatch: ${mismatches.join(", ")}`);
+      return existing;
+    }
+
+    const operationId = crypto.randomUUID();
+    db.prepare(
+      `INSERT INTO push_reconciliations
+       (operation_id, task_id, instance_id, nawabari_session_id, source_commit, remote, target_branch, target_ref,
+        force_requested, create_upstream, state, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', ?, ?)`,
+    ).run(
+      operationId,
+      input.taskId,
+      input.instanceId,
+      input.nawabariSessionId,
+      input.sourceCommit,
+      input.remote,
+      input.targetBranch,
+      input.targetRef,
+      input.forceRequested ? 1 : 0,
+      input.createUpstream ? 1 : 0,
+      now,
+      now,
+    );
+    return this.getPushReconciliation(input.taskId)!;
+  }
+
+  markPushAttempting(taskId: TaskId, updatedAt?: number): PushReconciliationRecord {
+    const db = this.handle();
+    const now = updatedAt ?? Date.now();
+    const result = db
+      .prepare(
+        "UPDATE push_reconciliations SET state = 'attempting', updated_at = ? WHERE task_id = ? AND state = 'prepared'",
+      )
+      .run(now, taskId);
+    if (result.changes === 0) {
+      const existing = this.getPushReconciliation(taskId);
+      if (existing === undefined) throw new Error(`push reconciliation not found: ${taskId}`);
+      return existing;
+    }
+    return this.getPushReconciliation(taskId)!;
+  }
+
+  recordPushResult(input: RecordPushResultInput): PushReconciliationRecord {
+    const db = this.handle();
+    const recordedAt = input.recordedAt ?? Date.now();
+    const existing = this.getPushReconciliation(input.taskId);
+    if (existing === undefined) throw new Error(`push reconciliation not found: ${input.taskId}`);
+    assertPushIdentity(existing, input);
+    if (existing.resultRemoteSha !== undefined) {
+      if (input.recoveryObservedRemoteSha !== undefined) {
+        db.prepare(
+          `UPDATE push_reconciliations
+           SET recovery_observed_remote_sha = ?, updated_at = ?
+           WHERE task_id = ?`,
+        ).run(input.recoveryObservedRemoteSha, recordedAt, input.taskId);
+        return this.getPushReconciliation(input.taskId)!;
+      }
+      if (
+        existing.resultRemoteSha !== input.resultRemoteSha ||
+        existing.observedRemoteSha !== input.observedRemoteSha ||
+        existing.relation !== input.relation
+      )
+        throw new Error(`push reconciliation result mismatch: ${input.taskId}`);
+      return existing;
+    }
+    db.prepare(
+      `UPDATE push_reconciliations
+           SET state = 'succeeded', observed_remote_sha = ?, result_remote_sha = ?, relation = ?, evidence_complete = ?, updated_at = ?
+           WHERE task_id = ? AND result_remote_sha IS NULL`,
+    ).run(
+      input.observedRemoteSha ?? null,
+      input.resultRemoteSha,
+      input.relation,
+      input.evidenceComplete ? 1 : 0,
+      recordedAt,
+      input.taskId,
+    );
+    return this.getPushReconciliation(input.taskId)!;
+  }
+
+  markPushAmbiguous(taskId: TaskId, detail: string, updatedAt?: number): PushReconciliationRecord {
+    const now = updatedAt ?? Date.now();
+    const bounded = detail.slice(0, 512);
+    const result = this.handle()
+      .prepare(
+        `UPDATE push_reconciliations SET state = 'ambiguous', detail = ?, updated_at = ?
+         WHERE task_id = ? AND state != 'reconciled'`,
+      )
+      .run(bounded, now, taskId);
+    if (result.changes === 0) {
+      const existing = this.getPushReconciliation(taskId);
+      if (existing === undefined) throw new Error(`push reconciliation not found: ${taskId}`);
+      return existing;
+    }
+    return this.getPushReconciliation(taskId)!;
+  }
+
+  markPushReconciled(taskId: TaskId, updatedAt?: number): PushReconciliationRecord {
+    const now = updatedAt ?? Date.now();
+    const result = this.handle()
+      .prepare(
+        `UPDATE push_reconciliations SET state = 'reconciled', detail = NULL, updated_at = ?
+         WHERE task_id = ? AND state IN ('succeeded', 'ambiguous')
+           AND result_remote_sha IS NOT NULL AND evidence_complete = 1`,
+      )
+      .run(now, taskId);
+    if (result.changes === 0) {
+      const existing = this.getPushReconciliation(taskId);
+      if (existing === undefined) throw new Error(`push reconciliation not found: ${taskId}`);
+      return existing;
+    }
+    return this.getPushReconciliation(taskId)!;
+  }
+
+  getPushReconciliation(taskId: TaskId): PushReconciliationRecord | undefined {
+    const row = this.handle().prepare("SELECT * FROM push_reconciliations WHERE task_id = ?").get(taskId) as
+      | Record<string, unknown>
+      | undefined;
+    return row === undefined ? undefined : toPushReconciliationRecord(row);
   }
 
   reserveWorktree(input: ReserveWorktreeInput): ReserveWorktreeResult {
