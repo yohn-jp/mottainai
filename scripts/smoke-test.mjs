@@ -160,6 +160,12 @@ function main() {
     if (initSummary.ok !== true) fail(`init summary.ok was not true: ${JSON.stringify(initSummary)}`);
     if (!fs.existsSync(configPath)) fail(`init did not write configuration file at ${configPath}`);
 
+    console.log("running packed Mottainai gh-inari companion smoke...");
+    run(process.execPath, ["scripts/gh-inari-package-smoke.mjs", installedPackageDirectory], {
+      cwd: repoRoot,
+      env: process.env,
+    });
+
     console.log("running bare invocation without a configuration...");
     const missingConfigPath = path.join(installDirectory, "missing.config.json");
     const bareResult = spawnSync(process.execPath, [primaryBin], {

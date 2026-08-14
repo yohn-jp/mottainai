@@ -16,6 +16,8 @@ import {
 import type { ReadGovernorMode, ReadGovernorPolicy } from "./context-runtime/read-policy.js";
 import { normalizeToolMetadataOverride, RISK_VALUES } from "./adaptive/metadata.js";
 import type { ToolMetadataOverride } from "./adaptive/metadata.js";
+import { DEFAULT_GH_INARI_CONFIG, resolveGhInariConfig } from "./gh-inari.js";
+import type { GhInariConfig, ResolvedGhInariConfig } from "./gh-inari.js";
 
 export interface OAuthAuthConfig {
   type: "oauth";
@@ -154,6 +156,8 @@ export interface GatewayConfig {
   workflowTasks?: boolean;
   /** await/watch primitive（Issue #74）の polling 上限。agent は間隔を指定できず、ここが唯一の制御点。 */
   await?: AwaitPolicyConfig;
+  /** Mottainai-managed GitHub mutationsで利用する外部gh-inari companionの実行境界。 */
+  ghInari?: GhInariConfig;
 }
 
 export interface AwaitPolicyConfig {
@@ -182,6 +186,8 @@ export interface ResolvedGatewayConfig {
   /** 設定省略時は observe、手書きfixture互換のためoptional型。 */
   readGovernor?: ReadGovernorPolicy;
   burstBudget: BurstBudgetPolicy;
+  /** 設定を手書きする既存fixtureとの互換性のためoptional。resolveGatewayConfigでは必ず解決する。 */
+  ghInari?: ResolvedGhInariConfig;
   worktree?: ResolvedWorktreeConfig;
   workflowTasks: boolean;
   await: AwaitPolicy;
@@ -207,6 +213,7 @@ const DEFAULT_GATEWAY_CONFIG: Omit<ResolvedGatewayConfig, "workspaceRoot"> = {
   responseBudget: { softTokens: 1_500, hardTokens: 3_000, hardBytes: 12_000 },
   readGovernor: DEFAULT_READ_GOVERNOR_POLICY,
   burstBudget: DEFAULT_BURST_BUDGET_POLICY,
+  ghInari: DEFAULT_GH_INARI_CONFIG,
   workflowTasks: false,
   await: DEFAULT_AWAIT_POLICY,
 };
@@ -240,6 +247,7 @@ export function resolveGatewayConfig(
     responseBudget: resolveResponseBudget(config?.responseBudget),
     readGovernor: resolveReadGovernorPolicy(config?.readGovernor),
     burstBudget: resolveBurstBudgetPolicy(config?.burstBudget),
+    ghInari: resolveGhInariConfig(config?.ghInari),
     worktree: resolveWorktreeConfig(config?.worktree),
     workflowTasks: config?.workflowTasks === true,
     await: resolveAwaitPolicy(config?.await),
@@ -400,6 +408,18 @@ function normalizeGateway(value: unknown): GatewayConfig | undefined {
     worktree: worktreeConfig(value.worktree, "invalid gateway worktree"),
     workflowTasks: optionalBoolean(value.workflowTasks, "invalid gateway workflowTasks"),
     await: awaitPolicyConfig(value.await, "invalid gateway await"),
+    ghInari: ghInariConfig(value.ghInari, "invalid gateway ghInari"),
+  };
+}
+
+function ghInariConfig(value: unknown, field: string): GhInariConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error(field);
+  return {
+    command: optionalString(value.command, `${field}.command`),
+    timeoutMs: positiveIntegerConfig(value.timeoutMs, `${field}.timeoutMs`),
+    maxOutputBytes: positiveIntegerConfig(value.maxOutputBytes, `${field}.maxOutputBytes`),
+    maxInputBytes: positiveIntegerConfig(value.maxInputBytes, `${field}.maxInputBytes`),
   };
 }
 
