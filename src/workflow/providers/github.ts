@@ -71,7 +71,7 @@ interface JsonRecord {
   [key: string]: unknown;
 }
 
-export interface GithubCreatePullRequestInput {
+export interface PullRequestCreateInput {
   repository: RepositoryIdentity;
   title: string;
   head: RevisionIdentity;
@@ -79,6 +79,31 @@ export interface GithubCreatePullRequestInput {
   draft: PullRequestBodyDraft;
   policy?: PullRequestRenderPolicy | WorkflowPolicyDocument["pullRequest"];
   providerDraft?: boolean;
+}
+
+/** Backward-compatible name for callers of the direct GitHub adapter. */
+export type GithubCreatePullRequestInput = PullRequestCreateInput;
+
+/**
+ * Provider-neutral identity used to reconcile a PR-create intent before another
+ * external mutation is attempted. The head revision is immutable evidence;
+ * the base revision is intentionally observational because a base branch may
+ * advance after the PR was created.
+ */
+export interface PullRequestLookupInput {
+  repository: RepositoryIdentity;
+  head: RevisionIdentity;
+  base: RevisionIdentity;
+}
+
+/**
+ * The orchestration layer depends on this capability contract rather than on
+ * a transport. The direct GitHub adapter and the future gh-inari adapter can
+ * both preserve the same create/reconcile intent identity.
+ */
+export interface PullRequestCreateAdapter {
+  findPullRequests(input: PullRequestLookupInput): Promise<GithubResult<PullRequest[]>>;
+  openPullRequest(input: PullRequestCreateInput): Promise<GithubResult<PullRequest>>;
 }
 
 function asRecord(value: unknown): JsonRecord | undefined {
@@ -270,7 +295,7 @@ function parseGithubPullRequestRecord(
 
 function parseCreatePullRequestOutput(
   stdout: string,
-  input: GithubCreatePullRequestInput,
+  input: PullRequestCreateInput,
 ): { ok: true; pullRequest: PullRequest } | { ok: false; reason: string } {
   const trimmed = stdout.trim();
   const parsedJson = parseJson(trimmed);
@@ -317,6 +342,31 @@ function parseCreatePullRequestOutput(
       base: input.base,
     },
   };
+}
+
+function parsePullRequestListOutput(
+  stdout: string,
+  repository: RepositoryIdentity,
+): { ok: true; pullRequests: PullRequest[] } | { ok: false; reason: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return { ok: false, reason: "unparsable JSON output" };
+  }
+  if (!Array.isArray(parsed)) return { ok: false, reason: "pull-request list output must be an array" };
+
+  const pullRequests: PullRequest[] = [];
+  for (const [index, value] of parsed.entries()) {
+    const record = asRecord(value);
+    if (record === undefined) return { ok: false, reason: `pull request at index ${index} is not an object` };
+    const parsedPullRequest = parseGithubPullRequestRecord(record, repository);
+    if (!parsedPullRequest.ok) {
+      return { ok: false, reason: `pull request at index ${index}: ${parsedPullRequest.reason}` };
+    }
+    pullRequests.push(parsedPullRequest.pullRequest);
+  }
+  return { ok: true, pullRequests };
 }
 
 function repositoryArgument(repository: RepositoryIdentity): string | undefined {
@@ -565,7 +615,72 @@ export class GithubAdapter {
     return { ok: true, value: parsed.pullRequest, attempts: command.attempts };
   }
 
-  async openPullRequest(input: GithubCreatePullRequestInput): Promise<GithubResult<PullRequest>> {
+  async findPullRequests(input: PullRequestLookupInput): Promise<GithubResult<PullRequest[]>> {
+    const repositoryFlag = repositoryArgument(input.repository);
+    if (repositoryFlag === undefined) {
+      return {
+        ok: false,
+        error: {
+          provider: GITHUB_PROVIDER,
+          operation: "pull-request-list",
+          code: "invalid-input",
+          message:
+            "pull-request reconciliation requires an explicit GitHub owner/name; refusing to fall back to the cwd repository",
+          retryable: false,
+          attempts: 0,
+        },
+      };
+    }
+    if (input.head.name.trim().length === 0 || input.base.name.trim().length === 0) {
+      return {
+        ok: false,
+        error: {
+          provider: GITHUB_PROVIDER,
+          operation: "pull-request-list",
+          code: "invalid-input",
+          message: "head and base names must not be empty",
+          retryable: false,
+          attempts: 0,
+        },
+      };
+    }
+
+    const args = [
+      "pr",
+      "list",
+      "--state",
+      "all",
+      "--head",
+      input.head.name,
+      "--base",
+      input.base.name,
+      "--json",
+      "number,state,isDraft,mergedAt,url,headRefName,headRefOid,baseRefName,baseRefOid,repository",
+      "--limit",
+      "100",
+      "--repo",
+      repositoryFlag,
+    ];
+    const command = await this.runGh(args, "pull-request-list", true);
+    if (!command.ok) return command;
+    const parsed = parsePullRequestListOutput(command.stdout, input.repository);
+    if (!parsed.ok) {
+      return {
+        ok: false,
+        error: {
+          provider: GITHUB_PROVIDER,
+          operation: "pull-request-list",
+          code: parsed.reason === "unparsable JSON output" ? "malformed-json" : "invalid-response",
+          message: parsed.reason,
+          retryable: false,
+          attempts: command.attempts,
+        },
+      };
+    }
+    return { ok: true, value: parsed.pullRequests, attempts: command.attempts };
+  }
+
+  async openPullRequest(input: PullRequestCreateInput): Promise<GithubResult<PullRequest>> {
     if (input.repository.provider !== GITHUB_PROVIDER || input.repository.id.length === 0) {
       return {
         ok: false,
@@ -677,6 +792,7 @@ export type WorkflowPullRequestFailureReason =
   | "render-rejected"
   | "head-sha-required"
   | "provider-failed"
+  | "ambiguous-provider-result"
   | "local-state-write-failed";
 
 export type WorkflowPullRequestResult =
@@ -698,7 +814,7 @@ export type WorkflowPullRequestResult =
     };
 
 export interface OpenWorkflowPullRequestInput {
-  adapter: GithubAdapter;
+  adapter: PullRequestCreateAdapter;
   store: WorkflowStateStore;
   taskId: TaskId;
   policy: WorkflowPolicyDocument;
@@ -738,27 +854,62 @@ function pullRequestFromRecord(
   };
 }
 
+function isExactPullRequestMatch(
+  pullRequest: PullRequest,
+  repository: RepositoryIdentity,
+  head: RevisionIdentity,
+  base: RevisionIdentity,
+): boolean {
+  return (
+    pullRequest.repository.provider === repository.provider &&
+    pullRequest.repository.id === repository.id &&
+    pullRequest.head.name === head.name &&
+    pullRequest.head.revision === head.revision &&
+    pullRequest.base.name === base.name
+  );
+}
+
 export async function openWorkflowPullRequest(input: OpenWorkflowPullRequestInput): Promise<WorkflowPullRequestResult> {
   const task = input.store.getTask(input.taskId);
   if (task === undefined) return { ok: false, reason: "task-not-found", detail: `task not found: ${input.taskId}` };
 
   const existingRecords = input.store.listPullRequestRecordsForTask(input.taskId);
+  if (existingRecords.length > 1) {
+    return {
+      ok: false,
+      reason: "ambiguous-provider-result",
+      detail: "multiple pull-request records exist for the task; refusing to select one heuristically",
+    };
+  }
   const existing = existingRecords[0];
   if (existing !== undefined) {
     if (
       (existing.instanceId !== undefined && existing.instanceId !== task.instanceId) ||
       existing.provider !== GITHUB_PROVIDER ||
-      existing.repositoryId !== input.repository.id
+      existing.repositoryId !== input.repository.id ||
+      input.base.name !== task.baseBranch ||
+      input.head.revision === undefined ||
+      existing.headSha !== input.head.revision
     ) {
       return {
         ok: false,
-        reason: "local-state-write-failed",
-        detail: "existing pull-request record does not match the requested repository identity",
+        reason: "ambiguous-provider-result",
+        detail: "existing pull-request record does not match the requested task/repository/head identity",
       };
     }
     let reconciledTask = task;
     if (task.lifecycleState === "pushed") {
-      const reconciled = transitionTask(input.store, input.taskId, "pull-request-open");
+      let reconciled: ReturnType<typeof transitionTask>;
+      try {
+        reconciled = transitionTask(input.store, input.taskId, "pull-request-open");
+      } catch (error) {
+        return {
+          ok: false,
+          reason: "local-state-write-failed",
+          detail: error instanceof Error ? error.message : String(error),
+          providerCreated: true,
+        };
+      }
       if (reconciled.ok) reconciledTask = reconciled.task;
     }
     return {
@@ -774,6 +925,13 @@ export async function openWorkflowPullRequest(input: OpenWorkflowPullRequestInpu
   const transition = validateTransition(task.lifecycleState, "pull-request-open");
   if (!transition.allowed) {
     return { ok: false, reason: "lifecycle-blocked", detail: transition.blocked.blockingRule };
+  }
+  if (input.base.name.trim().length === 0 || input.base.name !== task.baseBranch) {
+    return {
+      ok: false,
+      reason: "ambiguous-provider-result",
+      detail: "requested base branch does not match the task's stable PR-create identity",
+    };
   }
   const rendered = renderPullRequestBody(input.draft, input.policy.pullRequest);
   if (!rendered.ok)
@@ -791,23 +949,63 @@ export async function openWorkflowPullRequest(input: OpenWorkflowPullRequestInpu
     };
   }
 
-  const provider = await input.adapter.openPullRequest({
+  const observed = await input.adapter.findPullRequests({
     repository: input.repository,
-    title: input.title,
     head: input.head,
     base: input.base,
-    draft: input.draft,
-    policy: input.policy.pullRequest,
-    providerDraft: input.providerDraft,
   });
+  if (!observed.ok)
+    return { ok: false, reason: "provider-failed", detail: observed.error.message, provider: observed.error };
+
+  let provider: GithubResult<PullRequest>;
+  let reused = false;
+  if (observed.value.length > 1) {
+    return {
+      ok: false,
+      reason: "ambiguous-provider-result",
+      detail:
+        "multiple pull requests match the requested repository/head/base query; refusing to select one heuristically",
+    };
+  }
+  if (observed.value.length === 1) {
+    const candidate = observed.value[0];
+    if (candidate === undefined || !isExactPullRequestMatch(candidate, input.repository, input.head, input.base)) {
+      return {
+        ok: false,
+        reason: "ambiguous-provider-result",
+        detail: "the provider returned a conflicting pull request for the requested repository/head/base identity",
+      };
+    }
+    provider = { ok: true, value: candidate, attempts: observed.attempts };
+    reused = true;
+  } else {
+    provider = await input.adapter.openPullRequest({
+      repository: input.repository,
+      title: input.title,
+      head: input.head,
+      base: input.base,
+      draft: input.draft,
+      policy: input.policy.pullRequest,
+      providerDraft: input.providerDraft,
+    });
+  }
   if (!provider.ok) {
     return { ok: false, reason: "provider-failed", detail: provider.error.message, provider: provider.error };
   }
-  if (provider.value.head.revision === undefined) {
+  if (!isExactPullRequestMatch(provider.value, input.repository, input.head, input.base)) {
     return {
       ok: false,
-      reason: "local-state-write-failed",
-      detail: "provider succeeded without the metadata required for local state",
+      reason: "ambiguous-provider-result",
+      detail: "provider returned a pull request that does not match the requested repository/head/base identity",
+      providerCreated: true,
+    };
+  }
+  const headSha = provider.value.head.revision;
+  if (headSha === undefined) {
+    return {
+      ok: false,
+      reason: "ambiguous-provider-result",
+      detail: "provider succeeded without immutable head revision evidence",
       providerCreated: true,
     };
   }
@@ -819,7 +1017,7 @@ export async function openWorkflowPullRequest(input: OpenWorkflowPullRequestInpu
     repositoryId: provider.value.repository.id,
     prNumber: provider.value.number,
     url: provider.value.url,
-    headSha: provider.value.head.revision,
+    headSha,
     lifecycleState: provider.value.lifecycleState,
   };
   let record: PullRequestRecord;
@@ -834,7 +1032,17 @@ export async function openWorkflowPullRequest(input: OpenWorkflowPullRequestInpu
     };
   }
 
-  const transitioned = transitionTask(input.store, input.taskId, "pull-request-open");
+  let transitioned: ReturnType<typeof transitionTask>;
+  try {
+    transitioned = transitionTask(input.store, input.taskId, "pull-request-open");
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "local-state-write-failed",
+      detail: error instanceof Error ? error.message : String(error),
+      providerCreated: true,
+    };
+  }
   if (!transitioned.ok) {
     return {
       ok: false,
@@ -849,6 +1057,6 @@ export async function openWorkflowPullRequest(input: OpenWorkflowPullRequestInpu
     record,
     task: transitioned.task,
     renderedBody: rendered.body,
-    reused: false,
+    reused,
   };
 }

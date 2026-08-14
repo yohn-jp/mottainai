@@ -1,5 +1,8 @@
+import fs from "node:fs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import os from "node:os";
+import path from "node:path";
 import { getPreset } from "../policy/presets.js";
 import { GithubAdapter, openWorkflowPullRequest, type RunProgramFunction } from "./github.js";
 import type { RunResult } from "../../subprocess.js";
@@ -27,6 +30,39 @@ function issueJson(): string {
       url: "https://github.com/org/repository",
     },
   });
+}
+
+function pullRequestListJson(
+  overrides: Partial<{
+    number: number;
+    state: string;
+    isDraft: boolean;
+    mergedAt: string | null;
+    headRefName: string;
+    headRefOid: string;
+    baseRefName: string;
+    baseRefOid: string;
+  }> = {},
+): string {
+  return JSON.stringify([
+    {
+      number: 36,
+      state: "OPEN",
+      isDraft: false,
+      mergedAt: null,
+      url: "https://github.com/org/repository/pull/36",
+      headRefName: "feature/36",
+      headRefOid: "abc123",
+      baseRefName: "main",
+      baseRefOid: "base",
+      repository: {
+        name: "repository",
+        nameWithOwner: "org/repository",
+        url: "https://github.com/org/repository",
+      },
+      ...overrides,
+    },
+  ]);
 }
 
 function adapterWith(sequence: RunResult[], calls: string[][] = []): GithubAdapter {
@@ -117,8 +153,38 @@ test("PR creation refuses to fall back to the cwd repository when the identity i
   assert.equal(calls.length, 0, "gh pr create must not run without an explicit --repo target");
 });
 
-function pushedTaskStore(): { store: WorkflowSqliteStateStore; taskId: string & { readonly __brand: "TaskId" } } {
-  const store = new WorkflowSqliteStateStore({ dbPath: ":memory:" });
+test("PR lookup requests all states and parses provider-neutral identity", async () => {
+  const calls: string[][] = [];
+  const adapter = adapterWith([runResult(pullRequestListJson())], calls);
+  const result = await adapter.findPullRequests({
+    repository: { provider: "github", id: "org/repository", namespace: "org", name: "repository" },
+    head: { name: "feature/36", revision: "abc123" },
+    base: { name: "main", revision: "base" },
+  });
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.value.length, 1);
+    assert.equal(result.value[0]?.head.revision, "abc123");
+    assert.equal(result.value[0]?.base.name, "main");
+  }
+  assert.deepEqual(calls[0]?.slice(0, 9), [
+    "pr",
+    "list",
+    "--state",
+    "all",
+    "--head",
+    "feature/36",
+    "--base",
+    "main",
+    "--json",
+  ]);
+});
+
+function pushedTaskStore(dbPath = ":memory:"): {
+  store: WorkflowSqliteStateStore;
+  taskId: string & { readonly __brand: "TaskId" };
+} {
+  const store = new WorkflowSqliteStateStore({ dbPath });
   store.init();
   store.observeRepositoryInstance({
     rootCommitDigest: "digest" as RootCommitDigest,
@@ -178,7 +244,7 @@ function workflowInput(
 test("provider success writes PR metadata and transitions the task", async () => {
   const { store, taskId } = pushedTaskStore();
   try {
-    const adapter = adapterWith([runResult("https://github.com/org/repository/pull/36")]);
+    const adapter = adapterWith([runResult("[]"), runResult("https://github.com/org/repository/pull/36")]);
     const result = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
     assert.equal(result.ok, true);
     if (result.ok) {
@@ -186,6 +252,166 @@ test("provider success writes PR metadata and transitions the task", async () =>
       assert.equal(result.task.lifecycleState, "pull-request-open");
       assert.equal(store.listPullRequestRecordsForTask(taskId).length, 1);
     }
+  } finally {
+    store.close();
+  }
+});
+
+test("retry after provider success and PR-row persistence failure reconciles without a second create", async () => {
+  const { store, taskId } = pushedTaskStore();
+  try {
+    const calls: string[][] = [];
+    const adapter = adapterWith(
+      [runResult("[]"), runResult("https://github.com/org/repository/pull/36"), runResult(pullRequestListJson())],
+      calls,
+    );
+    const recordPullRequest = store.recordPullRequest.bind(store);
+    let failPersistence = true;
+    store.recordPullRequest = ((input) => {
+      if (failPersistence) {
+        failPersistence = false;
+        throw new Error("simulated PR-row persistence failure");
+      }
+      return recordPullRequest(input);
+    }) as typeof store.recordPullRequest;
+
+    const first = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
+    assert.equal(first.ok, false);
+    if (!first.ok) {
+      assert.equal(first.reason, "local-state-write-failed");
+      assert.equal(first.providerCreated, true);
+    }
+    assert.deepEqual(store.listPullRequestRecordsForTask(taskId), []);
+
+    const recovered = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
+    assert.equal(recovered.ok, true);
+    if (recovered.ok) {
+      assert.equal(recovered.reused, true);
+      assert.equal(recovered.record.prNumber, 36);
+    }
+    assert.equal(calls.filter((args) => args[0] === "pr" && args[1] === "create").length, 1);
+  } finally {
+    store.close();
+  }
+});
+
+test("process restart reconciles the remote PR after provider success and missing local persistence", async () => {
+  const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-pr-reconciliation-"));
+  const dbPath = path.join(temporaryDirectory, "state.sqlite");
+  let firstStore: WorkflowSqliteStateStore | undefined;
+  let restartedStore: WorkflowSqliteStateStore | undefined;
+  try {
+    const first = pushedTaskStore(dbPath);
+    firstStore = first.store;
+    const calls: string[][] = [];
+    const adapter = adapterWith(
+      [runResult("[]"), runResult("https://github.com/org/repository/pull/36"), runResult(pullRequestListJson())],
+      calls,
+    );
+    firstStore.recordPullRequest = (() => {
+      throw new Error("simulated process failure after provider success");
+    }) as typeof firstStore.recordPullRequest;
+
+    const attempted = await openWorkflowPullRequest(workflowInput(firstStore, first.taskId, adapter));
+    assert.equal(attempted.ok, false);
+    if (!attempted.ok) assert.equal(attempted.providerCreated, true);
+    assert.deepEqual(firstStore.listPullRequestRecordsForTask(first.taskId), []);
+
+    firstStore.close();
+    firstStore = undefined;
+    restartedStore = new WorkflowSqliteStateStore({ dbPath });
+    restartedStore.init();
+    const recovered = await openWorkflowPullRequest(workflowInput(restartedStore, first.taskId, adapter));
+    assert.equal(recovered.ok, true);
+    if (recovered.ok) assert.equal(recovered.reused, true);
+    assert.equal(restartedStore.getTask(first.taskId)?.lifecycleState, "pull-request-open");
+    assert.equal(restartedStore.listPullRequestRecordsForTask(first.taskId).length, 1);
+    assert.equal(calls.filter((args) => args[0] === "pr" && args[1] === "create").length, 1);
+  } finally {
+    firstStore?.close();
+    restartedStore?.close();
+    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("exact remote candidate is recorded without creating a duplicate", async () => {
+  const { store, taskId } = pushedTaskStore();
+  try {
+    const calls: string[][] = [];
+    const adapter = adapterWith([runResult(pullRequestListJson())], calls);
+    const result = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.reused, true);
+      assert.equal(result.record.prNumber, 36);
+    }
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.[1], "list");
+  } finally {
+    store.close();
+  }
+});
+
+test("multiple remote candidates fail closed without selecting one", async () => {
+  const { store, taskId } = pushedTaskStore();
+  try {
+    const second = pullRequestListJson({ number: 37, headRefName: "feature/36", headRefOid: "abc123" });
+    const candidates = JSON.stringify([...JSON.parse(pullRequestListJson()), ...JSON.parse(second)]);
+    const calls: string[][] = [];
+    const adapter = adapterWith([runResult(candidates)], calls);
+    const result = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.reason, "ambiguous-provider-result");
+    assert.equal(calls.length, 1, "ambiguous candidates must not trigger create");
+    assert.deepEqual(store.listPullRequestRecordsForTask(taskId), []);
+  } finally {
+    store.close();
+  }
+});
+
+test("a conflicting remote candidate fails closed instead of being adopted", async () => {
+  const { store, taskId } = pushedTaskStore();
+  try {
+    const calls: string[][] = [];
+    const adapter = adapterWith([runResult(pullRequestListJson({ headRefOid: "different-sha" }))], calls);
+    const result = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.reason, "ambiguous-provider-result");
+    assert.equal(calls.length, 1, "conflicting candidate must not trigger create");
+  } finally {
+    store.close();
+  }
+});
+
+test("retry after PR-row persistence succeeds but lifecycle persistence fails reuses the recorded PR", async () => {
+  const { store, taskId } = pushedTaskStore();
+  try {
+    const calls: string[][] = [];
+    const adapter = adapterWith([runResult("[]"), runResult("https://github.com/org/repository/pull/36")], calls);
+    const updateTaskLifecycleState = store.updateTaskLifecycleState.bind(store);
+    let failLifecyclePersistence = true;
+    store.updateTaskLifecycleState = ((id, state) => {
+      if (failLifecyclePersistence) {
+        failLifecyclePersistence = false;
+        throw new Error("simulated lifecycle persistence failure");
+      }
+      return updateTaskLifecycleState(id, state);
+    }) as typeof store.updateTaskLifecycleState;
+
+    const first = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
+    assert.equal(first.ok, false);
+    if (!first.ok) {
+      assert.equal(first.reason, "local-state-write-failed");
+      assert.equal(first.providerCreated, true);
+    }
+    assert.equal(store.listPullRequestRecordsForTask(taskId).length, 1);
+    assert.equal(store.getTask(taskId)?.lifecycleState, "pushed");
+
+    const recovered = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
+    assert.equal(recovered.ok, true);
+    if (recovered.ok) assert.equal(recovered.reused, true);
+    assert.equal(store.getTask(taskId)?.lifecycleState, "pull-request-open");
+    assert.equal(calls.filter((args) => args[0] === "pr" && args[1] === "create").length, 1);
   } finally {
     store.close();
   }
