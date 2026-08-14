@@ -29,6 +29,12 @@
       "allowWholeFileBelowLines": 120,
       "preferAuto": true,
       "allowWholeFile": false
+    },
+    "ghInari": {
+      "command": "gh-inari",
+      "timeoutMs": 30000,
+      "maxOutputBytes": 1048576,
+      "maxInputBytes": 1048576
     }
   }
 }

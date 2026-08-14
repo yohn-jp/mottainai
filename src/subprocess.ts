@@ -34,6 +34,20 @@ export function runProgram(
   return runChild(program, args, cwd, timeoutMs, maxOutputBytes, false, undefined, env, boundaries);
 }
 
+/** `runProgram`と同じ境界で、有限のJSON stdinを子プロセスへ渡す。 */
+export function runProgramWithInput(
+  program: string,
+  args: string[],
+  cwd: string,
+  timeoutMs: number,
+  maxOutputBytes: number,
+  input: string,
+  env?: NodeJS.ProcessEnv,
+  boundaries: BoundaryOperations = DIRECT_BOUNDARIES,
+): Promise<RunResult> {
+  return runChild(program, args, cwd, timeoutMs, maxOutputBytes, false, undefined, env, boundaries, input);
+}
+
 export function runChild(
   command: string,
   args: string[],
@@ -44,9 +58,15 @@ export function runChild(
   outputFiles?: OutputFilePaths,
   env?: NodeJS.ProcessEnv,
   boundaries: BoundaryOperations = DIRECT_BOUNDARIES,
+  input?: string,
 ): Promise<RunResult> {
   return new Promise((resolve) => {
-    const spawnOptions: SpawnOptions = { cwd, shell, detached: true, stdio: ["ignore", "pipe", "pipe"] };
+    const spawnOptions: SpawnOptions = {
+      cwd,
+      shell,
+      detached: true,
+      stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+    };
     if (env !== undefined) spawnOptions.env = env;
     let child: ReturnType<typeof spawn>;
     try {
@@ -132,6 +152,7 @@ export function runChild(
       finish({ stdout, stderr, exitCode: null, signal: null, timedOut, outputLimit, spawnError: error.message }),
     );
     child.on("close", (exitCode, signal) => finish({ stdout, stderr, exitCode, signal, timedOut, outputLimit }));
+    if (input !== undefined) child.stdin?.end(input);
     if (outputFiles !== undefined) {
       fileLimitTimer = setInterval(() => {
         void Promise.all([
