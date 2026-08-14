@@ -244,6 +244,29 @@ export interface PushReconciliationRecord {
   updatedAt: number;
 }
 
+/** Durable state for the Nawabari-backed commit boundary. */
+export const COMMIT_RECONCILIATION_STATES = ["not-attempted", "succeeded", "ambiguous", "reconciled"] as const;
+export type CommitReconciliationState = (typeof COMMIT_RECONCILIATION_STATES)[number];
+
+export interface CommitReconciliationRecord {
+  taskId: TaskId;
+  instanceId: RepositoryInstanceId;
+  nawabariSessionId: NawabariSessionId;
+  branchName: string;
+  /** HEAD observed immediately before the external commit request. */
+  beforeCommit: string;
+  /** Exact resource claim sent to Nawabari. */
+  resources: string[];
+  /** Exact rendered commit message sent to Nawabari. */
+  message: string;
+  state: CommitReconciliationState;
+  /** SHA returned by Nawabari after a successful commit. */
+  commitSha?: string;
+  detail?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface BeginPushReconciliationInput {
   taskId: TaskId;
   instanceId: RepositoryInstanceId;
@@ -269,6 +292,17 @@ export interface RecordPushResultInput {
   relation: string;
   evidenceComplete: boolean;
   recordedAt?: number;
+}
+
+export interface BeginCommitReconciliationInput {
+  taskId: TaskId;
+  instanceId: RepositoryInstanceId;
+  nawabariSessionId: NawabariSessionId;
+  branchName: string;
+  beforeCommit: string;
+  resources: readonly string[];
+  message: string;
+  createdAt?: number;
 }
 
 export interface BeginTaskStartReconciliationInput {
@@ -640,6 +674,16 @@ export interface WorkflowStateStore {
   /** Mark the local lifecycle reconciliation complete after identity/evidence checks. */
   markPushReconciled(taskId: TaskId, updatedAt?: number): PushReconciliationRecord;
   getPushReconciliation(taskId: TaskId): PushReconciliationRecord | undefined;
+
+  /** Create or recover the durable intent for one Nawabari-backed commit. */
+  beginCommitReconciliation(input: BeginCommitReconciliationInput): CommitReconciliationRecord;
+  /** Persist the immutable result identity immediately after Nawabari reports success. */
+  recordCommitResult(taskId: TaskId, commitSha: string, updatedAt?: number): CommitReconciliationRecord;
+  /** Mark a commit receipt ambiguous without discarding a known result SHA. */
+  markCommitReconciliationAmbiguous(taskId: TaskId, detail: string, updatedAt?: number): CommitReconciliationRecord;
+  /** Mark the local lifecycle reconciliation complete after result identity verification. */
+  markCommitReconciliationReconciled(taskId: TaskId, updatedAt?: number): CommitReconciliationRecord;
+  getCommitReconciliation(taskId: TaskId): CommitReconciliationRecord | undefined;
 
   /**
    * worktree を `reserved` 状態で予約する。branch_name/canonical_path の一意性は

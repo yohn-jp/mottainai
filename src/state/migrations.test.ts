@@ -72,6 +72,7 @@ test("workflow tables including task-start reconciliation are reachable after mi
     const task = db.prepare("SELECT * FROM tasks WHERE task_id = ?").get("task-1") as { lifecycle_state: string };
     assert.equal(task.lifecycle_state, "planned");
     assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_start_reconciliations'").get());
+    assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'commit_reconciliations'").get());
   } finally {
     db.close();
   }

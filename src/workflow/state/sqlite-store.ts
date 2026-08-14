@@ -29,6 +29,9 @@ import type {
   PushReconciliationRecord,
   PushReconciliationState,
   RecordPushResultInput,
+  BeginCommitReconciliationInput,
+  CommitReconciliationRecord,
+  CommitReconciliationState,
   ReserveWorktreeInput,
   ReserveWorktreeResult,
   RecordValidationEvidenceInput,
@@ -178,6 +181,34 @@ function toPushReconciliationRecord(row: Record<string, unknown>): PushReconcili
       : { resultRemoteSha: row.result_remote_sha as string }),
     ...(row.relation === null || row.relation === undefined ? {} : { relation: row.relation as string }),
     evidenceComplete: (row.evidence_complete as number) === 1,
+    ...(row.detail === null || row.detail === undefined ? {} : { detail: row.detail as string }),
+    createdAt: row.created_at as number,
+    updatedAt: row.updated_at as number,
+  };
+}
+
+function toCommitReconciliationRecord(row: Record<string, unknown>): CommitReconciliationRecord {
+  let resources: string[];
+  try {
+    const parsed: unknown = JSON.parse(String(row.resources_json ?? "[]"));
+    if (!Array.isArray(parsed) || parsed.some((value) => typeof value !== "string"))
+      throw new Error("invalid resource list");
+    resources = [...parsed];
+  } catch (error) {
+    throw new Error(
+      `invalid commit reconciliation resources: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  return {
+    taskId: row.task_id as TaskId,
+    instanceId: row.instance_id as RepositoryInstanceId,
+    nawabariSessionId: row.nawabari_session_id as CommitReconciliationRecord["nawabariSessionId"],
+    branchName: row.branch_name as string,
+    beforeCommit: row.before_commit as string,
+    resources,
+    message: row.message as string,
+    state: row.state as CommitReconciliationState,
+    ...(row.commit_sha === null || row.commit_sha === undefined ? {} : { commitSha: row.commit_sha as string }),
     ...(row.detail === null || row.detail === undefined ? {} : { detail: row.detail as string }),
     createdAt: row.created_at as number,
     updatedAt: row.updated_at as number,
@@ -1042,6 +1073,91 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       | Record<string, unknown>
       | undefined;
     return row === undefined ? undefined : toPushReconciliationRecord(row);
+  }
+
+  beginCommitReconciliation(input: BeginCommitReconciliationInput): CommitReconciliationRecord {
+    const db = this.handle();
+    const now = input.createdAt ?? Date.now();
+    const existing = db.prepare("SELECT * FROM commit_reconciliations WHERE task_id = ?").get(input.taskId) as
+      | Record<string, unknown>
+      | undefined;
+    const resources = [...input.resources];
+    if (existing !== undefined) {
+      const record = toCommitReconciliationRecord(existing);
+      const identityMatches =
+        record.instanceId === input.instanceId &&
+        record.nawabariSessionId === input.nawabariSessionId &&
+        record.branchName === input.branchName &&
+        record.beforeCommit === input.beforeCommit &&
+        record.message === input.message &&
+        record.resources.length === resources.length &&
+        record.resources.every((resource, index) => resource === resources[index]);
+      if (!identityMatches) throw new Error(`commit reconciliation identity mismatch: ${input.taskId}`);
+      return record;
+    }
+    db.prepare(
+      `INSERT INTO commit_reconciliations
+       (task_id, instance_id, nawabari_session_id, branch_name, before_commit, resources_json, message, state, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'not-attempted', ?, ?)`,
+    ).run(
+      input.taskId,
+      input.instanceId,
+      input.nawabariSessionId,
+      input.branchName,
+      input.beforeCommit,
+      JSON.stringify(resources),
+      input.message,
+      now,
+      now,
+    );
+    return this.getCommitReconciliation(input.taskId)!;
+  }
+
+  recordCommitResult(taskId: TaskId, commitSha: string, updatedAt?: number): CommitReconciliationRecord {
+    if (commitSha.trim().length === 0) throw new Error(`commit result identity is required: ${taskId}`);
+    const db = this.handle();
+    const existing = this.getCommitReconciliation(taskId);
+    if (existing === undefined) throw new Error(`commit reconciliation not found: ${taskId}`);
+    if (existing.commitSha !== undefined && existing.commitSha !== commitSha)
+      throw new Error(`commit reconciliation references a different result: ${taskId}`);
+    if (existing.state === "ambiguous") throw new Error(`commit reconciliation is already ambiguous: ${taskId}`);
+    const now = updatedAt ?? Date.now();
+    db.prepare(
+      `UPDATE commit_reconciliations
+       SET commit_sha = ?, state = CASE WHEN state = 'reconciled' THEN 'reconciled' ELSE 'succeeded' END,
+           updated_at = ?
+       WHERE task_id = ?`,
+    ).run(commitSha, now, taskId);
+    return this.getCommitReconciliation(taskId)!;
+  }
+
+  markCommitReconciliationAmbiguous(taskId: TaskId, detail: string, updatedAt?: number): CommitReconciliationRecord {
+    const existing = this.getCommitReconciliation(taskId);
+    if (existing === undefined) throw new Error(`commit reconciliation not found: ${taskId}`);
+    const now = updatedAt ?? Date.now();
+    this.handle()
+      .prepare("UPDATE commit_reconciliations SET state = 'ambiguous', detail = ?, updated_at = ? WHERE task_id = ?")
+      .run(detail.slice(0, 512), now, taskId);
+    return this.getCommitReconciliation(taskId)!;
+  }
+
+  markCommitReconciliationReconciled(taskId: TaskId, updatedAt?: number): CommitReconciliationRecord {
+    const existing = this.getCommitReconciliation(taskId);
+    if (existing === undefined) throw new Error(`commit reconciliation not found: ${taskId}`);
+    if (existing.commitSha === undefined) throw new Error(`commit reconciliation has no result: ${taskId}`);
+    if (existing.state === "ambiguous") throw new Error(`commit reconciliation is ambiguous: ${taskId}`);
+    const now = updatedAt ?? Date.now();
+    this.handle()
+      .prepare("UPDATE commit_reconciliations SET state = 'reconciled', updated_at = ? WHERE task_id = ?")
+      .run(now, taskId);
+    return this.getCommitReconciliation(taskId)!;
+  }
+
+  getCommitReconciliation(taskId: TaskId): CommitReconciliationRecord | undefined {
+    const row = this.handle().prepare("SELECT * FROM commit_reconciliations WHERE task_id = ?").get(taskId) as
+      | Record<string, unknown>
+      | undefined;
+    return row === undefined ? undefined : toCommitReconciliationRecord(row);
   }
 
   reserveWorktree(input: ReserveWorktreeInput): ReserveWorktreeResult {

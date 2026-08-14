@@ -1,7 +1,14 @@
+import fs from "node:fs";
+import path from "node:path";
 import { renderPullRequestBody, type PullRequestBodyDraft } from "../domain/pr-render.js";
 import { createCleanupPlan, type CleanupPlan, type CleanupPullRequestObserver } from "../domain/cleanup-plan.js";
 import { verifyCommit, type CommitOperationInput, type StructuredCommitMessage } from "../git/commit.js";
-import { runGitCommand, verifyWorkflowContext, type WorkflowContextInput } from "../git/context.js";
+import {
+  runGitCommand,
+  verifyWorkflowContext,
+  type VerifiedWorkflowContext,
+  type WorkflowContextInput,
+} from "../git/context.js";
 import { verifyPush, type PushOperationInput } from "../git/push.js";
 import type { RepositoryInstanceId } from "../domain/identity.js";
 import {
@@ -15,7 +22,14 @@ import { GithubAdapter, openWorkflowPullRequest } from "../providers/github.js";
 import type { LifecycleState } from "../domain/lifecycle.js";
 import type { WorkflowPolicyDocument } from "../policy/schema.js";
 import { decideProtectedBranchOperation } from "../policy/protected-branch.js";
-import type { PushReconciliationRecord, TaskId, WorktreeId, WorkflowStateStore } from "../state/store.js";
+import type {
+  CommitReconciliationRecord,
+  NawabariSessionId,
+  PushReconciliationRecord,
+  TaskId,
+  WorktreeId,
+  WorkflowStateStore,
+} from "../state/store.js";
 import { NawabariExecutionError, type NawabariCommandResult, type NawabariExecutionClient } from "../nawabari.js";
 
 export interface WorkflowWriteDependencies {
@@ -39,7 +53,7 @@ export interface ResolvedWorkflowTask {
   worktreeId: WorktreeId | undefined;
   expectedBranch: string | undefined;
   executionWorkspaceRoot?: string;
-  nawabariSessionId?: string;
+  nawabariSessionId?: NawabariSessionId;
 }
 
 export type WorkflowWriteFailure = {
@@ -47,12 +61,24 @@ export type WorkflowWriteFailure = {
   reason: string;
   detail: string;
   shadow?: ShadowComparison;
+  /** Available when an external commit may already exist. */
+  commitId?: string;
+  recovery?: CommitRecoveryDiagnostic;
 };
 
 export interface ShadowComparison {
   legacyDecision: "allow" | "deny";
   nawabariDecision: "allow" | "deny" | "unavailable";
   agreement: boolean;
+}
+
+export interface CommitRecoveryDiagnostic {
+  taskId: TaskId;
+  state: CommitReconciliationRecord["state"];
+  beforeCommit: string;
+  commitSha?: string;
+  currentHead?: string;
+  detail?: string;
 }
 
 export type WorkflowWriteResult<T extends object = Record<string, unknown>> =
@@ -67,6 +93,212 @@ function nonEmpty(value: unknown, field: string): string | WorkflowWriteFailure 
   if (typeof value !== "string" || value.trim().length === 0)
     return failure("invalid-input", `${field} must be a non-empty string`);
   return value;
+}
+
+function canonicalOrResolved(targetPath: string): string {
+  try {
+    return fs.realpathSync.native(targetPath);
+  } catch {
+    return path.resolve(targetPath);
+  }
+}
+
+function samePath(left: string, right: string): boolean {
+  return canonicalOrResolved(left) === canonicalOrResolved(right);
+}
+
+function evidenceString(evidence: Record<string, unknown>, fields: readonly string[]): string | undefined {
+  for (const field of fields) {
+    if (typeof evidence[field] === "string" && (evidence[field] as string).length > 0) return evidence[field] as string;
+  }
+  return undefined;
+}
+
+function commitResultSha(result: Record<string, unknown>): string | undefined {
+  return evidenceString(result, ["commitSha", "commit_sha"]);
+}
+
+function recoveryDiagnostic(
+  record: CommitReconciliationRecord,
+  overrides: Partial<Pick<CommitRecoveryDiagnostic, "state" | "commitSha" | "currentHead" | "detail">> = {},
+): CommitRecoveryDiagnostic {
+  return {
+    taskId: record.taskId,
+    state: overrides.state ?? record.state,
+    beforeCommit: record.beforeCommit,
+    ...((overrides.commitSha ?? record.commitSha) ? { commitSha: overrides.commitSha ?? record.commitSha } : {}),
+    ...(overrides.currentHead === undefined ? {} : { currentHead: overrides.currentHead }),
+    ...((overrides.detail ?? record.detail) ? { detail: overrides.detail ?? record.detail } : {}),
+  };
+}
+
+function commitRecoveryFailure(
+  reason: string,
+  detail: string,
+  record: CommitReconciliationRecord,
+  overrides: Partial<Pick<CommitRecoveryDiagnostic, "state" | "commitSha" | "currentHead" | "detail">> = {},
+): WorkflowWriteFailure {
+  const diagnostic = recoveryDiagnostic(record, { ...overrides, detail: overrides.detail ?? detail });
+  return {
+    ...failure(reason, detail),
+    ...(diagnostic.commitSha === undefined ? {} : { commitId: diagnostic.commitSha }),
+    recovery: diagnostic,
+  };
+}
+
+type CommitBoundaryObservation =
+  | { ok: true; context: VerifiedWorkflowContext; evidence: Record<string, unknown>; head: string }
+  | { ok: false; reason: string; detail: string; currentHead?: string };
+
+async function observeCommitBoundary(
+  input: CommitWorkflowInput,
+  selected: ResolvedWorkflowTask,
+  record: CommitReconciliationRecord,
+): Promise<CommitBoundaryObservation> {
+  if (input.nawabari === undefined)
+    return { ok: false, reason: "nawabari-unavailable", detail: "Nawabari is required for commit reconciliation" };
+
+  let session;
+  try {
+    session = await input.nawabari.showSession({ cwd: input.workspaceRoot, sessionId: record.nawabariSessionId });
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "commit-reconciliation-unavailable",
+      detail: `could not observe the Nawabari commit boundary: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  const repository = input.store.getRepositoryInstance(selected.instanceId);
+  if (repository === undefined)
+    return {
+      ok: false,
+      reason: "repository-instance-not-found",
+      detail: "repository identity is not available for commit reconciliation",
+    };
+  const repositoryMatches =
+    samePath(session.repository, repository.gitCommonDir) ||
+    (path.basename(repository.gitCommonDir) === ".git" &&
+      samePath(session.repository, path.dirname(repository.gitCommonDir)));
+  if (!repositoryMatches)
+    return {
+      ok: false,
+      reason: "commit-result-ambiguous",
+      detail: "Nawabari commit session repository does not match the recorded repository instance",
+    };
+  if (session.sessionId !== record.nawabariSessionId)
+    return {
+      ok: false,
+      reason: "commit-result-ambiguous",
+      detail: "Nawabari commit session identity changed during recovery",
+    };
+  if (session.branch !== record.branchName)
+    return {
+      ok: false,
+      reason: "commit-result-ambiguous",
+      detail: "Nawabari commit session branch does not match the recorded branch",
+    };
+
+  const context = await verifyWorkflowContext({
+    workspaceRoot: session.worktree,
+    store: input.store,
+    taskId: selected.taskId,
+    repositoryInstanceId: selected.instanceId,
+    worktreeId: selected.worktreeId,
+    expectedBranch: record.branchName,
+    allowedLifecycleStates: ["active", "committed"],
+  });
+  if (!context.ok) return { ok: false, reason: context.code, detail: context.detail };
+
+  if (record.resources.length === 0)
+    return {
+      ok: false,
+      reason: "commit-result-ambiguous",
+      detail: "commit receipt does not contain the intended resource boundary",
+    };
+
+  let authorization: Record<string, unknown>;
+  try {
+    authorization = await input.nawabari.authorize({
+      cwd: context.workspaceRoot,
+      sessionId: record.nawabariSessionId,
+      operation: "commit",
+      resources: record.resources,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "commit-reconciliation-unavailable",
+      detail: `could not revalidate the Nawabari commit resource boundary: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+  const authorizationSession = evidenceString(authorization, ["sessionId", "session_id"]);
+  if (authorizationSession !== undefined && authorizationSession !== record.nawabariSessionId)
+    return {
+      ok: false,
+      reason: "commit-result-ambiguous",
+      detail: "Nawabari commit authorization session identity does not match the commit receipt",
+    };
+  if (authorization.allowed !== true)
+    return {
+      ok: false,
+      reason: "commit-result-ambiguous",
+      detail: "Nawabari no longer authorizes the persisted commit resource boundary",
+    };
+
+  let evidence: Record<string, unknown>;
+  try {
+    evidence = await input.nawabari.checkpoint({ cwd: context.workspaceRoot, sessionId: record.nawabariSessionId });
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "commit-reconciliation-unavailable",
+      detail: `could not observe the Nawabari commit checkpoint: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+  const head = evidenceString(evidence, ["headId", "head_id", "head"]);
+  const evidenceSession = evidenceString(evidence, ["sessionId", "session_id"]);
+  if (head === undefined || evidenceSession === undefined)
+    return {
+      ok: false,
+      reason: "commit-result-ambiguous",
+      detail: "Nawabari checkpoint omitted commit or session identity",
+    };
+  if (evidenceSession !== record.nawabariSessionId)
+    return {
+      ok: false,
+      reason: "commit-result-ambiguous",
+      detail: "Nawabari checkpoint session identity does not match the commit receipt",
+    };
+  const evidenceRepository = evidenceString(evidence, ["repositoryId", "repository_id"]);
+  if (evidenceRepository !== undefined && !samePath(evidenceRepository, repository.gitCommonDir))
+    return {
+      ok: false,
+      reason: "commit-result-ambiguous",
+      detail: "Nawabari checkpoint repository identity does not match the recorded repository instance",
+    };
+  const evidenceWorktree = evidenceString(evidence, ["worktreePath", "worktree_path"]);
+  if (evidenceWorktree !== undefined && !samePath(evidenceWorktree, context.workspaceRoot))
+    return {
+      ok: false,
+      reason: "commit-result-ambiguous",
+      detail: "Nawabari checkpoint worktree identity does not match the observed execution workspace",
+    };
+  const evidenceBranch = evidenceString(evidence, ["branchName", "branch_name"]);
+  if (evidenceBranch !== undefined && evidenceBranch !== record.branchName)
+    return {
+      ok: false,
+      reason: "commit-result-ambiguous",
+      detail: "Nawabari checkpoint branch identity does not match the commit receipt",
+    };
+  if (head !== context.headCommit)
+    return {
+      ok: false,
+      reason: "commit-result-ambiguous",
+      detail: "Nawabari checkpoint HEAD differs from the observed Git HEAD",
+      currentHead: head,
+    };
+  return { ok: true, context, evidence, head };
 }
 
 function reconcileCheckpoint(
@@ -133,7 +365,7 @@ async function taskContext(
         worktreeId: undefined,
         expectedBranch: session.branch,
         executionWorkspaceRoot: session.worktree,
-        nawabariSessionId: session.sessionId,
+        nawabariSessionId: session.sessionId as NawabariSessionId,
       };
     } catch (error) {
       const code = error instanceof NawabariExecutionError ? error.code : "nawabari-command-failed";
@@ -174,6 +406,177 @@ function contextInput(
   };
 }
 
+interface ReconcileKnownCommitOptions {
+  nawabariResult?: Record<string, unknown>;
+  shadow?: ShadowComparison;
+  recovered: boolean;
+}
+
+async function reconcileKnownCommit(
+  input: CommitWorkflowInput,
+  selected: ResolvedWorkflowTask,
+  record: CommitReconciliationRecord,
+  options: ReconcileKnownCommitOptions,
+): Promise<WorkflowWriteResult> {
+  if (record.commitSha === undefined)
+    return commitRecoveryFailure(
+      "commit-result-ambiguous",
+      "commit receipt has no successful result identity",
+      record,
+      {
+        state: "ambiguous",
+      },
+    );
+
+  const observed = await observeCommitBoundary(input, selected, record);
+  if (!observed.ok) {
+    if (observed.reason === "commit-result-ambiguous") {
+      try {
+        input.store.markCommitReconciliationAmbiguous(selected.taskId, observed.detail);
+      } catch {
+        // Preserve the primary fail-closed diagnostic when the diagnostic write itself fails.
+      }
+      return commitRecoveryFailure(observed.reason, observed.detail, record, { state: "ambiguous" });
+    }
+    return commitRecoveryFailure(observed.reason, observed.detail, record, {
+      ...(observed.currentHead === undefined ? {} : { currentHead: observed.currentHead }),
+    });
+  }
+  if (observed.head !== record.commitSha) {
+    const detail = `observed HEAD ${observed.head} does not match Nawabari commit result ${record.commitSha}`;
+    try {
+      input.store.markCommitReconciliationAmbiguous(selected.taskId, detail);
+    } catch {
+      // The returned diagnostic still carries the immutable result SHA.
+    }
+    return commitRecoveryFailure("commit-result-ambiguous", detail, record, {
+      state: "ambiguous",
+      currentHead: observed.head,
+    });
+  }
+
+  try {
+    input.store.recordHookCheckpoint({
+      instanceId: selected.instanceId,
+      branch: record.branchName,
+      commit: record.commitSha,
+    });
+  } catch (error) {
+    return commitRecoveryFailure(
+      "commit-checkpoint-persistence-failed",
+      `commit result is known but checkpoint reconciliation could not be persisted: ${error instanceof Error ? error.message : String(error)}`,
+      record,
+      { currentHead: observed.head },
+    );
+  }
+
+  let transitioned: WorkspaceTaskTransitionResult;
+  try {
+    transitioned = await transitionTaskForWorkspace({
+      ...contextInput(input, selected, ["active", "committed"]),
+      expectedBranch: record.branchName,
+      policy: input.policy,
+      to: "committed",
+      allowIdempotentTerminalState: true,
+    });
+  } catch (error) {
+    return commitRecoveryFailure(
+      "commit-lifecycle-persistence-failed",
+      `commit result is known but task lifecycle reconciliation failed: ${error instanceof Error ? error.message : String(error)}`,
+      record,
+      { currentHead: observed.head },
+    );
+  }
+  if (!transitioned.ok)
+    return commitRecoveryFailure("commit-lifecycle-reconciliation-failed", transitioned.detail, record, {
+      currentHead: observed.head,
+    });
+
+  let reconciled: CommitReconciliationRecord;
+  try {
+    reconciled = input.store.markCommitReconciliationReconciled(selected.taskId);
+  } catch (error) {
+    return commitRecoveryFailure(
+      "commit-reconciliation-persistence-failed",
+      `task lifecycle is committed but commit reconciliation could not be finalized: ${error instanceof Error ? error.message : String(error)}`,
+      record,
+      { currentHead: observed.head },
+    );
+  }
+  return {
+    ok: true,
+    task: transitioned.task,
+    taskId: selected.taskId,
+    commit: {
+      ok: true,
+      commitId: record.commitSha,
+      message: record.message,
+      executionEvidence: observed.evidence,
+      ...(options.nawabariResult === undefined ? {} : { nawabari: options.nawabariResult }),
+      shadow: options.shadow ?? { legacyDecision: "allow", nawabariDecision: "allow", agreement: true },
+      recovered: options.recovered,
+      reconciliationState: reconciled.state,
+    },
+  };
+}
+
+type ExistingCommitResolution =
+  | { kind: "retry"; record: CommitReconciliationRecord }
+  | { kind: "result"; result: WorkflowWriteResult };
+
+async function resolveExistingCommit(
+  input: CommitWorkflowInput,
+  selected: ResolvedWorkflowTask,
+  record: CommitReconciliationRecord,
+): Promise<ExistingCommitResolution> {
+  if (record.state === "ambiguous")
+    return {
+      kind: "result",
+      result: commitRecoveryFailure(
+        "commit-result-ambiguous",
+        record.detail ?? "commit result cannot be proven from the persisted reconciliation receipt",
+        record,
+      ),
+    };
+  if (record.state === "succeeded" || record.state === "reconciled")
+    return {
+      kind: "result",
+      result: await reconcileKnownCommit(input, selected, record, { recovered: true }),
+    };
+
+  const observed = await observeCommitBoundary(input, selected, record);
+  if (!observed.ok) {
+    try {
+      input.store.markCommitReconciliationAmbiguous(selected.taskId, observed.detail);
+    } catch {
+      // Keep the fail-closed result even if the ambiguity marker cannot be written.
+    }
+    return {
+      kind: "result",
+      result: commitRecoveryFailure(observed.reason, observed.detail, record, {
+        state: "ambiguous",
+        ...(observed.currentHead === undefined ? {} : { currentHead: observed.currentHead }),
+      }),
+    };
+  }
+  if (observed.head !== record.beforeCommit) {
+    const detail = `HEAD advanced from ${record.beforeCommit} without a persisted Nawabari commit result; refusing to adopt an unverified commit`;
+    try {
+      input.store.markCommitReconciliationAmbiguous(selected.taskId, detail);
+    } catch {
+      // Keep the immutable before/observed identities in the returned diagnostic.
+    }
+    return {
+      kind: "result",
+      result: commitRecoveryFailure("commit-result-ambiguous", detail, record, {
+        state: "ambiguous",
+        currentHead: observed.head,
+      }),
+    };
+  }
+  return { kind: "retry", record };
+}
+
 function workflowPullRequestObserver(adapter: GithubAdapter): WorkflowPullRequestObserver {
   return async (record) => {
     if (record.provider !== "github") {
@@ -204,6 +607,13 @@ export interface CommitWorkflowInput extends WorkflowTaskSelector {
 export async function commitWorkflowTask(input: CommitWorkflowInput): Promise<WorkflowWriteResult> {
   const selected = await resolveWorkflowTask({ ...input, requireNawabari: input.dryRun !== true });
   if (!selected.ok) return selected;
+
+  const existingReceipt = input.store.getCommitReconciliation(selected.taskId);
+  if (input.dryRun !== true && existingReceipt !== undefined) {
+    const existing = await resolveExistingCommit(input, selected, existingReceipt);
+    if (existing.kind === "result") return existing.result;
+  }
+
   const operation: CommitOperationInput = {
     ...contextInput(input, selected),
     policy: input.policy,
@@ -232,6 +642,35 @@ export async function commitWorkflowTask(input: CommitWorkflowInput): Promise<Wo
     return failure("nawabari-unavailable", "managed commit requires an attached Nawabari execution boundary");
   const resources = verification.includePaths ?? verification.status.changedPaths.paths;
   if (resources.length === 0) return failure("empty-diff", "Nawabari commit requires at least one changed resource");
+
+  let receipt: CommitReconciliationRecord;
+  try {
+    receipt = input.store.beginCommitReconciliation({
+      taskId: selected.taskId,
+      instanceId: selected.instanceId,
+      nawabariSessionId: selected.nawabariSessionId,
+      branchName: verification.context.branch,
+      beforeCommit: verification.context.headCommit,
+      resources,
+      message: verification.finalMessage,
+    });
+  } catch (error) {
+    return failure(
+      "commit-reconciliation-persistence-failed",
+      `commit intent could not be persisted before Nawabari mutation: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  if (receipt.state === "ambiguous")
+    return commitRecoveryFailure(
+      "commit-result-ambiguous",
+      receipt.detail ?? "commit intent is already ambiguous; refusing another external mutation",
+      receipt,
+    );
+  if (receipt.state === "succeeded" || receipt.state === "reconciled")
+    return reconcileKnownCommit(input, selected, receipt, { recovered: true });
+
+  let shadow: ShadowComparison;
   try {
     const authorization = await input.nawabari.authorize({
       cwd: verification.context.workspaceRoot,
@@ -239,7 +678,7 @@ export async function commitWorkflowTask(input: CommitWorkflowInput): Promise<Wo
       operation: "commit",
       resources,
     });
-    const shadow: ShadowComparison = {
+    shadow = {
       legacyDecision: "allow",
       nawabariDecision: authorization.allowed === true ? "allow" : "deny",
       agreement: authorization.allowed === true,
@@ -255,35 +694,33 @@ export async function commitWorkflowTask(input: CommitWorkflowInput): Promise<Wo
       message: verification.finalMessage,
       resources,
     });
-    const evidence = await input.nawabari.checkpoint({
-      cwd: verification.context.workspaceRoot,
-      sessionId: selected.nawabariSessionId,
+    const commitSha = commitResultSha(committed);
+    if (commitSha === undefined) {
+      try {
+        input.store.markCommitReconciliationAmbiguous(selected.taskId, "Nawabari commit returned no result SHA");
+      } catch {
+        // Preserve the external-boundary failure even if ambiguity persistence fails.
+      }
+      return commitRecoveryFailure("commit-result-ambiguous", "Nawabari commit returned no result SHA", receipt, {
+        state: "ambiguous",
+      });
+    }
+
+    try {
+      receipt = input.store.recordCommitResult(selected.taskId, commitSha);
+    } catch (error) {
+      return commitRecoveryFailure(
+        "commit-result-persistence-failed",
+        `Nawabari committed ${commitSha}, but the result receipt could not be persisted: ${error instanceof Error ? error.message : String(error)}`,
+        receipt,
+        { state: "ambiguous", commitSha },
+      );
+    }
+    return reconcileKnownCommit(input, selected, receipt, {
+      nawabariResult: committed,
+      shadow,
+      recovered: false,
     });
-    reconcileCheckpoint(input.store, selected.instanceId, selected.expectedBranch, evidence);
-    const transitioned = await transitionTaskForWorkspace({
-      ...contextInput(input, selected),
-      policy: input.policy,
-      to: "committed",
-    });
-    if (!transitioned.ok) return transitioned;
-    return {
-      ok: true,
-      task: transitioned.task,
-      taskId: selected.taskId,
-      commit: {
-        ok: true,
-        commitId:
-          typeof committed.commitSha === "string"
-            ? committed.commitSha
-            : typeof committed.commit_sha === "string"
-              ? committed.commit_sha
-              : undefined,
-        message: verification.finalMessage,
-        executionEvidence: evidence,
-        nawabari: committed,
-        shadow,
-      },
-    };
   } catch (error) {
     return {
       ...failure(
@@ -291,6 +728,7 @@ export async function commitWorkflowTask(input: CommitWorkflowInput): Promise<Wo
         error instanceof Error ? error.message : String(error),
       ),
       shadow: shadowFailure(error),
+      recovery: recoveryDiagnostic(receipt),
     };
   }
 }
