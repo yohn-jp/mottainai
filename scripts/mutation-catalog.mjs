@@ -179,8 +179,8 @@ export const MUTATIONS = Object.freeze([
     id: "retention-lru-cap",
     file: "src/retrieve.ts",
     operator: "lru-cap-exclusive",
-    search: "while (this.entries.size >= this.maxEntries) {",
-    replacement: "while (this.entries.size > this.maxEntries) {",
+    search: "nextEntries.size >= this.maxEntries",
+    replacement: "nextEntries.size > this.maxEntries",
   },
   {
     id: "sanitizer-protocol-guard",

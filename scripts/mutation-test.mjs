@@ -66,7 +66,13 @@ export function applyMutation(sandbox, mutation) {
   const filePath = path.join(sandbox, mutation.file);
   const original = fs.readFileSync(filePath, "utf8");
   const occurrences = original.split(mutation.search).length - 1;
-  if (occurrences !== 1) throw new Error(`${mutation.id}: expected one source match, found ${occurrences}`);
+  if (occurrences !== 1) {
+    throw new Error(
+      `${mutation.id}: catalog target resolution failed in ${mutation.file}; expected exactly one match for ${JSON.stringify(
+        mutation.search,
+      )}, found ${occurrences}`,
+    );
+  }
   fs.writeFileSync(
     filePath,
     original.replace(mutation.search, () => mutation.replacement),
