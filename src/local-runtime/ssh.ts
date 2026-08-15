@@ -27,12 +27,14 @@ export interface SshIdentity {
 
 export function ensureSshIdentity(paths: LocalRuntimePaths): SshIdentity {
   fs.mkdirSync(paths.sshDirectory, { recursive: true, mode: 0o700 });
-  if (!fs.existsSync(paths.sshPrivateKey)) {
+  try {
     const pair = generateKeyPairSync("ed25519");
     const privateKey = pair.privateKey.export({ format: "pem", type: "pkcs8" });
     const publicKey = sshPublicKey(pair.publicKey.export({ format: "der", type: "spki" }));
-    fs.writeFileSync(paths.sshPrivateKey, privateKey, { encoding: "utf8", mode: 0o600 });
+    fs.writeFileSync(paths.sshPrivateKey, privateKey, { encoding: "utf8", mode: 0o600, flag: "wx" });
     fs.writeFileSync(`${paths.sshPrivateKey}.pub`, `${publicKey}\n`, { encoding: "utf8", mode: 0o600 });
+  } catch (error) {
+    if (!(error instanceof Error) || (error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
   }
   try {
     fs.chmodSync(paths.sshPrivateKey, 0o600);
@@ -63,18 +65,20 @@ export function ensureSshIdentity(paths: LocalRuntimePaths): SshIdentity {
 
 export function ensureKnownHost(paths: LocalRuntimePaths, hostKey: string): void {
   const line = hostKeyLineForLocalRuntime(hostKey);
-  if (fs.existsSync(paths.sshKnownHosts)) {
-    const existing = fs.readFileSync(paths.sshKnownHosts, "utf8").trim();
-    if (existing !== line) {
-      throw new LocalRuntimeError(
-        "runtime_ssh_failed",
-        "managed Runtime SSH host identity changed; refusing to connect to a possibly unrelated machine",
-      );
-    }
-    return;
-  }
   fs.mkdirSync(paths.sshDirectory, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(paths.sshKnownHosts, `${line}\n`, { encoding: "utf8", mode: 0o600 });
+  try {
+    fs.writeFileSync(paths.sshKnownHosts, `${line}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    return;
+  } catch (error) {
+    if (!(error instanceof Error) || (error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+  const existing = fs.readFileSync(paths.sshKnownHosts, "utf8").trim();
+  if (existing !== line) {
+    throw new LocalRuntimeError(
+      "runtime_ssh_failed",
+      "managed Runtime SSH host identity changed; refusing to connect to a possibly unrelated machine",
+    );
+  }
 }
 
 export interface RuntimeGuest {

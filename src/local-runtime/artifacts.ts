@@ -155,6 +155,17 @@ function ensureManifest(manifest: QemuArtifactManifest): void {
   }
 }
 
+const TRUSTED_DOWNLOAD_ORIGIN = "https://github.com/yohn-jp/mottainai/releases/download/";
+
+function ensureTrustedDownloadUrl(url: string): void {
+  if (!url.startsWith(TRUSTED_DOWNLOAD_ORIGIN)) {
+    throw new LocalRuntimeError(
+      "managed_qemu_artifact_unavailable",
+      `managed QEMU download URL is not a pinned mottainai release asset: ${url}`,
+    );
+  }
+}
+
 function bundledCandidates(directory: string, manifest: QemuArtifactManifest): string[] {
   return [
     path.join(directory, manifest.host, manifest.executableName),
@@ -220,6 +231,7 @@ async function downloadToFile(
       );
     }
   } else {
+    ensureTrustedDownloadUrl(url);
     let response: Response;
     try {
       response = await fetch(url, { redirect: "error" });
