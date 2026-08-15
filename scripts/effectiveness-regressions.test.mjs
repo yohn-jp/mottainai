@@ -68,18 +68,19 @@ test("mutation replacements preserve special replacement sequences literally", (
 });
 
 test("retrieve mutations resolve the live expression and diagnose stale targets", () => {
-  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-retrieve-mutation-"));
-  const sourceDirectory = path.join(sandbox, "src");
-  fs.mkdirSync(sourceDirectory, { recursive: true });
-  const sourcePath = path.join(sourceDirectory, "retrieve.ts");
-  fs.copyFileSync(path.join(root, "src/retrieve.ts"), sourcePath);
-  const mutation = MUTATIONS.find(({ id }) => id === "retention-lru-cap");
-  assert.ok(mutation);
-
+  let sandbox;
   try {
+    sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-retrieve-mutation-"));
+    const sourceDirectory = path.join(sandbox, "src");
+    fs.mkdirSync(sourceDirectory, { recursive: true });
+    const sourcePath = path.join(sourceDirectory, "retrieve.ts");
+    fs.copyFileSync(path.join(root, "src/retrieve.ts"), sourcePath);
+    const mutation = MUTATIONS.find(({ id }) => id === "retention-lru-cap");
+    assert.ok(mutation);
+
     const applied = applyMutation(sandbox, mutation);
     const mutatedSource = fs.readFileSync(applied.filePath, "utf8");
-    assert.match(mutatedSource, /nextEntries\.size > this\.maxEntries/u);
+    assert.match(mutatedSource, /while \(nextEntries\.size > this\.maxEntries\) \{/u);
     assert.doesNotMatch(mutatedSource, /nextEntries\.size >= this\.maxEntries/u);
     fs.writeFileSync(applied.filePath, applied.original);
 
@@ -94,7 +95,7 @@ test("retrieve mutations resolve the live expression and diagnose stale targets"
       },
     );
   } finally {
-    fs.rmSync(sandbox, { recursive: true, force: true });
+    if (sandbox !== undefined) fs.rmSync(sandbox, { recursive: true, force: true });
   }
 });
 
