@@ -78,6 +78,7 @@ function fakeNawabari(
     repository?: string;
     calls?: string[][];
     sessions?: Map<string, Record<string, unknown>>;
+    currentSessionId?: string;
     failSessionList?: boolean;
     failSessionClaim?: boolean;
     beforeSessionClose?: () => void;
@@ -103,13 +104,15 @@ function fakeNawabari(
             }),
           );
         if (args[0] === "session" && args[1] === "id")
-          return providerResult(
-            JSON.stringify({ ok: false, command: "session id", code: "NO_SESSION", message: "none" }),
-            "",
-            {
-              exitCode: 3,
-            },
-          );
+          return options.currentSessionId === undefined
+            ? providerResult(
+                JSON.stringify({ ok: false, command: "session id", code: "NO_SESSION", message: "none" }),
+                "",
+                {
+                  exitCode: 3,
+                },
+              )
+            : providerResult(JSON.stringify({ ok: true, command: "session id", session_id: options.currentSessionId }));
         if (args[0] === "session" && args[1] === "create") {
           const sessionId = `fake-session-${++sequence}`;
           const branch = args[args.indexOf("--branch") + 1]!;
@@ -190,6 +193,38 @@ function fakeNawabari(
   });
 }
 
+async function canonicalNawabariFixture(t: TestContext) {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const worktreeParent = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-226-worktree-"));
+  const worktree = path.join(worktreeParent, "canonical");
+  const branch = "fix/226-canonical-worktree-task-resolution";
+  runGit(["worktree", "add", "--quiet", "-b", branch, worktree, "HEAD"], root);
+  t.after(() => {
+    if (fs.existsSync(root)) runGit(["worktree", "remove", "--force", worktree], root);
+    fs.rmSync(worktreeParent, { recursive: true, force: true });
+  });
+
+  const sessions = new Map<string, Record<string, unknown>>();
+  const nawabari = fakeNawabari(root, { sessions, currentSessionId: "fake-session-1" });
+  const started = await startNawabariTask({
+    workspaceRoot: root,
+    store,
+    policy: BUILTIN_PRESETS.standard,
+    taskSlug: "canonical-worktree-task-resolution",
+    branchType: "fix",
+    issueRef: "226",
+    nawabari,
+  });
+  assert.equal(started.ok, true, JSON.stringify(started));
+  if (!started.ok) throw new Error("canonical worktree fixture setup failed");
+  const session = sessions.get(started.execution.sessionId);
+  assert.notEqual(session, undefined);
+  session!.worktree = worktree;
+  assert.equal(store.listWorktrees().length, 0, "Nawabari owns the physical worktree without a local worktree row");
+  return { root, store, nawabari, task: started.task, worktree };
+}
+
 type CommitFaultPoint = "result-persistence" | "checkpoint-persistence" | "lifecycle-transition";
 
 class FaultingCommitStore extends WorkflowSqliteStateStore {
@@ -247,6 +282,12 @@ function commitBoundaryNawabari(
                 package_version: "0.2.0",
                 capabilities: [{ commands: FAKE_NAWABARI_COMMANDS }],
               }),
+            );
+          if (args[0] === "session" && args[1] === "id")
+            return providerResult(
+              JSON.stringify({ ok: false, command: "session id", code: "NO_CURRENT_SESSION", message: "none" }),
+              "",
+              { exitCode: 3 },
             );
           if (args[0] === "session" && args[1] === "show")
             return providerResult(
@@ -419,6 +460,120 @@ test("commit dry-run returns the domain verification plan without changing Git o
   }
   assert.equal(runGit(["rev-parse", "HEAD"], started.worktree.canonicalPath), before);
   assert.equal(store.getTask(started.task.taskId)?.lifecycleState, "active");
+});
+
+test("#226 resolves cleanup and abandon from the canonical Nawabari worktree and rejects a conflicting task id", async (t) => {
+  const fixture = await canonicalNawabariFixture(t);
+  const abandonedPreview = await abandonWorkflowTask({
+    workspaceRoot: fixture.worktree,
+    store: fixture.store,
+    policy: BUILTIN_PRESETS.standard,
+    nawabari: fixture.nawabari,
+    dryRun: true,
+  });
+  assert.equal(abandonedPreview.ok, true, JSON.stringify(abandonedPreview));
+  if (abandonedPreview.ok) assert.equal(abandonedPreview.taskId, fixture.task.taskId);
+
+  fixture.store.updateTaskLifecycleState(fixture.task.taskId, "abandoned");
+  const cleanupPreview = await cleanupWorkflowTask({
+    workspaceRoot: fixture.worktree,
+    store: fixture.store,
+    policy: BUILTIN_PRESETS.standard,
+    nawabari: fixture.nawabari,
+    dryRun: true,
+  });
+  assert.equal(cleanupPreview.ok, true, JSON.stringify(cleanupPreview));
+  if (cleanupPreview.ok) {
+    assert.equal("taskId" in cleanupPreview.plan, true);
+    if ("taskId" in cleanupPreview.plan) assert.equal(cleanupPreview.plan.taskId, fixture.task.taskId);
+  }
+
+  const explicit = await abandonWorkflowTask({
+    workspaceRoot: fixture.worktree,
+    store: fixture.store,
+    taskId: fixture.task.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    nawabari: fixture.nawabari,
+    dryRun: true,
+  });
+  assert.equal(explicit.ok, true, JSON.stringify(explicit));
+
+  const other = await startTask({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    policy: BUILTIN_PRESETS.standard,
+    taskSlug: "conflicting-task",
+    branchType: "fix",
+    issueRef: "227",
+  });
+  assert.equal(other.ok, true, JSON.stringify(other));
+  if (!other.ok) return;
+  const conflicting = await abandonWorkflowTask({
+    workspaceRoot: fixture.worktree,
+    store: fixture.store,
+    taskId: other.task.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    nawabari: fixture.nawabari,
+    dryRun: true,
+  });
+  assert.equal(conflicting.ok, false, JSON.stringify(conflicting));
+  if (!conflicting.ok) assert.equal(conflicting.reason, "task-identity-ambiguous");
+});
+
+test("#226 keeps explicit task IDs usable from the primary checkout but fails implicit resolution in unowned worktrees", async (t) => {
+  const fixture = await canonicalNawabariFixture(t);
+  const primaryNawabari = fakeNawabari(fixture.root, {
+    sessions: new Map([
+      [
+        fixture.task.nawabariSessionId!,
+        {
+          ok: true,
+          command: "session show",
+          session_id: fixture.task.nawabariSessionId!,
+          repository: path.join(fixture.root, ".git"),
+          worktree: fixture.worktree,
+          branch: "fix/226-canonical-worktree-task-resolution",
+          state: "active",
+        },
+      ],
+    ]),
+  });
+  const primaryExplicit = await abandonWorkflowTask({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    taskId: fixture.task.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    nawabari: primaryNawabari,
+    dryRun: true,
+  });
+  assert.equal(primaryExplicit.ok, true, JSON.stringify(primaryExplicit));
+
+  const primaryImplicit = await abandonWorkflowTask({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    policy: BUILTIN_PRESETS.standard,
+    nawabari: primaryNawabari,
+    dryRun: true,
+  });
+  assert.equal(primaryImplicit.ok, false, JSON.stringify(primaryImplicit));
+  if (!primaryImplicit.ok) assert.equal(primaryImplicit.reason, "task-identity-ambiguous");
+
+  const unrelatedParent = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-226-unrelated-"));
+  const unrelated = path.join(unrelatedParent, "worktree");
+  runGit(["worktree", "add", "--quiet", "-b", "fix/226-unrelated", unrelated, "HEAD"], fixture.root);
+  t.after(() => {
+    if (fs.existsSync(fixture.root)) runGit(["worktree", "remove", "--force", unrelated], fixture.root);
+    fs.rmSync(unrelatedParent, { recursive: true, force: true });
+  });
+  const unrelatedResult = await abandonWorkflowTask({
+    workspaceRoot: unrelated,
+    store: fixture.store,
+    policy: BUILTIN_PRESETS.standard,
+    nawabari: primaryNawabari,
+    dryRun: true,
+  });
+  assert.equal(unrelatedResult.ok, false, JSON.stringify(unrelatedResult));
+  if (!unrelatedResult.ok) assert.equal(unrelatedResult.reason, "task-identity-ambiguous");
 });
 
 test("managed commit delegates the only Git mutation to Nawabari", async (t) => {
