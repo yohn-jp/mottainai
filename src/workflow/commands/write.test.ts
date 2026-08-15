@@ -556,7 +556,10 @@ test("#226 keeps explicit task IDs usable from the primary checkout but fails im
     dryRun: true,
   });
   assert.equal(primaryImplicit.ok, false, JSON.stringify(primaryImplicit));
-  if (!primaryImplicit.ok) assert.equal(primaryImplicit.reason, "task-identity-ambiguous");
+  if (!primaryImplicit.ok) {
+    assert.equal(primaryImplicit.reason, "task-identity-ambiguous");
+    assert.equal(primaryImplicit.detail, "no active workflow task is associated with the current worktree");
+  }
 
   const unrelatedParent = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-226-unrelated-"));
   const unrelated = path.join(unrelatedParent, "worktree");
@@ -573,7 +576,10 @@ test("#226 keeps explicit task IDs usable from the primary checkout but fails im
     dryRun: true,
   });
   assert.equal(unrelatedResult.ok, false, JSON.stringify(unrelatedResult));
-  if (!unrelatedResult.ok) assert.equal(unrelatedResult.reason, "task-identity-ambiguous");
+  if (!unrelatedResult.ok) {
+    assert.equal(unrelatedResult.reason, "task-identity-ambiguous");
+    assert.equal(unrelatedResult.detail, "no active workflow task is associated with the current worktree");
+  }
 });
 
 test("managed commit delegates the only Git mutation to Nawabari", async (t) => {

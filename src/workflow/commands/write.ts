@@ -399,6 +399,19 @@ async function resolveNawabariAuthority(input: WorkflowTaskSelector): Promise<Wo
   return { kind: "owned", task, session };
 }
 
+function explicitTaskAuthorityFailure(
+  authority: WorkspaceNawabariAuthority,
+  taskId: TaskId,
+): WorkflowWriteFailure | undefined {
+  if (authority.kind === "ambiguous") return failure("task-identity-ambiguous", authority.detail);
+  if (authority.kind === "owned" && authority.task.taskId !== taskId)
+    return failure(
+      "task-identity-ambiguous",
+      `explicit task ${taskId} conflicts with the current Nawabari-owned task ${authority.task.taskId}`,
+    );
+  return undefined;
+}
+
 /** Resolve an omitted task only from authoritative Nawabari evidence when present. */
 export async function resolveWorkflowTask(
   input: WorkflowTaskSelector,
@@ -409,12 +422,8 @@ export async function resolveWorkflowTask(
     const task = input.store.getTask(taskIdValue as TaskId);
     if (task === undefined) return failure("task-not-found", `task was not found: ${taskIdValue}`);
     const authority = await resolveNawabariAuthority(input);
-    if (authority.kind === "ambiguous") return failure("task-identity-ambiguous", authority.detail);
-    if (authority.kind === "owned" && authority.task.taskId !== task.taskId)
-      return failure(
-        "task-identity-ambiguous",
-        `explicit task ${task.taskId} conflicts with the current Nawabari-owned task ${authority.task.taskId}`,
-      );
+    const authorityFailure = explicitTaskAuthorityFailure(authority, task.taskId);
+    if (authorityFailure !== undefined) return authorityFailure;
     return taskContext(input, task, authority.kind === "owned" ? authority.session : undefined);
   }
 
@@ -1508,12 +1517,8 @@ export async function cleanupWorkflowTask(
     const existing = input.store.getTask(input.taskId as TaskId);
     if (existing?.lifecycleState === "cleaned" && existing.nawabariSessionId !== undefined) {
       const authority = await resolveNawabariAuthority(input);
-      if (authority.kind === "ambiguous") return failure("task-identity-ambiguous", authority.detail);
-      if (authority.kind === "owned" && authority.task.taskId !== existing.taskId)
-        return failure(
-          "task-identity-ambiguous",
-          `explicit task ${existing.taskId} conflicts with the current Nawabari-owned task ${authority.task.taskId}`,
-        );
+      const authorityFailure = explicitTaskAuthorityFailure(authority, existing.taskId);
+      if (authorityFailure !== undefined) return authorityFailure;
       const plan: NawabariCleanupPlan = {
         authority: "nawabari",
         planId: input.idempotencyKey ?? `cleanup-${existing.taskId}`,
