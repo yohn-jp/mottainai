@@ -8,16 +8,14 @@ body:
     validations: { required: true }
   - type: textarea
     id: problem
-    attributes: { label: Problem, description: Need, deadline, and current debt }
+    attributes: { label: Problem, description: "Need, deadline, and current debt" }
     validations: { required: true }
   - type: textarea
     id: failing_scenario
     attributes:
       {
         label: Failing scenario,
-        description: Current failure,
-        operational gap,
-        or concrete scenario motivating the maintenance work; explain if no failure applies,
+        description: "Current failure, operational gap, or concrete scenario motivating the maintenance work; explain if no failure applies",
       }
     validations: { required: true }
   - type: textarea
@@ -29,9 +27,7 @@ body:
     attributes:
       {
         label: Expected contract,
-        description: Observable behavior,
-        invariant,
-        or operational contract expected after completion,
+        description: "Observable behavior, invariant, or operational contract expected after completion",
       }
     validations: { required: true }
   - type: textarea
@@ -61,16 +57,17 @@ body:
   - type: textarea
     id: release_impact
     attributes:
-      { label: Release impact, description: Package, publish, rollout, artifact, or explicit no-release impact }
+      {
+        label: Release impact,
+        description: "Package, publish, rollout, artifact, or explicit no-release impact",
+      }
     validations: { required: true }
   - type: textarea
     id: security_impact
     attributes:
       {
         label: Security impact,
-        description: Security boundary impact,
-        negative scenario,
-        or explicit no-impact decision,
+        description: "Security boundary impact, negative scenario, or explicit no-impact decision",
       }
     validations: { required: true }
   - type: textarea

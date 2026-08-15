@@ -15,9 +15,7 @@ body:
     attributes:
       {
         label: Failing scenario,
-        description: Observed failure,
-        uncertainty,
-        or concrete scenario the research must resolve; explain if no failure applies,
+        description: "Observed failure, uncertainty, or concrete scenario the research must resolve; explain if no failure applies",
       }
     validations: { required: true }
   - type: textarea
@@ -27,7 +25,10 @@ body:
   - type: textarea
     id: expected_contract
     attributes:
-      { label: Expected contract, description: Decision, evidence threshold, or invariant expected from the research }
+      {
+        label: Expected contract,
+        description: "Decision, evidence threshold, or invariant expected from the research",
+      }
     validations: { required: true }
   - type: textarea
     id: non_goals
@@ -38,9 +39,7 @@ body:
     attributes:
       {
         label: Acceptance criteria,
-        description: Completion criteria for evidence,
-        comparison,
-        and conclusion,
+        description: "Completion criteria for evidence, comparison, and conclusion",
         value: "- [ ] ",
       }
     validations: { required: true }
@@ -53,12 +52,7 @@ body:
     attributes:
       {
         label: Test layer,
-        description: Experiment,
-        contract,
-        integration,
-        fault,
-        standards,
-        or release layer needed for evidence,
+        description: "Experiment, contract, integration, fault, standards, or release layer needed for evidence",
       }
     validations: { required: true }
   - type: textarea
@@ -68,23 +62,24 @@ body:
   - type: textarea
     id: release_impact
     attributes:
-      { label: Release impact, description: Package, publish, rollout, artifact, or explicit no-release impact }
+      {
+        label: Release impact,
+        description: "Package, publish, rollout, artifact, or explicit no-release impact",
+      }
     validations: { required: true }
   - type: textarea
     id: security_impact
     attributes:
       {
         label: Security impact,
-        description: Security boundary impact,
-        negative scenario,
-        or explicit no-impact decision,
+        description: "Security boundary impact, negative scenario, or explicit no-impact decision",
       }
     validations: { required: true }
   - type: textarea
     id: dependencies
-    attributes: { label: Dependencies, description: Required sources, environments, and prerequisite Issues }
+    attributes: { label: Dependencies, description: "Required sources, environments, and prerequisite Issues" }
     validations: { required: true }
   - type: textarea
     id: implementation
-    attributes: { label: Implementation notes, description: Alternatives, measurement method, and deliverables }
+    attributes: { label: Implementation notes, description: "Alternatives, measurement method, and deliverables" }
     validations: { required: true }

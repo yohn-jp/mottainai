@@ -18,7 +18,7 @@ body:
     attributes:
       {
         label: Failing scenario,
-        description: Reproducible failure or the concrete scenario this feature prevents; explain if no failure applies,
+        description: "Reproducible failure or the concrete scenario this feature prevents; explain if no failure applies",
       }
     validations: { required: true }
   - type: textarea
@@ -30,9 +30,7 @@ body:
     attributes:
       {
         label: Expected contract,
-        description: Observable behavior,
-        invariant,
-        or compatibility contract expected after implementation,
+        description: "Observable behavior, invariant, or compatibility contract expected after implementation",
       }
     validations: { required: true }
   - type: textarea
@@ -45,20 +43,14 @@ body:
     validations: { required: true }
   - type: textarea
     id: affected
-    attributes: { label: Affected areas, description: Affected capabilities, files, and users }
+    attributes: { label: Affected areas, description: "Affected capabilities, files, and users" }
     validations: { required: true }
   - type: textarea
     id: test_layer
     attributes:
       {
         label: Test layer,
-        description: Expected unit,
-        integration/process,
-        package,
-        E2E,
-        fault,
-        standards,
-        or release layer and why,
+        description: "Expected unit, integration/process, package, E2E, fault, standards, or release layer and why",
       }
     validations: { required: true }
   - type: textarea
@@ -67,24 +59,30 @@ body:
     validations: { required: true }
   - type: textarea
     id: release_impact
-    attributes: { label: Release impact, description: Package, publish, artifact, or explicit no-release impact }
+    attributes:
+      { label: Release impact, description: "Package, publish, artifact, or explicit no-release impact" }
     validations: { required: true }
   - type: textarea
     id: security_impact
     attributes:
       {
         label: Security impact,
-        description: Security boundary impact,
-        negative scenario,
-        or explicit no-impact decision,
+        description: "Security boundary impact, negative scenario, or explicit no-impact decision",
       }
     validations: { required: true }
   - type: textarea
     id: dependencies
-    attributes: { label: Dependencies, description: Dependent Issues, PRs, and external conditions; explain if none }
+    attributes:
+      {
+        label: Dependencies,
+        description: "Dependent Issues, PRs, and external conditions; explain if none",
+      }
     validations: { required: true }
   - type: textarea
     id: implementation
     attributes:
-      { label: Implementation notes, description: Constraints, proposed approach, and completed investigation }
+      {
+        label: Implementation notes,
+        description: "Constraints, proposed approach, and completed investigation",
+      }
     validations: { required: true }
