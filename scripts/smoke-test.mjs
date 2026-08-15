@@ -131,7 +131,11 @@ function main() {
     const primaryBin = binTargets.find((entry) => entry.name === "mottainai").target;
     const configPath = path.join(installDirectory, "mottainai.config.json");
 
-    console.log("running init --yes --scope project --client none --no-doctor --json...");
+    // The packed consumer smoke is intentionally hermetic and must not claim
+    // host virtualization hardware it does not own. The production init path
+    // ensures the local Runtime; dry-run validates the released CLI/config
+    // surface without provisioning a VM in the package harness.
+    console.log("running init --yes --dry-run --scope project --client none --no-doctor --json...");
     const initResult = spawnSync(
       process.execPath,
       [
@@ -143,6 +147,7 @@ function main() {
         "--client",
         "none",
         "--no-doctor",
+        "--dry-run",
         "--json",
         "--config",
         configPath,
@@ -158,7 +163,9 @@ function main() {
       fail(`init --json did not print valid JSON:\n${initResult.stdout}`);
     }
     if (initSummary.ok !== true) fail(`init summary.ok was not true: ${JSON.stringify(initSummary)}`);
-    if (!fs.existsSync(configPath)) fail(`init did not write configuration file at ${configPath}`);
+    if (initSummary.config_written !== false)
+      fail(`dry-run init unexpectedly wrote configuration: ${JSON.stringify(initSummary)}`);
+    if (fs.existsSync(configPath)) fail(`dry-run init wrote configuration file at ${configPath}`);
 
     console.log("running packed Mottainai gh-inari companion smoke...");
     run(process.execPath, ["scripts/gh-inari-package-smoke.mjs", installedPackageDirectory], {

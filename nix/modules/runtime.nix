@@ -39,7 +39,7 @@ let
 
       generation="$(readlink /nix/var/nix/profiles/system | sed -E 's/^system-([0-9]+)-link$/\1/')"
       case "$generation" in
-        '' | *[!0-9]*)
+        "" | *[!0-9]*)
           echo "mottainai-runtime-health: could not resolve a numeric system generation" >&2
           exit 1
           ;;
@@ -69,9 +69,23 @@ let
           "system": ${builtins.toJSON systemStatePaths},
           "repositoryUser": ${builtins.toJSON repositoryUserStatePaths}
         },
-        "requiredCompanions": $companions
+        "requiredCompanions": $companions,
+        "reconciliation": "current",
+        "upgradeRequired": false
       }
       JSON
+    '';
+  };
+
+  reconcileScript = pkgs.writeShellApplication {
+    name = "mottainai-runtime-reconcile";
+    runtimeInputs = [ pkgs.systemd ];
+    text = ''
+      set -euo pipefail
+      # The module remains the sole Runtime authority. This bounded command
+      # only reactivates its health/reconciliation service; it never accepts
+      # arbitrary shell or Nix expressions from the host.
+      systemctl restart mottainai-runtime-health.service
     '';
   };
 in
@@ -89,6 +103,16 @@ in
       type = lib.types.str;
       default = "mottainai-control";
       description = "Trusted system identity that owns Mottainai/Nawabari control state.";
+    };
+
+    controlAuthorizedKeys = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      description = ''
+        SSH public keys allowed to operate the trusted control identity.
+        Image builders provide the per-installation key; the default remains
+        empty so a fresh generic Runtime cannot be accessed accidentally.
+      '';
     };
 
     stateDir = lib.mkOption {
@@ -147,7 +171,7 @@ in
       createHome = true;
       description = "Mottainai trusted control identity (mottainai.linux-runtime.v1)";
       shell = pkgs.bashInteractive;
-      openssh.authorizedKeys.keys = [ ];
+      openssh.authorizedKeys.keys = cfg.controlAuthorizedKeys;
     };
 
     systemd.tmpfiles.rules = [
@@ -169,6 +193,19 @@ in
       pkgs.openssh
       pkgs.bubblewrap
       healthScript
+      reconcileScript
+    ];
+
+    security.sudo.extraRules = [
+      {
+        users = [ cfg.controlUser ];
+        commands = [
+          {
+            command = "${reconcileScript}/bin/mottainai-runtime-reconcile";
+            options = [ "NOPASSWD" ];
+          }
+        ];
+      }
     ];
 
     systemd.services.mottainai-runtime-health = {

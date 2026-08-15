@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { formatInitHuman, runInit } from "./init.js";
+import type { LocalRuntimeEnsureOptions, LocalRuntimeEnsureResult } from "./local-runtime/types.js";
 
 function temporaryWorkspace(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-init-test-"));
@@ -53,12 +54,13 @@ test("init resolves explicit and MOTTAINAI_CONFIG paths with server precedence",
   const previousConfig = process.env.MOTTAINAI_CONFIG;
   process.env.MOTTAINAI_CONFIG = environmentConfig;
   try {
-    const runWithEnvironment = (args: string[]) => runInit({
-      args: ["--yes", "--workspace", workspace, "--client", "none", "--no-doctor", ...args],
-      cwd: workspace,
-      stdinIsTTY: false,
-      stdoutIsTTY: false,
-    });
+    const runWithEnvironment = (args: string[]) =>
+      runInit({
+        args: ["--yes", "--workspace", workspace, "--client", "none", "--no-doctor", ...args],
+        cwd: workspace,
+        stdinIsTTY: false,
+        stdoutIsTTY: false,
+      });
     const fromEnvironment = await runWithEnvironment(["--scope", "project"]);
     assert.equal(fromEnvironment.configuration, environmentConfig);
     assert.equal(fs.existsSync(environmentConfig), true);
@@ -169,12 +171,27 @@ test("init import drops literal credentials from upstream registrations", async 
   process.env.PATH = `${binaryDirectory}${path.delimiter}${previousPath ?? ""}`;
   try {
     const summary = await runInit({
-      args: ["--yes", "--workspace", workspace, "--config", path.join(workspace, "mottainai.config.json"), "--scope", "project", "--import", "claude", "--client", "none", "--no-doctor"],
+      args: [
+        "--yes",
+        "--workspace",
+        workspace,
+        "--config",
+        path.join(workspace, "mottainai.config.json"),
+        "--scope",
+        "project",
+        "--import",
+        "claude",
+        "--client",
+        "none",
+        "--no-doctor",
+      ],
       cwd: workspace,
       stdinIsTTY: false,
       stdoutIsTTY: false,
     });
-    const config = JSON.parse(fs.readFileSync(summary.configuration, "utf8")) as { mcpServers: Record<string, Record<string, unknown>> };
+    const config = JSON.parse(fs.readFileSync(summary.configuration, "utf8")) as {
+      mcpServers: Record<string, Record<string, unknown>>;
+    };
     assert.deepEqual(config.mcpServers.safe, { command: "node", args: ["--safe"] });
     assert.equal("secretArgs" in config.mcpServers, false);
     assert.equal("secretArgsEquals" in config.mcpServers, false);
@@ -184,19 +201,46 @@ test("init import drops literal credentials from upstream registrations", async 
     assert.equal("fragmentUrl" in config.mcpServers, false);
     assert.equal("nonHttpUrl" in config.mcpServers, false);
     assert.deepEqual(config.mcpServers.secretHeader, { transport: "streamableHttp", url: "https://example.test/mcp" });
-    assert.deepEqual(config.mcpServers.httpCredentials, { transport: "streamableHttp", url: "http://example.test/mcp" });
+    assert.deepEqual(config.mcpServers.httpCredentials, {
+      transport: "streamableHttp",
+      url: "http://example.test/mcp",
+    });
     assert.deepEqual(config.mcpServers.httpsCredentials, {
       transport: "streamableHttp",
       url: "https://example.test/mcp",
       auth: { type: "oauth", profile: "https" },
     });
-    assert.ok(summary.warnings.some((warning) => warning.includes("secretArgs") && warning.includes("arguments contain credentials")));
-    assert.ok(summary.warnings.some((warning) => warning === "secretArgsEquals was not imported because its arguments contain credentials"));
-    assert.ok(summary.warnings.some((warning) => warning.includes("secretHeaderArg") && warning.includes("arguments contain credentials")));
-    assert.ok(summary.warnings.some((warning) => warning.includes("secretUrl") && warning.includes("not a plain http(s) URL")));
-    assert.ok(summary.warnings.some((warning) => warning.includes("obscureQueryUrl") && warning.includes("not a plain http(s) URL")));
-    assert.ok(summary.warnings.some((warning) => warning.includes("fragmentUrl") && warning.includes("not a plain http(s) URL")));
-    assert.ok(summary.warnings.some((warning) => warning.includes("nonHttpUrl") && warning.includes("not a plain http(s) URL")));
+    assert.ok(
+      summary.warnings.some(
+        (warning) => warning.includes("secretArgs") && warning.includes("arguments contain credentials"),
+      ),
+    );
+    assert.ok(
+      summary.warnings.some(
+        (warning) => warning === "secretArgsEquals was not imported because its arguments contain credentials",
+      ),
+    );
+    assert.ok(
+      summary.warnings.some(
+        (warning) => warning.includes("secretHeaderArg") && warning.includes("arguments contain credentials"),
+      ),
+    );
+    assert.ok(
+      summary.warnings.some((warning) => warning.includes("secretUrl") && warning.includes("not a plain http(s) URL")),
+    );
+    assert.ok(
+      summary.warnings.some(
+        (warning) => warning.includes("obscureQueryUrl") && warning.includes("not a plain http(s) URL"),
+      ),
+    );
+    assert.ok(
+      summary.warnings.some(
+        (warning) => warning.includes("fragmentUrl") && warning.includes("not a plain http(s) URL"),
+      ),
+    );
+    assert.ok(
+      summary.warnings.some((warning) => warning.includes("nonHttpUrl") && warning.includes("not a plain http(s) URL")),
+    );
     assert.ok(summary.warnings.some((warning) => warning.includes("header secret")));
   } finally {
     if (previousPath === undefined) delete process.env.PATH;
@@ -211,12 +255,16 @@ test("init does not register when a client listing fails", async () => {
   const client = path.join(binaryDirectory, "claude");
   const registrationMarker = path.join(workspace, "registered");
   fs.mkdirSync(binaryDirectory);
-  fs.writeFileSync(client, [
-    "#!/usr/bin/env node",
-    'const fs = require("node:fs");',
-    'if (process.argv[2] === "mcp" && process.argv[3] === "list") process.exit(1);',
-    `fs.writeFileSync(${JSON.stringify(registrationMarker)}, "registered");`,
-  ].join("\n"), { mode: 0o755 });
+  fs.writeFileSync(
+    client,
+    [
+      "#!/usr/bin/env node",
+      'const fs = require("node:fs");',
+      'if (process.argv[2] === "mcp" && process.argv[3] === "list") process.exit(1);',
+      `fs.writeFileSync(${JSON.stringify(registrationMarker)}, "registered");`,
+    ].join("\n"),
+    { mode: 0o755 },
+  );
   const previousPath = process.env.PATH;
   process.env.PATH = `${binaryDirectory}${path.delimiter}${previousPath ?? ""}`;
   try {
@@ -339,6 +387,104 @@ test("init human output points doctor at the generated configuration", async () 
   }
 });
 
+function fakeRuntimeResult(overrides: Partial<LocalRuntimeEnsureResult> = {}): LocalRuntimeEnsureResult {
+  return {
+    ok: true,
+    machineId: "mottainai-local-runtime-v1",
+    lifecycle: "ready",
+    host: "linux-x64",
+    accelerator: "kvm",
+    qemu: {
+      artifactId: "test-qemu",
+      version: "9.2.2",
+      buildId: "qemu-9.2.2-mottainai-runtime-v1",
+      sha256: "a".repeat(64),
+      executablePath: "/tmp/qemu-system-x86_64",
+    },
+    image: {
+      imageId: "test-image",
+      architecture: "x86_64-linux",
+      buildIdentity: "/nix/store/test-runtime",
+      diskSha256: "b".repeat(64),
+    },
+    ssh: { host: "127.0.0.1", port: 48321, user: "mottainai-control", hostKey: "ssh-ed25519 AAAA test" },
+    qmp: { endpoint: "/tmp/qmp.sock", private: true },
+    reused: false,
+    warnings: [],
+    ...overrides,
+  };
+}
+
+test("init ensures the local Runtime and reports its lifecycle in the summary", async () => {
+  const workspace = temporaryWorkspace();
+  let ensureCalls = 0;
+  try {
+    const summary = await runInit({
+      args: ["--yes", "--workspace", workspace, "--client", "none", "--no-doctor", "--scope", "project"],
+      cwd: workspace,
+      stdinIsTTY: false,
+      stdoutIsTTY: false,
+      localRuntime: {
+        ensure: async (_options?: LocalRuntimeEnsureOptions) => {
+          ensureCalls += 1;
+          return fakeRuntimeResult();
+        },
+      },
+    });
+    assert.equal(ensureCalls, 1);
+    assert.equal(summary.runtime?.lifecycle, "ready");
+    assert.ok(formatInitHuman(summary).includes("mottainai-local-runtime-v1"));
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("init dry-run does not ensure the local Runtime", async () => {
+  const workspace = temporaryWorkspace();
+  let ensureCalls = 0;
+  try {
+    const summary = await runInit({
+      args: ["--yes", "--workspace", workspace, "--client", "none", "--no-doctor", "--scope", "project", "--dry-run"],
+      cwd: workspace,
+      stdinIsTTY: false,
+      stdoutIsTTY: false,
+      localRuntime: {
+        ensure: async () => {
+          ensureCalls += 1;
+          return fakeRuntimeResult();
+        },
+      },
+    });
+    assert.equal(ensureCalls, 0);
+    assert.equal(summary.runtime, undefined);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("init fails when the local Runtime cannot be ensured, without a silent fallback", async () => {
+  const workspace = temporaryWorkspace();
+  try {
+    await assert.rejects(
+      runInit({
+        args: ["--yes", "--workspace", workspace, "--client", "none", "--no-doctor", "--scope", "project"],
+        cwd: workspace,
+        stdinIsTTY: false,
+        stdoutIsTTY: false,
+        localRuntime: {
+          ensure: async () => {
+            throw new Error("hardware_acceleration_unavailable");
+          },
+        },
+      }),
+      /hardware_acceleration_unavailable/,
+    );
+    assert.equal(fs.existsSync(path.join(workspace, "mottainai.config.json")), false);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 test("registration command quotes a configuration path that contains whitespace", async () => {
   const workspace = temporaryWorkspace();
   const spacedWorkspace = path.join(workspace, "path with space");
@@ -421,16 +567,31 @@ test("generated client registration command is self-sufficient regardless of MCP
   fs.mkdirSync(binaryDirectory);
   const client = path.join(binaryDirectory, "claude");
   // 実際に registerClient が組み立てた argv をそのまま捕捉する（テストが自前で argv を組み立てない）。
-  fs.writeFileSync(client, [
-    "#!/usr/bin/env node",
-    'const fs = require("node:fs");',
-    `fs.writeFileSync(${JSON.stringify(argsMarker)}, JSON.stringify(process.argv.slice(2)));`,
-  ].join("\n"), { mode: 0o755 });
+  fs.writeFileSync(
+    client,
+    [
+      "#!/usr/bin/env node",
+      'const fs = require("node:fs");',
+      `fs.writeFileSync(${JSON.stringify(argsMarker)}, JSON.stringify(process.argv.slice(2)));`,
+    ].join("\n"),
+    { mode: 0o755 },
+  );
   const previousPath = process.env.PATH;
   process.env.PATH = `${binaryDirectory}${path.delimiter}${previousPath ?? ""}`;
   try {
     const summary = await runInit({
-      args: ["--yes", "--workspace", workspace, "--config", path.join(workspace, "mottainai.config.json"), "--scope", "project", "--client", "claude", "--no-doctor"],
+      args: [
+        "--yes",
+        "--workspace",
+        workspace,
+        "--config",
+        path.join(workspace, "mottainai.config.json"),
+        "--scope",
+        "project",
+        "--client",
+        "claude",
+        "--no-doctor",
+      ],
       cwd: workspace,
       stdinIsTTY: false,
       stdoutIsTTY: false,

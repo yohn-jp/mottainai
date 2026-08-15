@@ -12,6 +12,11 @@ import type { BoundaryOperations } from "./boundary.js";
 import { collectDoctorReport, formatDoctorHuman } from "./commands/doctor.js";
 import { resolveConfigPath, saveRawConfig } from "./config.js";
 import type { DoctorReport } from "./commands/doctor.js";
+import type { LocalRuntimeEnsureOptions, LocalRuntimeEnsureResult } from "./local-runtime/types.js";
+
+export interface LocalRuntimeEnsurer {
+  ensure(options?: LocalRuntimeEnsureOptions): Promise<LocalRuntimeEnsureResult>;
+}
 
 export type InitScope = "personal" | "project";
 export type InitClient = "claude" | "codex" | "none";
@@ -24,6 +29,13 @@ export interface InitRunOptions {
   stdoutIsTTY?: boolean;
   /** Internal fault-test seam; runtime configuration never supplies this. */
   boundaries?: BoundaryOperations;
+  /**
+   * CLI supplies the canonical local Runtime provisioner only when the user
+   * opts in with `--runtime`, so MCP-only setup keeps working on hosts
+   * without a hardware accelerator; tests can inject a hermetic fake.
+   */
+  localRuntime?: LocalRuntimeEnsurer;
+  localRuntimeOptions?: LocalRuntimeEnsureOptions;
 }
 
 export interface InitClientResult {
@@ -58,6 +70,7 @@ export interface InitSummary {
   doctor?: DoctorReport;
   handshake?: InitHandshakeResult;
   warnings: string[];
+  runtime?: LocalRuntimeEnsureResult;
 }
 
 interface InitArguments {
@@ -712,6 +725,10 @@ export async function runInit(options: InitRunOptions): Promise<InitSummary> {
   const client = parsed.client ?? "none";
   const importSource = parsed.importSource ?? "none";
   const warnings: string[] = [];
+  let runtime: LocalRuntimeEnsureResult | undefined;
+  if (!parsed.dryRun && options.localRuntime !== undefined) {
+    runtime = await options.localRuntime.ensure(options.localRuntimeOptions);
+  }
   const config = baseConfig(configuration, workspace);
   const registry = config.mcpServers as Record<string, Record<string, unknown>>;
   const imported = importClientServers(importSource);
@@ -793,6 +810,7 @@ export async function runInit(options: InitRunOptions): Promise<InitSummary> {
     clients: clientResults,
     ...(doctor === undefined ? {} : { doctor }),
     ...(handshake === undefined ? {} : { handshake }),
+    ...(runtime === undefined ? {} : { runtime }),
     warnings,
   };
 }
@@ -831,6 +849,15 @@ export function formatInitHuman(summary: InitSummary): string {
     lines.push(
       "",
       `MCP handshake: ${handshake.skipped === true ? "skipped" : handshake.ok ? `ok (${handshake.tools ?? 0} tools)` : "failed"}`,
+    );
+  }
+  if (summary.runtime !== undefined) {
+    lines.push(
+      "",
+      "Local Runtime",
+      `  ${summary.runtime.lifecycle}: ${summary.runtime.machineId}`,
+      `  ${summary.runtime.host}/${summary.runtime.accelerator}`,
+      `  ${summary.runtime.reused ? "reused" : "created or restarted"}`,
     );
   }
   if (summary.warnings.length > 0) lines.push("", "Warnings", ...summary.warnings.map((warning) => `  ⚠ ${warning}`));
