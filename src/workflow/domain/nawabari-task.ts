@@ -813,6 +813,11 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
       externalSessionMayExist,
       ownsReservation,
     });
+    // A companion that cannot be spawned at all is not an ownership question:
+    // every observation compensation retries will hit the same unavailability
+    // and land on "orphaned" for an unrelated reason. Preserve the original
+    // failure code in that case instead of reporting it as ambiguous.
+    if (error instanceof NawabariExecutionError && error.code === "nawabari-unavailable") return failureFrom(error);
     const compensated = input.store.getTaskStartReconciliation(task.taskId);
     if (compensated?.state === "orphaned") return ownershipFailure(compensated.detail ?? String(error));
     return failureFrom(error);
