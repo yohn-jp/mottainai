@@ -30,6 +30,7 @@ test("Linux without /dev/kvm fails closed", { skip: fs.existsSync("/dev/kvm") },
 test("unavailable acceleration stops ensure before artifact or image execution", async () => {
   const stateDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-runtime-acceleration-test-"));
   let artifactCalls = 0;
+  let imageCalls = 0;
   try {
     const provisioner = new LocalRuntimeProvisioner({
       probeHost: () => {
@@ -42,6 +43,10 @@ test("unavailable acceleration stops ensure before artifact or image execution",
         artifactCalls += 1;
         throw new Error("must not execute");
       },
+      materializeImage: () => {
+        imageCalls += 1;
+        throw new Error("must not execute");
+      },
     });
     await assert.rejects(
       provisioner.ensure({ stateDirectory, platform: "linux", architecture: "x64" }),
@@ -49,6 +54,7 @@ test("unavailable acceleration stops ensure before artifact or image execution",
         error instanceof LocalRuntimeError && error.code === "hardware_acceleration_unavailable",
     );
     assert.equal(artifactCalls, 0);
+    assert.equal(imageCalls, 0);
   } finally {
     fs.rmSync(stateDirectory, { recursive: true, force: true });
   }

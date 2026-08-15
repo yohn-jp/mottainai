@@ -201,6 +201,12 @@ export class LocalRuntimeProvisioner {
             `managed Runtime is ${persisted.lifecycle}; no destructive recovery was attempted`,
           );
         }
+        if (!fs.existsSync(paths.qemuExecutable)) {
+          throw new LocalRuntimeError(
+            "runtime_recreate_required",
+            "managed QEMU executable is missing; refusing to replace persistent Runtime data",
+          );
+        }
       }
 
       const artifact = await (this.dependencies.materializeQemu ?? materializeQemuArtifact)({

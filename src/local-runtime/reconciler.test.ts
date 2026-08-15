@@ -80,12 +80,14 @@ function createFixture(configuration: {
 
   const provisioner = new LocalRuntimeProvisioner({
     probeHost: () => ({ host: "linux-x64", accelerator: "kvm", architecture: "x64" }),
-    materializeQemu: async () => {
+    materializeQemu: async ({ paths: artifactPaths }) => {
       qemuMaterializations += 1;
       if (configuration.blockArtifact && qemuMaterializations === 1) {
         artifactStarted.resolve();
         await releaseArtifact.promise;
       }
+      fs.mkdirSync(artifactPaths.qemuDirectory, { recursive: true });
+      fs.writeFileSync(artifactPaths.qemuExecutable, "qemu");
       return currentArtifact;
     },
     materializeImage: ({ paths: imagePaths }) => {
@@ -207,7 +209,11 @@ test("local Runtime ensure is idempotent and restarts a stopped machine without 
   const runtime = healthyRuntime();
   const provisioner = new LocalRuntimeProvisioner({
     probeHost: () => ({ host: "linux-x64", accelerator: "kvm", architecture: "x64" }),
-    materializeQemu: async () => artifact,
+    materializeQemu: async ({ paths: artifactPaths }) => {
+      fs.mkdirSync(artifactPaths.qemuDirectory, { recursive: true });
+      fs.writeFileSync(artifactPaths.qemuExecutable, "qemu");
+      return artifact;
+    },
     materializeImage: ({ paths }) => {
       imageMaterializations += 1;
       const contents = { kernel: "kernel", initrd: "initrd", disk: "disk" };
@@ -439,6 +445,7 @@ test("changed QEMU artifact identity returns a recreate plan instead of replacin
       ...fixture.readState().qemu,
       sha256: "b".repeat(64),
     });
+    fs.rmSync(fixture.paths.qemuExecutable);
     await assert.rejects(
       fixture.provisioner.ensure({
         stateDirectory: fixture.stateDirectory,
@@ -447,6 +454,8 @@ test("changed QEMU artifact identity returns a recreate plan instead of replacin
       }),
       (error: unknown) => error instanceof LocalRuntimeError && error.code === "runtime_recreate_required",
     );
+    assert.equal(fixture.qemuMaterializations, 1);
+    assert.equal(fs.existsSync(fixture.paths.qemuExecutable), false);
     assert.equal(fixture.imageMaterializations, 1);
     assert.equal(fixture.readState().lifecycle, "recreate-required");
   } finally {

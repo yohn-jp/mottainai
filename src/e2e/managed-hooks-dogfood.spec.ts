@@ -235,7 +235,7 @@ test("dogfood catches interpreter, search, Git, and broad-read bypass variants",
 
     for (const command of ["git commit -am bypass", "env GIT_OPTIONAL_LOCKS=0 git push origin HEAD:main"]) {
       const result = runHook(root, client, payload("Bash", { command }));
-      assertDecision(result, client, "workflow_protected_branch", "block");
+      assertDecision(result, client, "workflow_typed_operation_required", "block");
       bypassCounts.deny += 1;
     }
   }
