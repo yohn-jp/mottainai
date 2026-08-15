@@ -51,6 +51,7 @@ pkgs.testers.nixosTest {
         output = runtime.succeed("journalctl -u mottainai-runtime-health.service -o cat -n 50")
         assert '"contractId": "mottainai.linux-runtime.v1"' in output
         assert '"schemaVersion": 1' in output
+        assert '"generation": "' not in output, "generation must be numeric JSON, not a quoted string"
         assert "MOTTAINAI_" not in output.upper().replace("MOTTAINAI_RUNTIME_HEALTH", "")
 
     with subtest("health service restarts cleanly"):

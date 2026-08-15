@@ -37,7 +37,13 @@ let
     text = ''
       set -euo pipefail
 
-      generation="$(readlink /nix/var/nix/profiles/system 2>/dev/null | sed -E 's/^system-([0-9]+)-link$/\1/' || echo "unknown")"
+      generation="$(readlink /nix/var/nix/profiles/system | sed -E 's/^system-([0-9]+)-link$/\1/')"
+      case "$generation" in
+        '' | *[!0-9]*)
+          echo "mottainai-runtime-health: could not resolve a numeric system generation" >&2
+          exit 1
+          ;;
+      esac
       build_identity="$(readlink -f /run/current-system 2>/dev/null || echo "unknown")"
 
       companions="["
@@ -55,10 +61,10 @@ let
       {
         "contractId": "${contractId}",
         "schemaVersion": ${toString schemaVersion},
-        "runtimeIdentity": "${cfg.runtimeIdentity}",
+        "runtimeIdentity": ${builtins.toJSON cfg.runtimeIdentity},
         "architecture": "${pkgs.stdenv.hostPlatform.system}",
         "buildIdentity": "$build_identity",
-        "generation": "$generation",
+        "generation": $generation,
         "stateOwners": {
           "system": ${builtins.toJSON systemStatePaths},
           "repositoryUser": ${builtins.toJSON repositoryUserStatePaths}

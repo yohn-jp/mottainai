@@ -47,13 +47,22 @@ The same canonical module produces both fresh builds and the description
 used to reconcile an existing Runtime; imperative post-boot shell
 provisioning is not a parallel path to the same result.
 
-The contract explicitly separates two ownership domains:
+The contract explicitly separates three state domains (detailed in
+`docs/linux-runtime-contract.md` "Persistent vs disposable filesystem
+layout"), not two — persistence and ownership are independent axes:
 
-- **System/control-owned state** — packages, services, SSH, the
-  `mottainai-control` identity, and Mottainai/Nawabari/bubblewrap runtime
-  services. Reproducible from the pinned NixOS generation; replaced on
-  reconciliation.
-- **Repository-user-owned mutable state** — repository checkouts, HOME,
+- **System-owned disposable state** — packages, services, SSH
+  configuration, and the rest of the immutable system closure. Fully
+  reproducible from the pinned NixOS generation and replaced wholesale on
+  every reconciliation.
+- **System/control-owned persistent state** — the `mottainai-control`
+  identity's state directory (Nawabari session/claim registry, Mottainai
+  brain state, control SSH host keys). Survives reconciliation, exactly
+  like repository-user state does; it stays out of the disposable closure
+  precisely because reconciliation must not delete it. It differs from
+  repository-user state only in _who_ owns it: `mottainai-control`, not a
+  repository principal.
+- **Repository-user-owned persistent state** — repository checkouts, HOME,
   tool caches, and other user-mutated data. Never reverted by ordinary
   Runtime reconciliation.
 

@@ -5,6 +5,16 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
   };
 
+  # A committed flake.lock pinning nixpkgs is required for the
+  # reproducibility guarantee docs/linux-runtime-contract.md "Pinned inputs
+  # and build identity" describes. It is not included in this change: this
+  # source tree was authored and validated without a Nix toolchain (see
+  # ADR-0002 consequences), and a lock file's narHash can only be produced
+  # by actually fetching and hashing the pinned revision with `nix flake
+  # lock` — fabricating one here would be indistinguishable from a wrong
+  # pin. Run `nix flake lock` in a Nix-capable environment and commit the
+  # result before this flake provisions a live Runtime.
+
   outputs =
     { self, nixpkgs }:
     let
@@ -29,6 +39,8 @@
           modules = [
             self.nixosModules.runtime
             {
+              mottainai.runtime.enable = true;
+
               # Minimal boot/filesystem stanza so `nixos-rebuild build` can
               # evaluate this configuration standalone. Concrete host
               # image/hypervisor wiring is the next #230 child's scope, not

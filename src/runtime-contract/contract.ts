@@ -21,18 +21,33 @@ export const HEALTHY_RECONCILIATION_STATES = [
   "repairable",
 ] as const satisfies readonly ReconciliationState[];
 
+/**
+ * The health/capability result is reported by an external Runtime, not
+ * generated locally — these bounds keep a malformed or hostile Runtime from
+ * inflating the parsed result with unbounded companion lists or path
+ * strings (docs/linux-runtime-contract.md "Health/capability result").
+ */
+export const MAX_RUNTIME_IDENTITY_LENGTH = 256 as const;
+export const MAX_STATE_PATH_LENGTH = 4096 as const;
+export const MAX_STATE_PATHS_PER_OWNER = 64 as const;
+export const MAX_COMPANIONS = 64 as const;
+export const MAX_COMPANION_NAME_LENGTH = 128 as const;
+export const MAX_COMPANION_VERSION_LENGTH = 64 as const;
+
 const runtimeCompanionSchema = z
   .object({
-    name: z.string().min(1),
-    minimumVersion: z.string().min(1),
+    name: z.string().min(1).max(MAX_COMPANION_NAME_LENGTH),
+    minimumVersion: z.string().min(1).max(MAX_COMPANION_VERSION_LENGTH),
     present: z.boolean(),
   })
   .strict();
 
+const stateOwnerPathListSchema = z.array(z.string().min(1).max(MAX_STATE_PATH_LENGTH)).max(MAX_STATE_PATHS_PER_OWNER);
+
 const runtimeStateOwnersSchema = z
   .object({
-    system: z.array(z.string().min(1)),
-    repositoryUser: z.array(z.string().min(1)),
+    system: stateOwnerPathListSchema,
+    repositoryUser: stateOwnerPathListSchema,
   })
   .strict();
 
@@ -40,12 +55,12 @@ export const RuntimeCapabilityResultSchema = z
   .object({
     contractId: z.literal(RUNTIME_CONTRACT_ID),
     schemaVersion: z.number().int().min(1),
-    runtimeIdentity: z.string().min(1),
+    runtimeIdentity: z.string().min(1).max(MAX_RUNTIME_IDENTITY_LENGTH),
     architecture: z.enum(RUNTIME_ARCHITECTURES),
-    buildIdentity: z.string().min(1),
-    generation: z.string().min(1),
+    buildIdentity: z.string().min(1).max(MAX_STATE_PATH_LENGTH),
+    generation: z.number().int().min(1),
     stateOwners: runtimeStateOwnersSchema,
-    requiredCompanions: z.array(runtimeCompanionSchema),
+    requiredCompanions: z.array(runtimeCompanionSchema).max(MAX_COMPANIONS),
     reconciliation: z.enum(RECONCILIATION_STATES),
     upgradeRequired: z.boolean(),
   })

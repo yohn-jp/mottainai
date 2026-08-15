@@ -128,11 +128,19 @@ shaped by `RuntimeCapabilityResultSchema` in
 | `runtimeIdentity`    | Stable identifier for this Runtime instance (not the build identity)                                                         |
 | `architecture`       | `x86_64-linux` \| `aarch64-linux`                                                                                            |
 | `buildIdentity`      | Store-path derivation hash for the current system closure                                                                    |
-| `generation`         | NixOS system generation number                                                                                               |
+| `generation`         | NixOS system generation number (positive integer — matches `RuntimeGenerationRecord.generation` used by rollback selection)  |
 | `stateOwners`        | `{ system: string[]; repositoryUser: string[] }` — the persistent-path boundary above, reported so callers never hardcode it |
 | `requiredCompanions` | Bounded list of `{ name, minimumVersion, present }` for Nawabari and other pinned companions                                 |
 | `reconciliation`     | `"current" \| "repairable" \| "stale" \| "incompatible"`                                                                     |
 | `upgradeRequired`    | boolean                                                                                                                      |
+
+The result is reported by an external Runtime, not generated locally, so
+every string and array field carries an explicit maximum
+(`MAX_RUNTIME_IDENTITY_LENGTH`, `MAX_STATE_PATH_LENGTH`,
+`MAX_STATE_PATHS_PER_OWNER`, `MAX_COMPANIONS`, `MAX_COMPANION_NAME_LENGTH`,
+`MAX_COMPANION_VERSION_LENGTH` in `src/runtime-contract/contract.ts`). A
+Runtime cannot inflate the parsed result with an unbounded companion list or
+oversized path/identity strings; it fails validation instead.
 
 ## Update, rollback, and rebuild semantics
 

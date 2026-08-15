@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   HEALTHY_RECONCILIATION_STATES,
+  MAX_COMPANIONS,
+  MAX_RUNTIME_IDENTITY_LENGTH,
   RUNTIME_CONTRACT_ID,
   RUNTIME_CONTRACT_SCHEMA_VERSION,
   RuntimeCapabilityResultSchema,
@@ -19,7 +21,7 @@ function validResult(overrides: Record<string, unknown> = {}) {
     runtimeIdentity: "runtime-test-1",
     architecture: "x86_64-linux",
     buildIdentity: "/nix/store/abc123-nixos-system",
-    generation: "42",
+    generation: 42,
     stateOwners: {
       system: ["/var/lib/mottainai-control"],
       repositoryUser: ["/var/lib/mottainai/repositories"],
@@ -50,6 +52,33 @@ test("rejects a result carrying fields outside the bounded contract (no secret/e
 test("safeParse reports failure without throwing for callers that prefer it", () => {
   const outcome = RuntimeCapabilityResultSchema.safeParse({ ...validResult(), reconciliation: "unknown" });
   assert.equal(outcome.success, false);
+});
+
+test("rejects a runtimeIdentity longer than the bounded maximum", () => {
+  const oversized = { ...validResult(), runtimeIdentity: "x".repeat(MAX_RUNTIME_IDENTITY_LENGTH + 1) };
+  assert.throws(() => parseRuntimeCapabilityResult(oversized));
+});
+
+test("rejects a requiredCompanions list longer than the bounded maximum (an external Runtime cannot inflate the payload)", () => {
+  const companion = { name: "nawabari", minimumVersion: "0.2.0", present: true };
+  const overflowing = {
+    ...validResult(),
+    requiredCompanions: Array.from({ length: MAX_COMPANIONS + 1 }, () => companion),
+  };
+  assert.throws(() => parseRuntimeCapabilityResult(overflowing));
+});
+
+test("accepts a requiredCompanions list at exactly the bounded maximum", () => {
+  const companion = { name: "nawabari", minimumVersion: "0.2.0", present: true };
+  const atLimit = {
+    ...validResult(),
+    requiredCompanions: Array.from({ length: MAX_COMPANIONS }, () => companion),
+  };
+  assert.equal(parseRuntimeCapabilityResult(atLimit).requiredCompanions.length, MAX_COMPANIONS);
+});
+
+test("rejects a non-integer generation (must line up with RuntimeGenerationRecord for rollback matching)", () => {
+  assert.throws(() => parseRuntimeCapabilityResult({ ...validResult(), generation: "42" }));
 });
 
 test("isRuntimeContractCompatible accepts a matching contract at or above the minimum schema version", () => {
