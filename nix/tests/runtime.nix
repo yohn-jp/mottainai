@@ -17,6 +17,7 @@ pkgs.testers.nixosTest {
       mottainai.runtime = {
         enable = true;
         runtimeIdentity = "test-runtime";
+        controlAuthorizedKeys = [ "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyForRuntimeContract test" ];
       };
     };
 
@@ -33,6 +34,7 @@ pkgs.testers.nixosTest {
 
     with subtest("mottainai-control identity exists and owns its state dir"):
         runtime.succeed("id mottainai-control")
+        runtime.succeed("grep -q 'AAAAC3NzaC1lZDI1NTE5AAAAITestKeyForRuntimeContract' /var/lib/mottainai-control/.ssh/authorized_keys")
         owner = runtime.succeed("stat -c '%U' /var/lib/mottainai-control").strip()
         assert owner == "mottainai-control", f"unexpected owner: {owner}"
         mode = runtime.succeed("stat -c '%a' /var/lib/mottainai-control").strip()
@@ -45,6 +47,7 @@ pkgs.testers.nixosTest {
         runtime.succeed("command -v git")
         runtime.succeed("command -v bwrap")
         runtime.succeed("command -v mottainai-runtime-health")
+        runtime.succeed("command -v mottainai-runtime-reconcile")
 
     with subtest("health/capability result is bounded JSON matching the contract"):
         runtime.succeed("systemctl start mottainai-runtime-health.service")

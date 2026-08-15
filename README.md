@@ -106,11 +106,17 @@ clients are welcome via PR.
 
 ## Supported platforms
 
-- Linux: Tier 1 and the canonical runtime.
-- WSL2: supported as a Linux runtime for Windows users.
-- macOS: best effort / Tier 2.
-- Native Windows: unsupported. The historical final native-Windows release/tag
-  is `v0.1.2`; use WSL2 for the supported Windows-user path.
+- Linux: Tier 1; the local Runtime uses QEMU + KVM.
+- Windows 11 Home/Pro x86-64: the local Runtime uses QEMU + WHPX.
+- macOS: the local Runtime uses QEMU + HVF, with Apple Silicon as the v1
+  target.
+- WSL2 is not the canonical local Runtime backend. A missing host accelerator
+  fails closed; Mottainai does not silently fall back to WSL2, TCG, or
+  host-native execution.
+
+The local Runtime is opt-in: plain `mottainai init` only sets up MCP client
+registration. Pass `--runtime` to additionally ensure the local Runtime VM
+(see [docs/local-runtime.md](docs/local-runtime.md)).
 
 ## Installation
 

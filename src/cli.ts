@@ -10,6 +10,7 @@ import { localTools } from "./local-tools.js";
 import { dispatchClientHook, runManagedHooksCommand } from "./hooks/commands.js";
 import type { HookCommandContext } from "./hooks/commands.js";
 import { formatInitHuman, runInit } from "./init.js";
+import { createLocalRuntimeProvisioner } from "./local-runtime/index.js";
 import { createRuntimeDiagnostic, formatRuntimeDiagnosticHuman } from "./runtime-diagnostic.js";
 import { runServer } from "./server.js";
 import {
@@ -476,7 +477,24 @@ export async function runCli(args: string[]): Promise<number> {
     };
 
     if (command === "init") {
-      const summary = await runInit({ args: argv });
+      const summary = await runInit({
+        args: argv,
+        // The local Runtime is Mottainai-managed hard-isolation infrastructure,
+        // not part of MCP client registration; ensuring it is opt-in via
+        // --runtime so `init` still succeeds for MCP-only setup on hosts
+        // without a hardware accelerator (docs/local-runtime.md).
+        ...(hasFlag(argv, "runtime")
+          ? {
+              localRuntime: createLocalRuntimeProvisioner(),
+              localRuntimeOptions: {
+                environment: process.env,
+                homeDirectory: process.env.HOME ?? process.env.USERPROFILE,
+                platform: process.platform,
+                architecture: process.arch,
+              },
+            }
+          : {}),
+      });
       if (hasFlag(argv, "json")) print(summary);
       else console.log(formatInitHuman(summary));
       return summary.ok ? 0 : 1;

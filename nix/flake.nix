@@ -5,16 +5,6 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
   };
 
-  # A committed flake.lock pinning nixpkgs is required for the
-  # reproducibility guarantee docs/linux-runtime-contract.md "Pinned inputs
-  # and build identity" describes. It is not included in this change: this
-  # source tree was authored and validated without a Nix toolchain (see
-  # ADR-0002 consequences), and a lock file's narHash can only be produced
-  # by actually fetching and hashing the pinned revision with `nix flake
-  # lock` — fabricating one here would be indistinguishable from a wrong
-  # pin. Run `nix flake lock` in a Nix-capable environment and commit the
-  # result before this flake provisions a live Runtime.
-
   outputs =
     { self, nixpkgs }:
     let
@@ -37,24 +27,33 @@
         nixpkgs.lib.nixosSystem {
           inherit system;
           modules = [
+            # The qemu-vm module is only the image projection of the same
+            # canonical Runtime module; it is not a second guest authority.
+            (nixpkgs + "/nixos/modules/virtualisation/qemu-vm.nix")
             self.nixosModules.runtime
             {
               mottainai.runtime.enable = true;
 
-              # Minimal boot/filesystem stanza so `nixos-rebuild build` can
-              # evaluate this configuration standalone. Concrete host
-              # image/hypervisor wiring is the next #230 child's scope, not
-              # this contract's.
+              # Minimal boot/filesystem stanza so the canonical Runtime can
+              # be evaluated and projected to the QEMU VM output consumed by
+              # the local Runtime adapter.
               boot.loader.grub.enable = nixpkgs.lib.mkDefault false;
               fileSystems."/" = nixpkgs.lib.mkDefault {
                 device = "/dev/disk/by-label/nixos";
                 fsType = "ext4";
               };
               system.stateVersion = "24.05";
+              virtualisation.memorySize = 2048;
+              virtualisation.cores = 2;
             }
           ];
         }
       );
+
+      packages = forEachSystem (system: {
+        runtime-system = self.nixosConfigurations.${system}.config.system.build.toplevel;
+        runtime-vm = self.nixosConfigurations.${system}.config.system.build.vm;
+      });
 
       checks = forEachSystem (
         system:
