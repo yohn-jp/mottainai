@@ -90,7 +90,15 @@ export function readRuntimeImageManifest(filePath: string): RuntimeImageManifest
   const parsed = imageManifestSchema.safeParse(value);
   if (!parsed.success)
     throw new LocalRuntimeError("runtime_image_corrupt", "canonical Runtime image manifest is invalid");
-  return parsed.data as RuntimeImageManifest;
+  const manifest = parsed.data as RuntimeImageManifest;
+  const resolveAssetPath = (assetPath: string): string =>
+    path.isAbsolute(assetPath) ? assetPath : path.resolve(path.dirname(filePath), assetPath);
+  return {
+    ...manifest,
+    kernelPath: resolveAssetPath(manifest.kernelPath),
+    initrdPath: resolveAssetPath(manifest.initrdPath),
+    diskPath: resolveAssetPath(manifest.diskPath),
+  };
 }
 
 function copyVerified(source: string, destination: string, expected: string, label: string): void {

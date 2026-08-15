@@ -36,9 +36,13 @@ reconciling, ready, incompatible, repairable, and recreate-required. A
 corrupt image, changed SSH host key, incompatible Runtime contract, or missing
 accelerator is an error rather than a destructive guess.
 
-Release staging runs the locked Nix output first and then uses
-`scripts/build-runtime-image-manifest.mjs` to record kernel/initrd/disk hashes,
-the lockfile digest, and the pinned SSH host key. QEMU release binaries are
-staged with `scripts/build-runtime-qemu-manifest.mjs`; the resulting per-host
-manifest is what the lazy materializer verifies and copies into the private
-state root.
+Release staging runs the locked Nix output first (`nix build ./nix#runtime-image`).
+That output is a projection of the same `nixosConfigurations` system and
+contains the kernel, initrd, raw disk, and build identity. It is then passed to
+`scripts/build-runtime-image-manifest.mjs --image-output` to record
+kernel/initrd/disk hashes, the lockfile digest, and the real per-image pinned
+SSH host key. The generated manifest stores asset paths relative to itself, so
+the verified bundle remains consumable after staging moves it. QEMU release
+binaries are staged with `scripts/build-runtime-qemu-manifest.mjs`; the
+resulting per-host manifest is what the lazy materializer verifies and copies
+into the private state root.
