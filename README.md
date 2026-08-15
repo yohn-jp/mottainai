@@ -114,8 +114,10 @@ clients are welcome via PR.
   fails closed; Mottainai does not silently fall back to WSL2, TCG, or
   host-native execution.
 
-The local Runtime is opt-in: plain `mottainai init` only sets up MCP client
-registration. Pass `--runtime` to additionally ensure the local Runtime VM
+The `mottainai runtime` namespace is the only local Runtime lifecycle
+authority: `mottainai runtime ensure` reconciles the local Runtime VM and
+`mottainai runtime status` reads its persisted state. `mottainai init` only
+sets up MCP client registration and never provisions Runtime
 (see [docs/local-runtime.md](docs/local-runtime.md)).
 
 ## Installation
