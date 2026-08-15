@@ -54,3 +54,21 @@ test("QEMU argv is fixed, private-QMP, and accelerator-required", () => {
   assert.match(args[args.indexOf("-netdev") + 1] ?? "", /hostfwd=tcp:127\.0\.0\.1:48321-:22/u);
   assert.equal(args.includes("-daemonize"), false);
 });
+
+test("QMP stays host-private on every supported endpoint format", () => {
+  const cases = [
+    { platform: "linux" as const, endpoint: "/private/mottainai-runtime/qmp.sock", prefix: "unix:" },
+    { platform: "darwin" as const, endpoint: "/private/mottainai-runtime/qmp.sock", prefix: "unix:" },
+    { platform: "win32" as const, endpoint: "\\\\.\\pipe\\mottainai-local-runtime-v1", prefix: "pipe:" },
+  ];
+  for (const entry of cases) {
+    const args = buildCanonicalQemuArguments({
+      ...options,
+      platform: entry.platform,
+      paths: { ...paths, qmpSocket: entry.endpoint },
+    });
+    const qmp = args[args.indexOf("-qmp") + 1] ?? "";
+    assert.equal(qmp.startsWith(entry.prefix), true);
+    assert.equal(qmp.includes("tcp:"), false);
+  }
+});
