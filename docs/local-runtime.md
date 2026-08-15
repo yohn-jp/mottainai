@@ -38,7 +38,13 @@ accelerator is an error rather than a destructive guess.
 
 Release staging runs the locked Nix output first and then uses
 `scripts/build-runtime-image-manifest.mjs` to record kernel/initrd/disk hashes,
-the lockfile digest, and the pinned SSH host key. QEMU release binaries are
-staged with `scripts/build-runtime-qemu-manifest.mjs`; the resulting per-host
-manifest is what the lazy materializer verifies and copies into the private
-state root.
+the lockfile digest, and the pinned SSH host key. The reusable
+`.github/workflows/runtime-qemu-artifacts.yml` matrix builds QEMU 9.2.2 from
+the pinned upstream source on each supported host, and
+`scripts/build-runtime-qemu-manifest.mjs` stages the executable, firmware,
+runtime libraries (or records a static-link dependency mode), license files,
+and provenance into a deterministic archive. The generated sidecar manifest
+contains only real hashes and is verified by
+`scripts/verify-runtime-qemu-artifact.mjs` before an OS-specific integration
+job consumes it. `scripts/runtime-qemu-boot-smoke.mjs` is an artifact-level
+process smoke primitive; it does not claim KVM/HVF/WHPX or guest-boot evidence.

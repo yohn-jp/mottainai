@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -76,6 +77,112 @@ test("default manifest for a host without a released executable is rejected, not
       materializeQemuArtifact({ paths: paths(root), host: "linux-x64", manifest: QEMU_ARTIFACT_MANIFEST["linux-x64"] }),
       /has no built executable yet/,
     );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("available manifests verify packaged runtime libraries and firmware on every reuse", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-qemu-dependency-test-"));
+  const bundle = path.join(root, "bundle");
+  const artifactRoot = path.join(bundle, "linux-x64", "qemu-test");
+  const executable = "managed-qemu";
+  const library = "runtime-library";
+  const firmware = "runtime-firmware";
+  const manifest = {
+    schemaVersion: 2 as const,
+    availability: "available" as const,
+    artifactId: "qemu-test",
+    version: "9.2.2" as const,
+    buildId: "qemu-9.2.2-mottainai-runtime-v1" as const,
+    host: "linux-x64" as const,
+    executableName: "qemu-system-x86_64",
+    downloadUrl: "https://example.invalid/qemu-test.tar",
+    sha256: sha256(executable),
+    dependencyMode: "bundled" as const,
+    runtimeLibraries: [{ name: "libtest.so", path: "lib/libtest.so", sha256: sha256(library) }],
+    firmware: [{ name: "test.rom", path: "share/firmware/test.rom", sha256: sha256(firmware) }],
+    source: {
+      url: "https://download.qemu.org/qemu-9.2.2.tar.xz",
+      sha256: "752eaeeb772923a73d536b231e05bcc09c9b1f51690a41ad9973d900e4ec9fbf",
+      license: "GPL-2.0-or-later" as const,
+      correspondingSource: "https://download.qemu.org/qemu-9.2.2.tar.xz",
+    },
+  };
+  fs.mkdirSync(path.join(artifactRoot, "bin", "unused"), { recursive: true });
+  fs.mkdirSync(path.join(artifactRoot, "lib"), { recursive: true });
+  fs.mkdirSync(path.join(artifactRoot, "share", "firmware"), { recursive: true });
+  fs.writeFileSync(path.join(artifactRoot, "bin", manifest.executableName), executable, { mode: 0o700 });
+  fs.writeFileSync(path.join(artifactRoot, "lib", "libtest.so"), library);
+  fs.writeFileSync(path.join(artifactRoot, "share", "firmware", "test.rom"), firmware);
+  try {
+    const result = await materializeQemuArtifact({
+      paths: paths(root),
+      host: "linux-x64",
+      bundledDirectory: bundle,
+      manifest,
+    });
+    assert.equal(result.sha256, manifest.sha256);
+    assert.equal(result.runtimeLibraryDirectory, path.join(root, "qemu", "lib"));
+    assert.equal(fs.readFileSync(path.join(root, "qemu", "lib", "libtest.so"), "utf8"), library);
+    fs.writeFileSync(path.join(root, "qemu", "share", "firmware", "test.rom"), "tampered");
+    await assert.rejects(
+      materializeQemuArtifact({ paths: paths(root), host: "linux-x64", bundledDirectory: bundle, manifest }),
+      /SHA-256 mismatch/,
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("available release archives are extracted into the private state root before verification", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-qemu-archive-test-"));
+  const stage = path.join(root, "stage");
+  const archive = path.join(root, "qemu-test.tar");
+  const bundle = path.join(root, "bundle");
+  const executable = "archive-qemu";
+  fs.mkdirSync(path.join(stage, "bin"), { recursive: true });
+  fs.mkdirSync(bundle, { recursive: true });
+  fs.writeFileSync(path.join(stage, "bin", "qemu-system-x86_64"), executable, { mode: 0o700 });
+  const manifest = {
+    schemaVersion: 2 as const,
+    availability: "available" as const,
+    artifactId: "qemu-linux-x64-9.2.2",
+    version: "9.2.2" as const,
+    buildId: "qemu-9.2.2-mottainai-runtime-v1" as const,
+    host: "linux-x64" as const,
+    executableName: "qemu-system-x86_64",
+    downloadUrl: "https://github.com/yohn-jp/mottainai/releases/download/qemu-9.2.2/qemu-linux-x64-9.2.2.tar",
+    sha256: sha256(executable),
+    dependencyMode: "bundled" as const,
+    runtimeLibraries: [],
+    firmware: [],
+    source: {
+      url: "https://download.qemu.org/qemu-9.2.2.tar.xz",
+      sha256: "752eaeeb772923a73d536b231e05bcc09c9b1f51690a41ad9973d900e4ec9fbf",
+      license: "GPL-2.0-or-later" as const,
+      correspondingSource: "https://download.qemu.org/qemu-9.2.2.tar.xz",
+    },
+  };
+  execFileSync("tar", ["-cf", archive, "-C", stage, "."]);
+  try {
+    const result = await materializeQemuArtifact({
+      paths: paths(root),
+      host: "linux-x64",
+      bundledDirectory: bundle,
+      fetcher: async (url) =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            const body = url.endsWith(".manifest.json")
+              ? Buffer.from(JSON.stringify(manifest))
+              : fs.readFileSync(archive);
+            controller.enqueue(new Uint8Array(body));
+            controller.close();
+          },
+        }),
+    });
+    assert.equal(result.sha256, manifest.sha256);
+    assert.equal(fs.readFileSync(path.join(root, "qemu", manifest.executableName), "utf8"), executable);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

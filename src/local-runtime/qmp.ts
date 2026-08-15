@@ -275,11 +275,25 @@ export class QemuRuntimeMachine {
       fs.unlinkSync(this.options.paths.qmpSocket);
     }
     try {
+      const libraryDirectory = this.options.artifact.runtimeLibraryDirectory;
+      const platform = this.options.platform ?? process.platform;
+      const environment =
+        libraryDirectory === undefined
+          ? process.env
+          : {
+              ...process.env,
+              ...(platform === "win32"
+                ? { PATH: `${libraryDirectory};${process.env.PATH ?? ""}` }
+                : platform === "darwin"
+                  ? { DYLD_LIBRARY_PATH: `${libraryDirectory}:${process.env.DYLD_LIBRARY_PATH ?? ""}` }
+                  : { LD_LIBRARY_PATH: `${libraryDirectory}:${process.env.LD_LIBRARY_PATH ?? ""}` }),
+            };
       const child = spawn(this.options.artifact.executablePath, this.arguments, {
         cwd: this.options.paths.stateDirectory,
         detached: true,
         stdio: "ignore",
         windowsHide: true,
+        env: environment,
       });
       child.unref();
       if (child.pid === undefined) throw new Error("QEMU did not return a process id");
