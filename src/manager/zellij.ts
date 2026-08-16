@@ -5,6 +5,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_OUTPUT_BYTES = 64 * 1024;
 const MINIMUM_ZELLIJ_VERSION = [0, 40, 0] as const;
 const SESSION_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/u;
+const ANSI_ESCAPE_PATTERN = /\u001B\[[0-?]*[ -/]*[@-~]/gu;
 
 export type ZellijObservedState = "running" | "detached" | "exited" | "absent" | "unresolved";
 
@@ -75,7 +76,7 @@ function defaultRunner(binary: string, environment?: NodeJS.ProcessEnv): ZellijC
 function sessionRow(stdout: string, sessionName: string): string | undefined {
   return stdout
     .split(/\r?\n/u)
-    .map((line) => line.trim())
+    .map((line) => line.replace(ANSI_ESCAPE_PATTERN, "").trim())
     .find((line) => line === sessionName || line.startsWith(`${sessionName} `));
 }
 
@@ -165,7 +166,7 @@ export class ZellijCliRuntime implements ZellijRuntime {
       throw new ZellijRuntimeError("zellij_unavailable", `Zellij session inspection failed: ${result.spawnError}`);
     }
     if (result.exitCode !== 0) {
-      if (/no session|not found|does not exist/iu.test(result.stderr)) return "absent";
+      if (/no active zellij sessions|no session|not found|does not exist/iu.test(result.stderr)) return "absent";
       throw new ZellijRuntimeError(
         "zellij_command_failed",
         `Zellij session inspection failed: ${result.spawnError ?? (result.stderr.trim() || `exit ${result.exitCode}`)}`,

@@ -263,6 +263,10 @@ export class NawabariExecutionClient {
     return results;
   }
 
+  async releaseClaims(input: { cwd: string; sessionId: string }): Promise<NawabariCommandResult> {
+    return this.invoke(["session", "release", "--session", input.sessionId], input.cwd);
+  }
+
   async listClaims(input: { cwd: string; sessionId: string }): Promise<ExecutionClaim[]> {
     const result = await this.invoke(["session", "claims", "--session", input.sessionId], input.cwd);
     if (!Array.isArray(result.claims))

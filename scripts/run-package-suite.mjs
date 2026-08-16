@@ -38,6 +38,7 @@ try {
   // 依存解決・launcher・initの責務は既存smokeへ委譲する。同一artifactを渡して再packを防ぐ。
   run(process.execPath, ["scripts/smoke-test.mjs", "--tarball", tarballPath], { env: environment });
   run(process.execPath, ["--test", "scripts/mcp-stdio-package.test.mjs"], { env: environment });
+  run(process.execPath, ["--test", "scripts/packed-workflow-e2e.test.mjs"], { env: environment });
 } finally {
   fs.rmSync(artifactDirectory, { recursive: true, force: true });
 }

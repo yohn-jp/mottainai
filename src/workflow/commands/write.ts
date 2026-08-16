@@ -890,12 +890,31 @@ export async function commitWorkflowTask(input: CommitWorkflowInput): Promise<Wo
   let shadow: ShadowComparison;
   let legacyDecision: ShadowComparison["legacyDecision"] = "unavailable";
   try {
-    const authorization = await nawabari.authorize({
+    let authorization = await nawabari.authorize({
       cwd: workspaceRoot,
       sessionId,
       operation: "commit",
       resources,
     });
+    if (authorization.allowed !== true && authorization.code === "INSUFFICIENT_CLAIM_MODE") {
+      // A launch-time execution boundary may hold only a read claim (Manager
+      // starts read-only until semantic scope is declared). `task commit` is
+      // the declared write intent for exactly these resources, so it is the
+      // boundary that replaces the claim with concrete write access and
+      // retries authorization once before failing closed.
+      await nawabari.releaseClaims({ cwd: workspaceRoot, sessionId });
+      await nawabari.claimSession({
+        cwd: workspaceRoot,
+        sessionId,
+        claims: resources.map((resource) => ({ resource, mode: "exclusive-write" as const })),
+      });
+      authorization = await nawabari.authorize({
+        cwd: workspaceRoot,
+        sessionId,
+        operation: "commit",
+        resources,
+      });
+    }
     legacyDecision = await boundedLegacyDecision(verifyCommit(operation));
     shadow = {
       legacyDecision,

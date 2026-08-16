@@ -76,6 +76,34 @@ test("Zellij adapter builds argv-safe background, pane, inspect, and terminate c
   assert.deepEqual(calls[8], ["kill-session", managedName]);
 });
 
+test("Zellij inspection treats an empty session list as absent", async () => {
+  const runtime = new ZellijCliRuntime({
+    cwd: "/repo",
+    run: async (args) =>
+      args[0] === "list-sessions"
+        ? { stdout: "", stderr: "No active zellij sessions found.\n", exitCode: 1 }
+        : { stdout: "", stderr: "", exitCode: 0 },
+  });
+  assert.equal(await runtime.inspect("mottainai-12345678-1234-4234-8234-123456789abc"), "absent");
+});
+
+test("Zellij inspection matches ANSI-formatted session rows", async () => {
+  const name = "mottainai-12345678-1234-4234-8234-123456789abc";
+  const runtime = new ZellijCliRuntime({
+    cwd: "/repo",
+    run: async (args) => {
+      if (args[0] === "list-sessions")
+        return { stdout: `\u001b[32;1m${name}\u001b[0m [Created]\n`, stderr: "", exitCode: 0 };
+      return {
+        stdout: JSON.stringify([{ title: `${name}-agent`, pane_cwd: "/repo", exited: false, exit_status: null }]),
+        stderr: "",
+        exitCode: 0,
+      };
+    },
+  });
+  assert.equal(await runtime.inspect(name, "/repo"), "running");
+});
+
 test("Zellij availability failure has a stable actionable diagnostic", async () => {
   const runtime = new ZellijCliRuntime({
     cwd: "/repo",
