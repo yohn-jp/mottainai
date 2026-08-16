@@ -3,7 +3,11 @@ import { runProgram } from "../subprocess.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_OUTPUT_BYTES = 64 * 1024;
-const MINIMUM_ZELLIJ_VERSION = [0, 40, 0] as const;
+// `action list-panes --json`, used by inspect() for every running/detached
+// session, was only added in Zellij 0.44.0. Versions 0.40.0-0.43.x passed
+// the previous, lower gate but failed closed the first time a live session
+// needed inspecting.
+const MINIMUM_ZELLIJ_VERSION = [0, 44, 0] as const;
 const SESSION_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/u;
 const NO_ACTIVE_SESSION_PATTERN = /no session|not found|does not exist|no active [^\n]*sessions/iu;
 const ANSI_ESCAPE_PATTERN = /\x1b\[[0-9;]*[A-Za-z]/gu;

@@ -15,6 +15,7 @@ const REQUIRED_NAWABARI_COMMANDS = [
   "session list",
   "session claim",
   "session claims",
+  "session release",
   "session close",
   "authorize",
   "checkpoint",
@@ -261,6 +262,10 @@ export class NawabariExecutionClient {
       );
     }
     return results;
+  }
+
+  async releaseClaims(input: { cwd: string; sessionId: string }): Promise<NawabariCommandResult> {
+    return this.invoke(["session", "release", "--session", input.sessionId], input.cwd);
   }
 
   async listClaims(input: { cwd: string; sessionId: string }): Promise<ExecutionClaim[]> {

@@ -64,6 +64,7 @@ const FAKE_NAWABARI_COMMANDS = [
   "session list",
   "session claim",
   "session claims",
+  "session release",
   "session close",
   "authorize",
   "checkpoint",
@@ -263,11 +264,29 @@ function commitBoundaryNawabari(
   repositoryRoot: string,
   worktree: string,
   branch: string,
-  options: { failCheckpointOnce?: boolean; denyAuthorizationAfterCommit?: boolean } = {},
-): { client: NawabariExecutionClient; commitCalls: () => number } {
+  options: {
+    failCheckpointOnce?: boolean;
+    denyAuthorizationAfterCommit?: boolean;
+    /** First authorize denies with INSUFFICIENT_CLAIM_MODE; escalation must retry once. */
+    insufficientClaimOnce?: boolean;
+    /** Even after the exclusive-write escalation, authorize keeps denying (a different reason). */
+    denyAfterEscalation?: boolean;
+    /** The claim call that restores the pre-escalation read claim fails. */
+    failClaimRestore?: boolean;
+    /** The retried authorize call after a successful escalation throws instead of returning a decision. */
+    failRetryAuthorize?: boolean;
+  } = {},
+): {
+  client: NawabariExecutionClient;
+  commitCalls: () => number;
+  authorizeCalls: () => number;
+  claims: () => { resource: string; mode: string }[];
+} {
   const sessionId = "commit-boundary-session";
   let commitCalls = 0;
   let checkpointCalls = 0;
+  let authorizeCalls = 0;
+  let claims: { resource: string; mode: string }[] = [{ resource: "**", mode: "read" }];
   return {
     client: new NawabariExecutionClient({
       runner: {
@@ -301,7 +320,57 @@ function commitBoundaryNawabari(
                 state: "active",
               }),
             );
-          if (args[0] === "authorize")
+          if (args[0] === "session" && args[1] === "claims")
+            return providerResult(JSON.stringify({ ok: true, command: "session claims", claims }));
+          if (args[0] === "session" && args[1] === "release") {
+            claims = [];
+            return providerResult(
+              JSON.stringify({ ok: true, command: "session release", session_id: sessionId, released: [] }),
+            );
+          }
+          if (args[0] === "session" && args[1] === "claim") {
+            const resource = args[args.indexOf("--resource") + 1]!;
+            const mode = args[args.indexOf("--mode") + 1]!;
+            if (options.failClaimRestore === true && mode === "read")
+              return providerResult(
+                JSON.stringify({ ok: false, command: "session claim", code: "CLAIM_FAILED", message: "injected" }),
+                "",
+                { exitCode: 3 },
+              );
+            claims.push({ resource, mode });
+            return providerResult(
+              JSON.stringify({ ok: true, command: "session claim", session_id: sessionId, resource, mode }),
+            );
+          }
+          if (args[0] === "authorize") {
+            authorizeCalls += 1;
+            if (options.insufficientClaimOnce === true && authorizeCalls === 1)
+              return providerResult(
+                JSON.stringify({
+                  ok: true,
+                  command: "authorize",
+                  allowed: false,
+                  code: "INSUFFICIENT_CLAIM_MODE",
+                  session_id: sessionId,
+                }),
+              );
+            const hasExclusiveWrite = claims.some((claim) => claim.mode === "exclusive-write");
+            if (options.failRetryAuthorize === true && authorizeCalls === 2 && hasExclusiveWrite)
+              return providerResult(
+                JSON.stringify({ ok: false, command: "authorize", code: "AUTHORIZE_UNAVAILABLE", message: "injected" }),
+                "",
+                { exitCode: 3 },
+              );
+            if (options.denyAfterEscalation === true && hasExclusiveWrite)
+              return providerResult(
+                JSON.stringify({
+                  ok: true,
+                  command: "authorize",
+                  allowed: false,
+                  code: "SOME_OTHER_DENIAL",
+                  session_id: sessionId,
+                }),
+              );
             return providerResult(
               JSON.stringify({
                 ok: true,
@@ -310,6 +379,7 @@ function commitBoundaryNawabari(
                 session_id: sessionId,
               }),
             );
+          }
           if (args[0] === "commit") {
             commitCalls += 1;
             const message = args[args.indexOf("--message") + 1]!;
@@ -348,6 +418,8 @@ function commitBoundaryNawabari(
       },
     }),
     commitCalls: () => commitCalls,
+    authorizeCalls: () => authorizeCalls,
+    claims: () => claims,
   };
 }
 
@@ -399,6 +471,129 @@ async function commitRecoveryFixture(
     worktree: started.worktree.canonicalPath,
   };
 }
+
+async function claimEscalationFixture(
+  t: TestContext,
+  options: {
+    insufficientClaimOnce?: boolean;
+    denyAfterEscalation?: boolean;
+    failClaimRestore?: boolean;
+    failRetryAuthorize?: boolean;
+  } = {},
+): Promise<{
+  root: string;
+  store: WorkflowSqliteStateStore;
+  taskId: string;
+  nawabari: NawabariExecutionClient;
+  authorizeCalls: () => number;
+  claims: () => { resource: string; mode: string }[];
+}> {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const started = await startTask({
+    workspaceRoot: root,
+    store,
+    policy: BUILTIN_PRESETS.standard,
+    taskSlug: "commit-claim-escalation",
+    branchType: "fix",
+    issueRef: "334",
+  });
+  assert.equal(started.ok, true, JSON.stringify(started));
+  if (!started.ok || started.worktree === undefined) throw new Error("claim escalation fixture setup failed");
+  const sessionId = "commit-boundary-session" as never;
+  store.attachNawabariSession(started.task.taskId, sessionId);
+  fs.appendFileSync(path.join(started.worktree.canonicalPath, "file.txt"), "claim escalation\n");
+  const boundary = commitBoundaryNawabari(root, started.worktree.canonicalPath, started.worktree.branchName, {
+    insufficientClaimOnce: options.insufficientClaimOnce,
+    denyAfterEscalation: options.denyAfterEscalation,
+    failClaimRestore: options.failClaimRestore,
+    failRetryAuthorize: options.failRetryAuthorize,
+  });
+  return {
+    root,
+    store,
+    taskId: started.task.taskId,
+    nawabari: boundary.client,
+    authorizeCalls: boundary.authorizeCalls,
+    claims: boundary.claims,
+  };
+}
+
+test("commit escalates an insufficient read claim to exclusive-write and retries authorization once", async (t) => {
+  const fixture = await claimEscalationFixture(t, { insufficientClaimOnce: true });
+  const result = await commitWorkflowTask({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    taskId: fixture.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "escalate then commit" },
+    nawabari: fixture.nawabari,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  // 1: initial denial, 2: retry after escalation (succeeds), 3: the
+  // post-commit reconciliation check inside reconcileKnownCommit.
+  assert.equal(fixture.authorizeCalls(), 3, "must retry authorization exactly once after escalation");
+  assert.deepEqual(fixture.claims(), [{ resource: "**", mode: "exclusive-write" }]);
+});
+
+test("commit restores the prior read claim when the retried authorization is still denied", async (t) => {
+  const fixture = await claimEscalationFixture(t, { insufficientClaimOnce: true, denyAfterEscalation: true });
+  const result = await commitWorkflowTask({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    taskId: fixture.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "escalate then deny" },
+    nawabari: fixture.nawabari,
+  });
+  assert.equal(result.ok, false, JSON.stringify(result));
+  if (!result.ok) assert.equal(result.reason, "nawabari-rejected");
+  assert.deepEqual(
+    fixture.claims(),
+    [{ resource: "**", mode: "read" }],
+    "a denied retry must restore the pre-escalation claim",
+  );
+});
+
+test("commit fails closed with a distinct error when claim restoration fails after a denied retry", async (t) => {
+  const fixture = await claimEscalationFixture(t, {
+    insufficientClaimOnce: true,
+    denyAfterEscalation: true,
+    failClaimRestore: true,
+  });
+  const result = await commitWorkflowTask({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    taskId: fixture.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "escalate then fail restore" },
+    nawabari: fixture.nawabari,
+  });
+  assert.equal(result.ok, false, JSON.stringify(result));
+  if (!result.ok) {
+    assert.notEqual(result.reason, "nawabari-rejected");
+    assert.match(result.detail, /restoring the session's prior claim set also failed/u);
+  }
+});
+
+test("commit restores the prior read claim when the retried authorization call itself throws", async (t) => {
+  const fixture = await claimEscalationFixture(t, { insufficientClaimOnce: true, failRetryAuthorize: true });
+  const result = await commitWorkflowTask({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    taskId: fixture.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "escalate then throw on retry" },
+    nawabari: fixture.nawabari,
+  });
+  assert.equal(result.ok, false, JSON.stringify(result));
+  if (!result.ok) assert.notEqual(result.reason, "nawabari-rejected");
+  assert.deepEqual(
+    fixture.claims(),
+    [{ resource: "**", mode: "read" }],
+    "a thrown retry authorization must restore the pre-escalation claim",
+  );
+});
 
 async function finishFixture(t: TestContext) {
   const root = createTempGitRepo(t);
