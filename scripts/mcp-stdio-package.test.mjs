@@ -119,7 +119,7 @@ function writeAmbiguousNawabari(commandPath) {
     commandPath,
     `#!/bin/sh
 case "$1:$2" in
-  capabilities:*) printf '%s\\n' '{"ok":true,"command":"capabilities","schema_version":1,"contract_id":"nawabari.standalone-execution.v1","package_version":"0.2.0","capabilities":[{"commands":["session create","session id","session show","session list","session claim","session claims","session close","authorize","checkpoint","commit","push","gc"]}]}' ;;
+  capabilities:*) printf '%s\\n' '{"ok":true,"command":"capabilities","schema_version":1,"contract_id":"nawabari.standalone-execution.v1","package_version":"0.2.0","capabilities":[{"commands":["session create","session id","session show","session list","session claim","session claims","session release","session close","authorize","checkpoint","commit","push","gc"]}]}' ;;
   session:id) printf '%s\\n' '{"ok":false,"command":"session id","code":"NO_SESSION","message":"none"}'; exit 3 ;;
   session:list) printf '%s\\n' '{"ok":true,"command":"session list","sessions":[]}' ;;
   session:create|session:show) printf '%s\\n' '{"ok":true,"command":"session show","session_id":"foreign-session","repository":"/tmp/foreign-repository.git","worktree":"/tmp/foreign-worktree","branch":"fix/181-ambiguous-companion","state":"active"}' ;;

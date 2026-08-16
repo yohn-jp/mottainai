@@ -163,7 +163,11 @@ async function main() {
 
   const gate = process.env.MOTTAINAI_PI_GATE;
   if (gate !== undefined) {
-    while (!fs.existsSync(gate)) await new Promise((resolve) => setTimeout(resolve, 25));
+    const deadline = Date.now() + 60_000;
+    while (!fs.existsSync(gate)) {
+      if (Date.now() > deadline) throw new Error("timed out waiting for the Pi gate: " + gate);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
   }
 
   fs.writeFileSync(path.join(cwd, "pi-implementation.mjs"), "export const result = 42;\n");
@@ -232,7 +236,10 @@ const args = process.argv.slice(2);
 if (process.env.MOTTAINAI_GH_TRACE !== undefined)
   fs.appendFileSync(process.env.MOTTAINAI_GH_TRACE, JSON.stringify(args) + "\n");
 if (args[0] === "pr" && args[1] === "list") process.stdout.write("[]\n");
-else process.stdout.write("[]\n");
+else {
+  process.stderr.write("unexpected gh invocation: " + args.join(" ") + "\n");
+  process.exit(1);
+}
 `;
 }
 
@@ -525,6 +532,8 @@ test(
     });
     if (statusResult.status === 0) assert.notEqual(JSON.parse(statusResult.stdout).currentState, "pull-request-open");
     else assert.equal(statusResult.status, 1);
-    assert.equal(readJsonLines(fixture.ghInariTrace).filter((entry) => entry.args[0] === "pr").length, 0);
+    const failure = JSON.parse(fs.readFileSync(path.join(worktree, "pi-failure.json"), "utf8"));
+    assert.match(failure.message, /gh-inari/u);
+    assert.equal(fs.existsSync(fixture.ghInariTrace), false);
   },
 );

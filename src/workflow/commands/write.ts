@@ -901,19 +901,32 @@ export async function commitWorkflowTask(input: CommitWorkflowInput): Promise<Wo
       // starts read-only until semantic scope is declared). `task commit` is
       // the declared write intent for exactly these resources, so it is the
       // boundary that replaces the claim with concrete write access and
-      // retries authorization once before failing closed.
+      // retries authorization once before failing closed. The prior claim
+      // set is snapshotted and restored on any failure path so a denied or
+      // faulted escalation never leaves the session with less access than
+      // before the retry was attempted.
+      const priorClaims = await nawabari.listClaims({ cwd: workspaceRoot, sessionId });
       await nawabari.releaseClaims({ cwd: workspaceRoot, sessionId });
-      await nawabari.claimSession({
-        cwd: workspaceRoot,
-        sessionId,
-        claims: resources.map((resource) => ({ resource, mode: "exclusive-write" as const })),
-      });
-      authorization = await nawabari.authorize({
-        cwd: workspaceRoot,
-        sessionId,
-        operation: "commit",
-        resources,
-      });
+      try {
+        await nawabari.claimSession({
+          cwd: workspaceRoot,
+          sessionId,
+          claims: resources.map((resource) => ({ resource, mode: "exclusive-write" as const })),
+        });
+        authorization = await nawabari.authorize({
+          cwd: workspaceRoot,
+          sessionId,
+          operation: "commit",
+          resources,
+        });
+      } finally {
+        if (authorization.allowed !== true && priorClaims.length > 0) {
+          await nawabari
+            .releaseClaims({ cwd: workspaceRoot, sessionId })
+            .then(() => nawabari.claimSession({ cwd: workspaceRoot, sessionId, claims: priorClaims }))
+            .catch(() => undefined);
+        }
+      }
     }
     legacyDecision = await boundedLegacyDecision(verifyCommit(operation));
     shadow = {

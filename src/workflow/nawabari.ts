@@ -15,6 +15,7 @@ const REQUIRED_NAWABARI_COMMANDS = [
   "session list",
   "session claim",
   "session claims",
+  "session release",
   "session close",
   "authorize",
   "checkpoint",

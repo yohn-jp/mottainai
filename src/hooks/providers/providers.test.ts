@@ -67,7 +67,7 @@ function nawabariDecisionClient(allowed: boolean, calls: string[][]): NawabariEx
             capabilities: [{
               commands: [
                 "session create", "session id", "session show", "session list", "session claim", "session claims",
-                "session close", "authorize", "checkpoint", "commit", "push", "gc",
+                "session release", "session close", "authorize", "checkpoint", "commit", "push", "gc",
               ],
             }],
           });
