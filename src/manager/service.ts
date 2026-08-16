@@ -1,4 +1,7 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { NawabariExecutionClient } from "../workflow/nawabari.js";
 import type {
   ManagerAgentKind,
@@ -11,6 +14,7 @@ import type {
   WorkflowStateStore,
 } from "../workflow/state/store.js";
 import { validateIssueRef, validateTaskSlug } from "../workflow/commands/validate.js";
+import { PI_GUARD_ASSET_MARKER } from "./pi-guard.js";
 import {
   createNawabariManagerExecutionAuthority,
   type ManagerExecutionAuthority,
@@ -74,6 +78,7 @@ export class ManagerError extends Error {
   constructor(
     readonly code:
       | "invalid_request"
+      | "pi_guard_unavailable"
       | "zellij_unavailable"
       | "zellij_incompatible"
       | "runtime_name_collision"
@@ -90,7 +95,7 @@ export class ManagerError extends Error {
       ? 404
       : code === "runtime_name_collision" || code === "worktree_missing" || code === "session_restart_rejected"
         ? 409
-        : code === "zellij_unavailable" || code === "zellij_incompatible"
+        : code === "pi_guard_unavailable" || code === "zellij_unavailable" || code === "zellij_incompatible"
           ? 503
           : 400,
   ) {
@@ -101,6 +106,49 @@ export class ManagerError extends Error {
 
 function invalid(message: string): ManagerError {
   return new ManagerError("invalid_request", message, 400);
+}
+
+function validatePiGuardAsset(candidate: string): string {
+  try {
+    if (!fs.statSync(candidate).isFile()) throw new Error("path is not a file");
+    const source = fs.readFileSync(candidate, "utf8");
+    if (!source.includes(PI_GUARD_ASSET_MARKER)) throw new Error("asset marker is missing");
+    if (!source.includes("export default function mottainaiManagedPiGuard"))
+      throw new Error("extension entry point is missing");
+    return path.resolve(candidate);
+  } catch (error) {
+    throw new ManagerError(
+      "pi_guard_unavailable",
+      `managed Pi guard is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      503,
+    );
+  }
+}
+
+export function resolvePiGuardPath(moduleUrl: string = import.meta.url): string {
+  const moduleDirectory = path.dirname(fileURLToPath(moduleUrl));
+  const candidate = [path.join(moduleDirectory, "pi-guard.js"), path.join(moduleDirectory, "pi-guard.ts")].find(
+    (filePath) => fs.existsSync(filePath),
+  );
+  if (candidate === undefined)
+    throw new ManagerError(
+      "pi_guard_unavailable",
+      "managed Pi guard asset is missing; refusing unguarded Pi launch",
+      503,
+    );
+  return validatePiGuardAsset(candidate);
+}
+
+function configuredPiGuardPath(candidate: string | undefined): string | undefined {
+  return candidate === undefined ? resolvePiGuardPath() : validatePiGuardAsset(candidate);
+}
+
+function validateStoredPiGuardInvocation(args: readonly string[]): void {
+  const extensionIndex = args.indexOf("--extension");
+  const extensionPath = extensionIndex < 0 ? undefined : args[extensionIndex + 1];
+  if (extensionPath === undefined)
+    throw new ManagerError("pi_guard_unavailable", "managed Pi launch has no guard extension; refusing restart", 503);
+  validatePiGuardAsset(extensionPath);
 }
 
 function validateInstruction(value: unknown): string {
@@ -161,6 +209,7 @@ export function buildManagerLaunchInvocation(input: {
   provider?: string;
   model?: string;
   instruction: string;
+  piGuardPath?: string;
   commands?: Partial<Record<ManagerAgentKind, { command: string; baseArgs?: readonly string[] }>>;
 }): ManagerLaunchInvocation {
   const configured = input.commands?.[input.agentKind];
@@ -175,6 +224,8 @@ export function buildManagerLaunchInvocation(input: {
       ? [
           ...(input.provider === undefined ? [] : ["--provider", input.provider]),
           ...(input.model === undefined ? [] : ["--model", input.model]),
+          "--extension",
+          input.piGuardPath ?? resolvePiGuardPath(),
         ]
       : input.model === undefined
         ? []
@@ -231,6 +282,8 @@ export class ManagerSessionService {
     /** Hermetic process-test seam; production defaults to the Codex/Claude CLIs. */
     agentCommand?: { command: string; baseArgs?: readonly string[] };
     agentCommands?: Partial<Record<ManagerAgentKind, { command: string; baseArgs?: readonly string[] }>>;
+    /** Hermetic test seam; production resolves the packaged Mottainai asset. */
+    piGuardPath?: string;
   };
 
   constructor(options: {
@@ -242,6 +295,8 @@ export class ManagerSessionService {
     /** Hermetic process-test seam; production defaults to the Codex/Claude CLIs. */
     agentCommand?: { command: string; baseArgs?: readonly string[] };
     agentCommands?: Partial<Record<ManagerAgentKind, { command: string; baseArgs?: readonly string[] }>>;
+    /** Hermetic test seam; production resolves the packaged Mottainai asset. */
+    piGuardPath?: string;
     /** Optional injection seam; production defaults to the Nawabari-backed adapter. */
     executionAuthority?: ManagerExecutionAuthority;
   }) {
@@ -359,6 +414,10 @@ export class ManagerSessionService {
       throw invalid("taskSlug is required when issueRef is provided");
     if (provider !== undefined && agentKind !== "pi") throw invalid("provider is only supported by the pi profile");
 
+    // Resolve and validate the guard before task/worktree creation. A managed
+    // Pi launch must never fall back to an unguarded process.
+    const piGuardPath = agentKind === "pi" ? configuredPiGuardPath(this.options.piGuardPath) : undefined;
+
     if (this.zellijVersion === undefined) await this.initialize();
     const sessionId = crypto.randomUUID() as ManagerSessionId;
     const runtimeName = deriveZellijSessionName(sessionId);
@@ -404,6 +463,7 @@ export class ManagerSessionService {
         provider,
         model,
         instruction,
+        piGuardPath,
         commands: {
           ...(this.options.agentCommands ?? {}),
           ...(this.options.agentCommand === undefined ? {} : { codex: this.options.agentCommand }),
@@ -589,6 +649,7 @@ export class ManagerSessionService {
       const context = this.contextFromRecord(current);
       const validation = await this.execution.validate(context);
       if (!validation.ok) throw new ManagerError("execution_unresolved", validation.detail, 409);
+      if (current.agentKind === "pi") validateStoredPiGuardInvocation(current.launchArgs);
       const restartCount = current.restartCount + 1;
       const started = this.options.store.updateManagerSession(current.sessionId, {
         lifecycleState: "starting",

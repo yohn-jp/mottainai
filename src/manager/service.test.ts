@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { test } from "node:test";
 import { createTempGitRepo, runGit } from "../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../test-support/workflow-store.js";
 import type { ZellijRuntime, ZellijObservedState } from "./zellij.js";
-import { buildManagerLaunchInvocation, ManagerError, ManagerSessionService } from "./service.js";
+import { buildManagerLaunchInvocation, ManagerError, ManagerSessionService, resolvePiGuardPath } from "./service.js";
 import type { ManagerExecutionAuthority } from "../workflow/domain/manager-execution.js";
 import type { ManagerSessionId } from "../workflow/state/store.js";
 
@@ -113,6 +114,7 @@ test("Manager reconciles a deleted managed worktree as failed and terminates its
 });
 
 test("launch profiles construct deterministic argv without shell interpolation", () => {
+  const piGuardPath = resolvePiGuardPath();
   assert.deepEqual(
     buildManagerLaunchInvocation({
       agentKind: "codex",
@@ -136,7 +138,16 @@ test("launch profiles construct deterministic argv without shell interpolation",
     {
       agentKind: "pi",
       command: "pi",
-      args: ["--provider", "anthropic", "--model", "claude-sonnet-4", "--", "$(not shell); opaque Pi instruction"],
+      args: [
+        "--provider",
+        "anthropic",
+        "--model",
+        "claude-sonnet-4",
+        "--extension",
+        piGuardPath,
+        "--",
+        "$(not shell); opaque Pi instruction",
+      ],
     },
   );
 });
@@ -173,6 +184,8 @@ test("Manager launches and persists Pi as an explicit profile in the Nawabari ex
     "anthropic",
     "--model",
     "claude-sonnet-4",
+    "--extension",
+    resolvePiGuardPath(),
     "--",
     "preserve $(this) as an argv value",
   ]);
@@ -215,6 +228,42 @@ test("Missing Pi fails explicitly without falling back to another agent", async 
   assert.equal(session?.agentKind, "pi");
   assert.equal(session?.launchCommand, "pi");
   assert.equal(session?.lifecycleState, "failed");
+  assert.equal(runtime.started.length, 0);
+});
+
+test("Managed Pi fails closed before task creation when its guard asset is unavailable", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const runtime = new FakeRuntime();
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store,
+    runtime,
+    piGuardPath: `${root}/missing-pi-guard.js`,
+  });
+  await service.initialize();
+
+  await assert.rejects(
+    service.start({ agentKind: "pi", instruction: "must fail closed", taskSlug: "guarded", issueRef: "902" }),
+    (error: unknown) => error instanceof ManagerError && error.code === "pi_guard_unavailable",
+  );
+  assert.equal(runtime.started.length, 0);
+  assert.equal((await service.list()).length, 0);
+});
+
+test("Managed Pi rejects a marker-only or otherwise malformed guard asset", async (t) => {
+  const root = createTempGitRepo(t);
+  const brokenGuard = `${root}/broken-pi-guard.js`;
+  fs.writeFileSync(brokenGuard, "mottainai-managed-pi-guard-v1\n");
+  const store = createWorkflowStore(t);
+  const runtime = new FakeRuntime();
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime, piGuardPath: brokenGuard });
+  await service.initialize();
+
+  await assert.rejects(
+    service.start({ agentKind: "pi", instruction: "must reject broken guard" }),
+    (error: unknown) => error instanceof ManagerError && error.code === "pi_guard_unavailable",
+  );
   assert.equal(runtime.started.length, 0);
 });
 
