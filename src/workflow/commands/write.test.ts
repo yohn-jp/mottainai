@@ -628,6 +628,89 @@ test("managed commit delegates the only Git mutation to Nawabari", async (t) => 
   assert.notEqual(runGit(["rev-parse", "HEAD"], started.execution.worktree), runGit(["rev-parse", "HEAD"], root));
 });
 
+test("managed commit follows Nawabari when the legacy staging verifier disagrees", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const nawabari = new NawabariExecutionClient();
+  const started = await startNawabariTask({
+    workspaceRoot: root,
+    store,
+    policy: BUILTIN_PRESETS.standard,
+    taskSlug: "nawabari-shadow-disagreement",
+    branchType: "fix",
+    issueRef: "202",
+    nawabari,
+  });
+  assert.equal(started.ok, true, JSON.stringify(started));
+  if (!started.ok) return;
+  t.after(() =>
+    nawabari
+      .closeSession({ cwd: started.execution.worktree, sessionId: started.execution.sessionId })
+      .catch(() => undefined),
+  );
+
+  fs.appendFileSync(path.join(started.execution.worktree, "file.txt"), "shadow disagreement\n");
+  const policy = { ...BUILTIN_PRESETS.standard, stagingMode: "already-staged-only" as const };
+  const result = await commitWorkflowTask({
+    workspaceRoot: root,
+    store,
+    taskId: started.task.taskId,
+    policy,
+    message: { subject: "follow Nawabari authorization" },
+    includePaths: ["file.txt"],
+    nawabari,
+  });
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  if (result.ok) {
+    const commit = result.commit as { shadow: Record<string, unknown> };
+    assert.deepEqual(commit.shadow, {
+      legacyDecision: "deny",
+      nawabariDecision: "allow",
+      agreement: false,
+    });
+  }
+  assert.equal(store.getTask(started.task.taskId)?.lifecycleState, "committed");
+  assert.equal(runGit(["status", "--porcelain"], started.execution.worktree), "");
+});
+
+test("managed mutation fails closed without its Nawabari companion", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const nawabari = new NawabariExecutionClient();
+  const started = await startNawabariTask({
+    workspaceRoot: root,
+    store,
+    policy: BUILTIN_PRESETS.standard,
+    taskSlug: "nawabari-companion-required",
+    branchType: "fix",
+    issueRef: "202",
+    nawabari,
+  });
+  assert.equal(started.ok, true, JSON.stringify(started));
+  if (!started.ok) return;
+  t.after(() =>
+    nawabari
+      .closeSession({ cwd: started.execution.worktree, sessionId: started.execution.sessionId })
+      .catch(() => undefined),
+  );
+
+  fs.appendFileSync(path.join(started.execution.worktree, "file.txt"), "companion required\n");
+  const before = runGit(["rev-parse", "HEAD"], started.execution.worktree);
+  const result = await commitWorkflowTask({
+    workspaceRoot: root,
+    store,
+    taskId: started.task.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "must not use legacy executor" },
+  });
+
+  assert.equal(result.ok, false, JSON.stringify(result));
+  if (!result.ok) assert.equal(result.reason, "nawabari-unavailable");
+  assert.equal(runGit(["rev-parse", "HEAD"], started.execution.worktree), before);
+  assert.equal(store.getTask(started.task.taskId)?.lifecycleState, "active");
+});
+
 for (const fault of ["checkpoint-persistence", "lifecycle-transition"] as const) {
   test(`commit recovery converges after ${fault} without a second commit`, async (t) => {
     const fixture = await commitRecoveryFixture(t, fault);
