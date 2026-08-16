@@ -103,6 +103,22 @@ function initializeGitWorkspace(workspace) {
   }
 }
 
+function writeAmbiguousNawabari(commandPath) {
+  fs.writeFileSync(
+    commandPath,
+    `#!/bin/sh
+case "$1:$2" in
+  capabilities:*) printf '%s\\n' '{"ok":true,"command":"capabilities","schema_version":1,"contract_id":"nawabari.standalone-execution.v1","package_version":"0.2.0","capabilities":[{"commands":["session create","session id","session show","session list","session claim","session claims","session close","authorize","checkpoint","commit","push","gc"]}]}' ;;
+  session:id) printf '%s\\n' '{"ok":false,"command":"session id","code":"NO_SESSION","message":"none"}'; exit 3 ;;
+  session:list) printf '%s\\n' '{"ok":true,"command":"session list","sessions":[]}' ;;
+  session:create|session:show) printf '%s\\n' '{"ok":true,"command":"session show","session_id":"foreign-session","repository":"/tmp/foreign-repository.git","worktree":"/tmp/foreign-worktree","branch":"fix/181-ambiguous-companion","state":"active"}' ;;
+  *) printf '%s\\n' '{"ok":false,"command":"unsupported","code":"UNEXPECTED","message":"unexpected test command"}'; exit 3 ;;
+esac
+`,
+    { mode: 0o755 },
+  );
+}
+
 test("packed managed task reports a missing companion and uses a compatible standalone Nawabari", (t) => {
   const missingWorkspace = createWorkspace();
   const compatibleWorkspace = createWorkspace();
@@ -127,6 +143,28 @@ test("packed managed task reports a missing companion and uses a compatible stan
     );
     assert.equal(missing.status, 1, `${missing.stdout}\n${missing.stderr}`);
     assert.equal(JSON.parse(missing.stdout).reason, "nawabari-unavailable");
+    assert.equal(fs.existsSync(path.join(missingWorkspace, ".mottainai", "worktrees")), false);
+
+    // A foreign session returned by the external authority is a genuine ownership
+    // ambiguity. The package-visible classification must survive compensation;
+    // absence of a Mottainai physical worktree is not evidence for fallback.
+    writeAmbiguousNawabari(path.join(isolatedPath, "nawabari"));
+    const ambiguousWorkspace = createWorkspace();
+    t.after(() => fs.rmSync(ambiguousWorkspace, { recursive: true, force: true }));
+    initializeGitWorkspace(ambiguousWorkspace);
+    const ambiguous = spawnSync(
+      process.execPath,
+      [binPath, "task", "start", "ambiguous-companion", "--type", "fix", "--issue", "181"],
+      {
+        cwd: ambiguousWorkspace,
+        env: { ...isolatedEnv(ambiguousWorkspace), PATH: isolatedPath },
+        encoding: "utf8",
+        timeout: 10_000,
+      },
+    );
+    assert.equal(ambiguous.status, 1, `${ambiguous.stdout}\n${ambiguous.stderr}`);
+    assert.equal(JSON.parse(ambiguous.stdout).reason, "nawabari-ownership-ambiguous");
+    assert.equal(fs.existsSync(path.join(ambiguousWorkspace, ".mottainai", "worktrees")), false);
 
     if (
       spawnSync("which", ["nawabari"], { encoding: "utf8", env: isolatedEnv(compatibleWorkspace) }).status !== 0
