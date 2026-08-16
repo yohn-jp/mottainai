@@ -35,6 +35,7 @@ test("adapter discovers the versioned contract and sends only concrete declarati
                   "session list",
                   "session claim",
                   "session claims",
+                  "session release",
                   "session close",
                   "authorize",
                   "checkpoint",
@@ -139,7 +140,7 @@ test("authorization denial remains an authoritative decision rather than an unav
             contract_id: "nawabari.standalone-execution.v1",
             package_version: "0.2.0",
           capabilities: [{ commands: [
-              "session create", "session id", "session show", "session list", "session claim", "session claims", "session close",
+              "session create", "session id", "session show", "session list", "session claim", "session claims", "session release", "session close",
               "authorize", "checkpoint", "commit", "push", "gc",
             ] }],
           });
@@ -176,7 +177,7 @@ test("malformed mutation and evidence results fail the companion contract", asyn
             contract_id: "nawabari.standalone-execution.v1",
             package_version: "0.2.0",
             capabilities: [{ commands: [
-              "session create", "session id", "session show", "session list", "session claim", "session claims", "session close",
+              "session create", "session id", "session show", "session list", "session claim", "session claims", "session release", "session close",
               "authorize", "checkpoint", "commit", "push", "gc",
             ] }],
           });
@@ -205,7 +206,7 @@ test("push results require the stable remote-generation evidence contract", asyn
             capabilities: [{
               commands: [
                 "session create", "session id", "session show", "session list", "session claim", "session claims",
-                "session close", "authorize", "checkpoint", "commit", "push", "gc",
+                "session release", "session close", "authorize", "checkpoint", "commit", "push", "gc",
               ],
             }],
           });
@@ -248,7 +249,7 @@ test("crash retry resumes the labeled session and adds only missing declared cla
             capabilities: [{
               commands: [
                 "session create", "session id", "session show", "session list", "session claim", "session claims",
-                "session close", "authorize", "checkpoint", "commit", "push", "gc",
+                "session release", "session close", "authorize", "checkpoint", "commit", "push", "gc",
               ],
             }],
           });
@@ -301,7 +302,7 @@ test("crash retry rejects an unexpected broader claim without mutating it", asyn
             capabilities: [{
               commands: [
                 "session create", "session id", "session show", "session list", "session claim", "session claims",
-                "session close", "authorize", "checkpoint", "commit", "push", "gc",
+                "session release", "session close", "authorize", "checkpoint", "commit", "push", "gc",
               ],
             }],
           });

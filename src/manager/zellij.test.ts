@@ -18,7 +18,7 @@ test("Zellij adapter builds argv-safe background, pane, inspect, and terminate c
     cwd: "/repo",
     run: async (args) => {
       calls.push([...args]);
-      if (args[0] === "--version") return { stdout: "zellij 0.40.0\n", stderr: "", exitCode: 0 };
+      if (args[0] === "--version") return { stdout: "zellij 0.44.0\n", stderr: "", exitCode: 0 };
       if (args[0] === "list-sessions") return { stdout: `${managedName} [Created]\n`, stderr: "", exitCode: 0 };
       if (args[0] === "--session")
         return {
@@ -31,7 +31,7 @@ test("Zellij adapter builds argv-safe background, pane, inspect, and terminate c
       return { stdout: "", stderr: "", exitCode: 0 };
     },
   });
-  assert.equal((await runtime.checkAvailability()).version, "zellij 0.40.0");
+  assert.equal((await runtime.checkAvailability()).version, "zellij 0.44.0");
   assert.equal(await runtime.inspect(managedName), "running");
   await runtime.start({
     sessionName: newName,
@@ -100,7 +100,7 @@ test("Zellij availability rejects an incompatible version with an actionable dia
   await assert.rejects(runtime.checkAvailability(), (error: unknown) => {
     assert.ok(error instanceof ZellijRuntimeError);
     assert.equal(error.code, "zellij_incompatible");
-    assert.match(error.message, /Zellij >= 0\.40\.0/);
+    assert.match(error.message, /Zellij >= 0\.44\.0/);
     return true;
   });
 });

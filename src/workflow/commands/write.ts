@@ -50,6 +50,7 @@ import {
   type NawabariExecutionClient,
   type NawabariSession,
 } from "../nawabari.js";
+import type { ExecutionClaim } from "../../semantics/execution-plan.js";
 
 export interface WorkflowWriteDependencies {
   githubAdapter?: GithubAdapter;
@@ -811,6 +812,32 @@ function resolveCommitIntent(
   };
 }
 
+/**
+ * `claimSession` reinstates claims one invocation at a time, so a mid-loop
+ * failure can leave a partially-restored claim set; that residual state
+ * cannot be prevented from here. Best-effort is still not acceptable: a
+ * restoration failure must surface as its own distinct, actionable error
+ * naming the intended claim set, rather than be silently absorbed behind the
+ * original commit-authorization failure.
+ */
+async function restorePriorNawabariClaims(
+  nawabari: NawabariExecutionClient,
+  cwd: string,
+  sessionId: string,
+  priorClaims: readonly ExecutionClaim[],
+  causeDetail: string,
+): Promise<void> {
+  try {
+    await nawabari.releaseClaims({ cwd, sessionId });
+    if (priorClaims.length > 0) await nawabari.claimSession({ cwd, sessionId, claims: priorClaims });
+  } catch (error) {
+    throw new NawabariExecutionError(
+      "nawabari-command-failed",
+      `${causeDetail}, and restoring the session's prior claim set also failed: ${error instanceof Error ? error.message : String(error)}; the session may hold a partial claim set and the intended set was ${JSON.stringify(priorClaims)}`,
+    );
+  }
+}
+
 export async function commitWorkflowTask(input: CommitWorkflowInput): Promise<WorkflowWriteResult> {
   const selected = await resolveWorkflowTask(input);
   if (!selected.ok) return selected;
@@ -890,12 +917,60 @@ export async function commitWorkflowTask(input: CommitWorkflowInput): Promise<Wo
   let shadow: ShadowComparison;
   let legacyDecision: ShadowComparison["legacyDecision"] = "unavailable";
   try {
-    const authorization = await nawabari.authorize({
+    let authorization = await nawabari.authorize({
       cwd: workspaceRoot,
       sessionId,
       operation: "commit",
       resources,
     });
+    if (authorization.allowed !== true && authorization.code === "INSUFFICIENT_CLAIM_MODE") {
+      // A launch-time execution boundary may hold only a read claim (Manager
+      // starts read-only until semantic scope is declared). `task commit` is
+      // the declared write intent for exactly these resources, so it is the
+      // boundary that replaces the claim with concrete write access and
+      // retries authorization once before failing closed. Real Nawabari
+      // rejects a claim that overlaps an existing claim on a different mode
+      // (`CONTRADICTORY_CLAIM`) — a launch-time claim is a broad glob (e.g.
+      // `**`) that overlaps every concrete resource this commit narrows to,
+      // so the replacement set cannot simply carry unrelated prior claims
+      // forward alongside the narrower exclusive-write claims: verified
+      // against the real `nawabari` CLI, which rejects that combination. The
+      // prior claim set is snapshotted and restored on any failure path so a
+      // denied or faulted escalation never leaves the session with less
+      // access than before the retry was attempted.
+      const priorClaims = await nawabari.listClaims({ cwd: workspaceRoot, sessionId });
+      await nawabari.releaseClaims({ cwd: workspaceRoot, sessionId });
+      try {
+        await nawabari.claimSession({
+          cwd: workspaceRoot,
+          sessionId,
+          claims: resources.map((resource) => ({ resource, mode: "exclusive-write" as const })),
+        });
+        authorization = await nawabari.authorize({
+          cwd: workspaceRoot,
+          sessionId,
+          operation: "commit",
+          resources,
+        });
+      } catch (error) {
+        await restorePriorNawabariClaims(
+          nawabari,
+          workspaceRoot,
+          sessionId,
+          priorClaims,
+          `Nawabari claim escalation for commit failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        throw error;
+      }
+      if (authorization.allowed !== true)
+        await restorePriorNawabariClaims(
+          nawabari,
+          workspaceRoot,
+          sessionId,
+          priorClaims,
+          "Nawabari denied the commit after claim escalation",
+        );
+    }
     legacyDecision = await boundedLegacyDecision(verifyCommit(operation));
     shadow = {
       legacyDecision,
