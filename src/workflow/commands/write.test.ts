@@ -21,6 +21,7 @@ import { NawabariExecutionClient, type NawabariPushResult } from "../nawabari.js
 import { resolveRepositoryIdentity } from "../domain/identity.js";
 import { buildWorktreeNaming } from "../git/worktree.js";
 import { WorkflowSqliteStateStore } from "../state/sqlite-store.js";
+import type { NawabariSessionId } from "../state/store.js";
 
 function providerResult(stdout: string, stderr = "", overrides: Partial<RunResult> = {}): RunResult {
   return { stdout, stderr, exitCode: 0, signal: null, timedOut: false, outputLimit: false, ...overrides };
@@ -452,7 +453,7 @@ async function commitRecoveryFixture(
   });
   assert.equal(started.ok, true, JSON.stringify(started));
   if (!started.ok || started.worktree === undefined) throw new Error("commit recovery fixture setup failed");
-  const sessionId = "commit-boundary-session" as never;
+  const sessionId = "commit-boundary-session" as NawabariSessionId;
   store.attachNawabariSession(started.task.taskId, sessionId);
   fs.appendFileSync(path.join(started.worktree.canonicalPath, "file.txt"), `${fault}\n`);
   const boundary = commitBoundaryNawabari(root, started.worktree.canonicalPath, started.worktree.branchName, {
@@ -500,7 +501,7 @@ async function claimEscalationFixture(
   });
   assert.equal(started.ok, true, JSON.stringify(started));
   if (!started.ok || started.worktree === undefined) throw new Error("claim escalation fixture setup failed");
-  const sessionId = "commit-boundary-session" as never;
+  const sessionId = "commit-boundary-session" as NawabariSessionId;
   store.attachNawabariSession(started.task.taskId, sessionId);
   fs.appendFileSync(path.join(started.worktree.canonicalPath, "file.txt"), "claim escalation\n");
   const boundary = commitBoundaryNawabari(root, started.worktree.canonicalPath, started.worktree.branchName, {
@@ -587,7 +588,7 @@ test("commit restores the prior read claim when the retried authorization call i
     nawabari: fixture.nawabari,
   });
   assert.equal(result.ok, false, JSON.stringify(result));
-  if (!result.ok) assert.notEqual(result.reason, "nawabari-rejected");
+  if (!result.ok) assert.equal(result.reason, "nawabari-contract-invalid");
   assert.deepEqual(
     fixture.claims(),
     [{ resource: "**", mode: "read" }],

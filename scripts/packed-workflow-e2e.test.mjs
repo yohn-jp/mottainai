@@ -328,6 +328,12 @@ function createFixture({ mode = "golden", missingGhInari = false, zellijPath, na
   runGit(workspace, ["init", "--bare", remote]);
   runGit(workspace, ["remote", "add", "origin", remote]);
 
+  assert.notEqual(
+    path.dirname(path.resolve(nawabariPath)),
+    path.resolve(companionDirectory),
+    "the real Nawabari binary must not resolve inside the fixture companion directory",
+  );
+
   writeExecutable(path.join(companionDirectory, "pi"), fakePiSource());
   writeExecutable(path.join(companionDirectory, "gh"), fakeGhSource());
   if (!missingGhInari) writeExecutable(path.join(companionDirectory, "gh-inari"), fakeGhInariSource());
@@ -381,8 +387,12 @@ function closeFixture(fixture, sessionId, worktree) {
 
 function companionAvailability() {
   const env = isolatedEnv(repoRoot);
+  const zellij = companionPath("zellij", env);
+  const zellijVersion = zellij.length === 0 ? "" : run(zellij, ["--version"], { env }).stdout.trim();
+  const parsed = /(\d+)\.(\d+)\.(\d+)/u.exec(zellijVersion);
+  const zellijSupported = parsed !== null && (Number(parsed[1]) > 0 || Number(parsed[2]) >= 44);
   return {
-    zellij: companionPath("zellij", env),
+    zellij: zellijSupported ? zellij : "",
     nawabari: companionPath("nawabari", env),
   };
 }
@@ -449,7 +459,10 @@ test(
     assert.ok(repositoryFlagIndex >= 0);
     assert.equal(ghInariCreates[0].args[repositoryFlagIndex + 1], "fixture-owner/fixture-repo");
     assert.equal(readJsonLines(fixture.ghTrace).filter((args) => args[1] === "list").length, 1);
-    assert.equal(runGit(fixture.remote, ["show-ref", "--heads", started.execution.branch]).includes(started.execution.branch), true);
+    assert.match(
+      runGit(fixture.remote, ["show-ref", "--heads", started.execution.branch]),
+      new RegExp(`refs/heads/${started.execution.branch}$`, "u"),
+    );
   },
 );
 
@@ -488,8 +501,15 @@ test(
       encoding: "utf8",
       timeout: 30_000,
     });
-    if (statusResult.status === 0) assert.notEqual(JSON.parse(statusResult.stdout).currentState, "pull-request-open");
-    else assert.equal(statusResult.status, 1);
+    if (statusResult.status === 0) {
+      assert.notEqual(JSON.parse(statusResult.stdout).currentState, "pull-request-open");
+    } else {
+      assert.equal(statusResult.status, 1, statusResult.stdout + statusResult.stderr);
+      assert.ok(
+        statusResult.stdout.trim().length > 0 || statusResult.stderr.trim().length > 0,
+        "task status failed without diagnostics",
+      );
+    }
   },
 );
 
@@ -530,8 +550,15 @@ test(
       encoding: "utf8",
       timeout: 30_000,
     });
-    if (statusResult.status === 0) assert.notEqual(JSON.parse(statusResult.stdout).currentState, "pull-request-open");
-    else assert.equal(statusResult.status, 1);
+    if (statusResult.status === 0) {
+      assert.notEqual(JSON.parse(statusResult.stdout).currentState, "pull-request-open");
+    } else {
+      assert.equal(statusResult.status, 1, statusResult.stdout + statusResult.stderr);
+      assert.ok(
+        statusResult.stdout.trim().length > 0 || statusResult.stderr.trim().length > 0,
+        "task status failed without diagnostics",
+      );
+    }
     const failure = JSON.parse(fs.readFileSync(path.join(worktree, "pi-failure.json"), "utf8"));
     assert.match(failure.message, /gh-inari/u);
     assert.equal(fs.existsSync(fixture.ghInariTrace), false);
