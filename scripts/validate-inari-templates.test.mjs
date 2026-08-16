@@ -15,7 +15,7 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 test("canonical issue source set contains exactly the five governed families", () => {
   const templates = readSemanticTemplates(repositoryRoot);
   assert.deepEqual([...templates.keys()], ISSUE_TEMPLATE_IDS);
-  for (const template of templates.values()) assert.ok(template.fieldIds.includes("summary"));
+  for (const template of templates.values()) assert.ok(template.fieldIds.includes("acceptance"));
 });
 
 test("clean sync report is accepted and drift is rejected", () => {
