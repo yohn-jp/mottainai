@@ -90,6 +90,8 @@ const environmentBoundaryFiles = new Set([
   "src/dashboard/provider.ts",
   "src/index.ts",
   "src/init.ts",
+  // QEMU child-process launch accepts an injected environment and otherwise inherits the host environment.
+  "src/local-runtime/qmp.ts",
   "src/logging.ts",
   "src/state/paths.ts",
   "src/state/sqlite-store.ts",
