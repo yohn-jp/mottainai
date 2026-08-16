@@ -308,3 +308,48 @@ test("release archive links are rejected before extraction", async () => {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test(
+  "release archive special files are rejected before extraction",
+  { skip: process.platform === "win32" },
+  async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-qemu-special-archive-test-"));
+    const stage = path.join(root, "stage");
+    const archive = path.join(root, "qemu-linux-x64-9.2.2.tar");
+    const bundle = path.join(root, "bundle");
+    const executable = "archive-qemu";
+    fs.mkdirSync(path.join(stage, "bin"), { recursive: true });
+    fs.mkdirSync(path.join(stage, "licenses"), { recursive: true });
+    fs.mkdirSync(bundle, { recursive: true });
+    fs.writeFileSync(path.join(stage, "bin", "qemu-system-x86_64"), executable, { mode: 0o700 });
+    fs.writeFileSync(path.join(stage, "licenses", "COPYING"), "license");
+    execFileSync("mkfifo", [path.join(stage, "special-entry")]);
+    execFileSync("tar", ["-cf", archive, "-C", stage, "."]);
+    const manifest = manifestFixture({
+      sha256: sha256(executable),
+      archive: { name: path.basename(archive), size: fs.statSync(archive).size, sha256: fileSha256(archive) },
+    });
+    try {
+      await assert.rejects(
+        materializeQemuArtifact({
+          paths: paths(root),
+          host: "linux-x64",
+          bundledDirectory: bundle,
+          fetcher: async (url) =>
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                const body = url.endsWith(".manifest.json")
+                  ? Buffer.from(JSON.stringify(manifest))
+                  : fs.readFileSync(archive);
+                controller.enqueue(new Uint8Array(body));
+                controller.close();
+              },
+            }),
+        }),
+        /link or special file/,
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  },
+);

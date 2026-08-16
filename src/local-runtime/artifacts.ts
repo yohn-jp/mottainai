@@ -437,8 +437,10 @@ function copyBundledArtifact(location: BundledLocation, destinationRoot: string,
 function extractDownloadedArchive(archive: string, destination: string, manifest: VerifiedQemuArtifactManifest): void {
   const tarCommand = process.platform === "win32" ? "tar" : "/usr/bin/tar";
   let listing: string;
+  let typeListing: string;
   try {
     listing = execFileSync(tarCommand, ["-tf", archive], { encoding: "utf8" });
+    typeListing = execFileSync(tarCommand, ["-tvf", archive], { encoding: "utf8" });
   } catch (error) {
     throw new LocalRuntimeError(
       "managed_qemu_artifact_corrupt",
@@ -446,13 +448,25 @@ function extractDownloadedArchive(archive: string, destination: string, manifest
     );
   }
   const files = new Set<string>();
-  for (const line of listing.split(/\r?\n/u).filter((entry) => entry.trim().length > 0)) {
-    const entry = line.trim().replace(/^\.\/+/, "").replace(/\/$/u, "");
+  const entries = listing.split(/\r?\n/u).filter((entry) => entry.length > 0);
+  const typedEntries = typeListing.split(/\r?\n/u).filter((entry) => entry.trim().length > 0);
+  if (entries.length !== typedEntries.length) {
+    throw new LocalRuntimeError("managed_qemu_artifact_corrupt", "managed QEMU archive entries cannot be type-checked");
+  }
+  for (const [index, rawEntry] of entries.entries()) {
+    const mode = typedEntries[index]?.trimStart().charAt(0);
+    if (mode !== "-" && mode !== "d") {
+      throw new LocalRuntimeError(
+        "managed_qemu_artifact_corrupt",
+        "managed QEMU archive contains a link or special file",
+      );
+    }
+    const entry = rawEntry.replace(/\r$/u, "").replace(/^\.\/+/, "").replace(/\/+$/u, "");
     if (entry.length === 0) continue;
     if (!isSafeRelativePath(entry) || !/^[A-Za-z0-9._+/-]+$/u.test(entry)) {
       throw new LocalRuntimeError("managed_qemu_artifact_corrupt", "managed QEMU archive contains an unsafe path");
     }
-    if (!entry.endsWith("/")) files.add(entry);
+    if (mode === "-") files.add(entry);
   }
   const expected = new Set([
     `bin/${manifest.executableName}`,

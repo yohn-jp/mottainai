@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { LocalRuntimeProvisioner } from "./reconciler.js";
 import { loadLocalRuntimeState, resolveLocalRuntimePaths, saveLocalRuntimeState } from "./state.js";
-import { LocalRuntimeError, type LocalRuntimeState } from "./types.js";
+import { LocalRuntimeError, type LocalRuntimeState, type QemuArtifactIdentity } from "./types.js";
 import type { RuntimeCapabilityResult } from "../runtime-contract/contract.js";
 
 function hash(value: string): string {
