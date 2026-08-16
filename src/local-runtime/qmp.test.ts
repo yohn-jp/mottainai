@@ -42,12 +42,53 @@ test("QEMU environment prepends only the verified bundled library directory", ()
     ...options,
     artifact: { ...options.artifact, runtimeLibraryDirectory: "/private/mottainai-runtime/qemu/lib" },
     environment: { LD_LIBRARY_PATH: "/existing/lib", KEEP: "value" },
+    platform: "linux",
   });
   assert.deepEqual(environment, {
     LD_LIBRARY_PATH: "/private/mottainai-runtime/qemu/lib:/existing/lib",
     KEEP: "value",
   });
-  assert.equal(buildQemuEnvironment(options), undefined);
+  assert.equal(buildQemuEnvironment({ ...options, platform: "linux" }), undefined);
+});
+
+test("QEMU environment uses DYLD_LIBRARY_PATH on darwin", () => {
+  const environment = buildQemuEnvironment({
+    ...options,
+    artifact: { ...options.artifact, runtimeLibraryDirectory: "/private/mottainai-runtime/qemu/lib" },
+    environment: { DYLD_LIBRARY_PATH: "/existing/lib" },
+    platform: "darwin",
+  });
+  assert.deepEqual(environment, {
+    DYLD_LIBRARY_PATH: "/private/mottainai-runtime/qemu/lib:/existing/lib",
+  });
+});
+
+test("QEMU environment uses PATH with semicolon separator on win32", () => {
+  const environment = buildQemuEnvironment({
+    ...options,
+    artifact: { ...options.artifact, runtimeLibraryDirectory: "C:\\private\\mottainai-runtime\\qemu\\lib" },
+    environment: { PATH: "C:\\existing\\lib" },
+    platform: "win32",
+  });
+  assert.deepEqual(environment, {
+    PATH: "C:\\private\\mottainai-runtime\\qemu\\lib;C:\\existing\\lib",
+  });
+});
+
+test("QEMU environment inherits process.env when options.environment is omitted", () => {
+  const originalEnv = process.env;
+  try {
+    process.env = { EXISTING_VAR: "test-value", LD_LIBRARY_PATH: "/system/lib" };
+    const environment = buildQemuEnvironment({
+      ...options,
+      artifact: { ...options.artifact, runtimeLibraryDirectory: "/private/mottainai-runtime/qemu/lib" },
+      platform: "linux",
+    });
+    assert.equal(environment?.EXISTING_VAR, "test-value");
+    assert.equal(environment?.LD_LIBRARY_PATH, "/private/mottainai-runtime/qemu/lib:/system/lib");
+  } finally {
+    process.env = originalEnv;
+  }
 });
 
 test("QEMU argv is fixed, private-QMP, and accelerator-required", () => {

@@ -2,21 +2,18 @@ import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-
-function option(name) {
-  const index = process.argv.indexOf(`--${name}`);
-  const value = process.argv[index + 1];
-  if (index === -1 || value === undefined || value.startsWith("--")) throw new Error(`missing --${name}`);
-  return value;
-}
+import { fileURLToPath } from "node:url";
+import { option } from "./runtime-qemu-contract.mjs";
 
 const artifactRoot = path.resolve(option("artifact-root"));
 const manifestPath = path.resolve(option("manifest"));
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 if (manifest.availability !== "available") throw new Error(`artifact is not available: ${manifest.availability}`);
+const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
+const verifierScript = path.join(scriptDirectory, "verify-runtime-qemu-artifact.mjs");
 execFileSync(
   process.execPath,
-  ["scripts/verify-runtime-qemu-artifact.mjs", "--manifest", manifestPath, "--artifact-root", artifactRoot],
+  [verifierScript, "--manifest", manifestPath, "--artifact-root", artifactRoot],
   { stdio: "pipe" },
 );
 const executable = [
@@ -31,10 +28,24 @@ if (executable === undefined) throw new Error(`managed QEMU executable is missin
  * issues add their accelerator/image/guest-health adapter separately; this
  * command intentionally does not claim KVM, HVF, WHPX, or guest boot evidence.
  */
+const environment = {};
+if (manifest.runtimeLibraries && manifest.runtimeLibraries.length > 0) {
+  const libDirectory = path.join(artifactRoot, "lib");
+  const platform = process.platform;
+  const key = platform === "win32" ? "PATH" : platform === "darwin" ? "DYLD_LIBRARY_PATH" : "LD_LIBRARY_PATH";
+  const separator = platform === "win32" ? ";" : ":";
+  const existing = process.env[key];
+  environment[key] = existing ? `${libDirectory}${separator}${existing}` : libDirectory;
+}
 const child = spawn(executable, ["-nodefaults", "-machine", "none", "-display", "none", "-monitor", "none", "-S"], {
   cwd: artifactRoot,
-  stdio: "ignore",
+  stdio: ["ignore", "ignore", "pipe"],
   windowsHide: true,
+  env: Object.keys(environment).length > 0 ? { ...process.env, ...environment } : process.env,
+});
+const stderrChunks = [];
+child.stderr?.on("data", (chunk) => {
+  stderrChunks.push(chunk);
 });
 let settled = false;
 const result = await new Promise((resolve, reject) => {
@@ -54,7 +65,10 @@ const result = await new Promise((resolve, reject) => {
     if (settled) return;
     settled = true;
     clearTimeout(timer);
-    reject(new Error(`managed QEMU exited during artifact smoke: code=${code ?? "null"}, signal=${signal ?? "null"}`));
+    const stderrText = Buffer.concat(stderrChunks).toString("utf8");
+    const stderrExcerpt = stderrText.length > 512 ? stderrText.slice(0, 512) + "..." : stderrText;
+    const errorMessage = `managed QEMU exited during artifact smoke: code=${code ?? "null"}, signal=${signal ?? "null"}${stderrExcerpt ? `\nstderr: ${stderrExcerpt}` : ""}`;
+    reject(new Error(errorMessage));
   });
 });
 console.log(JSON.stringify({ ...result, artifactId: manifest.artifactId, host: manifest.host }, null, 2));

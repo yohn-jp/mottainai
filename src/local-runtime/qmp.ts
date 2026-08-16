@@ -173,14 +173,14 @@ export interface QemuMachineOptions {
 
 export function buildQemuEnvironment(options: QemuMachineOptions): NodeJS.ProcessEnv | undefined {
   const libraryDirectory = options.artifact.runtimeLibraryDirectory;
-  if (libraryDirectory === undefined) return options.environment;
-  const environment = options.environment ?? {};
+  const baseEnvironment = options.environment ?? process.env;
+  if (libraryDirectory === undefined) return baseEnvironment === process.env ? undefined : baseEnvironment;
   const platform = options.platform ?? process.platform;
   const key = platform === "win32" ? "PATH" : platform === "darwin" ? "DYLD_LIBRARY_PATH" : "LD_LIBRARY_PATH";
   const separator = platform === "win32" ? ";" : ":";
-  const previous = environment[key];
+  const previous = baseEnvironment[key];
   return {
-    ...environment,
+    ...baseEnvironment,
     [key]:
       previous === undefined || previous.length === 0 ? libraryDirectory : `${libraryDirectory}${separator}${previous}`,
   };

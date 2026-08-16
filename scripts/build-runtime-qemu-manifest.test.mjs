@@ -32,8 +32,6 @@ test("QEMU manifest builder stages a reproducible contract with real file digest
     executable,
     "--output",
     output,
-    "--source-revision",
-    "752eaeeb772923a73d536b231e05bcc09c9b1f51690a41ad9973d900e4ec9fbf",
     "--workflow",
     ".github/workflows/test-linux-qemu.yml",
     "--dependency-mode",
@@ -88,6 +86,103 @@ test("QEMU manifest builder stages a reproducible contract with real file digest
     const archiveListing = execFileSync("tar", ["-tf", archive], { encoding: "utf8" });
     assert.match(archiveListing, /bin\/qemu-system-x86_64/);
     assert.doesNotMatch(archiveListing, /manifest\.json/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("QEMU manifest builder rejects static mode with runtime libraries, missing license, and unsafe dependency names", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-qemu-builder-negative-test-"));
+  try {
+    const input = path.join(root, "input");
+    const output = path.join(root, "output");
+    fs.mkdirSync(input, { recursive: true });
+    const executable = path.join(input, "qemu-system-x86_64");
+    const library = path.join(input, "libtest.so");
+    const license = path.join(input, "COPYING");
+    fs.writeFileSync(executable, "#!/bin/sh\nexec sleep 5\n", { mode: 0o700 });
+    fs.writeFileSync(library, "managed-library");
+    fs.writeFileSync(license, "GPL-2.0-or-later\n");
+
+    // Test 1: static dependency mode with runtime library should fail
+    assert.throws(
+      () => {
+        execFileSync(
+          process.execPath,
+          [
+            "scripts/build-runtime-qemu-manifest.mjs",
+            "--host",
+            "linux-x64",
+            "--executable",
+            executable,
+            "--output",
+            output,
+            "--workflow",
+            ".github/workflows/test.yml",
+            "--dependency-mode",
+            "static",
+            "--runtime-library",
+            `libtest.so=${library}`,
+            "--license-file",
+            `COPYING=${license}`,
+          ],
+          { stdio: "pipe" },
+        );
+      },
+      /static cannot include --runtime-library/,
+    );
+
+    // Test 2: missing --license-file should fail
+    assert.throws(
+      () => {
+        execFileSync(
+          process.execPath,
+          [
+            "scripts/build-runtime-qemu-manifest.mjs",
+            "--host",
+            "linux-x64",
+            "--executable",
+            executable,
+            "--output",
+            output,
+            "--workflow",
+            ".github/workflows/test.yml",
+            "--dependency-mode",
+            "bundled",
+          ],
+          { stdio: "pipe" },
+        );
+      },
+      /at least one --license-file is required/,
+    );
+
+    // Test 3: unsafe NAME=FILE dependency name should fail
+    assert.throws(
+      () => {
+        execFileSync(
+          process.execPath,
+          [
+            "scripts/build-runtime-qemu-manifest.mjs",
+            "--host",
+            "linux-x64",
+            "--executable",
+            executable,
+            "--output",
+            output,
+            "--workflow",
+            ".github/workflows/test.yml",
+            "--dependency-mode",
+            "bundled",
+            "--runtime-library",
+            `../unsafe.so=${library}`,
+            "--license-file",
+            `COPYING=${license}`,
+          ],
+          { stdio: "pipe" },
+        );
+      },
+      /name is unsafe/,
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

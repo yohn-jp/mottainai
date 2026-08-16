@@ -156,7 +156,8 @@ function sameQemuArtifact(expected: QemuArtifactIdentity, actual: QemuArtifactId
     expected.version === actual.version &&
     expected.buildId === actual.buildId &&
     expected.sha256 === actual.sha256 &&
-    expected.executablePath === actual.executablePath
+    expected.executablePath === actual.executablePath &&
+    expected.runtimeLibraryDirectory === actual.runtimeLibraryDirectory
   );
 }
 

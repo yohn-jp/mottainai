@@ -47,8 +47,8 @@ the verified bundle remains consumable after staging moves it.
 Each platform build also supplies its already-built QEMU executable and
 explicit dependencies to `scripts/build-runtime-qemu-manifest.mjs`. The
 host-independent builder stages the executable, firmware, runtime libraries
-(or records a static-link dependency mode), license files, and provenance into
-a deterministic archive. The generated sidecar binds the archive and every
+(or records a static-link dependency mode), and license files into
+a deterministic archive, then writes provenance to the manifest. The generated sidecar binds the archive and every
 staged file to real hashes and is verified by
 `scripts/verify-runtime-qemu-artifact.mjs` before an OS-specific integration
 job consumes it; the resulting per-host manifest is what the lazy

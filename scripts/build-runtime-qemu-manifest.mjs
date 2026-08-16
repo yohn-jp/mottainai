@@ -3,14 +3,12 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { SCHEMA_VERSION, LICENSE, RELEASE_ORIGIN } from "./runtime-qemu-contract.mjs";
 
 const SOURCE_URL = "https://download.qemu.org/qemu-9.2.2.tar.xz";
 const SOURCE_SHA256 = "752eaeeb772923a73d536b231e05bcc09c9b1f51690a41ad9973d900e4ec9fbf";
 const VERSION = "9.2.2";
 const BUILD_ID = "qemu-9.2.2-mottainai-runtime-v1";
-const SCHEMA_VERSION = 2;
-const LICENSE = "GPL-2.0-or-later";
-const RELEASE_ORIGIN = "https://github.com/yohn-jp/mottainai/releases/download/";
 
 function option(name, fallback) {
   const index = process.argv.indexOf(`--${name}`);
@@ -51,6 +49,7 @@ function parseNameAndFile(value, optionName) {
 function copyWithDigest(source, destination) {
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   fs.copyFileSync(source, destination);
+  fs.chmodSync(destination, 0o600);
   fs.utimesSync(destination, 0, 0);
   return sha256(destination);
 }
@@ -85,7 +84,6 @@ function createDeterministicArchive(stage, archive, tarCommand) {
 const host = option("host");
 const executable = path.resolve(option("executable"));
 const output = path.resolve(option("output"));
-const sourceRevision = option("source-revision", SOURCE_SHA256);
 const sourceDateEpoch = Number(option("source-date-epoch", "0"));
 const builder = option("builder", "github-actions");
 const workflow = option("workflow");
@@ -95,10 +93,13 @@ const dependencyMode = option("dependency-mode", "bundled");
 const releaseTag = option("release-tag", `qemu-${VERSION}`);
 const executableName = path.basename(executable);
 
+if (!/^[A-Za-z0-9._+-]+$/u.test(releaseTag)) {
+  throw new Error("--release-tag must match ^[A-Za-z0-9._+-]+$");
+}
+
 if (!/^(?:linux-(?:x64|arm64)|macos-(?:x64|arm64)|windows-x64)$/u.test(host)) {
   throw new Error(`unsupported host: ${host}`);
 }
-if (!/^[0-9a-f]{64}$/iu.test(sourceRevision)) throw new Error("--source-revision must be a SHA-256 source identity");
 if (!Number.isSafeInteger(sourceDateEpoch) || sourceDateEpoch < 0)
   throw new Error("--source-date-epoch must be a non-negative integer");
 if (dependencyMode !== "static" && dependencyMode !== "bundled")
@@ -117,8 +118,11 @@ fs.rmSync(stage, { recursive: true, force: true });
 fs.mkdirSync(stage, { recursive: true, mode: 0o700 });
 
 const stagedExecutable = path.join(stage, "bin", executableName);
-const executableSha256 = copyWithDigest(executable, stagedExecutable);
+fs.mkdirSync(path.dirname(stagedExecutable), { recursive: true });
+fs.copyFileSync(executable, stagedExecutable);
 if (process.platform !== "win32") fs.chmodSync(stagedExecutable, 0o700);
+fs.utimesSync(stagedExecutable, 0, 0);
+const executableSha256 = sha256(stagedExecutable);
 
 const runtimeLibraries = repeatedOption("runtime-library").map((value) => {
   const item = parseNameAndFile(value, "--runtime-library");
@@ -162,7 +166,7 @@ const manifestBase = {
     licenseFiles,
   },
   provenance: {
-    sourceRevision,
+    sourceRevision: SOURCE_SHA256,
     sourceDateEpoch,
     builder,
     workflow,

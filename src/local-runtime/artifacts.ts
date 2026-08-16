@@ -15,6 +15,7 @@ import {
   type QemuArtifactFile,
   type QemuArtifactIdentity,
   type QemuArtifactManifest,
+  type VerifiedQemuArtifactManifest,
 } from "./types.js";
 
 const TRUSTED_DOWNLOAD_ORIGIN = "https://github.com/yohn-jp/mottainai/releases/download/";
@@ -23,6 +24,8 @@ const QEMU_SOURCE_SHA256 = "752eaeeb772923a73d536b231e05bcc09c9b1f51690a41ad9973
 const QEMU_RELEASE_TAG = "qemu-9.2.2";
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const MAX_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024;
+const MAX_REDIRECTS = 5;
+const TRUSTED_REDIRECT_HOSTS = ["github.com", "objects.githubusercontent.com"];
 /**
  * The source manifest is a truthful availability index, not a fabricated
  * release. A host entry becomes `available` only when the build workflow
@@ -161,24 +164,27 @@ function isSafeRelativePath(value: unknown): value is string {
   );
 }
 
-function isArtifactFile(value: QemuArtifactFile): boolean {
+function isArtifactFile(value: unknown): value is QemuArtifactFile {
   return (
     value !== null &&
     typeof value === "object" &&
+    "name" in value &&
     typeof value.name === "string" &&
     value.name.length > 0 &&
+    "path" in value &&
     isSafeRelativePath(value.path) &&
+    "sha256" in value &&
     isSha256(value.sha256)
   );
 }
 
 function isArtifactFileList(value: unknown): value is readonly QemuArtifactFile[] {
-  if (!Array.isArray(value) || !value.every((file) => isArtifactFile(file as QemuArtifactFile))) return false;
-  const paths = value.map((file) => (file as QemuArtifactFile).path);
+  if (!Array.isArray(value) || !value.every((file) => isArtifactFile(file))) return false;
+  const paths = value.map((file) => file.path);
   return new Set(paths).size === paths.length;
 }
 
-function isSourceMetadata(value: unknown): boolean {
+function isSourceMetadata(value: unknown): value is QemuArtifactManifest["source"] {
   if (!isRecord(value)) return false;
   return (
     isSha256(value.sha256) &&
@@ -190,7 +196,7 @@ function isSourceMetadata(value: unknown): boolean {
   );
 }
 
-function isProvenance(value: unknown): boolean {
+function isProvenance(value: unknown): value is Required<QemuArtifactManifest>["provenance"] {
   if (!isRecord(value)) return false;
   return (
     isSha256(value.sourceRevision) &&
@@ -231,7 +237,7 @@ function availabilityOf(manifest: QemuArtifactManifest): "available" | "not-buil
 export function assertQemuArtifactManifest(
   manifest: QemuArtifactManifest,
   expectedHost?: LocalRuntimeHost,
-): asserts manifest is QemuArtifactManifest & { readonly sha256: string } {
+): asserts manifest is VerifiedQemuArtifactManifest {
   if (manifest === null || typeof manifest !== "object") {
     throw new LocalRuntimeError("managed_qemu_artifact_corrupt", "managed QEMU manifest is not an object");
   }
@@ -244,33 +250,38 @@ export function assertQemuArtifactManifest(
   }
   const expectedArtifactId = `qemu-${manifest.host}-${MANAGED_QEMU_VERSION}`;
   const expectedExecutable = QEMU_ARTIFACT_MANIFEST[manifest.host]?.executableName;
-  if (
-    manifest.schemaVersion !== MANAGED_QEMU_ARTIFACT_SCHEMA_VERSION ||
-    (expectedHost !== undefined && manifest.host !== expectedHost) ||
-    manifest.version !== MANAGED_QEMU_VERSION ||
-    manifest.buildId !== MANAGED_QEMU_BUILD_ID ||
-    manifest.artifactId !== expectedArtifactId ||
-    manifest.executableName !== expectedExecutable ||
-    !isSha256(manifest.sha256) ||
-    (isRecord(manifest.source) && manifest.sha256 === manifest.source.sha256) ||
-    !isArtifactFileList(manifest.runtimeLibraries) ||
-    !isArtifactFileList(manifest.firmware) ||
-    manifest.availability !== "available" ||
-    manifest.dependencyMode === undefined ||
-    !["static", "bundled"].includes(manifest.dependencyMode) ||
-    (manifest.dependencyMode === "static" && manifest.runtimeLibraries.length !== 0) ||
-    !isArchiveIdentity(manifest.archive) ||
-    manifest.archive.name !== `${manifest.artifactId}.tar` ||
-    !manifest.downloadUrl.endsWith(`/${manifest.archive.name}`) ||
-    !isSourceMetadata(manifest.source) ||
-    manifest.source.url !== QEMU_SOURCE_URL ||
-    manifest.source.sha256 !== QEMU_SOURCE_SHA256 ||
-    manifest.provenance?.sourceRevision !== manifest.source.sha256 ||
-    !isProvenance(manifest.provenance)
-  ) {
+
+  const checks: Array<{ valid: boolean; field: string }> = [
+    { valid: manifest.schemaVersion === MANAGED_QEMU_ARTIFACT_SCHEMA_VERSION, field: "schemaVersion" },
+    { valid: expectedHost === undefined || manifest.host === expectedHost, field: "host" },
+    { valid: manifest.version === MANAGED_QEMU_VERSION, field: "version" },
+    { valid: manifest.buildId === MANAGED_QEMU_BUILD_ID, field: "buildId" },
+    { valid: manifest.artifactId === expectedArtifactId, field: "artifactId" },
+    { valid: manifest.executableName === expectedExecutable, field: "executableName" },
+    { valid: isSha256(manifest.sha256), field: "sha256" },
+    { valid: !isRecord(manifest.source) || manifest.sha256 !== manifest.source.sha256, field: "sha256" },
+    { valid: isArtifactFileList(manifest.runtimeLibraries), field: "runtimeLibraries" },
+    { valid: isArtifactFileList(manifest.firmware), field: "firmware" },
+    { valid: manifest.availability === "available", field: "availability" },
+    { valid: manifest.dependencyMode !== undefined, field: "dependencyMode" },
+    { valid: manifest.dependencyMode === undefined || ["static", "bundled"].includes(manifest.dependencyMode), field: "dependencyMode" },
+    { valid: manifest.dependencyMode !== "static" || manifest.runtimeLibraries.length === 0, field: "dependencyMode" },
+    { valid: manifest.archive !== undefined && isArchiveIdentity(manifest.archive), field: "archive" },
+    { valid: manifest.archive === undefined || manifest.archive.name === `${manifest.artifactId}.tar`, field: "archive.name" },
+    { valid: manifest.archive === undefined || manifest.downloadUrl.endsWith(`/${manifest.archive.name}`), field: "downloadUrl" },
+    { valid: isSourceMetadata(manifest.source), field: "source" },
+    { valid: !isSourceMetadata(manifest.source) || manifest.source.url === QEMU_SOURCE_URL, field: "source.url" },
+    { valid: !isSourceMetadata(manifest.source) || manifest.source.sha256 === QEMU_SOURCE_SHA256, field: "source.sha256" },
+    { valid: isProvenance(manifest.provenance), field: "provenance" },
+    { valid: !isProvenance(manifest.provenance) || manifest.provenance.sourceRevision === (isSourceMetadata(manifest.source) ? manifest.source.sha256 : ""), field: "provenance.sourceRevision" },
+  ];
+
+  const failed = checks.find((check) => !check.valid);
+  if (failed !== undefined) {
     throw new LocalRuntimeError(
       "managed_qemu_artifact_unavailable",
       `managed QEMU manifest is not a verified ${MANAGED_QEMU_BUILD_ID} release artifact`,
+      { field: failed.field },
     );
   }
   ensureTrustedDownloadUrl(manifest.downloadUrl);
@@ -278,7 +289,18 @@ export function assertQemuArtifactManifest(
 }
 
 export function sha256File(filePath: string): string {
-  return createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+  const hash = createHash("sha256");
+  const fd = fs.openSync(filePath, "r");
+  try {
+    const buffer = Buffer.allocUnsafe(64 * 1024);
+    let bytesRead = 0;
+    while ((bytesRead = fs.readSync(fd, buffer, 0, buffer.length, null)) > 0) {
+      hash.update(buffer.subarray(0, bytesRead));
+    }
+    return hash.digest("hex");
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 function ensureTrustedDownloadUrl(url: string): void {
@@ -399,12 +421,12 @@ function copyDependency(root: string, destinationRoot: string, file: QemuArtifac
   assertVerifiedFile(destination, file.sha256, `dependency ${file.name}`);
 }
 
-function copyBundledArtifact(location: BundledLocation, destinationRoot: string, manifest: QemuArtifactManifest): void {
+function copyBundledArtifact(location: BundledLocation, destinationRoot: string, manifest: VerifiedQemuArtifactManifest): void {
   fs.mkdirSync(destinationRoot, { recursive: true, mode: 0o700 });
   if (fs.lstatSync(location.executable).isSymbolicLink()) {
     throw new LocalRuntimeError("managed_qemu_artifact_corrupt", "managed QEMU executable must not be a symbolic link");
   }
-  assertVerifiedFile(location.executable, manifest.sha256!, "source executable", true, location.root);
+  assertVerifiedFile(location.executable, manifest.sha256, "source executable", true, location.root);
   const destination = path.join(destinationRoot, manifest.executableName);
   fs.copyFileSync(location.executable, destination);
   fs.chmodSync(destination, 0o700);
@@ -412,10 +434,11 @@ function copyBundledArtifact(location: BundledLocation, destinationRoot: string,
     copyDependency(location.root, destinationRoot, file);
 }
 
-function extractDownloadedArchive(archive: string, destination: string, manifest: QemuArtifactManifest): void {
+function extractDownloadedArchive(archive: string, destination: string, manifest: VerifiedQemuArtifactManifest): void {
+  const tarCommand = process.platform === "win32" ? "tar" : "/usr/bin/tar";
   let listing: string;
   try {
-    listing = execFileSync("tar", ["-tvf", archive], { encoding: "utf8" });
+    listing = execFileSync(tarCommand, ["-tf", archive], { encoding: "utf8" });
   } catch (error) {
     throw new LocalRuntimeError(
       "managed_qemu_artifact_corrupt",
@@ -424,20 +447,12 @@ function extractDownloadedArchive(archive: string, destination: string, manifest
   }
   const files = new Set<string>();
   for (const line of listing.split(/\r?\n/u).filter((entry) => entry.trim().length > 0)) {
-    const type = line[0];
-    if (type !== "-" && type !== "d") {
-      throw new LocalRuntimeError(
-        "managed_qemu_artifact_corrupt",
-        "managed QEMU archive contains a link or special file",
-      );
-    }
-    const raw = line.trim().split(/\s+/u).at(-1) ?? "";
-    const entry = raw.replace(/^\.\/+/, "").replace(/\/$/u, "");
+    const entry = line.trim().replace(/^\.\/+/, "").replace(/\/$/u, "");
     if (entry.length === 0) continue;
     if (!isSafeRelativePath(entry) || !/^[A-Za-z0-9._+/-]+$/u.test(entry)) {
       throw new LocalRuntimeError("managed_qemu_artifact_corrupt", "managed QEMU archive contains an unsafe path");
     }
-    if (type === "-") files.add(entry);
+    if (!entry.endsWith("/")) files.add(entry);
   }
   const expected = new Set([
     `bin/${manifest.executableName}`,
@@ -452,8 +467,12 @@ function extractDownloadedArchive(archive: string, destination: string, manifest
     );
   }
   fs.mkdirSync(destination, { recursive: true, mode: 0o700 });
+  const extractArgs = ["-xf", archive, "-C", destination];
+  if (process.platform !== "win32") {
+    extractArgs.push("--no-same-owner", "--no-same-permissions");
+  }
   try {
-    execFileSync("tar", ["-xf", archive, "-C", destination], { stdio: "pipe" });
+    execFileSync(tarCommand, extractArgs, { stdio: "pipe" });
   } catch (error) {
     throw new LocalRuntimeError(
       "managed_qemu_artifact_corrupt",
@@ -462,7 +481,7 @@ function extractDownloadedArchive(archive: string, destination: string, manifest
   }
 }
 
-function verifyDependencies(destinationRoot: string, manifest: QemuArtifactManifest): void {
+function verifyDependencies(destinationRoot: string, manifest: VerifiedQemuArtifactManifest): void {
   for (const file of manifest.runtimeLibraries) {
     assertVerifiedFile(path.join(destinationRoot, file.path), file.sha256, `dependency ${file.name}`);
   }
@@ -472,6 +491,33 @@ function verifyDependencies(destinationRoot: string, manifest: QemuArtifactManif
   for (const file of manifest.source.licenseFiles ?? []) {
     assertVerifiedFile(path.join(destinationRoot, file.path), file.sha256, `license ${file.name}`);
   }
+}
+
+async function fetchWithRedirects(url: string): Promise<ReadableStream<Uint8Array>> {
+  let currentUrl = url;
+  for (let redirectCount = 0; redirectCount < MAX_REDIRECTS; redirectCount++) {
+    const parsedUrl = new URL(currentUrl);
+    if (parsedUrl.protocol !== "https:") {
+      throw new Error(`non-HTTPS redirect not allowed: ${currentUrl}`);
+    }
+    if (!TRUSTED_REDIRECT_HOSTS.includes(parsedUrl.hostname)) {
+      throw new Error(`redirect to untrusted host: ${parsedUrl.hostname}`);
+    }
+    const response = await fetch(currentUrl, { redirect: "manual" });
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (location === null) {
+        throw new Error(`redirect response missing location header`);
+      }
+      currentUrl = new URL(location, currentUrl).href;
+      continue;
+    }
+    if (!response.ok || response.body === null) {
+      throw new Error(`HTTP ${response.status} from ${currentUrl}`);
+    }
+    return response.body;
+  }
+  throw new Error(`exceeded maximum redirect count (${MAX_REDIRECTS})`);
 }
 
 async function fetchManifest(
@@ -490,22 +536,14 @@ async function fetchManifest(
       );
     }
   } else {
-    let response: Response;
     try {
-      response = await fetch(url, { redirect: "error" });
+      body = await fetchWithRedirects(url);
     } catch (error) {
       throw new LocalRuntimeError(
         "managed_qemu_artifact_unavailable",
         `managed QEMU manifest download failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    if (!response.ok || response.body === null) {
-      throw new LocalRuntimeError(
-        "managed_qemu_artifact_unavailable",
-        `managed QEMU manifest returned HTTP ${response.status} from the pinned release URL`,
-      );
-    }
-    body = response.body;
   }
   try {
     const reader = body.getReader();
@@ -547,22 +585,14 @@ async function downloadToFile(
       );
     }
   } else {
-    let response: Response;
     try {
-      response = await fetch(url, { redirect: "error" });
+      body = await fetchWithRedirects(url);
     } catch (error) {
       throw new LocalRuntimeError(
         "managed_qemu_artifact_unavailable",
         `managed QEMU download failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    if (!response.ok || response.body === null) {
-      throw new LocalRuntimeError(
-        "managed_qemu_artifact_unavailable",
-        `managed QEMU download returned HTTP ${response.status} from the pinned release URL`,
-      );
-    }
-    body = response.body;
   }
   const temporary = `${destination}.download-${process.pid}`;
   let size = 0;
@@ -611,9 +641,9 @@ export async function materializeQemuArtifact(options: QemuArtifactOptions): Pro
     QEMU_ARTIFACT_MANIFEST[options.host];
   let manifest = baseManifest;
   if (
-    options.bundledDirectory !== undefined &&
     availabilityOf(baseManifest) !== "available" &&
-    baseManifest.manifestUrl !== undefined
+    baseManifest.manifestUrl !== undefined &&
+    options.fetcher !== undefined
   ) {
     const remote = await fetchManifest(baseManifest.manifestUrl, options.fetcher);
     if (remote.host !== options.host || remote.artifactId !== baseManifest.artifactId) {
@@ -633,8 +663,8 @@ export async function materializeQemuArtifact(options: QemuArtifactOptions): Pro
       const archive = path.join(options.paths.qemuDirectory, `.managed-qemu-${process.pid}.tar`);
       const extracted = path.join(options.paths.qemuDirectory, `.managed-qemu-${process.pid}-extract`);
       try {
-        await downloadToFile(manifest.downloadUrl, archive, manifest.archive!.size, options.fetcher);
-        assertVerifiedFile(archive, manifest.archive!.sha256, "archive");
+        await downloadToFile(manifest.downloadUrl, archive, manifest.archive.size, options.fetcher);
+        assertVerifiedFile(archive, manifest.archive.sha256, "archive");
         extractDownloadedArchive(archive, extracted, manifest);
         const downloaded = locateBundledArtifact(extracted, manifest);
         if (downloaded === undefined) {

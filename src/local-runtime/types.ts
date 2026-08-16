@@ -92,6 +92,15 @@ export interface QemuArtifactManifest {
   readonly provenance?: QemuArtifactProvenance;
 }
 
+export interface VerifiedQemuArtifactManifest extends QemuArtifactManifest {
+  readonly schemaVersion: typeof MANAGED_QEMU_ARTIFACT_SCHEMA_VERSION;
+  readonly availability: "available";
+  readonly sha256: string;
+  readonly archive: QemuArtifactArchive;
+  readonly dependencyMode: QemuArtifactDependencyMode;
+  readonly provenance: QemuArtifactProvenance;
+}
+
 export interface QemuArtifactIdentity {
   readonly artifactId: string;
   readonly version: string;
