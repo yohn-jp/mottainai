@@ -1,14 +1,18 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
 import { test } from "node:test";
+import os from "node:os";
+import path from "node:path";
 import { closeDashboard, parseDashboardOptions, startDashboard } from "./command.js";
 import { DASHBOARD_PROVIDER_ENV } from "./provider.js";
 
 test("dashboard startup gives an explicit provider precedence over the process environment", async () => {
   const previous = process.env[DASHBOARD_PROVIDER_ENV];
+  const workspaceRoot = mkdtempSync(path.join(os.tmpdir(), "mottainai-dashboard-provider-"));
   try {
     process.env[DASHBOARD_PROVIDER_ENV] = "fixture";
     const cliOptions = parseDashboardOptions(["--no-open", "--port", "0", "--provider", "live"]);
-    const cliHandle = await startDashboard({ ...cliOptions, viewerHtml: "" });
+    const cliHandle = await startDashboard({ ...cliOptions, viewerHtml: "", workspaceRoot });
     try {
       const cliProject = (await fetch(`${cliHandle.url}api/v1/project`).then((response) => response.json())) as {
         provenance: { provider: string };
@@ -18,6 +22,7 @@ test("dashboard startup gives an explicit provider precedence over the process e
       await closeDashboard();
     }
   } finally {
+    rmSync(workspaceRoot, { recursive: true, force: true });
     if (previous === undefined) delete process.env[DASHBOARD_PROVIDER_ENV];
     else process.env[DASHBOARD_PROVIDER_ENV] = previous;
   }
