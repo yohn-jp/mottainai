@@ -938,6 +938,12 @@ export async function commitWorkflowTask(input: CommitWorkflowInput): Promise<Wo
           sessionId,
           claims: resources.map((resource) => ({ resource, mode: "exclusive-write" as const })),
         });
+        authorization = await nawabari.authorize({
+          cwd: workspaceRoot,
+          sessionId,
+          operation: "commit",
+          resources,
+        });
       } catch (error) {
         await restorePriorNawabariClaims(
           nawabari,
@@ -948,12 +954,6 @@ export async function commitWorkflowTask(input: CommitWorkflowInput): Promise<Wo
         );
         throw error;
       }
-      authorization = await nawabari.authorize({
-        cwd: workspaceRoot,
-        sessionId,
-        operation: "commit",
-        resources,
-      });
       if (authorization.allowed !== true)
         await restorePriorNawabariClaims(
           nawabari,

@@ -273,6 +273,8 @@ function commitBoundaryNawabari(
     denyAfterEscalation?: boolean;
     /** The claim call that restores the pre-escalation read claim fails. */
     failClaimRestore?: boolean;
+    /** The retried authorize call after a successful escalation throws instead of returning a decision. */
+    failRetryAuthorize?: boolean;
   } = {},
 ): {
   client: NawabariExecutionClient;
@@ -353,6 +355,12 @@ function commitBoundaryNawabari(
                 }),
               );
             const hasExclusiveWrite = claims.some((claim) => claim.mode === "exclusive-write");
+            if (options.failRetryAuthorize === true && authorizeCalls === 2 && hasExclusiveWrite)
+              return providerResult(
+                JSON.stringify({ ok: false, command: "authorize", code: "AUTHORIZE_UNAVAILABLE", message: "injected" }),
+                "",
+                { exitCode: 3 },
+              );
             if (options.denyAfterEscalation === true && hasExclusiveWrite)
               return providerResult(
                 JSON.stringify({
@@ -466,7 +474,12 @@ async function commitRecoveryFixture(
 
 async function claimEscalationFixture(
   t: TestContext,
-  options: { insufficientClaimOnce?: boolean; denyAfterEscalation?: boolean; failClaimRestore?: boolean } = {},
+  options: {
+    insufficientClaimOnce?: boolean;
+    denyAfterEscalation?: boolean;
+    failClaimRestore?: boolean;
+    failRetryAuthorize?: boolean;
+  } = {},
 ): Promise<{
   root: string;
   store: WorkflowSqliteStateStore;
@@ -494,6 +507,7 @@ async function claimEscalationFixture(
     insufficientClaimOnce: options.insufficientClaimOnce,
     denyAfterEscalation: options.denyAfterEscalation,
     failClaimRestore: options.failClaimRestore,
+    failRetryAuthorize: options.failRetryAuthorize,
   });
   return {
     root,
@@ -560,6 +574,25 @@ test("commit fails closed with a distinct error when claim restoration fails aft
     assert.notEqual(result.reason, "nawabari-rejected");
     assert.match(result.detail, /restoring the session's prior claim set also failed/u);
   }
+});
+
+test("commit restores the prior read claim when the retried authorization call itself throws", async (t) => {
+  const fixture = await claimEscalationFixture(t, { insufficientClaimOnce: true, failRetryAuthorize: true });
+  const result = await commitWorkflowTask({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    taskId: fixture.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "escalate then throw on retry" },
+    nawabari: fixture.nawabari,
+  });
+  assert.equal(result.ok, false, JSON.stringify(result));
+  if (!result.ok) assert.notEqual(result.reason, "nawabari-rejected");
+  assert.deepEqual(
+    fixture.claims(),
+    [{ resource: "**", mode: "read" }],
+    "a thrown retry authorization must restore the pre-escalation claim",
+  );
 });
 
 async function finishFixture(t: TestContext) {
