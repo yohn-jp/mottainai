@@ -366,11 +366,24 @@ test(
       const health = await fetch(`${url}api/v1/manager/health`);
       assert.equal(health.status, 200);
       assert.equal((await health.json()).zellij.version, "zellij 0.40.0");
+      const piResponse = await fetch(`${url}api/v1/manager/sessions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          agentKind: "pi",
+          instruction: "packed Pi profile",
+        }),
+      });
+      assert.equal(piResponse.status, 201);
+      const piSession = (await piResponse.json()).session;
+      assert.equal(piSession.agentKind, "pi");
+      assert.equal(piSession.launchCommand, "pi");
       const viewer = await fetch(url);
       assert.match(viewer.headers.get("content-type") ?? "", /^text\/html/u);
       const html = await viewer.text();
       assert.match(html, /Mottainai Manager/u);
       assert.match(html, /Claude Code CLI/u);
+      assert.match(html, /value="pi">Pi/u);
       child.kill("SIGTERM");
       const exit = await new Promise((resolve, reject) => {
         child.once("error", reject);

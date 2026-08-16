@@ -78,6 +78,56 @@ test("workflow tables including task-start reconciliation are reachable after mi
   }
 });
 
+test("manager Pi migration preserves existing Codex session records", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    applyMigrations(db, MIGRATIONS.filter((migration) => migration.version <= 19));
+    db.prepare(
+      `INSERT INTO manager_sessions
+        (session_id, workspace_root, execution_mode, worktree_path, agent_kind, launch_profile, instruction,
+         launch_command, launch_args_json, runtime_name, lifecycle_state, runtime_state, semantic_lifecycle_state,
+         attachable, reconciliation_state, started_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      "codex-session",
+      "/repo",
+      "workspace",
+      "/repo",
+      "codex",
+      "codex",
+      "keep this record",
+      "codex",
+      '["--", "keep this record"]',
+      "mottainai-codex-session",
+      "running",
+      "running",
+      "unbound",
+      1,
+      "synced",
+      1,
+      1,
+    );
+
+    applyMigrations(db, MIGRATIONS);
+    const row = db
+      .prepare("SELECT agent_kind, launch_profile, instruction, provider FROM manager_sessions WHERE session_id = ?")
+      .get("codex-session") as {
+      agent_kind: string;
+      launch_profile: string;
+      instruction: string;
+      provider: string | null;
+    };
+    assert.deepEqual({ ...row }, {
+      agent_kind: "codex",
+      launch_profile: "codex",
+      instruction: "keep this record",
+      provider: null,
+    });
+  } finally {
+    db.close();
+  }
+});
+
 test("version 7 adds a monotonic task_version column defaulting to 1", () => {
   const db = freshDb();
   try {

@@ -316,6 +316,7 @@ function toManagerSessionRecord(row: Record<string, unknown>): ManagerSessionRec
       (row.launch_profile as ManagerSessionRecord["launchProfile"] | null) ??
       (row.agent_kind as ManagerSessionRecord["agentKind"]),
     instruction,
+    provider: (row.provider as string | null) ?? undefined,
     model: (row.model as string | null) ?? undefined,
     taskSlug: (row.task_slug as string | null) ?? undefined,
     issueRef: (row.issue_ref as string | null) ?? undefined,
@@ -1328,12 +1329,12 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       .prepare(
         `INSERT INTO manager_sessions
           (session_id, workspace_root, task_id, execution_session_id, execution_mode, worktree_id, worktree_path, branch_name,
-           task_slug, issue_ref, branch_type, agent_kind, launch_profile, instruction, model,
+           task_slug, issue_ref, branch_type, agent_kind, launch_profile, instruction, provider, model,
            launch_command, launch_args_json, runtime_name, lifecycle_state, runtime_state,
            semantic_lifecycle_state, attachable, reconciliation_state, reconciliation_message,
            latest_status, latest_receipt_json, started_at, updated_at, finished_at,
            runtime_observed_at, restart_count, termination_state)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32)`,
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33)`,
       )
       .run(
         input.sessionId,
@@ -1350,6 +1351,7 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
         input.agentKind,
         launchProfile,
         instruction,
+        input.provider ?? null,
         input.model ?? null,
         input.launchCommand,
         JSON.stringify([...input.launchArgs]),

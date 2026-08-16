@@ -19,6 +19,7 @@ import {
 import { deriveZellijSessionName, ZellijRuntimeError, type ZellijObservedState, type ZellijRuntime } from "./zellij.js";
 
 const MAX_INSTRUCTION_LENGTH = 64 * 1024;
+const MAX_PROVIDER_LENGTH = 128;
 const MAX_MODEL_LENGTH = 128;
 const MAX_STATUS_LENGTH = 512;
 const MAX_LIST_LIMIT = 500;
@@ -39,6 +40,7 @@ export interface NewManagerSessionInput {
   agentKind?: string;
   /** Alias accepted by the API for clients that call the profile explicitly. */
   launchProfile?: string;
+  provider?: string;
   model?: string;
   taskSlug?: string;
   issueRef?: string;
@@ -120,7 +122,8 @@ function validateOptionalArg(value: unknown, name: string, maxLength: number): s
 function normalizeAgentKind(input: unknown): ManagerAgentKind {
   if (input === undefined || input === null || input === "" || input === "codex") return "codex";
   if (input === "claude" || input === "claude-code") return "claude";
-  throw invalid("agentKind must be codex or claude");
+  if (input === "pi") return "pi";
+  throw invalid("agentKind must be codex, claude, or pi");
 }
 
 function managerError(error: unknown): ManagerError {
@@ -155,20 +158,29 @@ function receipt(code: string, message: string, source: ManagerSessionReceipt["s
  */
 export function buildManagerLaunchInvocation(input: {
   agentKind: ManagerAgentKind;
+  provider?: string;
   model?: string;
   instruction: string;
   commands?: Partial<Record<ManagerAgentKind, { command: string; baseArgs?: readonly string[] }>>;
 }): ManagerLaunchInvocation {
   const configured = input.commands?.[input.agentKind];
   const defaultProfile =
-    input.agentKind === "claude" ? { command: "claude", baseArgs: [] } : { command: "codex", baseArgs: [] };
+    input.agentKind === "claude"
+      ? { command: "claude", baseArgs: [] }
+      : input.agentKind === "pi"
+        ? { command: "pi", baseArgs: [] }
+        : { command: "codex", baseArgs: [] };
+  const profileArgs =
+    input.agentKind === "pi"
+      ? [
+          ...(input.provider === undefined ? [] : ["--provider", input.provider]),
+          ...(input.model === undefined ? [] : ["--model", input.model]),
+        ]
+      : input.model === undefined
+        ? []
+        : ["--model", input.model];
   const profile = configured ?? defaultProfile;
-  const args = [
-    ...(profile.baseArgs ?? []),
-    ...(input.model === undefined ? [] : ["--model", input.model]),
-    "--",
-    input.instruction,
-  ];
+  const args = [...(profile.baseArgs ?? []), ...profileArgs, "--", input.instruction];
   return { agentKind: input.agentKind, command: profile.command, args };
 }
 
@@ -236,7 +248,8 @@ export class ManagerSessionService {
     const nawabari = options.nawabari ?? new NawabariExecutionClient();
     this.options = { ...options, nawabari };
     this.execution =
-      options.executionAuthority ?? createNawabariManagerExecutionAuthority(options.store, options.workspaceRoot, nawabari);
+      options.executionAuthority ??
+      createNawabariManagerExecutionAuthority(options.store, options.workspaceRoot, nawabari);
   }
 
   async initialize(): Promise<ManagerHealth> {
@@ -331,6 +344,7 @@ export class ManagerSessionService {
   async start(input: NewManagerSessionInput): Promise<ManagerSessionRecord> {
     const agentKind = normalizeAgentKind(input.launchProfile ?? input.agentKind);
     const instruction = validateInstruction(input.instruction);
+    const provider = validateOptionalArg(input.provider, "provider", MAX_PROVIDER_LENGTH);
     const model = validateOptionalArg(input.model, "model", MAX_MODEL_LENGTH);
     const taskSlug = validateOptionalArg(input.taskSlug, "taskSlug", 96);
     const issueRef = validateOptionalArg(input.issueRef, "issueRef", 96);
@@ -343,6 +357,7 @@ export class ManagerSessionService {
     }
     if (issueRef !== undefined && taskSlug === undefined)
       throw invalid("taskSlug is required when issueRef is provided");
+    if (provider !== undefined && agentKind !== "pi") throw invalid("provider is only supported by the pi profile");
 
     if (this.zellijVersion === undefined) await this.initialize();
     const sessionId = crypto.randomUUID() as ManagerSessionId;
@@ -386,6 +401,7 @@ export class ManagerSessionService {
 
       const invocation = buildManagerLaunchInvocation({
         agentKind,
+        provider,
         model,
         instruction,
         commands: {
@@ -408,6 +424,7 @@ export class ManagerSessionService {
         agentKind,
         launchProfile: agentKind,
         instruction,
+        provider,
         model,
         launchCommand: invocation.command,
         launchArgs: invocation.args,

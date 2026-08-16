@@ -126,6 +126,96 @@ test("launch profiles construct deterministic argv without shell interpolation",
     command: "claude",
     args: ["--", "review this"],
   });
+  assert.deepEqual(
+    buildManagerLaunchInvocation({
+      agentKind: "pi",
+      provider: "anthropic",
+      model: "claude-sonnet-4",
+      instruction: "$(not shell); opaque Pi instruction",
+    }),
+    {
+      agentKind: "pi",
+      command: "pi",
+      args: ["--provider", "anthropic", "--model", "claude-sonnet-4", "--", "$(not shell); opaque Pi instruction"],
+    },
+  );
+});
+
+test("Manager launches and persists Pi as an explicit profile in the Nawabari execution context", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const runtime = new FakeRuntime();
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store,
+    runtime,
+    agentCommands: { pi: { command: "fake-pi" } },
+  });
+  await service.initialize();
+  const session = await service.start({
+    agentKind: "pi",
+    provider: "anthropic",
+    model: "claude-sonnet-4",
+    instruction: "preserve $(this) as an argv value",
+    taskSlug: "pi-task",
+    issueRef: "901",
+    branchType: "feat",
+  });
+
+  assert.equal(session.agentKind, "pi");
+  assert.equal(session.launchProfile, "pi");
+  assert.equal(session.executionMode, "task-bound");
+  assert.ok(session.taskId);
+  assert.equal(session.provider, "anthropic");
+  assert.notEqual(session.worktreePath, root);
+  assert.deepEqual(session.launchArgs, [
+    "--provider",
+    "anthropic",
+    "--model",
+    "claude-sonnet-4",
+    "--",
+    "preserve $(this) as an argv value",
+  ]);
+  assert.deepEqual(runtime.started[0], {
+    sessionName: session.runtimeName,
+    cwd: session.worktreePath,
+    command: "fake-pi",
+    args: session.launchArgs,
+  });
+  assert.equal((await service.list({ agentKind: "pi" })).length, 1);
+  assert.equal(store.getManagerSession(session.sessionId)?.provider, "anthropic");
+
+  runtime.sessions.delete(session.runtimeName);
+  const stale = await service.get(session.sessionId);
+  assert.equal(stale.runtimeState, "stale");
+  const restarted = await service.restart(session.sessionId);
+  assert.equal(restarted.runtimeState, "running");
+  assert.equal(restarted.provider, "anthropic");
+  assert.deepEqual(runtime.started.at(-1), {
+    sessionName: session.runtimeName,
+    cwd: session.worktreePath,
+    command: "fake-pi",
+    args: session.launchArgs,
+  });
+});
+
+test("Missing Pi fails explicitly without falling back to another agent", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const runtime = new FakeRuntime();
+  runtime.start = async (input) => {
+    if (input.command === "pi") throw new Error("pi executable not found");
+    runtime.started.push(input);
+    runtime.sessions.add(input.sessionName);
+  };
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime });
+  await service.initialize();
+  await assert.rejects(service.start({ agentKind: "pi", instruction: "must not fallback" }), /pi executable not found/);
+  const [session] = await service.list();
+  assert.equal(session?.agentKind, "pi");
+  assert.equal(session?.launchCommand, "pi");
+  assert.equal(session?.lifecycleState, "failed");
+  assert.equal(runtime.started.length, 0);
 });
 
 test("Manager starts Claude sessions and exposes bounded status/filter projections", async (t) => {

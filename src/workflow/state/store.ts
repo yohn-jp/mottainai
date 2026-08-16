@@ -60,7 +60,7 @@ export type PullRequestRecordId = string & { readonly __brand: "PullRequestRecor
 
 export type ManagerSessionId = string & { readonly __brand: "ManagerSessionId" };
 export type ManagerExecutionMode = "task-bound" | "workspace";
-export const MANAGER_AGENT_KINDS = ["codex", "claude"] as const;
+export const MANAGER_AGENT_KINDS = ["codex", "claude", "pi"] as const;
 export type ManagerAgentKind = (typeof MANAGER_AGENT_KINDS)[number];
 export const MANAGER_RUNTIME_STATES = [
   "starting",
@@ -97,6 +97,7 @@ export interface ManagerSessionRecord {
   agentKind: ManagerAgentKind;
   launchProfile: ManagerAgentKind;
   instruction: string;
+  provider: string | undefined;
   model: string | undefined;
   taskSlug: string | undefined;
   issueRef: string | undefined;
@@ -134,6 +135,7 @@ export interface CreateManagerSessionInput {
   agentKind: ManagerAgentKind;
   launchProfile?: ManagerAgentKind;
   instruction?: string;
+  provider?: string;
   model?: string;
   taskSlug?: string;
   issueRef?: string;

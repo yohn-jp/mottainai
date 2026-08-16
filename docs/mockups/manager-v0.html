@@ -20,7 +20,8 @@
   <form id="new-session">
     <div class="form-grid">
       <div class="wide"><label for="instruction">Implementation instruction</label><textarea id="instruction" required placeholder="Describe the task for the selected coding agent"></textarea></div>
-      <div><label for="agent">Launch profile</label><select id="agent"><option value="codex">Codex CLI</option><option value="claude">Claude Code CLI</option></select></div>
+      <div><label for="agent">Launch profile</label><select id="agent"><option value="codex">Codex CLI</option><option value="claude">Claude Code CLI</option><option value="pi">Pi</option></select></div>
+      <div><label for="provider">Provider (Pi optional)</label><input id="provider" maxlength="128" placeholder="CLI default"></div>
       <div><label for="model">Model (optional)</label><input id="model" maxlength="128" placeholder="CLI default"></div>
       <div><label for="branch-type">Branch type</label><input id="branch-type" value="feat" maxlength="32"></div>
       <div><label for="task-slug">Task slug (optional)</label><input id="task-slug" pattern="[a-z0-9][a-z0-9-]*" placeholder="parallel-task"></div>
@@ -36,7 +37,7 @@
   <div class="filters">
     <label>Search <input id="search" placeholder="Issue, task, branch, session"></label>
     <label>Runtime <select id="runtime"><option value="">All</option><option>starting</option><option>running</option><option>detached</option><option>exited</option><option>failed</option><option>stopped</option><option>stale</option></select></label>
-    <label>Agent <select id="agent-filter"><option value="">All</option><option value="codex">Codex</option><option value="claude">Claude</option></select></label>
+    <label>Agent <select id="agent-filter"><option value="">All</option><option value="codex">Codex</option><option value="claude">Claude</option><option value="pi">Pi</option></select></label>
     <span id="count" class="count"></span>
   </div>
   <h3>Active</h3><div id="active" class="session-list"><p class="empty">Loading…</p></div>
@@ -55,7 +56,7 @@ function sessionCard(session){const card=document.createElement('article');card.
 function render(list){window.managerSessions=list;const active=$('active'),recent=$('recent');active.replaceChildren();recent.replaceChildren();const activeList=list.filter(s=>['starting','running','detached'].includes(s.runtimeState)),recentList=list.filter(s=>!['starting','running','detached'].includes(s.runtimeState));for(const s of activeList)active.append(sessionCard(s));for(const s of recentList)recent.append(sessionCard(s));if(!active.childElementCount){const empty=document.createElement('p');empty.className='empty';text(empty,'No active sessions.');active.append(empty)}if(!recent.childElementCount){const empty=document.createElement('p');empty.className='empty';text(empty,'No recent sessions.');recent.append(empty)}text($('count'),`${list.length} bounded session record${list.length===1?'':'s'}`)}
 async function refresh(){try{const body=await api(`/sessions${query()}`);render(body.sessions||[]);const health=await api('/health');text($('health'),`Zellij ${health.zellij.version} · ${health.sessions.active} active`);$('list-error').textContent=''}catch(error){text($('list-error'),error.message);text($('health'),'Manager diagnostics unavailable')}}
 async function action(path){try{await api(path,{method:'POST',body:'{}'});await refresh()}catch(error){text($('list-error'),error.message)}}
-$('refresh').onclick=refresh;$('reconcile').onclick=()=>action('/reconcile');['search','runtime','agent-filter'].forEach(id=>$(id).addEventListener('input',refresh));$('clear').onclick=()=>{$('new-session').reset();$('branch-type').value='feat';$('form-error').textContent=''};$('new-session').onsubmit=async event=>{event.preventDefault();text($('form-error'),'');const body={instruction:$('instruction').value,agentKind:$('agent').value,model:$('model').value||undefined,taskSlug:$('task-slug').value||undefined,issueRef:$('issue-ref').value||undefined,branchType:$('branch-type').value||undefined};try{await api('/sessions',{method:'POST',body:JSON.stringify(body)});$('new-session').reset();$('branch-type').value='feat';await refresh()}catch(error){text($('form-error'),error.message)}};refresh();refreshTimer=setInterval(refresh,5000);window.addEventListener('beforeunload',()=>clearInterval(refreshTimer));
+$('refresh').onclick=refresh;$('reconcile').onclick=()=>action('/reconcile');['search','runtime','agent-filter'].forEach(id=>$(id).addEventListener('input',refresh));$('clear').onclick=()=>{$('new-session').reset();$('branch-type').value='feat';$('form-error').textContent=''};$('new-session').onsubmit=async event=>{event.preventDefault();text($('form-error'),'');const body={instruction:$('instruction').value,agentKind:$('agent').value,provider:$('provider').value||undefined,model:$('model').value||undefined,taskSlug:$('task-slug').value||undefined,issueRef:$('issue-ref').value||undefined,branchType:$('branch-type').value||undefined};try{await api('/sessions',{method:'POST',body:JSON.stringify(body)});$('new-session').reset();$('branch-type').value='feat';await refresh()}catch(error){text($('form-error'),error.message)}};refresh();refreshTimer=setInterval(refresh,5000);window.addEventListener('beforeunload',()=>clearInterval(refreshTimer));
 </script>
 </body>
 </html>
