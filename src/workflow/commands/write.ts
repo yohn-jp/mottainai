@@ -2,13 +2,19 @@ import fs from "node:fs";
 import path from "node:path";
 import { renderPullRequestBody, type PullRequestBodyDraft } from "../domain/pr-render.js";
 import { createCleanupPlan, type CleanupPlan, type CleanupPullRequestObserver } from "../domain/cleanup-plan.js";
-import { verifyCommit, type CommitOperationInput, type StructuredCommitMessage } from "../git/commit.js";
 import {
+  renderCommitMessage,
+  verifyCommit,
+  type CommitOperationInput,
+  type StructuredCommitMessage,
+} from "../git/commit.js";
+import {
+  isPathInsideWorkspace,
   runGitCommand,
   verifyWorkflowContext,
-  type VerifiedWorkflowContext,
   type WorkflowContextInput,
 } from "../git/context.js";
+import { validateBranchNameSyntax } from "../git/branch.js";
 import { verifyPush, type PushOperationInput } from "../git/push.js";
 import { resolveRepositoryIdentity, type RepositoryInstanceId } from "../domain/identity.js";
 import {
@@ -78,10 +84,14 @@ export type WorkflowWriteFailure = {
 };
 
 export interface ShadowComparison {
-  legacyDecision: "allow" | "deny";
+  legacyDecision: "allow" | "deny" | "unavailable";
   nawabariDecision: "allow" | "deny" | "unavailable";
   agreement: boolean;
 }
+
+const ALL_NAWABARI_RESOURCES = ["**"] as const;
+const LEGACY_SHADOW_TIMEOUT_MS = 1_000;
+const SAFE_REMOTE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 export interface CommitRecoveryDiagnostic {
   taskId: TaskId;
@@ -104,6 +114,24 @@ function nonEmpty(value: unknown, field: string): string | WorkflowWriteFailure 
   if (typeof value !== "string" || value.trim().length === 0)
     return failure("invalid-input", `${field} must be a non-empty string`);
   return value;
+}
+
+function boundedLegacyDecision(verification: Promise<{ ok: boolean }>): Promise<ShadowComparison["legacyDecision"]> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const shadow = verification.then((result) => (result.ok ? "allow" : "deny")).catch(() => "unavailable" as const);
+  const timeout = new Promise<ShadowComparison["legacyDecision"]>((resolve) => {
+    timer = setTimeout(() => resolve("unavailable"), LEGACY_SHADOW_TIMEOUT_MS);
+  });
+  return Promise.race([shadow, timeout]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
+
+function shadowDecisionsAgree(
+  legacyDecision: ShadowComparison["legacyDecision"],
+  nawabariDecision: ShadowComparison["nawabariDecision"],
+): boolean {
+  return legacyDecision !== "unavailable" && nawabariDecision !== "unavailable" && legacyDecision === nawabariDecision;
 }
 
 function canonicalOrResolved(targetPath: string): string {
@@ -158,7 +186,7 @@ function commitRecoveryFailure(
 }
 
 type CommitBoundaryObservation =
-  | { ok: true; context: VerifiedWorkflowContext; evidence: Record<string, unknown>; head: string }
+  | { ok: true; evidence: Record<string, unknown>; head: string }
   | { ok: false; reason: string; detail: string; currentHead?: string };
 
 async function observeCommitBoundary(
@@ -209,17 +237,13 @@ async function observeCommitBoundary(
       reason: "commit-result-ambiguous",
       detail: "Nawabari commit session branch does not match the recorded branch",
     };
-
-  const context = await verifyWorkflowContext({
-    workspaceRoot: session.worktree,
-    store: input.store,
-    taskId: selected.taskId,
-    repositoryInstanceId: selected.instanceId,
-    worktreeId: selected.worktreeId,
-    expectedBranch: record.branchName,
-    allowedLifecycleStates: ["active", "committed"],
-  });
-  if (!context.ok) return { ok: false, reason: context.code, detail: context.detail };
+  const executionWorkspaceRoot = selected.executionWorkspaceRoot ?? input.workspaceRoot;
+  if (!samePhysicalWorktree(session.worktree, executionWorkspaceRoot))
+    return {
+      ok: false,
+      reason: "commit-result-ambiguous",
+      detail: "Nawabari commit session worktree does not match the selected execution workspace",
+    };
 
   if (record.resources.length === 0)
     return {
@@ -231,7 +255,7 @@ async function observeCommitBoundary(
   let authorization: Record<string, unknown>;
   try {
     authorization = await input.nawabari.authorize({
-      cwd: context.workspaceRoot,
+      cwd: session.worktree,
       sessionId: record.nawabariSessionId,
       operation: "commit",
       resources: record.resources,
@@ -259,7 +283,7 @@ async function observeCommitBoundary(
 
   let evidence: Record<string, unknown>;
   try {
-    evidence = await input.nawabari.checkpoint({ cwd: context.workspaceRoot, sessionId: record.nawabariSessionId });
+    evidence = await input.nawabari.checkpoint({ cwd: session.worktree, sessionId: record.nawabariSessionId });
   } catch (error) {
     return {
       ok: false,
@@ -289,7 +313,7 @@ async function observeCommitBoundary(
       detail: "Nawabari checkpoint repository identity does not match the recorded repository instance",
     };
   const evidenceWorktree = evidenceString(evidence, ["worktreePath", "worktree_path"]);
-  if (evidenceWorktree !== undefined && !samePath(evidenceWorktree, context.workspaceRoot))
+  if (evidenceWorktree !== undefined && !samePath(evidenceWorktree, session.worktree))
     return {
       ok: false,
       reason: "commit-result-ambiguous",
@@ -302,14 +326,7 @@ async function observeCommitBoundary(
       reason: "commit-result-ambiguous",
       detail: "Nawabari checkpoint branch identity does not match the commit receipt",
     };
-  if (head !== context.headCommit)
-    return {
-      ok: false,
-      reason: "commit-result-ambiguous",
-      detail: "Nawabari checkpoint HEAD differs from the observed Git HEAD",
-      currentHead: head,
-    };
-  return { ok: true, context, evidence, head };
+  return { ok: true, evidence, head };
 }
 
 function reconcileCheckpoint(
@@ -327,7 +344,10 @@ function reconcileCheckpoint(
   store.recordHookCheckpoint({ instanceId, branch, commit: head });
 }
 
-function shadowFailure(error: unknown, legacyDecision: ShadowComparison["legacyDecision"] = "allow"): ShadowComparison {
+function shadowFailure(
+  error: unknown,
+  legacyDecision: ShadowComparison["legacyDecision"] = "unavailable",
+): ShadowComparison {
   const nawabariDecision =
     error instanceof NawabariExecutionError && error.code === "nawabari-rejected" ? "deny" : "unavailable";
   return { legacyDecision, nawabariDecision, agreement: false };
@@ -513,6 +533,37 @@ function contextInput(
   };
 }
 
+async function observeNawabariCheckpoint(input: {
+  nawabari: NawabariExecutionClient;
+  cwd: string;
+  sessionId: NawabariSessionId;
+}): Promise<{ ok: true; evidence: Record<string, unknown>; head: string } | WorkflowWriteFailure> {
+  let evidence: Record<string, unknown>;
+  try {
+    evidence = await input.nawabari.checkpoint({ cwd: input.cwd, sessionId: input.sessionId });
+  } catch (error) {
+    return failure(
+      error instanceof NawabariExecutionError ? error.code : "nawabari-command-failed",
+      `could not observe the Nawabari checkpoint: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const sessionId = evidenceString(evidence, ["sessionId", "session_id"]);
+  if (sessionId !== input.sessionId)
+    return failure("task-identity-ambiguous", "Nawabari checkpoint session identity does not match the task");
+  const head = evidenceString(evidence, ["headId", "head_id", "head"]);
+  if (head === undefined) return failure("nawabari-contract-invalid", "Nawabari checkpoint omitted the HEAD identity");
+  return { ok: true, evidence, head };
+}
+
+function checkpointResources(evidence: Record<string, unknown>): readonly string[] {
+  const paths = evidence.paths;
+  if (typeof paths === "object" && paths !== null && "changed" in paths && Array.isArray(paths.changed)) {
+    const changed = paths.changed.filter((value): value is string => typeof value === "string" && value.length > 0);
+    if (changed.length > 0) return changed;
+  }
+  return ALL_NAWABARI_RESOURCES;
+}
+
 interface ReconcileKnownCommitOptions {
   nawabariResult?: Record<string, unknown>;
   shadow?: ShadowComparison;
@@ -620,7 +671,7 @@ async function reconcileKnownCommit(
       message: record.message,
       executionEvidence: observed.evidence,
       ...(options.nawabariResult === undefined ? {} : { nawabari: options.nawabariResult }),
-      shadow: options.shadow ?? { legacyDecision: "allow", nawabariDecision: "allow", agreement: true },
+      shadow: options.shadow ?? { legacyDecision: "unavailable", nawabariDecision: "allow", agreement: false },
       recovered: options.recovered,
       reconciliationState: reconciled.state,
     },
@@ -711,6 +762,55 @@ export interface CommitWorkflowInput extends WorkflowTaskSelector {
   dryRun?: boolean;
 }
 
+interface CommitIntent {
+  finalMessage: string;
+  includePaths: string[] | undefined;
+  resources: readonly string[];
+}
+
+function resolveCommitIntent(
+  input: CommitWorkflowInput,
+  selected: ResolvedWorkflowTask,
+): CommitIntent | WorkflowWriteFailure {
+  const rendered = renderCommitMessage(input.message);
+  if (!rendered.ok) return failure(rendered.code, rendered.detail);
+
+  const branch = selected.expectedBranch;
+  if (branch === undefined) return failure("branch-mismatch", "Nawabari commit requires an attached branch identity");
+  for (const operation of ["stage", "commit"] as const) {
+    const policyDecision = decideProtectedBranchOperation({
+      policy: input.policy,
+      branch,
+      operation,
+      repository: { isPrimaryCheckout: false },
+    });
+    if (!policyDecision.allowed)
+      return failure(
+        "protected-branch",
+        `${operation} denied for protected/control-plane branch ${branch}: ${policyDecision.reason}`,
+      );
+  }
+
+  const workspaceRoot = selected.executionWorkspaceRoot ?? input.workspaceRoot;
+  const requested = input.includePaths === undefined ? undefined : [...new Set(input.includePaths)];
+  if (requested !== undefined && requested.length === 0)
+    return failure("include-path-not-changed", "includePaths must contain at least one resource");
+  if (requested === undefined && input.policy.stagingMode === "explicit")
+    return failure("explicit-include-required", "explicit staging requires includePaths");
+  for (const candidate of requested ?? []) {
+    if (candidate.length === 0 || candidate.includes("\u0000") || !isPathInsideWorkspace(workspaceRoot, candidate))
+      return failure("invalid-path", "include path must be a non-empty relative path inside the worktree");
+    const normalized = path.normalize(candidate);
+    if (normalized !== candidate && normalized !== candidate.replaceAll("/", path.sep))
+      return failure("invalid-path", "include path must not contain path traversal or ambiguous separators");
+  }
+  return {
+    finalMessage: rendered.message,
+    includePaths: requested,
+    resources: requested ?? ALL_NAWABARI_RESOURCES,
+  };
+}
+
 export async function commitWorkflowTask(input: CommitWorkflowInput): Promise<WorkflowWriteResult> {
   const selected = await resolveWorkflowTask({ ...input, requireNawabari: input.dryRun !== true });
   if (!selected.ok) return selected;
@@ -728,9 +828,9 @@ export async function commitWorkflowTask(input: CommitWorkflowInput): Promise<Wo
     includePaths: input.includePaths,
     commitPolicy: { stagingMode: input.policy.stagingMode },
   };
-  const verification = await verifyCommit(operation);
-  if (!verification.ok) return failure(verification.code, verification.detail);
   if (input.dryRun === true) {
+    const verification = await verifyCommit(operation);
+    if (!verification.ok) return failure(verification.code, verification.detail);
     return {
       ok: true,
       dryRun: true,
@@ -745,21 +845,31 @@ export async function commitWorkflowTask(input: CommitWorkflowInput): Promise<Wo
     };
   }
 
+  const intent = resolveCommitIntent(input, selected);
+  if ("ok" in intent) return intent;
+  const task = input.store.getTask(selected.taskId);
+  if (task === undefined) return failure("task-not-found", `task was not found: ${selected.taskId}`);
+  if (task.lifecycleState !== "active")
+    return failure("task-not-active", `managed commit requires an active task, found ${task.lifecycleState}`);
   if (input.nawabari === undefined || selected.nawabariSessionId === undefined)
     return failure("nawabari-unavailable", "managed commit requires an attached Nawabari execution boundary");
-  const resources = verification.includePaths ?? verification.status.changedPaths.paths;
-  if (resources.length === 0) return failure("empty-diff", "Nawabari commit requires at least one changed resource");
+  const nawabari = input.nawabari;
+  const sessionId = selected.nawabariSessionId;
+  const workspaceRoot = selected.executionWorkspaceRoot ?? input.workspaceRoot;
+  const before = await observeNawabariCheckpoint({ nawabari, cwd: workspaceRoot, sessionId });
+  if (!before.ok) return before;
+  const resources = intent.includePaths ?? checkpointResources(before.evidence);
 
   let receipt: CommitReconciliationRecord;
   try {
     receipt = input.store.beginCommitReconciliation({
       taskId: selected.taskId,
       instanceId: selected.instanceId,
-      nawabariSessionId: selected.nawabariSessionId,
-      branchName: verification.context.branch,
-      beforeCommit: verification.context.headCommit,
+      nawabariSessionId: sessionId,
+      branchName: selected.expectedBranch!,
+      beforeCommit: before.head,
       resources,
-      message: verification.finalMessage,
+      message: intent.finalMessage,
     });
   } catch (error) {
     return failure(
@@ -778,27 +888,29 @@ export async function commitWorkflowTask(input: CommitWorkflowInput): Promise<Wo
     return reconcileKnownCommit(input, selected, receipt, { recovered: true });
 
   let shadow: ShadowComparison;
+  let legacyDecision: ShadowComparison["legacyDecision"] = "unavailable";
   try {
-    const authorization = await input.nawabari.authorize({
-      cwd: verification.context.workspaceRoot,
-      sessionId: selected.nawabariSessionId,
+    const authorization = await nawabari.authorize({
+      cwd: workspaceRoot,
+      sessionId,
       operation: "commit",
       resources,
     });
+    legacyDecision = await boundedLegacyDecision(verifyCommit(operation));
     shadow = {
-      legacyDecision: "allow",
+      legacyDecision,
       nawabariDecision: authorization.allowed === true ? "allow" : "deny",
-      agreement: authorization.allowed === true,
+      agreement: shadowDecisionsAgree(legacyDecision, authorization.allowed === true ? "allow" : "deny"),
     };
-    if (!shadow.agreement)
+    if (authorization.allowed !== true)
       return {
-        ...failure("nawabari-rejected", "Nawabari denied the commit after legacy verification"),
+        ...failure("nawabari-rejected", "Nawabari denied the commit after authorization"),
         shadow,
       };
-    const committed = await input.nawabari.commit({
-      cwd: verification.context.workspaceRoot,
-      sessionId: selected.nawabariSessionId,
-      message: verification.finalMessage,
+    const committed = await nawabari.commit({
+      cwd: workspaceRoot,
+      sessionId,
+      message: intent.finalMessage,
       resources,
     });
     const commitSha = commitResultSha(committed);
@@ -834,7 +946,7 @@ export async function commitWorkflowTask(input: CommitWorkflowInput): Promise<Wo
         error instanceof NawabariExecutionError ? error.code : "nawabari-command-failed",
         error instanceof Error ? error.message : String(error),
       ),
-      shadow: shadowFailure(error),
+      shadow: shadowFailure(error, legacyDecision),
       recovery: recoveryDiagnostic(receipt),
     };
   }
@@ -851,16 +963,37 @@ export interface PushWorkflowInput extends WorkflowTaskSelector {
   dryRun?: boolean;
 }
 
-async function pushResources(workspaceRoot: string, baseCommit: string): Promise<string[]> {
-  const observed = await runGitCommand(workspaceRoot, ["diff", "--name-only", "-z", `${baseCommit}..HEAD`]);
-  if (!observed.usable || observed.result.exitCode !== 0)
-    throw new Error("could not derive committed resource paths for Nawabari push");
-  // NUL-delimited output preserves paths verbatim, including ones containing
-  // newlines, quotes, or a leading "-" that a newline-split/trim would corrupt.
-  const paths = observed.result.stdout.split("\0").filter((value) => value.length > 0);
-  // A push can be a retry after a successful external commit. Keep the claim
-  // request conservative rather than inventing a narrower path set.
-  return paths.length === 0 ? ["**"] : paths;
+interface PushIntent {
+  remote: string;
+  branch: string;
+  force: boolean;
+  createUpstream: boolean;
+}
+
+function resolvePushIntent(
+  input: PushWorkflowInput,
+  selected: ResolvedWorkflowTask,
+): PushIntent | WorkflowWriteFailure {
+  const remote = input.remote ?? "origin";
+  if (!SAFE_REMOTE_NAME.test(remote))
+    return failure("invalid-remote", "remote must be a local Git remote name without URL or credential syntax");
+
+  const branch = input.remoteBranch ?? selected.expectedBranch;
+  if (branch === undefined) return failure("invalid-remote-branch", "Nawabari push requires an explicit branch target");
+  const branchFailure = validateBranchNameSyntax(branch, input.policy);
+  if (branchFailure !== undefined) return failure("invalid-remote-branch", branchFailure.detail);
+
+  const force = input.force === true;
+  const policyDecision = decideProtectedBranchOperation({
+    policy: input.policy,
+    branch,
+    operation: force ? "forcePush" : "directPush",
+    repository: { isPrimaryCheckout: false },
+  });
+  if (!policyDecision.allowed)
+    return failure("protected-branch", `push to protected branch ${branch} denied: ${policyDecision.reason}`);
+
+  return { remote, branch, force, createUpstream: input.createUpstream === true };
 }
 
 type PushEvidence = {
@@ -926,13 +1059,6 @@ function pushIdentityMismatch(receipt: PushReconciliationRecord, evidence: PushE
   return mismatches.length === 0 ? undefined : mismatches.join(", ");
 }
 
-async function currentHeadCommit(workspaceRoot: string): Promise<string | undefined> {
-  const observed = await runGitCommand(workspaceRoot, ["rev-parse", "HEAD"]);
-  if (!observed.usable || observed.result.exitCode !== 0) return undefined;
-  const head = observed.result.stdout.trim();
-  return head.length === 0 ? undefined : head;
-}
-
 function pushReconciliationFailure(detail: string): WorkflowWriteFailure {
   return failure("push-reconciliation-ambiguous", detail);
 }
@@ -989,15 +1115,22 @@ async function completePushedLifecycle(input: {
 async function recoverPushReconciliation(input: {
   pushInput: PushWorkflowInput;
   selected: ResolvedWorkflowTask;
-  task: NonNullable<ReturnType<WorkflowStateStore["getTask"]>>;
   receipt: PushReconciliationRecord;
 }): Promise<{ ok: true; receipt: PushReconciliationRecord; pushed: NawabariCommandResult } | WorkflowWriteFailure> {
-  const { pushInput, selected, task, receipt } = input;
+  const { pushInput, selected, receipt } = input;
   const nawabari = pushInput.nawabari!;
   const workspaceRoot = selected.executionWorkspaceRoot ?? pushInput.workspaceRoot;
-  const head = await currentHeadCommit(workspaceRoot);
-  if (head !== receipt.sourceCommit) {
-    const detail = `push recovery source commit ${receipt.sourceCommit} is not the current HEAD${head === undefined ? " (HEAD unavailable)" : ` (${head})`}`;
+  const checkpoint = await observeNawabariCheckpoint({
+    nawabari,
+    cwd: workspaceRoot,
+    sessionId: receipt.nawabariSessionId,
+  });
+  if (!checkpoint.ok) {
+    pushInput.store.markPushAmbiguous(selected.taskId, checkpoint.detail);
+    return checkpoint;
+  }
+  if (checkpoint.head !== receipt.sourceCommit) {
+    const detail = `push recovery source commit ${receipt.sourceCommit} is not the Nawabari checkpoint HEAD (${checkpoint.head})`;
     pushInput.store.markPushAmbiguous(selected.taskId, detail);
     return pushReconciliationFailure(detail);
   }
@@ -1008,7 +1141,8 @@ async function recoverPushReconciliation(input: {
     return pushReconciliationFailure(detail);
   }
 
-  const resources = await pushResources(workspaceRoot, task.baseCommit);
+  const commitReceipt = pushInput.store.getCommitReconciliation(selected.taskId);
+  const resources = commitReceipt?.resources.length ? commitReceipt.resources : ALL_NAWABARI_RESOURCES;
   try {
     const authorization = await nawabari.authorize({
       cwd: workspaceRoot,
@@ -1096,8 +1230,8 @@ export async function pushWorkflowTask(input: PushWorkflowInput): Promise<Workfl
       allowDiverged: input.allowDiverged === true,
     },
   };
-  const verification = await verifyPush(operation);
   if (input.dryRun === true) {
+    const verification = await verifyPush(operation);
     if (!verification.ok) return failure(verification.code, verification.detail);
     return {
       ok: true,
@@ -1113,8 +1247,12 @@ export async function pushWorkflowTask(input: PushWorkflowInput): Promise<Workfl
     };
   }
 
+  const intent = resolvePushIntent(input, selected);
+  if ("ok" in intent) return intent;
   if (input.nawabari === undefined || selected.nawabariSessionId === undefined)
     return failure("nawabari-unavailable", "managed push requires an attached Nawabari execution boundary");
+  const nawabari = input.nawabari;
+  const sessionId = selected.nawabariSessionId;
   const task = input.store.getTask(selected.taskId);
   if (task === undefined) return failure("task-not-found", `task was not found: ${selected.taskId}`);
   const existingReceipt = input.store.getPushReconciliation(selected.taskId);
@@ -1127,87 +1265,84 @@ export async function pushWorkflowTask(input: PushWorkflowInput): Promise<Workfl
     };
   if (task.lifecycleState !== "committed")
     return failure("task-not-committed", `managed push requires a committed task, found ${task.lifecycleState}`);
-  const remote = input.remote ?? "origin";
-  const branch = input.remoteBranch ?? selected.expectedBranch;
-  if (branch === undefined) return failure("invalid-remote-branch", "Nawabari push requires an explicit branch target");
-  if (existingReceipt !== undefined && (existingReceipt.remote !== remote || existingReceipt.targetBranch !== branch)) {
+  if (
+    existingReceipt !== undefined &&
+    (existingReceipt.remote !== intent.remote || existingReceipt.targetBranch !== intent.branch)
+  ) {
     return pushReconciliationFailure("push retry target differs from the immutable persisted target");
   }
 
   if (existingReceipt !== undefined && existingReceipt.state !== "prepared") {
-    const recovered = await recoverPushReconciliation({ pushInput: input, selected, task, receipt: existingReceipt });
+    const recovered = await recoverPushReconciliation({ pushInput: input, selected, receipt: existingReceipt });
     if (!recovered.ok) return recovered;
     return await completePushedLifecycle({
       pushInput: input,
       selected,
       nawabari: input.nawabari,
       pushed: recovered.pushed,
-      shadow: { legacyDecision: "allow", nawabariDecision: "allow", agreement: true },
+      shadow: { legacyDecision: "unavailable", nawabariDecision: "allow", agreement: false },
       recovered: true,
     });
   }
 
   let receipt = existingReceipt;
-  const legacyDecision: ShadowComparison["legacyDecision"] = verification.ok ? "allow" : "deny";
+  let legacyDecision: ShadowComparison["legacyDecision"] = "unavailable";
   if (receipt === undefined) {
-    const sourceCommit = await currentHeadCommit(workspaceRoot);
-    if (sourceCommit === undefined)
-      return failure("source-commit-unavailable", "could not resolve the immutable push source commit");
-    const policyDecision = decideProtectedBranchOperation({
-      policy: input.policy,
-      branch,
-      operation: force ? "forcePush" : "directPush",
-      // Nawabari provisions task sessions in a dedicated worktree. Physical
-      // checkout identity remains Nawabari-owned; this is only governance intent.
-      repository: { isPrimaryCheckout: false },
-    });
-    if (!policyDecision.allowed)
-      return {
-        ...failure("protected-branch", `push to protected branch ${branch} denied: ${policyDecision.reason}`),
-        shadow: { legacyDecision, nawabariDecision: "unavailable", agreement: false },
-      };
+    const source = await observeNawabariCheckpoint({ nawabari, cwd: workspaceRoot, sessionId });
+    if (!source.ok) return source;
     receipt = input.store.beginPushReconciliation({
       taskId: selected.taskId,
       instanceId: selected.instanceId,
-      nawabariSessionId: selected.nawabariSessionId as PushReconciliationRecord["nawabariSessionId"],
-      sourceCommit,
-      remote,
-      targetBranch: branch,
-      targetRef: `refs/heads/${branch}`,
-      forceRequested: force,
-      createUpstream,
+      nawabariSessionId: sessionId as PushReconciliationRecord["nawabariSessionId"],
+      sourceCommit: source.head,
+      remote: intent.remote,
+      targetBranch: intent.branch,
+      targetRef: `refs/heads/${intent.branch}`,
+      forceRequested: intent.force,
+      createUpstream: intent.createUpstream,
     });
   }
 
   if (receipt === undefined)
     return failure("push-reconciliation-unavailable", "push reconciliation intent was not persisted");
-  if (receipt.sourceCommit !== (await currentHeadCommit(workspaceRoot))) {
+  const current = await observeNawabariCheckpoint({ nawabari, cwd: workspaceRoot, sessionId });
+  if (!current.ok) {
+    try {
+      input.store.markPushAmbiguous(selected.taskId, current.detail);
+    } catch {
+      // Preserve the companion/evidence failure.
+    }
+    return current;
+  }
+  if (receipt.sourceCommit !== current.head) {
     const detail = "push source commit changed after reconciliation intent was persisted";
     input.store.markPushAmbiguous(selected.taskId, detail);
     return pushReconciliationFailure(detail);
   }
   try {
     receipt = input.store.markPushAttempting(selected.taskId);
-    const resources = await pushResources(workspaceRoot, task.baseCommit);
-    const authorization = await input.nawabari.authorize({
+    const commitReceipt = input.store.getCommitReconciliation(selected.taskId);
+    const resources = commitReceipt?.resources.length ? commitReceipt.resources : ALL_NAWABARI_RESOURCES;
+    const authorization = await nawabari.authorize({
       cwd: workspaceRoot,
       sessionId: receipt.nawabariSessionId,
       operation: "push",
       resources,
     });
+    legacyDecision = await boundedLegacyDecision(verifyPush(operation));
     const shadow: ShadowComparison = {
       legacyDecision,
       nawabariDecision: authorization.allowed === true ? "allow" : "deny",
-      agreement: (authorization.allowed === true) === (legacyDecision === "allow"),
+      agreement: shadowDecisionsAgree(legacyDecision, authorization.allowed === true ? "allow" : "deny"),
     };
     if (authorization.allowed !== true) {
       input.store.markPushAmbiguous(
         selected.taskId,
         "Nawabari denied the push after reconciliation intent was recorded",
       );
-      return { ...failure("nawabari-rejected", "Nawabari denied the push after legacy verification"), shadow };
+      return { ...failure("nawabari-rejected", "Nawabari denied the push after authorization"), shadow };
     }
-    const pushed = await input.nawabari.push({
+    const pushed = await nawabari.push({
       cwd: workspaceRoot,
       sessionId: receipt.nawabariSessionId,
       remote: receipt.remote,
@@ -1233,7 +1368,7 @@ export async function pushWorkflowTask(input: PushWorkflowInput): Promise<Workfl
     return await completePushedLifecycle({
       pushInput: input,
       selected,
-      nawabari: input.nawabari,
+      nawabari,
       pushed,
       shadow,
       recovered: false,
