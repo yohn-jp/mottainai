@@ -1,4 +1,4 @@
-import type { CleanupLeaseRecord, TaskRecord, WorkflowStateStore } from "../state/store.js";
+import type { CleanupLeaseRecord, LegacyPhysicalWorkflowStateStore, TaskRecord, WorkflowStateStore } from "../state/store.js";
 import { markLease, reserveLease } from "./lease.js";
 import {
   computeCleanupPlanDigest,
@@ -14,7 +14,7 @@ import { runGitCommand } from "../git/context.js";
 
 export interface CleanupExecuteInput {
   plan: CleanupPlan;
-  store: WorkflowStateStore;
+  store: WorkflowStateStore & LegacyPhysicalWorkflowStateStore;
   now?: () => number;
   leaseTtlMs?: number;
   owner?: string;

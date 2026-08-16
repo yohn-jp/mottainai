@@ -4,7 +4,7 @@ import type { RepositoryInstanceId, RootCommitDigest } from "../domain/identity.
 import { createWorkflowStore } from "../../test-support/workflow-store.js";
 import type { GitReconciliationSnapshot, ReconcileWorkflowInput } from "./reconcile.js";
 import { executeReconciliationRepairs, reconcileWorkflow } from "./reconcile.js";
-import type { TaskId, WorktreeId, WorkflowStateStore } from "../state/store.js";
+import type { LegacyPhysicalWorkflowStateStore, TaskId, WorktreeId, WorkflowStateStore } from "../state/store.js";
 
 const instanceId = "instance-38" as RepositoryInstanceId;
 
@@ -61,7 +61,7 @@ function seedInstance(store: WorkflowStateStore): void {
 }
 
 function seedTask(
-  store: WorkflowStateStore,
+  store: WorkflowStateStore & LegacyPhysicalWorkflowStateStore,
   slug = "task-38",
   issueRef = "38",
 ): { taskId: TaskId; worktreeId: WorktreeId } {
@@ -69,7 +69,7 @@ function seedTask(
 }
 
 function seedTaskFor(
-  store: WorkflowStateStore,
+  store: WorkflowStateStore & LegacyPhysicalWorkflowStateStore,
   targetInstanceId: RepositoryInstanceId,
   slug: string,
   issueRef: string,
@@ -101,7 +101,7 @@ function seedTaskFor(
   return { taskId: task.taskId, worktreeId: worktree.worktree.worktreeId };
 }
 
-function fresh(t: TestContext): WorkflowStateStore {
+function fresh(t: TestContext): WorkflowStateStore & LegacyPhysicalWorkflowStateStore {
   return createWorkflowStore(t);
 }
 
@@ -324,8 +324,9 @@ test("confirmed repair marks an expired cleanup lock as failed", async (t) => {
     workspaceRoot: "/repo",
     dependencies: baseInput.dependencies,
   });
-  assert.deepEqual(result.applied, [actionId]);
-  assert.equal(store.getCleanupLease("lease-repair")?.state, "failed");
+  assert.deepEqual(result.applied, []);
+  assert.equal(result.reason, "legacy-authority-retired");
+  assert.equal(store.getCleanupLease("lease-repair")?.state, "reserved");
 });
 
 test("reconciliation detects a merged but uncleaned task", async (t) => {
@@ -491,8 +492,9 @@ test("confirmed repair marks a verified merged task as cleaned", async (t) => {
     workspaceRoot: "/repo",
     dependencies: baseInput.dependencies,
   });
-  assert.deepEqual(result.applied, [actionId]);
-  assert.equal(store.getTask(taskId)?.lifecycleState, "cleaned");
+  assert.deepEqual(result.applied, []);
+  assert.equal(result.reason, "legacy-authority-retired");
+  assert.equal(store.getTask(taskId)?.lifecycleState, "merged");
 });
 
 test("reconciliation reports a failed Git snapshot without pretending it observed state", async (t) => {
@@ -547,8 +549,9 @@ test("repair execution requires explicit confirmation and never deletes a path",
       }),
     },
   });
-  assert.deepEqual(applied.applied, [actionId]);
-  assert.equal(store.listWorktrees()[0]?.status, "removed");
+  assert.deepEqual(applied.applied, []);
+  assert.equal(applied.reason, "legacy-authority-retired");
+  assert.equal(store.listWorktrees()[0]?.status, "active");
 });
 
 test("confirmed repair rejects an omitted action selection", async (t) => {
@@ -585,7 +588,7 @@ test("confirmed repair re-checks the live path and blocks a stale report", async
     },
   });
   assert.deepEqual(result.blocked, [actionId]);
-  assert.equal(result.reason, "precondition-failed");
+  assert.equal(result.reason, "legacy-authority-retired");
   assert.equal(store.listWorktrees()[0]?.status, "active");
 });
 

@@ -592,6 +592,21 @@ export interface CommitCleanupResult {
   lease: CleanupLeaseRecord;
 }
 
+/**
+ * Physical ownership operations from the pre-Nawabari workflow. They remain
+ * available only to migration/reference fixtures and the retired legacy
+ * implementation; managed callers must not receive this capability.
+ */
+export interface LegacyPhysicalWorkflowStateStore {
+  reserveWorktree(input: ReserveWorktreeInput): ReserveWorktreeResult;
+  activateWorktree(worktreeId: WorktreeId, activatedAt?: number): WorktreeRecord;
+  deleteReservedWorktree(worktreeId: WorktreeId): void;
+  markWorktreeRemoved(worktreeId: WorktreeId, updatedAt?: number): WorktreeRecord;
+  reserveCleanupLease(input: ReserveCleanupLeaseInput): ReserveCleanupLeaseResult;
+  markCleanupLease(input: MarkCleanupLeaseInput): CleanupLeaseRecord;
+  commitCleanup(input: CommitCleanupInput): CommitCleanupResult;
+}
+
 export interface WorkflowStateStore {
   /** backend 固有の初期化（DB オープン・migration 適用）。呼び出し前は他メソッドを使わない。 */
   init(): void;
@@ -690,20 +705,8 @@ export interface WorkflowStateStore {
   markCommitReconciliationReconciled(taskId: TaskId, updatedAt?: number): CommitReconciliationRecord;
   getCommitReconciliation(taskId: TaskId): CommitReconciliationRecord | undefined;
 
-  /**
-   * worktree を `reserved` 状態で予約する。branch_name/canonical_path の一意性は
-   * migration 側の UNIQUE partial index（status != 'removed'）が保証するため、
-   * ここでは INSERT を試み、制約違反時に既存行を読み直して衝突理由を構造化して返す。
-   */
-  reserveWorktree(input: ReserveWorktreeInput): ReserveWorktreeResult;
-
-  /** 外部 `git worktree add` 成功後に呼ぶ。`reserved`→`active` に更新する。 */
-  activateWorktree(worktreeId: WorktreeId, activatedAt?: number): WorktreeRecord;
-
   /** 予約後に外部操作が失敗した場合の補償ロールバック。 */
   deleteReservedTask(taskId: TaskId): void;
-  /** 予約後に外部操作が失敗した場合の補償ロールバック。 */
-  deleteReservedWorktree(worktreeId: WorktreeId): void;
 
   updateTaskLifecycleState(taskId: TaskId, next: LifecycleState, updatedAt?: number): TaskRecord;
   /** Attach exactly one external execution session; never stores its ownership fields locally. */
@@ -721,11 +724,6 @@ export interface WorkflowStateStore {
   updateManagerSession(sessionId: ManagerSessionId, input: UpdateManagerSessionInput): ManagerSessionRecord;
   /** `reserved`/`mutating`/`verifying` の期限切れを reconciliation が検出するための全件参照。 */
   listCleanupLeases(instanceId?: RepositoryInstanceId): CleanupLeaseRecord[];
-  /** 外部パスを削除せず、既に存在しない worktree のmetadataだけを明示的に確定する。 */
-  markWorktreeRemoved(worktreeId: WorktreeId, updatedAt?: number): WorktreeRecord;
-
-  /** Cleanup lease operations are each short local transactions; callers do external work between them. */
-  reserveCleanupLease(input: ReserveCleanupLeaseInput): ReserveCleanupLeaseResult;
   getCleanupLease(operationId: string): CleanupLeaseRecord | undefined;
   getActiveCleanupLease(
     instanceId: RepositoryInstanceId,
@@ -733,9 +731,6 @@ export interface WorkflowStateStore {
     worktreeId: WorktreeId | undefined,
     now?: number,
   ): CleanupLeaseRecord | undefined;
-  markCleanupLease(input: MarkCleanupLeaseInput): CleanupLeaseRecord;
-  commitCleanup(input: CommitCleanupInput): CommitCleanupResult;
-
   /** 外部 provider 成功後に、body/raw response を含めず PR の照合用 metadata だけ記録する。 */
   recordPullRequest(input: RecordPullRequestInput): PullRequestRecord;
   getPullRequestRecord(recordId: PullRequestRecordId): PullRequestRecord | undefined;
