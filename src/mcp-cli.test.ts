@@ -367,6 +367,92 @@ test("public CLI task start creates a dedicated worktree/branch, and task status
   fs.rmSync(directory, { recursive: true, force: true });
 });
 
+test("public CLI task run composes Issue-bound Nawabari execution and Pi Manager launch idempotently", () => {
+  const directory = gitWorkspace();
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-task-run-state-"));
+  const fakeZellij = path.join(stateDir, "zellij");
+  fs.writeFileSync(
+    fakeZellij,
+    '#!/usr/bin/env node\nif (process.argv[2] === "--version") console.log("zellij 0.40.0");\n',
+    { mode: 0o755 },
+  );
+  const environment = {
+    ...process.env,
+    MOTTAINAI_STATE_DIR: stateDir,
+    MOTTAINAI_ZELLIJ_BINARY: fakeZellij,
+  };
+  const spawn = (...argv: string[]): Run => {
+    const result = spawnSync(process.execPath, ["--import", "tsx", publicCliPath, ...argv], { encoding: "utf8", env: environment });
+    let json: Record<string, unknown> = {};
+    try {
+      json = JSON.parse(result.stdout) as Record<string, unknown>;
+    } catch {
+      json = {};
+    }
+    return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr, json };
+  };
+
+  try {
+    const first = spawn(
+      "task",
+      "run",
+      "cli-run",
+      "--type",
+      "feat",
+      "--issue",
+      "333",
+      "--agent",
+      "pi",
+      "--model",
+      "test-model",
+      "--workspace",
+      directory,
+    );
+    assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}`);
+    assert.equal(first.json.ok, true);
+    const firstTask = first.json.task as { taskId: string };
+    const firstExecution = first.json.execution as { sessionId: string; worktree: string; branch: string };
+    const firstManager = first.json.manager as { sessionId: string; runtimeState: string; launchProfile: string };
+    assert.equal(firstManager.launchProfile, "pi");
+    assert.equal(firstManager.runtimeState, "running");
+    assert.equal(firstExecution.branch, "feat/333-cli-run");
+
+    const second = spawn(
+      "task",
+      "run",
+      "cli-run",
+      "--type",
+      "feat",
+      "--issue",
+      "333",
+      "--agent",
+      "pi",
+      "--model",
+      "test-model",
+      "--workspace",
+      directory,
+    );
+    assert.equal(second.status, 0, `${second.stdout}\n${second.stderr}`);
+    assert.equal(second.json.ok, true);
+    const secondTask = second.json.task as { taskId: string };
+    const secondExecution = second.json.execution as { sessionId: string };
+    const secondManager = second.json.manager as { sessionId: string; runtimeState: string };
+    assert.equal(secondTask.taskId, firstTask.taskId);
+    assert.equal(secondExecution.sessionId, firstExecution.sessionId);
+    assert.equal(secondManager.sessionId, firstManager.sessionId);
+    assert.equal(secondManager.runtimeState, "running");
+
+    spawnSync("nawabari", ["session", "close", "--session", firstExecution.sessionId, "--json"], {
+      cwd: firstExecution.worktree,
+      env: environment,
+      encoding: "utf8",
+    });
+  } finally {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("public CLI task start validates taskSlug/issueRef at the boundary, same as the MCP tool", () => {
   const directory = gitWorkspace();
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-workflow-state-"));
