@@ -108,6 +108,12 @@ function initializeGitWorkspace(workspace) {
   }
 }
 
+function runGit(workspace, args) {
+  const result = spawnSync("git", args, { cwd: workspace, encoding: "utf8" });
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  return result.stdout.trim();
+}
+
 function writeAmbiguousNawabari(commandPath) {
   fs.writeFileSync(
     commandPath,
@@ -452,6 +458,219 @@ test(
       });
       assert.equal(closed.status, 0, `${closed.stdout}\n${closed.stderr}`);
     } finally {
+      fs.rmSync(workspace, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "packed workflow keeps Nawabari as the sole physical authority across restart and cleanup",
+  { timeout: BLACKBOX_TIMEOUTS.test },
+  (t) => {
+    const workspace = createWorkspace({ config: null });
+    const remote = path.join(suiteRoot, "packed-workflow-remote.git");
+    const wrapperDirectory = path.join(suiteRoot, "packed-workflow-bin");
+    const tracePath = path.join(workspace, "nawabari-trace.ndjson");
+    let started;
+    try {
+      if (spawnSync("which", ["nawabari"], { encoding: "utf8", env: isolatedEnv(workspace) }).status !== 0) {
+        t.skip("nawabari companion is not installed");
+        return;
+      }
+      const realNawabari = spawnSync("which", ["nawabari"], {
+        encoding: "utf8",
+        env: isolatedEnv(workspace),
+      }).stdout.trim();
+      assert.ok(realNawabari.length > 0);
+
+      fs.writeFileSync(path.join(workspace, "workflow-proof.txt"), "base\n");
+      fs.mkdirSync(path.join(workspace, ".mottainai"), { recursive: true });
+      fs.writeFileSync(
+        path.join(workspace, ".mottainai", "workflow.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            preset: "standard",
+            protectedBranches: ["main", "master"],
+            protectedBranchRule: {
+              sourceWrite: "advisory",
+              stage: "advisory",
+              commit: "advisory",
+              directPush: "enforce",
+              forcePush: "enforce",
+              destructiveBranchOp: "enforce",
+            },
+            controlPlaneRole: "any",
+            worktree: {
+              required: "off",
+              issueRequired: "off",
+              bootstrapMode: "suggest",
+              multipleActiveTasksPerIssue: "advisory",
+              multipleWorktreesPerTask: "advisory",
+              staleBaseBranch: "advisory",
+            },
+            stagingMode: "already-staged-only",
+            cleanup: {
+              worktreeRemoval: "advisory",
+              localBranchDeletion: "advisory",
+              remoteBranchDeletion: "off",
+              worktreePrune: "advisory",
+              forceCleanup: "off",
+            },
+          },
+          null,
+          2,
+        ),
+      );
+      initializeGitWorkspace(workspace);
+      runGit(workspace, ["add", "workflow-proof.txt", ".mottainai/workflow.json"]);
+      runGit(workspace, ["commit", "-m", "add packed workflow fixture"]);
+      runGit(workspace, ["init", "--bare", remote]);
+      runGit(workspace, ["remote", "add", "origin", remote]);
+
+      const nawabariWrapper = path.join(wrapperDirectory, "nawabari");
+      fs.mkdirSync(wrapperDirectory, { recursive: true });
+      fs.writeFileSync(
+        nawabariWrapper,
+        `#!/usr/bin/env node
+const { appendFileSync } = require("node:fs");
+const { spawnSync } = require("node:child_process");
+const args = process.argv.slice(2);
+appendFileSync(process.env.MOTTAINAI_NAWABARI_TRACE, JSON.stringify(args) + "\\n");
+const result = spawnSync(process.env.MOTTAINAI_REAL_NAWABARI, args, { stdio: "inherit" });
+if (result.error) {
+  console.error(result.error);
+  process.exit(1);
+}
+process.exit(result.status ?? 1);
+`,
+        { mode: 0o755 },
+      );
+      const environment = {
+        ...isolatedEnv(workspace),
+        MOTTAINAI_REAL_NAWABARI: realNawabari,
+        MOTTAINAI_NAWABARI_TRACE: tracePath,
+      };
+      environment.PATH = [wrapperDirectory, environment.PATH].join(path.delimiter);
+      const packaged = resolvePackagedCommand(binPath);
+      const invoke = (cwd, cliArgs) => {
+        const result = spawnSync(packaged.command, [...packaged.args, ...cliArgs], {
+          cwd,
+          env: environment,
+          encoding: "utf8",
+          timeout: 20_000,
+        });
+        assert.equal(result.status, 0, `${cliArgs.join(" ")}\n${result.stdout}\n${result.stderr}`);
+        assert.ok(result.stdout.trim().length > 0, `${cliArgs.join(" ")} returned no JSON`);
+        return JSON.parse(result.stdout);
+      };
+
+      started = invoke(workspace, ["task", "start", "packed-authority-proof", "--type", "feat", "--issue", "306"]);
+      assert.equal(started.ok, true);
+      assert.equal(started.execution.branch, "feat/306-packed-authority-proof");
+      assert.equal(typeof started.execution.sessionId, "string");
+      assert.equal(fs.existsSync(path.join(workspace, ".mottainai", "worktrees")), false);
+
+      const worktree = started.execution.worktree;
+      const status = invoke(worktree, ["task", "status"]);
+      assert.equal(status.ok, true);
+      assert.equal(status.execution.sessionId, started.execution.sessionId);
+      assert.equal(status.execution.branch, started.execution.branch);
+      assert.equal(status.currentState, "active");
+      assert.equal("worktrees" in status, false, "Nawabari-owned tasks must not expose a legacy worktree row");
+
+      fs.appendFileSync(path.join(worktree, "workflow-proof.txt"), "Nawabari mutation\n");
+      const committed = invoke(worktree, [
+        "task",
+        "commit",
+        "--message",
+        "test(workflow): prove Nawabari authority",
+        "--include",
+        "workflow-proof.txt",
+      ]);
+      assert.equal(committed.ok, true);
+      assert.equal(committed.task.lifecycleState, "committed");
+      assert.equal(committed.commit.shadow.legacyDecision, "deny");
+      assert.equal(committed.commit.shadow.nawabariDecision, "allow");
+      assert.equal(committed.commit.shadow.agreement, false);
+      assert.equal(typeof committed.commit.commitId, "string");
+
+      const committedAgain = invoke(worktree, [
+        "task",
+        "commit",
+        "--message",
+        "test(workflow): prove Nawabari authority",
+        "--include",
+        "workflow-proof.txt",
+      ]);
+      assert.equal(committedAgain.ok, true);
+      assert.equal(committedAgain.commit.recovered, true);
+      assert.equal(committedAgain.commit.commitId, committed.commit.commitId);
+
+      const pushed = invoke(worktree, [
+        "task",
+        "push",
+        "--remote",
+        "origin",
+        "--remote-branch",
+        started.execution.branch,
+        "--create-upstream",
+      ]);
+      assert.equal(pushed.ok, true);
+      assert.equal(pushed.task.lifecycleState, "pushed");
+      const pushedAgain = invoke(worktree, [
+        "task",
+        "push",
+        "--remote",
+        "origin",
+        "--remote-branch",
+        started.execution.branch,
+        "--create-upstream",
+      ]);
+      assert.equal(pushedAgain.ok, true);
+      assert.equal(pushedAgain.task.lifecycleState, "pushed");
+      assert.equal(
+        runGit(workspace, ["--git-dir", remote, "rev-parse", `refs/heads/${started.execution.branch}`]),
+        committed.commit.commitId,
+      );
+      // Model the provider-side merge before Nawabari evaluates physical cleanup
+      // safety; an abandoned branch with a recoverable commit must remain open.
+      runGit(workspace, ["merge", "--ff-only", started.execution.branch]);
+
+      const abandoned = invoke(worktree, ["task", "abandon"]);
+      assert.equal(abandoned.ok, true);
+      assert.equal(abandoned.task.lifecycleState, "abandoned");
+      const cleaned = invoke(worktree, ["task", "cleanup", "--idempotency-key", "packed-authority-cleanup"]);
+      assert.equal(cleaned.ok, true);
+      assert.equal(cleaned.plan.authority, "nawabari");
+      assert.equal(cleaned.plan.decision, "caller-permitted");
+      assert.equal(cleaned.task.lifecycleState, "cleaned");
+      assert.equal(fs.existsSync(worktree), false);
+
+      const reconciled = invoke(workspace, ["task", "status"]);
+      assert.equal(reconciled.ok, true);
+      assert.equal(reconciled.active, false);
+      assert.equal(fs.existsSync(path.join(workspace, ".mottainai", "worktrees")), false);
+
+      const calls = fs
+        .readFileSync(tracePath, "utf8")
+        .trim()
+        .split("\n")
+        .filter((line) => line.length > 0)
+        .map((line) => JSON.parse(line));
+      assert.equal(calls.filter((args) => args[0] === "commit").length, 1);
+      assert.equal(calls.filter((args) => args[0] === "push").length, 1);
+      assert.equal(calls.filter((args) => args[0] === "session" && args[1] === "close").length, 1);
+    } finally {
+      if (started?.execution?.sessionId !== undefined && fs.existsSync(started.execution.worktree)) {
+        spawnSync("nawabari", ["session", "close", "--session", started.execution.sessionId, "--json"], {
+          cwd: started.execution.worktree,
+          env: isolatedEnv(workspace),
+          encoding: "utf8",
+          timeout: 10_000,
+        });
+      }
+      fs.rmSync(remote, { recursive: true, force: true });
       fs.rmSync(workspace, { recursive: true, force: true });
     }
   },
