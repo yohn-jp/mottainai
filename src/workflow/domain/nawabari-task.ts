@@ -6,7 +6,8 @@ import { validateBranchNameAgainstGovernance } from "../governance/branch.js";
 import { buildWorktreeNaming, decideBootstrap, runBootstrap } from "../git/worktree.js";
 import { resolveRepositoryIdentity } from "./identity.js";
 import { resolveRepoState } from "./repo-state.js";
-import { checkStaleBaseBranch, getTaskStatusForWorkspace, transitionTask, type StartTaskWarning } from "./task.js";
+import { checkStaleBaseBranch, getTaskStatusForWorkspace, type StartTaskWarning } from "./task.js";
+import { transitionTask } from "./task-lifecycle.js";
 import type { RepositoryInstanceId } from "./identity.js";
 import type {
   NawabariSessionId,

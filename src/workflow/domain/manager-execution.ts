@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { startTask } from "./task.js";
 import { startNawabariTask } from "./nawabari-task.js";
 import type { LifecycleState } from "./lifecycle.js";
 import { resolveEffectiveWorkflowPolicy } from "../policy/load.js";
@@ -13,10 +12,8 @@ import { NawabariExecutionClient } from "../nawabari.js";
  * Manager receives an execution context and never owns the physical worktree,
  * branch, lock, lease, or cleanup operation represented by that context.
  *
- * Two adapters implement this boundary: the legacy in-process workflow task
- * engine (`createWorkflowManagerExecutionAuthority`) and the Nawabari-backed
- * adapter (`createNawabariManagerExecutionAuthority`) that delegates
- * session/worktree/branch ownership to the standalone Nawabari contract.
+ * The sole production adapter delegates session/worktree/branch ownership to
+ * the standalone Nawabari contract.
  */
 export interface ManagerExecutionContext {
   taskId: TaskId | undefined;
@@ -53,125 +50,13 @@ function receipt(code: string, message: string, source: ManagerSessionReceipt["s
   return { code, message: message.slice(0, 512), source, recordedAt: Date.now() };
 }
 
-/** Existing-main implementation behind the replaceable Manager boundary. */
+/** Compatibility name retained for embedders; it now uses Nawabari authority. */
 export function createWorkflowManagerExecutionAuthority(
   initialStore?: WorkflowStateStore,
   initialWorkspaceRoot?: string,
+  nawabari: NawabariExecutionClient = new NawabariExecutionClient(),
 ): ManagerExecutionAuthority {
-  let boundStore: WorkflowStateStore | undefined = initialStore;
-  let boundWorkspaceRoot: string | undefined = initialWorkspaceRoot;
-  return {
-    async start(input) {
-      boundStore = input.store;
-      boundWorkspaceRoot = input.workspaceRoot;
-      if (input.taskSlug === undefined) {
-        return {
-          context: {
-            taskId: undefined,
-            executionSessionId: undefined,
-            worktreeId: undefined,
-            worktreePath: input.workspaceRoot,
-            branchName: undefined,
-            taskSlug: undefined,
-            issueRef: undefined,
-            branchType: undefined,
-            semanticLifecycleState: "unbound",
-          },
-        };
-      }
-
-      const policyResult = resolveEffectiveWorkflowPolicy(input.workspaceRoot);
-      if (!policyResult.ok) throw new Error(`workflow policy is invalid: ${policyResult.reason}`);
-      const result = await startTask({
-        workspaceRoot: input.workspaceRoot,
-        store: input.store,
-        policy: policyResult.document,
-        taskSlug: input.taskSlug,
-        branchType: input.branchType,
-        issueRef: input.issueRef,
-        idempotencyKey: input.idempotencyKey,
-      });
-      if (!result.ok) throw new Error(result.detail);
-      return {
-        context: {
-          taskId: result.task.taskId,
-          executionSessionId: undefined,
-          worktreeId: result.worktree?.worktreeId,
-          worktreePath: result.worktree?.canonicalPath ?? input.workspaceRoot,
-          branchName: result.worktree?.branchName,
-          taskSlug: result.task.taskSlug,
-          issueRef: result.task.issueRef,
-          branchType: input.branchType,
-          semanticLifecycleState: result.task.lifecycleState,
-        },
-        ...(result.warnings.length === 0
-          ? {}
-          : {
-              receipt: receipt(
-                "workflow_warning",
-                result.warnings.map((warning) => warning.detail).join("; "),
-                "workflow",
-              ),
-            }),
-      };
-    },
-
-    async validate(context) {
-      try {
-        if (
-          boundWorkspaceRoot !== undefined &&
-          context.taskId === undefined &&
-          path.resolve(context.worktreePath) !== path.resolve(boundWorkspaceRoot)
-        ) {
-          return {
-            ok: false,
-            detail: `unbound execution path is not the Manager workspace root: ${context.worktreePath}`,
-          };
-        }
-        if (context.taskId !== undefined) {
-          const task = boundStore?.getTask(context.taskId);
-          if (task === undefined) return { ok: false, detail: `managed task record is missing: ${context.taskId}` };
-          if (context.worktreeId !== undefined) {
-            const worktree = boundStore
-              ?.listWorktreesForTask(context.taskId)
-              .find((candidate) => candidate.worktreeId === context.worktreeId && candidate.status === "active");
-            if (worktree === undefined || path.resolve(worktree.canonicalPath) !== path.resolve(context.worktreePath)) {
-              return { ok: false, detail: `managed worktree identity is unresolved for task: ${context.taskId}` };
-            }
-          }
-        }
-        if (!(await fs.promises.stat(context.worktreePath)).isDirectory()) {
-          return { ok: false, detail: `execution directory is not a directory: ${context.worktreePath}` };
-        }
-        return { ok: true };
-      } catch {
-        return { ok: false, detail: `execution directory is unavailable: ${context.worktreePath}` };
-      }
-    },
-
-    async observe(context) {
-      if (context.taskId === undefined) {
-        return { semanticLifecycleState: "unbound", status: undefined, receipt: undefined };
-      }
-      const task = boundStore?.getTask(context.taskId);
-      if (task === undefined) {
-        return {
-          semanticLifecycleState: "orphaned",
-          status: "task record is unavailable; execution identity was not recreated",
-          receipt: receipt(
-            "task_unresolved",
-            "task record is unavailable; execution identity was not recreated",
-            "workflow",
-          ),
-        };
-      }
-      return {
-        semanticLifecycleState: task.lifecycleState,
-        status: `task lifecycle: ${task.lifecycleState}`,
-        receipt: undefined,
-      };
-    },
-  };
+  return createNawabariManagerExecutionAuthority(initialStore, initialWorkspaceRoot, nawabari);
 }
 
 /**

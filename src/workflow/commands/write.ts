@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { type PullRequestBodyDraft } from "../domain/pr-intent.js";
-import { createCleanupPlan, type CleanupPlan, type CleanupPullRequestObserver } from "../domain/cleanup-plan.js";
+import type { CleanupPlan } from "../domain/cleanup-plan.js";
 import {
   renderCommitMessage,
   verifyCommit,
@@ -66,8 +66,6 @@ export interface WorkflowTaskSelector {
   store: WorkflowStateStore;
   taskId?: string;
   nawabari?: NawabariExecutionClient;
-  /** Require the authoritative local execution boundary for a mutating operation. */
-  requireNawabari?: boolean;
 }
 
 export interface ResolvedWorkflowTask {
@@ -512,21 +510,10 @@ async function taskContext(
       return failure(code, error instanceof Error ? error.message : String(error));
     }
   }
-  if (input.requireNawabari === true)
-    return failure(
-      "legacy-task-adoption-required",
-      `task ${task.taskId} has no Nawabari session reference; adopt it before mutation`,
-    );
-  const worktrees = input.store.listWorktreesForTask(task.taskId).filter((worktree) => worktree.status === "active");
-  if (worktrees.length > 1)
-    return failure("task-identity-ambiguous", "multiple active worktrees are associated with the task");
-  const worktree = worktrees[0];
   return {
-    ok: true,
-    taskId: task.taskId,
-    instanceId: task.instanceId,
-    worktreeId: worktree?.worktreeId,
-    expectedBranch: worktree?.branchName,
+    ok: false,
+    reason: "legacy-task-adoption-required",
+    detail: `task ${task.taskId} has no Nawabari session reference; adopt it before mutation`,
   };
 }
 
@@ -825,7 +812,7 @@ function resolveCommitIntent(
 }
 
 export async function commitWorkflowTask(input: CommitWorkflowInput): Promise<WorkflowWriteResult> {
-  const selected = await resolveWorkflowTask({ ...input, requireNawabari: input.dryRun !== true });
+  const selected = await resolveWorkflowTask(input);
   if (!selected.ok) return selected;
 
   const existingReceipt = input.store.getCommitReconciliation(selected.taskId);
@@ -1221,7 +1208,7 @@ async function recoverPushReconciliation(input: {
 }
 
 export async function pushWorkflowTask(input: PushWorkflowInput): Promise<WorkflowWriteResult> {
-  const selected = await resolveWorkflowTask({ ...input, requireNawabari: input.dryRun !== true });
+  const selected = await resolveWorkflowTask(input);
   if (!selected.ok) return selected;
   const force = input.force === true;
   const createUpstream = input.createUpstream === true;
@@ -1612,48 +1599,6 @@ export interface NawabariCleanupPlan {
   reason: string;
 }
 
-function validateProvidedCleanupPlan(
-  plan: CleanupPlan,
-  selected: ResolvedWorkflowTask,
-  idempotencyKey: string | undefined,
-): WorkflowWriteFailure | undefined {
-  if (
-    typeof plan !== "object" ||
-    plan === null ||
-    typeof plan.planId !== "string" ||
-    typeof plan.planDigest !== "string"
-  )
-    return failure("invalid-input", "plan must be a complete cleanup plan");
-  if (
-    plan.task === undefined ||
-    plan.task.taskId !== selected.taskId ||
-    plan.task.instanceId !== selected.instanceId ||
-    plan.repository === undefined ||
-    plan.repository.instanceId !== selected.instanceId
-  )
-    return failure(
-      "cleanup-plan-identity-mismatch",
-      "cleanup plan does not belong to the selected task and repository",
-    );
-  if (idempotencyKey !== undefined && plan.planId !== idempotencyKey)
-    return failure("cleanup-plan-identity-mismatch", "cleanup plan planId does not match idempotencyKey");
-  return undefined;
-}
-
-function cleanupObserver(adapter: GithubAdapter): CleanupPullRequestObserver {
-  return async (record) => {
-    if (record.provider !== "github")
-      return { state: "unknown", detail: `unsupported pull-request provider: ${record.provider}` };
-    const observed = await adapter.viewPullRequest(record.prNumber, { provider: "github", id: record.repositoryId });
-    if (!observed.ok) return { state: "unknown", detail: observed.error.message };
-    const state = observed.value.lifecycleState;
-    if (state === "merged") return { state: "merged", headSha: observed.value.head.revision };
-    if (state === "open" || state === "draft") return { state: "open", headSha: observed.value.head.revision };
-    if (state === "closed") return { state: "closed-unmerged", headSha: observed.value.head.revision };
-    return { state: "unknown", detail: "provider returned an unknown pull-request lifecycle state" };
-  };
-}
-
 export async function cleanupWorkflowTask(
   input: CleanupWorkflowInput,
   dependencies: WorkflowWriteDependencies = {},
@@ -1668,6 +1613,8 @@ export async function cleanupWorkflowTask(
 > {
   if (input.idempotencyKey !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(input.idempotencyKey))
     return failure("invalid-input", "idempotencyKey must be a bounded branch-safe token");
+  if (input.plan !== undefined)
+    return failure("legacy-cleanup-plan-retired", "legacy Mottainai cleanup plans are retired; use Nawabari cleanup");
   if (input.taskId !== undefined) {
     const existing = input.store.getTask(input.taskId as TaskId);
     if (existing?.lifecycleState === "cleaned" && existing.nawabariSessionId !== undefined) {
@@ -1691,39 +1638,9 @@ export async function cleanupWorkflowTask(
       };
     }
   }
-  const selected = await resolveWorkflowTask({ ...input, requireNawabari: input.dryRun !== true });
+  const selected = await resolveWorkflowTask(input);
   if (!selected.ok) return selected;
 
-  // Planning is a read-only orchestration operation. Legacy rows may still be
-  // inspected here, but no legacy cleanup executor remains after cutover.
-  if (input.dryRun === true && selected.nawabariSessionId === undefined) {
-    if (input.plan !== undefined) {
-      const planFailure = validateProvidedCleanupPlan(input.plan, selected, input.idempotencyKey);
-      if (planFailure !== undefined) return planFailure;
-    }
-    const adapter = dependencies.githubAdapter ?? new GithubAdapter({ workspaceRoot: input.workspaceRoot });
-    const planResult =
-      input.plan === undefined
-        ? await createCleanupPlan({
-            workspaceRoot: input.workspaceRoot,
-            store: input.store,
-            taskId: selected.taskId,
-            policy: input.policy.cleanup,
-            protectedBranchPolicy: input.policy,
-            idempotencyKey: input.idempotencyKey,
-            pullRequestObserver: cleanupObserver(adapter),
-          })
-        : { ok: input.plan.status !== "blocked", plan: input.plan };
-    return planResult.ok
-      ? { ok: true, dryRun: true, plan: planResult.plan }
-      : {
-          ok: false,
-          reason: "cleanup-plan-blocked",
-          detail: planResult.plan.blockers.map((item) => item.detail).join("; "),
-          dryRun: true,
-          plan: planResult.plan,
-        };
-  }
   if (input.nawabari === undefined || selected.nawabariSessionId === undefined)
     return failure("nawabari-unavailable", "managed cleanup requires an attached Nawabari execution boundary");
   {

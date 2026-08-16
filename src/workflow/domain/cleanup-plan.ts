@@ -6,6 +6,7 @@ import { runGitCommand } from "../git/context.js";
 import type { CleanupRule, RuleMode, WorkflowPolicyDocument } from "../policy/schema.js";
 import type {
   PullRequestRecord,
+  LegacyPhysicalWorkflowStateStore,
   TaskId,
   TaskRecord,
   WorktreeId,
@@ -56,7 +57,8 @@ export type CleanupActivityProbe = (
 
 export interface CleanupPlanInput {
   workspaceRoot: string;
-  store: WorkflowStateStore;
+  /** Legacy-only plan surface; managed cleanup uses Nawabari directly. */
+  store: WorkflowStateStore & LegacyPhysicalWorkflowStateStore;
   taskId: TaskId;
   policy: CleanupRule | Pick<WorkflowPolicyDocument, "cleanup">;
   /** Full policy is optional for legacy domain callers; write adapters supply it so

@@ -2,7 +2,14 @@ import fs from "node:fs";
 import { runProgram } from "../../subprocess.js";
 import { decideProtectedBranchOperation } from "../policy/protected-branch.js";
 import type { WorkflowPolicyDocument } from "../policy/schema.js";
-import type { PullRequestRecord, WorkflowStateStore, TaskId, TaskRecord, WorktreeRecord } from "../state/store.js";
+import type {
+  LegacyPhysicalWorkflowStateStore,
+  PullRequestRecord,
+  WorkflowStateStore,
+  TaskId,
+  TaskRecord,
+  WorktreeRecord,
+} from "../state/store.js";
 import {
   buildWorktreeNaming,
   createWorktree,
@@ -22,6 +29,10 @@ import type { LifecycleState, TransitionBlockedInfo } from "./lifecycle.js";
 import { verifyWorkflowContext } from "../git/context.js";
 import type { WorkflowContextInput, VerifiedWorkflowContext } from "../git/context.js";
 import type { PullRequest } from "../providers/model.js";
+import { transitionTask } from "./task-lifecycle.js";
+
+export { transitionTask } from "./task-lifecycle.js";
+export type { TransitionTaskResult } from "./task-lifecycle.js";
 
 const GIT_TIMEOUT_MS = 5_000;
 const GIT_MAX_OUTPUT_BYTES = 64 * 1024;
@@ -95,7 +106,8 @@ export async function checkStaleBaseBranch(
 
 export interface StartTaskInput {
   workspaceRoot: string;
-  store: WorkflowStateStore;
+  /** Legacy-only adapter; managed starts use `startNawabariTask`. */
+  store: WorkflowStateStore & LegacyPhysicalWorkflowStateStore;
   policy: WorkflowPolicyDocument;
   taskSlug: string;
   /** governance branch candidate に明示的に渡す type。taskSlug から推測しない。 */
@@ -564,16 +576,6 @@ export function getTaskStatus(store: WorkflowStateStore, taskId: TaskId): TaskSt
     pullRequests: store.listPullRequestRecordsForTask(taskId),
     ...lifecycleTransitionStatus(task.lifecycleState),
   };
-}
-
-export type TransitionTaskResult = { ok: true; task: TaskRecord } | { ok: false; blocked: TransitionBlockedInfo };
-
-export function transitionTask(store: WorkflowStateStore, taskId: TaskId, to: LifecycleState): TransitionTaskResult {
-  const task = store.getTask(taskId);
-  if (task === undefined) throw new Error(`task not found: ${taskId}`);
-  const validation = validateTransition(task.lifecycleState, to);
-  if (!validation.allowed) return { ok: false, blocked: validation.blocked };
-  return { ok: true, task: store.updateTaskLifecycleState(taskId, to) };
 }
 
 export interface WorkspaceTaskTransitionInput extends WorkflowContextInput {
