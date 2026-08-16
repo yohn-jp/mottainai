@@ -233,9 +233,25 @@ test("dogfood catches interpreter, search, Git, and broad-read bypass variants",
       bypassCounts.redirect += 1;
     }
 
-    for (const command of ["git commit -am bypass", "env GIT_OPTIONAL_LOCKS=0 git push origin HEAD:main"]) {
-      const result = runHook(root, client, payload("Bash", { command }));
+    // Raw Git mutation is intercepted by the workflow authority and redirected
+    // to the typed operation; protected-branch denial is a separate path.
+    const rawMutations = [
+      {
+        command: "git commit -am bypass",
+        replacement: "mottainai_workflow_task_commit",
+      },
+      {
+        command: "env GIT_OPTIONAL_LOCKS=0 git push origin HEAD:main",
+        replacement: "mottainai_workflow_task_push",
+      },
+    ] as const;
+    for (const mutation of rawMutations) {
+      const result = runHook(root, client, payload("Bash", { command: mutation.command }));
       assertDecision(result, client, "workflow_typed_operation_required", "block");
+      assert.match(
+        allOutput(result),
+        new RegExp(`workflow_typed_operation_required;use=${mutation.replacement};id=`, "u"),
+      );
       bypassCounts.deny += 1;
     }
   }
