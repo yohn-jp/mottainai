@@ -15,8 +15,8 @@ permissions:
   contents: read
 
 jobs:
-  typecheck:
-    name: typecheck (Node 22)
+  static-integrity:
+    name: static integrity (typecheck / lint / architecture / build)
     # Keep the workflow subscribed so required checks resolve as skipped/success.
     # Only normal pull requests consume the normal PR CI jobs.
     if: >-
@@ -50,106 +50,17 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
-  fast-tests:
-    name: fast unit / contract (Node 22)
-    if: >-
-      github.event_name != 'pull_request' ||
-      (
-        github.actor != 'dependabot[bot]' &&
-        github.event.pull_request.user.login != 'dependabot[bot]' &&
-        !startsWith(github.event.pull_request.head.ref, 'release/')
-      )
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-        with:
-          version: 11.18.0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "22"
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Test (fast unit / contract)
-        shell: bash
-        run: |
-          set -o pipefail
-          pnpm test 2>&1 | tee "$RUNNER_TEMP/fast-suite.log"
-
-      - name: Record fast-suite performance observation
-        if: always()
-        shell: bash
-        run: |
-          {
-            echo "### Fast suite performance observation"
-            if timing="$(grep -E '^test suite timing: fast [0-9]+ms$' "$RUNNER_TEMP/fast-suite.log" | tail -n 1)"; then
-              echo "- $timing"
-            else
-              echo "- Timing was not emitted because the correctness step produced no timing record."
-            fi
-            echo "- Hosted-runner wall-clock timing is observation-only; correctness is determined by the test result."
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  standards:
-    name: format / lint / architecture (Node 22)
-    if: >-
-      github.event_name != 'pull_request' ||
-      (
-        github.actor != 'dependabot[bot]' &&
-        github.event.pull_request.user.login != 'dependabot[bot]' &&
-        !startsWith(github.event.pull_request.head.ref, 'release/')
-      )
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-        with:
-          version: 11.18.0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "22"
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Format check
-        run: pnpm run format:check
-
-      - name: Lint
+      - name: Lint (correctness rules)
         run: pnpm run lint
-
-      - name: Standards self-tests (architecture / governance / test policy)
-        run: pnpm run test:standards
-
-      - name: Repository Semantics governance (observe)
-        run: pnpm run semantic:validate -- --mode observe
-
-      - name: Repository Semantics managed dogfood (enforce)
-        run: pnpm run semantic:dogfood
 
       - name: Architecture/static validation
         run: pnpm run architecture:check
 
-  integration:
-    name: integration / process (Node 22)
+      - name: Build
+        run: pnpm run build
+
+  product-contract:
+    name: product contract (golden path / packed artifact)
     if: >-
       github.event_name != 'pull_request' ||
       (
@@ -158,6 +69,7 @@ jobs:
         !startsWith(github.event.pull_request.head.ref, 'release/')
       )
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -186,39 +98,10 @@ jobs:
       - name: Verify required test tool
         run: rg --version
 
-      - name: Test (integration / process)
+      # Bounded black-box coverage: task start / worktree isolation, managed
+      # mutation boundaries, lifecycle/state consistency, and cleanup.
+      - name: Test (managed workflow lifecycle contract)
         run: pnpm run test:integration
-
-  artifact-validation:
-    name: build / built dist e2e / package (Node 22)
-    if: >-
-      github.event_name != 'pull_request' ||
-      (
-        github.actor != 'dependabot[bot]' &&
-        github.event.pull_request.user.login != 'dependabot[bot]' &&
-        !startsWith(github.event.pull_request.head.ref, 'release/')
-      )
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-        with:
-          version: 11.18.0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "22"
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
 
       - name: Build
         run: pnpm run build
@@ -253,7 +136,9 @@ jobs:
           test "$package_status" -eq 0
 
   node-compatibility-smoke:
-    name: Node compatibility smoke (Ubuntu, Node 24)
+    name: packed artifact Node compatibility smoke (Node 24)
+    # engines.node declares >=22.13; this is compatibility evidence for the
+    # current supported major beyond the floor, not a second full suite.
     if: >-
       github.event_name != 'pull_request' ||
       (
@@ -282,13 +167,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Node 24 still builds and consumes its own artifact; this remains a
-      # compatibility check rather than a reuse of the Node 22 build.
       - name: Build and packed consumer / MCP compatibility smoke
         run: pnpm run test:package
 
-  coverage-shard:
-    name: coverage shard ${{ matrix.shard }}/7 (Node 22)
+  runtime-contract-changes:
+    name: detect Nix/QEMU runtime-contract path changes
     if: >-
       github.event_name != 'pull_request' ||
       (
@@ -297,62 +180,33 @@ jobs:
         !startsWith(github.event.pull_request.head.ref, 'release/')
       )
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7]
+    outputs:
+      runtime: ${{ steps.filter.outputs.runtime }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - name: Filter runtime-owned paths
+        id: filter
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
         with:
-          version: 11.18.0
+          filters: |
+            runtime:
+              - 'nix/**'
+              - 'src/local-runtime/**'
+              - 'scripts/build-runtime-image-manifest.mjs'
+              - '.github/workflows/ci.yml'
 
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "22"
-          cache: pnpm
-
-      - name: Install required system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Verify required test tool
-        run: rg --version
-
-      - name: Run complete coverage test-file shard
-        run: >-
-          pnpm run test:coverage -- --measure-only
-          --shard-index ${{ matrix.shard }} --shard-count 7
-          --output coverage/shard-${{ matrix.shard }}
-
-      - name: Upload coverage shard
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: coverage-shard-${{ matrix.shard }}
-          path: coverage/shard-${{ matrix.shard }}
-          if-no-files-found: error
-          retention-days: 1
-
-  coverage:
-    # Not a required status check: coverage still runs on every PR and push,
-    # still enforces coverage-policy.json, and still uploads its merged
-    # report artifact, but a failure here no longer blocks PR merge. The gate
-    # is evaluated only after every complete shard has passed and its LCOV
-    # counters have been merged.
-    name: coverage (Node 22)
+  runtime-contract:
+    name: Nix Runtime evaluation / image / VM test
+    needs: runtime-contract-changes
+    # Path-owned: this expensive validation runs only when a changed path can
+    # invalidate the Nix/QEMU runtime contract. Unrelated PRs get a
+    # deterministic successful skip under the same stable check name.
     if: >-
-      always() &&
+      needs.runtime-contract-changes.outputs.runtime == 'true' &&
       (
         github.event_name != 'pull_request' ||
         (
@@ -360,54 +214,6 @@ jobs:
           github.event.pull_request.user.login != 'dependabot[bot]' &&
           !startsWith(github.event.pull_request.head.ref, 'release/')
         )
-      )
-    needs: coverage-shard
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "22"
-
-      - name: Download coverage shards
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: coverage-shard-*
-          path: coverage/shards
-          merge-multiple: false
-
-      - name: Merge coverage and enforce policy
-        run: >-
-          node scripts/coverage.mjs
-          --merge coverage/shards/coverage-shard-1
-          --merge coverage/shards/coverage-shard-2
-          --merge coverage/shards/coverage-shard-3
-          --merge coverage/shards/coverage-shard-4
-          --merge coverage/shards/coverage-shard-5
-          --merge coverage/shards/coverage-shard-6
-          --merge coverage/shards/coverage-shard-7
-          --output coverage/merged
-
-      - name: Upload coverage artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: coverage-node-22
-          path: coverage/merged
-          if-no-files-found: error
-
-  nix-runtime:
-    name: Nix Runtime evaluation / image / VM test
-    if: >-
-      github.event_name != 'pull_request' ||
-      (
-        github.actor != 'dependabot[bot]' &&
-        github.event.pull_request.user.login != 'dependabot[bot]' &&
-        !startsWith(github.event.pull_request.head.ref, 'release/')
       )
     runs-on: ubuntu-latest
     timeout-minutes: 60

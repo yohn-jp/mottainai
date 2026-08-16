@@ -13,8 +13,50 @@ permissions:
   issues: read
 
 jobs:
+  standards-self-check:
+    name: standards-self-check
+    # The governance/actions/semantics machinery that validate-pr depends on
+    # must itself be provably correct before it is trusted to gate a merge.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.18.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Governance/actions/inari self-tests
+        run: pnpm run test:standards
+
+      - name: Repository Semantics governance (observe)
+        run: pnpm run semantic:validate -- --mode observe
+
+      - name: Repository Semantics managed dogfood (enforce)
+        run: pnpm run semantic:dogfood
+
   validate-pr:
     name: validate-pr
+    needs: standards-self-check
     # Job-level filtering keeps required validate-pr checks from remaining
     # pending while excluding Dependabot and release PRs from normal governance.
     if: >-
@@ -78,13 +120,6 @@ jobs:
             cat "$GOVERNANCE_REPORT" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Upload regression-proof plan
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: regression-proof-plan
-          path: ${{ runner.temp }}/regression-proof-plan.json
-          retention-days: 1
-
       - name: Fetch linked Issue
         env:
           GH_TOKEN: ${{ github.token }}
@@ -105,80 +140,4 @@ jobs:
           if jq -e '.labels | map(.name) | any(. == "status:invalid" or . == "needs:specification")' "$RUNNER_TEMP/linked-issue.json" >/dev/null; then
             echo "linked Issue has an invalid governance label" >&2
             exit 1
-          fi
-
-  # PR-authored regression-test code executes here as arbitrary code under the
-  # fixed runner. This job carries no permissions and no trusted follow-up step
-  # ever runs after it in this job or consumes its filesystem — its only output
-  # is a report appended to its own job summary. It does not gate validate-pr,
-  # and validate-pr's checkout is never shared with or reachable from this job.
-  regression-proof:
-    name: regression-proof
-    needs: validate-pr
-    if: >-
-      always() &&
-      (
-        github.event_name != 'pull_request' ||
-        (
-          github.actor != 'dependabot[bot]' &&
-          github.event.pull_request.user.login != 'dependabot[bot]' &&
-          !startsWith(github.event.pull_request.head.ref, 'release/')
-        )
-      )
-    runs-on: ubuntu-latest
-    permissions: {}
-    steps:
-      - name: Checkout PR head
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          path: pr
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Checkout base governance validator
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          path: governance
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Verify trusted governance revision
-        working-directory: governance
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: test "$(git rev-parse HEAD)" = "$BASE_SHA"
-
-      - name: Download regression-proof plan
-        continue-on-error: true
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: regression-proof-plan
-          path: ${{ runner.temp }}/plan
-
-      # The base validator selects only fixed argv from governance-rules.json.
-      # This report-only step may use a temporary worktree, but never executes
-      # a command or shell fragment copied from the PR body.
-      - name: Execute eligible regression proof in isolated worktree (report-only)
-        if: always()
-        continue-on-error: true
-        working-directory: governance
-        env:
-          BASE_ROOT: ${{ github.workspace }}/governance
-          HEAD_ROOT: ${{ github.workspace }}/pr
-        run: |
-          node scripts/run-regression-proof.mjs \
-            --plan-file "$RUNNER_TEMP/plan/regression-proof-plan.json" \
-            --base-root "$BASE_ROOT" \
-            --head-root "$HEAD_ROOT" \
-            --report "$RUNNER_TEMP/regression-proof-report.md"
-
-      - name: Publish regression-proof observation
-        if: always()
-        env:
-          REGRESSION_REPORT: ${{ runner.temp }}/regression-proof-report.md
-        run: |
-          if test -f "$REGRESSION_REPORT"; then
-            cat "$REGRESSION_REPORT" >> "$GITHUB_STEP_SUMMARY"
           fi
