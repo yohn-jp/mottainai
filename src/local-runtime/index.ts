@@ -5,4 +5,5 @@ export * from "./image.js";
 export * from "./qmp.js";
 export * from "./ssh.js";
 export * from "./state.js";
+export * from "./status.js";
 export * from "./reconciler.js";

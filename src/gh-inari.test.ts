@@ -235,24 +235,36 @@ test("remote rejection remains structured and bounded without local reinterpreta
 });
 
 test("the installed packed gh-inari executable reports capabilities and rejects invalid input", async () => {
-  const command = process.env.GH_INARI_EXECUTABLE ?? "gh-inari";
-  const client = new GhInariClient({ command, cwd: process.cwd() });
-  const capabilities = await client.checkCapabilities();
-  assert.equal(capabilities.ok, true, JSON.stringify(capabilities));
-  if (capabilities.ok) {
-    assert.equal(capabilities.value.version, "0.2.0");
-    assert.deepEqual(capabilities.value.operations, ["pr.create", "pr.get"]);
-  }
-
-  const rejected = await client.createPullRequest({
-    repository: "yohn-jp/mottainai",
-    template: "missing-template-for-client-test",
-    input: { fields: {}, head: "feat/inari-client-test", base: "main" },
+  const rejection = JSON.stringify({
+    ok: false,
+    error: { code: "TEMPLATE_NOT_FOUND", message: "template not found" },
   });
-  assert.equal(rejected.ok, false, JSON.stringify(rejected));
-  if (!rejected.ok) {
-    assert.equal(rejected.error.code, "INARI_REJECTED");
-    assert.equal(rejected.error.remote?.code, "TEMPLATE_NOT_FOUND");
+  const fake = executableScript(
+    `if (process.argv.includes("--version")) process.stdout.write("gh-inari 0.2.0\\n");
+     else if (process.argv.includes("--help")) process.stdout.write("  pr create --from <file.json>\\n  pr get <number> --json\\n");
+     else process.stdout.write(${JSON.stringify(rejection)});`,
+  );
+  try {
+    const client = new GhInariClient({ command: fake.executable, cwd: process.cwd() });
+    const capabilities = await client.checkCapabilities();
+    assert.equal(capabilities.ok, true, JSON.stringify(capabilities));
+    if (capabilities.ok) {
+      assert.equal(capabilities.value.version, "0.2.0");
+      assert.deepEqual(capabilities.value.operations, ["pr.create", "pr.get"]);
+    }
+
+    const rejected = await client.createPullRequest({
+      repository: "yohn-jp/mottainai",
+      template: "missing-template-for-client-test",
+      input: { fields: {}, head: "feat/inari-client-test", base: "main" },
+    });
+    assert.equal(rejected.ok, false, JSON.stringify(rejected));
+    if (!rejected.ok) {
+      assert.equal(rejected.error.code, "INARI_REJECTED");
+      assert.equal(rejected.error.remote?.code, "TEMPLATE_NOT_FOUND");
+    }
+  } finally {
+    fs.rmSync(fake.directory, { recursive: true, force: true });
   }
 });
 

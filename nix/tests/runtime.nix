@@ -34,7 +34,7 @@ pkgs.testers.nixosTest {
 
     with subtest("mottainai-control identity exists and owns its state dir"):
         runtime.succeed("id mottainai-control")
-        runtime.succeed("grep -q 'AAAAC3NzaC1lZDI1NTE5AAAAITestKeyForRuntimeContract' /var/lib/mottainai-control/.ssh/authorized_keys")
+        runtime.succeed("grep -q 'AAAAC3NzaC1lZDI1NTE5AAAAITestKeyForRuntimeContract' /etc/ssh/authorized_keys.d/mottainai-control")
         owner = runtime.succeed("stat -c '%U' /var/lib/mottainai-control").strip()
         assert owner == "mottainai-control", f"unexpected owner: {owner}"
         mode = runtime.succeed("stat -c '%a' /var/lib/mottainai-control").strip()

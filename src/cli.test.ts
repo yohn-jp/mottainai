@@ -31,6 +31,70 @@ test("early public CLI failure includes bounded runtime identity without stdout 
   }
 });
 
+test("public CLI exposes read-only runtime status without creating state", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-runtime-status-"));
+  const stateDirectory = path.join(workspace, "runtime-state");
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ["--import", "tsx", entryPoint, "runtime", "status", "--json", "--state-directory", stateDirectory],
+      {
+        cwd: path.resolve(path.dirname(entryPoint), ".."),
+        env: { ...process.env, HOME: workspace, USERPROFILE: workspace },
+        encoding: "utf8",
+      },
+    );
+    assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+    assert.deepEqual(JSON.parse(result.stdout), {
+      ok: true,
+      machineId: "mottainai-local-runtime-v1",
+      lifecycle: "absent",
+      stateDirectory: path.join(path.resolve(stateDirectory), "mottainai-local-runtime-v1"),
+      stateFile: path.join(path.resolve(stateDirectory), "mottainai-local-runtime-v1", "state.json"),
+    });
+    assert.equal(fs.existsSync(stateDirectory), false);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("top-level init rejects the removed Runtime provisioning option before writing anything", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-init-runtime-"));
+  const configPath = path.join(workspace, "mottainai.config.json");
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        entryPoint,
+        "init",
+        "--yes",
+        "--workspace",
+        workspace,
+        "--config",
+        configPath,
+        "--scope",
+        "project",
+        "--client",
+        "none",
+        "--no-doctor",
+        "--runtime",
+      ],
+      {
+        cwd: path.resolve(path.dirname(entryPoint), ".."),
+        env: { ...process.env, HOME: workspace, USERPROFILE: workspace },
+        encoding: "utf8",
+      },
+    );
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /use `mottainai runtime ensure`/);
+    assert.equal(fs.existsSync(configPath), false);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 test("hooks repair restores an invalid policy through the public CLI", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-hooks-repair-"));
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-hooks-bin-"));
@@ -46,7 +110,12 @@ test("hooks repair restores an invalid policy through the public CLI", () => {
       ["--import", "tsx", entryPoint, "hooks", "repair", "--client", "claude", "--workspace", workspace],
       {
         cwd: path.resolve(path.dirname(entryPoint), ".."),
-        env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`, HOME: workspace, USERPROFILE: workspace },
+        env: {
+          ...process.env,
+          PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+          HOME: workspace,
+          USERPROFILE: workspace,
+        },
         encoding: "utf8",
       },
     );
@@ -78,7 +147,11 @@ test("public CLI dispatch projects the workflow authority through a supported cl
     fs.mkdirSync(path.join(workspace, ".mottainai"));
     fs.writeFileSync(
       path.join(workspace, ".mottainai", "workflow.json"),
-      JSON.stringify({ ...BUILTIN_PRESETS.standard, protectedBranches: ["release/*"], protectedBranchRule: { ...BUILTIN_PRESETS.standard.protectedBranchRule, sourceWrite: "enforce" } }),
+      JSON.stringify({
+        ...BUILTIN_PRESETS.standard,
+        protectedBranches: ["release/*"],
+        protectedBranchRule: { ...BUILTIN_PRESETS.standard.protectedBranchRule, sourceWrite: "enforce" },
+      }),
     );
     const result = spawnSync(
       process.execPath,
@@ -86,7 +159,11 @@ test("public CLI dispatch projects the workflow authority through a supported cl
       {
         cwd: path.resolve(path.dirname(entryPoint), ".."),
         env: { ...process.env, HOME: workspace, USERPROFILE: workspace },
-        input: JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: "tracked.txt" } }),
+        input: JSON.stringify({
+          hook_event_name: "PreToolUse",
+          tool_name: "Write",
+          tool_input: { file_path: "tracked.txt" },
+        }),
         encoding: "utf8",
       },
     );

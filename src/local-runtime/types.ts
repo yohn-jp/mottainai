@@ -190,6 +190,25 @@ export interface LocalRuntimeEnsureResult {
   readonly warnings: string[];
 }
 
+/** Read-only, bounded projection of the persisted local Runtime state. */
+export interface LocalRuntimeStatus {
+  readonly ok: true;
+  readonly machineId: typeof LOCAL_RUNTIME_MACHINE_ID;
+  readonly lifecycle: RuntimeLifecycle;
+  readonly stateDirectory: string;
+  readonly stateFile: string;
+  readonly host?: LocalRuntimeHost;
+  readonly accelerator?: RuntimeAccelerator;
+  readonly qemu?: QemuArtifactIdentity;
+  readonly image?: RuntimeImageIdentity;
+  readonly ssh?: Pick<LocalRuntimeState["ssh"], "host" | "port" | "user">;
+  readonly qmp?: Pick<LocalRuntimeState["qmp"], "private">;
+  readonly pid?: number;
+  readonly runtime?: RuntimeCapabilityResult;
+  readonly createdAt?: string;
+  readonly updatedAt?: string;
+}
+
 export type LocalRuntimeErrorCode =
   | "unsupported_host"
   | "hardware_acceleration_unavailable"

@@ -1,15 +1,15 @@
 # Canonical local Runtime
 
-`mottainai init --runtime` owns one local Runtime profile,
-`mottainai-local-runtime-v1`. Ensuring the Runtime is opt-in and separate from
-MCP client registration: plain `mottainai init` only sets up the MCP
-configuration/clients, so hosts without a hardware accelerator (CI, containers,
-sandboxes) can still complete client setup. `--runtime` is required to
-additionally ensure the local Runtime.
+The `mottainai runtime` namespace is the only local Runtime lifecycle authority
+for the `mottainai-local-runtime-v1` profile. Use `mottainai runtime ensure` to
+reconcile it and `mottainai runtime status` to read its persisted state.
+`mottainai init` only sets up MCP configuration/clients and never provisions the
+Runtime, so hosts without a hardware accelerator (CI, containers, sandboxes)
+can still complete client setup.
 
 The profile is intentionally not a user-selectable provider: QEMU is always the
 machine substrate, with `KVM` on Linux, `HVF` on macOS, and `WHPX` on Windows.
-If the required accelerator is unavailable, `--runtime` fails with an
+If the required accelerator is unavailable, `runtime ensure` fails with an
 actionable diagnostic rather than silently skipping Runtime provisioning. It
 never selects TCG, WSL/WSL2, a host-native process, or an arbitrary system
 QEMU installation.
