@@ -1,5 +1,6 @@
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ResolvedGatewayConfig } from "../../config.js";
+import { GhInariClient } from "../../gh-inari.js";
 import { OUTPUT_SCHEMA, output } from "../../envelope.js";
 import { InMemoryArtifactStore, type ArtifactStore } from "../../retrieve.js";
 import { collectWorkflowDoctorReport } from "./doctor.js";
@@ -765,17 +766,25 @@ async function workflowWriteToolImpl(
   if (name === "mottainai_workflow_task_open_pr") {
     return writeResult(
       "workflow_task_open_pr",
-      await openWorkflowTaskPullRequest({
-        ...selector,
-        policy: policyResult.document,
-        title: stringArg(args, "title", true)!,
-        repository: stringArg(args, "repository"),
-        issueReference: stringArg(args, "issueReference"),
-        sections: value(args, "sections") as Record<string, string | readonly string[]> | undefined,
-        acceptanceCriteria: stringArrayArg(args, "acceptanceCriteria"),
-        providerDraft: boolArg(args, "providerDraft"),
-        dryRun,
-      }),
+      await openWorkflowTaskPullRequest(
+        {
+          ...selector,
+          policy: policyResult.document,
+          title: stringArg(args, "title", true)!,
+          repository: stringArg(args, "repository"),
+          issueReference: stringArg(args, "issueReference"),
+          sections: value(args, "sections") as Record<string, string | readonly string[]> | undefined,
+          acceptanceCriteria: stringArrayArg(args, "acceptanceCriteria"),
+          providerDraft: boolArg(args, "providerDraft"),
+          dryRun,
+        },
+        {
+          ghInariClient: new GhInariClient({
+            cwd: config.workspaceRoot,
+            ...(config.ghInari ?? {}),
+          }),
+        },
+      ),
     );
   }
   if (name === "mottainai_workflow_task_finish")
