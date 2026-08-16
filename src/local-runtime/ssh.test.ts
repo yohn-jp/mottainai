@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
-import { buildSshArguments } from "./ssh.js";
+import { buildSshArguments, ensureKnownHost } from "./ssh.js";
 
 const paths = {
   stateDirectory: "/private/mottainai-runtime",
@@ -27,4 +30,23 @@ test("SSH always uses the private known-hosts file and strict identity checking"
   assert.equal(args.includes(`UserKnownHostsFile=${paths.sshKnownHosts}`), true);
   assert.equal(args.includes("-oStrictHostKeyChecking=no"), false);
   assert.equal(args.at(-1), "mottainai-runtime-health");
+});
+
+test("SSH host-key substitution fails closed", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-ssh-host-key-test-"));
+  const tempPaths = {
+    ...paths,
+    sshDirectory: path.join(root, "ssh"),
+    sshKnownHosts: path.join(root, "ssh", "known_hosts"),
+  };
+  try {
+    ensureKnownHost(tempPaths, "[127.0.0.1]:48321 ssh-ed25519 AAAAORIGINAL");
+    assert.throws(
+      () => ensureKnownHost(tempPaths, "[127.0.0.1]:48321 ssh-ed25519 AAAASUBSTITUTED"),
+      /possibly unrelated machine/,
+    );
+    assert.match(fs.readFileSync(tempPaths.sshKnownHosts, "utf8"), /AAAAORIGINAL/u);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

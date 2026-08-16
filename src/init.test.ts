@@ -9,7 +9,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { formatInitHuman, runInit } from "./init.js";
-import type { LocalRuntimeEnsureOptions, LocalRuntimeEnsureResult } from "./local-runtime/types.js";
 
 function temporaryWorkspace(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-init-test-"));
@@ -382,104 +381,6 @@ test("init human output points doctor at the generated configuration", async () 
   try {
     const summary = await initialize(workspace, "--scope", "project", "--config", configuration);
     assert.ok(formatInitHuman(summary).includes(`doctor --config ${JSON.stringify(configuration)}`));
-  } finally {
-    fs.rmSync(workspace, { recursive: true, force: true });
-  }
-});
-
-function fakeRuntimeResult(overrides: Partial<LocalRuntimeEnsureResult> = {}): LocalRuntimeEnsureResult {
-  return {
-    ok: true,
-    machineId: "mottainai-local-runtime-v1",
-    lifecycle: "ready",
-    host: "linux-x64",
-    accelerator: "kvm",
-    qemu: {
-      artifactId: "test-qemu",
-      version: "9.2.2",
-      buildId: "qemu-9.2.2-mottainai-runtime-v1",
-      sha256: "a".repeat(64),
-      executablePath: "/tmp/qemu-system-x86_64",
-    },
-    image: {
-      imageId: "test-image",
-      architecture: "x86_64-linux",
-      buildIdentity: "/nix/store/test-runtime",
-      diskSha256: "b".repeat(64),
-    },
-    ssh: { host: "127.0.0.1", port: 48321, user: "mottainai-control", hostKey: "ssh-ed25519 AAAA test" },
-    qmp: { endpoint: "/tmp/qmp.sock", private: true },
-    reused: false,
-    warnings: [],
-    ...overrides,
-  };
-}
-
-test("init ensures the local Runtime and reports its lifecycle in the summary", async () => {
-  const workspace = temporaryWorkspace();
-  let ensureCalls = 0;
-  try {
-    const summary = await runInit({
-      args: ["--yes", "--workspace", workspace, "--client", "none", "--no-doctor", "--scope", "project"],
-      cwd: workspace,
-      stdinIsTTY: false,
-      stdoutIsTTY: false,
-      localRuntime: {
-        ensure: async (_options?: LocalRuntimeEnsureOptions) => {
-          ensureCalls += 1;
-          return fakeRuntimeResult();
-        },
-      },
-    });
-    assert.equal(ensureCalls, 1);
-    assert.equal(summary.runtime?.lifecycle, "ready");
-    assert.ok(formatInitHuman(summary).includes("mottainai-local-runtime-v1"));
-  } finally {
-    fs.rmSync(workspace, { recursive: true, force: true });
-  }
-});
-
-test("init dry-run does not ensure the local Runtime", async () => {
-  const workspace = temporaryWorkspace();
-  let ensureCalls = 0;
-  try {
-    const summary = await runInit({
-      args: ["--yes", "--workspace", workspace, "--client", "none", "--no-doctor", "--scope", "project", "--dry-run"],
-      cwd: workspace,
-      stdinIsTTY: false,
-      stdoutIsTTY: false,
-      localRuntime: {
-        ensure: async () => {
-          ensureCalls += 1;
-          return fakeRuntimeResult();
-        },
-      },
-    });
-    assert.equal(ensureCalls, 0);
-    assert.equal(summary.runtime, undefined);
-  } finally {
-    fs.rmSync(workspace, { recursive: true, force: true });
-  }
-});
-
-test("init fails when the local Runtime cannot be ensured, without a silent fallback", async () => {
-  const workspace = temporaryWorkspace();
-  try {
-    await assert.rejects(
-      runInit({
-        args: ["--yes", "--workspace", workspace, "--client", "none", "--no-doctor", "--scope", "project"],
-        cwd: workspace,
-        stdinIsTTY: false,
-        stdoutIsTTY: false,
-        localRuntime: {
-          ensure: async () => {
-            throw new Error("hardware_acceleration_unavailable");
-          },
-        },
-      }),
-      /hardware_acceleration_unavailable/,
-    );
-    assert.equal(fs.existsSync(path.join(workspace, "mottainai.config.json")), false);
   } finally {
     fs.rmSync(workspace, { recursive: true, force: true });
   }

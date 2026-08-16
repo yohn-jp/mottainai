@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { identifyLocalRuntimeHost, probeHostHardware } from "./host.js";
@@ -149,6 +150,16 @@ function imageFromStateOrThrow(paths: LocalRuntimePaths, state: LocalRuntimeStat
   return state.image;
 }
 
+function sameQemuArtifact(expected: QemuArtifactIdentity, actual: QemuArtifactIdentity): boolean {
+  return (
+    expected.artifactId === actual.artifactId &&
+    expected.version === actual.version &&
+    expected.buildId === actual.buildId &&
+    expected.sha256 === actual.sha256 &&
+    expected.executablePath === actual.executablePath
+  );
+}
+
 export class LocalRuntimeProvisioner {
   constructor(private readonly dependencies: LocalRuntimeDependencies = {}) {}
 
@@ -172,8 +183,10 @@ export class LocalRuntimeProvisioner {
     const releaseLock = acquireLocalRuntimeStateLock(paths.stateDirectory);
     const timestamp = nowIso(options);
     let persisted: LocalRuntimeState | undefined;
+    let currentState: LocalRuntimeState | undefined;
     try {
       persisted = loadLocalRuntimeState(paths.stateFile);
+      currentState = persisted;
       const hadState = persisted !== undefined;
       if (persisted !== undefined) {
         if (persisted.host !== host.host || persisted.accelerator !== host.accelerator) {
@@ -188,6 +201,12 @@ export class LocalRuntimeProvisioner {
             `managed Runtime is ${persisted.lifecycle}; no destructive recovery was attempted`,
           );
         }
+        if (!fs.existsSync(paths.qemuExecutable)) {
+          throw new LocalRuntimeError(
+            "runtime_recreate_required",
+            "managed QEMU executable is missing; refusing to replace persistent Runtime data",
+          );
+        }
       }
 
       const artifact = await (this.dependencies.materializeQemu ?? materializeQemuArtifact)({
@@ -196,7 +215,22 @@ export class LocalRuntimeProvisioner {
         bundledDirectory:
           options.bundledArtifactDirectory ?? this.dependencies.bundledArtifactDirectory ?? defaultBundledDirectory(),
       });
+      if (persisted !== undefined && !sameQemuArtifact(persisted.qemu, artifact)) {
+        throw new LocalRuntimeError(
+          "runtime_recreate_required",
+          "managed QEMU artifact identity changed; refusing to replace persistent Runtime data",
+        );
+      }
 
+      if (
+        persisted !== undefined &&
+        (!fs.existsSync(paths.sshPrivateKey) || !fs.existsSync(`${paths.sshPrivateKey}.pub`))
+      ) {
+        throw new LocalRuntimeError(
+          "runtime_recreate_required",
+          "managed SSH identity is missing; refusing to rotate the persistent Runtime identity",
+        );
+      }
       const identity = ensureSshIdentity(paths);
       let image: RuntimeImageIdentity;
       let hostKey: string;
@@ -234,9 +268,12 @@ export class LocalRuntimeProvisioner {
       });
 
       let state = persisted ?? baseState(host, artifact, image, paths, hostKey, timestamp);
+      const persist = (next: LocalRuntimeState): void => {
+        currentState = next;
+        saveLocalRuntimeState(paths.stateFile, next);
+      };
       state = stateWith(state, { qemu: artifact, image, lifecycle: "booting", updatedAt: timestamp });
-      saveLocalRuntimeState(paths.stateFile, state);
-      persisted = state;
+      persist(state);
 
       const observation = await machine.inspect(state.pid);
       let pid = state.pid;
@@ -244,29 +281,29 @@ export class LocalRuntimeProvisioner {
       if (observation === "absent" || observation === "stopped" || observation === "failed") {
         pid = await machine.start();
         state = stateWith(state, { lifecycle: "booting", pid, updatedAt: nowIso(options) });
-        saveLocalRuntimeState(paths.stateFile, state);
+        persist(state);
       }
       if (pid === undefined) throw new LocalRuntimeError("runtime_boot_failed", "managed Runtime has no QEMU PID");
       await waitForMachine(machine, pid, options.bootTimeoutMs ?? DEFAULT_BOOT_TIMEOUT_MS);
       state = stateWith(state, { lifecycle: "reachable", pid, updatedAt: nowIso(options) });
-      saveLocalRuntimeState(paths.stateFile, state);
+      persist(state);
 
       let runtime = await waitForRuntimeSsh(guest, options.sshTimeoutMs ?? DEFAULT_SSH_TIMEOUT_MS);
       if (runtime.reconciliation !== "current" || runtime.upgradeRequired) {
         state = stateWith(state, { lifecycle: "reconciling", pid, runtime, updatedAt: nowIso(options) });
-        saveLocalRuntimeState(paths.stateFile, state);
+        persist(state);
         runtime = await guest.reconcile();
       }
       if (runtime.reconciliation !== "current" || runtime.upgradeRequired) {
         state = stateWith(state, { lifecycle: "repairable", pid, runtime, updatedAt: nowIso(options) });
-        saveLocalRuntimeState(paths.stateFile, state);
+        persist(state);
         throw new LocalRuntimeError(
           "runtime_reconciliation_failed",
           `Runtime remained ${runtime.reconciliation}${runtime.upgradeRequired ? " with an upgrade required" : ""} after canonical reconciliation`,
         );
       }
       state = stateWith(state, { lifecycle: "ready", pid, runtime, updatedAt: nowIso(options) });
-      saveLocalRuntimeState(paths.stateFile, state);
+      persist(state);
       return {
         ok: true,
         machineId: LOCAL_RUNTIME_MACHINE_ID,
@@ -282,16 +319,18 @@ export class LocalRuntimeProvisioner {
         warnings: [],
       };
     } catch (error) {
-      if (persisted !== undefined) {
+      if (currentState !== undefined) {
         const code = error instanceof LocalRuntimeError ? error.code : "runtime_boot_failed";
         const lifecycle: RuntimeLifecycle =
-          code === "runtime_incompatible"
-            ? "incompatible"
-            : code === "runtime_recreate_required"
-              ? "recreate-required"
-              : "failed";
+          code === "runtime_reconciliation_failed" && currentState.lifecycle === "repairable"
+            ? "repairable"
+            : code === "runtime_incompatible"
+              ? "incompatible"
+              : code === "runtime_recreate_required"
+                ? "recreate-required"
+                : "failed";
         try {
-          saveLocalRuntimeState(paths.stateFile, stateWith(persisted, { lifecycle, updatedAt: nowIso(options) }));
+          saveLocalRuntimeState(paths.stateFile, stateWith(currentState, { lifecycle, updatedAt: nowIso(options) }));
         } catch {
           // Preserve the original bounded failure if state persistence itself fails.
         }
