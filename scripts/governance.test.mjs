@@ -142,13 +142,20 @@ test("valid pull request contract passes", () => {
   assert.deepEqual(result.closingIssues, [123]);
 });
 
-test("title accepts the supported format", () => {
-  assert.deepEqual(validatePullRequestContract({ title: "fix(proxy): repair routing" }).errors, []);
+test("title accepts supported types and runtime scope", () => {
+  for (const title of [
+    "fix(proxy): repair routing",
+    "fix(runtime): repair runtime",
+    "test(runtime): cover runtime",
+    "build(runtime): package runtime",
+  ]) {
+    assert.deepEqual(validatePullRequestContract({ title }).errors, [], title);
+  }
 });
 
-test("title rejects invalid type, unknown scope, missing scope, and short summary", () => {
+test("title rejects unknown type, unknown scope, missing scope, and short summary", () => {
   for (const title of [
-    "build(ci): repair routing",
+    "deploy(ci): repair routing",
     "fix(unknown): repair routing",
     "fix: repair routing",
     "fix(proxy): tiny",
