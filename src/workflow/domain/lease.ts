@@ -1,6 +1,7 @@
 import type {
   CleanupLeaseRecord,
   CleanupLeaseState,
+  LegacyPhysicalWorkflowStateStore,
   MarkCleanupLeaseInput,
   ReserveCleanupLeaseInput,
   ReserveCleanupLeaseResult,
@@ -25,7 +26,10 @@ export interface CleanupLeaseReservation {
   ttlMs?: number;
 }
 
-export function reserveLease(store: WorkflowStateStore, input: CleanupLeaseReservation): ReserveCleanupLeaseResult {
+export function reserveLease(
+  store: WorkflowStateStore & LegacyPhysicalWorkflowStateStore,
+  input: CleanupLeaseReservation,
+): ReserveCleanupLeaseResult {
   const now = input.now ?? Date.now();
   const ttlMs = input.ttlMs ?? DEFAULT_CLEANUP_LEASE_TTL_MS;
   if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0) throw new Error("cleanup lease ttl must be a positive safe integer");
@@ -58,7 +62,10 @@ function allowedLeaseTransition(from: CleanupLeaseState, to: CleanupLeaseState):
   return false;
 }
 
-export function markLease(store: WorkflowStateStore, input: MarkCleanupLeaseInput): CleanupLeaseRecord {
+export function markLease(
+  store: WorkflowStateStore & LegacyPhysicalWorkflowStateStore,
+  input: MarkCleanupLeaseInput,
+): CleanupLeaseRecord {
   const current = store.getCleanupLease(input.operationId);
   if (current === undefined) throw new Error(`cleanup lease not found: ${input.operationId}`);
   if (!allowedLeaseTransition(current.state, input.state)) {

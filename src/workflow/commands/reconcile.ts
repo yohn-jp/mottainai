@@ -3,9 +3,8 @@ import path from "node:path";
 import { runGitCommand, type GitCommandFailure } from "../git/context.js";
 import { GithubAdapter } from "../providers/github.js";
 import type { PullRequestLifecycleState } from "../providers/model.js";
-import { isLeaseActive } from "../domain/lease.js";
 import type { RepositoryInstanceId } from "../domain/identity.js";
-import type { GuardrailAuditRecord, PullRequestRecord, TaskId, WorkflowStateStore } from "../state/store.js";
+import type { CleanupLeaseRecord, GuardrailAuditRecord, PullRequestRecord, TaskId, WorkflowStateStore } from "../state/store.js";
 
 export const RECONCILIATION_SCHEMA_VERSION = 1;
 
@@ -98,6 +97,12 @@ export interface ReconciliationDiagnostic {
   detail: string;
 }
 
+export interface LegacyPhysicalReconciliationEvidence {
+  authority: "nawabari";
+  worktreeRows: number;
+  cleanupLeaseRows: number;
+}
+
 export interface ReconciliationReport {
   schemaVersion: typeof RECONCILIATION_SCHEMA_VERSION;
   mode: "read-only";
@@ -105,6 +110,7 @@ export interface ReconciliationReport {
   ok: boolean;
   repository: GitReconciliationSnapshot | undefined;
   managedWorktreeRoot: string | undefined;
+  legacyPhysical: LegacyPhysicalReconciliationEvidence;
   divergences: readonly ReconciliationDivergence[];
   repairPlan: readonly ReconciliationRepairAction[];
   diagnostics: readonly ReconciliationDiagnostic[];
@@ -132,6 +138,10 @@ function pathIsInside(root: string, candidate: string): boolean {
   const resolvedRoot = canonicalPath(root);
   const resolvedCandidate = canonicalPath(candidate);
   return resolvedCandidate === resolvedRoot || resolvedCandidate.startsWith(`${resolvedRoot}${path.sep}`);
+}
+
+function legacyLeaseIsActive(lease: CleanupLeaseRecord, now: number): boolean {
+  return ["reserved", "mutating", "verifying"].includes(lease.state) && lease.expiresAt > now;
 }
 
 export function parseGitWorktreeList(output: string): GitWorktreeObservation[] {
@@ -244,6 +254,7 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
       ok: false,
       repository: undefined,
       managedWorktreeRoot: undefined,
+      legacyPhysical: { authority: "nawabari", worktreeRows: 0, cleanupLeaseRows: 0 },
       divergences: [],
       repairPlan: [],
       diagnostics: [{ code: snapshotResult.failure.code, severity: "error", detail: snapshotResult.failure.detail }],
@@ -290,6 +301,18 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
   const recordedWorktrees = input.store.listWorktrees().filter((worktree) => isInScope(worktree.instanceId));
   const recordedTasks = input.store.listTasks().filter((task) => isInScope(task.instanceId));
   const recordedLeases = input.store.listCleanupLeases().filter((lease) => isInScope(lease.instanceId));
+  const legacyPhysical: LegacyPhysicalReconciliationEvidence = {
+    authority: "nawabari",
+    worktreeRows: recordedWorktrees.length,
+    cleanupLeaseRows: recordedLeases.length,
+  };
+  if (legacyPhysical.worktreeRows > 0 || legacyPhysical.cleanupLeaseRows > 0) {
+    diagnostics.push({
+      code: "legacy-physical-state-non-authoritative",
+      severity: "warning",
+      detail: `observed ${legacyPhysical.worktreeRows} legacy worktree row(s) and ${legacyPhysical.cleanupLeaseRows} legacy cleanup lease row(s); Nawabari remains the sole physical authority`,
+    });
+  }
   const unscopedPullRequests: Array<{
     taskId: TaskId | undefined;
     instanceId: RepositoryInstanceId | undefined;
@@ -329,6 +352,8 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
   ): void => {
     const divergenceId = `divergence:${kind}:${sequence++}`;
     const divergence: ReconciliationDivergence = { divergenceId, kind, severity: "error", detail, evidence, ...target };
+    // Keep a bounded informational proposal for report compatibility. The
+    // executor below is permanently retired and cannot apply it.
     if (repair !== undefined && repositoryScopeMatches) {
       const actionId = repairId(repair.kind, repair.targetId);
       repairPlan.push({ ...repair, actionId, divergenceId });
@@ -460,7 +485,7 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
   }
 
   for (const lease of recordedLeases) {
-    if (isLeaseActive(lease, observedAt)) continue;
+    if (legacyLeaseIsActive(lease, observedAt)) continue;
     if (lease.state === "committed" || lease.state === "failed") continue;
     const leaseTask = input.store.getTask(lease.taskId);
     const leaseWorktree =
@@ -589,6 +614,7 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
     ok: divergences.length === 0 && diagnostics.every((diagnostic) => diagnostic.severity !== "error"),
     repository: snapshot,
     managedWorktreeRoot,
+    legacyPhysical,
     divergences,
     repairPlan,
     diagnostics,
@@ -613,7 +639,7 @@ export interface ExecuteReconciliationRepairsInput {
 
 export interface ExecuteReconciliationRepairsResult {
   ok: boolean;
-  reason?: "confirmation-required" | "unknown-action" | "precondition-failed";
+  reason?: "confirmation-required" | "unknown-action" | "precondition-failed" | "legacy-authority-retired";
   applied: readonly string[];
   blocked: readonly string[];
 }
@@ -621,159 +647,16 @@ export interface ExecuteReconciliationRepairsResult {
 export async function executeReconciliationRepairs(
   input: ExecuteReconciliationRepairsInput,
 ): Promise<ExecuteReconciliationRepairsResult> {
+  // Reconciliation is intentionally read-only after the Nawabari cutover.
+  // Physical worktree, lease, and cleanup state is not Mottainai authority;
+  // callers must use Nawabari or the explicit legacy migration command.
   if (input.actionIds === undefined) return { ok: false, reason: "precondition-failed", applied: [], blocked: [] };
   if (input.confirm !== true)
     return { ok: false, reason: "confirmation-required", applied: [], blocked: input.actionIds };
-  const selected = [...input.actionIds];
-  const actions = new Map(input.report.repairPlan.map((action) => [action.actionId, action]));
-  const workspaceRoot = input.workspaceRoot ?? input.report.repository?.repositoryRoot;
-  const reconcile = input.reconcile ?? reconcileWorkflow;
-  const dependencies = {
-    ...(input.dependencies ?? {}),
-    ...(input.now === undefined ? {} : { now: input.now }),
-    ...(input.pathExists === undefined ? {} : { pathExists: input.pathExists }),
-  };
-  const applied: string[] = [];
-  const blocked: string[] = [];
-  if (workspaceRoot === undefined) {
-    return {
-      ok: false,
-      reason: "precondition-failed",
-      applied,
-      blocked: selected,
-    };
-  }
-  for (const actionId of selected) {
-    const plannedAction = actions.get(actionId);
-    if (plannedAction === undefined) {
-      blocked.push(actionId);
-      continue;
-    }
-
-    // The report is only a proposal. Reconcile again for each mutation so a stale
-    // Git/provider observation, or a mutation performed by another process after a
-    // previous action, cannot authorize the next metadata update.
-    let freshReport: ReconciliationReport;
-    try {
-      freshReport = await reconcile({
-        workspaceRoot,
-        store: input.store,
-        repositoryInstanceId: input.repositoryInstanceId,
-        dependencies,
-      });
-    } catch {
-      blocked.push(actionId);
-      continue;
-    }
-
-    if (
-      freshReport.repository === undefined ||
-      input.report.repository === undefined ||
-      freshReport.repository.repositoryRoot !== input.report.repository.repositoryRoot ||
-      freshReport.repository.gitCommonDir !== input.report.repository.gitCommonDir
-    ) {
-      blocked.push(actionId);
-      continue;
-    }
-
-    const action = freshReport.repairPlan.find((candidate) => candidate.actionId === actionId);
-    if (action === undefined || action.kind !== plannedAction.kind || action.targetId !== plannedAction.targetId) {
-      blocked.push(actionId);
-      continue;
-    }
-
-    const currentInstance = input.store.getRepositoryInstanceByCommonDir(freshReport.repository.gitCommonDir);
-    const expectedInstanceId = input.repositoryInstanceId ?? currentInstance?.instanceId;
-    if (expectedInstanceId === undefined) {
-      blocked.push(actionId);
-      continue;
-    }
-    const now = input.now?.() ?? Date.now();
-    const pathExists = input.pathExists ?? defaultPathExists;
-    if (action.kind === "mark-worktree-removed") {
-      const worktree = input.store.listWorktrees().find((candidate) => candidate.worktreeId === action.targetId);
-      if (worktree === undefined) {
-        blocked.push(actionId);
-        continue;
-      }
-      const recordedPath = canonicalPath(worktree.canonicalPath);
-      const actual = freshReport.repository.worktrees.some(
-        (candidate) => canonicalPath(candidate.path) === recordedPath,
-      );
-      if (
-        worktree.instanceId !== expectedInstanceId ||
-        worktree.status !== "active" ||
-        !pathIsInside(freshReport.managedWorktreeRoot ?? "", worktree.canonicalPath) ||
-        pathExists(worktree.canonicalPath) ||
-        actual
-      ) {
-        blocked.push(actionId);
-        continue;
-      }
-      input.store.markWorktreeRemoved(worktree.worktreeId, now);
-      applied.push(actionId);
-    } else if (action.kind === "mark-expired-lock-failed") {
-      const lease = input.store.getCleanupLease(action.targetId);
-      const task = lease === undefined ? undefined : input.store.getTask(lease.taskId);
-      const worktree =
-        lease?.worktreeId === undefined
-          ? undefined
-          : input.store.listWorktrees().find((candidate) => candidate.worktreeId === lease.worktreeId);
-      if (
-        lease === undefined ||
-        lease.instanceId !== expectedInstanceId ||
-        task === undefined ||
-        task.instanceId !== expectedInstanceId ||
-        (lease.worktreeId !== undefined &&
-          (worktree === undefined || worktree.taskId !== lease.taskId || worktree.instanceId !== expectedInstanceId)) ||
-        isLeaseActive(lease, now) ||
-        lease.state === "committed" ||
-        lease.state === "failed"
-      ) {
-        blocked.push(actionId);
-        continue;
-      }
-      input.store.markCleanupLease({
-        operationId: lease.operationId,
-        state: "failed",
-        expectedState: lease.state,
-        lastError: "expired cleanup lease recorded by explicit reconciliation repair",
-        updatedAt: now,
-      });
-      applied.push(actionId);
-    } else if (action.kind === "mark-task-cleaned") {
-      const task = input.store.getTask(action.targetId as TaskId);
-      const worktrees = task === undefined ? [] : input.store.listWorktreesForTask(task.taskId);
-      if (
-        task === undefined ||
-        task.instanceId !== expectedInstanceId ||
-        task.lifecycleState !== "merged" ||
-        worktrees.some(
-          (worktree) =>
-            worktree.instanceId !== expectedInstanceId ||
-            worktree.status !== "removed" ||
-            !pathIsInside(freshReport.managedWorktreeRoot ?? "", worktree.canonicalPath) ||
-            pathExists(worktree.canonicalPath) ||
-            freshReport.repository!.worktrees.some(
-              (candidate) => canonicalPath(candidate.path) === canonicalPath(worktree.canonicalPath),
-            ),
-        )
-      ) {
-        blocked.push(actionId);
-        continue;
-      }
-      input.store.updateTaskLifecycleState(task.taskId, "cleaned", now);
-      applied.push(actionId);
-    } else {
-      const unreachable: never = action.kind;
-      blocked.push(actionId);
-      void unreachable;
-    }
-  }
   return {
-    ok: blocked.length === 0,
-    applied,
-    blocked,
-    ...(blocked.length > 0 ? { reason: "precondition-failed" as const } : {}),
+    ok: false,
+    reason: "legacy-authority-retired",
+    applied: [],
+    blocked: input.actionIds === undefined ? [] : [...input.actionIds],
   };
 }

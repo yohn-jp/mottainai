@@ -290,6 +290,24 @@ export async function verifyWorkflowContext(input: WorkflowContextInput): Promis
   const gitDirectoryPath = resolveGitPath(input.workspaceRoot, gitDirectory.result.stdout.trim());
   const isPrimaryCheckout = gitDirectoryPath === commonDirectoryPath;
 
+  // Nawabari owns the physical worktree. A managed task intentionally has no
+  // authoritative Mottainai worktree row, so do not consult legacy metadata
+  // when verifying the post-cutover execution context.
+  if (task.nawabariSessionId !== undefined) {
+    if (expectedBranch === undefined)
+      return { ok: false, code: "branch-mismatch", detail: "a Nawabari task requires an expected branch" };
+    return {
+      ok: true,
+      task,
+      repository,
+      worktree: undefined,
+      workspaceRoot: workspaceCanonicalPath,
+      branch,
+      isPrimaryCheckout,
+      headCommit,
+    };
+  }
+
   const taskWorktrees = input.store.listWorktreesForTask(input.taskId);
   let worktree: WorktreeRecord | undefined;
   if (input.worktreeId !== undefined) {

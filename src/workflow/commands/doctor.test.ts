@@ -13,6 +13,7 @@ function cleanReport(): ReconciliationReport {
     ok: true,
     repository: undefined,
     managedWorktreeRoot: undefined,
+    legacyPhysical: { authority: "nawabari", worktreeRows: 0, cleanupLeaseRows: 0 },
     divergences: [],
     repairPlan: [],
     diagnostics: [],

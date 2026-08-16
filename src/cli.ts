@@ -34,6 +34,7 @@ import type { RepositorySemanticSnapshot } from "./semantics/ir/types.js";
 import type { LogicalId } from "./semantics/ir/ids.js";
 import { validateIssueRef, validateTaskSlug } from "./workflow/commands/validate.js";
 import { collectWorkflowDoctorReport } from "./workflow/commands/doctor.js";
+import { migrateLegacyWorkflowTask } from "./workflow/domain/legacy-migration.js";
 import { getTaskStatus, getTaskStatusForWorkspace } from "./workflow/domain/task.js";
 import { startNawabariTask } from "./workflow/domain/nawabari-task.js";
 import { NawabariExecutionClient } from "./workflow/nawabari.js";
@@ -89,6 +90,7 @@ const USAGE = `usage:
   mottainai policy explain [--workspace path]    resolved Git workflow policy (Issue #34)
   mottainai task start <slug> [options]          start a Git workflow task (dedicated worktree/branch)
   mottainai task status [--workspace path]       active Git workflow task for the current worktree
+  mottainai task migrate-legacy [options]        explicitly complete or adopt one pre-cutover task
   mottainai task commit [options]                commit the current managed task
   mottainai task push [options]                  push the current managed task
   mottainai task open-pr [options]               create or reuse the task pull request
@@ -777,6 +779,28 @@ export async function runCli(args: string[]): Promise<number> {
             }
           : {};
         print({ ok: true, workspace, ...rest, ...statusDetails });
+      } finally {
+        store.close();
+      }
+    } else if (command === "task" && argv[0] === "migrate-legacy") {
+      const workspace = resolveWorkflowWorkspace(argv);
+      const taskId = requireFlagValue(argv, "task-id");
+      if (taskId === undefined) fail("task migrate-legacy requires --task-id");
+      const mode = requireFlagValue(argv, "mode");
+      if (mode !== "complete" && mode !== "adopt") fail("task migrate-legacy requires --mode complete or --mode adopt");
+      const store = await openWorkflowStateStore();
+      try {
+        const result = await migrateLegacyWorkflowTask({
+          workspaceRoot: workspace,
+          store,
+          taskId: taskId as never,
+          mode,
+          sessionId: flag(argv, "session-id"),
+          nawabari: new NawabariExecutionClient(),
+          dryRun: hasFlag(argv, "dry-run"),
+        });
+        print({ workspace, ...result });
+        return result.ok ? 0 : 1;
       } finally {
         store.close();
       }

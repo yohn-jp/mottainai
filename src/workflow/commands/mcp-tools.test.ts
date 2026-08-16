@@ -11,6 +11,8 @@ import { DEFAULT_BURST_BUDGET_POLICY } from "../../context-runtime/burst-budget.
 import { DEFAULT_AWAIT_POLICY } from "../../context-runtime/poll-policy.js";
 import { callWorkflowCommandTool, workflowCommandTools, workflowCommandToolsFor } from "./mcp-tools.js";
 import { bundledGovernedBranchTypes } from "../governance/branch.js";
+import { resolveRepositoryIdentity } from "../domain/identity.js";
+import { transitionTask } from "../domain/task.js";
 import { WorkflowSqliteStateStore } from "../state/sqlite-store.js";
 
 function structured(result: CallToolResult): Record<string, unknown> {
@@ -76,6 +78,7 @@ test("workflowCommandToolsFor returns nothing unless workflowTasks is configured
       "mottainai_workflow_task_finish",
       "mottainai_workflow_task_abandon",
       "mottainai_workflow_task_cleanup",
+      "mottainai_workflow_task_migrate_legacy",
       "mottainai_workflow_check_run",
       "mottainai_workflow_validation_receipt",
     ].sort(),
@@ -113,6 +116,7 @@ test("each workflow command tool throws when workflowTasks is not configured", a
     "mottainai_workflow_task_finish",
     "mottainai_workflow_task_abandon",
     "mottainai_workflow_task_cleanup",
+    "mottainai_workflow_task_migrate_legacy",
   ]) {
     await assert.rejects(() => callWorkflowCommandTool(name, {}, config), /workflow command tools are not configured/);
   }
@@ -354,6 +358,43 @@ test("workflow doctor is exposed as a read-only structured MCP report", async (t
   assert.equal(result.ok, false);
   assert.equal((result.problems as Array<{ code: string }>)[0]?.code, "repository-instance-not-found");
   assert.equal((result.reconciliation as { mode: string }).mode, "read-only");
+  store.close();
+});
+
+test("legacy migration is exposed as an explicit task command", async (t) => {
+  const { root, config } = await gitWorkspace(t);
+  const store = openWorkflowStore();
+  const identity = resolveRepositoryIdentity(root);
+  assert.equal(identity.ok, true);
+  if (!identity.ok) return;
+  store.observeRepositoryInstance({
+    rootCommitDigest: identity.identity.rootCommitDigest,
+    instanceId: identity.identity.instanceId,
+    gitCommonDir: identity.identity.gitCommonDir,
+    canonicalWorktreePath: identity.identity.worktreePath,
+  });
+  const task = store.reserveTask({
+    instanceId: identity.identity.instanceId,
+    taskSlug: "legacy-command",
+    issueRef: "203",
+    baseBranch: "main",
+    baseCommit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(),
+    allowMultipleActiveTasksPerIssue: true,
+  });
+  assert.equal(task.ok, true);
+  if (!task.ok) return;
+  assert.equal(transitionTask(store, task.task.taskId, "active").ok, true);
+  assert.equal(transitionTask(store, task.task.taskId, "abandoned").ok, true);
+  const result = structured(
+    await callWorkflowCommandTool(
+      "mottainai_workflow_task_migrate_legacy",
+      { taskId: task.task.taskId, mode: "complete" },
+      enabled(config),
+      store,
+    ),
+  );
+  assert.equal(result.status, "success");
+  assert.equal((result.task as { lifecycleState: string }).lifecycleState, "cleaned");
   store.close();
 });
 

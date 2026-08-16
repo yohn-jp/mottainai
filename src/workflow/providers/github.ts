@@ -2,7 +2,7 @@ import { runProgram as defaultRunProgram } from "../../subprocess.js";
 import type { RunResult } from "../../subprocess.js";
 import type { GhInariError } from "../../gh-inari.js";
 import { renderPullRequestBody, type PullRequestBodyDraft, type PullRequestRenderPolicy } from "../domain/pr-render.js";
-import { transitionTask } from "../domain/task.js";
+import { transitionTask } from "../domain/task-lifecycle.js";
 import { validateTransition } from "../domain/lifecycle.js";
 import type { WorkflowPolicyDocument } from "../policy/schema.js";
 import type {

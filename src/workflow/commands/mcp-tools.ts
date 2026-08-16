@@ -5,6 +5,7 @@ import { OUTPUT_SCHEMA, output } from "../../envelope.js";
 import { InMemoryArtifactStore, type ArtifactStore } from "../../retrieve.js";
 import { collectWorkflowDoctorReport } from "./doctor.js";
 import { getTaskStatus, getTaskStatusForWorkspace } from "../domain/task.js";
+import { migrateLegacyWorkflowTask, type LegacyMigrationMode } from "../domain/legacy-migration.js";
 import { startNawabariTask } from "../domain/nawabari-task.js";
 import { NawabariExecutionClient } from "../nawabari.js";
 import { createSemanticExecutionPlan, type CreateSemanticExecutionPlanInput } from "../../semantics/execution-plan.js";
@@ -151,6 +152,25 @@ const taskCleanupTool: Tool = {
   annotations: { ...destructive, idempotentHint: true },
 };
 
+const taskLegacyMigrationTool: Tool = {
+  name: "mottainai_workflow_task_migrate_legacy",
+  description:
+    "Complete or explicitly adopt one pre-cutover task. Complete requires terminal lifecycle and independently observed absence of legacy physical state; adopt requires an explicitly named Nawabari session whose repository, worktree, branch, active state, and ownership identity all match. Ambiguous state fails closed and no legacy physical row is mutated.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      taskId: { type: "string", minLength: 1 },
+      mode: { type: "string", enum: ["complete", "adopt"] },
+      sessionId: { type: "string", minLength: 1 },
+      dryRun: { type: "boolean" },
+    },
+    required: ["taskId", "mode"],
+    additionalProperties: false,
+  },
+  outputSchema: OUTPUT_SCHEMA,
+  annotations: { ...destructive, idempotentHint: true },
+};
+
 const policyExplainTool: Tool = {
   name: "mottainai_workflow_policy_explain",
   description:
@@ -276,10 +296,51 @@ export function workflowCommandTools(): Tool[] {
     taskFinishTool,
     taskAbandonTool,
     taskCleanupTool,
+    taskLegacyMigrationTool,
     buildCheckRunTool(),
     validationReceiptTool,
   ];
   return cachedWorkflowCommandTools;
+}
+
+function legacyMigrationResult(result: Awaited<ReturnType<typeof migrateLegacyWorkflowTask>>): CallToolResult {
+  if (result.ok)
+    return output(
+      "workflow_task_migrate_legacy",
+      "success",
+      `OK workflow_task_migrate_legacy mode=${result.mode}${result.dryRun === true ? " (dry-run)" : ""}`,
+      "",
+      result,
+    );
+  return output(
+    "workflow_task_migrate_legacy",
+    "failed",
+    `FAIL workflow_task_migrate_legacy (${result.reason}): ${result.detail}`,
+    "",
+    { ...result, diagnostics: [{ severity: "error", message: result.detail }] },
+    true,
+  );
+}
+
+async function legacyMigrationToolImpl(
+  args: Args,
+  config: ResolvedGatewayConfig,
+  store: WorkflowStateStore,
+): Promise<CallToolResult> {
+  requireWorkflowTasksConfigured(config);
+  const mode = stringArg(args, "mode", true);
+  if (mode !== "complete" && mode !== "adopt") throw new Error("mode must be complete or adopt");
+  return legacyMigrationResult(
+    await migrateLegacyWorkflowTask({
+      workspaceRoot: config.workspaceRoot,
+      store,
+      taskId: stringArg(args, "taskId", true)! as never,
+      mode: mode as LegacyMigrationMode,
+      sessionId: stringArg(args, "sessionId"),
+      nawabari: new NawabariExecutionClient(),
+      dryRun: boolArg(args, "dryRun"),
+    }),
+  );
 }
 
 /** `config.workflowTasks` 未設定のワークスペースではこのファミリー全体を公開しない
@@ -873,6 +934,9 @@ export async function callWorkflowCommandTool(
     case "mottainai_workflow_doctor":
       requireWorkflowTasksConfigured(config);
       return workflowDoctorToolImpl(config, workflowStore ?? (await defaultWorkflowStore()));
+    case "mottainai_workflow_task_migrate_legacy":
+      requireWorkflowTasksConfigured(config);
+      return legacyMigrationToolImpl(args, config, workflowStore ?? (await defaultWorkflowStore()));
     case "mottainai_workflow_check_run":
       requireWorkflowTasksConfigured(config);
       return checkRunToolImpl(

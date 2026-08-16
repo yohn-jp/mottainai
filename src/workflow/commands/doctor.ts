@@ -126,7 +126,7 @@ export async function collectWorkflowDoctorReport(
     {
       name: "repair-mode",
       status: "pass",
-      message: `read-only by default; ${reconciliation.repairPlan.length} explicit repair action(s) proposed`,
+      message: `read-only; ${reconciliation.repairPlan.length} informational proposal(s), but physical repair is retired and delegated to Nawabari`,
     },
     {
       name: "provider-observation",
@@ -180,8 +180,7 @@ export function formatWorkflowDoctorHuman(report: WorkflowDoctorReport): string 
     `Mode: ${report.mode}`,
     ...report.checks.map((check) => `${symbol[check.status]} ${check.name}: ${check.message}`),
   ];
-  if (report.reconciliation.repairPlan.length > 0)
-    lines.push("Repairs require explicit confirmation; no filesystem deletion is performed by reconciliation.");
+  lines.push("Physical worktree, lease, and cleanup repair is delegated to Nawabari; reconciliation performs no repairs.");
   return lines.join("\n");
 }
 
