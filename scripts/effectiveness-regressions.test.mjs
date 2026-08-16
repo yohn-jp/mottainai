@@ -67,6 +67,38 @@ test("mutation replacements preserve special replacement sequences literally", (
   }
 });
 
+test("retrieve mutations resolve the live expression and diagnose stale targets", () => {
+  let sandbox;
+  try {
+    sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-retrieve-mutation-"));
+    const sourceDirectory = path.join(sandbox, "src");
+    fs.mkdirSync(sourceDirectory, { recursive: true });
+    const sourcePath = path.join(sourceDirectory, "retrieve.ts");
+    fs.copyFileSync(path.join(root, "src/retrieve.ts"), sourcePath);
+    const mutation = MUTATIONS.find(({ id }) => id === "retention-lru-cap");
+    assert.ok(mutation);
+
+    const applied = applyMutation(sandbox, mutation);
+    const mutatedSource = fs.readFileSync(applied.filePath, "utf8");
+    assert.match(mutatedSource, /while \(nextEntries\.size > this\.maxEntries\) \{/u);
+    assert.doesNotMatch(mutatedSource, /nextEntries\.size >= this\.maxEntries/u);
+    fs.writeFileSync(applied.filePath, applied.original);
+
+    assert.throws(
+      () => applyMutation(sandbox, { ...mutation, search: "this.entries.size >= this.maxEntries" }),
+      (error) => {
+        assert.match(error.message, /catalog target resolution failed/u);
+        assert.match(error.message, /src\/retrieve\.ts/u);
+        assert.match(error.message, /this\.entries\.size >= this\.maxEntries/u);
+        assert.match(error.message, /found 0/u);
+        return true;
+      },
+    );
+  } finally {
+    if (sandbox !== undefined) fs.rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
 test("equivalent mutation descriptors require rationale and are excluded from the score", () => {
   const equivalent = {
     ...MUTATIONS[0],
