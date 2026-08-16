@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { renderPullRequestBody, type PullRequestBodyDraft } from "../domain/pr-render.js";
+import { type PullRequestBodyDraft } from "../domain/pr-render.js";
 import { createCleanupPlan, type CleanupPlan, type CleanupPullRequestObserver } from "../domain/cleanup-plan.js";
 import { verifyCommit, type CommitOperationInput, type StructuredCommitMessage } from "../git/commit.js";
 import {
@@ -18,7 +18,14 @@ import {
   type WorkspaceTaskTransitionResult,
 } from "../domain/task.js";
 import type { RepositoryIdentity, RevisionIdentity } from "../providers/model.js";
-import { GithubAdapter, openWorkflowPullRequest } from "../providers/github.js";
+import { GhInariPullRequestAdapter } from "../providers/gh-inari.js";
+import {
+  GithubAdapter,
+  openWorkflowPullRequest,
+  type GithubFailure,
+  type PullRequestCreateAdapter,
+} from "../providers/github.js";
+import { type GhInariClient } from "../../gh-inari.js";
 import type { LifecycleState } from "../domain/lifecycle.js";
 import type { WorkflowPolicyDocument } from "../policy/schema.js";
 import { decideProtectedBranchOperation } from "../policy/protected-branch.js";
@@ -40,6 +47,10 @@ import {
 
 export interface WorkflowWriteDependencies {
   githubAdapter?: GithubAdapter;
+  /** Test/embedder seam for the production Inari-backed create adapter. */
+  pullRequestAdapter?: PullRequestCreateAdapter;
+  /** Explicit companion seam; production defaults to the bounded gh-inari client. */
+  ghInariClient?: GhInariClient;
   /** Required by production managed mutation paths after the authority cutover. */
   nawabari?: NawabariExecutionClient;
 }
@@ -71,6 +82,8 @@ export type WorkflowWriteFailure = {
   ok: false;
   reason: string;
   detail: string;
+  provider?: GithubFailure;
+  providerCreated?: boolean;
   shadow?: ShadowComparison;
   /** Available when an external commit may already exist. */
   commitId?: string;
@@ -1338,11 +1351,15 @@ export async function openWorkflowTaskPullRequest(
   const draft = pullRequestDraft(input);
   if ("reason" in draft) return draft;
   const validDraft = draft;
-  const adapter = dependencies.githubAdapter ?? new GithubAdapter({ workspaceRoot: input.workspaceRoot });
+  const adapter =
+    dependencies.pullRequestAdapter ??
+    new GhInariPullRequestAdapter({
+      workspaceRoot: input.workspaceRoot,
+      ...(dependencies.ghInariClient === undefined ? {} : { client: dependencies.ghInariClient }),
+      ...(dependencies.githubAdapter === undefined ? {} : { lookupAdapter: dependencies.githubAdapter }),
+    });
   const head: RevisionIdentity = { name: context.branch, revision: context.headCommit };
   const base: RevisionIdentity = { name: context.task.baseBranch, revision: context.task.baseCommit };
-  const rendered = renderPullRequestBody(draft, input.policy.pullRequest);
-  if (!rendered.ok) return failure("render-rejected", rendered.errors.join("; "));
   if (input.dryRun === true) {
     return {
       ok: true,
@@ -1353,7 +1370,7 @@ export async function openWorkflowTaskPullRequest(
         repository: repositoryResult.repository,
         head,
         base,
-        body: rendered.body,
+        fields: validDraft,
       },
       taskId: selected.taskId,
     };
@@ -1370,7 +1387,12 @@ export async function openWorkflowTaskPullRequest(
     draft: validDraft,
     providerDraft: input.providerDraft,
   });
-  if (!opened.ok) return failure(opened.reason, opened.detail);
+  if (!opened.ok)
+    return {
+      ...failure(opened.reason, opened.detail),
+      ...(opened.provider === undefined ? {} : { provider: opened.provider }),
+      ...(opened.providerCreated === undefined ? {} : { providerCreated: opened.providerCreated }),
+    };
   return {
     ok: true,
     task: opened.task,

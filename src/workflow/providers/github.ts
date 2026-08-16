@@ -1,5 +1,6 @@
 import { runProgram as defaultRunProgram } from "../../subprocess.js";
 import type { RunResult } from "../../subprocess.js";
+import type { GhInariError } from "../../gh-inari.js";
 import { renderPullRequestBody, type PullRequestBodyDraft, type PullRequestRenderPolicy } from "../domain/pr-render.js";
 import { transitionTask } from "../domain/task.js";
 import { validateTransition } from "../domain/lifecycle.js";
@@ -52,6 +53,10 @@ export interface GithubFailure {
   message: string;
   retryable: boolean;
   attempts: number;
+  /** Authority that produced the bounded provider result. */
+  authority?: "github" | "gh-inari";
+  /** Raw companion error retained so governance failures are not reinterpreted locally. */
+  inari?: GhInariError;
 }
 
 export type GithubResult<Value> = { ok: true; value: Value; attempts: number } | { ok: false; error: GithubFailure };
@@ -933,14 +938,6 @@ export async function openWorkflowPullRequest(input: OpenWorkflowPullRequestInpu
       detail: "requested base branch does not match the task's stable PR-create identity",
     };
   }
-  const rendered = renderPullRequestBody(input.draft, input.policy.pullRequest);
-  if (!rendered.ok)
-    return {
-      ok: false,
-      reason: "render-rejected",
-      detail: rendered.errors.join("; "),
-      validationErrors: rendered.errors,
-    };
   if (input.head.revision === undefined || input.head.revision.trim().length === 0) {
     return {
       ok: false,
@@ -1056,7 +1053,9 @@ export async function openWorkflowPullRequest(input: OpenWorkflowPullRequestInpu
     pullRequest: provider.value,
     record,
     task: transitioned.task,
-    renderedBody: rendered.body,
+    // The governed renderer belongs to gh-inari. Mottainai deliberately does
+    // not project or reconstruct an authoritative PR body here.
+    renderedBody: "",
     reused,
   };
 }
