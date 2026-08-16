@@ -37,7 +37,17 @@ let
     text = ''
       set -euo pipefail
 
-      generation="$(readlink /nix/var/nix/profiles/system | sed -E 's/^system-([0-9]+)-link$/\1/')"
+      generation_link=/nix/var/nix/profiles/system
+      if [ -L "$generation_link" ]; then
+        generation="$(readlink "$generation_link" | sed -E 's/^system-([0-9]+)-link$/\1/')"
+      elif [ -e /run/current-system ]; then
+        # nixosTest boots the initial system closure directly and does not
+        # create a Nix profile generation. Treat that closure as generation 1;
+        # installed systems continue to report the profile's exact number.
+        generation=1
+      else
+        generation=
+      fi
       case "$generation" in
         "" | *[!0-9]*)
           echo "mottainai-runtime-health: could not resolve a numeric system generation" >&2

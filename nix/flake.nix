@@ -13,16 +13,7 @@
         "aarch64-linux"
       ];
       forEachSystem = nixpkgs.lib.genAttrs supportedSystems;
-    in
-    {
-      # Canonical Runtime module: the single specification consumed both by
-      # fresh Runtime image/VM builds (nixosConfigurations, below) and by
-      # in-place reconciliation of an existing compatible Runtime. See
-      # docs/linux-runtime-contract.md and ADR-0002.
-      nixosModules.runtime = import ./modules/runtime.nix;
-      nixosModules.default = self.nixosModules.runtime;
-
-      nixosConfigurations = forEachSystem (
+      runtimeConfigurations = forEachSystem (
         system:
         nixpkgs.lib.nixosSystem {
           inherit system;
@@ -49,10 +40,29 @@
           ];
         }
       );
+    in
+    {
+      # Canonical Runtime module: the single specification consumed both by
+      # fresh Runtime image/VM builds (nixosConfigurations, below) and by
+      # in-place reconciliation of an existing compatible Runtime. See
+      # docs/linux-runtime-contract.md and ADR-0002.
+      nixosModules.runtime = import ./modules/runtime.nix;
+      nixosModules.default = self.nixosModules.runtime;
+
+      nixosConfigurations = runtimeConfigurations;
 
       packages = forEachSystem (system: {
-        runtime-system = self.nixosConfigurations.${system}.config.system.build.toplevel;
-        runtime-vm = self.nixosConfigurations.${system}.config.system.build.vm;
+        runtime-system = runtimeConfigurations.${system}.config.system.build.toplevel;
+        runtime-vm = runtimeConfigurations.${system}.config.system.build.vm;
+        runtime-image =
+          let
+            pkgs = nixpkgs.legacyPackages.${system};
+          in
+          import ./runtime-image.nix {
+            inherit (nixpkgs) lib;
+            inherit nixpkgs pkgs;
+            runtime = runtimeConfigurations.${system};
+          };
       });
 
       checks = forEachSystem (
