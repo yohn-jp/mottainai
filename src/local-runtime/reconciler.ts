@@ -255,6 +255,7 @@ export class LocalRuntimeProvisioner {
         paths,
         accelerator: host.accelerator,
         platform,
+        environment: options.environment,
       };
       const machine = (this.dependencies.createMachine ?? ((value) => new QemuRuntimeMachine(value)))(machineOptions);
       const guest = (

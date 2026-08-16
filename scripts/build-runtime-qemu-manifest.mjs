@@ -55,11 +55,11 @@ function copyWithDigest(source, destination) {
   return sha256(destination);
 }
 
-function createDeterministicArchive(stage, archive) {
+function createDeterministicArchive(stage, archive, tarCommand) {
   fs.rmSync(archive, { force: true });
   try {
     execFileSync(
-      "tar",
+      tarCommand,
       [
         "--format=ustar",
         "--sort=name",
@@ -88,8 +88,9 @@ const output = path.resolve(option("output"));
 const sourceRevision = option("source-revision", SOURCE_SHA256);
 const sourceDateEpoch = Number(option("source-date-epoch", "0"));
 const builder = option("builder", "github-actions");
-const workflow = option("workflow", ".github/workflows/runtime-qemu-artifacts.yml");
+const workflow = option("workflow");
 const toolchain = option("toolchain", "mottainai-qemu-profile-v1");
+const tarCommand = option("tar-command", "tar");
 const dependencyMode = option("dependency-mode", "bundled");
 const releaseTag = option("release-tag", `qemu-${VERSION}`);
 const executableName = path.basename(executable);
@@ -135,13 +136,12 @@ if (dependencyMode === "static" && runtimeLibraries.length !== 0) {
 const licenseFiles = repeatedOption("license-file").map((value) => {
   const item = parseNameAndFile(value, "--license-file");
   const relativePath = path.posix.join("licenses", item.name);
-  copyWithDigest(item.source, path.join(stage, relativePath));
-  return relativePath;
+  return { name: item.name, path: relativePath, sha256: copyWithDigest(item.source, path.join(stage, relativePath)) };
 });
 if (licenseFiles.length === 0)
   throw new Error("at least one --license-file is required for source compliance metadata");
 const configureArgs = repeatedOption("configure-arg");
-const manifest = {
+const manifestBase = {
   schemaVersion: SCHEMA_VERSION,
   availability: "available",
   artifactId,
@@ -170,9 +170,13 @@ const manifest = {
     configureArgs,
   },
 };
-fs.writeFileSync(path.join(stage, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
 fs.mkdirSync(hostOutput, { recursive: true, mode: 0o700 });
-createDeterministicArchive(stage, archive);
+createDeterministicArchive(stage, archive, tarCommand);
+const manifest = {
+  ...manifestBase,
+  archive: { name: archiveName, size: fs.statSync(archive).size, sha256: sha256(archive) },
+};
+fs.writeFileSync(path.join(stage, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
 fs.writeFileSync(path.join(hostOutput, `${artifactId}.manifest.json`), `${JSON.stringify(manifest, null, 2)}\n`, {
   mode: 0o600,
 });

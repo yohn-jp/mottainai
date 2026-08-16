@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -11,8 +11,14 @@ function option(name) {
 }
 
 const artifactRoot = path.resolve(option("artifact-root"));
-const manifest = JSON.parse(fs.readFileSync(path.resolve(option("manifest")), "utf8"));
+const manifestPath = path.resolve(option("manifest"));
+const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 if (manifest.availability !== "available") throw new Error(`artifact is not available: ${manifest.availability}`);
+execFileSync(
+  process.execPath,
+  ["scripts/verify-runtime-qemu-artifact.mjs", "--manifest", manifestPath, "--artifact-root", artifactRoot],
+  { stdio: "pipe" },
+);
 const executable = [
   path.join(artifactRoot, "bin", manifest.executableName),
   path.join(artifactRoot, manifest.executableName),

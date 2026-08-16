@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildCanonicalQemuArguments } from "./qmp.js";
+import { buildCanonicalQemuArguments, buildQemuEnvironment } from "./qmp.js";
 import { LOCAL_RUNTIME_PROFILE } from "./types.js";
 
 const paths = {
@@ -36,6 +36,19 @@ const options = {
   accelerator: "kvm" as const,
   platform: "linux" as const,
 };
+
+test("QEMU environment prepends only the verified bundled library directory", () => {
+  const environment = buildQemuEnvironment({
+    ...options,
+    artifact: { ...options.artifact, runtimeLibraryDirectory: "/private/mottainai-runtime/qemu/lib" },
+    environment: { LD_LIBRARY_PATH: "/existing/lib", KEEP: "value" },
+  });
+  assert.deepEqual(environment, {
+    LD_LIBRARY_PATH: "/private/mottainai-runtime/qemu/lib:/existing/lib",
+    KEEP: "value",
+  });
+  assert.equal(buildQemuEnvironment(options), undefined);
+});
 
 test("QEMU argv is fixed, private-QMP, and accelerator-required", () => {
   const args = buildCanonicalQemuArguments(options);

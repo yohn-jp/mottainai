@@ -43,6 +43,13 @@ export interface QemuArtifactFile {
   readonly sha256: string;
 }
 
+export interface QemuArtifactArchive {
+  /** Archive basename published beside the manifest sidecar. */
+  readonly name: string;
+  readonly size: number;
+  readonly sha256: string;
+}
+
 export interface QemuArtifactProvenance {
   readonly sourceRevision: string;
   readonly sourceDateEpoch: number;
@@ -69,8 +76,8 @@ export interface QemuArtifactManifest {
   readonly manifestUrl?: string;
   /** SHA-256 of the executable inside an available artifact. */
   readonly sha256?: string;
-  /** SHA-256 of the deterministic payload archive, when a build produced one. */
-  readonly payloadSha256?: string;
+  /** Deterministic payload archive identity for an available artifact. */
+  readonly archive?: QemuArtifactArchive;
   /** Whether dynamic runtime dependencies are absent by design or bundled below. */
   readonly dependencyMode?: QemuArtifactDependencyMode;
   readonly runtimeLibraries: readonly QemuArtifactFile[];
@@ -80,7 +87,7 @@ export interface QemuArtifactManifest {
     readonly sha256: string;
     readonly license: "GPL-2.0-or-later";
     readonly correspondingSource: string;
-    readonly licenseFiles?: readonly string[];
+    readonly licenseFiles?: readonly QemuArtifactFile[];
   };
   readonly provenance?: QemuArtifactProvenance;
 }

@@ -167,7 +167,23 @@ export interface QemuMachineOptions {
   readonly paths: LocalRuntimePaths;
   readonly accelerator: RuntimeAccelerator;
   readonly platform?: NodeJS.Platform;
+  readonly environment?: NodeJS.ProcessEnv;
   readonly qmpTimeoutMs?: number;
+}
+
+export function buildQemuEnvironment(options: QemuMachineOptions): NodeJS.ProcessEnv | undefined {
+  const libraryDirectory = options.artifact.runtimeLibraryDirectory;
+  if (libraryDirectory === undefined) return options.environment;
+  const environment = options.environment ?? {};
+  const platform = options.platform ?? process.platform;
+  const key = platform === "win32" ? "PATH" : platform === "darwin" ? "DYLD_LIBRARY_PATH" : "LD_LIBRARY_PATH";
+  const separator = platform === "win32" ? ";" : ":";
+  const previous = environment[key];
+  return {
+    ...environment,
+    [key]:
+      previous === undefined || previous.length === 0 ? libraryDirectory : `${libraryDirectory}${separator}${previous}`,
+  };
 }
 
 export function buildCanonicalQemuArguments(options: QemuMachineOptions): string[] {
@@ -275,25 +291,12 @@ export class QemuRuntimeMachine {
       fs.unlinkSync(this.options.paths.qmpSocket);
     }
     try {
-      const libraryDirectory = this.options.artifact.runtimeLibraryDirectory;
-      const platform = this.options.platform ?? process.platform;
-      const environment =
-        libraryDirectory === undefined
-          ? process.env
-          : {
-              ...process.env,
-              ...(platform === "win32"
-                ? { PATH: `${libraryDirectory};${process.env.PATH ?? ""}` }
-                : platform === "darwin"
-                  ? { DYLD_LIBRARY_PATH: `${libraryDirectory}:${process.env.DYLD_LIBRARY_PATH ?? ""}` }
-                  : { LD_LIBRARY_PATH: `${libraryDirectory}:${process.env.LD_LIBRARY_PATH ?? ""}` }),
-            };
       const child = spawn(this.options.artifact.executablePath, this.arguments, {
         cwd: this.options.paths.stateDirectory,
         detached: true,
         stdio: "ignore",
         windowsHide: true,
-        env: environment,
+        env: buildQemuEnvironment(this.options),
       });
       child.unref();
       if (child.pid === undefined) throw new Error("QEMU did not return a process id");
