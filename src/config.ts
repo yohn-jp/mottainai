@@ -156,7 +156,7 @@ export interface GatewayConfig {
   workflowTasks?: boolean;
   /** await/watch primitive（Issue #74）の polling 上限。agent は間隔を指定できず、ここが唯一の制御点。 */
   await?: AwaitPolicyConfig;
-  /** Mottainai-managed GitHub mutationsで利用する外部gh-inari companionの実行境界。 */
+  /** Mottainai-managed governed GitHub mutationの唯一のauthorityとなる外部gh-inari companionの実行境界。 */
   ghInari?: GhInariConfig;
 }
 

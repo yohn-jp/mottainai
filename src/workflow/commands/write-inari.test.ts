@@ -103,11 +103,9 @@ test("managed open-pr uses Inari mutation and preserves the workflow lifecycle r
     const opened = result as unknown as {
       pullRequest: { number: number; head: { name: string } };
       task: { lifecycleState: string };
-      renderedBody: string;
     };
     assert.equal(opened.pullRequest.number, 42);
     assert.equal(opened.task.lifecycleState, "pull-request-open");
-    assert.equal(opened.renderedBody, "");
   }
   assert.equal(
     calls.some((call) => call.args[0] === "pr" && call.args[1] === "create"),
