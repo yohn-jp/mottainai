@@ -87,6 +87,8 @@ export interface ManagerSessionReceipt {
 export interface ManagerSessionRecord {
   sessionId: ManagerSessionId;
   workspaceRoot: string;
+  /** Stable caller-owned operation key used to retry one managed task run. */
+  idempotencyKey: string | undefined;
   taskId: TaskId | undefined;
   /** Opaque external execution reference; ownership remains outside Manager. */
   executionSessionId: string | undefined;
@@ -126,6 +128,7 @@ export interface ManagerSessionRecord {
 export interface CreateManagerSessionInput {
   sessionId: ManagerSessionId;
   workspaceRoot: string;
+  idempotencyKey?: string;
   taskId?: TaskId;
   executionSessionId?: string;
   executionMode?: ManagerExecutionMode;

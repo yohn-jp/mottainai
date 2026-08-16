@@ -76,6 +76,7 @@ function inputFromBody(value: unknown): NewManagerSessionInput {
     ...(body.taskSlug === undefined ? {} : { taskSlug: body.taskSlug as string }),
     ...(body.issueRef === undefined ? {} : { issueRef: body.issueRef as string }),
     ...(body.branchType === undefined ? {} : { branchType: body.branchType as string }),
+    ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey as string }),
   };
 }
 

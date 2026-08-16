@@ -638,6 +638,18 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 21,
+    description: "manager: persist idempotent managed task-run operation keys",
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE manager_sessions ADD COLUMN idempotency_key TEXT;
+        CREATE UNIQUE INDEX idx_manager_sessions_idempotency
+          ON manager_sessions (workspace_root, idempotency_key)
+          WHERE idempotency_key IS NOT NULL;
+      `);
+    },
+  },
 ];
 
 function appliedVersions(db: DatabaseSync): Set<number> {
