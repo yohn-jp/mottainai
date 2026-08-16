@@ -1,7 +1,0 @@
-name: Mottainai CodeQL security baseline
-
-# Keep the standard security baseline in one repository-owned configuration.
-# A future local query may be added here only after it has a concrete,
-# security-specific source, sink, and positive/negative regression fixture.
-queries:
-  - uses: security-extended

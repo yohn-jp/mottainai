@@ -27,11 +27,11 @@ capture the expected contract, failing scenario, test layer, release impact,
 and security impact before implementation. A feature or research Issue may
 state why no failure scenario applies; it must not leave the field blank.
 
-`issue-governance.yml` checks the validator from the repository default branch
-after creation, editing, or reopening. Invalid Issues receive
-`status:invalid` and `needs:specification`; successful revalidation removes
-those labels. Issue text is written to a report file and is never interpolated
-into a shell command.
+The linked Issue contract is validated authoritatively at the PR merge
+boundary by `governance.yml`'s `validate-pr` job (`scripts/validate-issue.mjs`).
+A PR whose linked Issue carries `status:invalid` or `needs:specification`
+fails that check. There is no separate Issue-event workflow; Issue text is
+written to a report file and is never interpolated into a shell command.
 
 ## Pull request contract
 
@@ -124,11 +124,12 @@ artifact, not a replacement for its package test.
 
 | Check or policy | Current status on `main` | Evidence boundary |
 | --- | --- | --- |
-| Issue/PR contract, title/branch rules, existing `Validation` checkboxes, linked Issue validation, and existing changed-file rules | Enforced. `Governance / validate-pr` is a required Ruleset check; the linked Issue and branch are validated by the governance workflow. | `scripts/governance-rules.json` + `scripts/governance-lib.mjs`; command failures are errors. |
-| `CI / typecheck (Node 22)` and `CI / fast unit / contract (Node 22)` | Enforced required checks. | `package.json` scripts and [`scripts/test-suites.mjs`](../scripts/test-suites.mjs); fast correctness is deterministic test result, not wall-clock timing. |
-| Standards, integration/process, built-dist E2E, package/consumer, Node 24 compatibility, and coverage jobs | Executed on normal PRs and each job evaluates its command/policy, but not required status checks in the current Ruleset; their results are evidence and a failed non-required job does not itself block merge. | `.github/workflows/ci.yml` and the named commands in [`docs/testing.md`](testing.md). |
+| Issue/PR contract, title/branch rules, existing `Validation` checkboxes, linked Issue validation, and existing changed-file rules | Enforced. `Governance / validate-pr` is a required Ruleset check and depends on `Governance / standards-self-check`; the linked Issue and branch are validated by the governance workflow. | `scripts/governance-rules.json` + `scripts/governance-lib.mjs`; command failures are errors. |
+| `CI / static-integrity` (typecheck, lint, architecture, build) | Enforced required check. | `package.json` scripts (`typecheck`, `lint`, `architecture:check`, `build`); style-only formatting is not part of this gate. |
+| `CI / product-contract` (managed workflow lifecycle, built-dist e2e, packed artifact) | Enforced required check. | `package.json` scripts (`test:integration`, `test:e2e`, `run-package-suite.mjs`) and [`docs/testing.md`](testing.md). |
+| `CI / node-compatibility-smoke` (Node 24) and `CI / runtime-contract` (Nix/QEMU, path-sensitive) | Enforced required checks; `runtime-contract` runs only when a changed path can affect the Nix/QEMU runtime, otherwise it resolves as a deterministic skip under the same check name. | `.github/workflows/ci.yml`. |
 | Structured fields/records in path-aware `Test contract`, `Validation evidence`, `Release impact`, and regression-proof diagnostics | **Report-only**. The section headings remain part of the enforced PR contract, while `qualityGates.rollout.mode` is `report-only`; missing/invalid quality records become warnings with changed paths, matched rules, missing evidence, and remediation. | [`scripts/governance-rules.json`](../scripts/governance-rules.json) and [`scripts/governance-lib.mjs`](../scripts/governance-lib.mjs). Do not describe a warning as an enforcement failure or an unrun layer as passed. |
-| Property/mutation effectiveness | Scheduled or manual, advisory to normal PR merge. The runner enforces its own catalog/baseline/timeout result and uploads JSON reports, but the workflow is not a PR required check and is excluded from `verify`. | `.github/workflows/test-effectiveness.yml`, [`scripts/mutation-catalog.mjs`](../scripts/mutation-catalog.mjs), [`mutation-baseline.json`](mutation-baseline.json). |
+| Property/mutation effectiveness | Manual/developer-invoked only; no repository workflow runs it automatically or on a schedule. The runner enforces its own catalog/baseline/timeout result and uploads JSON reports when run, and is excluded from `verify`. | `pnpm run test:effectiveness`, [`scripts/mutation-catalog.mjs`](../scripts/mutation-catalog.mjs), [`mutation-baseline.json`](mutation-baseline.json). |
 | Packed artifact and runtime/build identity | Required as package/release evidence when the configured package path applies; not a source-test shortcut. | [`docs/mcp-stdio-blackbox.md`](mcp-stdio-blackbox.md), `scripts/run-package-suite.mjs`, `scripts/generate-build-metadata.mjs`, `src/runtime-diagnostic.ts`. |
 
 This status table describes current `main`, not the observation state of PR

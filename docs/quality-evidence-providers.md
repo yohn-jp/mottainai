@@ -77,12 +77,10 @@ The current repository already has distinct, repository-owned authorities:
 | Type/build/test correctness                 | `package.json` scripts; `tsconfig.json`; CI typecheck, fast, integration, build/e2e/package, and coverage jobs                                                                |
 | Architecture and dependency direction       | `scripts/architecture-check.mjs`, `docs/coding-standards.md`, and the TypeScript-resolved architecture checks                                                                 |
 | Governance and PR/Issue contract            | `scripts/governance-lib.mjs`, `scripts/governance-rules.json`, and `docs/governance.md`                                                                                       |
-| Security/code scanning                      | CodeQL `javascript-typescript` + `actions` with `security-extended`; see [`docs/codeql.md`](codeql.md)                                                                        |
 | Repository meaning and dependency relations | Repository Semantic IR and its `imports`, `depends_on`, `uses_package`, and `imports_api` relations; see [`docs/repository-semantics.md`](repository-semantics.md)            |
 | Bounded evidence retention and projection   | `ArtifactStore`, `result_id`, Context Runtime projection/budget, and read-evidence state; see [`docs/read-governor.md`](read-governor.md) and [`docs/testing.md`](testing.md) |
 | Agent/client operation policy               | Managed Hooks dispatcher and operation-specific fail-open/fail-closed policy; see [`docs/managed-hooks.md`](managed-hooks.md)                                                 |
-| Mutation/effectiveness                      | The repository-owned property/mutation runner and baseline, scheduled or manually dispatched by `.github/workflows/test-effectiveness.yml`                                    |
-| LLM review                                  | Bounded PR-Agent preflight and disabled-until-bounded OpenCodeReview path; see [`docs/llm-review.md`](llm-review.md)                                                          |
+| Mutation/effectiveness                      | The repository-owned property/mutation runner and baseline, manually dispatched via `pnpm run test:effectiveness`; no repository workflow runs it automatically             |
 
 Post-#142 CI is intentionally parallel: independent typecheck, fast,
 standards, integration, artifact, compatibility, and coverage roles remain
