@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { type PullRequestBodyDraft } from "../domain/pr-render.js";
+import { type PullRequestBodyDraft } from "../domain/pr-intent.js";
 import { createCleanupPlan, type CleanupPlan, type CleanupPullRequestObserver } from "../domain/cleanup-plan.js";
 import {
   renderCommitMessage,
@@ -1514,7 +1514,6 @@ export async function openWorkflowTaskPullRequest(
     adapter,
     store: input.store,
     taskId: selected.taskId,
-    policy: input.policy,
     repository: repositoryResult.repository,
     title: input.title,
     head,
@@ -1534,7 +1533,6 @@ export async function openWorkflowTaskPullRequest(
     pullRequest: opened.pullRequest,
     record: opened.record,
     reused: opened.reused,
-    renderedBody: opened.renderedBody,
     taskId: selected.taskId,
   };
 }

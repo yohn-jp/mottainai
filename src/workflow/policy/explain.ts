@@ -3,8 +3,8 @@ import { getPreset } from "./presets.js";
 import { resolveRule } from "./resolve.js";
 import type { PolicySource, ResolvedRule } from "./resolve.js";
 import type { RuleMode, WorkflowPolicyDocument, WorktreeRule } from "./schema.js";
-import { resolvePullRequestRenderPolicy } from "../domain/pr-render.js";
-import type { PullRequestRenderPolicy } from "../domain/pr-render.js";
+import { resolvePullRequestPolicy } from "../domain/pr-policy.js";
+import type { PullRequestPolicy } from "../domain/pr-policy.js";
 
 /**
  * `policy explain`（Issue #39, extending #34）。`resolve.ts`（Child Issue 1）の resolveRule() を、
@@ -29,7 +29,7 @@ import type { PullRequestRenderPolicy } from "../domain/pr-render.js";
  * `pullRequest` は schema 上 optional（`schema.ts` の `pullRequestRuleSchema.optional()`）で、
  * かつ built-in preset は誰も `pullRequest` を宣言しない（`presets.ts` 参照）。そのため
  * `workflow.json` が存在していても `pullRequest` ブロック自体を省略している場合、実際の値は
- * `resolvePullRequestRenderPolicy()` が合成した組み込み既定値であり、"repository" が宣言した
+ * `resolvePullRequestPolicy()` が合成した組み込み既定値であり、"repository" が宣言した
  * 値ではない。ここを document 全体の `policySourceAuthority` で一律に扱うと、workflow.json の
  * 存在だけで暗黙値まで "repository" 権威と誤報告してしまう。pullRequest グループだけは
  * `repositoryDocument.pullRequest` が実際に存在するかどうかで独立に authority
@@ -60,8 +60,8 @@ export interface ExplainedValue<Value> {
 }
 
 export interface ExplainedPullRequestRule {
-  issue: ExplainedValue<NonNullable<PullRequestRenderPolicy["issue"]>>;
-  closingIssue: ExplainedValue<NonNullable<PullRequestRenderPolicy["closingIssue"]>>;
+  issue: ExplainedValue<NonNullable<PullRequestPolicy["issue"]>>;
+  closingIssue: ExplainedValue<NonNullable<PullRequestPolicy["closingIssue"]>>;
   requiredSections: ExplainedValue<readonly string[]>;
   acceptanceCriteriaSection: ExplainedValue<string>;
   acceptanceCriteriaChecklist: ExplainedValue<boolean>;
@@ -90,13 +90,13 @@ export interface ExplainedPolicy {
     controlPlaneRole: WorkflowPolicyDocument["controlPlaneRole"];
     stagingMode: WorkflowPolicyDocument["stagingMode"];
     bootstrapMode: WorktreeRule["bootstrapMode"];
-    pullRequest: PullRequestRenderPolicy;
+    pullRequest: PullRequestPolicy;
   };
   rules: ExplainedRuleGroups;
   /** 完全な値を含む、authority/provenance付きのresolved policy projection。 */
   resolvedPolicy: ExplainedResolvedPolicy;
   /** 後方互換のための実効policy document。PR policyの暗黙defaultも展開する。 */
-  effectivePolicy: Omit<WorkflowPolicyDocument, "pullRequest"> & { pullRequest: PullRequestRenderPolicy };
+  effectivePolicy: Omit<WorkflowPolicyDocument, "pullRequest"> & { pullRequest: PullRequestPolicy };
 }
 
 export type ExplainWorkflowPolicyResult = { ok: true; explained: ExplainedPolicy } | { ok: false; reason: string };
@@ -139,7 +139,7 @@ export function explainWorkflowPolicy(workspaceRoot: string): ExplainWorkflowPol
     return { ok: false, reason: loaded.reason };
   }
 
-  const pullRequest = resolvePullRequestRenderPolicy(effective.pullRequest);
+  const pullRequest = resolvePullRequestPolicy(effective.pullRequest);
   const sourceAuthority: "preset" | "repository" = policySourceAuthority;
   const explainedValue = <Value>(value: Value): ExplainedValue<Value> => ({ value, authority: sourceAuthority });
   // `pullRequest` はどの preset も宣言しない optional field なので、repository が実際に

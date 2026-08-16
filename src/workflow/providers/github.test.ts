@@ -3,8 +3,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import os from "node:os";
 import path from "node:path";
-import { getPreset } from "../policy/presets.js";
-import { GithubAdapter, openWorkflowPullRequest, type RunProgramFunction } from "./github.js";
+import {
+  GithubAdapter,
+  openWorkflowPullRequest,
+  type PullRequestCreateAdapter,
+  type PullRequestCreateInput,
+  type RunProgramFunction,
+} from "./github.js";
+import type { PullRequest } from "./model.js";
 import type { RunResult } from "../../subprocess.js";
 import type { RepositoryInstanceId, RootCommitDigest } from "../domain/identity.js";
 import { WorkflowSqliteStateStore } from "../state/sqlite-store.js";
@@ -77,6 +83,49 @@ function adapterWith(sequence: RunResult[], calls: string[][] = []): GithubAdapt
   return new GithubAdapter({ workspaceRoot: "/repo", runProgram: execute, sleep: async () => undefined });
 }
 
+/**
+ * Workflow orchestration tests use a provider-neutral mutation stub. The
+ * production GitHub adapter intentionally has no PR-create operation; only
+ * the gh-inari adapter may implement this seam.
+ */
+function pullRequestAdapterWith(sequence: RunResult[], calls: string[][] = []): PullRequestCreateAdapter {
+  let index = 0;
+  const execute: RunProgramFunction = async (_program, args) => {
+    calls.push(args);
+    const result = sequence[Math.min(index, sequence.length - 1)];
+    index += 1;
+    if (result === undefined) throw new Error("missing mocked result");
+    return result;
+  };
+  const lookup = new GithubAdapter({ workspaceRoot: "/repo", runProgram: execute, sleep: async () => undefined });
+  return {
+    findPullRequests: (input) => lookup.findPullRequests(input),
+    openPullRequest: async (input: PullRequestCreateInput) => {
+      const result = sequence[Math.min(index, sequence.length - 1)];
+      index += 1;
+      if (result === undefined) throw new Error("missing mocked result");
+      calls.push(["pr", "create"]);
+      const match = result.stdout.match(/\/pull\/(\d+)/u);
+      const number = Number(match?.[1] ?? 36);
+      const pullRequest: PullRequest = {
+        identity: { provider: "github", id: `pull-request:${number}` },
+        reference: `#${number}`,
+        number,
+        url:
+          match === null
+            ? `https://github.com/${input.repository.id}/pull/${number}`
+            : `https://github.com/${input.repository.id}${match[0]}`,
+        state: "open",
+        lifecycleState: input.providerDraft === true ? "draft" : "open",
+        repository: input.repository,
+        head: input.head,
+        base: input.base,
+      };
+      return { ok: true, value: pullRequest, attempts: 1 };
+    },
+  };
+}
+
 test("GitHub adapter parses successful gh issue JSON into provider-neutral Issue", async () => {
   const calls: string[][] = [];
   const adapter = adapterWith([runResult(issueJson())], calls);
@@ -116,41 +165,6 @@ test("retryable gh failure retries bounded read and succeeds", async () => {
   const result = await adapter.viewIssue(7);
   assert.equal(result.ok, true);
   assert.equal(calls.length, 2);
-});
-
-test("PR creation parses gh URL and does not retry mutation", async () => {
-  const calls: string[][] = [];
-  const adapter = adapterWith([runResult("https://github.com/org/repository/pull/12\n")], calls);
-  const result = await adapter.openPullRequest({
-    repository: { provider: "github", id: "org/repository", namespace: "org", name: "repository" },
-    title: "feat(workflow): open provider pull request",
-    head: { name: "feature/12", revision: "abc123" },
-    base: { name: "main" },
-    draft: { sections: { Summary: "structured" } },
-    policy: { requiredSections: ["Summary"] },
-  });
-  assert.equal(result.ok, true);
-  if (result.ok) {
-    assert.equal(result.value.number, 12);
-    assert.equal(result.value.head.revision, "abc123");
-  }
-  assert.equal(calls.length, 1);
-});
-
-test("PR creation refuses to fall back to the cwd repository when the identity is opaque", async () => {
-  const calls: string[][] = [];
-  const adapter = adapterWith([runResult("https://github.com/org/repository/pull/12\n")], calls);
-  const result = await adapter.openPullRequest({
-    repository: { provider: "github", id: "opaque-node-id" },
-    title: "feat(workflow): open provider pull request",
-    head: { name: "feature/12", revision: "abc123" },
-    base: { name: "main" },
-    draft: { sections: { Summary: "structured" } },
-    policy: { requiredSections: ["Summary"] },
-  });
-  assert.equal(result.ok, false);
-  if (!result.ok) assert.equal(result.error.code, "invalid-input");
-  assert.equal(calls.length, 0, "gh pr create must not run without an explicit --repo target");
 });
 
 test("PR lookup requests all states and parses provider-neutral identity", async () => {
@@ -205,30 +219,15 @@ function pushedTaskStore(dbPath = ":memory:"): {
   return { store, taskId: reserved.task.taskId };
 }
 
-function workflowPolicy() {
-  return {
-    ...getPreset("minimal"),
-    pullRequest: {
-      issue: "required" as const,
-      closingIssue: "exactly-one" as const,
-      requiredSections: ["Summary"],
-      acceptanceCriteriaSection: "Acceptance criteria",
-      acceptanceCriteriaChecklist: true,
-      templates: {},
-    },
-  };
-}
-
 function workflowInput(
   store: WorkflowSqliteStateStore,
   taskId: string & { readonly __brand: "TaskId" },
-  adapter: GithubAdapter,
+  adapter: PullRequestCreateAdapter,
 ) {
   return {
     adapter,
     store,
     taskId,
-    policy: workflowPolicy(),
     repository: { provider: "github", id: "org/repository", namespace: "org", name: "repository" },
     title: "feat(workflow): open provider pull request",
     head: { name: "feature/36", revision: "abc123" },
@@ -244,7 +243,7 @@ function workflowInput(
 test("provider success writes PR metadata and transitions the task", async () => {
   const { store, taskId } = pushedTaskStore();
   try {
-    const adapter = adapterWith([runResult("[]"), runResult("https://github.com/org/repository/pull/36")]);
+    const adapter = pullRequestAdapterWith([runResult("[]"), runResult("https://github.com/org/repository/pull/36")]);
     const result = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
     assert.equal(result.ok, true);
     if (result.ok) {
@@ -261,7 +260,7 @@ test("retry after provider success and PR-row persistence failure reconciles wit
   const { store, taskId } = pushedTaskStore();
   try {
     const calls: string[][] = [];
-    const adapter = adapterWith(
+    const adapter = pullRequestAdapterWith(
       [runResult("[]"), runResult("https://github.com/org/repository/pull/36"), runResult(pullRequestListJson())],
       calls,
     );
@@ -304,7 +303,7 @@ test("process restart reconciles the remote PR after provider success and missin
     const first = pushedTaskStore(dbPath);
     firstStore = first.store;
     const calls: string[][] = [];
-    const adapter = adapterWith(
+    const adapter = pullRequestAdapterWith(
       [runResult("[]"), runResult("https://github.com/org/repository/pull/36"), runResult(pullRequestListJson())],
       calls,
     );
@@ -338,7 +337,7 @@ test("exact remote candidate is recorded without creating a duplicate", async ()
   const { store, taskId } = pushedTaskStore();
   try {
     const calls: string[][] = [];
-    const adapter = adapterWith([runResult(pullRequestListJson())], calls);
+    const adapter = pullRequestAdapterWith([runResult(pullRequestListJson())], calls);
     const result = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
     assert.equal(result.ok, true);
     if (result.ok) {
@@ -358,7 +357,7 @@ test("multiple remote candidates fail closed without selecting one", async () =>
     const second = pullRequestListJson({ number: 37, headRefName: "feature/36", headRefOid: "abc123" });
     const candidates = JSON.stringify([...JSON.parse(pullRequestListJson()), ...JSON.parse(second)]);
     const calls: string[][] = [];
-    const adapter = adapterWith([runResult(candidates)], calls);
+    const adapter = pullRequestAdapterWith([runResult(candidates)], calls);
     const result = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
     assert.equal(result.ok, false);
     if (!result.ok) assert.equal(result.reason, "ambiguous-provider-result");
@@ -373,7 +372,7 @@ test("a conflicting remote candidate fails closed instead of being adopted", asy
   const { store, taskId } = pushedTaskStore();
   try {
     const calls: string[][] = [];
-    const adapter = adapterWith([runResult(pullRequestListJson({ headRefOid: "different-sha" }))], calls);
+    const adapter = pullRequestAdapterWith([runResult(pullRequestListJson({ headRefOid: "different-sha" }))], calls);
     const result = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
     assert.equal(result.ok, false);
     if (!result.ok) assert.equal(result.reason, "ambiguous-provider-result");
@@ -387,7 +386,10 @@ test("retry after PR-row persistence succeeds but lifecycle persistence fails re
   const { store, taskId } = pushedTaskStore();
   try {
     const calls: string[][] = [];
-    const adapter = adapterWith([runResult("[]"), runResult("https://github.com/org/repository/pull/36")], calls);
+    const adapter = pullRequestAdapterWith(
+      [runResult("[]"), runResult("https://github.com/org/repository/pull/36")],
+      calls,
+    );
     const updateTaskLifecycleState = store.updateTaskLifecycleState.bind(store);
     let failLifecyclePersistence = true;
     store.updateTaskLifecycleState = ((id, state) => {
@@ -432,7 +434,7 @@ test("retry after a lifecycle-transition failure reconciles the task instead of 
     });
     assert.equal(store.getTask(taskId)?.lifecycleState, "pushed");
 
-    const adapter = adapterWith([]);
+    const adapter = pullRequestAdapterWith([]);
     const result = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
     assert.equal(result.ok, true);
     if (result.ok) {
@@ -448,7 +450,7 @@ test("retry after a lifecycle-transition failure reconciles the task instead of 
 test("provider failure leaves task and PR record state unchanged", async () => {
   const { store, taskId } = pushedTaskStore();
   try {
-    const adapter = adapterWith([runResult("", "provider unavailable", { exitCode: 1 })]);
+    const adapter = pullRequestAdapterWith([runResult("", "provider unavailable", { exitCode: 1 })]);
     const result = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
     assert.equal(result.ok, false);
     assert.equal(store.getTask(taskId)?.lifecycleState, "pushed");
@@ -462,12 +464,12 @@ test("missing head revision fails before the provider is called", async () => {
   const { store, taskId } = pushedTaskStore();
   try {
     const calls: string[][] = [];
-    const adapter = adapterWith([runResult("https://github.com/org/repository/pull/36")], calls);
+    const adapter = pullRequestAdapterWith([runResult("https://github.com/org/repository/pull/36")], calls);
     const input = workflowInput(store, taskId, adapter);
     const result = await openWorkflowPullRequest({ ...input, head: { name: "feature/36" } });
     assert.equal(result.ok, false);
     if (!result.ok) assert.equal(result.reason, "head-sha-required");
-    assert.equal(calls.length, 0, "gh pr create must not run without a head revision");
+    assert.equal(calls.length, 0, "provider mutation must not run without a head revision");
     assert.deepEqual(store.listPullRequestRecordsForTask(taskId), []);
   } finally {
     store.close();
@@ -479,11 +481,11 @@ test("a task lifecycle state that cannot reach pull-request-open blocks the tran
   try {
     store.updateTaskLifecycleState(taskId, "merged");
     const calls: string[][] = [];
-    const adapter = adapterWith([runResult("https://github.com/org/repository/pull/36")], calls);
+    const adapter = pullRequestAdapterWith([runResult("https://github.com/org/repository/pull/36")], calls);
     const result = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
     assert.equal(result.ok, false);
     if (!result.ok) assert.equal(result.reason, "lifecycle-blocked");
-    assert.equal(calls.length, 0, "gh pr create must not run when the lifecycle transition is blocked");
+    assert.equal(calls.length, 0, "provider mutation must not run when the lifecycle transition is blocked");
   } finally {
     store.close();
   }

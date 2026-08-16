@@ -1,5 +1,5 @@
 import { GhInariClient, type GhInariError, type GhInariJsonObject, type GhInariJsonValue } from "../../gh-inari.js";
-import { type PullRequestBodyDraft, type PullRequestSectionValue } from "../domain/pr-render.js";
+import { type PullRequestBodyDraft, type PullRequestSectionValue } from "../domain/pr-intent.js";
 import {
   GithubAdapter,
   type GithubFailure,
