@@ -373,7 +373,7 @@ test("public CLI task run composes Issue-bound Nawabari execution and Pi Manager
   const fakeZellij = path.join(stateDir, "zellij");
   fs.writeFileSync(
     fakeZellij,
-    '#!/usr/bin/env node\nif (process.argv[2] === "--version") console.log("zellij 0.40.0");\n',
+    '#!/usr/bin/env node\nif (process.argv[2] === "--version") console.log("zellij 0.44.0");\n',
     { mode: 0o755 },
   );
   const environment = {
