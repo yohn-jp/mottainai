@@ -51,6 +51,37 @@ test("mottainai manager starts a loopback endpoint and reports the Zellij runtim
   assert.equal(health.manager, "ready");
   assert.equal(health.zellij.available, true);
   assert.equal(health.zellij.version, "zellij 0.40.0");
+
+  const piResponse = await fetch(`${url}api/v1/manager/sessions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      agentKind: "pi",
+      provider: "anthropic",
+      model: "claude-sonnet-4",
+      instruction: "hermetic Pi process",
+    }),
+  });
+  assert.equal(piResponse.status, 201);
+  const piSession = (await piResponse.json()).session as {
+    agentKind: string;
+    launchProfile: string;
+    provider: string;
+    launchCommand: string;
+    launchArgs: string[];
+  };
+  assert.equal(piSession.agentKind, "pi");
+  assert.equal(piSession.launchProfile, "pi");
+  assert.equal(piSession.provider, "anthropic");
+  assert.equal(piSession.launchCommand, "pi");
+  assert.deepEqual(piSession.launchArgs, [
+    "--provider",
+    "anthropic",
+    "--model",
+    "claude-sonnet-4",
+    "--",
+    "hermetic Pi process",
+  ]);
   child.kill("SIGTERM");
   const exit = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
     child.once("error", reject);

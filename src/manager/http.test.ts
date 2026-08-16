@@ -107,6 +107,43 @@ test("Manager HTTP API exposes session state and selected open/stop actions", as
   assert.equal(rejected.status, 415);
 });
 
+test("Manager HTTP API accepts and filters the Pi launch profile", async (t) => {
+  const root = createTempGitRepo(t);
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store: createWorkflowStore(t),
+    runtime: new HttpFakeRuntime(),
+    agentCommands: { pi: { command: "fake-pi" } },
+  });
+  await service.initialize();
+  const handle = await startDashboardServer({
+    port: 0,
+    viewerHtml: "manager",
+    query: createFixtureQuery(),
+    manager: new ManagerHttpApi(service),
+  });
+  activeServers.push(handle);
+
+  const created = await fetch(`${handle.url}api/v1/manager/sessions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      instruction: "run Pi",
+      agentKind: "pi",
+      provider: "anthropic",
+      model: "claude-sonnet-4",
+    }),
+  });
+  assert.equal(created.status, 201);
+  const session = (await created.json()).session;
+  assert.equal(session.agentKind, "pi");
+  assert.equal(session.provider, "anthropic");
+
+  const filtered = await fetch(`${handle.url}api/v1/manager/sessions?agent=pi`);
+  assert.equal(filtered.status, 200);
+  assert.equal((await filtered.json()).sessions.length, 1);
+});
+
 test("Manager API remains loopback host protected and rejects malformed session ids", async (t) => {
   const root = createTempGitRepo(t);
   const service = new ManagerSessionService({

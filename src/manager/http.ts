@@ -7,6 +7,7 @@ import {
   type NewManagerSessionInput,
 } from "./service.js";
 import {
+  MANAGER_AGENT_KINDS,
   MANAGER_RUNTIME_STATES,
   type ManagerAgentKind,
   type ManagerSessionId,
@@ -70,6 +71,7 @@ function inputFromBody(value: unknown): NewManagerSessionInput {
     instruction: body.instruction as string,
     ...(body.agentKind === undefined ? {} : { agentKind: body.agentKind as string }),
     ...(body.launchProfile === undefined ? {} : { launchProfile: body.launchProfile as string }),
+    ...(body.provider === undefined ? {} : { provider: body.provider as string }),
     ...(body.model === undefined ? {} : { model: body.model as string }),
     ...(body.taskSlug === undefined ? {} : { taskSlug: body.taskSlug as string }),
     ...(body.issueRef === undefined ? {} : { issueRef: body.issueRef as string }),
@@ -86,7 +88,11 @@ function filterFromQuery(url: URL): ManagerSessionFilter {
     throw new ManagerError("invalid_request", `unknown runtime state: ${runtimeState}`, 400);
   }
   const agent = url.searchParams.get("agent") ?? url.searchParams.get("agentKind");
-  if (agent !== null && agent !== "codex" && agent !== "claude" && agent !== "claude-code") {
+  if (
+    agent !== null &&
+    agent !== "claude-code" &&
+    !MANAGER_AGENT_KINDS.includes(agent as (typeof MANAGER_AGENT_KINDS)[number])
+  ) {
     throw new ManagerError("invalid_request", `unknown agent kind: ${agent}`, 400);
   }
   const limitValue = url.searchParams.get("limit");
