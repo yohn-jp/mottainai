@@ -46,7 +46,12 @@ after(() => {
 test("packed artifact contains its declared runtime entry and pack does not rebuild dist", () => {
   assert.ok(packedFiles.includes("package.json"));
   assert.ok(packedFiles.includes("dist/index.js"));
+  assert.ok(packedFiles.includes("dist/manager/pi-guard.js"));
   assert.ok(packedFiles.includes("dist/runtime-build-metadata.json"));
+  assert.match(
+    fs.readFileSync(path.join(path.dirname(binPath), "manager", "pi-guard.js"), "utf8"),
+    /mottainai-managed-pi-guard-v1/u,
+  );
   const metadata = JSON.parse(fs.readFileSync(path.join(path.dirname(binPath), "runtime-build-metadata.json"), "utf8"));
   const packageJson = JSON.parse(
     fs.readFileSync(path.join(path.dirname(path.dirname(binPath)), "package.json"), "utf8"),
@@ -372,6 +377,12 @@ test(
       const piSession = (await piResponse.json()).session;
       assert.equal(piSession.agentKind, "pi");
       assert.equal(piSession.launchCommand, "pi");
+      const guardIndex = piSession.launchArgs.indexOf("--extension");
+      assert.ok(guardIndex >= 0);
+      const guardPath = piSession.launchArgs[guardIndex + 1];
+      assert.equal(typeof guardPath, "string");
+      assert.match(guardPath, /[\\/]dist[\\/]manager[\\/]pi-guard\.js$/u);
+      assert.equal(fs.existsSync(guardPath), true);
       const viewer = await fetch(url);
       assert.match(viewer.headers.get("content-type") ?? "", /^text\/html/u);
       const html = await viewer.text();

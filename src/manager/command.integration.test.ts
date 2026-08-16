@@ -74,14 +74,16 @@ test("mottainai manager starts a loopback endpoint and reports the Zellij runtim
   assert.equal(piSession.launchProfile, "pi");
   assert.equal(piSession.provider, "anthropic");
   assert.equal(piSession.launchCommand, "pi");
-  assert.deepEqual(piSession.launchArgs, [
+  const guardIndex = piSession.launchArgs.indexOf("--extension");
+  assert.ok(guardIndex >= 0);
+  assert.deepEqual(piSession.launchArgs.slice(0, guardIndex), [
     "--provider",
     "anthropic",
     "--model",
     "claude-sonnet-4",
-    "--",
-    "hermetic Pi process",
   ]);
+  assert.equal(piSession.launchArgs[guardIndex + 1], path.join(repositoryRoot, "src", "manager", "pi-guard.ts"));
+  assert.deepEqual(piSession.launchArgs.slice(guardIndex + 2), ["--", "hermetic Pi process"]);
   child.kill("SIGTERM");
   const exit = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
     child.once("error", reject);
