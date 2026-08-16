@@ -42,7 +42,16 @@ contains the kernel, initrd, raw disk, and build identity. It is then passed to
 `scripts/build-runtime-image-manifest.mjs --image-output` to record
 kernel/initrd/disk hashes, the lockfile digest, and the real per-image pinned
 SSH host key. The generated manifest stores asset paths relative to itself, so
-the verified bundle remains consumable after staging moves it. QEMU release
-binaries are staged with `scripts/build-runtime-qemu-manifest.mjs`; the
-resulting per-host manifest is what the lazy materializer verifies and copies
-into the private state root.
+the verified bundle remains consumable after staging moves it.
+
+Each platform build also supplies its already-built QEMU executable and
+explicit dependencies to `scripts/build-runtime-qemu-manifest.mjs`. The
+host-independent builder stages the executable, firmware, runtime libraries
+(or records a static-link dependency mode), and license files into
+a deterministic archive, then writes provenance to the manifest. The generated sidecar binds the archive and every
+staged file to real hashes and is verified by
+`scripts/verify-runtime-qemu-artifact.mjs` before an OS-specific integration
+job consumes it; the resulting per-host manifest is what the lazy
+materializer verifies and copies into the private state root.
+`scripts/runtime-qemu-boot-smoke.mjs` is an artifact-level process smoke
+primitive; it does not claim KVM/HVF/WHPX or guest-boot evidence.

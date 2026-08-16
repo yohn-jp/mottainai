@@ -15,18 +15,12 @@ export const LOCAL_RUNTIME_PROFILE = Object.freeze({
 
 export const MANAGED_QEMU_VERSION = "9.2.2" as const;
 export const MANAGED_QEMU_BUILD_ID = `qemu-${MANAGED_QEMU_VERSION}-mottainai-runtime-v1` as const;
-
-/**
- * Sentinel `sha256` value for a per-host manifest entry whose real
- * executable hash has not been populated yet by the release artifact job
- * (`scripts/build-runtime-qemu-manifest.mjs`). A binary cannot legitimately
- * hash to all zeroes, so this is distinguishable from every real digest and
- * is rejected explicitly rather than silently accepted as "verified".
- */
-export const UNBUILT_QEMU_ARTIFACT_SHA256 = "0000000000000000000000000000000000000000000000000000000000000000" as const;
+export const MANAGED_QEMU_ARTIFACT_SCHEMA_VERSION = 2 as const;
 
 export type LocalRuntimeHost = "linux-x64" | "linux-arm64" | "macos-x64" | "macos-arm64" | "windows-x64";
 export type RuntimeAccelerator = "kvm" | "hvf" | "whpx";
+export type QemuArtifactAvailability = "available" | "not-built" | "unavailable";
+export type QemuArtifactDependencyMode = "static" | "bundled";
 export type RuntimeLifecycle =
   | "absent"
   | "acquiring-substrate"
@@ -41,24 +35,70 @@ export type RuntimeLifecycle =
   | "recreate-required"
   | "failed";
 
+export interface QemuArtifactFile {
+  /** Stable name used in compliance records and diagnostics. */
+  readonly name: string;
+  /** Path relative to the artifact root; never an absolute host path. */
+  readonly path: string;
+  readonly sha256: string;
+}
+
+export interface QemuArtifactArchive {
+  /** Archive basename published beside the manifest sidecar. */
+  readonly name: string;
+  readonly size: number;
+  readonly sha256: string;
+}
+
+export interface QemuArtifactProvenance {
+  readonly sourceRevision: string;
+  readonly sourceDateEpoch: number;
+  readonly builder: string;
+  readonly workflow: string;
+  readonly toolchain: string;
+  readonly configureArgs: readonly string[];
+}
+
 export interface QemuArtifactManifest {
+  /** Optional for compatibility with injected #257 test manifests. */
+  readonly schemaVersion?: typeof MANAGED_QEMU_ARTIFACT_SCHEMA_VERSION;
+  /** Unavailable entries carry no executable digest and can never be executed. */
+  readonly availability?: QemuArtifactAvailability;
+  readonly unavailableReason?: string;
   readonly artifactId: string;
   readonly version: typeof MANAGED_QEMU_VERSION;
   readonly buildId: typeof MANAGED_QEMU_BUILD_ID;
   readonly host: LocalRuntimeHost;
   readonly executableName: string;
-  /** Release asset URL; a package may instead provide the asset beside dist/. */
+  /** Release archive URL; a package may instead provide the artifact directory beside dist/. */
   readonly downloadUrl: string;
-  /** SHA-256 of the release asset, populated by the release artifact manifest. */
-  readonly sha256: string;
-  readonly runtimeLibraries: readonly string[];
-  readonly firmware: readonly { readonly name: string; readonly sha256: string }[];
+  /** Optional URL for the generated manifest sidecar published with the archive. */
+  readonly manifestUrl?: string;
+  /** SHA-256 of the executable inside an available artifact. */
+  readonly sha256?: string;
+  /** Deterministic payload archive identity for an available artifact. */
+  readonly archive?: QemuArtifactArchive;
+  /** Whether dynamic runtime dependencies are absent by design or bundled below. */
+  readonly dependencyMode?: QemuArtifactDependencyMode;
+  readonly runtimeLibraries: readonly QemuArtifactFile[];
+  readonly firmware: readonly QemuArtifactFile[];
   readonly source: {
     readonly url: string;
     readonly sha256: string;
     readonly license: "GPL-2.0-or-later";
     readonly correspondingSource: string;
+    readonly licenseFiles?: readonly QemuArtifactFile[];
   };
+  readonly provenance?: QemuArtifactProvenance;
+}
+
+export interface VerifiedQemuArtifactManifest extends QemuArtifactManifest {
+  readonly schemaVersion: typeof MANAGED_QEMU_ARTIFACT_SCHEMA_VERSION;
+  readonly availability: "available";
+  readonly sha256: string;
+  readonly archive: QemuArtifactArchive;
+  readonly dependencyMode: QemuArtifactDependencyMode;
+  readonly provenance: QemuArtifactProvenance;
 }
 
 export interface QemuArtifactIdentity {
@@ -67,6 +107,8 @@ export interface QemuArtifactIdentity {
   readonly buildId: string;
   readonly sha256: string;
   readonly executablePath: string;
+  /** Private child-process library path for bundled dynamic dependencies. */
+  readonly runtimeLibraryDirectory?: string;
 }
 
 export interface RuntimeImageManifest {

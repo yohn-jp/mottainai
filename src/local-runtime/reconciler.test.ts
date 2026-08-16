@@ -463,6 +463,34 @@ test("changed QEMU artifact identity returns a recreate plan instead of replacin
   }
 });
 
+test("changed QEMU runtimeLibraryDirectory returns a recreate plan", async () => {
+  const fixture = createFixture();
+  try {
+    await fixture.provisioner.ensure({
+      stateDirectory: fixture.stateDirectory,
+      platform: "linux",
+      architecture: "x64",
+    });
+    const originalQemu = fixture.readState().qemu;
+    const changedArtifact: QemuArtifactIdentity = {
+      ...originalQemu,
+      runtimeLibraryDirectory: originalQemu.runtimeLibraryDirectory ? undefined : "/new/lib",
+    };
+    fixture.setArtifact(changedArtifact);
+    await assert.rejects(
+      fixture.provisioner.ensure({
+        stateDirectory: fixture.stateDirectory,
+        platform: "linux",
+        architecture: "x64",
+      }),
+      (error: unknown) => error instanceof LocalRuntimeError && error.code === "runtime_recreate_required",
+    );
+    assert.equal(fixture.readState().lifecycle, "recreate-required");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("missing persisted SSH identity returns a recreate plan instead of rotating the key", async () => {
   const fixture = createFixture();
   try {

@@ -167,7 +167,23 @@ export interface QemuMachineOptions {
   readonly paths: LocalRuntimePaths;
   readonly accelerator: RuntimeAccelerator;
   readonly platform?: NodeJS.Platform;
+  readonly environment?: NodeJS.ProcessEnv;
   readonly qmpTimeoutMs?: number;
+}
+
+export function buildQemuEnvironment(options: QemuMachineOptions): NodeJS.ProcessEnv | undefined {
+  const libraryDirectory = options.artifact.runtimeLibraryDirectory;
+  const baseEnvironment = options.environment ?? process.env;
+  if (libraryDirectory === undefined) return baseEnvironment === process.env ? undefined : baseEnvironment;
+  const platform = options.platform ?? process.platform;
+  const key = platform === "win32" ? "PATH" : platform === "darwin" ? "DYLD_LIBRARY_PATH" : "LD_LIBRARY_PATH";
+  const separator = platform === "win32" ? ";" : ":";
+  const previous = baseEnvironment[key];
+  return {
+    ...baseEnvironment,
+    [key]:
+      previous === undefined || previous.length === 0 ? libraryDirectory : `${libraryDirectory}${separator}${previous}`,
+  };
 }
 
 export function buildCanonicalQemuArguments(options: QemuMachineOptions): string[] {
@@ -280,6 +296,7 @@ export class QemuRuntimeMachine {
         detached: true,
         stdio: "ignore",
         windowsHide: true,
+        env: buildQemuEnvironment(this.options),
       });
       child.unref();
       if (child.pid === undefined) throw new Error("QEMU did not return a process id");

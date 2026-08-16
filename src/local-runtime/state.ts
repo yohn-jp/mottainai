@@ -20,6 +20,7 @@ const qemuIdentitySchema = z
     buildId: z.string().min(1).max(160),
     sha256: z.string().regex(/^[0-9a-f]{64}$/iu),
     executablePath: z.string().min(1).max(4_096),
+    runtimeLibraryDirectory: z.string().min(1).max(4_096).optional(),
   })
   .strict();
 
