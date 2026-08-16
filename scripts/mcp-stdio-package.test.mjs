@@ -402,3 +402,57 @@ test(
     }
   },
 );
+
+test(
+  "packed artifact exposes the Issue-bound task run entrypoint through installed companions",
+  { timeout: BLACKBOX_TIMEOUTS.test },
+  () => {
+    const workspace = createWorkspace();
+    const fakeZellij = path.join(workspace, "zellij");
+    initializeGitWorkspace(workspace);
+    fs.writeFileSync(
+      fakeZellij,
+      '#!/usr/bin/env node\nif (process.argv[2] === "--version") console.log("zellij 0.40.0");\n',
+      { mode: 0o755 },
+    );
+    const { command, args } = resolvePackagedCommand(binPath);
+    const environment = { ...isolatedEnv(workspace), MOTTAINAI_ZELLIJ_BINARY: fakeZellij };
+    try {
+      const result = spawnSync(
+        command,
+        [
+          ...args,
+          "task",
+          "run",
+          "packed-run",
+          "--type",
+          "feat",
+          "--issue",
+          "333",
+          "--agent",
+          "pi",
+          "--workspace",
+          workspace,
+        ],
+        { cwd: workspace, env: environment, encoding: "utf8", timeout: 20_000 },
+      );
+      assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+      const started = JSON.parse(result.stdout);
+      assert.equal(started.ok, true);
+      assert.equal(started.manager.launchProfile, "pi");
+      assert.equal(typeof started.task.taskId, "string");
+      assert.equal(typeof started.execution.sessionId, "string");
+      assert.equal(started.execution.branch, "feat/333-packed-run");
+
+      const closed = spawnSync("nawabari", ["session", "close", "--session", started.execution.sessionId, "--json"], {
+        cwd: started.execution.worktree,
+        env: environment,
+        encoding: "utf8",
+        timeout: 10_000,
+      });
+      assert.equal(closed.status, 0, `${closed.stdout}\n${closed.stderr}`);
+    } finally {
+      fs.rmSync(workspace, { recursive: true, force: true });
+    }
+  },
+);

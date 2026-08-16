@@ -49,6 +49,8 @@ export interface NewManagerSessionInput {
   taskSlug?: string;
   issueRef?: string;
   branchType?: string;
+  /** Stable operation identity used by the public task-run orchestration. */
+  idempotencyKey?: string;
 }
 
 export interface ManagerLaunchInvocation {
@@ -89,11 +91,15 @@ export class ManagerError extends Error {
       | "session_restart_rejected"
       | "runtime_error"
       | "worktree_missing"
-      | "execution_unresolved",
+      | "execution_unresolved"
+      | "idempotency_conflict",
     message: string,
     readonly statusCode = code === "session_not_found"
       ? 404
-      : code === "runtime_name_collision" || code === "worktree_missing" || code === "session_restart_rejected"
+      : code === "runtime_name_collision" ||
+          code === "worktree_missing" ||
+          code === "session_restart_rejected" ||
+          code === "idempotency_conflict"
         ? 409
         : code === "pi_guard_unavailable" || code === "zellij_unavailable" || code === "zellij_incompatible"
           ? 503
@@ -106,6 +112,10 @@ export class ManagerError extends Error {
 
 function invalid(message: string): ManagerError {
   return new ManagerError("invalid_request", message, 400);
+}
+
+function idempotencyConflict(message: string): ManagerError {
+  return new ManagerError("idempotency_conflict", message, 409);
 }
 
 function validatePiGuardAsset(candidate: string): string {
@@ -404,6 +414,9 @@ export class ManagerSessionService {
     const taskSlug = validateOptionalArg(input.taskSlug, "taskSlug", 96);
     const issueRef = validateOptionalArg(input.issueRef, "issueRef", 96);
     const branchType = validateOptionalArg(input.branchType, "branchType", 32) ?? "feat";
+    const idempotencyKey = validateOptionalArg(input.idempotencyKey, "idempotencyKey", 128);
+    if (idempotencyKey !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(idempotencyKey))
+      throw invalid("idempotencyKey must be a bounded branch-safe token");
     try {
       if (taskSlug !== undefined) validateTaskSlug(taskSlug);
       validateIssueRef(issueRef);
@@ -419,6 +432,25 @@ export class ManagerSessionService {
     const piGuardPath = agentKind === "pi" ? configuredPiGuardPath(this.options.piGuardPath) : undefined;
 
     if (this.zellijVersion === undefined) await this.initialize();
+    if (idempotencyKey !== undefined) {
+      const existing = this.options.store
+        .listManagerSessions(this.options.workspaceRoot)
+        .find((candidate) => candidate.idempotencyKey === idempotencyKey);
+      if (existing !== undefined) {
+        if (
+          existing.agentKind !== agentKind ||
+          existing.provider !== provider ||
+          existing.model !== model ||
+          existing.instruction !== instruction ||
+          existing.taskSlug !== taskSlug ||
+          existing.issueRef !== issueRef ||
+          (existing.branchType ?? "feat") !== branchType
+        ) {
+          throw idempotencyConflict(`idempotency key is already bound to manager session ${existing.sessionId}`);
+        }
+        return this.resumeIdempotentSession(existing.sessionId);
+      }
+    }
     const sessionId = crypto.randomUUID() as ManagerSessionId;
     const runtimeName = deriveZellijSessionName(sessionId);
     return this.withSessionOperation(sessionId, async () => {
@@ -450,7 +482,7 @@ export class ManagerSessionService {
           taskSlug,
           issueRef,
           branchType,
-          idempotencyKey: sessionId,
+          idempotencyKey: idempotencyKey ?? sessionId,
         });
         executionContext = execution.context;
         executionReceipt = execution.receipt;
@@ -469,30 +501,45 @@ export class ManagerSessionService {
           ...(this.options.agentCommand === undefined ? {} : { codex: this.options.agentCommand }),
         },
       });
-      const session = this.options.store.createManagerSession({
-        sessionId,
-        workspaceRoot: this.options.workspaceRoot,
-        taskId: executionContext.taskId,
-        executionSessionId: executionContext.executionSessionId,
-        executionMode: executionContext.taskId === undefined ? "workspace" : "task-bound",
-        worktreeId: executionContext.worktreeId,
-        worktreePath: executionContext.worktreePath,
-        branchName: executionContext.branchName,
-        taskSlug: executionContext.taskSlug,
-        issueRef: executionContext.issueRef,
-        branchType: executionContext.branchType,
-        agentKind,
-        launchProfile: agentKind,
-        instruction,
-        provider,
-        model,
-        launchCommand: invocation.command,
-        launchArgs: invocation.args,
-        runtimeName,
-        semanticLifecycleState: executionContext.semanticLifecycleState,
-        latestStatus: "execution context acquired; launching agent runtime",
-        latestReceipt: executionReceipt,
-      });
+      try {
+        this.options.store.createManagerSession({
+          sessionId,
+          workspaceRoot: this.options.workspaceRoot,
+          idempotencyKey,
+          taskId: executionContext.taskId,
+          executionSessionId: executionContext.executionSessionId,
+          executionMode: executionContext.taskId === undefined ? "workspace" : "task-bound",
+          worktreeId: executionContext.worktreeId,
+          worktreePath: executionContext.worktreePath,
+          branchName: executionContext.branchName,
+          taskSlug: executionContext.taskSlug,
+          issueRef: executionContext.issueRef,
+          branchType: executionContext.branchType,
+          agentKind,
+          launchProfile: agentKind,
+          instruction,
+          provider,
+          model,
+          launchCommand: invocation.command,
+          launchArgs: invocation.args,
+          runtimeName,
+          semanticLifecycleState: executionContext.semanticLifecycleState,
+          latestStatus: "execution context acquired; launching agent runtime",
+          latestReceipt: executionReceipt,
+        });
+      } catch (error) {
+        // A concurrent retry may have persisted the same Manager record while
+        // this process was acquiring the execution context. Reconcile that
+        // record instead of creating a second runtime or surfacing a duplicate
+        // operation as an unrelated database failure.
+        if (idempotencyKey !== undefined) {
+          const existing = this.options.store
+            .listManagerSessions(this.options.workspaceRoot)
+            .find((candidate) => candidate.idempotencyKey === idempotencyKey);
+          if (existing !== undefined) return this.resumeIdempotentSession(existing.sessionId);
+        }
+        throw error;
+      }
       const validation = await this.execution.validate(executionContext);
       if (!validation.ok) {
         const detail = validation.detail.slice(0, MAX_STATUS_LENGTH);
@@ -716,6 +763,20 @@ export class ManagerSessionService {
     if (session === undefined || session.workspaceRoot !== this.options.workspaceRoot)
       throw new ManagerError("session_not_found", `manager session not found: ${sessionId}`);
     return session;
+  }
+
+  /** Reconcile and, when safe, resume one previously persisted task-run. */
+  private async resumeIdempotentSession(sessionId: ManagerSessionId): Promise<ManagerSessionRecord> {
+    const current = await this.get(sessionId);
+    if (
+      current.runtimeState === "starting" ||
+      current.runtimeState === "running" ||
+      current.runtimeState === "detached"
+    ) {
+      return current;
+    }
+    if (isTerminalSemanticState(current.semanticLifecycleState)) return current;
+    return this.restart(sessionId);
   }
 
   private contextFromRecord(session: ManagerSessionRecord): ManagerExecutionContext {

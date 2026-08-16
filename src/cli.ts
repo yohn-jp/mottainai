@@ -6,6 +6,9 @@ import { loadConfigSnapshot, loadMottainaiConfig, loadRawConfig, resolveConfigPa
 import type { MottainaiConfig } from "./config.js";
 import { openDashboardBrowser, parseDashboardOptions, startDashboard } from "./dashboard/command.js";
 import { openDashboardBrowser as openManagerBrowser, parseManagerOptions, startManager } from "./manager/command.js";
+import { ManagerSessionService } from "./manager/service.js";
+import { defaultTaskRunInstruction, runManagedTask } from "./workflow/domain/managed-task-run.js";
+import { ZellijCliRuntime } from "./manager/zellij.js";
 import { localTools } from "./local-tools.js";
 import { dispatchClientHook, runManagedHooksCommand } from "./hooks/commands.js";
 import type { HookCommandContext } from "./hooks/commands.js";
@@ -88,6 +91,7 @@ const USAGE = `usage:
   mottainai doctor [--json]                      validate the local installation
   mottainai policy explain [--workspace path]    resolved Git workflow policy (Issue #34)
   mottainai task start <slug> [options]          start a Git workflow task (dedicated worktree/branch)
+  mottainai task run <slug> [options]            start an Issue-bound task and launch its Manager agent
   mottainai task status [--workspace path]       active Git workflow task for the current worktree
   mottainai task commit [options]                commit the current managed task
   mottainai task push [options]                  push the current managed task
@@ -136,8 +140,11 @@ runtime options:
 
 policy/task options:
   --workspace path      Git repository root; defaults to the current Git repository's top level
-  --type type           explicit branch type for "task start" (required)
-  --issue ref           issue reference for "task start" (required)
+  --type type           explicit branch type for "task start/run" (required)
+  --issue ref           issue reference for "task start/run" (required)
+  --agent agent         Manager profile for "task run" (required)
+  --model model         optional Manager model for "task run"
+  --instruction text    optional agent instruction for "task run"
   --task-id id          explicit task id; omitted only when current worktree identity is unique
   --idempotency-key key retry key for create/cleanup operations
   --dry-run              validate and show the write plan without mutation
@@ -681,6 +688,54 @@ export async function runCli(args: string[]): Promise<number> {
         return 1;
       }
       print({ ok: true, workspace, ...result.explained });
+    } else if (command === "task" && argv[0] === "run") {
+      const taskSlug = argv[1];
+      if (taskSlug === undefined || taskSlug.startsWith("--")) fail(USAGE);
+      validateTaskSlug(taskSlug);
+      const workspace = resolveWorkflowWorkspace(argv);
+      const branchType = requireFlagValue(argv, "type");
+      if (branchType === undefined) fail("missing value for --type");
+      const issueRef = requireFlagValue(argv, "issue");
+      if (issueRef === undefined) fail("missing value for --issue");
+      validateIssueRef(issueRef);
+      const agentKind = requireFlagValue(argv, "agent");
+      if (agentKind === undefined) fail("missing value for --agent");
+      const instruction = requireFlagValue(argv, "instruction") ?? defaultTaskRunInstruction(issueRef);
+      const provider = requireFlagValue(argv, "provider");
+      const model = requireFlagValue(argv, "model");
+      const idempotencyKey = requireFlagValue(argv, "idempotency-key");
+      const store = await openWorkflowStateStore();
+      const nawabari = new NawabariExecutionClient();
+      const manager = new ManagerSessionService({
+        workspaceRoot: workspace,
+        store,
+        nawabari,
+        runtime: new ZellijCliRuntime({
+          cwd: workspace,
+          environment: process.env,
+          binary: process.env.MOTTAINAI_ZELLIJ_BINARY ?? "zellij",
+        }),
+      });
+      try {
+        const result = await runManagedTask({
+          workspaceRoot: workspace,
+          store,
+          nawabari,
+          manager,
+          taskSlug,
+          issueRef,
+          branchType,
+          agentKind,
+          ...(provider === undefined ? {} : { provider }),
+          ...(model === undefined ? {} : { model }),
+          instruction,
+          ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+        });
+        print({ workspace, ...result });
+        return result.ok ? 0 : 1;
+      } finally {
+        store.close();
+      }
     } else if (command === "task" && argv[0] === "start") {
       const taskSlug = argv[1];
       if (taskSlug === undefined || taskSlug.startsWith("--")) fail(USAGE);

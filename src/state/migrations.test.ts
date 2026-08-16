@@ -110,18 +110,22 @@ test("manager Pi migration preserves existing Codex session records", () => {
 
     applyMigrations(db, MIGRATIONS);
     const row = db
-      .prepare("SELECT agent_kind, launch_profile, instruction, provider FROM manager_sessions WHERE session_id = ?")
+      .prepare(
+        "SELECT agent_kind, launch_profile, instruction, provider, idempotency_key FROM manager_sessions WHERE session_id = ?",
+      )
       .get("codex-session") as {
       agent_kind: string;
       launch_profile: string;
       instruction: string;
       provider: string | null;
+      idempotency_key: string | null;
     };
     assert.deepEqual({ ...row }, {
       agent_kind: "codex",
       launch_profile: "codex",
       instruction: "keep this record",
       provider: null,
+      idempotency_key: null,
     });
   } finally {
     db.close();

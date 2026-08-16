@@ -1,10 +1,9 @@
 import { runProgram as defaultRunProgram } from "../../subprocess.js";
 import type { RunResult } from "../../subprocess.js";
 import type { GhInariError } from "../../gh-inari.js";
-import { renderPullRequestBody, type PullRequestBodyDraft, type PullRequestRenderPolicy } from "../domain/pr-render.js";
+import type { PullRequestBodyDraft } from "../domain/pr-intent.js";
 import { transitionTask } from "../domain/task.js";
 import { validateTransition } from "../domain/lifecycle.js";
-import type { WorkflowPolicyDocument } from "../policy/schema.js";
 import type {
   Issue,
   IssueState,
@@ -82,12 +81,8 @@ export interface PullRequestCreateInput {
   head: RevisionIdentity;
   base: RevisionIdentity;
   draft: PullRequestBodyDraft;
-  policy?: PullRequestRenderPolicy | WorkflowPolicyDocument["pullRequest"];
   providerDraft?: boolean;
 }
-
-/** Backward-compatible name for callers of the direct GitHub adapter. */
-export type GithubCreatePullRequestInput = PullRequestCreateInput;
 
 /**
  * Provider-neutral identity used to reconcile a PR-create intent before another
@@ -103,8 +98,8 @@ export interface PullRequestLookupInput {
 
 /**
  * The orchestration layer depends on this capability contract rather than on
- * a transport. The direct GitHub adapter and the future gh-inari adapter can
- * both preserve the same create/reconcile intent identity.
+ * a transport. Production mutation is implemented only by the gh-inari
+ * adapter; GithubAdapter supplies the read-only reconciliation half.
  */
 export interface PullRequestCreateAdapter {
   findPullRequests(input: PullRequestLookupInput): Promise<GithubResult<PullRequest[]>>;
@@ -294,57 +289,6 @@ function parseGithubPullRequestRecord(
       repository: repositoryFromGithub(record.repository) ?? defaultRepository,
       head: { name: headName, revision: headRevision },
       base: { name: baseName, revision: baseRevision },
-    },
-  };
-}
-
-function parseCreatePullRequestOutput(
-  stdout: string,
-  input: PullRequestCreateInput,
-): { ok: true; pullRequest: PullRequest } | { ok: false; reason: string } {
-  const trimmed = stdout.trim();
-  const parsedJson = parseJson(trimmed);
-  if (parsedJson.ok) {
-    const parsed = parseGithubPullRequestRecord(parsedJson.value, input.repository, input.head, input.base);
-    if (parsed.ok) return parsed;
-    const number = numberValue(parsedJson.value.number);
-    const url = stringValue(parsedJson.value.url);
-    if (number !== undefined && url !== undefined) {
-      return {
-        ok: true,
-        pullRequest: {
-          identity: { provider: GITHUB_PROVIDER, id: `pull-request:${number}` },
-          reference: `#${number}`,
-          number,
-          state: "open",
-          lifecycleState: input.providerDraft === true ? "draft" : "open",
-          url,
-          repository: input.repository,
-          head: input.head,
-          base: input.base,
-        },
-      };
-    }
-    return parsed;
-  }
-  const match = trimmed.match(/(https?:\/\/[^\s]+\/pull\/(\d+))/i);
-  if (match === null) return { ok: false, reason: "missing pull request URL in provider output" };
-  const url = match[1]?.replace(/[),.;]+$/, "");
-  const number = Number(match[2]);
-  if (url === undefined || !Number.isInteger(number) || number < 1)
-    return { ok: false, reason: "invalid pull request URL in provider output" };
-  return {
-    ok: true,
-    pullRequest: {
-      identity: { provider: GITHUB_PROVIDER, id: `pull-request:${number}` },
-      reference: `#${number}`,
-      number,
-      state: "open",
-      lifecycleState: input.providerDraft === true ? "draft" : "open",
-      url,
-      repository: input.repository,
-      head: input.head,
-      base: input.base,
     },
   };
 }
@@ -684,117 +628,11 @@ export class GithubAdapter {
     }
     return { ok: true, value: parsed.pullRequests, attempts: command.attempts };
   }
-
-  async openPullRequest(input: PullRequestCreateInput): Promise<GithubResult<PullRequest>> {
-    if (input.repository.provider !== GITHUB_PROVIDER || input.repository.id.length === 0) {
-      return {
-        ok: false,
-        error: {
-          provider: GITHUB_PROVIDER,
-          operation: "pull-request-create",
-          code: "invalid-input",
-          message: "a GitHub repository identity is required",
-          retryable: false,
-          attempts: 0,
-        },
-      };
-    }
-    if (input.title.trim().length === 0) {
-      return {
-        ok: false,
-        error: {
-          provider: GITHUB_PROVIDER,
-          operation: "pull-request-create",
-          code: "invalid-input",
-          message: "title must not be empty",
-          retryable: false,
-          attempts: 0,
-        },
-      };
-    }
-    if (input.head.name.trim().length === 0 || input.base.name.trim().length === 0) {
-      return {
-        ok: false,
-        error: {
-          provider: GITHUB_PROVIDER,
-          operation: "pull-request-create",
-          code: "invalid-input",
-          message: "head and base names must not be empty",
-          retryable: false,
-          attempts: 0,
-        },
-      };
-    }
-    const repositoryFlag = repositoryArgument(input.repository);
-    if (repositoryFlag === undefined) {
-      return {
-        ok: false,
-        error: {
-          provider: GITHUB_PROVIDER,
-          operation: "pull-request-create",
-          code: "invalid-input",
-          message:
-            "repository identity must resolve to an explicit owner/name; refusing to fall back to the cwd repository for a mutation",
-          retryable: false,
-          attempts: 0,
-        },
-      };
-    }
-    const rendered = renderPullRequestBody(input.draft, input.policy);
-    if (!rendered.ok) {
-      return {
-        ok: false,
-        error: {
-          provider: GITHUB_PROVIDER,
-          operation: "pull-request-create",
-          code: "invalid-input",
-          message: rendered.errors.join("; "),
-          retryable: false,
-          attempts: 0,
-        },
-      };
-    }
-    const args = [
-      "pr",
-      "create",
-      "--title",
-      input.title,
-      "--body",
-      rendered.body,
-      "--head",
-      input.head.name,
-      "--base",
-      input.base.name,
-      "--repo",
-      repositoryFlag,
-    ];
-    if (input.providerDraft === true) args.push("--draft");
-    // 作成は自動 retry しない。timeout 後に provider 側で作成済みの可能性があり、
-    // 同じ mutation の再試行は duplicate PR を作るため、reconciliation 用の query を優先する。
-    const command = await this.runGh(args, "pull-request-create", false);
-    if (!command.ok) return command;
-    const parsed = parseCreatePullRequestOutput(command.stdout, input);
-    if (!parsed.ok) {
-      return {
-        ok: false,
-        error: {
-          provider: GITHUB_PROVIDER,
-          operation: "pull-request-create",
-          code: "invalid-response",
-          message: parsed.reason,
-          retryable: false,
-          attempts: command.attempts,
-        },
-      };
-    }
-    return { ok: true, value: parsed.pullRequest, attempts: command.attempts };
-  }
 }
 
 export type WorkflowPullRequestFailureReason =
   | "task-not-found"
   | "lifecycle-blocked"
-  | "render-rejected"
   | "head-sha-required"
   | "provider-failed"
   | "ambiguous-provider-result"
@@ -806,7 +644,6 @@ export type WorkflowPullRequestResult =
       pullRequest: PullRequest;
       record: PullRequestRecord;
       task: TaskRecord;
-      renderedBody: string;
       reused: boolean;
     }
   | {
@@ -814,7 +651,6 @@ export type WorkflowPullRequestResult =
       reason: WorkflowPullRequestFailureReason;
       detail: string;
       provider?: GithubFailure;
-      validationErrors?: string[];
       providerCreated?: boolean;
     };
 
@@ -822,7 +658,6 @@ export interface OpenWorkflowPullRequestInput {
   adapter: PullRequestCreateAdapter;
   store: WorkflowStateStore;
   taskId: TaskId;
-  policy: WorkflowPolicyDocument;
   repository: RepositoryIdentity;
   title: string;
   head: RevisionIdentity;
@@ -922,7 +757,6 @@ export async function openWorkflowPullRequest(input: OpenWorkflowPullRequestInpu
       pullRequest: pullRequestFromRecord(existing, input.repository, input.head, input.base),
       record: existing,
       task: reconciledTask,
-      renderedBody: "",
       reused: true,
     };
   }
@@ -982,7 +816,6 @@ export async function openWorkflowPullRequest(input: OpenWorkflowPullRequestInpu
       head: input.head,
       base: input.base,
       draft: input.draft,
-      policy: input.policy.pullRequest,
       providerDraft: input.providerDraft,
     });
   }
@@ -1053,9 +886,6 @@ export async function openWorkflowPullRequest(input: OpenWorkflowPullRequestInpu
     pullRequest: provider.value,
     record,
     task: transitioned.task,
-    // The governed renderer belongs to gh-inari. Mottainai deliberately does
-    // not project or reconstruct an authoritative PR body here.
-    renderedBody: "",
     reused,
   };
 }
