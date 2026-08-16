@@ -92,11 +92,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ripgrep
 
+      # The packed Pi issue-to-PR golden path (#334) launches Pi through a
+      # real Zellij session, not a stub, so the gate cannot silently pass by
+      # skipping for a missing companion. Pinned to the version that ships
+      # `zellij action list-panes --json` (see src/manager/zellij.ts).
+      - name: Install Zellij
+        run: |
+          set -euo pipefail
+          curl -sSL -o /tmp/zellij.tar.gz "https://github.com/zellij-org/zellij/releases/download/v0.44.3/zellij-x86_64-unknown-linux-musl.tar.gz"
+          sudo tar -xzf /tmp/zellij.tar.gz -C /usr/local/bin
+          sudo chmod +x /usr/local/bin/zellij
+          rm /tmp/zellij.tar.gz
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Verify required test tool
-        run: rg --version
+      - name: Verify required test tools
+        run: |
+          rg --version
+          zellij --version
 
       # Bounded black-box coverage: task start / worktree isolation, managed
       # mutation boundaries, lifecycle/state consistency, and cleanup.
@@ -163,6 +177,16 @@ jobs:
         with:
           node-version: "24"
           cache: pnpm
+
+      # See the product-contract job: the packed golden path (#334) requires
+      # a real Zellij, not a stub.
+      - name: Install Zellij
+        run: |
+          set -euo pipefail
+          curl -sSL -o /tmp/zellij.tar.gz "https://github.com/zellij-org/zellij/releases/download/v0.44.3/zellij-x86_64-unknown-linux-musl.tar.gz"
+          sudo tar -xzf /tmp/zellij.tar.gz -C /usr/local/bin
+          sudo chmod +x /usr/local/bin/zellij
+          rm /tmp/zellij.tar.gz
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
