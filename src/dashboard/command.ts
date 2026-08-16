@@ -27,6 +27,7 @@ export interface DashboardStartOptions extends DashboardCommandOptions {
   viewerHtml?: string;
   browserOpener?: BrowserOpener;
   environment?: NodeJS.ProcessEnv;
+  workspaceRoot?: string;
 }
 
 let activeDashboard: DashboardServerHandle | undefined;
@@ -83,7 +84,7 @@ export async function startDashboard(options: DashboardStartOptions): Promise<Da
   const handle = await startDashboardServer({
     host: LOOPBACK_HOST,
     port: options.port,
-    query: createDashboardQuery(provider, process.cwd()),
+    query: createDashboardQuery(provider, options.workspaceRoot ?? process.cwd()),
     viewerHtml: options.viewerHtml ?? readDashboardViewer(),
   });
   activeDashboard = handle;
