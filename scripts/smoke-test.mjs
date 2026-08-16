@@ -132,9 +132,8 @@ function main() {
     const configPath = path.join(installDirectory, "mottainai.config.json");
 
     // The packed consumer smoke is intentionally hermetic and must not claim
-    // host virtualization hardware it does not own. The production init path
-    // ensures the local Runtime; dry-run validates the released CLI/config
-    // surface without provisioning a VM in the package harness.
+    // host virtualization hardware it does not own. `init` only validates the
+    // released CLI/config surface; Runtime lifecycle belongs to `runtime`.
     console.log("running init --yes --dry-run --scope project --client none --no-doctor --json...");
     const initResult = spawnSync(
       process.execPath,
@@ -166,6 +165,43 @@ function main() {
     if (initSummary.config_written !== false)
       fail(`dry-run init unexpectedly wrote configuration: ${JSON.stringify(initSummary)}`);
     if (fs.existsSync(configPath)) fail(`dry-run init wrote configuration file at ${configPath}`);
+
+    const runtimeStateDirectory = path.join(installDirectory, "runtime-state");
+    console.log("running packed runtime ensure --help...");
+    const runtimeEnsureHelpResult = spawnSync(process.execPath, [primaryBin, "runtime", "ensure", "--help"], {
+      cwd: installDirectory,
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+    if (runtimeEnsureHelpResult.status !== 0 || !runtimeEnsureHelpResult.stdout.includes("runtime ensure"))
+      fail(
+        `runtime ensure help was not callable: ${runtimeEnsureHelpResult.status}\n${runtimeEnsureHelpResult.stdout}\n${runtimeEnsureHelpResult.stderr}`,
+      );
+
+    console.log("running packed runtime status --json...");
+    const runtimeStatusResult = spawnSync(
+      process.execPath,
+      [primaryBin, "runtime", "status", "--json", "--state-directory", runtimeStateDirectory],
+      {
+        cwd: installDirectory,
+        encoding: "utf8",
+        env: { ...process.env, HOME: installDirectory, USERPROFILE: installDirectory },
+        timeout: 10_000,
+      },
+    );
+    if (runtimeStatusResult.status !== 0)
+      fail(
+        `runtime status exited with status ${runtimeStatusResult.status}:\n${runtimeStatusResult.stdout}\n${runtimeStatusResult.stderr}`,
+      );
+    let runtimeStatus;
+    try {
+      runtimeStatus = JSON.parse(runtimeStatusResult.stdout);
+    } catch {
+      fail(`runtime status --json did not print valid JSON:\n${runtimeStatusResult.stdout}`);
+    }
+    if (runtimeStatus.ok !== true || runtimeStatus.lifecycle !== "absent")
+      fail(`runtime status did not report an absent Runtime: ${JSON.stringify(runtimeStatus)}`);
+    if (fs.existsSync(runtimeStateDirectory)) fail("runtime status created the state directory");
 
     console.log("running packed Mottainai gh-inari companion smoke...");
     run(process.execPath, ["scripts/gh-inari-package-smoke.mjs", installedPackageDirectory], {
