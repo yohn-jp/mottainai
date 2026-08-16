@@ -10,7 +10,7 @@ import {
   type WorkflowContextInput,
 } from "../git/context.js";
 import { verifyPush, type PushOperationInput } from "../git/push.js";
-import type { RepositoryInstanceId } from "../domain/identity.js";
+import { resolveRepositoryIdentity, type RepositoryInstanceId } from "../domain/identity.js";
 import {
   getTaskStatusForWorkspace,
   transitionTaskForWorkspace,
@@ -27,10 +27,16 @@ import type {
   NawabariSessionId,
   PushReconciliationRecord,
   TaskId,
+  TaskRecord,
   WorktreeId,
   WorkflowStateStore,
 } from "../state/store.js";
-import { NawabariExecutionError, type NawabariCommandResult, type NawabariExecutionClient } from "../nawabari.js";
+import {
+  NawabariExecutionError,
+  type NawabariCommandResult,
+  type NawabariExecutionClient,
+  type NawabariSession,
+} from "../nawabari.js";
 
 export interface WorkflowWriteDependencies {
   githubAdapter?: GithubAdapter;
@@ -55,6 +61,11 @@ export interface ResolvedWorkflowTask {
   executionWorkspaceRoot?: string;
   nawabariSessionId?: NawabariSessionId;
 }
+
+type WorkspaceNawabariAuthority =
+  | { kind: "none" }
+  | { kind: "owned"; task: TaskRecord; session: NawabariSession }
+  | { kind: "ambiguous"; detail: string };
 
 export type WorkflowWriteFailure = {
   ok: false;
@@ -322,7 +333,86 @@ function shadowFailure(error: unknown, legacyDecision: ShadowComparison["legacyD
   return { legacyDecision, nawabariDecision, agreement: false };
 }
 
-/** Resolve an omitted task only when the current workspace identifies exactly one active task. */
+function samePhysicalWorktree(left: string, right: string): boolean {
+  try {
+    return fs.realpathSync.native(left) === fs.realpathSync.native(right);
+  } catch {
+    return path.resolve(left) === path.resolve(right);
+  }
+}
+
+/** Resolve task ownership from Nawabari's persisted session/worktree attachment. */
+async function resolveNawabariAuthority(input: WorkflowTaskSelector): Promise<WorkspaceNawabariAuthority> {
+  if (input.nawabari === undefined) return { kind: "none" };
+
+  const identity = resolveRepositoryIdentity(input.workspaceRoot);
+  if (!identity.ok) return { kind: "ambiguous", detail: identity.reason };
+
+  let sessionId: string;
+  try {
+    sessionId = await input.nawabari.currentSessionId(input.workspaceRoot);
+  } catch (error) {
+    // A primary checkout or an unmanaged worktree has no current Nawabari
+    // session; callers may still use the established legacy/explicit path.
+    if (
+      error instanceof NawabariExecutionError &&
+      (error.nawabariCode === "NO_SESSION" || error.nawabariCode === "NO_CURRENT_SESSION")
+    )
+      return { kind: "none" };
+    return {
+      kind: "ambiguous",
+      detail: `could not resolve the current Nawabari session: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  const attached = input.store.listTasks().filter((task) => task.nawabariSessionId === sessionId);
+  if (attached.length !== 1)
+    return {
+      kind: "ambiguous",
+      detail: `Nawabari session ${sessionId} is not attached to exactly one managed task`,
+    };
+  const task = attached[0]!;
+  if (task.instanceId !== identity.identity.instanceId)
+    return {
+      kind: "ambiguous",
+      detail: `Nawabari session ${sessionId} belongs to a foreign repository instance`,
+    };
+
+  let session: NawabariSession;
+  try {
+    session = await input.nawabari.showSession({ cwd: input.workspaceRoot, sessionId });
+  } catch (error) {
+    return {
+      kind: "ambiguous",
+      detail: `could not verify Nawabari session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+  if (session.sessionId !== sessionId)
+    return { kind: "ambiguous", detail: `Nawabari session identity changed while resolving ${sessionId}` };
+  if (session.state !== "active")
+    return { kind: "ambiguous", detail: `Nawabari session ${sessionId} is ${session.state}, not active` };
+  if (!samePhysicalWorktree(session.worktree, identity.identity.worktreePath))
+    return {
+      kind: "ambiguous",
+      detail: `Nawabari session ${sessionId} worktree does not match the current physical worktree`,
+    };
+  return { kind: "owned", task, session };
+}
+
+function explicitTaskAuthorityFailure(
+  authority: WorkspaceNawabariAuthority,
+  taskId: TaskId,
+): WorkflowWriteFailure | undefined {
+  if (authority.kind === "ambiguous") return failure("task-identity-ambiguous", authority.detail);
+  if (authority.kind === "owned" && authority.task.taskId !== taskId)
+    return failure(
+      "task-identity-ambiguous",
+      `explicit task ${taskId} conflicts with the current Nawabari-owned task ${authority.task.taskId}`,
+    );
+  return undefined;
+}
+
+/** Resolve an omitted task only from authoritative Nawabari evidence when present. */
 export async function resolveWorkflowTask(
   input: WorkflowTaskSelector,
 ): Promise<WorkflowWriteResult<ResolvedWorkflowTask>> {
@@ -331,8 +421,15 @@ export async function resolveWorkflowTask(
     if (typeof taskIdValue !== "string") return taskIdValue;
     const task = input.store.getTask(taskIdValue as TaskId);
     if (task === undefined) return failure("task-not-found", `task was not found: ${taskIdValue}`);
-    return taskContext(input, task);
+    const authority = await resolveNawabariAuthority(input);
+    const authorityFailure = explicitTaskAuthorityFailure(authority, task.taskId);
+    if (authorityFailure !== undefined) return authorityFailure;
+    return taskContext(input, task, authority.kind === "owned" ? authority.session : undefined);
   }
+
+  const authority = await resolveNawabariAuthority(input);
+  if (authority.kind === "ambiguous") return failure("task-identity-ambiguous", authority.detail);
+  if (authority.kind === "owned") return taskContext(input, authority.task, authority.session);
 
   const located = await getTaskStatusForWorkspace(input.workspaceRoot, input.store);
   if (!located.ok) return failure("repository-identity-unavailable", located.reason);
@@ -344,6 +441,7 @@ export async function resolveWorkflowTask(
 async function taskContext(
   input: WorkflowTaskSelector,
   task: { taskId: TaskId; instanceId: RepositoryInstanceId },
+  authoritativeSession?: NawabariSession,
 ): Promise<WorkflowWriteResult<ResolvedWorkflowTask>> {
   const storedTask = input.store.getTask(task.taskId);
   if (storedTask === undefined) return failure("task-not-found", `task was not found: ${task.taskId}`);
@@ -354,10 +452,19 @@ async function taskContext(
         "managed task references Nawabari but no compatible execution boundary was supplied",
       );
     try {
-      const session = await input.nawabari.showSession({
-        cwd: input.workspaceRoot,
-        sessionId: storedTask.nawabariSessionId,
-      });
+      const session =
+        authoritativeSession ??
+        (await input.nawabari.showSession({
+          cwd: input.workspaceRoot,
+          sessionId: storedTask.nawabariSessionId,
+        }));
+      if (session.sessionId !== storedTask.nawabariSessionId)
+        return failure("task-identity-ambiguous", `task ${task.taskId} is attached to a different Nawabari session`);
+      if (session.state !== "active")
+        return failure(
+          "task-identity-ambiguous",
+          `Nawabari session ${session.sessionId} is ${session.state}, not active`,
+        );
       return {
         ok: true,
         taskId: task.taskId,
@@ -1409,6 +1516,9 @@ export async function cleanupWorkflowTask(
   if (input.taskId !== undefined) {
     const existing = input.store.getTask(input.taskId as TaskId);
     if (existing?.lifecycleState === "cleaned" && existing.nawabariSessionId !== undefined) {
+      const authority = await resolveNawabariAuthority(input);
+      const authorityFailure = explicitTaskAuthorityFailure(authority, existing.taskId);
+      if (authorityFailure !== undefined) return authorityFailure;
       const plan: NawabariCleanupPlan = {
         authority: "nawabari",
         planId: input.idempotencyKey ?? `cleanup-${existing.taskId}`,

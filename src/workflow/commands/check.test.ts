@@ -9,7 +9,7 @@ import { createTempGitRepo, runGit } from "../../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../../test-support/workflow-store.js";
 import { getPreset } from "../policy/presets.js";
 import { startTask } from "../domain/task.js";
-import type { NawabariExecutionClient } from "../nawabari.js";
+import { NawabariExecutionError, type NawabariExecutionClient } from "../nawabari.js";
 import type { NawabariSessionId } from "../state/store.js";
 import { computeStateFingerprint } from "../validation/fingerprint.js";
 import { getWorkflowValidationReceipt, runWorkflowCheck } from "./check.js";
@@ -66,6 +66,13 @@ function fakeNawabari(
   calls: Array<{ cwd: string; sessionId: string }>,
 ): NawabariExecutionClient {
   return {
+    currentSessionId: async () => {
+      throw new NawabariExecutionError(
+        "nawabari-command-failed",
+        "no current test session",
+        "NO_CURRENT_SESSION",
+      );
+    },
     showSession: async ({ cwd, sessionId }: { cwd: string; sessionId: string }) => {
       calls.push({ cwd, sessionId });
       const worktree = sessions.get(sessionId);
