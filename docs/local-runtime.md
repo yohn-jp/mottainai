@@ -36,15 +36,22 @@ reconciling, ready, incompatible, repairable, and recreate-required. A
 corrupt image, changed SSH host key, incompatible Runtime contract, or missing
 accelerator is an error rather than a destructive guess.
 
-Release staging runs the locked Nix output first and then uses
-`scripts/build-runtime-image-manifest.mjs` to record kernel/initrd/disk hashes,
-the lockfile digest, and the pinned SSH host key. The reusable
-Each platform build supplies its already-built QEMU executable and explicit
-dependencies to `scripts/build-runtime-qemu-manifest.mjs`. The host-independent
-builder stages the executable, firmware, runtime libraries (or records a
-static-link dependency mode), license files, and provenance into a deterministic
-archive. The generated sidecar binds the archive and every staged file to real
-hashes and is verified by
+Release staging runs the locked Nix output first (`nix build ./nix#runtime-image`).
+That output is a projection of the same `nixosConfigurations` system and
+contains the kernel, initrd, raw disk, and build identity. It is then passed to
+`scripts/build-runtime-image-manifest.mjs --image-output` to record
+kernel/initrd/disk hashes, the lockfile digest, and the real per-image pinned
+SSH host key. The generated manifest stores asset paths relative to itself, so
+the verified bundle remains consumable after staging moves it.
+
+Each platform build also supplies its already-built QEMU executable and
+explicit dependencies to `scripts/build-runtime-qemu-manifest.mjs`. The
+host-independent builder stages the executable, firmware, runtime libraries
+(or records a static-link dependency mode), license files, and provenance into
+a deterministic archive. The generated sidecar binds the archive and every
+staged file to real hashes and is verified by
 `scripts/verify-runtime-qemu-artifact.mjs` before an OS-specific integration
-job consumes it. `scripts/runtime-qemu-boot-smoke.mjs` is an artifact-level
-process smoke primitive; it does not claim KVM/HVF/WHPX or guest-boot evidence.
+job consumes it; the resulting per-host manifest is what the lazy
+materializer verifies and copies into the private state root.
+`scripts/runtime-qemu-boot-smoke.mjs` is an artifact-level process smoke
+primitive; it does not claim KVM/HVF/WHPX or guest-boot evidence.
