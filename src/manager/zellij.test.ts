@@ -176,6 +176,35 @@ test("Zellij start rejects a selected runtime-name collision before creating a p
   );
 });
 
+test("Zellij inspection classifies the real no-active-sessions diagnostic as absent", async () => {
+  const runtime = new ZellijCliRuntime({
+    cwd: "/repo",
+    run: async () => ({
+      stdout: "",
+      stderr: "No active zellij sessions found.\n",
+      exitCode: 1,
+    }),
+  });
+  assert.equal(await runtime.inspect("mottainai-12345678-1234-4234-8234-123456789abc"), "absent");
+});
+
+test("Zellij inspection matches an ANSI-decorated managed session row", async () => {
+  const managedName = "mottainai-12345678-1234-4234-8234-123456789abc";
+  const runtime = new ZellijCliRuntime({
+    cwd: "/repo",
+    run: async (args) => {
+      if (args[0] === "list-sessions")
+        return { stdout: `[1m${managedName}[0m [32m[Created][0m\n`, stderr: "", exitCode: 0 };
+      return {
+        stdout: JSON.stringify([{ title: `${managedName}-agent`, pane_cwd: "/repo", exited: false, exit_status: null }]),
+        stderr: "",
+        exitCode: 0,
+      };
+    },
+  });
+  assert.equal(await runtime.inspect(managedName), "running");
+});
+
 test("Zellij inspection refuses to adopt a same-name session with no matching managed pane identity", async () => {
   const runtime = new ZellijCliRuntime({
     cwd: "/repo",

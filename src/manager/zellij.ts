@@ -5,6 +5,8 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_OUTPUT_BYTES = 64 * 1024;
 const MINIMUM_ZELLIJ_VERSION = [0, 40, 0] as const;
 const SESSION_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/u;
+const NO_ACTIVE_SESSION_PATTERN = /no session|not found|does not exist|no active [^\n]*sessions/iu;
+const ANSI_ESCAPE_PATTERN = /\x1b\[[0-9;]*[A-Za-z]/gu;
 
 export type ZellijObservedState = "running" | "detached" | "exited" | "absent" | "unresolved";
 
@@ -75,7 +77,7 @@ function defaultRunner(binary: string, environment?: NodeJS.ProcessEnv): ZellijC
 function sessionRow(stdout: string, sessionName: string): string | undefined {
   return stdout
     .split(/\r?\n/u)
-    .map((line) => line.trim())
+    .map((line) => line.replace(ANSI_ESCAPE_PATTERN, "").trim())
     .find((line) => line === sessionName || line.startsWith(`${sessionName} `));
 }
 
@@ -165,7 +167,7 @@ export class ZellijCliRuntime implements ZellijRuntime {
       throw new ZellijRuntimeError("zellij_unavailable", `Zellij session inspection failed: ${result.spawnError}`);
     }
     if (result.exitCode !== 0) {
-      if (/no session|not found|does not exist/iu.test(result.stderr)) return "absent";
+      if (NO_ACTIVE_SESSION_PATTERN.test(result.stderr)) return "absent";
       throw new ZellijRuntimeError(
         "zellij_command_failed",
         `Zellij session inspection failed: ${result.spawnError ?? (result.stderr.trim() || `exit ${result.exitCode}`)}`,
@@ -247,7 +249,7 @@ export class ZellijCliRuntime implements ZellijRuntime {
     const result = await this.run(["kill-session", sessionName], cwd);
     if (
       result.spawnError !== undefined ||
-      (result.exitCode !== 0 && !/no session|not found|does not exist/iu.test(result.stderr))
+      (result.exitCode !== 0 && !NO_ACTIVE_SESSION_PATTERN.test(result.stderr))
     ) {
       throw new ZellijRuntimeError(
         "zellij_command_failed",
@@ -297,7 +299,7 @@ export class ZellijCliRuntime implements ZellijRuntime {
     const result = await this.run(["kill-session", sessionName], cwd);
     if (
       result.spawnError !== undefined ||
-      (result.exitCode !== 0 && !/no session|not found|does not exist/iu.test(result.stderr))
+      (result.exitCode !== 0 && !NO_ACTIVE_SESSION_PATTERN.test(result.stderr))
     ) {
       throw new ZellijRuntimeError(
         "zellij_command_failed",
