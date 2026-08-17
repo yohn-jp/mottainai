@@ -112,7 +112,9 @@ export function validateRepositoryInari(
   { repository = resolveRepository(), run = createCommandRunner(root), integration = false } = {},
 ) {
   const templates = readSemanticTemplates(root);
-  const syncArgs = ["template", "sync", "--check", "--json", "--repository", repository];
+  // Local snapshot/schema validation is hermetic: no --repository, so gh-inari
+  // never falls through to a live gh/GitHub lookup for this default self-check path.
+  const syncArgs = ["template", "sync", "--check", "--json"];
   const firstSync = run(syncArgs);
   const secondSync = run(syncArgs);
   const errors = [...validateSyncReport(firstSync), ...validateSyncReport(secondSync)];
@@ -120,7 +122,7 @@ export function validateRepositoryInari(
 
   const schemas = {};
   for (const id of ISSUE_TEMPLATE_IDS) {
-    const report = run(["issue", "schema", id, "--compact", "--json", "--repository", repository]);
+    const report = run(["issue", "schema", id, "--compact", "--json"]);
     schemas[id] = report;
     errors.push(...validateSchemaReport(id, report, templates.get(id)));
   }
