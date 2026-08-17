@@ -34,8 +34,8 @@ importers:
         specifier: 9.29.0
         version: 9.29.0(supports-color@7.2.0)
       nawabari:
-        specifier: 0.3.0
-        version: 0.3.0
+        specifier: 0.4.1
+        version: 0.4.1
       prettier:
         specifier: 3.6.2
         version: 3.6.2
@@ -793,8 +793,8 @@ packages:
   natural-compare@1.4.0:
     resolution: {integrity: sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==}
 
-  nawabari@0.3.0:
-    resolution: {integrity: sha512-we5NoC+YFeCIBJmY7cCIM0eZHG/dcAwDE0ywGdmhdpQeQO+QXUF2uRWmyPjg7SOrmJ/BuMvQFkCOKrVJ9xp/qA==}
+  nawabari@0.4.1:
+    resolution: {integrity: sha512-fsTNFFO9l4xKmcu0niHN0O8F8xhF0Lfc+hKBskLtYqKp6Iv3PaCou4JuyutxkxGLAHN3fnwBnSVREYgxDnwvOw==}
     engines: {node: '>=22.13 <25'}
     hasBin: true
 
@@ -1802,7 +1802,7 @@ snapshots:
 
   natural-compare@1.4.0: {}
 
-  nawabari@0.3.0: {}
+  nawabari@0.4.1: {}
 
   negotiator@1.0.0: {}
 

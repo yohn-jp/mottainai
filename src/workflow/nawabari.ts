@@ -4,7 +4,9 @@ import { projectNawabariDeclaration } from "../semantics/execution-plan.js";
 
 export const NAWABARI_CONTRACT_ID = "nawabari.standalone-execution.v1" as const;
 export const NAWABARI_CONTRACT_SCHEMA_VERSION = 1 as const;
-export const MINIMUM_NAWABARI_VERSION = "0.2.0" as const;
+export const MINIMUM_NAWABARI_VERSION = "0.4.1" as const;
+/** Expected shape of the resource-claims capability's `claim_set_replacement` boundary (Nawabari #101 / PR #106). */
+const REQUIRED_CLAIM_SET_REPLACEMENT_PAIRING = "adjacent-resource-mode" as const;
 
 const COMMAND_TIMEOUT_MS = 12_000;
 const COMMAND_MAX_OUTPUT_BYTES = 64 * 1024;
@@ -14,8 +16,8 @@ const REQUIRED_NAWABARI_COMMANDS = [
   "session show",
   "session list",
   "session claim",
+  "session update",
   "session claims",
-  "session release",
   "session close",
   "authorize",
   "checkpoint",
@@ -169,6 +171,40 @@ function requirePushResult(result: NawabariCommandResult): NawabariPushResult {
   return result as NawabariPushResult;
 }
 
+export function claimKey(claim: ExecutionClaim): string {
+  return `${claim.resource} ${claim.mode}`;
+}
+
+function parseClaimsArray(result: NawabariCommandResult, field: string): ExecutionClaim[] {
+  if (!Array.isArray(result[field]))
+    throw new NawabariExecutionError(
+      "nawabari-contract-invalid",
+      `Nawabari result is missing ${field}`,
+      undefined,
+      result,
+    );
+  return (result[field] as unknown[]).map((value) => {
+    const claim = object(value);
+    if (claim === undefined)
+      throw new NawabariExecutionError(
+        "nawabari-contract-invalid",
+        `Nawabari result contains a malformed claim in ${field}`,
+        undefined,
+        value,
+      );
+    const resource = requiredString(claim.resource, `${field}[].resource`);
+    const mode = claim.mode;
+    if (mode !== "read" && mode !== "write" && mode !== "exclusive-write")
+      throw new NawabariExecutionError(
+        "nawabari-contract-invalid",
+        `Nawabari result contains an invalid mode in ${field}`,
+        undefined,
+        claim,
+      );
+    return { resource, mode };
+  });
+}
+
 function requireDecision(result: NawabariCommandResult): NawabariCommandResult {
   if (typeof result.allowed !== "boolean")
     throw new NawabariExecutionError(
@@ -235,6 +271,21 @@ export class NawabariExecutionClient {
         "nawabari-incompatible",
         `Nawabari contract is missing required commands: ${missingCommands.join(", ")}`,
       );
+    const resourceClaimsCapability = capabilities.find((capability) => capability.id === "resource-claims");
+    const claimSetReplacement = object(resourceClaimsCapability?.claim_set_replacement);
+    if (
+      claimSetReplacement === undefined ||
+      claimSetReplacement.atomic !== true ||
+      claimSetReplacement.idempotent_retry !== true ||
+      claimSetReplacement.unchanged_on_rejection !== true ||
+      claimSetReplacement.pairing !== REQUIRED_CLAIM_SET_REPLACEMENT_PAIRING ||
+      !Array.isArray(claimSetReplacement.commands) ||
+      !claimSetReplacement.commands.includes("session update")
+    )
+      throw new NawabariExecutionError(
+        "nawabari-incompatible",
+        "Nawabari contract is missing the atomic claim_set_replacement boundary on resource-claims",
+      );
     this.discovered = { contractId: NAWABARI_CONTRACT_ID, schemaVersion: 1, packageVersion, capabilities };
     return this.discovered;
   }
@@ -270,33 +321,42 @@ export class NawabariExecutionClient {
 
   async listClaims(input: { cwd: string; sessionId: string }): Promise<ExecutionClaim[]> {
     const result = await this.invoke(["session", "claims", "--session", input.sessionId], input.cwd);
-    if (!Array.isArray(result.claims))
+    return parseClaimsArray(result, "claims");
+  }
+
+  /**
+   * Atomically replace the session's complete resource claim set in one
+   * `session update` transaction (Nawabari 0.4.1's `claim_set_replacement`
+   * boundary): a rejected update leaves the prior set unchanged, so the
+   * caller never observes — or needs to compensate for — a partially
+   * rebuilt claim set. The returned evidence is checked to prove the
+   * resulting set matches exactly the requested one; a mismatch fails
+   * closed rather than being trusted silently.
+   */
+  async updateClaims(input: {
+    cwd: string;
+    sessionId: string;
+    claims: readonly ExecutionClaim[];
+  }): Promise<ExecutionClaim[]> {
+    const args = [
+      "session",
+      "update",
+      "--session",
+      input.sessionId,
+      ...input.claims.flatMap((claim) => ["--resource", claim.resource, "--mode", claim.mode]),
+    ];
+    const result = await this.invoke(args, input.cwd);
+    const claims = parseClaimsArray(result, "claims");
+    const expected = new Set(input.claims.map(claimKey));
+    const observed = new Set(claims.map(claimKey));
+    if (expected.size !== observed.size || [...expected].some((key) => !observed.has(key)))
       throw new NawabariExecutionError(
         "nawabari-contract-invalid",
-        "Nawabari session claims result is missing claims",
+        "Nawabari session update result does not match the requested claim set",
         undefined,
         result,
       );
-    return result.claims.map((value) => {
-      const claim = object(value);
-      if (claim === undefined)
-        throw new NawabariExecutionError(
-          "nawabari-contract-invalid",
-          "Nawabari session claims result contains a malformed claim",
-          undefined,
-          value,
-        );
-      const resource = requiredString(claim.resource, "claims[].resource");
-      const mode = claim.mode;
-      if (mode !== "read" && mode !== "write" && mode !== "exclusive-write")
-        throw new NawabariExecutionError(
-          "nawabari-contract-invalid",
-          "Nawabari session claims result contains an invalid mode",
-          undefined,
-          claim,
-        );
-      return { resource, mode };
-    });
+    return claims;
   }
 
   async authorize(input: {
@@ -551,10 +611,6 @@ export async function startNawabariExecution(input: {
       await input.client.closeSession({ cwd: session.worktree, sessionId: session.sessionId }).catch(() => undefined);
     throw error;
   }
-}
-
-function claimKey(claim: ExecutionClaim): string {
-  return `${claim.resource}\u0000${claim.mode}`;
 }
 
 /**
