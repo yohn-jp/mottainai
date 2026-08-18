@@ -55,7 +55,9 @@ function capabilitiesResult(
     schema_version: 1,
     contract_id: "nawabari.standalone-execution.v1",
     package_version: overrides.packageVersion ?? "0.4.1",
-    capabilities: [{ id: "resource-claims", commands: overrides.commands ?? REQUIRED_COMMANDS, ...claimSetReplacement }],
+    capabilities: [
+      { id: "resource-claims", commands: overrides.commands ?? REQUIRED_COMMANDS, ...claimSetReplacement },
+    ],
   };
 }
 
@@ -107,6 +109,49 @@ test("adapter discovers the versioned contract and sends only concrete declarati
   ]);
 });
 
+test("Nawabari projection preserves explicit mixed modes across multiple bounded resources", async () => {
+  const calls: string[][] = [];
+  const client = new NawabariExecutionClient({
+    runner: {
+      async run(_command, args): Promise<RunResult> {
+        calls.push([...args]);
+        if (args[0] === "capabilities") return result(capabilitiesResult());
+        if (args[0] === "session" && args[1] === "create")
+          return result({
+            ok: true,
+            command: "session create",
+            session_id: "session-mixed",
+            repository: "repo",
+            worktree: "/tmp/worktree",
+            branch: "feat/mixed",
+            state: "active",
+          });
+        if (args[0] === "session" && args[1] === "claim")
+          return result({ ok: true, command: "session claim", session_id: "session-mixed" });
+        throw new Error(`unexpected command: ${args.join(" ")}`);
+      },
+    },
+  });
+  const plan = createSemanticExecutionPlan({
+    claims: [
+      { resource: "src/read.ts", mode: "read" },
+      { resource: "src/write.ts", mode: "write" },
+      { resource: "src/exclusive.ts", mode: "exclusive-write" },
+    ],
+  });
+  const started = await startNawabariExecution({ client, cwd: "/repo", branch: "feat/mixed", plan });
+  assert.deepEqual(started.declaration.claims, plan.claims);
+  const claimCalls = calls.filter((args) => args[0] === "session" && args[1] === "claim");
+  assert.equal(claimCalls.length, 3);
+  assert.deepEqual(
+    claimCalls.map((args) => ({
+      resource: args[args.indexOf("--resource") + 1],
+      mode: args[args.indexOf("--mode") + 1],
+    })),
+    plan.claims,
+  );
+});
+
 test("missing and incompatible companions are explicit failures", async () => {
   const missing = new NawabariExecutionClient({
     runner: {
@@ -153,13 +198,16 @@ test("authorization denial remains an authoritative decision rather than an unav
     runner: {
       async run(_command, args): Promise<RunResult> {
         if (args[0] === "capabilities") return result(capabilitiesResult());
-        return result({
-          ok: false,
-          command: "authorize",
-          code: "RESOURCE_CLAIM_CONFLICT",
-          message: "Operation denied",
-          allowed: false,
-        }, 3);
+        return result(
+          {
+            ok: false,
+            command: "authorize",
+            code: "RESOURCE_CLAIM_CONFLICT",
+            message: "Operation denied",
+            allowed: false,
+          },
+          3,
+        );
       },
     },
   });

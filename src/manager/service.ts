@@ -2,7 +2,19 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { runProgram } from "../subprocess.js";
 import { NawabariExecutionClient } from "../workflow/nawabari.js";
+import { buildWorktreeNaming } from "../workflow/git/worktree.js";
+import { validateBranchNameAgainstGovernance } from "../workflow/governance/branch.js";
+import { resolveRepoState } from "../workflow/domain/repo-state.js";
+import {
+  createSemanticExecutionPlan,
+  projectNawabariDeclaration,
+  type ClaimGenerationProvenance,
+  type ExecutionClaim,
+  type NawabariDeclaration,
+  type SemanticExecutionPlan,
+} from "../semantics/execution-plan.js";
 import type {
   ManagerAgentKind,
   ManagerReconciliationState,
@@ -17,6 +29,7 @@ import { validateIssueRef, validateTaskSlug } from "../workflow/commands/validat
 import { PI_GUARD_ASSET_MARKER } from "./pi-guard.js";
 import {
   createNawabariManagerExecutionAuthority,
+  createManagerFallbackSemanticExecutionPlan,
   type ManagerExecutionAuthority,
   type ManagerExecutionContext,
 } from "../workflow/domain/manager-execution.js";
@@ -27,6 +40,9 @@ const MAX_PROVIDER_LENGTH = 128;
 const MAX_MODEL_LENGTH = 128;
 const MAX_STATUS_LENGTH = 512;
 const MAX_LIST_LIMIT = 500;
+const MAX_SCOPE_PATHS = 128;
+const MAX_SCOPE_CLAIMS = 128;
+const MAX_SCOPE_RESOURCE_LENGTH = 512;
 const ACTIVE_RUNTIME_STATES = ["starting", "running", "detached"] as const satisfies readonly ManagerRuntimeState[];
 const RECENT_RUNTIME_STATES = [
   "exited",
@@ -51,6 +67,46 @@ export interface NewManagerSessionInput {
   branchType?: string;
   /** Stable operation identity used by the public task-run orchestration. */
   idempotencyKey?: string;
+  /** Explicit repository-relative execution scope. */
+  scope?: ManagerResourceScope;
+  /** Compatibility transport alias for scope.paths. */
+  paths?: readonly string[];
+  /** Compatibility transport alias for scope.claims. */
+  claims?: readonly ManagerResourceClaim[];
+}
+
+export type ManagerClaimMode = ExecutionClaim["mode"];
+
+export interface ManagerResourceClaim {
+  resource: string;
+  mode: ManagerClaimMode;
+}
+
+export interface ManagerResourceScope {
+  paths?: readonly string[];
+  claims?: readonly ManagerResourceClaim[];
+}
+
+export interface ManagerExecutionPreview {
+  identity: {
+    executionMode: "task-bound" | "workspace";
+    task: {
+      taskId?: string;
+      taskSlug?: string;
+      issueRef?: string;
+      branchType?: string;
+    };
+    branch: {
+      name: string;
+      base: string;
+      baseCommit?: string;
+    };
+  };
+  claims: readonly ExecutionClaim[];
+  claimGeneration: ClaimGenerationProvenance;
+  warnings: readonly string[];
+  semanticExecutionPlan: SemanticExecutionPlan;
+  nawabariDeclaration: NawabariDeclaration;
 }
 
 export interface ManagerLaunchInvocation {
@@ -184,6 +240,141 @@ function normalizeAgentKind(input: unknown): ManagerAgentKind {
   throw invalid("agentKind must be codex, claude, or pi");
 }
 
+interface ValidatedManagerSessionInput {
+  agentKind: ManagerAgentKind;
+  instruction: string;
+  provider: string | undefined;
+  model: string | undefined;
+  taskSlug: string | undefined;
+  issueRef: string | undefined;
+  branchType: string;
+  idempotencyKey: string | undefined;
+  scope: ManagerResourceScope | undefined;
+  scopeProvided: boolean;
+  semanticPlan: SemanticExecutionPlan;
+}
+
+function validateScopeResource(value: unknown, label: string): string {
+  if (typeof value !== "string") throw invalid(`${label} must be a repository-relative path`);
+  if (value.length > MAX_SCOPE_RESOURCE_LENGTH)
+    throw invalid(`${label} must be at most ${MAX_SCOPE_RESOURCE_LENGTH} characters`);
+  if (/[\u0000-\u001f\u007f]/u.test(value)) throw invalid(`${label} contains an unsupported control character`);
+  const resource = value.trim().replaceAll("\\", "/");
+  if (resource.length === 0) throw invalid(`${label} must not be empty`);
+  if (
+    path.isAbsolute(resource) ||
+    resource.startsWith("/") ||
+    resource.startsWith("//") ||
+    /^[A-Za-z]:/u.test(resource)
+  ) {
+    throw invalid(`${label} must be repository-relative`);
+  }
+  const segments = resource.split("/");
+  if (segments.some((segment) => segment.length === 0 || segment === "." || segment === "..")) {
+    throw invalid(`${label} must not contain empty, current-directory, or traversal segments`);
+  }
+  // Keep the caller's representation intact. The semantic execution-plan
+  // authority owns trimming, separator normalization, and deduplication.
+  return value;
+}
+
+function arrayInput(value: unknown, label: string): unknown[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw invalid(`${label} must be an array`);
+  return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeScope(input: NewManagerSessionInput): {
+  scope: ManagerResourceScope | undefined;
+  provided: boolean;
+} {
+  const raw: Record<string, unknown> = { ...input };
+  const rawScope = raw.scope;
+  if (rawScope !== undefined && !isRecord(rawScope)) throw invalid("scope must be an object");
+  const scopeRecord = isRecord(rawScope) ? rawScope : undefined;
+  const rawPaths = [scopeRecord?.paths, raw.paths].filter((value) => value !== undefined);
+  const rawClaims = [scopeRecord?.claims, raw.claims].filter((value) => value !== undefined);
+  const provided = rawScope !== undefined || raw.paths !== undefined || raw.claims !== undefined;
+  if (!provided) return { scope: undefined, provided: false };
+
+  const pathValues = rawPaths.flatMap((value, index) => arrayInput(value, index === 0 ? "scope.paths" : "paths") ?? []);
+  const claimValues = rawClaims.flatMap(
+    (value, index) => arrayInput(value, index === 0 ? "scope.claims" : "claims") ?? [],
+  );
+  if (pathValues.length === 0 && claimValues.length === 0)
+    throw invalid("scope must contain at least one path or claim");
+  if (pathValues.length > MAX_SCOPE_PATHS) throw invalid(`scope.paths must contain at most ${MAX_SCOPE_PATHS} entries`);
+  if (claimValues.length > MAX_SCOPE_CLAIMS)
+    throw invalid(`scope.claims must contain at most ${MAX_SCOPE_CLAIMS} entries`);
+
+  const paths = pathValues.map((value, index) => validateScopeResource(value, `scope.paths[${index}]`));
+  const claims = claimValues.map((value, index) => {
+    if (typeof value !== "object" || value === null || Array.isArray(value))
+      throw invalid(`scope.claims[${index}] must be an object`);
+    const claim = value as Record<string, unknown>;
+    const resource = validateScopeResource(claim.resource, `scope.claims[${index}].resource`);
+    if (claim.mode !== "read" && claim.mode !== "write" && claim.mode !== "exclusive-write")
+      throw invalid(`scope.claims[${index}].mode must be read, write, or exclusive-write`);
+    return { resource, mode: claim.mode } as ManagerResourceClaim;
+  });
+  return {
+    provided: true,
+    scope: {
+      ...(paths.length === 0 ? {} : { paths }),
+      ...(claims.length === 0 ? {} : { claims }),
+    },
+  };
+}
+
+function normalizeManagerSessionInput(input: NewManagerSessionInput): ValidatedManagerSessionInput {
+  const agentKind = normalizeAgentKind(input.launchProfile ?? input.agentKind);
+  const instruction = validateInstruction(input.instruction);
+  const provider = validateOptionalArg(input.provider, "provider", MAX_PROVIDER_LENGTH);
+  const model = validateOptionalArg(input.model, "model", MAX_MODEL_LENGTH);
+  const taskSlug = validateOptionalArg(input.taskSlug, "taskSlug", 96);
+  const issueRef = validateOptionalArg(input.issueRef, "issueRef", 96);
+  const branchType = validateOptionalArg(input.branchType, "branchType", 32) ?? "feat";
+  const idempotencyKey = validateOptionalArg(input.idempotencyKey, "idempotencyKey", 128);
+  if (idempotencyKey !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(idempotencyKey))
+    throw invalid("idempotencyKey must be a bounded branch-safe token");
+  try {
+    if (taskSlug !== undefined) validateTaskSlug(taskSlug);
+    validateIssueRef(issueRef);
+  } catch (error) {
+    throw invalid(error instanceof Error ? error.message : String(error));
+  }
+  if (issueRef !== undefined && taskSlug === undefined) throw invalid("taskSlug is required when issueRef is provided");
+  if (provider !== undefined && agentKind !== "pi") throw invalid("provider is only supported by the pi profile");
+
+  const normalizedScope = normalizeScope(input);
+  if (normalizedScope.provided && taskSlug === undefined)
+    throw invalid("taskSlug is required when an explicit scope is provided");
+  const semanticPlan = normalizedScope.provided
+    ? createSemanticExecutionPlan({
+        explicitPaths: normalizedScope.scope?.paths,
+        claims: normalizedScope.scope?.claims,
+        verification: { rationale: "Manager scope is explicitly declared by the caller" },
+      })
+    : createManagerFallbackSemanticExecutionPlan();
+  return {
+    agentKind,
+    instruction,
+    provider,
+    model,
+    taskSlug,
+    issueRef,
+    branchType,
+    idempotencyKey,
+    scope: normalizedScope.scope,
+    scopeProvided: normalizedScope.provided,
+    semanticPlan,
+  };
+}
+
 function managerError(error: unknown): ManagerError {
   if (error instanceof ManagerError) return error;
   if (error instanceof ZellijRuntimeError) {
@@ -204,6 +395,75 @@ function managerError(error: unknown): ManagerError {
     );
   }
   return new ManagerError("runtime_error", boundedStatus(error instanceof Error ? error.message : String(error)), 500);
+}
+
+async function readGitValue(workspaceRoot: string, args: readonly string[]): Promise<string | undefined> {
+  const result = await runProgram("git", [...args], workspaceRoot, 5_000, 64 * 1024);
+  if (result.spawnError !== undefined || result.timedOut || result.outputLimit || result.exitCode !== 0)
+    return undefined;
+  const value = result.stdout.trim();
+  return value.length === 0 ? undefined : value;
+}
+
+async function prepareManagerExecutionPreview(
+  workspaceRoot: string,
+  input: ValidatedManagerSessionInput,
+): Promise<ManagerExecutionPreview> {
+  const repoState = await resolveRepoState(workspaceRoot);
+  const taskBound = input.taskSlug !== undefined;
+  if (taskBound && (!repoState.ok || !repoState.state.supported)) {
+    throw new ManagerError("task_start_failed", !repoState.ok ? repoState.reason : repoState.state.reason, 409);
+  }
+  const base = repoState.ok && repoState.state.branch !== undefined ? repoState.state.branch : "HEAD";
+  const baseCommit = await readGitValue(workspaceRoot, ["rev-parse", "--verify", "-q", base]);
+  if (taskBound && baseCommit === undefined)
+    throw new ManagerError("task_start_failed", `cannot resolve tip commit of ${base}`, 409);
+
+  let branchName = repoState.ok && repoState.state.branch !== undefined ? repoState.state.branch : "HEAD";
+  if (taskBound) {
+    branchName = buildWorktreeNaming({
+      branchType: input.branchType,
+      issueRef: input.issueRef ?? "unlinked",
+      taskSlug: input.taskSlug!,
+    }).branchName;
+    const repositoryRoot = await readGitValue(workspaceRoot, ["rev-parse", "--show-toplevel"]);
+    if (repositoryRoot === undefined)
+      throw new ManagerError("task_start_failed", "cannot resolve the repository root for branch governance", 409);
+    const branchValidation = await validateBranchNameAgainstGovernance(branchName, repositoryRoot);
+    if (!branchValidation.ok) {
+      throw new ManagerError(
+        "task_start_failed",
+        `generated branch ${branchName} was rejected before Nawabari mutation: ${branchValidation.detail}`,
+        409,
+      );
+    }
+  }
+
+  const nawabariDeclaration = projectNawabariDeclaration({
+    plan: input.semanticPlan,
+    branch: branchName,
+    base,
+  });
+  return {
+    identity: {
+      executionMode: taskBound ? "task-bound" : "workspace",
+      task: {
+        ...(input.taskSlug === undefined ? {} : { taskSlug: input.taskSlug }),
+        ...(input.issueRef === undefined ? {} : { issueRef: input.issueRef }),
+        ...(taskBound ? { branchType: input.branchType } : {}),
+      },
+      branch: {
+        name: branchName,
+        base,
+        ...(baseCommit === undefined ? {} : { baseCommit }),
+      },
+    },
+    claims: input.semanticPlan.claims,
+    claimGeneration: input.semanticPlan.claimGeneration,
+    warnings: input.semanticPlan.claimGeneration.warnings,
+    semanticExecutionPlan: input.semanticPlan,
+    nawabariDeclaration,
+  };
 }
 
 function receipt(code: string, message: string, source: ManagerSessionReceipt["source"]): ManagerSessionReceipt {
@@ -406,26 +666,23 @@ export class ManagerSessionService {
     return this.withSessionOperation(sessionId, () => this.reconcileOneUnlocked(this.requireSession(sessionId)));
   }
 
+  /**
+   * Read-only Manager preflight. This intentionally does not initialize
+   * Zellij, touch the workflow store, or invoke Nawabari.
+   */
+  async preview(input: NewManagerSessionInput): Promise<ManagerExecutionPreview> {
+    const normalized = normalizeManagerSessionInput(input);
+    return prepareManagerExecutionPreview(this.options.workspaceRoot, normalized);
+  }
+
   async start(input: NewManagerSessionInput): Promise<ManagerSessionRecord> {
-    const agentKind = normalizeAgentKind(input.launchProfile ?? input.agentKind);
-    const instruction = validateInstruction(input.instruction);
-    const provider = validateOptionalArg(input.provider, "provider", MAX_PROVIDER_LENGTH);
-    const model = validateOptionalArg(input.model, "model", MAX_MODEL_LENGTH);
-    const taskSlug = validateOptionalArg(input.taskSlug, "taskSlug", 96);
-    const issueRef = validateOptionalArg(input.issueRef, "issueRef", 96);
-    const branchType = validateOptionalArg(input.branchType, "branchType", 32) ?? "feat";
-    const idempotencyKey = validateOptionalArg(input.idempotencyKey, "idempotencyKey", 128);
-    if (idempotencyKey !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(idempotencyKey))
-      throw invalid("idempotencyKey must be a bounded branch-safe token");
-    try {
-      if (taskSlug !== undefined) validateTaskSlug(taskSlug);
-      validateIssueRef(issueRef);
-    } catch (error) {
-      throw invalid(error instanceof Error ? error.message : String(error));
-    }
-    if (issueRef !== undefined && taskSlug === undefined)
-      throw invalid("taskSlug is required when issueRef is provided");
-    if (provider !== undefined && agentKind !== "pi") throw invalid("provider is only supported by the pi profile");
+    const normalized = normalizeManagerSessionInput(input);
+    const { agentKind, instruction, provider, model, taskSlug, issueRef, branchType, idempotencyKey, semanticPlan } =
+      normalized;
+
+    // Resolve branch/base identity and the exact claim declaration before any
+    // task, Nawabari session, Manager record, or Zellij mutation.
+    await prepareManagerExecutionPreview(this.options.workspaceRoot, normalized);
 
     // Resolve and validate the guard before task/worktree creation. A managed
     // Pi launch must never fall back to an unguarded process.
@@ -483,6 +740,7 @@ export class ManagerSessionService {
           issueRef,
           branchType,
           idempotencyKey: idempotencyKey ?? sessionId,
+          semanticPlan,
         });
         executionContext = execution.context;
         executionReceipt = execution.receipt;

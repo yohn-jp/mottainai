@@ -4,9 +4,16 @@ import { test } from "node:test";
 import { createTempGitRepo, runGit } from "../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../test-support/workflow-store.js";
 import type { ZellijRuntime, ZellijObservedState } from "./zellij.js";
-import { buildManagerLaunchInvocation, ManagerError, ManagerSessionService, resolvePiGuardPath } from "./service.js";
+import {
+  buildManagerLaunchInvocation,
+  ManagerError,
+  ManagerSessionService,
+  resolvePiGuardPath,
+  type ManagerResourceScope,
+} from "./service.js";
 import type { ManagerExecutionAuthority } from "../workflow/domain/manager-execution.js";
 import type { ManagerSessionId } from "../workflow/state/store.js";
+import type { SemanticExecutionPlan } from "../semantics/execution-plan.js";
 
 class FakeRuntime implements ZellijRuntime {
   readonly sessions = new Set<string>();
@@ -37,6 +44,155 @@ class FakeRuntime implements ZellijRuntime {
     this.sessions.delete(sessionName);
   }
 }
+
+function recordingExecutionAuthority(root: string, plans: SemanticExecutionPlan[]): ManagerExecutionAuthority {
+  return {
+    async start(input) {
+      if (input.semanticPlan === undefined) throw new Error("semantic plan missing");
+      plans.push(input.semanticPlan);
+      return {
+        context: {
+          taskId: undefined,
+          executionSessionId: undefined,
+          worktreeId: undefined,
+          worktreePath: root,
+          branchName: undefined,
+          taskSlug: input.taskSlug,
+          issueRef: input.issueRef,
+          branchType: input.branchType,
+          semanticLifecycleState: "unbound",
+        },
+      };
+    },
+    async validate() {
+      return { ok: true };
+    },
+    async observe(context) {
+      return { semanticLifecycleState: context.semanticLifecycleState, status: undefined, receipt: undefined };
+    },
+  };
+}
+
+test("Manager preview derives path scope and preserves explicit claim modes", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const runtime = new FakeRuntime();
+  const plans: SemanticExecutionPlan[] = [];
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store,
+    runtime,
+    executionAuthority: recordingExecutionAuthority(root, plans),
+  });
+  const input = {
+    instruction: "bounded scope",
+    taskSlug: "bounded-scope",
+    issueRef: "1001",
+    branchType: "fix",
+    scope: {
+      paths: ["src/a.ts", "src/b.ts"],
+      claims: [
+        { resource: "src/a.ts", mode: "read" as const },
+        { resource: "src/c.ts", mode: "write" as const },
+        { resource: "src/d.ts", mode: "exclusive-write" as const },
+      ],
+    },
+  };
+  const preview = await service.preview(input);
+  assert.deepEqual(preview.claims, [
+    { resource: "src/a.ts", mode: "exclusive-write" },
+    { resource: "src/a.ts", mode: "read" },
+    { resource: "src/b.ts", mode: "exclusive-write" },
+    { resource: "src/c.ts", mode: "write" },
+    { resource: "src/d.ts", mode: "exclusive-write" },
+  ]);
+  assert.equal(preview.claimGeneration.strategy, "declared");
+  assert.equal(preview.claimGeneration.source, "explicit-paths");
+  assert.equal(preview.identity.executionMode, "task-bound");
+  assert.equal(preview.identity.task.taskSlug, "bounded-scope");
+  assert.equal(preview.identity.branch.name, "fix/1001-bounded-scope");
+  assert.deepEqual(preview.nawabariDeclaration.claims, preview.claims);
+  assert.equal(store.listTasks().length, 0);
+  assert.equal(store.listManagerSessions(root).length, 0);
+  assert.equal(runtime.started.length, 0);
+
+  await service.start(input);
+  assert.equal(plans.length, 1);
+  assert.deepEqual(plans[0], preview.semanticExecutionPlan);
+  assert.equal(runtime.started.length, 1);
+});
+
+test("Manager preview exposes the no-scope repository-wide read fallback", async (t) => {
+  const root = createTempGitRepo(t);
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store: createWorkflowStore(t),
+    runtime: new FakeRuntime(),
+  });
+  const preview = await service.preview({
+    instruction: "compatibility launch",
+    taskSlug: "fallback",
+    issueRef: "1002",
+  });
+  assert.deepEqual(preview.claims, [{ resource: "**", mode: "read" }]);
+  assert.equal(preview.claimGeneration.strategy, "conservative-broad");
+  assert.equal(preview.claimGeneration.source, "unknown-scope");
+  assert.match(preview.claimGeneration.warnings[0] ?? "", /repository-wide read fallback/u);
+  assert.deepEqual(preview.nawabariDeclaration.claims, [{ resource: "**", mode: "read" }]);
+});
+
+test("Manager rejects invalid scope before task, record, Nawabari, or Zellij mutation", async (t) => {
+  const invalidScopes = [
+    { paths: [""] },
+    { paths: ["/absolute/file.ts"] },
+    { paths: ["src/../secret.ts"] },
+    { paths: ["src/line\nfeed.ts"] },
+    { claims: [{ resource: "src/file.ts", mode: "not-a-mode" }] },
+  ];
+  for (const [index, scope] of invalidScopes.entries()) {
+    const root = createTempGitRepo(t);
+    const store = createWorkflowStore(t);
+    const runtime = new FakeRuntime();
+    const service = new ManagerSessionService({ workspaceRoot: root, store, runtime });
+    await assert.rejects(
+      service.start({
+        instruction: `invalid scope ${index}`,
+        taskSlug: `invalid-scope-${index}`,
+        issueRef: String(1010 + index),
+        scope: scope as unknown as ManagerResourceScope,
+      }),
+      (error: unknown) => error instanceof ManagerError && error.code === "invalid_request",
+    );
+    assert.equal(store.listTasks().length, 0);
+    assert.equal(store.listManagerSessions(root).length, 0);
+    assert.equal(runtime.started.length, 0);
+  }
+});
+
+test("Manager preview is side-effect free and does not initialize Zellij", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const runtime = new FakeRuntime();
+  const plans: SemanticExecutionPlan[] = [];
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store,
+    runtime,
+    executionAuthority: recordingExecutionAuthority(root, plans),
+  });
+  const preview = await service.preview({
+    instruction: "inspect only",
+    taskSlug: "preview-only",
+    issueRef: "1020",
+    scope: { claims: [{ resource: "src/readme.md", mode: "read" }] },
+  });
+  assert.equal(preview.claims[0]?.mode, "read");
+  assert.equal(plans.length, 0);
+  assert.equal(runtime.started.length, 0);
+  assert.equal(store.listTasks().length, 0);
+  assert.equal(store.listManagerSessions(root).length, 0);
+  assert.throws(() => service.health(), /availability has not been established/u);
+});
 
 test("Manager starts concurrent task-bound Codex sessions on distinct managed worktrees", async (t) => {
   const root = createTempGitRepo(t);

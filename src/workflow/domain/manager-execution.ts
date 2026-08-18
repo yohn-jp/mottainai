@@ -4,7 +4,7 @@ import { startNawabariTask } from "./nawabari-task.js";
 import type { LifecycleState } from "./lifecycle.js";
 import { resolveEffectiveWorkflowPolicy } from "../policy/load.js";
 import type { WorkflowStateStore, ManagerSessionReceipt, TaskId, WorktreeId } from "../state/store.js";
-import { createSemanticExecutionPlan } from "../../semantics/execution-plan.js";
+import { createSemanticExecutionPlan, type SemanticExecutionPlan } from "../../semantics/execution-plan.js";
 import { NawabariExecutionClient } from "../nawabari.js";
 
 /**
@@ -41,9 +41,22 @@ export interface ManagerExecutionAuthority {
     issueRef: string | undefined;
     branchType: string;
     idempotencyKey: string;
+    semanticPlan?: SemanticExecutionPlan;
   }): Promise<{ context: ManagerExecutionContext; receipt?: ManagerSessionReceipt }>;
   validate(context: ManagerExecutionContext): Promise<{ ok: true } | { ok: false; detail: string }>;
   observe(context: ManagerExecutionContext): Promise<ManagerExecutionObservation>;
+}
+
+export const MANAGER_SCOPE_FALLBACK_WARNING =
+  "no resource scope supplied; using an explicit repository-wide read fallback";
+
+export function createManagerFallbackSemanticExecutionPlan(): SemanticExecutionPlan {
+  return createSemanticExecutionPlan({
+    fallbackClaims: [{ resource: "**", mode: "read" }],
+    fallbackReason: "Manager scope was not supplied; preserve compatibility with a repository-wide read boundary",
+    fallbackWarning: MANAGER_SCOPE_FALLBACK_WARNING,
+    verification: { rationale: "Manager launch context is read-only until semantic scope is declared" },
+  });
 }
 
 function receipt(code: string, message: string, source: ManagerSessionReceipt["source"]): ManagerSessionReceipt {
@@ -109,10 +122,7 @@ export function createNawabariManagerExecutionAuthority(
         // claims; this keeps concurrent control-plane sessions from claiming
         // unknown source scope while never granting mutation authority by
         // implication.
-        semanticPlan: createSemanticExecutionPlan({
-          claims: [{ resource: "**", mode: "read" }],
-          verification: { rationale: "Manager launch context is read-only until semantic scope is declared" },
-        }),
+        semanticPlan: input.semanticPlan ?? createManagerFallbackSemanticExecutionPlan(),
       });
       if (!result.ok) throw new Error(`${result.reason}: ${result.detail}`);
       return {
