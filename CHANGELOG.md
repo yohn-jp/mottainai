@@ -11,6 +11,33 @@ in the Claude and Codex registration examples in `README.md` together.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-18
+
+Pi-backed managed-development and authority-convergence release. See
+[docs/releases/0.2.0.md](docs/releases/0.2.0.md) for the full writeup.
+
+- **Added**: Pi as a first-class Zellij Manager profile, one-command
+  `task run --agent pi` orchestration, a managed Pi mutation guard, and the
+  packed Issue-to-PR golden-path acceptance test reaching
+  `pull-request-open`.
+- **Added**: completed Context Runtime guardrails and dogfood evidence,
+  state-aware validation reuse/compact receipts, and the first complete
+  Repository Semantic Control Plane loop including semantic delta/impact,
+  verification planning, bounded projections, and managed enforcement.
+- **Changed**: Nawabari is the sole managed physical Git/worktree authority
+  (`>=0.4.1` contract), managed PR mutation is gh-inari-only (`0.2.x`
+  companion contract), and Manager is a multi-agent execution control plane
+  rather than a Codex-only launcher.
+- **Changed**: Runtime lifecycle is explicitly owned by `mottainai runtime
+  ensure|status`, and PR CI is organized around merge-integrity/product
+  contracts rather than non-authoritative informational automation.
+- **Fixed**: external-effect crash/retry reconciliation for task start,
+  commit, push and PR creation; authoritative validation-worktree/stable
+  fingerprint correctness; typed raw-Git mutation routing; real Zellij
+  inspection/version compatibility; hermetic Inari standards checks; and the
+  15 pre-existing integration failures that blocked the required packed
+  product-contract gate.
+
 ## [0.1.4] - 2026-08-09
 
 Semantic workflow and CI-hardening release. See
@@ -177,7 +204,8 @@ log` for full history.
 - Raw-data logging of upstream requests/responses to `.mottainai/log/*.jsonl`
   with secret-key redaction, retention limits, and per-tool exclusion.
 
-[Unreleased]: https://github.com/yohn-jp/mottainai/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/yohn-jp/mottainai/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/yohn-jp/mottainai/compare/v0.1.4...v0.2.0
 [0.1.4]: https://github.com/yohn-jp/mottainai/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/yohn-jp/mottainai/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/yohn-jp/mottainai/compare/v0.1.1...v0.1.2
