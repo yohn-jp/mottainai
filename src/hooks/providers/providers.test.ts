@@ -63,12 +63,20 @@ function nawabariDecisionClient(allowed: boolean, calls: string[][]): NawabariEx
             command: "capabilities",
             schema_version: 1,
             contract_id: "nawabari.standalone-execution.v1",
-            package_version: "0.2.0",
+            package_version: "0.4.1",
             capabilities: [{
+              id: "resource-claims",
               commands: [
-                "session create", "session id", "session show", "session list", "session claim", "session claims",
-                "session release", "session close", "authorize", "checkpoint", "commit", "push", "gc",
+                "session create", "session id", "session show", "session list", "session claim", "session update",
+                "session claims", "session close", "authorize", "checkpoint", "commit", "push", "gc",
               ],
+              claim_set_replacement: {
+                commands: ["session update", "resource update"],
+                atomic: true,
+                pairing: "adjacent-resource-mode",
+                idempotent_retry: true,
+                unchanged_on_rejection: true,
+              },
             }],
           });
         if (args[0] === "authorize")

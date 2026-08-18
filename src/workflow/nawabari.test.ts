@@ -13,39 +13,59 @@ function result(stdout: unknown, exitCode = 0): RunResult {
   return { stdout: JSON.stringify(stdout), stderr: "", exitCode, signal: null, timedOut: false, outputLimit: false };
 }
 
+const REQUIRED_COMMANDS = [
+  "session create",
+  "session id",
+  "session show",
+  "session list",
+  "session claim",
+  "session update",
+  "session claims",
+  "session close",
+  "authorize",
+  "checkpoint",
+  "commit",
+  "push",
+  "gc",
+];
+
+function capabilitiesResult(
+  overrides: {
+    packageVersion?: string;
+    commands?: readonly string[];
+    claimSetReplacement?: Record<string, unknown> | null;
+  } = {},
+): unknown {
+  const claimSetReplacement =
+    overrides.claimSetReplacement === null
+      ? {}
+      : {
+          claim_set_replacement: {
+            commands: ["session update", "resource update"],
+            atomic: true,
+            pairing: "adjacent-resource-mode",
+            idempotent_retry: true,
+            unchanged_on_rejection: true,
+            ...overrides.claimSetReplacement,
+          },
+        };
+  return {
+    ok: true,
+    command: "capabilities",
+    schema_version: 1,
+    contract_id: "nawabari.standalone-execution.v1",
+    package_version: overrides.packageVersion ?? "0.4.1",
+    capabilities: [{ id: "resource-claims", commands: overrides.commands ?? REQUIRED_COMMANDS, ...claimSetReplacement }],
+  };
+}
+
 test("adapter discovers the versioned contract and sends only concrete declaration fields", async () => {
   const calls: string[][] = [];
   const client = new NawabariExecutionClient({
     runner: {
       async run(_command, args): Promise<RunResult> {
         calls.push([...args]);
-        if (args[0] === "capabilities")
-          return result({
-            ok: true,
-            command: "capabilities",
-            schema_version: 1,
-            contract_id: "nawabari.standalone-execution.v1",
-            package_version: "0.2.0",
-            capabilities: [
-              {
-                commands: [
-                  "session create",
-                  "session id",
-                  "session show",
-                  "session list",
-                  "session claim",
-                  "session claims",
-                  "session release",
-                  "session close",
-                  "authorize",
-                  "checkpoint",
-                  "commit",
-                  "push",
-                  "gc",
-                ],
-              },
-            ],
-          });
+        if (args[0] === "capabilities") return result(capabilitiesResult());
         if (args[0] === "session" && args[1] === "create")
           return result({
             ok: true,
@@ -132,18 +152,7 @@ test("authorization denial remains an authoritative decision rather than an unav
   const client = new NawabariExecutionClient({
     runner: {
       async run(_command, args): Promise<RunResult> {
-        if (args[0] === "capabilities")
-          return result({
-            ok: true,
-            command: "capabilities",
-            schema_version: 1,
-            contract_id: "nawabari.standalone-execution.v1",
-            package_version: "0.2.0",
-          capabilities: [{ commands: [
-              "session create", "session id", "session show", "session list", "session claim", "session claims", "session release", "session close",
-              "authorize", "checkpoint", "commit", "push", "gc",
-            ] }],
-          });
+        if (args[0] === "capabilities") return result(capabilitiesResult());
         return result({
           ok: false,
           command: "authorize",
@@ -169,18 +178,7 @@ test("malformed mutation and evidence results fail the companion contract", asyn
   const client = new NawabariExecutionClient({
     runner: {
       async run(_command, args): Promise<RunResult> {
-        if (args[0] === "capabilities")
-          return result({
-            ok: true,
-            command: "capabilities",
-            schema_version: 1,
-            contract_id: "nawabari.standalone-execution.v1",
-            package_version: "0.2.0",
-            capabilities: [{ commands: [
-              "session create", "session id", "session show", "session list", "session claim", "session claims", "session release", "session close",
-              "authorize", "checkpoint", "commit", "push", "gc",
-            ] }],
-          });
+        if (args[0] === "capabilities") return result(capabilitiesResult());
         if (args[0] === "commit") return result({ ok: true, command: "commit" });
         throw new Error(`unexpected command: ${args.join(" ")}`);
       },
@@ -196,20 +194,7 @@ test("push results require the stable remote-generation evidence contract", asyn
   const client = new NawabariExecutionClient({
     runner: {
       async run(_command, args): Promise<RunResult> {
-        if (args[0] === "capabilities")
-          return result({
-            ok: true,
-            command: "capabilities",
-            schema_version: 1,
-            contract_id: "nawabari.standalone-execution.v1",
-            package_version: "0.2.0",
-            capabilities: [{
-              commands: [
-                "session create", "session id", "session show", "session list", "session claim", "session claims",
-                "session release", "session close", "authorize", "checkpoint", "commit", "push", "gc",
-              ],
-            }],
-          });
+        if (args[0] === "capabilities") return result(capabilitiesResult());
         return result({
           ok: true,
           command: "push",
@@ -239,20 +224,7 @@ test("crash retry resumes the labeled session and adds only missing declared cla
     runner: {
       async run(_command, args): Promise<RunResult> {
         calls.push([...args]);
-        if (args[0] === "capabilities")
-          return result({
-            ok: true,
-            command: "capabilities",
-            schema_version: 1,
-            contract_id: "nawabari.standalone-execution.v1",
-            package_version: "0.2.0",
-            capabilities: [{
-              commands: [
-                "session create", "session id", "session show", "session list", "session claim", "session claims",
-                "session release", "session close", "authorize", "checkpoint", "commit", "push", "gc",
-              ],
-            }],
-          });
+        if (args[0] === "capabilities") return result(capabilitiesResult());
         if (args[0] === "session" && args[1] === "claims")
           return result({
             ok: true,
@@ -292,20 +264,7 @@ test("crash retry rejects an unexpected broader claim without mutating it", asyn
   const client = new NawabariExecutionClient({
     runner: {
       async run(_command, args): Promise<RunResult> {
-        if (args[0] === "capabilities")
-          return result({
-            ok: true,
-            command: "capabilities",
-            schema_version: 1,
-            contract_id: "nawabari.standalone-execution.v1",
-            package_version: "0.2.0",
-            capabilities: [{
-              commands: [
-                "session create", "session id", "session show", "session list", "session claim", "session claims",
-                "session release", "session close", "authorize", "checkpoint", "commit", "push", "gc",
-              ],
-            }],
-          });
+        if (args[0] === "capabilities") return result(capabilitiesResult());
         if (args[0] === "session" && args[1] === "claims")
           return result({
             ok: true,
@@ -335,5 +294,119 @@ test("crash retry rejects an unexpected broader claim without mutating it", asyn
       error instanceof NawabariExecutionError &&
       error.code === "nawabari-rejected" &&
       error.nawabariCode === "OWNERSHIP_MISMATCH",
+  );
+});
+
+test("discovery requires the atomic claim_set_replacement boundary and the 0.4.1 floor", async () => {
+  const missingBoundary = new NawabariExecutionClient({
+    runner: {
+      async run(): Promise<RunResult> {
+        return result(capabilitiesResult({ claimSetReplacement: null }));
+      },
+    },
+  });
+  await assert.rejects(
+    missingBoundary.capabilities("/repo"),
+    (error: unknown) => error instanceof NawabariExecutionError && error.code === "nawabari-incompatible",
+  );
+
+  const notAtomic = new NawabariExecutionClient({
+    runner: {
+      async run(): Promise<RunResult> {
+        return result(capabilitiesResult({ claimSetReplacement: { atomic: false } }));
+      },
+    },
+  });
+  await assert.rejects(
+    notAtomic.capabilities("/repo"),
+    (error: unknown) => error instanceof NawabariExecutionError && error.code === "nawabari-incompatible",
+  );
+
+  const tooOld = new NawabariExecutionClient({
+    runner: {
+      async run(): Promise<RunResult> {
+        return result(capabilitiesResult({ packageVersion: "0.3.0" }));
+      },
+    },
+  });
+  await assert.rejects(
+    tooOld.capabilities("/repo"),
+    (error: unknown) => error instanceof NawabariExecutionError && error.code === "nawabari-incompatible",
+  );
+});
+
+test("updateClaims sends one atomic session update with adjacent resource/mode pairs", async () => {
+  const calls: string[][] = [];
+  const client = new NawabariExecutionClient({
+    runner: {
+      async run(_command, args): Promise<RunResult> {
+        calls.push([...args]);
+        if (args[0] === "capabilities") return result(capabilitiesResult());
+        if (args[0] === "session" && args[1] === "update")
+          return result({
+            ok: true,
+            command: "session update",
+            session_id: "session-1",
+            claims: [
+              { resource: "docs/**", mode: "read" },
+              { resource: "src/app.ts", mode: "exclusive-write" },
+            ],
+          });
+        throw new Error(`unexpected command: ${args.join(" ")}`);
+      },
+    },
+  });
+  const claims = await client.updateClaims({
+    cwd: "/repo",
+    sessionId: "session-1",
+    claims: [
+      { resource: "docs/**", mode: "read" },
+      { resource: "src/app.ts", mode: "exclusive-write" },
+    ],
+  });
+  assert.deepEqual(claims, [
+    { resource: "docs/**", mode: "read" },
+    { resource: "src/app.ts", mode: "exclusive-write" },
+  ]);
+  const updateCall = calls.find((args) => args[0] === "session" && args[1] === "update");
+  assert.deepEqual(updateCall?.slice(0, -1), [
+    "session",
+    "update",
+    "--session",
+    "session-1",
+    "--resource",
+    "docs/**",
+    "--mode",
+    "read",
+    "--resource",
+    "src/app.ts",
+    "--mode",
+    "exclusive-write",
+  ]);
+});
+
+test("updateClaims fails closed when the returned claim set does not match the request", async () => {
+  const client = new NawabariExecutionClient({
+    runner: {
+      async run(_command, args): Promise<RunResult> {
+        if (args[0] === "capabilities") return result(capabilitiesResult());
+        if (args[0] === "session" && args[1] === "update")
+          return result({
+            ok: true,
+            command: "session update",
+            session_id: "session-1",
+            claims: [{ resource: "src/app.ts", mode: "read" }],
+          });
+        throw new Error(`unexpected command: ${args.join(" ")}`);
+      },
+    },
+  });
+  await assert.rejects(
+    client.updateClaims({
+      cwd: "/repo",
+      sessionId: "session-1",
+      claims: [{ resource: "src/app.ts", mode: "exclusive-write" }],
+    }),
+    (error: unknown) => error instanceof NawabariExecutionError && error.code === "nawabari-contract-invalid",
   );
 });

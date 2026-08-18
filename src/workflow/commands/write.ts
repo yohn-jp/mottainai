@@ -813,12 +813,13 @@ function resolveCommitIntent(
 }
 
 /**
- * `claimSession` reinstates claims one invocation at a time, so a mid-loop
- * failure can leave a partially-restored claim set; that residual state
- * cannot be prevented from here. Best-effort is still not acceptable: a
- * restoration failure must surface as its own distinct, actionable error
- * naming the intended claim set, rather than be silently absorbed behind the
- * original commit-authorization failure.
+ * Restoration after a successful escalation whose retried authorization then
+ * denied or threw is itself one atomic `session update` call back to the
+ * exact prior claim set (Nawabari 0.4.1's `claim_set_replacement`
+ * boundary). Best-effort is still not acceptable: a restoration failure
+ * must surface as its own distinct, actionable error naming the intended
+ * claim set, rather than be silently absorbed behind the original
+ * commit-authorization failure.
  */
 async function restorePriorNawabariClaims(
   nawabari: NawabariExecutionClient,
@@ -828,14 +829,37 @@ async function restorePriorNawabariClaims(
   causeDetail: string,
 ): Promise<void> {
   try {
-    await nawabari.releaseClaims({ cwd, sessionId });
-    if (priorClaims.length > 0) await nawabari.claimSession({ cwd, sessionId, claims: priorClaims });
+    await nawabari.updateClaims({ cwd, sessionId, claims: priorClaims });
   } catch (error) {
     throw new NawabariExecutionError(
       "nawabari-command-failed",
-      `${causeDetail}, and restoring the session's prior claim set also failed: ${error instanceof Error ? error.message : String(error)}; the session may hold a partial claim set and the intended set was ${JSON.stringify(priorClaims)}`,
+      `${causeDetail}, and restoring the session's prior claim set also failed: ${error instanceof Error ? error.message : String(error)}; the intended set was ${JSON.stringify(priorClaims)}`,
     );
   }
+}
+
+/**
+ * Manager's launch-time execution boundary is exactly this single broad
+ * read claim until semantic scope is declared (`**:read`; Issue #357).
+ * Commit escalation recognizes only this specific, known prior state and
+ * atomically replaces it with the commit's concrete exclusive-write scope.
+ * Any other prior claim set — additional claims, a different mode, more or
+ * fewer than one claim — is unknown authority this rule does not attempt to
+ * transform or preserve; Mottainai does not reimplement Nawabari's
+ * glob/overlap semantics to decide what would or would not conflict, so an
+ * unrecognized prior set fails closed instead.
+ */
+const KNOWN_MANAGER_LAUNCH_CLAIMS: readonly ExecutionClaim[] = [{ resource: "**", mode: "read" }];
+
+function isKnownManagerLaunchClaimSet(priorClaims: readonly ExecutionClaim[]): boolean {
+  return (
+    priorClaims.length === KNOWN_MANAGER_LAUNCH_CLAIMS.length &&
+    priorClaims.every(
+      (claim, index) =>
+        claim.resource === KNOWN_MANAGER_LAUNCH_CLAIMS[index]!.resource &&
+        claim.mode === KNOWN_MANAGER_LAUNCH_CLAIMS[index]!.mode,
+    )
+  );
 }
 
 export async function commitWorkflowTask(input: CommitWorkflowInput): Promise<WorkflowWriteResult> {
@@ -924,28 +948,34 @@ export async function commitWorkflowTask(input: CommitWorkflowInput): Promise<Wo
       resources,
     });
     if (authorization.allowed !== true && authorization.code === "INSUFFICIENT_CLAIM_MODE") {
-      // A launch-time execution boundary may hold only a read claim (Manager
-      // starts read-only until semantic scope is declared). `task commit` is
-      // the declared write intent for exactly these resources, so it is the
-      // boundary that replaces the claim with concrete write access and
-      // retries authorization once before failing closed. Real Nawabari
-      // rejects a claim that overlaps an existing claim on a different mode
-      // (`CONTRADICTORY_CLAIM`) — a launch-time claim is a broad glob (e.g.
-      // `**`) that overlaps every concrete resource this commit narrows to,
-      // so the replacement set cannot simply carry unrelated prior claims
-      // forward alongside the narrower exclusive-write claims: verified
-      // against the real `nawabari` CLI, which rejects that combination. The
-      // prior claim set is snapshotted and restored on any failure path so a
-      // denied or faulted escalation never leaves the session with less
-      // access than before the retry was attempted.
+      // A launch-time execution boundary may hold only Manager's known
+      // `**:read` claim (Manager starts read-only until semantic scope is
+      // declared). `task commit` is the declared write intent for exactly
+      // these resources, so it is the boundary that atomically replaces
+      // that known claim with concrete exclusive-write access and retries
+      // authorization once before failing closed. The replacement is one
+      // atomic `session update` call (Nawabari 0.4.1's
+      // `claim_set_replacement` boundary): Nawabari owns the transition, so
+      // Mottainai never exposes a caller-created empty or partially rebuilt
+      // claim set. Any prior claim set other than the known `**:read`
+      // launch state is unrecognized authority — Mottainai does not guess
+      // how to transform it, so escalation fails closed without mutating
+      // anything. A rejected update leaves the prior set unchanged and
+      // requires no restoration; only a successful update whose retried
+      // authorization then denies or throws needs the prior set restored,
+      // itself through one atomic update.
       const priorClaims = await nawabari.listClaims({ cwd: workspaceRoot, sessionId });
-      await nawabari.releaseClaims({ cwd: workspaceRoot, sessionId });
+      if (!isKnownManagerLaunchClaimSet(priorClaims))
+        throw new NawabariExecutionError(
+          "nawabari-claim-authority-unrecognized",
+          `commit escalation only recognizes the Manager's known **:read launch claim; observed prior claim set ${JSON.stringify(priorClaims)}`,
+        );
+      const desiredClaims: ExecutionClaim[] = resources.map((resource) => ({
+        resource,
+        mode: "exclusive-write" as const,
+      }));
+      await nawabari.updateClaims({ cwd: workspaceRoot, sessionId, claims: desiredClaims });
       try {
-        await nawabari.claimSession({
-          cwd: workspaceRoot,
-          sessionId,
-          claims: resources.map((resource) => ({ resource, mode: "exclusive-write" as const })),
-        });
         authorization = await nawabari.authorize({
           cwd: workspaceRoot,
           sessionId,
@@ -958,7 +988,7 @@ export async function commitWorkflowTask(input: CommitWorkflowInput): Promise<Wo
           workspaceRoot,
           sessionId,
           priorClaims,
-          `Nawabari claim escalation for commit failed: ${error instanceof Error ? error.message : String(error)}`,
+          `Nawabari authorization after claim escalation failed: ${error instanceof Error ? error.message : String(error)}`,
         );
         throw error;
       }

@@ -64,14 +64,28 @@ const FAKE_NAWABARI_COMMANDS = [
   "session show",
   "session list",
   "session claim",
+  "session update",
   "session claims",
-  "session release",
   "session close",
   "authorize",
   "checkpoint",
   "commit",
   "push",
   "gc",
+];
+
+const FAKE_NAWABARI_CAPABILITIES = [
+  {
+    id: "resource-claims",
+    commands: FAKE_NAWABARI_COMMANDS,
+    claim_set_replacement: {
+      commands: ["session update", "resource update"],
+      atomic: true,
+      pairing: "adjacent-resource-mode",
+      idempotent_retry: true,
+      unchanged_on_rejection: true,
+    },
+  },
 ];
 
 function fakeNawabari(
@@ -101,8 +115,8 @@ function fakeNawabari(
               command: "capabilities",
               schema_version: 1,
               contract_id: "nawabari.standalone-execution.v1",
-              package_version: "0.2.0",
-              capabilities: [{ commands: FAKE_NAWABARI_COMMANDS }],
+              package_version: "0.4.1",
+              capabilities: FAKE_NAWABARI_CAPABILITIES,
             }),
           );
         if (args[0] === "session" && args[1] === "id")
@@ -276,18 +290,26 @@ function commitBoundaryNawabari(
     failClaimRestore?: boolean;
     /** The retried authorize call after a successful escalation throws instead of returning a decision. */
     failRetryAuthorize?: boolean;
+    /** The escalation's atomic session update itself is rejected (prior set stays unchanged, no restore call). */
+    rejectEscalationUpdate?: boolean;
+    /** The escalation's atomic session update reports success but returns a claim set that does not match the request. */
+    malformedEscalationEvidence?: boolean;
+    /** Prior claim set the boundary starts with; defaults to a broad read claim. */
+    initialClaims?: { resource: string; mode: string }[];
   } = {},
 ): {
   client: NawabariExecutionClient;
   commitCalls: () => number;
   authorizeCalls: () => number;
+  updateCalls: () => number;
   claims: () => { resource: string; mode: string }[];
 } {
   const sessionId = "commit-boundary-session";
   let commitCalls = 0;
   let checkpointCalls = 0;
   let authorizeCalls = 0;
-  let claims: { resource: string; mode: string }[] = [{ resource: "**", mode: "read" }];
+  let updateCalls = 0;
+  let claims: { resource: string; mode: string }[] = options.initialClaims ?? [{ resource: "**", mode: "read" }];
   return {
     client: new NawabariExecutionClient({
       runner: {
@@ -299,8 +321,8 @@ function commitBoundaryNawabari(
                 command: "capabilities",
                 schema_version: 1,
                 contract_id: "nawabari.standalone-execution.v1",
-                package_version: "0.2.0",
-                capabilities: [{ commands: FAKE_NAWABARI_COMMANDS }],
+                package_version: "0.4.1",
+                capabilities: FAKE_NAWABARI_CAPABILITIES,
               }),
             );
           if (args[0] === "session" && args[1] === "id")
@@ -323,24 +345,44 @@ function commitBoundaryNawabari(
             );
           if (args[0] === "session" && args[1] === "claims")
             return providerResult(JSON.stringify({ ok: true, command: "session claims", claims }));
-          if (args[0] === "session" && args[1] === "release") {
-            claims = [];
-            return providerResult(
-              JSON.stringify({ ok: true, command: "session release", session_id: sessionId, released: [] }),
-            );
-          }
-          if (args[0] === "session" && args[1] === "claim") {
-            const resource = args[args.indexOf("--resource") + 1]!;
-            const mode = args[args.indexOf("--mode") + 1]!;
-            if (options.failClaimRestore === true && mode === "read")
+          if (args[0] === "session" && args[1] === "update") {
+            updateCalls += 1;
+            const pairs: { resource: string; mode: string }[] = [];
+            for (let index = 2; index < args.length; index += 1) {
+              if (args[index] === "--resource") pairs.push({ resource: args[index + 1]!, mode: args[index + 3]! });
+            }
+            const isRestore = pairs.some((pair) => pair.mode === "read");
+            if (options.failClaimRestore === true && isRestore)
               return providerResult(
-                JSON.stringify({ ok: false, command: "session claim", code: "CLAIM_FAILED", message: "injected" }),
+                JSON.stringify({ ok: false, command: "session update", code: "CLAIM_FAILED", message: "injected" }),
                 "",
                 { exitCode: 3 },
               );
-            claims.push({ resource, mode });
+            if (options.rejectEscalationUpdate === true && !isRestore)
+              return providerResult(
+                JSON.stringify({
+                  ok: false,
+                  command: "session update",
+                  code: "CONTRADICTORY_CLAIM",
+                  message: "injected",
+                }),
+                "",
+                { exitCode: 3 },
+              );
+            if (options.malformedEscalationEvidence === true && !isRestore) {
+              claims = pairs;
+              return providerResult(
+                JSON.stringify({
+                  ok: true,
+                  command: "session update",
+                  session_id: sessionId,
+                  claims: [{ resource: "unexpected", mode: "read" }],
+                }),
+              );
+            }
+            claims = pairs;
             return providerResult(
-              JSON.stringify({ ok: true, command: "session claim", session_id: sessionId, resource, mode }),
+              JSON.stringify({ ok: true, command: "session update", session_id: sessionId, claims: pairs }),
             );
           }
           if (args[0] === "authorize") {
@@ -420,6 +462,7 @@ function commitBoundaryNawabari(
     }),
     commitCalls: () => commitCalls,
     authorizeCalls: () => authorizeCalls,
+    updateCalls: () => updateCalls,
     claims: () => claims,
   };
 }
@@ -480,6 +523,9 @@ async function claimEscalationFixture(
     denyAfterEscalation?: boolean;
     failClaimRestore?: boolean;
     failRetryAuthorize?: boolean;
+    rejectEscalationUpdate?: boolean;
+    malformedEscalationEvidence?: boolean;
+    initialClaims?: { resource: string; mode: string }[];
   } = {},
 ): Promise<{
   root: string;
@@ -487,6 +533,7 @@ async function claimEscalationFixture(
   taskId: string;
   nawabari: NawabariExecutionClient;
   authorizeCalls: () => number;
+  updateCalls: () => number;
   claims: () => { resource: string; mode: string }[];
 }> {
   const root = createTempGitRepo(t);
@@ -509,6 +556,9 @@ async function claimEscalationFixture(
     denyAfterEscalation: options.denyAfterEscalation,
     failClaimRestore: options.failClaimRestore,
     failRetryAuthorize: options.failRetryAuthorize,
+    rejectEscalationUpdate: options.rejectEscalationUpdate,
+    malformedEscalationEvidence: options.malformedEscalationEvidence,
+    initialClaims: options.initialClaims,
   });
   return {
     root,
@@ -516,6 +566,7 @@ async function claimEscalationFixture(
     taskId: started.task.taskId,
     nawabari: boundary.client,
     authorizeCalls: boundary.authorizeCalls,
+    updateCalls: boundary.updateCalls,
     claims: boundary.claims,
   };
 }
@@ -593,6 +644,117 @@ test("commit restores the prior read claim when the retried authorization call i
     fixture.claims(),
     [{ resource: "**", mode: "read" }],
     "a thrown retry authorization must restore the pre-escalation claim",
+  );
+});
+
+test("commit leaves the prior claim set unchanged and never retries when the atomic escalation update is rejected", async (t) => {
+  const fixture = await claimEscalationFixture(t, { insufficientClaimOnce: true, rejectEscalationUpdate: true });
+  const result = await commitWorkflowTask({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    taskId: fixture.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "escalate then reject" },
+    nawabari: fixture.nawabari,
+  });
+  assert.equal(result.ok, false, JSON.stringify(result));
+  if (!result.ok) assert.equal(result.reason, "nawabari-rejected");
+  assert.equal(fixture.authorizeCalls(), 1, "a rejected atomic update must never retry authorization");
+  assert.equal(fixture.updateCalls(), 1, "a rejected atomic update performs no compensating restore call");
+  assert.deepEqual(
+    fixture.claims(),
+    [{ resource: "**", mode: "read" }],
+    "a rejected atomic update must leave the prior claim set unchanged",
+  );
+});
+
+test("commit fails closed without a restore attempt when the escalation update's evidence does not match the request", async (t) => {
+  const fixture = await claimEscalationFixture(t, { insufficientClaimOnce: true, malformedEscalationEvidence: true });
+  const result = await commitWorkflowTask({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    taskId: fixture.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "escalate then malformed evidence" },
+    nawabari: fixture.nawabari,
+  });
+  assert.equal(result.ok, false, JSON.stringify(result));
+  if (!result.ok) assert.equal(result.reason, "nawabari-contract-invalid");
+  assert.equal(fixture.authorizeCalls(), 1, "malformed update evidence must not be trusted enough to retry authorization");
+  assert.equal(fixture.updateCalls(), 1, "malformed update evidence performs no compensating restore call");
+});
+
+test("commit fails closed without mutating claims when an unrelated additional prior claim is present", async (t) => {
+  const fixture = await claimEscalationFixture(t, {
+    insufficientClaimOnce: true,
+    initialClaims: [
+      { resource: "**", mode: "read" },
+      { resource: "docs/other.md", mode: "write" },
+    ],
+  });
+  const result = await commitWorkflowTask({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    taskId: fixture.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "escalate with an unrecognized extra claim" },
+    includePaths: ["file.txt"],
+    nawabari: fixture.nawabari,
+  });
+  assert.equal(result.ok, false, JSON.stringify(result));
+  if (!result.ok) assert.equal(result.reason, "nawabari-claim-authority-unrecognized");
+  assert.equal(fixture.authorizeCalls(), 1, "an unrecognized prior claim set must never retry authorization");
+  assert.equal(fixture.updateCalls(), 0, "an unrecognized prior claim set must never attempt a claim mutation");
+  assert.deepEqual(
+    fixture.claims(),
+    [
+      { resource: "**", mode: "read" },
+      { resource: "docs/other.md", mode: "write" },
+    ],
+    "an unrecognized prior claim set must be left completely unchanged",
+  );
+});
+
+test("commit fails closed without mutating claims when the prior claim is not the known **:read launch state", async (t) => {
+  const fixture = await claimEscalationFixture(t, {
+    insufficientClaimOnce: true,
+    initialClaims: [{ resource: "src/**", mode: "read" }],
+  });
+  const result = await commitWorkflowTask({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    taskId: fixture.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "escalate a narrower unrecognized read claim" },
+    includePaths: ["file.txt"],
+    nawabari: fixture.nawabari,
+  });
+  assert.equal(result.ok, false, JSON.stringify(result));
+  if (!result.ok) assert.equal(result.reason, "nawabari-claim-authority-unrecognized");
+  assert.equal(fixture.updateCalls(), 0, "an unrecognized prior claim set must never attempt a claim mutation");
+  assert.deepEqual(
+    fixture.claims(),
+    [{ resource: "src/**", mode: "read" }],
+    "an unrecognized prior claim set must be left completely unchanged",
+  );
+});
+
+test("commit escalates the known **:read launch claim to a concrete exclusive-write resource without glob conflict", async (t) => {
+  const fixture = await claimEscalationFixture(t, { insufficientClaimOnce: true });
+  const result = await commitWorkflowTask({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    taskId: fixture.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "escalate the launch claim to a concrete resource" },
+    includePaths: ["file.txt"],
+    nawabari: fixture.nawabari,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(
+    fixture.claims(),
+    [{ resource: "file.txt", mode: "exclusive-write" }],
+    "the broad **:read launch claim must be fully replaced, not left alongside the concrete claim",
   );
 });
 
