@@ -6,6 +6,7 @@ import {
   ISSUE_TEMPLATE_IDS,
   readSemanticTemplates,
   validateIssueReport,
+  validateRepositoryInari,
   validateSchemaReport,
   validateSyncReport,
 } from "./validate-inari-templates.mjs";
@@ -45,4 +46,51 @@ test("compiled schema must preserve canonical field IDs", () => {
 test("issue integration reports require valid current gh-inari classification", () => {
   assert.deepEqual(validateIssueReport("issue get #265", { valid: true, classification: "valid" }), []);
   assert.ok(validateIssueReport("issue validate #265", { valid: false, classification: "ambiguous" }).length > 0);
+});
+
+test("default self-check is hermetic: no --repository reaches gh-inari and no network is required", () => {
+  const templates = readSemanticTemplates(repositoryRoot);
+  const calls = [];
+  const run = (args) => {
+    calls.push(args);
+    if (args[0] === "template" && args[1] === "sync") {
+      return {
+        check: true,
+        changed: false,
+        drift: [],
+        staleGenerated: [],
+        generated: ISSUE_TEMPLATE_IDS.map((id) => `.github/ISSUE_TEMPLATE/${id}.yml`),
+      };
+    }
+    if (args[0] === "issue" && args[1] === "schema") {
+      const fields = Object.fromEntries(templates.get(args[2]).fieldIds.map((id) => [id, {}]));
+      return { schema: { kind: "issue", fields } };
+    }
+    throw new Error(`unexpected hermetic self-check invocation: ${args.join(" ")}`);
+  };
+
+  const result = validateRepositoryInari(repositoryRoot, { run });
+
+  assert.deepEqual(result.errors, []);
+  assert.ok(result.ok);
+  for (const args of calls) {
+    assert.ok(!args.includes("--repository"), `self-check must not pass --repository: ${args.join(" ")}`);
+  }
+});
+
+test("default self-check still fails closed on local sync/schema drift", () => {
+  const run = (args) => {
+    if (args[0] === "template" && args[1] === "sync") {
+      return { check: true, changed: false, drift: [], staleGenerated: [], generated: [] };
+    }
+    if (args[0] === "issue" && args[1] === "schema") {
+      return { schema: { kind: "issue", fields: {} } };
+    }
+    throw new Error(`unexpected invocation: ${args.join(" ")}`);
+  };
+
+  const result = validateRepositoryInari(repositoryRoot, { run });
+
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.length > 0);
 });
