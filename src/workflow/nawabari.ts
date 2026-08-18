@@ -31,7 +31,8 @@ export type NawabariFailureCode =
   | "nawabari-incompatible"
   | "nawabari-contract-invalid"
   | "nawabari-rejected"
-  | "nawabari-command-failed";
+  | "nawabari-command-failed"
+  | "nawabari-claim-authority-unrecognized";
 
 export class NawabariExecutionError extends Error {
   constructor(

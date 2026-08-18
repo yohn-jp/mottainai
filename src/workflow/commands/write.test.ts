@@ -684,11 +684,11 @@ test("commit fails closed without a restore attempt when the escalation update's
   assert.equal(fixture.updateCalls(), 1, "malformed update evidence performs no compensating restore call");
 });
 
-test("commit escalation preserves an unrelated prior claim under the exact-resource desired-set rule", async (t) => {
+test("commit fails closed without mutating claims when an unrelated additional prior claim is present", async (t) => {
   const fixture = await claimEscalationFixture(t, {
     insufficientClaimOnce: true,
     initialClaims: [
-      { resource: "file.txt", mode: "read" },
+      { resource: "**", mode: "read" },
       { resource: "docs/other.md", mode: "write" },
     ],
   });
@@ -697,18 +697,64 @@ test("commit escalation preserves an unrelated prior claim under the exact-resou
     store: fixture.store,
     taskId: fixture.taskId,
     policy: BUILTIN_PRESETS.standard,
-    message: { subject: "escalate one resource among several claims" },
+    message: { subject: "escalate with an unrecognized extra claim" },
+    includePaths: ["file.txt"],
+    nawabari: fixture.nawabari,
+  });
+  assert.equal(result.ok, false, JSON.stringify(result));
+  if (!result.ok) assert.equal(result.reason, "nawabari-claim-authority-unrecognized");
+  assert.equal(fixture.authorizeCalls(), 1, "an unrecognized prior claim set must never retry authorization");
+  assert.equal(fixture.updateCalls(), 0, "an unrecognized prior claim set must never attempt a claim mutation");
+  assert.deepEqual(
+    fixture.claims(),
+    [
+      { resource: "**", mode: "read" },
+      { resource: "docs/other.md", mode: "write" },
+    ],
+    "an unrecognized prior claim set must be left completely unchanged",
+  );
+});
+
+test("commit fails closed without mutating claims when the prior claim is not the known **:read launch state", async (t) => {
+  const fixture = await claimEscalationFixture(t, {
+    insufficientClaimOnce: true,
+    initialClaims: [{ resource: "src/**", mode: "read" }],
+  });
+  const result = await commitWorkflowTask({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    taskId: fixture.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "escalate a narrower unrecognized read claim" },
+    includePaths: ["file.txt"],
+    nawabari: fixture.nawabari,
+  });
+  assert.equal(result.ok, false, JSON.stringify(result));
+  if (!result.ok) assert.equal(result.reason, "nawabari-claim-authority-unrecognized");
+  assert.equal(fixture.updateCalls(), 0, "an unrecognized prior claim set must never attempt a claim mutation");
+  assert.deepEqual(
+    fixture.claims(),
+    [{ resource: "src/**", mode: "read" }],
+    "an unrecognized prior claim set must be left completely unchanged",
+  );
+});
+
+test("commit escalates the known **:read launch claim to a concrete exclusive-write resource without glob conflict", async (t) => {
+  const fixture = await claimEscalationFixture(t, { insufficientClaimOnce: true });
+  const result = await commitWorkflowTask({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    taskId: fixture.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "escalate the launch claim to a concrete resource" },
     includePaths: ["file.txt"],
     nawabari: fixture.nawabari,
   });
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.deepEqual(
     fixture.claims(),
-    [
-      { resource: "docs/other.md", mode: "write" },
-      { resource: "file.txt", mode: "exclusive-write" },
-    ],
-    "an unrelated prior claim must be carried forward rather than silently discarded",
+    [{ resource: "file.txt", mode: "exclusive-write" }],
+    "the broad **:read launch claim must be fully replaced, not left alongside the concrete claim",
   );
 });
 
