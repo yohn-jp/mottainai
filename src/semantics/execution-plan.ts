@@ -43,6 +43,10 @@ export interface CreateSemanticExecutionPlanInput {
   semanticTargets?: readonly SemanticExecutionTarget[];
   explicitPaths?: readonly string[];
   claims?: readonly ExecutionClaim[];
+  /** Optional compatibility fallback used when no scope declaration exists. */
+  fallbackClaims?: readonly ExecutionClaim[];
+  fallbackReason?: string;
+  fallbackWarning?: string;
   verification?: Partial<VerificationIntent>;
   /** Strict mode blocks when semantic ownership cannot produce a bounded claim. */
   strict?: boolean;
@@ -117,11 +121,13 @@ export function createSemanticExecutionPlan(input: CreateSemanticExecutionPlanIn
       warnings,
     };
   } else {
-    claims = [{ resource: "**", mode: "exclusive-write" }];
-    warnings.push("semantic scope is incomplete; using an explicit repository-wide conservative claim");
+    claims = normalizeClaims(input.fallbackClaims ?? [{ resource: "**", mode: "exclusive-write" }]);
+    warnings.push(
+      input.fallbackWarning ?? "semantic scope is incomplete; using an explicit repository-wide conservative claim",
+    );
     provenance = {
       strategy: "conservative-broad",
-      reason: "unknown semantic ownership must not be silently under-claimed",
+      reason: input.fallbackReason ?? "unknown semantic ownership must not be silently under-claimed",
       source: "unknown-scope",
       warnings,
     };

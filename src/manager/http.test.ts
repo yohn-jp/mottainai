@@ -144,6 +144,41 @@ test("Manager HTTP API accepts and filters the Pi launch profile", async (t) => 
   assert.equal((await filtered.json()).sessions.length, 1);
 });
 
+test("Manager HTTP preview returns the effective declaration without external mutation", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const runtime = new HttpFakeRuntime();
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime });
+  const handle = await startDashboardServer({
+    port: 0,
+    viewerHtml: "manager",
+    query: createFixtureQuery(),
+    manager: new ManagerHttpApi(service),
+  });
+  activeServers.push(handle);
+
+  const response = await fetch(`${handle.url}api/v1/manager/sessions/preview`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      instruction: "preview",
+      taskSlug: "http-preview",
+      issueRef: "1030",
+      scope: { paths: ["src/app.ts"], claims: [{ resource: "src/readme.md", mode: "read" }] },
+    }),
+  });
+  assert.equal(response.status, 200);
+  const preview = (await response.json()).preview;
+  assert.deepEqual(preview.claims, [
+    { resource: "src/app.ts", mode: "exclusive-write" },
+    { resource: "src/readme.md", mode: "read" },
+  ]);
+  assert.equal(preview.nawabariDeclaration.branch, "feat/1030-http-preview");
+  assert.equal(runtime.sessions.size, 0);
+  assert.equal(store.listTasks().length, 0);
+  assert.equal(store.listManagerSessions(root).length, 0);
+});
+
 test("Manager API remains loopback host protected and rejects malformed session ids", async (t) => {
   const root = createTempGitRepo(t);
   const service = new ManagerSessionService({

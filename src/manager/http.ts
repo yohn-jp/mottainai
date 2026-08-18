@@ -77,6 +77,9 @@ function inputFromBody(value: unknown): NewManagerSessionInput {
     ...(body.issueRef === undefined ? {} : { issueRef: body.issueRef as string }),
     ...(body.branchType === undefined ? {} : { branchType: body.branchType as string }),
     ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey as string }),
+    ...(body.scope === undefined ? {} : { scope: body.scope as NewManagerSessionInput["scope"] }),
+    ...(body.paths === undefined ? {} : { paths: body.paths as NewManagerSessionInput["paths"] }),
+    ...(body.claims === undefined ? {} : { claims: body.claims as NewManagerSessionInput["claims"] }),
   };
 }
 
@@ -148,6 +151,14 @@ export class ManagerHttpApi implements ManagerHttpHandler {
       }
       if (segments.length === 1 && segments[0] === "sessions" && method === "POST") {
         sendJson(response, 201, { session: await this.service.start(inputFromBody(await readJsonBody(request))) });
+        return;
+      }
+      if (
+        ((segments.length === 2 && segments[0] === "sessions" && segments[1] === "preview") ||
+          (segments.length === 1 && segments[0] === "preview")) &&
+        method === "POST"
+      ) {
+        sendJson(response, 200, { preview: await this.service.preview(inputFromBody(await readJsonBody(request))) });
         return;
       }
       if (segments.length === 2 && segments[0] === "sessions" && method === "GET") {
