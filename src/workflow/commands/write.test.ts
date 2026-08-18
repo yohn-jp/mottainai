@@ -22,6 +22,7 @@ import { resolveRepositoryIdentity } from "../domain/identity.js";
 import { buildWorktreeNaming } from "../git/worktree.js";
 import { WorkflowSqliteStateStore } from "../state/sqlite-store.js";
 import type { NawabariSessionId } from "../state/store.js";
+import { FAKE_NAWABARI_CAPABILITIES, fakeNawabari, startNawabariManagedTask } from "../../test-support/nawabari-fixture.js";
 
 function providerResult(stdout: string, stderr = "", overrides: Partial<RunResult> = {}): RunResult {
   return { stdout, stderr, exitCode: 0, signal: null, timedOut: false, outputLimit: false, ...overrides };
@@ -56,157 +57,6 @@ function githubAdapter(workspaceRoot: string, result: RunResult, calls: string[]
     return result;
   };
   return new GithubAdapter({ workspaceRoot, runProgram: execute, sleep: async () => undefined });
-}
-
-const FAKE_NAWABARI_COMMANDS = [
-  "session create",
-  "session id",
-  "session show",
-  "session list",
-  "session claim",
-  "session update",
-  "session claims",
-  "session close",
-  "authorize",
-  "checkpoint",
-  "commit",
-  "push",
-  "gc",
-];
-
-const FAKE_NAWABARI_CAPABILITIES = [
-  {
-    id: "resource-claims",
-    commands: FAKE_NAWABARI_COMMANDS,
-    claim_set_replacement: {
-      commands: ["session update", "resource update"],
-      atomic: true,
-      pairing: "adjacent-resource-mode",
-      idempotent_retry: true,
-      unchanged_on_rejection: true,
-    },
-  },
-];
-
-function fakeNawabari(
-  repositoryRoot: string,
-  options: {
-    repository?: string;
-    calls?: string[][];
-    sessions?: Map<string, Record<string, unknown>>;
-    currentSessionId?: string;
-    failSessionList?: boolean;
-    failSessionClaim?: boolean;
-    beforeSessionClose?: () => void;
-  } = {},
-): NawabariExecutionClient {
-  const calls = options.calls ?? [];
-  const sessions = options.sessions ?? new Map<string, Record<string, unknown>>();
-  let sequence = 0;
-  const claims = new Map<string, Record<string, unknown>[]>();
-  return new NawabariExecutionClient({
-    runner: {
-      async run(_command, args): Promise<RunResult> {
-        calls.push([...args]);
-        if (args[0] === "capabilities")
-          return providerResult(
-            JSON.stringify({
-              ok: true,
-              command: "capabilities",
-              schema_version: 1,
-              contract_id: "nawabari.standalone-execution.v1",
-              package_version: "0.4.1",
-              capabilities: FAKE_NAWABARI_CAPABILITIES,
-            }),
-          );
-        if (args[0] === "session" && args[1] === "id")
-          return options.currentSessionId === undefined
-            ? providerResult(
-                JSON.stringify({ ok: false, command: "session id", code: "NO_SESSION", message: "none" }),
-                "",
-                {
-                  exitCode: 3,
-                },
-              )
-            : providerResult(JSON.stringify({ ok: true, command: "session id", session_id: options.currentSessionId }));
-        if (args[0] === "session" && args[1] === "create") {
-          const sessionId = `fake-session-${++sequence}`;
-          const branch = args[args.indexOf("--branch") + 1]!;
-          const labelIndex = args.indexOf("--label");
-          const label = labelIndex < 0 ? undefined : args[labelIndex + 1];
-          const session = {
-            ok: true,
-            command: "session create",
-            session_id: sessionId,
-            repository: options.repository ?? path.join(repositoryRoot, ".git"),
-            worktree: path.join(repositoryRoot, `.fake-worktree-${sessionId}`),
-            branch,
-            state: "active",
-            ...(label === undefined ? {} : { label }),
-          };
-          sessions.set(sessionId, session);
-          claims.set(sessionId, []);
-          return providerResult(JSON.stringify(session));
-        }
-        if (args[0] === "session" && args[1] === "list") {
-          if (options.failSessionList)
-            return providerResult(
-              JSON.stringify({ ok: false, command: "session list", code: "TEMPORARY_FAILURE", message: "unavailable" }),
-              "",
-              { exitCode: 3 },
-            );
-          return providerResult(
-            JSON.stringify({ ok: true, command: "session list", sessions: [...sessions.values()] }),
-          );
-        }
-        if (args[0] === "session" && args[1] === "show") {
-          const sessionId = args[args.indexOf("--session") + 1]!;
-          const session = sessions.get(sessionId);
-          if (session === undefined)
-            return providerResult(
-              JSON.stringify({ ok: false, command: "session show", code: "NOT_FOUND", message: "missing" }),
-              "",
-              {
-                exitCode: 3,
-              },
-            );
-          return providerResult(JSON.stringify(session));
-        }
-        if (args[0] === "session" && args[1] === "claims") {
-          const sessionId = args[args.indexOf("--session") + 1]!;
-          return providerResult(
-            JSON.stringify({ ok: true, command: "session claims", claims: claims.get(sessionId) ?? [] }),
-          );
-        }
-        if (args[0] === "session" && args[1] === "claim") {
-          const sessionId = args[args.indexOf("--session") + 1]!;
-          const resource = args[args.indexOf("--resource") + 1]!;
-          const mode = args[args.indexOf("--mode") + 1]!;
-          if (options.failSessionClaim)
-            return providerResult(
-              JSON.stringify({ ok: false, command: "session claim", code: "CLAIM_FAILED", message: "injected" }),
-              "",
-              { exitCode: 3 },
-            );
-          const claim = { resource, mode };
-          claims.get(sessionId)?.push(claim);
-          return providerResult(
-            JSON.stringify({ ok: true, command: "session claim", session_id: sessionId, ...claim }),
-          );
-        }
-        if (args[0] === "session" && args[1] === "close") {
-          const sessionId = args[args.indexOf("--session") + 1]!;
-          options.beforeSessionClose?.();
-          const session = sessions.get(sessionId);
-          if (session !== undefined) session.state = "closed";
-          return providerResult(
-            JSON.stringify({ ok: true, command: "session close", session_id: sessionId, state: "closed" }),
-          );
-        }
-        throw new Error(`unexpected fake Nawabari command: ${args.join(" ")}`);
-      },
-    },
-  });
 }
 
 async function canonicalNawabariFixture(t: TestContext) {
@@ -761,22 +611,20 @@ test("commit escalates the known **:read launch claim to a concrete exclusive-wr
 async function finishFixture(t: TestContext) {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
-  const started = await startTask({
-    workspaceRoot: root,
+  const fixture = await startNawabariManagedTask(t, {
+    root,
     store,
     policy: BUILTIN_PRESETS.standard,
     taskSlug: "finish-provider-state",
     branchType: "fix",
     issueRef: "40",
   });
-  assert.equal(started.ok, true);
-  if (!started.ok || started.worktree === undefined) throw new Error("task fixture setup failed");
-  const worktree = started.worktree;
+  const worktree = fixture.worktree;
   const headSha = runGit(["rev-parse", "HEAD"], worktree.canonicalPath);
   const url = "https://github.com/org/repository/pull/40";
   store.recordPullRequest({
-    taskId: started.task.taskId,
-    instanceId: started.task.instanceId,
+    taskId: fixture.task.taskId,
+    instanceId: fixture.task.instanceId,
     provider: "github",
     repositoryId: "org/repository",
     prNumber: 40,
@@ -784,68 +632,37 @@ async function finishFixture(t: TestContext) {
     headSha,
     lifecycleState: "open",
   });
-  store.updateTaskLifecycleState(started.task.taskId, "pull-request-open");
-  // Nawabari is the sole physical authority for managed worktrees (#203); a task must have
-  // an attached session before finish/abandon can resolve its worktree.
-  const sessionId = "finish-session" as NawabariSessionId;
-  store.attachNawabariSession(started.task.taskId, sessionId);
-  const nawabari = fakeNawabari(root, {
-    sessions: new Map([
-      [
-        sessionId,
-        {
-          ok: true,
-          command: "session show",
-          session_id: sessionId,
-          repository: path.join(root, ".git"),
-          worktree: worktree.canonicalPath,
-          branch: worktree.branchName,
-          state: "active",
-        },
-      ],
-    ]),
-  });
-  return { root, store, taskId: started.task.taskId, worktree, headSha, url, baseCommit: started.task.baseCommit, nawabari };
+  store.updateTaskLifecycleState(fixture.task.taskId, "pull-request-open");
+  return {
+    root,
+    store,
+    taskId: fixture.task.taskId,
+    worktree,
+    headSha,
+    url,
+    baseCommit: fixture.task.baseCommit,
+    nawabari: fixture.nawabari,
+  };
 }
 
 test("commit dry-run returns the domain verification plan without changing Git or lifecycle state", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
-  const started = await startTask({
-    workspaceRoot: root,
+  const fixture = await startNawabariManagedTask(t, {
+    root,
     store,
     policy: BUILTIN_PRESETS.standard,
     taskSlug: "write-dry-run",
     branchType: "fix",
     issueRef: "40",
   });
-  assert.equal(started.ok, true);
-  if (!started.ok || started.worktree === undefined) return;
-  const sessionId = "dry-run-session" as NawabariSessionId;
-  store.attachNawabariSession(started.task.taskId, sessionId);
-  const nawabari = fakeNawabari(root, {
-    sessions: new Map([
-      [
-        sessionId,
-        {
-          ok: true,
-          command: "session show",
-          session_id: sessionId,
-          repository: path.join(root, ".git"),
-          worktree: started.worktree.canonicalPath,
-          branch: started.worktree.branchName,
-          state: "active",
-        },
-      ],
-    ]),
-  });
-  fs.appendFileSync(path.join(started.worktree.canonicalPath, "file.txt"), "planned\n");
-  const before = runGit(["rev-parse", "HEAD"], started.worktree.canonicalPath);
+  fs.appendFileSync(path.join(fixture.worktree.canonicalPath, "file.txt"), "planned\n");
+  const before = runGit(["rev-parse", "HEAD"], fixture.worktree.canonicalPath);
   const result = await commitWorkflowTask({
-    workspaceRoot: started.worktree.canonicalPath,
+    workspaceRoot: fixture.worktree.canonicalPath,
     store,
-    taskId: started.task.taskId,
-    nawabari,
+    taskId: fixture.task.taskId,
+    nawabari: fixture.nawabari,
     policy: BUILTIN_PRESETS.standard,
     message: { subject: "planned workflow commit" },
     dryRun: true,
@@ -855,8 +672,8 @@ test("commit dry-run returns the domain verification plan without changing Git o
     assert.equal(result.dryRun, true);
     assert.equal((result.plan as { operation: string }).operation, "commit");
   }
-  assert.equal(runGit(["rev-parse", "HEAD"], started.worktree.canonicalPath), before);
-  assert.equal(store.getTask(started.task.taskId)?.lifecycleState, "active");
+  assert.equal(runGit(["rev-parse", "HEAD"], fixture.worktree.canonicalPath), before);
+  assert.equal(store.getTask(fixture.task.taskId)?.lifecycleState, "active");
 });
 
 test("#226 resolves cleanup and abandon from the canonical Nawabari worktree and rejects a conflicting task id", async (t) => {
