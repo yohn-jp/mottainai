@@ -28,7 +28,12 @@ async function taskFixture(t: TestContext) {
   });
   assert.equal(started.ok, true);
   if (!started.ok || started.worktree === undefined) throw new Error("test fixture task did not create a worktree");
-  return { root, store, task: started.task, worktree: started.worktree };
+  // Nawabari is the sole physical authority for managed worktrees; a task must have an
+  // attached session before its worktree can be resolved for a managed check.
+  const sessionId = `session-${started.task.taskId}`;
+  store.attachNawabariSession(started.task.taskId, sessionId as NawabariSessionId);
+  const nawabari = fakeNawabari(new Map([[sessionId, started.worktree.canonicalPath]]), []);
+  return { root, store, task: started.task, worktree: started.worktree, nawabari };
 }
 
 const checks = [
@@ -90,9 +95,9 @@ function fakeNawabari(
 }
 
 test("runWorkflowCheck executes a registered managed check for the active task", async (t) => {
-  const { store, worktree } = await taskFixture(t);
+  const { store, worktree, nawabari } = await taskFixture(t);
   const result = await runWorkflowCheck(
-    { workspaceRoot: worktree.canonicalPath, store, checkId: "test" },
+    { workspaceRoot: worktree.canonicalPath, store, nawabari, checkId: "test" },
     { artifactStore: new InMemoryArtifactStore(), checks },
   );
   assert.equal(result.ok, true);
@@ -112,9 +117,9 @@ test("runWorkflowCheck rejects an unknown checkId", async (t) => {
 });
 
 test("getWorkflowValidationReceipt reports pending required checks without executing them", async (t) => {
-  const { store, worktree } = await taskFixture(t);
+  const { store, worktree, nawabari } = await taskFixture(t);
   const result = await getWorkflowValidationReceipt(
-    { workspaceRoot: worktree.canonicalPath, store },
+    { workspaceRoot: worktree.canonicalPath, store, nawabari },
     { artifactStore: new InMemoryArtifactStore(), checks },
   );
   assert.equal(result.ok, true);
@@ -124,7 +129,7 @@ test("getWorkflowValidationReceipt reports pending required checks without execu
 });
 
 test("runWorkflowCheck fingerprints and executes in the selected task's worktree, not an unrelated caller workspaceRoot (regression)", async (t) => {
-  const { root, store, task, worktree } = await taskFixture(t);
+  const { root, store, task, worktree, nawabari } = await taskFixture(t);
   // Dirty the primary checkout (root) only — the task's dedicated worktree stays clean.
   fs.writeFileSync(path.join(root, "unrelated-in-root.txt"), "dirty root, not the task worktree\n");
 
@@ -137,7 +142,7 @@ test("runWorkflowCheck fingerprints and executes in the selected task's worktree
     { id: "test", label: "fast tests", command: process.execPath, args: ["-e", "console.log(process.cwd())"], required: true },
   ];
   const result = await runWorkflowCheck(
-    { workspaceRoot: root, store, taskId: task.taskId, checkId: "test" },
+    { workspaceRoot: root, store, taskId: task.taskId, nawabari, checkId: "test" },
     { artifactStore, checks: cwdEchoingChecks },
   );
   assert.equal(result.ok, true);
@@ -232,10 +237,16 @@ test("runWorkflowCheck uses an explicit Nawabari task's execution worktree for e
 });
 
 test("a second runWorkflowCheck call for the same task reuses the prior passing execution", async (t) => {
-  const { store, worktree } = await taskFixture(t);
+  const { store, worktree, nawabari } = await taskFixture(t);
   const dependencies = { artifactStore: new InMemoryArtifactStore(), checks };
-  const first = await runWorkflowCheck({ workspaceRoot: worktree.canonicalPath, store, checkId: "test" }, dependencies);
-  const second = await runWorkflowCheck({ workspaceRoot: worktree.canonicalPath, store, checkId: "test" }, dependencies);
+  const first = await runWorkflowCheck(
+    { workspaceRoot: worktree.canonicalPath, store, nawabari, checkId: "test" },
+    dependencies,
+  );
+  const second = await runWorkflowCheck(
+    { workspaceRoot: worktree.canonicalPath, store, nawabari, checkId: "test" },
+    dependencies,
+  );
   assert.equal(first.ok, true);
   assert.equal(second.ok, true);
   if (!first.ok || !second.ok) return;

@@ -785,7 +785,27 @@ async function finishFixture(t: TestContext) {
     lifecycleState: "open",
   });
   store.updateTaskLifecycleState(started.task.taskId, "pull-request-open");
-  return { root, store, taskId: started.task.taskId, worktree, headSha, url, baseCommit: started.task.baseCommit };
+  // Nawabari is the sole physical authority for managed worktrees (#203); a task must have
+  // an attached session before finish/abandon can resolve its worktree.
+  const sessionId = "finish-session" as NawabariSessionId;
+  store.attachNawabariSession(started.task.taskId, sessionId);
+  const nawabari = fakeNawabari(root, {
+    sessions: new Map([
+      [
+        sessionId,
+        {
+          ok: true,
+          command: "session show",
+          session_id: sessionId,
+          repository: path.join(root, ".git"),
+          worktree: worktree.canonicalPath,
+          branch: worktree.branchName,
+          state: "active",
+        },
+      ],
+    ]),
+  });
+  return { root, store, taskId: started.task.taskId, worktree, headSha, url, baseCommit: started.task.baseCommit, nawabari };
 }
 
 test("commit dry-run returns the domain verification plan without changing Git or lifecycle state", async (t) => {
@@ -801,12 +821,31 @@ test("commit dry-run returns the domain verification plan without changing Git o
   });
   assert.equal(started.ok, true);
   if (!started.ok || started.worktree === undefined) return;
+  const sessionId = "dry-run-session" as NawabariSessionId;
+  store.attachNawabariSession(started.task.taskId, sessionId);
+  const nawabari = fakeNawabari(root, {
+    sessions: new Map([
+      [
+        sessionId,
+        {
+          ok: true,
+          command: "session show",
+          session_id: sessionId,
+          repository: path.join(root, ".git"),
+          worktree: started.worktree.canonicalPath,
+          branch: started.worktree.branchName,
+          state: "active",
+        },
+      ],
+    ]),
+  });
   fs.appendFileSync(path.join(started.worktree.canonicalPath, "file.txt"), "planned\n");
   const before = runGit(["rev-parse", "HEAD"], started.worktree.canonicalPath);
   const result = await commitWorkflowTask({
     workspaceRoot: started.worktree.canonicalPath,
     store,
     taskId: started.task.taskId,
+    nawabari,
     policy: BUILTIN_PRESETS.standard,
     message: { subject: "planned workflow commit" },
     dryRun: true,
@@ -1883,6 +1922,7 @@ test("finish refuses an open provider pull request", async (t) => {
       workspaceRoot: fixture.worktree.canonicalPath,
       store: fixture.store,
       taskId: fixture.taskId,
+      nawabari: fixture.nawabari,
       policy: BUILTIN_PRESETS.standard,
     },
     {
@@ -1914,6 +1954,7 @@ test("finish refuses a closed-but-unmerged provider pull request", async (t) => 
       workspaceRoot: fixture.worktree.canonicalPath,
       store: fixture.store,
       taskId: fixture.taskId,
+      nawabari: fixture.nawabari,
       policy: BUILTIN_PRESETS.standard,
     },
     {
@@ -1944,6 +1985,7 @@ test("finish marks the task merged only after an identity- and head-matching mer
       workspaceRoot: fixture.worktree.canonicalPath,
       store: fixture.store,
       taskId: fixture.taskId,
+      nawabari: fixture.nawabari,
       policy: BUILTIN_PRESETS.standard,
     },
     {
@@ -1974,6 +2016,7 @@ test("finish fails closed when the provider is unavailable", async (t) => {
       workspaceRoot: fixture.worktree.canonicalPath,
       store: fixture.store,
       taskId: fixture.taskId,
+      nawabari: fixture.nawabari,
       policy: BUILTIN_PRESETS.standard,
     },
     {
@@ -1995,6 +2038,7 @@ test("finish fails closed when the observed provider head does not match the per
       workspaceRoot: fixture.worktree.canonicalPath,
       store: fixture.store,
       taskId: fixture.taskId,
+      nawabari: fixture.nawabari,
       policy: BUILTIN_PRESETS.standard,
     },
     {
@@ -2025,6 +2069,7 @@ test("finish retry returns the persisted merged state without re-observing the p
       workspaceRoot: fixture.worktree.canonicalPath,
       store: fixture.store,
       taskId: fixture.taskId,
+      nawabari: fixture.nawabari,
       policy: BUILTIN_PRESETS.standard,
     },
     {
@@ -2051,6 +2096,7 @@ test("finish retry returns the persisted merged state without re-observing the p
       workspaceRoot: fixture.worktree.canonicalPath,
       store: fixture.store,
       taskId: fixture.taskId,
+      nawabari: fixture.nawabari,
       policy: BUILTIN_PRESETS.standard,
     },
     { githubAdapter: githubAdapter(fixture.worktree.canonicalPath, providerResult("unexpected"), calls) },
@@ -2066,6 +2112,7 @@ test("abandon retry returns the persisted abandoned state", async (t) => {
     workspaceRoot: fixture.worktree.canonicalPath,
     store: fixture.store,
     taskId: fixture.taskId,
+    nawabari: fixture.nawabari,
     policy: BUILTIN_PRESETS.standard,
   };
   const first = await abandonWorkflowTask(input);

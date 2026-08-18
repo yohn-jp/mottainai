@@ -6,10 +6,91 @@ import { createTempGitRepo } from "../../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../../test-support/workflow-store.js";
 import { startTask } from "../domain/task.js";
 import { BUILTIN_PRESETS } from "../policy/presets.js";
+import { NawabariExecutionClient } from "../nawabari.js";
 import { GhInariPullRequestAdapter } from "../providers/gh-inari.js";
 import { GithubAdapter, type PullRequestCreateAdapter, type RunProgramFunction } from "../providers/github.js";
 import type { PullRequest } from "../providers/model.js";
+import type { NawabariSessionId } from "../state/store.js";
 import { openWorkflowTaskPullRequest } from "./write.js";
+
+const FAKE_NAWABARI_COMMANDS = [
+  "session create",
+  "session id",
+  "session show",
+  "session list",
+  "session claim",
+  "session update",
+  "session claims",
+  "session close",
+  "authorize",
+  "checkpoint",
+  "commit",
+  "push",
+  "gc",
+];
+
+const FAKE_NAWABARI_CAPABILITIES = [
+  {
+    id: "resource-claims",
+    commands: FAKE_NAWABARI_COMMANDS,
+    claim_set_replacement: {
+      commands: ["session update", "resource update"],
+      atomic: true,
+      pairing: "adjacent-resource-mode",
+      idempotent_retry: true,
+      unchanged_on_rejection: true,
+    },
+  },
+];
+
+/**
+ * Nawabari is the sole physical authority for managed worktrees (#203); a task must have
+ * an attached session before its worktree can be resolved for a managed write. This fake
+ * only answers the `session id` / `session show` calls that resolution performs.
+ */
+function attachedNawabari(sessionId: string, session: Record<string, unknown>): NawabariExecutionClient {
+  return new NawabariExecutionClient({
+    runner: {
+      async run(_command, args): Promise<RunResult> {
+        if (args[0] === "capabilities")
+          return {
+            stdout: JSON.stringify({
+              ok: true,
+              command: "capabilities",
+              schema_version: 1,
+              contract_id: "nawabari.standalone-execution.v1",
+              package_version: "0.4.1",
+              capabilities: FAKE_NAWABARI_CAPABILITIES,
+            }),
+            stderr: "",
+            exitCode: 0,
+            signal: null,
+            timedOut: false,
+            outputLimit: false,
+          };
+        if (args[0] === "session" && args[1] === "id")
+          return {
+            stdout: JSON.stringify({ ok: false, command: "session id", code: "NO_CURRENT_SESSION", message: "none" }),
+            stderr: "",
+            exitCode: 3,
+            signal: null,
+            timedOut: false,
+            outputLimit: false,
+          };
+        if (args[0] === "session" && args[1] === "show" && args[args.indexOf("--session") + 1] === sessionId)
+          return {
+            stdout: JSON.stringify({ ok: true, command: "session show", ...session }),
+            stderr: "",
+            exitCode: 0,
+            signal: null,
+            timedOut: false,
+            outputLimit: false,
+          };
+        throw new Error(`unexpected fake Nawabari command: ${args.join(" ")}`);
+      },
+    },
+  });
+}
 
 function runResult(stdout: string, stderr = "", overrides: Partial<RunResult> = {}): RunResult {
   return { stdout, stderr, exitCode: 0, signal: null, timedOut: false, outputLimit: false, ...overrides };
@@ -54,6 +135,16 @@ async function workflowFixture(t: TestContext) {
   if (!started.ok || started.worktree === undefined) throw new Error("workflow fixture setup failed");
   store.updateTaskLifecycleState(started.task.taskId, "pushed");
 
+  const sessionId = `session-${started.task.taskId}`;
+  store.attachNawabariSession(started.task.taskId, sessionId as NawabariSessionId);
+  const nawabari = attachedNawabari(sessionId, {
+    session_id: sessionId,
+    repository: root,
+    worktree: started.worktree.canonicalPath,
+    branch: started.worktree.branchName,
+    state: "active",
+  });
+
   const githubCalls: string[][] = [];
   const execute: RunProgramFunction = async (_program, args) => {
     githubCalls.push(args);
@@ -68,6 +159,7 @@ async function workflowFixture(t: TestContext) {
     store,
     taskId: started.task.taskId,
     workspaceRoot: started.worktree.canonicalPath,
+    nawabari,
     githubAdapter,
     githubCalls,
   };
@@ -86,6 +178,7 @@ test("managed open-pr uses Inari mutation and preserves the workflow lifecycle r
       workspaceRoot: fixture.workspaceRoot,
       store: fixture.store,
       taskId: fixture.taskId,
+      nawabari: fixture.nawabari,
       policy: BUILTIN_PRESETS.standard,
       title: "Governed workflow PR",
       repository: "acme/repo",
@@ -149,6 +242,7 @@ test("managed open-pr returns structured Inari rejection and performs no direct 
       workspaceRoot: fixture.workspaceRoot,
       store: fixture.store,
       taskId: fixture.taskId,
+      nawabari: fixture.nawabari,
       policy: BUILTIN_PRESETS.standard,
       title: "Rejected workflow PR",
       repository: "acme/repo",
@@ -218,6 +312,7 @@ test("managed Inari creation reconciles after local persistence failure without 
     workspaceRoot: fixture.workspaceRoot,
     store: fixture.store,
     taskId: fixture.taskId,
+    nawabari: fixture.nawabari,
     policy: BUILTIN_PRESETS.standard,
     title: "Governed workflow PR",
     repository: "acme/repo",
