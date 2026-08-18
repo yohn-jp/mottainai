@@ -4,7 +4,7 @@ import { GhInariClient, type GhInariProcess } from "../../gh-inari.js";
 import type { RunResult } from "../../subprocess.js";
 import { createTempGitRepo } from "../../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../../test-support/workflow-store.js";
-import { startTask } from "../domain/task.js";
+import { startNawabariManagedTask } from "../../test-support/nawabari-fixture.js";
 import { BUILTIN_PRESETS } from "../policy/presets.js";
 import { GhInariPullRequestAdapter } from "../providers/gh-inari.js";
 import { GithubAdapter, type PullRequestCreateAdapter, type RunProgramFunction } from "../providers/github.js";
@@ -42,17 +42,15 @@ function capabilityResults(operationOutput: string): RunResult[] {
 async function workflowFixture(t: TestContext) {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
-  const started = await startTask({
-    workspaceRoot: root,
+  const fixture = await startNawabariManagedTask(t, {
+    root,
     store,
     policy: BUILTIN_PRESETS.standard,
     taskSlug: `inari-pr-${Date.now()}`,
     branchType: "refactor",
     issueRef: "200",
   });
-  assert.equal(started.ok, true, JSON.stringify(started));
-  if (!started.ok || started.worktree === undefined) throw new Error("workflow fixture setup failed");
-  store.updateTaskLifecycleState(started.task.taskId, "pushed");
+  store.updateTaskLifecycleState(fixture.task.taskId, "pushed");
 
   const githubCalls: string[][] = [];
   const execute: RunProgramFunction = async (_program, args) => {
@@ -60,14 +58,15 @@ async function workflowFixture(t: TestContext) {
     return runResult("[]");
   };
   const githubAdapter = new GithubAdapter({
-    workspaceRoot: started.worktree.canonicalPath,
+    workspaceRoot: fixture.worktree.canonicalPath,
     runProgram: execute,
     sleep: async () => undefined,
   });
   return {
     store,
-    taskId: started.task.taskId,
-    workspaceRoot: started.worktree.canonicalPath,
+    taskId: fixture.task.taskId,
+    workspaceRoot: fixture.worktree.canonicalPath,
+    nawabari: fixture.nawabari,
     githubAdapter,
     githubCalls,
   };
@@ -86,6 +85,7 @@ test("managed open-pr uses Inari mutation and preserves the workflow lifecycle r
       workspaceRoot: fixture.workspaceRoot,
       store: fixture.store,
       taskId: fixture.taskId,
+      nawabari: fixture.nawabari,
       policy: BUILTIN_PRESETS.standard,
       title: "Governed workflow PR",
       repository: "acme/repo",
@@ -149,6 +149,7 @@ test("managed open-pr returns structured Inari rejection and performs no direct 
       workspaceRoot: fixture.workspaceRoot,
       store: fixture.store,
       taskId: fixture.taskId,
+      nawabari: fixture.nawabari,
       policy: BUILTIN_PRESETS.standard,
       title: "Rejected workflow PR",
       repository: "acme/repo",
@@ -218,6 +219,7 @@ test("managed Inari creation reconciles after local persistence failure without 
     workspaceRoot: fixture.workspaceRoot,
     store: fixture.store,
     taskId: fixture.taskId,
+    nawabari: fixture.nawabari,
     policy: BUILTIN_PRESETS.standard,
     title: "Governed workflow PR",
     repository: "acme/repo",
