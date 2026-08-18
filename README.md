@@ -152,13 +152,13 @@ from any working directory, so the registration command must point at the
 generated configuration with an absolute path:
 
 ```bash
-claude mcp add -s user mottainai -- npx -y mottainai@0.1.4 serve --config /absolute/path/to/mottainai.config.json
+claude mcp add -s user mottainai -- npx -y mottainai@0.2.0 serve --config /absolute/path/to/mottainai.config.json
 ```
 
 For Codex, register the same way:
 
 ```bash
-codex mcp add mottainai -- npx -y mottainai@0.1.4 serve --config /absolute/path/to/mottainai.config.json
+codex mcp add mottainai -- npx -y mottainai@0.2.0 serve --config /absolute/path/to/mottainai.config.json
 ```
 
 `mottainai init` prints the exact registration command for your detected
@@ -233,9 +233,9 @@ Repository Model provider with `--provider live` or
 `MOTTAINAI_DASHBOARD_PROVIDER=live`; live compilation reads current TypeScript
 facts and reports partial, stale, or unavailable integrity state explicitly.
 
-### Zellij-backed Manager v0 (Issue #182)
+### Zellij-backed Manager (Issue #182)
 
-Launch the local Manager UI for durable, parallel Codex CLI sessions:
+Launch the local Manager UI for durable, parallel coding-agent sessions:
 
 ```bash
 npx -y mottainai manager
@@ -244,12 +244,12 @@ npx -y mottainai manager --no-open --port 4318
 
 The Manager binds to `127.0.0.1` by default and requires an executable Zellij.
 It creates task-bound sessions through Mottainai's orchestration boundary, which
-delegates the physical session/worktree/branch to Nawabari, then starts Codex in
-the returned worktree through a named Zellij session. Manager retains only the
-task/session relationship and a launch-path projection; it does not reserve,
-verify, mutate, or clean repository resources. Zellij remains responsible for
-terminal transport, attach/detach, panes, and persistence. Existing Mottainai
-commands do not require Zellij.
+delegates the physical session/worktree/branch to Nawabari, then starts the
+selected Codex, Claude Code, or Pi profile in the returned worktree through a
+named Zellij session. Manager retains only the task/session relationship and a
+launch-path projection; it does not reserve, verify, mutate, or clean repository
+resources. Zellij remains responsible for terminal transport, attach/detach,
+panes, and persistence. Existing Mottainai commands do not require Zellij.
 
 ### Git workflow task lifecycle (Issue #40)
 
@@ -299,6 +299,7 @@ or the current Git repository's top level):
 ```bash
 npx -y mottainai policy explain [--workspace path]
 npx -y mottainai task start <slug> --type type --issue ref [--idempotency-key key] [--workspace path]
+npx -y mottainai task run <slug> --type type --issue ref --agent pi [--model model] [--workspace path]
 npx -y mottainai task status [--workspace path]
 npx -y mottainai task commit --message subject [--workspace path]
 npx -y mottainai task push [--workspace path]
@@ -308,6 +309,23 @@ npx -y mottainai task abandon [--workspace path]
 npx -y mottainai task cleanup [--workspace path]
 npx -y mottainai workflow doctor [--workspace path]
 ```
+
+For the 0.2.0 managed Pi golden path, `task run` composes task creation with
+Manager launch so the caller does not need to copy a worktree/session identity
+by hand:
+
+```bash
+npx -y mottainai@0.2.0 task run my-fix \
+  --type fix \
+  --issue 362 \
+  --agent pi
+```
+
+The managed Pi profile requires compatible Pi and Zellij executables,
+Nawabari >= 0.4.1, and the supported gh-inari companion for governed PR
+creation. Missing or incompatible companions fail closed; Mottainai does not
+silently install them or fall back to retired mutation paths. Agent process exit
+alone is not semantic success: the workflow lifecycle remains authoritative.
 
 `task start` delegates worktree creation to Nawabari and returns the
 canonical worktree path in `execution.worktree`. Every follow-up command
