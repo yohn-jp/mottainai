@@ -85,7 +85,17 @@ test("managed PR creation sends explicit repository and typed fields through gh-
     });
   }
   assert.equal(calls.length, 3);
-  assert.deepEqual(calls[2]?.args, ["pr", "create", "--repository", "acme/repo", "--from", "-", "--json"]);
+  assert.deepEqual(calls[2]?.args, [
+    "pr",
+    "create",
+    "--repository",
+    "acme/repo",
+    "--from",
+    "-",
+    "--json",
+    "--template",
+    "default",
+  ]);
   assert.deepEqual(JSON.parse(calls[2]?.input ?? "{}"), {
     fields: pullRequestFieldsForGhInari(input().draft),
     title: "Governed PR",
