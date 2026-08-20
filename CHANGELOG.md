@@ -11,6 +11,10 @@ in the Claude and Codex registration examples in `README.md` together.
 
 ## [Unreleased]
 
+- **Fixed**: managed gh-inari compatibility now accepts `>=0.7.0` when the
+  required `pr.create`/`pr.get` and machine-option contract is present, with
+  bounded fail-closed diagnostics for missing or incompatible companions.
+
 ## [0.2.0] - 2026-08-18
 
 Pi-backed managed-development and authority-convergence release. See
@@ -25,7 +29,7 @@ Pi-backed managed-development and authority-convergence release. See
   Repository Semantic Control Plane loop including semantic delta/impact,
   verification planning, bounded projections, and managed enforcement.
 - **Changed**: Nawabari is the sole managed physical Git/worktree authority
-  (`>=0.4.1` contract), managed PR mutation is gh-inari-only (`0.2.x`
+  (`>=0.4.1` contract), managed PR mutation is gh-inari-only (`>=0.7.0`
   companion contract), and Manager is a multi-agent execution control plane
   rather than a Codex-only launcher.
 - **Changed**: Runtime lifecycle is explicitly owned by `mottainai runtime

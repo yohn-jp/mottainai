@@ -27,8 +27,10 @@ function queuedRunner(results: RunResult[]): {
 
 function capabilityResults(operationOutput: string): RunResult[] {
   return [
-    runResult("gh-inari 0.2.0\n"),
-    runResult("  pr create --from <file.json>\n  pr get <number> --json\n"),
+    runResult("gh-inari 0.7.0\n"),
+    runResult(
+      "  pr create --from <file.json>\n  pr get <number> --json\n  --from <path>\n  --json\n  --repository <r>\n  --template <id>\n",
+    ),
     runResult(operationOutput),
   ];
 }
@@ -83,7 +85,17 @@ test("managed PR creation sends explicit repository and typed fields through gh-
     });
   }
   assert.equal(calls.length, 3);
-  assert.deepEqual(calls[2]?.args, ["pr", "create", "--repository", "acme/repo", "--from", "-", "--json"]);
+  assert.deepEqual(calls[2]?.args, [
+    "pr",
+    "create",
+    "--repository",
+    "acme/repo",
+    "--from",
+    "-",
+    "--json",
+    "--template",
+    "default",
+  ]);
   assert.deepEqual(JSON.parse(calls[2]?.input ?? "{}"), {
     fields: pullRequestFieldsForGhInari(input().draft),
     title: "Governed PR",
@@ -139,7 +151,7 @@ test("missing and incompatible gh-inari fail closed before a create operation", 
     [["--version"]],
   );
 
-  const incompatible = queuedRunner([runResult("gh-inari 0.1.0\n")]);
+  const incompatible = queuedRunner([runResult("gh-inari 0.6.9\n")]);
   const incompatibleAdapter = new GhInariPullRequestAdapter({
     workspaceRoot: "/checkout",
     client: new GhInariClient({ runner: incompatible.runner, cwd: "/checkout" }),

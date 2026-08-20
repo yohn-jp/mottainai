@@ -287,10 +287,13 @@ Nawabari's physical authorization before mutation. The former
 `mottainai_workflow_task_start` instead.
 
 Managed pull-request creation has one mutation authority: the external
-`gh-inari` companion (`0.2.x`). Mottainai sends typed PR intent and retains
-only lifecycle/reconciliation state; its GitHub provider performs bounded
+`gh-inari` companion (`>=0.7.0`). Mottainai requires the `pr.create` and
+`pr.get` operations plus the `--from`, `--json`, `--repository`, and
+`--template` machine options. It probes the installed version and full help
+contract before mutation, sends typed PR intent, and retains only
+lifecycle/reconciliation state; its GitHub provider performs bounded
 read-only lookup for recovery. A missing or incompatible companion is a
-bounded failure and never falls back to direct GitHub PR creation.
+bounded, actionable failure and never falls back to direct GitHub PR creation.
 
 The same lifecycle operations are available from the CLI, independent of
 `mottainai.config.json` (they act on a Git repository, given by `--workspace`

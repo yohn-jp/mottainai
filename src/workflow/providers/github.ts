@@ -527,7 +527,7 @@ export class GithubAdapter {
       "view",
       normalizedReference,
       "--json",
-      "number,state,isDraft,mergedAt,url,headRefName,headRefOid,baseRefName,baseRefOid,repository",
+      "number,state,isDraft,mergedAt,url,headRefName,headRefOid,baseRefName,baseRefOid",
       "--repo",
       repositoryFlag,
     ];
@@ -604,7 +604,7 @@ export class GithubAdapter {
       "--base",
       input.base.name,
       "--json",
-      "number,state,isDraft,mergedAt,url,headRefName,headRefOid,baseRefName,baseRefOid,repository",
+      "number,state,isDraft,mergedAt,url,headRefName,headRefOid,baseRefName,baseRefOid",
       "--limit",
       "100",
       "--repo",

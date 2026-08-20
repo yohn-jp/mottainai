@@ -55,6 +55,7 @@ export class GhInariPullRequestAdapter implements PullRequestCreateAdapter {
 
     const result = await this.client.createPullRequest({
       repository,
+      template: "default",
       input: {
         fields: pullRequestFieldsForGhInari(input.draft),
         title: input.title,

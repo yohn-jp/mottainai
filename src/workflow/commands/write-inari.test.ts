@@ -33,8 +33,10 @@ function queuedRunner(results: RunResult[]): {
 
 function capabilityResults(operationOutput: string): RunResult[] {
   return [
-    runResult("gh-inari 0.2.0\n"),
-    runResult("  pr create --from <file.json>\n  pr get <number> --json\n"),
+    runResult("gh-inari 0.7.0\n"),
+    runResult(
+      "  pr create --from <file.json>\n  pr get <number> --json\n  --from <path>\n  --json\n  --repository <r>\n  --template <id>\n",
+    ),
     runResult(operationOutput),
   ];
 }
