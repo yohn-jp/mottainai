@@ -119,7 +119,7 @@ export function registerProxyHandlers(
     maxEntries: gatewayConfig.resultMaxEntries,
   });
   // await/watch primitive（Issue #74）の handle は、この connection（= この registerProxyHandlers 呼び出し）にだけ属する。
-  const processes = new ProcessRegistry();
+  const processes = new ProcessRegistry({ policy: gatewayConfig.managedProcesses });
   // connection/session scope: 1 Server インスタンス = 1 MCP connection。static/global state は
   // 持たず、この closure だけが保持する — 無関係な client 間で burst budget を共有しない。
   const burstBudget = new BurstBudgetController(gatewayConfig.burstBudget, {

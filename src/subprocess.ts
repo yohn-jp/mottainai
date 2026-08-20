@@ -321,6 +321,13 @@ export class ManagedProcess {
     this.terminate();
   }
 
+  /** 最大 lifetime 到達時の即時終了。通常の await timeout の猶予付き終了とは分離する。 */
+  expire(): void {
+    if (this.settledFlag) return;
+    this.timedOut = true;
+    this.forceTerminate();
+  }
+
   private finish(result: RunResult): void {
     if (this.settledFlag) return;
     this.settledFlag = true;

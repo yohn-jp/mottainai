@@ -30,7 +30,9 @@ import {
 import type { ArtifactIdentityMetadata, FileContentIdentity } from "./context-runtime/identity.js";
 import { normalizeChecks, waitUntilChanged } from "./context-runtime/gh-checks.js";
 import type { CheckSnapshot, RawCheck } from "./context-runtime/gh-checks.js";
+import { ManagedProcessResourceError } from "./context-runtime/process-registry.js";
 import type { ProcessRegistry } from "./context-runtime/process-registry.js";
+import type { StartedProcess } from "./context-runtime/process-registry.js";
 import { OUTPUT_SCHEMA, output } from "./envelope.js";
 import type { ArtifactStore } from "./retrieve.js";
 import { runChild, runProgram } from "./subprocess.js";
@@ -400,7 +402,29 @@ async function execStartTool(
       ? config.maxOutputBytes
       : Math.min(requestedMaxOutputBytes, config.maxOutputBytes);
   if (maxOutputBytes < 1) throw new Error("maxOutputBytes must be positive");
-  const started = processes.start(command, cwd, maxOutputBytes, true);
+  let started: StartedProcess;
+  try {
+    started = processes.start(command, cwd, maxOutputBytes, true);
+  } catch (error) {
+    if (!(error instanceof ManagedProcessResourceError)) throw error;
+    const capacity = error.code === "managed_process_active_capacity_exceeded";
+    return output(
+      "exec_start",
+      "failed",
+      capacity ? "FAIL resource: managed process active capacity exhausted" : "FAIL resource: managed process registry disposed",
+      "",
+      {
+        error_code: error.code,
+        resource: "managed_processes",
+        resource_limit: error.limit,
+        active_count: error.activeCount,
+        retained_count: error.retainedCount,
+        policy_action: "deny",
+        diagnostics: [{ severity: "error", code: error.code }],
+      },
+      true,
+    );
+  }
   const summary = `started handle=${started.handle}${started.pid === undefined ? "" : ` pid=${started.pid}`}`;
   return output("exec_start", "success", summary, "", {
     handle: started.handle,

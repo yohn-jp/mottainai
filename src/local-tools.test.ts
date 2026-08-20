@@ -500,6 +500,43 @@ test("exec_start returns an opaque handle immediately, and exec_await blocks unt
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test("exec_start maps active-capacity exhaustion to a bounded machine-readable error", async () => {
+  const { root, config } = await workspace();
+  const store = new InMemoryArtifactStore();
+  const processes = new ProcessRegistry({ policy: { maxActiveProcesses: 1 } });
+  const first = structured(
+    await callLocalTool(
+      "mottainai_exec_start",
+      { command: `${process.execPath} -e "setTimeout(() => {}, 5000)"` },
+      config,
+      store,
+      undefined,
+      undefined,
+      processes,
+    ),
+  );
+  const secretCommand = `${process.execPath} -e "console.log('argv-secret-must-not-leak')"`;
+  const limited = await callLocalTool(
+    "mottainai_exec_start",
+    { command: secretCommand },
+    config,
+    store,
+    undefined,
+    undefined,
+    processes,
+  );
+  const content = structured(limited);
+  assert.equal(limited.isError, true);
+  assert.equal(content.status, "failed");
+  assert.equal(content.error_code, "managed_process_active_capacity_exceeded");
+  assert.equal(content.active_count, 1);
+  assert.equal(content.resource_limit, 1);
+  assert.doesNotMatch(JSON.stringify(limited), /argv-secret-must-not-leak/);
+  processes.dispose();
+  assert.equal(processes.has(first.handle as string), false);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
 test("exec_await reports command failure via exit code without throwing", async () => {
   const { root, config } = await workspace();
   const store = new InMemoryArtifactStore({ createId: () => "await-failure" });
