@@ -64,4 +64,6 @@ export interface PullRequest extends IssueReference {
   repository: RepositoryIdentity;
   head: RevisionIdentity;
   base: RevisionIdentity;
+  /** Provider-authoritative revision integrated into the base branch, when merged. */
+  mergeRevision?: string;
 }

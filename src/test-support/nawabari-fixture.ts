@@ -17,6 +17,7 @@ export const FAKE_NAWABARI_COMMANDS = [
   "session create",
   "session id",
   "session show",
+  "session inspect",
   "session list",
   "session claim",
   "session update",
@@ -75,7 +76,7 @@ export function fakeNawabari(
               command: "capabilities",
               schema_version: 1,
               contract_id: "nawabari.standalone-execution.v1",
-              package_version: "0.4.1",
+              package_version: "0.5.0",
               capabilities: FAKE_NAWABARI_CAPABILITIES,
             }),
           );
@@ -121,6 +122,21 @@ export function fakeNawabari(
               exitCode: 3,
             });
           return runResult(JSON.stringify(session));
+        }
+        if (args[0] === "session" && args[1] === "inspect") {
+          const sessionId = args[args.indexOf("--session") + 1]!;
+          const session = sessions.get(sessionId);
+          if (session === undefined)
+            return runResult(
+              JSON.stringify({ ok: false, command: "session inspect", code: "NOT_FOUND", message: "missing" }),
+              "",
+              {
+                exitCode: 3,
+              },
+            );
+          return runResult(
+            JSON.stringify({ ...session, command: "session inspect", close_readiness: "ready", blockers: [] }),
+          );
         }
         if (args[0] === "session" && args[1] === "claims") {
           const sessionId = args[args.indexOf("--session") + 1]!;

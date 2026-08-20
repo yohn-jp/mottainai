@@ -22,6 +22,9 @@ import type {
   PullRequestRecord,
   PullRequestRecordId,
   RecordPullRequestInput,
+  BeginNawabariCloseReconciliationInput,
+  NawabariCloseReconciliationRecord,
+  NawabariCloseReconciliationState,
   ReserveTaskInput,
   ReserveTaskResult,
   BeginTaskStartReconciliationInput,
@@ -209,6 +212,22 @@ function toCommitReconciliationRecord(row: Record<string, unknown>): CommitRecon
     message: row.message as string,
     state: row.state as CommitReconciliationState,
     ...(row.commit_sha === null || row.commit_sha === undefined ? {} : { commitSha: row.commit_sha as string }),
+    ...(row.detail === null || row.detail === undefined ? {} : { detail: row.detail as string }),
+    createdAt: row.created_at as number,
+    updatedAt: row.updated_at as number,
+  };
+}
+
+function toNawabariCloseReconciliationRecord(row: Record<string, unknown>): NawabariCloseReconciliationRecord {
+  return {
+    taskId: row.task_id as TaskId,
+    instanceId: row.instance_id as RepositoryInstanceId,
+    nawabariSessionId: row.nawabari_session_id as NawabariCloseReconciliationRecord["nawabariSessionId"],
+    providerRecordId: row.provider_record_id as PullRequestRecordId,
+    ...(row.integrated_revision === null || row.integrated_revision === undefined
+      ? {}
+      : { integratedRevision: row.integrated_revision as string }),
+    state: row.state as NawabariCloseReconciliationState,
     ...(row.detail === null || row.detail === undefined ? {} : { detail: row.detail as string }),
     createdAt: row.created_at as number,
     updatedAt: row.updated_at as number,
@@ -1162,6 +1181,83 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     return row === undefined ? undefined : toCommitReconciliationRecord(row);
   }
 
+  beginNawabariCloseReconciliation(input: BeginNawabariCloseReconciliationInput): NawabariCloseReconciliationRecord {
+    const db = this.handle();
+    const now = input.createdAt ?? Date.now();
+    const existing = db.prepare("SELECT * FROM nawabari_close_reconciliations WHERE task_id = ?").get(input.taskId) as
+      | Record<string, unknown>
+      | undefined;
+    if (existing !== undefined) {
+      const record = toNawabariCloseReconciliationRecord(existing);
+      const identityMatches =
+        record.instanceId === input.instanceId &&
+        record.nawabariSessionId === input.nawabariSessionId &&
+        record.providerRecordId === input.providerRecordId &&
+        (input.integratedRevision === undefined ||
+          record.integratedRevision === undefined ||
+          record.integratedRevision === input.integratedRevision);
+      if (!identityMatches) throw new Error(`Nawabari close reconciliation identity mismatch: ${input.taskId}`);
+      if (record.integratedRevision === undefined && input.integratedRevision !== undefined) {
+        db.prepare(
+          "UPDATE nawabari_close_reconciliations SET integrated_revision = ?, updated_at = ? WHERE task_id = ?",
+        ).run(input.integratedRevision, now, input.taskId);
+        return this.getNawabariCloseReconciliation(input.taskId)!;
+      }
+      return record;
+    }
+    db.prepare(
+      `INSERT INTO nawabari_close_reconciliations
+       (task_id, instance_id, nawabari_session_id, provider_record_id, integrated_revision, state, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
+    ).run(
+      input.taskId,
+      input.instanceId,
+      input.nawabariSessionId,
+      input.providerRecordId,
+      input.integratedRevision ?? null,
+      now,
+      now,
+    );
+    return this.getNawabariCloseReconciliation(input.taskId)!;
+  }
+
+  markNawabariCloseReconciliation(
+    taskId: TaskId,
+    state: Exclude<NawabariCloseReconciliationState, "pending">,
+    detail?: string,
+    updatedAt?: number,
+  ): NawabariCloseReconciliationRecord {
+    const existing = this.getNawabariCloseReconciliation(taskId);
+    if (existing === undefined) throw new Error(`Nawabari close reconciliation not found: ${taskId}`);
+    const now = updatedAt ?? Date.now();
+    this.handle()
+      .prepare("UPDATE nawabari_close_reconciliations SET state = ?, detail = ?, updated_at = ? WHERE task_id = ?")
+      .run(state, detail === undefined ? null : detail.slice(0, 512), now, taskId);
+    return this.getNawabariCloseReconciliation(taskId)!;
+  }
+
+  getNawabariCloseReconciliation(taskId: TaskId): NawabariCloseReconciliationRecord | undefined {
+    const row = this.handle().prepare("SELECT * FROM nawabari_close_reconciliations WHERE task_id = ?").get(taskId) as
+      | Record<string, unknown>
+      | undefined;
+    return row === undefined ? undefined : toNawabariCloseReconciliationRecord(row);
+  }
+
+  listNawabariCloseReconciliations(instanceId?: RepositoryInstanceId): NawabariCloseReconciliationRecord[] {
+    const rows = (
+      instanceId === undefined
+        ? this.handle()
+            .prepare("SELECT * FROM nawabari_close_reconciliations ORDER BY created_at ASC, task_id ASC")
+            .all()
+        : this.handle()
+            .prepare(
+              "SELECT * FROM nawabari_close_reconciliations WHERE instance_id = ? ORDER BY created_at ASC, task_id ASC",
+            )
+            .all(instanceId)
+    ) as Record<string, unknown>[];
+    return rows.map((row) => toNawabariCloseReconciliationRecord(row));
+  }
+
   reserveWorktree(input: ReserveWorktreeInput): ReserveWorktreeResult {
     const db = this.handle();
     const now = input.reservedAt ?? Date.now();
@@ -1805,6 +1901,7 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       prNumber: row.pr_number as number,
       url: row.url as string,
       headSha: row.head_sha as string,
+      mergeRevision: (row.merge_revision as string | null) ?? undefined,
       lifecycleState: row.lifecycle_state as PullRequestRecord["lifecycleState"],
       createdAt: row.created_at as number,
       updatedAt: row.updated_at as number,
@@ -1843,6 +1940,26 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
             `pull request record already exists with different identity: ${input.provider}/${input.repositoryId}#${input.prNumber}`,
           );
         }
+        if (
+          input.mergeRevision !== undefined &&
+          existingRecord.mergeRevision !== undefined &&
+          existingRecord.mergeRevision !== input.mergeRevision
+        )
+          throw new Error(
+            `pull request record already exists with a different merge revision: ${input.provider}/${input.repositoryId}#${input.prNumber}`,
+          );
+        if (existingRecord.mergeRevision === undefined && input.mergeRevision !== undefined) {
+          db.prepare("UPDATE pr_records SET merge_revision = ?, updated_at = ? WHERE record_id = ?").run(
+            input.mergeRevision,
+            now,
+            existingRecord.recordId,
+          );
+          const updated = db
+            .prepare("SELECT * FROM pr_records WHERE record_id = ?")
+            .get(existingRecord.recordId) as Record<string, unknown>;
+          db.exec("COMMIT");
+          return this.toPullRequestRecord(updated);
+        }
         db.exec("COMMIT");
         return existingRecord;
       }
@@ -1850,8 +1967,8 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       const recordId = crypto.randomUUID() as PullRequestRecordId;
       db.prepare(
         `INSERT INTO pr_records
-          (record_id, task_id, instance_id, provider, repository_id, pr_number, url, head_sha, lifecycle_state, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (record_id, task_id, instance_id, provider, repository_id, pr_number, url, head_sha, merge_revision, lifecycle_state, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         recordId,
         input.taskId ?? null,
@@ -1861,6 +1978,7 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
         input.prNumber,
         input.url,
         input.headSha,
+        input.mergeRevision ?? null,
         input.lifecycleState,
         now,
         now,
@@ -1914,6 +2032,32 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       .prepare("UPDATE pr_records SET lifecycle_state = ?, updated_at = ? WHERE record_id = ?")
       .run(lifecycleState, now, recordId);
     if (result.changes === 0) throw new Error(`pull request record not found: ${recordId}`);
+    const row = this.handle().prepare("SELECT * FROM pr_records WHERE record_id = ?").get(recordId) as Record<
+      string,
+      unknown
+    >;
+    return this.toPullRequestRecord(row);
+  }
+
+  recordPullRequestMergeRevision(
+    recordId: PullRequestRecordId,
+    mergeRevision: string,
+    updatedAt?: number,
+  ): PullRequestRecord {
+    if (mergeRevision.trim().length === 0) throw new Error("pull request merge revision must not be empty");
+    const now = updatedAt ?? Date.now();
+    const result = this.handle()
+      .prepare(
+        "UPDATE pr_records SET merge_revision = ?, updated_at = ? WHERE record_id = ? AND (merge_revision IS NULL OR merge_revision = ?)",
+      )
+      .run(mergeRevision, now, recordId, mergeRevision);
+    if (result.changes === 0) {
+      const existing = this.getPullRequestRecord(recordId);
+      if (existing === undefined) throw new Error(`pull request record not found: ${recordId}`);
+      if (existing.mergeRevision !== mergeRevision)
+        throw new Error(`pull request merge revision identity mismatch: ${recordId}`);
+      return existing;
+    }
     const row = this.handle().prepare("SELECT * FROM pr_records WHERE record_id = ?").get(recordId) as Record<
       string,
       unknown

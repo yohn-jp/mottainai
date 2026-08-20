@@ -33,6 +33,7 @@ import {
 } from "../providers/github.js";
 import { type GhInariClient } from "../../gh-inari.js";
 import type { LifecycleState } from "../domain/lifecycle.js";
+import { closeNawabariExecution } from "../domain/nawabari-close.js";
 import type { WorkflowPolicyDocument } from "../policy/schema.js";
 import { decideProtectedBranchOperation } from "../policy/protected-branch.js";
 import type {
@@ -1639,6 +1640,36 @@ async function transitionWorkflowTask(
   },
   dependencies: WorkflowWriteDependencies = {},
 ): Promise<WorkflowWriteResult> {
+  // A merged task is the durable retry boundary. It may no longer have an
+  // active current session after a prior close attempt, so retry the close
+  // handoff directly instead of requiring the old active-worktree context.
+  if (input.to === "merged" && input.taskId !== undefined) {
+    const existing = input.store.getTask(input.taskId as TaskId);
+    if (existing?.lifecycleState === "merged") {
+      if (input.dryRun === true)
+        return { ok: true, dryRun: true, task: existing, taskId: existing.taskId, transition: input.to };
+      if (input.nawabari === undefined)
+        return failure("nawabari-unavailable", "merged task close retry requires the Nawabari execution boundary");
+      const records = input.store.listPullRequestRecordsForTask(existing.taskId);
+      if (records.length !== 1)
+        return failure("provider-state-ambiguous", `task ${existing.taskId} does not have exactly one provider record`);
+      const closed = await closeNawabariExecution({
+        workspaceRoot: input.workspaceRoot,
+        store: input.store,
+        client: input.nawabari,
+        task: existing,
+        providerRecord: records[0]!,
+      });
+      if (!closed.ok) return { ...closed, task: existing, taskId: existing.taskId };
+      return {
+        ok: true,
+        task: existing,
+        taskId: existing.taskId,
+        transition: input.to,
+        close: { alreadyClosed: closed.alreadyClosed, sessionId: existing.nawabariSessionId },
+      };
+    }
+  }
   const selected = await resolveWorkflowTask(input);
   if (!selected.ok) return selected;
   const githubAdapter =
@@ -1654,6 +1685,33 @@ async function transitionWorkflowTask(
     ...(githubAdapter === undefined ? {} : { pullRequestObserver: workflowPullRequestObserver(githubAdapter) }),
   });
   if (!result.ok) return result;
+  if (input.to === "merged" && input.dryRun !== true) {
+    if (input.nawabari === undefined)
+      return failure("nawabari-unavailable", "merged task close requires the Nawabari execution boundary");
+    const records = input.store.listPullRequestRecordsForTask(result.task.taskId);
+    if (records.length !== 1)
+      return failure(
+        "provider-state-ambiguous",
+        `task ${result.task.taskId} does not have exactly one provider record`,
+      );
+    const closed = await closeNawabariExecution({
+      workspaceRoot: input.workspaceRoot,
+      store: input.store,
+      client: input.nawabari,
+      task: result.task,
+      providerRecord: records[0]!,
+      expectedBranch: result.context.branch,
+    });
+    if (!closed.ok) return { ...closed, task: result.task, taskId: selected.taskId, transition: input.to };
+    return {
+      ok: true,
+      dryRun: false,
+      task: result.task,
+      taskId: selected.taskId,
+      transition: input.to,
+      close: { alreadyClosed: closed.alreadyClosed, sessionId: selected.nawabariSessionId },
+    };
+  }
   return { ok: true, dryRun: input.dryRun === true, task: result.task, taskId: selected.taskId, transition: input.to };
 }
 

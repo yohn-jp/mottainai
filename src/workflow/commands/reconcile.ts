@@ -4,7 +4,13 @@ import { runGitCommand, type GitCommandFailure } from "../git/context.js";
 import { GithubAdapter } from "../providers/github.js";
 import type { PullRequestLifecycleState } from "../providers/model.js";
 import type { RepositoryInstanceId } from "../domain/identity.js";
-import type { CleanupLeaseRecord, GuardrailAuditRecord, PullRequestRecord, TaskId, WorkflowStateStore } from "../state/store.js";
+import type {
+  CleanupLeaseRecord,
+  GuardrailAuditRecord,
+  PullRequestRecord,
+  TaskId,
+  WorkflowStateStore,
+} from "../state/store.js";
 
 export const RECONCILIATION_SCHEMA_VERSION = 1;
 
@@ -47,6 +53,7 @@ export interface PullRequestReconciliationObservation {
   ok: boolean;
   lifecycleState: PullRequestLifecycleState | "unknown";
   headSha?: string;
+  mergeRevision?: string;
   detail?: string;
 }
 
@@ -233,7 +240,12 @@ function defaultPullRequestObserver(workspaceRoot: string): PullRequestObserver 
       id: record.repositoryId,
     });
     if (!result.ok) return { ok: false, lifecycleState: "unknown", detail: result.error.message };
-    return { ok: true, lifecycleState: result.value.lifecycleState, headSha: result.value.head.revision };
+    return {
+      ok: true,
+      lifecycleState: result.value.lifecycleState,
+      headSha: result.value.head.revision,
+      ...(result.value.mergeRevision === undefined ? {} : { mergeRevision: result.value.mergeRevision }),
+    };
   };
 }
 
@@ -560,11 +572,38 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
       );
     }
     if (observed.lifecycleState === "merged" && record.taskId !== undefined) mergedTaskIds.add(record.taskId);
+    if (observed.mergeRevision !== undefined) {
+      try {
+        input.store.recordPullRequestMergeRevision(record.recordId, observed.mergeRevision);
+      } catch (error) {
+        diagnostics.push({
+          code: "provider-merge-revision-persistence-failed",
+          severity: "error",
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    if (observed.lifecycleState === "merged" && record.lifecycleState !== "merged") {
+      try {
+        input.store.updatePullRequestLifecycleState(record.recordId, "merged");
+      } catch (error) {
+        diagnostics.push({
+          code: "provider-lifecycle-persistence-failed",
+          severity: "error",
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
   }
   for (const taskId of mergedTaskIds) {
     const task = input.store.getTask(taskId);
     if (task === undefined) continue;
     if (task.lifecycleState === "cleaned") continue;
+    const closeState = input.store.getNawabariCloseReconciliation(task.taskId)?.state;
+    if (closeState === "closed") continue;
+    // A blocked close means Nawabari may still consider the session active;
+    // never propose a cleaned-metadata repair while that is unresolved.
+    if (closeState === "blocked") continue;
     const worktrees = input.store.listWorktreesForTask(task.taskId);
     const taskPullRequests = recordedPullRequests.filter((record) => record.taskId === task.taskId);
     const providerRepairSafe = taskPullRequests.every((record) => {

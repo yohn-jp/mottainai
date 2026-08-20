@@ -29,6 +29,7 @@ test("pr_records migration is append-only and stores no body or credential colum
       "created_at",
       "updated_at",
       "instance_id",
+      "merge_revision",
     ]);
     assert.equal(
       columns.some((column) => /body|token|credential|raw/i.test(column)),

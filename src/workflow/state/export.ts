@@ -4,6 +4,7 @@ import type {
   AuditMetadata,
   CleanupLeaseRecord,
   GuardrailAuditRecord,
+  NawabariCloseReconciliationRecord,
   RepositoryInstanceRecord,
   RepositoryPathRecord,
   RepositorySourceRecord,
@@ -38,6 +39,7 @@ export interface WorkflowStateExport {
     prNumber: number;
     url: string;
     headSha: string;
+    mergeRevision?: string;
     lifecycleState: string;
     createdAt: number;
     updatedAt: number;
@@ -54,6 +56,7 @@ export interface WorkflowStateExport {
     updatedAt: number;
     completedActionIds: readonly string[];
   }>;
+  nawabariCloseReconciliations: ReadonlyArray<NawabariCloseReconciliationRecord>;
   audit: ReadonlyArray<GuardrailAuditRecord>;
   auditMetrics: GuardrailMetrics;
 }
@@ -105,6 +108,7 @@ export function createWorkflowStateExport(input: CreateWorkflowStateExportInput)
   const worktrees = input.store.listWorktrees();
   const pullRequests = input.store.listPullRequestRecords();
   const cleanupLeases = input.store.listCleanupLeases();
+  const nawabariCloseReconciliations = input.store.listNawabariCloseReconciliations();
   const audit = input.store.listGuardrailAuditRecords().map(redactAudit);
   return {
     format: WORKFLOW_STATE_EXPORT_FORMAT,
@@ -132,6 +136,7 @@ export function createWorkflowStateExport(input: CreateWorkflowStateExportInput)
       prNumber: record.prNumber,
       url: redactUrl(record.url),
       headSha: record.headSha,
+      ...(record.mergeRevision === undefined ? {} : { mergeRevision: record.mergeRevision }),
       lifecycleState: record.lifecycleState,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
@@ -148,6 +153,7 @@ export function createWorkflowStateExport(input: CreateWorkflowStateExportInput)
       updatedAt: lease.updatedAt,
       completedActionIds: [...lease.completedActionIds],
     })),
+    nawabariCloseReconciliations,
     audit,
     auditMetrics: aggregateGuardrailMetrics(audit),
   };

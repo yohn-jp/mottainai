@@ -464,6 +464,12 @@ export class NawabariExecutionClient {
     return this.session(await this.invoke(["session", "show", "--session", input.sessionId], input.cwd));
   }
 
+  /** Inspect physical close readiness before requesting Nawabari's normal close. */
+  async inspectSession(input: { cwd: string; sessionId: string }): Promise<NawabariSession> {
+    await this.capabilities(input.cwd);
+    return this.session(await this.invoke(["session", "inspect", "--session", input.sessionId], input.cwd));
+  }
+
   async listSessions(cwd: string): Promise<NawabariSession[]> {
     await this.capabilities(cwd);
     const result = await this.invoke(["session", "list"], cwd);
@@ -492,8 +498,15 @@ export class NawabariExecutionClient {
     return requiredString((await this.invoke(["session", "id"], cwd)).session_id, "session_id");
   }
 
-  async closeSession(input: { cwd: string; sessionId: string }): Promise<NawabariCommandResult> {
-    return this.invoke(["session", "close", "--session", input.sessionId], input.cwd);
+  async closeSession(input: {
+    cwd: string;
+    sessionId: string;
+    /** Provider evidence for squash/rebase/non-ancestry integration. */
+    integratedRevision?: string;
+  }): Promise<NawabariCommandResult> {
+    const args = ["session", "close", "--session", input.sessionId];
+    if (input.integratedRevision !== undefined) args.push("--integrated-revision", input.integratedRevision);
+    return this.invoke(args, input.cwd);
   }
 
   async doctor(cwd: string): Promise<NawabariCommandResult> {

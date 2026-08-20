@@ -5,11 +5,9 @@ import {
   type ReconciliationReport,
 } from "./reconcile.js";
 import type { WorkflowStateStore } from "../state/store.js";
-import {
-  NawabariExecutionClient,
-  NawabariExecutionError,
-  type NawabariCommandResult,
-} from "../nawabari.js";
+import { resolveRepositoryIdentity } from "../domain/identity.js";
+import { reconcileNawabariClosures, type ReconcileNawabariClosuresResult } from "../domain/nawabari-close.js";
+import { NawabariExecutionClient, NawabariExecutionError, type NawabariCommandResult } from "../nawabari.js";
 
 export const WORKFLOW_DOCTOR_SCHEMA_VERSION = 1;
 
@@ -42,6 +40,12 @@ export interface WorkflowDoctorReport {
 export interface WorkflowDoctorDependencies {
   reconcile: (input: ReconcileWorkflowInput) => Promise<ReconciliationReport>;
   inspectNawabari: (workspaceRoot: string) => Promise<NawabariCommandResult>;
+  reconcileClosures: (input: {
+    workspaceRoot: string;
+    store: WorkflowStateStore;
+    instanceId?: ReconcileWorkflowInput["repositoryInstanceId"];
+    providerObserver?: ReconciliationDependencies["pullRequestObserver"];
+  }) => Promise<ReconcileNawabariClosuresResult>;
 }
 
 export interface CollectWorkflowDoctorReportOptions {
@@ -54,19 +58,39 @@ export interface CollectWorkflowDoctorReportOptions {
 
 function defaultDependencies(): WorkflowDoctorDependencies {
   const nawabari = new NawabariExecutionClient();
-  return { reconcile: reconcileWorkflow, inspectNawabari: (workspaceRoot) => nawabari.doctor(workspaceRoot) };
+  return {
+    reconcile: reconcileWorkflow,
+    inspectNawabari: (workspaceRoot) => nawabari.doctor(workspaceRoot),
+    reconcileClosures: (input) => reconcileNawabariClosures({ ...input, client: nawabari }),
+  };
 }
 
 export async function collectWorkflowDoctorReport(
   options: CollectWorkflowDoctorReportOptions,
 ): Promise<WorkflowDoctorReport> {
   const dependencies = { ...defaultDependencies(), ...options.dependencies };
-  const reconciliation = await dependencies.reconcile({
+  let reconciliation = await dependencies.reconcile({
     workspaceRoot: options.workspaceRoot,
     store: options.store,
     repositoryInstanceId: options.repositoryInstanceId,
     dependencies: options.reconciliation,
   });
+  const resolvedIdentity = resolveRepositoryIdentity(options.workspaceRoot);
+  const closeReconciliation = resolvedIdentity.ok
+    ? await dependencies.reconcileClosures({
+        workspaceRoot: options.workspaceRoot,
+        store: options.store,
+        instanceId: options.repositoryInstanceId ?? resolvedIdentity.identity.instanceId,
+        providerObserver: options.reconciliation?.pullRequestObserver,
+      })
+    : undefined;
+  if (closeReconciliation !== undefined && closeReconciliation.attempted > 0)
+    reconciliation = await dependencies.reconcile({
+      workspaceRoot: options.workspaceRoot,
+      store: options.store,
+      repositoryInstanceId: options.repositoryInstanceId,
+      dependencies: options.reconciliation,
+    });
   let nawabariCheck: WorkflowDoctorCheck;
   let nawabariProblem: WorkflowDoctorProblem | undefined;
   try {
@@ -154,6 +178,13 @@ export async function collectWorkflowDoctorReport(
       code: diagnostic.code,
       message: diagnostic.detail,
     })),
+    ...(closeReconciliation === undefined
+      ? []
+      : closeReconciliation.blocked.map((blocked) => ({
+          severity: "error" as const,
+          code: "nawabari-cleanup-blocked",
+          message: blocked.detail,
+        }))),
   ];
   const errors = problems.filter((problem) => problem.severity === "error").length;
   const warnings = problems.length - errors;
@@ -180,7 +211,9 @@ export function formatWorkflowDoctorHuman(report: WorkflowDoctorReport): string 
     `Mode: ${report.mode}`,
     ...report.checks.map((check) => `${symbol[check.status]} ${check.name}: ${check.message}`),
   ];
-  lines.push("Physical worktree, lease, and cleanup repair is delegated to Nawabari; reconciliation performs no repairs.");
+  lines.push(
+    "Physical worktree, lease, and cleanup repair is delegated to Nawabari; reconciliation performs no repairs.",
+  );
   return lines.join("\n");
 }
 
