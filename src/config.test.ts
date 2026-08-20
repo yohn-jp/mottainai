@@ -427,6 +427,44 @@ test("resolveGatewayConfig defaults await policy and clamps maxPollIntervalMs to
   assert.equal(clamped.maxPollIntervalMs, 5_000);
 });
 
+test("resolveGatewayConfig resolves finite managed-process bounds", () => {
+  assert.deepEqual(resolveGatewayConfig(undefined).managedProcesses, {
+    maxActiveProcesses: 8,
+    maxRetainedHandles: 32,
+    maxLifetimeMs: 300_000,
+  });
+  assert.deepEqual(resolveGatewayConfig({
+    managedProcesses: { maxActiveProcesses: 2, maxRetainedHandles: 0, maxLifetimeMs: 10_000 },
+  }).managedProcesses, {
+    maxActiveProcesses: 2,
+    maxRetainedHandles: 0,
+    maxLifetimeMs: 10_000,
+  });
+});
+
+test("managed-process policy rejects non-finite, unsafe, and out-of-range bounds", () => {
+  assert.throws(
+    () => resolveGatewayConfig({ managedProcesses: { maxActiveProcesses: 0 } }),
+    /invalid managed process policy maxActiveProcesses/,
+  );
+  assert.throws(
+    () => resolveGatewayConfig({ managedProcesses: { maxRetainedHandles: -1 } }),
+    /invalid managed process policy maxRetainedHandles/,
+  );
+  assert.throws(
+    () => resolveGatewayConfig({ managedProcesses: { maxLifetimeMs: Number.POSITIVE_INFINITY } }),
+    /invalid managed process policy maxLifetimeMs/,
+  );
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      version: 2,
+      mcpServers: {},
+      gateway: { managedProcesses: { maxLifetimeMs: 2_147_483_648 } },
+    })),
+    /invalid managed process policy maxLifetimeMs/,
+  );
+});
+
 test("resolveGatewayConfig falls back to the default jitterRatio when out of [0,1]", () => {
   assert.equal(resolveGatewayConfig({ await: { jitterRatio: -0.1 } }).await.jitterRatio, 0.2);
   assert.equal(resolveGatewayConfig({ await: { jitterRatio: 1.5 } }).await.jitterRatio, 0.2);

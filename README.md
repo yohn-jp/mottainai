@@ -392,6 +392,17 @@ frequency. This is **not** a persistent background job system — waiting
 only happens inside an active MCP tool call, and nothing survives a
 gateway process restart.
 
+The asynchronous process surface also has a finite connection-local resource
+policy. Defaults are 8 active processes, 32 retained terminal handles, and a
+5-minute maximum process lifetime. A lifetime expiry force-terminates the
+child and reports the existing `timedOut` result state; it is independent of
+an `exec_await` timeout. The oldest terminal handles are reaped when the
+retention bound is reached, and an `exec_start` over the active bound fails
+with the machine-readable `managed_process_active_capacity_exceeded` error
+before spawning. These bounds may be overridden with validated finite values
+under `gateway.managedProcesses` (`maxActiveProcesses`, `maxRetainedHandles`,
+and `maxLifetimeMs`).
+
 ## Development installation
 
 Contributors need [pnpm](https://pnpm.io/) 11.18.0:
@@ -416,7 +427,7 @@ At runtime, `mottainai_runtime_status` reports per-upstream state
   `includeCapabilities` / `denyRisk`.
 - `gateway` — cross-cutting settings: `workspaceRoot`, `activeProfile`,
   `capabilityMap`, `toolMetadata`, `tokenBudgets`, `responseBudget`, `readGovernor`,
-  `oauthProviderModule`.
+  `oauthProviderModule`, `managedProcesses`.
 
 `gateway.responseBudget` is the authoritative boundary for Mottainai-owned
 local-tool responses. Defaults: soft target 1,500 tokens, hard target 3,000

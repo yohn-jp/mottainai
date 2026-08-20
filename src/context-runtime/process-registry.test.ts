@@ -1,8 +1,41 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ProcessRegistry } from "./process-registry.js";
+import { ManagedProcessResourceError, ProcessRegistry } from "./process-registry.js";
 
 const NODE = process.execPath;
+
+function fakeClock(): {
+  now: () => number;
+  advance: (milliseconds: number) => void;
+  schedule: (callback: () => void, delayMs: number) => { cancel(): void };
+  pendingTimers: () => number;
+} {
+  let current = 0;
+  const timers = new Set<{ callback: () => void; due: number; cancelled: boolean }>();
+  return {
+    now: () => current,
+    advance: (milliseconds) => {
+      current += milliseconds;
+      for (const timer of [...timers]) {
+        if (!timer.cancelled && timer.due <= current) {
+          timers.delete(timer);
+          timer.callback();
+        }
+      }
+    },
+    schedule: (callback, delayMs) => {
+      const timer = { callback, due: current + delayMs, cancelled: false };
+      timers.add(timer);
+      return {
+        cancel: () => {
+          timer.cancelled = true;
+          timers.delete(timer);
+        },
+      };
+    },
+    pendingTimers: () => timers.size,
+  };
+}
 
 test("start returns an opaque handle immediately and await resolves the terminal result", async () => {
   const registry = new ProcessRegistry();
@@ -92,4 +125,74 @@ test("release drops a settled handle but is a no-op while the process is still r
   await registry.awaitHandle(started.handle, 5_000);
   registry.release(started.handle);
   assert.equal(registry.has(started.handle), false);
+});
+
+test("active managed-process capacity is rejected before a new child is spawned", () => {
+  const registry = new ProcessRegistry({ policy: { maxActiveProcesses: 1 } });
+  const started = registry.start(`${NODE} -e "setTimeout(() => {}, 5000)"`, process.cwd(), 1024 * 1024, true);
+  assert.throws(
+    () => registry.start(`${NODE} -e "process.stdout.write('must-not-start')"`, process.cwd(), 1024 * 1024, true),
+    (error: unknown) =>
+      error instanceof ManagedProcessResourceError &&
+      error.code === "managed_process_active_capacity_exceeded" &&
+      error.activeCount === 1 &&
+      error.limit === 1 &&
+      error.message === "managed process resource limit exceeded",
+  );
+  registry.dispose();
+  assert.equal(registry.has(started.handle), false);
+});
+
+test("terminal state releases active capacity while retention stays bounded", async () => {
+  const registry = new ProcessRegistry({
+    policy: { maxActiveProcesses: 1, maxRetainedHandles: 1 },
+  });
+  const first = registry.start(`${NODE} -e "console.log('first')"`, process.cwd(), 1024 * 1024, true);
+  const firstOutcome = await registry.awaitHandle(first.handle, 5_000);
+  assert.equal(firstOutcome?.kind, "terminal");
+  assert.equal(registry.activeSize, 0);
+
+  const second = registry.start(`${NODE} -e "console.log('second')"`, process.cwd(), 1024 * 1024, true);
+  const secondOutcome = await registry.awaitHandle(second.handle, 5_000);
+  assert.equal(secondOutcome?.kind, "terminal");
+  assert.equal(registry.activeSize, 0);
+  assert.equal(registry.retainedSize, 1);
+  assert.equal(registry.has(first.handle), false);
+  assert.equal(registry.has(second.handle), true);
+  registry.release(second.handle);
+});
+
+test("maximum lifetime expiration is deterministic and preserves timeout/output semantics", async () => {
+  const clock = fakeClock();
+  const registry = new ProcessRegistry({
+    policy: { maxLifetimeMs: 100 },
+    now: clock.now,
+    schedule: clock.schedule,
+  });
+  const started = registry.start(`${NODE} -e "setTimeout(() => {}, 5000)"`, process.cwd(), 1024 * 1024, true);
+  assert.equal(clock.pendingTimers(), 1);
+  clock.advance(100);
+  const outcome = await registry.awaitHandle(started.handle, 5_000);
+  assert.equal(outcome?.kind, "terminal");
+  if (outcome?.kind === "terminal") assert.equal(outcome.result.timedOut, true);
+  assert.equal(registry.activeSize, 0);
+  assert.equal(clock.pendingTimers(), 0);
+  registry.release(started.handle);
+});
+
+test("dispose cancels lifetime timers and removes every retained handle", () => {
+  const clock = fakeClock();
+  const registry = new ProcessRegistry({
+    policy: { maxLifetimeMs: 10_000 },
+    now: clock.now,
+    schedule: clock.schedule,
+  });
+  registry.start(`${NODE} -e "setTimeout(() => {}, 5000)"`, process.cwd(), 1024 * 1024, true);
+  assert.equal(registry.size, 1);
+  assert.equal(clock.pendingTimers(), 1);
+  registry.dispose();
+  assert.equal(registry.size, 0);
+  assert.equal(registry.activeSize, 0);
+  assert.equal(registry.retainedSize, 0);
+  assert.equal(clock.pendingTimers(), 0);
 });

@@ -30,6 +30,11 @@
       "preferAuto": true,
       "allowWholeFile": false
     },
+    "managedProcesses": {
+      "maxActiveProcesses": 8,
+      "maxRetainedHandles": 32,
+      "maxLifetimeMs": 300000
+    },
     "ghInari": {
       "command": "gh-inari",
       "timeoutMs": 30000,

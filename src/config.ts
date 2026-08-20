@@ -8,6 +8,8 @@ import type { BurstBudgetPolicy, BurstBudgetPolicyConfig } from "./context-runti
 import type { ProjectionBudget, ProjectionBudgetConfig } from "./context-runtime/types.js";
 import { DEFAULT_AWAIT_POLICY } from "./context-runtime/poll-policy.js";
 import type { AwaitPolicy } from "./context-runtime/poll-policy.js";
+import { DEFAULT_MANAGED_PROCESS_POLICY, resolveManagedProcessPolicy } from "./context-runtime/process-policy.js";
+import type { ManagedProcessPolicy, ManagedProcessPolicyConfig } from "./context-runtime/process-policy.js";
 import {
   DEFAULT_READ_GOVERNOR_POLICY,
   READ_GOVERNOR_MODES,
@@ -156,6 +158,8 @@ export interface GatewayConfig {
   workflowTasks?: boolean;
   /** await/watch primitive（Issue #74）の polling 上限。agent は間隔を指定できず、ここが唯一の制御点。 */
   await?: AwaitPolicyConfig;
+  /** connection-local asynchronous managed-process resource bounds (Issue #368). */
+  managedProcesses?: ManagedProcessPolicyConfig;
   /** Mottainai-managed governed GitHub mutationの唯一のauthorityとなる外部gh-inari companionの実行境界。 */
   ghInari?: GhInariConfig;
 }
@@ -191,6 +195,8 @@ export interface ResolvedGatewayConfig {
   worktree?: ResolvedWorktreeConfig;
   workflowTasks: boolean;
   await: AwaitPolicy;
+  /** resolveGatewayConfig always supplies this; optional keeps hand-written test fixtures compatible. */
+  managedProcesses?: ManagedProcessPolicy;
 }
 
 /** 起動時に一度だけ解決した設定。以後の各層は同じ絶対パス基準を共有する。 */
@@ -216,6 +222,7 @@ const DEFAULT_GATEWAY_CONFIG: Omit<ResolvedGatewayConfig, "workspaceRoot"> = {
   ghInari: DEFAULT_GH_INARI_CONFIG,
   workflowTasks: false,
   await: DEFAULT_AWAIT_POLICY,
+  managedProcesses: DEFAULT_MANAGED_PROCESS_POLICY,
 };
 
 export function loadMottainaiConfig(configPath?: string): MottainaiConfig {
@@ -251,6 +258,7 @@ export function resolveGatewayConfig(
     worktree: resolveWorktreeConfig(config?.worktree),
     workflowTasks: config?.workflowTasks === true,
     await: resolveAwaitPolicy(config?.await),
+    managedProcesses: resolveManagedProcessPolicy(config?.managedProcesses),
   };
 }
 
@@ -408,6 +416,7 @@ function normalizeGateway(value: unknown): GatewayConfig | undefined {
     worktree: worktreeConfig(value.worktree, "invalid gateway worktree"),
     workflowTasks: optionalBoolean(value.workflowTasks, "invalid gateway workflowTasks"),
     await: awaitPolicyConfig(value.await, "invalid gateway await"),
+    managedProcesses: managedProcessPolicyConfig(value.managedProcesses, "invalid gateway managedProcesses"),
     ghInari: ghInariConfig(value.ghInari, "invalid gateway ghInari"),
   };
 }
@@ -439,6 +448,18 @@ function awaitPolicyConfig(value: unknown, field: string): AwaitPolicyConfig | u
     maxAwaitMs: positiveIntegerConfig(value.maxAwaitMs, `${field}.maxAwaitMs`),
     jitterRatio,
   };
+}
+
+function managedProcessPolicyConfig(value: unknown, field: string): ManagedProcessPolicyConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error(field);
+  const config: ManagedProcessPolicyConfig = {
+    maxActiveProcesses: positiveIntegerConfig(value.maxActiveProcesses, `${field}.maxActiveProcesses`),
+    maxRetainedHandles: nonNegativeIntegerConfig(value.maxRetainedHandles, `${field}.maxRetainedHandles`),
+    maxLifetimeMs: positiveIntegerConfig(value.maxLifetimeMs, `${field}.maxLifetimeMs`),
+  };
+  resolveManagedProcessPolicy(config);
+  return config;
 }
 
 function worktreeConfig(value: unknown, field: string): WorktreeConfig | undefined {
