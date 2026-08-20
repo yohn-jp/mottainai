@@ -251,8 +251,8 @@ const args = process.argv.slice(2);
 const input = fs.readFileSync(0, "utf8");
 if (process.env.MOTTAINAI_GH_INARI_TRACE !== undefined)
   fs.appendFileSync(process.env.MOTTAINAI_GH_INARI_TRACE, JSON.stringify({ args, input }) + "\n");
-if (args.includes("--version")) process.stdout.write("gh-inari 0.2.0\n");
-else if (args.includes("--help")) process.stdout.write("pr create --from <file.json>\npr get <number> --json\n");
+if (args.includes("--version")) process.stdout.write("gh-inari 0.7.0\n");
+else if (args.includes("--help=full")) process.stdout.write("pr create --from <file.json>\npr get <number> --json\n--from <path>\n--json\n--repository <r>\n--template <id>\n");
 else if (args[0] === "pr" && args[1] === "create") {
   const head = spawnSync("git", ["branch", "--show-current"], { encoding: "utf8" }).stdout.trim();
   process.stdout.write(JSON.stringify({

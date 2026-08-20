@@ -3,7 +3,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { DEFAULT_GH_INARI_CONFIG, GhInariClient, resolveGhInariConfig, type GhInariProcess } from "./gh-inari.js";
+import {
+  DEFAULT_GH_INARI_CONFIG,
+  GhInariClient,
+  GH_INARI_MINIMUM_VERSION,
+  GH_INARI_SUPPORTED_VERSION,
+  resolveGhInariConfig,
+  type GhInariProcess,
+} from "./gh-inari.js";
 import { resolveGatewayConfig } from "./config.js";
 import type { RunResult } from "./subprocess.js";
 
@@ -29,8 +36,10 @@ function queuedRunner(results: RunResult[]): {
 
 function capabilityResults(operationOutput: string): RunResult[] {
   return [
-    runResult("gh-inari 0.2.0\n"),
-    runResult("  pr create --from <file.json>\n  pr get <number> --json\n"),
+    runResult("gh-inari 0.7.0\n"),
+    runResult(
+      "  pr create --from <file.json>\n  pr get <number> --json\n  --from <path>\n  --json\n  --repository <r>\n  --template <id>\n",
+    ),
     runResult(operationOutput),
   ];
 }
@@ -60,6 +69,21 @@ test("gh-inari config has finite defaults and resolves explicit bounds", () => {
   assert.equal(gateway.ghInari?.maxInputBytes, 901);
 });
 
+test("gh-inari exposes an explicit minimum version contract", async () => {
+  assert.equal(GH_INARI_MINIMUM_VERSION, "0.7.0");
+  assert.equal(GH_INARI_SUPPORTED_VERSION, ">=0.7.0");
+  const { runner } = queuedRunner([
+    runResult("gh-inari 0.8.0\n"),
+    runResult("pr create\npr get\n--from\n--json\n--repository\n--template\n"),
+  ]);
+  const result = await new GhInariClient({ runner }).checkCapabilities();
+  assert.equal(result.ok, true, JSON.stringify(result));
+  if (result.ok) {
+    assert.equal(result.value.version, "0.8.0");
+    assert.deepEqual(result.value.options, ["--from", "--json", "--repository", "--template"]);
+  }
+});
+
 test("client checks the bounded version/capability contract and sends an explicit repository", async () => {
   const { runner, calls } = queuedRunner(
     capabilityResults(
@@ -75,7 +99,7 @@ test("client checks the bounded version/capability contract and sends an explici
   assert.equal(result.ok, true);
   if (result.ok) assert.deepEqual(result.value, { number: 12, url: "https://github.com/acme/repo/pull/12" });
   assert.deepEqual(calls[0]?.args, ["--version"]);
-  assert.deepEqual(calls[1]?.args, ["--help"]);
+  assert.deepEqual(calls[1]?.args, ["--help=full"]);
   assert.deepEqual(calls[2]?.args, [
     "pr",
     "create",
@@ -111,17 +135,42 @@ test("missing repository is rejected before any companion process can use its cw
 
 test("capability failures are stable for incompatible versions and missing operations", async () => {
   {
-    const { runner, calls } = queuedRunner([runResult("gh-inari 0.1.9\n")]);
+    const { runner, calls } = queuedRunner([runResult("gh-inari 0.6.9\n")]);
     const result = await new GhInariClient({ runner }).checkCapabilities();
     assert.equal(result.ok, false);
-    if (!result.ok) assert.equal(result.error.code, "INARI_COMPANION_INCOMPATIBLE");
+    if (!result.ok) {
+      assert.equal(result.error.code, "INARI_COMPANION_INCOMPATIBLE");
+      assert.equal(result.error.details.detected, "0.6.9");
+      assert.equal(result.error.details.required, ">=0.7.0");
+    }
     assert.equal(calls.length, 1);
   }
   {
-    const { runner } = queuedRunner([runResult("gh-inari 0.2.0\n"), runResult("  pr create --from <file.json>\n")]);
+    const { runner } = queuedRunner([runResult("gh-inari 0.7.0\n"), runResult("  pr create --from <file.json>\n")]);
     const result = await new GhInariClient({ runner }).checkCapabilities();
     assert.equal(result.ok, false);
     if (!result.ok) assert.equal(result.error.code, "INARI_CAPABILITY_UNAVAILABLE");
+  }
+  {
+    const { runner } = queuedRunner([
+      runResult("gh-inari 0.7.0\n"),
+      runResult("pr create\npr get\n--from\n--json\n--template\n"),
+    ]);
+    const result = await new GhInariClient({ runner }).checkCapabilities();
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error.code, "INARI_CAPABILITY_UNAVAILABLE");
+      assert.equal(result.error.details.missing, "--repository");
+    }
+  }
+  {
+    const { runner } = queuedRunner([runResult("not gh-inari\n")]);
+    const result = await new GhInariClient({ runner }).checkCapabilities();
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error.code, "INARI_COMPANION_INCOMPATIBLE");
+      assert.equal(result.error.details.detected, "unknown");
+    }
   }
 });
 
@@ -130,10 +179,14 @@ test("missing, timeout, output-limit, and malformed process states fail closed",
     command: path.join(os.tmpdir(), "mottainai-no-such-gh-inari"),
   }).checkCapabilities();
   assert.equal(missing.ok, false);
-  if (!missing.ok) assert.equal(missing.error.code, "INARI_COMPANION_MISSING");
+  if (!missing.ok) {
+    assert.equal(missing.error.code, "INARI_COMPANION_MISSING");
+    assert.equal(missing.error.details.requiredVersion, ">=0.7.0");
+    assert.equal(missing.error.details.requiredOperations, "pr.create,pr.get");
+  }
 
   const { runner: timeoutRunner } = queuedRunner([
-    runResult("gh-inari 0.2.0\n"),
+    runResult("gh-inari 0.7.0\n"),
     runResult("", "", { timedOut: true }),
   ]);
   const timeout = await new GhInariClient({ runner: timeoutRunner, timeoutMs: 42 }).checkCapabilities();
@@ -153,8 +206,8 @@ test("missing, timeout, output-limit, and malformed process states fail closed",
   if (!output.ok) assert.equal(output.error.code, "INARI_MALFORMED_OUTPUT");
 
   const { runner: limitRunner } = queuedRunner([
-    runResult("gh-inari 0.2.0\n"),
-    runResult("  pr create\n  pr get\n"),
+    runResult("gh-inari 0.7.0\n"),
+    runResult("  pr create\n  pr get\n  --from\n  --json\n  --repository\n  --template\n"),
     runResult("", "", { outputLimit: true }),
   ]);
   const limited = await new GhInariClient({ runner: limitRunner, maxOutputBytes: 123 }).getPullRequest({
@@ -170,16 +223,16 @@ test("missing, timeout, output-limit, and malformed process states fail closed",
 
 test("real child-process cases preserve the same bounded failure contract", async () => {
   const incompatible = executableScript(
-    'if (process.argv.includes("--version")) process.stdout.write("gh-inari 0.1.0\\n");',
+    'if (process.argv.includes("--version")) process.stdout.write("gh-inari 0.6.9\\n");',
   );
   const malformed = executableScript(
-    'if (process.argv.includes("--version")) process.stdout.write("gh-inari 0.2.0\\n"); else if (process.argv.includes("--help")) process.stdout.write("  pr create\\n  pr get\\n"); else process.stdout.write("{");',
+    'if (process.argv.includes("--version")) process.stdout.write("gh-inari 0.7.0\\n"); else if (process.argv.includes("--help=full")) process.stdout.write("  pr create\\n  pr get\\n  --from\\n  --json\\n  --repository\\n  --template\\n"); else process.stdout.write("{");',
   );
   const limited = executableScript(
-    'if (process.argv.includes("--version")) process.stdout.write("gh-inari 0.2.0\\n"); else if (process.argv.includes("--help")) process.stdout.write("  pr create\\n  pr get\\n"); else process.stdout.write("x".repeat(4096));',
+    'if (process.argv.includes("--version")) process.stdout.write("gh-inari 0.7.0\\n"); else if (process.argv.includes("--help=full")) process.stdout.write("  pr create\\n  pr get\\n  --from\\n  --json\\n  --repository\\n  --template\\n"); else process.stdout.write("x".repeat(4096));',
   );
   const timeout = executableScript(
-    'if (process.argv.includes("--version")) process.stdout.write("gh-inari 0.2.0\\n"); else if (process.argv.includes("--help")) process.stdout.write("  pr create\\n  pr get\\n"); else setTimeout(() => undefined, 10_000);',
+    'if (process.argv.includes("--version")) process.stdout.write("gh-inari 0.7.0\\n"); else if (process.argv.includes("--help=full")) process.stdout.write("  pr create\\n  pr get\\n  --from\\n  --json\\n  --repository\\n  --template\\n"); else setTimeout(() => undefined, 10_000);',
   );
   try {
     const incompatibleResult = await new GhInariClient({ command: incompatible.executable }).checkCapabilities();
@@ -240,8 +293,8 @@ test("the installed packed gh-inari executable reports capabilities and rejects 
     error: { code: "TEMPLATE_NOT_FOUND", message: "template not found" },
   });
   const fake = executableScript(
-    `if (process.argv.includes("--version")) process.stdout.write("gh-inari 0.2.0\\n");
-     else if (process.argv.includes("--help")) process.stdout.write("  pr create --from <file.json>\\n  pr get <number> --json\\n");
+    `if (process.argv.includes("--version")) process.stdout.write("gh-inari 0.7.0\\n");
+     else if (process.argv.includes("--help=full")) process.stdout.write("  pr create --from <file.json>\\n  pr get <number> --json\\n  --from <path>\\n  --json\\n  --repository <r>\\n  --template <id>\\n");
      else process.stdout.write(${JSON.stringify(rejection)});`,
   );
   try {
@@ -249,7 +302,7 @@ test("the installed packed gh-inari executable reports capabilities and rejects 
     const capabilities = await client.checkCapabilities();
     assert.equal(capabilities.ok, true, JSON.stringify(capabilities));
     if (capabilities.ok) {
-      assert.equal(capabilities.value.version, "0.2.0");
+      assert.equal(capabilities.value.version, "0.7.0");
       assert.deepEqual(capabilities.value.operations, ["pr.create", "pr.get"]);
     }
 

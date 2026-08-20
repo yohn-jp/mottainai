@@ -27,7 +27,7 @@ const { WorkflowSqliteStateStore } = await import(
   pathToFileURL(path.join(packageDirectory, "dist", "workflow", "state", "sqlite-store.js")).href
 );
 
-function fakeGhInariExecutable({ version = "0.2.0", response } = {}) {
+function fakeGhInariExecutable({ version = "0.7.0", response } = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-gh-inari-package-smoke-"));
   const executable = path.join(directory, "gh-inari");
   const logPath = path.join(directory, "invocations.jsonl");
@@ -38,7 +38,7 @@ function fakeGhInariExecutable({ version = "0.2.0", response } = {}) {
   const source = `const fs = require("node:fs");
 fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)) + "\\n");
 if (process.argv.includes("--version")) process.stdout.write("gh-inari ${version}\\n");
-	else if (process.argv.includes("--help")) process.stdout.write("  pr create --from <file.json>\\n  pr get <number> --json\\n");
+	else if (process.argv.includes("--help=full")) process.stdout.write("  pr create --from <file.json>\\n  pr get <number> --json\\n  --from <path>\\n  --json\\n  --repository <r>\\n  --template <id>\\n");
 	else process.stdout.write(${JSON.stringify(response ?? defaultResponse)});`;
   fs.writeFileSync(executable, `#!/usr/bin/env node\n${source}\n`);
   fs.chmodSync(executable, 0o755);
@@ -190,7 +190,7 @@ function assertNoSupportedDirectCreateEntryPoint() {
 }
 
 async function runPackedManagedWorkflowChecks() {
-  assert.equal(GH_INARI_SUPPORTED_VERSION, "0.2.x");
+  assert.equal(GH_INARI_SUPPORTED_VERSION, ">=0.7.0");
   assert.deepEqual([...GH_INARI_SUPPORTED_OPERATIONS], ["pr.create", "pr.get"]);
   assertNoSupportedDirectCreateEntryPoint();
 
@@ -375,7 +375,7 @@ try {
   const capabilities = await client.checkCapabilities();
   assert.equal(capabilities.ok, true, JSON.stringify(capabilities));
   if (capabilities.ok) {
-    assert.equal(capabilities.value.version, "0.2.0");
+    assert.equal(capabilities.value.version, "0.7.0");
     assert.deepEqual(capabilities.value.operations, ["pr.create", "pr.get"]);
   }
 

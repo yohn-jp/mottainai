@@ -47,14 +47,19 @@ export function resolveGhInariConfig(config: GhInariConfig | undefined): Resolve
   };
 }
 
-export const GH_INARI_SUPPORTED_VERSION = "0.2.x" as const;
+/** Minimum companion release for the versioned machine contract consumed here. */
+export const GH_INARI_MINIMUM_VERSION = "0.7.0" as const;
+export const GH_INARI_SUPPORTED_VERSION = ">=0.7.0" as const;
 export const GH_INARI_SUPPORTED_OPERATIONS = Object.freeze(["pr.create", "pr.get"] as const);
 export type GhInariOperation = (typeof GH_INARI_SUPPORTED_OPERATIONS)[number];
+export const GH_INARI_REQUIRED_OPTIONS = Object.freeze(["--from", "--json", "--repository", "--template"] as const);
+export type GhInariOption = (typeof GH_INARI_REQUIRED_OPTIONS)[number];
 
 export interface GhInariCapabilities {
   readonly command: string;
   readonly version: string;
   readonly operations: readonly GhInariOperation[];
+  readonly options: readonly GhInariOption[];
 }
 
 export interface GhInariPullRequestInput {
@@ -190,7 +195,7 @@ export class GhInariClient {
 
     const versionResult = await this.run(["--version"]);
     const versionFailure = processFailure(versionResult, "capability", undefined, this.config);
-    if (versionFailure !== undefined) return { ok: false, error: versionFailure };
+    if (versionFailure !== undefined) return { ok: false, error: withContractDetails(versionFailure) };
 
     const version = parseVersion(versionResult.stdout);
     if (version === undefined) {
@@ -209,27 +214,33 @@ export class GhInariClient {
         error: capabilityError("INARI_COMPANION_INCOMPATIBLE", "gh-inari version is not supported.", {
           detected: version,
           required: GH_INARI_SUPPORTED_VERSION,
+          minimumVersion: GH_INARI_MINIMUM_VERSION,
         }),
       };
     }
 
-    const helpResult = await this.run(["--help"]);
+    const helpResult = await this.run(["--help=full"]);
     const helpFailure = processFailure(helpResult, "capability", undefined, this.config);
-    if (helpFailure !== undefined) return { ok: false, error: helpFailure };
+    if (helpFailure !== undefined) return { ok: false, error: withContractDetails(helpFailure) };
 
     const operations = GH_INARI_SUPPORTED_OPERATIONS.filter((operation) =>
       hasHelpOperation(helpResult.stdout, operation),
     );
-    if (operations.length !== GH_INARI_SUPPORTED_OPERATIONS.length) {
-      const missing = GH_INARI_SUPPORTED_OPERATIONS.filter((operation) => !operations.includes(operation));
+    const options = GH_INARI_REQUIRED_OPTIONS.filter((option) => hasHelpOption(helpResult.stdout, option));
+    const missingOperations = GH_INARI_SUPPORTED_OPERATIONS.filter((operation) => !operations.includes(operation));
+    const missingOptions = GH_INARI_REQUIRED_OPTIONS.filter((option) => !options.includes(option));
+    if (missingOperations.length > 0 || missingOptions.length > 0) {
+      const missing = [...missingOperations, ...missingOptions].join(",");
       return {
         ok: false,
         error: capabilityError(
           "INARI_CAPABILITY_UNAVAILABLE",
-          "gh-inari does not expose the required machine operations.",
+          "gh-inari does not expose the required machine contract.",
           {
             detected: version,
-            missing: missing.join(","),
+            missing,
+            requiredOperations: GH_INARI_SUPPORTED_OPERATIONS.join(","),
+            requiredOptions: GH_INARI_REQUIRED_OPTIONS.join(","),
           },
         ),
       };
@@ -239,6 +250,7 @@ export class GhInariClient {
       command: this.config.command,
       version,
       operations,
+      options,
     };
     this.cachedCapabilities = capabilities;
     return { ok: true, value: capabilities };
@@ -566,6 +578,18 @@ function capabilityError(
   return makeError(code, "capability", message, false, { ...details, operation });
 }
 
+function withContractDetails(error: GhInariError): GhInariError {
+  return {
+    ...error,
+    details: {
+      ...error.details,
+      requiredVersion: GH_INARI_SUPPORTED_VERSION,
+      requiredOperations: GH_INARI_SUPPORTED_OPERATIONS.join(","),
+      requiredOptions: GH_INARI_REQUIRED_OPTIONS.join(","),
+    },
+  };
+}
+
 function operationError(operation: GhInariOperation, message: string, result: RunResult): GhInariError {
   return makeError("INARI_OPERATION_FAILED", "operation", message, false, {
     operation,
@@ -626,13 +650,26 @@ function parseVersion(output: string): string | undefined {
 }
 
 function isSupportedVersion(version: string): boolean {
-  const [major, minor] = version.split(".").map((part) => Number(part));
-  return major === 0 && minor === 2;
+  return compareVersions(version, GH_INARI_MINIMUM_VERSION) >= 0;
 }
 
 function hasHelpOperation(output: string, operation: GhInariOperation): boolean {
   const [domain, command] = operation.split(".");
   return new RegExp(`^\\s*${domain}\\s+${command}(?:\\s|$)`, "mu").test(output);
+}
+
+function hasHelpOption(output: string, option: GhInariOption): boolean {
+  return new RegExp(`(?:^|\\s)${option}(?:\\s|$)`, "mu").test(output);
+}
+
+function compareVersions(actual: string, minimum: string): number {
+  const actualParts = actual.split(".").map((part) => Number(part));
+  const minimumParts = minimum.split(".").map((part) => Number(part));
+  for (let index = 0; index < 3; index += 1) {
+    const difference = (actualParts[index] ?? 0) - (minimumParts[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
 }
 
 function positiveInteger(value: number | undefined, fallback: number, name: string): number {
