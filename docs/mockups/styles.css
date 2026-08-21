@@ -150,6 +150,16 @@ button {
   border-left: 2px solid transparent;
   color: var(--ink-2);
 }
+button.nav-item {
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+}
 .nav-item .glyph {
   width: 19px;
   text-align: center;
@@ -1091,6 +1101,17 @@ h1 {
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--line);
+}
+button.command-item {
+  border-top: 0;
+  border-right: 0;
+  border-left: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+  color: inherit;
 }
 .command-item:hover {
   background: var(--violet-soft);
