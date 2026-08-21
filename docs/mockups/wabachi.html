@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Wabachi — Semantic Investigation Desk v1</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="/styles.css" />
   </head>
   <body class="wabachi">
     <div class="app">
@@ -160,7 +160,7 @@
         return `<div class="ep-row"><div class="ep-kind">CANONICAL · AUTHORITY</div><div class="ep-title">Git revision</div><div class="ep-source">main@7ac91f</div><div class="ep-current">CURRENT</div></div><div class="ep-row"><div class="ep-kind">CANONICAL · CONTRACT</div><div class="ep-title">${f.contract}</div><div class="ep-source">semantic declaration</div><div class="ep-current">CURRENT</div></div><div class="ep-row derived"><div class="ep-kind">DERIVED · STATIC</div><div class="ep-title">Boundary checker v2.1</div><div class="ep-source">rule: purity.fs_access</div><div class="ep-current">CURRENT</div></div><div class="ep-row inferred"><div class="ep-kind">INFERRED · IMPACT</div><div class="ep-title">${f.tests} tests affected</div><div class="ep-source">test-impact analysis</div><div class="ep-current">CURRENT</div></div><div class="ep-row inferred stale"><div class="ep-kind">INFERRED · RUNTIME</div><div class="ep-title">Sample trace</div><div class="ep-source">trace/2026-08-20</div></div>`;
       }
       function brief(f) {
-        return `<div class="prose-grid"><article class="prose"><h2>What changed?</h2><p>${f.claim}</p><div class="annotation violation"><div class="detail-label">semantic violation</div><b>${f.contract}</b><p style="margin:5px 0 0">Observed implementation behavior is outside the admitted contract.</p></div><h2>Why does it matter?</h2><p>${f.why}</p><dl class="contract-sheet"><dt>Canonical contract</dt><dd><b>${f.contract}</b></dd><dt>Changed entity</dt><dd class="mono">${f.file}</dd><dt>First observed</dt><dd class="mono">main@7ac91f</dd></dl><h2>Review question</h2><p>この意味論変更を正本へ admission するべきか、それとも実装を契約へ戻すべきか。</p></article><aside class="side-summary"><div class="fact"><div class="fact-label">direct callers</div><div class="fact-value">${f.callers}</div></div><div class="fact"><div class="fact-label">affected tests</div><div class="fact-value">${f.tests}</div></div><div class="fact"><div class="fact-label">evidence sources</div><div class="fact-value">${f.evidence}</div></div><div class="fact"><div class="fact-label">confidence</div><div class="fact-value">High · canonical anchor</div></div><div style="margin-top:18px"><button class="primary">Create work intent →</button></div></aside></div>`;
+        return `<div class="prose-grid"><article class="prose"><h2>What changed?</h2><p>${f.claim}</p><div class="annotation violation"><div class="detail-label">semantic violation</div><b>${f.contract}</b><p style="margin:5px 0 0">Observed implementation behavior is outside the admitted contract.</p></div><h2>Why does it matter?</h2><p>${f.why}</p><dl class="contract-sheet"><dt>Canonical contract</dt><dd><b>${f.contract}</b></dd><dt>Changed entity</dt><dd class="mono">${f.file}</dd><dt>First observed</dt><dd class="mono">main@7ac91f</dd></dl><h2>Review question</h2><p>この意味論変更を正本へ admission するべきか、それとも実装を契約へ戻すべきか。</p></article><aside class="side-summary"><div class="fact"><div class="fact-label">direct callers</div><div class="fact-value">${f.callers}</div></div><div class="fact"><div class="fact-label">affected tests</div><div class="fact-value">${f.tests}</div></div><div class="fact"><div class="fact-label">evidence sources</div><div class="fact-value">${f.evidence}</div></div><div class="fact"><div class="fact-label">confidence</div><div class="fact-value">High · canonical anchor</div></div><div style="margin-top:18px"><button class="primary" id="createWorkIntent">Create work intent →</button></div></aside></div>`;
       }
       function impact(f) {
         return `<h2 style="font-size:14px">Impact ledger</h2><table class="impact-table"><thead><tr><th>ENTITY</th><th>RELATION</th><th>WHY IT MATTERS</th></tr></thead><tbody><tr><td class="mono">${f.file}</td><td>changed</td><td>semantic boundary owner</td></tr><tr><td class="mono">services/report/generator.go</td><td>caller</td><td>inherits new filesystem effect</td></tr><tr><td class="mono">services/report/cache.go</td><td>caller</td><td>cache assumptions may no longer hold</td></tr><tr><td class="mono">${f.contract}</td><td>protected contract</td><td>current implementation does not conform</td></tr></tbody></table><div class="annotation"><div class="detail-label">interpretation</div>Impact is shown as explicit relations, not a single opaque risk score.</div>`;
@@ -194,6 +194,27 @@
                 : tab === "relations"
                   ? relations(f)
                   : source(f);
+        const createIntent = $("#createWorkIntent");
+        if (createIntent) createIntent.onclick = () => createWorkIntent(f);
+      }
+      function createWorkIntent(f) {
+        const intent = {
+          repository: "mottainai",
+          focus: f.file,
+          instruction:
+            "Investigate and address the semantic finding " + f.id + " (" + f.title + "): " + f.why,
+        };
+        try {
+          sessionStorage.setItem("wabachiWorkIntent", JSON.stringify(intent));
+        } catch (e) {
+          /* presentation-only handoff; Manager re-resolves all authority regardless */
+        }
+        const params = new URLSearchParams({
+          focus: intent.focus,
+          instruction: intent.instruction,
+          repository: intent.repository,
+        });
+        window.location.href = "mottainai.html?openNew=1&" + params.toString();
       }
       $$(".tab").forEach(
         (t) =>

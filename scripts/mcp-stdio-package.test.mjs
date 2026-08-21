@@ -395,7 +395,7 @@ test(
       assert.match(viewer.headers.get("content-type") ?? "", /^text\/html/u);
       const html = await viewer.text();
       assert.match(html, /Mottainai Manager/u);
-      assert.match(html, /href="styles\.css"/u);
+      assert.match(html, /href="\/styles\.css"/u);
       assert.match(html, /Needs attention/u);
       assert.match(html, /value="pi">Pi/u);
       child.kill("SIGTERM");

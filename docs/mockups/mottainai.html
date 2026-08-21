@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Mottainai Manager — Operations Console v1</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="/styles.css" />
   </head>
   <body class="mottainai">
     <div class="app">
@@ -16,7 +16,7 @@
         </div>
         <div class="scope">
           <div class="scope-label">active runtime</div>
-          <div class="scope-value"><span>local-dev</span><span class="scope-health">HEALTHY</span></div>
+          <div class="scope-value"><span>unavailable</span><span class="scope-health">UNAVAILABLE</span></div>
         </div>
         <nav class="nav">
           <div class="nav-item active"><span class="glyph">⌂</span><span>Operations</span></div>
@@ -39,7 +39,7 @@
       <main class="shell">
         <header class="topbar">
           <div class="top-left">
-            <button class="context">runtime/local-dev ▾</button><span class="health">authority synchronized</span>
+            <button class="context" id="runtimeContext">runtime/unavailable ▾</button><span class="health" id="healthLabel">Manager unavailable</span>
           </div>
           <div class="top-right">
             <button class="icon-btn" id="openPalette">⌘K</button><button class="icon-btn">2!</button
@@ -53,7 +53,7 @@
               <h1>オペレーションホーム</h1>
               <p class="subtitle">判断が必要な事象を先に。正常系は静かに、異常系は根拠と次の安全な操作まで。</p>
             </div>
-            <div class="timestamp">OBSERVED 21:29:42 · 2m ago</div>
+            <div class="timestamp" id="observedTimestamp">OBSERVED unavailable</div>
           </div>
           <div class="ops-grid">
             <div>
@@ -161,47 +161,20 @@
               <div class="rail-block">
                 <div class="section-head"><span>Authority status</span><span class="count">CURRENT</span></div>
                 <div class="status-line">
-                  <span class="status-dot"></span><span><b>Runtime</b><br /><span class="mono">local-dev</span></span
-                  ><span class="scope-health">OK</span>
-                </div>
-                <div class="status-line">
-                  <span class="status-dot"></span><span><b>GitHub</b><br />authoritative integration</span
-                  ><span class="scope-health">OK</span>
-                </div>
-                <div class="status-line">
-                  <span class="status-dot warn"></span><span><b>Nawabari</b><br />1 unreconciled close</span
-                  ><span class="mono" style="color: var(--amber)">WARN</span>
-                </div>
-                <div class="status-line">
-                  <span class="status-dot"></span><span><b>Queue</b><br />draining normally</span
-                  ><span class="scope-health">OK</span>
+                  <span class="status-dot" id="runtimeStatusDot"></span><span><b>Runtime</b><br /><span class="mono" id="runtimeStatusDetail">unavailable</span></span
+                  ><span class="scope-health" id="runtimeStatusHealth">UNAVAILABLE</span>
                 </div>
               </div>
               <div class="rail-block">
                 <div class="section-head"><span>Authority map</span></div>
                 <div class="authority-map">
                   <b>GitHub</b> → integration truth<br /><b>Nawabari</b> → local execution truth<br /><b>Mottainai</b> →
-                  lifecycle intent<br /><span style="color: var(--ink-3)">No duplicate authority detected.</span>
+                  lifecycle intent
                 </div>
               </div>
               <div class="rail-block">
                 <div class="section-head"><span>Recent signal</span></div>
-                <div class="activity-line">
-                  <span class="activity-tick"></span><span><b>#378</b> close proof rejected</span
-                  ><span class="activity-time">8m</span>
-                </div>
-                <div class="activity-line">
-                  <span class="activity-tick"></span><span><b>#381</b> preflight conflict</span
-                  ><span class="activity-time">12m</span>
-                </div>
-                <div class="activity-line">
-                  <span class="activity-tick"></span><span><b>#379</b> validation started</span
-                  ><span class="activity-time">15m</span>
-                </div>
-                <div class="activity-line">
-                  <span class="activity-tick"></span><span><b>#377</b> PR opened</span
-                  ><span class="activity-time">27m</span>
-                </div>
+                <div id="recentSignal"></div>
               </div>
             </aside>
           </div>
@@ -390,10 +363,26 @@
   var taskStep = 0;
   var taskPreview;
   var taskRequest;
+  function readWabachiWorkIntent() {
+    var params = new URLSearchParams(window.location.search);
+    var fromQuery = params.get("focus") || params.get("instruction") ? {
+      focus: params.get("focus") || undefined,
+      instruction: params.get("instruction") || undefined,
+    } : undefined;
+    if (fromQuery) return fromQuery;
+    try {
+      var stored = sessionStorage.getItem("wabachiWorkIntent");
+      if (stored) return JSON.parse(stored);
+    } catch (e) { /* presentation-only handoff; ignore malformed or unavailable storage */ }
+    return undefined;
+  }
   var createTaskState = function () {
+    // Wabachi has no execution authority: it may only suggest a focus/instruction.
+    // Manager re-resolves issue identity, branch, claims, and session identity itself.
+    var intent = readWabachiWorkIntent();
     return {
       issueRef: "#406",
-      instruction: "Implement the requested work while preserving existing authority boundaries.",
+      instruction: (intent && intent.instruction) || "Implement the requested work while preserving existing authority boundaries.",
       agentKind: "pi",
       taskSlug: "operational-task",
       branchType: "feat",
@@ -450,12 +439,31 @@
     qa(".summary-num").forEach(function (node, index) { node.textContent = String([active.length, attention.length, recentSessions.length][index] || 0); });
     qa(".summary-name").forEach(function (node, index) { node.textContent = ["running", "needs attention", "recent"][index]; });
     qa("[data-open-session]").forEach(function (button) { button.onclick = function () { openSession(button.dataset.openSession); }; });
+    renderRecentSignal();
   }
   function updateHealth() {
     var root = health && health.workspaceRoot;
-    q(".scope-value span").textContent = root ? root.split("/").filter(Boolean).slice(-1)[0] : "unavailable";
+    var label = root ? root.split("/").filter(Boolean).slice(-1)[0] : "unavailable";
+    q(".scope-value span").textContent = label;
     q(".scope-health").textContent = health ? "HEALTHY" : "UNAVAILABLE";
-    q(".health").textContent = health ? "Manager ready · Zellij " + health.zellij.version : "Manager unavailable";
+    q("#healthLabel").textContent = health ? "Manager ready · Zellij " + health.zellij.version : "Manager unavailable";
+    q("#runtimeContext").textContent = "runtime/" + label + " ▾";
+    q("#runtimeStatusDetail").textContent = health ? label + " · Zellij " + health.zellij.version : "unavailable";
+    q("#runtimeStatusHealth").textContent = health ? "OK" : "UNAVAILABLE";
+    q("#runtimeStatusDot").classList.toggle("warn", !health);
+    q("#observedTimestamp").textContent = "OBSERVED " + new Date().toLocaleTimeString();
+  }
+  function recentSignalRow(session) {
+    var receipt = session.latestReceipt;
+    var when = receipt ? new Date(receipt.recordedAt).toLocaleTimeString() : "unavailable";
+    var text = receipt ? receipt.message : value(session.latestStatus, "no recorded signal");
+    return '<div class="activity-line"><span class="activity-tick"></span><span><b>' + esc((session.taskSlug || session.sessionId).slice(0, 24)) + '</b> ' + esc(text) + '</span><span class="activity-time">' + esc(when) + '</span></div>';
+  }
+  function renderRecentSignal() {
+    var withReceipts = sessions.filter(function (s) { return s.latestReceipt !== undefined || s.latestStatus !== undefined; })
+      .sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); })
+      .slice(0, 4);
+    q("#recentSignal").innerHTML = withReceipts.length ? withReceipts.map(recentSignalRow).join("") : empty("No recent signal");
   }
   function detail(session) {
     var p = session.operational;
@@ -596,6 +604,10 @@
   });
   qa(".attention-row,.session-row").forEach(function (n) { n.remove(); });
   renderTask(); refresh();
+  if (new URLSearchParams(window.location.search).get("openNew") === "1") {
+    try { sessionStorage.removeItem("wabachiWorkIntent"); } catch (e) { /* presentation-only handoff */ }
+    openNew();
+  }
 }());
 </script>
 </body>

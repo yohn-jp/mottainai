@@ -77,6 +77,65 @@ test("operational projection keeps semantic lifecycle authoritative when the age
   assert.equal(projection.operational.pullRequest.state, "unavailable");
 });
 
+test("operational state is not blocked by conflict-shaped free text in the diagnostic", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime: new FakeRuntime() });
+  const session = store.createManagerSession({
+    sessionId: "00000000-0000-4000-8000-000000000407" as ManagerSessionId,
+    workspaceRoot: root,
+    executionMode: "workspace",
+    worktreePath: root,
+    agentKind: "pi",
+    launchProfile: "pi",
+    instruction: "diagnostic text regression",
+    launchCommand: "pi",
+    launchArgs: ["--", "diagnostic text regression"],
+    runtimeName: "mottainai-test-runtime-407",
+    lifecycleState: "running",
+    runtimeState: "running",
+    semanticLifecycleState: "active",
+    reconciliationState: "synced",
+    latestStatus: "claim preflight clear; no conflict, nothing blocked here",
+  });
+
+  const projection = service.projectSession(session);
+  assert.notEqual(projection.operational.state, "blocked");
+  assert.equal(projection.operational.state, "healthy");
+});
+
+test("operational state is blocked only by a structured claim-preflight receipt code", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime: new FakeRuntime() });
+  const session = store.createManagerSession({
+    sessionId: "00000000-0000-4000-8000-000000000408" as ManagerSessionId,
+    workspaceRoot: root,
+    executionMode: "workspace",
+    worktreePath: root,
+    agentKind: "pi",
+    launchProfile: "pi",
+    instruction: "structured conflict regression",
+    launchCommand: "pi",
+    launchArgs: ["--", "structured conflict regression"],
+    runtimeName: "mottainai-test-runtime-408",
+    lifecycleState: "running",
+    runtimeState: "running",
+    semanticLifecycleState: "active",
+    reconciliationState: "unresolved",
+    latestStatus: "session start rejected before any Manager mutation",
+    latestReceipt: {
+      code: "claim_conflict",
+      message: "Nawabari reports an active conflicting claim",
+      source: "workflow",
+      recordedAt: Date.now(),
+    },
+  });
+
+  const projection = service.projectSession(session);
+  assert.equal(projection.operational.state, "blocked");
+});
+
 function recordingExecutionAuthority(root: string, plans: SemanticExecutionPlan[]): ManagerExecutionAuthority {
   return {
     async start(input) {

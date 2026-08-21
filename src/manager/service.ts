@@ -700,10 +700,11 @@ function diagnosticText(session: ManagerSessionRecord): string {
     .join(" ");
 }
 
+const BLOCKED_RECEIPT_CODES = new Set(["claim_conflict", "claim_preflight_stale", "claim_preflight_unavailable"]);
+
 function operationalStateFor(session: ManagerSessionRecord): ManagerOperationalState {
-  const diagnostic = diagnosticText(session);
   if (session.runtimeState === "stale") return "stale";
-  if (/(claim|conflict|blocked)/iu.test(diagnostic)) return "blocked";
+  if (session.latestReceipt !== undefined && BLOCKED_RECEIPT_CODES.has(session.latestReceipt.code)) return "blocked";
   if (
     session.runtimeState === "failed" ||
     session.reconciliationState === "unresolved" ||
