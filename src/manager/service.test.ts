@@ -1143,6 +1143,71 @@ test("validation reflects the reconciled head commit, not a stale base-commit re
   assert.match(afterReconciliation.summary, /unit/u);
 });
 
+test("validation never projects a stale check_runs PASS as current truth once repository state has changed", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime: new FakeRuntime() });
+  const instanceId = "instance-checkrun-406" as RepositoryInstanceId;
+  store.observeRepositoryInstance({
+    rootCommitDigest: "digest-checkrun-406" as RootCommitDigest,
+    instanceId,
+    gitCommonDir: `${root}/.git`,
+    canonicalWorktreePath: root,
+  });
+  const reserved = store.reserveTask({
+    instanceId,
+    taskSlug: "checkrun-projection",
+    issueRef: "406",
+    baseBranch: "main",
+    baseCommit: "0000000000000000000000000000000000base",
+    allowMultipleActiveTasksPerIssue: true,
+  });
+  assert.equal(reserved.ok, true);
+  if (!reserved.ok) throw new Error("unreachable");
+  const task = reserved.task;
+  const session = store.createManagerSession({
+    sessionId: "00000000-0000-4000-8000-000000000410" as ManagerSessionId,
+    workspaceRoot: root,
+    executionMode: "task-bound",
+    worktreePath: root,
+    taskId: task.taskId,
+    agentKind: "pi",
+    launchCommand: "pi",
+    launchArgs: ["--", "checkrun projection test"],
+    runtimeName: "mottainai-test-runtime-checkrun",
+    lifecycleState: "running",
+    runtimeState: "running",
+    semanticLifecycleState: "active",
+    reconciliationState: "synced",
+  });
+
+  // A PASS is recorded directly in check_runs, exactly as the governor would persist one after
+  // a real execution. Its stateFingerprint corresponds to whatever repository state existed at
+  // that moment; the Manager projection must never treat a historical check_runs row as
+  // automatically authoritative for current state, because this read-only projection cannot
+  // (and must not) re-derive fingerprint identity to prove the row still applies.
+  store.recordCheckRun({
+    runId: "cr_stale-406",
+    instanceId,
+    worktreeId: "",
+    checkId: "lint",
+    commandDigest: "cd_stale",
+    stateFingerprint: "sf_before-change",
+    configDigest: "cfg_stale",
+    status: "passed",
+    execution: "executed",
+    startedAt: Date.now(),
+    durationMs: 10,
+    summary: "lint passed",
+    provenance: { reasonCode: "no-matching-prior-success", explanation: "test fixture" },
+  });
+
+  // Repository state has since changed and no validation_evidence exists at the current head
+  // (task.baseCommit, since no work is committed yet). The stale check_runs PASS above must not
+  // leak through as current validation success.
+  assert.equal(service.projectSession(session).operational.validation.state, "unavailable");
+});
+
 test("list projection omits expensive validation/commit/push/PR detail that only full detail projection loads", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);

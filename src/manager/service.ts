@@ -727,22 +727,20 @@ function operationalStatusLabel(state: ManagerOperationalState): string {
 function validationProjection(
   store: WorkflowStateStore,
   task: ReturnType<WorkflowStateStore["getTask"]>,
-  worktreeId: string,
   commitSha: string | undefined,
   hasCommittedWork: boolean,
 ): ManagerOperationalProjection["validation"] {
   if (task === undefined) {
     return { state: "unavailable", summary: "No task-bound validation receipt", recordedAt: null };
   }
-  const checkRuns = store.listCheckRuns({ instanceId: task.instanceId, worktreeId, limit: 8 });
-  const latestRun = [...checkRuns].sort((left, right) => right.recordedAt - left.recordedAt)[0];
-  if (latestRun !== undefined) {
-    return {
-      state: latestRun.status,
-      summary: latestRun.summary,
-      recordedAt: latestRun.recordedAt,
-    };
-  }
+  // A raw `check_runs` row is never projected directly: the governor only proves a row still
+  // corresponds to the *current* repository state via its fingerprint/config-digest identity
+  // (validation/governor.ts), which this read-only projection does not (and must not, per
+  // "projection remains read-only") re-derive by recomputing fingerprints or running checks.
+  // The `validation_evidence` table below is the governor's own bridge for state it has
+  // already proven current at a specific head commit, so it is the only source of truth here
+  // — a historical `check_runs` PASS is not automatically authoritative for current state.
+  //
   // Validation evidence is keyed by the head commit it validated. Once the
   // session has committed work, baseCommit no longer represents that head;
   // showing evidence recorded at baseCommit would misrepresent it as
@@ -913,14 +911,10 @@ function projectOperationalSession(
   session: ManagerSessionRecord,
 ): ManagerOperationalProjection {
   const task = session.taskId === undefined ? undefined : store.getTask(session.taskId);
-  const worktrees = task === undefined ? [] : store.listWorktreesForTask(task.taskId);
-  const worktree = worktrees.find((candidate) => candidate.status === "active") ?? worktrees[0];
-  const worktreeId = worktree?.worktreeId ?? session.worktreeId ?? "";
   const commitReconciliation = task === undefined ? undefined : store.getCommitReconciliation(task.taskId);
   const validation = validationProjection(
     store,
     task,
-    worktreeId,
     commitReconciliation?.commitSha,
     hasCommittedSemanticProgress(session),
   );

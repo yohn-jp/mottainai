@@ -33,7 +33,6 @@
         <div class="sidebar-foot">
           <div class="shortcut"><span>Command</span><kbd class="kbd">⌘ K</kbd></div>
           <div class="shortcut"><span>New task</span><kbd class="kbd">⌘ N</kbd></div>
-          <div style="margin-top: 10px">Suzuki · Owner</div>
         </div>
       </aside>
       <main class="shell">
@@ -97,7 +96,7 @@
             </div>
             <aside class="operator-rail">
               <div class="rail-block">
-                <div class="section-head"><span>Authority status</span><span class="count">CURRENT</span></div>
+                <div class="section-head"><span>Authority status</span><span class="count" id="authorityStatusValue">UNAVAILABLE</span></div>
                 <div class="status-line">
                   <span class="status-dot" id="runtimeStatusDot"></span><span><b>Runtime</b><br /><span class="mono" id="runtimeStatusDetail">unavailable</span></span
                   ><span class="scope-health" id="runtimeStatusHealth">UNAVAILABLE</span>
@@ -182,8 +181,12 @@
   var sessions = [];
   var health;
   var taskStep = 0;
-  var taskPreview;
-  var taskRequest;
+  // The accepted preflight pair: the exact task snapshot a claim-preflight approved, together
+  // with the preview it returned. The two are stored together (never as separate globals) so an
+  // out-of-order preflight response can never leave a request and a preview from different
+  // snapshots paired up as if they belonged together.
+  var approvedPreflight;
+  var preflightToken = 0;
   function readWabachiWorkIntent() {
     var params = new URLSearchParams(window.location.search);
     var fromQuery = params.get("focus") || params.get("instruction") || params.get("repository") ? {
@@ -281,6 +284,7 @@
     q("#runtimeStatusDetail").textContent = health ? label + " · Zellij " + health.zellij.version : "unavailable";
     q("#runtimeStatusHealth").textContent = health ? "OK" : "UNAVAILABLE";
     q("#runtimeStatusDot").classList.toggle("warn", !health);
+    q("#authorityStatusValue").textContent = health ? "CURRENT" : "UNAVAILABLE";
     q("#observedTimestamp").textContent = "OBSERVED " + new Date().toLocaleTimeString();
   }
   function recentSignalRow(session) {
@@ -325,6 +329,22 @@
       '<div class="detail-block"><div class="detail-label">commit / push / pull request</div><code>commit [' + esc(p.commit.state) + "] " + esc(value(p.commit.sha)) + " · Nawabari<br>push [" + esc(p.push.state) + "] " + esc(value(p.push.target)) + " · Nawabari<br>PR [" + esc(p.pullRequest.state) + "] " + esc(value(p.pullRequest.number)) + " · gh-inari</code></div>" +
       exit + '<div class="detail-block"><div class="detail-label">authority map</div><ul>' + authorities + "</ul></div>";
   }
+  // Exactly one overlay (drawer / New Task modal / command palette) may hold keyboard focus at
+  // a time: opening one must close/deactivate the others first, so Tab/Shift+Tab trapping and
+  // Escape always resolve to the single actually-visible top-level overlay. Closed here without
+  // restoring focus to that overlay's own trigger — the overlay now being opened is about to
+  // take focus anyway, so an intermediate focus hop would only be visible flicker.
+  function closeOverlaysExcept(kept) {
+    if (kept !== "drawer" && q("#drawer").classList.contains("open")) {
+      q("#drawer").classList.remove("open"); q("#drawerBackdrop").classList.remove("open"); drawerTrigger = null;
+    }
+    if (kept !== "modal" && q("#newTaskModal").classList.contains("open")) {
+      q("#newTaskModal").classList.remove("open"); q("#modalBackdrop").classList.remove("open"); modalTrigger = null;
+    }
+    if (kept !== "palette" && q("#palette").classList.contains("open")) {
+      q("#palette").classList.remove("open"); q("#paletteBackdrop").classList.remove("open"); paletteTrigger = null;
+    }
+  }
   var drawerTrigger = null;
   function closeDrawer() {
     q("#drawer").classList.remove("open"); q("#drawerBackdrop").classList.remove("open");
@@ -333,6 +353,7 @@
   function openSession(id) {
     // The polled list endpoint returns a bounded summary; fetch the single-session
     // detail endpoint here so the drawer shows authoritative validation/commit/push/PR state.
+    closeOverlaysExcept("drawer");
     drawerTrigger = document.activeElement;
     q("#drawerTitle").textContent = "Session detail";
     q("#drawerBody").innerHTML = empty("Loading session detail…");
@@ -421,7 +442,7 @@
     if (taskStep === 1) return '<div class="form-grid"><div class="field"><label>Execution profile</label><select id="intentAgent"><option value="pi"' + (taskState.agentKind === "pi" ? " selected" : "") + '>Pi</option><option value="codex"' + (taskState.agentKind === "codex" ? " selected" : "") + '>Codex</option><option value="claude"' + (taskState.agentKind === "claude" ? " selected" : "") + '>Claude</option></select></div><div class="field"><label>Task slug</label><input id="intentTaskSlug" value="' + esc(taskState.taskSlug) + '"></div></div><div class="field"><label>Branch type</label><input id="intentBranchType" value="' + esc(taskState.branchType) + '"></div>';
     if (taskStep === 2) return '<div class="field"><label>Requested repository path</label><input id="intentPath" value="' + esc(taskState.scope.path) + '"></div><div class="field"><label>Claim mode</label><select id="intentClaimMode"><option value="exclusive-write"' + (taskState.scope.claimMode === "exclusive-write" ? " selected" : "") + '>exclusive-write</option><option value="write"' + (taskState.scope.claimMode === "write" ? " selected" : "") + '>write</option><option value="read"' + (taskState.scope.claimMode === "read" ? " selected" : "") + '>read</option></select></div><div class="detail-block"><div class="detail-label">authority boundary</div><code>Git/worktree: Nawabari<br>GitHub mutation: gh-inari<br>lifecycle: Mottainai</code></div>';
     if (taskStep === 3) return '<div class="detail-block"><div class="detail-label">claim-preflight / launch readiness</div><div id="preflightResult">Running authoritative read-only preflight…</div></div><div class="detail-block"><div class="detail-label">preview endpoint</div><code>POST /api/v1/manager/sessions/preview</code></div>';
-    return '<div class="detail-block"><div class="detail-label">Launch through Manager</div><p>' + (taskPreview ? "Preflight clear. Manager establishes authoritative identities." : "Launch unavailable until preflight succeeds.") + '</p></div><div class="detail-block"><div class="detail-label">Projected Nawabari declaration</div><code>' + esc(taskPreview && taskPreview.nawabariDeclaration ? JSON.stringify(taskPreview.nawabariDeclaration) : "unavailable") + '</code></div><div class="detail-block"><div class="detail-label">resolved branch</div><code>' + esc(taskPreview && taskPreview.identity ? taskPreview.identity.branch.name : "unavailable") + "</code></div>";
+    return '<div class="detail-block"><div class="detail-label">Launch through Manager</div><p>' + (approvedPreflight ? "Preflight clear. Manager establishes authoritative identities." : "Launch unavailable until preflight succeeds.") + '</p></div><div class="detail-block"><div class="detail-label">Projected Nawabari declaration</div><code>' + esc(approvedPreflight && approvedPreflight.preview.nawabariDeclaration ? JSON.stringify(approvedPreflight.preview.nawabariDeclaration) : "unavailable") + '</code></div><div class="detail-block"><div class="detail-label">resolved branch</div><code>' + esc(approvedPreflight && approvedPreflight.preview.identity ? approvedPreflight.preview.identity.branch.name : "unavailable") + "</code></div>";
   }
   function renderTask() {
     saveTaskInputs();
@@ -433,58 +454,95 @@
     q("#stepContent").innerHTML = taskMarkup();
     q("#prevStep").style.visibility = taskStep ? "visible" : "hidden";
     q("#nextStep").textContent = taskStep === 4 ? "Launch" : taskStep === 3 ? "Re-run preflight" : "Continue";
-    q("#nextStep").disabled = taskStep === 4 && !taskPreview;
+    q("#nextStep").disabled = taskStep === 4 && !approvedPreflight;
   }
   // Only these claim-preflight statuses may permit launch: a successful HTTP
   // response can still carry a blocking status (conflict/stale/unavailable/
   // ambiguous) that must keep launch disabled.
   function isLaunchableClaimStatus(status) { return status === "clear" || status === "not-applicable"; }
+  // A preflight response is applied only while it is still the most recently issued request.
+  // `token` is the sequence number captured when one particular request was sent; `latestToken`
+  // is whatever the newest issued request bumped preflightToken to. An older request's response
+  // arriving after a newer request was already issued must never touch approvedPreflight or the
+  // rendered preflight state — otherwise it could overwrite a newer approval (or a newer
+  // in-flight/blocked state) with stale data.
+  function isCurrentPreflightResponse(token, latestToken) { return token === latestToken; }
   function preflight() {
-    taskRequest = taskValues();
-    return post("/sessions/preview", taskRequest).then(function (body) {
+    var request = taskValues();
+    var token = ++preflightToken;
+    // Invalidate any existing approval the instant a new preflight starts: it was proven
+    // against a snapshot that may already be stale (an edit, or simply time passing), and must
+    // not be treated as launchable again until this new preflight itself proves it current.
+    approvedPreflight = undefined;
+    q("#preflightResult").innerHTML = "Running authoritative read-only preflight…";
+    q("#nextStep").disabled = true;
+    return post("/sessions/preview", request).then(function (body) {
+      if (!isCurrentPreflightResponse(token, preflightToken)) return;
       var preview = body.preview;
       var status = preview.claimPreflight.status;
       if (isLaunchableClaimStatus(status)) {
-        taskPreview = preview;
+        approvedPreflight = { request: request, preview: preview };
         q("#preflightResult").innerHTML = "<b>READY</b><br>Issue identity resolved<br>Branch: <code>" + esc(preview.identity.branch.name) + "</code><br>Nawabari claim: " + esc(status);
         q("#nextStep").disabled = false;
       } else {
-        taskPreview = undefined;
+        approvedPreflight = undefined;
         var reason = preview.claimPreflight.message ? esc(preview.claimPreflight.message) : "Nawabari claim preflight did not clear.";
         q("#preflightResult").innerHTML = "<b>BLOCKED</b><br>Nawabari claim: " + esc(status) + "<br>" + reason + "<br>Launch remains disabled.";
         q("#nextStep").disabled = true;
       }
     }).catch(function (error) {
-      taskPreview = undefined; q("#preflightResult").innerHTML = "<b>UNAVAILABLE</b><br>" + esc(error.message); q("#nextStep").disabled = true;
+      if (!isCurrentPreflightResponse(token, preflightToken)) return;
+      approvedPreflight = undefined; q("#preflightResult").innerHTML = "<b>UNAVAILABLE</b><br>" + esc(error.message); q("#nextStep").disabled = true;
     });
   }
   function advance() {
     if (taskStep < 2) { taskStep++; renderTask(); return; }
     if (taskStep === 2) { taskStep = 3; renderTask(); preflight(); return; }
-    if (taskStep === 3) return preflight().then(function () { if (taskPreview) { taskStep = 4; renderTask(); } });
-    if (!taskPreview) return;
-    post("/sessions", taskRequest).then(function (body) { closeNew(); return refresh().then(function () { openSession(body.session.sessionId); }); }).catch(function (error) { q("#stepContent").insertAdjacentHTML("beforeend", '<div class="detail-block"><b>Launch blocked</b><p>' + esc(error.message) + "</p></div>"); });
+    if (taskStep === 3) return preflight().then(function () { if (approvedPreflight) { taskStep = 4; renderTask(); } });
+    if (!approvedPreflight) return;
+    post("/sessions", approvedPreflight.request).then(function (body) { closeNew(); return refresh().then(function () { openSession(body.session.sessionId); }); }).catch(function (error) { q("#stepContent").insertAdjacentHTML("beforeend", '<div class="detail-block"><b>Launch blocked</b><p>' + esc(error.message) + "</p></div>"); });
   }
   var modalTrigger = null;
   function openNew() {
+    closeOverlaysExcept("modal");
     modalTrigger = document.activeElement;
-    taskStep = 0; taskPreview = undefined; taskRequest = undefined; taskState = createTaskState(); renderTask(); q("#modalBackdrop").classList.add("open"); q("#newTaskModal").classList.add("open");
+    taskStep = 0; approvedPreflight = undefined; taskState = createTaskState(); renderTask(); q("#modalBackdrop").classList.add("open"); q("#newTaskModal").classList.add("open");
     var firstInput = q("#stepContent input, #stepContent textarea");
     if (firstInput) firstInput.focus(); else q("#nextStep").focus();
   }
   function closeNew() { q("#modalBackdrop").classList.remove("open"); q("#newTaskModal").classList.remove("open"); if (modalTrigger) { modalTrigger.focus(); modalTrigger = null; } }
+  // Guards the lightweight polled refresh (health + bounded /sessions summary, never full
+  // session detail) against overlapping executions: a slow response from one tick must not
+  // race a later tick's response and render out of order.
+  var refreshInFlight = false;
   function refresh() {
+    if (refreshInFlight) return Promise.resolve();
+    refreshInFlight = true;
     return Promise.all([request("/health"), request("/sessions?limit=500")]).then(function (parts) {
+      refreshInFlight = false;
       health = parts[0]; sessions = parts[1].sessions || []; updateHealth(); renderHome(); renderPalette();
     }).catch(function (error) {
+      refreshInFlight = false;
       health = undefined; sessions = []; updateHealth(); renderPalette();
       qa(".attention-zone .attention-row,.sessions .session-row,.sessions .attention-row").forEach(function (n) { n.remove(); });
       q(".summary-strip").insertAdjacentHTML("beforebegin", empty("Manager data unavailable: " + error.message));
       qa(".summary-num").forEach(function (node) { node.textContent = "—"; });
     });
   }
+  // Bounded periodic refresh: the console identifies itself as a live operational surface, so
+  // it must not go stale between local actions. Polls the same lightweight health/sessions
+  // summary as the post-action refresh — never the expensive full session detail.
+  var pollTimer = setInterval(refresh, 5000);
+  window.addEventListener("beforeunload", function () { clearInterval(pollTimer); });
   qa("[data-open-new]").forEach(function (b) { b.onclick = openNew; });
-  q("#nextStep").onclick = advance; q("#prevStep").onclick = function () { if (taskStep) { taskStep--; renderTask(); } };
+  q("#nextStep").onclick = advance;
+  q("#prevStep").onclick = function () {
+    if (!taskStep) return;
+    // Back navigation invalidates any existing approval: the operator may edit an earlier
+    // step before returning, and a stale approval must never carry forward to Launch.
+    approvedPreflight = undefined;
+    taskStep--; renderTask();
+  };
   qa("[data-close-modal]").forEach(function (b) { b.onclick = closeNew; }); q("#modalBackdrop").onclick = closeNew;
   qa("[data-close]").forEach(function (b) { b.onclick = closeDrawer; });
   q("#drawerBackdrop").onclick = closeDrawer;
@@ -493,7 +551,11 @@
     q("#paletteBackdrop").classList.remove("open"); q("#palette").classList.remove("open");
     if (paletteTrigger) { paletteTrigger.focus(); paletteTrigger = null; }
   }
-  q("#openPalette").onclick = function () { paletteTrigger = document.activeElement; q("#paletteBackdrop").classList.add("open"); q("#palette").classList.add("open"); q("#palette input").focus(); };
+  q("#openPalette").onclick = function () {
+    closeOverlaysExcept("palette");
+    paletteTrigger = document.activeElement;
+    q("#paletteBackdrop").classList.add("open"); q("#palette").classList.add("open"); q("#palette input").focus();
+  };
   q("#paletteBackdrop").onclick = closePalette;
   q("[data-palette-new]").onclick = function () { closePalette(); openNew(); };
   function trapFocus(container, event) {
