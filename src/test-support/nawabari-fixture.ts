@@ -138,11 +138,10 @@ export function fakeNawabari(
                 exitCode: 3,
               },
             );
-          // Matches Nawabari 0.5.0's real session-diagnostic.v1 shape: the session
-          // record's `state` is nested under `session`, not exposed at the top
-          // level like `session show`/`create`/`close` (the `session` value is
-          // the live fixture record, so mutating `.state` on it after the fact
-          // is reflected here too).
+          // Matches Nawabari 0.5.0's real session-diagnostic.v1 shape: identity
+          // fields remain top-level while the authoritative state is nested under
+          // `session` (the value is the live fixture record, so later state
+          // changes are reflected here too).
           return runResult(
             JSON.stringify({
               ok: true,
@@ -190,9 +189,25 @@ export function fakeNawabari(
           const sessionId = args[args.indexOf("--session") + 1]!;
           options.beforeSessionClose?.();
           const session = sessions.get(sessionId);
-          if (session !== undefined) session.state = "closed";
+          if (session === undefined)
+            return runResult(
+              JSON.stringify({ ok: false, command: "session close", code: "NOT_FOUND", message: "missing" }),
+              "",
+              { exitCode: 3 },
+            );
+          session.state = "closed";
+          // Nawabari 0.5.0 session-close.v1 returns the authoritative SessionRecord
+          // nested under `session`; keep the fixture contract-identical so a flat
+          // parser cannot silently pass tests again.
           return runResult(
-            JSON.stringify({ ok: true, command: "session close", session_id: sessionId, state: "closed" }),
+            JSON.stringify({
+              ok: true,
+              command: "session close",
+              session,
+              worktree_removed: true,
+              branch_removed: true,
+              idempotent: false,
+            }),
           );
         }
         throw new Error(`unexpected fake Nawabari command: ${args.join(" ")}`);

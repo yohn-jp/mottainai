@@ -7,6 +7,7 @@ import { fakeNawabari } from "../../test-support/nawabari-fixture.js";
 import { createTempGitRepo } from "../../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../../test-support/workflow-store.js";
 import type { NawabariSessionId } from "../state/store.js";
+import type { PullRequestObserver } from "../providers/reconciliation.js";
 
 async function mergedFixture(
   t: TestContext,
@@ -302,7 +303,7 @@ test("golden path: authoritative merge observation drives Nawabari close, and th
   // Mottainai obtains authoritative integration evidence (exact task/head
   // identity) through the owning governance/provider observer and requests
   // Nawabari's normal safe close — it never edits Nawabari registry state.
-  const observer = async () => ({
+  const observer: PullRequestObserver = async () => ({
     ok: true,
     lifecycleState: "merged",
     headSha: "pr-376-head-sha",

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { RepositoryInstanceId } from "./identity.js";
 import { transitionTask } from "./task-lifecycle.js";
+import { createPullRequestObserver, type PullRequestObserver } from "../providers/reconciliation.js";
 import type {
   NawabariCloseReconciliationRecord,
   NawabariSessionId,
@@ -204,29 +205,24 @@ export interface ReconcileNawabariClosuresResult {
   diagnostics: Array<{ taskId: string; detail: string }>;
 }
 
-/** Retry only durable, task-owned merged executions; unrelated sessions are never selected. */
+/**
+ * Retry durable, task-owned integrated executions only. `maxTasks` is an
+ * external-work budget, not a positional slice: up to that many provider
+ * observations and up to that many physical close attempts may run while a
+ * bounded local scan skips already-closed/diagnostic-only history. This keeps
+ * interactive `maxTasks: 1` latency bounded without letting an older harmless
+ * task starve the execution that is actually retaining claims.
+ */
 export async function reconcileNawabariClosures(input: {
   workspaceRoot: string;
   store: WorkflowStateStore;
   client: NawabariExecutionClient;
   instanceId?: RepositoryInstanceId;
   maxTasks?: number;
-  /** Optional bounded provider observation; the provider remains Mottainai's authority. */
-  providerObserver?: (record: PullRequestRecord) => Promise<{
-    ok: boolean;
-    lifecycleState: string;
-    headSha?: string;
-    mergeRevision?: string;
-    detail?: string;
-  }>;
+  /** Optional seam; production defaults to the same owning GitHub observer used by workflow reconciliation. */
+  providerObserver?: PullRequestObserver;
 }): Promise<ReconcileNawabariClosuresResult> {
   const limit = Math.max(0, Math.min(input.maxTasks ?? MAX_RECONCILIATION_TASKS, MAX_RECONCILIATION_TASKS));
-  const tasks = input.store
-    .listTasks(input.instanceId)
-    .filter(
-      (task) => ["pull-request-open", "merged"].includes(task.lifecycleState) && task.nawabariSessionId !== undefined,
-    )
-    .slice(0, limit);
   const result: ReconcileNawabariClosuresResult = {
     attempted: 0,
     closed: 0,
@@ -234,7 +230,26 @@ export async function reconcileNawabariClosures(input: {
     blocked: [],
     diagnostics: [],
   };
+  if (limit === 0) return result;
+
+  const providerObserver = input.providerObserver ?? createPullRequestObserver(input.workspaceRoot);
+  const tasks = input.store
+    .listTasks(input.instanceId)
+    .filter(
+      (task) => ["pull-request-open", "merged"].includes(task.lifecycleState) && task.nawabariSessionId !== undefined,
+    )
+    .sort(
+      (left, right) =>
+        right.updatedAt - left.updatedAt || right.createdAt - left.createdAt || right.taskId.localeCompare(left.taskId),
+    )
+    .slice(0, MAX_RECONCILIATION_TASKS);
+  let providerObservations = 0;
+
   for (const originalTask of tasks) {
+    // Durable closure is a local idempotency fact. Skip it before consuming
+    // either the provider-observation or physical-close budget.
+    if (input.store.getNawabariCloseReconciliation(originalTask.taskId)?.state === "closed") continue;
+
     let task = originalTask;
     let records = input.store.listPullRequestRecordsForTask(task.taskId);
     if (records.length !== 1) {
@@ -253,16 +268,34 @@ export async function reconcileNawabariClosures(input: {
     if (task.lifecycleState !== "merged") {
       let integrated = providerRecord.lifecycleState === "merged";
       let observedMergeRevision: string | undefined;
-      if (!integrated && input.providerObserver !== undefined) {
+      if (!integrated && providerObservations < limit) {
+        providerObservations += 1;
         let observed;
         try {
-          observed = await input.providerObserver(providerRecord);
+          observed = await providerObserver(providerRecord);
         } catch (error) {
-          result.blocked.push({ taskId: task.taskId, detail: `provider reconciliation failed: ${errorDetail(error)}` });
+          result.diagnostics.push({
+            taskId: task.taskId,
+            detail: `provider reconciliation unavailable for task ${task.taskId}: ${errorDetail(error)}`,
+          });
           continue;
         }
-        integrated = observed.ok && observed.lifecycleState === "merged" && observed.headSha === providerRecord.headSha;
-        observedMergeRevision = observed.mergeRevision;
+        if (!observed.ok) {
+          result.diagnostics.push({
+            taskId: task.taskId,
+            detail:
+              observed.detail ??
+              `provider reconciliation unavailable for ${providerRecord.provider}/${providerRecord.repositoryId}#${providerRecord.prNumber}`,
+          });
+          continue;
+        }
+        integrated = observed.lifecycleState === "merged" && observed.headSha === providerRecord.headSha;
+        if (integrated) observedMergeRevision = observed.mergeRevision;
+        else if (observed.lifecycleState === "merged")
+          result.diagnostics.push({
+            taskId: task.taskId,
+            detail: `task ${task.taskId} provider merge head does not match the persisted task-owned head`,
+          });
       }
       if (!integrated) continue;
       try {
@@ -295,6 +328,8 @@ export async function reconcileNawabariClosures(input: {
     }
     providerRecord = records[0]!;
     if (task.lifecycleState !== "merged" || providerRecord.lifecycleState !== "merged") continue;
+    if (result.attempted >= limit) break;
+
     result.attempted += 1;
     const closed = await closeNawabariExecution({
       workspaceRoot: input.workspaceRoot,

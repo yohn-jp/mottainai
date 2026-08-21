@@ -1,16 +1,20 @@
 import fs from "node:fs";
 import path from "node:path";
 import { runGitCommand, type GitCommandFailure } from "../git/context.js";
-import { GithubAdapter } from "../providers/github.js";
-import type { PullRequestLifecycleState } from "../providers/model.js";
+import {
+  createPullRequestObserver,
+  type PullRequestObserver,
+  type PullRequestReconciliationObservation,
+} from "../providers/reconciliation.js";
 import type { RepositoryInstanceId } from "../domain/identity.js";
 import type {
   CleanupLeaseRecord,
   GuardrailAuditRecord,
-  PullRequestRecord,
   TaskId,
   WorkflowStateStore,
 } from "../state/store.js";
+
+export type { PullRequestObserver, PullRequestReconciliationObservation } from "../providers/reconciliation.js";
 
 export const RECONCILIATION_SCHEMA_VERSION = 1;
 
@@ -48,16 +52,6 @@ export interface GitReconciliationSnapshot {
 export type GitSnapshotResult =
   | { ok: true; snapshot: GitReconciliationSnapshot }
   | { ok: false; failure: GitCommandFailure };
-
-export interface PullRequestReconciliationObservation {
-  ok: boolean;
-  lifecycleState: PullRequestLifecycleState | "unknown";
-  headSha?: string;
-  mergeRevision?: string;
-  detail?: string;
-}
-
-export type PullRequestObserver = (record: PullRequestRecord) => Promise<PullRequestReconciliationObservation>;
 
 export interface ReconciliationDependencies {
   now?: () => number;
@@ -226,29 +220,6 @@ export async function readGitReconciliationSnapshot(workspaceRoot: string): Prom
   };
 }
 
-function defaultPullRequestObserver(workspaceRoot: string): PullRequestObserver {
-  const adapter = new GithubAdapter({ workspaceRoot });
-  return async (record) => {
-    if (record.provider !== "github")
-      return {
-        ok: false,
-        lifecycleState: "unknown",
-        detail: `provider observation is unavailable: ${record.provider}`,
-      };
-    const result = await adapter.viewPullRequest(record.prNumber, {
-      provider: record.provider,
-      id: record.repositoryId,
-    });
-    if (!result.ok) return { ok: false, lifecycleState: "unknown", detail: result.error.message };
-    return {
-      ok: true,
-      lifecycleState: result.value.lifecycleState,
-      headSha: result.value.head.revision,
-      ...(result.value.mergeRevision === undefined ? {} : { mergeRevision: result.value.mergeRevision }),
-    };
-  };
-}
-
 function repairId(kind: ReconciliationRepairKind, targetId: string): string {
   return `repair:${kind}:${targetId}`;
 }
@@ -276,7 +247,7 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
 
   const snapshot = snapshotResult.snapshot;
   const diagnostics: ReconciliationDiagnostic[] = [];
-  // A Git snapshot describes one repository instance.  Never use every row in the
+  // A Git snapshot describes one repository instance. Never use every row in the
   // shared workflow store as the implicit scope: doing so can make a task, worktree,
   // or PR from another checkout appear to belong to this repository.
   const selectedInstance =
@@ -342,7 +313,7 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
       unscopedPullRequests.push({ taskId: record.taskId, instanceId: record.instanceId, task });
       return false;
     }
-    // Records belonging to another repository are deliberately ignored.  They must
+    // Records belonging to another repository are deliberately ignored. They must
     // never be observed or used to derive a repair for the current snapshot.
     return true;
   });
@@ -469,7 +440,7 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
     }
   }
 
-  // listWorktreesForTask is intentionally a task-keyed lookup.  Inspect every
+  // listWorktreesForTask is intentionally a task-keyed lookup. Inspect every
   // selected task's result as well so a corrupt row that claims the task id but
   // another instance cannot disappear merely because instance-scoped listing hid it.
   for (const task of recordedTasks) {
@@ -540,7 +511,7 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
   const mergedTaskIds = new Set<TaskId>();
   const providerObservations = new Map<string, PullRequestReconciliationObservation>();
   for (const task of recordedTasks) if (task.lifecycleState === "merged") mergedTaskIds.add(task.taskId);
-  const observer = dependencies.pullRequestObserver ?? defaultPullRequestObserver(input.workspaceRoot);
+  const observer = dependencies.pullRequestObserver ?? createPullRequestObserver(input.workspaceRoot);
   for (const record of recordedPullRequests) {
     const observed = await observer(record);
     providerObservations.set(record.recordId, observed);
@@ -571,35 +542,12 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
         },
       );
     }
-    // Never persist merge/integration evidence from a provider observation whose head
-    // does not match the task-owned record: a stale or absent head is not authoritative
-    // integration evidence, and reconcileNawabariClosures treats a persisted merged
-    // record as sufficient to promote the task and request a Nawabari close.
+    // Reconciliation is observational. Matching provider evidence may affect the
+    // report below, but never persists mergeRevision/lifecycle state. Mutation is
+    // owned by explicit task-finish / close-reconciliation paths.
     const observedHeadMatches = observed.headSha === record.headSha;
     if (observed.lifecycleState === "merged" && observedHeadMatches && record.taskId !== undefined)
       mergedTaskIds.add(record.taskId);
-    if (observedHeadMatches && observed.mergeRevision !== undefined) {
-      try {
-        input.store.recordPullRequestMergeRevision(record.recordId, observed.mergeRevision);
-      } catch (error) {
-        diagnostics.push({
-          code: "provider-merge-revision-persistence-failed",
-          severity: "error",
-          detail: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-    if (observed.lifecycleState === "merged" && observedHeadMatches && record.lifecycleState !== "merged") {
-      try {
-        input.store.updatePullRequestLifecycleState(record.recordId, "merged");
-      } catch (error) {
-        diagnostics.push({
-          code: "provider-lifecycle-persistence-failed",
-          severity: "error",
-          detail: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
   }
   for (const taskId of mergedTaskIds) {
     const task = input.store.getTask(taskId);
