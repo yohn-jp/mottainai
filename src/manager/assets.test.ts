@@ -73,3 +73,79 @@ test("Wabachi presentation intent hands off a focus/instruction to Manager witho
   assert.match(mottainai, /readWabachiWorkIntent/u);
   assert.match(mottainai, /wabachiWorkIntent/u);
 });
+
+test("Wabachi repository is preserved as presentation intent, not just instruction", () => {
+  const wabachi = readManagerAssets()["/mockups/wabachi.html"].body;
+  assert.match(wabachi, /repository:\s*"mottainai"/u);
+  assert.match(wabachi, /repository:\s*intent\.repository/u);
+  const mottainai = readManagerViewer();
+  // Manager must read repository off both the query-string and stored-intent
+  // handoff channels, not just focus/instruction.
+  assert.match(mottainai, /params\.get\("repository"\)/u);
+  assert.match(mottainai, /repository:\s*params\.get\("repository"\)/u);
+  // The focus must stay visible to the operator in the New Task WORK step
+  // instead of being silently discarded.
+  assert.match(mottainai, /wabachiIntent/u);
+  assert.match(mottainai, /intent\.focus/u);
+  // Manager must still independently resolve execution authority: the
+  // Wabachi intent is never wired into the actual claim/scope fields.
+  assert.doesNotMatch(mottainai, /taskState\.scope\.path\s*=\s*intent/u);
+});
+
+test("New Task preflight only treats clear/not-applicable claim status as launchable", () => {
+  const html = readManagerViewer();
+  const match = html.match(/function isLaunchableClaimStatus\(status\) \{ return[^}]+\}/u);
+  assert.ok(match, "expected preflight() to gate on an extractable isLaunchableClaimStatus helper");
+  const isLaunchableClaimStatus = new Function(
+    "status",
+    match[0].replace(/^function isLaunchableClaimStatus\(status\) \{ return/, "return").replace(/\}$/, ""),
+  );
+  assert.equal(isLaunchableClaimStatus("clear"), true);
+  assert.equal(isLaunchableClaimStatus("not-applicable"), true);
+  assert.equal(isLaunchableClaimStatus("conflict"), false);
+  assert.equal(isLaunchableClaimStatus("stale"), false);
+  assert.equal(isLaunchableClaimStatus("unavailable"), false);
+  assert.equal(isLaunchableClaimStatus("ambiguous"), false);
+  // A blocked status must not retain a launchable preview or render READY.
+  assert.match(html, /taskPreview = undefined;\s*\n\s*var reason/u);
+  assert.match(html, /<b>BLOCKED<\/b>/u);
+  assert.match(html, /Launch remains disabled/u);
+});
+
+test("Manager operational console ships no fabricated operational truth in its initial markup", () => {
+  const html = readManagerViewer();
+  for (const fakeMarker of [
+    "2 UNRESOLVED",
+    "#378",
+    "#381",
+    "#380",
+    "#379",
+    "#377",
+    "PR REVIEW",
+    "NOMINAL",
+    "Cleanup blocked",
+    "Open session #379",
+    "Inspect attention #378",
+  ]) {
+    assert.ok(!html.includes(fakeMarker), `initial Manager HTML must not contain fabricated state: ${fakeMarker}`);
+  }
+  // Neutral/loading placeholders take their place instead.
+  assert.match(html, /Loading operational data…/u);
+  assert.match(html, /Session detail/u);
+});
+
+test("Manager overlays declare accessible names and the drawer close controls are wired", () => {
+  const html = readManagerViewer();
+  assert.match(html, /id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle"/u);
+  assert.match(html, /id="newTaskModal" role="dialog" aria-modal="true" aria-labelledby="newTaskModalTitle"/u);
+  assert.match(html, /id="palette" role="dialog" aria-modal="true" aria-label="Command palette"/u);
+  assert.match(html, /qa\("\[data-close\]"\)\.forEach\(function \(b\) \{ b\.onclick = closeDrawer; \}\)/u);
+  assert.match(html, /function trapFocus\(/u);
+});
+
+test("Manager list projection stays separate from full session detail projection", () => {
+  const html = readManagerViewer();
+  // The drawer must fetch authoritative single-session detail rather than
+  // reusing the bounded list summary already held in memory.
+  assert.match(html, /request\("\/sessions\/" \+ encodeURIComponent\(id\)\)/u);
+});

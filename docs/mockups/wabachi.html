@@ -88,14 +88,14 @@
       </main>
     </div>
     <div class="backdrop" id="searchBackdrop"></div>
-    <div class="command" id="searchPanel">
+    <div class="command" id="searchPanel" role="dialog" aria-modal="true" aria-label="Search">
       <input id="searchInput" placeholder="Find symbol, contract, component, finding…" aria-label="Search symbols, contracts, components, and findings" />
-      <div class="command-item" data-select="read">
+      <button type="button" class="command-item" data-select="read">
         <span>Finding · Read Authorization</span><span class="mono">FIND-0012</span>
-      </div>
-      <div class="command-item" data-select="runtime">
+      </button>
+      <button type="button" class="command-item" data-select="runtime">
         <span>Finding · Workflow Runtime expansion</span><span class="mono">FIND-0015</span>
-      </div>
+      </button>
       <div class="command-item"><span>Contract · bounded-read</span><span class="mono">CANONICAL</span></div>
       <div class="command-item"><span>Component · core/boundary/reader</span><span class="mono">ENTITY</span></div>
     </div>
@@ -225,7 +225,9 @@
       );
       const sb = $("#searchBackdrop"),
         sp = $("#searchPanel");
+      let searchTrigger = null;
       function openSearch() {
+        searchTrigger = document.activeElement;
         sb.classList.add("open");
         sp.classList.add("open");
         $("#searchInput").focus();
@@ -233,6 +235,10 @@
       function closeSearch() {
         sb.classList.remove("open");
         sp.classList.remove("open");
+        if (searchTrigger) {
+          searchTrigger.focus();
+          searchTrigger = null;
+        }
       }
       $("#openSearch").onclick = openSearch;
       sb.onclick = closeSearch;
@@ -251,6 +257,22 @@
           openSearch();
         }
         if (e.key === "Escape") closeSearch();
+        if (e.key === "Tab" && sp.classList.contains("open")) {
+          var focusable = [...sp.querySelectorAll("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])")];
+          if (focusable.length > 0) {
+            var first = focusable[0],
+              last = focusable[focusable.length - 1];
+            if (e.shiftKey) {
+              if (e.target === first || !sp.contains(e.target)) {
+                e.preventDefault();
+                last.focus();
+              }
+            } else if (e.target === last || !sp.contains(e.target)) {
+              e.preventDefault();
+              first.focus();
+            }
+          }
+        }
         if (e.key.toLowerCase() === "j" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
           var target = e.target;
           var isTextEntry = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);

@@ -729,6 +729,7 @@ function validationProjection(
   task: ReturnType<WorkflowStateStore["getTask"]>,
   worktreeId: string,
   commitSha: string | undefined,
+  hasCommittedWork: boolean,
 ): ManagerOperationalProjection["validation"] {
   if (task === undefined) {
     return { state: "unavailable", summary: "No task-bound validation receipt", recordedAt: null };
@@ -742,7 +743,14 @@ function validationProjection(
       recordedAt: latestRun.recordedAt,
     };
   }
-  const validatedCommit = commitSha ?? task.baseCommit;
+  // Validation evidence is keyed by the head commit it validated. Once the
+  // session has committed work, baseCommit no longer represents that head;
+  // showing evidence recorded at baseCommit would misrepresent it as
+  // covering the changed work, so prefer unavailable over a stale reading.
+  const validatedCommit = commitSha ?? (hasCommittedWork ? undefined : task.baseCommit);
+  if (validatedCommit === undefined) {
+    return { state: "unavailable", summary: "No authoritative validated head commit recorded", recordedAt: null };
+  }
   const evidence = store.listValidationEvidence(task.instanceId, validatedCommit);
   const latestEvidence = [...evidence].sort((left, right) => right.recordedAt - left.recordedAt)[0];
   if (latestEvidence === undefined) {
@@ -790,25 +798,25 @@ function pullRequestProjection(
   };
 }
 
-function projectOperationalSession(
-  store: WorkflowStateStore,
+function hasCommittedSemanticProgress(session: ManagerSessionRecord): boolean {
+  return ["committed", "pushed", "pull-request-open", "merged", "cleaned"].includes(session.semanticLifecycleState);
+}
+
+/**
+ * Shared, store-cheap projection core: operational state/attention, phase
+ * rail, and identity/repository/task status. Both the bounded list summary
+ * and the full detail projection are built on top of this so the two never
+ * drift on what "attention" or "phase" means.
+ */
+function operationalCoreProjection(
   session: ManagerSessionRecord,
-): ManagerOperationalProjection {
-  const task = session.taskId === undefined ? undefined : store.getTask(session.taskId);
-  const worktrees = task === undefined ? [] : store.listWorktreesForTask(task.taskId);
-  const worktree = worktrees.find((candidate) => candidate.status === "active") ?? worktrees[0];
-  const worktreeId = worktree?.worktreeId ?? session.worktreeId ?? "";
-  const commitReconciliation = task === undefined ? undefined : store.getCommitReconciliation(task.taskId);
-  const validation = validationProjection(store, task, worktreeId, commitReconciliation?.commitSha);
-  const commit = commitProjection(commitReconciliation);
-  const push = pushProjection(task === undefined ? undefined : store.getPushReconciliation(task.taskId));
-  const pullRequest = pullRequestProjection(
-    task === undefined ? undefined : store.listPullRequestRecordsForTask(task.taskId).at(-1),
-  );
+  task: ReturnType<WorkflowStateStore["getTask"]>,
+): Pick<
+  ManagerOperationalProjection,
+  "state" | "statusLabel" | "attention" | "phaseRail" | "identities" | "repository" | "task"
+> {
   const state = operationalStateFor(session);
-  const semanticProgressed = ["committed", "pushed", "pull-request-open", "merged", "cleaned"].includes(
-    session.semanticLifecycleState,
-  );
+  const semanticProgressed = hasCommittedSemanticProgress(session);
   const attention =
     state === "healthy" || (state === "stopped" && semanticProgressed)
       ? null
@@ -850,16 +858,6 @@ function projectOperationalSession(
     statusLabel: operationalStatusLabel(state),
     attention,
     phaseRail: phaseRailFor(session.semanticLifecycleState, session.runtimeState),
-    authorities: [
-      { name: "Mottainai", responsibility: "lifecycle intent", status: "current" },
-      { name: "Nawabari", responsibility: "Git / worktree / branch authority", status: "current" },
-      { name: "Zellij", responsibility: "Manager runtime transport", status: "current" },
-      {
-        name: "gh-inari",
-        responsibility: "governed GitHub mutation",
-        status: pullRequest.state === "unavailable" ? "unavailable" : "current",
-      },
-    ],
     identities: {
       managerSessionId: session.sessionId,
       taskId: session.taskId ?? null,
@@ -879,6 +877,70 @@ function projectOperationalSession(
       baseBranch: task?.baseBranch ?? null,
       baseCommit: task?.baseCommit ?? null,
     },
+  };
+}
+
+/**
+ * Bounded projection for list views (e.g. the polled `GET /sessions`).
+ * Reads only `getTask` per session and never touches worktree, check-run,
+ * validation-evidence, commit/push reconciliation, or pull-request store
+ * lookups, so N sessions cost N reads instead of the ~8x fan-out that full
+ * detail projection performs. Callers needing validation/commit/push/PR
+ * detail must project the single session of interest instead.
+ */
+function projectOperationalSummary(
+  store: WorkflowStateStore,
+  session: ManagerSessionRecord,
+): ManagerOperationalProjection {
+  const task = session.taskId === undefined ? undefined : store.getTask(session.taskId);
+  return {
+    ...operationalCoreProjection(session, task),
+    authorities: [
+      { name: "Mottainai", responsibility: "lifecycle intent", status: "current" },
+      { name: "Nawabari", responsibility: "Git / worktree / branch authority", status: "current" },
+      { name: "Zellij", responsibility: "Manager runtime transport", status: "current" },
+      { name: "gh-inari", responsibility: "governed GitHub mutation", status: "unavailable" },
+    ],
+    validation: { state: "unavailable", summary: "Not loaded in list projection", recordedAt: null },
+    commit: commitProjection(undefined),
+    push: pushProjection(undefined),
+    pullRequest: pullRequestProjection(undefined),
+  };
+}
+
+function projectOperationalSession(
+  store: WorkflowStateStore,
+  session: ManagerSessionRecord,
+): ManagerOperationalProjection {
+  const task = session.taskId === undefined ? undefined : store.getTask(session.taskId);
+  const worktrees = task === undefined ? [] : store.listWorktreesForTask(task.taskId);
+  const worktree = worktrees.find((candidate) => candidate.status === "active") ?? worktrees[0];
+  const worktreeId = worktree?.worktreeId ?? session.worktreeId ?? "";
+  const commitReconciliation = task === undefined ? undefined : store.getCommitReconciliation(task.taskId);
+  const validation = validationProjection(
+    store,
+    task,
+    worktreeId,
+    commitReconciliation?.commitSha,
+    hasCommittedSemanticProgress(session),
+  );
+  const commit = commitProjection(commitReconciliation);
+  const push = pushProjection(task === undefined ? undefined : store.getPushReconciliation(task.taskId));
+  const pullRequest = pullRequestProjection(
+    task === undefined ? undefined : store.listPullRequestRecordsForTask(task.taskId).at(-1),
+  );
+  return {
+    ...operationalCoreProjection(session, task),
+    authorities: [
+      { name: "Mottainai", responsibility: "lifecycle intent", status: "current" },
+      { name: "Nawabari", responsibility: "Git / worktree / branch authority", status: "current" },
+      { name: "Zellij", responsibility: "Manager runtime transport", status: "current" },
+      {
+        name: "gh-inari",
+        responsibility: "governed GitHub mutation",
+        status: pullRequest.state === "unavailable" ? "unavailable" : "current",
+      },
+    ],
     validation,
     commit,
     push,
@@ -961,6 +1023,11 @@ export class ManagerSessionService {
 
   projectSession(session: ManagerSessionRecord): ManagerSessionProjection {
     return { ...session, operational: projectOperationalSession(this.options.store, session) };
+  }
+
+  /** Bounded projection for list views; see {@link projectOperationalSummary}. */
+  projectSessionSummary(session: ManagerSessionRecord): ManagerSessionProjection {
+    return { ...session, operational: projectOperationalSummary(this.options.store, session) };
   }
 
   private projectSessions(sessions: ManagerSessionRecord[], filter: ManagerSessionFilter): ManagerSessionRecord[] {

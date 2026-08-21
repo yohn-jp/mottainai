@@ -154,7 +154,7 @@ export class ManagerHttpApi implements ManagerHttpHandler {
       }
       if (segments.length === 1 && segments[0] === "sessions" && method === "GET") {
         const sessions = await this.service.list(filterFromQuery(url));
-        sendJson(response, 200, { sessions: sessions.map((session) => this.service.projectSession(session)) });
+        sendJson(response, 200, { sessions: sessions.map((session) => this.service.projectSessionSummary(session)) });
         return;
       }
       if (segments.length === 1 && segments[0] === "sessions" && method === "POST") {

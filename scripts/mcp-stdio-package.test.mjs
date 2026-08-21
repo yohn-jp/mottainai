@@ -397,7 +397,8 @@ test(
       assert.match(html, /Mottainai Manager/u);
       assert.match(html, /href="\/styles\.css"/u);
       assert.match(html, /data-open-new/u);
-      assert.match(html, /value="pi">Pi/u);
+      assert.match(html, /id="intentAgent"/u);
+      assert.match(html, /option value="pi"/u);
       child.kill("SIGTERM");
       const exit = await new Promise((resolve, reject) => {
         child.once("error", reject);
