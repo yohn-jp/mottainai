@@ -110,12 +110,18 @@ test("preflight bounds and deterministically sorts multiple conflicts", () => {
   assert.equal(preflight.status, "conflict");
   assert.equal(preflight.conflicts.length, MAX_MANAGER_CLAIM_CONFLICTS);
   assert.equal(preflight.conflictsTruncated, true);
+  // Expected order is derived independently from the input fixture (not from
+  // the function's own output) using the same code-point comparator
+  // `createClaimPreflight` documents, so this proves the returned conflicts
+  // really are the lowest-sorted MAX_MANAGER_CLAIM_CONFLICTS of the full
+  // candidate set, not merely internally self-consistent.
+  const expectedSessionIds = existing
+    .map((claim) => claim.sessionId)
+    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
+    .slice(0, MAX_MANAGER_CLAIM_CONFLICTS);
   assert.deepEqual(
     preflight.conflicts.map((conflict) => conflict.existing.sessionId),
-    [...preflight.conflicts]
-      .map((conflict) => conflict.existing.sessionId)
-      .sort((left, right) => left.localeCompare(right))
-      .slice(0, MAX_MANAGER_CLAIM_CONFLICTS),
+    expectedSessionIds,
   );
 });
 

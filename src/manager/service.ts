@@ -813,16 +813,14 @@ export class ManagerSessionService {
     const { agentKind, instruction, provider, model, taskSlug, issueRef, branchType, idempotencyKey, semanticPlan } =
       normalized;
 
-    // Resolve branch/base identity and the exact claim declaration before any
-    // task, Nawabari session, Manager record, or Zellij mutation.
-    const initialPreview = await this.preparePreviewWithClaimPreflight(normalized);
-    this.assertClaimPreflightReady(initialPreview);
-
-    // Resolve and validate the guard before task/worktree creation. A managed
-    // Pi launch must never fall back to an unguarded process.
-    const piGuardPath = agentKind === "pi" ? configuredPiGuardPath(this.options.piGuardPath) : undefined;
-
     if (this.zellijVersion === undefined) await this.initialize();
+
+    // An idempotent retry resolves to its own already-owning Nawabari session
+    // (or is still starting/terminal), so it must short-circuit before claim
+    // preflight: the retry's own prior claims would otherwise read back as a
+    // self-conflict against the exact session the retry is entitled to reuse.
+    // A genuinely new session (no bound idempotency key, or no prior record)
+    // always falls through to preflight and Nawabari's authoritative check.
     if (idempotencyKey !== undefined) {
       const existing = this.options.store
         .listManagerSessions(this.options.workspaceRoot)
@@ -842,6 +840,16 @@ export class ManagerSessionService {
         return this.resumeIdempotentSession(existing.sessionId);
       }
     }
+
+    // Resolve branch/base identity and the exact claim declaration before any
+    // task, Nawabari session, Manager record, or Zellij mutation.
+    const initialPreview = await this.preparePreviewWithClaimPreflight(normalized);
+    this.assertClaimPreflightReady(initialPreview);
+
+    // Resolve and validate the guard before task/worktree creation. A managed
+    // Pi launch must never fall back to an unguarded process.
+    const piGuardPath = agentKind === "pi" ? configuredPiGuardPath(this.options.piGuardPath) : undefined;
+
     const sessionId = crypto.randomUUID() as ManagerSessionId;
     const runtimeName = deriveZellijSessionName(sessionId);
     return this.withSessionOperation(sessionId, async () => {

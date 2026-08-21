@@ -468,17 +468,31 @@ export class NawabariExecutionClient {
    * Read the bounded, canonical claim evidence for the current repository.
    * This deliberately selects no session: Nawabari remains the sole owner of
    * the registry and Manager receives only an ephemeral projection.
+   *
+   * Claims are read before sessions. The two reads are separate Nawabari
+   * invocations and are not atomic; reading claims first means every
+   * observed claim owner already existed at read time, so a session created
+   * between the two reads cannot manufacture a spurious `STALE_REGISTRY`
+   * result for an unrelated concurrent start. A session that legitimately
+   * closed between the two reads is still (and correctly) detected as stale.
    */
   async listClaimEvidence(cwd: string): Promise<NawabariClaimEvidenceSnapshot> {
     await this.capabilities(cwd);
+    const claimResult = await this.invoke(["session", "claims"], cwd);
+    const claims = parseClaimEvidenceArray(claimResult);
     const sessionResult = await this.invoke(["session", "list"], cwd);
     assertSessionListComplete(sessionResult);
     const sessions = parseSessionList(sessionResult);
-    const claimResult = await this.invoke(["session", "claims"], cwd);
-    const claims = parseClaimEvidenceArray(claimResult);
     const sessionsById = new Map(sessions.map((session) => [session.sessionId, session]));
     const claimIds = new Set<string>();
     for (const claim of claims) {
+      if (claim.schemaVersion !== 2)
+        throw new NawabariExecutionError(
+          "nawabari-evidence-ambiguous",
+          `Nawabari claim evidence schema is unsupported: ${claim.schemaVersion}`,
+          "UNSUPPORTED_CLAIM_SCHEMA_VERSION",
+          claim.raw,
+        );
       if (claimIds.has(claim.claimId))
         throw new NawabariExecutionError(
           "nawabari-evidence-ambiguous",
@@ -500,13 +514,6 @@ export class NawabariExecutionClient {
           "nawabari-evidence-ambiguous",
           `Nawabari claim owner identity does not match session evidence: ${claim.claimId}`,
           "CLAIM_SESSION_MISMATCH",
-          claim.raw,
-        );
-      if (claim.schemaVersion !== 2)
-        throw new NawabariExecutionError(
-          "nawabari-evidence-ambiguous",
-          `Nawabari claim evidence schema is unsupported: ${claim.schemaVersion}`,
-          "UNSUPPORTED_CLAIM_SCHEMA_VERSION",
           claim.raw,
         );
     }

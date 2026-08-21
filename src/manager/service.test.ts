@@ -311,6 +311,66 @@ test("non-overlapping Manager preflight remains clear while the existing Nawabar
   assert.equal(claims.get("owner-session")?.[0]?.mode, "exclusive-write");
 });
 
+test("idempotent retry resumes its own session instead of self-conflicting against its own prior claim", async (t) => {
+  // Regression for a retry-vs-preflight ordering bug: a retry with the same
+  // idempotency key resolves to the session it already owns, and that
+  // session's own broad claim from the first successful start must never
+  // read back as a Nawabari conflict against the identical retry request.
+  const root = createTempGitRepo(t);
+  const calls: string[][] = [];
+  const claims = new Map<string, Record<string, unknown>[]>();
+  const sessions = new Map<string, Record<string, unknown>>();
+  const nawabari = fakeNawabari(root, { calls, sessions, claims });
+  const runtime = new FakeRuntime();
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store: createWorkflowStore(t),
+    runtime,
+    nawabari,
+    executionAuthority: recordingExecutionAuthority(root, []),
+  });
+  const input = {
+    instruction: "retry read",
+    taskSlug: "idempotent-retry",
+    issueRef: "3746",
+    idempotencyKey: "retry-key-3746",
+    scope: { claims: [{ resource: "**", mode: "read" as const }] },
+  };
+  const first = await service.start(input);
+  assert.equal(runtime.started.length, 1);
+
+  // Simulate the session's own broad claim being live in the Nawabari
+  // registry after the first successful start (as a real Nawabari-backed
+  // execution authority would leave behind), exactly overlapping the
+  // identical retry request.
+  claims.set(first.sessionId, [
+    {
+      schema_version: 2,
+      claim_id: `self-${first.sessionId}`,
+      session_id: first.sessionId,
+      repository: `${root}/.git`,
+      worktree: root,
+      resource: "**",
+      mode: "exclusive-write",
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    },
+  ]);
+  sessions.set(first.sessionId, {
+    session_id: first.sessionId,
+    repository: `${root}/.git`,
+    worktree: root,
+    branch: "feat/idempotent-retry",
+    state: "active",
+  });
+
+  const retried = await service.start(input);
+  assert.equal(retried.sessionId, first.sessionId);
+  // Resume must not have started a second runtime or created a second claim.
+  assert.equal(runtime.started.length, 1);
+  assert.equal(claims.get(first.sessionId)?.length, 1);
+});
+
 test("unavailable or stale claim evidence blocks Manager start conservatively", async (t) => {
   for (const kind of ["unavailable", "stale"] as const) {
     const root = createTempGitRepo(t);
@@ -342,11 +402,70 @@ test("unavailable or stale claim evidence blocks Manager start conservatively", 
     };
     const preview = await service.preview(input);
     assert.equal(preview.claimPreflight.status, kind);
+    const expectedCode = kind === "stale" ? "claim_preflight_stale" : "claim_preflight_unavailable";
     await assert.rejects(
       service.start(input),
-      (error: unknown) =>
-        error instanceof ManagerError &&
-        (error.code === "claim_preflight_unavailable" || error.code === "claim_preflight_stale"),
+      (error: unknown) => error instanceof ManagerError && error.code === expectedCode,
+    );
+  }
+});
+
+test("Manager start observably fails closed for duplicate claim id and non-active owner registry corruption", async (t) => {
+  const cases: {
+    name: string;
+    sessionState: string;
+    claims: (root: string) => Record<string, unknown>[];
+    expectedCode: "claim_preflight_unavailable" | "claim_preflight_stale";
+  }[] = [
+    {
+      name: "duplicate claim id (REGISTRY_CORRUPT)",
+      sessionState: "active",
+      claims: (root) => [
+        { ...ownerClaim(root, "src/a.ts", "exclusive-write"), claim_id: "dup-claim" },
+        { ...ownerClaim(root, "src/b.ts", "exclusive-write"), claim_id: "dup-claim" },
+      ],
+      expectedCode: "claim_preflight_unavailable",
+    },
+    {
+      name: "non-active owner (STALE_REGISTRY)",
+      sessionState: "closing",
+      claims: (root) => [ownerClaim(root, "src/a.ts", "exclusive-write")],
+      expectedCode: "claim_preflight_stale",
+    },
+  ];
+  for (const testCase of cases) {
+    const root = createTempGitRepo(t);
+    const claims = new Map<string, Record<string, unknown>[]>([["owner-session", testCase.claims(root)]]);
+    const sessions = new Map<string, Record<string, unknown>>([
+      [
+        "owner-session",
+        {
+          session_id: "owner-session",
+          repository: `${root}/.git`,
+          worktree: `${root}-owner`,
+          branch: "feat/owner",
+          state: testCase.sessionState,
+        },
+      ],
+    ]);
+    const nawabari = fakeNawabari(root, { sessions, claims });
+    const service = new ManagerSessionService({
+      workspaceRoot: root,
+      store: createWorkflowStore(t),
+      runtime: new FakeRuntime(),
+      nawabari,
+      executionAuthority: recordingExecutionAuthority(root, []),
+    });
+    const input = {
+      instruction: testCase.name,
+      taskSlug: "registry-corruption",
+      issueRef: "3747",
+      scope: { claims: [{ resource: "**", mode: "read" as const }] },
+    };
+    await assert.rejects(
+      service.start(input),
+      (error: unknown) => error instanceof ManagerError && error.code === testCase.expectedCode,
+      testCase.name,
     );
   }
 });
