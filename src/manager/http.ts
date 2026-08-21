@@ -30,7 +30,14 @@ function sendJson(response: ServerResponse, statusCode: number, body: unknown): 
 function sendError(response: ServerResponse, error: ManagerError | Error): void {
   const statusCode = error instanceof ManagerError ? error.statusCode : 500;
   const code = error instanceof ManagerError ? error.code : "internal_error";
-  sendJson(response, statusCode, { error: { code, message: error.message } });
+  const details = error instanceof ManagerError ? error.details : undefined;
+  sendJson(response, statusCode, {
+    error: {
+      code,
+      message: error.message,
+      ...(details === undefined ? {} : { details }),
+    },
+  });
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
@@ -154,8 +161,10 @@ export class ManagerHttpApi implements ManagerHttpHandler {
         return;
       }
       if (
-        ((segments.length === 2 && segments[0] === "sessions" && segments[1] === "preview") ||
-          (segments.length === 1 && segments[0] === "preview")) &&
+        ((segments.length === 2 &&
+          segments[0] === "sessions" &&
+          (segments[1] === "preview" || segments[1] === "preflight")) ||
+          (segments.length === 1 && (segments[0] === "preview" || segments[0] === "preflight"))) &&
         method === "POST"
       ) {
         sendJson(response, 200, { preview: await this.service.preview(inputFromBody(await readJsonBody(request))) });
@@ -167,6 +176,18 @@ export class ManagerHttpApi implements ManagerHttpHandler {
       }
       if (segments.length === 1 && segments[0] === "reconcile" && method === "POST") {
         sendJson(response, 200, { sessions: await this.service.reconcileNow() });
+        return;
+      }
+      if (
+        segments.length === 4 &&
+        segments[0] === "nawabari" &&
+        segments[1] === "sessions" &&
+        segments[3] === "inspect" &&
+        method === "POST"
+      ) {
+        sendJson(response, 200, {
+          session: await this.service.inspectNawabariSession(sessionIdFromPath(segments[2] ?? "")),
+        });
         return;
       }
       if (segments.length === 3 && segments[0] === "sessions" && method === "POST") {

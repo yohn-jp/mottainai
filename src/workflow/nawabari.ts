@@ -34,6 +34,7 @@ export type NawabariFailureCode =
   | "nawabari-unavailable"
   | "nawabari-incompatible"
   | "nawabari-contract-invalid"
+  | "nawabari-evidence-ambiguous"
   | "nawabari-rejected"
   | "nawabari-command-failed"
   | "nawabari-claim-authority-unrecognized";
@@ -92,6 +93,29 @@ export interface NawabariSession {
   state: string;
   label?: string;
   raw: NawabariCommandResult;
+}
+
+/**
+ * Canonical claim evidence returned by `session claims` without a session
+ * selector.  This is an observation only; it is never a Manager-owned claim
+ * registry or a reservation.
+ */
+export interface NawabariClaimEvidence {
+  schemaVersion: number;
+  claimId: string;
+  sessionId: string;
+  repository: string;
+  worktree: string;
+  resource: string;
+  mode: ExecutionClaim["mode"];
+  createdAt: string;
+  updatedAt: string;
+  raw: NawabariCommandResult;
+}
+
+export interface NawabariClaimEvidenceSnapshot {
+  sessions: readonly NawabariSession[];
+  claims: readonly NawabariClaimEvidence[];
 }
 
 export interface NawabariExecutionClientOptions {
@@ -208,6 +232,117 @@ function parseClaimsArray(result: NawabariCommandResult, field: string): Executi
       );
     return { resource, mode };
   });
+}
+
+function requiredInteger(value: unknown, field: string): number {
+  if (!Number.isInteger(value) || (value as number) < 1)
+    throw new NawabariExecutionError(
+      "nawabari-contract-invalid",
+      `Nawabari result is missing a valid ${field}`,
+      undefined,
+      value,
+    );
+  return value as number;
+}
+
+function parseClaimEvidenceArray(result: NawabariCommandResult): NawabariClaimEvidence[] {
+  if (!Array.isArray(result.claims))
+    throw new NawabariExecutionError(
+      "nawabari-contract-invalid",
+      "Nawabari result is missing claims",
+      undefined,
+      result,
+    );
+  return (result.claims as unknown[]).map((value) => {
+    const claim = object(value);
+    if (claim === undefined)
+      throw new NawabariExecutionError(
+        "nawabari-contract-invalid",
+        "Nawabari result contains a malformed claim",
+        undefined,
+        value,
+      );
+    return {
+      schemaVersion: requiredInteger(claim.schema_version ?? claim.schemaVersion, "claims[].schema_version"),
+      claimId: requiredString(claim.claim_id ?? claim.claimId, "claims[].claim_id"),
+      sessionId: requiredString(claim.session_id ?? claim.sessionId, "claims[].session_id"),
+      repository: requiredString(claim.repository, "claims[].repository"),
+      worktree: requiredString(claim.worktree, "claims[].worktree"),
+      resource: requiredString(claim.resource, "claims[].resource"),
+      mode: (() => {
+        const mode = claim.mode;
+        if (mode !== "read" && mode !== "write" && mode !== "exclusive-write")
+          throw new NawabariExecutionError(
+            "nawabari-contract-invalid",
+            "Nawabari result contains an invalid mode in claims[]",
+            undefined,
+            claim,
+          );
+        return mode;
+      })(),
+      createdAt: requiredString(claim.created_at ?? claim.createdAt, "claims[].created_at"),
+      updatedAt: requiredString(claim.updated_at ?? claim.updatedAt, "claims[].updated_at"),
+      raw: { ok: true, command: "session claims", ...claim },
+    };
+  });
+}
+
+function parseSessionList(result: NawabariCommandResult): NawabariSession[] {
+  if (!Array.isArray(result.sessions))
+    throw new NawabariExecutionError(
+      "nawabari-contract-invalid",
+      "Nawabari session list result is missing sessions",
+      undefined,
+      result,
+    );
+  return result.sessions.map((value) => {
+    const raw = object(value);
+    if (raw === undefined)
+      throw new NawabariExecutionError(
+        "nawabari-contract-invalid",
+        "Nawabari session list contains a malformed session",
+        undefined,
+        value,
+      );
+    return thisSession({ ok: true, command: "session list", ...raw });
+  });
+}
+
+function thisSession(result: NawabariCommandResult): NawabariSession {
+  return {
+    sessionId: requiredString(result.session_id, "session_id"),
+    repository: requiredString(result.repository, "repository"),
+    worktree: requiredString(result.worktree, "worktree"),
+    branch: requiredString(result.branch, "branch"),
+    state: requiredString(result.state, "state"),
+    ...(typeof result.label === "string" ? { label: result.label } : {}),
+    raw: result,
+  };
+}
+
+function assertSessionListComplete(result: NawabariCommandResult): void {
+  if (result.truncated === true || (result.next_offset !== undefined && result.next_offset !== null)) {
+    throw new NawabariExecutionError(
+      "nawabari-evidence-ambiguous",
+      "Nawabari session evidence is truncated",
+      "STALE_REGISTRY",
+      result,
+    );
+  }
+  const total = result.total;
+  const returned = result.returned;
+  if (
+    (total !== undefined && (!Number.isInteger(total) || (total as number) < 0)) ||
+    (returned !== undefined && (!Number.isInteger(returned) || (returned as number) < 0)) ||
+    (typeof total === "number" && typeof returned === "number" && total > returned)
+  ) {
+    throw new NawabariExecutionError(
+      "nawabari-evidence-ambiguous",
+      "Nawabari session evidence is incomplete",
+      "STALE_REGISTRY",
+      result,
+    );
+  }
 }
 
 function requireDecision(result: NawabariCommandResult): NawabariCommandResult {
@@ -327,6 +462,67 @@ export class NawabariExecutionClient {
   async listClaims(input: { cwd: string; sessionId: string }): Promise<ExecutionClaim[]> {
     const result = await this.invoke(["session", "claims", "--session", input.sessionId], input.cwd);
     return parseClaimsArray(result, "claims");
+  }
+
+  /**
+   * Read the bounded, canonical claim evidence for the current repository.
+   * This deliberately selects no session: Nawabari remains the sole owner of
+   * the registry and Manager receives only an ephemeral projection.
+   *
+   * Claims are read before sessions. The two reads are separate Nawabari
+   * invocations and are not atomic; reading claims first means every
+   * observed claim owner already existed at read time, so a session created
+   * between the two reads cannot manufacture a spurious `STALE_REGISTRY`
+   * result for an unrelated concurrent start. A session that legitimately
+   * closed between the two reads is still (and correctly) detected as stale.
+   */
+  async listClaimEvidence(cwd: string): Promise<NawabariClaimEvidenceSnapshot> {
+    await this.capabilities(cwd);
+    const claimResult = await this.invoke(["session", "claims"], cwd);
+    const claims = parseClaimEvidenceArray(claimResult);
+    const sessionResult = await this.invoke(["session", "list"], cwd);
+    assertSessionListComplete(sessionResult);
+    const sessions = parseSessionList(sessionResult);
+    const sessionsById = new Map(sessions.map((session) => [session.sessionId, session]));
+    const claimIds = new Set<string>();
+    for (const claim of claims) {
+      if (claim.schemaVersion !== 2)
+        throw new NawabariExecutionError(
+          "nawabari-evidence-ambiguous",
+          `Nawabari claim evidence schema is unsupported: ${claim.schemaVersion}`,
+          "UNSUPPORTED_CLAIM_SCHEMA_VERSION",
+          claim.raw,
+        );
+      if (claimIds.has(claim.claimId))
+        throw new NawabariExecutionError(
+          "nawabari-evidence-ambiguous",
+          `Nawabari claim evidence contains a duplicate claim id: ${claim.claimId}`,
+          "REGISTRY_CORRUPT",
+          claim.raw,
+        );
+      claimIds.add(claim.claimId);
+      const owner = sessionsById.get(claim.sessionId);
+      if (owner === undefined || owner.state !== "active")
+        throw new NawabariExecutionError(
+          "nawabari-evidence-ambiguous",
+          `Nawabari claim owner is not an observable active session: ${claim.sessionId}`,
+          "STALE_REGISTRY",
+          claim.raw,
+        );
+      if (owner.repository !== claim.repository || owner.worktree !== claim.worktree)
+        throw new NawabariExecutionError(
+          "nawabari-evidence-ambiguous",
+          `Nawabari claim owner identity does not match session evidence: ${claim.claimId}`,
+          "CLAIM_SESSION_MISMATCH",
+          claim.raw,
+        );
+    }
+    const sortedClaims = [...claims].sort((left, right) => {
+      const leftKey = `${left.resource}\u0000${left.mode}\u0000${left.sessionId}\u0000${left.claimId}`;
+      const rightKey = `${right.resource}\u0000${right.mode}\u0000${right.sessionId}\u0000${right.claimId}`;
+      return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+    });
+    return { sessions, claims: sortedClaims };
   }
 
   /**
@@ -477,24 +673,7 @@ export class NawabariExecutionClient {
   async listSessions(cwd: string): Promise<NawabariSession[]> {
     await this.capabilities(cwd);
     const result = await this.invoke(["session", "list"], cwd);
-    if (!Array.isArray(result.sessions))
-      throw new NawabariExecutionError(
-        "nawabari-contract-invalid",
-        "Nawabari session list result is missing sessions",
-        undefined,
-        result,
-      );
-    return result.sessions.map((value) => {
-      const raw = object(value);
-      if (raw === undefined)
-        throw new NawabariExecutionError(
-          "nawabari-contract-invalid",
-          "Nawabari session list contains a malformed session",
-          undefined,
-          value,
-        );
-      return this.session({ ok: true, command: "session list", ...raw });
-    });
+    return parseSessionList(result);
   }
 
   async currentSessionId(cwd: string): Promise<string> {
@@ -542,15 +721,7 @@ export class NawabariExecutionClient {
   }
 
   private session(result: NawabariCommandResult): NawabariSession {
-    return {
-      sessionId: requiredString(result.session_id, "session_id"),
-      repository: requiredString(result.repository, "repository"),
-      worktree: requiredString(result.worktree, "worktree"),
-      branch: requiredString(result.branch, "branch"),
-      state: requiredString(result.state, "state"),
-      ...(typeof result.label === "string" ? { label: result.label } : {}),
-      raw: result,
-    };
+    return thisSession(result);
   }
 
   /**

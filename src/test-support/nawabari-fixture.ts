@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import type { TestContext } from "node:test";
 import type { RunResult } from "../subprocess.js";
 import { startNawabariTask } from "../workflow/domain/nawabari-task.js";
@@ -8,6 +9,20 @@ import { NawabariExecutionClient } from "../workflow/nawabari.js";
 import type { WorkflowPolicyDocument } from "../workflow/policy/schema.js";
 import type { TaskRecord, WorkflowStateStore } from "../workflow/state/store.js";
 import { runGit } from "./tmp-git-repo.js";
+
+/**
+ * Real Nawabari session/claim ids are RFC 9562 UUIDs (session ids are
+ * UUIDv7; see `nawabari`'s `session-id.ts`). The fixture must produce the
+ * same shape so tests exercise the real id-validation boundary instead of a
+ * fixture-only convenience format.
+ */
+export function fakeSessionId(sequence: number): string {
+  const suffix = sequence.toString(16).padStart(12, "0");
+  return `00000000-0000-7000-8000-${suffix}`;
+}
+function fakeClaimId(): string {
+  return randomUUID();
+}
 
 function runResult(stdout: string, stderr = "", overrides: Partial<RunResult> = {}): RunResult {
   return { stdout, stderr, exitCode: 0, signal: null, timedOut: false, outputLimit: false, ...overrides };
@@ -55,6 +70,7 @@ export function fakeNawabari(
     repository?: string;
     calls?: string[][];
     sessions?: Map<string, Record<string, unknown>>;
+    claims?: Map<string, Record<string, unknown>[]>;
     currentSessionId?: string;
     failSessionList?: boolean;
     failSessionClaim?: boolean;
@@ -64,7 +80,7 @@ export function fakeNawabari(
   const calls = options.calls ?? [];
   const sessions = options.sessions ?? new Map<string, Record<string, unknown>>();
   let sequence = 0;
-  const claims = new Map<string, Record<string, unknown>[]>();
+  const claims = options.claims ?? new Map<string, Record<string, unknown>[]>();
   return new NawabariExecutionClient({
     runner: {
       async run(_command, args): Promise<RunResult> {
@@ -87,7 +103,7 @@ export function fakeNawabari(
               })
             : runResult(JSON.stringify({ ok: true, command: "session id", session_id: options.currentSessionId }));
         if (args[0] === "session" && args[1] === "create") {
-          const sessionId = `fake-session-${++sequence}`;
+          const sessionId = fakeSessionId(++sequence);
           const branch = args[args.indexOf("--branch") + 1]!;
           const labelIndex = args.indexOf("--label");
           const label = labelIndex < 0 ? undefined : args[labelIndex + 1];
@@ -164,10 +180,10 @@ export function fakeNawabari(
           );
         }
         if (args[0] === "session" && args[1] === "claims") {
-          const sessionId = args[args.indexOf("--session") + 1]!;
-          return runResult(
-            JSON.stringify({ ok: true, command: "session claims", claims: claims.get(sessionId) ?? [] }),
-          );
+          const sessionOption = args.indexOf("--session");
+          const sessionId = sessionOption < 0 ? undefined : args[sessionOption + 1];
+          const listed = sessionId === undefined ? [...claims.values()].flat() : (claims.get(sessionId) ?? []);
+          return runResult(JSON.stringify({ ok: true, command: "session claims", claims: listed }));
         }
         if (args[0] === "session" && args[1] === "claim") {
           const sessionId = args[args.indexOf("--session") + 1]!;
@@ -181,9 +197,24 @@ export function fakeNawabari(
                 exitCode: 3,
               },
             );
-          const claim = { resource, mode };
-          claims.get(sessionId)?.push(claim);
-          return runResult(JSON.stringify({ ok: true, command: "session claim", session_id: sessionId, ...claim }));
+          const session = sessions.get(sessionId);
+          if (session === undefined) throw new Error(`missing fake session: ${sessionId}`);
+          const sessionClaims = claims.get(sessionId) ?? [];
+          claims.set(sessionId, sessionClaims);
+          const timestamp = new Date(sessionClaims.length).toISOString();
+          const claim = {
+            schema_version: 2,
+            claim_id: fakeClaimId(),
+            session_id: sessionId,
+            repository: session.repository,
+            worktree: session.worktree,
+            resource,
+            mode,
+            created_at: timestamp,
+            updated_at: timestamp,
+          };
+          sessionClaims.push(claim);
+          return runResult(JSON.stringify({ ok: true, command: "session claim", ...claim }));
         }
         if (args[0] === "session" && args[1] === "close") {
           const sessionId = args[args.indexOf("--session") + 1]!;
@@ -196,6 +227,7 @@ export function fakeNawabari(
               { exitCode: 3 },
             );
           session.state = "closed";
+          claims.set(sessionId, []);
           // Nawabari 0.5.0 session-close.v1 returns the authoritative SessionRecord
           // nested under `session`; keep the fixture contract-identical so a flat
           // parser cannot silently pass tests again.

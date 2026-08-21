@@ -22,7 +22,12 @@ import { resolveRepositoryIdentity } from "../domain/identity.js";
 import { buildWorktreeNaming } from "../git/worktree.js";
 import { WorkflowSqliteStateStore } from "../state/sqlite-store.js";
 import type { NawabariSessionId } from "../state/store.js";
-import { FAKE_NAWABARI_CAPABILITIES, fakeNawabari, startNawabariManagedTask } from "../../test-support/nawabari-fixture.js";
+import {
+  FAKE_NAWABARI_CAPABILITIES,
+  fakeNawabari,
+  fakeSessionId,
+  startNawabariManagedTask,
+} from "../../test-support/nawabari-fixture.js";
 
 function providerResult(stdout: string, stderr = "", overrides: Partial<RunResult> = {}): RunResult {
   return { stdout, stderr, exitCode: 0, signal: null, timedOut: false, outputLimit: false, ...overrides };
@@ -72,7 +77,7 @@ async function canonicalNawabariFixture(t: TestContext) {
   });
 
   const sessions = new Map<string, Record<string, unknown>>();
-  const nawabari = fakeNawabari(root, { sessions, currentSessionId: "fake-session-1" });
+  const nawabari = fakeNawabari(root, { sessions, currentSessionId: fakeSessionId(1) });
   const started = await startNawabariTask({
     workspaceRoot: root,
     store,
