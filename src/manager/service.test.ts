@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { test } from "node:test";
 import { createTempGitRepo, runGit } from "../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../test-support/workflow-store.js";
+import { fakeNawabari } from "../test-support/nawabari-fixture.js";
 import type { ZellijRuntime, ZellijObservedState } from "./zellij.js";
 import {
   buildManagerLaunchInvocation,
@@ -192,6 +193,199 @@ test("Manager preview is side-effect free and does not initialize Zellij", async
   assert.equal(store.listTasks().length, 0);
   assert.equal(store.listManagerSessions(root).length, 0);
   assert.throws(() => service.health(), /availability has not been established/u);
+});
+
+function seededNawabariEvidence(root: string, calls: string[][], claims: Map<string, Record<string, unknown>[]>) {
+  const sessions = new Map<string, Record<string, unknown>>([
+    [
+      "owner-session",
+      {
+        session_id: "owner-session",
+        repository: `${root}/.git`,
+        worktree: `${root}-owner`,
+        branch: "feat/owner",
+        state: "active",
+        label: "owner-task",
+      },
+    ],
+  ]);
+  return {
+    sessions,
+    nawabari: fakeNawabari(root, { calls, sessions, claims }),
+  };
+}
+
+function ownerClaim(
+  root: string,
+  resource: string,
+  mode: "read" | "write" | "exclusive-write",
+): Record<string, unknown> {
+  return {
+    schema_version: 2,
+    claim_id: `owner-${resource}-${mode}`,
+    session_id: "owner-session",
+    repository: `${root}/.git`,
+    worktree: `${root}-owner`,
+    resource,
+    mode,
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+  };
+}
+
+test("Manager preflight reports a broad Nawabari conflict before any Manager mutation", async (t) => {
+  const root = createTempGitRepo(t);
+  const calls: string[][] = [];
+  const claims = new Map<string, Record<string, unknown>[]>([
+    ["owner-session", [ownerClaim(root, "**", "exclusive-write")]],
+  ]);
+  const seeded = seededNawabariEvidence(root, calls, claims);
+  const runtime = new FakeRuntime();
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store: createWorkflowStore(t),
+    runtime,
+    nawabari: seeded.nawabari,
+    executionAuthority: recordingExecutionAuthority(root, []),
+  });
+  const input = {
+    instruction: "read broad scope",
+    taskSlug: "conflicting-read",
+    issueRef: "3741",
+    scope: { claims: [{ resource: "**", mode: "read" as const }] },
+  };
+  const preview = await service.preview(input);
+  assert.equal(preview.claimPreflight.status, "conflict", JSON.stringify(preview.claimPreflight));
+  assert.deepEqual(preview.claimPreflight.conflicts[0], {
+    requested: { resource: "**", mode: "read" },
+    existing: {
+      sessionId: "owner-session",
+      resource: "**",
+      mode: "exclusive-write",
+      worktree: `${root}-owner`,
+      branch: "feat/owner",
+      state: "active",
+      label: "owner-task",
+      claimId: "owner-**-exclusive-write",
+    },
+  });
+  await assert.rejects(
+    service.start(input),
+    (error: unknown) => error instanceof ManagerError && error.code === "claim_conflict",
+  );
+  assert.equal(runtime.started.length, 0);
+  assert.equal(
+    calls.some((args) => args[0] === "session" && ["create", "claim", "update"].includes(args[1]!)),
+    false,
+  );
+  assert.equal(claims.get("owner-session")?.length, 1);
+});
+
+test("non-overlapping Manager preflight remains clear while the existing Nawabari session stays active", async (t) => {
+  const root = createTempGitRepo(t);
+  const calls: string[][] = [];
+  const claims = new Map<string, Record<string, unknown>[]>([
+    ["owner-session", [ownerClaim(root, "src/owner.ts", "exclusive-write")]],
+  ]);
+  const seeded = seededNawabariEvidence(root, calls, claims);
+  const runtime = new FakeRuntime();
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store: createWorkflowStore(t),
+    runtime,
+    nawabari: seeded.nawabari,
+    executionAuthority: recordingExecutionAuthority(root, []),
+  });
+  const input = {
+    instruction: "read unrelated scope",
+    taskSlug: "non-overlapping-read",
+    issueRef: "3742",
+    scope: { claims: [{ resource: "docs/other.md", mode: "read" as const }] },
+  };
+  const preview = await service.preview(input);
+  assert.equal(preview.claimPreflight.status, "clear", JSON.stringify(preview.claimPreflight));
+  const started = await service.start(input);
+  assert.equal(started.runtimeState, "running");
+  assert.equal(runtime.started.length, 1);
+  assert.equal(claims.get("owner-session")?.[0]?.resource, "src/owner.ts");
+  assert.equal(claims.get("owner-session")?.[0]?.mode, "exclusive-write");
+});
+
+test("unavailable or stale claim evidence blocks Manager start conservatively", async (t) => {
+  for (const kind of ["unavailable", "stale"] as const) {
+    const root = createTempGitRepo(t);
+    const calls: string[][] = [];
+    const claims = new Map<string, Record<string, unknown>[]>();
+    const seeded = seededNawabariEvidence(root, calls, claims);
+    const nawabari =
+      kind === "unavailable"
+        ? fakeNawabari(root, { calls, sessions: seeded.sessions, claims, failSessionList: true })
+        : fakeNawabari(root, {
+            calls,
+            sessions: seeded.sessions,
+            claims: new Map([
+              ["orphan-session", [{ ...ownerClaim(root, "**", "exclusive-write"), session_id: "orphan-session" }]],
+            ]),
+          });
+    const service = new ManagerSessionService({
+      workspaceRoot: root,
+      store: createWorkflowStore(t),
+      runtime: new FakeRuntime(),
+      nawabari,
+      executionAuthority: recordingExecutionAuthority(root, []),
+    });
+    const input = {
+      instruction: `uncertain ${kind}`,
+      taskSlug: `uncertain-${kind}`,
+      issueRef: kind === "unavailable" ? "3743" : "3744",
+      scope: { claims: [{ resource: "**", mode: "read" as const }] },
+    };
+    const preview = await service.preview(input);
+    assert.equal(preview.claimPreflight.status, kind);
+    await assert.rejects(
+      service.start(input),
+      (error: unknown) =>
+        error instanceof ManagerError &&
+        (error.code === "claim_preflight_unavailable" || error.code === "claim_preflight_stale"),
+    );
+  }
+});
+
+test("final Nawabari conflict after a clear preview is surfaced as refreshed evidence", async (t) => {
+  const root = createTempGitRepo(t);
+  const calls: string[][] = [];
+  const claims = new Map<string, Record<string, unknown>[]>();
+  const seeded = seededNawabariEvidence(root, calls, claims);
+  const runtime = new FakeRuntime();
+  const authority = recordingExecutionAuthority(root, []);
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store: createWorkflowStore(t),
+    runtime,
+    nawabari: seeded.nawabari,
+    executionAuthority: {
+      ...authority,
+      async start(input) {
+        claims.set("owner-session", [ownerClaim(root, "**", "exclusive-write")]);
+        throw new Error("nawabari-rejected: RESOURCE_CLAIM_CONFLICT: changed after preview");
+      },
+    },
+  });
+  const input = {
+    instruction: "TOCTOU read",
+    taskSlug: "toctou-read",
+    issueRef: "3745",
+    scope: { claims: [{ resource: "**", mode: "read" as const }] },
+  };
+  await assert.rejects(service.start(input), (error: unknown) => {
+    assert.ok(error instanceof ManagerError);
+    assert.equal(error.code, "claim_conflict");
+    const preflight = (error.details as { claimPreflight?: { status?: string; conflicts?: unknown[] } }).claimPreflight;
+    assert.equal(preflight?.status, "conflict");
+    assert.equal(preflight?.conflicts?.length, 1);
+    return true;
+  });
+  assert.equal(runtime.started.length, 0);
 });
 
 test("Manager starts concurrent task-bound Codex sessions on distinct managed worktrees", async (t) => {

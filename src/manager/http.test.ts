@@ -5,6 +5,7 @@ import { startDashboardServer } from "../dashboard/http.js";
 import { createFixtureQuery } from "../semantics/fixtures/dashboard-fixture.js";
 import { createTempGitRepo } from "../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../test-support/workflow-store.js";
+import { fakeNawabari } from "../test-support/nawabari-fixture.js";
 import { ManagerHttpApi } from "./http.js";
 import { ManagerSessionService } from "./service.js";
 import type { ZellijObservedState, ZellijRuntime } from "./zellij.js";
@@ -174,9 +175,105 @@ test("Manager HTTP preview returns the effective declaration without external mu
     { resource: "src/readme.md", mode: "read" },
   ]);
   assert.equal(preview.nawabariDeclaration.branch, "feat/1030-http-preview");
+  assert.equal(preview.claimPreflight.status, "clear");
+  const preflightAlias = await fetch(`${handle.url}api/v1/manager/sessions/preflight`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      instruction: "preflight alias",
+      taskSlug: "http-preflight-alias",
+      issueRef: "1032",
+      scope: { claims: [{ resource: "docs/alias.md", mode: "read" }] },
+    }),
+  });
+  assert.equal(preflightAlias.status, 200);
+  assert.equal((await preflightAlias.json()).preview.claimPreflight.status, "clear");
   assert.equal(runtime.sessions.size, 0);
   assert.equal(store.listTasks().length, 0);
   assert.equal(store.listManagerSessions(root).length, 0);
+});
+
+test("Manager HTTP preflight exposes bounded conflict evidence and safe inspect action", async (t) => {
+  const root = createTempGitRepo(t);
+  const ownerSessionId = "00000000-0000-4000-8000-000000000001";
+  const sessions = new Map<string, Record<string, unknown>>([
+    [
+      ownerSessionId,
+      {
+        session_id: ownerSessionId,
+        repository: `${root}/.git`,
+        worktree: root,
+        branch: "feat/owner",
+        state: "active",
+        label: "owner-task",
+      },
+    ],
+  ]);
+  const claims = new Map<string, Record<string, unknown>[]>([
+    [
+      ownerSessionId,
+      [
+        {
+          schema_version: 2,
+          claim_id: "owner-claim",
+          session_id: ownerSessionId,
+          repository: `${root}/.git`,
+          worktree: root,
+          resource: "**",
+          mode: "exclusive-write",
+          created_at: "2026-01-01T00:00:00.000Z",
+          updated_at: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    ],
+  ]);
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store: createWorkflowStore(t),
+    runtime: new HttpFakeRuntime(),
+    nawabari: fakeNawabari(root, { sessions, claims }),
+  });
+  const handle = await startDashboardServer({
+    port: 0,
+    viewerHtml: "manager",
+    query: createFixtureQuery(),
+    manager: new ManagerHttpApi(service),
+  });
+  activeServers.push(handle);
+  const body = {
+    instruction: "preflight conflict",
+    taskSlug: "http-conflict",
+    issueRef: "1031",
+    scope: { claims: [{ resource: "**", mode: "read" }] },
+  };
+  const previewResponse = await fetch(`${handle.url}api/v1/manager/sessions/preview`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  assert.equal(previewResponse.status, 200);
+  const preview = (await previewResponse.json()).preview;
+  assert.equal(preview.claimPreflight.status, "conflict");
+  assert.equal(preview.claimPreflight.conflicts[0].existing.sessionId, ownerSessionId);
+  assert.equal(preview.claimPreflight.conflicts[0].existing.mode, "exclusive-write");
+
+  const startResponse = await fetch(`${handle.url}api/v1/manager/sessions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  assert.equal(startResponse.status, 409);
+  const startError = (await startResponse.json()).error;
+  assert.equal(startError.code, "claim_conflict");
+  assert.equal(startError.details.claimPreflight.conflicts[0].existing.resource, "**");
+
+  const inspectResponse = await fetch(`${handle.url}api/v1/manager/nawabari/sessions/${ownerSessionId}/inspect`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(inspectResponse.status, 200);
+  assert.equal((await inspectResponse.json()).session.sessionId, ownerSessionId);
 });
 
 test("Manager API remains loopback host protected and rejects malformed session ids", async (t) => {

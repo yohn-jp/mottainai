@@ -10,5 +10,9 @@ test("packaged Manager UI exposes bounded scope editing and pre-start preview", 
   assert.match(html, /\/sessions\/preview/u);
   assert.match(html, /id="start-session" disabled/u);
   assert.match(html, /Projected Nawabari declaration/u);
+  assert.match(html, /claim-preflight/u);
+  assert.match(html, /Inspect session/u);
+  assert.match(html, /Refresh preflight/u);
+  assert.match(html, /Reconcile/u);
   assert.match(html, /Remove/u);
 });

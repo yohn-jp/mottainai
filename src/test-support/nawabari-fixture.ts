@@ -55,6 +55,7 @@ export function fakeNawabari(
     repository?: string;
     calls?: string[][];
     sessions?: Map<string, Record<string, unknown>>;
+    claims?: Map<string, Record<string, unknown>[]>;
     currentSessionId?: string;
     failSessionList?: boolean;
     failSessionClaim?: boolean;
@@ -64,7 +65,7 @@ export function fakeNawabari(
   const calls = options.calls ?? [];
   const sessions = options.sessions ?? new Map<string, Record<string, unknown>>();
   let sequence = 0;
-  const claims = new Map<string, Record<string, unknown>[]>();
+  const claims = options.claims ?? new Map<string, Record<string, unknown>[]>();
   return new NawabariExecutionClient({
     runner: {
       async run(_command, args): Promise<RunResult> {
@@ -164,10 +165,10 @@ export function fakeNawabari(
           );
         }
         if (args[0] === "session" && args[1] === "claims") {
-          const sessionId = args[args.indexOf("--session") + 1]!;
-          return runResult(
-            JSON.stringify({ ok: true, command: "session claims", claims: claims.get(sessionId) ?? [] }),
-          );
+          const sessionOption = args.indexOf("--session");
+          const sessionId = sessionOption < 0 ? undefined : args[sessionOption + 1];
+          const listed = sessionId === undefined ? [...claims.values()].flat() : (claims.get(sessionId) ?? []);
+          return runResult(JSON.stringify({ ok: true, command: "session claims", claims: listed }));
         }
         if (args[0] === "session" && args[1] === "claim") {
           const sessionId = args[args.indexOf("--session") + 1]!;
@@ -181,9 +182,23 @@ export function fakeNawabari(
                 exitCode: 3,
               },
             );
-          const claim = { resource, mode };
+          const session = sessions.get(sessionId);
+          if (session === undefined) throw new Error(`missing fake session: ${sessionId}`);
+          const sequence = claims.get(sessionId)?.length ?? 0;
+          const timestamp = new Date(0 + sequence).toISOString();
+          const claim = {
+            schema_version: 2,
+            claim_id: `fake-claim-${sessionId}-${sequence + 1}`,
+            session_id: sessionId,
+            repository: session.repository,
+            worktree: session.worktree,
+            resource,
+            mode,
+            created_at: timestamp,
+            updated_at: timestamp,
+          };
           claims.get(sessionId)?.push(claim);
-          return runResult(JSON.stringify({ ok: true, command: "session claim", session_id: sessionId, ...claim }));
+          return runResult(JSON.stringify({ ok: true, command: "session claim", ...claim }));
         }
         if (args[0] === "session" && args[1] === "close") {
           const sessionId = args[args.indexOf("--session") + 1]!;

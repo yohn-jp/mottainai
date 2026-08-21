@@ -568,3 +568,178 @@ test("updateClaims fails closed when the returned claim set does not match the r
     (error: unknown) => error instanceof NawabariExecutionError && error.code === "nawabari-contract-invalid",
   );
 });
+
+test("read-only claim evidence returns active owners and canonical claims without mutation", async () => {
+  const calls: string[][] = [];
+  const client = new NawabariExecutionClient({
+    runner: {
+      async run(_command, args): Promise<RunResult> {
+        calls.push([...args]);
+        if (args[0] === "capabilities") return result(capabilitiesResult());
+        if (args[0] === "session" && args[1] === "list")
+          return result({
+            ok: true,
+            command: "session list",
+            sessions: [
+              {
+                session_id: "session-b",
+                repository: "/repo/.git",
+                worktree: "/repo-b",
+                branch: "feat/b",
+                state: "active",
+              },
+              {
+                session_id: "session-a",
+                repository: "/repo/.git",
+                worktree: "/repo-a",
+                branch: "feat/a",
+                state: "active",
+              },
+            ],
+            total: 2,
+            returned: 2,
+            truncated: false,
+            next_offset: null,
+          });
+        if (args[0] === "session" && args[1] === "claims")
+          return result({
+            ok: true,
+            command: "session claims",
+            claims: [
+              {
+                schema_version: 2,
+                claim_id: "claim-b",
+                session_id: "session-b",
+                repository: "/repo/.git",
+                worktree: "/repo-b",
+                resource: "src/**",
+                mode: "exclusive-write",
+                created_at: "2026-01-01T00:00:00.000Z",
+                updated_at: "2026-01-01T00:00:00.000Z",
+              },
+            ],
+          });
+        throw new Error(`unexpected command: ${args.join(" ")}`);
+      },
+    },
+  });
+  const snapshot = await client.listClaimEvidence("/repo");
+  assert.equal(snapshot.claims[0]?.sessionId, "session-b");
+  assert.equal(snapshot.claims[0]?.resource, "src/**");
+  assert.deepEqual(
+    calls.map((args) => args.slice(0, -1)),
+    [["capabilities"], ["session", "list"], ["session", "claims"]],
+  );
+  assert.equal(
+    calls.some((args) => args[0] === "session" && ["create", "claim", "update"].includes(args[1]!)),
+    false,
+  );
+});
+
+test("read-only claim evidence fails closed for truncated or owner-ambiguous registry output", async () => {
+  for (const failure of ["truncated", "owner"] as const) {
+    const client = new NawabariExecutionClient({
+      runner: {
+        async run(_command, args): Promise<RunResult> {
+          if (args[0] === "capabilities") return result(capabilitiesResult());
+          if (args[0] === "session" && args[1] === "list")
+            return result(
+              failure === "truncated"
+                ? {
+                    ok: true,
+                    command: "session list",
+                    sessions: [],
+                    total: 2,
+                    returned: 1,
+                    truncated: true,
+                    next_offset: 1,
+                  }
+                : {
+                    ok: true,
+                    command: "session list",
+                    sessions: [],
+                    total: 0,
+                    returned: 0,
+                    truncated: false,
+                    next_offset: null,
+                  },
+            );
+          if (args[0] === "session" && args[1] === "claims")
+            return result({
+              ok: true,
+              command: "session claims",
+              claims: [
+                {
+                  schema_version: 2,
+                  claim_id: "claim-orphan",
+                  session_id: "missing-session",
+                  repository: "/repo/.git",
+                  worktree: "/missing",
+                  resource: "src/**",
+                  mode: "exclusive-write",
+                  created_at: "2026-01-01T00:00:00.000Z",
+                  updated_at: "2026-01-01T00:00:00.000Z",
+                },
+              ],
+            });
+          throw new Error(`unexpected command: ${args.join(" ")}`);
+        },
+      },
+    });
+    await assert.rejects(
+      client.listClaimEvidence("/repo"),
+      (error: unknown) => error instanceof NawabariExecutionError && error.code === "nawabari-evidence-ambiguous",
+    );
+  }
+});
+
+test("read-only claim evidence fails closed when claim and owner identities disagree", async () => {
+  const client = new NawabariExecutionClient({
+    runner: {
+      async run(_command, args): Promise<RunResult> {
+        if (args[0] === "capabilities") return result(capabilitiesResult());
+        if (args[0] === "session" && args[1] === "list")
+          return result({
+            ok: true,
+            command: "session list",
+            sessions: [
+              {
+                session_id: "session-owner",
+                repository: "/repo/.git",
+                worktree: "/repo-owner",
+                branch: "feat/owner",
+                state: "active",
+              },
+            ],
+            total: 1,
+            returned: 1,
+            truncated: false,
+            next_offset: null,
+          });
+        if (args[0] === "session" && args[1] === "claims")
+          return result({
+            ok: true,
+            command: "session claims",
+            claims: [
+              {
+                schema_version: 2,
+                claim_id: "claim-mismatched-owner",
+                session_id: "session-owner",
+                repository: "/repo/.git",
+                worktree: "/repo-other",
+                resource: "src/**",
+                mode: "exclusive-write",
+                created_at: "2026-01-01T00:00:00.000Z",
+                updated_at: "2026-01-01T00:00:00.000Z",
+              },
+            ],
+          });
+        throw new Error(`unexpected command: ${args.join(" ")}`);
+      },
+    },
+  });
+  await assert.rejects(
+    client.listClaimEvidence("/repo"),
+    (error: unknown) => error instanceof NawabariExecutionError && error.code === "nawabari-evidence-ambiguous",
+  );
+});

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runProgram } from "../subprocess.js";
-import { NawabariExecutionClient } from "../workflow/nawabari.js";
+import { NawabariExecutionClient, NawabariExecutionError } from "../workflow/nawabari.js";
 import { buildWorktreeNaming } from "../workflow/git/worktree.js";
 import { validateBranchNameAgainstGovernance } from "../workflow/governance/branch.js";
 import { resolveRepoState } from "../workflow/domain/repo-state.js";
@@ -33,6 +33,12 @@ import {
   type ManagerExecutionAuthority,
   type ManagerExecutionContext,
 } from "../workflow/domain/manager-execution.js";
+import {
+  createClaimPreflight,
+  failedClaimPreflight,
+  notApplicableClaimPreflight,
+  type ManagerClaimPreflight,
+} from "./claim-preflight.js";
 import { deriveZellijSessionName, ZellijRuntimeError, type ZellijObservedState, type ZellijRuntime } from "./zellij.js";
 
 const MAX_INSTRUCTION_LENGTH = 64 * 1024;
@@ -107,6 +113,7 @@ export interface ManagerExecutionPreview {
   warnings: readonly string[];
   semanticExecutionPlan: SemanticExecutionPlan;
   nawabariDeclaration: NawabariDeclaration;
+  claimPreflight: ManagerClaimPreflight;
 }
 
 export interface ManagerLaunchInvocation {
@@ -141,6 +148,9 @@ export class ManagerError extends Error {
       | "zellij_incompatible"
       | "runtime_name_collision"
       | "task_start_failed"
+      | "claim_conflict"
+      | "claim_preflight_unavailable"
+      | "claim_preflight_stale"
       | "session_not_found"
       | "session_not_running"
       | "session_not_attachable"
@@ -152,14 +162,19 @@ export class ManagerError extends Error {
     message: string,
     readonly statusCode = code === "session_not_found"
       ? 404
-      : code === "runtime_name_collision" ||
-          code === "worktree_missing" ||
-          code === "session_restart_rejected" ||
-          code === "idempotency_conflict"
-        ? 409
-        : code === "pi_guard_unavailable" || code === "zellij_unavailable" || code === "zellij_incompatible"
-          ? 503
-          : 400,
+      : code === "claim_preflight_unavailable" || code === "claim_preflight_stale"
+        ? 503
+        : code === "claim_conflict"
+          ? 409
+          : code === "runtime_name_collision" ||
+              code === "worktree_missing" ||
+              code === "session_restart_rejected" ||
+              code === "idempotency_conflict"
+            ? 409
+            : code === "pi_guard_unavailable" || code === "zellij_unavailable" || code === "zellij_incompatible"
+              ? 503
+              : 400,
+    readonly details?: unknown,
   ) {
     super(boundedStatus(message));
     this.name = "ManagerError";
@@ -397,6 +412,28 @@ function managerError(error: unknown): ManagerError {
   return new ManagerError("runtime_error", boundedStatus(error instanceof Error ? error.message : String(error)), 500);
 }
 
+function claimPreflightFailureStatus(error: NawabariExecutionError): "unavailable" | "ambiguous" | "stale" {
+  if (error.code === "nawabari-evidence-ambiguous") {
+    return error.nawabariCode === "STALE_REGISTRY" ? "stale" : "ambiguous";
+  }
+  if (error.nawabariCode === "STALE_REGISTRY") return "stale";
+  if (
+    error.nawabariCode === "GIT_STATE_AMBIGUOUS" ||
+    error.nawabariCode === "PHYSICAL_OBSERVATION_UNAVAILABLE" ||
+    error.code === "nawabari-contract-invalid"
+  ) {
+    return "ambiguous";
+  }
+  return "unavailable";
+}
+
+function isClaimConflict(error: unknown): boolean {
+  return (
+    (error instanceof NawabariExecutionError && error.nawabariCode === "RESOURCE_CLAIM_CONFLICT") ||
+    (error instanceof Error && error.message.includes("RESOURCE_CLAIM_CONFLICT"))
+  );
+}
+
 async function readGitValue(workspaceRoot: string, args: readonly string[]): Promise<string | undefined> {
   const result = await runProgram("git", [...args], workspaceRoot, 5_000, 64 * 1024);
   if (result.spawnError !== undefined || result.timedOut || result.outputLimit || result.exitCode !== 0)
@@ -463,6 +500,7 @@ async function prepareManagerExecutionPreview(
     warnings: input.semanticPlan.claimGeneration.warnings,
     semanticExecutionPlan: input.semanticPlan,
     nawabariDeclaration,
+    claimPreflight: notApplicableClaimPreflight(),
   };
 }
 
@@ -666,13 +704,108 @@ export class ManagerSessionService {
     return this.withSessionOperation(sessionId, () => this.reconcileOneUnlocked(this.requireSession(sessionId)));
   }
 
+  /** Read-only inspection of a Nawabari owner surfaced by claim preflight. */
+  async inspectNawabariSession(sessionId: string): Promise<{
+    sessionId: string;
+    repository: string;
+    worktree: string;
+    branch: string;
+    state: string;
+    label?: string;
+  }> {
+    try {
+      const evidence = await this.options.nawabari.listClaimEvidence(this.options.workspaceRoot);
+      const owner = evidence.sessions.find((session) => session.sessionId === sessionId);
+      if (owner === undefined)
+        throw new ManagerError("session_not_found", `Nawabari session was not found: ${sessionId}`);
+      const inspected = await this.options.nawabari.inspectSession({ cwd: owner.worktree, sessionId });
+      return {
+        sessionId: inspected.sessionId,
+        repository: inspected.repository,
+        worktree: inspected.worktree,
+        branch: inspected.branch,
+        state: inspected.state,
+        ...(inspected.label === undefined ? {} : { label: inspected.label }),
+      };
+    } catch (error) {
+      if (error instanceof ManagerError) throw error;
+      if (error instanceof NawabariExecutionError) {
+        const status = claimPreflightFailureStatus(error);
+        throw new ManagerError(
+          status === "stale" ? "claim_preflight_stale" : "claim_preflight_unavailable",
+          error.message,
+          503,
+          { nawabariCode: error.nawabariCode },
+        );
+      }
+      throw new ManagerError(
+        "claim_preflight_unavailable",
+        error instanceof Error ? error.message : String(error),
+        503,
+      );
+    }
+  }
+
   /**
    * Read-only Manager preflight. This intentionally does not initialize
-   * Zellij, touch the workflow store, or invoke Nawabari.
+   * Zellij or touch the workflow store. Nawabari is queried only through its
+   * read-only session/claim evidence surface.
    */
   async preview(input: NewManagerSessionInput): Promise<ManagerExecutionPreview> {
     const normalized = normalizeManagerSessionInput(input);
-    return prepareManagerExecutionPreview(this.options.workspaceRoot, normalized);
+    return this.preparePreviewWithClaimPreflight(normalized);
+  }
+
+  /** Explicit name for callers that want to distinguish plan preview from the
+   * read-only Nawabari claim preflight. It returns the same bounded projection
+   * as `preview` for transport compatibility.
+   */
+  async preflight(input: NewManagerSessionInput): Promise<ManagerExecutionPreview> {
+    return this.preview(input);
+  }
+
+  private async preparePreviewWithClaimPreflight(
+    normalized: ValidatedManagerSessionInput,
+  ): Promise<ManagerExecutionPreview> {
+    const preview = await prepareManagerExecutionPreview(this.options.workspaceRoot, normalized);
+    if (normalized.taskSlug === undefined) return preview;
+    try {
+      const evidence = await this.options.nawabari.listClaimEvidence(this.options.workspaceRoot);
+      return {
+        ...preview,
+        claimPreflight: createClaimPreflight(normalized.semanticPlan.claims, evidence),
+      };
+    } catch (error) {
+      if (error instanceof NawabariExecutionError) {
+        return {
+          ...preview,
+          claimPreflight: failedClaimPreflight(claimPreflightFailureStatus(error), error.message, error.nawabariCode),
+        };
+      }
+      return {
+        ...preview,
+        claimPreflight: failedClaimPreflight("unavailable", error instanceof Error ? error.message : String(error)),
+      };
+    }
+  }
+
+  private assertClaimPreflightReady(preview: ManagerExecutionPreview): void {
+    if (preview.claimPreflight.status === "clear" || preview.claimPreflight.status === "not-applicable") return;
+    if (preview.claimPreflight.status === "conflict") {
+      throw new ManagerError(
+        "claim_conflict",
+        preview.claimPreflight.message ?? "Nawabari reports an active conflicting claim",
+        409,
+        { claimPreflight: preview.claimPreflight },
+      );
+    }
+    const code = preview.claimPreflight.status === "stale" ? "claim_preflight_stale" : "claim_preflight_unavailable";
+    throw new ManagerError(
+      code,
+      preview.claimPreflight.message ?? "Nawabari claim evidence is not safe to interpret as conflict-free",
+      undefined,
+      { claimPreflight: preview.claimPreflight },
+    );
   }
 
   async start(input: NewManagerSessionInput): Promise<ManagerSessionRecord> {
@@ -682,7 +815,8 @@ export class ManagerSessionService {
 
     // Resolve branch/base identity and the exact claim declaration before any
     // task, Nawabari session, Manager record, or Zellij mutation.
-    await prepareManagerExecutionPreview(this.options.workspaceRoot, normalized);
+    const initialPreview = await this.preparePreviewWithClaimPreflight(normalized);
+    this.assertClaimPreflightReady(initialPreview);
 
     // Resolve and validate the guard before task/worktree creation. A managed
     // Pi launch must never fall back to an unguarded process.
@@ -733,6 +867,11 @@ export class ManagerSessionService {
       let executionContext: ManagerExecutionContext;
       let executionReceipt: ManagerSessionReceipt | undefined;
       try {
+        // This is deliberately a fresh read immediately before Nawabari's
+        // authoritative create/claim mutation. The earlier preview is never a
+        // lease and cannot be trusted across this TOCTOU boundary.
+        const freshPreview = await this.preparePreviewWithClaimPreflight(normalized);
+        this.assertClaimPreflightReady(freshPreview);
         const execution = await this.execution.start({
           workspaceRoot: this.options.workspaceRoot,
           store: this.options.store,
@@ -745,6 +884,29 @@ export class ManagerSessionService {
         executionContext = execution.context;
         executionReceipt = execution.receipt;
       } catch (error) {
+        if (isClaimConflict(error)) {
+          let refreshed = await this.preparePreviewWithClaimPreflight(normalized).catch(() => undefined);
+          if (refreshed?.claimPreflight.status === "clear") {
+            refreshed = {
+              ...refreshed,
+              claimPreflight: failedClaimPreflight(
+                "stale",
+                "Nawabari rejected the final mutation after preflight; the fresh evidence no longer reproduces the conflict",
+                "RESOURCE_CLAIM_CONFLICT",
+              ),
+            };
+          }
+          throw new ManagerError(
+            "claim_conflict",
+            "Nawabari rejected the final session mutation with RESOURCE_CLAIM_CONFLICT; refreshed evidence is authoritative",
+            409,
+            {
+              finalNawabariCode: "RESOURCE_CLAIM_CONFLICT",
+              claimPreflight: refreshed?.claimPreflight,
+            },
+          );
+        }
+        if (error instanceof ManagerError) throw error;
         throw new ManagerError("task_start_failed", error instanceof Error ? error.message : String(error), 409);
       }
 
