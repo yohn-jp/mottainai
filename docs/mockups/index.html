@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Mottainai / Wabachi UX v1</title>
+    <style>
+      body {
+        font: 14px system-ui;
+        background: #f3f1eb;
+        color: #17181b;
+        margin: 0;
+      }
+      .wrap {
+        max-width: 900px;
+        margin: 80px auto;
+        padding: 24px;
+      }
+      .ey {
+        font: 11px ui-monospace;
+        color: #777;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        border: 1px solid #bbb8af;
+        margin-top: 24px;
+      }
+      .card {
+        padding: 28px;
+        background: #faf8f2;
+      }
+      .card + .card {
+        border-left: 1px solid #bbb8af;
+      }
+      h1 {
+        font-size: 28px;
+      }
+      h2 {
+        margin-top: 0;
+      }
+      .card p {
+        color: #555;
+        line-height: 1.6;
+      }
+      .card a {
+        display: inline-block;
+        margin-top: 12px;
+        background: #5f40c6;
+        color: white;
+        text-decoration: none;
+        padding: 9px 12px;
+        border-radius: 3px;
+      }
+      @media (max-width: 650px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+        .card + .card {
+          border-left: 0;
+          border-top: 1px solid #bbb8af;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="ey">UX PROTOTYPE / ART DIRECTION V1</div>
+      <h1>Shared precision. Different instruments.</h1>
+      <p>
+        Mottainai は operational console、Wabachi は semantic investigation
+        desk。同じコンポーネント集ではなく、同じ設計思想から異なる道具を作る。
+      </p>
+      <div class="grid">
+        <section class="card">
+          <h2>Mottainai Manager</h2>
+          <p>live state・authority・attention・safe recovery を、カードではなく時間と操作の面として扱う。</p>
+          <a href="mottainai.html">Open Operations Console →</a>
+        </section>
+        <section class="card">
+          <h2>Wabachi</h2>
+          <p>finding・canonical evidence・derivation・inference を、研究ノートと証拠台帳として読む。</p>
+          <a href="wabachi.html">Open Investigation Desk →</a>
+        </section>
+      </div>
+    </div>
+  </body>
+</html>

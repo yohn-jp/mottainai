@@ -153,7 +153,8 @@ export class ManagerHttpApi implements ManagerHttpHandler {
         return;
       }
       if (segments.length === 1 && segments[0] === "sessions" && method === "GET") {
-        sendJson(response, 200, { sessions: await this.service.list(filterFromQuery(url)) });
+        const sessions = await this.service.list(filterFromQuery(url));
+        sendJson(response, 200, { sessions: sessions.map((session) => this.service.projectSession(session)) });
         return;
       }
       if (segments.length === 1 && segments[0] === "sessions" && method === "POST") {
@@ -171,7 +172,8 @@ export class ManagerHttpApi implements ManagerHttpHandler {
         return;
       }
       if (segments.length === 2 && segments[0] === "sessions" && method === "GET") {
-        sendJson(response, 200, { session: await this.service.get(sessionIdFromPath(segments[1] ?? "")) });
+        const session = await this.service.get(sessionIdFromPath(segments[1] ?? ""));
+        sendJson(response, 200, { session: this.service.projectSession(session) });
         return;
       }
       if (segments.length === 1 && segments[0] === "reconcile" && method === "POST") {

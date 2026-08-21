@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Mottainai Manager — Operations Console v1</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="mottainai">
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark"></div>
+          <div class="brand-word">mottainai</div>
+          <small>MANAGER</small>
+        </div>
+        <div class="scope">
+          <div class="scope-label">active runtime</div>
+          <div class="scope-value"><span>local-dev</span><span class="scope-health">HEALTHY</span></div>
+        </div>
+        <nav class="nav">
+          <div class="nav-item active"><span class="glyph">⌂</span><span>Operations</span></div>
+          <div class="nav-item"><span class="glyph">R</span><span>Runtimes</span></div>
+          <div class="nav-item"><span class="glyph">↳</span><span>Repositories</span></div>
+          <div class="nav-item"><span class="glyph">S</span><span>Sessions</span></div>
+          <div class="nav-section">work</div>
+          <div class="nav-item" data-open-new><span class="glyph">＋</span><span>New task</span></div>
+          <div class="nav-item"><span class="glyph">I</span><span>Intents</span></div>
+          <div class="nav-section">system</div>
+          <div class="nav-item"><span class="glyph">A</span><span>Authority</span></div>
+          <div class="nav-item"><span class="glyph">⚙</span><span>Settings</span></div>
+        </nav>
+        <div class="sidebar-foot">
+          <div class="shortcut"><span>Command</span><kbd class="kbd">⌘ K</kbd></div>
+          <div class="shortcut"><span>New task</span><kbd class="kbd">⌘ N</kbd></div>
+          <div style="margin-top: 10px">Suzuki · Owner</div>
+        </div>
+      </aside>
+      <main class="shell">
+        <header class="topbar">
+          <div class="top-left">
+            <button class="context">runtime/local-dev ▾</button><span class="health">authority synchronized</span>
+          </div>
+          <div class="top-right">
+            <button class="icon-btn" id="openPalette">⌘K</button><button class="icon-btn">2!</button
+            ><button class="primary" data-open-new>＋ New task</button>
+          </div>
+        </header>
+        <div class="page">
+          <div class="page-title-row">
+            <div>
+              <div class="eyebrow">OPERATIONS / LIVE</div>
+              <h1>オペレーションホーム</h1>
+              <p class="subtitle">判断が必要な事象を先に。正常系は静かに、異常系は根拠と次の安全な操作まで。</p>
+            </div>
+            <div class="timestamp">OBSERVED 21:29:42 · 2m ago</div>
+          </div>
+          <div class="ops-grid">
+            <div>
+              <section class="attention-zone">
+                <div class="section-head" style="padding: 0 12px">
+                  <span>Operator attention</span><span class="count">2 UNRESOLVED</span>
+                </div>
+                <div class="attention-row">
+                  <div class="sev-mark">P1</div>
+                  <div>
+                    <div class="attn-id">ISSUE #378 · SESSION 01a0…8882</div>
+                    <div class="attn-title">Cleanup blocked</div>
+                    <div class="attn-desc">統合済みだが、Nawabari session が write authority を保持しています。</div>
+                  </div>
+                  <div class="cause">CAUSE<br /><b>tree-equivalence unproven</b><br />scope: src/runtime/**</div>
+                  <div class="action-cell"><button class="secondary" data-attention="378">Inspect →</button></div>
+                </div>
+                <div class="attention-row">
+                  <div class="sev-mark">P1</div>
+                  <div>
+                    <div class="attn-id">ISSUE #381 · PRE-FLIGHT</div>
+                    <div class="attn-title">Claim conflict</div>
+                    <div class="attn-desc">#379 と exclusive-write scope が重複。launch は fail-closed です。</div>
+                  </div>
+                  <div class="cause">OWNER<br /><b>#379 / Codex</b><br />src/runtime/**</div>
+                  <div class="action-cell"><button class="secondary" data-attention="381">Resolve →</button></div>
+                </div>
+                <div class="summary-strip">
+                  <div class="summary-segment">
+                    <div>
+                      <div class="summary-name">running</div>
+                      <div class="summary-num">3</div>
+                    </div>
+                    <div class="signal"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+                  </div>
+                  <div class="summary-segment">
+                    <div>
+                      <div class="summary-name">waiting</div>
+                      <div class="summary-num">1</div>
+                    </div>
+                    <span class="mono" style="color: var(--ink-3)">PR REVIEW</span>
+                  </div>
+                  <div class="summary-segment">
+                    <div>
+                      <div class="summary-name">completed / 24h</div>
+                      <div class="summary-num">6</div>
+                    </div>
+                    <span class="mono" style="color: var(--green)">NOMINAL</span>
+                  </div>
+                </div>
+              </section>
+              <section class="sessions">
+                <div class="section-head" style="padding: 0 12px">
+                  <span>Active sessions</span><a class="link">all sessions →</a>
+                </div>
+                <div class="session-head">
+                  <span>ID</span><span>TASK</span><span>AGENT</span><span>PHASE</span><span>LAST SEMANTIC STATE</span
+                  ><span></span>
+                </div>
+                <div class="session-row">
+                  <div class="sid">#380</div>
+                  <div>
+                    <b>Implement bounded read</b>
+                    <div class="phase-flow" aria-label="phase 3 of 5">
+                      <span class="done"></span><span class="done"></span><span class="now"></span><span></span
+                      ><span></span>
+                    </div>
+                  </div>
+                  <div class="agent">Pi</div>
+                  <div class="phase">IMPLEMENT</div>
+                  <div class="latest">code changed · validation pending</div>
+                  <button class="open-link">OPEN ↗</button>
+                </div>
+                <div class="session-row">
+                  <div class="sid">#379</div>
+                  <div>
+                    <b>Validate contract changes</b>
+                    <div class="phase-flow">
+                      <span class="done"></span><span class="done"></span><span class="done"></span
+                      ><span class="now"></span><span></span>
+                    </div>
+                  </div>
+                  <div class="agent">Codex</div>
+                  <div class="phase validate">VALIDATE</div>
+                  <div class="latest">tests running · receipt pending</div>
+                  <button class="open-link">OPEN ↗</button>
+                </div>
+                <div class="session-row">
+                  <div class="sid">#377</div>
+                  <div>
+                    <b>Update docs and tests</b>
+                    <div class="phase-flow">
+                      <span class="done"></span><span class="done"></span><span class="done"></span
+                      ><span class="done"></span><span class="now"></span>
+                    </div>
+                  </div>
+                  <div class="agent">Pi</div>
+                  <div class="phase wait">PR OPEN</div>
+                  <div class="latest">integration / review waiting</div>
+                  <button class="open-link">OPEN ↗</button>
+                </div>
+              </section>
+            </div>
+            <aside class="operator-rail">
+              <div class="rail-block">
+                <div class="section-head"><span>Authority status</span><span class="count">CURRENT</span></div>
+                <div class="status-line">
+                  <span class="status-dot"></span><span><b>Runtime</b><br /><span class="mono">local-dev</span></span
+                  ><span class="scope-health">OK</span>
+                </div>
+                <div class="status-line">
+                  <span class="status-dot"></span><span><b>GitHub</b><br />authoritative integration</span
+                  ><span class="scope-health">OK</span>
+                </div>
+                <div class="status-line">
+                  <span class="status-dot warn"></span><span><b>Nawabari</b><br />1 unreconciled close</span
+                  ><span class="mono" style="color: var(--amber)">WARN</span>
+                </div>
+                <div class="status-line">
+                  <span class="status-dot"></span><span><b>Queue</b><br />draining normally</span
+                  ><span class="scope-health">OK</span>
+                </div>
+              </div>
+              <div class="rail-block">
+                <div class="section-head"><span>Authority map</span></div>
+                <div class="authority-map">
+                  <b>GitHub</b> → integration truth<br /><b>Nawabari</b> → local execution truth<br /><b>Mottainai</b> →
+                  lifecycle intent<br /><span style="color: var(--ink-3)">No duplicate authority detected.</span>
+                </div>
+              </div>
+              <div class="rail-block">
+                <div class="section-head"><span>Recent signal</span></div>
+                <div class="activity-line">
+                  <span class="activity-tick"></span><span><b>#378</b> close proof rejected</span
+                  ><span class="activity-time">8m</span>
+                </div>
+                <div class="activity-line">
+                  <span class="activity-tick"></span><span><b>#381</b> preflight conflict</span
+                  ><span class="activity-time">12m</span>
+                </div>
+                <div class="activity-line">
+                  <span class="activity-tick"></span><span><b>#379</b> validation started</span
+                  ><span class="activity-time">15m</span>
+                </div>
+                <div class="activity-line">
+                  <span class="activity-tick"></span><span><b>#377</b> PR opened</span
+                  ><span class="activity-time">27m</span>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </main>
+    </div>
+    <div class="backdrop" id="drawerBackdrop"></div>
+    <aside class="drawer" id="drawer">
+      <div class="drawer-head">
+        <div>
+          <div class="eyebrow">RECOVERY INSPECTOR</div>
+          <b id="drawerTitle">#378 Cleanup blocked</b>
+        </div>
+        <button class="icon-btn" data-close>ESC</button>
+      </div>
+      <div class="drawer-body" id="drawerBody"></div>
+      <div class="drawer-foot">
+        <button class="secondary" data-close>Close</button
+        ><button class="primary" id="drawerAction">Run recovery</button>
+      </div>
+    </aside>
+    <div class="backdrop" id="modalBackdrop"></div>
+    <section class="modal" id="newTaskModal">
+      <div class="modal-head">
+        <div>
+          <div class="eyebrow">LAUNCH INTENT</div>
+          <b>New task</b>
+        </div>
+        <span class="mono" id="stepLabel">01 / WORK</span>
+      </div>
+      <div class="modal-body">
+        <div class="steps"><i class="active"></i><i></i><i></i><i></i></div>
+        <div id="stepContent"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="secondary" id="prevStep">Back</button>
+        <div>
+          <button class="secondary" data-close-modal>Cancel</button>
+          <button class="primary" id="nextStep">Continue</button>
+        </div>
+      </div>
+    </section>
+    <div class="backdrop" id="paletteBackdrop"></div>
+    <div class="command" id="palette">
+      <input placeholder="Command, session, issue…" />
+      <div class="command-item" data-palette-new><span>New task</span><kbd class="kbd">⌘ N</kbd></div>
+      <div class="command-item"><span>Open session #379</span><kbd class="kbd">↵</kbd></div>
+      <div class="command-item" data-palette-attn><span>Inspect attention #378</span><kbd class="kbd">A</kbd></div>
+    </div>
+    <script>
+      const $ = (s) => document.querySelector(s),
+        $$ = (s) => [...document.querySelectorAll(s)];
+      const drawer = $("#drawer"),
+        db = $("#drawerBackdrop");
+      const attention = {
+        378: {
+          title: "#378 Cleanup blocked",
+          action: "Request safe close",
+          body: `<div class="detail-block"><div class="detail-label">authoritative fact</div><b>PR integration is authoritative.</b><p>GitHub says the work is integrated; cleanup remains blocked because local execution ownership cannot yet be proven safe to release.</p></div><div class="detail-block"><div class="detail-label">blocking proof</div><code>proofMethod=tree-equivalence<br>proofResult=unproven<br>integratedRevision=main</code></div><div class="detail-block"><div class="detail-label">safe recovery sequence</div><ol><li>Re-read integration evidence.</li><li>Confirm observed head matches recorded head.</li><li>Request Nawabari close with explicit proof.</li><li>Release claims only after durable close.</li></ol></div><div class="detail-block"><div class="detail-label">danger boundary</div><p>Force-release is intentionally absent. The control plane must not manufacture cleanup authority.</p></div>`,
+        },
+        381: {
+          title: "#381 Claim conflict",
+          action: "Edit launch scope",
+          body: `<div class="detail-block"><div class="detail-label">conflict</div><b>#379 currently owns <code>src/runtime/**</code>.</b><p>Requested mode is exclusive-write. Launch remains blocked until the scope is narrowed or the current owner releases it.</p></div><div class="detail-block"><div class="detail-label">safe options</div><ol><li>Wait for #379.</li><li>Narrow #381 to a non-overlapping path.</li><li>Inspect #379 only if ownership may be stale.</li></ol></div>`,
+        },
+      };
+      function openAttention(id) {
+        let x = attention[id];
+        $("#drawerTitle").textContent = x.title;
+        $("#drawerBody").innerHTML = x.body;
+        $("#drawerAction").textContent = x.action;
+        drawer.classList.add("open");
+        db.classList.add("open");
+      }
+      function closeDrawer() {
+        drawer.classList.remove("open");
+        db.classList.remove("open");
+      }
+      $$("[data-attention]").forEach((b) => (b.onclick = () => openAttention(b.dataset.attention)));
+      $$("[data-close]").forEach((b) => (b.onclick = closeDrawer));
+      db.onclick = closeDrawer;
+      const modal = $("#newTaskModal"),
+        mb = $("#modalBackdrop"),
+        steps = $$(".steps i");
+      let step = 0;
+      const names = ["WORK", "EXECUTION", "AUTHORITY", "PREFLIGHT"];
+      const contents = [
+        `<div class="field"><label>GitHub issue</label><input value="#382"></div><div class="field"><label>Implementation instruction</label><textarea>Implement the bounded read authority fix. Preserve existing governance and fail closed on ambiguous ownership.</textarea></div>`,
+        `<div class="form-grid"><div class="field"><label>Execution profile</label><select><option>Pi</option><option>Codex</option><option>Claude</option></select></div><div class="field"><label>Repository</label><select><option>mottainai</option></select></div></div><div class="detail-block"><div class="detail-label">resolved defaults</div><code>branch: fix/382-bounded-read-authority<br>runtime: local-dev<br>integration: GitHub PR</code></div>`,
+        `<div class="field"><label>Requested resource scope</label><input value="src/read/**"></div><div class="detail-block"><div class="detail-label">authority preview</div><code>read: repository<br>exclusive-write: src/read/**<br>GitHub mutation: gh-inari governed</code></div>`,
+        `<div class="detail-block"><div class="detail-label">preflight</div><p>✓ Issue identity resolved<br>✓ Branch name deterministic<br>✓ Nawabari claim available<br>✓ Runtime healthy<br>✓ Governance companion available</p></div><div class="detail-block"><div class="detail-label">launch result</div><code>work intent → safe session → agent</code></div>`,
+      ];
+      function renderStep() {
+        steps.forEach((x, i) => x.classList.toggle("active", i <= step));
+        $("#stepLabel").textContent = `0${step + 1} / ${names[step]}`;
+        $("#stepContent").innerHTML = contents[step];
+        $("#prevStep").style.visibility = step ? "visible" : "hidden";
+        $("#nextStep").textContent = step === 3 ? "Launch" : "Continue";
+      }
+      function openNew() {
+        step = 0;
+        renderStep();
+        mb.classList.add("open");
+        modal.classList.add("open");
+      }
+      function closeNew() {
+        mb.classList.remove("open");
+        modal.classList.remove("open");
+      }
+      $$("[data-open-new]").forEach((b) => (b.onclick = openNew));
+      $$("[data-close-modal]").forEach((b) => (b.onclick = closeNew));
+      mb.onclick = closeNew;
+      $("#prevStep").onclick = () => {
+        if (step) {
+          step--;
+          renderStep();
+        }
+      };
+      $("#nextStep").onclick = () => {
+        if (step < 3) {
+          step++;
+          renderStep();
+        } else {
+          closeNew();
+          alert("Prototype: launch intent accepted after preflight.");
+        }
+      };
+      const palette = $("#palette"),
+        pb = $("#paletteBackdrop");
+      function openPalette() {
+        pb.classList.add("open");
+        palette.classList.add("open");
+        palette.querySelector("input").focus();
+      }
+      function closePalette() {
+        pb.classList.remove("open");
+        palette.classList.remove("open");
+      }
+      $("#openPalette").onclick = openPalette;
+      pb.onclick = closePalette;
+      $("[data-palette-new]").onclick = () => {
+        closePalette();
+        openNew();
+      };
+      $("[data-palette-attn]").onclick = () => {
+        closePalette();
+        openAttention("378");
+      };
+      document.addEventListener("keydown", (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+          e.preventDefault();
+          openPalette();
+        }
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
+          e.preventDefault();
+          openNew();
+        }
+        if (e.key === "Escape") {
+          closePalette();
+          closeNew();
+          closeDrawer();
+        }
+      });
+      renderStep();
+    </script>
+<script>
+(function () {
+  "use strict";
+  var q = function (s) { return document.querySelector(s); };
+  var qa = function (s) { return Array.prototype.slice.call(document.querySelectorAll(s)); };
+  var esc = function (v) { return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) { return ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[c]; }); };
+  var value = function (v, fallback) { return v == null || v === "" ? (fallback || "unavailable") : v; };
+  var request = function (path, init) {
+    return fetch("/api/v1/manager" + path, init).then(function (response) {
+      return response.json().then(function (body) {
+        if (!response.ok) throw new Error(body.error && body.error.message || "Manager request failed");
+        return body;
+      });
+    });
+  };
+  var post = function (path, body) {
+    return request(path, { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(body) });
+  };
+  var sessions = [];
+  var health;
+  var taskStep = 0;
+  var taskPreview;
+  var taskRequest;
+  function rail(phases) {
+    return (phases || []).map(function (phase) {
+      return '<span class="' + (phase.state === "complete" ? "done" : phase.state === "current" ? "now" : "") + '" title="' + esc(phase.label) + '"></span>';
+    }).join("");
+  }
+  function running(session) { return ["starting", "running", "detached"].indexOf(session.runtimeState) >= 0; }
+  function recent(session) { return !running(session) && !session.operational.attention; }
+  function phase(session) {
+    var current = session.operational.phaseRail.filter(function (p) { return p.state === "current" || p.state === "attention"; })[0];
+    return current ? current.label : String(value(session.semanticLifecycleState, "unbound")).toUpperCase();
+  }
+  function row(session) {
+    var p = session.operational;
+    return '<div class="session-row" data-session="' + esc(session.sessionId) + '">' +
+      '<div class="sid">' + esc(session.sessionId.slice(0, 8)) + '</div><div><b>' + esc(session.taskSlug || "Managed task") +
+      '</b><div class="phase-flow" aria-label="authoritative phase rail">' + rail(p.phaseRail) + '</div></div><div class="agent">' + esc(session.agentKind) +
+      '</div><div class="phase">' + esc(phase(session)) + '</div><div class="latest">' + esc(p.statusLabel) + ' · ' + esc(value(session.latestStatus, "no status")) +
+      '</div><button class="open-link" data-open-session="' + esc(session.sessionId) + '">OPEN ↗</button></div>';
+  }
+  function attentionRow(session) {
+    var a = session.operational.attention;
+    return '<div class="attention-row"><div class="sev-mark">' + esc(a.priority) + '</div><div><div class="attn-id">' + esc(session.sessionId) +
+      ' · ' + esc(session.agentKind) + '</div><div class="attn-title">' + esc(session.taskSlug || "Managed session") + '</div><div class="attn-desc">' +
+      esc(a.reason) + '</div></div><div class="cause">OWNER<br><b>' + esc(a.authority) + '</b><br>SAFE ACTION<br><b>' + esc(a.actionLabel) +
+      '</b></div><div class="action-cell"><button class="secondary" data-open-session="' + esc(session.sessionId) + '">' + esc(a.actionLabel) + ' →</button></div></div>';
+  }
+  function empty(message) { return '<div class="attention-row"><div></div><div><b>' + esc(message) + '</b></div></div>'; }
+  function renderHome() {
+    var attention = sessions.filter(function (s) { return !!s.operational.attention; });
+    var active = sessions.filter(running);
+    var recentSessions = sessions.filter(recent);
+    q(".attention-zone .section-head span").textContent = "Needs attention";
+    qa(".attention-zone .attention-row").forEach(function (node) { node.remove(); });
+    q(".summary-strip").insertAdjacentHTML("beforebegin", attention.length ? attention.map(attentionRow).join("") : empty("No operator attention required"));
+    q(".attention-zone .count").textContent = attention.length + " UNRESOLVED";
+    q(".sessions .section-head span").textContent = "Running";
+    qa(".sessions .session-row").forEach(function (node) { node.remove(); });
+    q(".sessions .session-head").insertAdjacentHTML("afterend", active.length ? active.map(row).join("") : empty("No running managed sessions"));
+    var recentSection = q("#recentSessions");
+    if (!recentSection) {
+      q(".sessions").insertAdjacentHTML("afterend", '<section class="sessions" id="recentSessions"><div class="section-head" style="padding:0 12px"><span>Recent</span><span class="count"></span></div><div class="session-head"><span>ID</span><span>TASK</span><span>AGENT</span><span>PHASE</span><span>AUTHORITATIVE STATE</span><span></span></div></section>');
+      recentSection = q("#recentSessions");
+    }
+    qa("#recentSessions .session-row").forEach(function (node) { node.remove(); });
+    q("#recentSessions .session-head").insertAdjacentHTML("afterend", recentSessions.length ? recentSessions.map(row).join("") : empty("No recent managed sessions"));
+    q("#recentSessions .count").textContent = recentSessions.length + " RECENT";
+    qa(".summary-num").forEach(function (node, index) { node.textContent = String([active.length, attention.length, recentSessions.length][index] || 0); });
+    qa(".summary-name").forEach(function (node, index) { node.textContent = ["running", "needs attention", "recent"][index]; });
+    qa("[data-open-session]").forEach(function (button) { button.onclick = function () { openSession(button.dataset.openSession); }; });
+  }
+  function updateHealth() {
+    var root = health && health.workspaceRoot;
+    q(".scope-value span").textContent = root ? root.split("/").filter(Boolean).slice(-1)[0] : "unavailable";
+    q(".scope-health").textContent = health ? "HEALTHY" : "UNAVAILABLE";
+    q(".health").textContent = health ? "Manager ready · Zellij " + health.zellij.version : "Manager unavailable";
+  }
+  function detail(session) {
+    var p = session.operational;
+    var phases = p.phaseRail.map(function (x) { return "<li><b>" + esc(x.label) + "</b> · " + esc(x.state) + "</li>"; }).join("");
+    var authorities = p.authorities.map(function (x) { return "<li><b>" + esc(x.name) + "</b> · " + esc(x.responsibility) + " · " + esc(x.status) + "</li>"; }).join("");
+    var attention = p.attention ? '<div class="detail-block"><div class="detail-label">attention / owning authority / safe action</div><p><b>' + esc(p.attention.priority) + "</b> · " + esc(p.attention.reason) + "<br>" + esc(p.attention.authority) + " → " + esc(p.attention.actionLabel) + "</p></div>" : "";
+    var exit = session.runtimeState === "exited" ? '<div class="detail-block"><div class="detail-label">runtime evidence</div><p>Process exit observed. Process exit is not semantic completion; lifecycle remains authoritative.</p></div>' : "";
+    return '<div class="detail-block"><div class="detail-label">SESSION DETAIL / AUTHORITATIVE PROJECTION</div><code>Manager session: ' + esc(p.identities.managerSessionId) + "<br>Task: " + esc(value(p.identities.taskId)) + "<br>Execution: " + esc(value(p.identities.executionSessionId)) + "<br>Runtime: " + esc(p.identities.runtimeName) + "</code></div>" +
+      attention + '<div class="detail-block"><div class="detail-label">phase rail</div><ol>' + phases + "</ol></div>" +
+      '<div class="detail-block"><div class="detail-label">repository / worktree / branch</div><code>' + esc(p.repository.name) + "<br>" + esc(p.repository.root) + "<br>" + esc(p.repository.worktree) + "<br>" + esc(value(p.repository.branch)) + "</code></div>" +
+      '<div class="detail-block"><div class="detail-label">validation</div><p>' + esc(p.validation.state) + " · " + esc(p.validation.summary) + "</p></div>" +
+      '<div class="detail-block"><div class="detail-label">commit / push / pull request</div><code>commit [' + esc(p.commit.state) + "] " + esc(value(p.commit.sha)) + " · Nawabari<br>push [" + esc(p.push.state) + "] " + esc(value(p.push.target)) + " · Nawabari<br>PR [" + esc(p.pullRequest.state) + "] " + esc(value(p.pullRequest.number)) + " · gh-inari</code></div>" +
+      exit + '<div class="detail-block"><div class="detail-label">authority map</div><ul>' + authorities + "</ul></div>";
+  }
+  function openSession(id) {
+    var session = sessions.filter(function (s) { return s.sessionId === id; })[0];
+    if (!session) return;
+    q("#drawerTitle").textContent = (session.taskSlug || "Managed session") + " · " + session.operational.statusLabel;
+    q("#drawerBody").innerHTML = detail(session);
+    q("#drawerAction").textContent = session.operational.attention ? session.operational.attention.actionLabel : "Open managed terminal";
+    q("#drawerAction").onclick = function () { action(session, session.operational.attention ? session.operational.attention.safeAction : "open-terminal"); };
+    q("#drawer").classList.add("open"); q("#drawerBackdrop").classList.add("open");
+  }
+  function action(session, kind) {
+    if (kind === "inspect") return openSession(session.sessionId);
+    var path = kind === "open-terminal" ? "/sessions/" + encodeURIComponent(session.sessionId) + "/open-terminal" :
+      kind === "restart" ? "/sessions/" + encodeURIComponent(session.sessionId) + "/restart" :
+      "/nawabari/sessions/" + encodeURIComponent(session.sessionId) + "/inspect";
+    post(path, {}).then(refresh).then(function () { openSession(session.sessionId); }).catch(function (error) {
+      q("#drawerBody").insertAdjacentHTML("afterbegin", '<div class="detail-block"><b>Action unavailable</b><p>' + esc(error.message) + "</p></div>");
+    });
+  }
+  function taskValues() {
+    var path = (q("#intentPath") && q("#intentPath").value || "src/**").trim();
+    var slug = (q("#intentTaskSlug") && q("#intentTaskSlug").value || "operational-task").trim();
+    var issue = (q("#intentIssue") && q("#intentIssue").value || "#406").trim();
+    return { instruction:(q("#intentInstruction") && q("#intentInstruction").value || "Implement the requested work.").trim(), agentKind:q("#intentAgent") && q("#intentAgent").value || "pi", issueRef:issue, taskSlug:slug, branchType:q("#intentBranchType") && q("#intentBranchType").value || "feat", idempotencyKey:"manager-ui-" + slug.replace(/[^A-Za-z0-9._:-]/gu, "-"), scope:{ paths:[path], claims:[{resource:path, mode:q("#intentClaimMode") && q("#intentClaimMode").value || "exclusive-write"}] } };
+  }
+  function taskMarkup() {
+    if (taskStep === 0) return '<div class="detail-block"><div class="detail-label">Wabachi Work Intent → Manager</div><p>Finding → Create Work Intent → Manager → preflight → managed session → Running</p></div><div class="field"><label>Issue / intent</label><input id="intentIssue" value="#406"></div><div class="field"><label>Implementation instruction</label><textarea id="intentInstruction">Implement the requested work while preserving existing authority boundaries.</textarea></div>';
+    if (taskStep === 1) return '<div class="form-grid"><div class="field"><label>Execution profile</label><select id="intentAgent"><option value="pi">Pi</option><option value="codex">Codex</option><option value="claude">Claude</option></select></div><div class="field"><label>Task slug</label><input id="intentTaskSlug" value="operational-task"></div></div><div class="field"><label>Branch type</label><input id="intentBranchType" value="feat"></div>';
+    if (taskStep === 2) return '<div class="field"><label>Requested repository path</label><input id="intentPath" value="src/**"></div><div class="field"><label>Claim mode</label><select id="intentClaimMode"><option value="exclusive-write">exclusive-write</option><option value="write">write</option><option value="read">read</option></select></div><div class="detail-block"><div class="detail-label">authority boundary</div><code>Git/worktree: Nawabari<br>GitHub mutation: gh-inari<br>lifecycle: Mottainai</code></div>';
+    if (taskStep === 3) return '<div class="detail-block"><div class="detail-label">claim-preflight / launch readiness</div><div id="preflightResult">Running authoritative read-only preflight…</div></div><div class="detail-block"><div class="detail-label">preview endpoint</div><code>POST /api/v1/manager/sessions/preview</code></div>';
+    return '<div class="detail-block"><div class="detail-label">Launch through Manager</div><p>' + (taskPreview ? "Preflight clear. Manager establishes authoritative identities." : "Launch unavailable until preflight succeeds.") + '</p></div><div class="detail-block"><div class="detail-label">Projected Nawabari declaration</div><code>' + esc(taskPreview && taskPreview.nawabariDeclaration ? JSON.stringify(taskPreview.nawabariDeclaration) : "unavailable") + '</code></div><div class="detail-block"><div class="detail-label">resolved branch</div><code>' + esc(taskPreview && taskPreview.identity ? taskPreview.identity.branch.name : "unavailable") + "</code></div>";
+  }
+  function renderTask() {
+    var steps = q(".steps");
+    while (steps.children.length < 5) steps.appendChild(document.createElement("i"));
+    steps.style.gridTemplateColumns = "repeat(5,1fr)";
+    qa(".steps i").forEach(function (node, index) { node.classList.toggle("active", index <= taskStep); });
+    q("#stepLabel").textContent = "0" + (taskStep + 1) + " / " + ["WORK","EXECUTION","AUTHORITY","PREFLIGHT","LAUNCH"][taskStep];
+    q("#stepContent").innerHTML = taskMarkup();
+    q("#prevStep").style.visibility = taskStep ? "visible" : "hidden";
+    q("#nextStep").textContent = taskStep === 4 ? "Launch" : taskStep === 3 ? "Re-run preflight" : "Continue";
+    q("#nextStep").disabled = taskStep === 4 && !taskPreview;
+  }
+  function preflight() {
+    taskRequest = taskValues();
+    return post("/sessions/preview", taskRequest).then(function (body) {
+      taskPreview = body.preview;
+      q("#preflightResult").innerHTML = "<b>READY</b><br>Issue identity resolved<br>Branch: <code>" + esc(taskPreview.identity.branch.name) + "</code><br>Nawabari claim: " + esc(taskPreview.claimPreflight.status);
+      q("#nextStep").disabled = false;
+    }).catch(function (error) {
+      taskPreview = undefined; q("#preflightResult").innerHTML = "<b>UNAVAILABLE</b><br>" + esc(error.message); q("#nextStep").disabled = true;
+    });
+  }
+  function advance() {
+    if (taskStep < 2) { taskStep++; renderTask(); return; }
+    if (taskStep === 2) { taskStep = 3; renderTask(); preflight(); return; }
+    if (taskStep === 3) return preflight().then(function () { if (taskPreview) { taskStep = 4; renderTask(); } });
+    if (!taskPreview) return;
+    post("/sessions", taskRequest).then(function (body) { closeNew(); return refresh().then(function () { openSession(body.session.sessionId); }); }).catch(function (error) { q("#stepContent").insertAdjacentHTML("beforeend", '<div class="detail-block"><b>Launch blocked</b><p>' + esc(error.message) + "</p></div>"); });
+  }
+  function openNew() { taskStep = 0; taskPreview = undefined; renderTask(); q("#modalBackdrop").classList.add("open"); q("#newTaskModal").classList.add("open"); }
+  function closeNew() { q("#modalBackdrop").classList.remove("open"); q("#newTaskModal").classList.remove("open"); }
+  function refresh() {
+    return Promise.all([request("/health"), request("/sessions?limit=500")]).then(function (parts) { health = parts[0]; sessions = parts[1].sessions || []; updateHealth(); renderHome(); }).catch(function (error) { health = undefined; updateHealth(); qa(".attention-zone .attention-row,.sessions .session-row").forEach(function (n) { n.remove(); }); q(".summary-strip").insertAdjacentHTML("beforebegin", empty("Manager data unavailable: " + error.message)); });
+  }
+  qa("[data-open-new]").forEach(function (b) { b.onclick = openNew; });
+  q("#nextStep").onclick = advance; q("#prevStep").onclick = function () { if (taskStep) { taskStep--; renderTask(); } };
+  qa("[data-close-modal]").forEach(function (b) { b.onclick = closeNew; }); q("#modalBackdrop").onclick = closeNew;
+  q("#drawerBackdrop").onclick = function () { q("#drawer").classList.remove("open"); q("#drawerBackdrop").classList.remove("open"); };
+  q("#openPalette").onclick = function () { q("#paletteBackdrop").classList.add("open"); q("#palette").classList.add("open"); q("#palette input").focus(); };
+  q("#paletteBackdrop").onclick = function () { q("#paletteBackdrop").classList.remove("open"); q("#palette").classList.remove("open"); };
+  q("[data-palette-new]").onclick = function () { q("#paletteBackdrop").click(); openNew(); };
+  document.addEventListener("keydown", function (event) {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); q("#openPalette").click(); }
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n") { event.preventDefault(); openNew(); }
+    if (event.key === "Escape") { closeNew(); q("#drawerBackdrop").click(); q("#paletteBackdrop").click(); }
+  });
+  qa(".attention-row,.session-row").forEach(function (n) { n.remove(); });
+  renderTask(); refresh();
+}());
+</script>
+</body>
+</html>

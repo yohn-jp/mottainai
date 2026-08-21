@@ -1,18 +1,21 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readManagerViewer } from "./assets.js";
+import { readManagerAssets, readManagerViewer } from "./assets.js";
 
-test("packaged Manager UI exposes bounded scope editing and pre-start preview", () => {
+test("packaged Manager UI uses the agreed four-file mock surface", () => {
   const html = readManagerViewer();
-  assert.match(html, /id="add-path"/u);
-  assert.match(html, /id="add-claim"/u);
-  assert.match(html, /id="scope-rows"/u);
-  assert.match(html, /\/sessions\/preview/u);
-  assert.match(html, /id="start-session" disabled/u);
-  assert.match(html, /Projected Nawabari declaration/u);
-  assert.match(html, /claim-preflight/u);
-  assert.match(html, /Inspect session/u);
-  assert.match(html, /Refresh preflight/u);
-  assert.match(html, /Reconcile/u);
-  assert.match(html, /Remove/u);
+  assert.match(html, /href="styles\.css"/u);
+  assert.match(html, /Needs attention/u);
+  assert.match(html, /Wabachi Work Intent/u);
+  assert.match(html, /POST \/api\/v1\/manager\/sessions\/preview/u);
+  assert.match(html, /SESSION DETAIL \/ AUTHORITATIVE PROJECTION/u);
+  const assets = readManagerAssets();
+  assert.deepEqual(Object.keys(assets).sort(), [
+    "/mockups/index.html",
+    "/mockups/mottainai.html",
+    "/mockups/wabachi.html",
+    "/styles.css",
+  ]);
+  assert.match(assets["/mockups/wabachi.html"].body, /Semantic Investigation Desk/u);
+  assert.match(assets["/styles.css"].body, /\.mottainai/u);
 });

@@ -46,6 +46,37 @@ class FakeRuntime implements ZellijRuntime {
   }
 }
 
+test("operational projection keeps semantic lifecycle authoritative when the agent process exits", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime: new FakeRuntime() });
+  const session = store.createManagerSession({
+    sessionId: "00000000-0000-4000-8000-000000000406" as ManagerSessionId,
+    workspaceRoot: root,
+    executionMode: "workspace",
+    worktreePath: root,
+    agentKind: "pi",
+    launchProfile: "pi",
+    instruction: "projection test",
+    launchCommand: "pi",
+    launchArgs: ["--", "projection test"],
+    runtimeName: "mottainai-test-runtime",
+    lifecycleState: "exited",
+    runtimeState: "exited",
+    semanticLifecycleState: "active",
+    reconciliationState: "drifted",
+    latestStatus: "managed Zellij agent pane exited; semantic task completion was not inferred",
+  });
+
+  const projection = service.projectSession(session);
+  assert.equal(projection.operational.state, "attention");
+  assert.equal(projection.operational.phaseRail.find((phase) => phase.id === "active")?.state, "current");
+  assert.match(projection.operational.attention?.reason ?? "", /not semantic completion/u);
+  assert.equal(projection.operational.identities.managerSessionId, session.sessionId);
+  assert.equal(projection.operational.validation.state, "unavailable");
+  assert.equal(projection.operational.pullRequest.state, "unavailable");
+});
+
 function recordingExecutionAuthority(root: string, plans: SemanticExecutionPlan[]): ManagerExecutionAuthority {
   return {
     async start(input) {

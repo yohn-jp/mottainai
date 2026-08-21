@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Wabachi — Semantic Investigation Desk v1</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="wabachi">
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark"></div>
+          <div class="brand-word">Wabachi</div>
+          <small>SEMANTICS</small>
+        </div>
+        <div class="scope">
+          <div class="scope-label">repository / snapshot</div>
+          <div class="scope-value"><span>mottainai</span><span class="scope-health">CURRENT</span></div>
+          <div style="font: 10px var(--mono); margin-top: 4px; color: var(--ink-3)">main@7ac91f</div>
+        </div>
+        <nav class="nav">
+          <div class="nav-item active"><span class="glyph">◎</span><span>Review desk</span></div>
+          <div class="nav-item"><span class="glyph">Δ</span><span>Changes</span></div>
+          <div class="nav-item"><span class="glyph">⌘</span><span>Explore</span></div>
+          <div class="nav-item"><span class="glyph">✓</span><span>Reviews</span></div>
+          <div class="nav-section">lens</div>
+          <div class="nav-item"><span class="glyph">E</span><span>Evidence</span></div>
+          <div class="nav-item"><span class="glyph">R</span><span>Relations</span></div>
+        </nav>
+        <div class="sidebar-foot">
+          <div class="shortcut"><span>Search</span><kbd class="kbd">⌘ K</kbd></div>
+          <div class="shortcut"><span>Next finding</span><kbd class="kbd">J</kbd></div>
+          <div style="margin-top: 10px">Suzuki · Reviewer</div>
+        </div>
+      </aside>
+      <main class="shell">
+        <header class="topbar">
+          <div class="top-left">
+            <button class="context">mottainai ▾</button><button class="context">main@7ac91f ▾</button
+            ><span class="health">evidence current</span>
+          </div>
+          <div class="top-right">
+            <button class="context">compare main…HEAD ▾</button><button class="icon-btn" id="openSearch">⌘K</button
+            ><button class="icon-btn">2!</button>
+          </div>
+        </header>
+        <div class="page">
+          <div class="research-shell">
+            <aside class="index-pane">
+              <div class="index-head">
+                <div class="index-title">Findings since baseline</div>
+                <div class="index-meta">5 semantic deltas · 2 require review</div>
+              </div>
+              <div class="finding-list" id="findingList"></div>
+            </aside>
+            <section class="notebook">
+              <div class="notebook-head">
+                <div class="notebook-kicker">
+                  <span id="findingId">FIND-0012</span><span>·</span
+                  ><span class="severity-word high" id="severity">HIGH</span><span>·</span
+                  ><span>introduced at main@7ac91f</span>
+                </div>
+                <h1 id="findingTitle">Read Authorization</h1>
+                <div class="claim" id="findingClaim">
+                  以前は純粋だった境界にファイルシステムアクセスが導入され、保護された bounded-read
+                  契約に違反しています。
+                </div>
+              </div>
+              <div class="tabs">
+                <button class="tab active" data-tab="brief">BRIEF</button
+                ><button class="tab" data-tab="impact">IMPACT</button
+                ><button class="tab" data-tab="evidence">EVIDENCE</button
+                ><button class="tab" data-tab="relations">RELATIONS</button
+                ><button class="tab" data-tab="source">SOURCE</button>
+              </div>
+              <div class="notebook-body" id="notebookBody"></div>
+            </section>
+            <aside class="evidence-pane">
+              <div class="evidence-head">
+                <div class="index-title">Evidence ledger</div>
+                <div class="index-meta">authority → derivation → inference</div>
+              </div>
+              <div id="evidenceLedger"></div>
+            </aside>
+          </div>
+        </div>
+      </main>
+    </div>
+    <div class="backdrop" id="searchBackdrop"></div>
+    <div class="command" id="searchPanel">
+      <input id="searchInput" placeholder="Find symbol, contract, component, finding…" />
+      <div class="command-item" data-select="read">
+        <span>Finding · Read Authorization</span><span class="mono">FIND-0012</span>
+      </div>
+      <div class="command-item" data-select="runtime">
+        <span>Finding · Workflow Runtime expansion</span><span class="mono">FIND-0015</span>
+      </div>
+      <div class="command-item"><span>Contract · bounded-read</span><span class="mono">CANONICAL</span></div>
+      <div class="command-item"><span>Component · core/boundary/reader</span><span class="mono">ENTITY</span></div>
+    </div>
+    <script>
+      const $ = (s) => document.querySelector(s),
+        $$ = (s) => [...document.querySelectorAll(s)];
+      const findings = {
+        read: {
+          id: "FIND-0012",
+          severity: "HIGH",
+          title: "Read Authorization",
+          claim:
+            "以前は純粋だった境界にファイルシステムアクセスが導入され、保護された bounded-read 契約に違反しています。",
+          snippet: "filesystem effect introduced into a pure boundary",
+          file: "core/boundary/reader.go",
+          contract: "bounded-read",
+          callers: 3,
+          tests: 7,
+          evidence: 4,
+          why: "この境界は「I/Oを行わない」という正本契約によって、予測可能性・テスト容易性・キャッシュ可能性を保っています。今回の変更は局所的な一行ではなく、呼び出し側が依存していた意味論を変更します。",
+        },
+        runtime: {
+          id: "FIND-0015",
+          severity: "MEDIUM",
+          title: "Workflow Runtime capability expansion",
+          claim: "外部コマンド実行 capability が新たに観測され、既存 workflow の実行境界が拡張されています。",
+          snippet: "new process execution capability observed",
+          file: "src/runtime/exec.ts",
+          contract: "runtime-capability-boundary",
+          callers: 2,
+          tests: 3,
+          evidence: 3,
+          why: "capability の追加は単なる実装差分ではなく、実行可能な副作用の集合を拡張します。正本の意図と一致するか、人間のレビューが必要です。",
+        },
+      };
+      let selected = "read",
+        tab = "brief";
+      function renderList() {
+        const list = $("#findingList");
+        list.innerHTML = Object.entries(findings)
+          .map(
+            ([k, f]) =>
+              `<article class="finding-note ${f.severity.toLowerCase()} ${selected === k ? "selected" : ""}" data-finding="${k}" tabindex="0"><span class="margin-mark">${f.severity === "HIGH" ? "REVIEW" : "WATCH"}</span><div class="finding-id">${f.id}</div><div class="finding-title">${f.title}</div><div class="finding-snippet">${f.snippet}</div><div class="finding-stats"><span>${f.callers} callers</span><span>${f.tests} tests</span><span>${f.evidence} evidence</span></div></article>`,
+          )
+          .join("");
+        $$("[data-finding]").forEach((el) => {
+          el.onclick = () => {
+            selected = el.dataset.finding;
+            tab = "brief";
+            render();
+          };
+          el.onkeydown = (e) => {
+            if (e.key === "Enter") {
+              selected = el.dataset.finding;
+              tab = "brief";
+              render();
+            }
+          };
+        });
+      }
+      function ledger(f) {
+        return `<div class="ep-row"><div class="ep-kind">CANONICAL · AUTHORITY</div><div class="ep-title">Git revision</div><div class="ep-source">main@7ac91f</div><div class="ep-current">CURRENT</div></div><div class="ep-row"><div class="ep-kind">CANONICAL · CONTRACT</div><div class="ep-title">${f.contract}</div><div class="ep-source">semantic declaration</div><div class="ep-current">CURRENT</div></div><div class="ep-row derived"><div class="ep-kind">DERIVED · STATIC</div><div class="ep-title">Boundary checker v2.1</div><div class="ep-source">rule: purity.fs_access</div><div class="ep-current">CURRENT</div></div><div class="ep-row inferred"><div class="ep-kind">INFERRED · IMPACT</div><div class="ep-title">${f.tests} tests affected</div><div class="ep-source">test-impact analysis</div><div class="ep-current">CURRENT</div></div><div class="ep-row inferred stale"><div class="ep-kind">INFERRED · RUNTIME</div><div class="ep-title">Sample trace</div><div class="ep-source">trace/2026-08-20</div></div>`;
+      }
+      function brief(f) {
+        return `<div class="prose-grid"><article class="prose"><h2>What changed?</h2><p>${f.claim}</p><div class="annotation violation"><div class="detail-label">semantic violation</div><b>${f.contract}</b><p style="margin:5px 0 0">Observed implementation behavior is outside the admitted contract.</p></div><h2>Why does it matter?</h2><p>${f.why}</p><dl class="contract-sheet"><dt>Canonical contract</dt><dd><b>${f.contract}</b></dd><dt>Changed entity</dt><dd class="mono">${f.file}</dd><dt>First observed</dt><dd class="mono">main@7ac91f</dd></dl><h2>Review question</h2><p>この意味論変更を正本へ admission するべきか、それとも実装を契約へ戻すべきか。</p></article><aside class="side-summary"><div class="fact"><div class="fact-label">direct callers</div><div class="fact-value">${f.callers}</div></div><div class="fact"><div class="fact-label">affected tests</div><div class="fact-value">${f.tests}</div></div><div class="fact"><div class="fact-label">evidence sources</div><div class="fact-value">${f.evidence}</div></div><div class="fact"><div class="fact-label">confidence</div><div class="fact-value">High · canonical anchor</div></div><div style="margin-top:18px"><button class="primary">Create work intent →</button></div></aside></div>`;
+      }
+      function impact(f) {
+        return `<h2 style="font-size:14px">Impact ledger</h2><table class="impact-table"><thead><tr><th>ENTITY</th><th>RELATION</th><th>WHY IT MATTERS</th></tr></thead><tbody><tr><td class="mono">${f.file}</td><td>changed</td><td>semantic boundary owner</td></tr><tr><td class="mono">services/report/generator.go</td><td>caller</td><td>inherits new filesystem effect</td></tr><tr><td class="mono">services/report/cache.go</td><td>caller</td><td>cache assumptions may no longer hold</td></tr><tr><td class="mono">${f.contract}</td><td>protected contract</td><td>current implementation does not conform</td></tr></tbody></table><div class="annotation"><div class="detail-label">interpretation</div>Impact is shown as explicit relations, not a single opaque risk score.</div>`;
+      }
+      function evidence(f) {
+        return `<h2 style="font-size:14px">Evidence, ordered by epistemic weight</h2><table class="ledger"><thead><tr><th>WEIGHT</th><th>SOURCE</th><th>OBSERVATION</th><th>FRESHNESS</th></tr></thead><tbody><tr><td>Canonical</td><td class="mono">main@7ac91f</td><td>${f.file} changed</td><td>current</td></tr><tr><td>Canonical</td><td>${f.contract}</td><td>I/O outside boundary is forbidden</td><td>current</td></tr><tr><td>Derived</td><td>boundary-check v2.1</td><td>filesystem effect detected</td><td>current</td></tr><tr><td>Inferred</td><td>test-impact</td><td>${f.tests} tests may be affected</td><td>current</td></tr></tbody></table>`;
+      }
+      function relations(f) {
+        return `<h2 style="font-size:14px">Focused relation path</h2><p class="subtitle">The graph appears only when a relationship question exists.</p><div class="relation-stack"><div class="relation-node">${f.file}</div><div class="relation-edge">CHANGED → introduces effect</div><div class="relation-node">filesystem / process capability</div><div class="relation-edge">VIOLATES → protected semantic edge</div><div class="relation-node">contract:${f.contract}</div><div class="relation-edge">PROPAGATES → caller dependency</div><div class="relation-node">services/report/generator.go</div></div>`;
+      }
+      function source(f) {
+        return `<h2 style="font-size:14px">Source escape hatch</h2><p class="subtitle">Raw source is available for verification; it is not the primary explanation surface.</p><div class="code-sheet"><span style="color:var(--ink-3)">${f.file}:45-59</span>\n\nfunc (r *reader) Read(ctx context.Context, p string) ([]byte, error) {\n<span class="diff-add">+  data, err := vfs.ReadFile(ctx, p)</span>\n<span class="diff-add">+  if err != nil { return nil, err }</span>\n   return data, nil\n}</div>`;
+      }
+      function render() {
+        let f = findings[selected];
+        $("#findingId").textContent = f.id;
+        $("#severity").textContent = f.severity;
+        $("#severity").className = "severity-word " + f.severity.toLowerCase();
+        $("#findingTitle").textContent = f.title;
+        $("#findingClaim").textContent = f.claim;
+        renderList();
+        $("#evidenceLedger").innerHTML = ledger(f);
+        $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === tab));
+        $("#notebookBody").innerHTML =
+          tab === "brief"
+            ? brief(f)
+            : tab === "impact"
+              ? impact(f)
+              : tab === "evidence"
+                ? evidence(f)
+                : tab === "relations"
+                  ? relations(f)
+                  : source(f);
+      }
+      $$(".tab").forEach(
+        (t) =>
+          (t.onclick = () => {
+            tab = t.dataset.tab;
+            render();
+          }),
+      );
+      const sb = $("#searchBackdrop"),
+        sp = $("#searchPanel");
+      function openSearch() {
+        sb.classList.add("open");
+        sp.classList.add("open");
+        $("#searchInput").focus();
+      }
+      function closeSearch() {
+        sb.classList.remove("open");
+        sp.classList.remove("open");
+      }
+      $("#openSearch").onclick = openSearch;
+      sb.onclick = closeSearch;
+      $$("[data-select]").forEach(
+        (x) =>
+          (x.onclick = () => {
+            selected = x.dataset.select;
+            tab = "brief";
+            closeSearch();
+            render();
+          }),
+      );
+      document.addEventListener("keydown", (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+          e.preventDefault();
+          openSearch();
+        }
+        if (e.key === "Escape") closeSearch();
+        if (!sp.classList.contains("open") && e.key.toLowerCase() === "j") {
+          selected = selected === "read" ? "runtime" : "read";
+          tab = "brief";
+          render();
+        }
+      });
+      render();
+    </script>
+  </body>
+</html>

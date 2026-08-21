@@ -291,8 +291,10 @@ test(
   async () => {
     const workspace = createWorkspace();
     const { command, args } = resolvePackagedCommand(binPath);
-    const managerAsset = path.join(path.dirname(binPath), "dashboard", "manager-v0.html");
-    assert.equal(fs.existsSync(managerAsset), true, "packed artifact must include the Manager UI asset");
+    const dashboardDirectory = path.join(path.dirname(binPath), "dashboard");
+    for (const asset of ["index.html", "mottainai.html", "wabachi.html", "styles.css"]) {
+      assert.equal(fs.existsSync(path.join(dashboardDirectory, asset)), true, "packed artifact must include " + asset);
+    }
     const child = spawn(command, [...args, "dashboard", "--no-open", "--port", "0"], {
       cwd: workspace,
       env: isolatedEnv(workspace),
@@ -393,7 +395,8 @@ test(
       assert.match(viewer.headers.get("content-type") ?? "", /^text\/html/u);
       const html = await viewer.text();
       assert.match(html, /Mottainai Manager/u);
-      assert.match(html, /Claude Code CLI/u);
+      assert.match(html, /href="styles\.css"/u);
+      assert.match(html, /Needs attention/u);
       assert.match(html, /value="pi">Pi/u);
       child.kill("SIGTERM");
       const exit = await new Promise((resolve, reject) => {
