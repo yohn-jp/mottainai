@@ -255,10 +255,13 @@ function parseGithubPullRequestRecord(
   const url = stringValue(record.url);
   const headRecord = asRecord(record.head);
   const baseRecord = asRecord(record.base);
+  const mergeCommitRecord = asRecord(record.mergeCommit) ?? asRecord(record.merge_commit);
   const headName = stringValue(record.headRefName) ?? stringValue(headRecord?.refName) ?? fallbackHead?.name;
   const headRevision = stringValue(record.headRefOid) ?? stringValue(headRecord?.oid) ?? fallbackHead?.revision;
   const baseName = stringValue(record.baseRefName) ?? stringValue(baseRecord?.refName) ?? fallbackBase?.name;
   const baseRevision = stringValue(record.baseRefOid) ?? stringValue(baseRecord?.oid) ?? fallbackBase?.revision;
+  const mergeRevision =
+    stringValue(record.mergeCommitOid) ?? stringValue(record.merge_commit_oid) ?? stringValue(mergeCommitRecord?.oid);
   if (
     number === undefined ||
     state === undefined ||
@@ -289,6 +292,7 @@ function parseGithubPullRequestRecord(
       repository: repositoryFromGithub(record.repository) ?? defaultRepository,
       head: { name: headName, revision: headRevision },
       base: { name: baseName, revision: baseRevision },
+      ...(mergeRevision === undefined ? {} : { mergeRevision }),
     },
   };
 }
@@ -527,7 +531,7 @@ export class GithubAdapter {
       "view",
       normalizedReference,
       "--json",
-      "number,state,isDraft,mergedAt,url,headRefName,headRefOid,baseRefName,baseRefOid",
+      "number,state,isDraft,mergedAt,mergeCommit,url,headRefName,headRefOid,baseRefName,baseRefOid",
       "--repo",
       repositoryFlag,
     ];
@@ -604,7 +608,7 @@ export class GithubAdapter {
       "--base",
       input.base.name,
       "--json",
-      "number,state,isDraft,mergedAt,url,headRefName,headRefOid,baseRefName,baseRefOid",
+      "number,state,isDraft,mergedAt,mergeCommit,url,headRefName,headRefOid,baseRefName,baseRefOid",
       "--limit",
       "100",
       "--repo",
@@ -691,6 +695,7 @@ function pullRequestFromRecord(
     repository,
     head: { ...head, revision: record.headSha },
     base,
+    ...(record.mergeRevision === undefined ? {} : { mergeRevision: record.mergeRevision }),
   };
 }
 
@@ -848,6 +853,7 @@ export async function openWorkflowPullRequest(input: OpenWorkflowPullRequestInpu
     prNumber: provider.value.number,
     url: provider.value.url,
     headSha,
+    ...(provider.value.mergeRevision === undefined ? {} : { mergeRevision: provider.value.mergeRevision }),
     lifecycleState: provider.value.lifecycleState,
   };
   let record: PullRequestRecord;

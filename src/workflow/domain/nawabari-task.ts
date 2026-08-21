@@ -8,6 +8,7 @@ import { resolveRepositoryIdentity } from "./identity.js";
 import { resolveRepoState } from "./repo-state.js";
 import { checkStaleBaseBranch, getTaskStatusForWorkspace, type StartTaskWarning } from "./task.js";
 import { transitionTask } from "./task-lifecycle.js";
+import { reconcileNawabariClosures } from "./nawabari-close.js";
 import type { RepositoryInstanceId } from "./identity.js";
 import type {
   NawabariSessionId,
@@ -55,6 +56,7 @@ export type NawabariTaskStartFailureReason =
   | "nawabari-contract-invalid"
   | "nawabari-rejected"
   | "nawabari-command-failed"
+  | "cleanup-blocked"
   | "nawabari-ownership-ambiguous"
   | "legacy-task-adoption-required"
   | "active-task-in-workspace";
@@ -431,7 +433,7 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
   try {
     const currentSessionId = await client.currentSessionId(input.workspaceRoot);
     const currentTask = input.store.listTasks().find((task) => task.nawabariSessionId === currentSessionId);
-    if (currentTask !== undefined)
+    if (currentTask !== undefined && currentTask.lifecycleState !== "merged")
       return {
         ok: false,
         reason: "active-task-in-workspace",
@@ -505,6 +507,25 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
   });
 
   const instanceId = identity.identity.instanceId as RepositoryInstanceId;
+  // Bound to the single most-recently-integrated execution: the reproduced #373/#376
+  // -> #377 blocker is one prior merged task's still-open session blocking the very
+  // next start, and clearing exactly that keeps interactive latency to at most one
+  // `session inspect` + one `session close` call. A broader multi-task backlog sweep
+  // is not a per-start concern; it stays available at the full bound through
+  // `workflow doctor`'s explicit opt-in reconciliation.
+  const closeReconciliation = await reconcileNawabariClosures({
+    workspaceRoot: input.workspaceRoot,
+    store: input.store,
+    client,
+    instanceId,
+    maxTasks: 1,
+  });
+  if (closeReconciliation.blocked.length > 0)
+    return {
+      ok: false,
+      reason: "cleanup-blocked",
+      detail: closeReconciliation.blocked.map((blocked) => blocked.detail).join("; "),
+    };
   const recoverable = findRecoverableTaskStart({
     store: input.store,
     instanceId,

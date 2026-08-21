@@ -1,10 +1,20 @@
 import fs from "node:fs";
 import path from "node:path";
 import { runGitCommand, type GitCommandFailure } from "../git/context.js";
-import { GithubAdapter } from "../providers/github.js";
-import type { PullRequestLifecycleState } from "../providers/model.js";
+import {
+  createPullRequestObserver,
+  type PullRequestObserver,
+  type PullRequestReconciliationObservation,
+} from "../providers/reconciliation.js";
 import type { RepositoryInstanceId } from "../domain/identity.js";
-import type { CleanupLeaseRecord, GuardrailAuditRecord, PullRequestRecord, TaskId, WorkflowStateStore } from "../state/store.js";
+import type {
+  CleanupLeaseRecord,
+  GuardrailAuditRecord,
+  TaskId,
+  WorkflowStateStore,
+} from "../state/store.js";
+
+export type { PullRequestObserver, PullRequestReconciliationObservation } from "../providers/reconciliation.js";
 
 export const RECONCILIATION_SCHEMA_VERSION = 1;
 
@@ -42,15 +52,6 @@ export interface GitReconciliationSnapshot {
 export type GitSnapshotResult =
   | { ok: true; snapshot: GitReconciliationSnapshot }
   | { ok: false; failure: GitCommandFailure };
-
-export interface PullRequestReconciliationObservation {
-  ok: boolean;
-  lifecycleState: PullRequestLifecycleState | "unknown";
-  headSha?: string;
-  detail?: string;
-}
-
-export type PullRequestObserver = (record: PullRequestRecord) => Promise<PullRequestReconciliationObservation>;
 
 export interface ReconciliationDependencies {
   now?: () => number;
@@ -219,24 +220,6 @@ export async function readGitReconciliationSnapshot(workspaceRoot: string): Prom
   };
 }
 
-function defaultPullRequestObserver(workspaceRoot: string): PullRequestObserver {
-  const adapter = new GithubAdapter({ workspaceRoot });
-  return async (record) => {
-    if (record.provider !== "github")
-      return {
-        ok: false,
-        lifecycleState: "unknown",
-        detail: `provider observation is unavailable: ${record.provider}`,
-      };
-    const result = await adapter.viewPullRequest(record.prNumber, {
-      provider: record.provider,
-      id: record.repositoryId,
-    });
-    if (!result.ok) return { ok: false, lifecycleState: "unknown", detail: result.error.message };
-    return { ok: true, lifecycleState: result.value.lifecycleState, headSha: result.value.head.revision };
-  };
-}
-
 function repairId(kind: ReconciliationRepairKind, targetId: string): string {
   return `repair:${kind}:${targetId}`;
 }
@@ -264,7 +247,7 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
 
   const snapshot = snapshotResult.snapshot;
   const diagnostics: ReconciliationDiagnostic[] = [];
-  // A Git snapshot describes one repository instance.  Never use every row in the
+  // A Git snapshot describes one repository instance. Never use every row in the
   // shared workflow store as the implicit scope: doing so can make a task, worktree,
   // or PR from another checkout appear to belong to this repository.
   const selectedInstance =
@@ -330,7 +313,7 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
       unscopedPullRequests.push({ taskId: record.taskId, instanceId: record.instanceId, task });
       return false;
     }
-    // Records belonging to another repository are deliberately ignored.  They must
+    // Records belonging to another repository are deliberately ignored. They must
     // never be observed or used to derive a repair for the current snapshot.
     return true;
   });
@@ -457,7 +440,7 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
     }
   }
 
-  // listWorktreesForTask is intentionally a task-keyed lookup.  Inspect every
+  // listWorktreesForTask is intentionally a task-keyed lookup. Inspect every
   // selected task's result as well so a corrupt row that claims the task id but
   // another instance cannot disappear merely because instance-scoped listing hid it.
   for (const task of recordedTasks) {
@@ -528,7 +511,7 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
   const mergedTaskIds = new Set<TaskId>();
   const providerObservations = new Map<string, PullRequestReconciliationObservation>();
   for (const task of recordedTasks) if (task.lifecycleState === "merged") mergedTaskIds.add(task.taskId);
-  const observer = dependencies.pullRequestObserver ?? defaultPullRequestObserver(input.workspaceRoot);
+  const observer = dependencies.pullRequestObserver ?? createPullRequestObserver(input.workspaceRoot);
   for (const record of recordedPullRequests) {
     const observed = await observer(record);
     providerObservations.set(record.recordId, observed);
@@ -559,12 +542,22 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
         },
       );
     }
-    if (observed.lifecycleState === "merged" && record.taskId !== undefined) mergedTaskIds.add(record.taskId);
+    // Reconciliation is observational. Matching provider evidence may affect the
+    // report below, but never persists mergeRevision/lifecycle state. Mutation is
+    // owned by explicit task-finish / close-reconciliation paths.
+    const observedHeadMatches = observed.headSha === record.headSha;
+    if (observed.lifecycleState === "merged" && observedHeadMatches && record.taskId !== undefined)
+      mergedTaskIds.add(record.taskId);
   }
   for (const taskId of mergedTaskIds) {
     const task = input.store.getTask(taskId);
     if (task === undefined) continue;
     if (task.lifecycleState === "cleaned") continue;
+    const closeState = input.store.getNawabariCloseReconciliation(task.taskId)?.state;
+    if (closeState === "closed") continue;
+    // A blocked close means Nawabari may still consider the session active;
+    // never propose a cleaned-metadata repair while that is unresolved.
+    if (closeState === "blocked") continue;
     const worktrees = input.store.listWorktreesForTask(task.taskId);
     const taskPullRequests = recordedPullRequests.filter((record) => record.taskId === task.taskId);
     const providerRepairSafe = taskPullRequests.every((record) => {

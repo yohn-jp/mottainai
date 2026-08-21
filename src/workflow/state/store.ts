@@ -58,6 +58,9 @@ export type WorktreeId = string & { readonly __brand: "WorktreeId" };
 export type NawabariSessionId = string & { readonly __brand: "NawabariSessionId" };
 export type PullRequestRecordId = string & { readonly __brand: "PullRequestRecordId" };
 
+export const NAWABARI_CLOSE_RECONCILIATION_STATES = ["pending", "closed", "blocked"] as const;
+export type NawabariCloseReconciliationState = (typeof NAWABARI_CLOSE_RECONCILIATION_STATES)[number];
+
 export type ManagerSessionId = string & { readonly __brand: "ManagerSessionId" };
 export type ManagerExecutionMode = "task-bound" | "workspace";
 export const MANAGER_AGENT_KINDS = ["codex", "claude", "pi"] as const;
@@ -272,6 +275,19 @@ export interface CommitReconciliationRecord {
   updatedAt: number;
 }
 
+/** Durable handoff state between provider integration and Nawabari session close. */
+export interface NawabariCloseReconciliationRecord {
+  taskId: TaskId;
+  instanceId: RepositoryInstanceId;
+  nawabariSessionId: NawabariSessionId;
+  providerRecordId: PullRequestRecordId;
+  integratedRevision?: string;
+  state: NawabariCloseReconciliationState;
+  detail?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface BeginPushReconciliationInput {
   taskId: TaskId;
   instanceId: RepositoryInstanceId;
@@ -345,6 +361,8 @@ export interface PullRequestRecord {
   prNumber: number;
   url: string;
   headSha: string;
+  /** Provider-authoritative integrated revision, available after merge. */
+  mergeRevision: string | undefined;
   lifecycleState: PullRequestLifecycleState;
   createdAt: number;
   updatedAt: number;
@@ -396,8 +414,18 @@ export interface RecordPullRequestInput {
   prNumber: number;
   url: string;
   headSha: string;
+  mergeRevision?: string;
   lifecycleState: PullRequestLifecycleState;
   recordedAt?: number;
+}
+
+export interface BeginNawabariCloseReconciliationInput {
+  taskId: TaskId;
+  instanceId: RepositoryInstanceId;
+  nawabariSessionId: NawabariSessionId;
+  providerRecordId: PullRequestRecordId;
+  integratedRevision?: string;
+  createdAt?: number;
 }
 
 export interface ReserveTaskInput {
@@ -705,6 +733,18 @@ export interface WorkflowStateStore {
   markCommitReconciliationReconciled(taskId: TaskId, updatedAt?: number): CommitReconciliationRecord;
   getCommitReconciliation(taskId: TaskId): CommitReconciliationRecord | undefined;
 
+  /** Create or recover the durable provider-to-Nawabari close handoff. */
+  beginNawabariCloseReconciliation(input: BeginNawabariCloseReconciliationInput): NawabariCloseReconciliationRecord;
+  /** Persist the physical close result without changing task semantic state. */
+  markNawabariCloseReconciliation(
+    taskId: TaskId,
+    state: Exclude<NawabariCloseReconciliationState, "pending">,
+    detail?: string,
+    updatedAt?: number,
+  ): NawabariCloseReconciliationRecord;
+  getNawabariCloseReconciliation(taskId: TaskId): NawabariCloseReconciliationRecord | undefined;
+  listNawabariCloseReconciliations(instanceId?: RepositoryInstanceId): NawabariCloseReconciliationRecord[];
+
   /** 予約後に外部操作が失敗した場合の補償ロールバック。 */
   deleteReservedTask(taskId: TaskId): void;
 
@@ -743,6 +783,12 @@ export interface WorkflowStateStore {
   updatePullRequestLifecycleState(
     recordId: PullRequestRecordId,
     lifecycleState: PullRequestLifecycleState,
+    updatedAt?: number,
+  ): PullRequestRecord;
+  /** Persist the provider's authoritative integrated revision after merge observation. */
+  recordPullRequestMergeRevision(
+    recordId: PullRequestRecordId,
+    mergeRevision: string,
     updatedAt?: number,
   ): PullRequestRecord;
   listPullRequestRecords(): PullRequestRecord[];

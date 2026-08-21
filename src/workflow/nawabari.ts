@@ -4,7 +4,7 @@ import { projectNawabariDeclaration } from "../semantics/execution-plan.js";
 
 export const NAWABARI_CONTRACT_ID = "nawabari.standalone-execution.v1" as const;
 export const NAWABARI_CONTRACT_SCHEMA_VERSION = 1 as const;
-export const MINIMUM_NAWABARI_VERSION = "0.4.1" as const;
+export const MINIMUM_NAWABARI_VERSION = "0.5.0" as const;
 /** Expected shape of the resource-claims capability's `claim_set_replacement` boundary (Nawabari #101 / PR #106). */
 const REQUIRED_CLAIM_SET_REPLACEMENT_PAIRING = "adjacent-resource-mode" as const;
 
@@ -15,6 +15,10 @@ const REQUIRED_NAWABARI_COMMANDS = [
   "session id",
   "session show",
   "session list",
+  // Introduced in Nawabari 0.5.0's session-diagnostics capability; required so
+  // closeNawabariExecution's physical-close-readiness inspection never runs
+  // against a companion too old to support it (Nawabari <0.5.0 rejects it).
+  "session inspect",
   "session claim",
   "session update",
   "session claims",
@@ -464,6 +468,12 @@ export class NawabariExecutionClient {
     return this.session(await this.invoke(["session", "show", "--session", input.sessionId], input.cwd));
   }
 
+  /** Inspect physical close readiness before requesting Nawabari's normal close. */
+  async inspectSession(input: { cwd: string; sessionId: string }): Promise<NawabariSession> {
+    await this.capabilities(input.cwd);
+    return this.sessionDiagnostic(await this.invoke(["session", "inspect", "--session", input.sessionId], input.cwd));
+  }
+
   async listSessions(cwd: string): Promise<NawabariSession[]> {
     await this.capabilities(cwd);
     const result = await this.invoke(["session", "list"], cwd);
@@ -492,8 +502,31 @@ export class NawabariExecutionClient {
     return requiredString((await this.invoke(["session", "id"], cwd)).session_id, "session_id");
   }
 
-  async closeSession(input: { cwd: string; sessionId: string }): Promise<NawabariCommandResult> {
-    return this.invoke(["session", "close", "--session", input.sessionId], input.cwd);
+  async closeSession(input: {
+    cwd: string;
+    sessionId: string;
+    /** Provider evidence for squash/rebase/non-ancestry integration. */
+    integratedRevision?: string;
+  }): Promise<NawabariCommandResult> {
+    const args = ["session", "close", "--session", input.sessionId];
+    if (input.integratedRevision !== undefined) args.push("--integrated-revision", input.integratedRevision);
+    const result = await this.invoke(args, input.cwd);
+    const closedSession = this.sessionCloseResult(result);
+    if (closedSession.sessionId !== input.sessionId)
+      throw new NawabariExecutionError(
+        "nawabari-contract-invalid",
+        `Nawabari session close returned the wrong session identity: expected ${input.sessionId}, got ${closedSession.sessionId}`,
+        undefined,
+        result,
+      );
+    if (closedSession.state !== "closed")
+      throw new NawabariExecutionError(
+        "nawabari-contract-invalid",
+        `Nawabari session close did not prove physical closure: state=${closedSession.state}`,
+        undefined,
+        result,
+      );
+    return result;
   }
 
   async doctor(cwd: string): Promise<NawabariCommandResult> {
@@ -516,6 +549,41 @@ export class NawabariExecutionClient {
       branch: requiredString(result.branch, "branch"),
       state: requiredString(result.state, "state"),
       ...(typeof result.label === "string" ? { label: result.label } : {}),
+      raw: result,
+    };
+  }
+
+  /**
+   * `session inspect`'s session-diagnostic.v1 result nests only the session
+   * record's state under `session`; identity fields remain top-level alongside
+   * close_readiness/blockers.
+   */
+  private sessionDiagnostic(result: NawabariCommandResult): NawabariSession {
+    const sessionRecord = object(result.session);
+    return {
+      sessionId: requiredString(result.session_id, "session_id"),
+      repository: requiredString(result.repository, "repository"),
+      worktree: requiredString(result.worktree, "worktree"),
+      branch: requiredString(result.branch, "branch"),
+      state: requiredString(sessionRecord?.state, "session.state"),
+      raw: result,
+    };
+  }
+
+  /**
+   * Nawabari 0.5.0's session-close result nests the authoritative SessionRecord
+   * under `session`. The flat fallback keeps older hermetic fixtures readable,
+   * but closeSession still requires the parsed state to be exactly `closed`.
+   */
+  private sessionCloseResult(result: NawabariCommandResult): NawabariSession {
+    const sessionRecord = object(result.session) ?? result;
+    return {
+      sessionId: requiredString(sessionRecord.session_id, "session.session_id"),
+      repository: requiredString(sessionRecord.repository, "session.repository"),
+      worktree: requiredString(sessionRecord.worktree, "session.worktree"),
+      branch: requiredString(sessionRecord.branch, "session.branch"),
+      state: requiredString(sessionRecord.state, "session.state"),
+      ...(typeof sessionRecord.label === "string" ? { label: sessionRecord.label } : {}),
       raw: result,
     };
   }

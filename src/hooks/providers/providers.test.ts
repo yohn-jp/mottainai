@@ -39,7 +39,11 @@ function gitRepository(): string {
   fs.mkdirSync(path.join(root, ".mottainai"), { recursive: true });
   fs.writeFileSync(
     path.join(root, ".mottainai", "workflow.json"),
-    JSON.stringify({ ...BUILTIN_PRESETS.standard, protectedBranches: ["release/*"], protectedBranchRule: { ...BUILTIN_PRESETS.standard.protectedBranchRule, sourceWrite: "enforce" } }),
+    JSON.stringify({
+      ...BUILTIN_PRESETS.standard,
+      protectedBranches: ["release/*"],
+      protectedBranchRule: { ...BUILTIN_PRESETS.standard.protectedBranchRule, sourceWrite: "enforce" },
+    }),
   );
   return root;
 }
@@ -63,21 +67,35 @@ function nawabariDecisionClient(allowed: boolean, calls: string[][]): NawabariEx
             command: "capabilities",
             schema_version: 1,
             contract_id: "nawabari.standalone-execution.v1",
-            package_version: "0.4.1",
-            capabilities: [{
-              id: "resource-claims",
-              commands: [
-                "session create", "session id", "session show", "session list", "session claim", "session update",
-                "session claims", "session close", "authorize", "checkpoint", "commit", "push", "gc",
-              ],
-              claim_set_replacement: {
-                commands: ["session update", "resource update"],
-                atomic: true,
-                pairing: "adjacent-resource-mode",
-                idempotent_retry: true,
-                unchanged_on_rejection: true,
+            package_version: "0.5.0",
+            capabilities: [
+              {
+                id: "resource-claims",
+                commands: [
+                  "session create",
+                  "session id",
+                  "session show",
+                  "session list",
+                  "session inspect",
+                  "session claim",
+                  "session update",
+                  "session claims",
+                  "session close",
+                  "authorize",
+                  "checkpoint",
+                  "commit",
+                  "push",
+                  "gc",
+                ],
+                claim_set_replacement: {
+                  commands: ["session update", "resource update"],
+                  atomic: true,
+                  pairing: "adjacent-resource-mode",
+                  idempotent_retry: true,
+                  unchanged_on_rejection: true,
+                },
               },
-            }],
+            ],
           });
         if (args[0] === "authorize")
           return response(
@@ -107,18 +125,24 @@ test("workflow provider consumes current #28 policy and repository state without
   assert.equal(result.reason, "workflow_protected_branch");
   assert.equal(result.rule, "protectedBranchRule.sourceWrite");
 
-  const forcePush = await provider.evaluate(event("process.exec", { kind: "command", value: "git push origin HEAD:release/v1 --force" }));
+  const forcePush = await provider.evaluate(
+    event("process.exec", { kind: "command", value: "git push origin HEAD:release/v1 --force" }),
+  );
   assert.equal(forcePush.state, "authoritative");
   assert.equal(forcePush.action, "redirect");
   assert.equal(forcePush.reason, "workflow_typed_operation_required");
   assert.equal(forcePush.replacement, "mottainai_workflow_task_push");
 
-  const currentBranchForcePush = await provider.evaluate(event("process.exec", { kind: "command", value: "git push origin HEAD --force" }));
+  const currentBranchForcePush = await provider.evaluate(
+    event("process.exec", { kind: "command", value: "git push origin HEAD --force" }),
+  );
   assert.equal(currentBranchForcePush.state, "authoritative");
   assert.equal(currentBranchForcePush.action, "redirect");
   assert.equal(currentBranchForcePush.replacement, "mottainai_workflow_task_push");
 
-  const worktreeManagement = await provider.evaluate(event("process.exec", { kind: "command", value: "git worktree list" }));
+  const worktreeManagement = await provider.evaluate(
+    event("process.exec", { kind: "command", value: "git worktree list" }),
+  );
   assert.equal(worktreeManagement.state, "authoritative");
   assert.equal(worktreeManagement.reason, "workflow_worktree");
 });
@@ -229,10 +253,20 @@ test("context provider reuses #70 read-governor thresholds for broad and bounded
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-hook-provider-read-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   fs.writeFileSync(path.join(root, "large.txt"), `${"line\n".repeat(50)}`);
-  const readPolicy = { ...DEFAULT_READ_GOVERNOR_POLICY, mode: "enforce" as const, preferAuto: false, maxRawLines: 10, maxRawBytes: 256, allowWholeFileBelowLines: 2 };
+  const readPolicy = {
+    ...DEFAULT_READ_GOVERNOR_POLICY,
+    mode: "enforce" as const,
+    preferAuto: false,
+    maxRawLines: 10,
+    maxRawBytes: 256,
+    allowWholeFileBelowLines: 2,
+  };
   const provider = createContextReadPolicyProvider({ workspaceRoot: root, readPolicy });
 
-  const broad = await provider.evaluate({ ...event("source.read", { kind: "path", value: "large.txt" }), metadata: { mode: "raw" } });
+  const broad = await provider.evaluate({
+    ...event("source.read", { kind: "path", value: "large.txt" }),
+    metadata: { mode: "raw" },
+  });
   assert.equal(broad.state, "authoritative");
   assert.equal(broad.action, "deny");
   assert.equal(broad.reason, "context_read_governor");
@@ -253,7 +287,13 @@ test("composition is deterministic, preserves a stronger deny, and surfaces non-
   const trace = composeHookDecision(generic, [
     { provider: "semantic", state: "unavailable", reason: "semantic_authority_unavailable", rule: "semantic.fresh" },
     { provider: "context", state: "authoritative", action: "allow", reason: "context_read_governor", rule: "NONE" },
-    { provider: "workflow", state: "authoritative", action: "deny", reason: "workflow_protected_branch", rule: "protectedBranchRule.sourceWrite" },
+    {
+      provider: "workflow",
+      state: "authoritative",
+      action: "deny",
+      reason: "workflow_protected_branch",
+      rule: "protectedBranchRule.sourceWrite",
+    },
   ]);
   assert.equal(trace.decision.decision, "deny");
   assert.equal(trace.decision.provider, "workflow");
@@ -270,7 +310,15 @@ test("composition is deterministic, preserves a stronger deny, and surfaces non-
 test("a domain deny preserves a usable generic managed replacement", () => {
   const trace = composeHookDecision(
     { version: 1, decision: "redirect", reason: "managed_capability_available", replacement: "mottainai_exec" },
-    [{ provider: "workflow", state: "authoritative", action: "deny", reason: "workflow_protected_branch", rule: "protectedBranchRule.commit" }],
+    [
+      {
+        provider: "workflow",
+        state: "authoritative",
+        action: "deny",
+        reason: "workflow_protected_branch",
+        rule: "protectedBranchRule.commit",
+      },
+    ],
   );
   assert.equal(trace.decision.decision, "deny");
   assert.equal(trace.decision.replacement, "mottainai_exec");
@@ -293,22 +341,37 @@ test("supported Claude hook adapter projects workflow denial and read-governor d
     workflowProvider: createWorkflowHookProvider({ workspaceRoot }),
   });
 
-  const workflow = await dispatchClientHook("claude", {
-    hook_event_name: "PreToolUse",
-    tool_name: "Write",
-    tool_input: { file_path: "tracked.txt" },
-  }, context(workflowRoot));
+  const workflow = await dispatchClientHook(
+    "claude",
+    {
+      hook_event_name: "PreToolUse",
+      tool_name: "Write",
+      tool_input: { file_path: "tracked.txt" },
+    },
+    context(workflowRoot),
+  );
   assert.equal(workflow.exitCode, 2);
   assert.equal(workflow.decision.reason, "workflow_protected_branch");
 
-  const read = await dispatchClientHook("claude", {
-    hook_event_name: "PreToolUse",
-    tool_name: "Read",
-    tool_input: { file_path: "large.txt", mode: "raw" },
-  }, {
-    ...context(readRoot),
-    readPolicy: { ...DEFAULT_READ_GOVERNOR_POLICY, mode: "enforce", preferAuto: false, maxRawLines: 10, maxRawBytes: 256, allowWholeFileBelowLines: 2 },
-  });
+  const read = await dispatchClientHook(
+    "claude",
+    {
+      hook_event_name: "PreToolUse",
+      tool_name: "Read",
+      tool_input: { file_path: "large.txt", mode: "raw" },
+    },
+    {
+      ...context(readRoot),
+      readPolicy: {
+        ...DEFAULT_READ_GOVERNOR_POLICY,
+        mode: "enforce",
+        preferAuto: false,
+        maxRawLines: 10,
+        maxRawBytes: 256,
+        allowWholeFileBelowLines: 2,
+      },
+    },
+  );
   assert.equal(read.exitCode, 2);
   assert.equal(read.decision.reason, "context_read_governor");
 });

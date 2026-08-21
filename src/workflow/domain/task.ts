@@ -597,7 +597,7 @@ export type WorkspaceTaskTransitionResult =
   | { ok: false; reason: string; detail: string; blocked?: TransitionBlockedInfo };
 
 type MergedPullRequestVerification =
-  | { ok: true; record: PullRequestRecord }
+  | { ok: true; record: PullRequestRecord; pullRequest: PullRequest }
   | { ok: false; reason: string; detail: string };
 
 async function verifyMergedPullRequest(
@@ -667,7 +667,19 @@ async function verifyMergedPullRequest(
       detail: `provider pull-request is ${pullRequest.lifecycleState}; refusing to mark the task merged without an observed merge`,
     };
   }
-  return { ok: true, record };
+  let persistedRecord = record;
+  if (pullRequest.mergeRevision !== undefined) {
+    try {
+      persistedRecord = store.recordPullRequestMergeRevision(record.recordId, pullRequest.mergeRevision);
+    } catch (error) {
+      return {
+        ok: false,
+        reason: "provider-state-write-failed",
+        detail: `authoritative provider merge revision could not be persisted: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+  return { ok: true, record: persistedRecord, pullRequest };
 }
 
 /**

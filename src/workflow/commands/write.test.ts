@@ -171,7 +171,7 @@ function commitBoundaryNawabari(
                 command: "capabilities",
                 schema_version: 1,
                 contract_id: "nawabari.standalone-execution.v1",
-                package_version: "0.4.1",
+                package_version: "0.5.0",
                 capabilities: FAKE_NAWABARI_CAPABILITIES,
               }),
             );

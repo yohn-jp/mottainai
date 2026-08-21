@@ -5,8 +5,10 @@ Repository Semantics, semantic impact, verification intent, task lifecycle,
 provider/Issue/PR state, and agent-facing orchestration.
 
 Nawabari is the sole local repository execution authority for managed tasks. A
-compatible installation of `nawabari@0.3.0` must advertise the machine
-contract `nawabari.standalone-execution.v1` with schema version `1`.
+compatible installation of `nawabari@0.5.0` or newer must advertise the
+machine contract `nawabari.standalone-execution.v1` with schema version `1`,
+including the `session-diagnostics` capability (`session inspect`) that
+close reconciliation depends on.
 
 ```text
 Mottainai task intent + Repository Semantics
@@ -50,8 +52,10 @@ absence of every legacy physical row and path. `adopt` requires an explicitly
 named Nawabari session whose repository, worktree, branch, and active state
 match the legacy record; ambiguous or unprovable identity fails closed. Neither
 mode mutates a legacy worktree, branch, lease, or cleanup row. `workflow doctor`
-remains read-only and labels any observed legacy physical rows as
-non-authoritative.
+labels any observed legacy physical rows as non-authoritative. Its default run
+stays strictly read-only; only an explicit `--reconcile-closures` opt-in (CLI)
+or `reconcileClosures: true` (MCP) also requests Nawabari's normal safe-close
+for the caller's own prior merged executions.
 
 The companion is discovered with `nawabari capabilities --json`. Mottainai does
 not auto-install it. Missing, incompatible, malformed, timed-out, or rejected
@@ -59,7 +63,7 @@ capability results are surfaced as bounded diagnostics. Context, semantic
 analysis, verification planning, and provider operations continue to work
 without Nawabari; managed local repository mutation does not.
 
-The source repository pins Nawabari 0.3.0 only as a development dependency for
+The source repository pins Nawabari 0.5.0 only as a development dependency for
 hermetic contract and package tests. Published Mottainai packages do not install
 the companion; operators install the compatible standalone executable explicitly.
 

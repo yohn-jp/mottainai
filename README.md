@@ -310,7 +310,7 @@ npx -y mottainai task open-pr --title title [--repo owner/name] [--workspace pat
 npx -y mottainai task finish [--workspace path]
 npx -y mottainai task abandon [--workspace path]
 npx -y mottainai task cleanup [--workspace path]
-npx -y mottainai workflow doctor [--workspace path]
+npx -y mottainai workflow doctor [--workspace path] [--reconcile-closures]
 ```
 
 For the 0.2.0 managed Pi golden path, `task run` composes task creation with
@@ -325,7 +325,7 @@ npx -y mottainai@0.2.0 task run my-fix \
 ```
 
 The managed Pi profile requires compatible Pi and Zellij executables,
-Nawabari >= 0.4.1, and the supported gh-inari companion for governed PR
+Nawabari >= 0.5.0, and the supported gh-inari companion for governed PR
 creation. Missing or incompatible companions fail closed; Mottainai does not
 silently install them or fall back to retired mutation paths. Agent process exit
 alone is not semantic success: the workflow lifecycle remains authoritative.
@@ -336,10 +336,14 @@ canonical worktree path in `execution.worktree`. Every follow-up command
 a hand-constructed path; Nawabari owns that worktree for the life of the
 task.
 
-`workflow doctor` runs the same read-only reconciliation report as the MCP
-tool: it never repairs or deletes anything, and exits non-zero when it
-observes a reconciliation problem while still printing the structured
-report.
+`workflow doctor` runs the same reconciliation report as the MCP tool. By
+default it is strictly read-only: it never repairs, deletes, mutates task/PR
+state, or closes a Nawabari session, and exits non-zero when it observes a
+reconciliation problem while still printing the structured report. Pass
+`--reconcile-closures` to additionally request Nawabari's normal safe-close
+for the caller's own prior merged executions (`mode` becomes `"reconcile"`
+in the report); Mottainai still never edits Nawabari registry/claim state
+directly.
 
 Initialization options include `--workspace`, `--scope personal|project`,
 `--client claude|codex|none`, `--import claude|codex|none`, `--force`,

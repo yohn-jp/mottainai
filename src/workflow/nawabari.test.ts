@@ -18,6 +18,7 @@ const REQUIRED_COMMANDS = [
   "session id",
   "session show",
   "session list",
+  "session inspect",
   "session claim",
   "session update",
   "session claims",
@@ -54,7 +55,7 @@ function capabilitiesResult(
     command: "capabilities",
     schema_version: 1,
     contract_id: "nawabari.standalone-execution.v1",
-    package_version: overrides.packageVersion ?? "0.4.1",
+    package_version: overrides.packageVersion ?? "0.5.0",
     capabilities: [
       { id: "resource-claims", commands: overrides.commands ?? REQUIRED_COMMANDS, ...claimSetReplacement },
     ],
@@ -345,7 +346,7 @@ test("crash retry rejects an unexpected broader claim without mutating it", asyn
   );
 });
 
-test("discovery requires the atomic claim_set_replacement boundary and the 0.4.1 floor", async () => {
+test("discovery requires the atomic claim_set_replacement boundary and the 0.5.0 floor", async () => {
   const missingBoundary = new NawabariExecutionClient({
     runner: {
       async run(): Promise<RunResult> {
@@ -380,6 +381,115 @@ test("discovery requires the atomic claim_set_replacement boundary and the 0.4.1
   await assert.rejects(
     tooOld.capabilities("/repo"),
     (error: unknown) => error instanceof NawabariExecutionError && error.code === "nawabari-incompatible",
+  );
+
+  // Nawabari 0.4.1 predates the session-diagnostics capability (`session inspect`,
+  // `session close --integrated-revision`) that close reconciliation depends on;
+  // both the version floor and the required-commands gate must reject it.
+  const belowInspectFloor = new NawabariExecutionClient({
+    runner: {
+      async run(): Promise<RunResult> {
+        return result(capabilitiesResult({ packageVersion: "0.4.1" }));
+      },
+    },
+  });
+  await assert.rejects(
+    belowInspectFloor.capabilities("/repo"),
+    (error: unknown) => error instanceof NawabariExecutionError && error.code === "nawabari-incompatible",
+  );
+
+  const missingInspectCommand = new NawabariExecutionClient({
+    runner: {
+      async run(): Promise<RunResult> {
+        return result(
+          capabilitiesResult({ commands: REQUIRED_COMMANDS.filter((command) => command !== "session inspect") }),
+        );
+      },
+    },
+  });
+  await assert.rejects(
+    missingInspectCommand.capabilities("/repo"),
+    (error: unknown) => error instanceof NawabariExecutionError && error.code === "nawabari-incompatible",
+  );
+});
+
+test("inspectSession reads state from the nested session-diagnostic.v1 session record, not a top-level field", async () => {
+  // Nawabari 0.5.0's real `session inspect --json` nests the session record
+  // (including `state`) under a `session` object; unlike `session show`/
+  // `create`/`close`, there is no top-level `state` field.
+  const calls: string[][] = [];
+  const client = new NawabariExecutionClient({
+    runner: {
+      async run(_command, args): Promise<RunResult> {
+        calls.push([...args]);
+        if (args[0] === "capabilities") return result(capabilitiesResult());
+        if (args[0] === "session" && args[1] === "inspect")
+          return result({
+            ok: true,
+            command: "session inspect",
+            schema_version: 1,
+            session_id: "session-1",
+            repository: "/repo/.git",
+            worktree: "/repo-worktree",
+            branch: "feat/example",
+            session: {
+              schema_version: 1,
+              session_id: "session-1",
+              repository: "/repo/.git",
+              worktree: "/repo-worktree",
+              branch: "feat/example",
+              state: "closing",
+              created_at: "2026-01-01T00:00:00.000Z",
+              updated_at: "2026-01-01T00:00:00.000Z",
+            },
+            claims: [],
+            physical_state: "healthy",
+            close_readiness: "blocked",
+            cleanup_readiness: "not_due",
+            result_state: "complete",
+            idempotent: false,
+            blockers: [
+              { code: "DIRTY_WORKTREE", message: "recoverable changes remain", details: {}, safe_actions: [] },
+            ],
+            safe_actions: [],
+            integration_evidence: { supplied: false },
+          });
+        throw new Error(`unexpected command: ${args.join(" ")}`);
+      },
+    },
+  });
+  const inspected = await client.inspectSession({ cwd: "/repo", sessionId: "session-1" });
+  assert.equal(inspected.state, "closing");
+  assert.equal(inspected.sessionId, "session-1");
+  assert.equal(inspected.worktree, "/repo-worktree");
+  assert.equal(inspected.raw.close_readiness, "blocked");
+  assert.deepEqual(inspected.raw.blockers, [
+    { code: "DIRTY_WORKTREE", message: "recoverable changes remain", details: {}, safe_actions: [] },
+  ]);
+
+  const missingSessionRecord = new NawabariExecutionClient({
+    runner: {
+      async run(_command, args): Promise<RunResult> {
+        if (args[0] === "capabilities") return result(capabilitiesResult());
+        if (args[0] === "session" && args[1] === "inspect")
+          return result({
+            ok: true,
+            command: "session inspect",
+            session_id: "session-1",
+            repository: "/repo/.git",
+            worktree: "/repo-worktree",
+            branch: "feat/example",
+            // No nested `session` object: a companion advertising the
+            // capability but returning a malformed diagnostic must fail
+            // closed, never fall back to treating this as active/closed.
+          });
+        throw new Error(`unexpected command: ${args.join(" ")}`);
+      },
+    },
+  });
+  await assert.rejects(
+    missingSessionRecord.inspectSession({ cwd: "/repo", sessionId: "session-1" }),
+    (error: unknown) => error instanceof NawabariExecutionError && error.code === "nawabari-contract-invalid",
   );
 });
 
