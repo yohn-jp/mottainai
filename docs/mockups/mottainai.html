@@ -390,6 +390,17 @@
   var taskStep = 0;
   var taskPreview;
   var taskRequest;
+  var createTaskState = function () {
+    return {
+      issueRef: "#406",
+      instruction: "Implement the requested work while preserving existing authority boundaries.",
+      agentKind: "pi",
+      taskSlug: "operational-task",
+      branchType: "feat",
+      scope: { path: "src/**", claimMode: "exclusive-write" },
+    };
+  };
+  var taskState = createTaskState();
   function rail(phases) {
     return (phases || []).map(function (phase) {
       return '<span class="' + (phase.state === "complete" ? "done" : phase.state === "current" ? "now" : "") + '" title="' + esc(phase.label) + '"></span>';
@@ -470,27 +481,75 @@
   }
   function action(session, kind) {
     if (kind === "inspect") return openSession(session.sessionId);
-    var path = kind === "open-terminal" ? "/sessions/" + encodeURIComponent(session.sessionId) + "/open-terminal" :
-      kind === "restart" ? "/sessions/" + encodeURIComponent(session.sessionId) + "/restart" :
-      "/nawabari/sessions/" + encodeURIComponent(session.sessionId) + "/inspect";
+    var path;
+    if (kind === "open-terminal") path = "/sessions/" + encodeURIComponent(session.sessionId) + "/open-terminal";
+    else if (kind === "restart") path = "/sessions/" + encodeURIComponent(session.sessionId) + "/restart";
+    else {
+      var executionSessionId = session.operational && session.operational.identities && session.operational.identities.executionSessionId;
+      if (!executionSessionId) {
+        q("#drawerBody").insertAdjacentHTML("afterbegin", '<div class="detail-block"><b>Inspect unavailable</b><p>Nawabari execution session identity is unavailable; no inspect request was sent.</p></div>');
+        return;
+      }
+      path = "/nawabari/sessions/" + encodeURIComponent(executionSessionId) + "/inspect";
+    }
     post(path, {}).then(refresh).then(function () { openSession(session.sessionId); }).catch(function (error) {
       q("#drawerBody").insertAdjacentHTML("afterbegin", '<div class="detail-block"><b>Action unavailable</b><p>' + esc(error.message) + "</p></div>");
     });
   }
+  function saveTaskInputs() {
+    var input = q("#intentIssue");
+    if (input) taskState.issueRef = input.value;
+    input = q("#intentInstruction");
+    if (input) taskState.instruction = input.value;
+    input = q("#intentAgent");
+    if (input) taskState.agentKind = input.value;
+    input = q("#intentTaskSlug");
+    if (input) taskState.taskSlug = input.value;
+    input = q("#intentBranchType");
+    if (input) taskState.branchType = input.value;
+    input = q("#intentPath");
+    if (input) taskState.scope.path = input.value;
+    input = q("#intentClaimMode");
+    if (input) taskState.scope.claimMode = input.value;
+  }
+  function normalizeIssueRef(raw) {
+    var issue = String(raw == null ? "" : raw).trim();
+    return issue.replace(/^#+/u, "") || "406";
+  }
+  function taskSnapshot() {
+    var state = {
+      issueRef: taskState.issueRef,
+      instruction: taskState.instruction,
+      agentKind: taskState.agentKind,
+      taskSlug: taskState.taskSlug,
+      branchType: taskState.branchType,
+      scope: { path: taskState.scope.path, claimMode: taskState.scope.claimMode },
+    };
+    var path = state.scope.path.trim() || "src/**";
+    var slug = state.taskSlug.trim() || "operational-task";
+    return {
+      instruction: state.instruction.trim() || "Implement the requested work.",
+      agentKind: state.agentKind || "pi",
+      issueRef: normalizeIssueRef(state.issueRef),
+      taskSlug: slug,
+      branchType: state.branchType.trim() || "feat",
+      idempotencyKey: "manager-ui-" + slug.replace(/[^A-Za-z0-9._:-]/gu, "-"),
+      scope: { paths: [path], claims: [{ resource: path, mode: state.scope.claimMode || "exclusive-write" }] },
+    };
+  }
   function taskValues() {
-    var path = (q("#intentPath") && q("#intentPath").value || "src/**").trim();
-    var slug = (q("#intentTaskSlug") && q("#intentTaskSlug").value || "operational-task").trim();
-    var issue = (q("#intentIssue") && q("#intentIssue").value || "#406").trim();
-    return { instruction:(q("#intentInstruction") && q("#intentInstruction").value || "Implement the requested work.").trim(), agentKind:q("#intentAgent") && q("#intentAgent").value || "pi", issueRef:issue, taskSlug:slug, branchType:q("#intentBranchType") && q("#intentBranchType").value || "feat", idempotencyKey:"manager-ui-" + slug.replace(/[^A-Za-z0-9._:-]/gu, "-"), scope:{ paths:[path], claims:[{resource:path, mode:q("#intentClaimMode") && q("#intentClaimMode").value || "exclusive-write"}] } };
+    saveTaskInputs();
+    return taskSnapshot();
   }
   function taskMarkup() {
-    if (taskStep === 0) return '<div class="detail-block"><div class="detail-label">Wabachi Work Intent → Manager</div><p>Finding → Create Work Intent → Manager → preflight → managed session → Running</p></div><div class="field"><label>Issue / intent</label><input id="intentIssue" value="#406"></div><div class="field"><label>Implementation instruction</label><textarea id="intentInstruction">Implement the requested work while preserving existing authority boundaries.</textarea></div>';
-    if (taskStep === 1) return '<div class="form-grid"><div class="field"><label>Execution profile</label><select id="intentAgent"><option value="pi">Pi</option><option value="codex">Codex</option><option value="claude">Claude</option></select></div><div class="field"><label>Task slug</label><input id="intentTaskSlug" value="operational-task"></div></div><div class="field"><label>Branch type</label><input id="intentBranchType" value="feat"></div>';
-    if (taskStep === 2) return '<div class="field"><label>Requested repository path</label><input id="intentPath" value="src/**"></div><div class="field"><label>Claim mode</label><select id="intentClaimMode"><option value="exclusive-write">exclusive-write</option><option value="write">write</option><option value="read">read</option></select></div><div class="detail-block"><div class="detail-label">authority boundary</div><code>Git/worktree: Nawabari<br>GitHub mutation: gh-inari<br>lifecycle: Mottainai</code></div>';
+    if (taskStep === 0) return '<div class="detail-block"><div class="detail-label">Wabachi Work Intent → Manager</div><p>Finding → Create Work Intent → Manager → preflight → managed session → Running</p></div><div class="field"><label>Issue / intent</label><input id="intentIssue" value="' + esc(taskState.issueRef) + '"></div><div class="field"><label>Implementation instruction</label><textarea id="intentInstruction">' + esc(taskState.instruction) + "</textarea></div>";
+    if (taskStep === 1) return '<div class="form-grid"><div class="field"><label>Execution profile</label><select id="intentAgent"><option value="pi"' + (taskState.agentKind === "pi" ? " selected" : "") + '>Pi</option><option value="codex"' + (taskState.agentKind === "codex" ? " selected" : "") + '>Codex</option><option value="claude"' + (taskState.agentKind === "claude" ? " selected" : "") + '>Claude</option></select></div><div class="field"><label>Task slug</label><input id="intentTaskSlug" value="' + esc(taskState.taskSlug) + '"></div></div><div class="field"><label>Branch type</label><input id="intentBranchType" value="' + esc(taskState.branchType) + '"></div>';
+    if (taskStep === 2) return '<div class="field"><label>Requested repository path</label><input id="intentPath" value="' + esc(taskState.scope.path) + '"></div><div class="field"><label>Claim mode</label><select id="intentClaimMode"><option value="exclusive-write"' + (taskState.scope.claimMode === "exclusive-write" ? " selected" : "") + '>exclusive-write</option><option value="write"' + (taskState.scope.claimMode === "write" ? " selected" : "") + '>write</option><option value="read"' + (taskState.scope.claimMode === "read" ? " selected" : "") + '>read</option></select></div><div class="detail-block"><div class="detail-label">authority boundary</div><code>Git/worktree: Nawabari<br>GitHub mutation: gh-inari<br>lifecycle: Mottainai</code></div>';
     if (taskStep === 3) return '<div class="detail-block"><div class="detail-label">claim-preflight / launch readiness</div><div id="preflightResult">Running authoritative read-only preflight…</div></div><div class="detail-block"><div class="detail-label">preview endpoint</div><code>POST /api/v1/manager/sessions/preview</code></div>';
     return '<div class="detail-block"><div class="detail-label">Launch through Manager</div><p>' + (taskPreview ? "Preflight clear. Manager establishes authoritative identities." : "Launch unavailable until preflight succeeds.") + '</p></div><div class="detail-block"><div class="detail-label">Projected Nawabari declaration</div><code>' + esc(taskPreview && taskPreview.nawabariDeclaration ? JSON.stringify(taskPreview.nawabariDeclaration) : "unavailable") + '</code></div><div class="detail-block"><div class="detail-label">resolved branch</div><code>' + esc(taskPreview && taskPreview.identity ? taskPreview.identity.branch.name : "unavailable") + "</code></div>";
   }
   function renderTask() {
+    saveTaskInputs();
     var steps = q(".steps");
     while (steps.children.length < 5) steps.appendChild(document.createElement("i"));
     steps.style.gridTemplateColumns = "repeat(5,1fr)";
@@ -518,7 +577,7 @@
     if (!taskPreview) return;
     post("/sessions", taskRequest).then(function (body) { closeNew(); return refresh().then(function () { openSession(body.session.sessionId); }); }).catch(function (error) { q("#stepContent").insertAdjacentHTML("beforeend", '<div class="detail-block"><b>Launch blocked</b><p>' + esc(error.message) + "</p></div>"); });
   }
-  function openNew() { taskStep = 0; taskPreview = undefined; renderTask(); q("#modalBackdrop").classList.add("open"); q("#newTaskModal").classList.add("open"); }
+  function openNew() { taskStep = 0; taskPreview = undefined; taskRequest = undefined; taskState = createTaskState(); renderTask(); q("#modalBackdrop").classList.add("open"); q("#newTaskModal").classList.add("open"); }
   function closeNew() { q("#modalBackdrop").classList.remove("open"); q("#newTaskModal").classList.remove("open"); }
   function refresh() {
     return Promise.all([request("/health"), request("/sessions?limit=500")]).then(function (parts) { health = parts[0]; sessions = parts[1].sessions || []; updateHealth(); renderHome(); }).catch(function (error) { health = undefined; updateHealth(); qa(".attention-zone .attention-row,.sessions .session-row").forEach(function (n) { n.remove(); }); q(".summary-strip").insertAdjacentHTML("beforebegin", empty("Manager data unavailable: " + error.message)); });
