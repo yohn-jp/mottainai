@@ -1,0 +1,22 @@
+name: Release governance
+
+# Canonical release-only wrapper for consumers with an additional
+# repository-specific ordinary-PR governance workflow. The shared reusable
+# workflow classifies the head ref and selects the release contract; no Issue
+# fetch or linked-Issue authorization step is part of this path.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-release:
+    if: >-
+      github.event_name == 'pull_request' &&
+      startsWith(github.event.pull_request.head.ref, 'release/')
+    uses: yohn-jp/.github/.github/workflows/pr-governance.yml@main
+    permissions:
+      contents: read
