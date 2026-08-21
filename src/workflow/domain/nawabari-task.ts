@@ -507,11 +507,18 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
   });
 
   const instanceId = identity.identity.instanceId as RepositoryInstanceId;
+  // Bound to the single most-recently-integrated execution: the reproduced #373/#376
+  // -> #377 blocker is one prior merged task's still-open session blocking the very
+  // next start, and clearing exactly that keeps interactive latency to at most one
+  // `session inspect` + one `session close` call. A broader multi-task backlog sweep
+  // is not a per-start concern; it stays available at the full bound through
+  // `workflow doctor`'s explicit opt-in reconciliation.
   const closeReconciliation = await reconcileNawabariClosures({
     workspaceRoot: input.workspaceRoot,
     store: input.store,
     client,
     instanceId,
+    maxTasks: 1,
   });
   if (closeReconciliation.blocked.length > 0)
     return {

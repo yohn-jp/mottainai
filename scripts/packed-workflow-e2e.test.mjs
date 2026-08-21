@@ -6,12 +6,7 @@ import path from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createWorkspace, isolatedEnv, writeConfig } from "./lib/mcp-blackbox-test-support.mjs";
-import {
-  extractTarball,
-  linkDependencies,
-  packRepository,
-  resolvePackagedBin,
-} from "./lib/mcp-blackbox-client.mjs";
+import { extractTarball, linkDependencies, packRepository, resolvePackagedBin } from "./lib/mcp-blackbox-client.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TEST_TIMEOUT_MS = 120_000;
@@ -236,7 +231,25 @@ const args = process.argv.slice(2);
 if (process.env.MOTTAINAI_GH_TRACE !== undefined)
   fs.appendFileSync(process.env.MOTTAINAI_GH_TRACE, JSON.stringify(args) + "\n");
 if (args[0] === "pr" && args[1] === "list") process.stdout.write("[]\n");
-else {
+else if (args[0] === "pr" && args[1] === "view") {
+  // Authoritative integration evidence for the merged-task transition: reports
+  // the PR merged with the exact head/merge revision the test pushed, so
+  // Mottainai's own head-identity check (not this fixture) is what proves the
+  // close request is safe.
+  const headSha = process.env.MOTTAINAI_GH_PR_HEAD_SHA || "";
+  process.stdout.write(JSON.stringify({
+    number: Number(args[2]),
+    state: "MERGED",
+    isDraft: false,
+    mergedAt: "2026-01-01T00:00:00Z",
+    mergeCommit: { oid: headSha },
+    url: "https://github.com/fixture-owner/fixture-repo/pull/" + args[2],
+    headRefName: process.env.MOTTAINAI_GH_PR_HEAD_REF || "",
+    headRefOid: headSha,
+    baseRefName: "main",
+    baseRefOid: headSha,
+  }) + "\n");
+} else {
   process.stderr.write("unexpected gh invocation: " + args.join(" ") + "\n");
   process.exit(1);
 }
@@ -317,7 +330,9 @@ function createFixture({ mode = "golden", missingGhInari = false, zellijPath, na
     mcpServers: {},
     gateway: { workspaceRoot: "." },
     ghInari: {
-      command: missingGhInari ? path.join(companionDirectory, "missing-gh-inari") : path.join(companionDirectory, "gh-inari"),
+      command: missingGhInari
+        ? path.join(companionDirectory, "missing-gh-inari")
+        : path.join(companionDirectory, "gh-inari"),
     },
   });
   runGit(workspace, ["init", "-b", "main"]);
@@ -463,104 +478,139 @@ test(
       runGit(fixture.remote, ["show-ref", "--heads", started.execution.branch]),
       new RegExp(`refs/heads/${started.execution.branch}$`, "u"),
     );
+
+    // #378: authoritative integration observed -> Mottainai requests Nawabari's
+    // normal safe-close -> the session's write claims release -> the next
+    // managed task start needs no manual `nawabari session close`. This is the
+    // exact #373 (task) -> PR #376 (merge) -> #377 (next start) shape.
+    // `pi-done.json` is a test-harness-only completion signal (never committed
+    // by the fake Pi, since it is written after `task open-pr` already ran);
+    // remove it so the worktree is clean the way a real completed execution's
+    // would be before Mottainai requests Nawabari's safe close.
+    fs.rmSync(path.join(worktree, "pi-done.json"));
+    fixture.env.MOTTAINAI_GH_PR_HEAD_SHA = status.pullRequests[0].headSha;
+    fixture.env.MOTTAINAI_GH_PR_HEAD_REF = started.execution.branch;
+    const finished = invoke(fixture, worktree, ["task", "finish"]);
+    assert.equal(finished.ok, true, JSON.stringify(finished));
+    assert.equal(finished.transition, "merged");
+    assert.equal(finished.close.alreadyClosed, false);
+
+    const inspected = JSON.parse(
+      run(fixture.realNawabari, ["session", "inspect", "--session", sessionId, "--json"], {
+        cwd: fixture.workspace,
+        env: fixture.env,
+        timeout: 15_000,
+      }).stdout,
+    );
+    assert.equal(inspected.session.state, "closed");
+
+    // Crash/retry idempotency: finishing an already-merged task again must not
+    // fail and must not re-request a close (the session is already gone).
+    const finishedAgain = invoke(fixture, fixture.workspace, ["task", "finish", "--task-id", started.task.taskId]);
+    assert.equal(finishedAgain.ok, true, JSON.stringify(finishedAgain));
+    assert.equal(finishedAgain.close.alreadyClosed, true);
+
+    const next = invoke(fixture, fixture.workspace, ["task", "start", "issue-377", "--type", "fix", "--issue", "377"]);
+    assert.equal(next.ok, true, JSON.stringify(next), "the next task start must not require a manual session close");
+    runGit(fixture.workspace, ["worktree", "remove", "--force", next.execution.worktree]);
   },
 );
 
-test(
-  "packed Pi exit before PR creation is incomplete evidence",
-  { timeout: TEST_TIMEOUT_MS },
-  async (t) => {
-    const companions = companionAvailability();
-    if (companions.zellij.length === 0 || companions.nawabari.length === 0) {
-      t.skip("compatible Zellij and Nawabari companions are required for the packed negative path");
-      return;
-    }
-    const fixture = createFixture({ mode: "early-exit", zellijPath: companions.zellij, nawabariPath: companions.nawabari });
-    let sessionId;
-    let worktree;
-    t.after(() => closeFixture(fixture, sessionId, worktree));
-    const started = invoke(fixture, fixture.workspace, [
-      "task",
-      "run",
-      "pi-early-exit",
-      "--type",
-      "feat",
-      "--issue",
-      "334",
-      "--agent",
-      "pi",
-      "--idempotency-key",
-      "issue-334-early-exit",
-    ]);
-    sessionId = started.execution.sessionId;
-    worktree = started.execution.worktree;
-    await waitForFile(path.join(worktree, "pi-early-exit.json"));
-    const statusResult = run(binPath, ["task", "status"], {
-      cwd: worktree,
-      env: fixture.env,
-      encoding: "utf8",
-      timeout: 30_000,
-    });
-    if (statusResult.status === 0) {
-      assert.notEqual(JSON.parse(statusResult.stdout).currentState, "pull-request-open");
-    } else {
-      assert.equal(statusResult.status, 1, statusResult.stdout + statusResult.stderr);
-      assert.ok(
-        statusResult.stdout.trim().length > 0 || statusResult.stderr.trim().length > 0,
-        "task status failed without diagnostics",
-      );
-    }
-  },
-);
+test("packed Pi exit before PR creation is incomplete evidence", { timeout: TEST_TIMEOUT_MS }, async (t) => {
+  const companions = companionAvailability();
+  if (companions.zellij.length === 0 || companions.nawabari.length === 0) {
+    t.skip("compatible Zellij and Nawabari companions are required for the packed negative path");
+    return;
+  }
+  const fixture = createFixture({
+    mode: "early-exit",
+    zellijPath: companions.zellij,
+    nawabariPath: companions.nawabari,
+  });
+  let sessionId;
+  let worktree;
+  t.after(() => closeFixture(fixture, sessionId, worktree));
+  const started = invoke(fixture, fixture.workspace, [
+    "task",
+    "run",
+    "pi-early-exit",
+    "--type",
+    "feat",
+    "--issue",
+    "334",
+    "--agent",
+    "pi",
+    "--idempotency-key",
+    "issue-334-early-exit",
+  ]);
+  sessionId = started.execution.sessionId;
+  worktree = started.execution.worktree;
+  await waitForFile(path.join(worktree, "pi-early-exit.json"));
+  const statusResult = run(binPath, ["task", "status"], {
+    cwd: worktree,
+    env: fixture.env,
+    encoding: "utf8",
+    timeout: 30_000,
+  });
+  if (statusResult.status === 0) {
+    assert.notEqual(JSON.parse(statusResult.stdout).currentState, "pull-request-open");
+  } else {
+    assert.equal(statusResult.status, 1, statusResult.stdout + statusResult.stderr);
+    assert.ok(
+      statusResult.stdout.trim().length > 0 || statusResult.stderr.trim().length > 0,
+      "task status failed without diagnostics",
+    );
+  }
+});
 
-test(
-  "packed workflow fails closed when gh-inari is missing",
-  { timeout: TEST_TIMEOUT_MS },
-  async (t) => {
-    const companions = companionAvailability();
-    if (companions.zellij.length === 0 || companions.nawabari.length === 0) {
-      t.skip("compatible Zellij and Nawabari companions are required for the packed negative path");
-      return;
-    }
-    const fixture = createFixture({ missingGhInari: true, zellijPath: companions.zellij, nawabariPath: companions.nawabari });
-    let sessionId;
-    let worktree;
-    t.after(() => closeFixture(fixture, sessionId, worktree));
-    const started = invoke(fixture, fixture.workspace, [
-      "task",
-      "run",
-      "pi-missing-gh-inari",
-      "--type",
-      "feat",
-      "--issue",
-      "334",
-      "--agent",
-      "pi",
-      "--idempotency-key",
-      "issue-334-missing-gh-inari",
-    ]);
-    sessionId = started.execution.sessionId;
-    worktree = started.execution.worktree;
-    await waitForFile(path.join(worktree, "pi-started.json"));
-    fs.writeFileSync(fixture.gate, "no restart checkpoint needed\n");
-    await waitForFile(path.join(worktree, "pi-failure.json"));
-    const statusResult = run(binPath, ["task", "status"], {
-      cwd: worktree,
-      env: fixture.env,
-      encoding: "utf8",
-      timeout: 30_000,
-    });
-    if (statusResult.status === 0) {
-      assert.notEqual(JSON.parse(statusResult.stdout).currentState, "pull-request-open");
-    } else {
-      assert.equal(statusResult.status, 1, statusResult.stdout + statusResult.stderr);
-      assert.ok(
-        statusResult.stdout.trim().length > 0 || statusResult.stderr.trim().length > 0,
-        "task status failed without diagnostics",
-      );
-    }
-    const failure = JSON.parse(fs.readFileSync(path.join(worktree, "pi-failure.json"), "utf8"));
-    assert.match(failure.message, /gh-inari/u);
-    assert.equal(fs.existsSync(fixture.ghInariTrace), false);
-  },
-);
+test("packed workflow fails closed when gh-inari is missing", { timeout: TEST_TIMEOUT_MS }, async (t) => {
+  const companions = companionAvailability();
+  if (companions.zellij.length === 0 || companions.nawabari.length === 0) {
+    t.skip("compatible Zellij and Nawabari companions are required for the packed negative path");
+    return;
+  }
+  const fixture = createFixture({
+    missingGhInari: true,
+    zellijPath: companions.zellij,
+    nawabariPath: companions.nawabari,
+  });
+  let sessionId;
+  let worktree;
+  t.after(() => closeFixture(fixture, sessionId, worktree));
+  const started = invoke(fixture, fixture.workspace, [
+    "task",
+    "run",
+    "pi-missing-gh-inari",
+    "--type",
+    "feat",
+    "--issue",
+    "334",
+    "--agent",
+    "pi",
+    "--idempotency-key",
+    "issue-334-missing-gh-inari",
+  ]);
+  sessionId = started.execution.sessionId;
+  worktree = started.execution.worktree;
+  await waitForFile(path.join(worktree, "pi-started.json"));
+  fs.writeFileSync(fixture.gate, "no restart checkpoint needed\n");
+  await waitForFile(path.join(worktree, "pi-failure.json"));
+  const statusResult = run(binPath, ["task", "status"], {
+    cwd: worktree,
+    env: fixture.env,
+    encoding: "utf8",
+    timeout: 30_000,
+  });
+  if (statusResult.status === 0) {
+    assert.notEqual(JSON.parse(statusResult.stdout).currentState, "pull-request-open");
+  } else {
+    assert.equal(statusResult.status, 1, statusResult.stdout + statusResult.stderr);
+    assert.ok(
+      statusResult.stdout.trim().length > 0 || statusResult.stderr.trim().length > 0,
+      "task status failed without diagnostics",
+    );
+  }
+  const failure = JSON.parse(fs.readFileSync(path.join(worktree, "pi-failure.json"), "utf8"));
+  assert.match(failure.message, /gh-inari/u);
+  assert.equal(fs.existsSync(fixture.ghInariTrace), false);
+});

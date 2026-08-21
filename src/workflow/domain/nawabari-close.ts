@@ -156,13 +156,24 @@ export async function closeNawabariExecution(input: {
     return { ok: false, reason: "cleanup-blocked", detail, task, reconciliation };
   }
 
-  if (inspected.state !== "active") {
+  if (inspected.state === "closed") {
     try {
       reconciliation = store.markNawabariCloseReconciliation(task.taskId, "closed");
     } catch (error) {
       return { ok: false, reason: "cleanup-blocked", detail: errorDetail(error), task, reconciliation };
     }
     return { ok: true, task, session: inspected, reconciliation, alreadyClosed: true };
+  }
+  if (inspected.state !== "active") {
+    // Nawabari also reports "closing"/"stale"/"new": physical claim release is not
+    // proven, so only "closed" is durable and every other state must stay retryable.
+    const detail = `Nawabari session ${expectedSessionId} is ${inspected.state}, not closed; close request deferred (close_readiness=${JSON.stringify(inspected.raw.close_readiness ?? null)}, blockers=${JSON.stringify(inspected.raw.blockers ?? null)})`;
+    try {
+      reconciliation = store.markNawabariCloseReconciliation(task.taskId, "blocked", detail);
+    } catch {
+      // Preserve the physical readiness blocker even if the secondary diagnostic write fails.
+    }
+    return { ok: false, reason: "cleanup-blocked", detail, task, reconciliation };
   }
 
   try {
@@ -189,6 +200,8 @@ export interface ReconcileNawabariClosuresResult {
   closed: number;
   promoted: number;
   blocked: Array<{ taskId: string; detail: string }>;
+  /** Non-blocking observations (e.g. a task that never reached a close attempt); these never stop a new task start. */
+  diagnostics: Array<{ taskId: string; detail: string }>;
 }
 
 /** Retry only durable, task-owned merged executions; unrelated sessions are never selected. */
@@ -214,12 +227,23 @@ export async function reconcileNawabariClosures(input: {
       (task) => ["pull-request-open", "merged"].includes(task.lifecycleState) && task.nawabariSessionId !== undefined,
     )
     .slice(0, limit);
-  const result: ReconcileNawabariClosuresResult = { attempted: 0, closed: 0, promoted: 0, blocked: [] };
+  const result: ReconcileNawabariClosuresResult = {
+    attempted: 0,
+    closed: 0,
+    promoted: 0,
+    blocked: [],
+    diagnostics: [],
+  };
   for (const originalTask of tasks) {
     let task = originalTask;
     let records = input.store.listPullRequestRecordsForTask(task.taskId);
     if (records.length !== 1) {
-      result.blocked.push({
+      // No close attempt has happened yet at this point in the loop: a task with
+      // zero or several provider records here (often a pull-request-open task
+      // that never merged, or a detached record from pr_records.task_id's
+      // ON DELETE SET NULL) is provider-identity ambiguity, not a close failure.
+      // Never let it block every other task's start in this repository instance.
+      result.diagnostics.push({
         taskId: task.taskId,
         detail: `task ${task.taskId} has ${records.length} provider records; close identity is ambiguous`,
       });

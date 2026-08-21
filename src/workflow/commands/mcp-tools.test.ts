@@ -334,6 +334,7 @@ test("task_status reports complete lifecycle transition blockers and provider PR
       prNumber: 39,
       url: "https://github.com/org/repository/pull/39",
       headSha: "head-sha",
+      mergeRevision: undefined,
       lifecycleState: "open",
       createdAt: (status.pullRequests as Array<{ createdAt: number }>)[0]?.createdAt,
       updatedAt: (status.pullRequests as Array<{ updatedAt: number }>)[0]?.updatedAt,

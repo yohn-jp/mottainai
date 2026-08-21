@@ -25,9 +25,11 @@ export interface WorkflowDoctorProblem {
   message: string;
 }
 
+export type WorkflowDoctorMode = "read-only" | "reconcile";
+
 export interface WorkflowDoctorReport {
   schemaVersion: typeof WORKFLOW_DOCTOR_SCHEMA_VERSION;
-  mode: "read-only";
+  mode: WorkflowDoctorMode;
   ok: boolean;
   errors: number;
   warnings: number;
@@ -54,6 +56,14 @@ export interface CollectWorkflowDoctorReportOptions {
   repositoryInstanceId?: ReconcileWorkflowInput["repositoryInstanceId"];
   dependencies?: Partial<WorkflowDoctorDependencies>;
   reconciliation?: ReconciliationDependencies;
+  /**
+   * Explicit opt-in only. The default run is read-only observation: it never
+   * writes task/provider state and never requests a Nawabari session close.
+   * When true, `workflow doctor` also performs bounded Nawabari close
+   * reconciliation (retrying the operator's own prior merged executions) and
+   * the report honestly reports `mode: "reconcile"` instead of `"read-only"`.
+   */
+  reconcileClosures?: boolean;
 }
 
 function defaultDependencies(): WorkflowDoctorDependencies {
@@ -76,14 +86,16 @@ export async function collectWorkflowDoctorReport(
     dependencies: options.reconciliation,
   });
   const resolvedIdentity = resolveRepositoryIdentity(options.workspaceRoot);
-  const closeReconciliation = resolvedIdentity.ok
-    ? await dependencies.reconcileClosures({
-        workspaceRoot: options.workspaceRoot,
-        store: options.store,
-        instanceId: options.repositoryInstanceId ?? resolvedIdentity.identity.instanceId,
-        providerObserver: options.reconciliation?.pullRequestObserver,
-      })
-    : undefined;
+  const reconcileClosuresRequested = options.reconcileClosures === true;
+  const closeReconciliation =
+    reconcileClosuresRequested && resolvedIdentity.ok
+      ? await dependencies.reconcileClosures({
+          workspaceRoot: options.workspaceRoot,
+          store: options.store,
+          instanceId: options.repositoryInstanceId ?? resolvedIdentity.identity.instanceId,
+          providerObserver: options.reconciliation?.pullRequestObserver,
+        })
+      : undefined;
   if (closeReconciliation !== undefined && closeReconciliation.attempted > 0)
     reconciliation = await dependencies.reconcile({
       workspaceRoot: options.workspaceRoot,
@@ -150,7 +162,9 @@ export async function collectWorkflowDoctorReport(
     {
       name: "repair-mode",
       status: "pass",
-      message: `read-only; ${reconciliation.repairPlan.length} informational proposal(s), but physical repair is retired and delegated to Nawabari`,
+      message: reconcileClosuresRequested
+        ? `reconcile; ${reconciliation.repairPlan.length} informational proposal(s); Nawabari close reconciliation was explicitly requested (attempted ${closeReconciliation?.attempted ?? 0}, closed ${closeReconciliation?.closed ?? 0})`
+        : `read-only; ${reconciliation.repairPlan.length} informational proposal(s), but physical repair is retired and delegated to Nawabari`,
     },
     {
       name: "provider-observation",
@@ -180,17 +194,24 @@ export async function collectWorkflowDoctorReport(
     })),
     ...(closeReconciliation === undefined
       ? []
-      : closeReconciliation.blocked.map((blocked) => ({
-          severity: "error" as const,
-          code: "nawabari-cleanup-blocked",
-          message: blocked.detail,
-        }))),
+      : [
+          ...closeReconciliation.blocked.map((blocked) => ({
+            severity: "error" as const,
+            code: "nawabari-cleanup-blocked",
+            message: blocked.detail,
+          })),
+          ...closeReconciliation.diagnostics.map((diagnostic) => ({
+            severity: "warning" as const,
+            code: "nawabari-cleanup-diagnostic",
+            message: diagnostic.detail,
+          })),
+        ]),
   ];
   const errors = problems.filter((problem) => problem.severity === "error").length;
   const warnings = problems.length - errors;
   return {
     schemaVersion: WORKFLOW_DOCTOR_SCHEMA_VERSION,
-    mode: "read-only",
+    mode: reconcileClosuresRequested ? "reconcile" : "read-only",
     ok: errors === 0,
     errors,
     warnings,
@@ -212,7 +233,9 @@ export function formatWorkflowDoctorHuman(report: WorkflowDoctorReport): string 
     ...report.checks.map((check) => `${symbol[check.status]} ${check.name}: ${check.message}`),
   ];
   lines.push(
-    "Physical worktree, lease, and cleanup repair is delegated to Nawabari; reconciliation performs no repairs.",
+    report.mode === "reconcile"
+      ? "Physical worktree/lease repair stays delegated to Nawabari; only an explicitly requested Nawabari close reconciliation ran."
+      : "Physical worktree, lease, and cleanup repair is delegated to Nawabari; reconciliation performs no repairs.",
   );
   return lines.join("\n");
 }

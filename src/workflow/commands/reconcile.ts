@@ -571,8 +571,14 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
         },
       );
     }
-    if (observed.lifecycleState === "merged" && record.taskId !== undefined) mergedTaskIds.add(record.taskId);
-    if (observed.mergeRevision !== undefined) {
+    // Never persist merge/integration evidence from a provider observation whose head
+    // does not match the task-owned record: a stale or absent head is not authoritative
+    // integration evidence, and reconcileNawabariClosures treats a persisted merged
+    // record as sufficient to promote the task and request a Nawabari close.
+    const observedHeadMatches = observed.headSha === record.headSha;
+    if (observed.lifecycleState === "merged" && observedHeadMatches && record.taskId !== undefined)
+      mergedTaskIds.add(record.taskId);
+    if (observedHeadMatches && observed.mergeRevision !== undefined) {
       try {
         input.store.recordPullRequestMergeRevision(record.recordId, observed.mergeRevision);
       } catch (error) {
@@ -583,7 +589,7 @@ export async function reconcileWorkflow(input: ReconcileWorkflowInput): Promise<
         });
       }
     }
-    if (observed.lifecycleState === "merged" && record.lifecycleState !== "merged") {
+    if (observed.lifecycleState === "merged" && observedHeadMatches && record.lifecycleState !== "merged") {
       try {
         input.store.updatePullRequestLifecycleState(record.recordId, "merged");
       } catch (error) {

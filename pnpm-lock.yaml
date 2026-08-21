@@ -34,8 +34,8 @@ importers:
         specifier: 9.29.0
         version: 9.29.0(supports-color@7.2.0)
       nawabari:
-        specifier: 0.4.1
-        version: 0.4.1
+        specifier: 0.5.0
+        version: 0.5.0
       prettier:
         specifier: 3.6.2
         version: 3.6.2
@@ -534,6 +534,7 @@ packages:
   eslint@9.29.0:
     resolution: {integrity: sha512-GsGizj2Y1rCWDu6XoEekL3RLilp0voSePurjZIkxL3wlm5o5EC9VpgaP7lrCvjnkuLvzFBQWB3vWB3K5KQTveQ==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'
@@ -793,8 +794,8 @@ packages:
   natural-compare@1.4.0:
     resolution: {integrity: sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==}
 
-  nawabari@0.4.1:
-    resolution: {integrity: sha512-fsTNFFO9l4xKmcu0niHN0O8F8xhF0Lfc+hKBskLtYqKp6Iv3PaCou4JuyutxkxGLAHN3fnwBnSVREYgxDnwvOw==}
+  nawabari@0.5.0:
+    resolution: {integrity: sha512-fb9760p4LBqBgMG09/zhzmci6oS0KvhIS7/ipL3JazLeggqO3RkQjlD1JeeQcyJkYyYiUwqFvNJqWHC8W+xcoQ==}
     engines: {node: '>=22.13 <25'}
     hasBin: true
 
@@ -1802,7 +1803,7 @@ snapshots:
 
   natural-compare@1.4.0: {}
 
-  nawabari@0.4.1: {}
+  nawabari@0.5.0: {}
 
   negotiator@1.0.0: {}
 

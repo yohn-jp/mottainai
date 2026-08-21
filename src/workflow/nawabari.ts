@@ -4,7 +4,7 @@ import { projectNawabariDeclaration } from "../semantics/execution-plan.js";
 
 export const NAWABARI_CONTRACT_ID = "nawabari.standalone-execution.v1" as const;
 export const NAWABARI_CONTRACT_SCHEMA_VERSION = 1 as const;
-export const MINIMUM_NAWABARI_VERSION = "0.4.1" as const;
+export const MINIMUM_NAWABARI_VERSION = "0.5.0" as const;
 /** Expected shape of the resource-claims capability's `claim_set_replacement` boundary (Nawabari #101 / PR #106). */
 const REQUIRED_CLAIM_SET_REPLACEMENT_PAIRING = "adjacent-resource-mode" as const;
 
@@ -15,6 +15,10 @@ const REQUIRED_NAWABARI_COMMANDS = [
   "session id",
   "session show",
   "session list",
+  // Introduced in Nawabari 0.5.0's session-diagnostics capability; required so
+  // closeNawabariExecution's physical-close-readiness inspection never runs
+  // against a companion too old to support it (Nawabari <0.5.0 rejects it).
+  "session inspect",
   "session claim",
   "session update",
   "session claims",
@@ -467,7 +471,7 @@ export class NawabariExecutionClient {
   /** Inspect physical close readiness before requesting Nawabari's normal close. */
   async inspectSession(input: { cwd: string; sessionId: string }): Promise<NawabariSession> {
     await this.capabilities(input.cwd);
-    return this.session(await this.invoke(["session", "inspect", "--session", input.sessionId], input.cwd));
+    return this.sessionDiagnostic(await this.invoke(["session", "inspect", "--session", input.sessionId], input.cwd));
   }
 
   async listSessions(cwd: string): Promise<NawabariSession[]> {
@@ -529,6 +533,25 @@ export class NawabariExecutionClient {
       branch: requiredString(result.branch, "branch"),
       state: requiredString(result.state, "state"),
       ...(typeof result.label === "string" ? { label: result.label } : {}),
+      raw: result,
+    };
+  }
+
+  /**
+   * `session inspect`'s session-diagnostic.v1 result nests the session record's
+   * `state` under a `session` object instead of exposing it at the top level
+   * (unlike `session create`/`show`/`close`, which the `session()` parser
+   * above handles) — see Nawabari's `SessionDiagnostic` type. `close_readiness`
+   * and `blockers` stay top-level and are read directly off `.raw` by callers.
+   */
+  private sessionDiagnostic(result: NawabariCommandResult): NawabariSession {
+    const sessionRecord = object(result.session);
+    return {
+      sessionId: requiredString(result.session_id, "session_id"),
+      repository: requiredString(result.repository, "repository"),
+      worktree: requiredString(result.worktree, "worktree"),
+      branch: requiredString(result.branch, "branch"),
+      state: requiredString(sessionRecord?.state, "session.state"),
       raw: result,
     };
   }

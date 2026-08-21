@@ -118,9 +118,13 @@ export function fakeNawabari(
           const sessionId = args[args.indexOf("--session") + 1]!;
           const session = sessions.get(sessionId);
           if (session === undefined)
-            return runResult(JSON.stringify({ ok: false, command: "session show", code: "NOT_FOUND", message: "missing" }), "", {
-              exitCode: 3,
-            });
+            return runResult(
+              JSON.stringify({ ok: false, command: "session show", code: "NOT_FOUND", message: "missing" }),
+              "",
+              {
+                exitCode: 3,
+              },
+            );
           return runResult(JSON.stringify(session));
         }
         if (args[0] === "session" && args[1] === "inspect") {
@@ -134,22 +138,50 @@ export function fakeNawabari(
                 exitCode: 3,
               },
             );
+          // Matches Nawabari 0.5.0's real session-diagnostic.v1 shape: the session
+          // record's `state` is nested under `session`, not exposed at the top
+          // level like `session show`/`create`/`close` (the `session` value is
+          // the live fixture record, so mutating `.state` on it after the fact
+          // is reflected here too).
           return runResult(
-            JSON.stringify({ ...session, command: "session inspect", close_readiness: "ready", blockers: [] }),
+            JSON.stringify({
+              ok: true,
+              command: "session inspect",
+              session_id: session.session_id,
+              repository: session.repository,
+              worktree: session.worktree,
+              branch: session.branch,
+              session,
+              claims: [],
+              physical_state: "healthy",
+              close_readiness: "ready",
+              cleanup_readiness: "not_due",
+              result_state: "complete",
+              idempotent: false,
+              blockers: [],
+              safe_actions: ["close-session"],
+              integration_evidence: { supplied: false },
+            }),
           );
         }
         if (args[0] === "session" && args[1] === "claims") {
           const sessionId = args[args.indexOf("--session") + 1]!;
-          return runResult(JSON.stringify({ ok: true, command: "session claims", claims: claims.get(sessionId) ?? [] }));
+          return runResult(
+            JSON.stringify({ ok: true, command: "session claims", claims: claims.get(sessionId) ?? [] }),
+          );
         }
         if (args[0] === "session" && args[1] === "claim") {
           const sessionId = args[args.indexOf("--session") + 1]!;
           const resource = args[args.indexOf("--resource") + 1]!;
           const mode = args[args.indexOf("--mode") + 1]!;
           if (options.failSessionClaim)
-            return runResult(JSON.stringify({ ok: false, command: "session claim", code: "CLAIM_FAILED", message: "injected" }), "", {
-              exitCode: 3,
-            });
+            return runResult(
+              JSON.stringify({ ok: false, command: "session claim", code: "CLAIM_FAILED", message: "injected" }),
+              "",
+              {
+                exitCode: 3,
+              },
+            );
           const claim = { resource, mode };
           claims.get(sessionId)?.push(claim);
           return runResult(JSON.stringify({ ok: true, command: "session claim", session_id: sessionId, ...claim }));
@@ -159,7 +191,9 @@ export function fakeNawabari(
           options.beforeSessionClose?.();
           const session = sessions.get(sessionId);
           if (session !== undefined) session.state = "closed";
-          return runResult(JSON.stringify({ ok: true, command: "session close", session_id: sessionId, state: "closed" }));
+          return runResult(
+            JSON.stringify({ ok: true, command: "session close", session_id: sessionId, state: "closed" }),
+          );
         }
         throw new Error(`unexpected fake Nawabari command: ${args.join(" ")}`);
       },

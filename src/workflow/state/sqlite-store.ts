@@ -1230,8 +1230,13 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     const existing = this.getNawabariCloseReconciliation(taskId);
     if (existing === undefined) throw new Error(`Nawabari close reconciliation not found: ${taskId}`);
     const now = updatedAt ?? Date.now();
+    // "closed" is a terminal state: two concurrent close attempts can both observe
+    // "pending", and a later failure from one must never regress the durable result
+    // an earlier success already recorded (which would produce a false cleanup blocker).
     this.handle()
-      .prepare("UPDATE nawabari_close_reconciliations SET state = ?, detail = ?, updated_at = ? WHERE task_id = ?")
+      .prepare(
+        "UPDATE nawabari_close_reconciliations SET state = ?, detail = ?, updated_at = ? WHERE task_id = ? AND state != 'closed'",
+      )
       .run(state, detail === undefined ? null : detail.slice(0, 512), now, taskId);
     return this.getNawabariCloseReconciliation(taskId)!;
   }

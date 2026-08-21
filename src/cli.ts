@@ -646,7 +646,11 @@ export async function runCli(args: string[]): Promise<number> {
       const workspace = resolveWorkflowWorkspace(argv);
       const store = await openWorkflowStateStore();
       try {
-        const report = await collectWorkflowDoctorReport({ workspaceRoot: workspace, store });
+        const report = await collectWorkflowDoctorReport({
+          workspaceRoot: workspace,
+          store,
+          reconcileClosures: hasFlag(argv, "reconcile-closures"),
+        });
         print({ workspace, ...report });
         return report.ok ? 0 : 1;
       } finally {

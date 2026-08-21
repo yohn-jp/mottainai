@@ -275,10 +275,22 @@ const validationReceiptTool: Tool = {
 const workflowDoctorTool: Tool = {
   name: "mottainai_workflow_doctor",
   description:
-    "Run the workflow reconciliation doctor in read-only mode and return the same structured report used by the workflow doctor CLI. No repair or filesystem deletion is performed.",
-  inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    'Run the workflow reconciliation doctor and return the same structured report used by the workflow doctor CLI. By default this is strictly read-only: no task/provider state mutation, no filesystem deletion, and no Nawabari session close is performed. Pass reconcileClosures: true to additionally request Nawabari\'s normal safe-close for the caller\'s own prior merged executions (report.mode becomes "reconcile" instead of "read-only"); Mottainai never edits Nawabari registry/claim state directly.',
+  inputSchema: {
+    type: "object",
+    properties: {
+      reconcileClosures: {
+        type: "boolean",
+        description:
+          "Explicit opt-in. When true, also performs bounded Nawabari close reconciliation instead of pure read-only observation.",
+      },
+    },
+    additionalProperties: false,
+  },
   outputSchema: OUTPUT_SCHEMA,
-  annotations: readOnly,
+  // Not `readOnly`: `reconcileClosures: true` is a real, if idempotent and
+  // non-destructive, mutating path (task/provider state, Nawabari session close).
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 };
 
 let cachedWorkflowCommandTools: Tool[] | undefined;
@@ -642,11 +654,16 @@ async function taskStatusToolImpl(config: ResolvedGatewayConfig, store: Workflow
 }
 
 async function workflowDoctorToolImpl(
+  args: Args,
   config: ResolvedGatewayConfig,
   store: WorkflowStateStore,
 ): Promise<CallToolResult> {
   requireWorkflowTasksConfigured(config);
-  const report = await collectWorkflowDoctorReport({ workspaceRoot: config.workspaceRoot, store });
+  const report = await collectWorkflowDoctorReport({
+    workspaceRoot: config.workspaceRoot,
+    store,
+    reconcileClosures: boolArg(args, "reconcileClosures") === true,
+  });
   const summary = report.ok
     ? `OK workflow doctor checks=${report.checked} warnings=${report.warnings}`
     : `FAIL workflow doctor errors=${report.errors} warnings=${report.warnings}`;
@@ -933,7 +950,7 @@ export async function callWorkflowCommandTool(
       return taskStatusToolImpl(config, workflowStore ?? (await defaultWorkflowStore()));
     case "mottainai_workflow_doctor":
       requireWorkflowTasksConfigured(config);
-      return workflowDoctorToolImpl(config, workflowStore ?? (await defaultWorkflowStore()));
+      return workflowDoctorToolImpl(args, config, workflowStore ?? (await defaultWorkflowStore()));
     case "mottainai_workflow_task_migrate_legacy":
       requireWorkflowTasksConfigured(config);
       return legacyMigrationToolImpl(args, config, workflowStore ?? (await defaultWorkflowStore()));
