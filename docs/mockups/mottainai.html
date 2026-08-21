@@ -19,16 +19,16 @@
           <div class="scope-value"><span>unavailable</span><span class="scope-health">UNAVAILABLE</span></div>
         </div>
         <nav class="nav">
-          <div class="nav-item active"><span class="glyph">⌂</span><span>Operations</span></div>
-          <div class="nav-item"><span class="glyph">R</span><span>Runtimes</span></div>
-          <div class="nav-item"><span class="glyph">↳</span><span>Repositories</span></div>
-          <div class="nav-item"><span class="glyph">S</span><span>Sessions</span></div>
+          <div class="nav-item active" tabindex="0" role="button"><span class="glyph">⌂</span><span>Operations</span></div>
+          <div class="nav-item" tabindex="0" role="button"><span class="glyph">R</span><span>Runtimes</span></div>
+          <div class="nav-item" tabindex="0" role="button"><span class="glyph">↳</span><span>Repositories</span></div>
+          <div class="nav-item" tabindex="0" role="button"><span class="glyph">S</span><span>Sessions</span></div>
           <div class="nav-section">work</div>
-          <div class="nav-item" data-open-new><span class="glyph">＋</span><span>New task</span></div>
-          <div class="nav-item"><span class="glyph">I</span><span>Intents</span></div>
+          <div class="nav-item" data-open-new tabindex="0" role="button"><span class="glyph">＋</span><span>New task</span></div>
+          <div class="nav-item" tabindex="0" role="button"><span class="glyph">I</span><span>Intents</span></div>
           <div class="nav-section">system</div>
-          <div class="nav-item"><span class="glyph">A</span><span>Authority</span></div>
-          <div class="nav-item"><span class="glyph">⚙</span><span>Settings</span></div>
+          <div class="nav-item" tabindex="0" role="button"><span class="glyph">A</span><span>Authority</span></div>
+          <div class="nav-item" tabindex="0" role="button"><span class="glyph">⚙</span><span>Settings</span></div>
         </nav>
         <div class="sidebar-foot">
           <div class="shortcut"><span>Command</span><kbd class="kbd">⌘ K</kbd></div>
@@ -113,7 +113,7 @@
                   <span>ID</span><span>TASK</span><span>AGENT</span><span>PHASE</span><span>LAST SEMANTIC STATE</span
                   ><span></span>
                 </div>
-                <div class="session-row">
+                <div class="session-row" tabindex="0" role="button">
                   <div class="sid">#380</div>
                   <div>
                     <b>Implement bounded read</b>
@@ -127,7 +127,7 @@
                   <div class="latest">code changed · validation pending</div>
                   <button class="open-link">OPEN ↗</button>
                 </div>
-                <div class="session-row">
+                <div class="session-row" tabindex="0" role="button">
                   <div class="sid">#379</div>
                   <div>
                     <b>Validate contract changes</b>
@@ -141,7 +141,7 @@
                   <div class="latest">tests running · receipt pending</div>
                   <button class="open-link">OPEN ↗</button>
                 </div>
-                <div class="session-row">
+                <div class="session-row" tabindex="0" role="button">
                   <div class="sid">#377</div>
                   <div>
                     <b>Update docs and tests</b>
@@ -182,7 +182,7 @@
       </main>
     </div>
     <div class="backdrop" id="drawerBackdrop"></div>
-    <aside class="drawer" id="drawer">
+    <aside class="drawer" id="drawer" role="dialog" aria-modal="true">
       <div class="drawer-head">
         <div>
           <div class="eyebrow">RECOVERY INSPECTOR</div>
@@ -197,7 +197,7 @@
       </div>
     </aside>
     <div class="backdrop" id="modalBackdrop"></div>
-    <section class="modal" id="newTaskModal">
+    <section class="modal" id="newTaskModal" role="dialog" aria-modal="true">
       <div class="modal-head">
         <div>
           <div class="eyebrow">LAUNCH INTENT</div>
@@ -218,128 +218,12 @@
       </div>
     </section>
     <div class="backdrop" id="paletteBackdrop"></div>
-    <div class="command" id="palette">
-      <input placeholder="Command, session, issue…" />
-      <div class="command-item" data-palette-new><span>New task</span><kbd class="kbd">⌘ N</kbd></div>
-      <div class="command-item"><span>Open session #379</span><kbd class="kbd">↵</kbd></div>
-      <div class="command-item" data-palette-attn><span>Inspect attention #378</span><kbd class="kbd">A</kbd></div>
+    <div class="command" id="palette" role="dialog" aria-modal="true">
+      <input placeholder="Command, session, issue…" aria-label="Search commands, sessions, and issues" />
+      <div class="command-item" data-palette-new tabindex="0" role="button"><span>New task</span><kbd class="kbd">⌘ N</kbd></div>
+      <div class="command-item" tabindex="0" role="button"><span>Open session #379</span><kbd class="kbd">↵</kbd></div>
+      <div class="command-item" data-palette-attn tabindex="0" role="button"><span>Inspect attention #378</span><kbd class="kbd">A</kbd></div>
     </div>
-    <script>
-      const $ = (s) => document.querySelector(s),
-        $$ = (s) => [...document.querySelectorAll(s)];
-      const drawer = $("#drawer"),
-        db = $("#drawerBackdrop");
-      const attention = {
-        378: {
-          title: "#378 Cleanup blocked",
-          action: "Request safe close",
-          body: `<div class="detail-block"><div class="detail-label">authoritative fact</div><b>PR integration is authoritative.</b><p>GitHub says the work is integrated; cleanup remains blocked because local execution ownership cannot yet be proven safe to release.</p></div><div class="detail-block"><div class="detail-label">blocking proof</div><code>proofMethod=tree-equivalence<br>proofResult=unproven<br>integratedRevision=main</code></div><div class="detail-block"><div class="detail-label">safe recovery sequence</div><ol><li>Re-read integration evidence.</li><li>Confirm observed head matches recorded head.</li><li>Request Nawabari close with explicit proof.</li><li>Release claims only after durable close.</li></ol></div><div class="detail-block"><div class="detail-label">danger boundary</div><p>Force-release is intentionally absent. The control plane must not manufacture cleanup authority.</p></div>`,
-        },
-        381: {
-          title: "#381 Claim conflict",
-          action: "Edit launch scope",
-          body: `<div class="detail-block"><div class="detail-label">conflict</div><b>#379 currently owns <code>src/runtime/**</code>.</b><p>Requested mode is exclusive-write. Launch remains blocked until the scope is narrowed or the current owner releases it.</p></div><div class="detail-block"><div class="detail-label">safe options</div><ol><li>Wait for #379.</li><li>Narrow #381 to a non-overlapping path.</li><li>Inspect #379 only if ownership may be stale.</li></ol></div>`,
-        },
-      };
-      function openAttention(id) {
-        let x = attention[id];
-        $("#drawerTitle").textContent = x.title;
-        $("#drawerBody").innerHTML = x.body;
-        $("#drawerAction").textContent = x.action;
-        drawer.classList.add("open");
-        db.classList.add("open");
-      }
-      function closeDrawer() {
-        drawer.classList.remove("open");
-        db.classList.remove("open");
-      }
-      $$("[data-attention]").forEach((b) => (b.onclick = () => openAttention(b.dataset.attention)));
-      $$("[data-close]").forEach((b) => (b.onclick = closeDrawer));
-      db.onclick = closeDrawer;
-      const modal = $("#newTaskModal"),
-        mb = $("#modalBackdrop"),
-        steps = $$(".steps i");
-      let step = 0;
-      const names = ["WORK", "EXECUTION", "AUTHORITY", "PREFLIGHT"];
-      const contents = [
-        `<div class="field"><label>GitHub issue</label><input value="#382"></div><div class="field"><label>Implementation instruction</label><textarea>Implement the bounded read authority fix. Preserve existing governance and fail closed on ambiguous ownership.</textarea></div>`,
-        `<div class="form-grid"><div class="field"><label>Execution profile</label><select><option>Pi</option><option>Codex</option><option>Claude</option></select></div><div class="field"><label>Repository</label><select><option>mottainai</option></select></div></div><div class="detail-block"><div class="detail-label">resolved defaults</div><code>branch: fix/382-bounded-read-authority<br>runtime: local-dev<br>integration: GitHub PR</code></div>`,
-        `<div class="field"><label>Requested resource scope</label><input value="src/read/**"></div><div class="detail-block"><div class="detail-label">authority preview</div><code>read: repository<br>exclusive-write: src/read/**<br>GitHub mutation: gh-inari governed</code></div>`,
-        `<div class="detail-block"><div class="detail-label">preflight</div><p>✓ Issue identity resolved<br>✓ Branch name deterministic<br>✓ Nawabari claim available<br>✓ Runtime healthy<br>✓ Governance companion available</p></div><div class="detail-block"><div class="detail-label">launch result</div><code>work intent → safe session → agent</code></div>`,
-      ];
-      function renderStep() {
-        steps.forEach((x, i) => x.classList.toggle("active", i <= step));
-        $("#stepLabel").textContent = `0${step + 1} / ${names[step]}`;
-        $("#stepContent").innerHTML = contents[step];
-        $("#prevStep").style.visibility = step ? "visible" : "hidden";
-        $("#nextStep").textContent = step === 3 ? "Launch" : "Continue";
-      }
-      function openNew() {
-        step = 0;
-        renderStep();
-        mb.classList.add("open");
-        modal.classList.add("open");
-      }
-      function closeNew() {
-        mb.classList.remove("open");
-        modal.classList.remove("open");
-      }
-      $$("[data-open-new]").forEach((b) => (b.onclick = openNew));
-      $$("[data-close-modal]").forEach((b) => (b.onclick = closeNew));
-      mb.onclick = closeNew;
-      $("#prevStep").onclick = () => {
-        if (step) {
-          step--;
-          renderStep();
-        }
-      };
-      $("#nextStep").onclick = () => {
-        if (step < 3) {
-          step++;
-          renderStep();
-        } else {
-          closeNew();
-          alert("Prototype: launch intent accepted after preflight.");
-        }
-      };
-      const palette = $("#palette"),
-        pb = $("#paletteBackdrop");
-      function openPalette() {
-        pb.classList.add("open");
-        palette.classList.add("open");
-        palette.querySelector("input").focus();
-      }
-      function closePalette() {
-        pb.classList.remove("open");
-        palette.classList.remove("open");
-      }
-      $("#openPalette").onclick = openPalette;
-      pb.onclick = closePalette;
-      $("[data-palette-new]").onclick = () => {
-        closePalette();
-        openNew();
-      };
-      $("[data-palette-attn]").onclick = () => {
-        closePalette();
-        openAttention("378");
-      };
-      document.addEventListener("keydown", (e) => {
-        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-          e.preventDefault();
-          openPalette();
-        }
-        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
-          e.preventDefault();
-          openNew();
-        }
-        if (e.key === "Escape") {
-          closePalette();
-          closeNew();
-          closeDrawer();
-        }
-      });
-      renderStep();
-    </script>
 <script>
 (function () {
   "use strict";
@@ -403,7 +287,7 @@
   }
   function row(session) {
     var p = session.operational;
-    return '<div class="session-row" data-session="' + esc(session.sessionId) + '">' +
+    return '<div class="session-row" data-session="' + esc(session.sessionId) + '" tabindex="0" role="button">' +
       '<div class="sid">' + esc(session.sessionId.slice(0, 8)) + '</div><div><b>' + esc(session.taskSlug || "Managed task") +
       '</b><div class="phase-flow" aria-label="authoritative phase rail">' + rail(p.phaseRail) + '</div></div><div class="agent">' + esc(session.agentKind) +
       '</div><div class="phase">' + esc(phase(session)) + '</div><div class="latest">' + esc(p.statusLabel) + ' · ' + esc(value(session.latestStatus, "no status")) +
@@ -428,6 +312,9 @@
     q(".sessions .section-head span").textContent = "Running";
     qa(".sessions .session-row").forEach(function (node) { node.remove(); });
     q(".sessions .session-head").insertAdjacentHTML("afterend", active.length ? active.map(row).join("") : empty("No running managed sessions"));
+    qa(".session-row").forEach(function (node) {
+      node.onkeydown = function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); var btn = node.querySelector("[data-open-session]"); if (btn) btn.click(); } };
+    });
     var recentSection = q("#recentSessions");
     if (!recentSection) {
       q(".sessions").insertAdjacentHTML("afterend", '<section class="sessions" id="recentSessions"><div class="section-head" style="padding:0 12px"><span>Recent</span><span class="count"></span></div><div class="session-head"><span>ID</span><span>TASK</span><span>AGENT</span><span>PHASE</span><span>AUTHORITATIVE STATE</span><span></span></div></section>');
@@ -436,6 +323,9 @@
     qa("#recentSessions .session-row").forEach(function (node) { node.remove(); });
     q("#recentSessions .session-head").insertAdjacentHTML("afterend", recentSessions.length ? recentSessions.map(row).join("") : empty("No recent managed sessions"));
     q("#recentSessions .count").textContent = recentSessions.length + " RECENT";
+    qa("#recentSessions .session-row").forEach(function (node) {
+      node.onkeydown = function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); var btn = node.querySelector("[data-open-session]"); if (btn) btn.click(); } };
+    });
     qa(".summary-num").forEach(function (node, index) { node.textContent = String([active.length, attention.length, recentSessions.length][index] || 0); });
     qa(".summary-name").forEach(function (node, index) { node.textContent = ["running", "needs attention", "recent"][index]; });
     qa("[data-open-session]").forEach(function (button) { button.onclick = function () { openSession(button.dataset.openSession); }; });
@@ -478,14 +368,17 @@
       '<div class="detail-block"><div class="detail-label">commit / push / pull request</div><code>commit [' + esc(p.commit.state) + "] " + esc(value(p.commit.sha)) + " · Nawabari<br>push [" + esc(p.push.state) + "] " + esc(value(p.push.target)) + " · Nawabari<br>PR [" + esc(p.pullRequest.state) + "] " + esc(value(p.pullRequest.number)) + " · gh-inari</code></div>" +
       exit + '<div class="detail-block"><div class="detail-label">authority map</div><ul>' + authorities + "</ul></div>";
   }
+  var drawerTrigger = null;
   function openSession(id) {
     var session = sessions.filter(function (s) { return s.sessionId === id; })[0];
     if (!session) return;
+    drawerTrigger = document.activeElement;
     q("#drawerTitle").textContent = (session.taskSlug || "Managed session") + " · " + session.operational.statusLabel;
     q("#drawerBody").innerHTML = detail(session);
     q("#drawerAction").textContent = session.operational.attention ? session.operational.attention.actionLabel : "Open managed terminal";
     q("#drawerAction").onclick = function () { action(session, session.operational.attention ? session.operational.attention.safeAction : "open-terminal"); };
     q("#drawer").classList.add("open"); q("#drawerBackdrop").classList.add("open");
+    q("#drawerAction").focus();
   }
   function action(session, kind) {
     if (kind === "inspect") return openSession(session.sessionId);
@@ -585,22 +478,45 @@
     if (!taskPreview) return;
     post("/sessions", taskRequest).then(function (body) { closeNew(); return refresh().then(function () { openSession(body.session.sessionId); }); }).catch(function (error) { q("#stepContent").insertAdjacentHTML("beforeend", '<div class="detail-block"><b>Launch blocked</b><p>' + esc(error.message) + "</p></div>"); });
   }
-  function openNew() { taskStep = 0; taskPreview = undefined; taskRequest = undefined; taskState = createTaskState(); renderTask(); q("#modalBackdrop").classList.add("open"); q("#newTaskModal").classList.add("open"); }
-  function closeNew() { q("#modalBackdrop").classList.remove("open"); q("#newTaskModal").classList.remove("open"); }
+  var modalTrigger = null;
+  function openNew() {
+    modalTrigger = document.activeElement;
+    taskStep = 0; taskPreview = undefined; taskRequest = undefined; taskState = createTaskState(); renderTask(); q("#modalBackdrop").classList.add("open"); q("#newTaskModal").classList.add("open");
+    var firstInput = q("#stepContent input, #stepContent textarea");
+    if (firstInput) firstInput.focus(); else q("#nextStep").focus();
+  }
+  function closeNew() { q("#modalBackdrop").classList.remove("open"); q("#newTaskModal").classList.remove("open"); if (modalTrigger) { modalTrigger.focus(); modalTrigger = null; } }
   function refresh() {
     return Promise.all([request("/health"), request("/sessions?limit=500")]).then(function (parts) { health = parts[0]; sessions = parts[1].sessions || []; updateHealth(); renderHome(); }).catch(function (error) { health = undefined; updateHealth(); qa(".attention-zone .attention-row,.sessions .session-row").forEach(function (n) { n.remove(); }); q(".summary-strip").insertAdjacentHTML("beforebegin", empty("Manager data unavailable: " + error.message)); });
   }
-  qa("[data-open-new]").forEach(function (b) { b.onclick = openNew; });
+  qa("[data-open-new]").forEach(function (b) {
+    b.onclick = openNew;
+    b.onkeydown = function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openNew(); } };
+  });
   q("#nextStep").onclick = advance; q("#prevStep").onclick = function () { if (taskStep) { taskStep--; renderTask(); } };
   qa("[data-close-modal]").forEach(function (b) { b.onclick = closeNew; }); q("#modalBackdrop").onclick = closeNew;
-  q("#drawerBackdrop").onclick = function () { q("#drawer").classList.remove("open"); q("#drawerBackdrop").classList.remove("open"); };
-  q("#openPalette").onclick = function () { q("#paletteBackdrop").classList.add("open"); q("#palette").classList.add("open"); q("#palette input").focus(); };
-  q("#paletteBackdrop").onclick = function () { q("#paletteBackdrop").classList.remove("open"); q("#palette").classList.remove("open"); };
+  q("#drawerBackdrop").onclick = function () { q("#drawer").classList.remove("open"); q("#drawerBackdrop").classList.remove("open"); if (drawerTrigger) { drawerTrigger.focus(); drawerTrigger = null; } };
+  var paletteTrigger = null;
+  q("#openPalette").onclick = function () { paletteTrigger = document.activeElement; q("#paletteBackdrop").classList.add("open"); q("#palette").classList.add("open"); q("#palette input").focus(); };
+  q("#paletteBackdrop").onclick = function () { q("#paletteBackdrop").classList.remove("open"); q("#palette").classList.remove("open"); if (paletteTrigger) { paletteTrigger.focus(); paletteTrigger = null; } };
   q("[data-palette-new]").onclick = function () { q("#paletteBackdrop").click(); openNew(); };
+  q("[data-palette-new]").onkeydown = function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); q("#paletteBackdrop").click(); openNew(); } };
   document.addEventListener("keydown", function (event) {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); q("#openPalette").click(); }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n") { event.preventDefault(); openNew(); }
     if (event.key === "Escape") { closeNew(); q("#drawerBackdrop").click(); q("#paletteBackdrop").click(); }
+    if (event.key === "Tab" && q("#drawer").classList.contains("open")) {
+      var focusable = Array.prototype.slice.call(q("#drawer").querySelectorAll("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])"));
+      if (focusable.length > 0 && (event.target === focusable[focusable.length - 1] || !q("#drawer").contains(event.target))) { event.preventDefault(); focusable[0].focus(); }
+    }
+    if (event.key === "Tab" && q("#newTaskModal").classList.contains("open")) {
+      var focusable = Array.prototype.slice.call(q("#newTaskModal").querySelectorAll("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])"));
+      if (focusable.length > 0 && (event.target === focusable[focusable.length - 1] || !q("#newTaskModal").contains(event.target))) { event.preventDefault(); focusable[0].focus(); }
+    }
+    if (event.key === "Tab" && q("#palette").classList.contains("open")) {
+      var focusable = Array.prototype.slice.call(q("#palette").querySelectorAll("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])"));
+      if (focusable.length > 0 && (event.target === focusable[focusable.length - 1] || !q("#palette").contains(event.target))) { event.preventDefault(); focusable[0].focus(); }
+    }
   });
   qa(".attention-row,.session-row").forEach(function (n) { n.remove(); });
   renderTask(); refresh();

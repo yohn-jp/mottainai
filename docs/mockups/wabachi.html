@@ -89,7 +89,7 @@
     </div>
     <div class="backdrop" id="searchBackdrop"></div>
     <div class="command" id="searchPanel">
-      <input id="searchInput" placeholder="Find symbol, contract, component, finding…" />
+      <input id="searchInput" placeholder="Find symbol, contract, component, finding…" aria-label="Search symbols, contracts, components, and findings" />
       <div class="command-item" data-select="read">
         <span>Finding · Read Authorization</span><span class="mono">FIND-0012</span>
       </div>
@@ -251,10 +251,14 @@
           openSearch();
         }
         if (e.key === "Escape") closeSearch();
-        if (!sp.classList.contains("open") && e.key.toLowerCase() === "j") {
-          selected = selected === "read" ? "runtime" : "read";
-          tab = "brief";
-          render();
+        if (e.key.toLowerCase() === "j" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+          var target = e.target;
+          var isTextEntry = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+          if (!isTextEntry) {
+            selected = selected === "read" ? "runtime" : "read";
+            tab = "brief";
+            render();
+          }
         }
       });
       render();

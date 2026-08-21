@@ -83,7 +83,8 @@ test("Manager HTTP API exposes session state and selected open/stop actions", as
   const detailSession = (await detail.json()).session;
   assert.equal(detailSession.runtimeName, created.runtimeName);
   assert.equal(detailSession.operational.task.lifecycleState, "unbound");
-  assert.equal(detailSession.operational.phaseRail[1].state, "current");
+  const activePhase = detailSession.operational.phaseRail.find((phase) => phase.id === "active");
+  assert.equal(activePhase?.state, "current");
   assert.equal(detailSession.operational.validation.state, "unavailable");
   const opened = await fetch(`${handle.url}api/v1/manager/sessions/${created.sessionId}/open-terminal`, {
     method: "POST",

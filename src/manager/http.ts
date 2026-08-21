@@ -158,7 +158,7 @@ export class ManagerHttpApi implements ManagerHttpHandler {
         return;
       }
       if (segments.length === 1 && segments[0] === "sessions" && method === "POST") {
-        sendJson(response, 201, { session: await this.service.start(inputFromBody(await readJsonBody(request))) });
+        sendJson(response, 201, { session: this.service.projectSession(await this.service.start(inputFromBody(await readJsonBody(request)))) });
         return;
       }
       if (
@@ -177,7 +177,7 @@ export class ManagerHttpApi implements ManagerHttpHandler {
         return;
       }
       if (segments.length === 1 && segments[0] === "reconcile" && method === "POST") {
-        sendJson(response, 200, { sessions: await this.service.reconcileNow() });
+        sendJson(response, 200, { sessions: (await this.service.reconcileNow()).map((session) => this.service.projectSession(session)) });
         return;
       }
       if (
@@ -195,15 +195,15 @@ export class ManagerHttpApi implements ManagerHttpHandler {
       if (segments.length === 3 && segments[0] === "sessions" && method === "POST") {
         const sessionId = sessionIdFromPath(segments[1] ?? "");
         if (segments[2] === "open-terminal") {
-          sendJson(response, 200, { session: await this.service.openTerminal(sessionId) });
+          sendJson(response, 200, { session: this.service.projectSession(await this.service.openTerminal(sessionId)) });
           return;
         }
         if (segments[2] === "stop") {
-          sendJson(response, 200, { session: await this.service.stop(sessionId) });
+          sendJson(response, 200, { session: this.service.projectSession(await this.service.stop(sessionId)) });
           return;
         }
         if (segments[2] === "restart") {
-          sendJson(response, 200, { session: await this.service.restart(sessionId) });
+          sendJson(response, 200, { session: this.service.projectSession(await this.service.restart(sessionId)) });
           return;
         }
       }

@@ -22,8 +22,8 @@
   --focus: #7654e6;
   --r1: 3px;
   --r2: 6px;
-  --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans JP", sans-serif;
-  --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  --sans: "Inter", ui-sans-serif, -apple-system, "BlinkMacSystemFont", "Segoe UI", "Noto Sans JP", sans-serif;
+  --mono: "SFMono-Regular", "Consolas", "Liberation Mono", "Menlo", monospace;
   --shadow-float: 0 16px 50px rgba(34, 30, 24, 0.16), 0 2px 8px rgba(34, 30, 24, 0.08);
 }
 * {
@@ -253,12 +253,21 @@ button {
 .primary:hover {
   filter: brightness(0.96);
 }
+.primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: none;
+}
 .secondary {
   height: 29px;
   border: 1px solid var(--line-strong);
   background: var(--surface);
   padding: 0 10px;
   border-radius: var(--r1);
+}
+.secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .danger {
   height: 29px;

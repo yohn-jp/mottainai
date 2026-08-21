@@ -33,6 +33,7 @@ export function readManagerAssets(moduleUrl: string = import.meta.url): Readonly
   });
   return {
     "/styles.css": read("styles.css"),
+    "/mockups/styles.css": read("styles.css"),
     "/mockups/index.html": read("index.html"),
     "/mockups/mottainai.html": read("mottainai.html"),
     "/mockups/wabachi.html": read("wabachi.html"),

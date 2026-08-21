@@ -17,6 +17,7 @@ import {
 } from "../semantics/execution-plan.js";
 import type {
   CommitReconciliationRecord,
+  CommitReconciliationState,
   ManagerAgentKind,
   ManagerReconciliationState,
   ManagerRuntimeState,
@@ -25,9 +26,11 @@ import type {
   ManagerSessionReceipt,
   PullRequestRecord,
   PushReconciliationRecord,
+  PushReconciliationState,
   TaskId,
   WorkflowStateStore,
 } from "../workflow/state/store.js";
+import type { PullRequestLifecycleState } from "../workflow/providers/model.js";
 import type { LifecycleState } from "../workflow/domain/lifecycle.js";
 import { validateIssueRef, validateTaskSlug } from "../workflow/commands/validate.js";
 import { PI_GUARD_ASSET_MARKER } from "./pi-guard.js";
@@ -185,20 +188,20 @@ export interface ManagerOperationalProjection {
     recordedAt: number | null;
   };
   commit: {
-    state: string;
+    state: CommitReconciliationState | "unavailable";
     sha: string | null;
     detail: string | null;
     authority: "Nawabari";
   };
   push: {
-    state: string;
+    state: PushReconciliationState | "unavailable";
     target: string | null;
     remoteSha: string | null;
     detail: string | null;
     authority: "Nawabari";
   };
   pullRequest: {
-    state: string;
+    state: PullRequestLifecycleState | "unavailable";
     number: number | null;
     url: string | null;
     headSha: string | null;
@@ -694,12 +697,6 @@ function phaseRailFor(
   return phases;
 }
 
-function diagnosticText(session: ManagerSessionRecord): string {
-  return [session.latestStatus, session.reconciliationMessage, session.errorMessage, session.latestReceipt?.message]
-    .filter((value): value is string => value !== undefined && value.length > 0)
-    .join(" ");
-}
-
 const BLOCKED_RECEIPT_CODES = new Set(["claim_conflict", "claim_preflight_stale", "claim_preflight_unavailable"]);
 
 function operationalStateFor(session: ManagerSessionRecord): ManagerOperationalState {
@@ -731,6 +728,7 @@ function validationProjection(
   store: WorkflowStateStore,
   task: ReturnType<WorkflowStateStore["getTask"]>,
   worktreeId: string,
+  commitSha: string | undefined,
 ): ManagerOperationalProjection["validation"] {
   if (task === undefined) {
     return { state: "unavailable", summary: "No task-bound validation receipt", recordedAt: null };
@@ -744,15 +742,18 @@ function validationProjection(
       recordedAt: latestRun.recordedAt,
     };
   }
-  const evidence = store.listValidationEvidence(task.instanceId, task.baseCommit);
+  const validatedCommit = commitSha ?? task.baseCommit;
+  const evidence = store.listValidationEvidence(task.instanceId, validatedCommit);
   const latestEvidence = [...evidence].sort((left, right) => right.recordedAt - left.recordedAt)[0];
-  return latestEvidence === undefined
-    ? { state: "unavailable", summary: "No authoritative validation receipt recorded", recordedAt: null }
-    : {
-        state: latestEvidence.status,
-        summary: `${latestEvidence.name}: ${latestEvidence.status}`,
-        recordedAt: latestEvidence.recordedAt,
-      };
+  if (latestEvidence === undefined) {
+    return { state: "unavailable", summary: "No authoritative validation receipt recorded", recordedAt: null };
+  }
+  const normalizedState = latestEvidence.status === "passed" || latestEvidence.status === "failed" ? latestEvidence.status : "unavailable";
+  return {
+    state: normalizedState,
+    summary: `${latestEvidence.name}: ${latestEvidence.status}`,
+    recordedAt: latestEvidence.recordedAt,
+  };
 }
 
 function commitProjection(
@@ -794,20 +795,17 @@ function projectOperationalSession(
   session: ManagerSessionRecord,
 ): ManagerOperationalProjection {
   const task = session.taskId === undefined ? undefined : store.getTask(session.taskId);
-  const worktree =
-    task === undefined
-      ? undefined
-      : store.listWorktreesForTask(task.taskId).find((candidate) => candidate.status === "active") ??
-        store.listWorktreesForTask(task.taskId)[0];
+  const worktrees = task === undefined ? [] : store.listWorktreesForTask(task.taskId);
+  const worktree = worktrees.find((candidate) => candidate.status === "active") ?? worktrees[0];
   const worktreeId = worktree?.worktreeId ?? session.worktreeId ?? "";
-  const validation = validationProjection(store, task, worktreeId);
-  const commit = commitProjection(task === undefined ? undefined : store.getCommitReconciliation(task.taskId));
+  const commitReconciliation = task === undefined ? undefined : store.getCommitReconciliation(task.taskId);
+  const validation = validationProjection(store, task, worktreeId, commitReconciliation?.commitSha);
+  const commit = commitProjection(commitReconciliation);
   const push = pushProjection(task === undefined ? undefined : store.getPushReconciliation(task.taskId));
   const pullRequest = pullRequestProjection(
     task === undefined ? undefined : store.listPullRequestRecordsForTask(task.taskId).at(-1),
   );
   const state = operationalStateFor(session);
-  const diagnostic = diagnosticText(session);
   const semanticProgressed = ["committed", "pushed", "pull-request-open", "merged", "cleaned"].includes(
     session.semanticLifecycleState,
   );
@@ -820,10 +818,10 @@ function projectOperationalSession(
             state === "stale"
               ? "Managed execution identity is unavailable; no unrelated runtime was adopted."
               : state === "blocked"
-                ? diagnostic || "A resource claim or lifecycle operation is blocked."
+                ? "A resource claim or lifecycle operation is blocked."
                 : session.runtimeState === "exited" && !semanticProgressed
                   ? "Agent process exited before semantic lifecycle completion; process exit is not semantic completion."
-                  : diagnostic || "The managed session requires operator inspection.",
+                  : "The managed session requires operator inspection.",
           authority:
             state === "stale" || state === "blocked" || session.reconciliationState === "unresolved"
               ? "Nawabari"

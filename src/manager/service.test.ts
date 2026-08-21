@@ -136,6 +136,55 @@ test("operational state is blocked only by a structured claim-preflight receipt 
   assert.equal(projection.operational.state, "blocked");
 });
 
+test("operational state covers blocked and stale classifications with structured signals", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime: new FakeRuntime() });
+
+  const staleSession = store.createManagerSession({
+    sessionId: "00000000-0000-4000-8000-000000000409" as ManagerSessionId,
+    workspaceRoot: root,
+    executionMode: "workspace",
+    worktreePath: root,
+    agentKind: "pi",
+    launchProfile: "pi",
+    instruction: "stale runtime",
+    launchCommand: "pi",
+    launchArgs: ["--", "stale runtime"],
+    runtimeName: "mottainai-test-runtime-409",
+    lifecycleState: "running",
+    runtimeState: "stale",
+    semanticLifecycleState: "active",
+    reconciliationState: "unresolved",
+    latestStatus: "runtime unavailable",
+  });
+  assert.equal(service.projectSession(staleSession).operational.state, "stale");
+
+  const preflightStaleSession = store.createManagerSession({
+    sessionId: "00000000-0000-4000-8000-000000000410" as ManagerSessionId,
+    workspaceRoot: root,
+    executionMode: "workspace",
+    worktreePath: root,
+    agentKind: "pi",
+    launchProfile: "pi",
+    instruction: "preflight stale",
+    launchCommand: "pi",
+    launchArgs: ["--", "preflight stale"],
+    runtimeName: "mottainai-test-runtime-410",
+    lifecycleState: "running",
+    runtimeState: "running",
+    semanticLifecycleState: "active",
+    reconciliationState: "unresolved",
+    latestReceipt: {
+      code: "claim_preflight_stale",
+      message: "claim registry evidence is stale",
+      source: "workflow",
+      recordedAt: Date.now(),
+    },
+  });
+  assert.equal(service.projectSession(preflightStaleSession).operational.state, "blocked");
+});
+
 function recordingExecutionAuthority(root: string, plans: SemanticExecutionPlan[]): ManagerExecutionAuthority {
   return {
     async start(input) {
