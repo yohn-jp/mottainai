@@ -112,6 +112,33 @@ test("New Task preflight only treats clear/not-applicable claim status as launch
   assert.match(html, /Launch remains disabled/u);
 });
 
+test("New Task preflight discards a stale response after the modal is closed and reopened (regression)", () => {
+  const html = readManagerViewer();
+  const match = html.match(/function isPreflightResponseCurrent\(epoch, currentEpoch\) \{ return[^}]+\}/u);
+  assert.ok(match, "expected preflight() to gate stale responses through an extractable isPreflightResponseCurrent helper");
+  const isPreflightResponseCurrent = new Function(
+    "epoch",
+    "currentEpoch",
+    match[0].replace(/^function isPreflightResponseCurrent\(epoch, currentEpoch\) \{ return/, "return").replace(/\}$/, ""),
+  );
+  // A preflight request is issued (epoch 0) while the modal is open. The modal is then closed
+  // and reopened, bumping preflightEpoch to 2 (once for close, once for reopen) before the
+  // request's response finally arrives — a close→reopen→old-response sequence.
+  assert.equal(isPreflightResponseCurrent(0, 2), false, "a response from before close/reopen must be discarded");
+  assert.equal(isPreflightResponseCurrent(2, 2), true, "a response issued after reopen must still be applied");
+  // Static shape: openNew()/closeNew() each invalidate any in-progress preflight by bumping
+  // preflightEpoch, and preflight()'s success/error handlers both check it before touching DOM
+  // state (#preflightResult, taskPreview) that may belong to a different step or no longer exist.
+  assert.match(html, /var preflightEpoch = 0;/u);
+  assert.match(html, /function openNew\(\) \{\s*\n\s*modalTrigger = document\.activeElement;\s*\n\s*preflightEpoch\+\+;/u);
+  assert.match(html, /function closeNew\(\) \{\s*\n\s*preflightEpoch\+\+;/u);
+  assert.match(
+    html,
+    /return post\("\/sessions\/preview", taskRequest\)\.then\(function \(body\) \{\s*\n\s*if \(!isPreflightResponseCurrent\(epoch, preflightEpoch\)\) return;/u,
+  );
+  assert.match(html, /\}\)\.catch\(function \(error\) \{\s*\n\s*if \(!isPreflightResponseCurrent\(epoch, preflightEpoch\)\) return;/u);
+});
+
 test("Manager operational console ships no fabricated operational truth in its initial markup", () => {
   const html = readManagerViewer();
   for (const fakeMarker of [
@@ -126,6 +153,7 @@ test("Manager operational console ships no fabricated operational truth in its i
     "Cleanup blocked",
     "Open session #379",
     "Inspect attention #378",
+    "2!",
   ]) {
     assert.ok(!html.includes(fakeMarker), `initial Manager HTML must not contain fabricated state: ${fakeMarker}`);
   }

@@ -729,7 +729,6 @@ function validationProjection(
   task: ReturnType<WorkflowStateStore["getTask"]>,
   worktreeId: string,
   commitSha: string | undefined,
-  hasCommittedWork: boolean,
 ): ManagerOperationalProjection["validation"] {
   if (task === undefined) {
     return { state: "unavailable", summary: "No task-bound validation receipt", recordedAt: null };
@@ -743,11 +742,14 @@ function validationProjection(
       recordedAt: latestRun.recordedAt,
     };
   }
-  // Validation evidence is keyed by the head commit it validated. Once the
-  // session has committed work, baseCommit no longer represents that head;
-  // showing evidence recorded at baseCommit would misrepresent it as
-  // covering the changed work, so prefer unavailable over a stale reading.
-  const validatedCommit = commitSha ?? (hasCommittedWork ? undefined : task.baseCommit);
+  // Validation evidence is keyed by the head commit it validated. Only an
+  // authoritative reconciled commitSha proves what the worktree currently is
+  // — task.baseCommit is never used as a fallback, including while the
+  // session is still active/pre-commit, because an in-progress session can
+  // already have uncommitted edits that baseCommit does not reflect. If the
+  // current state cannot be proven this way, project unavailable rather than
+  // a stale reading.
+  const validatedCommit = commitSha;
   if (validatedCommit === undefined) {
     return { state: "unavailable", summary: "No authoritative validated head commit recorded", recordedAt: null };
   }
@@ -917,13 +919,7 @@ function projectOperationalSession(
   const worktree = worktrees.find((candidate) => candidate.status === "active") ?? worktrees[0];
   const worktreeId = worktree?.worktreeId ?? session.worktreeId ?? "";
   const commitReconciliation = task === undefined ? undefined : store.getCommitReconciliation(task.taskId);
-  const validation = validationProjection(
-    store,
-    task,
-    worktreeId,
-    commitReconciliation?.commitSha,
-    hasCommittedSemanticProgress(session),
-  );
+  const validation = validationProjection(store, task, worktreeId, commitReconciliation?.commitSha);
   const commit = commitProjection(commitReconciliation);
   const push = pushProjection(task === undefined ? undefined : store.getPushReconciliation(task.taskId));
   const pullRequest = pullRequestProjection(

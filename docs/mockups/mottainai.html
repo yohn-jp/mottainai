@@ -42,7 +42,7 @@
             <button class="context" id="runtimeContext">runtime/unavailable ▾</button><span class="health" id="healthLabel">Manager unavailable</span>
           </div>
           <div class="top-right">
-            <button class="icon-btn" id="openPalette">⌘K</button><button class="icon-btn">2!</button
+            <button class="icon-btn" id="openPalette">⌘K</button
             ><button class="primary" data-open-new>＋ New task</button>
           </div>
         </header>
@@ -184,6 +184,10 @@
   var taskStep = 0;
   var taskPreview;
   var taskRequest;
+  // Bumped by openNew()/closeNew() so a preflight response tied to a modal session that has
+  // since been closed (or closed and reopened) is discarded instead of writing into DOM state
+  // that may belong to a different step's markup, or no longer exist at all.
+  var preflightEpoch = 0;
   function readWabachiWorkIntent() {
     var params = new URLSearchParams(window.location.search);
     var fromQuery = params.get("focus") || params.get("instruction") || params.get("repository") ? {
@@ -439,9 +443,14 @@
   // response can still carry a blocking status (conflict/stale/unavailable/
   // ambiguous) that must keep launch disabled.
   function isLaunchableClaimStatus(status) { return status === "clear" || status === "not-applicable"; }
+  // A preflight response is applied only if the New Task modal has not been closed (or closed
+  // and reopened) since the request was sent — see preflightEpoch above.
+  function isPreflightResponseCurrent(epoch, currentEpoch) { return epoch === currentEpoch; }
   function preflight() {
     taskRequest = taskValues();
+    var epoch = preflightEpoch;
     return post("/sessions/preview", taskRequest).then(function (body) {
+      if (!isPreflightResponseCurrent(epoch, preflightEpoch)) return;
       var preview = body.preview;
       var status = preview.claimPreflight.status;
       if (isLaunchableClaimStatus(status)) {
@@ -455,6 +464,7 @@
         q("#nextStep").disabled = true;
       }
     }).catch(function (error) {
+      if (!isPreflightResponseCurrent(epoch, preflightEpoch)) return;
       taskPreview = undefined; q("#preflightResult").innerHTML = "<b>UNAVAILABLE</b><br>" + esc(error.message); q("#nextStep").disabled = true;
     });
   }
@@ -468,11 +478,15 @@
   var modalTrigger = null;
   function openNew() {
     modalTrigger = document.activeElement;
+    preflightEpoch++;
     taskStep = 0; taskPreview = undefined; taskRequest = undefined; taskState = createTaskState(); renderTask(); q("#modalBackdrop").classList.add("open"); q("#newTaskModal").classList.add("open");
     var firstInput = q("#stepContent input, #stepContent textarea");
     if (firstInput) firstInput.focus(); else q("#nextStep").focus();
   }
-  function closeNew() { q("#modalBackdrop").classList.remove("open"); q("#newTaskModal").classList.remove("open"); if (modalTrigger) { modalTrigger.focus(); modalTrigger = null; } }
+  function closeNew() {
+    preflightEpoch++;
+    q("#modalBackdrop").classList.remove("open"); q("#newTaskModal").classList.remove("open"); if (modalTrigger) { modalTrigger.focus(); modalTrigger = null; }
+  }
   function refresh() {
     return Promise.all([request("/health"), request("/sessions?limit=500")]).then(function (parts) {
       health = parts[0]; sessions = parts[1].sessions || []; updateHealth(); renderHome(); renderPalette();

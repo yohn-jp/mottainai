@@ -1143,6 +1143,52 @@ test("validation reflects the reconciled head commit, not a stale base-commit re
   assert.match(afterReconciliation.summary, /unit/u);
 });
 
+test("validation in an active/pre-commit session never reads baseCommit evidence as current PASS (regression)", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime: new FakeRuntime() });
+  const instanceId = "instance-validation-active-406" as RepositoryInstanceId;
+  store.observeRepositoryInstance({
+    rootCommitDigest: "digest-validation-active-406" as RootCommitDigest,
+    instanceId,
+    gitCommonDir: `${root}/.git`,
+    canonicalWorktreePath: root,
+  });
+  const reserved = store.reserveTask({
+    instanceId,
+    taskSlug: "validation-active",
+    issueRef: "406",
+    baseBranch: "main",
+    baseCommit: "0000000000000000000000000000000000base",
+    allowMultipleActiveTasksPerIssue: true,
+  });
+  assert.equal(reserved.ok, true);
+  if (!reserved.ok) throw new Error("unreachable");
+  const task = reserved.task;
+  const session = store.createManagerSession({
+    sessionId: "00000000-0000-4000-8000-000000000411" as ManagerSessionId,
+    workspaceRoot: root,
+    executionMode: "task-bound",
+    worktreePath: root,
+    taskId: task.taskId,
+    agentKind: "pi",
+    launchCommand: "pi",
+    launchArgs: ["--", "validation active regression"],
+    runtimeName: "mottainai-test-runtime-validation-active",
+    lifecycleState: "running",
+    runtimeState: "running",
+    semanticLifecycleState: "active",
+    reconciliationState: "synced",
+  });
+
+  // The session is active/pre-commit and has never been reconciled to a real head commit, but
+  // evidence happens to exist at task.baseCommit (e.g. from before the session started editing).
+  // An active session can already have uncommitted worktree edits that baseCommit does not
+  // reflect, so this must never be projected as current validation success.
+  store.recordValidationEvidence({ instanceId, headCommit: task.baseCommit, name: "unit", status: "passed" });
+  assert.equal(service.projectSession(session).operational.validation.state, "unavailable");
+});
+
 test("list projection omits expensive validation/commit/push/PR detail that only full detail projection loads", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
@@ -1180,7 +1226,21 @@ test("list projection omits expensive validation/commit/push/PR detail that only
     semanticLifecycleState: "active",
     reconciliationState: "synced",
   });
-  store.recordValidationEvidence({ instanceId, headCommit: task.baseCommit, name: "unit", status: "passed" });
+  // Evidence must be recorded at a reconciled head commit, not task.baseCommit: an
+  // active/pre-commit session can already have uncommitted edits, so baseCommit is never
+  // trusted as a stand-in for current state.
+  const headCommit = "2222222222222222222222222222222222head";
+  store.beginCommitReconciliation({
+    taskId: task.taskId,
+    instanceId,
+    nawabariSessionId: "nawabari-session-409" as NawabariSessionId,
+    branchName: "feat/406-list-projection",
+    beforeCommit: task.baseCommit,
+    resources: ["**"],
+    message: "commit",
+  });
+  store.recordCommitResult(task.taskId, headCommit);
+  store.recordValidationEvidence({ instanceId, headCommit, name: "unit", status: "passed" });
 
   const full = service.projectSession(session).operational;
   const summary = service.projectSessionSummary(session).operational;
