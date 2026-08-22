@@ -103,10 +103,38 @@ test("managed PR creation sends linked_issue through gh-inari", async (t) => {
 
   const result = await adapter.openPullRequest(input());
   assert.equal(result.ok, true, JSON.stringify(result));
+  if (result.ok) {
+    assert.deepEqual(result.value, {
+      identity: { provider: "github", id: "pull-request:12" },
+      reference: "#12",
+      number: 12,
+      url: "https://github.com/acme/repo/pull/12",
+      state: "open",
+      lifecycleState: "draft",
+      repository: input().repository,
+      head: input().head,
+      base: input().base,
+    });
+  }
   assert.equal(calls.length, 3);
-  const payload = JSON.parse(calls[2]?.input ?? "{}") as { fields?: Record<string, unknown> };
-  assert.equal(payload.fields?.linked_issue, "Closes #7");
-  assert.equal("issue" in (payload.fields ?? {}), false);
+  assert.deepEqual(calls[2]?.args, [
+    "pr",
+    "create",
+    "--repository",
+    "acme/repo",
+    "--from",
+    "-",
+    "--json",
+    "--template",
+    "default",
+  ]);
+  assert.deepEqual(JSON.parse(calls[2]?.input ?? "{}"), {
+    fields: pullRequestFieldsForGhInari(input().draft),
+    title: "Governed PR",
+    head: "feature/inari",
+    base: "main",
+    draft: true,
+  });
 });
 
 test("missing linked_issue in the compiled repository contract fails before provider execution", async (t) => {
@@ -171,6 +199,8 @@ test("governance rejection remains a structured gh-inari workflow failure", asyn
     assert.equal(result.error.authority, "gh-inari");
     assert.equal(result.error.inari?.code, "INARI_REJECTED");
     assert.equal(result.error.inari?.remote?.code, "GOVERNANCE_REJECTED");
+    const details = result.error.inari?.remote?.details;
+    assert.equal(typeof details === "object" && details !== null && "path" in details, true);
   }
 });
 
@@ -185,6 +215,10 @@ test("missing and incompatible gh-inari fail closed before a create operation", 
   const missingResult = await missingAdapter.openPullRequest(withoutIssue);
   assert.equal(missingResult.ok, false);
   if (!missingResult.ok) assert.equal(missingResult.error.inari?.code, "INARI_COMPANION_MISSING");
+  assert.deepEqual(
+    missing.calls.map((call) => call.args),
+    [["--version"]],
+  );
 
   const incompatible = queuedRunner([runResult("gh-inari 0.6.9\n")]);
   const incompatibleAdapter = new GhInariPullRequestAdapter({
@@ -195,6 +229,10 @@ test("missing and incompatible gh-inari fail closed before a create operation", 
   const incompatibleResult = await incompatibleAdapter.openPullRequest(withoutIssue);
   assert.equal(incompatibleResult.ok, false);
   if (!incompatibleResult.ok) assert.equal(incompatibleResult.error.inari?.code, "INARI_COMPANION_INCOMPATIBLE");
+  assert.deepEqual(
+    incompatible.calls.map((call) => call.args),
+    [["--version"]],
+  );
 });
 
 test("the Inari adapter keeps #196 lookup read-only and delegates exact reconciliation", async () => {
