@@ -109,6 +109,37 @@ test("mottainai_code_search reports ast-grep failure without a lossy rg fallback
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test("mottainai_code_search treats an unparsable rg event stream as a backend failure, not a partial success", async () => {
+  const root = await workspace();
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-fake-rg-"));
+  const fakeRg = path.join(binDir, "rg");
+  await fs.writeFile(
+    fakeRg,
+    [
+      "#!/bin/sh",
+      'echo \'{"type":"match","data":{"path":{"text":"whatever.txt"},"line_number":1,"lines":{"text":"ok"}}}\'',
+      "echo 'not-json-line'",
+      "exit 0",
+      "",
+    ].join("\n"),
+  );
+  await fs.chmod(fakeRg, 0o755);
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+  try {
+    const ctx = await context(root);
+    const result = structured(await callCodeSearchTool("mottainai_code_search", { pattern: "needle" }, ctx));
+    assert.equal(result.status, "failed");
+    const history = result.fallback_history as Array<{ provider: string; tool: string; error: string }>;
+    assert.equal(history.length, 1);
+    assert.match(history[0].error, /rg output failed to parse/);
+  } finally {
+    process.env.PATH = originalPath;
+    await fs.rm(binDir, { recursive: true, force: true });
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("mottainai_code_symbol falls back to rg text search of the symbol name when no relation provider is configured", async () => {
   const root = await workspace();
   await fs.writeFile(path.join(root, "sample.ts"), "export function useful() { return 1; }\n");

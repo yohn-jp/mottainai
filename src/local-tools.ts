@@ -1049,7 +1049,60 @@ async function searchTool(args: Args, config: ResolvedGatewayConfig, store: Arti
   rgArgs.push("--glob", "!.git", "--glob", "!node_modules", "--glob", "!dist", query, searchPath);
   const run = await runProgram("rg", rgArgs, config.workspaceRoot, config.maxTimeoutMs, config.maxOutputBytes);
   if (run.spawnError) throw new Error(`rg unavailable: ${run.spawnError}`);
-  const { groups, omitted } = truncateGroups(parseRgJson(run.stdout, config.workspaceRoot, context), maxResults);
+
+  // rg 実行そのものの失敗（invalid regex 等）は 0 件成功へ丸めない — issue #449。
+  if (run.exitCode !== 0 && run.exitCode !== 1) {
+    const firstCause = boundedDiagnostic(run.stderr || run.stdout);
+    const summary = `rg failed: exit=${run.exitCode ?? "signal"} ${firstCause}`;
+    const resultId = store.putArtifact({
+      text: run.stdout,
+      stderr: run.stderr,
+      metadata: { operation: "search", command: query, cwd: searchPath, summary },
+    });
+    return output(
+      "search",
+      "failed",
+      summary,
+      resultId,
+      {
+        query,
+        mode,
+        diagnostics: [{ severity: "error", message: firstCause }],
+        failure_classification: "rg_command",
+        metrics: { raw_bytes: Buffer.byteLength(run.stdout) },
+      },
+      true,
+    );
+  }
+
+  const parsed = parseRgJson(run.stdout, config.workspaceRoot, context);
+  // producer が exit 0/1 でも、期待する match/context event stream として parse できない
+  // 出力は producer-contract 違反 — byte 上限による打ち切り（#448 の範疇）とは区別する。
+  if (parsed.malformedEventCount > 0 && !run.outputLimit) {
+    const firstCause = parsed.firstMalformedLine ?? "rg emitted an event that does not match the expected contract";
+    const summary = `rg output could not be parsed as the expected event stream (malformed_events=${parsed.malformedEventCount})`;
+    const resultId = store.putArtifact({
+      text: run.stdout,
+      stderr: run.stderr,
+      metadata: { operation: "search", command: query, cwd: searchPath, summary },
+    });
+    return output(
+      "search",
+      "failed",
+      summary,
+      resultId,
+      {
+        query,
+        mode,
+        diagnostics: [{ severity: "error", message: firstCause }],
+        failure_classification: "rg_parse",
+        metrics: { raw_bytes: Buffer.byteLength(run.stdout), malformed_events: parsed.malformedEventCount },
+      },
+      true,
+    );
+  }
+
+  const { groups, omitted } = truncateGroups(parsed.groups, maxResults);
   const matchCount = groups.reduce((count, group) => count + group.matches.length, 0);
   const summary = `${matchCount} matches in ${groups.length} files${omitted > 0 ? ` (truncated, omitted=${omitted})` : ""}`;
   const resultId = store.putArtifact({
@@ -1057,20 +1110,13 @@ async function searchTool(args: Args, config: ResolvedGatewayConfig, store: Arti
     stderr: run.stderr,
     metadata: { operation: "search", command: query, cwd: searchPath, summary },
   });
-  return output(
-    "search",
-    run.exitCode === 0 || run.exitCode === 1 ? "success" : "failed",
-    summary,
-    resultId,
-    {
-      query,
-      mode,
-      groups,
-      metrics: { raw_bytes: Buffer.byteLength(run.stdout), omitted_matches: omitted },
-      truncated: omitted > 0,
-    },
-    run.exitCode !== 0 && run.exitCode !== 1,
-  );
+  return output("search", "success", summary, resultId, {
+    query,
+    mode,
+    groups,
+    metrics: { raw_bytes: Buffer.byteLength(run.stdout), omitted_matches: omitted },
+    truncated: omitted > 0,
+  });
 }
 
 // --max-countはファイル単位上限。ここでparse後にグローバル件数で打ち切る（issue #5）。
@@ -1467,15 +1513,30 @@ interface FileGroupState {
   pendingBefore: RgContextLine[];
 }
 
+const MALFORMED_LINE_MAX_CHARS = 200;
+
+export interface RgParseResult {
+  groups: Array<{ path: string; matches: RgMatch[] }>;
+  /** JSON として解釈できなかった rg event 行の数。0 なら event stream は producer 契約通り。 */
+  malformedEventCount: number;
+  /** 最初に解釈失敗した行（bounded first-cause diagnostic 用）。 */
+  firstMalformedLine?: string;
+}
+
 /**
  * rg `--json` の event 列（`match` / `context`）を file ごとに group 化し、各 context line を
  * 正しい match group へ結び付ける。`context` の window 幅（`contextLines`）を使って、直前の
  * match の "after" context か次の match の "before" context かを行番号で判定する（離れた
  * match の context を誤って隣の match へ付けない）。
+ *
+ * JSON として parse できない行は producer/parse 契約違反として `malformedEventCount` に
+ * 数える（呼び出し側が正常な 0 件 result と区別する — issue #449）。
  */
-export function parseRgJson(raw: string, root: string, contextLines = 0): Array<{ path: string; matches: RgMatch[] }> {
+export function parseRgJson(raw: string, root: string, contextLines = 0): RgParseResult {
   const files = new Map<string, FileGroupState>();
   const order: string[] = [];
+  let malformedEventCount = 0;
+  let firstMalformedLine: string | undefined;
 
   for (const line of raw.split("\n")) {
     if (!line) continue;
@@ -1514,18 +1575,35 @@ export function parseRgJson(raw: string, root: string, contextLines = 0): Array<
         state.pendingBefore.push({ line: lineNumber, text });
       }
     } catch {
-      /* ignore malformed rg event */
+      malformedEventCount += 1;
+      if (firstMalformedLine === undefined) {
+        firstMalformedLine =
+          line.length > MALFORMED_LINE_MAX_CHARS ? `${line.slice(0, MALFORMED_LINE_MAX_CHARS)}…` : line;
+      }
     }
   }
 
-  return order.map((key) => {
-    const state = files.get(key)!;
-    return { path: state.path, matches: state.matches };
-  });
+  return {
+    groups: order.map((key) => {
+      const state = files.get(key)!;
+      return { path: state.path, matches: state.matches };
+    }),
+    malformedEventCount,
+    firstMalformedLine,
+  };
 }
 
 function firstLine(value: string): string {
   return value.split("\n").find(Boolean) ?? "command failed";
+}
+
+const DIAGNOSTIC_MAX_CHARS = 500;
+
+/** rg stderr/stdout の bounded first-cause diagnostic（issue #449: unbounded raw output を dump しない）。 */
+function boundedDiagnostic(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return "rg reported no diagnostic output";
+  return trimmed.length > DIAGNOSTIC_MAX_CHARS ? `${trimmed.slice(0, DIAGNOSTIC_MAX_CHARS)}…` : trimmed;
 }
 
 /** Skip TAP framing so the first actionable failure line, rather than `TAP version`, is surfaced. */

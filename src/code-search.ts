@@ -312,8 +312,13 @@ async function runRg(request: ExecutionRequest, config: ResolvedGatewayConfig): 
   const run = await runProgram("rg", args, config.workspaceRoot, config.maxTimeoutMs, config.maxOutputBytes);
   if (run.spawnError) throw new Error(`rg unavailable: ${run.spawnError}`);
   if (run.exitCode !== 0 && run.exitCode !== 1) throw new Error(`rg failed: exit=${run.exitCode} ${firstLine(run.stderr)}`);
-  const groups = parseRgJson(run.stdout, config.workspaceRoot);
-  const matches = groups.flatMap((group) => group.matches.map((match) => ({ path: group.path, line: match.line, text: match.text })));
+  const parsed = parseRgJson(run.stdout, config.workspaceRoot);
+  // exit 0/1 でも event stream が producer 契約通りに parse できない出力は fallback 対象の
+  // provider 障害として扱う — silent 0 件成功にしない（issue #449, mottainai_search と同じ semantics）。
+  if (parsed.malformedEventCount > 0 && !run.outputLimit) {
+    throw new Error(`rg output failed to parse as the expected event stream: ${parsed.firstMalformedLine ?? "malformed rg event"}`);
+  }
+  const matches = parsed.groups.flatMap((group) => group.matches.map((match) => ({ path: group.path, line: match.line, text: match.text })));
   const limited = matches.slice(0, maxResults);
   return { matches: limited, truncated: matches.length > limited.length };
 }
