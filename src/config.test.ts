@@ -610,6 +610,149 @@ test("gateway.readGovernor resolves the four policy modes and bounded defaults",
   assert.equal(resolveGatewayConfig(undefined).readGovernor?.mode, "observe");
 });
 
+test("loadMottainaiConfig rejects unknown keys in closed configuration objects (#445)", () => {
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      mcpServers: { one: { command: "node" } },
+      unknownRootKey: true,
+    })),
+    /invalid mottainai config: unknown property "unknownRootKey"/,
+  );
+
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      version: 2,
+      mcpServers: { one: { command: "node" } },
+      gateway: { unknownGatewayKey: true },
+    })),
+    /invalid gateway config: unknown property "unknownGatewayKey"/,
+  );
+
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      version: 2,
+      mcpServers: { one: { command: "node" } },
+      profiles: { locked: { unknownProfileKey: true } },
+    })),
+    /invalid profile config: locked: unknown property "unknownProfileKey"/,
+  );
+
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      version: 2,
+      mcpServers: { one: { command: "node", unknownUpstreamKey: true } },
+    })),
+    /invalid upstream config: one: unknown property "unknownUpstreamKey"/,
+  );
+
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      version: 2,
+      mcpServers: {
+        remote: { transport: "streamableHttp", url: "https://mcp.example.test/mcp", unknownHttpKey: true },
+      },
+    })),
+    /invalid upstream config: remote: unknown property "unknownHttpKey"/,
+  );
+
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      version: 2,
+      mcpServers: { one: { command: "node" } },
+      gateway: { worktree: { allowedBranchPrefixes: ["task/"], unknownWorktreeKey: true } },
+    })),
+    /invalid gateway worktree: unknown property "unknownWorktreeKey"/,
+  );
+
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      version: 2,
+      mcpServers: { one: { command: "node" } },
+      gateway: { await: { maxAwaitMs: 1_000, unknownAwaitKey: true } },
+    })),
+    /invalid gateway await: unknown property "unknownAwaitKey"/,
+  );
+
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      version: 2,
+      mcpServers: { one: { command: "node" } },
+      gateway: { managedProcesses: { maxActiveProcesses: 4, unknownManagedProcessKey: true } },
+    })),
+    /invalid gateway managedProcesses: unknown property "unknownManagedProcessKey"/,
+  );
+
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      version: 2,
+      mcpServers: { one: { command: "node" } },
+      gateway: { responseBudget: { softTokens: 500, hardTokens: 900, hardBytes: 3_600, unknownBudgetKey: true } },
+    })),
+    /invalid gateway responseBudget: unknown property "unknownBudgetKey"/,
+  );
+
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      version: 2,
+      mcpServers: { one: { command: "node" } },
+      gateway: { tokenBudgets: { default: { success: 100, failure: 100, unknownEntryKey: true } } },
+    })),
+    /invalid gateway tokenBudgets\.default: unknown property "unknownEntryKey"/,
+  );
+
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      version: 2,
+      mcpServers: { one: { command: "node" } },
+      gateway: { ghInari: { command: "gh-inari", unknownGhInariKey: true } },
+    })),
+    /invalid gateway ghInari: unknown property "unknownGhInariKey"/,
+  );
+});
+
+test("loadMottainaiConfig rejects a misspelled safety setting instead of falling back to its default (#445)", () => {
+  // "rawToolAcess" (typo) must fail loading, not silently keep the permissive `open` default.
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      version: 2,
+      mcpServers: { one: { command: "node" } },
+      profiles: { locked: { rawToolAcess: "restricted" } },
+    })),
+    /invalid profile config: locked: unknown property "rawToolAcess"/,
+  );
+
+  // "workflowTasks" typo must fail loading, not silently keep the disabled default.
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      version: 2,
+      mcpServers: { one: { command: "node" } },
+      gateway: { workflowTaks: true },
+    })),
+    /invalid gateway config: unknown property "workflowTaks"/,
+  );
+});
+
+test("loadMottainaiConfig keeps intentionally extensible config maps open to arbitrary keys (#445)", () => {
+  const configPath = writeConfig({
+    version: 2,
+    mcpServers: {
+      one: {
+        transport: "streamableHttp",
+        url: "https://mcp.example.test/mcp",
+        headersFromEnv: { "X-Custom-Header": "SOME_ENV_VAR" },
+      },
+    },
+    gateway: {
+      capabilityMap: { "one__call": ["custom.capability"] },
+      tokenBudgets: { tools: { "one__call": 500 }, capabilities: { "custom.capability": 400 } },
+    },
+  });
+  const config = loadMottainaiConfig(configPath);
+  assert.deepEqual(config.mcpServers.one.headersFromEnv, { "X-Custom-Header": "SOME_ENV_VAR" });
+  assert.deepEqual(config.gateway?.capabilityMap, { "one__call": ["custom.capability"] });
+  assert.deepEqual(loadGatewayConfig(configPath).tokenBudgets.tools, { "one__call": { success: 500, failure: 500 } });
+});
+
 test("gateway.readGovernor rejects invalid modes and unsafe limits", () => {
   assert.throws(
     () => loadMottainaiConfig(writeConfig({ version: 2, mcpServers: {}, gateway: { readGovernor: { mode: "block" } } })),
