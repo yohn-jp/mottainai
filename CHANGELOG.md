@@ -11,6 +11,20 @@ in the Claude and Codex registration examples in `README.md` together.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-22
+
+Dashboard UX correction release. See
+[docs/releases/0.3.1.md](docs/releases/0.3.1.md) for the full writeup.
+
+- **Fixed**: `mottainai dashboard` no longer serves the legacy dark
+  `semantic-project-viewer-v2.html`; it now serves the current API-backed
+  Semantic Project Viewer using the shared Mottainai precision UX.
+- **Changed**: Dashboard packaging now selects the v3 viewer and shared CSS
+  while preserving the existing read-only `/api/v1/*` query authority,
+  fixture/live providers, loopback behavior, and semantic data contracts.
+- **Added**: source/startup regression coverage that rejects accidental
+  fallback to the legacy v2 runtime asset.
+
 ## [0.3.0] - 2026-08-22
 
 Operational Manager dogfood release. See
@@ -222,7 +236,8 @@ log` for full history.
 - Raw-data logging of upstream requests/responses to `.mottainai/log/*.jsonl`
   with secret-key redaction, retention limits, and per-tool exclusion.
 
-[Unreleased]: https://github.com/yohn-jp/mottainai/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/yohn-jp/mottainai/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/yohn-jp/mottainai/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/yohn-jp/mottainai/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/yohn-jp/mottainai/compare/v0.1.4...v0.2.0
 [0.1.4]: https://github.com/yohn-jp/mottainai/compare/v0.1.3...v0.1.4
