@@ -1515,6 +1515,9 @@ interface FileGroupState {
 
 const MALFORMED_LINE_MAX_CHARS = 200;
 
+/** rg `--json` が出す正規 event type。`match`/`context` 以外は producer metadata として許容する。 */
+const KNOWN_RG_EVENT_TYPES = new Set(["match", "context", "begin", "end", "summary"]);
+
 export interface RgParseResult {
   groups: Array<{ path: string; matches: RgMatch[] }>;
   /** JSON として解釈できなかった rg event 行の数。0 なら event stream は producer 契約通り。 */
@@ -1537,6 +1540,13 @@ export function parseRgJson(raw: string, root: string, contextLines = 0): RgPars
   const order: string[] = [];
   let malformedEventCount = 0;
   let firstMalformedLine: string | undefined;
+  const recordMalformed = (rawLine: string): void => {
+    malformedEventCount += 1;
+    if (firstMalformedLine === undefined) {
+      firstMalformedLine =
+        rawLine.length > MALFORMED_LINE_MAX_CHARS ? `${rawLine.slice(0, MALFORMED_LINE_MAX_CHARS)}…` : rawLine;
+    }
+  };
 
   for (const line of raw.split("\n")) {
     if (!line) continue;
@@ -1545,6 +1555,12 @@ export function parseRgJson(raw: string, root: string, contextLines = 0): RgPars
         type?: string;
         data?: { path?: { text?: string }; line_number?: number; lines?: { text?: string } };
       };
+      // 未知の event type は producer-contract 外 — 正規 metadata event（begin/end/summary）と
+      // 区別して malformed に数える（issue #449）。
+      if (item.type === undefined || !KNOWN_RG_EVENT_TYPES.has(item.type)) {
+        recordMalformed(line);
+        continue;
+      }
       if (item.type !== "match" && item.type !== "context") continue;
       if (!item.data?.path?.text || item.data.line_number === undefined) continue;
       const key = path.relative(root, item.data.path.text);
@@ -1575,11 +1591,7 @@ export function parseRgJson(raw: string, root: string, contextLines = 0): RgPars
         state.pendingBefore.push({ line: lineNumber, text });
       }
     } catch {
-      malformedEventCount += 1;
-      if (firstMalformedLine === undefined) {
-        firstMalformedLine =
-          line.length > MALFORMED_LINE_MAX_CHARS ? `${line.slice(0, MALFORMED_LINE_MAX_CHARS)}…` : line;
-      }
+      recordMalformed(line);
     }
   }
 
