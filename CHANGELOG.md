@@ -11,9 +11,23 @@ in the Claude and Codex registration examples in `README.md` together.
 
 ## [Unreleased]
 
-- **Fixed**: managed gh-inari compatibility now accepts `>=0.7.0` when the
-  required `pr.create`/`pr.get` and machine-option contract is present, with
-  bounded fail-closed diagnostics for missing or incompatible companions.
+## [0.3.0] - 2026-08-22
+
+Operational Manager dogfood release. See
+[docs/releases/0.3.0.md](docs/releases/0.3.0.md) for the full writeup.
+
+- **Added**: bounded Manager resource-scope preview, Nawabari claim preflight,
+  and the four-file operational console UX for practical multi-agent managed
+  development.
+- **Added**: bounded connection-local managed process handles with explicit
+  active-count, lifetime, and retained-result limits.
+- **Changed**: Nawabari execution ownership closes only after authoritative
+  integration evidence; managed gh-inari compatibility is capability-gated;
+  release governance is pinned to an immutable upstream revision.
+- **Fixed**: unknown keys in closed configuration objects now fail closed;
+  conflicting Manager aliases/duplicate scope forms can no longer silently
+  widen execution scope; ripgrep execution/producer/parser failures can no
+  longer masquerade as a normal zero-match search result.
 
 ## [0.2.0] - 2026-08-18
 
@@ -75,8 +89,8 @@ Git workflow governance release. Publishes the workflow-task engine
 decisions, task/worktree lifecycle — Issue #34 family) that accumulated on
 `main` since `0.1.2`, plus the read governor, burst budget, context/result
 response budgets, symbol-first semantic IR, and retirement of native
-Windows support. See [docs/releases/0.1.3.md](docs/releases/0.1.3.md) for
-the full writeup.
+Windows support. See [docs/releases/0.1.3.md](docs/releases/0.1.3.md) for the
+full writeup.
 
 - **Platform support policy**: Linux is Tier 1 / canonical, WSL2 is supported
   as a Linux runtime, macOS is best effort / Tier 2, and native Windows is
@@ -208,7 +222,8 @@ log` for full history.
 - Raw-data logging of upstream requests/responses to `.mottainai/log/*.jsonl`
   with secret-key redaction, retention limits, and per-tool exclusion.
 
-[Unreleased]: https://github.com/yohn-jp/mottainai/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/yohn-jp/mottainai/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/yohn-jp/mottainai/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/yohn-jp/mottainai/compare/v0.1.4...v0.2.0
 [0.1.4]: https://github.com/yohn-jp/mottainai/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/yohn-jp/mottainai/compare/v0.1.2...v0.1.3
