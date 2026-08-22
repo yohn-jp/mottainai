@@ -29,6 +29,8 @@ export interface ZellijRuntime {
   start(input: { sessionName: string; cwd: string; command: string; args: readonly string[] }): Promise<void>;
   attach(sessionName: string, cwd: string): Promise<void>;
   terminate(sessionName: string, cwd: string): Promise<void>;
+  /** Binary name/path this runtime invokes; lets a PTY-based bridge spawn the same executable. */
+  binaryName(): string;
 }
 
 export class ZellijRuntimeError extends Error {
@@ -137,6 +139,10 @@ export class ZellijCliRuntime implements ZellijRuntime {
 
   private readonly binary: string;
   private readonly defaultCwd: string;
+
+  binaryName(): string {
+    return this.binary;
+  }
 
   async checkAvailability(): Promise<{ version: string }> {
     if (this.availability !== undefined) return this.availability;

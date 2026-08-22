@@ -1,5 +1,6 @@
 allowBuilds:
   esbuild: true
+  node-pty: true
   tree-sitter: true
   tree-sitter-javascript: true
   tree-sitter-typescript: true

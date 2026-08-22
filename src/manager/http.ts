@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { Duplex } from "node:stream";
 import { MANAGER_API_PREFIX, type ManagerHttpHandler } from "../dashboard/http.js";
 import {
   ManagerError,
@@ -6,6 +7,7 @@ import {
   type ManagerSessionFilter,
   type NewManagerSessionInput,
 } from "./service.js";
+import type { ManagerUpgradeHandler } from "./terminal-bridge.js";
 import {
   MANAGER_AGENT_KINDS,
   MANAGER_RUNTIME_STATES,
@@ -159,7 +161,18 @@ function requireJsonContentType(request: IncomingMessage): void {
 }
 
 export class ManagerHttpApi implements ManagerHttpHandler {
-  constructor(private readonly service: ManagerSessionService) {}
+  constructor(
+    private readonly service: ManagerSessionService,
+    private readonly terminalBridge?: ManagerUpgradeHandler,
+  ) {}
+
+  handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer, url: URL): void {
+    if (this.terminalBridge === undefined) {
+      socket.destroy();
+      return;
+    }
+    this.terminalBridge.handleUpgrade(request, socket, head, url);
+  }
 
   async handle(request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
     try {

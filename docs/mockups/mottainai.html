@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Mottainai Manager — Operations Console v1</title>
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/mockups/vendor/xterm.css" />
   </head>
   <body class="mottainai">
     <div class="app">
@@ -134,6 +135,23 @@
         <button class="primary" id="drawerAction">Run recovery</button>
       </div>
     </aside>
+    <div class="backdrop" id="terminalBackdrop"></div>
+    <section class="modal terminal-pane" id="terminalPane" role="dialog" aria-modal="true" aria-labelledby="terminalPaneTitle">
+      <div class="modal-head">
+        <div>
+          <div class="eyebrow">BROWSER TERMINAL</div>
+          <b id="terminalPaneTitle">Managed terminal</b>
+        </div>
+        <span class="mono" id="terminalPaneStatus">connecting…</span>
+      </div>
+      <div class="modal-body" id="terminalContainer"></div>
+      <div class="modal-foot">
+        <div></div>
+        <div>
+          <button class="secondary" data-close-terminal>Close</button>
+        </div>
+      </div>
+    </section>
     <div class="backdrop" id="modalBackdrop"></div>
     <section class="modal" id="newTaskModal" role="dialog" aria-modal="true" aria-labelledby="newTaskModalTitle">
       <div class="modal-head">
@@ -161,6 +179,8 @@
       <button type="button" class="command-item" data-palette-new><span>New task</span><kbd class="kbd">⌘ N</kbd></button>
       <div id="paletteDynamic"></div>
     </div>
+<script src="/mockups/vendor/xterm.js"></script>
+<script src="/mockups/vendor/addon-fit.js"></script>
 <script>
 (function () {
   "use strict";
@@ -339,6 +359,9 @@
     if (kept !== "palette" && q("#palette").classList.contains("open")) {
       q("#palette").classList.remove("open"); q("#paletteBackdrop").classList.remove("open"); paletteTrigger = null;
     }
+    if (kept !== "terminal" && q("#terminalPane").classList.contains("open")) {
+      closeTerminalPane();
+    }
   }
   var drawerTrigger = null;
   function closeDrawer() {
@@ -379,11 +402,56 @@
     if (head) target.searchParams.set("head", head);
     window.location.href = target.toString();
   }
+  var activeTerminal = null;
+  function closeTerminalPane() {
+    q("#terminalPane").classList.remove("open"); q("#terminalBackdrop").classList.remove("open");
+    if (activeTerminal) {
+      if (activeTerminal.socket && activeTerminal.socket.readyState <= 1) activeTerminal.socket.close();
+      activeTerminal.term.dispose();
+      activeTerminal = null;
+    }
+    q("#terminalContainer").innerHTML = "";
+  }
+  function openTerminal(session) {
+    closeOverlaysExcept("terminal");
+    q("#terminalPaneTitle").textContent = (session.taskSlug || "Managed session") + " · terminal";
+    q("#terminalPaneStatus").textContent = "connecting…";
+    q("#terminalPane").classList.add("open"); q("#terminalBackdrop").classList.add("open");
+    var term = new Terminal({ convertEol: true, fontSize: 13, theme: { background: "#0b0f14" } });
+    var fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(q("#terminalContainer"));
+    fitAddon.fit();
+    var wsUrl = new URL(window.location.origin.replace(/^http/u, "ws") + "/api/v1/manager/sessions/" + encodeURIComponent(session.sessionId) + "/terminal");
+    var socket = new WebSocket(wsUrl.toString());
+    socket.binaryType = "arraybuffer";
+    activeTerminal = { term: term, socket: socket };
+    socket.addEventListener("open", function () {
+      q("#terminalPaneStatus").textContent = "connected";
+      fitAddon.fit();
+      socket.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+    });
+    socket.addEventListener("message", function (event) {
+      term.write(typeof event.data === "string" ? event.data : new Uint8Array(event.data));
+    });
+    socket.addEventListener("close", function (event) {
+      q("#terminalPaneStatus").textContent = "closed" + (event.reason ? ": " + event.reason : "");
+    });
+    socket.addEventListener("error", function () {
+      q("#terminalPaneStatus").textContent = "connection error";
+    });
+    term.onData(function (data) {
+      if (socket.readyState === WebSocket.OPEN) socket.send(data);
+    });
+    term.onResize(function (size) {
+      if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "resize", cols: size.cols, rows: size.rows }));
+    });
+  }
   function action(session, kind) {
     if (kind === "inspect") return openSession(session.sessionId);
+    if (kind === "open-terminal") return openTerminal(session);
     var path;
-    if (kind === "open-terminal") path = "/sessions/" + encodeURIComponent(session.sessionId) + "/open-terminal";
-    else if (kind === "restart") path = "/sessions/" + encodeURIComponent(session.sessionId) + "/restart";
+    if (kind === "restart") path = "/sessions/" + encodeURIComponent(session.sessionId) + "/restart";
     else {
       var executionSessionId = session.operational && session.operational.identities && session.operational.identities.executionSessionId;
       if (!executionSessionId) {
@@ -546,6 +614,8 @@
   qa("[data-close-modal]").forEach(function (b) { b.onclick = closeNew; }); q("#modalBackdrop").onclick = closeNew;
   qa("[data-close]").forEach(function (b) { b.onclick = closeDrawer; });
   q("#drawerBackdrop").onclick = closeDrawer;
+  qa("[data-close-terminal]").forEach(function (b) { b.onclick = closeTerminalPane; });
+  q("#terminalBackdrop").onclick = closeTerminalPane;
   var paletteTrigger = null;
   function closePalette() {
     q("#paletteBackdrop").classList.remove("open"); q("#palette").classList.remove("open");
@@ -574,12 +644,14 @@
     if (event.key === "Escape") {
       if (q("#palette").classList.contains("open")) closePalette();
       else if (q("#newTaskModal").classList.contains("open")) closeNew();
+      else if (q("#terminalPane").classList.contains("open")) closeTerminalPane();
       else if (q("#drawer").classList.contains("open")) closeDrawer();
     }
     if (event.key === "Tab") {
       if (q("#drawer").classList.contains("open")) trapFocus(q("#drawer"), event);
       else if (q("#newTaskModal").classList.contains("open")) trapFocus(q("#newTaskModal"), event);
       else if (q("#palette").classList.contains("open")) trapFocus(q("#palette"), event);
+      else if (q("#terminalPane").classList.contains("open")) trapFocus(q("#terminalPane"), event);
     }
   });
   renderTask(); renderPalette(); refresh();

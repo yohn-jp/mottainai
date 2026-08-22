@@ -1451,6 +1451,24 @@ export class ManagerSessionService {
     });
   }
 
+  /**
+   * Validates that a session is attachable and returns its runtime identity
+   * for the browser terminal bridge. The withSessionOperation lock is held
+   * only for this reconcile-and-check step, not for the PTY's lifetime: the
+   * bridge can stay open for minutes and must not block concurrent
+   * stop/restart of the same session.
+   */
+  async prepareTerminalAttach(sessionId: ManagerSessionId): Promise<{ runtimeName: string; worktreePath: string }> {
+    return this.withSessionOperation(sessionId, async () => {
+      const session = await this.reconcileOneUnlocked(this.requireSession(sessionId));
+      if (session.runtimeState !== "running" && session.runtimeState !== "detached")
+        throw new ManagerError("session_not_running", `session is not running: ${sessionId}`, 409);
+      if (!session.attachable)
+        throw new ManagerError("session_not_attachable", `session is not attachable: ${sessionId}`, 409);
+      return { runtimeName: session.runtimeName, worktreePath: session.worktreePath };
+    });
+  }
+
   async openTerminal(sessionId: ManagerSessionId): Promise<ManagerSessionRecord> {
     return this.withSessionOperation(sessionId, async () => {
       const session = await this.reconcileOneUnlocked(this.requireSession(sessionId));

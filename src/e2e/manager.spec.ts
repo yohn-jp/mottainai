@@ -45,6 +45,10 @@ class HermeticZellijRuntime implements ZellijRuntime {
     const child = this.children.get(name);
     if (child !== undefined && child.exitCode === null) child.kill("SIGTERM");
   }
+
+  binaryName(): string {
+    return "fake-zellij";
+  }
 }
 
 test("Manager -> managed worktree -> hermetic Zellij runtime -> disposable CLI process lifecycle", async (t) => {

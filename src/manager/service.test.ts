@@ -46,6 +46,10 @@ class FakeRuntime implements ZellijRuntime {
     this.terminated.push(sessionName);
     this.sessions.delete(sessionName);
   }
+
+  binaryName(): string {
+    return "fake-zellij";
+  }
 }
 
 test("operational projection keeps semantic lifecycle authoritative when the agent process exits", async (t) => {
