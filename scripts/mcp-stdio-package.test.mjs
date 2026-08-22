@@ -156,9 +156,6 @@ test("packed managed task reports a missing companion and uses a compatible stan
     assert.equal(JSON.parse(missing.stdout).reason, "nawabari-unavailable");
     assert.equal(fs.existsSync(path.join(missingWorkspace, ".mottainai", "worktrees")), false);
 
-    // A foreign session returned by the external authority is a genuine ownership
-    // ambiguity. The package-visible classification must survive compensation;
-    // absence of a Mottainai physical worktree is not evidence for fallback.
     writeAmbiguousNawabari(path.join(isolatedPath, "nawabari"));
     const ambiguousWorkspace = createWorkspace();
     t.after(() => fs.rmSync(ambiguousWorkspace, { recursive: true, force: true }));
@@ -286,7 +283,7 @@ test(
 );
 
 test(
-  "packed artifact serves the dashboard from a consumer workspace",
+  "packed artifact serves Wabachi as the Dashboard from a consumer workspace",
   { timeout: BLACKBOX_TIMEOUTS.test },
   async () => {
     const workspace = createWorkspace();
@@ -295,6 +292,11 @@ test(
     for (const asset of ["index.html", "mottainai.html", "wabachi.html", "styles.css"]) {
       assert.equal(fs.existsSync(path.join(dashboardDirectory, asset)), true, "packed artifact must include " + asset);
     }
+    assert.equal(
+      fs.readdirSync(dashboardDirectory).some((asset) => /^semantic-project-viewer-v\d+\.html$/u.test(asset)),
+      false,
+      "packed artifact must not retain retired Semantic Project Viewer assets",
+    );
     const child = spawn(command, [...args, "dashboard", "--no-open", "--port", "0"], {
       cwd: workspace,
       env: isolatedEnv(workspace),
@@ -322,7 +324,11 @@ test(
       assert.equal(project.project.name, "mottainai");
       const viewer = await fetch(url);
       assert.match(viewer.headers.get("content-type") ?? "", /^text\/html/);
-      assert.match(await viewer.text(), /Semantic Project Viewer/);
+      const html = await viewer.text();
+      assert.match(html, /Wabachi — Semantic Investigation Desk v2/);
+      assert.match(html, /\/api\/v1\/changes/);
+      assert.match(html, /\/api\/v1\/projections\/review/);
+      assert.doesNotMatch(html, /Semantic Project Viewer/);
       child.kill("SIGTERM");
       const exit = await new Promise((resolve, reject) => {
         child.once("error", reject);
@@ -637,8 +643,6 @@ process.exit(result.status ?? 1);
         runGit(workspace, ["--git-dir", remote, "rev-parse", `refs/heads/${started.execution.branch}`]),
         committed.commit.commitId,
       );
-      // Model the provider-side merge before Nawabari evaluates physical cleanup
-      // safety; an abandoned branch with a recoverable commit must remain open.
       runGit(workspace, ["merge", "--ff-only", started.execution.branch]);
 
       const abandoned = invoke(worktree, ["task", "abandon"]);

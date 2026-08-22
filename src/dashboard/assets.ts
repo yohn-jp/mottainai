@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const VIEWER_FILENAME = "semantic-project-viewer-v3.html";
+const VIEWER_FILENAME = "wabachi.html";
 const STYLES_FILENAME = "styles.css";
 
 export interface DashboardStaticAsset {

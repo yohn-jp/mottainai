@@ -28,20 +28,24 @@ test("dashboard startup gives an explicit provider precedence over the process e
   }
 });
 
-test("dashboard startup serves the current API-backed viewer and shared stylesheet", async () => {
+test("dashboard startup serves Wabachi over the semantic query API and shared stylesheet", async () => {
   const handle = await startDashboard({ noOpen: true, port: 0, provider: "fixture" });
   try {
     const viewerResponse = await fetch(handle.url);
     assert.equal(viewerResponse.status, 200);
     const viewer = await viewerResponse.text();
-    assert.match(viewer, /class="semantic-dashboard"/);
+    assert.match(viewer, /Wabachi — Semantic Investigation Desk v2/);
+    assert.match(viewer, /<body class="wabachi">/);
     assert.match(viewer, /\/api\/v1\/project/);
-    assert.doesNotMatch(viewer, /Mottainai Semantic Project Viewer v2/);
+    assert.match(viewer, /\/api\/v1\/changes/);
+    assert.match(viewer, /\/api\/v1\/projections\/review/);
+    assert.doesNotMatch(viewer, /Semantic Project Viewer/);
+    assert.doesNotMatch(viewer, /semantic-project-viewer-v\d+/);
 
     const styleResponse = await fetch(`${handle.url}styles.css`);
     assert.equal(styleResponse.status, 200);
     assert.match(styleResponse.headers.get("content-type") ?? "", /^text\/css/);
-    assert.match(await styleResponse.text(), /--paper:/);
+    assert.match(await styleResponse.text(), /\/\* WABACHI \*\//);
   } finally {
     await closeDashboard();
   }
