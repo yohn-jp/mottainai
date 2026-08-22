@@ -97,7 +97,7 @@ test("Manager browser terminal bridge relays PTY I/O bidirectionally over WebSoc
   });
 
   const wsUrl = handle.url.replace(/^http:/u, "ws:") + `api/v1/manager/sessions/${created.sessionId}/terminal`;
-  const socket = new WebSocket(wsUrl);
+  const socket = new WebSocket(wsUrl, { headers: { origin: handle.url.replace(/\/$/u, "") } });
   activeSockets.push(socket);
 
   await withTimeout(new Promise<void>((resolve, reject) => {
@@ -151,7 +151,7 @@ test("Manager browser terminal bridge closes with an actionable diagnostic when 
   });
 
   const wsUrl = handle.url.replace(/^http:/u, "ws:") + `api/v1/manager/sessions/${created.sessionId}/terminal`;
-  const socket = new WebSocket(wsUrl);
+  const socket = new WebSocket(wsUrl, { headers: { origin: handle.url.replace(/\/$/u, "") } });
   activeSockets.push(socket);
 
   const closeEvent = await withTimeout(new Promise<{ code: number; reason: string }>((resolve, reject) => {
@@ -185,7 +185,7 @@ test("Manager browser terminal bridge rejects an unknown session id with a not-f
 
   const missingSessionId = "00000000-0000-0000-0000-000000000000";
   const wsUrl = handle.url.replace(/^http:/u, "ws:") + `api/v1/manager/sessions/${missingSessionId}/terminal`;
-  const socket = new WebSocket(wsUrl);
+  const socket = new WebSocket(wsUrl, { headers: { origin: handle.url.replace(/\/$/u, "") } });
   activeSockets.push(socket);
 
   const closeEvent = await withTimeout(new Promise<{ code: number }>((resolve, reject) => {

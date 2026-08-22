@@ -211,3 +211,24 @@ test("semantic status and review expose bounded non-authoritative blockers throu
     fs.rmSync(workspace, { recursive: true, force: true });
   }
 });
+
+test("public CLI skill subcommand writes its index projection to stdout", () => {
+  const result = spawnSync(process.execPath, ["--import", "tsx", entryPoint, "skill"], {
+    cwd: path.resolve(path.dirname(entryPoint), ".."),
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+  assert.equal(result.stderr, "");
+  assert.match(result.stdout, /Mottainai skill scenarios/u);
+  assert.match(result.stdout, /Run `mottainai skill choose-task-launch` for the full playbook\./u);
+});
+
+test("public CLI skill subcommand reports an unknown scenario to stderr with a non-zero exit", () => {
+  const result = spawnSync(process.execPath, ["--import", "tsx", entryPoint, "skill", "not-a-real-scenario"], {
+    cwd: path.resolve(path.dirname(entryPoint), ".."),
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /unknown skill scenario: not-a-real-scenario/u);
+});
