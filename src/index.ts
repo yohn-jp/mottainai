@@ -6,6 +6,7 @@ import { closeDashboard, hasActiveDashboard } from "./dashboard/command.js";
 import { closeManager, hasActiveManager } from "./manager/command.js";
 import { createRuntimeDiagnostic, formatRuntimeDiagnosticHuman } from "./runtime-diagnostic.js";
 import { runServer } from "./server.js";
+import { projectTaskLaunchHelp, runSkillCli } from "./skill.js";
 
 const args = process.argv.slice(2);
 const startupCwd = process.cwd();
@@ -40,6 +41,15 @@ if (args.length === 0) {
     }
     process.exitCode = 1;
   }
+} else if (args[0] === "skill") {
+  process.exitCode = runSkillCli(args.slice(1));
+} else if (
+  args[0] === "task" &&
+  (args[1] === "start" || args[1] === "run") &&
+  (args.includes("--help") || args.includes("-h"))
+) {
+  console.log(projectTaskLaunchHelp(args[1]));
+  process.exitCode = 0;
 } else {
   process.exitCode = await runCli(args);
   if ((args[0] === "dashboard" && hasActiveDashboard()) || (args[0] === "manager" && hasActiveManager())) {
