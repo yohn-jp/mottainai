@@ -334,11 +334,12 @@ export async function startDashboardServer(options: DashboardServerOptions): Pro
     });
   });
 
+  let boundPort = port;
   server.on("upgrade", (request: IncomingMessage, socket: Duplex, head: Buffer) => {
     const url = new URL(request.url ?? "/", `http://${host}`);
     const hostName = (request.headers.host ?? "").split(":")[0];
     const isManagerPath = url.pathname === MANAGER_API_PREFIX || url.pathname.startsWith(`${MANAGER_API_PREFIX}/`);
-    const dashboardOrigin = `http://${host}:${port}`;
+    const dashboardOrigin = `http://${host}:${boundPort}`;
     const requestOrigin = request.headers.origin ?? "";
     if (
       (hostName !== LOOPBACK_HOST && hostName !== "localhost") ||
@@ -380,6 +381,7 @@ export async function startDashboardServer(options: DashboardServerOptions): Pro
     server.once("listening", onListening);
     server.listen(port, host);
   });
+  boundPort = address.port;
 
   let closed = false;
   return {

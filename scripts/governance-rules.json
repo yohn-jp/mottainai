@@ -28,17 +28,6 @@
     }
   },
   "issue": {
-    "requiredSections": [
-      "Summary",
-      "Problem",
-      "Goal",
-      "Non-goals",
-      "Acceptance criteria",
-      "Affected areas",
-      "Risks / compatibility",
-      "Dependencies",
-      "Implementation notes"
-    ],
     "minimumBodyLength": 200
   }
 }

@@ -4,23 +4,17 @@ import assert from "node:assert/strict";
 import { validateBranchName, validateIssue, validatePullRequest } from "./governance-lib.mjs";
 
 const issueBody = `## Summary
-A concrete summary of the proposed change.
-## Problem
-The reproducible problem and supporting evidence.
-## Goal
-A specific state that defines completion.
-## Non-goals
-Explicitly excluded work.
+A concrete summary of the reproducible defect.
+## Reproduction
+Minimal steps, input, and environment needed to reproduce the defect.
+## Expected behavior
+The expected observable behavior or invariant.
+## Actual behavior
+The observed behavior or error.
 ## Acceptance criteria
 - [ ] A verifiable condition is met
-## Affected areas
-Affected components and users.
-## Risks / compatibility
-Compatibility considerations and risks.
-## Dependencies
-No dependencies; this rationale is explicit.
-## Implementation notes
-Implementation constraints and the proposed approach.`;
+## Context
+Logs, workaround, related Issues, or environment details.`;
 
 const pullRequestBody = `## Summary
 Align repository governance with the compiled Inari pull-request contract so a PR created by the supported Mottainai and gh-inari path can pass its own repository gate without manual section stuffing. The body intentionally contains only fields that Inari declares.
@@ -175,4 +169,38 @@ test("branch contract is unchanged", () => {
   for (const branch of ["chore/governance-contract", "build/486-governance", "Chore/486-governance", "fix/486-governance-"]) {
     assert.equal(validateBranchName(branch).length, 1, branch);
   }
+});
+
+test("Issue validation matches whichever Inari issue template the body's headings correspond to", () => {
+  const featureBody = `## Problem
+${"x".repeat(160)}
+## Capability
+Add the capability.
+## Contract
+The new CLI flag.
+## Acceptance criteria
+- [ ] It works
+## Non-goals
+Not doing something else.`;
+  assert.deepEqual(validateIssue(featureBody), []);
+
+  const maintenanceBody = `## Task
+${"x".repeat(160)}
+## Reason
+Security patch.
+## Acceptance criteria
+- [ ] CI is green`;
+  assert.deepEqual(validateIssue(maintenanceBody), []);
+});
+
+test("Issue validation rejects a body matching no Inari issue template", () => {
+  const bogusBody = `## Something
+${"x".repeat(160)}`;
+  const errors = validateIssue(bogusBody);
+  assert.ok(errors.some((error) => error.includes("does not match any Inari issue template")));
+});
+
+test("Issue validation reports empty required sections for the matched template only", () => {
+  const body = issueBody.replace("Minimal steps, input, and environment needed to reproduce the defect.", "");
+  assert.deepEqual(validateIssue(body), ["required section is empty: Reproduction"]);
 });
