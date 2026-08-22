@@ -1,9 +1,17 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 
 const rules = JSON.parse(readFileSync(new URL("./governance-rules.json", import.meta.url), "utf8"));
 const inariPullRequest = JSON.parse(
   readFileSync(new URL("../.github/inari/pull-requests/default.json", import.meta.url), "utf8"),
 );
+const inariIssuesDir = new URL("../.github/inari/issues/", import.meta.url);
+const inariIssueTemplates = readdirSync(inariIssuesDir)
+  .filter((name) => name.endsWith(".json"))
+  .map((name) => JSON.parse(readFileSync(new URL(name, inariIssuesDir), "utf8")))
+  .map((template) => ({
+    id: template.id,
+    sections: Array.isArray(template.sections) ? template.sections : [],
+  }));
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -78,11 +86,51 @@ function validatePrContractSynchronization(errors) {
   return compiled;
 }
 
+function bodyHeadings(body) {
+  return new Set(
+    body
+      .split(/\r?\n/)
+      .map((line) => /^#{2,3}\s+(.+?)\s*$/.exec(line)?.[1])
+      .filter((heading) => heading !== undefined),
+  );
+}
+
+/**
+ * The repository has multiple Issue-form templates (bug, feature,
+ * architecture, maintenance, research) with disjoint required fields, so no
+ * single fixed heading list can validate every Issue. The Inari templates
+ * are the shape authority: pick the template whose required labels are all
+ * present as headings in the body, preferring the template with the most
+ * required labels when more than one matches (the more specific template).
+ */
+function matchIssueTemplate(body) {
+  const headings = bodyHeadings(body);
+  let best;
+  for (const template of inariIssueTemplates) {
+    const required = template.sections
+      .filter((section) => section?.required === true)
+      .map((section) => section.label)
+      .filter((label) => typeof label === "string" && label.trim().length > 0);
+    if (required.length === 0) continue;
+    if (!required.every((label) => headings.has(label))) continue;
+    if (best === undefined || required.length > best.required.length) best = { template, required };
+  }
+  return best;
+}
+
 export function validateIssue(body) {
   const errors = [];
   if (body.trim().length < rules.issue.minimumBodyLength)
     errors.push(`body must be at least ${rules.issue.minimumBodyLength} characters`);
-  for (const heading of rules.issue.requiredSections) {
+
+  const match = matchIssueTemplate(body);
+  if (match === undefined) {
+    errors.push(
+      `Issue body does not match any Inari issue template's required sections (${inariIssueTemplates.map((template) => template.id).join(", ")})`,
+    );
+    return errors;
+  }
+  for (const heading of match.required) {
     if (!meaningful(sectionBody(body, heading))) errors.push(`required section is empty: ${heading}`);
   }
   const acceptance = sectionBody(body, "Acceptance criteria");
