@@ -1,185 +1,171 @@
 # Mottainai
 
-**Mottainai** ("wasteful" / "what a waste" in Japanese) is a proxy gateway
-that sits between an LLM client and one or more upstream
-[MCP](https://modelcontextprotocol.io/) servers, and **compresses tool
-definitions and tool call results before they reach the model context**.
+**Mottainai** is a coding-agent orchestration and MCP context runtime for governed repository work.
+It coordinates bounded agent sessions, preserves the evidence that matters, and keeps physical Git/worktree authority behind explicit runtime boundaries instead of letting each agent improvise its own workflow.
 
-> **Status: pre-1.0 (`0.x`).** The core proxy and compression pipeline are
-> in daily use, but APIs, config shape, and tool names may still change
-> between minor versions. See [Experimental features](#experimental-features)
-> for pieces that are further out. Longer-form docs (architecture, config
-> schema, per-feature guides) are being cleaned up before they're added back
-> to this repository — this README is the full reference for now.
+> **Status: pre-1.0 (`0.x`).** Mottainai is in active dogfood. Minor releases may change interfaces while the operational model is hardened.
 
-## The problem
+## What Mottainai does
 
-MCP servers are great at surfacing tools and data to an LLM, but most of them
-return **raw, unbounded output**: full command stdout, entire files, deeply
-nested JSON, ANSI color codes, generated tool descriptions written for
-humans rather than token budgets. Every one of those bytes counts against
-the model's context window, and that context is the scarcest resource in an
-agentic session.
+Mottainai combines four concerns that normally end up fragmented across agent prompts, shell scripts, and CI:
 
-A few tools (structural code indexes, for example) already return
-pre-compressed, structured results. Most don't. Mottainai's job is to close
-that gap for the tools that don't, without changing what they do or
-silently discarding information you might need later.
+- **Managed coding-agent sessions** — launch and track Codex, Claude Code, or Pi work through the Manager and Zellij-backed session runtime.
+- **Governed repository execution** — task intent and semantic policy stay in Mottainai while physical worktree/branch/claim authority is delegated to Nawabari.
+- **Bounded context runtime** — tool output is projected into deterministic summaries, diagnostics, facts, metrics, and retrieval references instead of flooding model context with raw output.
+- **MCP gateway and routing** — upstream MCP tools can still be aggregated, capability-routed, compressed, and exposed through one stdio endpoint.
 
-### Non-goals
+The product is therefore broader than an MCP compression proxy. Compression remains a capability; the primary boundary is now **safe, bounded, recoverable agent execution**.
 
-- **No custom search engine.** Mottainai connects to and selects among
-  existing MCP servers; it doesn't reimplement code search, file indexing,
-  etc.
-- **No default LLM summarization.** Compression is deterministic
-  (rule-based) by default. A semantic/LLM-based extractor for logs is on the
-  roadmap as an explicit opt-in, not a default.
-- **No built-in OS sandbox for arbitrary execution.** Isolation for
-  `mottainai_exec` is left to an external sandbox (container, `bubblewrap`,
-  `sandbox-exec`, etc.) — see [Security model](#security-model).
-
-## How it fits together
+## Authority model
 
 ```text
-                 ┌───────────────────────────┐
-  LLM client  ⇄  │         mottainai          │  ⇄  upstream MCP servers
- (Claude Code,   │  (this project, one stdio  │     (codegraph, fff-mcp,
-  Codex, etc.)   │      MCP endpoint)         │      GitHub MCP, ...)
-                 └───────────────────────────┘
+LLM / coding agent
+        │
+        ▼
+   Mottainai
+   orchestration, semantic policy,
+   context/runtime projection, Manager
+        │
+        ├────────► Nawabari
+        │          physical Git/worktree/session/claim authority
+        │
+        └────────► gh-inari
+                   governed GitHub Issue/PR mutation authority
 ```
 
-Every upstream tool is exposed under a prefixed name
-(`<upstream>__<tool>`) to avoid collisions. Tool call results pass through a
-compression pipeline before being returned to the client; the pre-compression
-original is kept for a short time and can be retrieved on demand instead of
-being lost.
-
-```
-callTool result
-  → strip ANSI escapes
-  → known-CLI compression (test runners, linters, git status/diff, ...)
-  → JSON sampling (long arrays/strings/deep nesting)
-  → line filtering (dedupe, cap length)
-  → tool-local targetTokens hint
-  → retain full local evidence in ArtifactStore
-  → Context Runtime projection (summary/facts/diagnostics/metrics)
-  → authoritative final response token/byte budget
-→ bounded structured result to the LLM, original retrievable via mottainai_result_get
-```
-
-### Architecture layers
-
-| Layer                | File(s)                                                    | Role                                                                                                               |
-| -------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Startup              | `src/index.ts`                                             | load config → connect upstreams → run stdio server                                                                 |
-| Relay                | `src/proxy.ts`                                             | routes `listTools` / `callTool`, applies the `<upstream>__<tool>` prefix                                           |
-| Upstream connections | `src/upstream.ts`                                          | spawns/connects upstream MCP servers (stdio or Streamable HTTP)                                                    |
-| Config               | `src/config.ts`                                            | loads `mottainai.config.json` (`mcpServers`, `profiles`, `gateway`)                                                |
-| Compression          | `src/compress/*`                                           | ANSI strip, JSON sampling, line filter, known-CLI rules, code-skeleton (tree-sitter), tool-description compression |
-| Context Runtime      | `src/context-runtime/*`                                    | projects local results, applies deterministic retention priority and final token/byte budget                       |
-| Upstream execution   | `src/upstream-call.ts`                                     | shared start → call → log → compress → retain-original pipeline                                                    |
-| Tool catalog         | `src/catalog.ts`, `src/broker.ts`                          | builds searchable `CatalogTool` entries; profile-based surface narrowing                                           |
-| Adaptive routing     | `src/adaptive/*`                                           | task classification intake, capability→provider index, trace recording, stats, policy proposals                    |
-| Original retention   | `src/retrieve.ts`                                          | TTL-bounded in-memory store for pre-compression text (15 min / 200 entries by default)                             |
-| Local tools          | `src/local-tools.ts`                                       | gateway's own tools: `mottainai_exec`, `mottainai_read`, `mottainai_search`, `mottainai_list`, etc.                |
-| Read Governor        | `src/context-runtime/read-policy.ts`, `src/local-tools.ts` | progressive source disclosure for `mottainai_read`; `off` / `observe` / `warn` / `enforce`                         |
-| Logging              | `src/logging.ts`                                           | writes pre-compression raw records to `.mottainai/log/*.jsonl`                                                     |
-
-Context Runtime treats model context as a managed working set, not a byte
-stream to be maximally compressed. The durable rationale is in
-[ADR-0001](docs/decisions/0001-optimize-working-set-not-compression-ratio.md), with
-the supporting [2026-08-08 Headroom/Codex experiment](docs/experiments/2026-08-08-headroom-codex-ab.md).
-
-## Supported clients
-
-Mottainai speaks standard MCP over stdio, so any MCP-compatible client
-should be able to use it. Actual verification is limited so far:
-
-| Client      | stdio connection | Brokered/Materialized mode | Notes                                                         |
-| ----------- | ---------------- | -------------------------- | ------------------------------------------------------------- |
-| Claude Code | ✅ verified      | not yet verified           | reconnect via `/mcp reconnect mottainai` after config changes |
-| Codex       | not yet verified | not yet verified           |                                                               |
-| Cursor      | not yet verified | not yet verified           |                                                               |
-
-"Not yet verified" means untested, not known-broken. Reports from other
-clients are welcome via PR.
-
-## Supported platforms
-
-- Linux: Tier 1; the local Runtime uses QEMU + KVM.
-- Windows 11 Home/Pro x86-64: the local Runtime uses QEMU + WHPX.
-- macOS: the local Runtime uses QEMU + HVF, with Apple Silicon as the v1
-  target.
-- WSL2 is not the canonical local Runtime backend. A missing host accelerator
-  fails closed; Mottainai does not silently fall back to WSL2, TCG, or
-  host-native execution.
-
-The `mottainai runtime` namespace is the only local Runtime lifecycle
-authority: `mottainai runtime ensure` reconciles the local Runtime VM and
-`mottainai runtime status` reads its persisted state. `mottainai init` only
-sets up MCP client registration and never provisions Runtime
-(see [docs/local-runtime.md](docs/local-runtime.md)).
-
-## Installation
-
-Requires Node.js >= 22.13 and
-[ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`) on `PATH` — used by
-`mottainai_search` and the `code.search` backend fallback.
-
-Initialize a workspace first. The initializer writes a portable v2
-configuration and keeps personal files out of the repository's Git index:
-
-```bash
-npx -y mottainai init
-```
-
-The bare command is the MCP stdio server entry point. It never starts an
-interactive wizard, because stdout is reserved for the MCP protocol:
-
-```bash
-npx -y mottainai
-```
-
-For CI or other non-interactive environments, use safe defaults explicitly:
-
-```bash
-npx -y mottainai init --yes --no-register
-```
-
-Register it with your MCP client. A user-level registration keeps personal
-configuration out of a shared project file. The client may start the server
-from any working directory, so the registration command must point at the
-generated configuration with an absolute path:
-
-```bash
-claude mcp add -s user mottainai -- npx -y mottainai@0.2.0 serve --config /absolute/path/to/mottainai.config.json
-```
-
-For Codex, register the same way:
-
-```bash
-codex mcp add mottainai -- npx -y mottainai@0.2.0 serve --config /absolute/path/to/mottainai.config.json
-```
-
-`mottainai init` prints the exact registration command for your detected
-client after writing the configuration.
-
-If you had upstream MCP servers (e.g. `codegraph`) registered directly with
-your client, remove the direct registration once they're behind the gateway,
-to avoid duplicates:
-
-```bash
-claude mcp remove -s user codegraph
-```
+Mottainai does not silently replace these authorities when they are unavailable. Managed operations fail closed with bounded diagnostics.
 
 ## Quick start
 
+Requires Node.js >= 22.13 and `rg` (ripgrep) on `PATH`.
+
+Initialize a workspace:
+
 ```bash
-# Create mottainai.config.json in the workspace.
-npx -y mottainai init
+npx -y mottainai@0.3.0 init
 ```
 
-Minimal example:
+Check the runtime, configuration, repository state, and managed companions:
+
+```bash
+npx -y mottainai@0.3.0 doctor
+npx -y mottainai@0.3.0 doctor --json
+```
+
+For governed development, start work through the task boundary rather than creating an ad-hoc branch/worktree:
+
+```bash
+npx -y mottainai@0.3.0 task run my-fix \
+  --type fix \
+  --issue 123 \
+  --agent pi
+```
+
+Or launch the local Manager UI for durable parallel sessions:
+
+```bash
+npx -y mottainai@0.3.0 manager
+npx -y mottainai@0.3.0 manager --no-open --port 4318
+```
+
+The Manager previews bounded resource scope, performs Nawabari claim preflight, and keeps UI state non-authoritative. Nawabari remains the owner of the physical worktree, branch, and claims.
+
+## MCP client registration
+
+The bare command is the MCP stdio entry point:
+
+```bash
+npx -y mottainai@0.3.0
+```
+
+Claude Code:
+
+```bash
+claude mcp add -s user mottainai -- npx -y mottainai@0.3.0 serve --config /absolute/path/to/mottainai.config.json
+```
+
+Codex:
+
+```bash
+codex mcp add mottainai -- npx -y mottainai@0.3.0 serve --config /absolute/path/to/mottainai.config.json
+```
+
+`mottainai init` can generate the registration command for the detected client. Use `--latest` only when intentionally following the newest npm release rather than a pinned version.
+
+## Managed workflow
+
+The CLI lifecycle is:
+
+```bash
+mottainai policy explain [--workspace path]
+mottainai task start <slug> --type type --issue ref [--workspace path]
+mottainai task run <slug> --type type --issue ref --agent pi [--model model] [--workspace path]
+mottainai task status [--workspace path]
+mottainai task commit --message subject [--workspace path]
+mottainai task push [--workspace path]
+mottainai task open-pr --title title [--repo owner/name] [--workspace path]
+mottainai task finish [--workspace path]
+mottainai task abandon [--workspace path]
+mottainai task cleanup [--workspace path]
+mottainai workflow doctor [--workspace path] [--reconcile-closures]
+```
+
+`task start` delegates worktree creation to Nawabari and returns the canonical worktree path in `execution.worktree`. Follow-up operations must use that returned path. Mottainai does not reconstruct or take ownership of the physical worktree.
+
+`workflow doctor` is read-only by default. `--reconcile-closures` may request Nawabari's normal safe-close path for already integrated executions; Mottainai still does not edit Nawabari registry or claim state directly.
+
+Managed pull-request creation uses gh-inari as its mutation authority. Mottainai probes the companion contract before mutation and does not fall back to direct GitHub PR creation.
+
+## Manager
+
+The Manager is the operational console for concurrent coding-agent work:
+
+- bounded scope preview before launch;
+- Nawabari claim preflight;
+- explicit running / needs-attention / recent-session views;
+- session detail and controlled terminal actions;
+- stale async-response rejection and bounded polling;
+- non-authoritative UI projection over the underlying task/runtime state.
+
+Zellij remains terminal transport and persistence; Nawabari remains Git/worktree authority.
+
+## Context runtime and MCP gateway
+
+Mottainai still exposes a standard MCP stdio server and can aggregate upstream MCP servers. Tool results pass through deterministic retention and projection so the model receives bounded structured output while full evidence remains retrievable when a `result_id` is available.
+
+Typical projection flow:
+
+```text
+raw tool/process result
+  → retain full local evidence
+  → deterministic parsing/compression
+  → summary / facts / diagnostics / metrics
+  → token + byte budget
+  → bounded structured response
+```
+
+Important local tools include:
+
+- `mottainai_read`, `mottainai_search`, `mottainai_list`
+- `mottainai_exec`, `mottainai_exec_start`, `mottainai_exec_await`
+- `mottainai_result_get`, `mottainai_result_search`
+- `mottainai_code_search`, `mottainai_code_symbol`
+- `mottainai_runtime_status`
+- workflow task tools when `gateway.workflowTasks` is enabled
+
+Search and producer failures are fail-closed: command/parse failures are not reported as genuine zero-match results.
+
+## Configuration
+
+The v2 configuration has three primary sections:
+
+- `mcpServers` — upstream MCP registrations.
+- `profiles` — named capability/risk views.
+- `gateway` — cross-cutting runtime policy such as response budgets, read governor, managed process limits, workflow enablement, routing metadata, and companion configuration.
+
+Closed configuration objects reject unknown keys so misspelled safety/governance settings cannot silently fall back to defaults.
+
+Example:
 
 ```json
 {
@@ -188,385 +174,56 @@ Minimal example:
     "codegraph": {
       "command": "codegraph",
       "args": ["serve", "--mcp", "--path", "."]
-    },
-    "fff": {
-      "command": "fff-mcp",
-      "args": ["."]
     }
+  },
+  "gateway": {
+    "workflowTasks": true
   }
 }
 ```
 
-Validate the local runtime, configuration, workspace, and upstream commands
-before registering the MCP server:
+Do not put credentials in `mottainai.config.json`. Remote authentication should reference environment-variable names or the configured OAuth provider boundary. See [SECURITY.md](SECURITY.md).
 
-```bash
-npx -y mottainai doctor
-npx -y mottainai doctor --json  # machine-readable output
-```
+## Await and managed processes
 
-Management commands use the same executable:
+Polling is orchestration, not reasoning. `mottainai_exec_start` and `mottainai_exec_await` let one bounded MCP operation wait for terminal state rather than repeatedly consuming model turns.
 
-```bash
-npx -y mottainai list
-npx -y mottainai inspect codegraph
-```
+Managed process handles are connection-local and finite. Active process count, retained terminal handles, and lifetime are bounded through `gateway.managedProcesses`; connection shutdown cleans up owned children.
 
-### Semantic Project Viewer (Issue #83)
+## Supported runtime model
 
-Launch the local fixture-backed, read-only Semantic Project Viewer:
+- Linux: Tier 1.
+- Windows 11: local Runtime uses QEMU + WHPX.
+- macOS: local Runtime uses QEMU + HVF, with Apple Silicon as the primary target.
 
-```bash
-npx -y mottainai dashboard
-npx -y mottainai dashboard --no-open --port 4317
-npx -y mottainai dashboard --provider live
-```
-
-The dashboard binds loopback, serves the versioned `/api/v1/*` Query API from
-the same process, and opens a browser where practical. The canonical visual
-reference is `docs/mockups/semantic-project-viewer-v2.html`; the design
-contract is `docs/design/repository-semantic-model-v1.ts`. Fixture values are
-explicitly marked as fixture data and are not live repository analysis.
-
-The dashboard uses the deterministic fixture provider by default. Select the live
-Repository Model provider with `--provider live` or
-`MOTTAINAI_DASHBOARD_PROVIDER=live`; live compilation reads current TypeScript
-facts and reports partial, stale, or unavailable integrity state explicitly.
-
-### Zellij-backed Manager (Issue #182)
-
-Launch the local Manager UI for durable, parallel coding-agent sessions:
-
-```bash
-npx -y mottainai manager
-npx -y mottainai manager --no-open --port 4318
-```
-
-The Manager binds to `127.0.0.1` by default and requires an executable Zellij.
-It creates task-bound sessions through Mottainai's orchestration boundary, which
-delegates the physical session/worktree/branch to Nawabari, then starts the
-selected Codex, Claude Code, or Pi profile in the returned worktree through a
-named Zellij session. Manager retains only the task/session relationship and a
-launch-path projection; it does not reserve, verify, mutate, or clean repository
-resources. Zellij remains responsible for terminal transport, attach/detach,
-panes, and persistence. Existing Mottainai commands do not require Zellij.
-
-### Git workflow task lifecycle (Issue #40)
-
-Managed repository execution now delegates to the standalone Nawabari
-companion. See [docs/nawabari-execution.md](docs/nawabari-execution.md) for the
-authority boundary and the supported `nawabari.standalone-execution.v1`
-contract. Mottainai retains task/semantic/provider orchestration and stores only
-an opaque Nawabari session reference; it does not auto-install Nawabari or fall
-back to its retired local mutation engine.
-
-Behind `gateway.workflowTasks: true` in `mottainai.config.json`, the MCP
-tools are:
-
-| Tool                                | Operation                                                 |
-| ----------------------------------- | --------------------------------------------------------- |
-| `mottainai_workflow_policy_explain` | resolve policy (read-only)                                |
-| `mottainai_workflow_task_start`     | create the task intent and delegate execution to Nawabari |
-| `mottainai_workflow_task_status`    | inspect the current task (read-only)                      |
-| `mottainai_workflow_doctor`         | reconcile and report workflow state (read-only)           |
-| `mottainai_workflow_task_commit`    | validate and commit                                       |
-| `mottainai_workflow_task_push`      | validate and push                                         |
-| `mottainai_workflow_task_open_pr`   | create or reuse a GitHub pull request                     |
-| `mottainai_workflow_task_finish`    | transition a merged task                                  |
-| `mottainai_workflow_task_abandon`   | abandon a task                                            |
-| `mottainai_workflow_task_cleanup`   | plan, revalidate, and safely clean up                     |
-
-Write tools return the common `OUTPUT_SCHEMA` envelope, mark destructive
-operations accurately, and support `dryRun` where a plan is meaningful.
-Task start uses an idempotent task reservation plus Nawabari's atomic
-session/claim lifecycle; Mottainai no longer reserves physical worktrees.
-Pull-request records and cleanup leases provide retry-safe orchestration state.
-Every managed repository mutation resolves the semantic/task decision and
-Nawabari's physical authorization before mutation. The former
-`mottainai_worktree_new` tool has been removed; use
-`mottainai_workflow_task_start` instead.
-
-Managed pull-request creation has one mutation authority: the external
-`gh-inari` companion (`>=0.7.0`). Mottainai requires the `pr.create` and
-`pr.get` operations plus the `--from`, `--json`, `--repository`, and
-`--template` machine options. It probes the installed version and full help
-contract before mutation, sends typed PR intent, and retains only
-lifecycle/reconciliation state; its GitHub provider performs bounded
-read-only lookup for recovery. A missing or incompatible companion is a
-bounded, actionable failure and never falls back to direct GitHub PR creation.
-
-The same lifecycle operations are available from the CLI, independent of
-`mottainai.config.json` (they act on a Git repository, given by `--workspace`
-or the current Git repository's top level):
-
-```bash
-npx -y mottainai policy explain [--workspace path]
-npx -y mottainai task start <slug> --type type --issue ref [--idempotency-key key] [--workspace path]
-npx -y mottainai task run <slug> --type type --issue ref --agent pi [--model model] [--workspace path]
-npx -y mottainai task status [--workspace path]
-npx -y mottainai task commit --message subject [--workspace path]
-npx -y mottainai task push [--workspace path]
-npx -y mottainai task open-pr --title title [--repo owner/name] [--workspace path]
-npx -y mottainai task finish [--workspace path]
-npx -y mottainai task abandon [--workspace path]
-npx -y mottainai task cleanup [--workspace path]
-npx -y mottainai workflow doctor [--workspace path] [--reconcile-closures]
-```
-
-For the 0.2.0 managed Pi golden path, `task run` composes task creation with
-Manager launch so the caller does not need to copy a worktree/session identity
-by hand:
-
-```bash
-npx -y mottainai@0.2.0 task run my-fix \
-  --type fix \
-  --issue 362 \
-  --agent pi
-```
-
-The managed Pi profile requires compatible Pi and Zellij executables,
-Nawabari >= 0.5.0, and the supported gh-inari companion for governed PR
-creation. Missing or incompatible companions fail closed; Mottainai does not
-silently install them or fall back to retired mutation paths. Agent process exit
-alone is not semantic success: the workflow lifecycle remains authoritative.
-
-`task start` delegates worktree creation to Nawabari and returns the
-canonical worktree path in `execution.worktree`. Every follow-up command
-(`--workspace path`) must use that returned path, not the repository root or
-a hand-constructed path; Nawabari owns that worktree for the life of the
-task.
-
-`workflow doctor` runs the same reconciliation report as the MCP tool. By
-default it is strictly read-only: it never repairs, deletes, mutates task/PR
-state, or closes a Nawabari session, and exits non-zero when it observes a
-reconciliation problem while still printing the structured report. Pass
-`--reconcile-closures` to additionally request Nawabari's normal safe-close
-for the caller's own prior merged executions (`mode` becomes `"reconcile"`
-in the report); Mottainai still never edits Nawabari registry/claim state
-directly.
-
-Initialization options include `--workspace`, `--scope personal|project`,
-`--client claude|codex|none`, `--import claude|codex|none`, `--force`,
-`--dry-run`, `--json`, `--no-register`, and `--no-doctor`. The default client
-registration is pinned to the package version; use `--latest` only when
-following the latest npm release is intentional. Secrets are never copied
-into `mottainai.config.json`; remote authentication uses environment-variable
-names or an OAuth profile. After writing the file, `init` runs `doctor` and a
-stdio `initialize`/`tools/list` handshake; source checkouts without a built
-entry point report that handshake as skipped.
-
-Restart your MCP client (or reconnect) so it picks up the gateway. From here
-your client sees `codegraph__*` / `fff__*` tools, plus the gateway's own
-`mottainai_*` tools, all passing through compression.
-
-At runtime, call `mottainai_runtime_status` from the MCP client to inspect
-registered upstreams, their health, and the package/build identity. The
-packed-artifact and runtime-diagnostic contract is documented in
-[`docs/mcp-stdio-blackbox.md`](docs/mcp-stdio-blackbox.md).
-
-### Await/watch primitives (Issue #74)
-
-Polling is orchestration, not reasoning. Instead of an agent looping
-`wait -> model turn -> status check`, Mottainai can wait on an
-observable process or provider state itself, inside a single bounded MCP
-call, and return once on terminal state, a meaningful change, or timeout.
-
-- `mottainai_exec_start(command, cwd?, maxOutputBytes?)` starts a shell
-  command and immediately returns an opaque `handle` — stdout/stderr are
-  never inlined into this response.
-- `mottainai_exec_await(handle, timeoutMs?)` blocks inside the call, up to
-  a runtime-bounded timeout, until the process reaches a terminal state.
-  A timeout does **not** kill the process — the started process's
-  lifecycle and the `await` call's lifecycle are independent. The started
-  process is force-terminated when its owning MCP connection/process
-  shuts down, so an abandoned await never orphans a child process
-  silently. Output continues to go through the same
-  `mottainai_result_get`-backed retrieval and response-budget projection
-  as `mottainai_exec`.
-- `mottainai_gh_checks_await(number, timeoutMs?)` (available alongside the
-  other `worktree`-gated GitHub tools) waits for a pull request's CI
-  checks to reach a terminal state or change, and returns a semantic
-  delta (`changed: [{ name, from, to }]`) instead of repeating a full
-  snapshot on every call.
-
-Handles are opaque, unguessable, and scoped to the MCP
-connection/process that created them — a handle from one connection is
-not resolvable from another, and all handles are cleaned up when their
-owning connection/process shuts down. Poll interval, backoff, and jitter
-are centrally bounded by the gateway (`gateway.await` in
-`mottainai.config.json`); callers cannot request an arbitrary polling
-frequency. This is **not** a persistent background job system — waiting
-only happens inside an active MCP tool call, and nothing survives a
-gateway process restart.
-
-The asynchronous process surface also has a finite connection-local resource
-policy. Defaults are 8 active processes, 32 retained terminal handles, and a
-5-minute maximum process lifetime. A lifetime expiry force-terminates the
-child and reports the existing `timedOut` result state; it is independent of
-an `exec_await` timeout. The oldest terminal handles are reaped when the
-retention bound is reached, and an `exec_start` over the active bound fails
-with the machine-readable `managed_process_active_capacity_exceeded` error
-before spawning. These bounds may be overridden with validated finite values
-under `gateway.managedProcesses` (`maxActiveProcesses`, `maxRetainedHandles`,
-and `maxLifetimeMs`).
-
-## Development installation
-
-Contributors need [pnpm](https://pnpm.io/) 11.18.0:
-
-```bash
-git clone https://github.com/yohn-jp/mottainai.git
-cd mottainai
-pnpm install
-# If pnpm reports ERR_PNPM_IGNORED_BUILDS for tree-sitter packages:
-pnpm approve-builds
-pnpm run build
-```
-
-At runtime, `mottainai_runtime_status` reports per-upstream state
-(`disabled` / `registered` / `starting` / `ready` / `unhealthy` / `stopped`).
-
-## Configuration
-
-- `mcpServers` — upstream servers, by name. `transport` defaults to `stdio`;
-  set `transport: "streamableHttp"` with a `url` for remote servers.
-- `profiles` — named views that narrow the exposed tool surface by
-  `includeCapabilities` / `denyRisk`.
-- `gateway` — cross-cutting settings: `workspaceRoot`, `activeProfile`,
-  `capabilityMap`, `toolMetadata`, `tokenBudgets`, `responseBudget`, `readGovernor`,
-  `oauthProviderModule`, `managedProcesses`.
-
-`gateway.responseBudget` is the authoritative boundary for Mottainai-owned
-local-tool responses. Defaults: soft target 1,500 tokens, hard target 3,000
-tokens, and 12,000 bytes. `hardBytes` is the deterministic safety ceiling;
-invalid values fail configuration validation. `tokenBudgets` and the
-`mottainai_exec` `targetTokens` argument remain tool-local compression hints,
-not final response limits.
-
-`gateway.readGovernor` controls progressive `mottainai_read` disclosure. The
-default `gateway.readGovernor.mode` is `"observe"`. Set
-`gateway.readGovernor.mode` to `"enforce"` to deny unrestricted raw reads of
-large files before source content is read. Pass `mode: "auto"` to
-`mottainai_read` to select a bounded representation for large files. See
-[`docs/read-governor.md`](docs/read-governor.md) for the policy modes and
-range examples.
-
-Projection retention priority, from highest to lowest: operation/status/result
-identity, summary, blocking diagnostics, actionable facts, structured test and
-failure data, retrieval references, essential metrics, bounded excerpts, then
-verbose/raw fields. Omitted fields carry versioned projection metadata and a
-retrieval-available flag. Full evidence is retained before projection when a
-`result_id` is available; explicit `mottainai_result_get` is the expansion path.
-
-Credentials: never write tokens into the config file. Remote upstreams read
-header values from environment variables via `headersFromEnv` (which takes
-env var **names**, not the secret values themselves), or resolve an
-authenticated broker endpoint via `gateway.oauthProviderModule` for OAuth
-flows. See [SECURITY.md](SECURITY.md) for what this does and doesn't
-isolate.
-
-Environment variables that tune runtime behavior. Highlights:
-
-```bash
-MOTTAINAI_COMPRESS=0                      # disable the whole compression pipeline
-MOTTAINAI_COMPRESS_TOOL_DESCRIPTIONS=0    # disable only Step 3 (tool description compression)
-MOTTAINAI_LOG=0                           # disable raw request/response logging
-MOTTAINAI_LOG_REDACT=0                    # disable secret redaction in logs (debug only)
-MOTTAINAI_TELEMETRY=1                     # enable local-only usage/savings telemetry (default off)
-```
-
-`mottainai.config.json` and `.mottainai/` (logs, traces, routing policy
-state) are gitignored — they can contain upstream command paths,
-environment variable names, and raw execution output. Don't commit them.
-The one exception is `.mottainai/workflow.json`, the tracked Git workflow
-guardrail policy — see [docs/workflow-policy.md](docs/workflow-policy.md).
-
-## Tool space: search, describe, call
-
-As the number of upstream tools grows, listing everything up front burns
-context on its own. Mottainai exposes a searchable catalog instead:
-
-| Tool                      | Purpose                                                                                      |
-| ------------------------- | -------------------------------------------------------------------------------------------- |
-| `mottainai_tool_search`   | search the catalog by capability / tag / name / description                                  |
-| `mottainai_tool_describe` | fetch a tool's original description and input schema, unmodified                             |
-| `mottainai_tool_call`     | call a tool by catalog id, through the same compression/retention pipeline as prefixed calls |
-
-Search uses deterministic scoring, not a semantic/embedding model.
+The `mottainai runtime` namespace is the local Runtime lifecycle authority. Missing required acceleration fails closed instead of silently changing the execution model.
 
 ## Development
 
 ```bash
 pnpm install
-pnpm run build          # tsc → dist/
-pnpm test                # fast unit + contract tier
-pnpm run test:integration # filesystem/git/SQLite/CLI/process tier
-pnpm run test:e2e        # stdio black-box tier, excluded from `pnpm test`
-pnpm run test:package    # build + packed tarball smoke
-pnpm run test:coverage   # line/function/branch coverage + gate
-pnpm run verify          # all test layers + standards + build/package
-pnpm run typecheck       # tsc --noEmit
-pnpm run mcp <cmd>       # upstream management CLI
-pnpm run policy <cmd>    # routing policy CLI
+pnpm run build
+pnpm test
+pnpm run test:integration
+pnpm run test:e2e
+pnpm run test:package
+pnpm run test:coverage
+pnpm run verify
+pnpm run typecheck
 ```
 
-Test layers, mechanical suite classification, shared fixtures under
-`src/test-support/`, coverage baseline/threshold policy, and the black-box
-connection point under `src/e2e/` are documented in
-[`docs/testing.md`](docs/testing.md).
+`pnpm run verify` is the authoritative local verification aggregate. Test layering and classification are documented in [docs/testing.md](docs/testing.md).
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow,
-commit conventions, and compression-change rules (every compression change
-needs both a "gets shortened" test and a "must NOT be transformed" test).
+The bounded agent execution contract lives in [AGENTS.md](AGENTS.md). Contributor workflow is in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-The bounded agent execution contract lives in [AGENTS.md](AGENTS.md). It
-points to the authoritative documents and executable rules for exploration,
-self-dogfooding, Git workflow, testing, governance, and coding standards;
-`CLAUDE.md` only sets response style.
+## Documentation
 
-## Security model
-
-`mottainai_exec` runs arbitrary shell commands with the privileges of the
-gateway process. **There is no OS-level sandbox today.**
-`gateway.workspaceRoot` constrains path resolution for the read/search/list
-tools and the initial working directory for `mottainai_exec` — it does not
-isolate what a command run through `mottainai_exec` can reach (`cd`,
-absolute paths, child processes, and network access are not blocked).
-Treat this gateway as a trusted-user, trusted-workspace tool until an
-external sandbox story lands. Full details: [SECURITY.md](SECURITY.md).
-
-## Experimental features
-
-These are implemented and tested but not yet relied on for enforcement or
-production decisions — expect rough edges and interface changes:
-
-- **Read Governor** — active with `off`, `observe`, `warn`, and `enforce`
-  modes. In `enforce` mode, reads that exceed configured limits are denied.
-  Default mode is `observe` (telemetry only, no denial).
-- **Caller-supervised routing policy proposals** — `mottainai_policy_propose`
-  generates candidate routing policies from recorded feedback, but nothing
-  is applied automatically; a human must run
-  `pnpm run policy approve <version>`.
-- **Telemetry** — local-only, opt-in (`MOTTAINAI_TELEMETRY=1`, default off).
-
-## Roadmap
-
-Implemented:
-
-- **Step 1** — transparent pass-through proxy (handshake + relay foundation)
-- **Step 2** — deterministic `callTool` result compression + TTL-bounded
-  original retrieval
-- **Step 3** — tool definition (`description`/`inputSchema`) pre-compression
-- **Caller-supervised routing** — task classification, `request_id`,
-  structured review, capability-oriented policy with human-gated updates
-
-Planned / exploratory:
-
-- Additional per-command output parsers
-- Applying the same compression pipeline to script/skill execution mediation
-- Opt-in lightweight LLM extraction for unrecognized log formats
-- OS-level sandboxing story for `mottainai_exec`
-- Read Governor `enforce`/`tighten` stages
+- [0.3.0 release notes](docs/releases/0.3.0.md)
+- [Nawabari execution boundary](docs/nawabari-execution.md)
+- [Workflow policy](docs/workflow-policy.md)
+- [Read Governor](docs/read-governor.md)
+- [MCP stdio black-box contract](docs/mcp-stdio-blackbox.md)
+- [Security model](SECURITY.md)
 
 ## License
 
