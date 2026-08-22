@@ -48,6 +48,11 @@ function validatePullRequestContract(overrides = {}) {
   });
 }
 
+function blankSection(body, heading) {
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return body.replace(new RegExp(`(## ${escaped}\\n)[\\s\\S]*?(?=\\n## |$)`, "m"), "$1");
+}
+
 test("valid issue contract passes", () => {
   assert.deepEqual(validateIssue(issueBody), []);
 });
@@ -77,10 +82,7 @@ test("governance-rules PR headings stay synchronized with compiled Inari labels"
 
 test("each Inari-declared PR section is required and no retired section is required", () => {
   for (const heading of ["Summary", "Linked issue", "Changes", "Validation", "Review focus"]) {
-    const body = pullRequestBody.replace(
-      new RegExp(`## ${heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n[^#]+`, "m"),
-      `## ${heading}\n`,
-    );
+    const body = blankSection(pullRequestBody, heading);
     assert.ok(validatePullRequestContract({ body }).errors.includes(`required section is empty: ${heading}`), heading);
   }
   const result = validatePullRequestContract();
