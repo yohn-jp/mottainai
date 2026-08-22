@@ -17,7 +17,7 @@ import { createWorkflowStore } from "../../test-support/workflow-store.js";
 import { GithubAdapter, type RunProgramFunction } from "../providers/github.js";
 import { runProgram, type RunResult } from "../../subprocess.js";
 import { startNawabariTask } from "../domain/nawabari-task.js";
-import { NawabariExecutionClient, type NawabariPushResult } from "../nawabari.js";
+import { NawabariExecutionClient, NawabariExecutionError, type NawabariPushResult } from "../nawabari.js";
 import { resolveRepositoryIdentity } from "../domain/identity.js";
 import { buildWorktreeNaming } from "../git/worktree.js";
 import { WorkflowSqliteStateStore } from "../state/sqlite-store.js";
@@ -1187,6 +1187,95 @@ class PushEvidenceNawabari extends NawabariExecutionClient {
     return super.push(input);
   }
 }
+
+class RetryUpstreamNawabari extends PushEvidenceNawabari {
+  readonly pushOptions: Array<{ force: boolean; createUpstream: boolean }> = [];
+
+  override async push(input: Parameters<NawabariExecutionClient["push"]>[0]): Promise<NawabariPushResult> {
+    this.pushOptions.push({ force: input.force === true, createUpstream: input.createUpstream === true });
+    if (input.createUpstream !== true) {
+      throw new NawabariExecutionError(
+        "nawabari-rejected",
+        "PUSH_NO_UPSTREAM: no upstream is configured",
+        "PUSH_NO_UPSTREAM",
+      );
+    }
+    const source = runGit(["rev-parse", "HEAD"], input.cwd);
+    return {
+      ok: true,
+      command: "push",
+      source_sha: source,
+      remote: input.remote,
+      branch: input.branch,
+      target: `${input.remote}/${input.branch}`,
+      target_ref: `refs/heads/${input.branch}`,
+      observed_remote_sha: source,
+      relation: "up-to-date",
+    };
+  }
+}
+
+test("push retry honors explicit create-upstream after PUSH_NO_UPSTREAM without reusing force", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const nawabari = new RetryUpstreamNawabari();
+  const started = await startNawabariTask({
+    workspaceRoot: root,
+    store,
+    policy: BUILTIN_PRESETS.standard,
+    taskSlug: "push-retry-upstream",
+    branchType: "fix",
+    issueRef: "484",
+    nawabari,
+  });
+  assert.equal(started.ok, true, JSON.stringify(started));
+  if (!started.ok) return;
+  t.after(() =>
+    nawabari
+      .closeSession({ cwd: started.execution.worktree, sessionId: started.execution.sessionId })
+      .catch(() => undefined),
+  );
+  fs.appendFileSync(path.join(started.execution.worktree, "file.txt"), "retry upstream\n");
+  const committed = await commitWorkflowTask({
+    workspaceRoot: root,
+    store,
+    taskId: started.task.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    message: { subject: "push retry upstream" },
+    nawabari,
+  });
+  assert.equal(committed.ok, true, JSON.stringify(committed));
+
+  const first = await pushWorkflowTask({
+    workspaceRoot: root,
+    store,
+    taskId: started.task.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    remote: "origin",
+    force: true,
+    nawabari,
+  });
+  assert.equal(first.ok, false, JSON.stringify(first));
+  if (!first.ok) assert.match(first.detail ?? "", /PUSH_NO_UPSTREAM/u);
+  assert.equal(store.getPushReconciliation(started.task.taskId)?.state, "ambiguous");
+
+  const retry = await pushWorkflowTask({
+    workspaceRoot: root,
+    store,
+    taskId: started.task.taskId,
+    policy: BUILTIN_PRESETS.standard,
+    remote: "origin",
+    createUpstream: true,
+    nawabari,
+  });
+  assert.equal(retry.ok, true, JSON.stringify(retry));
+  assert.deepEqual(nawabari.pushOptions, [
+    { force: true, createUpstream: false },
+    { force: false, createUpstream: true },
+  ]);
+  assert.equal(store.getTask(started.task.taskId)?.lifecycleState, "pushed");
+  assert.equal(store.getPushReconciliation(started.task.taskId)?.state, "reconciled");
+});
 
 test("push receipt recovers a successful external push after lifecycle persistence fails and a process restarts", async (t) => {
   const root = createTempGitRepo(t);
