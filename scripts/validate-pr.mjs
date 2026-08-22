@@ -1,12 +1,10 @@
 #!/usr/bin/env node
 import {
-  buildRegressionProofPlan,
   finish,
   parseArgs,
   readJson,
   readLines,
   validatePullRequest,
-  writeJson,
   writeValue,
 } from "./governance-lib.mjs";
 
@@ -23,13 +21,5 @@ const result = validatePullRequest({
   draft: pullRequest.draft === true,
   files,
 });
-const regressionProof = buildRegressionProofPlan({
-  title: pullRequest.title ?? "",
-  body,
-  files,
-  baseSha: pullRequest.base?.sha,
-  headSha: pullRequest.head?.sha,
-});
-writeJson(args["regression-plan-file"], regressionProof);
 writeValue(args["issue-number-file"], result.closingIssues[0] ?? "");
 finish(result.errors, args.report, result.warnings);
