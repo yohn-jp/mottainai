@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readManagerAssets, readManagerViewer } from "./assets.js";
 
-test("packaged Manager UI uses the agreed four-file mock surface", () => {
+test("packaged Manager UI uses the agreed four-file Mottainai/Wabachi surface", () => {
   const html = readManagerViewer();
   assert.match(html, /href="\/styles\.css"/u);
   assert.match(html, /Needs attention/u);
@@ -17,7 +17,7 @@ test("packaged Manager UI uses the agreed four-file mock surface", () => {
     "/mockups/wabachi.html",
     "/styles.css",
   ]);
-  assert.match(assets["/mockups/wabachi.html"].body, /Semantic Investigation Desk/u);
+  assert.match(assets["/mockups/wabachi.html"].body, /Semantic Investigation Desk v2/u);
   assert.match(assets["/styles.css"].body, /\.mottainai/u);
 });
 
@@ -65,20 +65,27 @@ test("New Task golden path wires WORK -> EXECUTION -> AUTHORITY -> PREFLIGHT -> 
   assert.match(html, /openSession\(body\.session\.sessionId\)/u);
 });
 
-test("Wabachi presentation intent hands off a focus/instruction to Manager without authority", () => {
+test("live Wabachi creates a non-authoritative Work Intent that Manager re-preflights", () => {
   const wabachi = readManagerAssets()["/mockups/wabachi.html"].body;
-  assert.match(wabachi, /createWorkIntent/u);
+  assert.match(wabachi, /function handoffToManager\(/u);
   assert.match(wabachi, /wabachiWorkIntent/u);
-  assert.match(wabachi, /mottainai\.html\?openNew=1/u);
+  assert.match(wabachi, /target\.searchParams\.set\("openNew", "1"\)/u);
+  assert.match(wabachi, /Manager\/Nawabari must re-establish execution authority/u);
+  assert.match(wabachi, /\/api\/v1\/changes/u);
+  assert.match(wabachi, /\/api\/v1\/projections\/review/u);
+  assert.doesNotMatch(wabachi, /FIND-0012/u);
   const mottainai = readManagerViewer();
   assert.match(mottainai, /readWabachiWorkIntent/u);
   assert.match(mottainai, /wabachiWorkIntent/u);
+  assert.match(mottainai, /Wabachi presentation intent \(not authoritative\)/u);
+  assert.match(mottainai, /post\("\/sessions\/preview"/u);
 });
 
-test("Wabachi repository is preserved as presentation intent, not just instruction", () => {
+test("Wabachi repository and semantic focus remain presentation intent rather than execution scope authority", () => {
   const wabachi = readManagerAssets()["/mockups/wabachi.html"].body;
-  assert.match(wabachi, /repository:\s*"mottainai"/u);
-  assert.match(wabachi, /repository:\s*intent\.repository/u);
+  assert.match(wabachi, /repository:\s*project\.project/u);
+  assert.match(wabachi, /focus:\s*finding\.entityId/u);
+  assert.match(wabachi, /scope:\s*firstRead/u);
   const mottainai = readManagerViewer();
   assert.match(mottainai, /params\.get\("repository"\)/u);
   assert.match(mottainai, /repository:\s*params\.get\("repository"\)/u);
