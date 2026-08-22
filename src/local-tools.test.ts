@@ -209,6 +209,122 @@ test("search caps total matches across files at maxResults and reports truncatio
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test("search returns a successful empty result for a valid query with no matches", async (t) => {
+  const { root, config } = await workspace();
+  try {
+    execFileSync("rg", ["--version"], { stdio: "ignore" });
+  } catch {
+    await fs.rm(root, { recursive: true, force: true });
+    t.skip("rg is not installed");
+    return;
+  }
+  const store = new InMemoryArtifactStore({ createId: () => crypto.randomUUID() });
+  const search = structured(
+    await callLocalTool(
+      "mottainai_search",
+      { query: "definitely-not-present-anywhere", path: ".", mode: "literal" },
+      config,
+      store,
+    ),
+  );
+  assert.equal(search.status, "success");
+  assert.equal(search.summary, "0 matches in 0 files");
+  assert.deepEqual(search.groups, []);
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("search treats an invalid regex as a failed search rather than a zero-match success", async (t) => {
+  const { root, config } = await workspace();
+  try {
+    execFileSync("rg", ["--version"], { stdio: "ignore" });
+  } catch {
+    await fs.rm(root, { recursive: true, force: true });
+    t.skip("rg is not installed");
+    return;
+  }
+  const store = new InMemoryArtifactStore({ createId: () => crypto.randomUUID() });
+  const search = structured(
+    await callLocalTool("mottainai_search", { query: "(unclosed", path: ".", mode: "regex" }, config, store),
+  );
+  assert.equal(search.status, "failed");
+  assert.doesNotMatch(search.summary as string, /matches in \d+ files/);
+  const diagnostics = search.diagnostics as Array<{ severity: string; message: string }>;
+  assert.equal(diagnostics.length, 1);
+  assert.match(diagnostics[0].message, /regex/i);
+  assert.equal(search.failure_classification, "rg_command");
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("search treats an unparsable rg event stream as a failed search, not a partial success", async (t) => {
+  const { root, config } = await workspace();
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-fake-rg-"));
+  const fakeRg = path.join(binDir, "rg");
+  await fs.writeFile(
+    fakeRg,
+    [
+      "#!/bin/sh",
+      'echo \'{"type":"match","data":{"path":{"text":"whatever.txt"},"line_number":1,"lines":{"text":"ok"}}}\'',
+      "echo 'not-json-line'",
+      "exit 0",
+      "",
+    ].join("\n"),
+  );
+  await fs.chmod(fakeRg, 0o755);
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+  try {
+    const store = new InMemoryArtifactStore({ createId: () => crypto.randomUUID() });
+    const search = structured(
+      await callLocalTool("mottainai_search", { query: "anything", path: ".", mode: "literal" }, config, store),
+    );
+    assert.equal(search.status, "failed");
+    assert.equal(search.failure_classification, "rg_parse");
+    assert.equal((search.metrics as Record<string, number>).malformed_events, 1);
+    const diagnostics = search.diagnostics as Array<{ severity: string; message: string }>;
+    assert.equal(diagnostics.length, 1);
+    assert.equal(diagnostics[0].message, "not-json-line");
+  } finally {
+    process.env.PATH = originalPath;
+    await fs.rm(binDir, { recursive: true, force: true });
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("search treats a well-formed but unknown rg event type as a failed search, not a silent partial success", async (t) => {
+  const { root, config } = await workspace();
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-fake-rg-"));
+  const fakeRg = path.join(binDir, "rg");
+  await fs.writeFile(
+    fakeRg,
+    [
+      "#!/bin/sh",
+      'echo \'{"type":"match","data":{"path":{"text":"whatever.txt"},"line_number":1,"lines":{"text":"ok"}}}\'',
+      'echo \'{"type":"unexpected_future_event","data":{"path":{"text":"whatever.txt"},"line_number":2}}\'',
+      "exit 0",
+      "",
+    ].join("\n"),
+  );
+  await fs.chmod(fakeRg, 0o755);
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+  try {
+    const store = new InMemoryArtifactStore({ createId: () => crypto.randomUUID() });
+    const search = structured(
+      await callLocalTool("mottainai_search", { query: "anything", path: ".", mode: "literal" }, config, store),
+    );
+    assert.equal(search.status, "failed");
+    assert.equal(search.failure_classification, "rg_parse");
+    assert.equal((search.metrics as Record<string, number>).malformed_events, 1);
+    const diagnostics = search.diagnostics as Array<{ severity: string; message: string }>;
+    assert.equal(diagnostics.length, 1);
+    assert.match(diagnostics[0].message, /unexpected_future_event/);
+  } finally {
+    process.env.PATH = originalPath;
+    await fs.rm(binDir, { recursive: true, force: true });
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("exec preserves stdout/stderr and result tools retrieve and search it", async () => {
   const { root, config } = await workspace();
   const store = new InMemoryArtifactStore({ createId: () => "exec" });
@@ -1044,8 +1160,9 @@ function rgEvent(type: "match" | "context", filePath: string, line: number, text
 
 test("parseRgJson: zero context lines yields matches with no context field", () => {
   const raw = [rgEvent("match", "/root/file.txt", 5, "needle here")].join("\n");
-  const groups = parseRgJson(raw, "/root", 0);
-  assert.deepEqual(groups, [{ path: "file.txt", matches: [{ line: 5, text: "needle here" }] }]);
+  const parsed = parseRgJson(raw, "/root", 0);
+  assert.deepEqual(parsed.groups, [{ path: "file.txt", matches: [{ line: 5, text: "needle here" }] }]);
+  assert.equal(parsed.malformedEventCount, 0);
 });
 
 test("parseRgJson: before and after context lines attach to the correct match", () => {
@@ -1056,8 +1173,8 @@ test("parseRgJson: before and after context lines attach to the correct match", 
     rgEvent("context", "/root/file.txt", 6, "after-1"),
     rgEvent("context", "/root/file.txt", 7, "after-2"),
   ].join("\n");
-  const groups = parseRgJson(raw, "/root", 2);
-  assert.deepEqual(groups, [
+  const parsed = parseRgJson(raw, "/root", 2);
+  assert.deepEqual(parsed.groups, [
     {
       path: "file.txt",
       matches: [
@@ -1085,7 +1202,8 @@ test("parseRgJson: multiple distant match groups in the same file keep their own
     rgEvent("match", "/root/file.txt", 50, "second needle"),
     rgEvent("context", "/root/file.txt", 52, "after-match-2"),
   ].join("\n");
-  const groups = parseRgJson(raw, "/root", 2);
+  const parsed = parseRgJson(raw, "/root", 2);
+  const groups = parsed.groups;
   assert.equal(groups.length, 1);
   assert.deepEqual(groups[0].matches, [
     {
@@ -1105,6 +1223,37 @@ test("parseRgJson: multiple distant match groups in the same file keep their own
       ],
     },
   ]);
+});
+
+test("parseRgJson: a line that is not valid JSON is counted as a malformed event, not silently dropped", () => {
+  const raw = [rgEvent("match", "/root/file.txt", 5, "needle here"), "{not valid json"].join("\n");
+  const parsed = parseRgJson(raw, "/root", 0);
+  assert.deepEqual(parsed.groups, [{ path: "file.txt", matches: [{ line: 5, text: "needle here" }] }]);
+  assert.equal(parsed.malformedEventCount, 1);
+  assert.equal(parsed.firstMalformedLine, "{not valid json");
+});
+
+test("parseRgJson: legitimate begin/end/summary metadata events are not counted as malformed", () => {
+  const raw = [
+    JSON.stringify({ type: "begin", data: { path: { text: "/root/file.txt" } } }),
+    rgEvent("match", "/root/file.txt", 5, "needle here"),
+    JSON.stringify({ type: "end", data: { path: { text: "/root/file.txt" } } }),
+    JSON.stringify({ type: "summary", data: {} }),
+  ].join("\n");
+  const parsed = parseRgJson(raw, "/root", 0);
+  assert.deepEqual(parsed.groups, [{ path: "file.txt", matches: [{ line: 5, text: "needle here" }] }]);
+  assert.equal(parsed.malformedEventCount, 0);
+});
+
+test("parseRgJson: a well-formed JSON line with an unknown event type is counted as malformed, not silently ignored", () => {
+  const raw = [
+    rgEvent("match", "/root/file.txt", 5, "needle here"),
+    JSON.stringify({ type: "unexpected_future_event", data: { path: { text: "/root/file.txt" }, line_number: 6 } }),
+  ].join("\n");
+  const parsed = parseRgJson(raw, "/root", 0);
+  assert.deepEqual(parsed.groups, [{ path: "file.txt", matches: [{ line: 5, text: "needle here" }] }]);
+  assert.equal(parsed.malformedEventCount, 1);
+  assert.match(parsed.firstMalformedLine ?? "", /unexpected_future_event/);
 });
 
 // --- I: malformed / incomplete gh JSON output must not escape as an unstructured exception ---
