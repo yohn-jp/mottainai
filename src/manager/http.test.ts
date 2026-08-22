@@ -159,6 +159,35 @@ test("Manager HTTP API accepts and filters the Pi launch profile", async (t) => 
   assert.equal((await filtered.json()).sessions.length, 1);
 });
 
+test("Manager HTTP API rejects conflicting compatibility alias query parameters and accepts equivalent ones", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const runtime = new HttpFakeRuntime();
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime });
+  await service.initialize();
+  const handle = await startDashboardServer({
+    port: 0,
+    viewerHtml: "manager",
+    query: createFixtureQuery(),
+    manager: new ManagerHttpApi(service),
+  });
+  activeServers.push(handle);
+
+  const conflictingState = await fetch(`${handle.url}api/v1/manager/sessions?runtimeState=running&state=failed`);
+  assert.equal(conflictingState.status, 400);
+  assert.equal((await conflictingState.json()).error.code, "invalid_request");
+
+  const conflictingAgent = await fetch(`${handle.url}api/v1/manager/sessions?agent=codex&agentKind=claude`);
+  assert.equal(conflictingAgent.status, 400);
+  assert.equal((await conflictingAgent.json()).error.code, "invalid_request");
+
+  const equalState = await fetch(`${handle.url}api/v1/manager/sessions?runtimeState=running&state=running`);
+  assert.equal(equalState.status, 200);
+
+  const equivalentAgent = await fetch(`${handle.url}api/v1/manager/sessions?agent=claude-code&agentKind=claude`);
+  assert.equal(equivalentAgent.status, 200);
+});
+
 test("Manager HTTP preview returns the effective declaration without external mutation", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);

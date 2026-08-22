@@ -330,6 +330,20 @@ function normalizeAgentKind(input: unknown): ManagerAgentKind {
   throw invalid("agentKind must be codex, claude, or pi");
 }
 
+/**
+ * Resolves the `launchProfile`/`agentKind` compatibility alias pair.
+ * Both may declare an agent kind only when they normalize to the same
+ * value - conflicting values are rejected rather than resolved by
+ * precedence.
+ */
+function resolveAgentKind(launchProfile: unknown, agentKind: unknown): ManagerAgentKind {
+  if (launchProfile === undefined || agentKind === undefined) return normalizeAgentKind(launchProfile ?? agentKind);
+  const resolvedProfile = normalizeAgentKind(launchProfile);
+  const resolvedKind = normalizeAgentKind(agentKind);
+  if (resolvedProfile !== resolvedKind) throw invalid("launchProfile and agentKind declare conflicting agent kinds");
+  return resolvedProfile;
+}
+
 interface ValidatedManagerSessionInput {
   agentKind: ManagerAgentKind;
   instruction: string;
@@ -378,6 +392,61 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function normalizePathForComparison(value: string): string {
+  return value.trim().replaceAll("\\", "/");
+}
+
+function validateScopeClaim(value: unknown, label: string): ManagerResourceClaim {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw invalid(`${label} must be an object`);
+  const claim = value as Record<string, unknown>;
+  const resource = validateScopeResource(claim.resource, `${label}.resource`);
+  if (claim.mode !== "read" && claim.mode !== "write" && claim.mode !== "exclusive-write")
+    throw invalid(`${label}.mode must be read, write, or exclusive-write`);
+  return { resource, mode: claim.mode } as ManagerResourceClaim;
+}
+
+function claimComparisonKey(claim: ManagerResourceClaim): string {
+  return JSON.stringify([normalizePathForComparison(claim.resource), claim.mode]);
+}
+
+function sameEffectiveDeclaration<T>(a: readonly T[], b: readonly T[], keyOf: (value: T) => string): boolean {
+  if (a.length !== b.length) return false;
+  const left = a.map(keyOf).sort();
+  const right = b.map(keyOf).sort();
+  return left.every((value, index) => value === right[index]);
+}
+
+/**
+ * Resolves a canonical scope field against its top-level compatibility alias.
+ * Both may be omitted, either alone may be present, or both may be present
+ * only when they normalize to exactly the same effective declaration -
+ * conflicting dual representations are rejected rather than unioned, so a
+ * caller can never silently widen effective execution scope.
+ */
+function resolveDuplicateScopeInput<T>(
+  scopeValue: unknown,
+  aliasValue: unknown,
+  scopeLabel: string,
+  aliasLabel: string,
+  fieldDescription: string,
+  validate: (value: unknown, label: string) => T,
+  keyOf: (value: T) => string,
+): T[] {
+  const scopeArray = arrayInput(scopeValue, scopeLabel);
+  const aliasArray = arrayInput(aliasValue, aliasLabel);
+  if (scopeArray === undefined && aliasArray === undefined) return [];
+  if (scopeArray === undefined) return aliasArray!.map((value, index) => validate(value, `${aliasLabel}[${index}]`));
+  if (aliasArray === undefined) return scopeArray.map((value, index) => validate(value, `${scopeLabel}[${index}]`));
+  const scopeValidated = scopeArray.map((value, index) => validate(value, `${scopeLabel}[${index}]`));
+  const aliasValidated = aliasArray.map((value, index) => validate(value, `${aliasLabel}[${index}]`));
+  if (!sameEffectiveDeclaration(scopeValidated, aliasValidated, keyOf)) {
+    throw invalid(
+      `${scopeLabel} and ${aliasLabel} declare conflicting ${fieldDescription}; supply one representation or matching values`,
+    );
+  }
+  return scopeValidated;
+}
+
 function normalizeScope(input: NewManagerSessionInput): {
   scope: ManagerResourceScope | undefined;
   provided: boolean;
@@ -386,31 +455,31 @@ function normalizeScope(input: NewManagerSessionInput): {
   const rawScope = raw.scope;
   if (rawScope !== undefined && !isRecord(rawScope)) throw invalid("scope must be an object");
   const scopeRecord = isRecord(rawScope) ? rawScope : undefined;
-  const rawPaths = [scopeRecord?.paths, raw.paths].filter((value) => value !== undefined);
-  const rawClaims = [scopeRecord?.claims, raw.claims].filter((value) => value !== undefined);
   const provided = rawScope !== undefined || raw.paths !== undefined || raw.claims !== undefined;
   if (!provided) return { scope: undefined, provided: false };
 
-  const pathValues = rawPaths.flatMap((value, index) => arrayInput(value, index === 0 ? "scope.paths" : "paths") ?? []);
-  const claimValues = rawClaims.flatMap(
-    (value, index) => arrayInput(value, index === 0 ? "scope.claims" : "claims") ?? [],
+  const paths = resolveDuplicateScopeInput(
+    scopeRecord?.paths,
+    raw.paths,
+    "scope.paths",
+    "paths",
+    "execution scope paths",
+    validateScopeResource,
+    normalizePathForComparison,
   );
-  if (pathValues.length === 0 && claimValues.length === 0)
-    throw invalid("scope must contain at least one path or claim");
-  if (pathValues.length > MAX_SCOPE_PATHS) throw invalid(`scope.paths must contain at most ${MAX_SCOPE_PATHS} entries`);
-  if (claimValues.length > MAX_SCOPE_CLAIMS)
-    throw invalid(`scope.claims must contain at most ${MAX_SCOPE_CLAIMS} entries`);
+  const claims = resolveDuplicateScopeInput(
+    scopeRecord?.claims,
+    raw.claims,
+    "scope.claims",
+    "claims",
+    "execution scope claims",
+    validateScopeClaim,
+    claimComparisonKey,
+  );
+  if (paths.length === 0 && claims.length === 0) throw invalid("scope must contain at least one path or claim");
+  if (paths.length > MAX_SCOPE_PATHS) throw invalid(`scope.paths must contain at most ${MAX_SCOPE_PATHS} entries`);
+  if (claims.length > MAX_SCOPE_CLAIMS) throw invalid(`scope.claims must contain at most ${MAX_SCOPE_CLAIMS} entries`);
 
-  const paths = pathValues.map((value, index) => validateScopeResource(value, `scope.paths[${index}]`));
-  const claims = claimValues.map((value, index) => {
-    if (typeof value !== "object" || value === null || Array.isArray(value))
-      throw invalid(`scope.claims[${index}] must be an object`);
-    const claim = value as Record<string, unknown>;
-    const resource = validateScopeResource(claim.resource, `scope.claims[${index}].resource`);
-    if (claim.mode !== "read" && claim.mode !== "write" && claim.mode !== "exclusive-write")
-      throw invalid(`scope.claims[${index}].mode must be read, write, or exclusive-write`);
-    return { resource, mode: claim.mode } as ManagerResourceClaim;
-  });
   return {
     provided: true,
     scope: {
@@ -421,7 +490,7 @@ function normalizeScope(input: NewManagerSessionInput): {
 }
 
 function normalizeManagerSessionInput(input: NewManagerSessionInput): ValidatedManagerSessionInput {
-  const agentKind = normalizeAgentKind(input.launchProfile ?? input.agentKind);
+  const agentKind = resolveAgentKind(input.launchProfile, input.agentKind);
   const instruction = validateInstruction(input.instruction);
   const provider = validateOptionalArg(input.provider, "provider", MAX_PROVIDER_LENGTH);
   const model = validateOptionalArg(input.model, "model", MAX_MODEL_LENGTH);
