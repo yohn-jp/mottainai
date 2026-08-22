@@ -50,7 +50,7 @@ function validatePullRequestContract(overrides = {}) {
 
 function blankSection(body, heading) {
   const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return body.replace(new RegExp(`(## ${escaped}\\n)[\\s\\S]*?(?=\\n## |$)`, "m"), "$1");
+  return body.replace(new RegExp(`(## ${escaped}\\n)[\\s\\S]*?(?=\\n## |$)`), "$1");
 }
 
 test("valid issue contract passes", () => {
