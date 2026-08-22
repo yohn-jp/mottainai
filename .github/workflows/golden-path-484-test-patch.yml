@@ -1,4 +1,5 @@
 name: Golden Path 484 Test Patch
+# Temporary branch-only executor; deleted before merge.
 on:
   push:
     branches: [chore/487-golden-path-bringup]
