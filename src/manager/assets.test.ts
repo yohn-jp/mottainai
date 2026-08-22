@@ -76,22 +76,45 @@ test("live Wabachi creates a non-authoritative Work Intent that Manager re-prefl
   assert.doesNotMatch(wabachi, /FIND-0012/u);
   const mottainai = readManagerViewer();
   assert.match(mottainai, /readWabachiWorkIntent/u);
-  assert.match(mottainai, /wabachiWorkIntent/u);
+  assert.match(mottainai, /params\.get\("revision"\)/u);
+  assert.match(mottainai, /params\.get\("finding"\)/u);
+  assert.match(mottainai, /params\.get\("focus"\)/u);
+  assert.match(mottainai, /params\.get\("scope"\)/u);
   assert.match(mottainai, /Wabachi presentation intent \(not authoritative\)/u);
+  assert.match(mottainai, /Manager will re-resolve branch\/worktree\/claim authority during preflight/u);
   assert.match(mottainai, /post\("\/sessions\/preview"/u);
 });
 
-test("Wabachi repository and semantic focus remain presentation intent rather than execution scope authority", () => {
+test("Wabachi requested scope is a preflight candidate, never direct execution authority", () => {
   const wabachi = readManagerAssets()["/mockups/wabachi.html"].body;
   assert.match(wabachi, /repository:\s*project\.project/u);
   assert.match(wabachi, /focus:\s*finding\.entityId/u);
   assert.match(wabachi, /scope:\s*firstRead/u);
   const mottainai = readManagerViewer();
-  assert.match(mottainai, /params\.get\("repository"\)/u);
-  assert.match(mottainai, /repository:\s*params\.get\("repository"\)/u);
-  assert.match(mottainai, /wabachiIntent/u);
-  assert.match(mottainai, /intent\.focus/u);
-  assert.doesNotMatch(mottainai, /taskState\.scope\.path\s*=\s*intent/u);
+  assert.match(mottainai, /scope:\s*\{ path: \(intent && intent\.scope\) \|\| "src\/\*\*", claimMode: "exclusive-write" \}/u);
+  assert.match(mottainai, /var taskRequest = taskValues\(\)/u);
+  assert.match(mottainai, /post\("\/sessions\/preview", taskRequest\)/u);
+  assert.match(mottainai, /approvedPreflight = \{ request: taskRequest, preview: preview \}/u);
+  assert.match(mottainai, /post\("\/sessions", approvedPreflight\.request\)/u);
+});
+
+test("Manager Session Detail can open Wabachi read-only context without replacing managed actions", () => {
+  const html = readManagerViewer();
+  assert.match(html, /id="drawerSemanticAction" hidden>Open semantic context/u);
+  assert.match(html, /function openSemanticContext\(session\)/u);
+  assert.match(html, /new URL\("\/mockups\/wabachi\.html", window\.location\.origin\)/u);
+  assert.match(html, /target\.searchParams\.set\("session", session\.sessionId\)/u);
+  assert.match(html, /target\.searchParams\.set\("repository", p\.repository\.name\)/u);
+  assert.match(html, /if \(p\.task\.baseCommit\) target\.searchParams\.set\("base", p\.task\.baseCommit\)/u);
+  assert.match(html, /var head = p\.commit\.sha \|\| p\.pullRequest\.headSha/u);
+  assert.match(html, /q\("#drawerSemanticAction"\)\.onclick = function \(\) \{ openSemanticContext\(session\); \}/u);
+  assert.match(html, /Open managed terminal/u);
+  assert.match(html, /session\.operational\.attention \? session\.operational\.attention\.safeAction : "open-terminal"/u);
+  const wabachi = readManagerAssets()["/mockups/wabachi.html"].body;
+  assert.match(wabachi, /function parseIncoming\(\)/u);
+  assert.match(wabachi, /session:\s*params\.get\("session"\)/u);
+  assert.match(wabachi, /context received from Mottainai/u);
+  assert.match(wabachi, /Wabachi remains read-only; execution authority stays with Manager\/Nawabari/u);
 });
 
 test("New Task preflight only treats clear/not-applicable claim status as launchable", () => {
