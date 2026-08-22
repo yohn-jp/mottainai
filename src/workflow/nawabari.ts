@@ -4,7 +4,7 @@ import { projectNawabariDeclaration } from "../semantics/execution-plan.js";
 
 export const NAWABARI_CONTRACT_ID = "nawabari.standalone-execution.v1" as const;
 export const NAWABARI_CONTRACT_SCHEMA_VERSION = 1 as const;
-export const MINIMUM_NAWABARI_VERSION = "0.5.0" as const;
+export const MINIMUM_NAWABARI_VERSION = "0.6.1" as const;
 /** Expected shape of the resource-claims capability's `claim_set_replacement` boundary (Nawabari #101 / PR #106). */
 const REQUIRED_CLAIM_SET_REPLACEMENT_PAIRING = "adjacent-resource-mode" as const;
 
@@ -686,9 +686,22 @@ export class NawabariExecutionClient {
     sessionId: string;
     /** Provider evidence for squash/rebase/non-ancestry integration. */
     integratedRevision?: string;
+    /** Explicit Git remote used only to obtain a missing integration-proof object. */
+    fetchRemote?: string;
+    /** Explicit integration branch paired with fetchRemote. */
+    fetchBranch?: string;
   }): Promise<NawabariCommandResult> {
+    const hasFetchRemote = input.fetchRemote !== undefined;
+    const hasFetchBranch = input.fetchBranch !== undefined;
+    if (hasFetchRemote !== hasFetchBranch)
+      throw new NawabariExecutionError(
+        "nawabari-contract-invalid",
+        "Nawabari integration fetch metadata must provide both fetchRemote and fetchBranch",
+      );
     const args = ["session", "close", "--session", input.sessionId];
     if (input.integratedRevision !== undefined) args.push("--integrated-revision", input.integratedRevision);
+    if (input.fetchRemote !== undefined && input.fetchBranch !== undefined)
+      args.push("--fetch-remote", input.fetchRemote, "--fetch-branch", input.fetchBranch);
     const result = await this.invoke(args, input.cwd);
     const closedSession = this.sessionCloseResult(result);
     if (closedSession.sessionId !== input.sessionId)
