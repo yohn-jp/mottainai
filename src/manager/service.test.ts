@@ -11,6 +11,7 @@ import {
   ManagerSessionService,
   resolvePiGuardPath,
   type ManagerResourceScope,
+  type NewManagerSessionInput,
 } from "./service.js";
 import type { ManagerExecutionAuthority } from "../workflow/domain/manager-execution.js";
 import type { ManagerSessionId, NawabariSessionId } from "../workflow/state/store.js";
@@ -308,6 +309,112 @@ test("Manager rejects invalid scope before task, record, Nawabari, or Zellij mut
     assert.equal(store.listManagerSessions(root).length, 0);
     assert.equal(runtime.started.length, 0);
   }
+});
+
+test("Manager accepts a single scope/paths or scope/claims alias representation", async (t) => {
+  const root = createTempGitRepo(t);
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store: createWorkflowStore(t),
+    runtime: new FakeRuntime(),
+  });
+
+  const byScope = await service.preview({
+    instruction: "canonical scope only",
+    taskSlug: "single-alias-scope",
+    issueRef: "1040",
+    scope: { paths: ["src/a.ts"] },
+  });
+  assert.deepEqual(byScope.claims, [{ resource: "src/a.ts", mode: "exclusive-write" }]);
+
+  const byTopLevel = await service.preview({
+    instruction: "top-level alias only",
+    taskSlug: "single-alias-top-level",
+    issueRef: "1041",
+    paths: ["src/a.ts"],
+    claims: [{ resource: "src/b.ts", mode: "read" }],
+  });
+  assert.deepEqual(byTopLevel.claims, [
+    { resource: "src/a.ts", mode: "exclusive-write" },
+    { resource: "src/b.ts", mode: "read" },
+  ]);
+});
+
+test("Manager accepts duplicate scope.paths/paths and scope.claims/claims that normalize identically", async (t) => {
+  const root = createTempGitRepo(t);
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store: createWorkflowStore(t),
+    runtime: new FakeRuntime(),
+  });
+
+  const preview = await service.preview({
+    instruction: "equal duplicate scope representation",
+    taskSlug: "equal-duplicate-scope",
+    issueRef: "1042",
+    scope: {
+      paths: ["src/a.ts"],
+      claims: [{ resource: "src/b.ts", mode: "read" }],
+    },
+    // Trailing whitespace and backslash separators normalize to the same
+    // effective declaration as the canonical scope above.
+    paths: [" src/a.ts "],
+    claims: [{ resource: "src\\b.ts", mode: "read" }],
+  });
+  assert.deepEqual(preview.claims, [
+    { resource: "src/a.ts", mode: "exclusive-write" },
+    { resource: "src/b.ts", mode: "read" },
+  ]);
+});
+
+test("Manager rejects conflicting duplicate scope representations instead of widening effective scope", async (t) => {
+  const conflicts: NewManagerSessionInput[] = [
+    { instruction: "x", scope: { paths: ["src/a.ts"] }, paths: ["src/b.ts"] },
+    {
+      instruction: "x",
+      scope: { claims: [{ resource: "src/a.ts", mode: "read" }] },
+      claims: [{ resource: "src/a.ts", mode: "write" }],
+    },
+  ];
+  for (const [index, conflict] of conflicts.entries()) {
+    const root = createTempGitRepo(t);
+    const store = createWorkflowStore(t);
+    const runtime = new FakeRuntime();
+    const service = new ManagerSessionService({ workspaceRoot: root, store, runtime });
+    await assert.rejects(
+      service.start({
+        ...conflict,
+        instruction: `conflicting duplicate scope ${index}`,
+        taskSlug: `conflict-scope-${index}`,
+        issueRef: String(1050 + index),
+      }),
+      (error: unknown) => error instanceof ManagerError && error.code === "invalid_request",
+    );
+    assert.equal(store.listTasks().length, 0);
+    assert.equal(store.listManagerSessions(root).length, 0);
+    assert.equal(runtime.started.length, 0);
+  }
+});
+
+test("Manager rejects conflicting launchProfile/agentKind and accepts equivalent aliases", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const runtime = new FakeRuntime();
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime });
+  await service.initialize();
+
+  await assert.rejects(
+    service.start({ instruction: "conflicting agent kind", agentKind: "codex", launchProfile: "pi" }),
+    (error: unknown) => error instanceof ManagerError && error.code === "invalid_request",
+  );
+  assert.equal(runtime.started.length, 0);
+
+  const session = await service.start({
+    instruction: "equivalent agent kind alias",
+    agentKind: "claude",
+    launchProfile: "claude-code",
+  });
+  assert.equal(session.agentKind, "claude");
 });
 
 test("Manager preview is side-effect free and does not initialize Zellij", async (t) => {

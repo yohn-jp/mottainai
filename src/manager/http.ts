@@ -90,15 +90,33 @@ function inputFromBody(value: unknown): NewManagerSessionInput {
   };
 }
 
+function normalizeAgentAliasValue(value: string): string {
+  return value === "claude-code" ? "claude" : value;
+}
+
 function filterFromQuery(url: URL): ManagerSessionFilter {
-  const runtimeState = url.searchParams.get("runtimeState") ?? url.searchParams.get("state");
+  const runtimeStateParam = url.searchParams.get("runtimeState");
+  const stateParam = url.searchParams.get("state");
+  if (runtimeStateParam !== null && stateParam !== null && runtimeStateParam !== stateParam) {
+    throw new ManagerError("invalid_request", "runtimeState and state declare conflicting runtime states", 400);
+  }
+  const runtimeState = runtimeStateParam ?? stateParam;
   if (
     runtimeState !== null &&
     !MANAGER_RUNTIME_STATES.includes(runtimeState as (typeof MANAGER_RUNTIME_STATES)[number])
   ) {
     throw new ManagerError("invalid_request", `unknown runtime state: ${runtimeState}`, 400);
   }
-  const agent = url.searchParams.get("agent") ?? url.searchParams.get("agentKind");
+  const agentParam = url.searchParams.get("agent");
+  const agentKindParam = url.searchParams.get("agentKind");
+  if (
+    agentParam !== null &&
+    agentKindParam !== null &&
+    normalizeAgentAliasValue(agentParam) !== normalizeAgentAliasValue(agentKindParam)
+  ) {
+    throw new ManagerError("invalid_request", "agent and agentKind declare conflicting agent kinds", 400);
+  }
+  const agent = agentParam ?? agentKindParam;
   if (
     agent !== null &&
     agent !== "claude-code" &&
@@ -120,7 +138,7 @@ function filterFromQuery(url: URL): ManagerSessionFilter {
   }
   return {
     ...(runtimeState === null ? {} : { runtimeState: runtimeState as ManagerSessionFilter["runtimeState"] }),
-    ...(agent === null ? {} : { agentKind: (agent === "claude-code" ? "claude" : agent) as ManagerAgentKind }),
+    ...(agent === null ? {} : { agentKind: normalizeAgentAliasValue(agent) as ManagerAgentKind }),
     ...(semanticLifecycleState === null
       ? {}
       : { semanticLifecycleState: semanticLifecycleState as ManagerSessionRecord["semanticLifecycleState"] }),
