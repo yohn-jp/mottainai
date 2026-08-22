@@ -92,7 +92,7 @@ export function fakeNawabari(
               command: "capabilities",
               schema_version: 1,
               contract_id: "nawabari.standalone-execution.v1",
-              package_version: "0.5.0",
+              package_version: "0.6.1",
               capabilities: FAKE_NAWABARI_CAPABILITIES,
             }),
           );
