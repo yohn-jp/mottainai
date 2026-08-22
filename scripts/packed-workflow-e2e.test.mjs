@@ -209,6 +209,13 @@ async function main() {
     "fixture-owner/fixture-repo",
     "--issue-reference",
     "334",
+    "--sections-json",
+    JSON.stringify({
+      summary: "packed workflow summary",
+      changes: "packed workflow change",
+      validation: "- [x] Tests",
+      review_focus: "packed lifecycle",
+    }),
     "--acceptance-criteria",
     "pull-request-open",
   ]);
@@ -473,6 +480,9 @@ test(
     const repositoryFlagIndex = ghInariCreates[0].args.indexOf("--repository");
     assert.ok(repositoryFlagIndex >= 0);
     assert.equal(ghInariCreates[0].args[repositoryFlagIndex + 1], "fixture-owner/fixture-repo");
+    const createPayload = JSON.parse(ghInariCreates[0].input ?? "{}");
+    assert.equal(createPayload.fields?.linked_issue, "Closes #334");
+    assert.equal("issue" in (createPayload.fields ?? {}), false);
     assert.equal(readJsonLines(fixture.ghTrace).filter((args) => args[1] === "list").length, 1);
     assert.match(
       runGit(fixture.remote, ["show-ref", "--heads", started.execution.branch]),

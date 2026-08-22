@@ -136,6 +136,11 @@ test("Typecheck Tests and Build checkboxes remain required for non-draft PRs", (
   }
 });
 
+test("canonical Inari-escaped validation checkboxes remain accepted", () => {
+  const body = pullRequestBody.replaceAll("- [x]", "\\- [x]");
+  assert.deepEqual(validatePullRequestContract({ body }).errors, []);
+});
+
 test("Draft PRs may leave validation checks incomplete", () => {
   const body = pullRequestBody.replaceAll("[x]", "[ ]");
   assert.deepEqual(validatePullRequestContract({ body, draft: true, files: ["package.json"] }).errors, []);

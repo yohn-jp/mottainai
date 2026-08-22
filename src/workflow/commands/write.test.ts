@@ -1209,8 +1209,8 @@ class RetryUpstreamNawabari extends PushEvidenceNawabari {
       branch: input.branch,
       target: `${input.remote}/${input.branch}`,
       target_ref: `refs/heads/${input.branch}`,
-      observed_remote_sha: source,
-      relation: "up-to-date",
+      observed_remote_sha: null,
+      relation: "no-upstream",
     };
   }
 }
@@ -1274,7 +1274,11 @@ test("push retry honors explicit create-upstream after PUSH_NO_UPSTREAM without 
     { force: false, createUpstream: true },
   ]);
   assert.equal(store.getTask(started.task.taskId)?.lifecycleState, "pushed");
-  assert.equal(store.getPushReconciliation(started.task.taskId)?.state, "reconciled");
+  const receipt = store.getPushReconciliation(started.task.taskId);
+  assert.equal(receipt?.state, "reconciled");
+  assert.equal(receipt?.relation, "no-upstream");
+  assert.equal(receipt?.recoveryObservedRemoteSha, undefined);
+  assert.equal(receipt?.resultRemoteSha, runGit(["rev-parse", "HEAD"], started.execution.worktree));
 });
 
 test("push receipt recovers a successful external push after lifecycle persistence fails and a process restarts", async (t) => {

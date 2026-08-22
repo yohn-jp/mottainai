@@ -1266,7 +1266,8 @@ async function recoverPushReconciliation(input: {
     // never reuses persisted force/upstream intent. Force is always disabled. A fresh
     // explicit --create-upstream on the current invocation may be honored so an earlier
     // PUSH_NO_UPSTREAM does not poison retry; Nawabari still verifies source generation
-    // before any remote mutation.
+    // before any remote mutation. A successful explicit upstream creation reports
+    // the expected pre-mutation absence (`no-upstream` + no observed SHA).
     const observed = await nawabari.push({
       cwd: workspaceRoot,
       sessionId: receipt.nawabariSessionId,
@@ -1278,10 +1279,15 @@ async function recoverPushReconciliation(input: {
     });
     const evidence = pushEvidence(observed);
     const mismatch = pushIdentityMismatch(receipt, evidence);
+    const creationEvidence =
+      pushInput.createUpstream === true &&
+      evidence.relation === "no-upstream" &&
+      evidence.observedRemoteSha === undefined;
+    const generationVerified =
+      (evidence.relation === "up-to-date" && evidence.observedRemoteSha === receipt.sourceCommit) || creationEvidence;
     if (
       mismatch !== undefined ||
-      evidence.relation !== "up-to-date" ||
-      evidence.observedRemoteSha !== receipt.sourceCommit
+      !generationVerified
     ) {
       const detail =
         mismatch === undefined
