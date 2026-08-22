@@ -8,6 +8,16 @@ const ACTION_ROOTS = Object.freeze([".github/workflows", ".github/actions"]);
 const USES_LINE_PATTERN = /^\s*(?:-\s+)?uses:\s*(.*)$/u;
 const VALUE_PATTERN = /^(\S+)(?:\s+#.*)?$/u;
 const IMMUTABLE_EXTERNAL_ACTION_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*@[0-9a-f]{40}$/u;
+// yohn-jp/.github is code this organization owns and operates, not a
+// third-party supply-chain risk: its own governance docs
+// (docs/governance.md, "@main is a live, mutable authority") deliberately
+// keep reusable-workflow callers on @main so a fix lands for every consumer
+// without a per-repository SHA bump, and each run still resolves and
+// checks out its tooling at the exact commit GitHub records as
+// job.workflow_sha. This repository's SHA-pin requirement targets external
+// code Mottainai does not control; it does not apply to this one org-owned,
+// intentionally-live reference.
+const ORG_GOVERNANCE_LIVE_REF_PATTERN = /^yohn-jp\/\.github\/\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml@main$/u;
 
 export function validateActionText(source, filePath = "<text>") {
   const references = [];
@@ -33,7 +43,11 @@ export function validateActionText(source, filePath = "<text>") {
     const reference = valueMatch[1];
     const local = reference.startsWith("./");
     references.push({ file: filePath, line: lineNumber, reference, local });
-    if (!local && !IMMUTABLE_EXTERNAL_ACTION_PATTERN.test(reference)) {
+    if (
+      !local &&
+      !IMMUTABLE_EXTERNAL_ACTION_PATTERN.test(reference) &&
+      !ORG_GOVERNANCE_LIVE_REF_PATTERN.test(reference)
+    ) {
       errors.push(
         filePath + ":" + lineNumber + ": external GitHub Action must use a full 40-character commit SHA: " + reference,
       );

@@ -147,13 +147,14 @@ jobs:
     # release/<semver> PRs are issue-less operational packaging: they skip
     # standards-self-check/validate-pr above and are classified by the same
     # canonical reusable workflow other yohn-jp consumers call, with no
-    # linked-Issue fetch. Pinned to an exact commit (not @main) because this
-    # repository's own action-pin governance (scripts/validate-actions.mjs)
-    # requires every external reference to be an immutable 40-character SHA
-    # with no org-owned exception; see docs/governance.md.
+    # linked-Issue fetch. Deliberately @main, not a pinned commit: this is
+    # yohn-jp/.github's own documented, intentionally-live org trust
+    # boundary (docs/governance.md, "@main is a live, mutable authority"),
+    # not third-party supply-chain code. scripts/validate-actions.mjs
+    # carries a narrow, explicit exception for exactly this reference.
     if: >-
       github.event_name == 'pull_request' &&
       startsWith(github.event.pull_request.head.ref, 'release/')
-    uses: yohn-jp/.github/.github/workflows/pr-governance.yml@814ccd36b6da3b7ef4901b1596d9d1d49cafcaed
+    uses: yohn-jp/.github/.github/workflows/pr-governance.yml@main
     permissions:
       contents: read
