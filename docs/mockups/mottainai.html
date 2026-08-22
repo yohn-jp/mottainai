@@ -407,6 +407,7 @@
     q("#terminalPane").classList.remove("open"); q("#terminalBackdrop").classList.remove("open");
     if (activeTerminal) {
       if (activeTerminal.socket && activeTerminal.socket.readyState <= 1) activeTerminal.socket.close();
+      if (activeTerminal.resizeObserver) activeTerminal.resizeObserver.disconnect();
       activeTerminal.term.dispose();
       activeTerminal = null;
     }
@@ -422,10 +423,14 @@
     term.loadAddon(fitAddon);
     term.open(q("#terminalContainer"));
     fitAddon.fit();
+    var resizeObserver = new ResizeObserver(function () {
+      fitAddon.fit();
+    });
+    resizeObserver.observe(q("#terminalContainer"));
     var wsUrl = new URL(window.location.origin.replace(/^http/u, "ws") + "/api/v1/manager/sessions/" + encodeURIComponent(session.sessionId) + "/terminal");
     var socket = new WebSocket(wsUrl.toString());
     socket.binaryType = "arraybuffer";
-    activeTerminal = { term: term, socket: socket };
+    activeTerminal = { term: term, socket: socket, resizeObserver: resizeObserver };
     socket.addEventListener("open", function () {
       q("#terminalPaneStatus").textContent = "connected";
       fitAddon.fit();

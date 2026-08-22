@@ -50,15 +50,26 @@ class TerminalFakeRuntime implements ZellijRuntime {
 
 const activeServers: { close: () => Promise<void> }[] = [];
 const activeSockets: WebSocket[] = [];
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
+
 afterEach(async () => {
-  await Promise.all(activeSockets.splice(0).map((socket) => new Promise<void>((resolve) => {
+  await Promise.all(activeSockets.splice(0).map((socket) => withTimeout(new Promise<void>((resolve) => {
     if (socket.readyState === socket.CLOSED) {
       resolve();
       return;
     }
     socket.once("close", () => resolve());
     socket.close();
-  })));
+  }), 5000)));
   await Promise.all(activeServers.splice(0).map((server) => server.close()));
 });
 
@@ -89,10 +100,10 @@ test("Manager browser terminal bridge relays PTY I/O bidirectionally over WebSoc
   const socket = new WebSocket(wsUrl);
   activeSockets.push(socket);
 
-  await new Promise<void>((resolve, reject) => {
+  await withTimeout(new Promise<void>((resolve, reject) => {
     socket.once("open", () => resolve());
     socket.once("error", reject);
-  });
+  }), 5000);
 
   // PTY output is not framed per write: two writes in quick succession may
   // arrive as one WebSocket message or two, so accumulate and match on
@@ -107,7 +118,7 @@ test("Manager browser terminal bridge relays PTY I/O bidirectionally over WebSoc
   socket.send("hello-bridge\n");
   socket.send(JSON.stringify({ type: "resize", cols: 120, rows: 40 }));
   socket.send("still-alive\n");
-  await sawBoth;
+  await withTimeout(sawBoth, 5000);
   assert.match(received, /hello-bridge\r\n/u);
   assert.match(received, /still-alive\r\n/u);
 });
@@ -143,10 +154,10 @@ test("Manager browser terminal bridge closes with an actionable diagnostic when 
   const socket = new WebSocket(wsUrl);
   activeSockets.push(socket);
 
-  const closeEvent = await new Promise<{ code: number; reason: string }>((resolve, reject) => {
+  const closeEvent = await withTimeout(new Promise<{ code: number; reason: string }>((resolve, reject) => {
     socket.once("close", (code, reason) => resolve({ code, reason: reason.toString("utf8") }));
     socket.once("error", reject);
-  });
+  }), 5000);
   assert.equal(closeEvent.code, TERMINAL_CLOSE_CODES.attachRejected);
   assert.match(closeEvent.reason, /not running|not attachable/u);
 });
@@ -177,9 +188,9 @@ test("Manager browser terminal bridge rejects an unknown session id with a not-f
   const socket = new WebSocket(wsUrl);
   activeSockets.push(socket);
 
-  const closeEvent = await new Promise<{ code: number }>((resolve, reject) => {
+  const closeEvent = await withTimeout(new Promise<{ code: number }>((resolve, reject) => {
     socket.once("close", (code) => resolve({ code }));
     socket.once("error", reject);
-  });
+  }), 5000);
   assert.equal(closeEvent.code, TERMINAL_CLOSE_CODES.notFound);
 });

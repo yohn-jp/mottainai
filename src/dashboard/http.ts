@@ -338,10 +338,14 @@ export async function startDashboardServer(options: DashboardServerOptions): Pro
     const url = new URL(request.url ?? "/", `http://${host}`);
     const hostName = (request.headers.host ?? "").split(":")[0];
     const isManagerPath = url.pathname === MANAGER_API_PREFIX || url.pathname.startsWith(`${MANAGER_API_PREFIX}/`);
+    const dashboardOrigin = `http://${host}:${port}`;
+    const requestOrigin = request.headers.origin ?? "";
     if (
       (hostName !== LOOPBACK_HOST && hostName !== "localhost") ||
       !isManagerPath ||
-      options.manager?.handleUpgrade === undefined
+      options.manager?.handleUpgrade === undefined ||
+      requestOrigin === "" ||
+      requestOrigin !== dashboardOrigin
     ) {
       socket.destroy();
       return;

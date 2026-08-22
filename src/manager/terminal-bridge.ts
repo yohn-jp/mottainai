@@ -71,7 +71,12 @@ function sessionIdFromTerminalPath(pathname: string): ManagerSessionId | undefin
 
 function closeWithDiagnostic(socket: WebSocket, code: number, reason: string): void {
   // WebSocket close reasons are capped at 123 UTF-8 bytes by RFC 6455.
-  socket.close(code, reason.slice(0, 123));
+  // Truncate by UTF-8 byte length, preserving code-point boundaries.
+  let truncated = reason;
+  while (Buffer.byteLength(truncated, "utf8") > 123) {
+    truncated = truncated.slice(0, -1);
+  }
+  socket.close(code, truncated);
 }
 
 /**

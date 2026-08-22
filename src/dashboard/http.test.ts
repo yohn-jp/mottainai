@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { request } from "node:http";
 import { afterEach, test } from "node:test";
+import WebSocket from "ws";
 import { startDashboardServer } from "./http.js";
 import { createFixtureQuery } from "../semantics/fixtures/dashboard-fixture.js";
 
@@ -177,4 +178,30 @@ test("dashboard HTTP adapter reports a clear error when the port is already in u
       return true;
     },
   );
+});
+
+test("dashboard HTTP adapter rejects WebSocket upgrade with foreign Origin", async () => {
+  const handle = await startDashboardServer({
+    port: 0,
+    viewerHtml: "<!doctype html><title>fixture viewer</title>",
+    query: createFixtureQuery(),
+    manager: {
+      async handle() {
+        throw new Error("should not be called");
+      },
+      handleUpgrade() {
+        throw new Error("should not be called");
+      },
+    },
+  });
+  activeServers.push(handle);
+  const wsUrl = `ws://${handle.host}:${handle.port}/api/v1/manager/sessions/test/terminal`;
+  const foreignOrigin = "http://evil.example:1234";
+  const socket = new WebSocket(wsUrl, { headers: { origin: foreignOrigin } });
+  const closePromise = new Promise<void>((resolve) => {
+    socket.once("close", () => resolve());
+    socket.once("error", () => resolve());
+  });
+  await closePromise;
+  assert.equal(socket.readyState, WebSocket.CLOSED);
 });
