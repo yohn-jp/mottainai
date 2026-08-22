@@ -129,8 +129,9 @@
       </div>
       <div class="drawer-body" id="drawerBody"></div>
       <div class="drawer-foot">
-        <button class="secondary" data-close>Close</button
-        ><button class="primary" id="drawerAction">Run recovery</button>
+        <button class="secondary" data-close>Close</button>
+        <button class="secondary" id="drawerSemanticAction" hidden>Open semantic context</button>
+        <button class="primary" id="drawerAction">Run recovery</button>
       </div>
     </aside>
     <div class="backdrop" id="modalBackdrop"></div>
@@ -181,17 +182,17 @@
   var sessions = [];
   var health;
   var taskStep = 0;
-  // The accepted preflight pair: the exact task snapshot a claim-preflight approved, together
-  // with the preview it returned. The two are stored together so request/preview identity cannot split.
   var approvedPreflight;
   var preflightToken = 0;
-  // Modal lifecycle generation. Closing/reopening the task dialog invalidates all prior async responses.
   var preflightEpoch = 0;
   function readWabachiWorkIntent() {
     var params = new URLSearchParams(window.location.search);
-    var fromQuery = params.get("focus") || params.get("instruction") || params.get("repository") ? {
+    var fromQuery = params.get("focus") || params.get("instruction") || params.get("repository") || params.get("finding") || params.get("scope") ? {
       repository: params.get("repository") || undefined,
+      revision: params.get("revision") || undefined,
+      finding: params.get("finding") || undefined,
       focus: params.get("focus") || undefined,
+      scope: params.get("scope") || undefined,
       instruction: params.get("instruction") || undefined,
     } : undefined;
     if (fromQuery) return fromQuery;
@@ -210,7 +211,7 @@
       agentKind: "pi",
       taskSlug: "operational-task",
       branchType: "feat",
-      scope: { path: "src/**", claimMode: "exclusive-write" },
+      scope: { path: (intent && intent.scope) || "src/**", claimMode: "exclusive-write" },
     };
   };
   var taskState = createTaskState();
@@ -349,6 +350,8 @@
     drawerTrigger = document.activeElement;
     q("#drawerTitle").textContent = "Session detail";
     q("#drawerBody").innerHTML = empty("Loading session detail…");
+    q("#drawerSemanticAction").hidden = true;
+    q("#drawerSemanticAction").onclick = null;
     q("#drawerAction").textContent = "Open managed terminal";
     q("#drawerAction").onclick = null;
     q("#drawer").classList.add("open"); q("#drawerBackdrop").classList.add("open");
@@ -357,11 +360,24 @@
       var session = body.session;
       q("#drawerTitle").textContent = (session.taskSlug || "Managed session") + " · " + session.operational.statusLabel;
       q("#drawerBody").innerHTML = detail(session);
+      q("#drawerSemanticAction").hidden = false;
+      q("#drawerSemanticAction").onclick = function () { openSemanticContext(session); };
       q("#drawerAction").textContent = session.operational.attention ? session.operational.attention.actionLabel : "Open managed terminal";
       q("#drawerAction").onclick = function () { action(session, session.operational.attention ? session.operational.attention.safeAction : "open-terminal"); };
     }).catch(function (error) {
+      q("#drawerSemanticAction").hidden = true;
       q("#drawerBody").innerHTML = '<div class="detail-block"><b>Session detail unavailable</b><p>' + esc(error.message) + "</p></div>";
     });
+  }
+  function openSemanticContext(session) {
+    var p = session.operational;
+    var target = new URL("/mockups/wabachi.html", window.location.origin);
+    target.searchParams.set("session", session.sessionId);
+    target.searchParams.set("repository", p.repository.name);
+    if (p.task.baseCommit) target.searchParams.set("base", p.task.baseCommit);
+    var head = p.commit.sha || p.pullRequest.headSha;
+    if (head) target.searchParams.set("head", head);
+    window.location.href = target.toString();
   }
   function action(session, kind) {
     if (kind === "inspect") return openSession(session.sessionId);
@@ -428,7 +444,7 @@
   function taskMarkup() {
     if (taskStep === 0) {
       var intent = taskState.wabachiIntent;
-      var intentBlock = intent ? '<div class="detail-block"><div class="detail-label">Wabachi presentation intent (not authoritative)</div><code>repository: ' + esc(value(intent.repository)) + '<br>focus: ' + esc(value(intent.focus)) + '</code></div>' : "";
+      var intentBlock = intent ? '<div class="detail-block"><div class="detail-label">Wabachi presentation intent (not authoritative)</div><code>repository: ' + esc(value(intent.repository)) + '<br>revision: ' + esc(value(intent.revision)) + '<br>finding: ' + esc(value(intent.finding)) + '<br>focus: ' + esc(value(intent.focus)) + '<br>requested scope: ' + esc(value(intent.scope)) + '</code><p>Manager will re-resolve branch/worktree/claim authority during preflight.</p></div>' : "";
       return '<div class="detail-block"><div class="detail-label">Wabachi Work Intent → Manager</div><p>Finding → Create Work Intent → Manager → preflight → managed session → Running</p></div>' + intentBlock + '<div class="field"><label>Issue / intent</label><input id="intentIssue" value="' + esc(taskState.issueRef) + '"></div><div class="field"><label>Implementation instruction</label><textarea id="intentInstruction">' + esc(taskState.instruction) + "</textarea></div>";
     }
     if (taskStep === 1) return '<div class="form-grid"><div class="field"><label>Execution profile</label><select id="intentAgent"><option value="pi"' + (taskState.agentKind === "pi" ? " selected" : "") + '>Pi</option><option value="codex"' + (taskState.agentKind === "codex" ? " selected" : "") + '>Codex</option><option value="claude"' + (taskState.agentKind === "claude" ? " selected" : "") + '>Claude</option></select></div><div class="field"><label>Task slug</label><input id="intentTaskSlug" value="' + esc(taskState.taskSlug) + '"></div></div><div class="field"><label>Branch type</label><input id="intentBranchType" value="' + esc(taskState.branchType) + '"></div>';
