@@ -1884,6 +1884,115 @@ test("finish fails closed when the observed provider head does not match the per
   assert.equal(fixture.store.getTask(fixture.taskId)?.lifecycleState, "pull-request-open");
 });
 
+test("finish refuses to merge when the current HEAD is ahead of the merged provider head", async (t) => {
+  const fixture = await finishFixture(t);
+  fs.appendFileSync(path.join(fixture.worktree.canonicalPath, "post-merge.txt"), "slipped in after merge\n");
+  runGit(["add", "post-merge.txt"], fixture.worktree.canonicalPath);
+  runGit(["commit", "-m", "post-merge local commit"], fixture.worktree.canonicalPath);
+  const aheadHeadCommit = runGit(["rev-parse", "HEAD"], fixture.worktree.canonicalPath);
+  assert.notEqual(aheadHeadCommit, fixture.headSha);
+
+  const result = await finishWorkflowTask(
+    {
+      workspaceRoot: fixture.worktree.canonicalPath,
+      store: fixture.store,
+      taskId: fixture.taskId,
+      nawabari: fixture.nawabari,
+      policy: BUILTIN_PRESETS.standard,
+    },
+    {
+      githubAdapter: githubAdapter(
+        fixture.worktree.canonicalPath,
+        providerResult(
+          pullRequestViewJson({
+            state: "CLOSED",
+            mergedAt: "2026-08-10T12:00:00Z",
+            url: fixture.url,
+            headName: fixture.worktree.branchName,
+            headSha: fixture.headSha,
+            baseCommit: fixture.baseCommit,
+          }),
+        ),
+      ),
+    },
+  );
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.reason, "task-head-ahead-of-merge");
+  assert.equal(fixture.store.getTask(fixture.taskId)?.lifecycleState, "pull-request-open");
+});
+
+test("finish refuses to merge when the current HEAD is behind the merged provider head", async (t) => {
+  const fixture = await finishFixture(t);
+  fs.appendFileSync(path.join(fixture.worktree.canonicalPath, "post-merge.txt"), "the final push that landed\n");
+  runGit(["add", "post-merge.txt"], fixture.worktree.canonicalPath);
+  runGit(["commit", "-m", "the actual merged commit"], fixture.worktree.canonicalPath);
+  const mergedHeadSha = runGit(["rev-parse", "HEAD"], fixture.worktree.canonicalPath);
+  runGit(["reset", "--hard", fixture.headSha], fixture.worktree.canonicalPath);
+
+  const result = await finishWorkflowTask(
+    {
+      workspaceRoot: fixture.worktree.canonicalPath,
+      store: fixture.store,
+      taskId: fixture.taskId,
+      nawabari: fixture.nawabari,
+      policy: BUILTIN_PRESETS.standard,
+    },
+    {
+      githubAdapter: githubAdapter(
+        fixture.worktree.canonicalPath,
+        providerResult(
+          pullRequestViewJson({
+            state: "CLOSED",
+            mergedAt: "2026-08-10T12:00:00Z",
+            url: fixture.url,
+            headName: fixture.worktree.branchName,
+            headSha: mergedHeadSha,
+            baseCommit: fixture.baseCommit,
+          }),
+        ),
+      ),
+    },
+  );
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.reason, "task-head-behind-merge");
+  assert.equal(fixture.store.getTask(fixture.taskId)?.lifecycleState, "pull-request-open");
+});
+
+test("finish fails closed when a merged provider pull request reports no head revision to verify", async (t) => {
+  const fixture = await finishFixture(t);
+  const result = await finishWorkflowTask(
+    {
+      workspaceRoot: fixture.worktree.canonicalPath,
+      store: fixture.store,
+      taskId: fixture.taskId,
+      nawabari: fixture.nawabari,
+      policy: BUILTIN_PRESETS.standard,
+    },
+    {
+      githubAdapter: githubAdapter(
+        fixture.worktree.canonicalPath,
+        providerResult(
+          JSON.stringify({
+            id: "PR_node_40",
+            number: 40,
+            state: "CLOSED",
+            isDraft: false,
+            mergedAt: "2026-08-10T12:00:00Z",
+            url: fixture.url,
+            headRefName: fixture.worktree.branchName,
+            baseRefName: "main",
+            baseRefOid: fixture.baseCommit,
+            repository: { name: "repository", nameWithOwner: "org/repository" },
+          }),
+        ),
+      ),
+    },
+  );
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.reason, "provider-state-unavailable");
+  assert.equal(fixture.store.getTask(fixture.taskId)?.lifecycleState, "pull-request-open");
+});
+
 test("finish retry returns the persisted merged state without re-observing the provider", async (t) => {
   const fixture = await finishFixture(t);
   const first = await finishWorkflowTask(

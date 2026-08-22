@@ -600,6 +600,13 @@ type MergedPullRequestVerification =
   | { ok: true; record: PullRequestRecord; pullRequest: PullRequest }
   | { ok: false; reason: string; detail: string };
 
+/** `ancestor` が `descendant` の祖先か（`git merge-base --is-ancestor`）。
+ * git 呼び出しが完走しなかった場合は false（呼び出し側は分岐なし＝発散扱いにfall back）。 */
+async function isAncestorCommit(ancestor: string, descendant: string, cwd: string): Promise<boolean> {
+  const result = await git(["merge-base", "--is-ancestor", ancestor, descendant], cwd);
+  return result.usable && result.ok;
+}
+
 async function verifyMergedPullRequest(
   context: VerifiedWorkflowContext,
   store: WorkflowStateStore,
@@ -650,14 +657,12 @@ async function verifyMergedPullRequest(
     pullRequest.repository.id !== record.repositoryId ? "repository" : undefined,
     pullRequest.number !== record.prNumber ? "pull-request number" : undefined,
     pullRequest.url !== record.url ? "pull-request URL" : undefined,
-    pullRequest.head.revision !== record.headSha ? "provider head" : undefined,
-    context.headCommit !== record.headSha ? "task head" : undefined,
   ].filter((item): item is string => item !== undefined);
   if (identityMismatches.length > 0) {
     return {
       ok: false,
       reason: "provider-state-mismatch",
-      detail: `provider pull-request identity/head does not match persisted task record (${identityMismatches.join(", ")})`,
+      detail: `provider pull-request identity does not match persisted task record (${identityMismatches.join(", ")})`,
     };
   }
   if (pullRequest.lifecycleState !== "merged") {
@@ -665,6 +670,43 @@ async function verifyMergedPullRequest(
       ok: false,
       reason: "provider-not-merged",
       detail: `provider pull-request is ${pullRequest.lifecycleState}; refusing to mark the task merged without an observed merge`,
+    };
+  }
+  const mergedHeadRevision = pullRequest.head.revision;
+  if (mergedHeadRevision === undefined) {
+    return {
+      ok: false,
+      reason: "provider-state-unavailable",
+      detail: "provider pull-request is merged but reported no head revision to verify against the current HEAD",
+    };
+  }
+  // Live-fact integration proof: the current Nawabari/git HEAD is compared
+  // directly against the provider's merged PR head, never against mottainai's
+  // own persisted record.headSha (stale by construction — see #478). Ahead and
+  // behind are distinguished so remediation guidance differs: extra local
+  // commits past the merge need a new task, a HEAD that never reached the
+  // merged head needs a push/sync, and neither is safe to auto-resolve here.
+  if (context.headCommit !== mergedHeadRevision) {
+    const aheadOfMergedHead = await isAncestorCommit(mergedHeadRevision, context.headCommit, context.workspaceRoot);
+    const behindMergedHead = await isAncestorCommit(context.headCommit, mergedHeadRevision, context.workspaceRoot);
+    if (aheadOfMergedHead) {
+      return {
+        ok: false,
+        reason: "task-head-ahead-of-merge",
+        detail: `current HEAD ${context.headCommit} is ahead of the merged pull-request head ${mergedHeadRevision}; the extra commit(s) were never included in the merge and must be moved to a new task or discarded before this task can finish`,
+      };
+    }
+    if (behindMergedHead) {
+      return {
+        ok: false,
+        reason: "task-head-behind-merge",
+        detail: `current HEAD ${context.headCommit} is behind the merged pull-request head ${mergedHeadRevision}; push or sync the worktree to the merged head before this task can finish`,
+      };
+    }
+    return {
+      ok: false,
+      reason: "provider-state-mismatch",
+      detail: `current HEAD ${context.headCommit} diverges from the merged pull-request head ${mergedHeadRevision} with no ancestry relationship`,
     };
   }
   let persistedRecord = record;
