@@ -18,39 +18,40 @@ jobs:
         run: |
           from pathlib import Path
           import re
+
           p = Path('docs/testing.md')
           s = p.read_text()
-          replacements = [
-            ('        → PR governance evidence\n', '        → Inari PR contract + executable CI results\n'),
-            ('| #26 path-aware governance | [`scripts/governance-rules.json`](../scripts/governance-rules.json)、[`scripts/governance-lib.mjs`](../scripts/governance-lib.mjs)、[`.github/workflows/governance.yml`](../.github/workflows/governance.yml) | `governance:test`、`governance:pr` | 変更pathからclassを導き、`Validation evidence`とbug-fixの`Regression proof`へ写像。新quality gateは現行`report-only` |',
-             '| #26 PR governance | Inari compiled PR contract、[`scripts/governance-rules.json`](../scripts/governance-rules.json)、[`scripts/governance-lib.mjs`](../scripts/governance-lib.mjs)、[`.github/workflows/governance.yml`](../.github/workflows/governance.yml) | `governance:test`、`governance:pr` | PR body shapeはInariが単独authority。repository側はbranch/title/Validation completion等の独立checkだけを追加し、実行証跡はCI job/artifactを正本とする |'),
-            ('quality evidenceのpath-aware判定とregression proofも現行はreport-onlyである（詳細は[`governance.md`](governance.md)）。',
-             'PR bodyに別のquality-evidence/regression-proof schemaは要求しない。詳細な実行証跡は各CI job/artifactを正本とする（詳細は[`governance.md`](governance.md)）。')
-          ]
-          for old,new in replacements:
-            if old not in s:
-              raise SystemExit('missing expected testing.md text: ' + old[:80])
-            s = s.replace(old,new,1)
-          pattern = r'\n## Governance evidence classes\n.*?(?=\n## Integration、process、fault)'
-          repl = '''
-          \n## PR validation and executable evidence
-          \nPRのbody shapeはcompiled Inari contractが単独authorityであり、現在のdefaultは`Summary / Linked issue / Changes / Validation / Review focus`である。`Validation evidence`、`Regression proof`等の追加body sectionをtest tierから逆算して必須化しない。Fast / Integration / E2E / Package / Standards / Coverageの詳細結果は、それぞれのCI job・artifactを実行証跡の正本とする。`Validation`のTypecheck / Tests / Build（および条件付きPackage check）は、実際に該当checkが完了した場合だけチェックする。
-          '''
-          s2,n = re.subn(pattern,repl,s,flags=re.S)
-          if n != 1:
-            raise SystemExit(f'expected one Governance evidence classes block, found {n}')
-          p.write_text(s2)
+          s,n1 = re.subn(r'(?m)^\s*→ PR governance evidence$', '        → Inari PR contract + executable CI results', s, count=1)
+          s,n2 = re.subn(
+            r'(?m)^\| #26 path-aware governance \|.*$',
+            '| #26 PR governance | Inari compiled PR contract、[`scripts/governance-rules.json`](../scripts/governance-rules.json)、[`scripts/governance-lib.mjs`](../scripts/governance-lib.mjs)、[`.github/workflows/governance.yml`](../.github/workflows/governance.yml) | `governance:test`、`governance:pr` | PR body shapeはInariが単独authority。repository側はbranch/title/Validation completion等の独立checkだけを追加し、実行証跡はCI job/artifactを正本とする |',
+            s,
+            count=1,
+          )
+          s,n3 = re.subn(
+            r'quality evidenceのpath-aware判定とregression proofも現行はreport-onlyである（詳細は\[`governance\.md`\]\(governance\.md\)）。',
+            'PR bodyに別のquality-evidence/regression-proof schemaは要求しない。詳細な実行証跡は各CI job/artifactを正本とする（詳細は[`governance.md`](governance.md)）。',
+            s,
+            count=1,
+          )
+          s,n4 = re.subn(
+            r'\n## Governance evidence classes\n.*?(?=\n## )',
+            '\n## PR validation and executable evidence\n\nPRのbody shapeはcompiled Inari contractが単独authorityであり、現在のdefaultは`Summary / Linked issue / Changes / Validation / Review focus`である。`Validation evidence`、`Regression proof`等の追加body sectionをtest tierから逆算して必須化しない。Fast / Integration / E2E / Package / Standards / Coverageの詳細結果は、それぞれのCI job・artifactを実行証跡の正本とする。`Validation`のTypecheck / Tests / Build（および条件付きPackage check）は、実際に該当checkが完了した場合だけチェックする。\n',
+            s,
+            count=1,
+            flags=re.S,
+          )
+          if (n1,n2,n3,n4) != (1,1,1,1):
+            raise SystemExit(f'unexpected testing.md patch counts: {(n1,n2,n3,n4)}')
+          p.write_text(s)
 
           q = Path('docs/quality-evidence-providers.md')
           t = q.read_text()
           marker = '## Scope and baseline\n'
           if marker not in t:
             raise SystemExit('quality evidence scope marker missing')
-          note = '''## Scope and baseline
-
-> Governance note: this is a historical/research evaluation of external analyzers. External quality facts and the evidence-provider vocabulary below do **not** define the current pull-request body schema. The compiled Inari PR contract is the sole PR body-shape authority; executable analyzer/test results belong in their owning CI/provider outputs.
-'''
-          t = t.replace(marker,note,1)
+          note = '## Scope and baseline\n\n> Governance note: this is a historical/research evaluation of external analyzers. External quality facts and the evidence-provider vocabulary below do **not** define the current pull-request body schema. The compiled Inari PR contract is the sole PR body-shape authority; executable analyzer/test results belong in their owning CI/provider outputs.\n'
+          t = t.replace(marker, note, 1)
           q.write_text(t)
       - name: Commit docs
         run: |
