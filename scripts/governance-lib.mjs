@@ -42,7 +42,7 @@ function changed(files, patterns) {
 
 function hasCompletedCheckbox(body, item) {
   return body.split(/\r?\n/).some((line) => {
-    for (const prefix of [`- [x] ${item}`, `- [X] ${item}`]) {
+    for (const prefix of [`- [x] ${item}`, `- [X] ${item}`, `\\- [x] ${item}`, `\\- [X] ${item}`]) {
       if (!line.startsWith(prefix)) continue;
       const suffix = line.slice(prefix.length);
       if (suffix.length === 0 || /^[, ]/.test(suffix)) return true;
