@@ -21,13 +21,14 @@ test("packaged Manager UI uses the agreed four-file mock surface", () => {
   assert.match(assets["/styles.css"].body, /\.mottainai/u);
 });
 
-test("Manager New Task keeps explicit input state for the same preflight and launch request", () => {
+test("Manager New Task keeps the exact approved request paired with its preview through launch", () => {
   const html = readManagerViewer();
   assert.match(html, /createTaskState/u);
   assert.match(html, /saveTaskInputs/u);
   assert.match(html, /taskSnapshot/u);
   assert.match(html, /normalizeIssueRef/u);
-  assert.match(html, /post\("\/sessions", taskRequest\)/u);
+  assert.match(html, /approvedPreflight = \{ request: taskRequest, preview: preview \}/u);
+  assert.match(html, /post\("\/sessions", approvedPreflight\.request\)/u);
 });
 
 test("Manager inspect Nawabari routes through the execution session identity", () => {
@@ -57,10 +58,10 @@ test("New Task golden path wires WORK -> EXECUTION -> AUTHORITY -> PREFLIGHT -> 
   const html = readManagerViewer();
   assert.match(html, /advance/u);
   assert.match(html, /preflight/u);
-  assert.match(html, /taskPreview/u);
+  assert.match(html, /approvedPreflight/u);
   assert.match(html, /post\("\/sessions"/u);
   assert.match(html, /post\("\/sessions\/preview"/u);
-  assert.match(html, /disabled = taskStep === 4 && !taskPreview/u);
+  assert.match(html, /disabled = taskStep === 4 && !approvedPreflight/u);
   assert.match(html, /openSession\(body\.session\.sessionId\)/u);
 });
 
@@ -79,16 +80,10 @@ test("Wabachi repository is preserved as presentation intent, not just instructi
   assert.match(wabachi, /repository:\s*"mottainai"/u);
   assert.match(wabachi, /repository:\s*intent\.repository/u);
   const mottainai = readManagerViewer();
-  // Manager must read repository off both the query-string and stored-intent
-  // handoff channels, not just focus/instruction.
   assert.match(mottainai, /params\.get\("repository"\)/u);
   assert.match(mottainai, /repository:\s*params\.get\("repository"\)/u);
-  // The focus must stay visible to the operator in the New Task WORK step
-  // instead of being silently discarded.
   assert.match(mottainai, /wabachiIntent/u);
   assert.match(mottainai, /intent\.focus/u);
-  // Manager must still independently resolve execution authority: the
-  // Wabachi intent is never wired into the actual claim/scope fields.
   assert.doesNotMatch(mottainai, /taskState\.scope\.path\s*=\s*intent/u);
 });
 
@@ -106,37 +101,60 @@ test("New Task preflight only treats clear/not-applicable claim status as launch
   assert.equal(isLaunchableClaimStatus("stale"), false);
   assert.equal(isLaunchableClaimStatus("unavailable"), false);
   assert.equal(isLaunchableClaimStatus("ambiguous"), false);
-  // A blocked status must not retain a launchable preview or render READY.
-  assert.match(html, /taskPreview = undefined;\s*\n\s*var reason/u);
+  assert.match(html, /approvedPreflight = undefined;\s*\n\s*var reason/u);
   assert.match(html, /<b>BLOCKED<\/b>/u);
   assert.match(html, /Launch remains disabled/u);
 });
 
-test("New Task preflight discards a stale response after the modal is closed and reopened (regression)", () => {
+test("New Task preflight discards stale responses both across overlapping requests and modal lifecycles", () => {
   const html = readManagerViewer();
-  const match = html.match(/function isPreflightResponseCurrent\(epoch, currentEpoch\) \{ return[^}]+\}/u);
-  assert.ok(match, "expected preflight() to gate stale responses through an extractable isPreflightResponseCurrent helper");
+  const epochMatch = html.match(/function isPreflightResponseCurrent\(epoch, currentEpoch\) \{ return[^}]+\}/u);
+  assert.ok(epochMatch, "expected preflight() to gate stale modal-lifecycle responses");
   const isPreflightResponseCurrent = new Function(
     "epoch",
     "currentEpoch",
-    match[0].replace(/^function isPreflightResponseCurrent\(epoch, currentEpoch\) \{ return/, "return").replace(/\}$/, ""),
+    epochMatch[0].replace(/^function isPreflightResponseCurrent\(epoch, currentEpoch\) \{ return/, "return").replace(/\}$/, ""),
   );
-  // A preflight request is issued (epoch 0) while the modal is open. The modal is then closed
-  // and reopened, bumping preflightEpoch to 2 (once for close, once for reopen) before the
-  // request's response finally arrives — a close→reopen→old-response sequence.
-  assert.equal(isPreflightResponseCurrent(0, 2), false, "a response from before close/reopen must be discarded");
-  assert.equal(isPreflightResponseCurrent(2, 2), true, "a response issued after reopen must still be applied");
-  // Static shape: openNew()/closeNew() each invalidate any in-progress preflight by bumping
-  // preflightEpoch, and preflight()'s success/error handlers both check it before touching DOM
-  // state (#preflightResult, taskPreview) that may belong to a different step or no longer exist.
+  const tokenMatch = html.match(/function isCurrentPreflightResponse\(token, latestToken\) \{ return[^}]+\}/u);
+  assert.ok(tokenMatch, "expected preflight() to gate out-of-order request responses");
+  const isCurrentPreflightResponse = new Function(
+    "token",
+    "latestToken",
+    tokenMatch[0].replace(/^function isCurrentPreflightResponse\(token, latestToken\) \{ return/, "return").replace(/\}$/, ""),
+  );
+  assert.equal(isPreflightResponseCurrent(0, 2), false);
+  assert.equal(isPreflightResponseCurrent(2, 2), true);
+  assert.equal(isCurrentPreflightResponse(1, 2), false);
+  assert.equal(isCurrentPreflightResponse(2, 2), true);
   assert.match(html, /var preflightEpoch = 0;/u);
-  assert.match(html, /function openNew\(\) \{\s*\n\s*modalTrigger = document\.activeElement;\s*\n\s*preflightEpoch\+\+;/u);
+  assert.match(html, /var preflightToken = 0;/u);
+  assert.match(html, /function openNew\(\)[^]*?preflightEpoch\+\+;[^]*?taskStep = 0;/u);
   assert.match(html, /function closeNew\(\) \{\s*\n\s*preflightEpoch\+\+;/u);
   assert.match(
     html,
-    /return post\("\/sessions\/preview", taskRequest\)\.then\(function \(body\) \{\s*\n\s*if \(!isPreflightResponseCurrent\(epoch, preflightEpoch\)\) return;/u,
+    /return post\("\/sessions\/preview", taskRequest\)\.then\(function \(body\) \{\s*\n\s*if \(!isPreflightResponseCurrent\(epoch, preflightEpoch\)\) return;\s*\n\s*if \(!isCurrentPreflightResponse\(token, preflightToken\)\) return;/u,
   );
-  assert.match(html, /\}\)\.catch\(function \(error\) \{\s*\n\s*if \(!isPreflightResponseCurrent\(epoch, preflightEpoch\)\) return;/u);
+  assert.match(
+    html,
+    /\}\)\.catch\(function \(error\) \{\s*\n\s*if \(!isPreflightResponseCurrent\(epoch, preflightEpoch\)\) return;\s*\n\s*if \(!isCurrentPreflightResponse\(token, preflightToken\)\) return;/u,
+  );
+});
+
+test("Manager live console polls bounded summaries and cleans up its timer", () => {
+  const html = readManagerViewer();
+  assert.match(html, /request\("\/sessions\?limit=500"\)/u);
+  assert.match(html, /var refreshInFlight = false;/u);
+  assert.match(html, /setInterval\(refresh, 5000\)/u);
+  assert.match(html, /beforeunload/u);
+  assert.match(html, /clearInterval\(pollTimer\)/u);
+});
+
+test("Manager overlays are mutually exclusive before focus trapping", () => {
+  const html = readManagerViewer();
+  assert.match(html, /function closeOverlaysExcept\(kept\)/u);
+  assert.match(html, /closeOverlaysExcept\("drawer"\)/u);
+  assert.match(html, /closeOverlaysExcept\("modal"\)/u);
+  assert.match(html, /closeOverlaysExcept\("palette"\)/u);
 });
 
 test("Manager operational console ships no fabricated operational truth in its initial markup", () => {
@@ -154,11 +172,12 @@ test("Manager operational console ships no fabricated operational truth in its i
     "Open session #379",
     "Inspect attention #378",
     "2!",
+    "Suzuki · Owner",
   ]) {
     assert.ok(!html.includes(fakeMarker), `initial Manager HTML must not contain fabricated state: ${fakeMarker}`);
   }
-  // Neutral/loading placeholders take their place instead.
   assert.match(html, /Loading operational data…/u);
+  assert.match(html, /id="authorityStatusValue">UNAVAILABLE/u);
   assert.match(html, /Session detail/u);
 });
 
@@ -173,7 +192,5 @@ test("Manager overlays declare accessible names and the drawer close controls ar
 
 test("Manager list projection stays separate from full session detail projection", () => {
   const html = readManagerViewer();
-  // The drawer must fetch authoritative single-session detail rather than
-  // reusing the bounded list summary already held in memory.
   assert.match(html, /request\("\/sessions\/" \+ encodeURIComponent\(id\)\)/u);
 });
