@@ -36,6 +36,10 @@ class FakeRuntime implements ZellijRuntime {
   async terminate(sessionName: string): Promise<void> {
     this.sessions.delete(sessionName);
   }
+
+  binaryName(): string {
+    return "fake-zellij";
+  }
 }
 
 class FailManagerPersistenceOnceStore extends WorkflowSqliteStateStore {

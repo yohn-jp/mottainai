@@ -241,7 +241,12 @@ function resolveRelativeImport(sourceFile, specifier, root, resolutionCache) {
 
 function layerForFile(relative) {
   if (relative.startsWith("src/test-support/") || relative.startsWith("src/e2e/")) return "testInfrastructure";
-  if (relative === "src/manager/command.ts" || relative === "src/manager/http.ts") return "entry";
+  if (
+    relative === "src/manager/command.ts" ||
+    relative === "src/manager/http.ts" ||
+    relative === "src/manager/terminal-bridge.ts"
+  )
+    return "entry";
   if (relative === "src/manager/service.ts") return "persistence";
   if (relative === "src/manager/zellij.ts") return "utility";
   if (

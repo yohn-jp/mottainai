@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readManagerAssets, readManagerViewer } from "./assets.js";
 
-test("packaged Manager UI uses the agreed four-file Mottainai/Wabachi surface", () => {
+test("packaged Manager UI uses the agreed four-file Mottainai/Wabachi surface plus vendored terminal assets", () => {
   const html = readManagerViewer();
   assert.match(html, /href="\/styles\.css"/u);
   assert.match(html, /Needs attention/u);
@@ -14,11 +14,16 @@ test("packaged Manager UI uses the agreed four-file Mottainai/Wabachi surface", 
     "/mockups/index.html",
     "/mockups/mottainai.html",
     "/mockups/styles.css",
+    "/mockups/vendor/addon-fit.js",
+    "/mockups/vendor/xterm.css",
+    "/mockups/vendor/xterm.js",
     "/mockups/wabachi.html",
     "/styles.css",
   ]);
   assert.match(assets["/mockups/wabachi.html"].body, /Semantic Investigation Desk v2/u);
   assert.match(assets["/styles.css"].body, /\.mottainai/u);
+  assert.equal(assets["/mockups/vendor/xterm.js"].contentType, "text/javascript; charset=utf-8");
+  assert.equal(assets["/mockups/vendor/xterm.css"].contentType, "text/css; charset=utf-8");
 });
 
 test("Manager New Task keeps the exact approved request paired with its preview through launch", () => {

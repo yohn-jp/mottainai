@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import type { Duplex } from "node:stream";
 import {
   ENTITY_STATUSES,
   KNOWLEDGE_ENTRY_KINDS,
@@ -27,6 +28,12 @@ export const MANAGER_API_PREFIX = "/api/v1/manager";
 
 export interface ManagerHttpHandler {
   handle(request: IncomingMessage, response: ServerResponse, url: URL): Promise<void>;
+  /**
+   * Optional WebSocket upgrade handler. When present, upgrade requests whose
+   * pathname is under MANAGER_API_PREFIX are delegated here instead of being
+   * rejected; the handler owns the raw socket from this point forward.
+   */
+  handleUpgrade?(request: IncomingMessage, socket: Duplex, head: Buffer, url: URL): void;
 }
 
 export interface DashboardServerOptions {
@@ -325,6 +332,25 @@ export async function startDashboardServer(options: DashboardServerOptions): Pro
       const details = errorDetails(error);
       sendError(response, details.statusCode, details.code, details.message);
     });
+  });
+
+  server.on("upgrade", (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+    const url = new URL(request.url ?? "/", `http://${host}`);
+    const hostName = (request.headers.host ?? "").split(":")[0];
+    const isManagerPath = url.pathname === MANAGER_API_PREFIX || url.pathname.startsWith(`${MANAGER_API_PREFIX}/`);
+    const dashboardOrigin = `http://${host}:${port}`;
+    const requestOrigin = request.headers.origin ?? "";
+    if (
+      (hostName !== LOOPBACK_HOST && hostName !== "localhost") ||
+      !isManagerPath ||
+      options.manager?.handleUpgrade === undefined ||
+      requestOrigin === "" ||
+      requestOrigin !== dashboardOrigin
+    ) {
+      socket.destroy();
+      return;
+    }
+    options.manager.handleUpgrade(request, socket, head, url);
   });
 
   const address = await new Promise<AddressInfo>((resolve, reject) => {

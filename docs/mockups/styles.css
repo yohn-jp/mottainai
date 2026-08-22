@@ -1219,3 +1219,14 @@ button.command-item {
     animation: none !important;
   }
 }
+.terminal-pane {
+  width: min(920px, 94vw);
+}
+.terminal-pane .modal-body {
+  padding: 0;
+  background: #0b0f14;
+  height: 60vh;
+}
+#terminalContainer {
+  height: 100%;
+}

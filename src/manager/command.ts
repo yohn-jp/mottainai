@@ -15,6 +15,7 @@ import { readManagerAssets, readManagerViewer } from "./assets.js";
 import { ManagerSessionService } from "./service.js";
 import { NawabariExecutionClient } from "../workflow/nawabari.js";
 import { ZellijCliRuntime, type ZellijRuntime } from "./zellij.js";
+import { createManagerTerminalBridge } from "./terminal-bridge.js";
 
 export const DEFAULT_MANAGER_PORT = 4318;
 const MANAGER_USAGE =
@@ -119,6 +120,7 @@ export async function startManager(options: ManagerStartOptions): Promise<Dashbo
   });
   try {
     await service.initialize();
+    const terminalBridge = createManagerTerminalBridge({ service, runtime });
     const handle = await startDashboardServer({
       host: LOOPBACK_HOST,
       port: options.port,
@@ -126,7 +128,7 @@ export async function startManager(options: ManagerStartOptions): Promise<Dashbo
       query: createDashboardQuery(options.provider ?? configuredDashboardProvider(environment), workspaceRoot),
       viewerHtml: options.viewerHtml ?? readManagerViewer(),
       staticAssets: readManagerAssets(),
-      manager: new ManagerHttpApi(service),
+      manager: new ManagerHttpApi(service, terminalBridge),
     });
     if (!options.noOpen && options.browserOpener !== undefined)
       void options.browserOpener(handle.url).catch(() => undefined);
@@ -135,6 +137,7 @@ export async function startManager(options: ManagerStartOptions): Promise<Dashbo
       ...handle,
       close: async () => {
         await close();
+        terminalBridge.close();
         if (activeManager === wrappedHandle) activeManager = undefined;
         if (options.store === undefined) store.close();
       },

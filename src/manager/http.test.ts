@@ -31,6 +31,9 @@ class HttpFakeRuntime implements ZellijRuntime {
   async terminate(name: string): Promise<void> {
     this.sessions.delete(name);
   }
+  binaryName(): string {
+    return "fake-zellij";
+  }
 }
 
 const activeServers: { close: () => Promise<void> }[] = [];
