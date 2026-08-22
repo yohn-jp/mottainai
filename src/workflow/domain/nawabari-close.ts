@@ -178,10 +178,14 @@ export async function closeNawabariExecution(input: {
   }
 
   try {
+    const pushReconciliation = store.getPushReconciliation(task.taskId);
     await client.closeSession({
       cwd: inspected.worktree,
       sessionId: expectedSessionId,
       ...(providerRecord.mergeRevision === undefined ? {} : { integratedRevision: providerRecord.mergeRevision }),
+      ...(providerRecord.mergeRevision === undefined || pushReconciliation === undefined
+        ? {}
+        : { fetchRemote: pushReconciliation.remote, fetchBranch: task.baseBranch }),
     });
     reconciliation = store.markNawabariCloseReconciliation(task.taskId, "closed");
     return { ok: true, task, session: inspected, reconciliation, alreadyClosed: false };
