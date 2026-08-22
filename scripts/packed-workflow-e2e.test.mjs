@@ -213,7 +213,7 @@ async function main() {
     JSON.stringify({
       summary: "packed workflow summary",
       changes: "packed workflow change",
-      validation: "- [x] Tests",
+      validation: "- [x] Typecheck\n- [x] Tests\n- [x] Build",
       review_focus: "packed lifecycle",
     }),
     "--acceptance-criteria",
@@ -482,6 +482,7 @@ test(
     assert.equal(ghInariCreates[0].args[repositoryFlagIndex + 1], "fixture-owner/fixture-repo");
     const createPayload = JSON.parse(ghInariCreates[0].input ?? "{}");
     assert.equal(createPayload.fields?.linked_issue, "Closes #334");
+    assert.equal(createPayload.fields?.validation, "- [x] Typecheck\n- [x] Tests\n- [x] Build");
     assert.equal("issue" in (createPayload.fields ?? {}), false);
     assert.equal(readJsonLines(fixture.ghTrace).filter((args) => args[1] === "list").length, 1);
     assert.match(
