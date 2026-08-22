@@ -368,10 +368,13 @@ export function saveRawConfig(
   boundaries.file(operation, () => fs.writeFileSync(filePath, `${JSON.stringify(raw, null, 2)}\n`));
 }
 
+const ROOT_CONFIG_KEYS = ["version", "mcpServers", "profiles", "gateway"] as const;
+
 function normalizeConfig(value: unknown): MottainaiConfig {
   if (!isRecord(value) || (value.version !== undefined && value.version !== 1 && value.version !== 2)) {
     throw new Error("invalid mottainai config");
   }
+  rejectUnknownKeys(value, ROOT_CONFIG_KEYS, "invalid mottainai config");
   if (!isRecord(value.mcpServers)) {
     throw new Error("invalid mcpServers config");
   }
@@ -393,9 +396,33 @@ function normalizeConfig(value: unknown): MottainaiConfig {
   return { version: value.version === 2 ? 2 : 1, mcpServers, profiles, gateway };
 }
 
+const GATEWAY_CONFIG_KEYS = [
+  "workspaceRoot",
+  "defaultTimeoutMs",
+  "maxTimeoutMs",
+  "maxOutputBytes",
+  "execTargetTokens",
+  "resultTtlMs",
+  "resultMaxEntries",
+  "activeProfile",
+  "oauthProviderModule",
+  "capabilityMap",
+  "toolMetadata",
+  "tokenBudgets",
+  "responseBudget",
+  "readGovernor",
+  "burstBudget",
+  "worktree",
+  "workflowTasks",
+  "await",
+  "managedProcesses",
+  "ghInari",
+] as const;
+
 function normalizeGateway(value: unknown): GatewayConfig | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw new Error("invalid gateway config");
+  rejectUnknownKeys(value, GATEWAY_CONFIG_KEYS, "invalid gateway config");
   const workspaceRoot = optionalString(value.workspaceRoot, "invalid gateway workspaceRoot");
   return {
     workspaceRoot,
@@ -421,9 +448,12 @@ function normalizeGateway(value: unknown): GatewayConfig | undefined {
   };
 }
 
+const GH_INARI_CONFIG_KEYS = ["command", "timeoutMs", "maxOutputBytes", "maxInputBytes"] as const;
+
 function ghInariConfig(value: unknown, field: string): GhInariConfig | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw new Error(field);
+  rejectUnknownKeys(value, GH_INARI_CONFIG_KEYS, field);
   return {
     command: optionalString(value.command, `${field}.command`),
     timeoutMs: positiveIntegerConfig(value.timeoutMs, `${field}.timeoutMs`),
@@ -432,9 +462,12 @@ function ghInariConfig(value: unknown, field: string): GhInariConfig | undefined
   };
 }
 
+const AWAIT_POLICY_CONFIG_KEYS = ["minPollIntervalMs", "maxPollIntervalMs", "maxAwaitMs", "jitterRatio"] as const;
+
 function awaitPolicyConfig(value: unknown, field: string): AwaitPolicyConfig | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw new Error(field);
+  rejectUnknownKeys(value, AWAIT_POLICY_CONFIG_KEYS, field);
   const jitterRatio = value.jitterRatio;
   if (
     jitterRatio !== undefined &&
@@ -450,9 +483,12 @@ function awaitPolicyConfig(value: unknown, field: string): AwaitPolicyConfig | u
   };
 }
 
+const MANAGED_PROCESS_POLICY_CONFIG_KEYS = ["maxActiveProcesses", "maxRetainedHandles", "maxLifetimeMs"] as const;
+
 function managedProcessPolicyConfig(value: unknown, field: string): ManagedProcessPolicyConfig | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw new Error(field);
+  rejectUnknownKeys(value, MANAGED_PROCESS_POLICY_CONFIG_KEYS, field);
   const config: ManagedProcessPolicyConfig = {
     maxActiveProcesses: positiveIntegerConfig(value.maxActiveProcesses, `${field}.maxActiveProcesses`),
     maxRetainedHandles: nonNegativeIntegerConfig(value.maxRetainedHandles, `${field}.maxRetainedHandles`),
@@ -462,9 +498,12 @@ function managedProcessPolicyConfig(value: unknown, field: string): ManagedProce
   return config;
 }
 
+const WORKTREE_CONFIG_KEYS = ["allowedBranchPrefixes", "baseBranch", "worktreeDir"] as const;
+
 function worktreeConfig(value: unknown, field: string): WorktreeConfig | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw new Error(field);
+  rejectUnknownKeys(value, WORKTREE_CONFIG_KEYS, field);
   const allowedBranchPrefixes = stringArray(value.allowedBranchPrefixes, `${field}.allowedBranchPrefixes`);
   if (
     allowedBranchPrefixes === undefined ||
@@ -488,12 +527,15 @@ function toolMetadataRecord(value: unknown, field: string): Record<string, ToolM
   );
 }
 
+const TOKEN_BUDGET_ENTRY_KEYS = ["success", "failure"] as const;
+
 function tokenBudgetInput(value: unknown, field: string): TokenBudgetInput {
   if (typeof value === "number") {
     if (!Number.isSafeInteger(value) || value <= 0) throw new Error(field);
     return value;
   }
   if (!isRecord(value)) throw new Error(field);
+  rejectUnknownKeys(value, TOKEN_BUDGET_ENTRY_KEYS, field);
   const success = positiveIntegerConfig(value.success, `${field}.success`);
   const failure = positiveIntegerConfig(value.failure, `${field}.failure`);
   return { success, failure };
@@ -507,9 +549,12 @@ function tokenBudgetInputRecord(value: unknown, field: string): Record<string, T
   );
 }
 
+const TOKEN_BUDGETS_CONFIG_KEYS = ["tools", "capabilities", "profiles", "default"] as const;
+
 function tokenBudgetsConfig(value: unknown, field: string): TokenBudgetsConfig | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw new Error(field);
+  rejectUnknownKeys(value, TOKEN_BUDGETS_CONFIG_KEYS, field);
   return {
     tools: tokenBudgetInputRecord(value.tools, `${field}.tools`),
     capabilities: tokenBudgetInputRecord(value.capabilities, `${field}.capabilities`),
@@ -518,9 +563,12 @@ function tokenBudgetsConfig(value: unknown, field: string): TokenBudgetsConfig |
   };
 }
 
+const RESPONSE_BUDGET_CONFIG_KEYS = ["softTokens", "hardTokens", "hardBytes"] as const;
+
 function responseBudgetConfig(value: unknown, field: string): ProjectionBudgetConfig | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw new Error(field);
+  rejectUnknownKeys(value, RESPONSE_BUDGET_CONFIG_KEYS, field);
   const config = {
     softTokens: positiveIntegerConfig(value.softTokens, `${field}.softTokens`),
     hardTokens: positiveIntegerConfig(value.hardTokens, `${field}.hardTokens`),
@@ -530,9 +578,19 @@ function responseBudgetConfig(value: unknown, field: string): ProjectionBudgetCo
   return config;
 }
 
+const READ_GOVERNOR_CONFIG_KEYS = [
+  "mode",
+  "maxRawLines",
+  "maxRawBytes",
+  "allowWholeFileBelowLines",
+  "preferAuto",
+  "allowWholeFile",
+] as const;
+
 function readGovernorConfig(value: unknown, field: string): ReadGovernorConfig | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw new Error(field);
+  rejectUnknownKeys(value, READ_GOVERNOR_CONFIG_KEYS, field);
   const mode = value.mode;
   if (mode !== undefined && (typeof mode !== "string" || !(READ_GOVERNOR_MODES as readonly string[]).includes(mode))) {
     throw new Error(`${field}.mode`);
@@ -560,9 +618,18 @@ function burstBudgetModeConfig(value: unknown, field: string): BurstBudgetPolicy
   return value as BurstBudgetPolicyConfig["mode"];
 }
 
+const BURST_BUDGET_CONFIG_KEYS = [
+  "mode",
+  "maxConcurrentProjectedTokens",
+  "rollingWindowMs",
+  "rollingProjectedTokens",
+  "rollingProjectedBytes",
+] as const;
+
 function burstBudgetConfig(value: unknown, field: string): BurstBudgetPolicyConfig | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw new Error(field);
+  rejectUnknownKeys(value, BURST_BUDGET_CONFIG_KEYS, field);
   const config = {
     mode: burstBudgetModeConfig(value.mode, `${field}.mode`),
     maxConcurrentProjectedTokens: positiveIntegerConfig(
@@ -577,6 +644,19 @@ function burstBudgetConfig(value: unknown, field: string): BurstBudgetPolicyConf
   return config;
 }
 
+const UPSTREAM_COMMON_KEYS = [
+  "transport",
+  "enabled",
+  "profile",
+  "priority",
+  "capabilities",
+  "preferredFor",
+  "fallbackFor",
+  "metadata",
+] as const;
+const UPSTREAM_STDIO_KEYS = [...UPSTREAM_COMMON_KEYS, "command", "args", "env", "cwd"] as const;
+const UPSTREAM_HTTP_KEYS = [...UPSTREAM_COMMON_KEYS, "url", "headersFromEnv", "auth"] as const;
+
 function normalizeUpstream(name: string, value: unknown): Omit<UpstreamConfig, "name"> {
   if (!isRecord(value)) {
     throw new Error(`invalid upstream config: ${name}`);
@@ -585,6 +665,11 @@ function normalizeUpstream(name: string, value: unknown): Omit<UpstreamConfig, "
   if (transport !== "stdio" && transport !== "streamableHttp") {
     throw new Error(`invalid upstream transport: ${name}`);
   }
+  rejectUnknownKeys(
+    value,
+    transport === "stdio" ? UPSTREAM_STDIO_KEYS : UPSTREAM_HTTP_KEYS,
+    `invalid upstream config: ${name}`,
+  );
   if (transport === "stdio" && typeof value.command !== "string") {
     throw new Error(`invalid upstream config: ${name}`);
   }
@@ -640,11 +725,14 @@ function normalizeUpstream(name: string, value: unknown): Omit<UpstreamConfig, "
   };
 }
 
+const UPSTREAM_AUTH_KEYS = ["type", "profile"] as const;
+
 function normalizeUpstreamAuth(name: string, value: unknown): OAuthAuthConfig | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value) || value.type !== "oauth" || typeof value.profile !== "string" || value.profile.length === 0) {
     throw new Error(`invalid upstream auth: ${name}`);
   }
+  rejectUnknownKeys(value, UPSTREAM_AUTH_KEYS, `invalid upstream auth: ${name}`);
   return { type: "oauth", profile: value.profile };
 }
 
@@ -658,6 +746,8 @@ function isHttpUrl(value: unknown): value is string {
   }
 }
 
+const PROFILE_CONFIG_KEYS = ["includeCapabilities", "denyRisk", "rawToolAccess"] as const;
+
 function normalizeProfiles(value: unknown): Record<string, ProfileConfig> {
   if (!isRecord(value)) {
     throw new Error("invalid profiles config");
@@ -667,6 +757,7 @@ function normalizeProfiles(value: unknown): Record<string, ProfileConfig> {
       if (!isRecord(profile)) {
         throw new Error(`invalid profile config: ${name}`);
       }
+      rejectUnknownKeys(profile, PROFILE_CONFIG_KEYS, `invalid profile config: ${name}`);
       return [
         name,
         {
@@ -699,6 +790,20 @@ function rawToolAccessValue(value: unknown, message: string): "open" | "restrict
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * closed configな設定objectの未知keyをfail-closedで拒否する。typoが黙ってdefault
+ * 挙動へfallbackするのを防ぐ（#445）。診断はkey名とfieldのみ。値は無関係data/secretを
+ * 含み得るため出力しない。
+ */
+function rejectUnknownKeys(value: Record<string, unknown>, allowedKeys: readonly string[], field: string): void {
+  const allowed = new Set<string>(allowedKeys);
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) {
+      throw new Error(`${field}: unknown property "${key}"`);
+    }
+  }
 }
 
 function optionalString(value: unknown, message: string): string | undefined {
