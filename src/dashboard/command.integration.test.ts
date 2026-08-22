@@ -27,3 +27,22 @@ test("dashboard startup gives an explicit provider precedence over the process e
     else process.env[DASHBOARD_PROVIDER_ENV] = previous;
   }
 });
+
+test("dashboard startup serves the current API-backed viewer and shared stylesheet", async () => {
+  const handle = await startDashboard({ noOpen: true, port: 0, provider: "fixture" });
+  try {
+    const viewerResponse = await fetch(handle.url);
+    assert.equal(viewerResponse.status, 200);
+    const viewer = await viewerResponse.text();
+    assert.match(viewer, /class="semantic-dashboard"/);
+    assert.match(viewer, /\/api\/v1\/project/);
+    assert.doesNotMatch(viewer, /Mottainai Semantic Project Viewer v2/);
+
+    const styleResponse = await fetch(`${handle.url}styles.css`);
+    assert.equal(styleResponse.status, 200);
+    assert.match(styleResponse.headers.get("content-type") ?? "", /^text\/css/);
+    assert.match(await styleResponse.text(), /--paper:/);
+  } finally {
+    await closeDashboard();
+  }
+});

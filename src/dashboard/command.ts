@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { readDashboardViewer } from "./assets.js";
+import { readDashboardAssets, readDashboardViewer } from "./assets.js";
 import {
   configuredDashboardProvider,
   createDashboardQuery,
@@ -86,6 +86,7 @@ export async function startDashboard(options: DashboardStartOptions): Promise<Da
     port: options.port,
     query: createDashboardQuery(provider, options.workspaceRoot ?? process.cwd()),
     viewerHtml: options.viewerHtml ?? readDashboardViewer(),
+    staticAssets: readDashboardAssets(),
   });
   activeDashboard = handle;
   if (!options.noOpen && options.browserOpener !== undefined) {

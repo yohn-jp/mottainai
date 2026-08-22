@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Mottainai — Semantic Project Viewer</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <style>
+      body.semantic-dashboard { overflow: hidden; }
+      .semantic-dashboard .shell { height: 100vh; overflow: hidden; }
+      .semantic-main { height: calc(100vh - 46px); overflow: auto; }
+      .semantic-page { padding: 22px 25px 42px; max-width: 1540px; margin: 0 auto; }
+      .semantic-page[hidden] { display: none; }
+      .semantic-grid { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 18px; }
+      .semantic-panel { background: var(--surface); border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong); }
+      .semantic-panel + .semantic-panel { margin-top: 18px; }
+      .semantic-panel-body { padding: 12px 14px 15px; }
+      .semantic-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong); background: var(--surface); margin-bottom: 18px; }
+      .semantic-metric { min-height: 76px; padding: 12px 14px; border-right: 1px solid var(--line); }
+      .semantic-metric:last-child { border-right: 0; }
+      .semantic-metric .label { color: var(--ink-3); font: 10px var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+      .semantic-metric .value { margin-top: 5px; font: 700 21px var(--mono); }
+      .semantic-metric .note { margin-top: 4px; font-size: 11px; color: var(--ink-2); }
+      .semantic-table { width: 100%; border-collapse: collapse; }
+      .semantic-table th { height: 30px; padding: 0 10px; text-align: left; border-bottom: 1px solid var(--line); color: var(--ink-3); font: 10px var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+      .semantic-table td { min-height: 46px; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+      .semantic-table tbody tr:last-child td { border-bottom: 0; }
+      .semantic-table tbody tr[data-entity] { cursor: pointer; }
+      .semantic-table tbody tr[data-entity]:hover td { background: #fffefa; }
+      .entity-name { font-weight: 700; }
+      .entity-summary { margin-top: 3px; font-size: 11px; color: var(--ink-2); }
+      .tag-row { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; }
+      .tag { border: 1px solid var(--line); border-radius: 999px; padding: 1px 6px; color: var(--ink-3); font: 10px var(--mono); background: var(--surface-2); }
+      .status { display: inline-flex; align-items: center; gap: 5px; font: 10px var(--mono); text-transform: uppercase; }
+      .status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3); }
+      .status.healthy::before { background: var(--green); }
+      .status.partial::before, .status.review-required::before { background: var(--amber); }
+      .status.protected::before { background: var(--red); }
+      .status.stale::before { background: var(--violet); }
+      .authority { font: 10px var(--mono); text-transform: uppercase; color: var(--ink-3); }
+      .authority.declared { color: var(--violet); }
+      .authority.derived { color: var(--blue); }
+      .authority.observed { color: var(--green); }
+      .authority.analysis { color: var(--amber); }
+      .authority.integrity { color: var(--red); }
+      .semantic-list { display: grid; }
+      .semantic-list-row { display: grid; grid-template-columns: 94px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 11px 12px; border-bottom: 1px solid var(--line); }
+      .semantic-list-row:last-child { border-bottom: 0; }
+      .semantic-list-row:hover { background: #fffefa; }
+      .semantic-list-row[data-entity] { cursor: pointer; }
+      .review-level { font: 700 12px var(--mono); color: var(--ink-2); }
+      .review-level.L2 { color: var(--amber); }
+      .review-level.L3 { color: var(--red); }
+      .empty { padding: 22px 14px; color: var(--ink-3); font-size: 12px; }
+      .error-banner { display: none; margin: 0 25px 16px; padding: 10px 12px; border: 1px solid #d48b87; background: var(--red-soft); color: #8f2424; font-size: 12px; }
+      .error-banner.visible { display: block; }
+      .inspector { position: fixed; top: 46px; right: 0; width: min(430px, 46vw); height: calc(100vh - 46px); background: var(--surface); border-left: 1px solid var(--line-strong); box-shadow: var(--shadow-float); z-index: 40; transform: translateX(101%); transition: transform .14s ease; overflow: auto; }
+      .inspector.open { transform: translateX(0); }
+      .inspector-head { position: sticky; top: 0; z-index: 2; background: rgba(251,250,247,.96); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line-strong); padding: 14px 16px 11px; }
+      .inspector-head-row { display: flex; align-items: flex-start; gap: 10px; }
+      .inspector-title { flex: 1; min-width: 0; }
+      .inspector-title h2 { margin: 3px 0 2px; font-size: 18px; letter-spacing: -.02em; }
+      .inspector-tabs { display: flex; gap: 2px; padding: 8px 12px 0; overflow-x: auto; }
+      .inspector-tab { padding: 6px 8px; border-bottom: 2px solid transparent; color: var(--ink-3); font: 10px var(--mono); text-transform: uppercase; }
+      .inspector-tab.active { color: var(--ink); border-bottom-color: var(--violet); }
+      .inspector-body { padding: 14px 16px 30px; }
+      .detail-section { margin-bottom: 18px; }
+      .detail-section h3 { margin: 0 0 7px; color: var(--ink-3); font: 10px var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+      .detail-kv { display: grid; grid-template-columns: 110px 1fr; gap: 6px 10px; font-size: 12px; }
+      .detail-kv dt { color: var(--ink-3); }
+      .detail-kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+      .fact-row, .relation-row, .history-row, .read-row { padding: 8px 0; border-bottom: 1px solid var(--line); }
+      .fact-row:last-child, .relation-row:last-child, .history-row:last-child, .read-row:last-child { border-bottom: 0; }
+      .fact-name { font: 10px var(--mono); color: var(--ink-3); }
+      .fact-value { margin-top: 3px; overflow-wrap: anywhere; }
+      .relation-row { display: grid; grid-template-columns: 88px 1fr; gap: 8px; }
+      .source-path { font: 11px var(--mono); overflow-wrap: anywhere; }
+      .search-box { width: min(520px, 42vw); }
+      .search-box input { width: 100%; height: 29px; border: 1px solid var(--line); background: var(--surface); border-radius: var(--r1); padding: 0 9px; font: 11px var(--mono); }
+      .count-pill { margin-left: auto; min-width: 23px; text-align: center; border: 1px solid var(--line); border-radius: 999px; padding: 1px 6px; font: 9px var(--mono); color: var(--ink-3); background: var(--surface); }
+      .provider-note { font: 10px var(--mono); color: var(--ink-3); }
+      .integrity-fresh { color: var(--green); }
+      .integrity-stale { color: var(--amber); }
+      .integrity-invalid { color: var(--red); }
+      @media (max-width: 980px) {
+        .semantic-dashboard .app { grid-template-columns: 190px minmax(0,1fr); }
+        .semantic-grid { grid-template-columns: 1fr; }
+        .semantic-summary { grid-template-columns: repeat(2, 1fr); }
+        .semantic-metric:nth-child(2n) { border-right: 0; }
+        .inspector { width: min(520px, 82vw); }
+      }
+    </style>
+  </head>
+  <body class="semantic-dashboard">
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark"></div>
+          <div class="brand-word">Mottainai</div>
+          <small>SEMANTICS</small>
+        </div>
+        <div class="scope">
+          <div class="scope-label">repository / snapshot</div>
+          <div class="scope-value"><span id="scopeName">loading…</span><span id="scopeHealth" class="scope-health">…</span></div>
+          <div id="scopeRevision" class="provider-note" style="margin-top:4px">loading revision</div>
+        </div>
+        <nav class="nav" aria-label="Semantic project views">
+          <button class="nav-item active" data-page="overview"><span class="glyph">◎</span><span>Overview</span></button>
+          <button class="nav-item" data-page="components"><span class="glyph">C</span><span>Components</span><span id="componentCount" class="count-pill">–</span></button>
+          <button class="nav-item" data-page="dependencies"><span class="glyph">↗</span><span>Dependencies</span></button>
+          <button class="nav-item" data-page="changes"><span class="glyph">Δ</span><span>Change impact</span><span id="changeCount" class="count-pill">–</span></button>
+          <button class="nav-item" data-page="knowledge"><span class="glyph">K</span><span>Knowledge</span><span id="knowledgeCount" class="count-pill">–</span></button>
+        </nav>
+        <div class="sidebar-foot">
+          <div class="shortcut"><span>Search</span><kbd class="kbd">/</kbd></div>
+          <div class="shortcut"><span>Close inspector</span><kbd class="kbd">Esc</kbd></div>
+          <div id="providerNote" style="margin-top:10px">read-only query API</div>
+        </div>
+      </aside>
+
+      <main class="shell">
+        <header class="topbar">
+          <div class="top-left">
+            <button id="repoContext" class="context" type="button">repository</button>
+            <span id="integrityHealth" class="health">semantic state</span>
+          </div>
+          <div class="top-right">
+            <div class="search-box"><input id="searchInput" autocomplete="off" placeholder="Find component by name or responsibility…" aria-label="Search components" /></div>
+            <button id="refreshButton" class="secondary" type="button">Refresh</button>
+          </div>
+        </header>
+        <div id="errorBanner" class="error-banner" role="alert"></div>
+        <div class="semantic-main">
+          <section id="page-overview" class="semantic-page"></section>
+          <section id="page-components" class="semantic-page" hidden></section>
+          <section id="page-dependencies" class="semantic-page" hidden></section>
+          <section id="page-changes" class="semantic-page" hidden></section>
+          <section id="page-knowledge" class="semantic-page" hidden></section>
+        </div>
+      </main>
+    </div>
+
+    <aside id="inspector" class="inspector" aria-label="Entity inspector" aria-hidden="true">
+      <div class="inspector-head">
+        <div class="inspector-head-row">
+          <div class="inspector-title">
+            <div id="inspectorKind" class="eyebrow">ENTITY</div>
+            <h2 id="inspectorName">Entity</h2>
+            <div id="inspectorId" class="provider-note mono"></div>
+          </div>
+          <button id="closeInspector" class="icon-btn" type="button" aria-label="Close inspector">×</button>
+        </div>
+        <div class="inspector-tabs" role="tablist">
+          <button class="inspector-tab active" data-tab="summary" type="button">Summary</button>
+          <button class="inspector-tab" data-tab="facts" type="button">Static facts</button>
+          <button class="inspector-tab" data-tab="relations" type="button">Relations</button>
+          <button class="inspector-tab" data-tab="history" type="button">History</button>
+          <button class="inspector-tab" data-tab="agent" type="button">Agent projection</button>
+        </div>
+      </div>
+      <div id="inspectorBody" class="inspector-body"></div>
+    </aside>
+
+    <script>
+      const state = { page: "overview", project: null, components: [], dependencies: null, changes: null, knowledge: null, entity: null, inspectorTab: "summary" };
+      const $ = (selector) => document.querySelector(selector);
+      const $$ = (selector) => [...document.querySelectorAll(selector)];
+      const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[char]);
+      const json = (value) => esc(JSON.stringify(value));
+      const array = (value) => Array.isArray(value) ? value : [];
+      const statusClass = (value) => String(value ?? "unknown").replace(/[^a-z-]/g, "");
+      const authority = (value) => `<span class="authority ${esc(value)}">${esc(value)}</span>`;
+      const status = (value) => `<span class="status ${statusClass(value)}">${esc(value ?? "unknown")}</span>`;
+
+      async function api(path) {
+        const response = await fetch(path, { headers: { accept: "application/json" } });
+        if (!response.ok) {
+          let message = `${response.status} ${response.statusText}`;
+          try { const body = await response.json(); message = body?.error?.message ?? message; } catch {}
+          throw new Error(message);
+        }
+        return response.json();
+      }
+
+      function setError(error) {
+        const banner = $("#errorBanner");
+        if (!error) { banner.classList.remove("visible"); banner.textContent = ""; return; }
+        banner.textContent = `Dashboard query failed: ${error instanceof Error ? error.message : String(error)}`;
+        banner.classList.add("visible");
+      }
+
+      function pageTitle(kicker, title, subtitle) {
+        return `<div class="page-title-row"><div><div class="eyebrow">${esc(kicker)}</div><h1>${esc(title)}</h1><p class="subtitle">${esc(subtitle)}</p></div><div class="timestamp">read-only · /api/v1</div></div>`;
+      }
+
+      function metric(label, value, note) {
+        return `<div class="semantic-metric"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div><div class="note">${esc(note)}</div></div>`;
+      }
+
+      function bindEntityRows(root = document) {
+        root.querySelectorAll("[data-entity]").forEach((element) => {
+          element.addEventListener("click", () => openEntity(element.dataset.entity));
+          element.tabIndex = 0;
+          element.addEventListener("keydown", (event) => { if (event.key === "Enter") openEntity(element.dataset.entity); });
+        });
+      }
+
+      function renderOverview() {
+        const project = state.project;
+        const components = state.components;
+        const health = project?.health ?? {};
+        const semantic = project?.semantic ?? {};
+        const review = semantic.reviewLevel ?? "–";
+        const body = components.length ? components.slice(0, 8).map((component) => `
+          <div class="semantic-list-row" data-entity="${esc(component.id)}">
+            <div>${status(component.status)}</div>
+            <div><div class="entity-name">${esc(component.name)}</div><div class="entity-summary">${esc(component.responsibility || component.summary)}</div></div>
+            <div>${authority(component.authority)}</div>
+          </div>`).join("") : `<div class="empty">No components are available from the selected provider.</div>`;
+        const integrity = semantic.integrity ?? project?.provenance?.status ?? "unknown";
+        $("#page-overview").innerHTML = pageTitle("Repository semantics", project?.project?.name ?? "Project", "Current semantic state, provenance, and review pressure") + `
+          <div class="semantic-summary">
+            ${metric("Health", `${health.score ?? "–"}`, health.status ?? "unknown")}
+            ${metric("Components", project?.counts?.component ?? components.length, "explicit aggregation boundaries")}
+            ${metric("Review", review, `${health.reviewRequired ?? 0} require review`)}
+            ${metric("Model gaps", health.modelGaps ?? semantic.modelGaps ?? 0, "unknown remains explicit")}
+            ${metric("Integrity", integrity, project?.provenance?.provider ?? "provider")}
+          </div>
+          <div class="semantic-grid">
+            <div class="semantic-panel"><div class="section-head" style="padding:0 12px"><span>Components</span><span class="count">${components.length}</span></div><div class="semantic-list">${body}</div></div>
+            <aside>
+              <div class="semantic-panel"><div class="section-head" style="padding:0 12px"><span>Authority ledger</span></div><div class="semantic-panel-body">
+                <div class="detail-kv"><dt>Revision</dt><dd class="mono">${esc(project?.revision?.head ?? "unknown")}</dd><dt>Base</dt><dd class="mono">${esc(project?.revision?.base ?? "unknown")}</dd><dt>Provider</dt><dd>${esc(project?.provenance?.provider ?? "unknown")}</dd><dt>Status</dt><dd>${esc(project?.provenance?.status ?? "unknown")}</dd><dt>Managed</dt><dd>${semantic.managed === undefined ? "unknown" : semantic.managed ? "yes" : "no"}</dd></div>
+              </div></div>
+              <div class="semantic-panel"><div class="section-head" style="padding:0 12px"><span>Evidence pressure</span></div><div class="semantic-panel-body"><div class="detail-kv"><dt>Stale evidence</dt><dd>${esc(health.staleEvidence ?? 0)}</dd><dt>Review required</dt><dd>${esc(health.reviewRequired ?? 0)}</dd><dt>Entities</dt><dd>${esc(array(project?.entityIds).length)}</dd></div></div></div>
+            </aside>
+          </div>`;
+        bindEntityRows($("#page-overview"));
+      }
+
+      function renderComponents(filter = "") {
+        const normalized = filter.trim().toLowerCase();
+        const components = state.components.filter((component) => !normalized || `${component.name} ${component.responsibility} ${component.summary}`.toLowerCase().includes(normalized));
+        const rows = components.map((component) => `<tr data-entity="${esc(component.id)}"><td><div class="entity-name">${esc(component.name)}</div><div class="entity-summary">${esc(component.responsibility || component.summary)}</div><div class="tag-row">${array(component.tags).map((tag) => `<span class="tag">${esc(tag)}</span>`).join("")}</div></td><td>${status(component.status)}</td><td>${authority(component.authority)}</td><td class="mono">${esc(array(component.ownedSymbolIds).length)}</td><td class="mono">${esc(array(component.contractIds).length)}</td></tr>`).join("");
+        $("#page-components").innerHTML = pageTitle("Semantic inventory", "Components", "Explicit ownership boundaries; symbols remain the detailed fact unit") + `<div class="semantic-panel"><table class="semantic-table"><thead><tr><th>Component</th><th>Status</th><th>Authority</th><th>Symbols</th><th>Contracts</th></tr></thead><tbody>${rows || `<tr><td colspan="5"><div class="empty">No components match this view.</div></td></tr>`}</tbody></table></div>`;
+        bindEntityRows($("#page-components"));
+      }
+
+      function renderDependencies() {
+        const data = state.dependencies ?? {};
+        const rows = array(data.items).map((item) => `<tr data-entity="${esc(item.from?.id)}"><td><div class="entity-name">${esc(item.from?.name)}</div><div class="entity-summary mono">${esc(item.from?.id)}</div></td><td><span class="tag">${esc(item.relation?.kind)}</span></td><td><div class="entity-name">${esc(item.to?.name)}</div><div class="entity-summary mono">${esc(item.to?.id)}</div></td><td>${authority(item.relation?.authority)}</td></tr>`).join("");
+        const packages = array(data.packageUsage).map((item) => `<div class="semantic-list-row" data-entity="${esc(item.package?.id)}"><div class="mono">PKG</div><div><div class="entity-name">${esc(item.package?.name)}</div><div class="entity-summary">${array(item.componentIds).length} components · ${array(item.importedApiIds).length} APIs</div></div><div>${status(item.package?.status)}</div></div>`).join("");
+        $("#page-dependencies").innerHTML = pageTitle("Relations", "Dependencies", "Internal and external dependency edges from the same semantic graph") + `<div class="semantic-grid"><div class="semantic-panel"><table class="semantic-table"><thead><tr><th>From</th><th>Relation</th><th>To</th><th>Authority</th></tr></thead><tbody>${rows || `<tr><td colspan="4"><div class="empty">No dependency edges are available.</div></td></tr>`}</tbody></table></div><aside class="semantic-panel"><div class="section-head" style="padding:0 12px"><span>Package usage</span><span class="count">${array(data.packageUsage).length}</span></div><div class="semantic-list">${packages || `<div class="empty">No package usage is available.</div>`}</div></aside></div>`;
+        bindEntityRows($("#page-dependencies"));
+      }
+
+      function renderChanges() {
+        const data = state.changes ?? {};
+        const rows = array(data.entries).map((entry) => `<div class="semantic-list-row" data-entity="${esc(entry.entityId)}"><div class="review-level ${esc(entry.reviewLevel)}">${esc(entry.reviewLevel)}</div><div><div class="entity-name">${esc(entry.kind)}</div><div class="entity-summary">${esc(entry.summary)}</div><div class="provider-note mono">${esc(entry.entityId)}</div></div><div>${authority(entry.authority)}</div></div>`).join("");
+        $("#page-changes").innerHTML = pageTitle("Semantic delta", "Change impact", `${data.baseRevision ?? "base"} → ${data.headRevision ?? "head"}`) + `<div class="semantic-summary">${metric("Files", data.filesChanged ?? 0, "changed")}${metric("Symbols", data.symbolsChanged ?? 0, "changed")}${metric("Components", data.componentsChanged ?? 0, "affected")}${metric("Contracts", data.contractsTouched ?? 0, "touched")}${metric("Review", data.reviewLevel ?? "–", array(data.reviewReasons).join(" · ") || "canonical classification")}</div><div class="semantic-panel"><div class="section-head" style="padding:0 12px"><span>Semantic changes</span><span class="count">${array(data.entries).length}</span></div><div class="semantic-list">${rows || `<div class="empty">No semantic changes are reported for this comparison.</div>`}</div></div>`;
+        bindEntityRows($("#page-changes"));
+      }
+
+      function renderKnowledge() {
+        const data = state.knowledge ?? {};
+        const rows = array(data.entries).map((entry) => `<div class="semantic-list-row" data-entity="${esc(entry.id)}"><div><span class="tag">${esc(entry.kind)}</span></div><div><div class="entity-name">${esc(entry.title)}</div><div class="entity-summary">${esc(entry.summary)}</div><div class="provider-note">${array(entry.linkedEntityIds).length} linked entities</div></div><div>${authority(entry.authority)}</div></div>`).join("");
+        $("#page-knowledge").innerHTML = pageTitle("Canonical context", "Knowledge", "Decisions, policies, experiments, and evidence with explicit authority") + `<div class="semantic-panel"><div class="section-head" style="padding:0 12px"><span>Knowledge ledger</span><span class="count">${array(data.entries).length}</span></div><div class="semantic-list">${rows || `<div class="empty">No knowledge entries are available.</div>`}</div></div>`;
+        bindEntityRows($("#page-knowledge"));
+      }
+
+      function renderAll() {
+        renderOverview(); renderComponents($("#searchInput").value); renderDependencies(); renderChanges(); renderKnowledge();
+      }
+
+      function showPage(page) {
+        state.page = page;
+        $$('[data-page]').forEach((button) => button.classList.toggle("active", button.dataset.page === page));
+        $$('.semantic-page').forEach((section) => { section.hidden = section.id !== `page-${page}`; });
+      }
+
+      async function openEntity(id) {
+        if (!id) return;
+        try {
+          setError(null);
+          const entity = await api(`/api/v1/entities/${encodeURIComponent(id)}`);
+          state.entity = entity;
+          state.inspectorTab = "summary";
+          $("#inspectorKind").textContent = String(entity.kind ?? "entity").toUpperCase();
+          $("#inspectorName").textContent = entity.name ?? entity.id;
+          $("#inspectorId").textContent = entity.id;
+          $("#inspector").classList.add("open");
+          $("#inspector").setAttribute("aria-hidden", "false");
+          renderInspector();
+        } catch (error) { setError(error); }
+      }
+
+      function closeInspector() {
+        $("#inspector").classList.remove("open");
+        $("#inspector").setAttribute("aria-hidden", "true");
+        state.entity = null;
+      }
+
+      function renderInspector() {
+        const entity = state.entity;
+        if (!entity) return;
+        $$('.inspector-tab').forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === state.inspectorTab));
+        let html = "";
+        if (state.inspectorTab === "summary") {
+          html = `<div class="detail-section"><h3>Meaning</h3><p>${esc(entity.summary)}</p></div><div class="detail-section"><h3>Identity</h3><dl class="detail-kv"><dt>Status</dt><dd>${status(entity.status)}</dd><dt>Authority</dt><dd>${authority(entity.authority)}</dd><dt>Provider</dt><dd>${esc(entity.provenance?.provider)}</dd><dt>Provenance</dt><dd>${esc(entity.provenance?.note)}</dd><dt>Component</dt><dd class="mono">${esc(entity.componentId ?? "—")}</dd></dl></div><div class="detail-section"><h3>Tags</h3><div class="tag-row">${array(entity.tags).map((tag) => `<span class="tag">${esc(tag)}</span>`).join("") || "—"}</div></div>`;
+        } else if (state.inspectorTab === "facts") {
+          html = `<div class="detail-section"><h3>Static / declared facts</h3>${array(entity.facts).map((fact) => `<div class="fact-row"><div class="fact-name">${esc(fact.name)} · ${esc(fact.authority)}</div><div class="fact-value mono">${json(fact.value)}</div></div>`).join("") || `<div class="empty">No facts are available.</div>`}</div>`;
+        } else if (state.inspectorTab === "relations") {
+          html = `<div class="detail-section"><h3>Relations</h3>${array(entity.relations).map((relation) => `<div class="relation-row"><div><span class="tag">${esc(relation.kind)}</span></div><div><div class="mono">${esc(relation.from)} → ${esc(relation.to)}</div><div class="provider-note">${esc(relation.authority)} · ${esc(relation.provenance?.provider)}</div></div></div>`).join("") || `<div class="empty">No relations are available.</div>`}</div>`;
+        } else if (state.inspectorTab === "history") {
+          html = `<div class="detail-section"><h3>History</h3>${array(entity.history).map((entry) => `<div class="history-row"><div class="entity-name">${esc(entry.label)}</div><div class="entity-summary">${esc(entry.summary)}</div><div class="provider-note">${esc(entry.authority)} · ${esc(entry.provenance?.provider)}</div></div>`).join("") || `<div class="empty">No history is available.</div>`}</div>`;
+        } else {
+          const projection = entity.agentProjection ?? {};
+          html = `<div class="detail-section"><h3>Bounded agent context</h3><p>${esc(projection.summary ?? "No projection available")}</p></div><div class="detail-section"><h3>Recommended source reads</h3>${array(projection.recommendedReads).map((read) => `<div class="read-row"><div class="source-path">${esc(read.path)}${read.symbol ? ` · ${esc(read.symbol)}` : ""}</div><div class="entity-summary">${esc(read.reason)}</div></div>`).join("") || `<div class="empty">No source reads are recommended.</div>`}</div><div class="detail-section"><h3>Source boundary</h3><div class="provider-note">${esc(projection.source?.reason ?? "raw source is not included in the projection")}</div></div>`;
+        }
+        $("#inspectorBody").innerHTML = html;
+      }
+
+      async function load() {
+        try {
+          setError(null);
+          const [project, components, dependencies, changes, knowledge] = await Promise.all([
+            api("/api/v1/project"), api("/api/v1/components"), api("/api/v1/dependencies"), api("/api/v1/changes"), api("/api/v1/knowledge")
+          ]);
+          Object.assign(state, { project, components, dependencies, changes, knowledge });
+          const semantic = project.semantic ?? {};
+          const integrity = semantic.integrity ?? project.provenance?.status ?? "unknown";
+          $("#scopeName").textContent = project.project?.name ?? "repository";
+          $("#scopeHealth").textContent = String(integrity).toUpperCase();
+          $("#scopeRevision").textContent = `${project.revision?.head ?? "unknown"} · ${project.provenance?.provider ?? "provider"}`;
+          $("#repoContext").textContent = `${project.project?.name ?? "repository"} · ${project.revision?.head ?? "head"}`;
+          $("#integrityHealth").textContent = `${integrity} semantic state`;
+          $("#integrityHealth").className = `health integrity-${statusClass(integrity)}`;
+          $("#providerNote").textContent = `${project.provenance?.status ?? "unknown"} · ${project.provenance?.provider ?? "provider"}`;
+          $("#componentCount").textContent = components.length;
+          $("#changeCount").textContent = array(changes.entries).length;
+          $("#knowledgeCount").textContent = array(knowledge.entries).length;
+          renderAll(); showPage(state.page);
+        } catch (error) { setError(error); }
+      }
+
+      $$('[data-page]').forEach((button) => button.addEventListener("click", () => showPage(button.dataset.page)));
+      $$('.inspector-tab').forEach((button) => button.addEventListener("click", () => { state.inspectorTab = button.dataset.tab; renderInspector(); }));
+      $("#closeInspector").addEventListener("click", closeInspector);
+      $("#refreshButton").addEventListener("click", load);
+      $("#searchInput").addEventListener("input", (event) => { renderComponents(event.target.value); if (event.target.value) showPage("components"); });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") closeInspector();
+        if (event.key === "/" && document.activeElement !== $("#searchInput")) { event.preventDefault(); $("#searchInput").focus(); }
+      });
+      load();
+    </script>
+  </body>
+</html>
