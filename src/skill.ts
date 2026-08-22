@@ -85,9 +85,8 @@ export function projectSkillIndexToText(): string {
   for (const scenario of SKILL_SCENARIOS) {
     lines.push(`  ${scenario.id} - ${scenario.title}`);
     lines.push(`    ${scenario.whenToUse}`);
+    lines.push(`    Run \`${scenario.helpPointer}\` for the full playbook.`);
   }
-  lines.push("");
-  lines.push("Run `mottainai skill <scenario>` for the full playbook.");
   return lines.join("\n");
 }
 
@@ -131,26 +130,35 @@ function bounded(output: string): string {
     : `${Buffer.from(output, "utf8").subarray(0, MAX_SKILL_OUTPUT_BYTES - 4).toString("utf8")}...`;
 }
 
-export function runSkillCli(argv: readonly string[]): number {
+export interface SkillCliResult {
+  readonly stream: "stdout" | "stderr";
+  readonly output: string;
+  readonly exitCode: number;
+}
+
+export function resolveSkillCli(argv: readonly string[]): SkillCliResult {
   const json = argv.includes("--json");
   const scenarioId = argv.find((arg) => !arg.startsWith("--"));
   if (scenarioId === undefined) {
     const value = json ? JSON.stringify(projectSkillIndexToJson()) : projectSkillIndexToText();
-    console.log(bounded(value));
-    return 0;
+    return { stream: "stdout", output: bounded(value), exitCode: 0 };
   }
   const scenario = findSkillScenario(scenarioId);
   if (scenario === undefined) {
     const message = `unknown skill scenario: ${scenarioId}`;
-    if (json) console.log(JSON.stringify({ ok: false, error: { code: "unknown_skill", message } }));
-    else console.error(message);
-    return 1;
+    if (json) {
+      return {
+        stream: "stdout",
+        output: JSON.stringify({ ok: false, error: { code: "unknown_skill", message } }),
+        exitCode: 1,
+      };
+    }
+    return { stream: "stderr", output: message, exitCode: 1 };
   }
   const value = json
     ? JSON.stringify(projectSkillScenarioToJson(scenario))
     : projectSkillScenarioToText(scenario);
-  console.log(bounded(value));
-  return 0;
+  return { stream: "stdout", output: bounded(value), exitCode: 0 };
 }
 
 export function projectTaskLaunchHelp(command: "start" | "run"): string {
