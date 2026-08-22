@@ -244,12 +244,13 @@ else if (args[0] === "pr" && args[1] === "view") {
   // Mottainai's own head-identity check (not this fixture) is what proves the
   // close request is safe.
   const headSha = process.env.MOTTAINAI_GH_PR_HEAD_SHA || "";
+  const mergeSha = process.env.MOTTAINAI_GH_PR_MERGE_SHA || headSha;
   process.stdout.write(JSON.stringify({
     number: Number(args[2]),
     state: "MERGED",
     isDraft: false,
     mergedAt: "2026-01-01T00:00:00Z",
-    mergeCommit: { oid: headSha },
+    mergeCommit: { oid: mergeSha },
     url: "https://github.com/fixture-owner/fixture-repo/pull/" + args[2],
     headRefName: process.env.MOTTAINAI_GH_PR_HEAD_REF || "",
     headRefOid: headSha,
@@ -499,8 +500,31 @@ test(
     // remove it so the worktree is clean the way a real completed execution's
     // would be before Mottainai requests Nawabari's safe close.
     fs.rmSync(path.join(worktree, "pi-done.json"));
-    fixture.env.MOTTAINAI_GH_PR_HEAD_SHA = status.pullRequests[0].headSha;
+    const prHeadSha = status.pullRequests[0].headSha;
+    fixture.env.MOTTAINAI_GH_PR_HEAD_SHA = prHeadSha;
     fixture.env.MOTTAINAI_GH_PR_HEAD_REF = started.execution.branch;
+
+    // The fake `gh pr view` reports the PR as MERGED, but that alone has no
+    // git-level effect. Nawabari's close-fetch independently re-verifies the
+    // integrated revision via exact tree-object equivalence by fetching the
+    // real base branch tip from the remote (never trusting the provider API
+    // blindly). A real GitHub squash-merge lands a *new* commit on `main`
+    // carrying the same tree as the PR branch tip (not the identical commit,
+    // which reads as a trivial ancestry case Nawabari does not accept as
+    // non-ancestry proof), so simulate that exact shape here.
+    const priorMainSha = started.task.baseCommit;
+    const headTree = runGit(worktree, ["rev-parse", `${prHeadSha}^{tree}`]);
+    const squashCommit = runGit(worktree, [
+      "commit-tree",
+      headTree,
+      "-p",
+      priorMainSha,
+      "-m",
+      "test(workflow): prove packed Pi issue-to-PR path (#33401)",
+    ]);
+    runGit(worktree, ["push", "origin", `${squashCommit}:refs/heads/main`]);
+    fixture.env.MOTTAINAI_GH_PR_MERGE_SHA = squashCommit;
+
     const finished = invoke(fixture, worktree, ["task", "finish"]);
     assert.equal(finished.ok, true, JSON.stringify(finished));
     assert.equal(finished.transition, "merged");
