@@ -30,11 +30,24 @@ const REQUIRED_COMMANDS = [
   "gc",
 ];
 
+const CLOSE_FETCH_EXPLICIT_NETWORK = {
+  default: false,
+  operations: [
+    {
+      command: "session close",
+      options: ["--integrated-revision", "--fetch-remote", "--fetch-branch"],
+      requires: ["--integrated-revision", "--fetch-remote", "--fetch-branch"],
+      scope: "one named remote branch into one disposable internal proof ref",
+    },
+  ],
+};
+
 function capabilitiesResult(
   overrides: {
     packageVersion?: string;
     commands?: readonly string[];
     claimSetReplacement?: Record<string, unknown> | null;
+    explicitNetwork?: Record<string, unknown>;
   } = {},
 ): unknown {
   const claimSetReplacement =
@@ -59,6 +72,7 @@ function capabilitiesResult(
     capabilities: [
       { id: "resource-claims", commands: overrides.commands ?? REQUIRED_COMMANDS, ...claimSetReplacement },
     ],
+    ...(overrides.explicitNetwork === undefined ? {} : { explicit_network: overrides.explicitNetwork }),
   };
 }
 
@@ -411,6 +425,136 @@ test("discovery requires the atomic claim_set_replacement boundary and the 0.5.0
     missingInspectCommand.capabilities("/repo"),
     (error: unknown) => error instanceof NawabariExecutionError && error.code === "nawabari-incompatible",
   );
+});
+
+function closeSessionRunner(sessionId: string): { calls: string[][]; run: (command: string, args: readonly string[]) => Promise<RunResult> } {
+  const calls: string[][] = [];
+  return {
+    calls,
+    async run(_command, args): Promise<RunResult> {
+      calls.push([...args]);
+      if (args[0] === "capabilities") return result(capabilitiesResult({ explicitNetwork: CLOSE_FETCH_EXPLICIT_NETWORK }));
+      if (args[0] === "session" && args[1] === "close")
+        return result({
+          ok: true,
+          command: "session close",
+          session: {
+            session_id: sessionId,
+            repository: "repo",
+            worktree: "/tmp/worktree",
+            branch: "feat/example",
+            state: "closed",
+          },
+          worktree_removed: true,
+          branch_removed: true,
+        });
+      throw new Error(`unexpected command: ${args.join(" ")}`);
+    },
+  };
+}
+
+test("capabilities detects close-fetch support only from the exact #160/#161 explicit_network shape", async () => {
+  const supported = new NawabariExecutionClient({
+    runner: { run: async (_c, args) => result(capabilitiesResult({ explicitNetwork: CLOSE_FETCH_EXPLICIT_NETWORK })) },
+  });
+  assert.equal((await supported.capabilities("/repo")).supportsCloseFetch, true);
+
+  const unsupported = new NawabariExecutionClient({
+    runner: { run: async () => result(capabilitiesResult()) },
+  });
+  assert.equal((await unsupported.capabilities("/repo")).supportsCloseFetch, false);
+
+  const partialOptions = new NawabariExecutionClient({
+    runner: {
+      run: async () =>
+        result(
+          capabilitiesResult({
+            explicitNetwork: {
+              default: false,
+              operations: [
+                {
+                  command: "session close",
+                  options: ["--integrated-revision", "--fetch-remote"],
+                  requires: ["--integrated-revision", "--fetch-remote"],
+                },
+              ],
+            },
+          }),
+        ),
+    },
+  });
+  assert.equal((await partialOptions.capabilities("/repo")).supportsCloseFetch, false);
+});
+
+test("closeSession sends --fetch-remote/--fetch-branch only when the companion advertises close-fetch support", async () => {
+  const { calls, run } = closeSessionRunner("session-1");
+  const client = new NawabariExecutionClient({ runner: { run } });
+  await client.closeSession({
+    cwd: "/repo",
+    sessionId: "session-1",
+    integratedRevision: "a".repeat(40),
+    fetchRemote: "upstream",
+    fetchBranch: "release",
+  });
+  const closeArgs = calls.find((args) => args[0] === "session" && args[1] === "close")!;
+  assert.ok(closeArgs.includes("--fetch-remote"));
+  assert.equal(closeArgs[closeArgs.indexOf("--fetch-remote") + 1], "upstream");
+  assert.ok(closeArgs.includes("--fetch-branch"));
+  assert.equal(closeArgs[closeArgs.indexOf("--fetch-branch") + 1], "release");
+});
+
+test("closeSession fails closed before any fetch effect when the companion does not advertise close-fetch", async () => {
+  const calls: string[][] = [];
+  const client = new NawabariExecutionClient({
+    runner: {
+      async run(_command, args): Promise<RunResult> {
+        calls.push([...args]);
+        if (args[0] === "capabilities") return result(capabilitiesResult());
+        throw new Error(`unexpected command: ${args.join(" ")}`);
+      },
+    },
+  });
+  await assert.rejects(
+    client.closeSession({
+      cwd: "/repo",
+      sessionId: "session-1",
+      integratedRevision: "a".repeat(40),
+      fetchRemote: "upstream",
+      fetchBranch: "release",
+    }),
+    (error: unknown) => error instanceof NawabariExecutionError && error.code === "nawabari-incompatible",
+  );
+  assert.equal(
+    calls.some((args) => args[0] === "session" && args[1] === "close"),
+    false,
+  );
+});
+
+test("closeSession rejects fetchRemote/fetchBranch supplied without integratedRevision or as a partial pair", async () => {
+  const { run } = closeSessionRunner("session-1");
+  const client = new NawabariExecutionClient({ runner: { run } });
+  await assert.rejects(
+    client.closeSession({ cwd: "/repo", sessionId: "session-1", fetchRemote: "upstream", fetchBranch: "release" }),
+    (error: unknown) => error instanceof NawabariExecutionError && error.code === "nawabari-contract-invalid",
+  );
+  await assert.rejects(
+    client.closeSession({
+      cwd: "/repo",
+      sessionId: "session-1",
+      integratedRevision: "a".repeat(40),
+      fetchRemote: "upstream",
+    }),
+    (error: unknown) => error instanceof NawabariExecutionError && error.code === "nawabari-contract-invalid",
+  );
+});
+
+test("closeSession omits fetch flags entirely for ordinary/non-fetch close", async () => {
+  const { calls, run } = closeSessionRunner("session-1");
+  const client = new NawabariExecutionClient({ runner: { run } });
+  await client.closeSession({ cwd: "/repo", sessionId: "session-1", integratedRevision: "a".repeat(40) });
+  const closeArgs = calls.find((args) => args[0] === "session" && args[1] === "close")!;
+  assert.equal(closeArgs.includes("--fetch-remote"), false);
+  assert.equal(closeArgs.includes("--fetch-branch"), false);
 });
 
 test("inspectSession reads state from the nested session-diagnostic.v1 session record, not a top-level field", async () => {

@@ -59,6 +59,19 @@ export const FAKE_NAWABARI_CAPABILITIES = [
   },
 ];
 
+/** Matches the real Nawabari #160/#161 `explicit_network` close-fetch contract shape. */
+export const FAKE_NAWABARI_CLOSE_FETCH_EXPLICIT_NETWORK = {
+  default: false,
+  operations: [
+    {
+      command: "session close",
+      options: ["--integrated-revision", "--fetch-remote", "--fetch-branch"],
+      requires: ["--integrated-revision", "--fetch-remote", "--fetch-branch"],
+      scope: "one named remote branch into one disposable internal proof ref",
+    },
+  ],
+};
+
 /**
  * `nawabari` CLIを模したfake runner。#203以降Nawabariが管理worktreeの唯一の物理権限に
  * なったため、check/write系integrationテストが共通で必要とするsession create/show/claim等
@@ -75,6 +88,8 @@ export function fakeNawabari(
     failSessionList?: boolean;
     failSessionClaim?: boolean;
     beforeSessionClose?: () => void;
+    /** Advertise the Nawabari #160/#161 close-fetch contract in `capabilities`. */
+    supportsCloseFetch?: boolean;
   } = {},
 ): NawabariExecutionClient {
   const calls = options.calls ?? [];
@@ -94,6 +109,9 @@ export function fakeNawabari(
               contract_id: "nawabari.standalone-execution.v1",
               package_version: "0.5.0",
               capabilities: FAKE_NAWABARI_CAPABILITIES,
+              ...(options.supportsCloseFetch === true
+                ? { explicit_network: FAKE_NAWABARI_CLOSE_FETCH_EXPLICIT_NETWORK }
+                : {}),
             }),
           );
         if (args[0] === "session" && args[1] === "id")
@@ -270,6 +288,9 @@ export async function startNawabariManagedTask(
     taskSlug: string;
     branchType: string;
     issueRef: string;
+    supportsCloseFetch?: boolean;
+    calls?: string[][];
+    beforeSessionClose?: () => void;
   },
 ): Promise<NawabariManagedTaskFixture> {
   const worktreeParent = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-nawabari-managed-"));
@@ -282,7 +303,12 @@ export async function startNawabariManagedTask(
   });
 
   const sessions = new Map<string, Record<string, unknown>>();
-  const nawabari = fakeNawabari(input.root, { sessions });
+  const nawabari = fakeNawabari(input.root, {
+    sessions,
+    supportsCloseFetch: input.supportsCloseFetch,
+    calls: input.calls,
+    beforeSessionClose: input.beforeSessionClose,
+  });
   const started = await startNawabariTask({
     workspaceRoot: input.root,
     store: input.store,
