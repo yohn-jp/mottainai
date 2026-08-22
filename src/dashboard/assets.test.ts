@@ -18,6 +18,13 @@ test("dashboard root is the approved API-backed Wabachi investigation surface", 
   assert.doesNotMatch(viewer, /FIND-0012/);
 });
 
+test("Wabachi inline interaction script is syntactically valid JavaScript", () => {
+  const viewer = readDashboardViewer();
+  const match = viewer.match(/<script>([^]*?)<\/script>/u);
+  assert.ok(match?.[1], "expected Wabachi to contain one inline interaction script");
+  assert.doesNotThrow(() => new Function(match[1]));
+});
+
 test("dashboard exposes the shared approved interaction stylesheet", () => {
   const assets = readDashboardAssets();
   assert.deepEqual(Object.keys(assets), ["/styles.css"]);
