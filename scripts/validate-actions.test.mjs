@@ -40,3 +40,28 @@ test("all repository-owned workflow and composite-action refs are pinned", () =>
   assert.ok(result.files.length > 0);
   assert.ok(result.references.some((reference) => !reference.local));
 });
+
+test("accepts yohn-jp/.github's own reusable-workflow reference on @main", () => {
+  const result = validateActionText(
+    "    uses: yohn-jp/.github/.github/workflows/pr-governance.yml@main",
+    ".github/workflows/governance.yml",
+  );
+
+  assert.deepEqual(result.errors, []);
+});
+
+test("rejects @main for every other external reference, including other yohn-jp/.github paths", () => {
+  const result = validateActionText(
+    [
+      "      uses: actions/checkout@main",
+      "      uses: yohn-jp/.github@main",
+      "      uses: yohn-jp/.github/.github/actions/example@main",
+      "      uses: yohn-jp/other-repo/.github/workflows/pr-governance.yml@main",
+      "      uses: yohn-jp/.github/.github/workflows/pr-governance.yml@v1",
+    ].join("\n"),
+    ".github/workflows/example.yml",
+  );
+
+  assert.equal(result.errors.length, 5);
+  for (const error of result.errors) assert.match(error, /full 40-character commit SHA/u);
+});

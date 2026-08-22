@@ -141,3 +141,20 @@ jobs:
             echo "linked Issue has an invalid governance label" >&2
             exit 1
           fi
+
+  validate-release:
+    name: validate-release
+    # release/<semver> PRs are issue-less operational packaging: they skip
+    # standards-self-check/validate-pr above and are classified by the same
+    # canonical reusable workflow other yohn-jp consumers call, with no
+    # linked-Issue fetch. Deliberately @main, not a pinned commit: this is
+    # yohn-jp/.github's own documented, intentionally-live org trust
+    # boundary (docs/governance.md, "@main is a live, mutable authority"),
+    # not third-party supply-chain code. scripts/validate-actions.mjs
+    # carries a narrow, explicit exception for exactly this reference.
+    if: >-
+      github.event_name == 'pull_request' &&
+      startsWith(github.event.pull_request.head.ref, 'release/')
+    uses: yohn-jp/.github/.github/workflows/pr-governance.yml@main
+    permissions:
+      contents: read
