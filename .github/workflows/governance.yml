@@ -109,9 +109,9 @@ jobs:
 
       - name: Validate PR contract
         working-directory: governance
-        run: node scripts/validate-pr.mjs --event "$GITHUB_EVENT_PATH" --files "$RUNNER_TEMP/changed-files.txt" --issue-number-file "$RUNNER_TEMP/issue-number.txt" --report "$RUNNER_TEMP/governance-report.md" --regression-plan-file "$RUNNER_TEMP/regression-proof-plan.json"
+        run: node scripts/validate-pr.mjs --event "$GITHUB_EVENT_PATH" --files "$RUNNER_TEMP/changed-files.txt" --issue-number-file "$RUNNER_TEMP/issue-number.txt" --report "$RUNNER_TEMP/governance-report.md"
 
-      - name: Publish report-only governance observations
+      - name: Publish governance observations
         if: always()
         env:
           GOVERNANCE_REPORT: ${{ runner.temp }}/governance-report.md
@@ -144,14 +144,8 @@ jobs:
 
   validate-release:
     name: validate-release
-    # release/<semver> PRs are issue-less operational packaging: they skip
-    # standards-self-check/validate-pr above and are classified by the same
-    # canonical reusable workflow other yohn-jp consumers call, with no
-    # linked-Issue fetch. Deliberately @main, not a pinned commit: this is
-    # yohn-jp/.github's own documented, intentionally-live org trust
-    # boundary (docs/governance.md, "@main is a live, mutable authority"),
-    # not third-party supply-chain code. scripts/validate-actions.mjs
-    # carries a narrow, explicit exception for exactly this reference.
+    # release/<semver> PRs are issue-less operational packaging and use the
+    # canonical organization release-PR contract instead of normal PR checks.
     if: >-
       github.event_name == 'pull_request' &&
       startsWith(github.event.pull_request.head.ref, 'release/')

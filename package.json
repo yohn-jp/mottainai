@@ -12,6 +12,7 @@
     "README.md",
     "LICENSE",
     "mottainai.config.json.example",
+    ".github/inari/pull-requests/default.json",
     "scripts/governance-lib.mjs",
     "scripts/governance-rules.json"
   ],

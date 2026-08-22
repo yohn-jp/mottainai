@@ -48,6 +48,7 @@ test("packed artifact contains its declared runtime entry and pack does not rebu
   assert.ok(packedFiles.includes("dist/index.js"));
   assert.ok(packedFiles.includes("dist/manager/pi-guard.js"));
   assert.ok(packedFiles.includes("dist/runtime-build-metadata.json"));
+  assert.ok(packedFiles.includes(".github/inari/pull-requests/default.json"));
   assert.match(
     fs.readFileSync(path.join(path.dirname(binPath), "manager", "pi-guard.js"), "utf8"),
     /mottainai-managed-pi-guard-v1/u,

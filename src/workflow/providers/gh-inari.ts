@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { GhInariClient, type GhInariError, type GhInariJsonObject, type GhInariJsonValue } from "../../gh-inari.js";
 import { type PullRequestBodyDraft, type PullRequestSectionValue } from "../domain/pr-intent.js";
 import {
@@ -27,8 +29,10 @@ export interface GhInariPullRequestAdapterOptions {
 export class GhInariPullRequestAdapter implements PullRequestCreateAdapter {
   readonly client: GhInariClient;
   private readonly lookupAdapter: Pick<PullRequestCreateAdapter, "findPullRequests">;
+  private readonly workspaceRoot: string;
 
   constructor(options: GhInariPullRequestAdapterOptions) {
+    this.workspaceRoot = options.workspaceRoot;
     this.client = options.client ?? new GhInariClient({ cwd: options.workspaceRoot });
     this.lookupAdapter = options.lookupAdapter ?? new GithubAdapter({ workspaceRoot: options.workspaceRoot });
   }
@@ -51,6 +55,24 @@ export class GhInariPullRequestAdapter implements PullRequestCreateAdapter {
           details: { field: "repository" },
         }),
       };
+    }
+
+    if (input.draft.issue !== undefined) {
+      const fieldIds = compiledPullRequestFieldIds(this.workspaceRoot, "default");
+      if (fieldIds !== undefined && !fieldIds.has("linked_issue")) {
+        return {
+          ok: false,
+          error: inariFailure({
+            code: "INARI_INVALID_REQUEST",
+            phase: "input",
+            operation: "pr.create",
+            message:
+              'the compiled PR contract cannot represent --issue-reference because template "default" does not declare a linked_issue field',
+            retryable: false,
+            details: { field: "linked_issue", template: "default" },
+          }),
+        };
+      }
     }
 
     const result = await this.client.createPullRequest({
@@ -118,12 +140,40 @@ export class GhInariPullRequestAdapter implements PullRequestCreateAdapter {
 /** Convert Mottainai's typed PR intent into Inari's semantic fields document. */
 export function pullRequestFieldsForGhInari(draft: PullRequestBodyDraft): GhInariJsonObject {
   const fields: Record<string, GhInariJsonValue> = {};
-  if (draft.issue !== undefined) fields.issue = draft.issue.reference;
   for (const [heading, value] of Object.entries(draft.sections)) {
     if (value !== undefined) fields[heading] = sectionValue(value);
   }
+  if (draft.issue !== undefined) fields.linked_issue = linkedIssueValue(draft.issue.reference);
   if (draft.acceptanceCriteria !== undefined) fields.acceptanceCriteria = [...draft.acceptanceCriteria];
   return fields;
+}
+
+function linkedIssueValue(reference: string): string {
+  const normalized = reference.trim();
+  const localNumber = /^#?(\d+)$/u.exec(normalized);
+  if (localNumber?.[1] !== undefined) return `Closes #${localNumber[1]}`;
+  return `Closes ${normalized}`;
+}
+
+function compiledPullRequestFieldIds(workspaceRoot: string, template: string): Set<string> | undefined {
+  const contractPath = path.join(workspaceRoot, ".github", "inari", "pull-requests", `${template}.json`);
+  let raw: string;
+  try {
+    raw = fs.readFileSync(contractPath, "utf8");
+  } catch {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(raw) as { sections?: Array<{ id?: unknown }> };
+    if (!Array.isArray(parsed.sections)) return undefined;
+    return new Set(
+      parsed.sections
+        .map((section) => section?.id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    );
+  } catch {
+    return undefined;
+  }
 }
 
 function sectionValue(value: PullRequestSectionValue): GhInariJsonValue {

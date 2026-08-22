@@ -6,18 +6,8 @@
     "requiredSections": [
       "Summary",
       "Linked issue",
-      "Scope",
-      "Included",
-      "Excluded",
-      "Implementation",
-      "Behavioral changes",
+      "Changes",
       "Validation",
-      "Test contract",
-      "Regression proof",
-      "Validation evidence",
-      "Release impact",
-      "Risks",
-      "Breaking changes",
       "Review focus"
     ],
     "validationItems": ["Typecheck", "Tests", "Build"],
@@ -31,176 +21,10 @@
       "^\\.github/workflows/publish\\.yml$"
     ],
     "changedFileRules": {
-      "configurationPaths": ["^src/config\\.ts$", "^mottainai\\.config(?:\\..+)?$"],
       "compressionPaths": ["^src/compress/"],
       "compressionTestPaths": ["^src/compress/.*\\.test\\.ts$"],
       "cliPaths": ["^src/index\\.ts$", "^src/cli\\.ts$", "^scripts/mcp\\.ts$"],
-      "cliEvidencePaths": ["^README\\.md$", "(?:^|/)cli.*\\.test\\.ts$", "(?:^|/)index.*\\.test\\.ts$"],
-      "securityPaths": ["security", "auth", "sandbox", "local-tools"],
-      "pathClasses": [
-        {
-          "id": "cli-mcp-entry",
-          "patterns": ["^src/(?:index|server|cli)\\.ts$", "^src/mcp(?:-|/)", "^scripts/mcp(?:\\.ts|-.*\\.mjs)$"],
-          "requiredEvidence": ["process/integration"]
-        },
-        {
-          "id": "package-publish",
-          "patterns": [
-            "^package\\.json$",
-            "^pnpm-lock\\.yaml$",
-            "^tsconfig\\.build\\.json$",
-            "^\\.github/workflows/publish\\.yml$",
-            "^scripts/(?:smoke-test|mcp-stdio-package)\\.mjs$",
-            "^scripts/governance-(?:lib\\.mjs|rules\\.json)$",
-            "^src/(?:index|server|cli)\\.ts$"
-          ],
-          "requiredEvidence": ["package smoke", "release"],
-          "sectionConstraints": [
-            {
-              "section": "Release impact",
-              "field": "impact",
-              "forbiddenValues": ["none", "n/a", "not applicable"],
-              "howToSatisfy": "describe the packed artifact, package smoke, and warning-free release impact for the changed package path"
-            }
-          ]
-        },
-        {
-          "id": "persistence-process-boundary",
-          "patterns": [
-            "^src/(?:state/|commands/|init\\.ts$|local-tools\\.ts$|logging\\.ts$|mcp-cli\\.ts$)",
-            "^scripts/lib/mcp-blackbox-",
-            "^scripts/(?:run-test-suite|run-package-suite)\\.mjs$"
-          ],
-          "requiredEvidence": ["fault injection"]
-        },
-        {
-          "id": "security-sensitive",
-          "patterns": ["security", "auth", "sandbox", "local-tools"],
-          "requiredEvidence": ["security/negative"],
-          "requiredSections": ["Security impact"]
-        },
-        {
-          "id": "compatibility-contract",
-          "patterns": [
-            "^src/config\\.ts$",
-            "^mottainai\\.config(?:\\..+)?$",
-            "^src/(?:cli|index)\\.ts$",
-            "^src/state/",
-            "^src/(?:export|envelope|catalog|local-tools)\\.ts$",
-            "^scripts/mcp\\.ts$",
-            "^src/mcp(?:-|/)"
-          ],
-          "requiredSections": ["Migration / compatibility"]
-        },
-        {
-          "id": "governance-quality",
-          "patterns": [
-            "^scripts/",
-            "^\\.github/workflows/",
-            "^\\.github/(?:PULL_REQUEST_TEMPLATE\\.md|ISSUE_TEMPLATE/)",
-            "^docs/",
-            "^CONTRIBUTING\\.md$",
-            "^AGENTS\\.md$"
-          ],
-          "requiredEvidence": ["lint/architecture"]
-        }
-      ]
-    },
-    "qualityGates": {
-      "rollout": {
-        "mode": "report-only",
-        "reportOnly": true,
-        "promotion": {
-          "mode": "enforced",
-          "requires": "post-merge report-only observations and an explicit maintainer change"
-        }
-      },
-      "evidence": {
-        "recordPrefix": "class",
-        "statuses": ["pass", "not-applicable"],
-        "placeholderValues": [
-          "",
-          "none",
-          "n/a",
-          "na",
-          "not applicable",
-          "tbd",
-          "todo",
-          "fixme",
-          "wip",
-          "placeholder",
-          "template comment only",
-          "tests checked",
-          "not run"
-        ],
-        "genericResults": ["pass", "passed", "ok", "tests checked", "done", "complete"],
-        "classes": [
-          { "id": "unit/contract", "requiredFields": ["command", "target", "result"] },
-          { "id": "process/integration", "requiredFields": ["command", "target", "result"] },
-          { "id": "package smoke", "requiredFields": ["command", "target", "result", "artifact"] },
-          { "id": "fault injection", "requiredFields": ["command", "target", "result", "scenario"] },
-          { "id": "lint/architecture", "requiredFields": ["command", "target", "result"] },
-          { "id": "release", "requiredFields": ["command", "target", "result", "artifact", "warnings"] },
-          { "id": "security/negative", "requiredFields": ["command", "target", "result", "scenario"] }
-        ]
-      },
-      "testContract": {
-        "requiredFields": ["change type", "required layers", "not-applicable decisions"]
-      },
-      "releaseImpact": {
-        "requiredFields": ["impact", "reason"]
-      },
-      "regressionProof": {
-        "bugFixTitlePattern": "^fix\\(",
-        "requiredFields": ["status", "test path", "test identifier", "pre-fix observed failure", "post-fix result"],
-        "automatedFields": ["command id", "base result", "head result", "isolation"],
-        "reviewerAttestedFields": ["reviewer attestation"],
-        "notApplicableFields": ["reason"],
-        "statuses": ["automated", "reviewer-attested", "unsupported automated proof", "not-applicable"],
-        "testPathPatterns": ["^src/.*\\.(?:test\\.ts|spec\\.ts)$", "^scripts/.*\\.test\\.mjs$"],
-        "runners": [
-          {
-            "id": "fast",
-            "argv": ["pnpm", "test"],
-            "testPathPatterns": [
-              "^src/(?!commands/|init\\.test\\.ts$|local-tools\\.test\\.ts$|logging\\.test\\.ts$|mcp-cli\\.test\\.ts$|state/|workflow/|e2e/).*\\.test\\.ts$"
-            ]
-          },
-          {
-            "id": "integration",
-            "argv": ["pnpm", "run", "test:integration"],
-            "testPathPatterns": [
-              "^src/(?:commands/.*\\.test\\.ts|init\\.test\\.ts|local-tools\\.test\\.ts|logging\\.test\\.ts|mcp-cli\\.test\\.ts|state/.*\\.test\\.ts|workflow/.*\\.test\\.ts)$"
-            ]
-          },
-          {
-            "id": "e2e",
-            "argv": ["pnpm", "run", "test:e2e"],
-            "testPathPatterns": ["^src/e2e/.*\\.spec\\.ts$"]
-          },
-          {
-            "id": "standards",
-            "argv": ["pnpm", "run", "test:standards"],
-            "testPathPatterns": ["^scripts/.*\\.test\\.mjs$"]
-          },
-          {
-            "id": "package",
-            "argv": ["pnpm", "run", "test:package"],
-            "testPathPatterns": ["^scripts/mcp-stdio-package\\.test\\.mjs$"]
-          }
-        ],
-        "execution": {
-          "mode": "isolated-temporary-worktree",
-          "installArgv": ["pnpm", "install", "--frozen-lockfile", "--ignore-scripts"],
-          "timeoutSeconds": 180,
-          "maxOutputBytes": 12000,
-          "shell": false,
-          "credentials": "none",
-          "applyOnlyDeclaredTestDiff": true,
-          "cleanup": "required",
-          "persistentWorkflowState": false
-        }
-      }
+      "cliEvidencePaths": ["^README\\.md$", "(?:^|/)cli.*\\.test\\.ts$", "(?:^|/)index.*\\.test\\.ts$"]
     }
   },
   "issue": {

@@ -1,284 +1,159 @@
 # Issue and Pull Request Governance
 
-Treat Issues and pull requests created by people or multiple LLMs as
-machine-verifiable contracts, not suggestions in templates.
-
-The exact title, branch, section, evidence, path-class, and rollout rules live
-in [`scripts/governance-rules.json`](../scripts/governance-rules.json).
-[`scripts/governance-lib.mjs`](../scripts/governance-lib.mjs) is the shared
-implementation used by local commands and GitHub Actions. Workflows provide
-trusted inputs and permissions; they do not duplicate rule conditionals.
+Mottainai treats Issues and pull requests as machine-verifiable contracts. The
+important rule is that each concern has one authority: Inari owns the PR body
+shape, repository governance owns branch/title and completion checks, and CI
+owns executable verification results.
 
 ## Issue contract
 
-Blank Issues are disabled. Create and agree on exactly one Issue before
-starting work, then select an Issue Form from `.github/ISSUE_TEMPLATE/`:
+Blank Issues are disabled. A normal implementation task starts from one Issue
+whose body contains meaningful content for:
 
-- Feature
-- Bug
-- Architecture
-- Maintenance
-- Research
+- Summary
+- Problem
+- Goal
+- Non-goals
+- Acceptance criteria, including at least one checklist item
+- Affected areas
+- Risks / compatibility
+- Dependencies
+- Implementation notes
 
-The existing validator contract remains required: Summary, Problem, Goal,
-Non-goals, Acceptance criteria as a checklist, Affected areas, Risks /
-compatibility, Dependencies, and Implementation notes. The forms additionally
-capture the expected contract, failing scenario, test layer, release impact,
-and security impact before implementation. A feature or research Issue may
-state why no failure scenario applies; it must not leave the field blank.
+The linked Issue is validated at the PR merge boundary. An Issue carrying
+`status:invalid` or `needs:specification` cannot satisfy that gate.
 
-The linked Issue contract is validated authoritatively at the PR merge
-boundary by `governance.yml`'s `validate-pr` job (`scripts/validate-issue.mjs`).
-A PR whose linked Issue carries `status:invalid` or `needs:specification`
-fails that check. There is no separate Issue-event workflow; Issue text is
-written to a report file and is never interpolated into a shell command.
+## Pull request body authority
 
-## Pull request contract
+The compiled Inari contract under `.github/inari/pull-requests/default.json`
+is the single source of truth for the normal PR body shape. The current default
+contract renders exactly these sections:
 
-Title format:
+- Summary
+- Linked issue
+- Changes
+- Validation
+- Review focus
 
-```text
-type(scope): summary
-```
+Do not add a second mandatory section vocabulary in `governance-rules.json`,
+workflow code, or documentation. `scripts/governance-rules.json` keeps a copy
+of these labels only so repository self-tests can fail fast if it drifts from
+the compiled Inari contract.
 
-Branch format:
+A normal managed PR therefore needs no manual `Scope`, `Implementation`,
+`Behavioral changes`, `Test contract`, `Regression proof`, `Validation
+evidence`, `Release impact`, `Risks`, `Breaking changes`,
+`Migration / compatibility`, or `Security impact` section. Those headings may
+appear in a specialized template when that template declares them, but the
+repository must not require undeclared fields from the default contract.
 
-```text
-type/123-short-description
-```
+## Independent repository checks
 
-The existing PR headings remain required, including `Migration / compatibility`
-and `Security impact`. The template now adds four distinct headings:
+The PR body shape is not the whole governance policy. The repository continues
+to enforce independent checks that do not require extra body sections:
 
-- `Test contract` declares the change type, required layers, and each
-  Not-applicable decision.
-- `Regression proof` is mandatory for bug-fix PRs and records the test path,
-  identifier, pre-fix observed failure, and post-fix result.
-- `Validation evidence` records concrete evidence by class.
-- `Release impact` records package/publish impact and is separate from
-  compatibility migration and security impact.
+- title format: `type(scope): summary`;
+- branch format: `type/<issue>-short-description`;
+- minimum PR body length;
+- exactly one closing Issue reference;
+- completed `Typecheck`, `Tests`, and `Build` entries for non-Draft PRs;
+- conditional `Package check` for distribution-impacting paths;
+- compression changes must carry their configured test/preservation evidence;
+- CLI changes must include the configured README or CLI-test evidence.
 
-The existing `Validation` checklist is preserved. Its Typecheck, Tests, Build,
-and conditional Package check items are completion gates; it does not replace
-the structured evidence records below it. Do not mark an item complete unless
-the check ran.
+Branch-name policy remains in `scripts/governance-rules.json`. Mottainai's
+workflow code derives governed branch types from that same `branchPattern`, so
+reducing the PR body contract does not weaken physical branch governance.
 
-## Structured validation evidence
+## Validation and evidence
 
-`Validation evidence` contains exactly one record for each configured evidence
-class. The canonical record is a bounded key/value line; it does not grant the
-validator permission to execute the declared command.
+Executable checks are the evidence authority. A PR must not duplicate CI output
+into another mandatory body schema.
 
-```text
-- class: unit/contract; status: pass; command: pnpm test; target: src/example.test.ts; result: 12 tests passed; artifact: test output reference
-```
-
-The minimum classes are `unit/contract`, `process/integration`, `package
-smoke`, `fault injection`, `lint/architecture`, and `release`. The security
-path also uses `security/negative`. A `pass` record must contain the fields
-configured for its class. A `not-applicable` record must contain a concrete
-reason and is allowed only when no changed path triggers that class.
-
-Generic claims such as `Tests checked`, `pass`, `TODO`, `TBD`, `placeholder`,
-template-comment-only content, or empty meaningful fields are not evidence.
-The placeholder check is scoped to structured evidence and standalone
-placeholder lines so ordinary explanatory prose is not rejected merely for
-mentioning a word such as TODO.
-
-## Path-aware minimum evidence
-
-The following is the meaning of the data-driven path classes. Exact patterns
-and required fields are canonical in `governance-rules.json`.
-
-| Changed boundary                                                          | Minimum evidence                                                                     |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| CLI or MCP entry                                                          | `process/integration`                                                                |
-| Package, packed artifact, or publish path                                 | `package smoke` with artifact evidence; `release` with artifact and `warnings: none` |
-| Persistence or process boundary                                           | `fault injection` with a concrete failure scenario                                   |
-| Security-sensitive path                                                   | existing `Security impact` section and `security/negative` evidence                  |
-| Config, CLI registration, persisted state, exports, or public tool schema | existing `Migration / compatibility` section with an explicit decision               |
-| Governance, workflow, or standards path                                   | `lint/architecture`                                                                  |
-
-The existing package checkbox, compression rule, CLI evidence rule, security
-section rule, and configuration compatibility rule remain active. The new
-path classes add structured evidence; they do not replace those existing
-changed-file rules.
-
-## Current v1 enforcement and evidence state
-
-The current `main` chain is:
+The normal validation chain is:
 
 ```text
-canonical rule/config
-  -> named test layer and command
-  -> PR validation evidence
-  -> packed artifact / release proof when the package path is affected
-  -> runtime/build identity tied to that verified artifact
+Issue contract
+  -> Inari-compiled PR body
+  -> repository branch/title/completion checks
+  -> CI static integrity and product contract
+  -> merge
 ```
 
-The source of truth for each arrow remains the executable owner linked above;
-this document describes how to navigate the result. Source-level build or test
-success does not prove that an npm consumer can install or execute the packed
-artifact. Conversely, runtime identity is provenance for an already verified
-artifact, not a replacement for its package test.
+`Validation` is the compact user/reviewer-facing declaration. Typecheck, Tests,
+and Build may be marked complete only after they actually ran. Package check is
+conditional on the configured distribution-impacting paths.
 
-| Check or policy | Current status on `main` | Evidence boundary |
-| --- | --- | --- |
-| Issue/PR contract, title/branch rules, existing `Validation` checkboxes, linked Issue validation, and existing changed-file rules | Enforced. `Governance / validate-pr` is a required Ruleset check and depends on `Governance / standards-self-check`; the linked Issue and branch are validated by the governance workflow. | `scripts/governance-rules.json` + `scripts/governance-lib.mjs`; command failures are errors. |
-| `CI / static-integrity` (typecheck, lint, architecture, build) | Enforced required check. | `package.json` scripts (`typecheck`, `lint`, `architecture:check`, `build`); style-only formatting is not part of this gate. |
-| `CI / product-contract` (managed workflow lifecycle, built-dist e2e, packed artifact) | Enforced required check. | `package.json` scripts (`test:integration`, `test:e2e`, `run-package-suite.mjs`) and [`docs/testing.md`](testing.md). |
-| `CI / node-compatibility-smoke` (Node 24) and `CI / runtime-contract` (Nix/QEMU, path-sensitive) | Enforced required checks; `runtime-contract` runs only when a changed path can affect the Nix/QEMU runtime, otherwise it resolves as a deterministic skip under the same check name. | `.github/workflows/ci.yml`. |
-| Structured fields/records in path-aware `Test contract`, `Validation evidence`, `Release impact`, and regression-proof diagnostics | **Report-only**. The section headings remain part of the enforced PR contract, while `qualityGates.rollout.mode` is `report-only`; missing/invalid quality records become warnings with changed paths, matched rules, missing evidence, and remediation. | [`scripts/governance-rules.json`](../scripts/governance-rules.json) and [`scripts/governance-lib.mjs`](../scripts/governance-lib.mjs). Do not describe a warning as an enforcement failure or an unrun layer as passed. |
-| Property/mutation effectiveness | Manual/developer-invoked only; no repository workflow runs it automatically or on a schedule. The runner enforces its own catalog/baseline/timeout result and uploads JSON reports when run, and is excluded from `verify`. | `pnpm run test:effectiveness`, [`scripts/mutation-catalog.mjs`](../scripts/mutation-catalog.mjs), [`mutation-baseline.json`](mutation-baseline.json). |
-| Packed artifact and runtime/build identity | Required as package/release evidence when the configured package path applies; not a source-test shortcut. | [`docs/mcp-stdio-blackbox.md`](mcp-stdio-blackbox.md), `scripts/run-package-suite.mjs`, `scripts/generate-build-metadata.mjs`, `src/runtime-diagnostic.ts`. |
+Detailed process, package, fault, architecture, security, coverage, or release
+results remain available from their owning CI jobs/artifacts. They are not
+separate mandatory PR-body records. Historical quality-evidence experiments do
+not define the current PR schema.
 
-This status table describes current `main`, not the observation state of PR
-#116 or an intended future promotion. The detailed #21–#27 map and test-layer
-ownership are in [`docs/testing.md`](testing.md).
+## CI topology
 
-## Regression-first proof and trust boundary
+The repository keeps distinct execution roles so a fast source check is not
+mistaken for a packed-product proof:
 
-For a bug-fix PR (`fix(...)` or `change type: bug-fix`), `Regression proof` must
-identify:
+- static integrity: typecheck, lint, architecture and build;
+- fast unit/contract tests;
+- integration/process and managed workflow lifecycle tests;
+- built-dist E2E and packed consumer/product-contract tests;
+- Node compatibility smoke;
+- path-sensitive Runtime/QEMU checks when applicable.
 
-- the changed regression test path and fixed test identifier;
-- the observed pre-fix failure and post-fix result; and
-- either automated proof, reviewer-attested proof, or an explicit
-  `unsupported automated proof` reason with reviewer attestation.
-
-Automated proof is intentionally narrow. The PR supplies only a bounded test
-path, identifier, and command id. The command argv comes from the trusted base
-revision's `regressionProof.runners` mapping. The validator never executes a
-shell command copied from the PR body, and the identifier is metadata rather
-than a shell fragment.
-
-When a proof is eligible, the governance workflow's dedicated
-`regression-proof` job (see below) creates temporary CI worktrees separate
-from the Mottainai development task worktree. It applies only the declared
-regular test-file diff to a base worktree, runs the fixed runner expecting the
-pre-fix failure, then runs the same fixed runner in a head worktree expecting
-success. Both worktrees use a timeout, bounded output, a temporary
-HOME/config directory, no credentials, `shell: false`, and cleanup. No
-workflow task state is created or persisted by this proof.
-
-If the test diff cannot be safely narrowed to the configured class, use
-`unsupported automated proof` plus reviewer attestation. The validator reports
-that evidence as an explicit path; it does not turn an unverified case green.
-
-## Report-only quality-gate rollout (current)
-
-The trusted current configuration sets `pullRequest.qualityGates.rollout.mode`
-to `report-only` in [`scripts/governance-rules.json`](../scripts/governance-rules.json).
-The validator emits diagnostics with the changed path, matched path class/rule,
-missing evidence, and the exact way to satisfy it, but does not fail the PR for
-those quality diagnostics. Existing mandatory rules still fail normally. Draft
-PRs may leave quality evidence incomplete; non-Draft PRs must still complete
-the existing enforced validation checkboxes.
-
-Promotion is a three-stage operational gate:
-
-```text
-report-only -> observed -> explicit mode=enforced change
-```
-
-This is the current v1 enforcement state after the quality-gate implementation
-has landed on `main`; it is not a historical claim that rollout is complete.
-Observation data and false-positive review are prerequisites for promotion. A
-maintainer would have to explicitly change the trusted rollout mode after that
-review; no such promotion is documented or implied here.
+The exact commands and classification live in `package.json`,
+`scripts/test-suites.mjs`, and `docs/testing.md`.
 
 ## Workflow trust boundary
 
-`governance.yml` checks out the pull request head into `pr` only to calculate
-changed files and to provide a candidate test diff. It checks out
-`pull_request.base.sha` into `governance` and runs the validator from that
-revision. Checkout credentials remain disabled. The linked Issue step receives
-only the numeric Issue number written by the validator.
+For normal PRs, `.github/workflows/governance.yml` checks out the PR head only
+for candidate changed-file information while executing the trusted validator
+from the PR base revision. The linked-Issue fetch receives only the numeric
+Issue number extracted by the validator. Governance changes therefore apply to
+subsequent PRs after merge; a PR cannot self-authorize a new body contract.
 
-Regression-proof execution runs PR-authored test code — a Git worktree
-isolates repository state, not OS-user or filesystem access, so that code must
-never share a job with trusted follow-up steps (such as the linked Issue
-validation) or with a checkout those steps still trust afterward. The
-`validate-pr` job only builds the regression-proof plan and uploads it as an
-artifact; it never executes the plan and never checks out a workspace that
-proof code could reach. Execution happens in a separate `regression-proof`
-job with `permissions: {}`, its own PR-head and governance-base checkouts, and
-no further trusted step afterward — its only output is a report appended to
-its own job summary. It is not `pull_request_target`, does not run PR-provided
-shell text (only fixed argv from the trusted base revision's
-`regressionProof.runners` mapping), and cannot influence the `validate-pr`
-result. Governance changes therefore govern subsequent PRs after merge; they
-cannot self-authorize their own enforcement.
+Release branches use the dedicated organization release-PR contract and remain
+separate from the normal default Inari PR body.
 
 ## Local validation
 
-```bash
-pnpm run governance:test
-pnpm run governance:branch -- --branch chore/123-governance
-pnpm run governance:issue -- --event /path/to/issues-event.json
-pnpm run governance:pr -- --event /path/to/pull-request-event.json --files /path/to/changed-files.txt
-```
-
-For this quality-gate change, use the repository development loop:
+Useful local checks are:
 
 ```bash
 pnpm run governance:test
-pnpm run test:standards
+pnpm run governance:branch -- --branch fix/123-example
+pnpm run governance:pr:local -- \
+  --title 'fix(workflow): example correction' \
+  --body-file /path/to/pr-body.md \
+  --files /path/to/changed-files.txt \
+  --branch fix/123-example
 pnpm run verify:standards
 pnpm run typecheck
 pnpm test
 pnpm run build
 ```
 
-Do not report report-only observations as enforcement failures or as proof that
-post-merge operational observation has completed. Do not report an unrun,
-pending, hung, or environment-unavailable layer as passed.
-
-## Failed-result navigation
-
-Use the diagnostic's changed paths and matched rule to select the next owner;
-do not infer a new rule from the prose of a PR.
-
-| Failed result or warning | Canonical owner | Next proof / evidence |
-| --- | --- | --- |
-| Test file is unclassified, overlaps suites, or leaks into fast | [`scripts/test-suites.mjs`](../scripts/test-suites.mjs) | `pnpm run test:classification` / `pnpm run test:standards`; record the affected test layer. |
-| Format, lint, architecture, or governance self-test | [`eslint.config.mjs`](../eslint.config.mjs), [`prettier.config.mjs`](../prettier.config.mjs), [`scripts/architecture-check.mjs`](../scripts/architecture-check.mjs) | `pnpm run verify:standards`; `lint/architecture` evidence for governance paths. |
-| `quality.evidence.*`, path class, or `quality.regression.*` warning | [`scripts/governance-rules.json`](../scripts/governance-rules.json) + [`scripts/governance-lib.mjs`](../scripts/governance-lib.mjs) | Run the mapped test, add the exact class fields, and record the concrete result. Current quality warning remains report-only. |
-| Package/artifact or release result | [`scripts/run-package-suite.mjs`](../scripts/run-package-suite.mjs), [`scripts/smoke-test.mjs`](../scripts/smoke-test.mjs), release workflow | Verify the same packed tarball in an isolated consumer; include artifact and `warnings: none` release evidence. |
-| Runtime identity or startup diagnostic mismatch | [`scripts/generate-build-metadata.mjs`](../scripts/generate-build-metadata.mjs), [`src/runtime-diagnostic.ts`](../src/runtime-diagnostic.ts) | Rebuild the candidate, run package identity assertions, then inspect `doctor --json` or `mottainai_runtime_status` for the verified artifact's `build_id` and distribution kind. |
+The local PR validator deliberately uses the same default body semantics as the
+CI validator. gh-inari remains the renderer/semantic validator for repository
+PR mutation.
 
 ## GitHub Ruleset
 
-Repository files cannot enable a Ruleset. Configure a Ruleset for `main`
-manually:
+Repository files cannot configure the GitHub Ruleset themselves. The intended
+main-branch policy requires pull requests and the repository's required
+Governance/CI status checks. Exact currently configured Ruleset state must be
+verified in GitHub rather than inferred from this document.
 
-- Require pull requests
-- Require one approval
-- Require Code Owner review
-- Dismiss stale approvals
-- Require resolved conversations
-- Require branches to be up to date
-- Block force pushes
-- Block branch deletion
-- Disable bypasses, including administrators
-- Require the status check `Governance / validate-pr`
-- Require `CI / typecheck (Node 22)`
-- Require `CI / fast unit / contract (Node 22)`
+## LLM / agent rules
 
-The active repository ruleset does not require a native-Windows check or the
-Linux Node 24 compatibility smoke. No branch-protection setting is changed by
-this repository change.
-
-`.github/CODEOWNERS` currently assigns governance paths to `@yohnark`. Do not
-configure a nonexistent team name.
-
-## LLM rules
-
-- Do not add functionality absent from the Issue.
+- Do not add functionality absent from the owning Issue.
 - Do not change acceptance criteria during implementation.
-- Propose out-of-scope problems as separate Issues.
-- Reconstruct the PR body from the final diff and validation results.
-- Never mark unrun validation as completed.
+- Use gh-inari for governed PR mutation and Nawabari for physical Git/session
+  authority on the supported Golden Path.
+- Reconstruct the five Inari fields from the final change and actual validation
+  results; do not invent undeclared mandatory sections.
+- Never mark an unrun validation check complete.
 - Close exactly one Issue by default.
-- Make Review focus specific.
-- Create Issues for TODOs and follow-ups; do not leave them only in a PR body.
+- Make Review focus concrete.
+- Treat CI/job output as executable evidence rather than copying it into a
+  second PR-body authority.

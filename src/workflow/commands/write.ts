@@ -1263,9 +1263,10 @@ async function recoverPushReconciliation(input: {
     }
 
     // Nawabari's push.v1 performs the authoritative generation inspection. Recovery
-    // never reuses the original force/upstream intent: force is disabled and the
-    // target must already be at the recorded source generation. Thus an advanced
-    // remote is rejected by Nawabari before any overwrite can be attempted.
+    // never reuses persisted force/upstream intent. Force is always disabled. A fresh
+    // explicit --create-upstream on the current invocation may be honored so an earlier
+    // PUSH_NO_UPSTREAM does not poison retry; Nawabari still verifies source generation
+    // before any remote mutation.
     const observed = await nawabari.push({
       cwd: workspaceRoot,
       sessionId: receipt.nawabariSessionId,
@@ -1273,7 +1274,7 @@ async function recoverPushReconciliation(input: {
       branch: receipt.targetBranch,
       resources,
       force: false,
-      createUpstream: false,
+      createUpstream: pushInput.createUpstream === true,
     });
     const evidence = pushEvidence(observed);
     const mismatch = pushIdentityMismatch(receipt, evidence);
