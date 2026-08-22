@@ -38,6 +38,7 @@ export interface DashboardServerOptions {
   host?: string;
   port?: number;
   manager?: ManagerHttpHandler;
+  staticAssets?: Readonly<Record<string, { body: string; contentType: string }>>;
 }
 
 export interface DashboardServerHandle {
@@ -77,6 +78,15 @@ function sendViewer(response: ServerResponse, html: string): void {
     "content-type": "text/html; charset=utf-8",
   });
   response.end(html);
+}
+
+function sendStaticAsset(response: ServerResponse, asset: { body: string; contentType: string }): void {
+  response.writeHead(200, {
+    "cache-control": "no-store",
+    "content-length": Buffer.byteLength(asset.body),
+    "content-type": asset.contentType,
+  });
+  response.end(asset.body);
 }
 
 function parseOptionalLimit(value: string | null): number | undefined {
@@ -269,6 +279,11 @@ async function route(
   if (method !== "GET") {
     response.setHeader("allow", "GET");
     sendError(response, 405, "method_not_allowed", "dashboard accepts GET requests only", url.pathname);
+    return;
+  }
+  const staticAsset = options.staticAssets?.[url.pathname];
+  if (staticAsset !== undefined) {
+    sendStaticAsset(response, staticAsset);
     return;
   }
   if (url.pathname === "/" || url.pathname === "/index.html") {

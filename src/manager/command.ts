@@ -11,7 +11,7 @@ import { LOOPBACK_HOST, startDashboardServer, type DashboardServerHandle } from 
 import type { ManagerAgentKind, WorkflowStateStore } from "../workflow/state/store.js";
 import type { ManagerExecutionAuthority } from "../workflow/domain/manager-execution.js";
 import { ManagerHttpApi } from "./http.js";
-import { readManagerViewer } from "./assets.js";
+import { readManagerAssets, readManagerViewer } from "./assets.js";
 import { ManagerSessionService } from "./service.js";
 import { NawabariExecutionClient } from "../workflow/nawabari.js";
 import { ZellijCliRuntime, type ZellijRuntime } from "./zellij.js";
@@ -125,6 +125,7 @@ export async function startManager(options: ManagerStartOptions): Promise<Dashbo
       serviceName: "manager",
       query: createDashboardQuery(options.provider ?? configuredDashboardProvider(environment), workspaceRoot),
       viewerHtml: options.viewerHtml ?? readManagerViewer(),
+      staticAssets: readManagerAssets(),
       manager: new ManagerHttpApi(service),
     });
     if (!options.noOpen && options.browserOpener !== undefined)

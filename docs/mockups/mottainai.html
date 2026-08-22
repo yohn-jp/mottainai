@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Mottainai Manager — Operations Console v1</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="mottainai">
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark"></div>
+          <div class="brand-word">mottainai</div>
+          <small>MANAGER</small>
+        </div>
+        <div class="scope">
+          <div class="scope-label">active runtime</div>
+          <div class="scope-value"><span>unavailable</span><span class="scope-health">UNAVAILABLE</span></div>
+        </div>
+        <nav class="nav">
+          <div class="nav-item active" aria-current="page"><span class="glyph">⌂</span><span>Operations</span></div>
+          <div class="nav-item"><span class="glyph">R</span><span>Runtimes</span></div>
+          <div class="nav-item"><span class="glyph">↳</span><span>Repositories</span></div>
+          <div class="nav-item"><span class="glyph">S</span><span>Sessions</span></div>
+          <div class="nav-section">work</div>
+          <button type="button" class="nav-item" data-open-new><span class="glyph">＋</span><span>New task</span></button>
+          <div class="nav-item"><span class="glyph">I</span><span>Intents</span></div>
+          <div class="nav-section">system</div>
+          <div class="nav-item"><span class="glyph">A</span><span>Authority</span></div>
+          <div class="nav-item"><span class="glyph">⚙</span><span>Settings</span></div>
+        </nav>
+        <div class="sidebar-foot">
+          <div class="shortcut"><span>Command</span><kbd class="kbd">⌘ K</kbd></div>
+          <div class="shortcut"><span>New task</span><kbd class="kbd">⌘ N</kbd></div>
+        </div>
+      </aside>
+      <main class="shell">
+        <header class="topbar">
+          <div class="top-left">
+            <button class="context" id="runtimeContext">runtime/unavailable ▾</button><span class="health" id="healthLabel">Manager unavailable</span>
+          </div>
+          <div class="top-right">
+            <button class="icon-btn" id="openPalette">⌘K</button
+            ><button class="primary" data-open-new>＋ New task</button>
+          </div>
+        </header>
+        <div class="page">
+          <div class="page-title-row">
+            <div>
+              <div class="eyebrow">OPERATIONS / LIVE</div>
+              <h1>オペレーションホーム</h1>
+              <p class="subtitle">判断が必要な事象を先に。正常系は静かに、異常系は根拠と次の安全な操作まで。</p>
+            </div>
+            <div class="timestamp" id="observedTimestamp">OBSERVED unavailable</div>
+          </div>
+          <div class="ops-grid">
+            <div>
+              <section class="attention-zone">
+                <div class="section-head" style="padding: 0 12px">
+                  <span>Operator attention</span><span class="count">unavailable</span>
+                </div>
+                <div class="attention-row"><div></div><div><b>Loading operational data…</b></div></div>
+                <div class="summary-strip">
+                  <div class="summary-segment">
+                    <div>
+                      <div class="summary-name">running</div>
+                      <div class="summary-num">—</div>
+                    </div>
+                    <div class="signal"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+                  </div>
+                  <div class="summary-segment">
+                    <div>
+                      <div class="summary-name">needs attention</div>
+                      <div class="summary-num">—</div>
+                    </div>
+                  </div>
+                  <div class="summary-segment">
+                    <div>
+                      <div class="summary-name">recent</div>
+                      <div class="summary-num">—</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+              <section class="sessions">
+                <div class="section-head" style="padding: 0 12px">
+                  <span>Running</span><a class="link">all sessions →</a>
+                </div>
+                <div class="session-head">
+                  <span>ID</span><span>TASK</span><span>AGENT</span><span>PHASE</span><span>LAST SEMANTIC STATE</span
+                  ><span></span>
+                </div>
+                <div class="attention-row"><div></div><div><b>Loading operational data…</b></div></div>
+              </section>
+            </div>
+            <aside class="operator-rail">
+              <div class="rail-block">
+                <div class="section-head"><span>Authority status</span><span class="count" id="authorityStatusValue">UNAVAILABLE</span></div>
+                <div class="status-line">
+                  <span class="status-dot" id="runtimeStatusDot"></span><span><b>Runtime</b><br /><span class="mono" id="runtimeStatusDetail">unavailable</span></span
+                  ><span class="scope-health" id="runtimeStatusHealth">UNAVAILABLE</span>
+                </div>
+              </div>
+              <div class="rail-block">
+                <div class="section-head"><span>Authority map</span></div>
+                <div class="authority-map">
+                  <b>GitHub</b> → integration truth<br /><b>Nawabari</b> → local execution truth<br /><b>Mottainai</b> →
+                  lifecycle intent
+                </div>
+              </div>
+              <div class="rail-block">
+                <div class="section-head"><span>Recent signal</span></div>
+                <div id="recentSignal"></div>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </main>
+    </div>
+    <div class="backdrop" id="drawerBackdrop"></div>
+    <aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
+      <div class="drawer-head">
+        <div>
+          <div class="eyebrow">RECOVERY INSPECTOR</div>
+          <b id="drawerTitle">Session detail</b>
+        </div>
+        <button class="icon-btn" data-close>ESC</button>
+      </div>
+      <div class="drawer-body" id="drawerBody"></div>
+      <div class="drawer-foot">
+        <button class="secondary" data-close>Close</button
+        ><button class="primary" id="drawerAction">Run recovery</button>
+      </div>
+    </aside>
+    <div class="backdrop" id="modalBackdrop"></div>
+    <section class="modal" id="newTaskModal" role="dialog" aria-modal="true" aria-labelledby="newTaskModalTitle">
+      <div class="modal-head">
+        <div>
+          <div class="eyebrow">LAUNCH INTENT</div>
+          <b id="newTaskModalTitle">New task</b>
+        </div>
+        <span class="mono" id="stepLabel">01 / WORK</span>
+      </div>
+      <div class="modal-body">
+        <div class="steps"><i class="active"></i><i></i><i></i><i></i></div>
+        <div id="stepContent"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="secondary" id="prevStep">Back</button>
+        <div>
+          <button class="secondary" data-close-modal>Cancel</button>
+          <button class="primary" id="nextStep">Continue</button>
+        </div>
+      </div>
+    </section>
+    <div class="backdrop" id="paletteBackdrop"></div>
+    <div class="command" id="palette" role="dialog" aria-modal="true" aria-label="Command palette">
+      <input placeholder="Command, session, issue…" aria-label="Search commands, sessions, and issues" />
+      <button type="button" class="command-item" data-palette-new><span>New task</span><kbd class="kbd">⌘ N</kbd></button>
+      <div id="paletteDynamic"></div>
+    </div>
+<script>
+(function () {
+  "use strict";
+  var q = function (s) { return document.querySelector(s); };
+  var qa = function (s) { return Array.prototype.slice.call(document.querySelectorAll(s)); };
+  var esc = function (v) { return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) { return ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[c]; }); };
+  var value = function (v, fallback) { return v == null || v === "" ? (fallback || "unavailable") : v; };
+  var request = function (path, init) {
+    return fetch("/api/v1/manager" + path, init).then(function (response) {
+      return response.json().then(function (body) {
+        if (!response.ok) throw new Error(body.error && body.error.message || "Manager request failed");
+        return body;
+      });
+    });
+  };
+  var post = function (path, body) {
+    return request(path, { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(body) });
+  };
+  var sessions = [];
+  var health;
+  var taskStep = 0;
+  // The accepted preflight pair: the exact task snapshot a claim-preflight approved, together
+  // with the preview it returned. The two are stored together so request/preview identity cannot split.
+  var approvedPreflight;
+  var preflightToken = 0;
+  // Modal lifecycle generation. Closing/reopening the task dialog invalidates all prior async responses.
+  var preflightEpoch = 0;
+  function readWabachiWorkIntent() {
+    var params = new URLSearchParams(window.location.search);
+    var fromQuery = params.get("focus") || params.get("instruction") || params.get("repository") ? {
+      repository: params.get("repository") || undefined,
+      focus: params.get("focus") || undefined,
+      instruction: params.get("instruction") || undefined,
+    } : undefined;
+    if (fromQuery) return fromQuery;
+    try {
+      var stored = sessionStorage.getItem("wabachiWorkIntent");
+      if (stored) return JSON.parse(stored);
+    } catch (e) { /* presentation-only handoff; ignore malformed or unavailable storage */ }
+    return undefined;
+  }
+  var createTaskState = function () {
+    var intent = readWabachiWorkIntent();
+    return {
+      wabachiIntent: intent,
+      issueRef: "#406",
+      instruction: (intent && intent.instruction) || "Implement the requested work while preserving existing authority boundaries.",
+      agentKind: "pi",
+      taskSlug: "operational-task",
+      branchType: "feat",
+      scope: { path: "src/**", claimMode: "exclusive-write" },
+    };
+  };
+  var taskState = createTaskState();
+  function rail(phases) {
+    return (phases || []).map(function (phase) {
+      return '<span class="' + (phase.state === "complete" ? "done" : phase.state === "current" ? "now" : "") + '" title="' + esc(phase.label) + '"></span>';
+    }).join("");
+  }
+  function running(session) { return ["starting", "running", "detached"].indexOf(session.runtimeState) >= 0; }
+  function recent(session) { return !running(session) && !session.operational.attention; }
+  function phase(session) {
+    var current = session.operational.phaseRail.filter(function (p) { return p.state === "current" || p.state === "attention"; })[0];
+    return current ? current.label : String(value(session.semanticLifecycleState, "unbound")).toUpperCase();
+  }
+  function row(session) {
+    var p = session.operational;
+    return '<div class="session-row" data-session="' + esc(session.sessionId) + '" tabindex="0" role="button">' +
+      '<div class="sid">' + esc(session.sessionId.slice(0, 8)) + '</div><div><b>' + esc(session.taskSlug || "Managed task") +
+      '</b><div class="phase-flow" aria-label="authoritative phase rail">' + rail(p.phaseRail) + '</div></div><div class="agent">' + esc(session.agentKind) +
+      '</div><div class="phase">' + esc(phase(session)) + '</div><div class="latest">' + esc(p.statusLabel) + ' · ' + esc(value(session.latestStatus, "no status")) +
+      '</div><button class="open-link" data-open-session="' + esc(session.sessionId) + '">OPEN ↗</button></div>';
+  }
+  function attentionRow(session) {
+    var a = session.operational.attention;
+    return '<div class="attention-row"><div class="sev-mark">' + esc(a.priority) + '</div><div><div class="attn-id">' + esc(session.sessionId) +
+      ' · ' + esc(session.agentKind) + '</div><div class="attn-title">' + esc(session.taskSlug || "Managed session") + '</div><div class="attn-desc">' +
+      esc(a.reason) + '</div></div><div class="cause">OWNER<br><b>' + esc(a.authority) + '</b><br>SAFE ACTION<br><b>' + esc(a.actionLabel) +
+      '</b></div><div class="action-cell"><button class="secondary" data-open-session="' + esc(session.sessionId) + '">' + esc(a.actionLabel) + ' →</button></div></div>';
+  }
+  function empty(message) { return '<div class="attention-row"><div></div><div><b>' + esc(message) + '</b></div></div>'; }
+  function renderHome() {
+    var attention = sessions.filter(function (s) { return !!s.operational.attention; });
+    var active = sessions.filter(running);
+    var recentSessions = sessions.filter(recent);
+    q(".attention-zone .section-head span").textContent = "Needs attention";
+    qa(".attention-zone .attention-row").forEach(function (node) { node.remove(); });
+    q(".summary-strip").insertAdjacentHTML("beforebegin", attention.length ? attention.map(attentionRow).join("") : empty("No operator attention required"));
+    q(".attention-zone .count").textContent = attention.length + " UNRESOLVED";
+    q(".sessions .section-head span").textContent = "Running";
+    qa(".sessions .session-row, .sessions .attention-row").forEach(function (node) { node.remove(); });
+    q(".sessions .session-head").insertAdjacentHTML("afterend", active.length ? active.map(row).join("") : empty("No running managed sessions"));
+    qa(".session-row").forEach(function (node) {
+      node.onkeydown = function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); var btn = node.querySelector("[data-open-session]"); if (btn) btn.click(); } };
+    });
+    var recentSection = q("#recentSessions");
+    if (!recentSection) {
+      q(".sessions").insertAdjacentHTML("afterend", '<section class="sessions" id="recentSessions"><div class="section-head" style="padding:0 12px"><span>Recent</span><span class="count"></span></div><div class="session-head"><span>ID</span><span>TASK</span><span>AGENT</span><span>PHASE</span><span>AUTHORITATIVE STATE</span><span></span></div></section>');
+      recentSection = q("#recentSessions");
+    }
+    qa("#recentSessions .session-row, #recentSessions .attention-row").forEach(function (node) { node.remove(); });
+    q("#recentSessions .session-head").insertAdjacentHTML("afterend", recentSessions.length ? recentSessions.map(row).join("") : empty("No recent managed sessions"));
+    q("#recentSessions .count").textContent = recentSessions.length + " RECENT";
+    qa("#recentSessions .session-row").forEach(function (node) {
+      node.onkeydown = function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); var btn = node.querySelector("[data-open-session]"); if (btn) btn.click(); } };
+    });
+    qa(".summary-num").forEach(function (node, index) { node.textContent = String([active.length, attention.length, recentSessions.length][index] || 0); });
+    qa(".summary-name").forEach(function (node, index) { node.textContent = ["running", "needs attention", "recent"][index]; });
+    qa("[data-open-session]").forEach(function (button) { button.onclick = function () { openSession(button.dataset.openSession); }; });
+    renderRecentSignal();
+  }
+  function updateHealth() {
+    var root = health && health.workspaceRoot;
+    var label = root ? root.split("/").filter(Boolean).slice(-1)[0] : "unavailable";
+    q(".scope-value span").textContent = label;
+    q(".scope-health").textContent = health ? "HEALTHY" : "UNAVAILABLE";
+    q("#healthLabel").textContent = health ? "Manager ready · Zellij " + health.zellij.version : "Manager unavailable";
+    q("#runtimeContext").textContent = "runtime/" + label + " ▾";
+    q("#runtimeStatusDetail").textContent = health ? label + " · Zellij " + health.zellij.version : "unavailable";
+    q("#runtimeStatusHealth").textContent = health ? "OK" : "UNAVAILABLE";
+    q("#runtimeStatusDot").classList.toggle("warn", !health);
+    q("#authorityStatusValue").textContent = health ? "CURRENT" : "UNAVAILABLE";
+    q("#observedTimestamp").textContent = "OBSERVED " + new Date().toLocaleTimeString();
+  }
+  function recentSignalRow(session) {
+    var receipt = session.latestReceipt;
+    var when = receipt ? new Date(receipt.recordedAt).toLocaleTimeString() : "unavailable";
+    var text = receipt ? receipt.message : value(session.latestStatus, "no recorded signal");
+    return '<div class="activity-line"><span class="activity-tick"></span><span><b>' + esc((session.taskSlug || session.sessionId).slice(0, 24)) + '</b> ' + esc(text) + '</span><span class="activity-time">' + esc(when) + '</span></div>';
+  }
+  function renderRecentSignal() {
+    var withReceipts = sessions.filter(function (s) { return s.latestReceipt !== undefined || s.latestStatus !== undefined; })
+      .sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); })
+      .slice(0, 4);
+    q("#recentSignal").innerHTML = withReceipts.length ? withReceipts.map(recentSignalRow).join("") : empty("No recent signal");
+  }
+  function renderPalette() {
+    var container = q("#paletteDynamic");
+    if (!container) return;
+    var items = [];
+    var topAttention = sessions.filter(function (s) { return !!s.operational.attention; })[0];
+    if (topAttention) {
+      items.push('<button type="button" class="command-item" data-palette-session="' + esc(topAttention.sessionId) + '"><span>Inspect attention · ' + esc(topAttention.taskSlug || topAttention.sessionId.slice(0, 8)) + '</span><kbd class="kbd">A</kbd></button>');
+    }
+    var topRunning = sessions.filter(running)[0];
+    if (topRunning && (!topAttention || topRunning.sessionId !== topAttention.sessionId)) {
+      items.push('<button type="button" class="command-item" data-palette-session="' + esc(topRunning.sessionId) + '"><span>Open session · ' + esc(topRunning.taskSlug || topRunning.sessionId.slice(0, 8)) + '</span><kbd class="kbd">↵</kbd></button>');
+    }
+    container.innerHTML = items.join("") || '<div class="command-item"><span>No sessions available</span></div>';
+    qa("#paletteDynamic [data-palette-session]").forEach(function (node) {
+      node.onclick = function () { closePalette(); openSession(node.dataset.paletteSession); };
+    });
+  }
+  function detail(session) {
+    var p = session.operational;
+    var phases = p.phaseRail.map(function (x) { return "<li><b>" + esc(x.label) + "</b> · " + esc(x.state) + "</li>"; }).join("");
+    var authorities = p.authorities.map(function (x) { return "<li><b>" + esc(x.name) + "</b> · " + esc(x.responsibility) + " · " + esc(x.status) + "</li>"; }).join("");
+    var attention = p.attention ? '<div class="detail-block"><div class="detail-label">attention / owning authority / safe action</div><p><b>' + esc(p.attention.priority) + "</b> · " + esc(p.attention.reason) + "<br>" + esc(p.attention.authority) + " → " + esc(p.attention.actionLabel) + "</p></div>" : "";
+    var exit = session.runtimeState === "exited" ? '<div class="detail-block"><div class="detail-label">runtime evidence</div><p>Process exit observed. Process exit is not semantic completion; lifecycle remains authoritative.</p></div>' : "";
+    return '<div class="detail-block"><div class="detail-label">SESSION DETAIL / AUTHORITATIVE PROJECTION</div><code>Manager session: ' + esc(p.identities.managerSessionId) + "<br>Task: " + esc(value(p.identities.taskId)) + "<br>Execution: " + esc(value(p.identities.executionSessionId)) + "<br>Runtime: " + esc(p.identities.runtimeName) + "</code></div>" +
+      attention + '<div class="detail-block"><div class="detail-label">phase rail</div><ol>' + phases + "</ol></div>" +
+      '<div class="detail-block"><div class="detail-label">repository / worktree / branch</div><code>' + esc(p.repository.name) + "<br>" + esc(p.repository.root) + "<br>" + esc(p.repository.worktree) + "<br>" + esc(value(p.repository.branch)) + "</code></div>" +
+      '<div class="detail-block"><div class="detail-label">validation</div><p>' + esc(p.validation.state) + " · " + esc(p.validation.summary) + "</p></div>" +
+      '<div class="detail-block"><div class="detail-label">commit / push / pull request</div><code>commit [' + esc(p.commit.state) + "] " + esc(value(p.commit.sha)) + " · Nawabari<br>push [" + esc(p.push.state) + "] " + esc(value(p.push.target)) + " · Nawabari<br>PR [" + esc(p.pullRequest.state) + "] " + esc(value(p.pullRequest.number)) + " · gh-inari</code></div>" +
+      exit + '<div class="detail-block"><div class="detail-label">authority map</div><ul>' + authorities + "</ul></div>";
+  }
+  function closeOverlaysExcept(kept) {
+    if (kept !== "drawer" && q("#drawer").classList.contains("open")) {
+      q("#drawer").classList.remove("open"); q("#drawerBackdrop").classList.remove("open"); drawerTrigger = null;
+    }
+    if (kept !== "modal" && q("#newTaskModal").classList.contains("open")) {
+      preflightEpoch++;
+      approvedPreflight = undefined;
+      q("#newTaskModal").classList.remove("open"); q("#modalBackdrop").classList.remove("open"); modalTrigger = null;
+    }
+    if (kept !== "palette" && q("#palette").classList.contains("open")) {
+      q("#palette").classList.remove("open"); q("#paletteBackdrop").classList.remove("open"); paletteTrigger = null;
+    }
+  }
+  var drawerTrigger = null;
+  function closeDrawer() {
+    q("#drawer").classList.remove("open"); q("#drawerBackdrop").classList.remove("open");
+    if (drawerTrigger) { drawerTrigger.focus(); drawerTrigger = null; }
+  }
+  function openSession(id) {
+    closeOverlaysExcept("drawer");
+    drawerTrigger = document.activeElement;
+    q("#drawerTitle").textContent = "Session detail";
+    q("#drawerBody").innerHTML = empty("Loading session detail…");
+    q("#drawerAction").textContent = "Open managed terminal";
+    q("#drawerAction").onclick = null;
+    q("#drawer").classList.add("open"); q("#drawerBackdrop").classList.add("open");
+    q("#drawerAction").focus();
+    return request("/sessions/" + encodeURIComponent(id)).then(function (body) {
+      var session = body.session;
+      q("#drawerTitle").textContent = (session.taskSlug || "Managed session") + " · " + session.operational.statusLabel;
+      q("#drawerBody").innerHTML = detail(session);
+      q("#drawerAction").textContent = session.operational.attention ? session.operational.attention.actionLabel : "Open managed terminal";
+      q("#drawerAction").onclick = function () { action(session, session.operational.attention ? session.operational.attention.safeAction : "open-terminal"); };
+    }).catch(function (error) {
+      q("#drawerBody").innerHTML = '<div class="detail-block"><b>Session detail unavailable</b><p>' + esc(error.message) + "</p></div>";
+    });
+  }
+  function action(session, kind) {
+    if (kind === "inspect") return openSession(session.sessionId);
+    var path;
+    if (kind === "open-terminal") path = "/sessions/" + encodeURIComponent(session.sessionId) + "/open-terminal";
+    else if (kind === "restart") path = "/sessions/" + encodeURIComponent(session.sessionId) + "/restart";
+    else {
+      var executionSessionId = session.operational && session.operational.identities && session.operational.identities.executionSessionId;
+      if (!executionSessionId) {
+        q("#drawerBody").insertAdjacentHTML("afterbegin", '<div class="detail-block"><b>Inspect unavailable</b><p>Nawabari execution session identity is unavailable; no inspect request was sent.</p></div>');
+        return;
+      }
+      path = "/nawabari/sessions/" + encodeURIComponent(executionSessionId) + "/inspect";
+    }
+    post(path, {}).then(refresh).then(function () { openSession(session.sessionId); }).catch(function (error) {
+      q("#drawerBody").insertAdjacentHTML("afterbegin", '<div class="detail-block"><b>Action unavailable</b><p>' + esc(error.message) + "</p></div>");
+    });
+  }
+  function saveTaskInputs() {
+    var input = q("#intentIssue");
+    if (input) taskState.issueRef = input.value;
+    input = q("#intentInstruction");
+    if (input) taskState.instruction = input.value;
+    input = q("#intentAgent");
+    if (input) taskState.agentKind = input.value;
+    input = q("#intentTaskSlug");
+    if (input) taskState.taskSlug = input.value;
+    input = q("#intentBranchType");
+    if (input) taskState.branchType = input.value;
+    input = q("#intentPath");
+    if (input) taskState.scope.path = input.value;
+    input = q("#intentClaimMode");
+    if (input) taskState.scope.claimMode = input.value;
+  }
+  function normalizeIssueRef(raw) {
+    var issue = String(raw == null ? "" : raw).trim();
+    return issue.replace(/^#+/u, "") || "406";
+  }
+  function taskSnapshot() {
+    var state = {
+      issueRef: taskState.issueRef,
+      instruction: taskState.instruction,
+      agentKind: taskState.agentKind,
+      taskSlug: taskState.taskSlug,
+      branchType: taskState.branchType,
+      scope: { path: taskState.scope.path, claimMode: taskState.scope.claimMode },
+    };
+    var path = state.scope.path.trim() || "src/**";
+    var slug = state.taskSlug.trim() || "operational-task";
+    return {
+      instruction: state.instruction.trim() || "Implement the requested work.",
+      agentKind: state.agentKind || "pi",
+      issueRef: normalizeIssueRef(state.issueRef),
+      taskSlug: slug,
+      branchType: state.branchType.trim() || "feat",
+      idempotencyKey: "manager-ui-" + slug.replace(/[^A-Za-z0-9._:-]/gu, "-"),
+      scope: { paths: [path], claims: [{ resource: path, mode: state.scope.claimMode || "exclusive-write" }] },
+    };
+  }
+  function taskValues() {
+    saveTaskInputs();
+    return taskSnapshot();
+  }
+  function taskMarkup() {
+    if (taskStep === 0) {
+      var intent = taskState.wabachiIntent;
+      var intentBlock = intent ? '<div class="detail-block"><div class="detail-label">Wabachi presentation intent (not authoritative)</div><code>repository: ' + esc(value(intent.repository)) + '<br>focus: ' + esc(value(intent.focus)) + '</code></div>' : "";
+      return '<div class="detail-block"><div class="detail-label">Wabachi Work Intent → Manager</div><p>Finding → Create Work Intent → Manager → preflight → managed session → Running</p></div>' + intentBlock + '<div class="field"><label>Issue / intent</label><input id="intentIssue" value="' + esc(taskState.issueRef) + '"></div><div class="field"><label>Implementation instruction</label><textarea id="intentInstruction">' + esc(taskState.instruction) + "</textarea></div>";
+    }
+    if (taskStep === 1) return '<div class="form-grid"><div class="field"><label>Execution profile</label><select id="intentAgent"><option value="pi"' + (taskState.agentKind === "pi" ? " selected" : "") + '>Pi</option><option value="codex"' + (taskState.agentKind === "codex" ? " selected" : "") + '>Codex</option><option value="claude"' + (taskState.agentKind === "claude" ? " selected" : "") + '>Claude</option></select></div><div class="field"><label>Task slug</label><input id="intentTaskSlug" value="' + esc(taskState.taskSlug) + '"></div></div><div class="field"><label>Branch type</label><input id="intentBranchType" value="' + esc(taskState.branchType) + '"></div>';
+    if (taskStep === 2) return '<div class="field"><label>Requested repository path</label><input id="intentPath" value="' + esc(taskState.scope.path) + '"></div><div class="field"><label>Claim mode</label><select id="intentClaimMode"><option value="exclusive-write"' + (taskState.scope.claimMode === "exclusive-write" ? " selected" : "") + '>exclusive-write</option><option value="write"' + (taskState.scope.claimMode === "write" ? " selected" : "") + '>write</option><option value="read"' + (taskState.scope.claimMode === "read" ? " selected" : "") + '>read</option></select></div><div class="detail-block"><div class="detail-label">authority boundary</div><code>Git/worktree: Nawabari<br>GitHub mutation: gh-inari<br>lifecycle: Mottainai</code></div>';
+    if (taskStep === 3) return '<div class="detail-block"><div class="detail-label">claim-preflight / launch readiness</div><div id="preflightResult">Running authoritative read-only preflight…</div></div><div class="detail-block"><div class="detail-label">preview endpoint</div><code>POST /api/v1/manager/sessions/preview</code></div>';
+    return '<div class="detail-block"><div class="detail-label">Launch through Manager</div><p>' + (approvedPreflight ? "Preflight clear. Manager establishes authoritative identities." : "Launch unavailable until preflight succeeds.") + '</p></div><div class="detail-block"><div class="detail-label">Projected Nawabari declaration</div><code>' + esc(approvedPreflight && approvedPreflight.preview.nawabariDeclaration ? JSON.stringify(approvedPreflight.preview.nawabariDeclaration) : "unavailable") + '</code></div><div class="detail-block"><div class="detail-label">resolved branch</div><code>' + esc(approvedPreflight && approvedPreflight.preview.identity ? approvedPreflight.preview.identity.branch.name : "unavailable") + "</code></div>";
+  }
+  function renderTask() {
+    saveTaskInputs();
+    var steps = q(".steps");
+    while (steps.children.length < 5) steps.appendChild(document.createElement("i"));
+    steps.style.gridTemplateColumns = "repeat(5,1fr)";
+    qa(".steps i").forEach(function (node, index) { node.classList.toggle("active", index <= taskStep); });
+    q("#stepLabel").textContent = "0" + (taskStep + 1) + " / " + ["WORK","EXECUTION","AUTHORITY","PREFLIGHT","LAUNCH"][taskStep];
+    q("#stepContent").innerHTML = taskMarkup();
+    q("#prevStep").style.visibility = taskStep ? "visible" : "hidden";
+    q("#nextStep").textContent = taskStep === 4 ? "Launch" : taskStep === 3 ? "Re-run preflight" : "Continue";
+    q("#nextStep").disabled = taskStep === 4 && !approvedPreflight;
+  }
+  function isLaunchableClaimStatus(status) { return status === "clear" || status === "not-applicable"; }
+  function isCurrentPreflightResponse(token, latestToken) { return token === latestToken; }
+  function isPreflightResponseCurrent(epoch, currentEpoch) { return epoch === currentEpoch; }
+  function preflight() {
+    var taskRequest = taskValues();
+    var token = ++preflightToken;
+    var epoch = preflightEpoch;
+    approvedPreflight = undefined;
+    q("#preflightResult").innerHTML = "Running authoritative read-only preflight…";
+    q("#nextStep").disabled = true;
+    return post("/sessions/preview", taskRequest).then(function (body) {
+      if (!isPreflightResponseCurrent(epoch, preflightEpoch)) return;
+      if (!isCurrentPreflightResponse(token, preflightToken)) return;
+      var preview = body.preview;
+      var status = preview.claimPreflight.status;
+      if (isLaunchableClaimStatus(status)) {
+        approvedPreflight = { request: taskRequest, preview: preview };
+        q("#preflightResult").innerHTML = "<b>READY</b><br>Issue identity resolved<br>Branch: <code>" + esc(preview.identity.branch.name) + "</code><br>Nawabari claim: " + esc(status);
+        q("#nextStep").disabled = false;
+      } else {
+        approvedPreflight = undefined;
+        var reason = preview.claimPreflight.message ? esc(preview.claimPreflight.message) : "Nawabari claim preflight did not clear.";
+        q("#preflightResult").innerHTML = "<b>BLOCKED</b><br>Nawabari claim: " + esc(status) + "<br>" + reason + "<br>Launch remains disabled.";
+        q("#nextStep").disabled = true;
+      }
+    }).catch(function (error) {
+      if (!isPreflightResponseCurrent(epoch, preflightEpoch)) return;
+      if (!isCurrentPreflightResponse(token, preflightToken)) return;
+      approvedPreflight = undefined;
+      q("#preflightResult").innerHTML = "<b>UNAVAILABLE</b><br>" + esc(error.message);
+      q("#nextStep").disabled = true;
+    });
+  }
+  function advance() {
+    if (taskStep < 2) { taskStep++; renderTask(); return; }
+    if (taskStep === 2) { taskStep = 3; renderTask(); preflight(); return; }
+    if (taskStep === 3) return preflight().then(function () { if (approvedPreflight) { taskStep = 4; renderTask(); } });
+    if (!approvedPreflight) return;
+    post("/sessions", approvedPreflight.request).then(function (body) { closeNew(); return refresh().then(function () { openSession(body.session.sessionId); }); }).catch(function (error) { q("#stepContent").insertAdjacentHTML("beforeend", '<div class="detail-block"><b>Launch blocked</b><p>' + esc(error.message) + "</p></div>"); });
+  }
+  var modalTrigger = null;
+  function openNew() {
+    closeOverlaysExcept("modal");
+    modalTrigger = document.activeElement;
+    preflightEpoch++;
+    taskStep = 0; approvedPreflight = undefined; taskState = createTaskState(); renderTask(); q("#modalBackdrop").classList.add("open"); q("#newTaskModal").classList.add("open");
+    var firstInput = q("#stepContent input, #stepContent textarea");
+    if (firstInput) firstInput.focus(); else q("#nextStep").focus();
+  }
+  function closeNew() {
+    preflightEpoch++;
+    approvedPreflight = undefined;
+    q("#modalBackdrop").classList.remove("open"); q("#newTaskModal").classList.remove("open"); if (modalTrigger) { modalTrigger.focus(); modalTrigger = null; }
+  }
+  var refreshInFlight = false;
+  function refresh() {
+    if (refreshInFlight) return Promise.resolve();
+    refreshInFlight = true;
+    return Promise.all([request("/health"), request("/sessions?limit=500")]).then(function (parts) {
+      refreshInFlight = false;
+      health = parts[0]; sessions = parts[1].sessions || []; updateHealth(); renderHome(); renderPalette();
+    }).catch(function (error) {
+      refreshInFlight = false;
+      health = undefined; sessions = []; updateHealth(); renderPalette();
+      qa(".attention-zone .attention-row,.sessions .session-row,.sessions .attention-row").forEach(function (n) { n.remove(); });
+      q(".summary-strip").insertAdjacentHTML("beforebegin", empty("Manager data unavailable: " + error.message));
+      qa(".summary-num").forEach(function (node) { node.textContent = "—"; });
+    });
+  }
+  var pollTimer = setInterval(refresh, 5000);
+  window.addEventListener("beforeunload", function () { clearInterval(pollTimer); });
+  qa("[data-open-new]").forEach(function (b) { b.onclick = openNew; });
+  q("#nextStep").onclick = advance;
+  q("#prevStep").onclick = function () {
+    if (!taskStep) return;
+    approvedPreflight = undefined;
+    preflightToken++;
+    taskStep--; renderTask();
+  };
+  qa("[data-close-modal]").forEach(function (b) { b.onclick = closeNew; }); q("#modalBackdrop").onclick = closeNew;
+  qa("[data-close]").forEach(function (b) { b.onclick = closeDrawer; });
+  q("#drawerBackdrop").onclick = closeDrawer;
+  var paletteTrigger = null;
+  function closePalette() {
+    q("#paletteBackdrop").classList.remove("open"); q("#palette").classList.remove("open");
+    if (paletteTrigger) { paletteTrigger.focus(); paletteTrigger = null; }
+  }
+  q("#openPalette").onclick = function () {
+    closeOverlaysExcept("palette");
+    paletteTrigger = document.activeElement;
+    q("#paletteBackdrop").classList.add("open"); q("#palette").classList.add("open"); q("#palette input").focus();
+  };
+  q("#paletteBackdrop").onclick = closePalette;
+  q("[data-palette-new]").onclick = function () { closePalette(); openNew(); };
+  function trapFocus(container, event) {
+    var focusable = Array.prototype.slice.call(container.querySelectorAll("button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex='-1'])"));
+    if (focusable.length === 0) return;
+    var first = focusable[0], last = focusable[focusable.length - 1];
+    if (event.shiftKey) {
+      if (event.target === first || !container.contains(event.target)) { event.preventDefault(); last.focus(); }
+    } else {
+      if (event.target === last || !container.contains(event.target)) { event.preventDefault(); first.focus(); }
+    }
+  }
+  document.addEventListener("keydown", function (event) {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); q("#openPalette").click(); }
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n") { event.preventDefault(); openNew(); }
+    if (event.key === "Escape") {
+      if (q("#palette").classList.contains("open")) closePalette();
+      else if (q("#newTaskModal").classList.contains("open")) closeNew();
+      else if (q("#drawer").classList.contains("open")) closeDrawer();
+    }
+    if (event.key === "Tab") {
+      if (q("#drawer").classList.contains("open")) trapFocus(q("#drawer"), event);
+      else if (q("#newTaskModal").classList.contains("open")) trapFocus(q("#newTaskModal"), event);
+      else if (q("#palette").classList.contains("open")) trapFocus(q("#palette"), event);
+    }
+  });
+  renderTask(); renderPalette(); refresh();
+  if (new URLSearchParams(window.location.search).get("openNew") === "1") {
+    try { sessionStorage.removeItem("wabachiWorkIntent"); } catch (e) { /* presentation-only handoff */ }
+    openNew();
+  }
+}());
+</script>
+</body>
+</html>

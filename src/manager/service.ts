@@ -16,15 +16,22 @@ import {
   type SemanticExecutionPlan,
 } from "../semantics/execution-plan.js";
 import type {
+  CommitReconciliationRecord,
+  CommitReconciliationState,
   ManagerAgentKind,
   ManagerReconciliationState,
   ManagerRuntimeState,
   ManagerSessionId,
   ManagerSessionRecord,
   ManagerSessionReceipt,
+  PullRequestRecord,
+  PushReconciliationRecord,
+  PushReconciliationState,
   TaskId,
   WorkflowStateStore,
 } from "../workflow/state/store.js";
+import type { PullRequestLifecycleState } from "../workflow/providers/model.js";
+import type { LifecycleState } from "../workflow/domain/lifecycle.js";
 import { validateIssueRef, validateTaskSlug } from "../workflow/commands/validate.js";
 import { PI_GUARD_ASSET_MARKER } from "./pi-guard.js";
 import {
@@ -137,6 +144,74 @@ export interface ManagerHealth {
   workspaceRoot: string;
   zellij: { available: true; version: string };
   sessions: { active: number; recent: number };
+}
+
+export type ManagerOperationalState = "healthy" | "attention" | "stopped" | "blocked" | "stale";
+export type ManagerPhaseState = "complete" | "current" | "pending" | "attention";
+
+export interface ManagerOperationalProjection {
+  state: ManagerOperationalState;
+  statusLabel: string;
+  attention:
+    | {
+        priority: "P1" | "P2";
+        reason: string;
+        authority: string;
+        safeAction: "inspect" | "open-terminal" | "restart" | "inspect-nawabari";
+        actionLabel: string;
+      }
+    | null;
+  phaseRail: readonly { id: string; label: string; state: ManagerPhaseState }[];
+  authorities: readonly { name: string; responsibility: string; status: "current" | "unavailable" }[];
+  identities: {
+    managerSessionId: string;
+    taskId: string | null;
+    executionSessionId: string | null;
+    runtimeName: string;
+  };
+  repository: {
+    name: string;
+    root: string;
+    worktree: string;
+    branch: string | null;
+  };
+  task: {
+    slug: string | null;
+    issueRef: string | null;
+    lifecycleState: LifecycleState | "unbound";
+    baseBranch: string | null;
+    baseCommit: string | null;
+  };
+  validation: {
+    state: "passed" | "failed" | "unavailable";
+    summary: string;
+    recordedAt: number | null;
+  };
+  commit: {
+    state: CommitReconciliationState | "unavailable";
+    sha: string | null;
+    detail: string | null;
+    authority: "Nawabari";
+  };
+  push: {
+    state: PushReconciliationState | "unavailable";
+    target: string | null;
+    remoteSha: string | null;
+    detail: string | null;
+    authority: "Nawabari";
+  };
+  pullRequest: {
+    state: PullRequestLifecycleState | "unavailable";
+    number: number | null;
+    url: string | null;
+    headSha: string | null;
+    mergeRevision: string | null;
+    authority: "gh-inari";
+  };
+}
+
+export interface ManagerSessionProjection extends ManagerSessionRecord {
+  operational: ManagerOperationalProjection;
 }
 
 export class ManagerError extends Error {
@@ -576,6 +651,282 @@ function isTerminalSemanticState(state: ManagerSessionRecord["semanticLifecycleS
   );
 }
 
+const OPERATIONAL_PHASES = [
+  ["planned", "TASK CREATED"],
+  ["active", "IMPLEMENT"],
+  ["committed", "COMMIT"],
+  ["pushed", "PUSH"],
+  ["pull-request-open", "PR OPEN"],
+] as const;
+
+function phaseRailFor(
+  state: ManagerSessionRecord["semanticLifecycleState"],
+  runtimeState: ManagerRuntimeState,
+): { id: string; label: string; state: ManagerPhaseState }[] {
+  const index = OPERATIONAL_PHASES.findIndex(([id]) => id === state);
+  const terminallyComplete = state === "merged" || state === "cleaned";
+  const phases: { id: string; label: string; state: ManagerPhaseState }[] = OPERATIONAL_PHASES.map(([id, label], phaseIndex) => ({
+    id,
+    label,
+    state: (terminallyComplete
+      ? "complete"
+      : index < 0
+      ? "pending"
+      : phaseIndex < index
+        ? "complete"
+        : phaseIndex === index
+          ? runtimeState === "stale" || runtimeState === "failed"
+            ? "attention"
+            : "current"
+          : "pending") as ManagerPhaseState,
+  }));
+  if (state === "merged" || state === "abandoned" || state === "cleaned" || state === "orphaned") {
+    phases.push({
+      id: "terminal",
+      label: state === "merged" ? "MERGED" : state.toUpperCase(),
+      state: "current" as ManagerPhaseState,
+    });
+  }
+  if (state === "unbound" && runtimeState !== "stopped") {
+    phases[1] = {
+      id: "active",
+      label: "RUNTIME",
+      state: runtimeState === "stale" || runtimeState === "failed" ? "attention" : "current",
+    };
+  }
+  return phases;
+}
+
+const BLOCKED_RECEIPT_CODES = new Set(["claim_conflict", "claim_preflight_stale", "claim_preflight_unavailable"]);
+
+function operationalStateFor(session: ManagerSessionRecord): ManagerOperationalState {
+  if (session.runtimeState === "stale") return "stale";
+  if (session.latestReceipt !== undefined && BLOCKED_RECEIPT_CODES.has(session.latestReceipt.code)) return "blocked";
+  if (
+    session.runtimeState === "failed" ||
+    session.reconciliationState === "unresolved" ||
+    session.semanticLifecycleState === "orphaned" ||
+    (session.runtimeState === "exited" &&
+      (session.semanticLifecycleState === "planned" || session.semanticLifecycleState === "active"))
+  )
+    return "attention";
+  if (session.runtimeState === "stopped" || session.semanticLifecycleState === "abandoned") return "stopped";
+  return "healthy";
+}
+
+function operationalStatusLabel(state: ManagerOperationalState): string {
+  return {
+    healthy: "HEALTHY",
+    attention: "NEEDS ATTENTION",
+    stopped: "STOPPED",
+    blocked: "BLOCKED / CONFLICT",
+    stale: "STALE",
+  }[state];
+}
+
+function validationProjection(
+  store: WorkflowStateStore,
+  task: ReturnType<WorkflowStateStore["getTask"]>,
+  commitSha: string | undefined,
+): ManagerOperationalProjection["validation"] {
+  if (task === undefined) {
+    return { state: "unavailable", summary: "No task-bound validation receipt", recordedAt: null };
+  }
+  // A raw check-run row is historical observability, not current validation truth. This
+  // read-only projection trusts only evidence already bound to the authoritative reconciled
+  // head commit. If current state cannot be proven, project unavailable rather than stale PASS.
+  const validatedCommit = commitSha;
+  if (validatedCommit === undefined) {
+    return { state: "unavailable", summary: "No authoritative validated head commit recorded", recordedAt: null };
+  }
+  const evidence = store.listValidationEvidence(task.instanceId, validatedCommit);
+  const latestEvidence = [...evidence].sort((left, right) => right.recordedAt - left.recordedAt)[0];
+  if (latestEvidence === undefined) {
+    return { state: "unavailable", summary: "No authoritative validation receipt recorded", recordedAt: null };
+  }
+  const normalizedState = latestEvidence.status === "passed" || latestEvidence.status === "failed" ? latestEvidence.status : "unavailable";
+  return {
+    state: normalizedState,
+    summary: `${latestEvidence.name}: ${latestEvidence.status}`,
+    recordedAt: latestEvidence.recordedAt,
+  };
+}
+
+function commitProjection(
+  record: CommitReconciliationRecord | undefined,
+): ManagerOperationalProjection["commit"] {
+  return {
+    state: record?.state ?? "unavailable",
+    sha: record?.commitSha ?? null,
+    detail: record?.detail ?? null,
+    authority: "Nawabari",
+  };
+}
+
+function pushProjection(record: PushReconciliationRecord | undefined): ManagerOperationalProjection["push"] {
+  return {
+    state: record?.state ?? "unavailable",
+    target: record === undefined ? null : `${record.remote}/${record.targetBranch}`,
+    remoteSha: record?.resultRemoteSha ?? record?.observedRemoteSha ?? null,
+    detail: record?.detail ?? null,
+    authority: "Nawabari",
+  };
+}
+
+function pullRequestProjection(
+  record: PullRequestRecord | undefined,
+): ManagerOperationalProjection["pullRequest"] {
+  return {
+    state: record?.lifecycleState ?? "unavailable",
+    number: record?.prNumber ?? null,
+    url: record?.url ?? null,
+    headSha: record?.headSha ?? null,
+    mergeRevision: record?.mergeRevision ?? null,
+    authority: "gh-inari",
+  };
+}
+
+function hasCommittedSemanticProgress(session: ManagerSessionRecord): boolean {
+  return ["committed", "pushed", "pull-request-open", "merged", "cleaned"].includes(session.semanticLifecycleState);
+}
+
+/**
+ * Shared, store-cheap projection core: operational state/attention, phase
+ * rail, and identity/repository/task status. Both the bounded list summary
+ * and the full detail projection are built on top of this so the two never
+ * drift on what "attention" or "phase" means.
+ */
+function operationalCoreProjection(
+  session: ManagerSessionRecord,
+  task: ReturnType<WorkflowStateStore["getTask"]>,
+): Pick<
+  ManagerOperationalProjection,
+  "state" | "statusLabel" | "attention" | "phaseRail" | "identities" | "repository" | "task"
+> {
+  const state = operationalStateFor(session);
+  const semanticProgressed = hasCommittedSemanticProgress(session);
+  const attention =
+    state === "healthy" || (state === "stopped" && semanticProgressed)
+      ? null
+      : {
+          priority: state === "attention" && session.runtimeState === "exited" ? ("P1" as const) : ("P2" as const),
+          reason:
+            state === "stale"
+              ? "Managed execution identity is unavailable; no unrelated runtime was adopted."
+              : state === "blocked"
+                ? "A resource claim or lifecycle operation is blocked."
+                : session.runtimeState === "exited" && !semanticProgressed
+                  ? "Agent process exited before semantic lifecycle completion; process exit is not semantic completion."
+                  : "The managed session requires operator inspection.",
+          authority:
+            state === "stale" || state === "blocked" || session.reconciliationState === "unresolved"
+              ? "Nawabari"
+              : session.runtimeState === "failed" || session.runtimeState === "exited"
+                ? "Zellij / Manager"
+                : "Mottainai",
+          safeAction:
+            state === "stale" || state === "blocked" || session.reconciliationState === "unresolved"
+              ? ("inspect-nawabari" as const)
+              : session.runtimeState === "failed" || session.runtimeState === "exited"
+                ? ("restart" as const)
+                : session.attachable
+                  ? ("open-terminal" as const)
+                  : ("inspect" as const),
+          actionLabel:
+            state === "stale" || state === "blocked" || session.reconciliationState === "unresolved"
+              ? "Inspect Nawabari"
+              : session.runtimeState === "failed" || session.runtimeState === "exited"
+                ? "Restart managed runtime"
+                : session.attachable
+                  ? "Open managed terminal"
+                  : "Inspect session",
+        };
+  return {
+    state,
+    statusLabel: operationalStatusLabel(state),
+    attention,
+    phaseRail: phaseRailFor(session.semanticLifecycleState, session.runtimeState),
+    identities: {
+      managerSessionId: session.sessionId,
+      taskId: session.taskId ?? null,
+      executionSessionId: session.executionSessionId ?? null,
+      runtimeName: session.runtimeName,
+    },
+    repository: {
+      name: path.basename(session.workspaceRoot) || session.workspaceRoot,
+      root: session.workspaceRoot,
+      worktree: session.worktreePath,
+      branch: session.branchName ?? null,
+    },
+    task: {
+      slug: session.taskSlug ?? task?.taskSlug ?? null,
+      issueRef: session.issueRef ?? task?.issueRef ?? null,
+      lifecycleState: session.semanticLifecycleState,
+      baseBranch: task?.baseBranch ?? null,
+      baseCommit: task?.baseCommit ?? null,
+    },
+  };
+}
+
+/**
+ * Bounded projection for list views (e.g. the polled `GET /sessions`).
+ * Reads only `getTask` per session and never touches worktree, check-run,
+ * validation-evidence, commit/push reconciliation, or pull-request store
+ * lookups, so N sessions cost N reads instead of the ~8x fan-out that full
+ * detail projection performs. Callers needing validation/commit/push/PR
+ * detail must project the single session of interest instead.
+ */
+function projectOperationalSummary(
+  store: WorkflowStateStore,
+  session: ManagerSessionRecord,
+): ManagerOperationalProjection {
+  const task = session.taskId === undefined ? undefined : store.getTask(session.taskId);
+  return {
+    ...operationalCoreProjection(session, task),
+    authorities: [
+      { name: "Mottainai", responsibility: "lifecycle intent", status: "current" },
+      { name: "Nawabari", responsibility: "Git / worktree / branch authority", status: "current" },
+      { name: "Zellij", responsibility: "Manager runtime transport", status: "current" },
+      { name: "gh-inari", responsibility: "governed GitHub mutation", status: "unavailable" },
+    ],
+    validation: { state: "unavailable", summary: "Not loaded in list projection", recordedAt: null },
+    commit: commitProjection(undefined),
+    push: pushProjection(undefined),
+    pullRequest: pullRequestProjection(undefined),
+  };
+}
+
+function projectOperationalSession(
+  store: WorkflowStateStore,
+  session: ManagerSessionRecord,
+): ManagerOperationalProjection {
+  const task = session.taskId === undefined ? undefined : store.getTask(session.taskId);
+  const commitReconciliation = task === undefined ? undefined : store.getCommitReconciliation(task.taskId);
+  const validation = validationProjection(store, task, commitReconciliation?.commitSha);
+  const commit = commitProjection(commitReconciliation);
+  const push = pushProjection(task === undefined ? undefined : store.getPushReconciliation(task.taskId));
+  const pullRequest = pullRequestProjection(
+    task === undefined ? undefined : store.listPullRequestRecordsForTask(task.taskId).at(-1),
+  );
+  return {
+    ...operationalCoreProjection(session, task),
+    authorities: [
+      { name: "Mottainai", responsibility: "lifecycle intent", status: "current" },
+      { name: "Nawabari", responsibility: "Git / worktree / branch authority", status: "current" },
+      { name: "Zellij", responsibility: "Manager runtime transport", status: "current" },
+      {
+        name: "gh-inari",
+        responsibility: "governed GitHub mutation",
+        status: pullRequest.state === "unavailable" ? "unavailable" : "current",
+      },
+    ],
+    validation,
+    commit,
+    push,
+    pullRequest,
+  };
+}
+
 export class ManagerSessionService {
   private zellijVersion: string | undefined;
   private readonly execution: ManagerExecutionAuthority;
@@ -647,6 +998,15 @@ export class ManagerSessionService {
   async list(filter: ManagerSessionFilter = {}): Promise<ManagerSessionRecord[]> {
     await this.reconcile();
     return this.projectSessions(this.loadControlPlaneSessions(), filter);
+  }
+
+  projectSession(session: ManagerSessionRecord): ManagerSessionProjection {
+    return { ...session, operational: projectOperationalSession(this.options.store, session) };
+  }
+
+  /** Bounded projection for list views; see {@link projectOperationalSummary}. */
+  projectSessionSummary(session: ManagerSessionRecord): ManagerSessionProjection {
+    return { ...session, operational: projectOperationalSummary(this.options.store, session) };
   }
 
   private projectSessions(sessions: ManagerSessionRecord[], filter: ManagerSessionFilter): ManagerSessionRecord[] {

@@ -3,6 +3,7 @@ import { afterEach, test } from "node:test";
 import { request } from "node:http";
 import { startDashboardServer } from "../dashboard/http.js";
 import { createFixtureQuery } from "../semantics/fixtures/dashboard-fixture.js";
+import { readManagerAssets } from "./assets.js";
 import { createTempGitRepo } from "../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../test-support/workflow-store.js";
 import { fakeNawabari } from "../test-support/nawabari-fixture.js";
@@ -48,10 +49,18 @@ test("Manager HTTP API exposes session state and selected open/stop actions", as
     viewerHtml: "<!doctype html><title>manager</title>",
     query: createFixtureQuery(),
     manager: new ManagerHttpApi(service),
+    staticAssets: readManagerAssets(),
   });
   activeServers.push(handle);
-  const health = await fetch(`${handle.url}api/v1/manager/health`);
+  const health = await fetch(handle.url + "api/v1/manager/health");
   assert.equal(health.status, 200);
+  const stylesheet = await fetch(handle.url + "styles.css");
+  assert.equal(stylesheet.status, 200);
+  assert.match(stylesheet.headers.get("content-type") ?? "", /^text\/css/u);
+  assert.match(await stylesheet.text(), /\.mottainai/u);
+  const wabachi = await fetch(handle.url + "mockups/wabachi.html");
+  assert.equal(wabachi.status, 200);
+  assert.match(await wabachi.text(), /Wabachi/u);
   assert.equal((await health.json()).zellij.available, true);
 
   const createdResponse = await fetch(`${handle.url}api/v1/manager/sessions`, {
@@ -71,7 +80,12 @@ test("Manager HTTP API exposes session state and selected open/stop actions", as
   assert.equal((await filtered.json()).sessions.length, 1);
   const detail = await fetch(`${handle.url}api/v1/manager/sessions/${created.sessionId}`);
   assert.equal(detail.status, 200);
-  assert.equal((await detail.json()).session.runtimeName, created.runtimeName);
+  const detailSession = (await detail.json()).session;
+  assert.equal(detailSession.runtimeName, created.runtimeName);
+  assert.equal(detailSession.operational.task.lifecycleState, "unbound");
+  const activePhase = detailSession.operational.phaseRail.find((phase: { id: string }) => phase.id === "active");
+  assert.equal(activePhase?.state, "current");
+  assert.equal(detailSession.operational.validation.state, "unavailable");
   const opened = await fetch(`${handle.url}api/v1/manager/sessions/${created.sessionId}/open-terminal`, {
     method: "POST",
     headers: { "content-type": "application/json" },

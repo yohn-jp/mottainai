@@ -13,7 +13,8 @@ import {
   type ManagerResourceScope,
 } from "./service.js";
 import type { ManagerExecutionAuthority } from "../workflow/domain/manager-execution.js";
-import type { ManagerSessionId } from "../workflow/state/store.js";
+import type { ManagerSessionId, NawabariSessionId } from "../workflow/state/store.js";
+import type { RepositoryInstanceId, RootCommitDigest } from "../workflow/domain/identity.js";
 import type { SemanticExecutionPlan } from "../semantics/execution-plan.js";
 
 class FakeRuntime implements ZellijRuntime {
@@ -45,6 +46,145 @@ class FakeRuntime implements ZellijRuntime {
     this.sessions.delete(sessionName);
   }
 }
+
+test("operational projection keeps semantic lifecycle authoritative when the agent process exits", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime: new FakeRuntime() });
+  const session = store.createManagerSession({
+    sessionId: "00000000-0000-4000-8000-000000000406" as ManagerSessionId,
+    workspaceRoot: root,
+    executionMode: "workspace",
+    worktreePath: root,
+    agentKind: "pi",
+    launchProfile: "pi",
+    instruction: "projection test",
+    launchCommand: "pi",
+    launchArgs: ["--", "projection test"],
+    runtimeName: "mottainai-test-runtime",
+    lifecycleState: "exited",
+    runtimeState: "exited",
+    semanticLifecycleState: "active",
+    reconciliationState: "drifted",
+    latestStatus: "managed Zellij agent pane exited; semantic task completion was not inferred",
+  });
+
+  const projection = service.projectSession(session);
+  assert.equal(projection.operational.state, "attention");
+  assert.equal(projection.operational.phaseRail.find((phase) => phase.id === "active")?.state, "current");
+  assert.match(projection.operational.attention?.reason ?? "", /not semantic completion/u);
+  assert.equal(projection.operational.identities.managerSessionId, session.sessionId);
+  assert.equal(projection.operational.validation.state, "unavailable");
+  assert.equal(projection.operational.pullRequest.state, "unavailable");
+});
+
+test("operational state is not blocked by conflict-shaped free text in the diagnostic", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime: new FakeRuntime() });
+  const session = store.createManagerSession({
+    sessionId: "00000000-0000-4000-8000-000000000407" as ManagerSessionId,
+    workspaceRoot: root,
+    executionMode: "workspace",
+    worktreePath: root,
+    agentKind: "pi",
+    launchProfile: "pi",
+    instruction: "diagnostic text regression",
+    launchCommand: "pi",
+    launchArgs: ["--", "diagnostic text regression"],
+    runtimeName: "mottainai-test-runtime-407",
+    lifecycleState: "running",
+    runtimeState: "running",
+    semanticLifecycleState: "active",
+    reconciliationState: "synced",
+    latestStatus: "claim preflight clear; no conflict, nothing blocked here",
+  });
+
+  const projection = service.projectSession(session);
+  assert.notEqual(projection.operational.state, "blocked");
+  assert.equal(projection.operational.state, "healthy");
+});
+
+test("operational state is blocked only by a structured claim-preflight receipt code", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime: new FakeRuntime() });
+  const session = store.createManagerSession({
+    sessionId: "00000000-0000-4000-8000-000000000408" as ManagerSessionId,
+    workspaceRoot: root,
+    executionMode: "workspace",
+    worktreePath: root,
+    agentKind: "pi",
+    launchProfile: "pi",
+    instruction: "structured conflict regression",
+    launchCommand: "pi",
+    launchArgs: ["--", "structured conflict regression"],
+    runtimeName: "mottainai-test-runtime-408",
+    lifecycleState: "running",
+    runtimeState: "running",
+    semanticLifecycleState: "active",
+    reconciliationState: "unresolved",
+    latestStatus: "session start rejected before any Manager mutation",
+    latestReceipt: {
+      code: "claim_conflict",
+      message: "Nawabari reports an active conflicting claim",
+      source: "workflow",
+      recordedAt: Date.now(),
+    },
+  });
+
+  const projection = service.projectSession(session);
+  assert.equal(projection.operational.state, "blocked");
+});
+
+test("operational state covers blocked and stale classifications with structured signals", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime: new FakeRuntime() });
+
+  const staleSession = store.createManagerSession({
+    sessionId: "00000000-0000-4000-8000-000000000409" as ManagerSessionId,
+    workspaceRoot: root,
+    executionMode: "workspace",
+    worktreePath: root,
+    agentKind: "pi",
+    launchProfile: "pi",
+    instruction: "stale runtime",
+    launchCommand: "pi",
+    launchArgs: ["--", "stale runtime"],
+    runtimeName: "mottainai-test-runtime-409",
+    lifecycleState: "running",
+    runtimeState: "stale",
+    semanticLifecycleState: "active",
+    reconciliationState: "unresolved",
+    latestStatus: "runtime unavailable",
+  });
+  assert.equal(service.projectSession(staleSession).operational.state, "stale");
+
+  const preflightStaleSession = store.createManagerSession({
+    sessionId: "00000000-0000-4000-8000-000000000410" as ManagerSessionId,
+    workspaceRoot: root,
+    executionMode: "workspace",
+    worktreePath: root,
+    agentKind: "pi",
+    launchProfile: "pi",
+    instruction: "preflight stale",
+    launchCommand: "pi",
+    launchArgs: ["--", "preflight stale"],
+    runtimeName: "mottainai-test-runtime-410",
+    lifecycleState: "running",
+    runtimeState: "running",
+    semanticLifecycleState: "active",
+    reconciliationState: "unresolved",
+    latestReceipt: {
+      code: "claim_preflight_stale",
+      message: "claim registry evidence is stale",
+      source: "workflow",
+      recordedAt: Date.now(),
+    },
+  });
+  assert.equal(service.projectSession(preflightStaleSession).operational.state, "blocked");
+});
 
 function recordingExecutionAuthority(root: string, plans: SemanticExecutionPlan[]): ManagerExecutionAuthority {
   return {
@@ -938,4 +1078,183 @@ test("Manager keeps an older active session visible ahead of the bounded recent 
   assert.equal(service.health().sessions.active, 1);
   assert.equal(listed.length, 500);
   assert.equal(listed[0]?.sessionId, activeId);
+});
+
+test("validation reflects the reconciled head commit, not a stale base-commit reading, once work is committed", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime: new FakeRuntime() });
+  const instanceId = "instance-validation-406" as RepositoryInstanceId;
+  store.observeRepositoryInstance({
+    rootCommitDigest: "digest-validation-406" as RootCommitDigest,
+    instanceId,
+    gitCommonDir: `${root}/.git`,
+    canonicalWorktreePath: root,
+  });
+  const reserved = store.reserveTask({
+    instanceId,
+    taskSlug: "validation-evidence",
+    issueRef: "406",
+    baseBranch: "main",
+    baseCommit: "0000000000000000000000000000000000base",
+    allowMultipleActiveTasksPerIssue: true,
+  });
+  assert.equal(reserved.ok, true);
+  if (!reserved.ok) throw new Error("unreachable");
+  const task = reserved.task;
+  const session = store.createManagerSession({
+    sessionId: "00000000-0000-4000-8000-000000000408" as ManagerSessionId,
+    workspaceRoot: root,
+    executionMode: "task-bound",
+    worktreePath: root,
+    taskId: task.taskId,
+    agentKind: "pi",
+    launchCommand: "pi",
+    launchArgs: ["--", "validation evidence test"],
+    runtimeName: "mottainai-test-runtime-validation",
+    lifecycleState: "running",
+    runtimeState: "running",
+    semanticLifecycleState: "committed",
+    reconciliationState: "synced",
+  });
+
+  // The session has already committed work, but Manager has no reconciled
+  // head SHA for it yet. Evidence recorded at the pre-change base commit
+  // must read as unavailable, not as if it validated the changed work.
+  store.recordValidationEvidence({ instanceId, headCommit: task.baseCommit, name: "unit", status: "passed" });
+  assert.equal(service.projectSession(session).operational.validation.state, "unavailable");
+
+  // Once Nawabari reconciles the real head commit, validation must be read
+  // at that head — not at baseCommit, even though evidence exists there too.
+  const headCommit = "1111111111111111111111111111111111head";
+  store.beginCommitReconciliation({
+    taskId: task.taskId,
+    instanceId,
+    nawabariSessionId: "nawabari-session-408" as NawabariSessionId,
+    branchName: "feat/406-validation-evidence",
+    beforeCommit: task.baseCommit,
+    resources: ["**"],
+    message: "commit",
+  });
+  store.recordCommitResult(task.taskId, headCommit);
+  store.recordValidationEvidence({ instanceId, headCommit, name: "unit", status: "passed" });
+  const afterReconciliation = service.projectSession(session).operational.validation;
+  assert.equal(afterReconciliation.state, "passed");
+  assert.match(afterReconciliation.summary, /unit/u);
+});
+
+test("validation in an active/pre-commit session never reads baseCommit evidence as current PASS (regression)", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime: new FakeRuntime() });
+  const instanceId = "instance-validation-active-406" as RepositoryInstanceId;
+  store.observeRepositoryInstance({
+    rootCommitDigest: "digest-validation-active-406" as RootCommitDigest,
+    instanceId,
+    gitCommonDir: `${root}/.git`,
+    canonicalWorktreePath: root,
+  });
+  const reserved = store.reserveTask({
+    instanceId,
+    taskSlug: "validation-active",
+    issueRef: "406",
+    baseBranch: "main",
+    baseCommit: "0000000000000000000000000000000000base",
+    allowMultipleActiveTasksPerIssue: true,
+  });
+  assert.equal(reserved.ok, true);
+  if (!reserved.ok) throw new Error("unreachable");
+  const task = reserved.task;
+  const session = store.createManagerSession({
+    sessionId: "00000000-0000-4000-8000-000000000411" as ManagerSessionId,
+    workspaceRoot: root,
+    executionMode: "task-bound",
+    worktreePath: root,
+    taskId: task.taskId,
+    agentKind: "pi",
+    launchCommand: "pi",
+    launchArgs: ["--", "validation active regression"],
+    runtimeName: "mottainai-test-runtime-validation-active",
+    lifecycleState: "running",
+    runtimeState: "running",
+    semanticLifecycleState: "active",
+    reconciliationState: "synced",
+  });
+
+  // The session is active/pre-commit and has never been reconciled to a real head commit, but
+  // evidence happens to exist at task.baseCommit (e.g. from before the session started editing).
+  // An active session can already have uncommitted worktree edits that baseCommit does not
+  // reflect, so this must never be projected as current validation success.
+  store.recordValidationEvidence({ instanceId, headCommit: task.baseCommit, name: "unit", status: "passed" });
+  assert.equal(service.projectSession(session).operational.validation.state, "unavailable");
+});
+
+test("list projection omits expensive validation/commit/push/PR detail that only full detail projection loads", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime: new FakeRuntime() });
+  const instanceId = "instance-list-projection" as RepositoryInstanceId;
+  store.observeRepositoryInstance({
+    rootCommitDigest: "digest-list-projection" as RootCommitDigest,
+    instanceId,
+    gitCommonDir: `${root}/.git`,
+    canonicalWorktreePath: root,
+  });
+  const reserved = store.reserveTask({
+    instanceId,
+    taskSlug: "list-projection",
+    issueRef: "406",
+    baseBranch: "main",
+    baseCommit: "0000000000000000000000000000000000base",
+    allowMultipleActiveTasksPerIssue: true,
+  });
+  assert.equal(reserved.ok, true);
+  if (!reserved.ok) throw new Error("unreachable");
+  const task = reserved.task;
+  const session = store.createManagerSession({
+    sessionId: "00000000-0000-4000-8000-000000000409" as ManagerSessionId,
+    workspaceRoot: root,
+    executionMode: "task-bound",
+    worktreePath: root,
+    taskId: task.taskId,
+    agentKind: "pi",
+    launchCommand: "pi",
+    launchArgs: ["--", "list projection test"],
+    runtimeName: "mottainai-test-runtime-list",
+    lifecycleState: "running",
+    runtimeState: "running",
+    semanticLifecycleState: "active",
+    reconciliationState: "synced",
+  });
+  // Evidence must be recorded at a reconciled head commit, not task.baseCommit: an
+  // active/pre-commit session can already have uncommitted edits, so baseCommit is never
+  // trusted as a stand-in for current state.
+  const headCommit = "2222222222222222222222222222222222head";
+  store.beginCommitReconciliation({
+    taskId: task.taskId,
+    instanceId,
+    nawabariSessionId: "nawabari-session-409" as NawabariSessionId,
+    branchName: "feat/406-list-projection",
+    beforeCommit: task.baseCommit,
+    resources: ["**"],
+    message: "commit",
+  });
+  store.recordCommitResult(task.taskId, headCommit);
+  store.recordValidationEvidence({ instanceId, headCommit, name: "unit", status: "passed" });
+
+  const full = service.projectSession(session).operational;
+  const summary = service.projectSessionSummary(session).operational;
+
+  assert.equal(full.validation.state, "passed");
+  assert.equal(summary.validation.state, "unavailable");
+  assert.equal(summary.validation.summary, "Not loaded in list projection");
+  assert.equal(summary.commit.state, "unavailable");
+  assert.equal(summary.push.state, "unavailable");
+  assert.equal(summary.pullRequest.state, "unavailable");
+  // The bounded operational summary still agrees with full detail on what
+  // the polled Home view actually needs: state, attention, phase, identity.
+  assert.equal(summary.state, full.state);
+  assert.deepEqual(summary.phaseRail, full.phaseRail);
+  assert.deepEqual(summary.identities, full.identities);
+  assert.deepEqual(summary.task, full.task);
 });
