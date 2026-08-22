@@ -7,6 +7,15 @@ export const NAWABARI_CONTRACT_SCHEMA_VERSION = 1 as const;
 export const MINIMUM_NAWABARI_VERSION = "0.5.0" as const;
 /** Expected shape of the resource-claims capability's `claim_set_replacement` boundary (Nawabari #101 / PR #106). */
 const REQUIRED_CLAIM_SET_REPLACEMENT_PAIRING = "adjacent-resource-mode" as const;
+/**
+ * `session close --fetch-remote/--fetch-branch` requires this exact
+ * explicit_network.operations entry (Nawabari #160/#161): both options
+ * accepted, and required alongside --integrated-revision. A companion
+ * missing this exact shape must be treated as not supporting close-fetch,
+ * not merely warned about, so the finish/merged close path can fail closed
+ * before requesting any fetch side effect.
+ */
+const REQUIRED_CLOSE_FETCH_OPTIONS = ["--integrated-revision", "--fetch-remote", "--fetch-branch"] as const;
 
 const COMMAND_TIMEOUT_MS = 12_000;
 const COMMAND_MAX_OUTPUT_BYTES = 64 * 1024;
@@ -83,6 +92,8 @@ export interface NawabariCapabilities {
   schemaVersion: typeof NAWABARI_CONTRACT_SCHEMA_VERSION;
   packageVersion: string;
   capabilities: readonly Record<string, unknown>[];
+  /** True only when `session close` advertises the exact #160/#161 close-fetch option/requires shape. */
+  supportsCloseFetch: boolean;
 }
 
 export interface NawabariSession {
@@ -345,6 +356,28 @@ function assertSessionListComplete(result: NawabariCommandResult): void {
   }
 }
 
+/**
+ * Detects the #160/#161 close-fetch contract from the raw `capabilities`
+ * envelope's top-level `explicit_network.operations` list. This is
+ * independent of `package_version` because the companion may advertise the
+ * capability before a release bump; the structural shape is the authority.
+ */
+function detectCloseFetchSupport(result: NawabariCommandResult): boolean {
+  const explicitNetwork = object(result.explicit_network);
+  const operations = explicitNetwork?.operations;
+  if (!Array.isArray(operations)) return false;
+  return operations.some((entry) => {
+    const operation = object(entry);
+    if (operation === undefined || operation.command !== "session close") return false;
+    const options = operation.options;
+    const requires = operation.requires;
+    if (!Array.isArray(options) || !Array.isArray(requires)) return false;
+    return REQUIRED_CLOSE_FETCH_OPTIONS.every(
+      (flag) => options.includes(flag) && requires.includes(flag),
+    );
+  });
+}
+
 function requireDecision(result: NawabariCommandResult): NawabariCommandResult {
   if (typeof result.allowed !== "boolean")
     throw new NawabariExecutionError(
@@ -426,7 +459,13 @@ export class NawabariExecutionClient {
         "nawabari-incompatible",
         "Nawabari contract is missing the atomic claim_set_replacement boundary on resource-claims",
       );
-    this.discovered = { contractId: NAWABARI_CONTRACT_ID, schemaVersion: 1, packageVersion, capabilities };
+    this.discovered = {
+      contractId: NAWABARI_CONTRACT_ID,
+      schemaVersion: 1,
+      packageVersion,
+      capabilities,
+      supportsCloseFetch: detectCloseFetchSupport(result),
+    };
     return this.discovered;
   }
 
@@ -686,9 +725,39 @@ export class NawabariExecutionClient {
     sessionId: string;
     /** Provider evidence for squash/rebase/non-ancestry integration. */
     integratedRevision?: string;
+    /**
+     * Explicit opt-in remote to fetch the integration branch from before
+     * close (Nawabari #160/#161). Only the finish/merged close path may
+     * supply this; it must be paired with `fetchBranch` and
+     * `integratedRevision`, and requires a companion that advertises the
+     * close-fetch capability (checked here, fail closed before any effect).
+     */
+    fetchRemote?: string;
+    /** Integration branch to fetch; requires `fetchRemote`. */
+    fetchBranch?: string;
   }): Promise<NawabariCommandResult> {
+    const wantsFetch = input.fetchRemote !== undefined || input.fetchBranch !== undefined;
+    if (wantsFetch) {
+      if (input.fetchRemote === undefined || input.fetchBranch === undefined)
+        throw new NawabariExecutionError(
+          "nawabari-contract-invalid",
+          "Nawabari close-fetch requires both fetchRemote and fetchBranch together",
+        );
+      if (input.integratedRevision === undefined)
+        throw new NawabariExecutionError(
+          "nawabari-contract-invalid",
+          "Nawabari close-fetch requires integratedRevision",
+        );
+      const capabilities = await this.capabilities(input.cwd);
+      if (!capabilities.supportsCloseFetch)
+        throw new NawabariExecutionError(
+          "nawabari-incompatible",
+          `Nawabari ${capabilities.packageVersion} does not support the session close --fetch-remote/--fetch-branch contract`,
+        );
+    }
     const args = ["session", "close", "--session", input.sessionId];
     if (input.integratedRevision !== undefined) args.push("--integrated-revision", input.integratedRevision);
+    if (wantsFetch) args.push("--fetch-remote", input.fetchRemote!, "--fetch-branch", input.fetchBranch!);
     const result = await this.invoke(args, input.cwd);
     const closedSession = this.sessionCloseResult(result);
     if (closedSession.sessionId !== input.sessionId)

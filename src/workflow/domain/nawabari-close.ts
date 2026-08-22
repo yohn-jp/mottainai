@@ -24,7 +24,7 @@ export type NawabariCloseResult =
     }
   | {
       ok: false;
-      reason: "cleanup-blocked" | "task-identity-ambiguous";
+      reason: "cleanup-blocked" | "task-identity-ambiguous" | "close-fetch-authority-missing";
       detail: string;
       task: TaskRecord;
       reconciliation?: NawabariCloseReconciliationRecord;
@@ -68,6 +68,13 @@ export async function closeNawabariExecution(input: {
   task: TaskRecord;
   providerRecord: PullRequestRecord;
   expectedBranch?: string;
+  /**
+   * Only the successful finish/merged close path may set this. When true,
+   * the remote is derived from the task's persisted push receipt and the
+   * branch from `task.baseBranch`; missing or ambiguous authority fails
+   * closed rather than guessing `origin`/`main`.
+   */
+  requestFetch?: boolean;
 }): Promise<NawabariCloseResult> {
   const { task, providerRecord, store, client } = input;
   if (task.lifecycleState !== "merged")
@@ -130,6 +137,27 @@ export async function closeNawabariExecution(input: {
     };
   }
 
+  // Fetch is only ever meaningful alongside a non-ancestry integration proof
+  // (Nawabari requires --integrated-revision together with the fetch flags).
+  // An ordinary ancestry-based merge has no mergeRevision and needs no fetch;
+  // only a task that actually carries a merge revision must resolve fetch
+  // authority, and only then does missing/ambiguous authority fail closed.
+  let fetchAuthority: { fetchRemote: string; fetchBranch: string } | undefined;
+  if (input.requestFetch === true && providerRecord.mergeRevision !== undefined) {
+    const pushReceipt = store.getPushReconciliation(task.taskId);
+    const fetchRemote = pushReceipt?.remote;
+    const fetchBranch = task.baseBranch;
+    if (fetchRemote === undefined || fetchRemote.length === 0 || fetchBranch.length === 0)
+      return {
+        ok: false,
+        reason: "close-fetch-authority-missing",
+        detail: `task ${task.taskId} has no authoritative persisted remote/base branch for Nawabari close-fetch`,
+        task,
+        reconciliation,
+      };
+    fetchAuthority = { fetchRemote, fetchBranch };
+  }
+
   let inspected: NawabariSession;
   try {
     inspected = await client.inspectSession({ cwd: input.workspaceRoot, sessionId: task.nawabariSessionId });
@@ -182,6 +210,7 @@ export async function closeNawabariExecution(input: {
       cwd: inspected.worktree,
       sessionId: expectedSessionId,
       ...(providerRecord.mergeRevision === undefined ? {} : { integratedRevision: providerRecord.mergeRevision }),
+      ...(fetchAuthority === undefined ? {} : fetchAuthority),
     });
     reconciliation = store.markNawabariCloseReconciliation(task.taskId, "closed");
     return { ok: true, task, session: inspected, reconciliation, alreadyClosed: false };

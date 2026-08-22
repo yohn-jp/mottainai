@@ -1666,6 +1666,7 @@ async function transitionWorkflowTask(
         client: input.nawabari,
         task: existing,
         providerRecord: records[0]!,
+        requestFetch: true,
       });
       if (!closed.ok) return { ...closed, task: existing, taskId: existing.taskId };
       return {
@@ -1708,6 +1709,7 @@ async function transitionWorkflowTask(
       task: result.task,
       providerRecord: records[0]!,
       expectedBranch: result.context.branch,
+      requestFetch: true,
     });
     if (!closed.ok) return { ...closed, task: result.task, taskId: selected.taskId, transition: input.to };
     return {

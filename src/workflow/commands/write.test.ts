@@ -40,6 +40,7 @@ function pullRequestViewJson(input: {
   headName: string;
   headSha: string;
   baseCommit: string;
+  mergeCommitOid?: string;
 }): string {
   return JSON.stringify({
     id: "PR_node_40",
@@ -53,6 +54,7 @@ function pullRequestViewJson(input: {
     baseRefName: "main",
     baseRefOid: input.baseCommit,
     repository: { name: "repository", nameWithOwner: "org/repository" },
+    ...(input.mergeCommitOid === undefined ? {} : { mergeCommitOid: input.mergeCommitOid }),
   });
 }
 
@@ -613,9 +615,13 @@ test("commit escalates the known **:read launch claim to a concrete exclusive-wr
   );
 });
 
-async function finishFixture(t: TestContext) {
+async function finishFixture(
+  t: TestContext,
+  options: { supportsCloseFetch?: boolean; beforeSessionClose?: () => void } = {},
+) {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
+  const nawabariCalls: string[][] = [];
   const fixture = await startNawabariManagedTask(t, {
     root,
     store,
@@ -623,6 +629,9 @@ async function finishFixture(t: TestContext) {
     taskSlug: "finish-provider-state",
     branchType: "fix",
     issueRef: "40",
+    supportsCloseFetch: options.supportsCloseFetch,
+    calls: nawabariCalls,
+    beforeSessionClose: options.beforeSessionClose,
   });
   const worktree = fixture.worktree;
   const headSha = runGit(["rev-parse", "HEAD"], worktree.canonicalPath);
@@ -642,12 +651,44 @@ async function finishFixture(t: TestContext) {
     root,
     store,
     taskId: fixture.task.taskId,
+    instanceId: fixture.task.instanceId,
     worktree,
     headSha,
     url,
     baseCommit: fixture.task.baseCommit,
+    nawabariSessionId: fixture.task.nawabariSessionId as NawabariSessionId,
     nawabari: fixture.nawabari,
+    nawabariCalls,
   };
+}
+
+function seedFinishPushReceipt(
+  store: ReturnType<typeof createWorkflowStore>,
+  fixture: { taskId: string; instanceId: string; nawabariSessionId: NawabariSessionId; worktree: { branchName: string } },
+  remote: string,
+): void {
+  const targetRef = `refs/heads/${fixture.worktree.branchName}`;
+  store.beginPushReconciliation({
+    taskId: fixture.taskId as never,
+    instanceId: fixture.instanceId as never,
+    nawabariSessionId: fixture.nawabariSessionId,
+    sourceCommit: "source-sha",
+    remote,
+    targetBranch: fixture.worktree.branchName,
+    targetRef,
+    forceRequested: false,
+    createUpstream: false,
+  });
+  store.recordPushResult({
+    taskId: fixture.taskId as never,
+    sourceCommit: "source-sha",
+    remote,
+    targetBranch: fixture.worktree.branchName,
+    targetRef,
+    resultRemoteSha: "source-sha",
+    relation: "up-to-date",
+    evidenceComplete: true,
+  });
 }
 
 test("commit dry-run returns the domain verification plan without changing Git or lifecycle state", async (t) => {
@@ -2130,6 +2171,70 @@ test("finish retry returns the persisted merged state without re-observing the p
   assert.equal(fixture.store.getTask(fixture.taskId)?.lifecycleState, "merged");
 });
 
+test("finish with a squash-merge revision derives fetchRemote from the push receipt and fetchBranch from task.baseBranch", async (t) => {
+  const fixture = await finishFixture(t, { supportsCloseFetch: true });
+  seedFinishPushReceipt(fixture.store, fixture, "upstream-not-origin");
+  const task = fixture.store.getTask(fixture.taskId)!;
+  assert.equal(task.baseBranch, "main");
+
+  const result = await finishWorkflowTask(
+    {
+      workspaceRoot: fixture.worktree.canonicalPath,
+      store: fixture.store,
+      taskId: fixture.taskId,
+      nawabari: fixture.nawabari,
+      policy: BUILTIN_PRESETS.standard,
+    },
+    {
+      githubAdapter: githubAdapter(
+        fixture.worktree.canonicalPath,
+        providerResult(
+          pullRequestViewJson({
+            state: "CLOSED",
+            mergedAt: "2026-08-10T12:00:00Z",
+            url: fixture.url,
+            headName: fixture.worktree.branchName,
+            headSha: fixture.headSha,
+            baseCommit: fixture.baseCommit,
+            mergeCommitOid: "squash-merge-sha",
+          }),
+        ),
+      ),
+    },
+  );
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(fixture.store.listPullRequestRecordsForTask(fixture.taskId)[0]?.mergeRevision, "squash-merge-sha");
+  const closeArgs = fixture.nawabariCalls.find((args) => args[0] === "session" && args[1] === "close")!;
+  assert.ok(closeArgs.includes("--fetch-remote"));
+  assert.equal(closeArgs[closeArgs.indexOf("--fetch-remote") + 1], "upstream-not-origin");
+  assert.ok(closeArgs.includes("--fetch-branch"));
+  assert.equal(closeArgs[closeArgs.indexOf("--fetch-branch") + 1], "main");
+  assert.ok(closeArgs.includes("--integrated-revision"));
+  assert.equal(closeArgs[closeArgs.indexOf("--integrated-revision") + 1], "squash-merge-sha");
+});
+
+test("finish-only fetch: abandon and cleanup never send fetch flags even for a task with a persisted merge revision and push receipt", async (t) => {
+  const fixture = await finishFixture(t, { supportsCloseFetch: true });
+  seedFinishPushReceipt(fixture.store, fixture, "upstream");
+
+  const abandoned = await abandonWorkflowTask({
+    workspaceRoot: fixture.worktree.canonicalPath,
+    store: fixture.store,
+    taskId: fixture.taskId,
+    nawabari: fixture.nawabari,
+    policy: BUILTIN_PRESETS.standard,
+  });
+  assert.equal(abandoned.ok, true, JSON.stringify(abandoned));
+  assert.equal(fixture.store.getTask(fixture.taskId)?.lifecycleState, "abandoned");
+  assert.equal(
+    fixture.nawabariCalls.some(
+      (args) => args.includes("--fetch-remote") || args.includes("--fetch-branch"),
+    ),
+    false,
+    "abandon must never send fetch flags to Nawabari",
+  );
+});
+
 test("abandon retry returns the persisted abandoned state", async (t) => {
   const fixture = await finishFixture(t);
   const input = {
@@ -2144,4 +2249,76 @@ test("abandon retry returns the persisted abandoned state", async (t) => {
   const repeated = await abandonWorkflowTask(input);
   assert.equal(repeated.ok, true, JSON.stringify(repeated));
   assert.equal(fixture.store.getTask(fixture.taskId)?.lifecycleState, "abandoned");
+});
+
+test("a blocked finish retry through finishWorkflowTask reattempts close with the same persisted merge SHA and never re-observes the provider", async (t) => {
+  let attempts = 0;
+  const fixture = await finishFixture(t, {
+    supportsCloseFetch: true,
+    beforeSessionClose: () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("DIRTY_WORKTREE: review changes remain");
+    },
+  });
+  seedFinishPushReceipt(fixture.store, fixture, "upstream-not-origin");
+
+  const providerJson = pullRequestViewJson({
+    state: "CLOSED",
+    mergedAt: "2026-08-10T12:00:00Z",
+    url: fixture.url,
+    headName: fixture.worktree.branchName,
+    headSha: fixture.headSha,
+    baseCommit: fixture.baseCommit,
+    mergeCommitOid: "squash-merge-sha",
+  });
+
+  const first = await finishWorkflowTask(
+    {
+      workspaceRoot: fixture.worktree.canonicalPath,
+      store: fixture.store,
+      taskId: fixture.taskId,
+      nawabari: fixture.nawabari,
+      policy: BUILTIN_PRESETS.standard,
+    },
+    { githubAdapter: githubAdapter(fixture.worktree.canonicalPath, providerResult(providerJson)) },
+  );
+  assert.equal(first.ok, false, JSON.stringify(first));
+  assert.equal(fixture.store.getTask(fixture.taskId)?.lifecycleState, "merged");
+  assert.equal(
+    fixture.store.listPullRequestRecordsForTask(fixture.taskId)[0]?.mergeRevision,
+    "squash-merge-sha",
+  );
+
+  // Retry: a provider observer that fails the test outright if it is ever invoked.
+  // transitionWorkflowTask's already-merged retry branch must skip provider
+  // observation entirely and reuse the persisted merge revision.
+  const providerCalls: string[][] = [];
+  const retry = await finishWorkflowTask(
+    {
+      workspaceRoot: fixture.worktree.canonicalPath,
+      store: fixture.store,
+      taskId: fixture.taskId,
+      nawabari: fixture.nawabari,
+      policy: BUILTIN_PRESETS.standard,
+    },
+    {
+      githubAdapter: githubAdapter(
+        fixture.worktree.canonicalPath,
+        providerResult("", "provider observer must not be called on a blocked-finish retry", { exitCode: 1 }),
+        providerCalls,
+      ),
+    },
+  );
+  assert.equal(retry.ok, true, JSON.stringify(retry));
+  assert.equal(providerCalls.length, 0, "a blocked-merged retry must never re-observe the provider");
+  assert.equal(attempts, 2);
+
+  const closeArgs = fixture.nawabariCalls.filter((args) => args[0] === "session" && args[1] === "close");
+  assert.equal(closeArgs.length, 2);
+  for (const args of closeArgs) {
+    assert.ok(args.includes("--integrated-revision"));
+    assert.equal(args[args.indexOf("--integrated-revision") + 1], "squash-merge-sha");
+    assert.ok(args.includes("--fetch-remote"));
+    assert.equal(args[args.indexOf("--fetch-remote") + 1], "upstream-not-origin");
+  }
 });

@@ -9,16 +9,49 @@ import { createWorkflowStore } from "../../test-support/workflow-store.js";
 import type { NawabariSessionId } from "../state/store.js";
 import type { PullRequestObserver } from "../providers/reconciliation.js";
 
+function seedPushReceipt(
+  store: ReturnType<typeof createWorkflowStore>,
+  task: { taskId: string; instanceId: string; nawabariSessionId?: string },
+  remote: string,
+): void {
+  store.beginPushReconciliation({
+    taskId: task.taskId as never,
+    instanceId: task.instanceId as never,
+    nawabariSessionId: task.nawabariSessionId as never,
+    sourceCommit: "source-sha",
+    remote,
+    targetBranch: "fix/example",
+    targetRef: `refs/heads/fix/example`,
+    forceRequested: false,
+    createUpstream: false,
+  });
+  store.recordPushResult({
+    taskId: task.taskId as never,
+    sourceCommit: "source-sha",
+    remote,
+    targetBranch: "fix/example",
+    targetRef: `refs/heads/fix/example`,
+    resultRemoteSha: "source-sha",
+    relation: "up-to-date",
+    evidenceComplete: true,
+  });
+}
+
 async function mergedFixture(
   t: TestContext,
   beforeSessionClose?: () => void,
-  options: { mergeRevision?: string | undefined; prNumber?: number } = {},
+  options: { mergeRevision?: string | undefined; prNumber?: number; supportsCloseFetch?: boolean } = {},
 ) {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
   const sessions = new Map<string, Record<string, unknown>>();
   const calls: string[][] = [];
-  const nawabari = fakeNawabari(root, { sessions, calls, beforeSessionClose });
+  const nawabari = fakeNawabari(root, {
+    sessions,
+    calls,
+    beforeSessionClose,
+    supportsCloseFetch: options.supportsCloseFetch,
+  });
   const prNumber = options.prNumber ?? 378;
   const started = await startNawabariTask({
     workspaceRoot: root,
@@ -427,4 +460,197 @@ test("listNawabariCloseReconciliations lists globally and scoped to a repository
     "unrelated-instance" as typeof fixture.task.instanceId,
   );
   assert.equal(otherInstanceScoped.length, 0);
+});
+
+test("requestFetch derives fetchRemote from the persisted push receipt and fetchBranch from task.baseBranch, never hard-coding origin/main", async (t) => {
+  const fixture = await mergedFixture(t, undefined, { supportsCloseFetch: true });
+  seedPushReceipt(fixture.store, fixture.task, "upstream-not-origin");
+
+  const record = fixture.store.listPullRequestRecordsForTask(fixture.task.taskId)[0]!;
+  const result = await closeNawabariExecution({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    client: fixture.nawabari,
+    task: fixture.task,
+    providerRecord: record,
+    requestFetch: true,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const closeArgs = fixture.calls.find((args) => args[0] === "session" && args[1] === "close")!;
+  // The push-receipt remote is deliberately not "origin" and the derived
+  // fetch-remote must equal it exactly, proving no origin default was used.
+  assert.ok(closeArgs.includes("--fetch-remote"));
+  assert.equal(closeArgs[closeArgs.indexOf("--fetch-remote") + 1], "upstream-not-origin");
+  // fetchBranch must equal task.baseBranch exactly, whatever that value is,
+  // proving it is read from the task record rather than defaulted to "main".
+  assert.ok(closeArgs.includes("--fetch-branch"));
+  assert.equal(closeArgs[closeArgs.indexOf("--fetch-branch") + 1], fixture.task.baseBranch);
+});
+
+test("requestFetch fails closed with no Nawabari effect when the push receipt is missing", async (t) => {
+  const fixture = await mergedFixture(t, undefined, { supportsCloseFetch: true });
+  const record = fixture.store.listPullRequestRecordsForTask(fixture.task.taskId)[0]!;
+  const result = await closeNawabariExecution({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    client: fixture.nawabari,
+    task: fixture.task,
+    providerRecord: record,
+    requestFetch: true,
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.reason, "close-fetch-authority-missing");
+  assert.equal(
+    fixture.calls.some((args) => args[0] === "session" && (args[1] === "close" || args[1] === "inspect")),
+    false,
+    "missing fetch authority must fail before any Nawabari side effect, including inspect",
+  );
+});
+
+test("requestFetch with no persisted merge revision closes ordinarily without fetch flags (ancestry integration needs no fetch)", async (t) => {
+  const fixture = await mergedFixture(t, undefined, { mergeRevision: undefined, supportsCloseFetch: true });
+  seedPushReceipt(fixture.store, fixture.task, "upstream");
+  const record = fixture.store.listPullRequestRecordsForTask(fixture.task.taskId)[0]!;
+  assert.equal(record.mergeRevision, undefined);
+
+  const result = await closeNawabariExecution({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    client: fixture.nawabari,
+    task: fixture.task,
+    providerRecord: record,
+    requestFetch: true,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const closeArgs = fixture.calls.find((args) => args[0] === "session" && args[1] === "close")!;
+  assert.equal(closeArgs.includes("--fetch-remote"), false);
+  assert.equal(closeArgs.includes("--fetch-branch"), false);
+  assert.equal(closeArgs.includes("--integrated-revision"), false);
+});
+
+test("requestFetch fails closed before any effect when Nawabari does not advertise close-fetch support", async (t) => {
+  const fixture = await mergedFixture(t, undefined, { supportsCloseFetch: false });
+  seedPushReceipt(fixture.store, fixture.task, "upstream");
+  const record = fixture.store.listPullRequestRecordsForTask(fixture.task.taskId)[0]!;
+
+  const result = await closeNawabariExecution({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    client: fixture.nawabari,
+    task: fixture.task,
+    providerRecord: record,
+    requestFetch: true,
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.reason, "cleanup-blocked");
+  assert.equal(
+    fixture.calls.some((args) => args[0] === "session" && args[1] === "close"),
+    false,
+    "an incompatible companion must never receive a close request carrying fetch flags",
+  );
+  assert.equal(fixture.store.getNawabariCloseReconciliation(fixture.task.taskId)?.state, "blocked");
+});
+
+test("requestFetch omitted (abandon/cleanup/local-only/ordinary close) never sends fetch flags even when the companion supports them", async (t) => {
+  const fixture = await mergedFixture(t, undefined, { supportsCloseFetch: true });
+  seedPushReceipt(fixture.store, fixture.task, "upstream");
+  const record = fixture.store.listPullRequestRecordsForTask(fixture.task.taskId)[0]!;
+
+  const result = await closeNawabariExecution({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    client: fixture.nawabari,
+    task: fixture.task,
+    providerRecord: record,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const closeArgs = fixture.calls.find((args) => args[0] === "session" && args[1] === "close")!;
+  assert.equal(closeArgs.includes("--fetch-remote"), false);
+  assert.equal(closeArgs.includes("--fetch-branch"), false);
+});
+
+test("a blocked finish retry reattempts close with the same persisted merge SHA without re-observing the provider", async (t) => {
+  let attempts = 0;
+  const fixture = await mergedFixture(
+    t,
+    () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("DIRTY_WORKTREE: review changes remain");
+    },
+    { supportsCloseFetch: true },
+  );
+  seedPushReceipt(fixture.store, fixture.task, "upstream");
+  const record = fixture.store.listPullRequestRecordsForTask(fixture.task.taskId)[0]!;
+  assert.equal(record.mergeRevision, "integrated-sha");
+
+  const first = await closeNawabariExecution({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    client: fixture.nawabari,
+    task: fixture.task,
+    providerRecord: record,
+    requestFetch: true,
+  });
+  assert.equal(first.ok, false);
+  if (!first.ok) assert.equal(first.reason, "cleanup-blocked");
+  assert.equal(fixture.store.getNawabariCloseReconciliation(fixture.task.taskId)?.state, "blocked");
+  assert.equal(fixture.store.getNawabariCloseReconciliation(fixture.task.taskId)?.integratedRevision, "integrated-sha");
+
+  // Retry: re-read the task/provider record exactly as the finish-retry entrypoint
+  // does (write.ts's merged-retry branch). No provider observer is passed to
+  // closeNawabariExecution at all, proving the retry cannot re-observe the provider.
+  const retryTask = fixture.store.getTask(fixture.task.taskId)!;
+  const retryRecord = fixture.store.listPullRequestRecordsForTask(fixture.task.taskId)[0]!;
+  assert.equal(retryRecord.mergeRevision, "integrated-sha");
+  const second = await closeNawabariExecution({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    client: fixture.nawabari,
+    task: retryTask,
+    providerRecord: retryRecord,
+    requestFetch: true,
+  });
+  assert.equal(second.ok, true, JSON.stringify(second));
+  assert.equal(attempts, 2);
+  const closeArgs = fixture.calls.filter((args) => args[0] === "session" && args[1] === "close");
+  assert.equal(closeArgs.length, 2);
+  for (const args of closeArgs) {
+    assert.ok(args.includes("--integrated-revision"));
+    assert.equal(args[args.indexOf("--integrated-revision") + 1], "integrated-sha");
+  }
+});
+
+test("reconciliation retry of an already-merged blocked task never re-observes the provider", async (t) => {
+  let attempts = 0;
+  const fixture = await mergedFixture(t, () => {
+    attempts += 1;
+    if (attempts === 1) throw new Error("DIRTY_WORKTREE: review changes remain");
+  });
+  // Provider record is already merged with a persisted revision, so
+  // reconcileNawabariClosures must skip observation entirely for this task
+  // (see nawabari-close.ts: `if (!integrated && providerObservations < limit)`
+  // is only reached when `task.lifecycleState !== "merged"`).
+  const providerObserverMustNotBeCalled: PullRequestObserver = async () => {
+    throw new Error("provider observer must not be called when the task is already merged");
+  };
+
+  const first = await reconcileNawabariClosures({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    client: fixture.nawabari,
+    providerObserver: providerObserverMustNotBeCalled,
+  });
+  assert.equal(first.attempted, 1);
+  assert.equal(first.closed, 0);
+  assert.equal(first.blocked.length, 1);
+  assert.equal(fixture.store.getNawabariCloseReconciliation(fixture.task.taskId)?.state, "blocked");
+
+  const second = await reconcileNawabariClosures({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    client: fixture.nawabari,
+    providerObserver: providerObserverMustNotBeCalled,
+  });
+  assert.equal(second.closed, 1);
+  assert.equal(attempts, 2);
 });
