@@ -190,6 +190,24 @@ test("Manager Session Detail can open Wabachi read-only context without replacin
   assert.match(wabachi, /Wabachi remains read-only; execution authority stays with Manager\/Nawabari/u);
 });
 
+test("Wabachi context chrome is non-interactive and reports bounded load state", () => {
+  const assets = readManagerAssets();
+  const wabachi = assets["/mockups/wabachi.html"].body;
+  const styles = assets["/mockups/styles.css"].body;
+  for (const id of ["repoContext", "revisionContext", "compareContext"]) {
+    assert.match(wabachi, new RegExp(`<span class="context context-label" id="${id}" aria-live="polite">`, "u"));
+    assert.doesNotMatch(wabachi, new RegExp(`<button[^>]+id="${id}"`, "u"));
+  }
+  assert.match(wabachi, /repository · loading…/u);
+  assert.match(wabachi, /compare · loading…/u);
+  assert.match(wabachi, /const contextState = state\.loading \? "loading…" : state\.error \? "error" : null/u);
+  assert.match(wabachi, /contextState \? "repository · " \+ contextState : name/u);
+  assert.match(wabachi, /contextState \? "revision · " \+ contextState : head/u);
+  assert.match(wabachi, /contextState \? "compare · " \+ contextState : "compare " \+ base \+ "…" \+ head/u);
+  assert.doesNotMatch(wabachi, /repoContext[^\n]*▾|revisionContext[^\n]*▾|compareContext[^\n]*▾/u);
+  assert.match(styles, /\.context-label \{[\s\S]*border-color: transparent;[\s\S]*background: transparent;/u);
+});
+
 test("New Task preflight only treats clear/not-applicable claim status as launchable", () => {
   const html = readManagerViewer();
   const match = html.match(/function isLaunchableClaimStatus\(status\) \{ return[^}]+\}/u);
