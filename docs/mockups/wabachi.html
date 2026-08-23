@@ -76,12 +76,12 @@
       <main class="shell">
         <header class="topbar">
           <div class="top-left">
-            <button class="context" type="button" id="repoContext">repository</button>
-            <button class="context" type="button" id="revisionContext">revision</button>
+            <span class="context context-label" id="repoContext" aria-live="polite">repository · loading…</span>
+            <span class="context context-label" id="revisionContext" aria-live="polite">revision · loading…</span>
             <span class="health" id="evidenceHealth">semantic state</span>
           </div>
           <div class="top-right">
-            <button class="context" type="button" id="compareContext">compare base…head</button>
+            <span class="context context-label" id="compareContext" aria-live="polite">compare · loading…</span>
             <button class="icon-btn" id="openPalette" type="button">⌘K</button>
           </div>
         </header>
@@ -334,14 +334,15 @@
           const name = project && project.project && project.project.name || "unavailable";
           const base = project && project.revision && project.revision.base || "?";
           const head = project && project.revision && project.revision.head || "?";
+          const contextState = state.loading ? "loading…" : state.error ? "error" : null;
           const integrity = project && project.semantic && project.semantic.integrity || project && project.health && project.health.status || "unknown";
           const provider = project && project.provenance && project.provenance.provider || "unavailable";
           $("#scopeRepository").textContent = name;
           $("#scopeRevision").textContent = head;
           $("#scopeHealth").textContent = String(integrity).toUpperCase();
-          $("#repoContext").textContent = name + " ▾";
-          $("#revisionContext").textContent = head + " ▾";
-          $("#compareContext").textContent = "compare " + base + "…" + head + " ▾";
+          $("#repoContext").textContent = contextState ? "repository · " + contextState : name;
+          $("#revisionContext").textContent = contextState ? "revision · " + contextState : head;
+          $("#compareContext").textContent = contextState ? "compare · " + contextState : "compare " + base + "…" + head;
           $("#evidenceHealth").textContent = String(integrity) + " · " + provider;
           $("#findingMeta").textContent = state.loading ? "loading semantic changes…" : state.findings.length + " semantic changes · " + state.findings.filter((finding) => levelRank(finding.reviewLevel) >= 2).length + " require review";
           renderIncoming();

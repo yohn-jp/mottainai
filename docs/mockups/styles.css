@@ -234,6 +234,13 @@ button.nav-item {
   padding: 0 9px;
   font: 12px var(--mono);
 }
+.context-label {
+  border-color: transparent;
+  background: transparent;
+  padding: 0;
+  cursor: default;
+  user-select: text;
+}
 .context:disabled {
   color: var(--ink-3);
   cursor: not-allowed;
