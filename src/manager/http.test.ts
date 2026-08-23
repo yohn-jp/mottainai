@@ -91,29 +91,21 @@ test("Manager HTTP API exposes session state and selected open/stop actions", as
   assert.equal(detailSession.operational.validation.state, "unavailable");
   const opened = await fetch(`${handle.url}api/v1/manager/sessions/${created.sessionId}/open-terminal`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: "{}",
   });
   assert.equal(opened.status, 200);
   assert.equal(runtime.attached, 1);
   const stopped = await fetch(`${handle.url}api/v1/manager/sessions/${created.sessionId}/stop`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: "{}",
   });
   assert.equal(stopped.status, 200);
   assert.equal((await stopped.json()).session.lifecycleState, "stopped");
   const restarted = await fetch(`${handle.url}api/v1/manager/sessions/${created.sessionId}/restart`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: "{}",
   });
   assert.equal(restarted.status, 200);
   assert.equal((await restarted.json()).session.runtimeState, "running");
   const reconciled = await fetch(`${handle.url}api/v1/manager/reconcile`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: "{}",
   });
   assert.equal(reconciled.status, 200);
 
@@ -123,6 +115,18 @@ test("Manager HTTP API exposes session state and selected open/stop actions", as
     body: "{}",
   });
   assert.equal(rejected.status, 415);
+
+  const missingContentType = await fetch(`${handle.url}api/v1/manager/sessions`, {
+    method: "POST",
+  });
+  assert.equal(missingContentType.status, 415);
+
+  const malformedJson = await fetch(`${handle.url}api/v1/manager/sessions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{",
+  });
+  assert.equal(malformedJson.status, 400);
 });
 
 test("Manager HTTP API accepts and filters the Pi launch profile", async (t) => {
@@ -315,8 +319,6 @@ test("Manager HTTP preflight exposes bounded conflict evidence and safe inspect 
 
   const inspectResponse = await fetch(`${handle.url}api/v1/manager/nawabari/sessions/${ownerSessionId}/inspect`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: "{}",
   });
   assert.equal(inspectResponse.status, 200);
   assert.equal((await inspectResponse.json()).session.sessionId, ownerSessionId);
@@ -339,8 +341,6 @@ test("Manager API remains loopback host protected and rejects malformed session 
   activeServers.push(handle);
   const malformed = await fetch(`${handle.url}api/v1/manager/sessions/not-safe/stop`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: "{}",
   });
   assert.equal(malformed.status, 400);
   const hostile = await new Promise<number | undefined>((resolve, reject) => {
@@ -390,18 +390,12 @@ test("Manager mutation Origin policy blocks hostile bodyless requests and permit
 
   const sameOrigin = await fetch(`${handle.url}api/v1/manager/sessions/${created.sessionId}/stop`, {
     method: "POST",
-    headers: {
-      origin: new URL(handle.url).origin,
-      "content-type": "application/json",
-    },
-    body: "{}",
+    headers: { origin: new URL(handle.url).origin },
   });
   assert.equal(sameOrigin.status, 200);
 
   const missingOrigin = await fetch(`${handle.url}api/v1/manager/sessions/${created.sessionId}/restart`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: "{}",
   });
   assert.equal(missingOrigin.status, 200);
   assert.equal((await missingOrigin.json()).session.runtimeState, "running");
