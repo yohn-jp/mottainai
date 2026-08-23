@@ -59,6 +59,39 @@ test("Manager operational console does not render hard-coded operational truth",
   assert.match(html, /updateHealth/u);
 });
 
+test("Manager unfinished navigation is visibly unavailable and not keyboard actionable", () => {
+  const html = readManagerViewer();
+  for (const label of ["Runtimes", "Repositories", "Sessions", "Intents", "Authority", "Settings"]) {
+    assert.match(
+      html,
+      new RegExp(`<span class="nav-item disabled" aria-disabled="true" data-nav-state="unavailable"><span class="glyph">[^<]+</span><span>${label}</span></span>`, "u"),
+    );
+  }
+  assert.match(html, /id="runtimeContext" disabled aria-disabled="true">runtime\/unavailable/u);
+  assert.doesNotMatch(html, /runtime\/unavailable ▾/u);
+  assert.match(html, /class="link disabled" aria-disabled="true" data-nav-state="unavailable">all sessions unavailable/u);
+  assert.doesNotMatch(html, /<a[^>]*>all sessions/u);
+  const styles = readManagerAssets()["/mockups/styles.css"].body;
+  assert.match(styles, /\.nav-item\.disabled/u);
+  assert.match(styles, /\.context:disabled/u);
+  assert.match(html, /q\("#drawerAction"\)\.disabled = true/u);
+  assert.match(html, /q\("#drawerAction"\)\.disabled = false/u);
+  assert.match(html, /q\("#prevStep"\)\.disabled = !taskStep/u);
+});
+
+test("Manager command palette filters only retained actions and reports no matches", () => {
+  const html = readManagerViewer();
+  assert.match(html, /id="paletteSearch"[^>]*aria-label="Filter current commands and sessions"/u);
+  assert.match(html, /data-palette-action data-palette-new/u);
+  assert.match(html, /function filterPalette\(\)/u);
+  assert.match(html, /qa\("#palette \[data-palette-action\]"\)/u);
+  assert.match(html, /node\.hidden = !matches/u);
+  assert.match(html, /id="paletteNoMatch" hidden/u);
+  assert.match(html, /q\("#paletteSearch"\)\.oninput = filterPalette/u);
+  assert.match(html, /data-palette-action data-palette-session=/u);
+  assert.match(html, /node\.onclick = function \(\) \{ closePalette\(\); openSession/u);
+});
+
 test("New Task golden path wires WORK -> EXECUTION -> AUTHORITY -> PREFLIGHT -> LAUNCH without bypassing backend authority", () => {
   const html = readManagerViewer();
   assert.match(html, /advance/u);

@@ -170,6 +170,15 @@ button.nav-item {
   background: rgba(255, 255, 255, 0.52);
   color: var(--ink);
 }
+.nav-item.disabled {
+  color: var(--ink-3);
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+.nav-item.disabled:hover {
+  background: none;
+  color: var(--ink-3);
+}
 .nav-item.active {
   background: var(--surface);
   border-left-color: var(--violet);
@@ -224,6 +233,11 @@ button.nav-item {
   border-radius: var(--r1);
   padding: 0 9px;
   font: 12px var(--mono);
+}
+.context:disabled {
+  color: var(--ink-3);
+  cursor: not-allowed;
+  opacity: 0.72;
 }
 .health {
   display: flex;
@@ -342,6 +356,14 @@ h1 {
 }
 .link:hover {
   text-decoration: underline;
+}
+.link.disabled {
+  color: var(--ink-3);
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+.link.disabled:hover {
+  text-decoration: none;
 }
 /* MOTTAINAI */
 .mottainai .page {

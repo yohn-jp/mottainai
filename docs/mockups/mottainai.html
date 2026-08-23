@@ -20,16 +20,16 @@
           <div class="scope-value"><span>unavailable</span><span class="scope-health">UNAVAILABLE</span></div>
         </div>
         <nav class="nav">
-          <div class="nav-item active" aria-current="page"><span class="glyph">⌂</span><span>Operations</span></div>
-          <div class="nav-item"><span class="glyph">R</span><span>Runtimes</span></div>
-          <div class="nav-item"><span class="glyph">↳</span><span>Repositories</span></div>
-          <div class="nav-item"><span class="glyph">S</span><span>Sessions</span></div>
+          <span class="nav-item active" aria-current="page"><span class="glyph">⌂</span><span>Operations</span></span>
+          <span class="nav-item disabled" aria-disabled="true" data-nav-state="unavailable"><span class="glyph">R</span><span>Runtimes</span></span>
+          <span class="nav-item disabled" aria-disabled="true" data-nav-state="unavailable"><span class="glyph">↳</span><span>Repositories</span></span>
+          <span class="nav-item disabled" aria-disabled="true" data-nav-state="unavailable"><span class="glyph">S</span><span>Sessions</span></span>
           <div class="nav-section">work</div>
           <button type="button" class="nav-item" data-open-new><span class="glyph">＋</span><span>New task</span></button>
-          <div class="nav-item"><span class="glyph">I</span><span>Intents</span></div>
+          <span class="nav-item disabled" aria-disabled="true" data-nav-state="unavailable"><span class="glyph">I</span><span>Intents</span></span>
           <div class="nav-section">system</div>
-          <div class="nav-item"><span class="glyph">A</span><span>Authority</span></div>
-          <div class="nav-item"><span class="glyph">⚙</span><span>Settings</span></div>
+          <span class="nav-item disabled" aria-disabled="true" data-nav-state="unavailable"><span class="glyph">A</span><span>Authority</span></span>
+          <span class="nav-item disabled" aria-disabled="true" data-nav-state="unavailable"><span class="glyph">⚙</span><span>Settings</span></span>
         </nav>
         <div class="sidebar-foot">
           <div class="shortcut"><span>Command</span><kbd class="kbd">⌘ K</kbd></div>
@@ -39,7 +39,7 @@
       <main class="shell">
         <header class="topbar">
           <div class="top-left">
-            <button class="context" id="runtimeContext">runtime/unavailable ▾</button><span class="health" id="healthLabel">Manager unavailable</span>
+            <button type="button" class="context" id="runtimeContext" disabled aria-disabled="true">runtime/unavailable</button><span class="health" id="healthLabel">Manager unavailable</span>
           </div>
           <div class="top-right">
             <button class="icon-btn" id="openPalette">⌘K</button
@@ -86,7 +86,7 @@
               </section>
               <section class="sessions">
                 <div class="section-head" style="padding: 0 12px">
-                  <span>Running</span><a class="link">all sessions →</a>
+                  <span>Running</span><span class="link disabled" aria-disabled="true" data-nav-state="unavailable">all sessions unavailable</span>
                 </div>
                 <div class="session-head">
                   <span>ID</span><span>TASK</span><span>AGENT</span><span>PHASE</span><span>LAST SEMANTIC STATE</span
@@ -175,8 +175,8 @@
     </section>
     <div class="backdrop" id="paletteBackdrop"></div>
     <div class="command" id="palette" role="dialog" aria-modal="true" aria-label="Command palette">
-      <input placeholder="Command, session, issue…" aria-label="Search commands, sessions, and issues" />
-      <button type="button" class="command-item" data-palette-new><span>New task</span><kbd class="kbd">⌘ N</kbd></button>
+      <input id="paletteSearch" placeholder="Filter current commands and sessions…" aria-label="Filter current commands and sessions" autocomplete="off" />
+      <button type="button" class="command-item" data-palette-action data-palette-new><span>New task</span><kbd class="kbd">⌘ N</kbd></button>
       <div id="paletteDynamic"></div>
     </div>
 <script src="/mockups/vendor/xterm.js"></script>
@@ -298,7 +298,7 @@
     q(".scope-value span").textContent = label;
     q(".scope-health").textContent = health ? "HEALTHY" : "UNAVAILABLE";
     q("#healthLabel").textContent = health ? "Manager ready · Zellij " + health.zellij.version : "Manager unavailable";
-    q("#runtimeContext").textContent = "runtime/" + label + " ▾";
+    q("#runtimeContext").textContent = "runtime/" + label;
     q("#runtimeStatusDetail").textContent = health ? label + " · Zellij " + health.zellij.version : "unavailable";
     q("#runtimeStatusHealth").textContent = health ? "OK" : "UNAVAILABLE";
     q("#runtimeStatusDot").classList.toggle("warn", !health);
@@ -317,22 +317,39 @@
       .slice(0, 4);
     q("#recentSignal").innerHTML = withReceipts.length ? withReceipts.map(recentSignalRow).join("") : empty("No recent signal");
   }
+  function filterPalette() {
+    var input = q("#paletteSearch");
+    var query = input ? input.value.trim().toLocaleLowerCase() : "";
+    var visible = 0;
+    qa("#palette [data-palette-action]").forEach(function (node) {
+      var matches = !query || node.textContent.toLocaleLowerCase().indexOf(query) >= 0;
+      node.hidden = !matches;
+      node.setAttribute("aria-hidden", matches ? "false" : "true");
+      if (matches) visible++;
+    });
+    var emptyState = q("#paletteDynamic [data-palette-empty]");
+    if (emptyState) emptyState.hidden = !!query;
+    var noMatch = q("#paletteNoMatch");
+    if (noMatch) noMatch.hidden = !query || visible > 0;
+  }
   function renderPalette() {
     var container = q("#paletteDynamic");
     if (!container) return;
     var items = [];
     var topAttention = sessions.filter(function (s) { return !!s.operational.attention; })[0];
     if (topAttention) {
-      items.push('<button type="button" class="command-item" data-palette-session="' + esc(topAttention.sessionId) + '"><span>Inspect attention · ' + esc(topAttention.taskSlug || topAttention.sessionId.slice(0, 8)) + '</span><kbd class="kbd">A</kbd></button>');
+      items.push('<button type="button" class="command-item" data-palette-action data-palette-session="' + esc(topAttention.sessionId) + '"><span>Inspect attention · ' + esc(topAttention.taskSlug || topAttention.sessionId.slice(0, 8)) + '</span><kbd class="kbd">A</kbd></button>');
     }
     var topRunning = sessions.filter(running)[0];
     if (topRunning && (!topAttention || topRunning.sessionId !== topAttention.sessionId)) {
-      items.push('<button type="button" class="command-item" data-palette-session="' + esc(topRunning.sessionId) + '"><span>Open session · ' + esc(topRunning.taskSlug || topRunning.sessionId.slice(0, 8)) + '</span><kbd class="kbd">↵</kbd></button>');
+      items.push('<button type="button" class="command-item" data-palette-action data-palette-session="' + esc(topRunning.sessionId) + '"><span>Open session · ' + esc(topRunning.taskSlug || topRunning.sessionId.slice(0, 8)) + '</span><kbd class="kbd">↵</kbd></button>');
     }
-    container.innerHTML = items.join("") || '<div class="command-item"><span>No sessions available</span></div>';
+    container.innerHTML = items.join("") || '<div class="command-item palette-empty" data-palette-empty aria-live="polite"><span>No sessions available</span></div>';
+    container.insertAdjacentHTML("beforeend", '<div class="command-item palette-empty" id="paletteNoMatch" hidden aria-live="polite"><span>No matching current actions</span></div>');
     qa("#paletteDynamic [data-palette-session]").forEach(function (node) {
       node.onclick = function () { closePalette(); openSession(node.dataset.paletteSession); };
     });
+    filterPalette();
   }
   function detail(session) {
     var p = session.operational;
@@ -377,6 +394,7 @@
     q("#drawerSemanticAction").onclick = null;
     q("#drawerAction").textContent = "Open managed terminal";
     q("#drawerAction").onclick = null;
+    q("#drawerAction").disabled = true;
     q("#drawer").classList.add("open"); q("#drawerBackdrop").classList.add("open");
     q("#drawerAction").focus();
     return request("/sessions/" + encodeURIComponent(id)).then(function (body) {
@@ -387,8 +405,10 @@
       q("#drawerSemanticAction").onclick = function () { openSemanticContext(session); };
       q("#drawerAction").textContent = session.operational.attention ? session.operational.attention.actionLabel : "Open managed terminal";
       q("#drawerAction").onclick = function () { action(session, session.operational.attention ? session.operational.attention.safeAction : "open-terminal"); };
+      q("#drawerAction").disabled = false;
     }).catch(function (error) {
       q("#drawerSemanticAction").hidden = true;
+      q("#drawerAction").disabled = true;
       q("#drawerBody").innerHTML = '<div class="detail-block"><b>Session detail unavailable</b><p>' + esc(error.message) + "</p></div>";
     });
   }
@@ -534,6 +554,7 @@
     q("#stepLabel").textContent = "0" + (taskStep + 1) + " / " + ["WORK","EXECUTION","AUTHORITY","PREFLIGHT","LAUNCH"][taskStep];
     q("#stepContent").innerHTML = taskMarkup();
     q("#prevStep").style.visibility = taskStep ? "visible" : "hidden";
+    q("#prevStep").disabled = !taskStep;
     q("#nextStep").textContent = taskStep === 4 ? "Launch" : taskStep === 3 ? "Re-run preflight" : "Continue";
     q("#nextStep").disabled = taskStep === 4 && !approvedPreflight;
   }
@@ -632,9 +653,10 @@
     q("#paletteBackdrop").classList.add("open"); q("#palette").classList.add("open"); q("#palette input").focus();
   };
   q("#paletteBackdrop").onclick = closePalette;
+  q("#paletteSearch").oninput = filterPalette;
   q("[data-palette-new]").onclick = function () { closePalette(); openNew(); };
   function trapFocus(container, event) {
-    var focusable = Array.prototype.slice.call(container.querySelectorAll("button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex='-1'])"));
+    var focusable = Array.prototype.slice.call(container.querySelectorAll("button:not([disabled]):not([hidden]), [href]:not([hidden]), input:not([hidden]), select:not([hidden]), textarea:not([hidden]), [tabindex]:not([tabindex='-1']):not([hidden])"));
     if (focusable.length === 0) return;
     var first = focusable[0], last = focusable[focusable.length - 1];
     if (event.shiftKey) {
