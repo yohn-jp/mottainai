@@ -126,7 +126,7 @@
           <div class="eyebrow">RECOVERY INSPECTOR</div>
           <b id="drawerTitle">Session detail</b>
         </div>
-        <button class="icon-btn" data-close>ESC</button>
+        <button type="button" class="icon-btn" id="drawerClose" data-close>ESC</button>
       </div>
       <div class="drawer-body" id="drawerBody"></div>
       <div class="drawer-foot">
@@ -338,7 +338,7 @@
     var items = [];
     var topAttention = sessions.filter(function (s) { return !!s.operational.attention; })[0];
     if (topAttention) {
-      items.push('<button type="button" class="command-item" data-palette-action data-palette-session="' + esc(topAttention.sessionId) + '"><span>Inspect attention · ' + esc(topAttention.taskSlug || topAttention.sessionId.slice(0, 8)) + '</span><kbd class="kbd">A</kbd></button>');
+      items.push('<button type="button" class="command-item" data-palette-action data-palette-session="' + esc(topAttention.sessionId) + '"><span>Inspect attention · ' + esc(topAttention.taskSlug || topAttention.sessionId.slice(0, 8)) + '</span></button>');
     }
     var topRunning = sessions.filter(running)[0];
     if (topRunning && (!topAttention || topRunning.sessionId !== topAttention.sessionId)) {
@@ -396,7 +396,7 @@
     q("#drawerAction").onclick = null;
     q("#drawerAction").disabled = true;
     q("#drawer").classList.add("open"); q("#drawerBackdrop").classList.add("open");
-    q("#drawerAction").focus();
+    q("#drawerClose").focus();
     return request("/sessions/" + encodeURIComponent(id)).then(function (body) {
       var session = body.session;
       q("#drawerTitle").textContent = (session.taskSlug || "Managed session") + " · " + session.operational.statusLabel;

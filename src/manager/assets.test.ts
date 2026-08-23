@@ -76,6 +76,8 @@ test("Manager unfinished navigation is visibly unavailable and not keyboard acti
   assert.match(styles, /\.context:disabled/u);
   assert.match(html, /q\("#drawerAction"\)\.disabled = true/u);
   assert.match(html, /q\("#drawerAction"\)\.disabled = false/u);
+  assert.match(html, /id="drawerClose" data-close>ESC<\/button>/u);
+  assert.match(html, /q\("#drawerClose"\)\.focus\(\)/u);
   assert.match(html, /q\("#prevStep"\)\.disabled = !taskStep/u);
 });
 
@@ -90,6 +92,7 @@ test("Manager command palette filters only retained actions and reports no match
   assert.match(html, /q\("#paletteSearch"\)\.oninput = filterPalette/u);
   assert.match(html, /data-palette-action data-palette-session=/u);
   assert.match(html, /node\.onclick = function \(\) \{ closePalette\(\); openSession/u);
+  assert.doesNotMatch(html, /Inspect attention[^]*?<kbd class="kbd">A<\/kbd>/u);
 });
 
 test("New Task golden path wires WORK -> EXECUTION -> AUTHORITY -> PREFLIGHT -> LAUNCH without bypassing backend authority", () => {
