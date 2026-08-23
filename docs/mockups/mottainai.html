@@ -43,6 +43,7 @@
           </div>
           <div class="top-right">
             <button class="icon-btn" id="openPalette">⌘K</button
+            ><button class="secondary" id="reconcileAction" type="button" disabled>Reconcile</button
             ><button class="primary" data-open-new>＋ New task</button>
           </div>
         </header>
@@ -132,6 +133,7 @@
       <div class="drawer-foot">
         <button class="secondary" data-close>Close</button>
         <button class="secondary" id="drawerSemanticAction" hidden>Open semantic context</button>
+        <button class="secondary" id="drawerStopAction" type="button" hidden disabled>Stop managed runtime</button>
         <button class="primary" id="drawerAction">Run recovery</button>
       </div>
     </aside>
@@ -205,6 +207,9 @@
   var approvedPreflight;
   var preflightToken = 0;
   var preflightEpoch = 0;
+  var stopInFlightSessionId = null;
+  var drawerSession;
+  var reconcileInFlight = false;
   function readWabachiWorkIntent() {
     var params = new URLSearchParams(window.location.search);
     var fromQuery = params.get("focus") || params.get("instruction") || params.get("repository") || params.get("finding") || params.get("scope") ? {
@@ -241,6 +246,7 @@
     }).join("");
   }
   function running(session) { return ["starting", "running", "detached"].indexOf(session.runtimeState) >= 0; }
+  function stoppable(session) { return running(session); }
   function recent(session) { return !running(session) && !session.operational.attention; }
   function phase(session) {
     var current = session.operational.phaseRail.filter(function (p) { return p.state === "current" || p.state === "attention"; })[0];
@@ -304,6 +310,40 @@
     q("#runtimeStatusDot").classList.toggle("warn", !health);
     q("#authorityStatusValue").textContent = health ? "CURRENT" : "UNAVAILABLE";
     q("#observedTimestamp").textContent = "OBSERVED " + new Date().toLocaleTimeString();
+    updateReconcileAction();
+    if (drawerSession !== undefined) configureStopAction(drawerSession);
+  }
+
+  function updateReconcileAction() {
+    var button = q("#reconcileAction");
+    if (!button) return;
+    button.disabled = reconcileInFlight || !health;
+    button.setAttribute("aria-busy", reconcileInFlight ? "true" : "false");
+    button.textContent = reconcileInFlight ? "Reconciling…" : "Reconcile";
+  }
+
+  function showHomeActionError(message) {
+    var existing = q("#homeActionError");
+    if (!existing) {
+      q(".attention-zone").insertAdjacentHTML("afterbegin", '<div class="detail-block" id="homeActionError"></div>');
+      existing = q("#homeActionError");
+    }
+    existing.innerHTML = "<b>Reconcile unavailable</b><p>" + esc(message) + "</p>";
+  }
+  function reconcile() {
+    if (reconcileInFlight || !health) return Promise.resolve();
+    reconcileInFlight = true;
+    updateReconcileAction();
+    return post("/reconcile", {}).then(function () {
+      var error = q("#homeActionError");
+      if (error) error.remove();
+      return refresh(true);
+    }).catch(function (error) {
+      showHomeActionError(error.message);
+    }).then(function () {
+      reconcileInFlight = false;
+      updateReconcileAction();
+    });
   }
   function recentSignalRow(session) {
     var receipt = session.latestReceipt;
@@ -392,6 +432,11 @@
     q("#drawerBody").innerHTML = empty("Loading session detail…");
     q("#drawerSemanticAction").hidden = true;
     q("#drawerSemanticAction").onclick = null;
+    q("#drawerStopAction").hidden = true;
+    q("#drawerStopAction").disabled = true;
+    q("#drawerStopAction").onclick = null;
+    q("#drawerStopAction").textContent = "Stop managed runtime";
+    drawerSession = undefined;
     q("#drawerAction").textContent = "Open managed terminal";
     q("#drawerAction").onclick = null;
     q("#drawerAction").disabled = true;
@@ -399,17 +444,53 @@
     q("#drawerClose").focus();
     return request("/sessions/" + encodeURIComponent(id)).then(function (body) {
       var session = body.session;
+      drawerSession = session;
       q("#drawerTitle").textContent = (session.taskSlug || "Managed session") + " · " + session.operational.statusLabel;
       q("#drawerBody").innerHTML = detail(session);
       q("#drawerSemanticAction").hidden = false;
       q("#drawerSemanticAction").onclick = function () { openSemanticContext(session); };
+      configureStopAction(session);
       q("#drawerAction").textContent = session.operational.attention ? session.operational.attention.actionLabel : "Open managed terminal";
       q("#drawerAction").onclick = function () { action(session, session.operational.attention ? session.operational.attention.safeAction : "open-terminal"); };
       q("#drawerAction").disabled = false;
     }).catch(function (error) {
+      drawerSession = undefined;
       q("#drawerSemanticAction").hidden = true;
       q("#drawerAction").disabled = true;
       q("#drawerBody").innerHTML = '<div class="detail-block"><b>Session detail unavailable</b><p>' + esc(error.message) + "</p></div>";
+    });
+  }
+
+  function configureStopAction(session) {
+    var button = q("#drawerStopAction");
+    var available = !!health && stoppable(session);
+    button.hidden = !available;
+    button.disabled = !available || stopInFlightSessionId === session.sessionId;
+    button.textContent = stopInFlightSessionId === session.sessionId ? "Stopping…" : "Stop managed runtime";
+    button.onclick = available ? function () { stopSession(session); } : null;
+  }
+
+  function showDrawerActionError(title, message) {
+    var existing = q("#drawerActionError");
+    if (!existing) {
+      q("#drawerBody").insertAdjacentHTML("afterbegin", '<div class="detail-block" id="drawerActionError"></div>');
+      existing = q("#drawerActionError");
+    }
+    existing.innerHTML = "<b>" + esc(title) + "</b><p>" + esc(message) + "</p>";
+  }
+
+  function stopSession(session) {
+    if (!health || !stoppable(session) || stopInFlightSessionId !== null) return Promise.resolve();
+    var sessionId = session.sessionId;
+    stopInFlightSessionId = sessionId;
+    configureStopAction(session);
+    return post("/sessions/" + encodeURIComponent(sessionId) + "/stop", {}).then(function () {
+      return refresh(true).then(function () { return openSession(sessionId); });
+    }).catch(function (error) {
+      showDrawerActionError("Stop unavailable", error.message);
+    }).then(function () {
+      stopInFlightSessionId = null;
+      if (q("#drawer").classList.contains("open") && drawerSession !== undefined) configureStopAction(drawerSession);
     });
   }
   function openSemanticContext(session) {
@@ -613,10 +694,11 @@
     q("#modalBackdrop").classList.remove("open"); q("#newTaskModal").classList.remove("open"); if (modalTrigger) { modalTrigger.focus(); modalTrigger = null; }
   }
   var refreshInFlight = false;
-  function refresh() {
-    if (refreshInFlight) return Promise.resolve();
+  var refreshPromise;
+  function refresh(force) {
+    if (refreshPromise) return force ? refreshPromise.then(function () { return refresh(); }) : refreshPromise;
     refreshInFlight = true;
-    return Promise.all([request("/health"), request("/sessions?limit=500")]).then(function (parts) {
+    refreshPromise = Promise.all([request("/health"), request("/sessions?limit=500")]).then(function (parts) {
       refreshInFlight = false;
       health = parts[0]; sessions = parts[1].sessions || []; updateHealth(); renderHome(); renderPalette();
     }).catch(function (error) {
@@ -625,11 +707,17 @@
       qa(".attention-zone .attention-row,.sessions .session-row,.sessions .attention-row").forEach(function (n) { n.remove(); });
       q(".summary-strip").insertAdjacentHTML("beforebegin", empty("Manager data unavailable: " + error.message));
       qa(".summary-num").forEach(function (node) { node.textContent = "—"; });
+    }).then(function (result) {
+      refreshInFlight = false;
+      refreshPromise = undefined;
+      return result;
     });
+    return refreshPromise;
   }
   var pollTimer = setInterval(refresh, 5000);
   window.addEventListener("beforeunload", function () { clearInterval(pollTimer); });
   qa("[data-open-new]").forEach(function (b) { b.onclick = openNew; });
+  q("#reconcileAction").onclick = reconcile;
   q("#nextStep").onclick = advance;
   q("#prevStep").onclick = function () {
     if (!taskStep) return;
