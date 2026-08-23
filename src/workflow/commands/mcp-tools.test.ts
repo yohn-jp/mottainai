@@ -218,9 +218,44 @@ test("task_start rejects an issueRef ending in . at the MCP boundary", async (t)
 test("task_start's branchType input schema declares an enum matching the bundled governed branch types (no duplicated/hand-written list)", () => {
   const taskStart = workflowCommandTools().find((tool) => tool.name === "mottainai_workflow_task_start");
   assert.ok(taskStart);
-  const properties = taskStart.inputSchema.properties as { branchType?: { enum?: unknown } };
+  const properties = taskStart.inputSchema.properties as {
+    branchType?: { enum?: unknown };
+    dryRun?: { type?: string };
+  };
   assert.deepEqual(properties.branchType?.enum, bundledGovernedBranchTypes());
   assert.equal((properties.branchType?.enum as string[] | undefined)?.includes("research"), false);
+  assert.equal(properties.dryRun?.type, "boolean");
+});
+
+test("task_start dry-run returns a plan without creating a task or worktree", async (t) => {
+  const { root, config } = await gitWorkspace(t);
+  const store = openWorkflowStore();
+  try {
+    const before = execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: root, encoding: "utf8" });
+    const result = structured(
+      await callWorkflowCommandTool(
+        "mottainai_workflow_task_start",
+        { taskSlug: "preview", branchType: "fix", issueRef: "480", dryRun: true },
+        enabled(config),
+        store,
+      ),
+    );
+    assert.equal(result.status, "success");
+    assert.equal(result.dryRun, true);
+    assert.equal("task" in result, false);
+    assert.equal((result.plan as { branch: string }).branch, "fix/480-preview");
+    assert.equal(execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: root, encoding: "utf8" }), before);
+    assert.deepEqual(store.listTasks(), []);
+    assert.equal(
+      await fs.access(path.join(root, ".git", "mottainai-instance-id")).then(
+        () => true,
+        () => false,
+      ),
+      false,
+    );
+  } finally {
+    store.close();
+  }
 });
 
 test('task_start rejects an ungoverned branchType (e.g. "research") before any worktree/Git mutation', async (t) => {

@@ -314,6 +314,60 @@ test("public CLI policy explain reports the standard preset for a plain reposito
   fs.rmSync(directory, { recursive: true, force: true });
 });
 
+test("public CLI task start dry-run returns a plan without changing Git or Nawabari state", () => {
+  const directory = gitWorkspace();
+  try {
+    const gitSnapshot = execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: directory, encoding: "utf8" });
+    const branchSnapshot = execFileSync("git", ["for-each-ref", "--format=%(refname)", "refs/heads"], {
+      cwd: directory,
+      encoding: "utf8",
+    });
+    const nawabariSnapshot = execFileSync("nawabari", ["resource", "list", "--json"], {
+      cwd: directory,
+      encoding: "utf8",
+    });
+
+    const result = runWorkflow(
+      "task",
+      "start",
+      "preview",
+      "--type",
+      "fix",
+      "--issue",
+      "480",
+      "--workspace",
+      directory,
+      "--dry-run",
+    );
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.equal(result.json.ok, true);
+    assert.equal(result.json.dryRun, true);
+    assert.equal("task" in result.json, false);
+    assert.equal("execution" in result.json, false);
+    const plan = result.json.plan as { operation: string; branch: string; worktree: string; claims: unknown[] };
+    assert.equal(plan.operation, "task-start");
+    assert.equal(plan.branch, "fix/480-preview");
+    assert.equal(plan.worktree, path.join(directory, ".mottainai", "worktrees", "fix-480-preview"));
+    assert.deepEqual(plan.claims, [{ resource: "**", mode: "exclusive-write" }]);
+
+    assert.equal(
+      execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: directory, encoding: "utf8" }),
+      gitSnapshot,
+    );
+    assert.equal(
+      execFileSync("git", ["for-each-ref", "--format=%(refname)", "refs/heads"], { cwd: directory, encoding: "utf8" }),
+      branchSnapshot,
+    );
+    assert.deepEqual(
+      JSON.parse(execFileSync("nawabari", ["resource", "list", "--json"], { cwd: directory, encoding: "utf8" })),
+      JSON.parse(nawabariSnapshot),
+    );
+    assert.equal(fs.existsSync(path.join(directory, ".git", "mottainai-instance-id")), false);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("public CLI workflow doctor returns the read-only domain report", () => {
   const directory = gitWorkspace();
   try {

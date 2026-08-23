@@ -203,6 +203,7 @@ function buildTaskStartTool(): Tool {
           pattern: "^[A-Za-z0-9](?!.*\\.\\.)(?!.*\\.lock$)(?!.*\\.$)[A-Za-z0-9._-]*$",
         },
         idempotencyKey: { type: "string", minLength: 1, maxLength: 128 },
+        dryRun: { type: "boolean" },
         semanticPlan: {
           type: "object",
           properties: {
@@ -520,6 +521,7 @@ async function taskStartToolImpl(
     branchType,
     issueRef,
     idempotencyKey: stringArg(args, "idempotencyKey"),
+    dryRun: boolArg(args, "dryRun") === true,
     semanticPlan: (() => {
       const input = semanticPlanArg(args);
       return input === undefined ? undefined : createSemanticExecutionPlan(input);
@@ -537,6 +539,14 @@ async function taskStartToolImpl(
       true,
     );
   }
+
+  if (result.dryRun === true)
+    return output("workflow_task_start", "success", "OK workflow_task_start (dry-run)", "", {
+      dryRun: true,
+      plan: result.plan,
+      semanticExecutionPlan: result.semanticPlan,
+      warnings: result.warnings,
+    });
 
   const summary = `OK task=${result.task.taskId} state=${result.task.lifecycleState} branch=${result.execution.branch} session=${result.execution.sessionId}`;
   const status = getTaskStatus(store, result.task.taskId);
