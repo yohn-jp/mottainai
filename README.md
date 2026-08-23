@@ -98,7 +98,7 @@ The CLI lifecycle is:
 
 ```bash
 mottainai policy explain [--workspace path]
-mottainai task start <slug> --type type --issue ref [--workspace path]
+mottainai task start <slug> --type type --issue ref [--workspace path] [--dry-run]
 mottainai task run <slug> --type type --issue ref --agent pi [--model model] [--workspace path]
 mottainai task status [--workspace path]
 mottainai task commit --message subject [--workspace path]
@@ -110,7 +110,7 @@ mottainai task cleanup [--workspace path]
 mottainai workflow doctor [--workspace path] [--reconcile-closures]
 ```
 
-`task start` delegates worktree creation to Nawabari and returns the canonical worktree path in `execution.worktree`. Follow-up operations must use that returned path. Mottainai does not reconstruct or take ownership of the physical worktree.
+`task start` delegates worktree creation to Nawabari and returns the canonical worktree path in `execution.worktree`. Follow-up operations must use that returned path. Mottainai does not reconstruct or take ownership of the physical worktree. `--dry-run` validates the same inputs and returns a `plan` preview (branch, base, worktree, and claims) without creating a task, Git worktree/branch, Nawabari session, claim, or persistent state.
 
 `workflow doctor` is read-only by default. `--reconcile-closures` may request Nawabari's normal safe-close path for already integrated executions; Mottainai still does not edit Nawabari registry or claim state directly.
 
