@@ -742,10 +742,11 @@ async function prepareManagerExecutionPreview(
   input: ValidatedManagerSessionInput,
 ): Promise<ManagerExecutionPreview> {
   const repoState = await resolveRepoState(workspaceRoot);
-  const repositoryRoot = await readGitValue(workspaceRoot, ["rev-parse", "--show-toplevel"]);
+  const gitRepositoryRoot = await readGitValue(workspaceRoot, ["rev-parse", "--show-toplevel"]);
+  const taskBound = input.taskSlug !== undefined;
+  const repositoryRoot = gitRepositoryRoot ?? (taskBound ? undefined : workspaceRoot);
   if (repositoryRoot === undefined)
     throw new ManagerError("task_start_failed", "cannot resolve the repository root for Manager launch preview", 409);
-  const taskBound = input.taskSlug !== undefined;
   if (taskBound && (!repoState.ok || !repoState.state.supported)) {
     throw new ManagerError("task_start_failed", !repoState.ok ? repoState.reason : repoState.state.reason, 409);
   }

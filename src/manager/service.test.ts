@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { createTempGitRepo, runGit } from "../test-support/tmp-git-repo.js";
@@ -289,6 +290,20 @@ test("Manager preview exposes the no-scope repository-wide read fallback", async
   assert.equal(preview.fields.find((field) => field.name === "scope")?.state, "defaulted");
   assert.equal(preview.fields.find((field) => field.name === "branchType")?.state, "defaulted");
   assert.equal(preview.fields.find((field) => field.name === "agent")?.state, "derived");
+});
+
+test("Manager workspace launch previews use the workspace root when Git identity is unavailable", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-manager-workspace-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store: createWorkflowStore(t),
+    runtime: new FakeRuntime(),
+  });
+  const preview = await service.preview({ instruction: "workspace launch" });
+  assert.deepEqual(preview.repository, { name: path.basename(root), root });
+  assert.equal(preview.identity.executionMode, "workspace");
+  assert.equal(preview.claimPreflight.status, "not-applicable");
 });
 
 test("Manager preview projects a canonical launch request and dependency-aware identity", async (t) => {
