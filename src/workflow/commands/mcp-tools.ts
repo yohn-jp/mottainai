@@ -203,6 +203,7 @@ function buildTaskStartTool(): Tool {
           pattern: "^[A-Za-z0-9](?!.*\\.\\.)(?!.*\\.lock$)(?!.*\\.$)[A-Za-z0-9._-]*$",
         },
         idempotencyKey: { type: "string", minLength: 1, maxLength: 128 },
+        dryRun: { type: "boolean" },
         semanticPlan: {
           type: "object",
           properties: {
@@ -520,6 +521,7 @@ async function taskStartToolImpl(
     branchType,
     issueRef,
     idempotencyKey: stringArg(args, "idempotencyKey"),
+    dryRun: boolArg(args, "dryRun") === true,
     semanticPlan: (() => {
       const input = semanticPlanArg(args);
       return input === undefined ? undefined : createSemanticExecutionPlan(input);
@@ -537,6 +539,14 @@ async function taskStartToolImpl(
       true,
     );
   }
+
+  if (result.dryRun === true)
+    return output("workflow_task_start", "success", "OK workflow_task_start (dry-run)", "", {
+      dryRun: true,
+      plan: result.plan,
+      semanticExecutionPlan: result.semanticPlan,
+      warnings: result.warnings,
+    });
 
   const summary = `OK task=${result.task.taskId} state=${result.task.lifecycleState} branch=${result.execution.branch} session=${result.execution.sessionId}`;
   const status = getTaskStatus(store, result.task.taskId);
@@ -944,6 +954,19 @@ export async function callWorkflowCommandTool(
       // 無効化されたワークスペースでも既定の on-disk SQLite DB を開いてから拒否することになる
       // （taskStartToolImpl 内の requireWorkflowTasksConfigured は defense in depth として残す）。
       requireWorkflowTasksConfigured(config);
+      if (workflowStore === undefined && boolArg(args, "dryRun") === true) {
+        // A preview must not initialize the process-wide persistent store. Use a
+        // short-lived in-memory store for the domain seam and close it before
+        // returning; callers that inject a store retain ownership of it.
+        const { WorkflowSqliteStateStore } = await import("../state/sqlite-store.js");
+        const ephemeral = new WorkflowSqliteStateStore({ dbPath: ":memory:" });
+        ephemeral.init();
+        try {
+          return await taskStartToolImpl(args, config, ephemeral);
+        } finally {
+          ephemeral.close();
+        }
+      }
       return taskStartToolImpl(args, config, workflowStore ?? (await defaultWorkflowStore()));
     case "mottainai_workflow_task_status":
       requireWorkflowTasksConfigured(config);

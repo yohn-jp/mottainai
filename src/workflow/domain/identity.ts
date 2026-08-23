@@ -31,10 +31,17 @@ export interface RepositoryIdentity {
   worktreePath: string;
 }
 
+/** Read-only repository identity fields used by previews. */
+export type RepositoryIdentityPaths = Omit<RepositoryIdentity, "instanceId">;
+
 const INSTANCE_MARKER_FILE_NAME = "mottainai-instance-id";
 
 export type ResolveRepositoryIdentityResult =
   | { ok: true; identity: RepositoryIdentity }
+  | { ok: false; reason: string };
+
+export type ResolveRepositoryIdentityPathsResult =
+  | { ok: true; identity: RepositoryIdentityPaths }
   | { ok: false; reason: string };
 
 function runGit(args: string[], cwd: string): string {
@@ -91,7 +98,9 @@ const INSTANCE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0
  * 壊れている場合は fail-closed にする（黙って新規発行し直すと、移動検出の
  * 前提である「instanceId は不変」が崩れるため）。
  */
-function resolveOrCreateInstanceId(gitCommonDir: string): { ok: true; instanceId: RepositoryInstanceId } | { ok: false; reason: string } {
+function resolveOrCreateInstanceId(
+  gitCommonDir: string,
+): { ok: true; instanceId: RepositoryInstanceId } | { ok: false; reason: string } {
   const markerPath = path.join(gitCommonDir, INSTANCE_MARKER_FILE_NAME);
   try {
     const existing = fs.readFileSync(markerPath, "utf8").trim();
@@ -147,7 +156,7 @@ function resolveOrCreateInstanceId(gitCommonDir: string): { ok: true; instanceId
  * からの呼び出しでも、common-dir が同じであれば同一 instanceId を返す
  * （worktree 個別の識別は Child Issue 4 の worktrees table が担当する）。
  */
-export function resolveRepositoryIdentity(cwd: string): ResolveRepositoryIdentityResult {
+export function resolveRepositoryIdentityPaths(cwd: string): ResolveRepositoryIdentityPathsResult {
   let rawCommonDir: string;
   let rawToplevel: string;
   try {
@@ -191,6 +200,22 @@ export function resolveRepositoryIdentity(cwd: string): ResolveRepositoryIdentit
     return { ok: false, reason: "repository has no root commit (unborn HEAD)" };
   }
 
+  return {
+    ok: true,
+    identity: { rootCommitDigest, gitCommonDir, canonicalRepositoryRoot, worktreePath },
+  };
+}
+
+/**
+ * Resolve repository identity, creating the stable instance marker when needed.
+ * Keep this write-capable operation separate from `resolveRepositoryIdentityPaths`
+ * so dry-run callers can validate a repository without creating control-plane
+ * state as a side effect.
+ */
+export function resolveRepositoryIdentity(cwd: string): ResolveRepositoryIdentityResult {
+  const pathsResult = resolveRepositoryIdentityPaths(cwd);
+  if (!pathsResult.ok) return pathsResult;
+  const { rootCommitDigest, gitCommonDir, canonicalRepositoryRoot, worktreePath } = pathsResult.identity;
   const instanceIdResult = resolveOrCreateInstanceId(gitCommonDir);
   if (!instanceIdResult.ok) {
     return { ok: false, reason: instanceIdResult.reason };
@@ -198,6 +223,12 @@ export function resolveRepositoryIdentity(cwd: string): ResolveRepositoryIdentit
 
   return {
     ok: true,
-    identity: { rootCommitDigest, instanceId: instanceIdResult.instanceId, gitCommonDir, canonicalRepositoryRoot, worktreePath },
+    identity: {
+      rootCommitDigest,
+      instanceId: instanceIdResult.instanceId,
+      gitCommonDir,
+      canonicalRepositoryRoot,
+      worktreePath,
+    },
   };
 }

@@ -226,9 +226,9 @@ function resolveWorkflowWorkspace(argv: string[]): string {
  * `policy`/`list`/`init` 等このコマンドを使わない CLI 呼び出しに static import で
  * 持ち込まない — 実際に `task` サブコマンドが呼ばれたときだけ dynamic import する。
  */
-async function openWorkflowStateStore(): Promise<WorkflowStateStore> {
+async function openWorkflowStateStore(dbPath?: string): Promise<WorkflowStateStore> {
   const { WorkflowSqliteStateStore } = await import("./workflow/state/sqlite-store.js");
-  const store = new WorkflowSqliteStateStore();
+  const store = new WorkflowSqliteStateStore(dbPath === undefined ? {} : { dbPath });
   store.init();
   return store;
 }
@@ -757,7 +757,11 @@ export async function runCli(args: string[]): Promise<number> {
         print({ ok: false, workspace, error: policyResult.reason });
         return 1;
       }
-      const store = await openWorkflowStateStore();
+      const dryRun = hasFlag(argv, "dry-run");
+      // A preview must not even initialize the persistent workflow database.
+      // An in-memory store satisfies the domain seam while keeping the whole
+      // repository/control-plane state unchanged.
+      const store = await openWorkflowStateStore(dryRun ? ":memory:" : undefined);
       try {
         const started = await startNawabariTask({
           workspaceRoot: workspace,
@@ -767,11 +771,23 @@ export async function runCli(args: string[]): Promise<number> {
           branchType,
           issueRef,
           idempotencyKey: flag(argv, "idempotency-key"),
+          dryRun,
           nawabari: new NawabariExecutionClient(),
         });
         if (!started.ok) {
           print({ ok: false, workspace, reason: started.reason, error: started.detail });
           return 1;
+        }
+        if (started.dryRun === true) {
+          print({
+            ok: true,
+            workspace,
+            dryRun: true,
+            plan: started.plan,
+            semanticExecutionPlan: started.semanticPlan,
+            warnings: started.warnings,
+          });
+          return 0;
         }
         const status = getTaskStatus(store, started.task.taskId);
         print({

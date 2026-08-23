@@ -3,8 +3,8 @@ import { runProgram } from "../../subprocess.js";
 import { decideProtectedBranchOperation } from "../policy/protected-branch.js";
 import type { WorkflowPolicyDocument } from "../policy/schema.js";
 import { validateBranchNameAgainstGovernance } from "../governance/branch.js";
-import { buildWorktreeNaming, decideBootstrap, runBootstrap } from "../git/worktree.js";
-import { resolveRepositoryIdentity } from "./identity.js";
+import { buildWorktreeNaming, decideBootstrap, resolveCanonicalWorktreePath, runBootstrap } from "../git/worktree.js";
+import { resolveRepositoryIdentity, resolveRepositoryIdentityPaths, type RepositoryIdentity } from "./identity.js";
 import { resolveRepoState } from "./repo-state.js";
 import { checkStaleBaseBranch, getTaskStatusForWorkspace, type StartTaskWarning } from "./task.js";
 import { transitionTask } from "./task-lifecycle.js";
@@ -36,6 +36,8 @@ export interface NawabariTaskStartInput {
   idempotencyKey?: string;
   expectedLockfileDigest?: string;
   semanticPlan?: SemanticExecutionPlan;
+  /** Validate and return the planned mutation without changing local state. */
+  dryRun?: boolean;
   nawabari?: NawabariExecutionClient;
   /** Internal fault-test seam; runtime callers leave this unset. */
   faultInjection?: (
@@ -68,6 +70,17 @@ export interface NawabariTaskExecutionReference {
   state: string;
 }
 
+export interface NawabariTaskStartPlan {
+  operation: "task-start";
+  taskSlug: string;
+  issueRef: string | undefined;
+  branch: string;
+  base: string;
+  baseCommit: string;
+  worktree: string;
+  claims: SemanticExecutionPlan["claims"];
+}
+
 export type NawabariTaskStartResult =
   | {
       ok: true;
@@ -77,6 +90,14 @@ export type NawabariTaskStartResult =
       warnings: readonly StartTaskWarning[];
       bootstrap?: { command: string; ran: boolean; ok?: boolean; detail?: string };
       reused?: boolean;
+      dryRun?: false;
+    }
+  | {
+      ok: true;
+      dryRun: true;
+      plan: NawabariTaskStartPlan;
+      semanticPlan: SemanticExecutionPlan;
+      warnings: readonly StartTaskWarning[];
     }
   | { ok: false; reason: NawabariTaskStartFailureReason; detail: string };
 
@@ -492,10 +513,23 @@ async function recoverSessionById(
  * Start the orchestration record and the Nawabari-owned local session. No
  * Mottainai worktree reservation or Git worktree mutation occurs in this path.
  */
+export function startNawabariTask(
+  input: NawabariTaskStartInput & { dryRun?: false },
+): Promise<Exclude<NawabariTaskStartResult, { ok: true; dryRun: true }>>;
+export function startNawabariTask(input: NawabariTaskStartInput): Promise<NawabariTaskStartResult>;
 export async function startNawabariTask(input: NawabariTaskStartInput): Promise<NawabariTaskStartResult> {
   const client = input.nawabari ?? new NawabariExecutionClient();
-  const identity = resolveRepositoryIdentity(input.workspaceRoot);
-  if (!identity.ok) return { ok: false, reason: "unsupported-repo-state", detail: identity.reason };
+  // Repository path resolution is deliberately read-only. A normal start then
+  // resolves the stable instance marker below; a dry-run must not create that
+  // marker merely to display a preview.
+  const identityResult =
+    input.dryRun === true
+      ? resolveRepositoryIdentityPaths(input.workspaceRoot)
+      : resolveRepositoryIdentity(input.workspaceRoot);
+  if (!identityResult.ok) return { ok: false, reason: "unsupported-repo-state", detail: identityResult.reason };
+  const identityPaths = identityResult.identity;
+  const identity: RepositoryIdentity | undefined =
+    input.dryRun === true ? undefined : (identityResult.identity as RepositoryIdentity);
   const repoState = await resolveRepoState(input.workspaceRoot);
   if (!repoState.ok || !repoState.state.supported)
     return {
@@ -507,25 +541,27 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
   // This is orchestration identity, not physical ownership. Refuse to create
   // a second task from an already-managed worktree before asking Nawabari to
   // provision or claim anything.
-  const localTask = await getTaskStatusForWorkspace(input.workspaceRoot, input.store);
-  if (localTask.ok && localTask.active)
-    return {
-      ok: false,
-      reason: "active-task-in-workspace",
-      detail: `workspace already has an active task: ${localTask.status.task.taskId}`,
-    };
-  try {
-    const currentSessionId = await client.currentSessionId(input.workspaceRoot);
-    const currentTask = input.store.listTasks().find((task) => task.nawabariSessionId === currentSessionId);
-    if (currentTask !== undefined && currentTask.lifecycleState !== "merged")
+  if (input.dryRun !== true) {
+    const localTask = await getTaskStatusForWorkspace(input.workspaceRoot, input.store);
+    if (localTask.ok && localTask.active)
       return {
         ok: false,
         reason: "active-task-in-workspace",
-        detail: `workspace already has an active Nawabari task: ${currentTask.taskId}`,
+        detail: `workspace already has an active task: ${localTask.status.task.taskId}`,
       };
-  } catch {
-    // Primary checkouts and legacy worktrees do not have a current Nawabari
-    // session; their normal start path continues below.
+    try {
+      const currentSessionId = await client.currentSessionId(input.workspaceRoot);
+      const currentTask = input.store.listTasks().find((task) => task.nawabariSessionId === currentSessionId);
+      if (currentTask !== undefined && currentTask.lifecycleState !== "merged")
+        return {
+          ok: false,
+          reason: "active-task-in-workspace",
+          detail: `workspace already has an active Nawabari task: ${currentTask.taskId}`,
+        };
+    } catch {
+      // Primary checkouts and legacy worktrees do not have a current Nawabari
+      // session; their normal start path continues below.
+    }
   }
   if (
     (input.policy.worktree.issueRequired === "enforce" || input.policy.worktree.issueRequired === "confirm") &&
@@ -542,7 +578,10 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
     issueRef: input.issueRef ?? "unlinked",
     taskSlug: input.taskSlug,
   }).branchName;
-  const branchValidation = await validateBranchNameAgainstGovernance(branch, identity.identity.canonicalRepositoryRoot);
+  const branchValidation = await validateBranchNameAgainstGovernance(
+    branch,
+    identity?.canonicalRepositoryRoot ?? identityPaths.canonicalRepositoryRoot,
+  );
   if (!branchValidation.ok)
     return {
       ok: false,
@@ -583,14 +622,45 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
     }
   }
 
+  if (input.dryRun === true) {
+    return {
+      ok: true,
+      dryRun: true,
+      plan: {
+        operation: "task-start",
+        taskSlug: input.taskSlug,
+        issueRef: input.issueRef,
+        branch,
+        base,
+        baseCommit: baseTip,
+        worktree: resolveCanonicalWorktreePath(identityPaths.canonicalRepositoryRoot, {
+          branchName: branch,
+          relativePath: buildWorktreeNaming({
+            branchType: input.branchType,
+            issueRef: input.issueRef ?? "unlinked",
+            taskSlug: input.taskSlug,
+          }).relativePath,
+        }),
+        claims: semanticPlan.claims,
+      },
+      semanticPlan,
+      warnings: staleWarning === undefined ? [] : [staleWarning],
+    };
+  }
+
+  // The non-dry path resolved the write-capable identity above. Keep this
+  // assertion local so all subsequent state mutations retain a concrete ID.
+  if (identity === undefined)
+    return { ok: false, reason: "unsupported-repo-state", detail: "repository identity unavailable" };
+
   input.store.observeRepositoryInstance({
-    rootCommitDigest: identity.identity.rootCommitDigest,
-    instanceId: identity.identity.instanceId,
-    gitCommonDir: identity.identity.gitCommonDir,
-    canonicalWorktreePath: identity.identity.worktreePath,
+    rootCommitDigest: identity.rootCommitDigest,
+    instanceId: identity.instanceId,
+    gitCommonDir: identity.gitCommonDir,
+    canonicalWorktreePath: identity.worktreePath,
   });
 
-  const instanceId = identity.identity.instanceId as RepositoryInstanceId;
+  const instanceId = identity.instanceId as RepositoryInstanceId;
   // Bound to the single most-recently-integrated execution: the reproduced #373/#376
   // -> #377 blocker is one prior merged task's still-open session blocking the very
   // next start, and clearing exactly that keeps interactive latency to at most one
@@ -617,8 +687,8 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
     branchName: branch,
     baseBranch: base,
     baseCommit: baseTip,
-    canonicalRepositoryRoot: identity.identity.canonicalRepositoryRoot,
-    gitCommonDir: identity.identity.gitCommonDir,
+    canonicalRepositoryRoot: identity.canonicalRepositoryRoot,
+    gitCommonDir: identity.gitCommonDir,
   });
   if (recoverable.ambiguous)
     return ownershipFailure(
@@ -653,8 +723,8 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
         baseBranch: base,
         baseCommit: baseTip,
         instanceId,
-        canonicalRepositoryRoot: identity.identity.canonicalRepositoryRoot,
-        gitCommonDir: identity.identity.gitCommonDir,
+        canonicalRepositoryRoot: identity.canonicalRepositoryRoot,
+        gitCommonDir: identity.gitCommonDir,
       })
     ) {
       // A prior process may have stopped at any task-start boundary. Continue
@@ -680,9 +750,9 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
     branchName: branch,
     baseBranch: base,
     baseCommit: baseTip,
-    instanceId: identity.identity.instanceId as RepositoryInstanceId,
-    canonicalRepositoryRoot: identity.identity.canonicalRepositoryRoot,
-    gitCommonDir: identity.identity.gitCommonDir,
+    instanceId: identity.instanceId as RepositoryInstanceId,
+    canonicalRepositoryRoot: identity.canonicalRepositoryRoot,
+    gitCommonDir: identity.gitCommonDir,
   };
   let reconciliation: TaskStartReconciliationRecord | undefined;
   try {
