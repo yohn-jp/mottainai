@@ -26,6 +26,20 @@ test("packaged Manager UI uses the agreed four-file Mottainai/Wabachi surface pl
   assert.equal(assets["/mockups/vendor/xterm.css"].contentType, "text/css; charset=utf-8");
 });
 
+test("Manager operational console exposes state-aware Stop and authoritative Reconcile actions", () => {
+  const html = readManagerViewer();
+  assert.match(html, /id="reconcileAction"[^>]*disabled/u);
+  assert.match(html, /function reconcile\(\)[^]*?post\("\/reconcile", \{\}\)[^]*?return refresh\(true\)/u);
+  assert.match(html, /reconcileInFlight \|\| !health/u);
+  assert.match(html, /showHomeActionError\(error\.message\)/u);
+  assert.match(html, /id="drawerStopAction"[^>]*hidden[^>]*disabled/u);
+  assert.match(html, /function stoppable\(session\) \{ return running\(session\); \}/u);
+  assert.match(html, /\["starting", "running", "detached"\]/u);
+  assert.match(html, /function stopSession\(session\)[^]*?var sessionId = session\.sessionId;[^]*?post\("\/sessions\/" \+ encodeURIComponent\(sessionId\) \+ "\/stop", \{\}\)[^]*?return refresh\(true\)\.then\(function \(\) \{ return openSession\(sessionId\); \}\)/u);
+  assert.match(html, /available = !!health && stoppable\(session\)/u);
+  assert.match(html, /showDrawerActionError\("Stop unavailable", error\.message\)/u);
+});
+
 test("Manager New Task keeps the exact approved request paired with its preview through launch", () => {
   const html = readManagerViewer();
   assert.match(html, /createTaskState/u);
