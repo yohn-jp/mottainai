@@ -356,3 +356,53 @@ test("Manager API remains loopback host protected and rejects malformed session 
   });
   assert.equal(hostile, 403);
 });
+
+test("Manager mutation Origin policy blocks hostile bodyless requests and permits same-origin/local clients", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const runtime = new HttpFakeRuntime();
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime });
+  await service.initialize();
+  const handle = await startDashboardServer({
+    host: "localhost",
+    port: 0,
+    viewerHtml: "manager",
+    query: createFixtureQuery(),
+    manager: new ManagerHttpApi(service),
+  });
+  activeServers.push(handle);
+
+  const createdResponse = await fetch(`${handle.url}api/v1/manager/sessions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ instruction: "origin policy" }),
+  });
+  assert.equal(createdResponse.status, 201);
+  const created = (await createdResponse.json()).session;
+
+  const hostileBodyless = await fetch(`${handle.url}api/v1/manager/sessions/${created.sessionId}/stop`, {
+    method: "POST",
+    headers: { origin: "http://evil.example" },
+  });
+  assert.equal(hostileBodyless.status, 403);
+  assert.equal((await hostileBodyless.json()).error.code, "forbidden");
+  assert.equal(runtime.sessions.has(created.runtimeName), true);
+
+  const sameOrigin = await fetch(`${handle.url}api/v1/manager/sessions/${created.sessionId}/stop`, {
+    method: "POST",
+    headers: {
+      origin: new URL(handle.url).origin,
+      "content-type": "application/json",
+    },
+    body: "{}",
+  });
+  assert.equal(sameOrigin.status, 200);
+
+  const missingOrigin = await fetch(`${handle.url}api/v1/manager/sessions/${created.sessionId}/restart`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(missingOrigin.status, 200);
+  assert.equal((await missingOrigin.json()).session.runtimeState, "running");
+});
