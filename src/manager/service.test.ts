@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import path from "node:path";
 import { test } from "node:test";
 import { createTempGitRepo, runGit } from "../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../test-support/workflow-store.js";
@@ -285,6 +286,69 @@ test("Manager preview exposes the no-scope repository-wide read fallback", async
   assert.equal(preview.claimGeneration.source, "unknown-scope");
   assert.match(preview.claimGeneration.warnings[0] ?? "", /repository-wide read fallback/u);
   assert.deepEqual(preview.nawabariDeclaration.claims, [{ resource: "**", mode: "read" }]);
+  assert.equal(preview.fields.find((field) => field.name === "scope")?.state, "defaulted");
+  assert.equal(preview.fields.find((field) => field.name === "branchType")?.state, "defaulted");
+  assert.equal(preview.fields.find((field) => field.name === "agent")?.state, "derived");
+});
+
+test("Manager preview projects a canonical launch request and dependency-aware identity", async (t) => {
+  const root = createTempGitRepo(t);
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store: createWorkflowStore(t),
+    runtime: new FakeRuntime(),
+  });
+  const preview = await service.preview({
+    instruction: "project launch intent",
+    launchProfile: "pi",
+    provider: "anthropic",
+    model: "claude-sonnet-4",
+    taskSlug: "projected-intent",
+    issueRef: "1060",
+    branchType: "fix",
+    scope: { paths: ["src/manager/service.ts"] },
+  });
+  assert.equal(preview.schemaVersion, 1);
+  assert.deepEqual(preview.request, {
+    schemaVersion: 1,
+    instruction: "project launch intent",
+    agentKind: "pi",
+    launchProfile: "pi",
+    provider: "anthropic",
+    model: "claude-sonnet-4",
+    taskSlug: "projected-intent",
+    issueRef: "1060",
+    branchType: "fix",
+    scope: { paths: ["src/manager/service.ts"] },
+  });
+  assert.equal(preview.repository.name, path.basename(root));
+  assert.equal(preview.profile.agent, "pi");
+  assert.equal(preview.profile.provider, "anthropic");
+  assert.deepEqual(preview.scope.effectiveClaims, [{ resource: "src/manager/service.ts", mode: "exclusive-write" }]);
+  assert.equal(preview.fields.find((field) => field.name === "branchType")?.state, "provided");
+  assert.equal(preview.fields.find((field) => field.name === "agent")?.state, "derived");
+  assert.equal(preview.fields.find((field) => field.name === "scope")?.state, "provided");
+});
+
+test("Manager rejects invalid branch/profile/schema combinations before external mutation", async (t) => {
+  const cases: NewManagerSessionInput[] = [
+    { instruction: "invalid branch", taskSlug: "invalid-branch", issueRef: "1061", branchType: "bad type" },
+    { instruction: "invalid provider", agentKind: "codex", provider: "anthropic" },
+    { instruction: "invalid schema", schemaVersion: 2 },
+  ];
+  for (const input of cases) {
+    const root = createTempGitRepo(t);
+    const store = createWorkflowStore(t);
+    const runtime = new FakeRuntime();
+    const service = new ManagerSessionService({ workspaceRoot: root, store, runtime });
+    await assert.rejects(
+      service.start(input),
+      (error: unknown) => error instanceof ManagerError && error.code === "invalid_request",
+    );
+    assert.equal(store.listTasks().length, 0);
+    assert.equal(store.listManagerSessions(root).length, 0);
+    assert.equal(runtime.started.length, 0);
+  }
 });
 
 test("Manager rejects invalid scope before task, record, Nawabari, or Zellij mutation", async (t) => {

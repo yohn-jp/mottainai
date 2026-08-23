@@ -56,6 +56,7 @@ const MAX_LIST_LIMIT = 500;
 const MAX_SCOPE_PATHS = 128;
 const MAX_SCOPE_CLAIMS = 128;
 const MAX_SCOPE_RESOURCE_LENGTH = 512;
+export const MANAGER_LAUNCH_SCHEMA_VERSION = 1 as const;
 const ACTIVE_RUNTIME_STATES = ["starting", "running", "detached"] as const satisfies readonly ManagerRuntimeState[];
 const RECENT_RUNTIME_STATES = [
   "exited",
@@ -69,6 +70,8 @@ function boundedStatus(value: string): string {
 }
 
 export interface NewManagerSessionInput {
+  /** Versioned wire shape for Manager launch intent; omitted means v1. */
+  schemaVersion?: number;
   instruction: string;
   agentKind?: string;
   /** Alias accepted by the API for clients that call the profile explicitly. */
@@ -101,7 +104,30 @@ export interface ManagerResourceScope {
 }
 
 export interface ManagerExecutionPreview {
+  schemaVersion: typeof MANAGER_LAUNCH_SCHEMA_VERSION;
+  /** Canonical request which the presentation layer may submit unchanged. */
+  request: ManagerLaunchRequest;
+  fields: readonly ManagerLaunchField[];
+  repository: {
+    name: string;
+    root: string;
+  };
+  profile: {
+    launchProfile: ManagerAgentKind;
+    agent: ManagerAgentKind;
+    provider?: string;
+    model?: string;
+  };
+  scope: {
+    requested: ManagerResourceScope | null;
+    effectiveClaims: readonly ExecutionClaim[];
+    claimGeneration: ClaimGenerationProvenance;
+  };
   identity: {
+    repository: {
+      name: string;
+      root: string;
+    };
     executionMode: "task-bound" | "workspace";
     task: {
       taskId?: string;
@@ -121,6 +147,31 @@ export interface ManagerExecutionPreview {
   semanticExecutionPlan: SemanticExecutionPlan;
   nawabariDeclaration: NawabariDeclaration;
   claimPreflight: ManagerClaimPreflight;
+}
+
+/** Stable, canonical launch request used by preview and actual start. */
+export interface ManagerLaunchRequest {
+  schemaVersion: typeof MANAGER_LAUNCH_SCHEMA_VERSION;
+  instruction: string;
+  agentKind: ManagerAgentKind;
+  launchProfile: ManagerAgentKind;
+  provider?: string;
+  model?: string;
+  taskSlug?: string;
+  issueRef?: string;
+  branchType: string;
+  idempotencyKey?: string;
+  scope?: ManagerResourceScope;
+}
+
+export type ManagerLaunchFieldState = "required" | "provided" | "derived" | "defaulted" | "dependent";
+
+export interface ManagerLaunchField {
+  name: "issueRef" | "taskSlug" | "branchType" | "launchProfile" | "agent" | "provider" | "model" | "scope";
+  state: ManagerLaunchFieldState;
+  required: boolean;
+  dependsOn?: readonly string[];
+  value?: string;
 }
 
 export interface ManagerLaunchInvocation {
@@ -350,6 +401,7 @@ function resolveAgentKind(launchProfile: unknown, agentKind: unknown): ManagerAg
 }
 
 interface ValidatedManagerSessionInput {
+  schemaVersion: typeof MANAGER_LAUNCH_SCHEMA_VERSION;
   agentKind: ManagerAgentKind;
   instruction: string;
   provider: string | undefined;
@@ -360,6 +412,12 @@ interface ValidatedManagerSessionInput {
   idempotencyKey: string | undefined;
   scope: ManagerResourceScope | undefined;
   scopeProvided: boolean;
+  inputFields: {
+    agent: boolean;
+    provider: boolean;
+    model: boolean;
+    branchType: boolean;
+  };
   semanticPlan: SemanticExecutionPlan;
 }
 
@@ -495,6 +553,9 @@ function normalizeScope(input: NewManagerSessionInput): {
 }
 
 function normalizeManagerSessionInput(input: NewManagerSessionInput): ValidatedManagerSessionInput {
+  const schemaVersion = input.schemaVersion ?? MANAGER_LAUNCH_SCHEMA_VERSION;
+  if (schemaVersion !== MANAGER_LAUNCH_SCHEMA_VERSION)
+    throw invalid(`unsupported Manager launch schema version: ${String(schemaVersion)}`);
   const agentKind = resolveAgentKind(input.launchProfile, input.agentKind);
   const instruction = validateInstruction(input.instruction);
   const provider = validateOptionalArg(input.provider, "provider", MAX_PROVIDER_LENGTH);
@@ -505,6 +566,8 @@ function normalizeManagerSessionInput(input: NewManagerSessionInput): ValidatedM
   const idempotencyKey = validateOptionalArg(input.idempotencyKey, "idempotencyKey", 128);
   if (idempotencyKey !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(idempotencyKey))
     throw invalid("idempotencyKey must be a bounded branch-safe token");
+  if (!/^[a-z][a-z0-9-]*$/u.test(branchType))
+    throw invalid("branchType must use lowercase letters, digits, and hyphens");
   try {
     if (taskSlug !== undefined) validateTaskSlug(taskSlug);
     validateIssueRef(issueRef);
@@ -525,6 +588,7 @@ function normalizeManagerSessionInput(input: NewManagerSessionInput): ValidatedM
       })
     : createManagerFallbackSemanticExecutionPlan();
   return {
+    schemaVersion,
     agentKind,
     instruction,
     provider,
@@ -535,6 +599,12 @@ function normalizeManagerSessionInput(input: NewManagerSessionInput): ValidatedM
     idempotencyKey,
     scope: normalizedScope.scope,
     scopeProvided: normalizedScope.provided,
+    inputFields: {
+      agent: input.agentKind !== undefined || input.launchProfile !== undefined,
+      provider: input.provider !== undefined,
+      model: input.model !== undefined,
+      branchType: input.branchType !== undefined,
+    },
     semanticPlan,
   };
 }
@@ -591,11 +661,90 @@ async function readGitValue(workspaceRoot: string, args: readonly string[]): Pro
   return value.length === 0 ? undefined : value;
 }
 
+function canonicalLaunchRequest(input: ValidatedManagerSessionInput): ManagerLaunchRequest {
+  return {
+    schemaVersion: MANAGER_LAUNCH_SCHEMA_VERSION,
+    instruction: input.instruction,
+    agentKind: input.agentKind,
+    launchProfile: input.agentKind,
+    ...(input.provider === undefined ? {} : { provider: input.provider }),
+    ...(input.model === undefined ? {} : { model: input.model }),
+    ...(input.taskSlug === undefined ? {} : { taskSlug: input.taskSlug }),
+    ...(input.issueRef === undefined ? {} : { issueRef: input.issueRef }),
+    branchType: input.branchType,
+    ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
+    ...(input.scope === undefined ? {} : { scope: input.scope }),
+  };
+}
+
+function launchFields(input: ValidatedManagerSessionInput): readonly ManagerLaunchField[] {
+  const taskRequired = input.issueRef !== undefined || input.scopeProvided;
+  return [
+    {
+      name: "issueRef",
+      state: input.issueRef === undefined ? "dependent" : "provided",
+      required: false,
+      dependsOn: ["taskSlug"],
+      ...(input.issueRef === undefined ? {} : { value: input.issueRef }),
+    },
+    {
+      name: "taskSlug",
+      state: input.taskSlug === undefined ? (taskRequired ? "required" : "dependent") : "provided",
+      required: taskRequired,
+      dependsOn: ["issueRef", "scope"],
+      ...(input.taskSlug === undefined ? {} : { value: input.taskSlug }),
+    },
+    {
+      name: "branchType",
+      state: input.inputFields.branchType ? "provided" : "defaulted",
+      required: false,
+      value: input.branchType,
+    },
+    {
+      name: "launchProfile",
+      state: input.inputFields.agent ? "provided" : "defaulted",
+      required: true,
+      value: input.agentKind,
+    },
+    {
+      name: "agent",
+      state: "derived",
+      required: true,
+      dependsOn: ["launchProfile"],
+      value: input.agentKind,
+    },
+    {
+      name: "provider",
+      state: input.agentKind === "pi" && input.provider !== undefined ? "provided" : "dependent",
+      required: false,
+      dependsOn: ["launchProfile", "model"],
+      ...(input.provider === undefined ? {} : { value: input.provider }),
+    },
+    {
+      name: "model",
+      state: input.model === undefined ? "dependent" : "provided",
+      required: false,
+      dependsOn: ["launchProfile", "provider"],
+      ...(input.model === undefined ? {} : { value: input.model }),
+    },
+    {
+      name: "scope",
+      state: input.scopeProvided ? "provided" : "defaulted",
+      required: taskRequired,
+      dependsOn: ["taskSlug"],
+      value: input.scopeProvided ? "explicit" : "conservative-broad-fallback",
+    },
+  ];
+}
+
 async function prepareManagerExecutionPreview(
   workspaceRoot: string,
   input: ValidatedManagerSessionInput,
 ): Promise<ManagerExecutionPreview> {
   const repoState = await resolveRepoState(workspaceRoot);
+  const repositoryRoot = await readGitValue(workspaceRoot, ["rev-parse", "--show-toplevel"]);
+  if (repositoryRoot === undefined)
+    throw new ManagerError("task_start_failed", "cannot resolve the repository root for Manager launch preview", 409);
   const taskBound = input.taskSlug !== undefined;
   if (taskBound && (!repoState.ok || !repoState.state.supported)) {
     throw new ManagerError("task_start_failed", !repoState.ok ? repoState.reason : repoState.state.reason, 409);
@@ -612,9 +761,6 @@ async function prepareManagerExecutionPreview(
       issueRef: input.issueRef ?? "unlinked",
       taskSlug: input.taskSlug!,
     }).branchName;
-    const repositoryRoot = await readGitValue(workspaceRoot, ["rev-parse", "--show-toplevel"]);
-    if (repositoryRoot === undefined)
-      throw new ManagerError("task_start_failed", "cannot resolve the repository root for branch governance", 409);
     const branchValidation = await validateBranchNameAgainstGovernance(branchName, repositoryRoot);
     if (!branchValidation.ok) {
       throw new ManagerError(
@@ -630,8 +776,26 @@ async function prepareManagerExecutionPreview(
     branch: branchName,
     base,
   });
+  const request = canonicalLaunchRequest(input);
+  const scope = {
+    requested: input.scope ?? null,
+    effectiveClaims: input.semanticPlan.claims,
+    claimGeneration: input.semanticPlan.claimGeneration,
+  };
   return {
+    schemaVersion: MANAGER_LAUNCH_SCHEMA_VERSION,
+    request,
+    fields: launchFields(input),
+    repository: { name: path.basename(repositoryRoot), root: repositoryRoot },
+    profile: {
+      launchProfile: input.agentKind,
+      agent: input.agentKind,
+      ...(input.provider === undefined ? {} : { provider: input.provider }),
+      ...(input.model === undefined ? {} : { model: input.model }),
+    },
+    scope,
     identity: {
+      repository: { name: path.basename(repositoryRoot), root: repositoryRoot },
       executionMode: taskBound ? "task-bound" : "workspace",
       task: {
         ...(input.taskSlug === undefined ? {} : { taskSlug: input.taskSlug }),

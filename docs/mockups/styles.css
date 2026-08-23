@@ -1053,6 +1053,23 @@ h1 {
   letter-spacing: 0.06em;
   color: var(--ink-3);
 }
+.field-state {
+  color: var(--violet);
+  font-size: 9px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.inline-validation {
+  color: var(--red);
+  font-size: 12px;
+  line-height: 1.5;
+  min-height: 0;
+  margin-bottom: 8px;
+}
+.inline-validation ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
 .field input,
 .field textarea,
 .field select {
