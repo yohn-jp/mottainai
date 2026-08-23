@@ -80,15 +80,99 @@ export type NawabariTaskStartResult =
     }
   | { ok: false; reason: NawabariTaskStartFailureReason; detail: string };
 
-function failureFrom(error: unknown): Extract<NawabariTaskStartResult, { ok: false }> {
+function failureFrom(error: unknown, detailOverride?: string): Extract<NawabariTaskStartResult, { ok: false }> {
   if (error instanceof NawabariExecutionError) {
-    return { ok: false, reason: error.code, detail: error.message } as Extract<NawabariTaskStartResult, { ok: false }>;
+    return {
+      ok: false,
+      reason: error.code,
+      detail: detailOverride ?? error.message,
+    } as Extract<NawabariTaskStartResult, { ok: false }>;
   }
   return {
     ok: false,
     reason: "nawabari-command-failed",
-    detail: error instanceof Error ? error.message : String(error),
+    detail: detailOverride ?? (error instanceof Error ? error.message : String(error)),
   };
+}
+
+function isResourceClaimConflict(error: unknown): error is NawabariExecutionError {
+  return (
+    error instanceof NawabariExecutionError &&
+    (error.nawabariCode === "RESOURCE_CLAIM_CONFLICT" || error.message.startsWith("RESOURCE_CLAIM_CONFLICT:"))
+  );
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function stringField(value: unknown, field: string): string | undefined {
+  const source = record(value);
+  const result = source?.[field];
+  return typeof result === "string" && result.length > 0 ? result : undefined;
+}
+
+/**
+ * Add actionable holder identity to the task-start refusal. The lookup is
+ * deliberately observation-only: Nawabari remains the claim/session authority
+ * and the local store is consulted only for an optional task projection.
+ */
+async function resourceClaimConflictDetail(input: {
+  error: NawabariExecutionError;
+  client: NawabariExecutionClient;
+  workspaceRoot: string;
+  store: WorkflowStateStore;
+}): Promise<string> {
+  const errorDetails = record(input.error.details);
+  const ownerSessionId = stringField(input.error.details, "ownerSessionId");
+  try {
+    const evidence = await input.client.listClaimEvidence(input.workspaceRoot);
+    const claims = evidence.claims.filter(
+      (claim) => ownerSessionId === undefined || claim.sessionId === ownerSessionId,
+    );
+    const holders = claims
+      .map((claim) => {
+        const session = evidence.sessions.find((candidate) => candidate.sessionId === claim.sessionId);
+        if (session === undefined) return undefined;
+        const task = input.store.listTasks().find((candidate) => candidate.nawabariSessionId === session.sessionId);
+        return { claim, session, task };
+      })
+      .filter((holder): holder is NonNullable<typeof holder> => holder !== undefined);
+    if (holders.length > 0)
+      return `${input.error.message}; ${holders
+        .map(
+          ({ claim, session, task }) =>
+            `blocking sessionId=${session.sessionId}, branch=${session.branch}, worktree=${session.worktree}, ` +
+            `resource=${claim.resource}, mode=${claim.mode}` +
+            (task === undefined
+              ? ""
+              : `, taskId=${task.taskId}, taskSlug=${task.taskSlug}, issueRef=${task.issueRef ?? "(none)"}`),
+        )
+        .join("; ")}`;
+  } catch {
+    // Preserve Nawabari's original refusal if the diagnostic read races with
+    // cleanup or the companion cannot provide a complete evidence snapshot.
+  }
+
+  // Nawabari 0.5+ includes the owner identity in the rejection details. Keep
+  // that bounded evidence useful even when the follow-up read is unavailable.
+  if (ownerSessionId !== undefined) {
+    const branch = stringField(input.error.details, "ownerBranch");
+    const worktree = stringField(input.error.details, "ownerWorktree");
+    const task = input.store.listTasks().find((candidate) => candidate.nawabariSessionId === ownerSessionId);
+    return (
+      `${input.error.message}; blocking sessionId=${ownerSessionId}` +
+      (branch === undefined ? "" : `, branch=${branch}`) +
+      (worktree === undefined ? "" : `, worktree=${worktree}`) +
+      (task === undefined
+        ? ""
+        : `, taskId=${task.taskId}, taskSlug=${task.taskSlug}, issueRef=${task.issueRef ?? "(none)"}`) +
+      (errorDetails?.ownerResource === undefined ? "" : `, resource=${String(errorDetails.ownerResource)}`)
+    );
+  }
+  return input.error.message;
 }
 
 async function baseCommit(workspaceRoot: string, branch: string): Promise<string | undefined> {
@@ -824,6 +908,14 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
             plan: semanticPlan,
           });
   } catch (error) {
+    const conflictDetail = isResourceClaimConflict(error)
+      ? await resourceClaimConflictDetail({
+          error,
+          client,
+          workspaceRoot: input.workspaceRoot,
+          store: input.store,
+        })
+      : undefined;
     const updated = input.store.getTaskStartReconciliation(task.taskId) ?? reconciliation;
     await compensateTaskStart({
       client,
@@ -842,7 +934,7 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
     if (error instanceof NawabariExecutionError && error.code === "nawabari-unavailable") return failureFrom(error);
     const compensated = input.store.getTaskStartReconciliation(task.taskId);
     if (compensated?.state === "orphaned") return ownershipFailure(compensated.detail ?? String(error));
-    return failureFrom(error);
+    return failureFrom(error, conflictDetail);
   }
 
   try {

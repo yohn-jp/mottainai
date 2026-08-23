@@ -72,6 +72,12 @@ export const FAKE_NAWABARI_CLOSE_FETCH_EXPLICIT_NETWORK = {
   ],
 };
 
+type FakeSessionClaimFailure = {
+  code?: string;
+  message?: string;
+  details?: Record<string, unknown>;
+};
+
 /**
  * `nawabari` CLIを模したfake runner。#203以降Nawabariが管理worktreeの唯一の物理権限に
  * なったため、check/write系integrationテストが共通で必要とするsession create/show/claim等
@@ -86,7 +92,7 @@ export function fakeNawabari(
     claims?: Map<string, Record<string, unknown>[]>;
     currentSessionId?: string;
     failSessionList?: boolean;
-    failSessionClaim?: boolean;
+    failSessionClaim?: boolean | FakeSessionClaimFailure;
     beforeSessionClose?: () => void;
     /** Advertise the Nawabari #160/#161 close-fetch contract in `capabilities`. */
     supportsCloseFetch?: boolean;
@@ -207,14 +213,22 @@ export function fakeNawabari(
           const sessionId = args[args.indexOf("--session") + 1]!;
           const resource = args[args.indexOf("--resource") + 1]!;
           const mode = args[args.indexOf("--mode") + 1]!;
-          if (options.failSessionClaim)
+          if (options.failSessionClaim) {
+            const failure = typeof options.failSessionClaim === "object" ? options.failSessionClaim : undefined;
             return runResult(
-              JSON.stringify({ ok: false, command: "session claim", code: "CLAIM_FAILED", message: "injected" }),
+              JSON.stringify({
+                ok: false,
+                command: "session claim",
+                code: failure?.code ?? "CLAIM_FAILED",
+                message: failure?.message ?? "injected",
+                ...(failure?.details === undefined ? {} : { details: failure.details }),
+              }),
               "",
               {
                 exitCode: 3,
               },
             );
+          }
           const session = sessions.get(sessionId);
           if (session === undefined) throw new Error(`missing fake session: ${sessionId}`);
           const sessionClaims = claims.get(sessionId) ?? [];
