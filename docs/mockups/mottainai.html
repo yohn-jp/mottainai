@@ -21,15 +21,15 @@
         </div>
         <nav class="nav">
           <span class="nav-item active" aria-current="page"><span class="glyph">⌂</span><span>Operations</span></span>
-          <span class="nav-item disabled" aria-disabled="true" data-nav-state="unavailable"><span class="glyph">R</span><span>Runtimes</span></span>
-          <span class="nav-item disabled" aria-disabled="true" data-nav-state="unavailable"><span class="glyph">↳</span><span>Repositories</span></span>
-          <span class="nav-item disabled" aria-disabled="true" data-nav-state="unavailable"><span class="glyph">S</span><span>Sessions</span></span>
+          <button type="button" class="nav-item disabled" disabled aria-disabled="true" data-nav-state="unavailable"><span class="glyph">R</span><span>Runtimes</span></button>
+          <button type="button" class="nav-item disabled" disabled aria-disabled="true" data-nav-state="unavailable"><span class="glyph">↳</span><span>Repositories</span></button>
+          <button type="button" class="nav-item disabled" disabled aria-disabled="true" data-nav-state="unavailable"><span class="glyph">S</span><span>Sessions</span></button>
           <div class="nav-section">work</div>
           <button type="button" class="nav-item" data-open-new><span class="glyph">＋</span><span>New task</span></button>
-          <span class="nav-item disabled" aria-disabled="true" data-nav-state="unavailable"><span class="glyph">I</span><span>Intents</span></span>
+          <button type="button" class="nav-item disabled" disabled aria-disabled="true" data-nav-state="unavailable"><span class="glyph">I</span><span>Intents</span></button>
           <div class="nav-section">system</div>
-          <span class="nav-item disabled" aria-disabled="true" data-nav-state="unavailable"><span class="glyph">A</span><span>Authority</span></span>
-          <span class="nav-item disabled" aria-disabled="true" data-nav-state="unavailable"><span class="glyph">⚙</span><span>Settings</span></span>
+          <button type="button" class="nav-item disabled" disabled aria-disabled="true" data-nav-state="unavailable"><span class="glyph">A</span><span>Authority</span></button>
+          <button type="button" class="nav-item disabled" disabled aria-disabled="true" data-nav-state="unavailable"><span class="glyph">⚙</span><span>Settings</span></button>
         </nav>
         <div class="sidebar-foot">
           <div class="shortcut"><span>Command</span><kbd class="kbd">⌘ K</kbd></div>
@@ -86,7 +86,7 @@
               </section>
               <section class="sessions">
                 <div class="section-head" style="padding: 0 12px">
-                  <span>Running</span><span class="link disabled" aria-disabled="true" data-nav-state="unavailable">all sessions unavailable</span>
+                  <span>Running</span><button type="button" class="link disabled" disabled aria-disabled="true" data-nav-state="unavailable">all sessions unavailable</button>
                 </div>
                 <div class="session-head">
                   <span>ID</span><span>TASK</span><span>AGENT</span><span>PHASE</span><span>LAST SEMANTIC STATE</span

@@ -64,12 +64,12 @@ test("Manager unfinished navigation is visibly unavailable and not keyboard acti
   for (const label of ["Runtimes", "Repositories", "Sessions", "Intents", "Authority", "Settings"]) {
     assert.match(
       html,
-      new RegExp(`<span class="nav-item disabled" aria-disabled="true" data-nav-state="unavailable"><span class="glyph">[^<]+</span><span>${label}</span></span>`, "u"),
+      new RegExp(`<button type="button" class="nav-item disabled" disabled aria-disabled="true" data-nav-state="unavailable"><span class="glyph">[^<]+</span><span>${label}</span></button>`, "u"),
     );
   }
   assert.match(html, /id="runtimeContext" disabled aria-disabled="true">runtime\/unavailable/u);
   assert.doesNotMatch(html, /runtime\/unavailable ▾/u);
-  assert.match(html, /class="link disabled" aria-disabled="true" data-nav-state="unavailable">all sessions unavailable/u);
+  assert.match(html, /<button type="button" class="link disabled" disabled aria-disabled="true" data-nav-state="unavailable">all sessions unavailable<\/button>/u);
   assert.doesNotMatch(html, /<a[^>]*>all sessions/u);
   const styles = readManagerAssets()["/mockups/styles.css"].body;
   assert.match(styles, /\.nav-item\.disabled/u);
