@@ -26,8 +26,18 @@ export interface ManagerClaimConflict {
     branch?: string;
     state?: string;
     label?: string;
+    /** Optional local Mottainai projection; Nawabari remains authoritative. */
+    taskId?: string;
+    taskSlug?: string;
+    issueRef?: string;
     claimId: string;
   };
+}
+
+export interface ManagerClaimTaskIdentity {
+  taskId: string;
+  taskSlug: string;
+  issueRef?: string;
 }
 
 export interface ManagerClaimPreflight {
@@ -144,6 +154,7 @@ function conflictFromEvidence(
   requested: ExecutionClaim,
   existing: NawabariClaimEvidence,
   owner: NawabariClaimEvidenceSnapshot["sessions"][number] | undefined,
+  task: ManagerClaimTaskIdentity | undefined,
 ): ManagerClaimConflict {
   return {
     requested: { resource: requested.resource, mode: requested.mode },
@@ -153,6 +164,13 @@ function conflictFromEvidence(
       mode: existing.mode,
       ...(owner === undefined ? {} : { worktree: owner.worktree, branch: owner.branch, state: owner.state }),
       ...(owner?.label === undefined ? {} : { label: owner.label }),
+      ...(task === undefined
+        ? {}
+        : {
+            taskId: task.taskId,
+            taskSlug: task.taskSlug,
+            ...(task.issueRef === undefined ? {} : { issueRef: task.issueRef }),
+          }),
       claimId: existing.claimId,
     },
   };
@@ -162,6 +180,7 @@ export function createClaimPreflight(
   claims: readonly ExecutionClaim[],
   snapshot: NawabariClaimEvidenceSnapshot,
   observedAt = new Date().toISOString(),
+  taskBySession = new Map<string, ManagerClaimTaskIdentity>(),
 ): ManagerClaimPreflight {
   const sessions = new Map(snapshot.sessions.map((session) => [session.sessionId, session]));
   const conflicts: ManagerClaimConflict[] = [];
@@ -169,7 +188,14 @@ export function createClaimPreflight(
     for (const existing of snapshot.claims) {
       if (!resourcePatternsOverlap(requested.resource, existing.resource)) continue;
       if (!modesConflict(requested.mode, existing.mode)) continue;
-      conflicts.push(conflictFromEvidence(requested, existing, sessions.get(existing.sessionId)));
+      conflicts.push(
+        conflictFromEvidence(
+          requested,
+          existing,
+          sessions.get(existing.sessionId),
+          taskBySession.get(existing.sessionId),
+        ),
+      );
     }
   }
   conflicts.sort((left, right) =>

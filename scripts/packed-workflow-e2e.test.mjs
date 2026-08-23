@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { after, before, test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createWorkspace, isolatedEnv, writeConfig } from "./lib/mcp-blackbox-test-support.mjs";
@@ -231,6 +232,19 @@ main().catch(fail);
 `;
 }
 
+function managerPiSource() {
+  return String.raw`
+const fs = require("node:fs");
+const marker = process.env.MOTTAINAI_MANAGER_AGENT_MARKER;
+if (marker === undefined) throw new Error("Manager agent marker is missing");
+fs.appendFileSync(marker, JSON.stringify({ pid: process.pid, cwd: process.cwd(), argv: process.argv.slice(2) }) + "\n");
+// Keep the real Zellij pane alive until Manager stops it. The fixture observes
+// this process only through the Zellij/Nawabari authorities; it never mutates
+// the managed worktree itself.
+setInterval(() => {}, 1_000);
+`;
+}
+
 function fakeGhSource() {
   return String.raw`
 const fs = require("node:fs");
@@ -319,7 +333,7 @@ function companionPath(name, env) {
   return run("which", [name], { env }).stdout.trim();
 }
 
-function createFixture({ mode = "golden", missingGhInari = false, zellijPath, nawabariPath }) {
+function createFixture({ mode = "golden", missingGhInari = false, managerAgent = false, zellijPath, nawabariPath }) {
   const workspace = createWorkspace({ config: null });
   const companionDirectory = fs.mkdtempSync(path.join(suiteRoot, "companions-"));
   const stateDirectory = fs.mkdtempSync(path.join(suiteRoot, "state-"));
@@ -328,11 +342,16 @@ function createFixture({ mode = "golden", missingGhInari = false, zellijPath, na
   const ghTrace = path.join(workspace, "gh-trace.ndjson");
   const ghInariTrace = path.join(workspace, "gh-inari-trace.ndjson");
   const gate = path.join(workspace, "pi-gate");
+  const managerAgentMarker = path.join(workspace, "manager-agent.ndjson");
   const configPath = path.join(workspace, "mottainai.config.json");
 
   fs.mkdirSync(path.join(workspace, ".mottainai"), { recursive: true });
   fs.writeFileSync(path.join(workspace, ".mottainai", "workflow.json"), JSON.stringify(workflowPolicy(), null, 2));
   fs.writeFileSync(path.join(workspace, "README.md"), "packed workflow fixture\n");
+  fs.mkdirSync(path.join(workspace, "src"), { recursive: true });
+  fs.mkdirSync(path.join(workspace, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(workspace, "src", "fixture.ts"), "export const fixture = true;\n");
+  fs.writeFileSync(path.join(workspace, "docs", "fixture.md"), "# Fixture\n");
   writeConfig(workspace, {
     version: 2,
     mcpServers: {},
@@ -346,7 +365,14 @@ function createFixture({ mode = "golden", missingGhInari = false, zellijPath, na
   runGit(workspace, ["init", "-b", "main"]);
   runGit(workspace, ["config", "user.email", "packed-workflow@example.invalid"]);
   runGit(workspace, ["config", "user.name", "Mottainai Packed Workflow"]);
-  runGit(workspace, ["add", "README.md", ".mottainai/workflow.json", "mottainai.config.json"]);
+  runGit(workspace, [
+    "add",
+    "README.md",
+    "src/fixture.ts",
+    "docs/fixture.md",
+    ".mottainai/workflow.json",
+    "mottainai.config.json",
+  ]);
   runGit(workspace, ["commit", "-m", "initial packed workflow fixture"]);
   runGit(workspace, ["init", "--bare", remote]);
   runGit(workspace, ["remote", "add", "origin", remote]);
@@ -357,7 +383,7 @@ function createFixture({ mode = "golden", missingGhInari = false, zellijPath, na
     "the real Nawabari binary must not resolve inside the fixture companion directory",
   );
 
-  writeExecutable(path.join(companionDirectory, "pi"), fakePiSource());
+  writeExecutable(path.join(companionDirectory, "pi"), managerAgent ? managerPiSource() : fakePiSource());
   writeExecutable(path.join(companionDirectory, "gh"), fakeGhSource());
   if (!missingGhInari) writeExecutable(path.join(companionDirectory, "gh-inari"), fakeGhInariSource());
   writeExecutable(path.join(companionDirectory, "nawabari"), nawabariWrapperSource());
@@ -373,12 +399,24 @@ function createFixture({ mode = "golden", missingGhInari = false, zellijPath, na
     MOTTAINAI_PI_TRACE: piTrace,
     MOTTAINAI_GH_TRACE: ghTrace,
     MOTTAINAI_GH_INARI_TRACE: ghInariTrace,
+    MOTTAINAI_MANAGER_AGENT_MARKER: managerAgentMarker,
     MOTTAINAI_REAL_NAWABARI: nawabariPath,
     MOTTAINAI_NAWABARI_TRACE: path.join(workspace, "nawabari-trace.ndjson"),
     MOTTAINAI_ZELLIJ_BINARY: zellijPath,
     PATH: [companionDirectory, baseEnv.PATH].join(path.delimiter),
   };
-  return { workspace, remote, worktree: undefined, env, realNawabari: nawabariPath, gate, ghTrace, ghInariTrace };
+  return {
+    workspace,
+    remote,
+    worktree: undefined,
+    env,
+    realNawabari: nawabariPath,
+    stateDirectory,
+    managerAgentMarker,
+    gate,
+    ghTrace,
+    ghInariTrace,
+  };
 }
 
 function invoke(fixture, cwd, args, expectedStatus = 0) {
@@ -386,6 +424,164 @@ function invoke(fixture, cwd, args, expectedStatus = 0) {
   assert.equal(result.status, expectedStatus, `${args.join(" ")}\n${result.stdout}\n${result.stderr}`);
   assert.ok(result.stdout.trim().length > 0, `${args.join(" ")} returned no JSON`);
   return JSON.parse(result.stdout);
+}
+
+async function startManagerProcess(fixture) {
+  const child = spawn(binPath, ["manager", "--no-open", "--port", "0", "--workspace", fixture.workspace], {
+    cwd: fixture.workspace,
+    env: fixture.env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    const match = stdout.match(/Mottainai manager listening at (http:\/\/127\.0\.0\.1:\d+\/)/u);
+    if (match !== null) return { child, url: match[1], stderr: () => stderr };
+    if (child.exitCode !== null) throw new Error(`Manager exited before readiness: ${stdout}\n${stderr}`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  child.kill("SIGKILL");
+  throw new Error(`timed out waiting for Manager readiness\n${stdout}\n${stderr}`);
+}
+
+async function stopManagerProcess(manager) {
+  if (manager === undefined || manager.child.exitCode !== null) return;
+  manager.child.kill("SIGTERM");
+  await new Promise((resolve) => manager.child.once("close", resolve));
+}
+
+async function managerRequest(manager, route, options = {}) {
+  const response = await fetch(`${manager.url}api/v1/manager/${route}`, {
+    ...options,
+    headers: {
+      ...(options.body === undefined ? {} : { "content-type": "application/json" }),
+      ...(options.headers ?? {}),
+    },
+  });
+  const text = await response.text();
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    throw new Error(`Manager returned non-JSON (${response.status}): ${text}`);
+  }
+  return { response, body };
+}
+
+function managerSessionIdentity(session) {
+  return {
+    sessionId: session.sessionId,
+    taskId: session.taskId,
+    executionSessionId: session.executionSessionId,
+    executionMode: session.executionMode,
+    worktreePath: session.worktreePath,
+    branchName: session.branchName,
+    taskSlug: session.taskSlug,
+    issueRef: session.issueRef,
+    runtimeName: session.runtimeName,
+    lifecycleState: session.lifecycleState,
+    runtimeState: session.runtimeState,
+    semanticLifecycleState: session.semanticLifecycleState,
+    restartCount: session.restartCount,
+    terminationState: session.terminationState,
+  };
+}
+
+function readTaskSnapshot(fixture) {
+  const dbPath = path.join(fixture.stateDirectory, "state.sqlite3");
+  if (!fs.existsSync(dbPath)) return [];
+  const db = new DatabaseSync(dbPath, { readOnly: true });
+  try {
+    return db
+      .prepare(
+        "SELECT task_id, task_slug, issue_ref, nawabari_session_id, lifecycle_state, base_branch, base_commit FROM tasks ORDER BY task_id",
+      )
+      .all();
+  } finally {
+    db.close();
+  }
+}
+
+function readGitSnapshot(fixture) {
+  return {
+    worktrees: runGit(fixture.workspace, ["worktree", "list", "--porcelain"]),
+    branches: runGit(fixture.workspace, ["for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads"]),
+  };
+}
+
+function readNawabariSnapshot(fixture) {
+  const sessionList = run(fixture.realNawabari, ["session", "list", "--json"], {
+    cwd: fixture.workspace,
+    env: fixture.env,
+    timeout: 15_000,
+  });
+  assert.equal(sessionList.status, 0, sessionList.stderr);
+  const claims = run(fixture.realNawabari, ["session", "claims", "--json"], {
+    cwd: fixture.workspace,
+    env: fixture.env,
+    timeout: 15_000,
+  });
+  assert.equal(claims.status, 0, claims.stderr);
+  return { sessions: JSON.parse(sessionList.stdout), claims: JSON.parse(claims.stdout) };
+}
+
+async function readManagerSnapshot(manager) {
+  const listed = await managerRequest(manager, "sessions");
+  assert.equal(listed.response.status, 200, JSON.stringify(listed.body));
+  return listed.body.sessions
+    .map(managerSessionIdentity)
+    .sort((left, right) => left.sessionId.localeCompare(right.sessionId));
+}
+
+async function readManagerFixtureSnapshot(fixture, manager) {
+  return {
+    manager: await readManagerSnapshot(manager),
+    tasks: readTaskSnapshot(fixture),
+    git: readGitSnapshot(fixture),
+    nawabari: readNawabariSnapshot(fixture),
+  };
+}
+
+async function waitForManagerRuntime(manager, sessionId, expected) {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    const detail = await managerRequest(manager, `sessions/${encodeURIComponent(sessionId)}`);
+    if (detail.response.status === 200 && detail.body.session.runtimeState === expected) return detail.body.session;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  const detail = await managerRequest(manager, `sessions/${encodeURIComponent(sessionId)}`);
+  throw new Error(`timed out waiting for Manager runtime ${expected}: ${JSON.stringify(detail.body)}`);
+}
+
+async function stopAndCleanManagerTask(fixture, manager, session) {
+  if (session === undefined) return;
+  if (manager !== undefined) {
+    const stopped = await managerRequest(manager, `sessions/${encodeURIComponent(session.sessionId)}/stop`, {
+      method: "POST",
+    });
+    assert.ok(stopped.response.status === 200, JSON.stringify(stopped.body));
+  }
+  if (session.taskId === undefined) return;
+  const abandoned = invoke(fixture, fixture.workspace, ["task", "abandon", "--task-id", session.taskId]);
+  assert.equal(abandoned.ok, true, JSON.stringify(abandoned));
+  const cleaned = invoke(fixture, fixture.workspace, [
+    "task",
+    "cleanup",
+    "--task-id",
+    session.taskId,
+    "--idempotency-key",
+    `issue-510-cleanup-${session.taskId}`,
+  ]);
+  assert.equal(cleaned.ok, true, JSON.stringify(cleaned));
 }
 
 async function waitForFile(filePath, timeoutMs = 30_000) {
@@ -419,6 +615,264 @@ function companionAvailability() {
     nawabari: companionPath("nawabari", env),
   };
 }
+
+test(
+  "packed Manager Issue-first dogfood proves real Zellij/Nawabari conflict recovery without touching unrelated sessions",
+  { timeout: TEST_TIMEOUT_MS },
+  async (t) => {
+    const companions = companionAvailability();
+    // This fixture is the mandatory real-companion evidence for #510. A
+    // missing or incompatible companion must fail the suite, never become a
+    // skipped or fake-only pass.
+    assert.ok(companions.zellij.length > 0, "Zellij >= 0.44 is required for the real Manager dogfood");
+    assert.ok(companions.nawabari.length > 0, "Nawabari >= 0.5 is required for the real Manager dogfood");
+    const fixture = createFixture({
+      managerAgent: true,
+      zellijPath: companions.zellij,
+      nawabariPath: companions.nawabari,
+    });
+    let manager;
+    const sessions = [];
+    t.after(async () => {
+      // Cleanup follows the same Manager -> Mottainai -> Nawabari authorities
+      // used by the scenario. It deliberately never adopts or force-releases
+      // another session.
+      for (const session of [...sessions].reverse()) {
+        try {
+          await stopAndCleanManagerTask(fixture, manager, session);
+        } catch {
+          // Preserve the original assertion while the final authority-owned
+          // fixture teardown below still removes only this temporary repo.
+        }
+      }
+      await stopManagerProcess(manager);
+      fs.rmSync(fixture.workspace, { recursive: true, force: true });
+    });
+
+    manager = await startManagerProcess(fixture);
+    const health = await managerRequest(manager, "health");
+    assert.equal(health.response.status, 200, JSON.stringify(health.body));
+    assert.equal(health.body.zellij.available, true);
+    assert.match(health.body.zellij.version, /^zellij 0\.44\./u);
+
+    const unrelatedBody = {
+      instruction: "keep this unrelated Issue session active",
+      agentKind: "pi",
+      taskSlug: "manager-510-unrelated",
+      issueRef: "362",
+      branchType: "feat",
+      idempotencyKey: "issue-510-unrelated",
+      scope: { claims: [{ resource: "docs/**", mode: "exclusive-write" }] },
+    };
+    const unrelatedResponse = await managerRequest(manager, "sessions", {
+      method: "POST",
+      body: JSON.stringify(unrelatedBody),
+    });
+    assert.equal(unrelatedResponse.response.status, 201, JSON.stringify(unrelatedResponse.body));
+    const unrelated = unrelatedResponse.body.session;
+    sessions.push(unrelated);
+    await waitForFile(fixture.managerAgentMarker);
+    assert.equal(unrelated.agentKind, "pi");
+    assert.equal(unrelated.issueRef, "362");
+    assert.equal(unrelated.operational.identities.executionSessionId, unrelated.executionSessionId);
+
+    const blockerBody = {
+      instruction: "establish the bounded overlapping blocker",
+      agentKind: "pi",
+      taskSlug: "manager-510-blocker",
+      issueRef: "362",
+      branchType: "feat",
+      idempotencyKey: "issue-510-blocker",
+      scope: { claims: [{ resource: "src/**", mode: "exclusive-write" }] },
+    };
+    const blockerResponse = await managerRequest(manager, "sessions", {
+      method: "POST",
+      body: JSON.stringify(blockerBody),
+    });
+    assert.equal(blockerResponse.response.status, 201, JSON.stringify(blockerResponse.body));
+    const blocker = blockerResponse.body.session;
+    sessions.push(blocker);
+    assert.equal(blocker.issueRef, "362");
+    assert.equal(blocker.operational.identities.executionSessionId, blocker.executionSessionId);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    const targetBody = {
+      instruction: "bounded Issue #362 Manager dogfood",
+      agentKind: "pi",
+      taskSlug: "manager-510-target",
+      issueRef: "362",
+      branchType: "feat",
+      idempotencyKey: "issue-510-target",
+      scope: { claims: [{ resource: "src/**", mode: "exclusive-write" }] },
+    };
+    const previewResponse = await managerRequest(manager, "sessions/preview", {
+      method: "POST",
+      body: JSON.stringify(targetBody),
+    });
+    assert.equal(previewResponse.response.status, 200, JSON.stringify(previewResponse.body));
+    const preview = previewResponse.body.preview;
+    assert.equal(preview.identity.task.issueRef, "362");
+    assert.equal(preview.identity.task.taskSlug, "manager-510-target");
+    assert.deepEqual(preview.claims, [{ resource: "src/**", mode: "exclusive-write" }]);
+    assert.equal(preview.claimPreflight.status, "conflict", JSON.stringify(preview));
+    const previewConflict = preview.claimPreflight.conflicts.find(
+      (conflict) => conflict.existing.sessionId === blocker.executionSessionId,
+    );
+    assert.ok(previewConflict, JSON.stringify(preview.claimPreflight));
+    assert.equal(previewConflict.existing.branch, blocker.branchName);
+    assert.equal(previewConflict.existing.taskId, blocker.taskId);
+    assert.equal(previewConflict.existing.taskSlug, blocker.taskSlug);
+    assert.equal(previewConflict.existing.issueRef, blocker.issueRef);
+
+    const beforeConflict = await readManagerFixtureSnapshot(fixture, manager);
+    const beforeUnrelated = beforeConflict.manager.find((session) => session.sessionId === unrelated.sessionId);
+    assert.ok(beforeUnrelated, JSON.stringify(beforeConflict));
+    const conflictResponse = await managerRequest(manager, "sessions", {
+      method: "POST",
+      body: JSON.stringify(targetBody),
+    });
+    assert.equal(conflictResponse.response.status, 409, JSON.stringify(conflictResponse.body));
+    assert.equal(conflictResponse.body.error.code, "claim_conflict");
+    const returnedConflict = conflictResponse.body.error.details.claimPreflight.conflicts.find(
+      (conflict) => conflict.existing.sessionId === blocker.executionSessionId,
+    );
+    assert.ok(returnedConflict, JSON.stringify(conflictResponse.body));
+    assert.equal(returnedConflict.existing.branch, blocker.branchName);
+    assert.equal(returnedConflict.existing.taskId, blocker.taskId);
+    assert.equal(returnedConflict.existing.taskSlug, blocker.taskSlug);
+    assert.equal(returnedConflict.existing.issueRef, blocker.issueRef);
+
+    // The rejected launch is a read-only preflight failure: every physical and
+    // durable identity must be byte-for-byte unchanged, including the active
+    // unrelated Manager/Zellij/Nawabari session.
+    const afterConflict = await readManagerFixtureSnapshot(fixture, manager);
+    assert.deepEqual(afterConflict, beforeConflict);
+    assert.deepEqual(
+      afterConflict.manager.find((session) => session.sessionId === unrelated.sessionId),
+      beforeUnrelated,
+    );
+    assert.equal(
+      afterConflict.tasks.some((task) => task.task_slug === "manager-510-target"),
+      false,
+    );
+
+    const blockerStopped = await managerRequest(manager, `sessions/${encodeURIComponent(blocker.sessionId)}/stop`, {
+      method: "POST",
+    });
+    assert.equal(blockerStopped.response.status, 200, JSON.stringify(blockerStopped.body));
+    assert.equal(blockerStopped.body.session.runtimeState, "stopped");
+    const blockerAbandoned = invoke(fixture, fixture.workspace, ["task", "abandon", "--task-id", blocker.taskId]);
+    assert.equal(blockerAbandoned.ok, true, JSON.stringify(blockerAbandoned));
+    const blockerCleaned = invoke(fixture, fixture.workspace, [
+      "task",
+      "cleanup",
+      "--task-id",
+      blocker.taskId,
+      "--idempotency-key",
+      "issue-510-blocker-cleanup",
+    ]);
+    assert.equal(blockerCleaned.ok, true, JSON.stringify(blockerCleaned));
+    const unrelatedDuringRecovery = await readManagerSnapshot(manager);
+    assert.deepEqual(
+      unrelatedDuringRecovery.find((session) => session.sessionId === unrelated.sessionId),
+      beforeUnrelated,
+    );
+
+    const recoveredResponse = await managerRequest(manager, "sessions", {
+      method: "POST",
+      body: JSON.stringify(targetBody),
+    });
+    assert.equal(recoveredResponse.response.status, 201, JSON.stringify(recoveredResponse.body));
+    const recovered = recoveredResponse.body.session;
+    sessions.push(recovered);
+    assert.equal(recovered.taskSlug, targetBody.taskSlug);
+    assert.equal(recovered.issueRef, "362");
+    assert.equal(recovered.executionMode, "task-bound");
+    await waitForFile(fixture.managerAgentMarker);
+
+    const detailResponse = await managerRequest(manager, `sessions/${encodeURIComponent(recovered.sessionId)}`);
+    assert.equal(detailResponse.response.status, 200, JSON.stringify(detailResponse.body));
+    assert.equal(detailResponse.body.session.sessionId, recovered.sessionId);
+    assert.equal(detailResponse.body.session.runtimeName, recovered.runtimeName);
+    assert.equal(detailResponse.body.session.operational.identities.executionSessionId, recovered.executionSessionId);
+    const inspectResponse = await managerRequest(
+      manager,
+      `nawabari/sessions/${encodeURIComponent(recovered.executionSessionId)}/inspect`,
+      { method: "POST" },
+    );
+    assert.equal(inspectResponse.response.status, 200, JSON.stringify(inspectResponse.body));
+    assert.equal(inspectResponse.body.session.sessionId, recovered.executionSessionId);
+    assert.equal(inspectResponse.body.session.branch, recovered.branchName);
+
+    const stoppedResponse = await managerRequest(manager, `sessions/${encodeURIComponent(recovered.sessionId)}/stop`, {
+      method: "POST",
+    });
+    assert.equal(stoppedResponse.response.status, 200, JSON.stringify(stoppedResponse.body));
+    assert.equal(stoppedResponse.body.session.runtimeState, "stopped");
+    const restartedResponse = await managerRequest(
+      manager,
+      `sessions/${encodeURIComponent(recovered.sessionId)}/restart`,
+      { method: "POST" },
+    );
+    assert.equal(restartedResponse.response.status, 200, JSON.stringify(restartedResponse.body));
+    assert.equal(restartedResponse.body.session.runtimeState, "running");
+    assert.equal(restartedResponse.body.session.restartCount, 1);
+    await waitForManagerRuntime(manager, recovered.sessionId, "running");
+    const markerLines = readJsonLines(fixture.managerAgentMarker);
+    assert.ok(markerLines.length >= 2, JSON.stringify(markerLines));
+    assert.equal(markerLines.at(-1).cwd, recovered.worktreePath);
+
+    const targetStopped = await managerRequest(manager, `sessions/${encodeURIComponent(recovered.sessionId)}/stop`, {
+      method: "POST",
+    });
+    assert.equal(targetStopped.response.status, 200, JSON.stringify(targetStopped.body));
+    assert.equal(targetStopped.body.session.runtimeState, "stopped");
+    const unrelatedBeforeFinalCleanup = await managerRequest(
+      manager,
+      `sessions/${encodeURIComponent(unrelated.sessionId)}`,
+    );
+    assert.equal(unrelatedBeforeFinalCleanup.response.status, 200);
+    assert.equal(unrelatedBeforeFinalCleanup.body.session.runtimeState, "running");
+
+    const targetAbandoned = invoke(fixture, fixture.workspace, ["task", "abandon", "--task-id", recovered.taskId]);
+    assert.equal(targetAbandoned.ok, true, JSON.stringify(targetAbandoned));
+    const targetCleaned = invoke(fixture, fixture.workspace, [
+      "task",
+      "cleanup",
+      "--task-id",
+      recovered.taskId,
+      "--idempotency-key",
+      "issue-510-target-cleanup",
+    ]);
+    assert.equal(targetCleaned.ok, true, JSON.stringify(targetCleaned));
+    await stopAndCleanManagerTask(fixture, manager, unrelated);
+
+    const finalSnapshot = await readManagerFixtureSnapshot(fixture, manager);
+    assert.equal(
+      finalSnapshot.tasks.every((task) => task.lifecycle_state === "cleaned"),
+      true,
+    );
+    assert.equal(finalSnapshot.nawabari.claims.claims?.length ?? 0, 0);
+    assert.equal(finalSnapshot.nawabari.sessions.sessions?.length ?? 0, 0);
+    for (const task of finalSnapshot.tasks) {
+      assert.equal(finalSnapshot.git.worktrees.includes(task.task_slug), false);
+    }
+    for (const session of finalSnapshot.manager) {
+      assert.notEqual(session.semanticLifecycleState, "orphaned");
+      assert.equal(session.runtimeState, "stopped");
+    }
+    const zellijSessions = run(companions.zellij, ["list-sessions"], {
+      cwd: fixture.workspace,
+      env: fixture.env,
+      timeout: 15_000,
+    });
+    const zellijOutput = `${zellijSessions.stdout}\n${zellijSessions.stderr}`;
+    assert.equal(
+      finalSnapshot.manager.some((session) => zellijOutput.includes(session.runtimeName)),
+      false,
+    );
+  },
+);
 
 test(
   "packed Pi Issue-to-PR golden path reaches pull-request-open through the owning authorities",
