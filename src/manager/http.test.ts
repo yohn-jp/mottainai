@@ -341,8 +341,6 @@ test("Manager API remains loopback host protected and rejects malformed session 
   activeServers.push(handle);
   const malformed = await fetch(`${handle.url}api/v1/manager/sessions/not-safe/stop`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: "{}",
   });
   assert.equal(malformed.status, 400);
   const hostile = await new Promise<number | undefined>((resolve, reject) => {
