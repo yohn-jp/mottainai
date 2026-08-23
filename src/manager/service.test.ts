@@ -758,6 +758,102 @@ test("final Nawabari conflict after a clear preview is surfaced as refreshed evi
   assert.equal(runtime.started.length, 0);
 });
 
+test("final Nawabari conflict without matching detail stays bounded and does not clean a foreign session", async (t) => {
+  const root = createTempGitRepo(t);
+  const calls: string[][] = [];
+  const foreignSessionId = "foreign-session";
+  const sessions = new Map<string, Record<string, unknown>>([
+    [
+      foreignSessionId,
+      {
+        session_id: foreignSessionId,
+        repository: `${root}/.git`,
+        worktree: `${root}-foreign`,
+        branch: "feat/foreign",
+        state: "active",
+        label: "foreign-task",
+      },
+    ],
+  ]);
+  const claims = new Map<string, Record<string, unknown>[]>([
+    // The follow-up observation has a live but unrelated claim, so it cannot
+    // identify a holder for the final rejection.
+    [
+      foreignSessionId,
+      [
+        {
+          ...ownerClaim(root, "docs/unrelated.md", "exclusive-write"),
+          session_id: foreignSessionId,
+          worktree: `${root}-foreign`,
+        },
+      ],
+    ],
+  ]);
+  const fixtureOptions = {
+    calls,
+    sessions,
+    claims,
+    failSessionClaim: {
+      code: "RESOURCE_CLAIM_CONFLICT",
+      message: "claim holder detail unavailable",
+    },
+  };
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store: createWorkflowStore(t),
+    runtime: new FakeRuntime(),
+    nawabari: fakeNawabari(root, fixtureOptions),
+  });
+  const input = {
+    instruction: "missing conflict detail",
+    taskSlug: "missing-conflict-detail",
+    issueRef: "522",
+    scope: { claims: [{ resource: "src/requested.ts", mode: "exclusive-write" as const }] },
+  };
+  await assert.rejects(service.start(input), (error: unknown) => {
+    assert.ok(error instanceof ManagerError);
+    assert.equal(error.code, "claim_conflict");
+    const details = error.details as {
+      finalNawabariCode?: string;
+      claimPreflight?: {
+        status?: string;
+        conflicts?: unknown[];
+        safeActions?: string[];
+        nawabariCode?: string;
+        message?: string;
+      };
+    };
+    assert.equal(details.finalNawabariCode, "RESOURCE_CLAIM_CONFLICT");
+    assert.equal(details.claimPreflight?.status, "stale");
+    assert.deepEqual(details.claimPreflight?.conflicts, []);
+    assert.deepEqual(details.claimPreflight?.safeActions, [
+      "retry-after-stabilization",
+      "refresh-preflight",
+      "reconcile",
+    ]);
+    assert.equal(details.claimPreflight?.nawabariCode, "RESOURCE_CLAIM_CONFLICT");
+    assert.match(details.claimPreflight?.message ?? "", /fresh evidence no longer reproduces/u);
+    return true;
+  });
+
+  assert.ok(
+    calls.some((args) => args[0] === "session" && args[1] === "claim"),
+    "the final Nawabari claim acquisition must be attempted",
+  );
+  assert.equal(sessions.get(foreignSessionId)?.state, "active");
+  assert.equal(claims.get(foreignSessionId)?.length, 1);
+  assert.equal(
+    calls.some(
+      (args) =>
+        args[0] === "session" &&
+        ["update", "release", "close"].includes(args[1] ?? "") &&
+        args.includes(foreignSessionId),
+    ),
+    false,
+    "missing conflict detail must not trigger cleanup of a foreign session",
+  );
+});
+
 test("Manager starts concurrent task-bound Codex sessions on distinct managed worktrees", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
