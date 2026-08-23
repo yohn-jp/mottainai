@@ -57,13 +57,13 @@
           <div id="scopeRevision" style="font:10px var(--mono);margin-top:4px;color:var(--ink-3)">loading revision</div>
         </div>
         <nav class="nav" aria-label="Primary">
-          <div class="nav-item active" aria-current="page"><span class="glyph">◎</span><span>Review desk</span></div>
-          <div class="nav-item"><span class="glyph">Δ</span><span>Changes</span></div>
-          <div class="nav-item"><span class="glyph">⌘</span><span>Explore</span></div>
-          <div class="nav-item"><span class="glyph">✓</span><span>Reviews</span></div>
+          <div class="nav-item active" id="sidebarReviewDesk" aria-current="page"><span class="glyph">◎</span><span>Review desk</span></div>
+          <button class="nav-item" data-sidebar-tab="impact" type="button"><span class="glyph">Δ</span><span>Changes</span></button>
+          <button class="nav-item" data-sidebar-tab="source" type="button"><span class="glyph">⌘</span><span>Explore</span></button>
+          <button class="nav-item disabled" type="button" disabled aria-disabled="true"><span class="glyph">✓</span><span>Reviews</span></button>
           <div class="nav-section">lens</div>
-          <div class="nav-item"><span class="glyph">E</span><span>Evidence</span></div>
-          <div class="nav-item"><span class="glyph">R</span><span>Relations</span></div>
+          <button class="nav-item" data-sidebar-tab="evidence" type="button"><span class="glyph">E</span><span>Evidence</span></button>
+          <button class="nav-item" data-sidebar-tab="relations" type="button"><span class="glyph">R</span><span>Relations</span></button>
         </nav>
         <div class="sidebar-foot">
           <div class="shortcut"><span>Command</span><kbd class="kbd">⌘ K</kbd></div>
@@ -345,7 +345,20 @@
           $("#compareContext").textContent = contextState ? "compare · " + contextState : "compare " + base + "…" + head;
           $("#evidenceHealth").textContent = String(integrity) + " · " + provider;
           $("#findingMeta").textContent = state.loading ? "loading semantic changes…" : state.findings.length + " semantic changes · " + state.findings.filter((finding) => levelRank(finding.reviewLevel) >= 2).length + " require review";
+          renderSidebar();
           renderIncoming();
+        }
+
+        function renderSidebar() {
+          const reviewDesk = $("#sidebarReviewDesk");
+          const reviewDeskActive = state.tab === "brief";
+          reviewDesk.classList.toggle("active", reviewDeskActive);
+          if (reviewDeskActive) reviewDesk.setAttribute("aria-current", "page"); else reviewDesk.removeAttribute("aria-current");
+          $$('[data-sidebar-tab]').forEach((item) => {
+            const active = item.dataset.sidebarTab === state.tab;
+            item.classList.toggle("active", active);
+            if (active) item.setAttribute("aria-current", "page"); else item.removeAttribute("aria-current");
+          });
         }
 
         function renderIncoming() {
@@ -501,7 +514,7 @@
         function saveScroll() { state.scroll[(state.selected || "none") + ":" + state.tab] = $("#notebook").scrollTop; }
         function restoreScroll() { requestAnimationFrame(() => { $("#notebook").scrollTop = state.scroll[(state.selected || "none") + ":" + state.tab] || 0; }); }
         function selectFinding(id, push = false) { if (!id || id === state.selected) return; saveScroll(); state.selected = id; state.tab = "brief"; state.selectedEvidence = 0; renderList(); writeHash(push); void loadSelected(); }
-        function setTab(tab, push = false) { if (!["brief","impact","evidence","relations","source"].includes(tab)) return; saveScroll(); state.tab = tab; renderInvestigation(); writeHash(push); }
+        function setTab(tab, push = false) { if (!["brief","impact","evidence","relations","source"].includes(tab)) return; saveScroll(); state.tab = tab; renderSidebar(); renderInvestigation(); writeHash(push); }
 
         function handoffToManager(finding) {
           const project = state.project || {};
@@ -570,6 +583,7 @@
         }
 
         $$(".tab").forEach((tab) => tab.addEventListener("click", () => setTab(tab.dataset.tab, true)));
+        $$('[data-sidebar-tab]').forEach((item) => item.addEventListener("click", () => setTab(item.dataset.sidebarTab, true)));
         $("#findingSearch").addEventListener("input", (event) => { state.query = event.target.value; renderList(); writeHash(false); });
         $("#openPalette").addEventListener("click", openPalette);
         $("#paletteBackdrop").addEventListener("click", closePalette);

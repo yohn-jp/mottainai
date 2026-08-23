@@ -84,6 +84,24 @@ test("mockup stylesheet links resolve under the /mockups/ HTTP mount", () => {
   assert.match(assets["/mockups/styles.css"].body, /\.mottainai/u);
 });
 
+test("packaged Wabachi sidebar exposes bounded views and disables unfinished Reviews", () => {
+  const wabachi = readManagerAssets()["/mockups/wabachi.html"].body;
+  const styles = readManagerAssets()["/mockups/styles.css"].body;
+  assert.match(wabachi, /id="sidebarReviewDesk"[^>]*aria-current="page"[^>]*>[^]*Review desk/u);
+  for (const [label, tab] of [["Changes", "impact"], ["Explore", "source"], ["Evidence", "evidence"], ["Relations", "relations"]]) {
+    assert.match(wabachi, new RegExp(`<button class="nav-item" data-sidebar-tab="${tab}"[^>]*>[^]*${label}</span></button>`, "u"));
+  }
+  assert.match(wabachi, /<button class="nav-item disabled"[^>]*disabled[^>]*aria-disabled="true"[^>]*>[^]*Reviews<\/span><\/button>/u);
+  assert.match(styles, /\.nav-item:disabled,[\s\S]*cursor: default;[\s\S]*\.nav-item:disabled:hover/u);
+  assert.match(wabachi, /function renderSidebar\(\)[^]*?state\.tab === "brief"[^]*?data-sidebar-tab/u);
+  assert.match(wabachi, /\$\$\('\[data-sidebar-tab\]'\)\.forEach\(\(item\) => item\.addEventListener\("click", \(\) => setTab\(item\.dataset\.sidebarTab, true\)\)\)/u);
+  assert.match(wabachi, /function setTab\(tab, push = false\)[^]*?writeHash\(push\)/u);
+  assert.match(wabachi, /function writeHash\(push = false\)[^]*?state\.selected[^]*?state\.query[^]*?state\.selectedEvidence/u);
+  assert.match(wabachi, /id="refreshEvidence"[^>]*type="button"[^]*?await loadBase\(\{ announceRefresh: true \}\)/u);
+  assert.match(wabachi, /id="openPalette"[^>]*type="button"[^]*?function openPalette\(\)/u);
+  assert.match(wabachi, /function handoffToManager\(finding\)[^]*?wabachiWorkIntent[^]*?Manager will re-run authoritative preflight/u);
+});
+
 test("Manager operational console does not render hard-coded operational truth", () => {
   const html = readManagerViewer();
   assert.match(html, /renderRecentSignal/u);
