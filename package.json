@@ -13,6 +13,7 @@
     "LICENSE",
     "mottainai.config.json.example",
     ".github/inari/pull-requests/default.json",
+    ".github/inari/issues/*.json",
     "scripts/governance-lib.mjs",
     "scripts/governance-rules.json"
   ],
