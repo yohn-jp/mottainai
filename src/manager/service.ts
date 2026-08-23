@@ -214,9 +214,27 @@ export interface ManagerSessionProjection extends ManagerSessionRecord {
   operational: ManagerOperationalProjection;
 }
 
+function managerErrorStatusCode(code: string): number {
+  if (code === "forbidden") return 403;
+  if (code === "session_not_found") return 404;
+  if (code === "claim_preflight_unavailable" || code === "claim_preflight_stale") return 503;
+  if (code === "claim_conflict") return 409;
+  if (
+    code === "runtime_name_collision" ||
+    code === "worktree_missing" ||
+    code === "session_restart_rejected" ||
+    code === "idempotency_conflict"
+  ) {
+    return 409;
+  }
+  if (code === "pi_guard_unavailable" || code === "zellij_unavailable" || code === "zellij_incompatible") return 503;
+  return 400;
+}
+
 export class ManagerError extends Error {
   constructor(
     readonly code:
+      | "forbidden"
       | "invalid_request"
       | "pi_guard_unavailable"
       | "zellij_unavailable"
@@ -235,20 +253,7 @@ export class ManagerError extends Error {
       | "execution_unresolved"
       | "idempotency_conflict",
     message: string,
-    readonly statusCode = code === "session_not_found"
-      ? 404
-      : code === "claim_preflight_unavailable" || code === "claim_preflight_stale"
-        ? 503
-        : code === "claim_conflict"
-          ? 409
-          : code === "runtime_name_collision" ||
-              code === "worktree_missing" ||
-              code === "session_restart_rejected" ||
-              code === "idempotency_conflict"
-            ? 409
-            : code === "pi_guard_unavailable" || code === "zellij_unavailable" || code === "zellij_incompatible"
-              ? 503
-              : 400,
+    readonly statusCode = managerErrorStatusCode(code),
     readonly details?: unknown,
   ) {
     super(boundedStatus(message));

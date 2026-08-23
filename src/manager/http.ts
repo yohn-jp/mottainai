@@ -160,6 +160,32 @@ function requireJsonContentType(request: IncomingMessage): void {
   }
 }
 
+/**
+ * Browser mutations must carry the exact HTTP origin served by Manager. A
+ * missing Origin is deliberately accepted for non-browser local clients that
+ * cannot provide browser request metadata; loopback Host validation remains a
+ * separate boundary in the dashboard server.
+ */
+function requireSameOrigin(request: IncomingMessage): void {
+  const requestOrigin = request.headers.origin;
+  if (requestOrigin === undefined) return;
+
+  const host = request.headers.host;
+  if (typeof requestOrigin !== "string" || typeof host !== "string" || host.length === 0) {
+    throw new ManagerError("forbidden", "Manager mutation requests require a same-origin Origin", 403);
+  }
+
+  try {
+    const expectedOrigin = new URL(`http://${host}`).origin;
+    if (new URL(requestOrigin).origin !== expectedOrigin) {
+      throw new ManagerError("forbidden", "Manager mutation requests require a same-origin Origin", 403);
+    }
+  } catch (error) {
+    if (error instanceof ManagerError) throw error;
+    throw new ManagerError("forbidden", "Manager mutation requests require a same-origin Origin", 403);
+  }
+}
+
 export class ManagerHttpApi implements ManagerHttpHandler {
   constructor(
     private readonly service: ManagerSessionService,
@@ -177,6 +203,7 @@ export class ManagerHttpApi implements ManagerHttpHandler {
   async handle(request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
     try {
       const method = request.method ?? "GET";
+      if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") requireSameOrigin(request);
       if (method === "POST") requireJsonContentType(request);
       const segments = url.pathname.slice(MANAGER_API_PREFIX.length).split("/").filter(Boolean);
       if (segments.length === 1 && segments[0] === "health" && method === "GET") {
@@ -189,7 +216,9 @@ export class ManagerHttpApi implements ManagerHttpHandler {
         return;
       }
       if (segments.length === 1 && segments[0] === "sessions" && method === "POST") {
-        sendJson(response, 201, { session: this.service.projectSession(await this.service.start(inputFromBody(await readJsonBody(request)))) });
+        sendJson(response, 201, {
+          session: this.service.projectSession(await this.service.start(inputFromBody(await readJsonBody(request)))),
+        });
         return;
       }
       if (
@@ -208,7 +237,9 @@ export class ManagerHttpApi implements ManagerHttpHandler {
         return;
       }
       if (segments.length === 1 && segments[0] === "reconcile" && method === "POST") {
-        sendJson(response, 200, { sessions: (await this.service.reconcileNow()).map((session) => this.service.projectSession(session)) });
+        sendJson(response, 200, {
+          sessions: (await this.service.reconcileNow()).map((session) => this.service.projectSession(session)),
+        });
         return;
       }
       if (
