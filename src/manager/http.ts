@@ -204,7 +204,6 @@ export class ManagerHttpApi implements ManagerHttpHandler {
     try {
       const method = request.method ?? "GET";
       if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") requireSameOrigin(request);
-      if (method === "POST") requireJsonContentType(request);
       const segments = url.pathname.slice(MANAGER_API_PREFIX.length).split("/").filter(Boolean);
       if (segments.length === 1 && segments[0] === "health" && method === "GET") {
         sendJson(response, 200, this.service.health());
@@ -216,6 +215,7 @@ export class ManagerHttpApi implements ManagerHttpHandler {
         return;
       }
       if (segments.length === 1 && segments[0] === "sessions" && method === "POST") {
+        requireJsonContentType(request);
         sendJson(response, 201, {
           session: this.service.projectSession(await this.service.start(inputFromBody(await readJsonBody(request)))),
         });
@@ -228,6 +228,7 @@ export class ManagerHttpApi implements ManagerHttpHandler {
           (segments.length === 1 && (segments[0] === "preview" || segments[0] === "preflight"))) &&
         method === "POST"
       ) {
+        requireJsonContentType(request);
         sendJson(response, 200, { preview: await this.service.preview(inputFromBody(await readJsonBody(request))) });
         return;
       }
