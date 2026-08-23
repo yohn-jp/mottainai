@@ -32,6 +32,7 @@ test("Manager operational console exposes state-aware Stop and authoritative Rec
   assert.match(html, /function reconcile\(\)[^]*?post\("\/reconcile", \{\}\)[^]*?return refresh\(true\)/u);
   assert.match(html, /reconcileInFlight \|\| !health/u);
   assert.match(html, /showHomeActionError\(error\.message\)/u);
+  assert.match(html, /updateReconcileAction\(\);[^]*?if \(drawerSession !== undefined\) configureStopAction\(drawerSession\);/u);
   assert.match(html, /id="drawerStopAction"[^>]*hidden[^>]*disabled/u);
   assert.match(html, /function stoppable\(session\) \{ return running\(session\); \}/u);
   assert.match(html, /\["starting", "running", "detached"\]/u);

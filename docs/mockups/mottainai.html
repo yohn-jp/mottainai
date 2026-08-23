@@ -311,6 +311,7 @@
     q("#authorityStatusValue").textContent = health ? "CURRENT" : "UNAVAILABLE";
     q("#observedTimestamp").textContent = "OBSERVED " + new Date().toLocaleTimeString();
     updateReconcileAction();
+    if (drawerSession !== undefined) configureStopAction(drawerSession);
   }
 
   function updateReconcileAction() {
