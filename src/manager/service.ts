@@ -45,6 +45,7 @@ import {
   failedClaimPreflight,
   notApplicableClaimPreflight,
   type ManagerClaimPreflight,
+  type ManagerClaimTaskIdentity,
 } from "./claim-preflight.js";
 import { deriveZellijSessionName, ZellijRuntimeError, type ZellijObservedState, type ZellijRuntime } from "./zellij.js";
 
@@ -1370,9 +1371,18 @@ export class ManagerSessionService {
     if (normalized.taskSlug === undefined) return preview;
     try {
       const evidence = await this.options.nawabari.listClaimEvidence(this.options.workspaceRoot);
+      const taskBySession = new Map<string, ManagerClaimTaskIdentity>();
+      for (const task of this.options.store.listTasks()) {
+        if (task.nawabariSessionId === undefined) continue;
+        taskBySession.set(task.nawabariSessionId, {
+          taskId: task.taskId,
+          taskSlug: task.taskSlug,
+          ...(task.issueRef === undefined ? {} : { issueRef: task.issueRef }),
+        });
+      }
       return {
         ...preview,
-        claimPreflight: createClaimPreflight(normalized.semanticPlan.claims, evidence),
+        claimPreflight: createClaimPreflight(normalized.semanticPlan.claims, evidence, undefined, taskBySession),
       };
     } catch (error) {
       if (error instanceof NawabariExecutionError) {
