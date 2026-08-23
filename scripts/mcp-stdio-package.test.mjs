@@ -49,6 +49,11 @@ test("packed artifact contains its declared runtime entry and pack does not rebu
   assert.ok(packedFiles.includes("dist/manager/pi-guard.js"));
   assert.ok(packedFiles.includes("dist/runtime-build-metadata.json"));
   assert.ok(packedFiles.includes(".github/inari/pull-requests/default.json"));
+  for (const template of ["architecture", "bug", "feature", "maintenance", "research"]) {
+    assert.ok(packedFiles.includes(`.github/inari/issues/${template}.json`));
+  }
+  assert.ok(packedFiles.includes("scripts/governance-lib.mjs"));
+  assert.ok(packedFiles.includes("scripts/governance-rules.json"));
   assert.match(
     fs.readFileSync(path.join(path.dirname(binPath), "manager", "pi-guard.js"), "utf8"),
     /mottainai-managed-pi-guard-v1/u,
@@ -142,6 +147,23 @@ test("packed managed task reports a missing companion and uses a compatible stan
     const isolatedPath = path.join(suiteRoot, "git-only-bin");
     fs.mkdirSync(isolatedPath, { recursive: true });
     fs.symlinkSync(gitPath, path.join(isolatedPath, "git"));
+
+    const invalidBranchWorkspace = createWorkspace();
+    t.after(() => fs.rmSync(invalidBranchWorkspace, { recursive: true, force: true }));
+    initializeGitWorkspace(invalidBranchWorkspace);
+    const invalidBranch = spawnSync(
+      process.execPath,
+      [binPath, "task", "start", "invalid-branch", "--type", "feature", "--issue", "181"],
+      {
+        cwd: invalidBranchWorkspace,
+        env: { ...isolatedEnv(invalidBranchWorkspace), PATH: isolatedPath },
+        encoding: "utf8",
+        timeout: 10_000,
+      },
+    );
+    assert.equal(invalidBranch.status, 1, `${invalidBranch.stdout}\n${invalidBranch.stderr}`);
+    assert.equal(JSON.parse(invalidBranch.stdout).reason, "invalid-branch-name");
+    assert.equal(fs.existsSync(path.join(invalidBranchWorkspace, ".mottainai", "worktrees")), false);
 
     const missing = spawnSync(
       process.execPath,
