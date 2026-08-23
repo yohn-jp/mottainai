@@ -954,6 +954,19 @@ export async function callWorkflowCommandTool(
       // 無効化されたワークスペースでも既定の on-disk SQLite DB を開いてから拒否することになる
       // （taskStartToolImpl 内の requireWorkflowTasksConfigured は defense in depth として残す）。
       requireWorkflowTasksConfigured(config);
+      if (workflowStore === undefined && boolArg(args, "dryRun") === true) {
+        // A preview must not initialize the process-wide persistent store. Use a
+        // short-lived in-memory store for the domain seam and close it before
+        // returning; callers that inject a store retain ownership of it.
+        const { WorkflowSqliteStateStore } = await import("../state/sqlite-store.js");
+        const ephemeral = new WorkflowSqliteStateStore({ dbPath: ":memory:" });
+        ephemeral.init();
+        try {
+          return await taskStartToolImpl(args, config, ephemeral);
+        } finally {
+          ephemeral.close();
+        }
+      }
       return taskStartToolImpl(args, config, workflowStore ?? (await defaultWorkflowStore()));
     case "mottainai_workflow_task_status":
       requireWorkflowTasksConfigured(config);

@@ -258,6 +258,34 @@ test("task_start dry-run returns a plan without creating a task or worktree", as
   }
 });
 
+test("task_start dry-run with the default store leaves persistent state untouched", async (t) => {
+  const { root, config } = await gitWorkspace(t);
+  const stateDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-workflow-default-state-"));
+  t.after(() => fs.rm(stateDirectory, { recursive: true, force: true }));
+  const statePath = path.join(stateDirectory, "state.sqlite3");
+  const seeded = new WorkflowSqliteStateStore({ dbPath: statePath });
+  seeded.init();
+  seeded.close();
+  const before = await fs.readFile(statePath);
+  const previousStateDirectory = process.env.MOTTAINAI_STATE_DIR;
+  process.env.MOTTAINAI_STATE_DIR = stateDirectory;
+  try {
+    const result = structured(
+      await callWorkflowCommandTool(
+        "mottainai_workflow_task_start",
+        { taskSlug: "default-preview", branchType: "fix", issueRef: "480", dryRun: true },
+        enabled(config),
+      ),
+    );
+    assert.equal(result.status, "success");
+    assert.equal(result.dryRun, true);
+    assert.deepEqual(await fs.readFile(statePath), before);
+  } finally {
+    if (previousStateDirectory === undefined) delete process.env.MOTTAINAI_STATE_DIR;
+    else process.env.MOTTAINAI_STATE_DIR = previousStateDirectory;
+  }
+});
+
 test('task_start rejects an ungoverned branchType (e.g. "research") before any worktree/Git mutation', async (t) => {
   const { root, config } = await gitWorkspace(t);
   const store = openWorkflowStore();
