@@ -37,6 +37,7 @@ export const FAKE_NAWABARI_COMMANDS = [
   "session claim",
   "session update",
   "session claims",
+  "session release",
   "session close",
   "authorize",
   "checkpoint",

@@ -22,6 +22,7 @@ const REQUIRED_COMMANDS = [
   "session claim",
   "session update",
   "session claims",
+  "session release",
   "session close",
   "authorize",
   "checkpoint",
@@ -73,6 +74,35 @@ function capabilitiesResult(
       { id: "resource-claims", commands: overrides.commands ?? REQUIRED_COMMANDS, ...claimSetReplacement },
     ],
     ...(overrides.explicitNetwork === undefined ? {} : { explicit_network: overrides.explicitNetwork }),
+  };
+}
+
+function v2CapabilitiesResult(): unknown {
+  const base = capabilitiesResult({ packageVersion: "0.7.1" }) as {
+    capabilities: Record<string, unknown>[];
+    [key: string]: unknown;
+  };
+  const resourceClaims = base.capabilities[0]!;
+  return {
+    ...base,
+    capabilities: [
+      {
+        ...resourceClaims,
+        contract_id: "nawabari.resource-claims.v2",
+        contract_version: 2,
+        claim_schema_version: 2,
+        result_schemas: [
+          {
+            schema: "resource-claim.release.v2",
+            required: ["session_id", "released", "remaining", "claim_set_generation"],
+          },
+        ],
+        mutation: {
+          claim_set_generation: { cas_option: "--if-generation", stale_failure: "STALE_CLAIM_SET" },
+        },
+        semantics: { release: { selectors: ["--resource", "--claim-id", "--all"] } },
+      },
+    ],
   };
 }
 
@@ -165,6 +195,155 @@ test("Nawabari projection preserves explicit mixed modes across multiple bounded
     })),
     plan.claims,
   );
+});
+
+test("releaseClaims keeps the legacy session target contract for pre-v2 companions", async () => {
+  const calls: string[][] = [];
+  const client = new NawabariExecutionClient({
+    runner: {
+      async run(_command, args): Promise<RunResult> {
+        calls.push([...args]);
+        if (args[0] === "capabilities") return result(capabilitiesResult({ packageVersion: "0.6.1" }));
+        if (args[0] === "session" && args[1] === "release")
+          return result({ ok: true, command: "session release", session_id: "legacy-session" });
+        throw new Error(`unexpected command: ${args.join(" ")}`);
+      },
+    },
+  });
+  await client.releaseClaims({ cwd: "/repo", sessionId: "legacy-session" });
+  assert.deepEqual(calls[1], ["session", "release", "--session", "legacy-session", "--json"]);
+});
+
+test("releaseClaims selects the v2 all-selector CAS path and never uses generic force", async () => {
+  const calls: string[][] = [];
+  const client = new NawabariExecutionClient({
+    runner: {
+      async run(_command, args): Promise<RunResult> {
+        calls.push([...args]);
+        if (args[0] === "capabilities") return result(v2CapabilitiesResult());
+        if (args[0] === "session" && args[1] === "claims")
+          return result({
+            ok: true,
+            command: "session claims",
+            claims: [
+              {
+                schema_version: 2,
+                session_id: "v2-session",
+                resource: "src/app.ts",
+                mode: "exclusive-write",
+              },
+            ],
+            claim_set_generation: 7,
+          });
+        if (args[0] === "session" && args[1] === "release") {
+          assert.deepEqual(args.slice(0, -1), [
+            "session",
+            "release",
+            "--session",
+            "v2-session",
+            "--all",
+            "--if-generation",
+            "7",
+          ]);
+          assert.equal(args.includes("--force"), false);
+          return result({
+            ok: true,
+            command: "session release",
+            session_id: "v2-session",
+            released: [{ resource: "src/app.ts", mode: "exclusive-write" }],
+            remaining: [],
+            claim_set_generation: 8,
+          });
+        }
+        throw new Error(`unexpected command: ${args.join(" ")}`);
+      },
+    },
+  });
+  await client.releaseClaims({ cwd: "/repo", sessionId: "v2-session" });
+  assert.equal(calls.filter((args) => args[0] === "session" && args[1] === "release").length, 1);
+});
+
+test("releaseClaims fails closed for ambiguous v2 evidence and stale generation", async () => {
+  const ambiguous = new NawabariExecutionClient({
+    runner: {
+      async run(_command, args): Promise<RunResult> {
+        if (args[0] === "capabilities") {
+          const value = v2CapabilitiesResult() as { capabilities: Record<string, unknown>[] };
+          const resource = value.capabilities[0]!;
+          const mutation = resource.mutation as Record<string, unknown>;
+          delete mutation.claim_set_generation;
+          return result(value);
+        }
+        throw new Error(`unexpected command: ${args.join(" ")}`);
+      },
+    },
+  });
+  await assert.rejects(
+    ambiguous.releaseClaims({ cwd: "/repo", sessionId: "foreign-session" }),
+    (error: unknown) => error instanceof NawabariExecutionError && error.code === "nawabari-incompatible",
+  );
+
+  const foreignCalls: string[][] = [];
+  const foreign = new NawabariExecutionClient({
+    runner: {
+      async run(_command, args): Promise<RunResult> {
+        foreignCalls.push([...args]);
+        if (args[0] === "capabilities") return result(v2CapabilitiesResult());
+        if (args[0] === "session" && args[1] === "claims")
+          return result({
+            ok: true,
+            command: "session claims",
+            claims: [{ session_id: "foreign-owner", resource: "src/foreign.ts", mode: "write" }],
+            claim_set_generation: 2,
+          });
+        throw new Error(`unexpected command: ${args.join(" ")}`);
+      },
+    },
+  });
+  await assert.rejects(
+    foreign.releaseClaims({ cwd: "/repo", sessionId: "requested-session" }),
+    (error: unknown) =>
+      error instanceof NawabariExecutionError && error.code === "nawabari-claim-authority-unrecognized",
+  );
+  assert.equal(
+    foreignCalls.some((args) => args[0] === "session" && args[1] === "release"),
+    false,
+  );
+
+  const calls: string[][] = [];
+  const stale = new NawabariExecutionClient({
+    runner: {
+      async run(_command, args): Promise<RunResult> {
+        calls.push([...args]);
+        if (args[0] === "capabilities") return result(v2CapabilitiesResult());
+        if (args[0] === "session" && args[1] === "claims")
+          return result({ ok: true, command: "session claims", claims: [], claim_set_generation: 4 });
+        if (args[0] === "session" && args[1] === "release")
+          return result(
+            { ok: false, command: "session release", code: "STALE_CLAIM_SET", message: "generation changed" },
+            3,
+          );
+        throw new Error(`unexpected command: ${args.join(" ")}`);
+      },
+    },
+  });
+  await assert.rejects(
+    stale.releaseClaims({ cwd: "/repo", sessionId: "owned-session" }),
+    (error: unknown) =>
+      error instanceof NawabariExecutionError &&
+      error.code === "nawabari-rejected" &&
+      error.nawabariCode === "STALE_CLAIM_SET",
+  );
+  const release = calls.find((args) => args[0] === "session" && args[1] === "release");
+  assert.deepEqual(release?.slice(0, -1), [
+    "session",
+    "release",
+    "--session",
+    "owned-session",
+    "--all",
+    "--if-generation",
+    "4",
+  ]);
 });
 
 test("missing and incompatible companions are explicit failures", async () => {

@@ -7,6 +7,8 @@ export const NAWABARI_CONTRACT_SCHEMA_VERSION = 1 as const;
 export const MINIMUM_NAWABARI_VERSION = "0.5.0" as const;
 /** Expected shape of the resource-claims capability's `claim_set_replacement` boundary (Nawabari #101 / PR #106). */
 const REQUIRED_CLAIM_SET_REPLACEMENT_PAIRING = "adjacent-resource-mode" as const;
+const RESOURCE_CLAIMS_V2_CONTRACT_ID = "nawabari.resource-claims.v2" as const;
+const RESOURCE_CLAIMS_V2_RELEASE_SCHEMA = "resource-claim.release.v2" as const;
 /**
  * `session close --fetch-remote/--fetch-branch` requires this exact
  * explicit_network.operations entry (Nawabari #160/#161): both options
@@ -31,6 +33,7 @@ const REQUIRED_NAWABARI_COMMANDS = [
   "session claim",
   "session update",
   "session claims",
+  "session release",
   "session close",
   "authorize",
   "checkpoint",
@@ -92,6 +95,8 @@ export interface NawabariCapabilities {
   schemaVersion: typeof NAWABARI_CONTRACT_SCHEMA_VERSION;
   packageVersion: string;
   capabilities: readonly Record<string, unknown>[];
+  /** Release selector/concurrency contract selected from resource-claims evidence. */
+  claimReleaseContract: "legacy-session" | "v2-all-if-generation";
   /** True only when `session close` advertises the exact #160/#161 close-fetch option/requires shape. */
   supportsCloseFetch: boolean;
 }
@@ -245,6 +250,43 @@ function parseClaimsArray(result: NawabariCommandResult, field: string): Executi
   });
 }
 
+function parseClaimSetGeneration(result: NawabariCommandResult): number | undefined {
+  if (!("claim_set_generation" in result)) return undefined;
+  const value = result.claim_set_generation;
+  if (!Number.isSafeInteger(value) || (value as number) < 0)
+    throw new NawabariExecutionError(
+      "nawabari-contract-invalid",
+      "Nawabari result contains an invalid claim_set_generation",
+      undefined,
+      value,
+    );
+  return value as number;
+}
+
+function parseClaimsSnapshot(
+  result: NawabariCommandResult,
+  expectedSessionId?: string,
+): { claims: ExecutionClaim[]; claimSetGeneration?: number } {
+  const claims = parseClaimsArray(result, "claims");
+  if (expectedSessionId !== undefined) {
+    const rawClaims = result.claims as unknown[];
+    for (const value of rawClaims) {
+      const claim = object(value);
+      if (claim === undefined) continue;
+      const sessionId = claim.session_id ?? claim.sessionId;
+      if (sessionId !== undefined && sessionId !== expectedSessionId)
+        throw new NawabariExecutionError(
+          "nawabari-claim-authority-unrecognized",
+          `Nawabari claim evidence belongs to a different session: expected ${expectedSessionId}, got ${String(sessionId)}`,
+          "CLAIM_SESSION_MISMATCH",
+          claim,
+        );
+    }
+  }
+  const claimSetGeneration = parseClaimSetGeneration(result);
+  return { claims, ...(claimSetGeneration === undefined ? {} : { claimSetGeneration }) };
+}
+
 function requiredInteger(value: unknown, field: string): number {
   if (!Number.isInteger(value) || (value as number) < 1)
     throw new NawabariExecutionError(
@@ -372,10 +414,84 @@ function detectCloseFetchSupport(result: NawabariCommandResult): boolean {
     const options = operation.options;
     const requires = operation.requires;
     if (!Array.isArray(options) || !Array.isArray(requires)) return false;
-    return REQUIRED_CLOSE_FETCH_OPTIONS.every(
-      (flag) => options.includes(flag) && requires.includes(flag),
-    );
+    return REQUIRED_CLOSE_FETCH_OPTIONS.every((flag) => options.includes(flag) && requires.includes(flag));
   });
+}
+
+function hasStrings(value: unknown, expected: readonly string[]): boolean {
+  return Array.isArray(value) && expected.every((item) => value.includes(item));
+}
+
+/**
+ * Select the release syntax from Nawabari's resource-claims capability. The
+ * package version is only a compatibility boundary for the pre-v2 contract;
+ * v2 is accepted only when its selector, result schema, and CAS evidence are
+ * all advertised structurally.
+ */
+function detectClaimReleaseContract(
+  capability: Record<string, unknown> | undefined,
+  packageVersion: string,
+  advertisedCommands: ReadonlySet<string>,
+): "legacy-session" | "v2-all-if-generation" {
+  const contractId = capability?.contract_id;
+  const contractVersion = capability?.contract_version;
+  const appearsV2 = contractId === RESOURCE_CLAIMS_V2_CONTRACT_ID || contractVersion === 2;
+  if (appearsV2) {
+    const resultSchemas = capability?.result_schemas;
+    const releaseSchema = Array.isArray(resultSchemas)
+      ? resultSchemas.find((value) => object(value)?.schema === RESOURCE_CLAIMS_V2_RELEASE_SCHEMA)
+      : undefined;
+    const releaseSchemaObject = object(releaseSchema);
+    const mutation = object(capability?.mutation);
+    const claimSetGeneration = object(mutation?.claim_set_generation);
+    const semantics = object(capability?.semantics);
+    const release = object(semantics?.release);
+    const supported =
+      contractId === RESOURCE_CLAIMS_V2_CONTRACT_ID &&
+      contractVersion === 2 &&
+      capability?.claim_schema_version === 2 &&
+      releaseSchemaObject !== undefined &&
+      hasStrings(releaseSchemaObject.required, ["session_id", "released", "remaining", "claim_set_generation"]) &&
+      hasStrings(release?.selectors, ["--all"]) &&
+      claimSetGeneration?.cas_option === "--if-generation" &&
+      claimSetGeneration.stale_failure === "STALE_CLAIM_SET";
+    if (supported) return "v2-all-if-generation";
+    throw new NawabariExecutionError(
+      "nawabari-incompatible",
+      "Nawabari resource-claims v2 release capability is missing selector or generation-safe evidence",
+    );
+  }
+  if (compareVersions(packageVersion, "0.7.0") >= 0)
+    throw new NawabariExecutionError(
+      "nawabari-incompatible",
+      `Nawabari ${packageVersion} does not advertise a supported versioned claim-release contract`,
+    );
+  if (capability === undefined || !advertisedCommands.has("session release"))
+    throw new NawabariExecutionError(
+      "nawabari-incompatible",
+      "Nawabari legacy claim-release capability is missing session release",
+    );
+  return "legacy-session";
+}
+
+function requireV2ReleaseResult(result: NawabariCommandResult, expectedSessionId: string): NawabariCommandResult {
+  const sessionId = result.session_id ?? result.sessionId;
+  if (sessionId !== expectedSessionId)
+    throw new NawabariExecutionError(
+      "nawabari-contract-invalid",
+      `Nawabari claim release returned the wrong session identity: expected ${expectedSessionId}, got ${String(sessionId)}`,
+      undefined,
+      result,
+    );
+  if (!Array.isArray(result.released) || !Array.isArray(result.remaining))
+    throw new NawabariExecutionError(
+      "nawabari-contract-invalid",
+      "Nawabari v2 claim release result is missing released/remaining claims",
+      undefined,
+      result,
+    );
+  parseClaimSetGeneration(result);
+  return result;
 }
 
 function requireDecision(result: NawabariCommandResult): NawabariCommandResult {
@@ -459,11 +575,17 @@ export class NawabariExecutionClient {
         "nawabari-incompatible",
         "Nawabari contract is missing the atomic claim_set_replacement boundary on resource-claims",
       );
+    const claimReleaseContract = detectClaimReleaseContract(
+      resourceClaimsCapability,
+      packageVersion,
+      advertisedCommands,
+    );
     this.discovered = {
       contractId: NAWABARI_CONTRACT_ID,
       schemaVersion: 1,
       packageVersion,
       capabilities,
+      claimReleaseContract,
       supportsCloseFetch: detectCloseFetchSupport(result),
     };
     return this.discovered;
@@ -495,12 +617,41 @@ export class NawabariExecutionClient {
   }
 
   async releaseClaims(input: { cwd: string; sessionId: string }): Promise<NawabariCommandResult> {
-    return this.invoke(["session", "release", "--session", input.sessionId], input.cwd);
+    const capabilities = await this.capabilities(input.cwd);
+    if (capabilities.claimReleaseContract === "legacy-session")
+      return this.invoke(["session", "release", "--session", input.sessionId], input.cwd);
+
+    // v2 requires an explicit selector and a CAS generation. Read the target
+    // session's snapshot first, then keep the same explicit session target on
+    // the release call. A stale generation fails closed in Nawabari; generic
+    // --force is intentionally never used here.
+    const snapshotResult = await this.invoke(["session", "claims", "--session", input.sessionId], input.cwd);
+    const snapshot = parseClaimsSnapshot(snapshotResult, input.sessionId);
+    if (snapshot.claimSetGeneration === undefined)
+      throw new NawabariExecutionError(
+        "nawabari-contract-invalid",
+        "Nawabari v2 claim snapshot is missing claim_set_generation",
+        undefined,
+        snapshotResult,
+      );
+    const released = await this.invoke(
+      [
+        "session",
+        "release",
+        "--session",
+        input.sessionId,
+        "--all",
+        "--if-generation",
+        String(snapshot.claimSetGeneration),
+      ],
+      input.cwd,
+    );
+    return requireV2ReleaseResult(released, input.sessionId);
   }
 
   async listClaims(input: { cwd: string; sessionId: string }): Promise<ExecutionClaim[]> {
     const result = await this.invoke(["session", "claims", "--session", input.sessionId], input.cwd);
-    return parseClaimsArray(result, "claims");
+    return parseClaimsSnapshot(result).claims;
   }
 
   /**

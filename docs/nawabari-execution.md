@@ -63,6 +63,17 @@ capability results are surfaced as bounded diagnostics. Context, semantic
 analysis, verification planning, and provider operations continue to work
 without Nawabari; managed local repository mutation does not.
 
+Claim release is selected from the advertised `resource-claims` capability. A
+pre-v2 companion in the supported 0.5.x/0.6.x compatibility boundary uses the
+explicit Manager-owned `--session` target with its legacy release syntax. A
+resource-claims v2 companion must advertise the `--all` selector, the
+`resource-claim.release.v2` result shape, and `--if-generation` CAS evidence;
+Mottainai reads that session's claim-set generation and releases with
+`--all --if-generation <generation>`. It never substitutes generic `--force`,
+omits the session target, or treats an incomplete/ambiguous v2 capability as
+compatible. A stale generation is rejected by Nawabari without releasing a
+newer claim set.
+
 The source repository pins Nawabari 0.5.0 only as a development dependency for
 hermetic contract and package tests. Published Mottainai packages do not install
 the companion; operators install the compatible standalone executable explicitly.
