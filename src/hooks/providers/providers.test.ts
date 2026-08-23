@@ -80,6 +80,7 @@ function nawabariDecisionClient(allowed: boolean, calls: string[][]): NawabariEx
                   "session claim",
                   "session update",
                   "session claims",
+                  "session release",
                   "session close",
                   "authorize",
                   "checkpoint",

@@ -52,18 +52,24 @@ test("Manager claim matcher agrees with real Nawabari for the mode matrix and gl
     t.skip("nawabari binary not found on PATH; skipping real-binary parity smoke");
     return;
   }
+  let cleanupOwner: (() => Promise<void>) | undefined;
+  t.after(async () => cleanupOwner?.());
   const root = createTempGitRepo(t);
   const client = new NawabariExecutionClient();
   const owner = await client.createSession({ cwd: root, branch: "feat/parity-owner", base: "HEAD" });
+  cleanupOwner = async () => {
+    await client.releaseClaims({ cwd: root, sessionId: owner.sessionId });
+    execFileSync("nawabari", ["session", "close", "--session", owner.sessionId], {
+      cwd: root,
+      env: isolatedGitEnvironment(),
+    });
+  };
 
   for (const [ownerResource, requestedResource] of RESOURCE_PAIRS) {
     for (const ownerMode of MODES) {
       for (const requestedMode of MODES) {
         // Reset to a single claim on the owner session for each case.
-        execFileSync("nawabari", ["session", "release", "--session", owner.sessionId], {
-          cwd: root,
-          env: isolatedGitEnvironment(),
-        });
+        await client.releaseClaims({ cwd: root, sessionId: owner.sessionId });
         await client.claimSession({ cwd: root, sessionId: owner.sessionId, claims: [{ resource: ownerResource, mode: ownerMode }] });
 
         const snapshot = await client.listClaimEvidence(root);
