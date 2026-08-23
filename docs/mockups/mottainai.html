@@ -234,8 +234,11 @@
       issueRef: "#406",
       instruction: (intent && intent.instruction) || "Implement the requested work while preserving existing authority boundaries.",
       agentKind: "pi",
+      provider: "",
+      model: "",
       taskSlug: "operational-task",
       branchType: "feat",
+      scopeMode: (intent && intent.scope) ? "declared" : "fallback",
       scope: { path: (intent && intent.scope) || "src/**", claimMode: "exclusive-write" },
     };
   };
@@ -577,54 +580,154 @@
     if (input) taskState.instruction = input.value;
     input = q("#intentAgent");
     if (input) taskState.agentKind = input.value;
+    input = q("#intentProvider");
+    if (input) taskState.provider = input.value;
+    input = q("#intentModel");
+    if (input) taskState.model = input.value;
     input = q("#intentTaskSlug");
     if (input) taskState.taskSlug = input.value;
     input = q("#intentBranchType");
     if (input) taskState.branchType = input.value;
     input = q("#intentPath");
     if (input) taskState.scope.path = input.value;
+    input = q("#intentScopeMode");
+    if (input) taskState.scopeMode = input.value;
     input = q("#intentClaimMode");
     if (input) taskState.scope.claimMode = input.value;
   }
   function normalizeIssueRef(raw) {
     var issue = String(raw == null ? "" : raw).trim();
-    return issue.replace(/^#+/u, "") || "406";
+    return issue.replace(/^#+/u, "");
   }
   function taskSnapshot() {
     var state = {
       issueRef: taskState.issueRef,
       instruction: taskState.instruction,
       agentKind: taskState.agentKind,
+      launchProfile: taskState.agentKind,
+      provider: taskState.provider,
+      model: taskState.model,
       taskSlug: taskState.taskSlug,
       branchType: taskState.branchType,
+      scopeMode: taskState.scopeMode,
       scope: { path: taskState.scope.path, claimMode: taskState.scope.claimMode },
     };
-    var path = state.scope.path.trim() || "src/**";
+    var path = state.scope.path.trim();
     var slug = state.taskSlug.trim() || "operational-task";
-    return {
+    var request = {
+      schemaVersion: 1,
       instruction: state.instruction.trim() || "Implement the requested work.",
       agentKind: state.agentKind || "pi",
-      issueRef: normalizeIssueRef(state.issueRef),
+      launchProfile: state.launchProfile || "pi",
       taskSlug: slug,
       branchType: state.branchType.trim() || "feat",
       idempotencyKey: "manager-ui-" + slug.replace(/[^A-Za-z0-9._:-]/gu, "-"),
-      scope: { paths: [path], claims: [{ resource: path, mode: state.scope.claimMode || "exclusive-write" }] },
     };
+    var issueRef = normalizeIssueRef(state.issueRef);
+    if (issueRef) request.issueRef = issueRef;
+    if (state.agentKind === "pi") {
+      if (state.provider.trim()) request.provider = state.provider.trim();
+      if (state.model.trim()) request.model = state.model.trim();
+    }
+    if (state.scopeMode === "declared") {
+      request.scope = { paths: [path], claims: [{ resource: path, mode: state.scope.claimMode || "exclusive-write" }] };
+    }
+    return request;
   }
   function taskValues() {
     saveTaskInputs();
     return taskSnapshot();
   }
+  function taskValidationErrors() {
+    saveTaskInputs();
+    var errors = [];
+    var issue = normalizeIssueRef(taskState.issueRef);
+    var slug = taskState.taskSlug.trim();
+    var branchType = taskState.branchType.trim();
+    var path = taskState.scope.path.trim();
+    if (issue && !/^[A-Za-z0-9](?!.*\.\.)(?!.*\.lock$)(?!.*\.$)[A-Za-z0-9._-]*$/u.test(issue)) errors.push("Issue reference syntax is invalid.");
+    if (slug && !/^[a-z0-9][a-z0-9-]*$/u.test(slug)) errors.push("Task slug must use lowercase letters, digits, and hyphens.");
+    if ((issue || taskState.scopeMode === "declared") && !slug) errors.push("Task slug is required when Issue or explicit scope is supplied.");
+    if (!/^[a-z][a-z0-9-]*$/u.test(branchType || "feat")) errors.push("Branch type syntax is invalid.");
+    if (taskState.agentKind !== "pi" && taskState.provider.trim()) errors.push("Provider is supported only by the Pi profile.");
+    if (taskState.scopeMode !== "fallback" && taskState.scopeMode !== "declared") errors.push("Scope mode is invalid.");
+    if (taskState.scopeMode === "declared" && !path) errors.push("Explicit scope requires a repository-relative path.");
+    var pathSegments = path.replace(/\\/gu, "/").split("/");
+    if (path && (path.charAt(0) === "/" || path.indexOf("//") === 0 || /^[A-Za-z]:/u.test(path) || /[\u0000-\u001f\u007f]/u.test(path) || pathSegments.some(function (segment) { return !segment || segment === "." || segment === ".."; }))) errors.push("Scope path must be a repository-relative path without traversal.");
+    if (taskState.scopeMode === "declared" && ["read", "write", "exclusive-write"].indexOf(taskState.scope.claimMode) < 0) errors.push("Scope claim mode is invalid.");
+    if (!taskState.instruction.trim()) errors.push("Implementation instruction is required.");
+    return errors;
+  }
+  function showTaskValidation(errors) {
+    var node = q("#taskValidation");
+    if (!node) return;
+    node.innerHTML = errors.length ? "<b>Cannot continue</b><ul>" + errors.map(function (error) { return "<li>" + esc(error) + "</li>"; }).join("") + "</ul>" : "";
+  }
+  function launchRequestFingerprint(request) {
+    function stable(value) {
+      if (Array.isArray(value)) return value.map(stable);
+      if (value && typeof value === "object") {
+        return Object.keys(value).sort().reduce(function (result, key) {
+          result[key] = stable(value[key]);
+          return result;
+        }, {});
+      }
+      return value;
+    }
+    return JSON.stringify(stable(request));
+  }
+  function invalidateApprovedPreflight(message) {
+    preflightToken++;
+    if (!approvedPreflight) return;
+    approvedPreflight = undefined;
+    q("#nextStep").disabled = true;
+    var node = q("#preflightResult");
+    if (node) node.innerHTML = "<b>STALE</b><br>" + esc(message || "Input changed; run preflight again.");
+  }
+  function fieldStateMarkup(state, dependsOn) {
+    return '<span class="field-state" data-state="' + esc(state) + '">' + esc(state) + (dependsOn ? " · depends on " + esc(dependsOn) : "") + "</span>";
+  }
+  function profileControlsMarkup() {
+    var pi = taskState.agentKind === "pi";
+    var disabled = pi ? "" : " disabled";
+    var note = pi ? "Pi provider/model controls active" : "Pi provider/model values retained; controls activate when Pi is selected";
+    return '<div class="detail-block" data-profile-controls><div class="detail-label">profile dependencies</div><p id="profileDependencyNote">' + esc(note) + '</p></div>' +
+      '<div class="form-grid"><div class="field"><label for="intentProvider">Provider ' + fieldStateMarkup(pi ? "dependent" : "dependent", "launchProfile") + '</label><input id="intentProvider" value="' + esc(taskState.provider) + '" placeholder="profile default"' + disabled + '></div>' +
+      '<div class="field"><label for="intentModel">Model ' + fieldStateMarkup("dependent", "launchProfile/provider") + '</label><input id="intentModel" value="' + esc(taskState.model) + '" placeholder="profile default"' + disabled + '></div></div>';
+  }
+  function launchSummaryMarkup() {
+    var preview = approvedPreflight && approvedPreflight.preview;
+    if (!preview) return '<div class="detail-block"><div class="detail-label">Launch through Manager</div><p>Launch unavailable until an approved preview succeeds.</p></div>';
+    var identity = preview.identity || {};
+    var repository = preview.repository || identity.repository || {};
+    var task = identity.task || {};
+    var branch = identity.branch || {};
+    var profile = preview.profile || {};
+    var scope = preview.scope || {};
+    var generation = scope.claimGeneration || preview.claimGeneration || {};
+    var claims = scope.effectiveClaims || preview.claims || [];
+    var preflight = preview.claimPreflight || {};
+    var conflicts = (preflight.conflicts || []).map(function (conflict) {
+      return (conflict.existing && conflict.existing.sessionId || "unknown") + " · " + (conflict.existing && conflict.existing.resource || "unknown") + " · " + (conflict.existing && conflict.existing.mode || "unknown");
+    }).join("; ") || "none";
+    var fieldStates = (preview.fields || []).map(function (field) { return field.name + "=" + field.state; }).join(" · ");
+    return '<div class="detail-block"><div class="detail-label">LAUNCH SUMMARY / APPROVED PREVIEW v' + esc(value(preview.schemaVersion, "1")) + '</div><p>' + (isLaunchableClaimStatus(preflight.status) ? "Preflight clear. The exact approved request will be submitted." : "Launch blocked by authoritative preflight.") + '</p><code>repository: ' + esc(value(repository.name)) + '<br>repository root: ' + esc(value(repository.root)) + '<br>Issue: ' + esc(value(task.issueRef)) + '<br>task: ' + esc(value(task.taskSlug)) + '<br>branch: ' + esc(value(branch.name)) + '<br>base: ' + esc(value(branch.base)) + '<br>profile: ' + esc(value(profile.launchProfile || requestProfile(approvedPreflight.request))) + '<br>agent: ' + esc(value(profile.agent || approvedPreflight.request.agentKind)) + '<br>provider: ' + esc(value(profile.provider || approvedPreflight.request.provider, "profile default")) + '<br>model: ' + esc(value(profile.model || approvedPreflight.request.model, "profile default")) + '</code></div>' +
+      '<div class="detail-block"><div class="detail-label">effective normalized claims</div><code>' + esc(JSON.stringify(claims)) + '</code></div>' +
+      '<div class="detail-block"><div class="detail-label">claim-generation provenance / fallback</div><p>' + esc(value(generation.strategy)) + ' · ' + esc(value(generation.source)) + '<br>' + esc(value(generation.reason)) + '<br>' + esc((generation.warnings || []).join("; ") || "no fallback warning") + '</p></div>' +
+      '<div class="detail-block"><div class="detail-label">claim-preflight / conflict status</div><p><b>' + esc(value(preflight.status)) + '</b> · ' + esc(value(preflight.authoritative)) + '<br>conflicts: ' + esc(conflicts) + '<br>' + esc(value(preflight.message)) + '</p></div>' +
+      '<div class="detail-block"><div class="detail-label">dependency state</div><p>' + esc(fieldStates || "unavailable") + '</p></div>';
+  }
+  function requestProfile(request) { return request && (request.launchProfile || request.agentKind); }
   function taskMarkup() {
     if (taskStep === 0) {
       var intent = taskState.wabachiIntent;
       var intentBlock = intent ? '<div class="detail-block"><div class="detail-label">Wabachi presentation intent (not authoritative)</div><code>repository: ' + esc(value(intent.repository)) + '<br>revision: ' + esc(value(intent.revision)) + '<br>finding: ' + esc(value(intent.finding)) + '<br>focus: ' + esc(value(intent.focus)) + '<br>requested scope: ' + esc(value(intent.scope)) + '</code><p>Manager will re-resolve branch/worktree/claim authority during preflight.</p></div>' : "";
-      return '<div class="detail-block"><div class="detail-label">Wabachi Work Intent → Manager</div><p>Finding → Create Work Intent → Manager → preflight → managed session → Running</p></div>' + intentBlock + '<div class="field"><label>Issue / intent</label><input id="intentIssue" value="' + esc(taskState.issueRef) + '"></div><div class="field"><label>Implementation instruction</label><textarea id="intentInstruction">' + esc(taskState.instruction) + "</textarea></div>";
+      return '<div class="detail-block"><div class="detail-label">Wabachi Work Intent → Manager</div><p>Finding → Create Work Intent → Manager → preflight → managed session → Running</p></div>' + intentBlock + '<div class="field"><label for="intentIssue">Issue / intent ' + fieldStateMarkup("dependent", "taskSlug") + '</label><input id="intentIssue" value="' + esc(taskState.issueRef) + '" placeholder="optional workspace intent"></div><div class="field"><label for="intentInstruction">Implementation instruction ' + fieldStateMarkup("required") + '</label><textarea id="intentInstruction">' + esc(taskState.instruction) + "</textarea></div>";
     }
-    if (taskStep === 1) return '<div class="form-grid"><div class="field"><label>Execution profile</label><select id="intentAgent"><option value="pi"' + (taskState.agentKind === "pi" ? " selected" : "") + '>Pi</option><option value="codex"' + (taskState.agentKind === "codex" ? " selected" : "") + '>Codex</option><option value="claude"' + (taskState.agentKind === "claude" ? " selected" : "") + '>Claude</option></select></div><div class="field"><label>Task slug</label><input id="intentTaskSlug" value="' + esc(taskState.taskSlug) + '"></div></div><div class="field"><label>Branch type</label><input id="intentBranchType" value="' + esc(taskState.branchType) + '"></div>';
-    if (taskStep === 2) return '<div class="field"><label>Requested repository path</label><input id="intentPath" value="' + esc(taskState.scope.path) + '"></div><div class="field"><label>Claim mode</label><select id="intentClaimMode"><option value="exclusive-write"' + (taskState.scope.claimMode === "exclusive-write" ? " selected" : "") + '>exclusive-write</option><option value="write"' + (taskState.scope.claimMode === "write" ? " selected" : "") + '>write</option><option value="read"' + (taskState.scope.claimMode === "read" ? " selected" : "") + '>read</option></select></div><div class="detail-block"><div class="detail-label">authority boundary</div><code>Git/worktree: Nawabari<br>GitHub mutation: gh-inari<br>lifecycle: Mottainai</code></div>';
+    if (taskStep === 1) return '<div class="form-grid"><div class="field"><label for="intentAgent">Execution profile ' + fieldStateMarkup("defaulted", "profile") + '</label><select id="intentAgent"><option value="pi"' + (taskState.agentKind === "pi" ? " selected" : "") + '>Pi</option><option value="codex"' + (taskState.agentKind === "codex" ? " selected" : "") + '>Codex</option><option value="claude"' + (taskState.agentKind === "claude" ? " selected" : "") + '>Claude</option></select></div><div class="field"><label for="intentTaskSlug">Task slug ' + fieldStateMarkup("dependent", "Issue / explicit scope") + '</label><input id="intentTaskSlug" value="' + esc(taskState.taskSlug) + '"></div></div><div class="field"><label for="intentBranchType">Branch type ' + fieldStateMarkup("defaulted") + '</label><input id="intentBranchType" value="' + esc(taskState.branchType) + '"></div>' + profileControlsMarkup();
+    if (taskStep === 2) return '<div class="field"><label for="intentScopeMode">Scope declaration ' + fieldStateMarkup("defaulted", "taskSlug") + '</label><select id="intentScopeMode"><option value="fallback"' + (taskState.scopeMode === "fallback" ? " selected" : "") + '>No explicit scope — conservative repository read fallback</option><option value="declared"' + (taskState.scopeMode === "declared" ? " selected" : "") + '>Explicit bounded path/claim</option></select></div><div class="field"><label for="intentPath">Requested repository path ' + fieldStateMarkup(taskState.scopeMode === "declared" ? "provided" : "derived", "scope declaration") + '</label><input id="intentPath" value="' + esc(taskState.scope.path) + '" placeholder="src/**"></div><div class="field"><label for="intentClaimMode">Claim mode ' + fieldStateMarkup("dependent", "scope declaration") + '</label><select id="intentClaimMode"><option value="exclusive-write"' + (taskState.scope.claimMode === "exclusive-write" ? " selected" : "") + '>exclusive-write</option><option value="write"' + (taskState.scope.claimMode === "write" ? " selected" : "") + '>write</option><option value="read"' + (taskState.scope.claimMode === "read" ? " selected" : "") + '>read</option></select></div><div class="detail-block"><div class="detail-label">authority boundary</div><code>Git/worktree: Nawabari<br>GitHub mutation: gh-inari<br>lifecycle: Mottainai</code></div>';
     if (taskStep === 3) return '<div class="detail-block"><div class="detail-label">claim-preflight / launch readiness</div><div id="preflightResult">Running authoritative read-only preflight…</div></div><div class="detail-block"><div class="detail-label">preview endpoint</div><code>POST /api/v1/manager/sessions/preview</code></div>';
-    return '<div class="detail-block"><div class="detail-label">Launch through Manager</div><p>' + (approvedPreflight ? "Preflight clear. Manager establishes authoritative identities." : "Launch unavailable until preflight succeeds.") + '</p></div><div class="detail-block"><div class="detail-label">Projected Nawabari declaration</div><code>' + esc(approvedPreflight && approvedPreflight.preview.nawabariDeclaration ? JSON.stringify(approvedPreflight.preview.nawabariDeclaration) : "unavailable") + '</code></div><div class="detail-block"><div class="detail-label">resolved branch</div><code>' + esc(approvedPreflight && approvedPreflight.preview.identity ? approvedPreflight.preview.identity.branch.name : "unavailable") + "</code></div>";
+    return launchSummaryMarkup();
   }
   function renderTask() {
     saveTaskInputs();
@@ -634,6 +737,17 @@
     qa(".steps i").forEach(function (node, index) { node.classList.toggle("active", index <= taskStep); });
     q("#stepLabel").textContent = "0" + (taskStep + 1) + " / " + ["WORK","EXECUTION","AUTHORITY","PREFLIGHT","LAUNCH"][taskStep];
     q("#stepContent").innerHTML = taskMarkup();
+    q("#stepContent").insertAdjacentHTML("afterbegin", '<div id="taskValidation" class="inline-validation" role="alert" aria-live="polite"></div>');
+    var profileInput = q("#intentAgent");
+    if (profileInput) profileInput.onchange = function () {
+      saveTaskInputs();
+      invalidateApprovedPreflight("Profile changed; run preflight again.");
+      renderTask();
+    };
+    qa("#stepContent input, #stepContent select, #stepContent textarea").forEach(function (node) {
+      node.addEventListener("input", function () { invalidateApprovedPreflight("Input changed; run preflight again."); });
+      node.addEventListener("change", function () { invalidateApprovedPreflight("Input changed; run preflight again."); });
+    });
     q("#prevStep").style.visibility = taskStep ? "visible" : "hidden";
     q("#prevStep").disabled = !taskStep;
     q("#nextStep").textContent = taskStep === 4 ? "Launch" : taskStep === 3 ? "Re-run preflight" : "Continue";
@@ -647,6 +761,13 @@
     var token = ++preflightToken;
     var epoch = preflightEpoch;
     approvedPreflight = undefined;
+    var validationErrors = taskValidationErrors();
+    showTaskValidation(validationErrors);
+    if (validationErrors.length) {
+      q("#preflightResult").innerHTML = "<b>BLOCKED</b><br>Fix inline validation before authoritative preflight.";
+      q("#nextStep").disabled = true;
+      return Promise.resolve();
+    }
     q("#preflightResult").innerHTML = "Running authoritative read-only preflight…";
     q("#nextStep").disabled = true;
     return post("/sessions/preview", taskRequest).then(function (body) {
@@ -656,6 +777,8 @@
       var status = preview.claimPreflight.status;
       if (isLaunchableClaimStatus(status)) {
         approvedPreflight = { request: taskRequest, preview: preview };
+        approvedPreflight.request = preview.request || taskRequest;
+        approvedPreflight.fingerprint = launchRequestFingerprint(approvedPreflight.request);
         q("#preflightResult").innerHTML = "<b>READY</b><br>Issue identity resolved<br>Branch: <code>" + esc(preview.identity.branch.name) + "</code><br>Nawabari claim: " + esc(status);
         q("#nextStep").disabled = false;
       } else {
@@ -673,10 +796,19 @@
     });
   }
   function advance() {
+    var validationErrors = taskValidationErrors();
+    showTaskValidation(validationErrors);
+    if (validationErrors.length) return;
     if (taskStep < 2) { taskStep++; renderTask(); return; }
     if (taskStep === 2) { taskStep = 3; renderTask(); preflight(); return; }
     if (taskStep === 3) return preflight().then(function () { if (approvedPreflight) { taskStep = 4; renderTask(); } });
     if (!approvedPreflight) return;
+    var currentRequest = taskValues();
+    if (launchRequestFingerprint(currentRequest) !== approvedPreflight.fingerprint) {
+      invalidateApprovedPreflight("Input changed after approval; launch is disabled until preflight is repeated.");
+      renderTask();
+      return;
+    }
     post("/sessions", approvedPreflight.request).then(function (body) { closeNew(); return refresh().then(function () { openSession(body.session.sessionId); }); }).catch(function (error) { q("#stepContent").insertAdjacentHTML("beforeend", '<div class="detail-block"><b>Launch blocked</b><p>' + esc(error.message) + "</p></div>"); });
   }
   var modalTrigger = null;

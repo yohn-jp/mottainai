@@ -51,6 +51,23 @@ test("Manager New Task keeps the exact approved request paired with its preview 
   assert.match(html, /post\("\/sessions", approvedPreflight\.request\)/u);
 });
 
+test("Manager New Task renders dependency states, Pi controls, exact summary, and stale approval guards", () => {
+  const html = readManagerViewer();
+  assert.match(html, /fieldStateMarkup/u);
+  assert.match(html, /data-state="/u);
+  assert.match(html, /intentProvider/u);
+  assert.match(html, /intentModel/u);
+  assert.match(html, /scopeMode/u);
+  assert.match(html, /taskValidation/u);
+  assert.match(html, /effective normalized claims/u);
+  assert.match(html, /claim-generation provenance \/ fallback/u);
+  assert.match(html, /claim-preflight \/ conflict status/u);
+  assert.match(html, /launchRequestFingerprint/u);
+  assert.match(html, /invalidateApprovedPreflight/u);
+  assert.match(html, /Input changed after approval/u);
+  assert.match(html, /preview\.request \|\| taskRequest/u);
+});
+
 test("Manager inspect Nawabari routes through the execution session identity", () => {
   const html = readManagerViewer();
   assert.match(html, /executionSessionId/u);

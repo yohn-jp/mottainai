@@ -220,6 +220,19 @@ test("Manager HTTP preview returns the effective declaration without external mu
   });
   assert.equal(response.status, 200);
   const preview = (await response.json()).preview;
+  assert.equal(preview.schemaVersion, 1);
+  assert.deepEqual(preview.request, {
+    schemaVersion: 1,
+    instruction: "preview",
+    agentKind: "codex",
+    launchProfile: "codex",
+    taskSlug: "http-preview",
+    issueRef: "1030",
+    branchType: "feat",
+    scope: { paths: ["src/app.ts"], claims: [{ resource: "src/readme.md", mode: "read" }] },
+  });
+  assert.equal(preview.profile.agent, "codex");
+  assert.equal(preview.fields.find((field: { name: string }) => field.name === "scope").state, "provided");
   assert.deepEqual(preview.claims, [
     { resource: "src/app.ts", mode: "exclusive-write" },
     { resource: "src/readme.md", mode: "read" },

@@ -77,6 +77,7 @@ function inputFromBody(value: unknown): NewManagerSessionInput {
   }
   const body = value as Record<string, unknown>;
   return {
+    ...(body.schemaVersion === undefined ? {} : { schemaVersion: body.schemaVersion as number }),
     instruction: body.instruction as string,
     ...(body.agentKind === undefined ? {} : { agentKind: body.agentKind as string }),
     ...(body.launchProfile === undefined ? {} : { launchProfile: body.launchProfile as string }),
