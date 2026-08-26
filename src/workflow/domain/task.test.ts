@@ -16,7 +16,7 @@ import {
   getTaskStatus,
   getTaskStatusById,
   getTaskStatusForWorkspace,
-  listPublicTasks,
+  listTaskDiscoverySnapshot,
   startTask,
   transitionTask,
 } from "./task.js";
@@ -465,7 +465,7 @@ test("transitionTask applies a valid transition and rejects an invalid one with 
 
 // --- Issue #539: cross-workspace task/session discovery -------------------
 
-test("listPublicTasks enumerates active tasks across two repositories and two concurrent sessions without a workspace hint", async (t) => {
+test("listTaskDiscoverySnapshot enumerates active tasks across two repositories and two concurrent sessions without a workspace hint", async (t) => {
   const rootA = createTempGitRepo(t);
   const rootB = createTempGitRepo(t);
   const store = createWorkflowStore(t);
@@ -479,8 +479,12 @@ test("listPublicTasks enumerates active tasks across two repositories and two co
   assert.equal(b1.ok, true);
   if (!a1.ok || !a2.ok || !b1.ok) return;
 
-  const result = listPublicTasks(store);
+  const before = Date.now();
+  const result = listTaskDiscoverySnapshot(store);
   assert.equal(result.schemaVersion, 1);
+  // generatedAt makes the snapshot's point-in-time nature explicit and checkable,
+  // not just documented in prose — see the module-level discovery-snapshot contract.
+  assert.ok(result.generatedAt >= before && result.generatedAt <= Date.now());
   const taskIds = result.tasks.map((task) => task.taskId);
   assert.ok(taskIds.includes(a1.task.taskId));
   assert.ok(taskIds.includes(a2.task.taskId));
@@ -497,14 +501,14 @@ test("listPublicTasks enumerates active tasks across two repositories and two co
   assert.equal(entryB1.branchName, b1.worktree?.branchName);
 });
 
-test("listPublicTasks never includes an absolute filesystem path or other private registry state", async (t) => {
+test("listTaskDiscoverySnapshot never includes an absolute filesystem path or other private registry state", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
   const started = await startTask({ workspaceRoot: root, store, policy: standardPolicy(), taskSlug: "no-path-leak", branchType: "fix", issueRef: "401" });
   assert.equal(started.ok, true);
   if (!started.ok) return;
 
-  const result = listPublicTasks(store);
+  const result = listTaskDiscoverySnapshot(store);
   const serialized = JSON.stringify(result);
   assert.doesNotMatch(serialized, /"worktreePath"/);
   assert.doesNotMatch(serialized, new RegExp(root.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&")));
@@ -513,7 +517,7 @@ test("listPublicTasks never includes an absolute filesystem path or other privat
   assert.deepEqual(Object.keys(entry.repository), ["instanceId"]);
 });
 
-test("listPublicTasks excludes closed/abandoned/finished tasks from the default view while unrelated tasks remain listed", async (t) => {
+test("listTaskDiscoverySnapshot excludes closed/abandoned/finished tasks from the default view while unrelated tasks remain listed", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
   const policy = standardPolicy({ multipleActiveTasksPerIssue: "advisory" });
@@ -523,18 +527,18 @@ test("listPublicTasks excludes closed/abandoned/finished tasks from the default 
   assert.equal(willAbandon.ok, true);
   if (!stillActive.ok || !willAbandon.ok) return;
 
-  const beforeAbandon = listPublicTasks(store);
+  const beforeAbandon = listTaskDiscoverySnapshot(store);
   assert.ok(beforeAbandon.tasks.some((task) => task.taskId === willAbandon.task.taskId));
 
   const abandoned = transitionTask(store, willAbandon.task.taskId, "abandoned");
   assert.equal(abandoned.ok, true);
 
-  const afterAbandon = listPublicTasks(store);
+  const afterAbandon = listTaskDiscoverySnapshot(store);
   assert.ok(afterAbandon.tasks.some((task) => task.taskId === stillActive.task.taskId));
   assert.ok(!afterAbandon.tasks.some((task) => task.taskId === willAbandon.task.taskId));
 });
 
-test("listPublicTasks excludes every terminal/ownership-unresolved lifecycle state: merged, cleaned, and orphaned", async (t) => {
+test("listTaskDiscoverySnapshot excludes every terminal/ownership-unresolved lifecycle state: merged, cleaned, and orphaned", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
   const policy = standardPolicy({ multipleActiveTasksPerIssue: "advisory" });
@@ -549,19 +553,19 @@ test("listPublicTasks excludes every terminal/ownership-unresolved lifecycle sta
   assert.equal(transitionTask(store, willFinish.task.taskId, "pushed").ok, true);
   assert.equal(transitionTask(store, willFinish.task.taskId, "pull-request-open").ok, true);
   assert.equal(transitionTask(store, willFinish.task.taskId, "merged").ok, true);
-  const mergedListed = listPublicTasks(store);
+  const mergedListed = listTaskDiscoverySnapshot(store);
   assert.ok(!mergedListed.tasks.some((task) => task.taskId === willFinish.task.taskId));
 
   assert.equal(transitionTask(store, willFinish.task.taskId, "cleaned").ok, true);
-  const cleanedListed = listPublicTasks(store);
+  const cleanedListed = listTaskDiscoverySnapshot(store);
   assert.ok(!cleanedListed.tasks.some((task) => task.taskId === willFinish.task.taskId));
 
   assert.equal(transitionTask(store, willOrphan.task.taskId, "orphaned").ok, true);
-  const orphanedListed = listPublicTasks(store);
+  const orphanedListed = listTaskDiscoverySnapshot(store);
   assert.ok(!orphanedListed.tasks.some((task) => task.taskId === willOrphan.task.taskId));
 });
 
-test("listPublicTasks task ids are unique and stable across the returned snapshot", async (t) => {
+test("listTaskDiscoverySnapshot task ids are unique and stable across the returned snapshot", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
   const policy = standardPolicy({ multipleActiveTasksPerIssue: "advisory" });
@@ -569,7 +573,7 @@ test("listPublicTasks task ids are unique and stable across the returned snapsho
   await startTask({ workspaceRoot: root, store, policy, taskSlug: "unique-b", branchType: "fix", issueRef: "602" });
   await startTask({ workspaceRoot: root, store, policy, taskSlug: "unique-c", branchType: "fix", issueRef: "603" });
 
-  const result = listPublicTasks(store);
+  const result = listTaskDiscoverySnapshot(store);
   const ids = result.tasks.map((task) => task.taskId);
   assert.equal(new Set(ids).size, ids.length);
   for (const id of ids) assert.match(id, /^[0-9a-f-]{36}$/u);
@@ -637,7 +641,7 @@ test("getTaskStatusById fails closed once a task has closed, never resolving to 
   assert.equal(result.reason, "task-unavailable:abandoned");
 });
 
-test("getTaskStatusById fails closed when a task disappears between task list and the keyed resolve (Nawabari session gone)", async (t) => {
+test("discovery-snapshot contract: a task present in listTaskDiscoverySnapshot can still fail closed in getTaskStatusById (normal race, not a bug)", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
   const sessions = new Map<string, Record<string, unknown>>();
@@ -657,7 +661,7 @@ test("getTaskStatusById fails closed when a task disappears between task list an
   if (!started.ok) return;
 
   // Listing still reflects the snapshot taken before the session disappeared.
-  const listed = listPublicTasks(store);
+  const listed = listTaskDiscoverySnapshot(store);
   assert.ok(listed.tasks.some((task) => task.taskId === started.task.taskId));
 
   // Simulate the session becoming unknown to Nawabari (closed + purged) between

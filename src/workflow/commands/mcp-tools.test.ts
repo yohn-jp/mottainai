@@ -449,6 +449,7 @@ test("task_list enumerates active tasks across repositories with an explicit sch
   const listed = structured(await callWorkflowCommandTool("mottainai_workflow_task_list", {}, enabled(configA), store));
   assert.equal(listed.status, "success");
   assert.equal(listed.schemaVersion, 1);
+  assert.equal(typeof listed.generatedAt, "number");
   const tasks = listed.tasks as Array<{ taskId: string; repository: { instanceId: string } }>;
   const entryA = tasks.find((task) => task.taskId === taskA.taskId);
   const entryB = tasks.find((task) => task.taskId === taskB.taskId);

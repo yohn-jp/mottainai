@@ -38,7 +38,12 @@ import type { LogicalId } from "./semantics/ir/ids.js";
 import { validateIssueRef, validateTaskSlug } from "./workflow/commands/validate.js";
 import { collectWorkflowDoctorReport } from "./workflow/commands/doctor.js";
 import { migrateLegacyWorkflowTask } from "./workflow/domain/legacy-migration.js";
-import { getTaskStatus, getTaskStatusById, getTaskStatusForWorkspace, listPublicTasks } from "./workflow/domain/task.js";
+import {
+  getTaskStatus,
+  getTaskStatusById,
+  getTaskStatusForWorkspace,
+  listTaskDiscoverySnapshot,
+} from "./workflow/domain/task.js";
 import { startNawabariTask } from "./workflow/domain/nawabari-task.js";
 import { NawabariExecutionClient } from "./workflow/nawabari.js";
 import { explainWorkflowPolicy } from "./workflow/policy/explain.js";
@@ -94,8 +99,9 @@ const USAGE = `usage:
   mottainai task start <slug> [options]          start a Git workflow task (dedicated worktree/branch)
   mottainai task run <slug> [options]            start an Issue-bound task and launch its Manager agent
   mottainai task status [--workspace path]       active Git workflow task for the current worktree
-  mottainai task status --task-id id [--json]    fresh, cwd-independent resolve of one task's worktree path
-  mottainai task list [--json]                   read-only cross-repository task/session discovery
+  mottainai task status --task-id id [--json]    AUTHORITATIVE fresh resolve of one task id's worktree path
+  mottainai task list [--json]                   discovery snapshot of candidate tasks (NOT a live/available guarantee;
+                                                   re-resolve with task status --task-id before acting on any of them)
   mottainai task migrate-legacy [options]        explicitly complete or adopt one pre-cutover task
   mottainai task commit [options]                commit the current managed task
   mottainai task push [options]                  push the current managed task
@@ -810,7 +816,7 @@ export async function runCli(args: string[]): Promise<number> {
     } else if (command === "task" && argv[0] === "list") {
       const store = await openWorkflowStateStore();
       try {
-        print(listPublicTasks(store));
+        print(listTaskDiscoverySnapshot(store));
         return 0;
       } finally {
         store.close();

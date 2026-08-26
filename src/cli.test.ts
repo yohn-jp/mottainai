@@ -232,8 +232,11 @@ test("public CLI task list enumerates managed tasks with an explicit schema vers
       encoding: "utf8",
     });
     assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
-    const parsed = JSON.parse(result.stdout) as { schemaVersion: number; tasks: readonly unknown[] };
+    const parsed = JSON.parse(result.stdout) as { schemaVersion: number; generatedAt: number; tasks: readonly unknown[] };
     assert.equal(parsed.schemaVersion, 1);
+    // generatedAt is the explicit, checkable evidence that this is a point-in-time
+    // discovery snapshot, not a live/authoritative availability signal.
+    assert.equal(typeof parsed.generatedAt, "number");
     assert.deepEqual(parsed.tasks, []);
   } finally {
     fs.rmSync(workspace, { recursive: true, force: true });
