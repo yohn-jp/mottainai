@@ -4,7 +4,12 @@ import { GhInariClient } from "../../gh-inari.js";
 import { OUTPUT_SCHEMA, output } from "../../envelope.js";
 import { InMemoryArtifactStore, type ArtifactStore } from "../../retrieve.js";
 import { collectWorkflowDoctorReport } from "./doctor.js";
-import { getTaskStatus, getTaskStatusForWorkspace } from "../domain/task.js";
+import {
+  getTaskStatus,
+  getTaskStatusById,
+  getTaskStatusForWorkspace,
+  listTaskDiscoverySnapshot,
+} from "../domain/task.js";
 import { migrateLegacyWorkflowTask, type LegacyMigrationMode } from "../domain/legacy-migration.js";
 import { startNawabariTask } from "../domain/nawabari-task.js";
 import { NawabariExecutionClient } from "../nawabari.js";
@@ -24,7 +29,7 @@ import type { StructuredCommitMessage } from "../git/commit.js";
 import { bundledGovernedBranchTypes } from "../governance/branch.js";
 import { explainWorkflowPolicy } from "../policy/explain.js";
 import { resolveEffectiveWorkflowPolicy } from "../policy/load.js";
-import type { WorkflowStateStore } from "../state/store.js";
+import type { TaskId, WorkflowStateStore } from "../state/store.js";
 import { validateIssueRef, validateTaskSlug } from "./validate.js";
 
 /**
@@ -229,7 +234,27 @@ function buildTaskStartTool(): Tool {
 const taskStatusTool: Tool = {
   name: "mottainai_workflow_task_status",
   description:
-    "Report the active Git workflow task (if any) for the current worktree: task id, lifecycle state, repository/worktree identity, branch, and guardrail warnings. Side-effect free.",
+    "Report a Git workflow task: task id, lifecycle state, repository/worktree identity, branch, and guardrail warnings. Side-effect free. With no arguments, reports the active task (if any) for the current worktree (cwd-scoped, unchanged). With taskId, this is the AUTHORITATIVE fresh availability + worktree resolve step: it re-verifies the task right now and fails deterministically — never falling back to another task or to the current worktree — if the task is missing, terminal, or its execution session/worktree has drifted since it was last seen in mottainai_workflow_task_list. Callers MUST call this with taskId immediately before acting on any task id obtained from mottainai_workflow_task_list; that list is a discovery snapshot, not proof the task is still available.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      taskId: {
+        type: "string",
+        minLength: 1,
+        description:
+          "Resolve this task id instead of the current worktree's task. Always call this immediately before acting on a task id returned by mottainai_workflow_task_list — that tool's output can be stale by the time you act on it.",
+      },
+    },
+    additionalProperties: false,
+  },
+  outputSchema: OUTPUT_SCHEMA,
+  annotations: readOnly,
+};
+
+const taskListTool: Tool = {
+  name: "mottainai_workflow_task_list",
+  description:
+    "Enumerate candidate managed tasks across every repository this Mottainai install currently tracks in local state, not scoped to the caller's cwd (Issue #539). This is a discovery snapshot, not a live availability guarantee: each entry's lifecycleState is the last state persisted to Mottainai's store as of generatedAt, not a confirmation that the task is selectable or executable right now. A task can close, get abandoned, or lose its session/worktree between this call and any later action — that is a normal race, never a consistency failure. Before acting on any taskId from this list (starting work in it, resolving its worktree, etc.), callers MUST call mottainai_workflow_task_status with that taskId, which is the authoritative fresh resolve step and fails closed (no fallback to another task) if the task is no longer available. Side-effect free, bounded, deterministic, with an explicit schemaVersion. Excludes terminal/ownership-unresolved tasks (merged, abandoned, orphaned, cleaned) from the default view — exclusion narrows the candidate set but does not make the remainder authoritative. Never includes an absolute repository/worktree path, credential, or raw process/registry state; repository identity is the opaque, stable repository instance id.",
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
   outputSchema: OUTPUT_SCHEMA,
   annotations: readOnly,
@@ -302,6 +327,7 @@ export function workflowCommandTools(): Tool[] {
     policyExplainTool,
     buildTaskStartTool(),
     taskStatusTool,
+    taskListTool,
     workflowDoctorTool,
     taskCommitTool,
     taskPushTool,
@@ -565,8 +591,44 @@ async function taskStartToolImpl(
   });
 }
 
-async function taskStatusToolImpl(config: ResolvedGatewayConfig, store: WorkflowStateStore): Promise<CallToolResult> {
+function taskStatusByIdResult(result: Awaited<ReturnType<typeof getTaskStatusById>>): CallToolResult {
+  if (!result.ok) {
+    return output(
+      "workflow_task_status",
+      "failed",
+      `FAIL task_status: ${result.reason}`,
+      "",
+      { diagnostics: [{ severity: "error", message: result.reason }] },
+      true,
+    );
+  }
+  const summary = `OK task=${result.task.taskId} state=${result.task.lifecycleState} branch=${result.branch ?? "(detached)"}`;
+  return output("workflow_task_status", "success", summary, "", {
+    active: true,
+    task: result.task,
+    worktreePath: result.worktreePath,
+    branch: result.branch,
+    pullRequests: result.pullRequests,
+    currentState: result.currentState,
+    allowedNextTransitions: result.allowedNextTransitions,
+    invalidTransitions: result.invalidTransitions,
+  });
+}
+
+async function taskStatusToolImpl(
+  args: Args,
+  config: ResolvedGatewayConfig,
+  store: WorkflowStateStore,
+): Promise<CallToolResult> {
   requireWorkflowTasksConfigured(config);
+  const explicitTaskId = stringArg(args, "taskId");
+  if (explicitTaskId !== undefined) {
+    // taskId だけを鍵にした cwd 非依存の fresh 解決（Issue #539）。以下の cwd スコープ
+    // 経路（引数なし呼び出し）とは独立し、その挙動には一切触れない。
+    return taskStatusByIdResult(
+      await getTaskStatusById(store, explicitTaskId as TaskId, new NawabariExecutionClient()),
+    );
+  }
   const nawabari = new NawabariExecutionClient();
   let sessionId: string | undefined;
   try {
@@ -661,6 +723,15 @@ async function taskStatusToolImpl(config: ResolvedGatewayConfig, store: Workflow
     invalidTransitions: result.status.invalidTransitions,
     warnings: result.warnings,
   });
+}
+
+function taskListToolImpl(config: ResolvedGatewayConfig, store: WorkflowStateStore): CallToolResult {
+  requireWorkflowTasksConfigured(config);
+  const result = listTaskDiscoverySnapshot(store);
+  // "candidates", not "tasks": this summary must not read as a confirmed-available
+  // count — see mottainai_workflow_task_list's description for the freshness contract.
+  const summary = `OK task_list candidates=${result.tasks.length} (discovery snapshot; re-resolve each with task_status before acting)`;
+  return output("workflow_task_list", "success", summary, "", { ...result });
 }
 
 async function workflowDoctorToolImpl(
@@ -970,7 +1041,10 @@ export async function callWorkflowCommandTool(
       return taskStartToolImpl(args, config, workflowStore ?? (await defaultWorkflowStore()));
     case "mottainai_workflow_task_status":
       requireWorkflowTasksConfigured(config);
-      return taskStatusToolImpl(config, workflowStore ?? (await defaultWorkflowStore()));
+      return taskStatusToolImpl(args, config, workflowStore ?? (await defaultWorkflowStore()));
+    case "mottainai_workflow_task_list":
+      requireWorkflowTasksConfigured(config);
+      return taskListToolImpl(config, workflowStore ?? (await defaultWorkflowStore()));
     case "mottainai_workflow_doctor":
       requireWorkflowTasksConfigured(config);
       return workflowDoctorToolImpl(args, config, workflowStore ?? (await defaultWorkflowStore()));

@@ -5,12 +5,21 @@ import { test } from "node:test";
 import { createTempDir } from "../../test-support/tmp-dir.js";
 import { createTempGitRepo, runGit } from "../../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../../test-support/workflow-store.js";
+import { fakeNawabari, startNawabariManagedTask } from "../../test-support/nawabari-fixture.js";
 import { BUILTIN_PRESETS } from "../policy/presets.js";
 import type { WorkflowPolicyDocument } from "../policy/schema.js";
 import { WorkflowSqliteStateStore } from "../state/sqlite-store.js";
 import { validateBranchNameAgainstGovernance } from "../governance/branch.js";
 import { resolveRepositoryIdentity } from "./identity.js";
-import { checkStaleBaseBranch, getTaskStatus, getTaskStatusForWorkspace, startTask, transitionTask } from "./task.js";
+import {
+  checkStaleBaseBranch,
+  getTaskStatus,
+  getTaskStatusById,
+  getTaskStatusForWorkspace,
+  listTaskDiscoverySnapshot,
+  startTask,
+  transitionTask,
+} from "./task.js";
 
 function standardPolicy(overrides: Partial<WorkflowPolicyDocument["worktree"]> = {}): WorkflowPolicyDocument {
   return { ...BUILTIN_PRESETS.standard, worktree: { ...BUILTIN_PRESETS.standard.worktree, ...overrides } };
@@ -452,4 +461,215 @@ test("transitionTask applies a valid transition and rejects an invalid one with 
   assert.equal(invalid.blocked.currentState, "committed");
   assert.equal(invalid.blocked.requestedTransition, "merged");
   assert.ok(invalid.blocked.allowedNextTransitions.includes("pushed"));
+});
+
+// --- Issue #539: cross-workspace task/session discovery -------------------
+
+test("listTaskDiscoverySnapshot enumerates active tasks across two repositories and two concurrent sessions without a workspace hint", async (t) => {
+  const rootA = createTempGitRepo(t);
+  const rootB = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const policy = standardPolicy({ multipleActiveTasksPerIssue: "advisory" });
+
+  const a1 = await startTask({ workspaceRoot: rootA, store, policy, taskSlug: "repo-a-one", branchType: "fix", issueRef: "201" });
+  const a2 = await startTask({ workspaceRoot: rootA, store, policy, taskSlug: "repo-a-two", branchType: "fix", issueRef: "202" });
+  const b1 = await startTask({ workspaceRoot: rootB, store, policy, taskSlug: "repo-b-one", branchType: "fix", issueRef: "301" });
+  assert.equal(a1.ok, true);
+  assert.equal(a2.ok, true);
+  assert.equal(b1.ok, true);
+  if (!a1.ok || !a2.ok || !b1.ok) return;
+
+  const before = Date.now();
+  const result = listTaskDiscoverySnapshot(store);
+  assert.equal(result.schemaVersion, 1);
+  // generatedAt makes the snapshot's point-in-time nature explicit and checkable,
+  // not just documented in prose — see the module-level discovery-snapshot contract.
+  assert.ok(result.generatedAt >= before && result.generatedAt <= Date.now());
+  const taskIds = result.tasks.map((task) => task.taskId);
+  assert.ok(taskIds.includes(a1.task.taskId));
+  assert.ok(taskIds.includes(a2.task.taskId));
+  assert.ok(taskIds.includes(b1.task.taskId));
+
+  const entryA1 = result.tasks.find((task) => task.taskId === a1.task.taskId)!;
+  const entryA2 = result.tasks.find((task) => task.taskId === a2.task.taskId)!;
+  const entryB1 = result.tasks.find((task) => task.taskId === b1.task.taskId)!;
+  // Two concurrent sessions in the same repository share repository identity...
+  assert.equal(entryA1.repository.instanceId, entryA2.repository.instanceId);
+  // ...while the second repository has a distinct, opaque identity.
+  assert.notEqual(entryA1.repository.instanceId, entryB1.repository.instanceId);
+  assert.equal(entryA1.branchName, a1.worktree?.branchName);
+  assert.equal(entryB1.branchName, b1.worktree?.branchName);
+});
+
+test("listTaskDiscoverySnapshot never includes an absolute filesystem path or other private registry state", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const started = await startTask({ workspaceRoot: root, store, policy: standardPolicy(), taskSlug: "no-path-leak", branchType: "fix", issueRef: "401" });
+  assert.equal(started.ok, true);
+  if (!started.ok) return;
+
+  const result = listTaskDiscoverySnapshot(store);
+  const serialized = JSON.stringify(result);
+  assert.doesNotMatch(serialized, /"worktreePath"/);
+  assert.doesNotMatch(serialized, new RegExp(root.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&")));
+  assert.doesNotMatch(serialized, new RegExp(started.worktree!.canonicalPath.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&")));
+  const entry = result.tasks.find((task) => task.taskId === started.task.taskId)!;
+  assert.deepEqual(Object.keys(entry.repository), ["instanceId"]);
+});
+
+test("listTaskDiscoverySnapshot excludes closed/abandoned/finished tasks from the default view while unrelated tasks remain listed", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const policy = standardPolicy({ multipleActiveTasksPerIssue: "advisory" });
+  const stillActive = await startTask({ workspaceRoot: root, store, policy, taskSlug: "stays-listed", branchType: "fix", issueRef: "501" });
+  const willAbandon = await startTask({ workspaceRoot: root, store, policy, taskSlug: "gets-abandoned", branchType: "fix", issueRef: "502" });
+  assert.equal(stillActive.ok, true);
+  assert.equal(willAbandon.ok, true);
+  if (!stillActive.ok || !willAbandon.ok) return;
+
+  const beforeAbandon = listTaskDiscoverySnapshot(store);
+  assert.ok(beforeAbandon.tasks.some((task) => task.taskId === willAbandon.task.taskId));
+
+  const abandoned = transitionTask(store, willAbandon.task.taskId, "abandoned");
+  assert.equal(abandoned.ok, true);
+
+  const afterAbandon = listTaskDiscoverySnapshot(store);
+  assert.ok(afterAbandon.tasks.some((task) => task.taskId === stillActive.task.taskId));
+  assert.ok(!afterAbandon.tasks.some((task) => task.taskId === willAbandon.task.taskId));
+});
+
+test("listTaskDiscoverySnapshot excludes every terminal/ownership-unresolved lifecycle state: merged, cleaned, and orphaned", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const policy = standardPolicy({ multipleActiveTasksPerIssue: "advisory" });
+
+  const willFinish = await startTask({ workspaceRoot: root, store, policy, taskSlug: "gets-finished", branchType: "fix", issueRef: "511" });
+  const willOrphan = await startTask({ workspaceRoot: root, store, policy, taskSlug: "gets-orphaned", branchType: "fix", issueRef: "512" });
+  assert.equal(willFinish.ok, true);
+  assert.equal(willOrphan.ok, true);
+  if (!willFinish.ok || !willOrphan.ok) return;
+
+  assert.equal(transitionTask(store, willFinish.task.taskId, "committed").ok, true);
+  assert.equal(transitionTask(store, willFinish.task.taskId, "pushed").ok, true);
+  assert.equal(transitionTask(store, willFinish.task.taskId, "pull-request-open").ok, true);
+  assert.equal(transitionTask(store, willFinish.task.taskId, "merged").ok, true);
+  const mergedListed = listTaskDiscoverySnapshot(store);
+  assert.ok(!mergedListed.tasks.some((task) => task.taskId === willFinish.task.taskId));
+
+  assert.equal(transitionTask(store, willFinish.task.taskId, "cleaned").ok, true);
+  const cleanedListed = listTaskDiscoverySnapshot(store);
+  assert.ok(!cleanedListed.tasks.some((task) => task.taskId === willFinish.task.taskId));
+
+  assert.equal(transitionTask(store, willOrphan.task.taskId, "orphaned").ok, true);
+  const orphanedListed = listTaskDiscoverySnapshot(store);
+  assert.ok(!orphanedListed.tasks.some((task) => task.taskId === willOrphan.task.taskId));
+});
+
+test("listTaskDiscoverySnapshot task ids are unique and stable across the returned snapshot", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const policy = standardPolicy({ multipleActiveTasksPerIssue: "advisory" });
+  await startTask({ workspaceRoot: root, store, policy, taskSlug: "unique-a", branchType: "fix", issueRef: "601" });
+  await startTask({ workspaceRoot: root, store, policy, taskSlug: "unique-b", branchType: "fix", issueRef: "602" });
+  await startTask({ workspaceRoot: root, store, policy, taskSlug: "unique-c", branchType: "fix", issueRef: "603" });
+
+  const result = listTaskDiscoverySnapshot(store);
+  const ids = result.tasks.map((task) => task.taskId);
+  assert.equal(new Set(ids).size, ids.length);
+  for (const id of ids) assert.match(id, /^[0-9a-f-]{36}$/u);
+});
+
+test("getTaskStatusById resolves a legacy task's current canonical worktree path fresh, keyed only by taskId", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const started = await startTask({ workspaceRoot: root, store, policy: standardPolicy(), taskSlug: "keyed-legacy", branchType: "fix", issueRef: "701" });
+  assert.equal(started.ok, true);
+  if (!started.ok) return;
+
+  const nawabari = fakeNawabari(root);
+  const result = await getTaskStatusById(store, started.task.taskId, nawabari);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.worktreePath, started.worktree!.canonicalPath);
+  assert.equal(result.branch, started.worktree!.branchName);
+  assert.equal(result.task.taskId, started.task.taskId);
+});
+
+test("getTaskStatusById resolves a Nawabari-managed task's current worktree path without any --workspace hint", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const fixture = await startNawabariManagedTask(t, {
+    root,
+    store,
+    policy: standardPolicy(),
+    taskSlug: "keyed-nawabari",
+    branchType: "fix",
+    issueRef: "801",
+  });
+
+  const result = await getTaskStatusById(store, fixture.task.taskId, fixture.nawabari);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.worktreePath, fixture.worktree.canonicalPath);
+  assert.equal(result.branch, fixture.worktree.branchName);
+});
+
+test("getTaskStatusById fails closed with no fallback when the task id is unknown", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const nawabari = fakeNawabari(root);
+  const result = await getTaskStatusById(store, "not-a-real-task-id" as never, nawabari);
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.reason, "task-not-found");
+});
+
+test("getTaskStatusById fails closed once a task has closed, never resolving to another task or the caller's cwd", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const started = await startTask({ workspaceRoot: root, store, policy: standardPolicy(), taskSlug: "keyed-closes", branchType: "fix", issueRef: "901" });
+  assert.equal(started.ok, true);
+  if (!started.ok) return;
+
+  const abandoned = transitionTask(store, started.task.taskId, "abandoned");
+  assert.equal(abandoned.ok, true);
+
+  const nawabari = fakeNawabari(root);
+  const result = await getTaskStatusById(store, started.task.taskId, nawabari);
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.reason, "task-unavailable:abandoned");
+});
+
+test("discovery-snapshot contract: a task present in listTaskDiscoverySnapshot can still fail closed in getTaskStatusById (normal race, not a bug)", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const sessions = new Map<string, Record<string, unknown>>();
+  const nawabariForStart = fakeNawabari(root, { sessions });
+  const started = await import("./nawabari-task.js").then(({ startNawabariTask }) =>
+    startNawabariTask({
+      workspaceRoot: root,
+      store,
+      policy: standardPolicy(),
+      taskSlug: "keyed-disappears",
+      branchType: "fix",
+      issueRef: "902",
+      nawabari: nawabariForStart,
+    }),
+  );
+  assert.equal(started.ok, true);
+  if (!started.ok) return;
+
+  // Listing still reflects the snapshot taken before the session disappeared.
+  const listed = listTaskDiscoverySnapshot(store);
+  assert.ok(listed.tasks.some((task) => task.taskId === started.task.taskId));
+
+  // Simulate the session becoming unknown to Nawabari (closed + purged) between
+  // the list snapshot and the keyed resolve.
+  sessions.delete(started.execution.sessionId);
+  const nawabariForResolve = fakeNawabari(root, { sessions });
+  const result = await getTaskStatusById(store, started.task.taskId, nawabariForResolve);
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.reason, "session-unavailable");
 });

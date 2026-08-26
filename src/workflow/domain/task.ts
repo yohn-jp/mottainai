@@ -30,6 +30,7 @@ import { verifyWorkflowContext } from "../git/context.js";
 import type { WorkflowContextInput, VerifiedWorkflowContext } from "../git/context.js";
 import type { PullRequest } from "../providers/model.js";
 import { transitionTask } from "./task-lifecycle.js";
+import type { NawabariExecutionClient } from "../nawabari.js";
 
 export { transitionTask } from "./task-lifecycle.js";
 export type { TransitionTaskResult } from "./task-lifecycle.js";
@@ -877,4 +878,211 @@ export async function getTaskStatusForWorkspace(
     ...lifecycleTransitionStatus(found.task.lifecycleState),
   };
   return { ok: true, active: true, status, ...location };
+}
+
+/**
+ * Cross-workspace task/session discovery（Issue #539）。二段構えの契約:
+ *
+ * 1. `listTaskDiscoverySnapshot()`（`task list` / `mottainai_workflow_task_list`）は
+ *    Mottainai が既に持っている永続 state からの **discovery snapshot（候補投影）**
+ *    でしかない。ここに載っている `lifecycleState` はスナップショット取得時点で最後に
+ *    観測された state であり、"今この瞬間に実行可能" の証明でも予約でもない。
+ *    値を返した直後に該当 task が close/abandon/finish・所有権喪失しても、
+ *    この関数はそれを検知しない（意図的 — 全 task を live に検証すると N 回の
+ *    Nawabari 呼び出しになり、bounded/deterministic という設計上の要件を壊す）。
+ * 2. `getTaskStatusById()`（`task status --task-id` / `mottainai_workflow_task_status`
+ *    with taskId）だけが **authoritative fresh resolve** — 呼び出し時点で本当に
+ *    実行対象にできるかを検証し、worktree path を返す。
+ *
+ * 呼び出し側の必須ルール: (1) で得た `taskId` を使って何かを実行する前には、
+ * 必ず (2) を直前に呼ぶこと。(1) と (2) の間で task が消えている/session が
+ * 失効している/worktree が drift しているのは正常なレースであり、(2) は
+ * それを常に fail-closed で表現する（別 task や呼び出し側 cwd への fallback はしない）。
+ */
+export const TASK_DISCOVERY_SCHEMA_VERSION = 1 as const;
+
+/**
+ * discovery snapshot の既定ビューから外す lifecycle 状態。issue #539 の文言
+ * 「closed/abandoned/finished」に対応させる: cleaned=closed, abandoned=abandoned,
+ * merged=finished。`orphaned` も所有権が確定しない状態であり、候補として挙げるべき
+ * 対象ではないため同様に除外する。この集合はあくまで「候補から外す」フィルタであり、
+ * 残った task が現在も実行可能であることの証明にはならない（本体の契約説明を参照）。
+ */
+const TASK_DISCOVERY_EXCLUDED_STATES: ReadonlySet<LifecycleState> = new Set([
+  "merged",
+  "abandoned",
+  "orphaned",
+  "cleaned",
+]);
+
+/**
+ * 公開安全なリポジトリ識別子。`instanceId` は `resolveRepositoryIdentity` が発行する
+ * opaque UUID（`src/workflow/domain/identity.ts` 参照）で、絶対パス・remote URL・
+ * ブランチ名のいずれにも依存しない。外部消費者はこれを不透明な安定キーとしてのみ扱う。
+ */
+export interface PublicRepositoryIdentity {
+  instanceId: RepositoryInstanceId;
+}
+
+/**
+ * discovery snapshot 内の一候補。フィールド名の `lifecycleState` はあくまで
+ * **スナップショット取得時点で最後に観測された** 永続 state であり、現在の
+ * 実行可能性を保証しない — 実行前には必ず `getTaskStatusById` で fresh に
+ * 再検証すること。
+ */
+export interface TaskDiscoveryCandidate {
+  taskId: TaskId;
+  repository: PublicRepositoryIdentity;
+  taskSlug: string;
+  issueRef: string | undefined;
+  /** ベストエフォート。Nawabari 管理 task は task-start reconciliation の記録値、
+   * legacy task は現在 active な worktree の記録値から得る — いずれもライブ git/Nawabari
+   * 呼び出しを伴わない、既に永続化済みの値。 */
+  branchName: string | undefined;
+  baseBranch: string;
+  baseCommit: string;
+  /** スナップショット取得時点で最後に観測された lifecycle state。ライブ状態ではない。 */
+  lifecycleState: LifecycleState;
+  updatedAt: number;
+}
+
+/** `listTaskDiscoverySnapshot()` の戻り値。`generatedAt` はこの投影自体が
+ * 一時点のスナップショットであることを示す明示的なフィールド。 */
+export interface TaskDiscoverySnapshot {
+  schemaVersion: typeof TASK_DISCOVERY_SCHEMA_VERSION;
+  /** このスナップショットを構築した時刻（epoch ms）。個々の `tasks[].lifecycleState`
+   * は最大でこの時刻時点の観測値であり、以降の鮮度を保証しない。 */
+  generatedAt: number;
+  tasks: TaskDiscoveryCandidate[];
+}
+
+function publicBranchNameForTask(store: WorkflowStateStore, task: TaskRecord): string | undefined {
+  if (task.nawabariSessionId !== undefined) {
+    return store.getTaskStartReconciliation(task.taskId)?.branchName;
+  }
+  return store.listWorktreesForTask(task.taskId).find((worktree) => worktree.status === "active")?.branchName;
+}
+
+/**
+ * 呼び出し側 cwd に一切依存しない、ローカル install が保持する全 repository/task を
+ * 横断した read-only の **discovery snapshot**（Issue #539）。副作用なし・bounded・
+ * deterministic — git/Nawabari への live 呼び出しは行わない（`listTasks()`/
+ * `listWorktreesForTask()`/`getTaskStartReconciliation()` はいずれも永続化済み
+ * state の読み取りのみ）。
+ *
+ * 契約: これは候補投影であって権威ある可用性の証明ではない。既定で terminal/
+ * 所有権不確定な task（`TASK_DISCOVERY_EXCLUDED_STATES`）を除外するが、残った
+ * task も呼び出しからこの関数が返るまでの間に close/abandon/finish している
+ * 可能性を排除できない。呼び出し側は実行直前に必ず `getTaskStatusById` で
+ * fresh に再検証すること。絶対 worktree path は一切含めない — path が要る
+ * 呼び出し側は `getTaskStatusById` を使うこと。
+ */
+export function listTaskDiscoverySnapshot(store: WorkflowStateStore): TaskDiscoverySnapshot {
+  const tasks = store.listTasks().filter((task) => !TASK_DISCOVERY_EXCLUDED_STATES.has(task.lifecycleState));
+  return {
+    schemaVersion: TASK_DISCOVERY_SCHEMA_VERSION,
+    generatedAt: Date.now(),
+    tasks: tasks.map((task) => ({
+      taskId: task.taskId,
+      repository: { instanceId: task.instanceId },
+      taskSlug: task.taskSlug,
+      issueRef: task.issueRef,
+      branchName: publicBranchNameForTask(store, task),
+      baseBranch: task.baseBranch,
+      baseCommit: task.baseCommit,
+      lifecycleState: task.lifecycleState,
+      updatedAt: task.updatedAt,
+    })),
+  };
+}
+
+export interface TaskStatusByIdSuccess {
+  ok: true;
+  task: TaskRecord;
+  worktreePath: string;
+  branch: string | undefined;
+  pullRequests: PullRequestRecord[];
+  currentState: LifecycleState;
+  allowedNextTransitions: LifecycleState[];
+  invalidTransitions: TransitionBlockedInfo[];
+}
+
+/**
+ * `task-not-found` | `task-unavailable:<state>`（`TASK_DISCOVERY_EXCLUDED_STATES` と同じ
+ * 状態集合）| `repository-path-unavailable`（instance の現在パスが未観測）|
+ * `session-unavailable`（Nawabari session が消失/読めない）|
+ * `worktree-unavailable`（legacy task に active worktree が 0 または複数）のいずれか。
+ */
+export type TaskStatusByIdResult = TaskStatusByIdSuccess | { ok: false; reason: string };
+
+/**
+ * taskId だけを鍵にした、cwd 非依存の **authoritative fresh resolve**（Issue #539 の
+ * keyed lookup）。`listTaskDiscoverySnapshot()` が返す候補投影とは独立に、この呼び出し
+ * *時点*の権威ある状態を検証して返す — discovery snapshot に載っていたことは、この
+ * 呼び出しの成功を何ら保証しない。
+ *
+ * task が消失/終了/所有権不確定/session 消失/worktree drift のいずれであっても必ず
+ * `ok: false` で fail-closed になり、別 task や呼び出し側 cwd へのフォールバックは
+ * 一切行わない — snapshot 取得とこの呼び出しの間でそれらが起きるのは正常なレースで
+ * あり、consumer は実行直前に必ずこの関数（`task status --task-id` /
+ * `mottainai_workflow_task_status` with taskId）を呼んで再検証すること。
+ *
+ * Nawabari 管理 task は `store.listRepositoryPaths` から得た repository instance の
+ * 現在パスを cwd anchor にして `nawabari session show` を呼び、fresh な worktree/branch
+ * を返す（anchor は worktree 個別ではなく repository 単位の任意の checkout でよい —
+ * `nawabari session show --session <id>` は session id で解決するため）。legacy task は
+ * `worktrees` テーブルの active 行を直接返す。
+ */
+export async function getTaskStatusById(
+  store: WorkflowStateStore,
+  taskId: TaskId,
+  nawabari: NawabariExecutionClient,
+): Promise<TaskStatusByIdResult> {
+  const task = store.getTask(taskId);
+  if (task === undefined) return { ok: false, reason: "task-not-found" };
+  if (TASK_DISCOVERY_EXCLUDED_STATES.has(task.lifecycleState)) {
+    return { ok: false, reason: `task-unavailable:${task.lifecycleState}` };
+  }
+
+  const status = getTaskStatus(store, taskId);
+  const currentState = status?.currentState ?? task.lifecycleState;
+  const allowedNextTransitions = status?.allowedNextTransitions ?? [];
+  const invalidTransitions = status?.invalidTransitions ?? [];
+  const pullRequests = status?.pullRequests ?? [];
+
+  if (task.nawabariSessionId !== undefined) {
+    const anchor = store.listRepositoryPaths(task.instanceId).find((candidate) => candidate.isCurrent);
+    if (anchor === undefined) return { ok: false, reason: "repository-path-unavailable" };
+    try {
+      const session = await nawabari.showSession({ cwd: anchor.canonicalPath, sessionId: task.nawabariSessionId });
+      return {
+        ok: true,
+        task,
+        worktreePath: session.worktree,
+        branch: session.branch,
+        pullRequests,
+        currentState,
+        allowedNextTransitions,
+        invalidTransitions,
+      };
+    } catch {
+      // The recorded session no longer resolves (closed/expired/unknown to
+      // Nawabari) — never fall back to another task or the caller's cwd.
+      return { ok: false, reason: "session-unavailable" };
+    }
+  }
+
+  const activeWorktrees = store.listWorktreesForTask(taskId).filter((worktree) => worktree.status === "active");
+  if (activeWorktrees.length !== 1) return { ok: false, reason: "worktree-unavailable" };
+  const worktree = activeWorktrees[0]!;
+  return {
+    ok: true,
+    task,
+    worktreePath: worktree.canonicalPath,
+    branch: worktree.branchName,
+    pullRequests,
+    currentState,
+    allowedNextTransitions,
+    invalidTransitions,
+  };
 }

@@ -71,6 +71,7 @@ test("workflowCommandToolsFor returns nothing unless workflowTasks is configured
       "mottainai_workflow_policy_explain",
       "mottainai_workflow_task_start",
       "mottainai_workflow_task_status",
+      "mottainai_workflow_task_list",
       "mottainai_workflow_doctor",
       "mottainai_workflow_task_commit",
       "mottainai_workflow_task_push",
@@ -103,6 +104,10 @@ test("each workflow command tool throws when workflowTasks is not configured", a
   );
   await assert.rejects(
     () => callWorkflowCommandTool("mottainai_workflow_task_status", {}, config),
+    /workflow command tools are not configured/,
+  );
+  await assert.rejects(
+    () => callWorkflowCommandTool("mottainai_workflow_task_list", {}, config),
     /workflow command tools are not configured/,
   );
   await assert.rejects(
@@ -409,6 +414,158 @@ test("task_status reports complete lifecycle transition blockers and provider PR
     invalid.find((item) => item.requestedTransition === "merged")?.blockingRule ?? "",
     /no direct transition/,
   );
+  store.close();
+});
+
+// --- mottainai_workflow_task_list / mottainai_workflow_task_status(taskId) (Issue #539) ---
+
+test("task_list enumerates active tasks across repositories with an explicit schemaVersion and no absolute path fields", async (t) => {
+  const { config: configA } = await gitWorkspace(t);
+  const { config: configB } = await gitWorkspace(t);
+  const store = openWorkflowStore();
+
+  const startedA = structured(
+    await callWorkflowCommandTool(
+      "mottainai_workflow_task_start",
+      { taskSlug: "cross-a", branchType: "fix", issueRef: "539" },
+      enabled(configA),
+      store,
+    ),
+  );
+  const startedB = structured(
+    await callWorkflowCommandTool(
+      "mottainai_workflow_task_start",
+      { taskSlug: "cross-b", branchType: "fix", issueRef: "540" },
+      enabled(configB),
+      store,
+    ),
+  );
+  assert.equal(startedA.status, "success");
+  assert.equal(startedB.status, "success");
+  const taskA = startedA.task as { taskId: string; instanceId: string };
+  const taskB = startedB.task as { taskId: string; instanceId: string };
+
+  // A single call, gated on neither config's workspaceRoot, sees both.
+  const listed = structured(await callWorkflowCommandTool("mottainai_workflow_task_list", {}, enabled(configA), store));
+  assert.equal(listed.status, "success");
+  assert.equal(listed.schemaVersion, 1);
+  assert.equal(typeof listed.generatedAt, "number");
+  const tasks = listed.tasks as Array<{ taskId: string; repository: { instanceId: string } }>;
+  const entryA = tasks.find((task) => task.taskId === taskA.taskId);
+  const entryB = tasks.find((task) => task.taskId === taskB.taskId);
+  assert.ok(entryA);
+  assert.ok(entryB);
+  assert.equal(entryA!.repository.instanceId, taskA.instanceId);
+  assert.notEqual(entryA!.repository.instanceId, entryB!.repository.instanceId);
+  assert.deepEqual(Object.keys(entryA!.repository), ["instanceId"]);
+
+  const serialized = JSON.stringify(listed);
+  assert.doesNotMatch(serialized, /worktreePath/);
+  store.close();
+});
+
+test("task_list removes an abandoned task from the default view while unrelated tasks remain listed", async (t) => {
+  const { config: configA } = await gitWorkspace(t);
+  const { config: configB } = await gitWorkspace(t);
+  const store = openWorkflowStore();
+
+  // Two different repositories, not two tasks in one repository: an unscoped
+  // Nawabari task claims its whole repository exclusive-write, so a second
+  // concurrent task in the *same* repository would conflict for real here.
+  const stays = structured(
+    await callWorkflowCommandTool(
+      "mottainai_workflow_task_start",
+      { taskSlug: "stays-listed", branchType: "fix", issueRef: "541" },
+      enabled(configA),
+      store,
+    ),
+  );
+  const goes = structured(
+    await callWorkflowCommandTool(
+      "mottainai_workflow_task_start",
+      { taskSlug: "gets-abandoned", branchType: "fix", issueRef: "542" },
+      enabled(configB),
+      store,
+    ),
+  );
+  assert.equal(stays.status, "success");
+  assert.equal(goes.status, "success");
+  const staysTask = stays.task as { taskId: string };
+  const goesTask = goes.task as { taskId: string };
+
+  transitionTask(store, goesTask.taskId as never, "abandoned");
+
+  const listed = structured(await callWorkflowCommandTool("mottainai_workflow_task_list", {}, enabled(configA), store));
+  const ids = (listed.tasks as Array<{ taskId: string }>).map((task) => task.taskId);
+  assert.ok(ids.includes(staysTask.taskId));
+  assert.ok(!ids.includes(goesTask.taskId));
+  store.close();
+});
+
+test("task_status(taskId) resolves the current worktree path fresh, independent of the caller's config.workspaceRoot", async (t) => {
+  const { config } = await gitWorkspace(t);
+  const store = openWorkflowStore();
+  const started = structured(
+    await callWorkflowCommandTool(
+      "mottainai_workflow_task_start",
+      { taskSlug: "keyed-resolve", branchType: "fix", issueRef: "543" },
+      enabled(config),
+      store,
+    ),
+  );
+  assert.equal(started.status, "success");
+  const task = started.task as { taskId: string };
+  const worktree = started.worktree as { canonicalPath: string; branchName: string };
+
+  // config.workspaceRoot points at an unrelated location (not even the task's own
+  // repository or worktree) — the keyed resolve must not depend on it.
+  const unrelated = await gitWorkspace(t);
+  const status = structured(
+    await callWorkflowCommandTool(
+      "mottainai_workflow_task_status",
+      { taskId: task.taskId },
+      enabled(unrelated.config),
+      store,
+    ),
+  );
+  assert.equal(status.status, "success");
+  assert.equal(status.active, true);
+  assert.equal((status.task as { taskId: string }).taskId, task.taskId);
+  assert.equal(status.worktreePath, worktree.canonicalPath);
+  assert.equal(status.branch, worktree.branchName);
+  store.close();
+});
+
+test("task_status(taskId) fails closed for an unknown or closed task, never falling back to another task", async (t) => {
+  const { config } = await gitWorkspace(t);
+  const store = openWorkflowStore();
+
+  const unknown = structured(
+    await callWorkflowCommandTool(
+      "mottainai_workflow_task_status",
+      { taskId: "not-a-real-task-id" },
+      enabled(config),
+      store,
+    ),
+  );
+  assert.equal(unknown.status, "failed");
+
+  const started = structured(
+    await callWorkflowCommandTool(
+      "mottainai_workflow_task_start",
+      { taskSlug: "keyed-fails-closed", branchType: "fix", issueRef: "544" },
+      enabled(config),
+      store,
+    ),
+  );
+  assert.equal(started.status, "success");
+  const task = started.task as { taskId: string };
+  transitionTask(store, task.taskId as never, "abandoned");
+
+  const closed = structured(
+    await callWorkflowCommandTool("mottainai_workflow_task_status", { taskId: task.taskId }, enabled(config), store),
+  );
+  assert.equal(closed.status, "failed");
   store.close();
 });
 
