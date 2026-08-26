@@ -223,6 +223,44 @@ test("public CLI skill subcommand writes its index projection to stdout", () => 
   assert.match(result.stdout, /Run `mottainai skill choose-task-launch` for the full playbook\./u);
 });
 
+test("public CLI task list enumerates managed tasks with an explicit schema version, independent of cwd/--workspace (Issue #539)", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-task-list-"));
+  try {
+    const result = spawnSync(process.execPath, ["--import", "tsx", entryPoint, "task", "list"], {
+      cwd: path.resolve(path.dirname(entryPoint), ".."),
+      env: { ...process.env, HOME: workspace, USERPROFILE: workspace },
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+    const parsed = JSON.parse(result.stdout) as { schemaVersion: number; tasks: readonly unknown[] };
+    assert.equal(parsed.schemaVersion, 1);
+    assert.deepEqual(parsed.tasks, []);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("public CLI task status --task-id fails closed for an unknown task id with no cwd/--workspace fallback (Issue #539)", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-task-status-by-id-"));
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ["--import", "tsx", entryPoint, "task", "status", "--task-id", "not-a-real-task-id"],
+      {
+        cwd: path.resolve(path.dirname(entryPoint), ".."),
+        env: { ...process.env, HOME: workspace, USERPROFILE: workspace },
+        encoding: "utf8",
+      },
+    );
+    assert.equal(result.status, 1, `${result.stdout}${result.stderr}`);
+    const parsed = JSON.parse(result.stdout) as { ok: boolean; reason: string };
+    assert.equal(parsed.ok, false);
+    assert.equal(parsed.reason, "task-not-found");
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 test("public CLI skill subcommand reports an unknown scenario to stderr with a non-zero exit", () => {
   const result = spawnSync(process.execPath, ["--import", "tsx", entryPoint, "skill", "not-a-real-scenario"], {
     cwd: path.resolve(path.dirname(entryPoint), ".."),

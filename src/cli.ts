@@ -38,13 +38,13 @@ import type { LogicalId } from "./semantics/ir/ids.js";
 import { validateIssueRef, validateTaskSlug } from "./workflow/commands/validate.js";
 import { collectWorkflowDoctorReport } from "./workflow/commands/doctor.js";
 import { migrateLegacyWorkflowTask } from "./workflow/domain/legacy-migration.js";
-import { getTaskStatus, getTaskStatusForWorkspace } from "./workflow/domain/task.js";
+import { getTaskStatus, getTaskStatusById, getTaskStatusForWorkspace, listPublicTasks } from "./workflow/domain/task.js";
 import { startNawabariTask } from "./workflow/domain/nawabari-task.js";
 import { NawabariExecutionClient } from "./workflow/nawabari.js";
 import { explainWorkflowPolicy } from "./workflow/policy/explain.js";
 import { resolveEffectiveWorkflowPolicy } from "./workflow/policy/load.js";
 import { createWorkflowHookProvider } from "./workflow/hook-provider.js";
-import type { WorkflowStateStore } from "./workflow/state/store.js";
+import type { TaskId, WorkflowStateStore } from "./workflow/state/store.js";
 import {
   abandonWorkflowTask,
   cleanupWorkflowTask,
@@ -94,6 +94,8 @@ const USAGE = `usage:
   mottainai task start <slug> [options]          start a Git workflow task (dedicated worktree/branch)
   mottainai task run <slug> [options]            start an Issue-bound task and launch its Manager agent
   mottainai task status [--workspace path]       active Git workflow task for the current worktree
+  mottainai task status --task-id id [--json]    fresh, cwd-independent resolve of one task's worktree path
+  mottainai task list [--json]                   read-only cross-repository task/session discovery
   mottainai task migrate-legacy [options]        explicitly complete or adopt one pre-cutover task
   mottainai task commit [options]                commit the current managed task
   mottainai task push [options]                  push the current managed task
@@ -805,10 +807,26 @@ export async function runCli(args: string[]): Promise<number> {
       } finally {
         store.close();
       }
-    } else if (command === "task" && argv[0] === "status") {
-      const workspace = resolveWorkflowWorkspace(argv);
+    } else if (command === "task" && argv[0] === "list") {
       const store = await openWorkflowStateStore();
       try {
+        print(listPublicTasks(store));
+        return 0;
+      } finally {
+        store.close();
+      }
+    } else if (command === "task" && argv[0] === "status") {
+      const explicitTaskId = requireFlagValue(argv, "task-id");
+      const store = await openWorkflowStateStore();
+      try {
+        if (explicitTaskId !== undefined) {
+          // taskId だけを鍵にした cwd 非依存の fresh 解決（Issue #539）。既存の
+          // `--workspace` 経路（下）とは独立し、その挙動には一切触れない。
+          const result = await getTaskStatusById(store, explicitTaskId as TaskId, new NawabariExecutionClient());
+          print(result);
+          return result.ok ? 0 : 1;
+        }
+        const workspace = resolveWorkflowWorkspace(argv);
         const nawabari = new NawabariExecutionClient();
         try {
           const sessionId = await nawabari.currentSessionId(workspace);
