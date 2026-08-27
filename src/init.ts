@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import packageMetadata from "../package.json" with { type: "json" };
-import { addSecondaryDiagnostic, DIRECT_BOUNDARIES } from "./boundary.js";
+import { DIRECT_BOUNDARIES } from "./boundary.js";
 import type { BoundaryOperations } from "./boundary.js";
 import { collectDoctorReport, formatDoctorHuman } from "./commands/doctor.js";
 import { resolveConfigPath, saveRawConfig } from "./config.js";
@@ -419,64 +419,9 @@ function updateGitExclude(
   return { changed: true, path: excludePath };
 }
 
-function cleanupTemporaryDirectory(
-  temporaryDirectory: string,
-  boundaries: BoundaryOperations,
-  primary?: unknown,
-): Error | undefined {
-  try {
-    boundaries.file("config.temp.cleanup", () => fs.rmSync(temporaryDirectory, { recursive: true, force: true }));
-    return undefined;
-  } catch {
-    try {
-      boundaries.file("config.temp.cleanup.retry", () =>
-        fs.rmSync(temporaryDirectory, { recursive: true, force: true }),
-      );
-      return undefined;
-    } catch (retryError) {
-      // Fault injection fails before invoking the action. A direct final attempt
-      // keeps a test seam failure from leaving an otherwise removable directory
-      // behind while the injected failure remains secondary evidence.
-      try {
-        fs.rmSync(temporaryDirectory, { recursive: true, force: true });
-      } catch (fallbackError) {
-        retryError = fallbackError;
-      }
-      if (primary === undefined) {
-        return retryError instanceof Error ? retryError : new Error(String(retryError));
-      }
-      return addSecondaryDiagnostic(primary, "config.temp.cleanup", retryError);
-    }
-  }
-}
-
+/** 新規configはprivateに保つため、rename前のtemp fileへ0o600を適用する。 */
 function atomicWrite(filePath: string, config: Record<string, unknown>, boundaries: BoundaryOperations): void {
-  const directory = path.dirname(filePath);
-  boundaries.file("config.directory.create", () => fs.mkdirSync(directory, { recursive: true }));
-  const temporaryDirectory = boundaries.file("config.temp.create", () =>
-    fs.mkdtempSync(path.join(directory, ".mottainai-init-")),
-  );
-  const temporaryPath = path.join(temporaryDirectory, path.basename(filePath));
-  let primary: unknown;
-  try {
-    saveRawConfig(temporaryPath, config, boundaries, "config.temp.write");
-    // writeFileSync owns the OS handle; this named checkpoint makes its close phase
-    // deterministic and injectable without replacing Node's filesystem globally.
-    boundaries.file("config.temp.close", () => undefined);
-    boundaries.file("config.temp.permission", () => fs.chmodSync(temporaryPath, 0o600));
-    boundaries.file("config.rename", () => fs.renameSync(temporaryPath, filePath));
-  } catch (error) {
-    primary = error;
-    const cleanupError = cleanupTemporaryDirectory(temporaryDirectory, boundaries, primary);
-    if (cleanupError !== undefined) throw cleanupError;
-    throw error;
-  }
-  const cleanupError = cleanupTemporaryDirectory(temporaryDirectory, boundaries);
-  if (cleanupError !== undefined) {
-    // A successful replacement must not be turned into a protocol-breaking failure
-    // merely because best-effort cleanup failed. The diagnostic is intentionally generic.
-    console.error("mottainai: temporary configuration cleanup failed; replacement completed");
-  }
+  saveRawConfig(filePath, config, boundaries, "config", { mode: 0o600 });
 }
 
 const COPYFILE_EXCL = 1;

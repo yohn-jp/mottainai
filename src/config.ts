@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import { replaceFileAtomically } from "./atomic-file.js";
+import type { AtomicReplaceOptions } from "./atomic-file.js";
 import { DIRECT_BOUNDARIES } from "./boundary.js";
 import type { BoundaryOperations } from "./boundary.js";
 import { resolveResponseBudget } from "./context-runtime/budget.js";
@@ -357,15 +359,20 @@ export function loadRawConfig(configPath?: string): { filePath: string; raw: Rec
   return { filePath, raw: parsed };
 }
 
-/** 書き込み前に正規化で検証する。壊れた設定をディスクへ残さない。 */
+/**
+ * 書き込み前に正規化で検証する。壊れた設定をディスクへ残さない。
+ * destinationは同一ディレクトリの一時ファイル経由でatomic replaceし、write/close/renameの
+ * 途中失敗でも既存configをbyte-for-byteで維持する。成功時は一時ファイルを残さない。
+ */
 export function saveRawConfig(
   filePath: string,
   raw: Record<string, unknown>,
   boundaries: BoundaryOperations = DIRECT_BOUNDARIES,
-  operation = "config.write",
+  operation = "config",
+  options: AtomicReplaceOptions = {},
 ): void {
   normalizeConfig(raw);
-  boundaries.file(operation, () => fs.writeFileSync(filePath, `${JSON.stringify(raw, null, 2)}\n`));
+  replaceFileAtomically(filePath, `${JSON.stringify(raw, null, 2)}\n`, boundaries, operation, options);
 }
 
 const ROOT_CONFIG_KEYS = ["version", "mcpServers", "profiles", "gateway"] as const;
