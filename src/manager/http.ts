@@ -30,14 +30,20 @@ function sendJson(response: ServerResponse, statusCode: number, body: unknown): 
 }
 
 function sendError(response: ServerResponse, error: ManagerError | Error): void {
-  const statusCode = error instanceof ManagerError ? error.statusCode : 500;
-  const code = error instanceof ManagerError ? error.code : "internal_error";
-  const details = error instanceof ManagerError ? error.details : undefined;
-  sendJson(response, statusCode, {
+  if (error instanceof ManagerError) {
+    sendJson(response, error.statusCode, {
+      error: {
+        code: error.code,
+        message: error.message,
+        ...(error.details === undefined ? {} : { details: error.details }),
+      },
+    });
+    return;
+  }
+  sendJson(response, 500, {
     error: {
-      code,
-      message: error.message,
-      ...(details === undefined ? {} : { details }),
+      code: "internal_error",
+      message: "manager request failed",
     },
   });
 }
