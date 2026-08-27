@@ -3,8 +3,18 @@ import test from "node:test";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
+import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
+import packageMetadata from "../package.json" with { type: "json" };
 import type { UpstreamHandle } from "./upstream.js";
-import { connectUpstream, createUpstreamTransport, fetchWithoutRedirects, UpstreamRegistry } from "./upstream.js";
+import {
+  connectUpstream,
+  createUpstreamTransport,
+  fetchWithoutRedirects,
+  resolveUpstreamClientInfo,
+  UpstreamRegistry,
+} from "./upstream.js";
 
 function handle(name: string): UpstreamHandle {
   return { config: { name, command: "node" }, client: { close: async () => {} } as UpstreamHandle["client"], tools: [] };
@@ -234,6 +244,62 @@ test("connectUpstream still propagates the original error even if closing the cl
     ),
     (error: unknown) => error === listToolsError,
   );
+});
+
+test("resolveUpstreamClientInfo advertises the running package version, not a hard-coded one", () => {
+  assert.deepEqual(resolveUpstreamClientInfo("github"), {
+    name: "mottainai/github",
+    version: packageMetadata.version,
+  });
+  assert.notEqual(resolveUpstreamClientInfo("github").version, "0.1.0");
+});
+
+function respondingTransport(): Transport & { requests: JSONRPCMessage[] } {
+  const transport: Transport & { requests: JSONRPCMessage[] } = {
+    requests: [],
+    start: async () => {},
+    close: async () => {
+      transport.onclose?.();
+    },
+    send: async (message) => {
+      transport.requests.push(message);
+      if (!("method" in message) || !("id" in message)) return;
+      queueMicrotask(() => {
+        if (message.method === "initialize") {
+          transport.onmessage?.({
+            jsonrpc: "2.0",
+            id: message.id,
+            result: {
+              protocolVersion: LATEST_PROTOCOL_VERSION,
+              capabilities: {},
+              serverInfo: { name: "fake-upstream", version: "0.0.0" },
+            },
+          });
+        } else if (message.method === "tools/list") {
+          transport.onmessage?.({ jsonrpc: "2.0", id: message.id, result: { tools: [] } });
+        }
+      });
+    },
+  };
+  return transport;
+}
+
+test("connectUpstream's default client advertises the running package version to upstream servers", async () => {
+  const transport = respondingTransport();
+  const handle = await connectUpstream(
+    { name: "github", command: "node" },
+    undefined,
+    undefined,
+    { transportFactory: async () => transport },
+  );
+  await handle.client.close();
+
+  const initializeRequest = transport.requests.find(
+    (message): message is JSONRPCMessage & { method: "initialize"; params: { clientInfo: unknown } } =>
+      "method" in message && message.method === "initialize",
+  );
+  assert.deepEqual(initializeRequest?.params?.clientInfo, resolveUpstreamClientInfo("github"));
+  assert.notEqual((initializeRequest?.params?.clientInfo as { version?: string } | undefined)?.version, "0.1.0");
 });
 
 test("connectUpstream closes the client and preserves the original error when connect() itself fails", async () => {

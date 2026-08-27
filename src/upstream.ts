@@ -2,7 +2,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { FetchLike, Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import type { Implementation, Tool } from "@modelcontextprotocol/sdk/types.js";
+import packageMetadata from "../package.json" with { type: "json" };
 import { resolveBrokerEndpoint } from "./auth.js";
 import type { OAuthCredentialProvider } from "./auth.js";
 import { addSecondaryDiagnostic } from "./boundary.js";
@@ -379,11 +380,15 @@ export async function createUpstreamTransport(
   });
 }
 
+/** Client identity advertised to upstream MCP servers; version tracks the running package release. */
+export function resolveUpstreamClientInfo(providerName: string): Implementation {
+  return { name: `mottainai/${providerName}`, version: packageMetadata.version };
+}
+
 export async function connectUpstream(
   config: UpstreamConfig,
   oauthCredentialProvider?: OAuthCredentialProvider,
-  createClient: (config: UpstreamConfig) => Client = (c) =>
-    new Client({ name: `mottainai/${c.name}`, version: "0.1.0" }),
+  createClient: (config: UpstreamConfig) => Client = (c) => new Client(resolveUpstreamClientInfo(c.name)),
   lifecycleOptions: UpstreamLifecycleOptions = {},
 ): Promise<UpstreamHandle> {
   const startupTimeoutMs = resolveTimeout(lifecycleOptions.startupTimeoutMs, UPSTREAM_STARTUP_TIMEOUT_MS);
