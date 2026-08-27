@@ -13,6 +13,11 @@ export interface AtomicReplaceOptions {
  * complete な一時ファイル作成後にのみ rename するため、write/close/rename の途中失敗でも
  * destination は byte-for-byte 未変更のまま。成功時は一時ディレクトリを残さない。
  * cleanup 失敗は primary error を保持し、bounded secondary evidence だけを付加する。
+ *
+ * permission: `options.mode` を明示指定しない限り、destination が既存ならその mode を
+ * temp file へ rename 前に適用し維持する（umask依存で 0600 が 0644 等へ緩むのを防ぐ）。
+ * destination が存在しない場合は fs.writeFileSync の既定 mode のまま。rename 後に
+ * destination を chmod することはない（可視状態には常に最終 mode のファイルのみ現れる）。
  */
 export function replaceFileAtomically(
   filePath: string,
@@ -27,14 +32,14 @@ export function replaceFileAtomically(
     fs.mkdtempSync(path.join(directory, ".mottainai-tmp-")),
   );
   const temporaryPath = path.join(temporaryDirectory, path.basename(filePath));
+  const mode = options.mode ?? existingFileMode(filePath);
   let primary: unknown;
   try {
     boundaries.file(`${operation}.temp.write`, () => fs.writeFileSync(temporaryPath, content));
     // writeFileSync owns the OS handle; this named checkpoint makes its close phase
     // deterministic and injectable without replacing Node's filesystem globally.
     boundaries.file(`${operation}.temp.close`, () => undefined);
-    if (options.mode !== undefined) {
-      const mode = options.mode;
+    if (mode !== undefined) {
       boundaries.file(`${operation}.temp.permission`, () => fs.chmodSync(temporaryPath, mode));
     }
     boundaries.file(`${operation}.rename`, () => fs.renameSync(temporaryPath, filePath));
@@ -49,6 +54,15 @@ export function replaceFileAtomically(
     // A successful replacement must not be turned into a protocol-breaking failure
     // merely because best-effort cleanup failed. The diagnostic is intentionally generic.
     console.error(`mottainai: temporary ${operation} cleanup failed; replacement completed`);
+  }
+}
+
+/** destinationが存在すればその permission bits を返す。存在しない/statできない場合は undefined。 */
+function existingFileMode(filePath: string): number | undefined {
+  try {
+    return fs.statSync(filePath).mode & 0o777;
+  } catch {
+    return undefined;
   }
 }
 

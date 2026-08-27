@@ -290,6 +290,17 @@ test("saveRawConfig leaves no temporary artifact behind on success", () => {
   assert.deepEqual(temporaryArtifacts(filePath), []);
 });
 
+test("saveRawConfig preserves the destination's existing file mode across atomic replacement", () => {
+  for (const mode of [0o600, 0o640]) {
+    const configPath = writeConfig({ mcpServers: { one: { command: "node" } } });
+    fs.chmodSync(configPath, mode);
+    const { filePath, raw } = loadRawConfig(configPath);
+    (raw.mcpServers as Record<string, unknown>).two = { command: "node" };
+    saveRawConfig(filePath, raw);
+    assert.equal(fs.statSync(filePath).mode & 0o777, mode, mode.toString(8));
+  }
+});
+
 test("saveRawConfig rejects an invalid candidate before touching the filesystem at all", () => {
   const configPath = writeConfig({ mcpServers: { one: { command: "node" } } });
   const { filePath, raw } = loadRawConfig(configPath);
