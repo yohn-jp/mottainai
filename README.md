@@ -42,20 +42,20 @@ Requires Node.js >= 22.13 and `rg` (ripgrep) on `PATH`.
 Initialize a workspace:
 
 ```bash
-npx -y mottainai@0.4.0 init
+npx -y mottainai@0.5.0 init
 ```
 
 Check the runtime, configuration, repository state, and managed companions:
 
 ```bash
-npx -y mottainai@0.4.0 doctor
-npx -y mottainai@0.4.0 doctor --json
+npx -y mottainai@0.5.0 doctor
+npx -y mottainai@0.5.0 doctor --json
 ```
 
 For governed development, start work through the task boundary rather than creating an ad-hoc branch/worktree:
 
 ```bash
-npx -y mottainai@0.4.0 task run my-fix \
+npx -y mottainai@0.5.0 task run my-fix \
   --type fix \
   --issue 123 \
   --agent pi
@@ -64,8 +64,8 @@ npx -y mottainai@0.4.0 task run my-fix \
 Or launch the local Manager UI for durable parallel sessions:
 
 ```bash
-npx -y mottainai@0.4.0 manager
-npx -y mottainai@0.4.0 manager --no-open --port 4318
+npx -y mottainai@0.5.0 manager
+npx -y mottainai@0.5.0 manager --no-open --port 4318
 ```
 
 The Manager previews bounded resource scope, performs Nawabari claim preflight, and keeps UI state non-authoritative. Nawabari remains the owner of the physical worktree, branch, and claims.
@@ -75,19 +75,19 @@ The Manager previews bounded resource scope, performs Nawabari claim preflight, 
 The bare command is the MCP stdio entry point:
 
 ```bash
-npx -y mottainai@0.4.0
+npx -y mottainai@0.5.0
 ```
 
 Claude Code:
 
 ```bash
-claude mcp add -s user mottainai -- npx -y mottainai@0.4.0 serve --config /absolute/path/to/mottainai.config.json
+claude mcp add -s user mottainai -- npx -y mottainai@0.5.0 serve --config /absolute/path/to/mottainai.config.json
 ```
 
 Codex:
 
 ```bash
-codex mcp add mottainai -- npx -y mottainai@0.4.0 serve --config /absolute/path/to/mottainai.config.json
+codex mcp add mottainai -- npx -y mottainai@0.5.0 serve --config /absolute/path/to/mottainai.config.json
 ```
 
 `mottainai init` can generate the registration command for the detected client. Use `--latest` only when intentionally following the newest npm release rather than a pinned version.
@@ -100,7 +100,8 @@ The CLI lifecycle is:
 mottainai policy explain [--workspace path]
 mottainai task start <slug> --type type --issue ref [--workspace path] [--dry-run]
 mottainai task run <slug> --type type --issue ref --agent pi [--model model] [--workspace path]
-mottainai task status [--workspace path]
+mottainai task list [--workspace path]
+mottainai task status [--task-id id] [--workspace path]
 mottainai task commit --message subject [--workspace path]
 mottainai task push [--workspace path]
 mottainai task open-pr --title title [--repo owner/name] [--workspace path]
@@ -111,6 +112,8 @@ mottainai workflow doctor [--workspace path] [--reconcile-closures]
 ```
 
 `task start` delegates worktree creation to Nawabari and returns the canonical worktree path in `execution.worktree`. Follow-up operations must use that returned path. Mottainai does not reconstruct or take ownership of the physical worktree. `--dry-run` validates the same inputs and returns a `plan` preview (branch, base, worktree, and claims) without creating a task, Git worktree/branch, Nawabari session, claim, or persistent state.
+
+`task list` is the read-only discovery surface for registered workspaces. It returns a bounded snapshot suitable for external consumers and UIs. Resolve a selected task again with `task status --task-id <id>` immediately before acting; that fresh resolve, rather than the earlier list snapshot, is the authoritative view. Consumers such as Majiwari therefore do not need to read Mottainai or Nawabari internal persistence directly.
 
 `workflow doctor` is read-only by default. `--reconcile-closures` may request Nawabari's normal safe-close path for already integrated executions; Mottainai still does not edit Nawabari registry or claim state directly.
 
@@ -218,6 +221,7 @@ The bounded agent execution contract lives in [AGENTS.md](AGENTS.md). Contributo
 
 ## Documentation
 
+- [0.5.0 release notes](docs/releases/0.5.0.md)
 - [0.4.0 release notes](docs/releases/0.4.0.md)
 - [0.3.1 release notes](docs/releases/0.3.1.md)
 - [0.3.0 release notes](docs/releases/0.3.0.md)
