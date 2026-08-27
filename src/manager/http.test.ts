@@ -370,6 +370,36 @@ test("Manager API remains loopback host protected and rejects malformed session 
   assert.equal(hostile, 403);
 });
 
+test("Manager HTTP API redacts unexpected internal errors at the HTTP boundary", async (t) => {
+  const root = createTempGitRepo(t);
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store: createWorkflowStore(t),
+    runtime: new HttpFakeRuntime(),
+  });
+  await service.initialize();
+  const internalDetail = "ENOENT: no such file or directory, open '/home/user/mottainai/.secret/internal.sqlite'";
+  service.health = () => {
+    throw new Error(internalDetail);
+  };
+  const handle = await startDashboardServer({
+    port: 0,
+    viewerHtml: "manager",
+    query: createFixtureQuery(),
+    manager: new ManagerHttpApi(service),
+  });
+  activeServers.push(handle);
+
+  const response = await fetch(`${handle.url}api/v1/manager/health`);
+  assert.equal(response.status, 500);
+  const body = await response.json();
+  assert.deepEqual(body, { error: { code: "internal_error", message: "manager request failed" } });
+  const rawBody = JSON.stringify(body);
+  assert.equal(rawBody.includes("ENOENT"), false);
+  assert.equal(rawBody.includes("/home/user/mottainai"), false);
+  assert.equal(rawBody.includes(internalDetail), false);
+});
+
 test("Manager mutation Origin policy blocks hostile bodyless requests and permits same-origin/local clients", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
