@@ -4,12 +4,17 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { loadConfigSnapshot, loadGatewayConfig, loadMottainaiConfig, loadRawConfig, resolveConfigPath, resolveGatewayConfig, saveRawConfig } from "./config.js";
+import { FaultInjector } from "./test-support/fault-injection.js";
 
 function writeConfig(content: unknown): string {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-config-"));
   const configPath = path.join(directory, "mottainai.config.json");
   fs.writeFileSync(configPath, JSON.stringify(content));
   return configPath;
+}
+
+function temporaryArtifacts(configPath: string): string[] {
+  return fs.readdirSync(path.dirname(configPath)).filter((entry) => entry.startsWith(".mottainai-tmp-"));
 }
 
 test("loadMottainaiConfig normalizes v1 upstream defaults", () => {
@@ -275,6 +280,71 @@ test("saveRawConfig writes only what the caller set and validates before writing
   (raw.mcpServers as Record<string, unknown>).broken = { command: 1 };
   assert.throws(() => saveRawConfig(filePath, raw), /invalid upstream config: broken/);
   assert.equal(fs.readFileSync(configPath, "utf8"), before);
+});
+
+test("saveRawConfig leaves no temporary artifact behind on success", () => {
+  const configPath = writeConfig({ mcpServers: { one: { command: "node" } } });
+  const { filePath, raw } = loadRawConfig(configPath);
+  (raw.mcpServers as Record<string, unknown>).two = { command: "node" };
+  saveRawConfig(filePath, raw);
+  assert.deepEqual(temporaryArtifacts(filePath), []);
+});
+
+test("saveRawConfig preserves the destination's existing file mode across atomic replacement", () => {
+  for (const mode of [0o600, 0o640]) {
+    const configPath = writeConfig({ mcpServers: { one: { command: "node" } } });
+    fs.chmodSync(configPath, mode);
+    const { filePath, raw } = loadRawConfig(configPath);
+    (raw.mcpServers as Record<string, unknown>).two = { command: "node" };
+    saveRawConfig(filePath, raw);
+    assert.equal(fs.statSync(filePath).mode & 0o777, mode, mode.toString(8));
+  }
+});
+
+test("saveRawConfig rejects an invalid candidate before touching the filesystem at all", () => {
+  const configPath = writeConfig({ mcpServers: { one: { command: "node" } } });
+  const { filePath, raw } = loadRawConfig(configPath);
+  (raw.mcpServers as Record<string, unknown>).broken = { command: 1 };
+  const faults = new FaultInjector();
+  assert.throws(() => saveRawConfig(filePath, raw, faults), /invalid upstream config: broken/);
+  assert.deepEqual([...faults.calls.keys()], []);
+});
+
+test("saveRawConfig preserves the previous config byte-for-byte when write, close, or rename fails", () => {
+  const operations = ["config.temp.write", "config.temp.close", "config.rename"];
+  for (const operation of operations) {
+    const configPath = writeConfig({ mcpServers: { one: { command: "node" } } });
+    const { filePath, raw } = loadRawConfig(configPath);
+    const original = fs.readFileSync(filePath, "utf8");
+    (raw.mcpServers as Record<string, unknown>).two = { command: "node" };
+    const faults = new FaultInjector({ [operation]: { error: new Error(`primary ${operation}`) } });
+    assert.throws(() => saveRawConfig(filePath, raw, faults), new RegExp(`primary ${operation}`), operation);
+    assert.equal(fs.readFileSync(filePath, "utf8"), original, operation);
+    assert.deepEqual(temporaryArtifacts(filePath), [], operation);
+  }
+});
+
+test("saveRawConfig cleanup failure preserves the primary error and attaches bounded secondary evidence", () => {
+  const configPath = writeConfig({ mcpServers: { one: { command: "node" } } });
+  const { filePath, raw } = loadRawConfig(configPath);
+  const original = fs.readFileSync(filePath, "utf8");
+  (raw.mcpServers as Record<string, unknown>).two = { command: "node" };
+  const faults = new FaultInjector({
+    "config.rename": { error: new Error("primary rename failure") },
+    "config.temp.cleanup": { error: new Error("cleanup failure") },
+    "config.temp.cleanup.retry": { error: new Error("cleanup retry failure") },
+  });
+  assert.throws(
+    () => saveRawConfig(filePath, raw, faults),
+    (error: unknown) => {
+      assert.equal((error as Error).message, "primary rename failure");
+      assert.deepEqual((error as { secondaryDiagnostics?: unknown[] }).secondaryDiagnostics, [
+        { operation: "config.temp.cleanup", message: "cleanup retry failure" },
+      ]);
+      return true;
+    },
+  );
+  assert.equal(fs.readFileSync(filePath, "utf8"), original);
 });
 
 test("loadMottainaiConfig accepts upstream and gateway tool metadata overrides", () => {

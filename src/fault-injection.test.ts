@@ -46,7 +46,7 @@ async function initialize(workspace: string, boundaries = DIRECT_BOUNDARIES, for
 }
 
 function temporaryFiles(workspace: string): string[] {
-  return fs.readdirSync(workspace).filter((entry) => entry.startsWith(".mottainai-init-"));
+  return fs.readdirSync(workspace).filter((entry) => entry.startsWith(".mottainai-tmp-"));
 }
 
 test("configuration replacement preserves the original and cleans temporary state at every injected phase", async () => {
