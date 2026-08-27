@@ -11,6 +11,38 @@ in the Claude and Codex registration examples in `README.md` together.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-27
+
+Managed-workflow and external-discovery release. See
+[docs/releases/0.5.0.md](docs/releases/0.5.0.md) for the full writeup.
+
+- **Added**: read-only cross-workspace task/session discovery with bounded
+  `task list` snapshots and fresh `task status --task-id` resolution for
+  external consumers such as Majiwari.
+- **Changed**: Manager and Nawabari-backed workflow handling now have stronger
+  session lifecycle, reconciliation, claim-preflight, terminal, and packed
+  golden-path coverage.
+- **Fixed**: unexpected Manager HTTP errors no longer expose internal exception
+  detail; upstream MCP initialization advertises the actual package version;
+  raw config writes use same-directory atomic replacement and preserve existing
+  file permissions before rename.
+- **Distribution**: release publishing verifies tag/package version parity,
+  smoke-tests the packed artifact on Node 22 and Node 24, and publishes the
+  same artifact to npm through trusted publishing.
+
+## [0.4.0] - 2026-08-23
+
+Wabachi interaction-convergence release. See
+[docs/releases/0.4.0.md](docs/releases/0.4.0.md) for the full writeup.
+
+- **Changed**: `mottainai dashboard` serves the approved Wabachi Semantic
+  Investigation Desk and removes the retired Semantic Project Viewer variants.
+- **Added**: live bounded RepositorySemanticQuery integration and both approved
+  Wabachi ↔ Manager context-transfer paths without transferring execution
+  authority to the browser.
+- **Distribution**: packed runtime/source regressions protect the approved
+  two-surface product model and remove stale viewer assets.
+
 ## [0.3.1] - 2026-08-22
 
 Dashboard UX correction release. See
@@ -236,7 +268,9 @@ log` for full history.
 - Raw-data logging of upstream requests/responses to `.mottainai/log/*.jsonl`
   with secret-key redaction, retention limits, and per-tool exclusion.
 
-[Unreleased]: https://github.com/yohn-jp/mottainai/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/yohn-jp/mottainai/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/yohn-jp/mottainai/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/yohn-jp/mottainai/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/yohn-jp/mottainai/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/yohn-jp/mottainai/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/yohn-jp/mottainai/compare/v0.1.4...v0.2.0
