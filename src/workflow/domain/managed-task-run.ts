@@ -1,6 +1,11 @@
 import crypto from "node:crypto";
 import { NawabariExecutionClient } from "../nawabari.js";
-import type { TaskRecord, ManagerSessionRecord, WorkflowStateStore } from "../state/store.js";
+import type {
+  ManagerSessionId,
+  ManagerSessionRecord,
+  TaskRecord,
+  WorkflowStateStore,
+} from "../state/store.js";
 import {
   ManagerError,
   ManagerSessionService,
@@ -35,7 +40,7 @@ export interface TaskRunExecutionProjection {
 
 export interface TaskRunManagerProjection {
   idempotencyKey?: string;
-  sessionId: string;
+  sessionId: ManagerSessionId;
   taskId?: string;
   executionSessionId?: string;
   runtimeName: string;
