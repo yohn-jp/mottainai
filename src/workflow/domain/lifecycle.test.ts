@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { LIFECYCLE_STATES, allowedNextTransitions, validateTransition } from "./lifecycle.js";
+import { LIFECYCLE_STATES, allowedNextTransitions, isContinuableLifecycleState, validateTransition } from "./lifecycle.js";
 import type { LifecycleState } from "./lifecycle.js";
 
 const VALID_EDGES: ReadonlyArray<[LifecycleState, LifecycleState]> = [
@@ -67,4 +67,9 @@ test("validateTransition never throws for any state pair", () => {
       assert.doesNotThrow(() => validateTransition(from, to));
     }
   }
+});
+
+test("isContinuableLifecycleState is true only for planned and active", () => {
+  const continuable = LIFECYCLE_STATES.filter((state) => isContinuableLifecycleState(state));
+  assert.deepEqual(continuable.sort(), ["active", "planned"]);
 });

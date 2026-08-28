@@ -75,7 +75,7 @@ function main() {
     if (!fs.existsSync(installedPackageDirectory)) fail("mottainai was not installed under node_modules");
 
     const binTargets = packageBinTargets(installedPackageDirectory);
-    const expectedNames = ["mottainai", "mtnai"];
+    const expectedNames = ["mottainai", "mtnai", "mottainai-mcp"];
     for (const name of expectedNames) {
       if (!binTargets.some((entry) => entry.name === name))
         fail(`bin entry "${name}" missing from installed package.json`);
@@ -93,7 +93,14 @@ function main() {
     for (const name of expectedNames) {
       const launcher = path.join(binDirectory, name);
       if (!fs.existsSync(launcher)) fail(`npm did not generate a launcher for "${name}" at ${launcher}`);
+    }
+
+    // The native MCP entry is a stdio protocol process, so only its installed
+    // launcher is checked here; protocol behavior is exercised by the package
+    // black-box suite with a real initialize/tools/list exchange.
+    for (const name of ["mottainai", "mtnai"]) {
       console.log(`running ${name} list through its installed launcher...`);
+      const launcher = path.join(binDirectory, name);
       const missingConfig = path.join(installDirectory, `${name}-missing.config.json`);
       const launcherResult = spawnSync(launcher, ["list", "--config", missingConfig], {
         cwd: installDirectory,

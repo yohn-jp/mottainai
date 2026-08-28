@@ -21,6 +21,7 @@ import {
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 let suiteRoot;
 let binPath;
+let mcpBinPath;
 let packedFiles;
 let distMtimeBeforePack;
 
@@ -37,6 +38,7 @@ before(() => {
   const extracted = extractTarball(tarballPath, path.join(suiteRoot, "extracted"));
   linkDependencies(extracted, repoRoot);
   binPath = resolvePackagedBin(extracted);
+  mcpBinPath = resolvePackagedBin(extracted, "mottainai-mcp");
 });
 
 after(() => {
@@ -46,6 +48,7 @@ after(() => {
 test("packed artifact contains its declared runtime entry and pack does not rebuild dist", () => {
   assert.ok(packedFiles.includes("package.json"));
   assert.ok(packedFiles.includes("dist/index.js"));
+  assert.ok(packedFiles.includes("dist/mcp.js"));
   assert.ok(packedFiles.includes("dist/manager/pi-guard.js"));
   assert.ok(packedFiles.includes("dist/runtime-build-metadata.json"));
   assert.ok(packedFiles.includes(".github/inari/pull-requests/default.json"));
@@ -301,6 +304,144 @@ test(
       assert.deepEqual(client.stdoutPurityViolations(), []);
     } finally {
       await cleanupClient(client, workspace);
+    }
+  },
+);
+
+test(
+  "packaged mottainai-mcp exposes native harness delegation over stdio",
+  { timeout: BLACKBOX_TIMEOUTS.test },
+  async () => {
+    const workspace = createWorkspace();
+    const client = McpStdioClient.launchPackaged(mcpBinPath, { cwd: workspace, env: isolatedEnv(workspace) });
+    try {
+      const initializeResponse = await client.request("initialize", INITIALIZE_PARAMS, BLACKBOX_TIMEOUTS.request);
+      assert.equal(initializeResponse.error, undefined);
+      client.notify("notifications/initialized", {});
+      const listResponse = await client.request("tools/list", {}, BLACKBOX_TIMEOUTS.request);
+      assert.equal(listResponse.error, undefined);
+      const nativeNames = [
+        "mottainai_delegate_work",
+        "mottainai_inspect_work",
+        "mottainai_continue_work",
+        "mottainai_cancel_work",
+        "mottainai_harness_capabilities",
+      ];
+      for (const name of nativeNames) assert.ok(listResponse.result.tools.some((tool) => tool.name === name), name);
+      // #548: mottainai-mcp is a deliberate, narrow harness-delegation boundary.
+      // It must never expose the legacy gateway's broad low-level catalog
+      // (local tools, workflow-command tools, adaptive/broker/code-search).
+      assert.equal(listResponse.result.tools.length, nativeNames.length);
+      assert.equal(
+        listResponse.result.tools.some((tool) => tool.name === "mottainai_list"),
+        false,
+      );
+
+      const capabilities = await client.request(
+        "tools/call",
+        { name: "mottainai_harness_capabilities", arguments: {} },
+        BLACKBOX_TIMEOUTS.request,
+      );
+      assert.equal(capabilities.error, undefined);
+      assert.equal(capabilities.result.structuredContent.schemaVersion, 1);
+      assert.equal(capabilities.result.structuredContent.capabilities.transport, "stdio");
+
+      const missing = await client.request(
+        "tools/call",
+        { name: "mottainai_inspect_work", arguments: { workId: "missing-package-work" } },
+        BLACKBOX_TIMEOUTS.request,
+      );
+      assert.equal(missing.error, undefined);
+      assert.equal(missing.result.structuredContent.status, "missing");
+      assert.equal(missing.result.isError, true);
+      assert.equal(missing.result.structuredContent.workId, null);
+      assert.deepEqual(client.stdoutPurityViolations(), []);
+      const exitInfo = await client.closeGracefully(BLACKBOX_TIMEOUTS.shutdown);
+      assert.equal(exitInfo.code, 0);
+      assert.equal(exitInfo.signal, null);
+    } finally {
+      await cleanupClient(client, workspace);
+    }
+  },
+);
+
+test(
+  "packaged native delegation starts, inspects, and cancels a real managed task",
+  { timeout: BLACKBOX_TIMEOUTS.test },
+  async (t) => {
+    const workspace = createWorkspace();
+    initializeGitWorkspace(workspace);
+    const fakeZellij = path.join(workspace, "zellij");
+    const zellijState = path.join(workspace, "zellij-state.json");
+    const fakeZellijSource = [
+      "#!/usr/bin/env node",
+      'import fs from "node:fs";',
+      "const args = process.argv.slice(2);",
+      "const statePath = process.env.MOTTAINAI_FAKE_ZELLIJ_STATE;",
+      "const readState = () => { try { return JSON.parse(fs.readFileSync(statePath, \"utf8\")); } catch { return undefined; } };",
+      "if (args[0] === \"--version\") { console.log(\"zellij 0.44.0\"); process.exit(0); }",
+      "if (args[0] === \"list-sessions\") { const state = readState(); if (state) console.log(state.name + \" ATTACHABLE\"); process.exit(0); }",
+      "if (args[0] === \"attach\" && args[1] === \"--create-background\") { fs.writeFileSync(statePath, JSON.stringify({ name: args[2] })); process.exit(0); }",
+      "if (args[0] === \"--session\" && args[2] === \"action\" && args[3] === \"new-pane\") { const state = readState(); const index = args.indexOf(\"--cwd\"); fs.writeFileSync(statePath, JSON.stringify({ name: state?.name, cwd: args[index + 1] })); process.exit(0); }",
+      "if (args[0] === \"--session\" && args[2] === \"action\" && args[3] === \"list-panes\") { const state = readState(); console.log(JSON.stringify([{ pane_cwd: state?.cwd }])); process.exit(0); }",
+      "if (args[0] === \"kill-session\") { fs.rmSync(statePath, { force: true }); process.exit(0); }",
+      "process.exit(0);",
+    ].join("\n") + "\n";
+    fs.writeFileSync(fakeZellij, fakeZellijSource, { mode: 0o755 });
+    const client = McpStdioClient.launchPackaged(mcpBinPath, {
+      cwd: workspace,
+      env: {
+        ...isolatedEnv(workspace),
+        MOTTAINAI_ZELLIJ_BINARY: fakeZellij,
+        MOTTAINAI_FAKE_ZELLIJ_STATE: zellijState,
+      },
+    });
+    try {
+      assert.equal((await client.request("initialize", INITIALIZE_PARAMS, BLACKBOX_TIMEOUTS.request)).error, undefined);
+      client.notify("notifications/initialized", {});
+      const delegated = await client.request(
+        "tools/call",
+        {
+          name: "mottainai_delegate_work",
+          arguments: {
+            goal: "inspect the package workspace",
+            idempotencyKey: "native-package-delegation",
+            constraints: { taskSlug: "native-package", issueRef: "548", branchType: "feat", paths: ["README.md"] },
+          },
+        },
+        BLACKBOX_TIMEOUTS.request,
+      );
+      assert.equal(delegated.error, undefined);
+      assert.equal(delegated.result.isError, undefined);
+      assert.equal(delegated.result.structuredContent.status, "running");
+      const workId = delegated.result.structuredContent.workId;
+      assert.equal(typeof workId, "string");
+
+      const inspected = await client.request(
+        "tools/call",
+        { name: "mottainai_inspect_work", arguments: { workId } },
+        BLACKBOX_TIMEOUTS.request,
+      );
+      assert.equal(inspected.error, undefined);
+      assert.ok(["running", "blocked"].includes(inspected.result.structuredContent.status));
+      assert.equal(inspected.result.structuredContent.workId, workId);
+
+      const cancelled = await client.request(
+        "tools/call",
+        { name: "mottainai_cancel_work", arguments: { workId, reason: "package smoke" } },
+        BLACKBOX_TIMEOUTS.request,
+      );
+      assert.equal(cancelled.error, undefined);
+      assert.equal(cancelled.result.isError, undefined);
+      assert.equal(cancelled.result.structuredContent.status, "cancelled");
+      assert.equal(cancelled.result.structuredContent.workId, workId);
+      assert.deepEqual(client.stdoutPurityViolations(), []);
+      const exitInfo = await client.closeGracefully(BLACKBOX_TIMEOUTS.shutdown);
+      assert.equal(exitInfo.code, 0);
+      assert.equal(exitInfo.signal, null);
+    } finally {
+      await cleanupClient(client, workspace);
+      t.after(() => fs.rmSync(workspace, { recursive: true, force: true }));
     }
   },
 );

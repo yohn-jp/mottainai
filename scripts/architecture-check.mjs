@@ -60,6 +60,7 @@ const allowedSpecialEdges = new Set(["shared->adaptive:src/adaptive/metadata.ts"
 const stdoutBoundaryFiles = new Set([
   "src/cli.ts",
   "src/index.ts",
+  "src/mcp.ts",
   "src/workflow/domain/identity-resolve-worker.mjs",
   "src/workflow/domain/task-start-worker.mjs",
 ]);
@@ -67,14 +68,16 @@ const stdoutBoundaryFiles = new Set([
 const processExitBoundaryFiles = new Set([
   "src/cli.ts",
   "src/index.ts",
+  "src/mcp.ts",
   "src/workflow/domain/identity-resolve-worker.mjs",
 ]);
 
-const signalBoundaryFiles = new Set(["src/index.ts", "src/server.ts"]);
+const signalBoundaryFiles = new Set(["src/index.ts", "src/server.ts", "src/mcp-server.ts"]);
 
 const argvBoundaryFiles = new Set([
   "src/cli.ts",
   "src/index.ts",
+  "src/mcp.ts",
   "src/workflow/domain/identity-resolve-worker.mjs",
   "src/workflow/domain/task-start-worker.mjs",
 ]);
@@ -89,6 +92,8 @@ const environmentBoundaryFiles = new Set([
   "src/config.ts",
   "src/dashboard/provider.ts",
   "src/index.ts",
+  // Packaged native MCP stdio entry; parses only its launch contract and injects env into the server.
+  "src/mcp.ts",
   "src/init.ts",
   // QEMU child-process launch accepts an injected environment and otherwise inherits the host environment.
   "src/local-runtime/qmp.ts",
@@ -252,12 +257,14 @@ function layerForFile(relative) {
   if (
     relative === "src/index.ts" ||
     relative === "src/cli.ts" ||
+    relative === "src/mcp.ts" ||
     relative === "src/init.ts" ||
     relative.startsWith("src/commands/")
   )
     return "entry";
   if (
     relative === "src/server.ts" ||
+    relative === "src/mcp-server.ts" ||
     relative === "src/proxy.ts" ||
     relative === "src/local-tools.ts" ||
     relative === "src/broker.ts" ||
@@ -403,6 +410,7 @@ function checkTopLevelExecution(sourceFile, root, diagnostics) {
   const file = relativePath(root, sourceFile.fileName);
   const boundary =
     file === "src/index.ts" ||
+    file === "src/mcp.ts" ||
     file === "src/workflow/domain/identity-resolve-worker.mjs" ||
     file === "src/workflow/domain/task-start-worker.mjs";
   if (boundary) return;

@@ -5,7 +5,8 @@
   "type": "module",
   "bin": {
     "mottainai": "dist/index.js",
-    "mtnai": "dist/index.js"
+    "mtnai": "dist/index.js",
+    "mottainai-mcp": "dist/mcp.js"
   },
   "files": [
     "dist",
