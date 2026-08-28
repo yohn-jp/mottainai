@@ -123,6 +123,28 @@ test("Manager continue relaunches the same task-bound session with the follow-up
   assert.deepEqual(runtime.started, [continued.instruction]);
 });
 
+test("Manager continue serializes concurrent follow-ups without losing either instruction", async (t) => {
+  const { service, runtime, store, sessionId } = fixture(t);
+
+  await Promise.all([
+    service.continueWork(sessionId, "first concurrent follow-up"),
+    service.continueWork(sessionId, "second concurrent follow-up"),
+  ]);
+
+  const current = store.getManagerSession(sessionId);
+  assert.ok(current);
+  assert.match(
+    current.instruction,
+    /initial instruction[\s\S]*first concurrent follow-up[\s\S]*second concurrent follow-up/u,
+  );
+  assert.equal(current.restartCount, 2);
+  assert.equal(runtime.terminated.length, 2);
+  assert.equal(runtime.started.length, 2);
+  assert.match(runtime.started[0] ?? "", /first concurrent follow-up/u);
+  assert.doesNotMatch(runtime.started[0] ?? "", /second concurrent follow-up/u);
+  assert.match(runtime.started[1] ?? "", /first concurrent follow-up[\s\S]*second concurrent follow-up/u);
+});
+
 test("Manager continue rejects a terminal task without touching the runtime", async (t) => {
   const { service, runtime, store, sessionId, taskId } = fixture(t);
   assert.equal(transitionTask(store, taskId, "committed").ok, true);
