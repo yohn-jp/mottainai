@@ -356,8 +356,6 @@ type WorkLookup =
     };
 
 export class HarnessDelegationService {
-  private readonly operations = new Map<string, Promise<HarnessOperationResult>>();
-
   constructor(private readonly dependencies: HarnessDelegationDependencies) {}
 
   async delegate(request: DelegateWorkRequest): Promise<HarnessOperationResult> {
@@ -376,128 +374,119 @@ export class HarnessDelegationService {
       constraints.paths === undefined && constraints.claims === undefined
         ? undefined
         : { paths: constraints.paths, claims: constraints.claims };
-    const effectiveKey =
-      request.idempotencyKey ?? deriveDelegationKey(request.goal, taskSlug, constraints, scope);
+    const effectiveKey = request.idempotencyKey ?? deriveDelegationKey(request.goal, taskSlug, constraints, scope);
 
-    return this.withOperation(`delegate:${workspaceRoot}:${effectiveKey}`, async () => {
-      try {
-        const manager = await this.dependencies.managerForWorkspace(workspaceRoot, store);
-        const prior = store
-          .listManagerSessions(workspaceRoot)
-          .find((candidate) => candidate.idempotencyKey === effectiveKey);
-        const session = await manager.start({
-          instruction: request.goal,
-          ...(constraints.agentKind === undefined ? {} : { agentKind: constraints.agentKind }),
-          ...(constraints.launchProfile === undefined ? {} : { launchProfile: constraints.launchProfile }),
-          ...(constraints.provider === undefined ? {} : { provider: constraints.provider }),
-          ...(constraints.model === undefined ? {} : { model: constraints.model }),
-          taskSlug,
-          ...(constraints.issueRef === undefined ? {} : { issueRef: constraints.issueRef }),
-          branchType: constraints.branchType ?? "feat",
-          idempotencyKey: effectiveKey,
-          ...(scope === undefined ? {} : { scope }),
-        });
-        const task = session.taskId === undefined ? undefined : store.getTask(session.taskId);
-        if (task === undefined) {
-          return failure(
-            "failed",
-            errorProjection("internal_failure", "work_identity_missing", "managed task identity was not returned"),
-          );
-        }
-        const work = snapshotFor(store, task, session);
-        return { ok: true, status: work.status, work, ...(prior === undefined ? {} : { reused: true }) };
-      } catch (error) {
-        return failure("failed", classifyError(error, "delegate_failed"));
+    try {
+      const manager = await this.dependencies.managerForWorkspace(workspaceRoot, store);
+      const prior = store
+        .listManagerSessions(workspaceRoot)
+        .find((candidate) => candidate.idempotencyKey === effectiveKey);
+      const session = await manager.start({
+        instruction: request.goal,
+        ...(constraints.agentKind === undefined ? {} : { agentKind: constraints.agentKind }),
+        ...(constraints.launchProfile === undefined ? {} : { launchProfile: constraints.launchProfile }),
+        ...(constraints.provider === undefined ? {} : { provider: constraints.provider }),
+        ...(constraints.model === undefined ? {} : { model: constraints.model }),
+        taskSlug,
+        ...(constraints.issueRef === undefined ? {} : { issueRef: constraints.issueRef }),
+        branchType: constraints.branchType ?? "feat",
+        idempotencyKey: effectiveKey,
+        ...(scope === undefined ? {} : { scope }),
+      });
+      const task = session.taskId === undefined ? undefined : store.getTask(session.taskId);
+      if (task === undefined) {
+        return failure(
+          "failed",
+          errorProjection("internal_failure", "work_identity_missing", "managed task identity was not returned"),
+        );
       }
-    });
+      const work = snapshotFor(store, task, session);
+      return { ok: true, status: work.status, work, ...(prior === undefined ? {} : { reused: true }) };
+    } catch (error) {
+      return failure("failed", classifyError(error, "delegate_failed"));
+    }
   }
 
   async inspect(workId: string): Promise<HarnessOperationResult> {
-    return this.withOperation(`inspect:${workId}`, async () => {
-      const lookup = await this.lookup(workId);
-      if (lookup.kind === "missing") {
-        return failure("missing", errorProjection("lifecycle_conflict", "work_not_found", "work item was not found"));
-      }
-      if (lookup.kind === "invalid") {
-        return failure("blocked", lookup.error, snapshotFor(lookup.store, lookup.task, lookup.manager));
-      }
-      try {
-        const manager = await lookup.value.managerService.get(lookup.value.manager.sessionId);
-        const task = lookup.value.store.getTask(lookup.value.task.taskId) ?? lookup.value.task;
-        const work = snapshotFor(lookup.value.store, task, manager);
-        return { ok: true, status: work.status, work };
-      } catch (error) {
-        return failure("blocked", classifyError(error, "inspect_failed"));
-      }
-    });
+    const lookup = await this.lookup(workId);
+    if (lookup.kind === "missing") {
+      return failure("missing", errorProjection("lifecycle_conflict", "work_not_found", "work item was not found"));
+    }
+    if (lookup.kind === "invalid") {
+      return failure("blocked", lookup.error, snapshotFor(lookup.store, lookup.task, lookup.manager));
+    }
+    try {
+      const manager = await lookup.value.managerService.get(lookup.value.manager.sessionId);
+      const task = lookup.value.store.getTask(lookup.value.task.taskId) ?? lookup.value.task;
+      const work = snapshotFor(lookup.value.store, task, manager);
+      return { ok: true, status: work.status, work };
+    } catch (error) {
+      return failure("blocked", classifyError(error, "inspect_failed"));
+    }
   }
 
   async continueWork(request: ContinueWorkRequest): Promise<HarnessOperationResult> {
-    return this.withOperation(`continue:${request.workId}`, async () => {
-      const resolved = await this.requireWork(request.workId);
-      if (resolved.result !== undefined) return resolved.result;
-      const found = resolved.value;
-      try {
-        const manager = await found.managerService.continueWork(found.manager.sessionId, request.followUp);
-        const task = found.store.getTask(found.task.taskId) ?? found.task;
-        const work = snapshotFor(found.store, task, manager);
-        return { ok: true, status: work.status, work };
-      } catch (error) {
-        const task = found.store.getTask(found.task.taskId) ?? found.task;
-        const manager = found.store.getManagerSession(found.manager.sessionId) ?? found.manager;
-        const work = snapshotFor(found.store, task, manager);
-        return failure(work.status, classifyError(error, "continue_failed"), work);
-      }
-    });
+    const resolved = await this.requireWork(request.workId);
+    if (resolved.result !== undefined) return resolved.result;
+    const found = resolved.value;
+    try {
+      const manager = await found.managerService.continueWork(found.manager.sessionId, request.followUp);
+      const task = found.store.getTask(found.task.taskId) ?? found.task;
+      const work = snapshotFor(found.store, task, manager);
+      return { ok: true, status: work.status, work };
+    } catch (error) {
+      const task = found.store.getTask(found.task.taskId) ?? found.task;
+      const manager = found.store.getManagerSession(found.manager.sessionId) ?? found.manager;
+      const work = snapshotFor(found.store, task, manager);
+      return failure(work.status, classifyError(error, "continue_failed"), work);
+    }
   }
 
   async cancelWork(request: CancelWorkRequest): Promise<HarnessOperationResult> {
-    return this.withOperation(`cancel:${request.workId}`, async () => {
-      const resolved = await this.requireWork(request.workId);
-      if (resolved.result !== undefined) return resolved.result;
-      const found = resolved.value;
-      const task = found.store.getTask(found.task.taskId) ?? found.task;
-      if (task.lifecycleState === "abandoned") {
-        return { ok: true, status: "cancelled", work: snapshotFor(found.store, task, found.manager) };
-      }
-      const validation = validateTransition(task.lifecycleState, "abandoned");
-      if (!validation.allowed) {
-        const work = snapshotFor(found.store, task, found.manager);
+    const resolved = await this.requireWork(request.workId);
+    if (resolved.result !== undefined) return resolved.result;
+    const found = resolved.value;
+    const task = found.store.getTask(found.task.taskId) ?? found.task;
+    if (task.lifecycleState === "abandoned") {
+      return { ok: true, status: "cancelled", work: snapshotFor(found.store, task, found.manager) };
+    }
+    const validation = validateTransition(task.lifecycleState, "abandoned");
+    if (!validation.allowed) {
+      const work = snapshotFor(found.store, task, found.manager);
+      return failure(
+        work.status,
+        errorProjection("lifecycle_conflict", "cancel_not_allowed", validation.blocked.blockingRule),
+        work,
+      );
+    }
+    try {
+      const stopped = await found.managerService.stop(found.manager.sessionId);
+      if (isActiveRuntime(stopped.runtimeState) || stopped.runtimeState === "stale") {
+        const work = snapshotFor(found.store, task, stopped);
         return failure(
-          work.status,
-          errorProjection("lifecycle_conflict", "cancel_not_allowed", validation.blocked.blockingRule),
+          "blocked",
+          errorProjection(
+            "lifecycle_conflict",
+            "cancel_stop_unresolved",
+            stopped.reconciliationMessage ?? "managed runtime stop could not be verified",
+          ),
           work,
         );
       }
-      try {
-        const stopped = await found.managerService.stop(found.manager.sessionId);
-        if (isActiveRuntime(stopped.runtimeState) || stopped.runtimeState === "stale") {
-          const work = snapshotFor(found.store, task, stopped);
-          return failure(
-            "blocked",
-            errorProjection(
-              "lifecycle_conflict",
-              "cancel_stop_unresolved",
-              stopped.reconciliationMessage ?? "managed runtime stop could not be verified",
-            ),
-            work,
-          );
-        }
-        const transitioned = transitionTask(found.store, task.taskId, "abandoned");
-        if (!transitioned.ok) {
-          const work = snapshotFor(found.store, task, stopped);
-          return failure(
-            work.status,
-            errorProjection("lifecycle_conflict", "cancel_not_allowed", transitioned.blocked.blockingRule),
-            work,
-          );
-        }
-        const work = snapshotFor(found.store, transitioned.task, stopped, "cancelled");
-        return { ok: true, status: "cancelled", work };
-      } catch (error) {
-        return failure("blocked", classifyError(error, "cancel_failed"));
+      const transitioned = transitionTask(found.store, task.taskId, "abandoned");
+      if (!transitioned.ok) {
+        const work = snapshotFor(found.store, task, stopped);
+        return failure(
+          work.status,
+          errorProjection("lifecycle_conflict", "cancel_not_allowed", transitioned.blocked.blockingRule),
+          work,
+        );
       }
-    });
+      const work = snapshotFor(found.store, transitioned.task, stopped, "cancelled");
+      return { ok: true, status: "cancelled", work };
+    } catch (error) {
+      return failure("blocked", classifyError(error, "cancel_failed"));
+    }
   }
 
   private async requireWork(
@@ -574,22 +563,31 @@ export class HarnessDelegationService {
     if (workspaceSelector !== undefined && repositorySelector !== undefined) {
       throw new HarnessInputError("workspace and repository selectors conflict");
     }
-    const selector = workspaceSelector ?? repositorySelector;
-    if (selector === undefined) return path.resolve(this.dependencies.defaultWorkspaceRoot);
-    if (repositorySelector !== undefined && typeof repositorySelector === "string") {
-      const instance = store.getRepositoryInstance(repositorySelector as RepositoryInstanceId);
-      if (instance !== undefined) return this.workspaceForInstance(store, instance.instanceId);
+    if (repositorySelector !== undefined) {
+      if (typeof repositorySelector === "string") {
+        const instance = store.getRepositoryInstance(repositorySelector as RepositoryInstanceId);
+        if (instance === undefined) throw new HarnessInputError("repository instance was not found");
+        return this.workspaceForInstance(store, instance.instanceId);
+      }
+      if (repositorySelector.instanceId !== undefined) {
+        const instance = store.getRepositoryInstance(repositorySelector.instanceId as RepositoryInstanceId);
+        if (instance === undefined) throw new HarnessInputError("repository instance was not found");
+        return this.workspaceForInstance(store, instance.instanceId);
+      }
+      if (repositorySelector.path === undefined) throw new HarnessInputError("repository selector is empty");
+      return path.resolve(this.dependencies.defaultWorkspaceRoot, repositorySelector.path);
     }
-    if (typeof selector === "string") {
-      return path.resolve(this.dependencies.defaultWorkspaceRoot, selector);
+    if (workspaceSelector === undefined) return path.resolve(this.dependencies.defaultWorkspaceRoot);
+    if (typeof workspaceSelector === "string") {
+      return path.resolve(this.dependencies.defaultWorkspaceRoot, workspaceSelector);
     }
-    if (selector.instanceId !== undefined) {
-      const instance = store.getRepositoryInstance(selector.instanceId as RepositoryInstanceId);
+    if (workspaceSelector.instanceId !== undefined) {
+      const instance = store.getRepositoryInstance(workspaceSelector.instanceId as RepositoryInstanceId);
       if (instance === undefined) throw new HarnessInputError("repository instance was not found");
       return this.workspaceForInstance(store, instance.instanceId);
     }
-    if (selector.path === undefined) throw new HarnessInputError("selector is empty");
-    return path.resolve(this.dependencies.defaultWorkspaceRoot, selector.path);
+    if (workspaceSelector.path === undefined) throw new HarnessInputError("workspace selector is empty");
+    return path.resolve(this.dependencies.defaultWorkspaceRoot, workspaceSelector.path);
   }
 
   private workspaceForInstance(store: WorkflowStateStore, instanceId: RepositoryInstanceId): string {
@@ -598,15 +596,5 @@ export class HarnessDelegationService {
       throw new HarnessInputError("repository current path is unavailable or ambiguous");
     }
     return path.resolve(currentPaths[0]!.canonicalPath);
-  }
-
-  private withOperation(key: string, operation: () => Promise<HarnessOperationResult>): Promise<HarnessOperationResult> {
-    const existing = this.operations.get(key);
-    if (existing !== undefined) return existing;
-    const current = operation().finally(() => {
-      if (this.operations.get(key) === current) this.operations.delete(key);
-    });
-    this.operations.set(key, current);
-    return current;
   }
 }
