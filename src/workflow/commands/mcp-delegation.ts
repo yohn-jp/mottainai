@@ -23,25 +23,13 @@ export const HARNESS_DELEGATION_TOOL_NAMES = [
 export type HarnessDelegationToolName = (typeof HARNESS_DELEGATION_TOOL_NAMES)[number];
 export const HARNESS_CAPABILITIES_TOOL_NAME = "mottainai_harness_capabilities" as const;
 
-const readOnly = {
-  readOnlyHint: true,
-  destructiveHint: false,
-  idempotentHint: true,
-  openWorldHint: false,
-} as const;
-const mutation = {
-  readOnlyHint: false,
-  destructiveHint: false,
-  idempotentHint: true,
-  openWorldHint: true,
-} as const;
-
+const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
+const mutation = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true } as const;
 const schemaVersion = {
   type: "integer",
   enum: [HARNESS_DELEGATION_SCHEMA_VERSION],
   description: "Optional protocol schema version; omitted means version 1.",
 } as const;
-
 const selectorSchema = {
   oneOf: [
     { type: "string", minLength: 1, maxLength: 2_048 },
@@ -57,7 +45,6 @@ const selectorSchema = {
     },
   ],
 } as const;
-
 const constraintsSchema = {
   type: "object",
   properties: {
@@ -65,13 +52,10 @@ const constraintsSchema = {
     issueRef: { type: "string", minLength: 1, maxLength: 96 },
     branchType: { type: "string", minLength: 1, maxLength: 32 },
     agentKind: { type: "string", minLength: 1, maxLength: 32 },
+    launchProfile: { type: "string", minLength: 1, maxLength: 32 },
     provider: { type: "string", minLength: 1, maxLength: 128 },
     model: { type: "string", minLength: 1, maxLength: 128 },
-    paths: {
-      type: "array",
-      maxItems: 128,
-      items: { type: "string", minLength: 1, maxLength: 512 },
-    },
+    paths: { type: "array", maxItems: 128, items: { type: "string", minLength: 1, maxLength: 512 } },
     claims: {
       type: "array",
       maxItems: 128,
@@ -88,43 +72,30 @@ const constraintsSchema = {
   },
   additionalProperties: false,
 } as const;
-
 const lifecycleSchema = {
   type: ["object", "null"],
   properties: {
     taskState: { type: "string" },
     managerState: { type: ["string", "null"] },
     runtimeState: { type: ["string", "null"] },
-    allowedActions: {
-      type: "array",
-      maxItems: 2,
-      items: { type: "string", enum: ["continue", "cancel"] },
-    },
+    allowedActions: { type: "array", maxItems: 2, items: { type: "string", enum: ["continue", "cancel"] } },
   },
   required: ["taskState", "managerState", "runtimeState", "allowedActions"],
   additionalProperties: false,
 } as const;
-
-const receiptSchema = {
-  type: "object",
-  properties: {
-    code: { type: "string" },
-    source: { type: "string" },
-    message: { type: "string" },
-  },
-  required: ["code", "source", "message"],
-  additionalProperties: false,
-} as const;
-
 const evidenceSchema = {
   type: "object",
   properties: {
     latestStatus: { type: "string" },
-    latestReceipt: receiptSchema,
+    latestReceipt: {
+      type: "object",
+      properties: { code: { type: "string" }, source: { type: "string" }, message: { type: "string" } },
+      required: ["code", "source", "message"],
+      additionalProperties: false,
+    },
   },
   additionalProperties: false,
 } as const;
-
 const artifactsSchema = {
   type: "array",
   maxItems: MAX_HARNESS_ARTIFACTS,
@@ -142,7 +113,6 @@ const artifactsSchema = {
     additionalProperties: false,
   },
 } as const;
-
 const errorSchema = {
   type: "object",
   properties: {
@@ -153,7 +123,6 @@ const errorSchema = {
   required: ["class", "code", "message"],
   additionalProperties: false,
 } as const;
-
 const capabilitiesSchema = {
   type: "object",
   properties: {
@@ -168,7 +137,6 @@ const capabilitiesSchema = {
   required: ["schemaVersion", "protocol", "transport", "tools", "statuses", "errorClasses", "executable"],
   additionalProperties: false,
 } as const;
-
 const delegationOutputSchema = {
   type: "object" as const,
   properties: {
@@ -185,87 +153,56 @@ const delegationOutputSchema = {
     error: errorSchema,
     capabilities: capabilitiesSchema,
   },
-  required: [
-    "schemaVersion",
-    "operation",
-    "status",
-    "workId",
-    "summary",
-    "lifecycle",
-    "evidence",
-    "artifacts",
-    "truncated",
-  ],
+  required: ["schemaVersion", "operation", "status", "workId", "summary", "lifecycle", "evidence", "artifacts", "truncated"],
   additionalProperties: false,
 };
 
-const delegateWorkTool: Tool = {
-  name: "mottainai_delegate_work",
-  description: "Delegate one bounded goal through Mottainai's existing governed harness lifecycle.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      schemaVersion,
-      goal: { type: "string", minLength: 1, maxLength: 65_536 },
-      workspace: selectorSchema,
-      repository: selectorSchema,
-      constraints: constraintsSchema,
-      idempotencyKey: { type: "string", minLength: 1, maxLength: 128 },
-    },
-    required: ["goal"],
-    additionalProperties: false,
-  },
-  outputSchema: delegationOutputSchema,
-  annotations: mutation,
-};
+function tool(name: HarnessDelegationToolName, description: string, properties: Record<string, unknown>, required: string[]): Tool {
+  return {
+    name,
+    description,
+    inputSchema: { type: "object", properties: { schemaVersion, ...properties }, required, additionalProperties: false },
+    outputSchema: delegationOutputSchema,
+    annotations: name === "mottainai_inspect_work" ? readOnly : mutation,
+  };
+}
 
-const inspectWorkTool: Tool = {
-  name: "mottainai_inspect_work",
-  description: "Inspect one delegated work item by its stable workId.",
-  inputSchema: {
-    type: "object",
-    properties: { schemaVersion, workId: { type: "string", minLength: 1, maxLength: 128 } },
-    required: ["workId"],
-    additionalProperties: false,
+const delegateWorkTool = tool(
+  "mottainai_delegate_work",
+  "Delegate one bounded goal through Mottainai's existing governed harness lifecycle.",
+  {
+    goal: { type: "string", minLength: 1, maxLength: 65_536 },
+    workspace: selectorSchema,
+    repository: selectorSchema,
+    constraints: constraintsSchema,
+    idempotencyKey: { type: "string", minLength: 1, maxLength: 128 },
   },
-  outputSchema: delegationOutputSchema,
-  annotations: readOnly,
-};
-
-const continueWorkTool: Tool = {
-  name: "mottainai_continue_work",
-  description: "Continue an eligible work item through its existing Manager session.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      schemaVersion,
-      workId: { type: "string", minLength: 1, maxLength: 128 },
-      followUp: { type: "string", minLength: 1, maxLength: 65_536 },
-    },
-    required: ["workId", "followUp"],
-    additionalProperties: false,
+  ["goal"],
+);
+const inspectWorkTool = tool(
+  "mottainai_inspect_work",
+  "Inspect one delegated work item by its stable workId.",
+  { workId: { type: "string", minLength: 1, maxLength: 128 } },
+  ["workId"],
+);
+const continueWorkTool = tool(
+  "mottainai_continue_work",
+  "Continue an eligible work item through its existing Manager session.",
+  {
+    workId: { type: "string", minLength: 1, maxLength: 128 },
+    followUp: { type: "string", minLength: 1, maxLength: 65_536 },
   },
-  outputSchema: delegationOutputSchema,
-  annotations: mutation,
-};
-
-const cancelWorkTool: Tool = {
-  name: "mottainai_cancel_work",
-  description: "Cancel one work item through existing task and Manager lifecycle authority.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      schemaVersion,
-      workId: { type: "string", minLength: 1, maxLength: 128 },
-      reason: { type: "string", minLength: 1, maxLength: 65_536 },
-    },
-    required: ["workId"],
-    additionalProperties: false,
+  ["workId", "followUp"],
+);
+const cancelWorkTool = tool(
+  "mottainai_cancel_work",
+  "Cancel one work item through existing task and Manager lifecycle authority.",
+  {
+    workId: { type: "string", minLength: 1, maxLength: 128 },
+    reason: { type: "string", minLength: 1, maxLength: 65_536 },
   },
-  outputSchema: delegationOutputSchema,
-  annotations: mutation,
-};
-
+  ["workId"],
+);
 const capabilitiesTool: Tool = {
   name: HARNESS_CAPABILITIES_TOOL_NAME,
   description: "Describe the versioned packaged stdio harness-delegation surface.",
@@ -286,14 +223,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function parseObject(value: unknown): Record<string, unknown> {
-  if (!isRecord(value)) throw new Error("arguments must be an object");
+function parseObject(value: unknown, label = "arguments"): Record<string, unknown> {
+  if (!isRecord(value)) throw new Error(`${label} must be an object`);
   return value;
 }
 
-function rejectUnknownKeys(value: Record<string, unknown>, allowed: readonly string[]): void {
+function rejectUnknownKeys(value: Record<string, unknown>, allowed: readonly string[], label = "arguments"): void {
   const unknown = Object.keys(value).find((key) => !allowed.includes(key));
-  if (unknown !== undefined) throw new Error(`unsupported argument: ${unknown}`);
+  if (unknown !== undefined) throw new Error(`${label} contains unsupported field: ${unknown}`);
+}
+
+function boundedString(value: unknown, label: string, maxLength: number): string {
+  if (typeof value !== "string" || value.length === 0 || value.length > maxLength) {
+    throw new Error(`${label} must be a non-empty string of at most ${maxLength} characters`);
+  }
+  return value;
 }
 
 function checkVersion(args: Record<string, unknown>): void {
@@ -303,30 +247,66 @@ function checkVersion(args: Record<string, unknown>): void {
 }
 
 function selector(value: unknown, label: string): HarnessSelectorValue {
-  if (typeof value === "string") return value;
-  const object = parseObject(value);
-  rejectUnknownKeys(object, ["path", "instanceId"]);
-  return object as HarnessRepositorySelector;
+  if (typeof value === "string") return boundedString(value, label, 2_048);
+  const object = parseObject(value, label);
+  rejectUnknownKeys(object, ["path", "instanceId"], label);
+  const keys = Object.keys(object);
+  if (keys.length !== 1) throw new Error(`${label} must contain exactly one selector`);
+  if (object.path !== undefined) return { path: boundedString(object.path, `${label}.path`, 2_048) };
+  return { instanceId: boundedString(object.instanceId, `${label}.instanceId`, 128) } as HarnessRepositorySelector;
+}
+
+function optionalString(record: Record<string, unknown>, key: string, maxLength: number): string | undefined {
+  return record[key] === undefined ? undefined : boundedString(record[key], `constraints.${key}`, maxLength);
+}
+
+function constraints(value: unknown): HarnessWorkConstraints {
+  const input = parseObject(value, "constraints");
+  rejectUnknownKeys(input, ["taskSlug", "issueRef", "branchType", "agentKind", "launchProfile", "provider", "model", "paths", "claims"], "constraints");
+  const paths = input.paths === undefined ? undefined : parsePaths(input.paths);
+  const claims = input.claims === undefined ? undefined : parseClaims(input.claims);
+  return {
+    ...(optionalString(input, "taskSlug", 96) === undefined ? {} : { taskSlug: optionalString(input, "taskSlug", 96) }),
+    ...(optionalString(input, "issueRef", 96) === undefined ? {} : { issueRef: optionalString(input, "issueRef", 96) }),
+    ...(optionalString(input, "branchType", 32) === undefined ? {} : { branchType: optionalString(input, "branchType", 32) }),
+    ...(optionalString(input, "agentKind", 32) === undefined ? {} : { agentKind: optionalString(input, "agentKind", 32) }),
+    ...(optionalString(input, "launchProfile", 32) === undefined ? {} : { launchProfile: optionalString(input, "launchProfile", 32) }),
+    ...(optionalString(input, "provider", 128) === undefined ? {} : { provider: optionalString(input, "provider", 128) }),
+    ...(optionalString(input, "model", 128) === undefined ? {} : { model: optionalString(input, "model", 128) }),
+    ...(paths === undefined ? {} : { paths }),
+    ...(claims === undefined ? {} : { claims }),
+  };
+}
+
+function parsePaths(value: unknown): readonly string[] {
+  if (!Array.isArray(value) || value.length > 128) throw new Error("constraints.paths must be an array of at most 128 items");
+  return value.map((item, index) => boundedString(item, `constraints.paths[${index}]`, 512));
+}
+
+function parseClaims(value: unknown): HarnessWorkConstraints["claims"] {
+  if (!Array.isArray(value) || value.length > 128) throw new Error("constraints.claims must be an array of at most 128 items");
+  return value.map((item, index) => {
+    const claim = parseObject(item, `constraints.claims[${index}]`);
+    rejectUnknownKeys(claim, ["resource", "mode"], `constraints.claims[${index}]`);
+    const resource = boundedString(claim.resource, `constraints.claims[${index}].resource`, 512);
+    if (claim.mode !== "read" && claim.mode !== "write" && claim.mode !== "exclusive-write") {
+      throw new Error(`constraints.claims[${index}].mode is invalid`);
+    }
+    return { resource, mode: claim.mode };
+  });
 }
 
 function delegateArgs(value: unknown): DelegateWorkRequest {
   const args = parseObject(value);
   rejectUnknownKeys(args, ["schemaVersion", "goal", "workspace", "repository", "constraints", "idempotencyKey"]);
   checkVersion(args);
-  if (typeof args.goal !== "string") throw new Error("goal must be a string");
-  if (args.workspace !== undefined && args.repository !== undefined) {
-    throw new Error("workspace and repository conflict");
-  }
-  if (args.constraints !== undefined && !isRecord(args.constraints)) throw new Error("constraints must be an object");
-  if (args.idempotencyKey !== undefined && typeof args.idempotencyKey !== "string") {
-    throw new Error("idempotencyKey must be a string");
-  }
+  if (args.workspace !== undefined && args.repository !== undefined) throw new Error("workspace and repository conflict");
   return {
-    goal: args.goal,
+    goal: boundedString(args.goal, "goal", 65_536),
     ...(args.workspace === undefined ? {} : { workspace: selector(args.workspace, "workspace") }),
     ...(args.repository === undefined ? {} : { repository: selector(args.repository, "repository") }),
-    ...(args.constraints === undefined ? {} : { constraints: args.constraints as HarnessWorkConstraints }),
-    ...(args.idempotencyKey === undefined ? {} : { idempotencyKey: args.idempotencyKey }),
+    ...(args.constraints === undefined ? {} : { constraints: constraints(args.constraints) }),
+    ...(args.idempotencyKey === undefined ? {} : { idempotencyKey: boundedString(args.idempotencyKey, "idempotencyKey", 128) }),
   };
 }
 
@@ -334,26 +314,27 @@ function workIdArgs(value: unknown): { workId: string } {
   const args = parseObject(value);
   rejectUnknownKeys(args, ["schemaVersion", "workId"]);
   checkVersion(args);
-  if (typeof args.workId !== "string") throw new Error("workId must be a string");
-  return { workId: args.workId };
+  return { workId: boundedString(args.workId, "workId", 128) };
 }
 
 function continueArgs(value: unknown): ContinueWorkRequest {
   const args = parseObject(value);
   rejectUnknownKeys(args, ["schemaVersion", "workId", "followUp"]);
   checkVersion(args);
-  if (typeof args.workId !== "string") throw new Error("workId must be a string");
-  if (typeof args.followUp !== "string") throw new Error("followUp must be a string");
-  return { workId: args.workId, followUp: args.followUp };
+  return {
+    workId: boundedString(args.workId, "workId", 128),
+    followUp: boundedString(args.followUp, "followUp", 65_536),
+  };
 }
 
 function cancelArgs(value: unknown): CancelWorkRequest {
   const args = parseObject(value);
   rejectUnknownKeys(args, ["schemaVersion", "workId", "reason"]);
   checkVersion(args);
-  if (typeof args.workId !== "string") throw new Error("workId must be a string");
-  if (args.reason !== undefined && typeof args.reason !== "string") throw new Error("reason must be a string");
-  return { workId: args.workId, ...(args.reason === undefined ? {} : { reason: args.reason }) };
+  return {
+    workId: boundedString(args.workId, "workId", 128),
+    ...(args.reason === undefined ? {} : { reason: boundedString(args.reason, "reason", 65_536) }),
+  };
 }
 
 function resultFor(operation: string, result: HarnessOperationResult): CallToolResult {
