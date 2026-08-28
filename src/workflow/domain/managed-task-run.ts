@@ -1,17 +1,7 @@
 import crypto from "node:crypto";
 import { NawabariExecutionClient } from "../nawabari.js";
-import type {
-  ManagerSessionId,
-  ManagerSessionRecord,
-  TaskRecord,
-  WorkflowStateStore,
-} from "../state/store.js";
-import {
-  ManagerError,
-  ManagerSessionService,
-  type ManagerResourceScope,
-  type NewManagerSessionInput,
-} from "../../manager/service.js";
+import type { TaskRecord, ManagerSessionRecord, WorkflowStateStore } from "../state/store.js";
+import { ManagerError, ManagerSessionService, type NewManagerSessionInput } from "../../manager/service.js";
 
 const MAX_ERROR_LENGTH = 512;
 
@@ -21,14 +11,13 @@ export interface ManagedTaskRunInput {
   nawabari: NawabariExecutionClient;
   manager: ManagerSessionService;
   taskSlug: string;
-  issueRef?: string;
+  issueRef: string;
   branchType: string;
   agentKind: string;
   provider?: string;
   model?: string;
   instruction: string;
   idempotencyKey?: string;
-  scope?: ManagerResourceScope;
 }
 
 export interface TaskRunExecutionProjection {
@@ -40,7 +29,7 @@ export interface TaskRunExecutionProjection {
 
 export interface TaskRunManagerProjection {
   idempotencyKey?: string;
-  sessionId: ManagerSessionId;
+  sessionId: string;
   taskId?: string;
   executionSessionId?: string;
   runtimeName: string;
@@ -86,38 +75,26 @@ export type ManagedTaskRunResult = ManagedTaskRunSuccess | ManagedTaskRunFailure
 /** Stable default operation identity. An explicit key remains available for callers that need a custom retry scope. */
 export function deriveTaskRunIdempotencyKey(input: {
   taskSlug: string;
-  issueRef?: string;
+  issueRef: string;
   branchType: string;
   agentKind: string;
   provider?: string;
   model?: string;
   instruction: string;
-  scope?: ManagerResourceScope;
 }): string {
-  const identity: unknown[] = [
-    input.taskSlug,
-    input.issueRef ?? null,
-    input.branchType,
-    input.agentKind,
-    input.provider ?? null,
-    input.model ?? null,
-    input.instruction,
-  ];
-  if (input.scope !== undefined) {
-    identity.push({
-      paths: input.scope.paths === undefined ? [] : [...input.scope.paths].sort(),
-      claims: input.scope.claims === undefined
-        ? []
-        : input.scope.claims
-            .map((claim) => ({ resource: claim.resource, mode: claim.mode }))
-            .sort((left, right) =>
-              `${left.resource}\u0000${left.mode}`.localeCompare(`${right.resource}\u0000${right.mode}`),
-            ),
-    });
-  }
   const digest = crypto
     .createHash("sha256")
-    .update(JSON.stringify(identity))
+    .update(
+      JSON.stringify([
+        input.taskSlug,
+        input.issueRef,
+        input.branchType,
+        input.agentKind,
+        input.provider ?? null,
+        input.model ?? null,
+        input.instruction,
+      ]),
+    )
     .digest("hex");
   return `task-run:${digest}`;
 }
@@ -182,7 +159,7 @@ export function explainTaskRunClaimConflict(input: {
   store: WorkflowStateStore;
   workspaceRoot: string;
   taskSlug: string;
-  issueRef?: string;
+  issueRef: string;
   error: unknown;
 }): string | undefined {
   if (!(input.error instanceof ManagerError) || input.error.code !== "claim_conflict") return undefined;
@@ -278,7 +255,6 @@ export async function runManagedTask(input: ManagedTaskRunInput): Promise<Manage
       provider: input.provider,
       model: input.model,
       instruction: input.instruction,
-      scope: input.scope,
     });
   const reportedIdempotencyKey = idempotencyKey.slice(0, 128);
   const managerInput: NewManagerSessionInput = {
@@ -290,7 +266,6 @@ export async function runManagedTask(input: ManagedTaskRunInput): Promise<Manage
     issueRef: input.issueRef,
     branchType: input.branchType,
     idempotencyKey,
-    ...(input.scope === undefined ? {} : { scope: input.scope }),
   };
   try {
     const session = await input.manager.start(managerInput);
