@@ -109,13 +109,16 @@ test("MCP adapter rejects unknown input before invoking the domain", async () =>
     },
   } as unknown as HarnessDelegationService;
 
-  const result = await callHarnessDelegationTool(
-    "mottainai_delegate_work",
+  for (const arguments_ of [
     { goal: "goal", unexpected: true },
-    service,
-  );
-  const content = structured(result);
-  assert.equal(result.isError, true);
-  assert.equal((content.error as Record<string, unknown>).class, "invalid_input");
+    { goal: "goal", constraints: { unexpected: true } },
+    { goal: "goal", constraints: { claims: [{ resource: "README.md", mode: "invalid" }] } },
+    { goal: "goal", workspace: { path: ".", instanceId: "also-set" } },
+  ]) {
+    const result = await callHarnessDelegationTool("mottainai_delegate_work", arguments_, service);
+    const content = structured(result);
+    assert.equal(result.isError, true);
+    assert.equal((content.error as Record<string, unknown>).class, "invalid_input");
+  }
   assert.equal(invoked, false);
 });
