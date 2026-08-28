@@ -318,23 +318,12 @@ function delegateArgs(value: unknown): DelegateWorkRequest {
   rejectUnknownKeys(args, ["schemaVersion", "goal", "workspace", "repository", "constraints", "idempotencyKey"]);
   checkVersion(args);
   if (args.workspace !== undefined && args.repository !== undefined) throw new Error("workspace and repository conflict");
-  const parsedConstraints = args.constraints === undefined ? undefined : constraints(args.constraints);
-  const idempotencyKey =
-    args.idempotencyKey === undefined ? undefined : boundedString(args.idempotencyKey, "idempotencyKey", 128);
-  if (
-    idempotencyKey !== undefined &&
-    (parsedConstraints?.paths !== undefined || parsedConstraints?.claims !== undefined)
-  ) {
-    throw new Error(
-      "idempotencyKey cannot be combined with explicit paths/claims because existing Manager session identity cannot verify scope compatibility on retry",
-    );
-  }
   return {
     goal: boundedString(args.goal, "goal", 65_536),
     ...(args.workspace === undefined ? {} : { workspace: selector(args.workspace, "workspace") }),
     ...(args.repository === undefined ? {} : { repository: selector(args.repository, "repository") }),
-    ...(parsedConstraints === undefined ? {} : { constraints: parsedConstraints }),
-    ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+    ...(args.constraints === undefined ? {} : { constraints: constraints(args.constraints) }),
+    ...(args.idempotencyKey === undefined ? {} : { idempotencyKey: boundedString(args.idempotencyKey, "idempotencyKey", 128) }),
   };
 }
 
