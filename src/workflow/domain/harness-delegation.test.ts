@@ -5,7 +5,6 @@ import { createTempGitRepo, runGit } from "../../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../../test-support/workflow-store.js";
 import { ManagerSessionService } from "../../manager/service.js";
 import type { ZellijObservedState, ZellijRuntime } from "../../manager/zellij.js";
-import { NawabariExecutionClient } from "../nawabari.js";
 import { resolveRepositoryIdentity } from "./identity.js";
 import { transitionTask } from "./task-lifecycle.js";
 import type { ManagerExecutionAuthority } from "./manager-execution.js";
@@ -119,7 +118,6 @@ function buildHarness(t: TestContext): {
   const harness = new HarnessDelegationService({
     defaultWorkspaceRoot: root,
     store: async () => store,
-    nawabari: new NawabariExecutionClient(),
     managerForWorkspace: async () => manager,
   });
   return { root, store, runtime, harness };
@@ -144,8 +142,6 @@ test("delegate rejects reusing an idempotency key for a materially different req
   assert.equal(conflicting.ok, false);
   assert.equal(conflicting.error?.class, "lifecycle_conflict");
   assert.equal(conflicting.error?.code, "idempotency_conflict");
-  // The reused key must never silently reuse the prior work for a different
-  // request, nor create a second, incorrect work item.
   assert.equal(store.listTasks().length, 1);
   assert.equal(store.listManagerSessions(root).length, 1);
 });
@@ -179,20 +175,15 @@ test("cancelWork never reports cancelled while the managed runtime stop is refus
   assert.equal(sessions.length, 1);
   const runtimeName = sessions[0]!.runtimeName;
 
-  // Identity verification failure: Manager's stop refuses to terminate.
   runtime.forced.set(runtimeName, "unresolved");
   const refused = await harness.cancelWork({ workId, reason: "verification failure" });
   assert.equal(refused.ok, false);
   assert.equal(refused.status, "blocked");
   assert.equal(refused.error?.class, "lifecycle_conflict");
   assert.equal(refused.error?.code, "cancel_stop_unresolved");
-  // The task must stay non-terminal: cancellation was never committed while
-  // the runtime's identity could not be verified as stopped.
   assert.equal(store.getTask(workId as TaskId)?.lifecycleState, "active");
   assert.deepEqual(runtime.terminated, []);
 
-  // Once the runtime is confirmably non-active, retrying cancel must succeed
-  // and only then does the harness report terminal cancellation.
   runtime.forced.set(runtimeName, "exited");
   const cancelled = await harness.cancelWork({ workId, reason: "confirmed exited" });
   assert.equal(cancelled.ok, true);
@@ -210,8 +201,6 @@ test("inspect resolves the single canonical active Manager session when a histor
   assert.equal(delegated.ok, true);
   const workId = delegated.work!.workId;
 
-  // A stopped, historical session row for the same task must not make
-  // control ambiguous - only one session is actually active.
   store.createManagerSession({
     sessionId: "00000000-0000-4000-8000-000000000901" as ManagerSessionId,
     workspaceRoot: root,
@@ -247,9 +236,6 @@ test("cancelWork allows recovering an orphaned task, deferring entirely to the l
   assert.equal(delegated.ok, true);
   const workId = delegated.work!.workId;
 
-  // The lifecycle transition table explicitly allows orphaned -> abandoned
-  // (recovering an orphaned task by abandoning it); cancelWork must not
-  // maintain its own, independently-invented exclusion list that disagrees.
   const orphaned = transitionTask(store, workId as TaskId, "orphaned");
   assert.equal(orphaned.ok, true);
 
@@ -269,8 +255,6 @@ test("inspect fails closed only on genuine ambiguity: two simultaneously active 
   assert.equal(delegated.ok, true);
   const workId = delegated.work!.workId;
 
-  // A second, simultaneously active session claims the same task: genuine,
-  // unresolvable ambiguity over which runtime actually owns control.
   store.createManagerSession({
     sessionId: "00000000-0000-4000-8000-000000000902" as ManagerSessionId,
     workspaceRoot: root,
