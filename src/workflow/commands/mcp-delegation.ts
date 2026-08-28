@@ -157,52 +157,69 @@ const delegationOutputSchema = {
   additionalProperties: false,
 };
 
-function tool(name: HarnessDelegationToolName, description: string, properties: Record<string, unknown>, required: string[]): Tool {
-  return {
-    name,
-    description,
-    inputSchema: { type: "object", properties: { schemaVersion, ...properties }, required, additionalProperties: false },
-    outputSchema: delegationOutputSchema,
-    annotations: name === "mottainai_inspect_work" ? readOnly : mutation,
-  };
-}
-
-const delegateWorkTool = tool(
-  "mottainai_delegate_work",
-  "Delegate one bounded goal through Mottainai's existing governed harness lifecycle.",
-  {
-    goal: { type: "string", minLength: 1, maxLength: 65_536 },
-    workspace: selectorSchema,
-    repository: selectorSchema,
-    constraints: constraintsSchema,
-    idempotencyKey: { type: "string", minLength: 1, maxLength: 128 },
+const delegateWorkTool: Tool = {
+  name: "mottainai_delegate_work",
+  description: "Delegate one bounded goal through Mottainai's existing governed harness lifecycle.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      schemaVersion,
+      goal: { type: "string", minLength: 1, maxLength: 65_536 },
+      workspace: selectorSchema,
+      repository: selectorSchema,
+      constraints: constraintsSchema,
+      idempotencyKey: { type: "string", minLength: 1, maxLength: 128 },
+    },
+    required: ["goal"],
+    additionalProperties: false,
   },
-  ["goal"],
-);
-const inspectWorkTool = tool(
-  "mottainai_inspect_work",
-  "Inspect one delegated work item by its stable workId.",
-  { workId: { type: "string", minLength: 1, maxLength: 128 } },
-  ["workId"],
-);
-const continueWorkTool = tool(
-  "mottainai_continue_work",
-  "Continue an eligible work item through its existing Manager session.",
-  {
-    workId: { type: "string", minLength: 1, maxLength: 128 },
-    followUp: { type: "string", minLength: 1, maxLength: 65_536 },
+  outputSchema: delegationOutputSchema,
+  annotations: mutation,
+};
+const inspectWorkTool: Tool = {
+  name: "mottainai_inspect_work",
+  description: "Inspect one delegated work item by its stable workId.",
+  inputSchema: {
+    type: "object",
+    properties: { schemaVersion, workId: { type: "string", minLength: 1, maxLength: 128 } },
+    required: ["workId"],
+    additionalProperties: false,
   },
-  ["workId", "followUp"],
-);
-const cancelWorkTool = tool(
-  "mottainai_cancel_work",
-  "Cancel one work item through existing task and Manager lifecycle authority.",
-  {
-    workId: { type: "string", minLength: 1, maxLength: 128 },
-    reason: { type: "string", minLength: 1, maxLength: 65_536 },
+  outputSchema: delegationOutputSchema,
+  annotations: readOnly,
+};
+const continueWorkTool: Tool = {
+  name: "mottainai_continue_work",
+  description: "Continue an eligible work item through its existing Manager session.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      schemaVersion,
+      workId: { type: "string", minLength: 1, maxLength: 128 },
+      followUp: { type: "string", minLength: 1, maxLength: 65_536 },
+    },
+    required: ["workId", "followUp"],
+    additionalProperties: false,
   },
-  ["workId"],
-);
+  outputSchema: delegationOutputSchema,
+  annotations: mutation,
+};
+const cancelWorkTool: Tool = {
+  name: "mottainai_cancel_work",
+  description: "Cancel one work item through existing task and Manager lifecycle authority.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      schemaVersion,
+      workId: { type: "string", minLength: 1, maxLength: 128 },
+      reason: { type: "string", minLength: 1, maxLength: 65_536 },
+    },
+    required: ["workId"],
+    additionalProperties: false,
+  },
+  outputSchema: delegationOutputSchema,
+  annotations: mutation,
+};
 const capabilitiesTool: Tool = {
   name: HARNESS_CAPABILITIES_TOOL_NAME,
   description: "Describe the versioned packaged stdio harness-delegation surface.",
