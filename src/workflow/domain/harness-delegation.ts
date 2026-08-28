@@ -7,12 +7,10 @@ import {
   type ManagerResourceClaim,
   type ManagerResourceScope,
 } from "../../manager/service.js";
-import { NawabariExecutionClient } from "../nawabari.js";
 import { allowedNextTransitions, isContinuableLifecycleState, validateTransition } from "./lifecycle.js";
 import type { LifecycleState } from "./lifecycle.js";
 import { transitionTask } from "./task-lifecycle.js";
 import type { RepositoryInstanceId } from "./identity.js";
-import { deriveTaskRunIdempotencyKey, runManagedTask } from "./managed-task-run.js";
 import type {
   ManagerRuntimeState,
   ManagerSessionRecord,
@@ -56,6 +54,7 @@ export interface HarnessWorkConstraints {
   issueRef?: string;
   branchType?: string;
   agentKind?: string;
+  launchProfile?: string;
   provider?: string;
   model?: string;
   paths?: readonly string[];
@@ -125,7 +124,6 @@ export interface HarnessOperationResult {
 export interface HarnessDelegationDependencies {
   defaultWorkspaceRoot: string;
   store: () => Promise<WorkflowStateStore>;
-  nawabari: NawabariExecutionClient;
   managerForWorkspace: (
     workspaceRoot: string,
     store: WorkflowStateStore,
@@ -141,11 +139,51 @@ function generatedTaskSlug(goal: string): string {
   return `mcp-${crypto.createHash("sha256").update(goal).digest("hex").slice(0, 24)}`;
 }
 
+function canonicalScope(scope: ManagerResourceScope | undefined): unknown {
+  if (scope === undefined) return null;
+  return {
+    paths: scope.paths === undefined ? [] : [...scope.paths].sort(),
+    claims:
+      scope.claims === undefined
+        ? []
+        : scope.claims
+            .map((claim) => ({ resource: claim.resource, mode: claim.mode }))
+            .sort((left, right) =>
+              `${left.resource}\u0000${left.mode}`.localeCompare(`${right.resource}\u0000${right.mode}`),
+            ),
+  };
+}
+
+function deriveDelegationKey(
+  goal: string,
+  taskSlug: string,
+  constraints: HarnessWorkConstraints,
+  scope: ManagerResourceScope | undefined,
+): string {
+  const digest = crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify([
+        goal,
+        taskSlug,
+        constraints.issueRef ?? null,
+        constraints.branchType ?? "feat",
+        constraints.agentKind ?? null,
+        constraints.launchProfile ?? null,
+        constraints.provider ?? null,
+        constraints.model ?? null,
+        canonicalScope(scope),
+      ]),
+    )
+    .digest("hex");
+  return `mcp-delegate:${digest}`;
+}
+
 function safeText(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   return value
     .replace(/[\u0000-\u001f\u007f]/gu, " ")
-    .replace(/(?:token|password|secret|authorization|api[_-]?key)\s*[:=]\s*[^\s,;]+/giu, "$1=[redacted]")
+    .replace(/((?:token|password|secret|authorization|api[_-]?key))\s*[:=]\s*[^\s,;]+/giu, "$1=[redacted]")
     .replace(/(?:[A-Za-z]:[\\/]|\/)[^\s"'`;,)\]}]*/gu, "[path]")
     .trim()
     .slice(0, MAX_PUBLIC_TEXT);
@@ -339,17 +377,7 @@ export class HarnessDelegationService {
         ? undefined
         : { paths: constraints.paths, claims: constraints.claims };
     const effectiveKey =
-      request.idempotencyKey ??
-      deriveTaskRunIdempotencyKey({
-        taskSlug,
-        issueRef: constraints.issueRef,
-        branchType: constraints.branchType ?? "feat",
-        agentKind: constraints.agentKind ?? "codex",
-        provider: constraints.provider,
-        model: constraints.model,
-        instruction: request.goal,
-        scope,
-      });
+      request.idempotencyKey ?? deriveDelegationKey(request.goal, taskSlug, constraints, scope);
 
     return this.withOperation(`delegate:${workspaceRoot}:${effectiveKey}`, async () => {
       try {
@@ -357,37 +385,26 @@ export class HarnessDelegationService {
         const prior = store
           .listManagerSessions(workspaceRoot)
           .find((candidate) => candidate.idempotencyKey === effectiveKey);
-        const run = await runManagedTask({
-          workspaceRoot,
-          store,
-          nawabari: this.dependencies.nawabari,
-          manager,
-          taskSlug,
-          issueRef: constraints.issueRef,
-          branchType: constraints.branchType ?? "feat",
-          agentKind: constraints.agentKind ?? "codex",
+        const session = await manager.start({
+          instruction: request.goal,
+          ...(constraints.agentKind === undefined ? {} : { agentKind: constraints.agentKind }),
+          ...(constraints.launchProfile === undefined ? {} : { launchProfile: constraints.launchProfile }),
           ...(constraints.provider === undefined ? {} : { provider: constraints.provider }),
           ...(constraints.model === undefined ? {} : { model: constraints.model }),
-          instruction: request.goal,
-          ...(request.idempotencyKey === undefined ? {} : { idempotencyKey: request.idempotencyKey }),
+          taskSlug,
+          ...(constraints.issueRef === undefined ? {} : { issueRef: constraints.issueRef }),
+          branchType: constraints.branchType ?? "feat",
+          idempotencyKey: effectiveKey,
           ...(scope === undefined ? {} : { scope }),
         });
-        const managerRecord =
-          run.manager === undefined ? undefined : store.getManagerSession(run.manager.sessionId);
-        const work = run.task === undefined ? undefined : snapshotFor(store, run.task, managerRecord);
-        if (!run.ok) {
-          return failure(
-            work?.status ?? (run.error.code === "invalid_request" ? "failed" : "blocked"),
-            classifyError({ code: run.error.code, message: run.error.message }, run.error.code),
-            work,
-          );
-        }
-        if (work === undefined) {
+        const task = session.taskId === undefined ? undefined : store.getTask(session.taskId);
+        if (task === undefined) {
           return failure(
             "failed",
             errorProjection("internal_failure", "work_identity_missing", "managed task identity was not returned"),
           );
         }
+        const work = snapshotFor(store, task, session);
         return { ok: true, status: work.status, work, ...(prior === undefined ? {} : { reused: true }) };
       } catch (error) {
         return failure("failed", classifyError(error, "delegate_failed"));
