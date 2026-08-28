@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { test } from "node:test";
 import { createTempGitRepo, runGit } from "../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../test-support/workflow-store.js";
@@ -7,7 +10,19 @@ import { transitionTask } from "../workflow/domain/task-lifecycle.js";
 import type { ManagerExecutionAuthority } from "../workflow/domain/manager-execution.js";
 import type { ManagerSessionId } from "../workflow/state/store.js";
 import type { ZellijObservedState, ZellijRuntime } from "./zellij.js";
+import { PI_GUARD_ASSET_MARKER } from "./pi-guard.js";
 import { ManagerError, ManagerSessionService } from "./service.js";
+
+function writeFakePiGuard(t: { after: (fn: () => void) => void }, name: string): string {
+  const directory = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "mottainai-pi-guard-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const guardPath = path.join(directory, name);
+  fs.writeFileSync(
+    guardPath,
+    `// ${PI_GUARD_ASSET_MARKER}\nexport default function mottainaiManagedPiGuard() {}\n`,
+  );
+  return guardPath;
+}
 
 class ContinueRuntime implements ZellijRuntime {
   readonly sessions = new Set<string>();
@@ -178,4 +193,155 @@ test("Manager continue rejects a terminal semantic task lifecycle", async (t) =>
   );
   assert.deepEqual(runtime.terminated, []);
   assert.deepEqual(runtime.started, []);
+});
+
+test("Manager continue rebuilds pi launch argv through the authoritative construction, not the stale stored guard path", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const identity = resolveRepositoryIdentity(root);
+  assert.equal(identity.ok, true);
+  if (!identity.ok) return;
+  store.observeRepositoryInstance({
+    rootCommitDigest: identity.identity.rootCommitDigest,
+    instanceId: identity.identity.instanceId,
+    gitCommonDir: identity.identity.gitCommonDir,
+    canonicalWorktreePath: identity.identity.worktreePath,
+  });
+  const reserved = store.reserveTask({
+    instanceId: identity.identity.instanceId,
+    taskSlug: "continue-pi-task",
+    issueRef: undefined,
+    baseBranch: "main",
+    baseCommit: runGit(["rev-parse", "HEAD"], root),
+    allowMultipleActiveTasksPerIssue: true,
+  });
+  assert.equal(reserved.ok, true);
+  if (!reserved.ok) return;
+  assert.equal(transitionTask(store, reserved.task.taskId, "active").ok, true);
+
+  const authority: ManagerExecutionAuthority = {
+    async start() {
+      throw new Error("not used");
+    },
+    async validate() {
+      return { ok: true };
+    },
+    async observe(context) {
+      const task = context.taskId === undefined ? undefined : store.getTask(context.taskId);
+      return { semanticLifecycleState: task?.lifecycleState ?? "unbound", status: undefined, receipt: undefined };
+    },
+  };
+  const runtime = new ContinueRuntime();
+  // Simulates a package upgrade relocating the packaged Pi guard asset between
+  // the original launch and this continue call: the stored launchArgs still
+  // reference the old (now stale) path, but the authoritative construction
+  // must resolve and use the currently configured guard, not replay the old one.
+  const oldGuardPath = writeFakePiGuard(t, "old-pi-guard.js");
+  const newGuardPath = writeFakePiGuard(t, "new-pi-guard.js");
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store,
+    runtime,
+    executionAuthority: authority,
+    piGuardPath: newGuardPath,
+  });
+  const session = store.createManagerSession({
+    sessionId: "00000000-0000-4000-8000-000000000550" as ManagerSessionId,
+    workspaceRoot: root,
+    taskId: reserved.task.taskId,
+    executionSessionId: "nawabari-session-550",
+    executionMode: "task-bound",
+    worktreePath: root,
+    branchName: "feat/continue-pi-task",
+    agentKind: "pi",
+    launchProfile: "pi",
+    provider: "anthropic",
+    model: "claude-sonnet-4",
+    instruction: "initial pi instruction",
+    launchCommand: "pi",
+    launchArgs: ["--provider", "anthropic", "--model", "claude-sonnet-4", "--extension", oldGuardPath, "--", "initial pi instruction"],
+    runtimeName: "mottainai-continue-pi-runtime",
+    lifecycleState: "running",
+    runtimeState: "running",
+    semanticLifecycleState: "active",
+  });
+  runtime.sessions.add(session.runtimeName);
+
+  const continued = await service.continueWork(session.sessionId, "pi follow-up instruction");
+  assert.deepEqual(continued.launchArgs, [
+    "--provider",
+    "anthropic",
+    "--model",
+    "claude-sonnet-4",
+    "--extension",
+    newGuardPath,
+    "--",
+    continued.instruction,
+  ]);
+  assert.equal(continued.launchArgs.includes(oldGuardPath), false);
+  assert.equal(continued.restartCount, 1);
+});
+
+test("Manager continue reconstructs claude/model launch argv rather than positionally editing stored argv", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const identity = resolveRepositoryIdentity(root);
+  assert.equal(identity.ok, true);
+  if (!identity.ok) return;
+  store.observeRepositoryInstance({
+    rootCommitDigest: identity.identity.rootCommitDigest,
+    instanceId: identity.identity.instanceId,
+    gitCommonDir: identity.identity.gitCommonDir,
+    canonicalWorktreePath: identity.identity.worktreePath,
+  });
+  const reserved = store.reserveTask({
+    instanceId: identity.identity.instanceId,
+    taskSlug: "continue-claude-task",
+    issueRef: undefined,
+    baseBranch: "main",
+    baseCommit: runGit(["rev-parse", "HEAD"], root),
+    allowMultipleActiveTasksPerIssue: true,
+  });
+  assert.equal(reserved.ok, true);
+  if (!reserved.ok) return;
+  assert.equal(transitionTask(store, reserved.task.taskId, "active").ok, true);
+
+  const authority: ManagerExecutionAuthority = {
+    async start() {
+      throw new Error("not used");
+    },
+    async validate() {
+      return { ok: true };
+    },
+    async observe(context) {
+      const task = context.taskId === undefined ? undefined : store.getTask(context.taskId);
+      return { semanticLifecycleState: task?.lifecycleState ?? "unbound", status: undefined, receipt: undefined };
+    },
+  };
+  const runtime = new ContinueRuntime();
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime, executionAuthority: authority });
+  const session = store.createManagerSession({
+    sessionId: "00000000-0000-4000-8000-000000000551" as ManagerSessionId,
+    workspaceRoot: root,
+    taskId: reserved.task.taskId,
+    executionSessionId: "nawabari-session-551",
+    executionMode: "task-bound",
+    worktreePath: root,
+    branchName: "feat/continue-claude-task",
+    agentKind: "claude",
+    launchProfile: "claude",
+    model: "claude-opus-4",
+    instruction: "initial claude instruction",
+    launchCommand: "claude",
+    launchArgs: ["--model", "claude-opus-4", "--", "initial claude instruction"],
+    runtimeName: "mottainai-continue-claude-runtime",
+    lifecycleState: "running",
+    runtimeState: "running",
+    semanticLifecycleState: "active",
+  });
+  runtime.sessions.add(session.runtimeName);
+
+  const continued = await service.continueWork(session.sessionId, "claude follow-up instruction");
+  assert.deepEqual(continued.launchArgs, ["--model", "claude-opus-4", "--", continued.instruction]);
+  assert.equal(continued.launchCommand, "claude");
 });

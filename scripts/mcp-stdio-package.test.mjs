@@ -328,6 +328,14 @@ test(
         "mottainai_harness_capabilities",
       ];
       for (const name of nativeNames) assert.ok(listResponse.result.tools.some((tool) => tool.name === name), name);
+      // #548: mottainai-mcp is a deliberate, narrow harness-delegation boundary.
+      // It must never expose the legacy gateway's broad low-level catalog
+      // (local tools, workflow-command tools, adaptive/broker/code-search).
+      assert.equal(listResponse.result.tools.length, nativeNames.length);
+      assert.equal(
+        listResponse.result.tools.some((tool) => tool.name === "mottainai_list"),
+        false,
+      );
 
       const capabilities = await client.request(
         "tools/call",

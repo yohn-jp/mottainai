@@ -171,6 +171,30 @@ test("delegate retry, keyed inspect/continue/cancel remain on one work identity"
   assert.equal((missing.error as Record<string, unknown>).class, "lifecycle_conflict");
 });
 
+test("native delegation output schemas declare closed nested shapes, not opaque objects", async () => {
+  for (const tool of harnessDelegationTools()) {
+    const schema = tool.outputSchema as Record<string, unknown>;
+    const properties = schema.properties as Record<string, Record<string, unknown>>;
+    for (const key of ["lifecycle", "identity", "outcome", "evidence", "error"] as const) {
+      const nested = properties[key];
+      assert.ok(nested, `${tool.name} is missing ${key} in its output schema`);
+      assert.ok(nested.properties, `${tool.name}.${key} must declare explicit nested properties`);
+      assert.equal(nested.additionalProperties, false, `${tool.name}.${key} must be a closed schema`);
+    }
+    const artifacts = properties.artifacts as Record<string, unknown>;
+    const artifactItems = artifacts.items as Record<string, unknown>;
+    assert.equal(artifactItems.additionalProperties, false);
+    assert.ok(artifactItems.properties);
+  }
+  const capabilitiesTool = harnessDelegationTools().find((tool) => tool.name === HARNESS_CAPABILITIES_TOOL_NAME)!;
+  const capabilitiesSchema = (capabilitiesTool.outputSchema as Record<string, unknown>).properties as Record<
+    string,
+    Record<string, unknown>
+  >;
+  assert.equal(capabilitiesSchema.capabilities.additionalProperties, false);
+  assert.ok(capabilitiesSchema.capabilities.properties);
+});
+
 test("handler rejects unversioned unknown input without invoking orchestration", async () => {
   let invoked = false;
   const fake = {

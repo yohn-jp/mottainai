@@ -14,6 +14,7 @@ import {
   runManagedTask,
   type ManagedTaskRunResult,
 } from "./managed-task-run.js";
+import { validateTransition } from "./lifecycle.js";
 import type { LifecycleState } from "./lifecycle.js";
 import type {
   ManagerRuntimeState,
@@ -163,8 +164,10 @@ const MAX_WORK_ID_LENGTH = 128;
 const MAX_SELECTOR_LENGTH = 2_048;
 const MAX_CONSTRAINT_TEXT_LENGTH = 128;
 const MAX_STATUS_LENGTH = 512;
-const MAX_RECEIPTS = 4;
-const MAX_ARTIFACTS = 16;
+export const MAX_HARNESS_RECEIPTS = 4;
+export const MAX_HARNESS_ARTIFACTS = 16;
+const MAX_RECEIPTS = MAX_HARNESS_RECEIPTS;
+const MAX_ARTIFACTS = MAX_HARNESS_ARTIFACTS;
 const MAX_SCOPE_ENTRIES = 128;
 const ACTIVE_RUNTIME_STATES: readonly ManagerRuntimeState[] = ["starting", "running", "detached"];
 const TERMINAL_TASK_STATES: ReadonlySet<LifecycleState> = new Set([
@@ -703,23 +706,55 @@ export class HarnessDelegationService {
           existing,
         );
       }
+      const abandonValidation = validateTransition(task.lifecycleState, "abandoned");
+      if (!abandonValidation.allowed) {
+        return resultFailure(
+          existing.status,
+          errorProjection("lifecycle_conflict", "cancel_not_allowed", abandonValidation.blocked.blockingRule),
+          existing,
+        );
+      }
+      // Stop the managed runtime through the existing identity-gated Manager
+      // authority before committing the terminal task transition. Manager.stop
+      // can return normally while refusing to terminate (e.g. its physical
+      // identity verification fails), so a semantically terminal "cancelled"
+      // must never be reported - and the task must never be abandoned - while
+      // the selected runtime may still be active.
+      let stopped: ManagerSessionRecord;
+      try {
+        stopped = await found.managerService.stop(found.manager.sessionId);
+      } catch (error) {
+        const refreshedTask = found.store.getTask(task.taskId) ?? task;
+        const refreshedManager = found.store.getManagerSession(found.manager.sessionId) ?? found.manager;
+        const work = snapshotFor(found.store, refreshedTask, refreshedManager);
+        return resultFailure(work.status, classifyError(error, "cancel_failed"), work);
+      }
+      // "stale" means Manager's stop refused to act because the runtime's
+      // physical identity could not be verified (see ManagerSessionService.stop);
+      // that is exactly the unresolved-verification case that must never be
+      // reported as terminal cancellation alongside an active runtime state.
+      if (ACTIVE_RUNTIME_STATES.includes(stopped.runtimeState) || stopped.runtimeState === "stale") {
+        const refreshedTask = found.store.getTask(task.taskId) ?? task;
+        const work = snapshotFor(found.store, refreshedTask, stopped);
+        return resultFailure(
+          work.status,
+          errorProjection(
+            "lifecycle_conflict",
+            "cancel_stop_unresolved",
+            stopped.reconciliationMessage ??
+              "managed runtime stop could not be verified; the selected runtime may remain active",
+          ),
+          work,
+        );
+      }
       const transition = transitionTask(found.store, task.taskId, "abandoned");
       if (!transition.ok) {
         const refreshedTask = found.store.getTask(task.taskId) ?? task;
-        const work = snapshotFor(found.store, refreshedTask, found.manager);
+        const work = snapshotFor(found.store, refreshedTask, stopped);
         return resultFailure(work.status, errorProjection("lifecycle_conflict", "cancel_not_allowed", transition.blocked.blockingRule), work);
       }
-      try {
-        const stopped = await found.managerService.stop(found.manager.sessionId);
-        const refreshedTask = found.store.getTask(task.taskId) ?? transition.task;
-        const work = snapshotFor(found.store, refreshedTask, stopped, "cancelled");
-        return { ok: true, status: "cancelled", work };
-      } catch (error) {
-        const refreshedTask = found.store.getTask(task.taskId) ?? transition.task;
-        const refreshedManager = found.store.getManagerSession(found.manager.sessionId) ?? found.manager;
-        const work = snapshotFor(found.store, refreshedTask, refreshedManager, "cancelled");
-        return resultFailure("cancelled", classifyError(error, "cancel_failed"), work);
-      }
+      const work = snapshotFor(found.store, transition.task, stopped, "cancelled");
+      return { ok: true, status: "cancelled", work };
     });
   }
 
@@ -762,7 +797,8 @@ export class HarnessDelegationService {
         ),
       };
     }
-    if (sessions.length !== 1) {
+    const manager = this.canonicalManagerSession(sessions);
+    if (manager === undefined) {
       return {
         kind: "invalid",
         store,
@@ -771,13 +807,29 @@ export class HarnessDelegationService {
         error: errorProjection(
           "lifecycle_conflict",
           "multiple_manager_sessions",
-          "multiple Manager sessions claim this work item; refusing ambiguous control",
+          "multiple active Manager sessions claim this work item; refusing ambiguous control",
         ),
       };
     }
-    const manager = sessions[0]!;
     const managerService = await this.dependencies.managerForWorkspace(manager.workspaceRoot, store);
     return { kind: "found", value: { store, task, manager, managerService } };
+  }
+
+  /**
+   * One task is expected to have exactly one controllable Manager session,
+   * but that is not a persisted database invariant - historical/terminal
+   * session rows for the same task can remain after a restart/replace. Resolve
+   * the single active (starting/running/detached) session as canonical using
+   * the same runtime-state authority the rest of this module trusts, and fail
+   * closed only when more than one session is simultaneously active, which is
+   * genuine, unresolvable ambiguity over which runtime actually owns control.
+   */
+  private canonicalManagerSession(sessions: readonly ManagerSessionRecord[]): ManagerSessionRecord | undefined {
+    if (sessions.length === 1) return sessions[0];
+    const active = sessions.filter((session) => ACTIVE_RUNTIME_STATES.includes(session.runtimeState));
+    if (active.length === 1) return active[0];
+    if (active.length > 1) return undefined;
+    return [...sessions].sort((left, right) => right.startedAt - left.startedAt)[0];
   }
 
   private managerRecord(store: WorkflowStateStore, run: ManagedTaskRunResult): ManagerSessionRecord | undefined {

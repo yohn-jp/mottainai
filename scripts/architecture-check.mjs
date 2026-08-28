@@ -72,7 +72,7 @@ const processExitBoundaryFiles = new Set([
   "src/workflow/domain/identity-resolve-worker.mjs",
 ]);
 
-const signalBoundaryFiles = new Set(["src/index.ts", "src/server.ts"]);
+const signalBoundaryFiles = new Set(["src/index.ts", "src/server.ts", "src/mcp-server.ts"]);
 
 const argvBoundaryFiles = new Set([
   "src/cli.ts",
@@ -264,6 +264,7 @@ function layerForFile(relative) {
     return "entry";
   if (
     relative === "src/server.ts" ||
+    relative === "src/mcp-server.ts" ||
     relative === "src/proxy.ts" ||
     relative === "src/local-tools.ts" ||
     relative === "src/broker.ts" ||

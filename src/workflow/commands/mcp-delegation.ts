@@ -4,6 +4,8 @@ import {
   HARNESS_DELEGATION_STATUSES,
   HARNESS_ERROR_CLASSES,
   HarnessDelegationService,
+  MAX_HARNESS_ARTIFACTS,
+  MAX_HARNESS_RECEIPTS,
   type CancelWorkRequest,
   type ContinueWorkRequest,
   type DelegateWorkRequest,
@@ -75,6 +77,130 @@ const constraintsSchema = {
   additionalProperties: false,
 } as const;
 
+const lifecycleSchema = {
+  type: ["object", "null"],
+  properties: {
+    taskState: { type: "string" },
+    managerState: { type: ["string", "null"] },
+    runtimeState: { type: ["string", "null"] },
+    semanticState: { type: ["string", "null"] },
+    reconciliationState: { type: ["string", "null"] },
+    allowedActions: { type: "array", maxItems: 2, items: { type: "string", enum: ["continue", "cancel"] } },
+  },
+  required: ["taskState", "managerState", "runtimeState", "semanticState", "reconciliationState", "allowedActions"],
+  additionalProperties: false,
+} as const;
+
+const identitySchema = {
+  type: ["object", "null"],
+  properties: {
+    repositoryInstanceId: { type: "string" },
+    taskSlug: { type: "string" },
+    issueRef: { type: "string" },
+    branchName: { type: "string" },
+    agentKind: { type: "string" },
+  },
+  required: ["repositoryInstanceId", "taskSlug"],
+  additionalProperties: false,
+} as const;
+
+const outcomeSchema = {
+  type: "object",
+  properties: {
+    semanticState: { type: "string" },
+    summary: { type: "string" },
+  },
+  required: ["semanticState", "summary"],
+  additionalProperties: false,
+} as const;
+
+const evidenceSchema = {
+  type: "object",
+  properties: {
+    latestStatus: { type: "string" },
+    receipts: {
+      type: "array",
+      maxItems: MAX_HARNESS_RECEIPTS,
+      items: {
+        type: "object",
+        properties: { code: { type: "string" }, source: { type: "string" }, message: { type: "string" } },
+        required: ["code", "source", "message"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["receipts"],
+  additionalProperties: false,
+} as const;
+
+const artifactsSchema = {
+  type: "array",
+  maxItems: MAX_HARNESS_ARTIFACTS,
+  items: {
+    type: "object",
+    properties: {
+      kind: { type: "string", enum: ["pull_request"] },
+      provider: { type: "string" },
+      repositoryId: { type: "string" },
+      number: { type: "integer" },
+      url: { type: "string" },
+      state: { type: "string" },
+      headSha: { type: "string" },
+      mergeRevision: { type: "string" },
+    },
+    required: ["kind", "provider", "repositoryId", "number", "url", "state"],
+    additionalProperties: false,
+  },
+} as const;
+
+const errorSchema = {
+  type: "object",
+  properties: {
+    class: { type: "string", enum: [...HARNESS_ERROR_CLASSES] },
+    code: { type: "string" },
+    message: { type: "string" },
+  },
+  required: ["class", "code", "message"],
+  additionalProperties: false,
+} as const;
+
+const capabilitiesSchema = {
+  type: "object",
+  properties: {
+    schemaVersion: { type: "integer", enum: [HARNESS_DELEGATION_SCHEMA_VERSION] },
+    protocol: { type: "string", enum: ["mcp"] },
+    transport: { type: "string", enum: ["stdio"] },
+    tools: { type: "array", items: { type: "string" } },
+    statuses: { type: "array", items: { type: "string", enum: [...HARNESS_DELEGATION_STATUSES] } },
+    errorClasses: { type: "array", items: { type: "string", enum: [...HARNESS_ERROR_CLASSES] } },
+    workIdentity: { type: "string" },
+    launch: {
+      type: "object",
+      properties: {
+        executable: { type: "string" },
+        args: { type: "array", items: { type: "string" } },
+        environment: { type: "string" },
+        discovery: { type: "string" },
+      },
+      required: ["executable", "args", "environment", "discovery"],
+      additionalProperties: false,
+    },
+    futureGateway: { type: "string" },
+  },
+  required: [
+    "schemaVersion",
+    "protocol",
+    "transport",
+    "tools",
+    "statuses",
+    "errorClasses",
+    "workIdentity",
+    "launch",
+    "futureGateway",
+  ],
+  additionalProperties: false,
+} as const;
+
 const delegationOutputSchema = {
   type: "object" as const,
   properties: {
@@ -88,14 +214,14 @@ const delegationOutputSchema = {
     result_id: { type: "string" },
     truncated: { type: "boolean" },
     workId: { type: ["string", "null"] },
-    lifecycle: { type: ["object", "null"] },
-    identity: { type: ["object", "null"] },
-    outcome: { type: "object" },
-    evidence: { type: "object" },
-    artifacts: { type: "array", maxItems: 16 },
-    capabilities: { type: "object" },
+    lifecycle: lifecycleSchema,
+    identity: identitySchema,
+    outcome: outcomeSchema,
+    evidence: evidenceSchema,
+    artifacts: artifactsSchema,
+    capabilities: capabilitiesSchema,
     reused: { type: "boolean" },
-    error: { type: "object" },
+    error: errorSchema,
   },
   required: [
     "schemaVersion",

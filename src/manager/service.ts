@@ -1761,15 +1761,26 @@ export class ManagerSessionService {
 
     const separator = "\n\n--- Mottainai follow-up ---\n";
     const instruction = validateInstruction(`${current.instruction}${separator}${followUp}`);
-    const launchArgs = [...current.launchArgs];
-    if (launchArgs.length === 0) {
-      launchArgs.push(instruction);
-    } else {
-      launchArgs[launchArgs.length - 1] = instruction;
-    }
+    // Rebuild the launch invocation through the same authoritative construction
+    // `start()` uses, rather than assuming the instruction is the last stored
+    // argv element. Task/worktree/Nawabari/Manager identity are untouched here;
+    // only the agent argv is regenerated for the current agentKind/provider/model.
+    const piGuardPath = current.agentKind === "pi" ? configuredPiGuardPath(this.options.piGuardPath) : undefined;
+    const invocation = buildManagerLaunchInvocation({
+      agentKind: current.agentKind,
+      provider: current.provider,
+      model: current.model,
+      instruction,
+      piGuardPath,
+      commands: {
+        ...(this.options.agentCommands ?? {}),
+        ...(this.options.agentCommand === undefined ? {} : { codex: this.options.agentCommand }),
+      },
+    });
     this.options.store.updateManagerSession(sessionId, {
       instruction,
-      launchArgs,
+      launchCommand: invocation.command,
+      launchArgs: invocation.args,
       latestStatus: "bounded follow-up recorded; relaunching the existing execution context",
       latestReceipt: receipt(
         "follow_up_requested",

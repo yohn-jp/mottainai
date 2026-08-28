@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createRuntimeDiagnostic, formatRuntimeDiagnosticHuman } from "./runtime-diagnostic.js";
 import { resolveConfigPath } from "./config.js";
-import { runServer } from "./server.js";
+import { runHarnessDelegationServer } from "./mcp-server.js";
 
 function configArgument(args: readonly string[]): { configPath?: string; help: boolean } {
   let configPath: string | undefined;
@@ -27,19 +27,7 @@ try {
   const parsed = configArgument(startupArgs);
   requestedConfigPath = parsed.configPath;
   if (!parsed.help) {
-    const runtimeDiagnostic = createRuntimeDiagnostic({
-      cwd: startupCwd,
-      configPath: requestedConfigPath,
-      environment: process.env,
-      entryPoint: process.argv[1],
-    });
-    await runServer(
-      requestedConfigPath,
-      startupCwd,
-      runtimeDiagnostic,
-      process.env.HOME ?? process.env.USERPROFILE,
-      process.env,
-    );
+    await runHarnessDelegationServer(requestedConfigPath, startupCwd, process.env);
   }
 } catch (error) {
   const configPath = resolveConfigPath(requestedConfigPath, startupCwd);

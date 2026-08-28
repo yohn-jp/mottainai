@@ -12,6 +12,8 @@ mottainai-mcp [--config <path>]
 
 `MOTTAINAI_CONFIG` may select the configuration when `--config` is omitted. The executable is published in the package `bin` map and runs from `dist/mcp.js`; clients must not depend on a repository checkout or `tsx`. A future optional Majiwari gateway can consume this command/args pair and standard `tools/list` without importing Mottainai internals or depending on Majiwari at runtime.
 
+`mottainai-mcp` (`src/mcp.ts` → `src/mcp-server.ts`) is a distinct server from the legacy gateway (`mottainai serve`, `src/server.ts`/`src/proxy.ts`). It registers only the five tools below - never the legacy gateway's local tools, workflow-command tools, adaptive tools, broker tools, or code-search tools. Legacy `mottainai serve` behavior is unchanged and continues to expose its existing broader catalog for existing consumers.
+
 The stable discovery tool is `mottainai_harness_capabilities`. The delegation tools are:
 
 - `mottainai_delegate_work`
