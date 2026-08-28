@@ -12,11 +12,12 @@ import {
   ManagerError,
   ManagerSessionService,
   resolvePiGuardPath,
+  selectControllingManagerSession,
   type ManagerResourceScope,
   type NewManagerSessionInput,
 } from "./service.js";
 import type { ManagerExecutionAuthority } from "../workflow/domain/manager-execution.js";
-import type { ManagerSessionId, NawabariSessionId } from "../workflow/state/store.js";
+import type { ManagerSessionId, ManagerSessionRecord, NawabariSessionId } from "../workflow/state/store.js";
 import type { RepositoryInstanceId, RootCommitDigest } from "../workflow/domain/identity.js";
 import type { SemanticExecutionPlan } from "../semantics/execution-plan.js";
 
@@ -1543,4 +1544,31 @@ test("list projection omits expensive validation/commit/push/PR detail that only
   assert.deepEqual(summary.phaseRail, full.phaseRail);
   assert.deepEqual(summary.identities, full.identities);
   assert.deepEqual(summary.task, full.task);
+});
+
+function fakeManagerSessionRecord(sessionId: string, runtimeState: ManagerSessionRecord["runtimeState"], startedAt: number): ManagerSessionRecord {
+  return { sessionId, runtimeState, startedAt } as unknown as ManagerSessionRecord;
+}
+
+test("selectControllingManagerSession resolves the sole active session among historical rows for one task", () => {
+  const active = fakeManagerSessionRecord("active", "running", 100);
+  const historical = fakeManagerSessionRecord("historical", "stopped", 50);
+  assert.equal(selectControllingManagerSession([historical, active]), active);
+  assert.equal(selectControllingManagerSession([active]), active);
+});
+
+test("selectControllingManagerSession fails closed only when more than one session is simultaneously active", () => {
+  const firstActive = fakeManagerSessionRecord("first", "running", 100);
+  const secondActive = fakeManagerSessionRecord("second", "detached", 200);
+  assert.equal(selectControllingManagerSession([firstActive, secondActive]), undefined);
+});
+
+test("selectControllingManagerSession falls back to the most recently started session when none are active", () => {
+  const older = fakeManagerSessionRecord("older", "stopped", 100);
+  const newer = fakeManagerSessionRecord("newer", "failed", 200);
+  assert.equal(selectControllingManagerSession([older, newer]), newer);
+});
+
+test("selectControllingManagerSession returns undefined for an empty candidate set", () => {
+  assert.equal(selectControllingManagerSession([]), undefined);
 });

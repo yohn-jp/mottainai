@@ -4,8 +4,10 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createTempGitRepo, runGit } from "../../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../../test-support/workflow-store.js";
 import { resolveRepositoryIdentity } from "../domain/identity.js";
+import { isContinuableLifecycleState } from "../domain/lifecycle.js";
 import { transitionTask } from "../domain/task-lifecycle.js";
 import type { ManagerSessionRecord, ManagerSessionId, WorkflowStateStore } from "../state/store.js";
+import { ManagerError } from "../../manager/service.js";
 import type { ManagerResourceScope, NewManagerSessionInput, ManagerSessionService } from "../../manager/service.js";
 import {
   HARNESS_CAPABILITIES_TOOL_NAME,
@@ -80,6 +82,18 @@ function fakeManager(store: WorkflowStateStore, workspaceRoot: string): ManagerS
     continueWork: async (sessionId: ManagerSessionId, followUp: string): Promise<ManagerSessionRecord> => {
       const session = store.getManagerSession(sessionId);
       if (session === undefined) throw new Error("manager session missing");
+      // Mirror ManagerSessionService.continueWork()'s real eligibility gate so
+      // this fake stays faithful to the authority the harness now defers to.
+      // Production reconciles semanticLifecycleState from the task before this
+      // check; this fake reads the task directly to reproduce that freshness.
+      const task = session.taskId === undefined ? undefined : store.getTask(session.taskId);
+      const currentState = task?.lifecycleState ?? session.semanticLifecycleState;
+      const continuable = currentState !== "unbound" && isContinuableLifecycleState(currentState);
+      if (!continuable)
+        throw new ManagerError(
+          "session_continue_rejected",
+          `cannot continue a session whose semantic task lifecycle is ${currentState}`,
+        );
       return store.updateManagerSession(sessionId, {
         instruction: `${session.instruction}\n${followUp}`,
         launchArgs: ["--", `${session.instruction}\n${followUp}`],

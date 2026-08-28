@@ -66,6 +66,16 @@ function blockingRuleFor(from: LifecycleState, to: LifecycleState): string {
   return `no direct transition from ${from} to ${to}; allowed: ${TRANSITIONS[from].join(", ") || "(none)"}`;
 }
 
+/**
+ * Whether a task-bound execution can accept a bounded follow-up instruction
+ * and relaunch in place. This is the single authority for that question -
+ * every continue-eligibility check (Manager, MCP delegation) reads it rather
+ * than maintaining its own list of terminal/ineligible states.
+ */
+export function isContinuableLifecycleState(state: LifecycleState): boolean {
+  return state === "planned" || state === "active";
+}
+
 export function validateTransition(from: LifecycleState, to: LifecycleState): TransitionValidation {
   if (TRANSITIONS[from].includes(to)) {
     return { allowed: true, from, to };

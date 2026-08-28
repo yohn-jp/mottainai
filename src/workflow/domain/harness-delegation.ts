@@ -1,8 +1,10 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import {
+  ACTIVE_RUNTIME_STATES,
   ManagerError,
   ManagerSessionService,
+  selectControllingManagerSession,
   type ManagerResourceClaim,
   type ManagerResourceScope,
 } from "../../manager/service.js";
@@ -14,7 +16,7 @@ import {
   runManagedTask,
   type ManagedTaskRunResult,
 } from "./managed-task-run.js";
-import { validateTransition } from "./lifecycle.js";
+import { allowedNextTransitions, isContinuableLifecycleState, validateTransition } from "./lifecycle.js";
 import type { LifecycleState } from "./lifecycle.js";
 import type {
   ManagerRuntimeState,
@@ -169,21 +171,11 @@ export const MAX_HARNESS_ARTIFACTS = 16;
 const MAX_RECEIPTS = MAX_HARNESS_RECEIPTS;
 const MAX_ARTIFACTS = MAX_HARNESS_ARTIFACTS;
 const MAX_SCOPE_ENTRIES = 128;
-const ACTIVE_RUNTIME_STATES: readonly ManagerRuntimeState[] = ["starting", "running", "detached"];
-const TERMINAL_TASK_STATES: ReadonlySet<LifecycleState> = new Set([
-  "merged",
-  "abandoned",
-  "cleaned",
-]);
-const CONTINUE_INELIGIBLE_TASK_STATES: ReadonlySet<LifecycleState> = new Set([
-  "committed",
-  "pushed",
-  "pull-request-open",
-  "merged",
-  "abandoned",
-  "orphaned",
-  "cleaned",
-]);
+
+/** `ACTIVE_RUNTIME_STATES` is Manager's authoritative tuple; widen it once for `.includes()`. */
+function isActiveRuntimeState(state: ManagerRuntimeState): boolean {
+  return (ACTIVE_RUNTIME_STATES as readonly ManagerRuntimeState[]).includes(state);
+}
 
 class HarnessInputError extends Error {
   readonly code = "invalid_input";
@@ -341,7 +333,7 @@ function statusFor(task: TaskRecord, manager: ManagerSessionRecord | undefined):
   if (terminal !== undefined) return terminal;
   if (manager === undefined) return task.lifecycleState === "planned" ? "accepted" : "blocked";
   if (manager.runtimeState === "failed" || manager.lifecycleState === "failed") return "failed";
-  if (ACTIVE_RUNTIME_STATES.includes(manager.runtimeState)) {
+  if (isActiveRuntimeState(manager.runtimeState)) {
     return manager.runtimeState === "starting" ? "accepted" : "running";
   }
   if (task.lifecycleState === "planned") return "accepted";
@@ -358,15 +350,21 @@ function summaryFor(status: HarnessWorkStatus, task: TaskRecord, manager: Manage
   return safeText(manager?.reconciliationMessage ?? manager?.latestStatus) ?? "work requires governed reconciliation";
 }
 
+/**
+ * Advisory only: reads the same authorities the real operations enforce
+ * (Manager's continue-eligibility predicate, the task-lifecycle transition
+ * table) rather than maintaining an independent notion of which states allow
+ * which actions.
+ */
 function allowedActionsFor(
   task: TaskRecord,
   manager: ManagerSessionRecord | undefined,
-  status: HarnessWorkStatus,
 ): readonly ("continue" | "cancel")[] {
-  if (manager === undefined || TERMINAL_TASK_STATES.has(task.lifecycleState) || task.lifecycleState === "orphaned") return [];
+  if (manager === undefined) return [];
   const actions: ("continue" | "cancel")[] = [];
-  if (!CONTINUE_INELIGIBLE_TASK_STATES.has(task.lifecycleState)) actions.push("continue");
-  if (status !== "completed" && status !== "cancelled") actions.push("cancel");
+  if (manager.semanticLifecycleState !== "unbound" && isContinuableLifecycleState(manager.semanticLifecycleState))
+    actions.push("continue");
+  if (allowedNextTransitions(task.lifecycleState).includes("abandoned")) actions.push("cancel");
   return actions;
 }
 
@@ -424,7 +422,7 @@ function snapshotFor(
       runtimeState: manager?.runtimeState ?? null,
       semanticState: manager?.semanticLifecycleState ?? null,
       reconciliationState: manager?.reconciliationState ?? null,
-      allowedActions: allowedActionsFor(task, manager, status),
+      allowedActions: allowedActionsFor(task, manager),
     },
     identity: {
       repositoryInstanceId: task.instanceId,
@@ -657,26 +655,16 @@ export class HarnessDelegationService {
       const lookup = await this.lookupOrFailure(workId, "continue_failed");
       if (lookup.result !== undefined) return lookup.result;
       const found = lookup.value;
-      const task = found.store.getTask(found.task.taskId) ?? found.task;
-      const existing = snapshotFor(found.store, task, found.manager);
-      if (CONTINUE_INELIGIBLE_TASK_STATES.has(task.lifecycleState)) {
-        return resultFailure(
-          existing.status,
-          errorProjection(
-            "lifecycle_conflict",
-            "continue_not_allowed",
-            `continue is not allowed for task lifecycle ${task.lifecycleState}`,
-          ),
-          existing,
-        );
-      }
+      // No independent eligibility pre-check: Manager's continueWork() is the
+      // sole authority on whether this session can continue, and its rejection
+      // is classified into the same lifecycle_conflict error class below.
       try {
         const continued = await found.managerService.continueWork(found.manager.sessionId, followUp);
-        const refreshedTask = found.store.getTask(task.taskId) ?? task;
+        const refreshedTask = found.store.getTask(found.task.taskId) ?? found.task;
         const work = snapshotFor(found.store, refreshedTask, continued);
         return { ok: true, status: work.status, work };
       } catch (error) {
-        const refreshedTask = found.store.getTask(task.taskId) ?? task;
+        const refreshedTask = found.store.getTask(found.task.taskId) ?? found.task;
         const refreshedManager = found.store.getManagerSession(found.manager.sessionId) ?? found.manager;
         const work = snapshotFor(found.store, refreshedTask, refreshedManager);
         return resultFailure(work.status, classifyError(error, "continue_failed"), work);
@@ -697,17 +685,14 @@ export class HarnessDelegationService {
       if (lookup.result !== undefined) return lookup.result;
       const found = lookup.value;
       const task = found.store.getTask(found.task.taskId) ?? found.task;
-      const existing = snapshotFor(found.store, task, found.manager);
-      if (task.lifecycleState === "abandoned") return { ok: true, status: "cancelled", work: existing };
-      if (TERMINAL_TASK_STATES.has(task.lifecycleState) || task.lifecycleState === "orphaned") {
-        return resultFailure(
-          existing.status,
-          errorProjection("lifecycle_conflict", "cancel_not_allowed", `cancel is not allowed for task lifecycle ${task.lifecycleState}`),
-          existing,
-        );
-      }
+      if (task.lifecycleState === "abandoned")
+        return { ok: true, status: "cancelled", work: snapshotFor(found.store, task, found.manager) };
+      // The task-lifecycle transition table is the sole authority on which
+      // states can reach "abandoned" (e.g. it correctly allows recovering an
+      // orphaned task, unlike a hand-rolled exclusion list would).
       const abandonValidation = validateTransition(task.lifecycleState, "abandoned");
       if (!abandonValidation.allowed) {
+        const existing = snapshotFor(found.store, task, found.manager);
         return resultFailure(
           existing.status,
           errorProjection("lifecycle_conflict", "cancel_not_allowed", abandonValidation.blocked.blockingRule),
@@ -733,7 +718,7 @@ export class HarnessDelegationService {
       // physical identity could not be verified (see ManagerSessionService.stop);
       // that is exactly the unresolved-verification case that must never be
       // reported as terminal cancellation alongside an active runtime state.
-      if (ACTIVE_RUNTIME_STATES.includes(stopped.runtimeState) || stopped.runtimeState === "stale") {
+      if (isActiveRuntimeState(stopped.runtimeState) || stopped.runtimeState === "stale") {
         const refreshedTask = found.store.getTask(task.taskId) ?? task;
         const work = snapshotFor(found.store, refreshedTask, stopped);
         return resultFailure(
@@ -797,7 +782,7 @@ export class HarnessDelegationService {
         ),
       };
     }
-    const manager = this.canonicalManagerSession(sessions);
+    const manager = selectControllingManagerSession(sessions);
     if (manager === undefined) {
       return {
         kind: "invalid",
@@ -813,23 +798,6 @@ export class HarnessDelegationService {
     }
     const managerService = await this.dependencies.managerForWorkspace(manager.workspaceRoot, store);
     return { kind: "found", value: { store, task, manager, managerService } };
-  }
-
-  /**
-   * One task is expected to have exactly one controllable Manager session,
-   * but that is not a persisted database invariant - historical/terminal
-   * session rows for the same task can remain after a restart/replace. Resolve
-   * the single active (starting/running/detached) session as canonical using
-   * the same runtime-state authority the rest of this module trusts, and fail
-   * closed only when more than one session is simultaneously active, which is
-   * genuine, unresolvable ambiguity over which runtime actually owns control.
-   */
-  private canonicalManagerSession(sessions: readonly ManagerSessionRecord[]): ManagerSessionRecord | undefined {
-    if (sessions.length === 1) return sessions[0];
-    const active = sessions.filter((session) => ACTIVE_RUNTIME_STATES.includes(session.runtimeState));
-    if (active.length === 1) return active[0];
-    if (active.length > 1) return undefined;
-    return [...sessions].sort((left, right) => right.startedAt - left.startedAt)[0];
   }
 
   private managerRecord(store: WorkflowStateStore, run: ManagedTaskRunResult): ManagerSessionRecord | undefined {

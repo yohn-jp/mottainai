@@ -237,6 +237,28 @@ test("inspect resolves the single canonical active Manager session when a histor
   assert.equal(inspected.work?.workId, workId);
 });
 
+test("cancelWork allows recovering an orphaned task, deferring entirely to the lifecycle transition table", async (t) => {
+  const { store, harness } = buildHarness(t);
+  const delegated = await harness.delegate({
+    goal: "orphaned recovery work",
+    idempotencyKey: "harness-orphaned-cancel",
+    constraints: { taskSlug: "orphaned-task", issueRef: "705" },
+  });
+  assert.equal(delegated.ok, true);
+  const workId = delegated.work!.workId;
+
+  // The lifecycle transition table explicitly allows orphaned -> abandoned
+  // (recovering an orphaned task by abandoning it); cancelWork must not
+  // maintain its own, independently-invented exclusion list that disagrees.
+  const orphaned = transitionTask(store, workId as TaskId, "orphaned");
+  assert.equal(orphaned.ok, true);
+
+  const cancelled = await harness.cancelWork({ workId, reason: "recover orphaned task" });
+  assert.equal(cancelled.ok, true);
+  assert.equal(cancelled.status, "cancelled");
+  assert.equal(store.getTask(workId as TaskId)?.lifecycleState, "abandoned");
+});
+
 test("inspect fails closed only on genuine ambiguity: two simultaneously active Manager sessions for one task", async (t) => {
   const { root, store, harness } = buildHarness(t);
   const delegated = await harness.delegate({

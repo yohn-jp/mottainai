@@ -31,6 +31,7 @@ import type {
   WorkflowStateStore,
 } from "../workflow/state/store.js";
 import type { PullRequestLifecycleState } from "../workflow/providers/model.js";
+import { isContinuableLifecycleState } from "../workflow/domain/lifecycle.js";
 import type { LifecycleState } from "../workflow/domain/lifecycle.js";
 import { validateIssueRef, validateTaskSlug } from "../workflow/commands/validate.js";
 import { PI_GUARD_ASSET_MARKER } from "./pi-guard.js";
@@ -58,13 +59,35 @@ const MAX_SCOPE_PATHS = 128;
 const MAX_SCOPE_CLAIMS = 128;
 const MAX_SCOPE_RESOURCE_LENGTH = 512;
 export const MANAGER_LAUNCH_SCHEMA_VERSION = 1 as const;
-const ACTIVE_RUNTIME_STATES = ["starting", "running", "detached"] as const satisfies readonly ManagerRuntimeState[];
+export const ACTIVE_RUNTIME_STATES = ["starting", "running", "detached"] as const satisfies readonly ManagerRuntimeState[];
 const RECENT_RUNTIME_STATES = [
   "exited",
   "failed",
   "stopped",
   "stale",
 ] as const satisfies readonly ManagerRuntimeState[];
+
+/**
+ * One task is expected to have exactly one Manager session controlling it,
+ * but that is not a persisted database invariant - historical/terminal
+ * session rows for the same task can remain after a restart/replace. This is
+ * the single authority for resolving which session actually controls a task
+ * from a set of candidate rows: prefer the one active (starting/running/
+ * detached) session, and fail closed (return undefined) only on genuine,
+ * unresolvable ambiguity - more than one simultaneously active session.
+ */
+export function selectControllingManagerSession(
+  sessions: readonly ManagerSessionRecord[],
+): ManagerSessionRecord | undefined {
+  if (sessions.length === 0) return undefined;
+  if (sessions.length === 1) return sessions[0];
+  const active = sessions.filter((session) =>
+    (ACTIVE_RUNTIME_STATES as readonly ManagerRuntimeState[]).includes(session.runtimeState),
+  );
+  if (active.length === 1) return active[0];
+  if (active.length > 1) return undefined;
+  return [...sessions].sort((left, right) => right.startedAt - left.startedAt)[0];
+}
 
 function boundedStatus(value: string): string {
   return value.slice(0, MAX_STATUS_LENGTH);
@@ -1734,15 +1757,7 @@ export class ManagerSessionService {
         409,
       );
     }
-    if (
-      current.semanticLifecycleState === "committed" ||
-      current.semanticLifecycleState === "pushed" ||
-      current.semanticLifecycleState === "pull-request-open" ||
-      current.semanticLifecycleState === "merged" ||
-      current.semanticLifecycleState === "abandoned" ||
-      current.semanticLifecycleState === "orphaned" ||
-      current.semanticLifecycleState === "cleaned"
-    ) {
+    if (!isContinuableLifecycleState(current.semanticLifecycleState)) {
       throw new ManagerError(
         "session_continue_rejected",
         `cannot continue a session whose semantic task lifecycle is ${current.semanticLifecycleState}`,
