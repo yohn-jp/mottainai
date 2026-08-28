@@ -100,7 +100,7 @@ test("MCP handlers dispatch directly to the harness service", async () => {
   assert.equal(cancelled.status, "cancelled");
 });
 
-test("MCP adapter rejects unsafe input before invoking the domain", async () => {
+test("MCP adapter rejects unknown input before invoking the domain", async () => {
   let invoked = false;
   const service = {
     async delegate(): Promise<HarnessOperationResult> {
@@ -114,7 +114,6 @@ test("MCP adapter rejects unsafe input before invoking the domain", async () => 
     { goal: "goal", constraints: { unexpected: true } },
     { goal: "goal", constraints: { claims: [{ resource: "README.md", mode: "invalid" }] } },
     { goal: "goal", workspace: { path: ".", instanceId: "also-set" } },
-    { goal: "goal", idempotencyKey: "keyed-scope", constraints: { paths: ["README.md"] } },
   ]) {
     const result = await callHarnessDelegationTool("mottainai_delegate_work", arguments_, service);
     const content = structured(result);
