@@ -6,7 +6,7 @@ import { createWorkflowStore } from "../test-support/workflow-store.js";
 import { resolveRepositoryIdentity } from "../workflow/domain/identity.js";
 import type { ManagerExecutionAuthority } from "../workflow/domain/manager-execution.js";
 import { transitionTask } from "../workflow/domain/task-lifecycle.js";
-import type { ManagerSessionId } from "../workflow/state/store.js";
+import type { ManagerSessionId, TaskId } from "../workflow/state/store.js";
 import type { ZellijObservedState, ZellijRuntime } from "./zellij.js";
 import { ManagerError, ManagerSessionService } from "./service.js";
 
@@ -23,7 +23,7 @@ class ContinueRuntime implements ZellijRuntime {
     return this.sessions.has(sessionName) ? "running" : "absent";
   }
 
-  async start(input: { sessionName: string; args: readonly string[] }): Promise<void> {
+  async start(input: { sessionName: string; cwd: string; command: string; args: readonly string[] }): Promise<void> {
     this.started.push(input.args.at(-1) ?? "");
     this.sessions.add(input.sessionName);
   }
@@ -45,13 +45,12 @@ function fixture(t: TestContext): {
   runtime: ContinueRuntime;
   store: ReturnType<typeof createWorkflowStore>;
   sessionId: ManagerSessionId;
-  taskId: string;
+  taskId: TaskId;
 } {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
   const identity = resolveRepositoryIdentity(root);
-  assert.equal(identity.ok, true);
-  if (!identity.ok) throw new Error(identity.reason);
+  if (!identity.ok) throw new Error("repository identity resolution failed");
   store.observeRepositoryInstance({
     rootCommitDigest: identity.identity.rootCommitDigest,
     instanceId: identity.identity.instanceId,
@@ -126,7 +125,7 @@ test("Manager continue relaunches the same task-bound session with the follow-up
 
 test("Manager continue rejects a terminal task without touching the runtime", async (t) => {
   const { service, runtime, store, sessionId, taskId } = fixture(t);
-  assert.equal(transitionTask(store, taskId as never, "committed").ok, true);
+  assert.equal(transitionTask(store, taskId, "committed").ok, true);
 
   await assert.rejects(
     service.continueWork(sessionId, "must not run"),
