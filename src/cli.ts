@@ -568,6 +568,7 @@ export async function runCli(args: string[]): Promise<number> {
         runtimeOptions.cwd,
         createRuntimeDiagnostic({ ...runtimeOptions, configPath }),
         runtimeOptions.environment.HOME ?? runtimeOptions.environment.USERPROFILE,
+        runtimeOptions.environment,
       );
     } else if (command === "list") {
       const filePath = resolveConfigPath(configPath);

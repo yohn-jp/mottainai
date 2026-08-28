@@ -10,6 +10,11 @@ import { InMemoryArtifactStore } from "./retrieve.js";
 import { createRuntimeDiagnostic, enrichRuntimeDiagnostic } from "./runtime-diagnostic.js";
 import type { RuntimeDiagnostic } from "./runtime-diagnostic.js";
 import { UpstreamRegistry } from "./upstream.js";
+import { ManagerSessionService } from "./manager/service.js";
+import { ZellijCliRuntime } from "./manager/zellij.js";
+import { NawabariExecutionClient } from "./workflow/nawabari.js";
+import { defaultWorkflowStore } from "./workflow/commands/mcp-tools.js";
+import { HarnessDelegationService } from "./workflow/domain/harness-delegation.js";
 
 export async function runServer(
   configPath?: string,
@@ -21,6 +26,7 @@ export async function runServer(
     environment: {},
   }),
   homeDirectory?: string,
+  environment?: NodeJS.ProcessEnv,
 ): Promise<void> {
   const snapshot = loadConfigSnapshot(configPath, cwd);
   const resolvedRuntimeDiagnostic = enrichRuntimeDiagnostic(runtimeDiagnostic, snapshot, homeDirectory);
@@ -40,6 +46,39 @@ export async function runServer(
   });
 
   const server = new Server({ name: "mottainai", version: packageMetadata.version }, { capabilities: { tools: {} } });
+  const nawabari = new NawabariExecutionClient();
+  const managerServices = new Map<string, Promise<ManagerSessionService>>();
+  const managerForWorkspace = async (
+    workspaceRoot: string,
+    store: Awaited<ReturnType<typeof defaultWorkflowStore>>,
+  ): Promise<ManagerSessionService> => {
+    const key = path.resolve(workspaceRoot);
+    const existing = managerServices.get(key);
+    if (existing !== undefined) return existing;
+    const created = Promise.resolve(
+      new ManagerSessionService({
+        workspaceRoot: key,
+        store,
+        nawabari,
+        runtime: new ZellijCliRuntime({
+          cwd: key,
+          environment,
+          binary: environment?.MOTTAINAI_ZELLIJ_BINARY ?? "zellij",
+        }),
+      }),
+    ).catch((error: unknown) => {
+      managerServices.delete(key);
+      throw error;
+    });
+    managerServices.set(key, created);
+    return created;
+  };
+  const harnessDelegation = new HarnessDelegationService({
+    defaultWorkspaceRoot: snapshot.gatewayConfig.workspaceRoot,
+    store: defaultWorkflowStore,
+    nawabari,
+    managerForWorkspace,
+  });
   const activeProfileName = snapshot.config.gateway?.activeProfile;
   const activeProfile = activeProfileName === undefined
     ? undefined
@@ -54,6 +93,7 @@ export async function runServer(
     activeProfile,
     undefined,
     resolvedRuntimeDiagnostic,
+    harnessDelegation,
   );
 
   const transport = new StdioServerTransport();

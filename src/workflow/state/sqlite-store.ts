@@ -1521,6 +1521,9 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       const current = this.getManagerSession(sessionId);
       if (current === undefined) throw new Error(`manager session not found: ${sessionId}`);
       const updatedAt = input.updatedAt ?? Date.now();
+      const nextInstruction = input.instruction ?? current.instruction;
+      const nextLaunchCommand = input.launchCommand ?? current.launchCommand;
+      const nextLaunchArgs = input.launchArgs === undefined ? current.launchArgs : [...input.launchArgs];
       const nextState = input.lifecycleState ?? current.lifecycleState;
       const nextRuntimeState = input.runtimeState ?? current.runtimeState;
       const nextSemanticState = input.semanticLifecycleState ?? current.semanticLifecycleState;
@@ -1539,12 +1542,16 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       const nextError = input.errorMessage === undefined ? current.errorMessage : input.errorMessage;
       db.prepare(
         `UPDATE manager_sessions
-         SET lifecycle_state = ?, runtime_state = ?, semantic_lifecycle_state = ?, attachable = ?,
+         SET instruction = ?, launch_command = ?, launch_args_json = ?,
+             lifecycle_state = ?, runtime_state = ?, semantic_lifecycle_state = ?, attachable = ?,
              reconciliation_state = ?, reconciliation_message = ?, latest_status = ?, latest_receipt_json = ?,
              updated_at = ?, finished_at = ?, runtime_observed_at = ?, restart_count = ?,
              exit_code = ?, termination_state = ?, error_message = ?
          WHERE session_id = ?`,
       ).run(
+        nextInstruction,
+        nextLaunchCommand,
+        JSON.stringify(nextLaunchArgs),
         nextState,
         nextRuntimeState,
         nextSemanticState,

@@ -18,7 +18,13 @@ if (args.length === 0) {
     entryPoint: process.argv[1],
   });
   try {
-    await runServer(undefined, startupCwd, runtimeDiagnostic, process.env.HOME ?? process.env.USERPROFILE);
+    await runServer(
+      undefined,
+      startupCwd,
+      runtimeDiagnostic,
+      process.env.HOME ?? process.env.USERPROFILE,
+      process.env,
+    );
   } catch (error) {
     const configPath = resolveConfigPath();
     const missingConfig =

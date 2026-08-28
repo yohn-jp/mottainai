@@ -275,6 +275,7 @@ function managerErrorStatusCode(code: string): number {
     code === "runtime_name_collision" ||
     code === "worktree_missing" ||
     code === "session_restart_rejected" ||
+    code === "session_continue_rejected" ||
     code === "idempotency_conflict"
   ) {
     return 409;
@@ -300,6 +301,7 @@ export class ManagerError extends Error {
       | "session_not_running"
       | "session_not_attachable"
       | "session_restart_rejected"
+      | "session_continue_rejected"
       | "runtime_error"
       | "worktree_missing"
       | "execution_unresolved"
@@ -1715,6 +1717,67 @@ export class ManagerSessionService {
         throw managerError(error);
       }
     });
+  }
+
+  /**
+   * Continue one existing task-bound session with a bounded follow-up. The
+   * physical runtime is stopped and relaunched through the existing Manager
+   * lifecycle; no new task, worktree, branch, or Nawabari session is created.
+   */
+  async continueWork(sessionId: ManagerSessionId, followUpInstruction: string): Promise<ManagerSessionRecord> {
+    const followUp = validateInstruction(followUpInstruction);
+    let current = await this.get(sessionId);
+    if (current.taskId === undefined || current.semanticLifecycleState === "unbound") {
+      throw new ManagerError(
+        "session_continue_rejected",
+        "continue requires an existing task-bound Manager session",
+        409,
+      );
+    }
+    if (
+      current.semanticLifecycleState === "committed" ||
+      current.semanticLifecycleState === "pushed" ||
+      current.semanticLifecycleState === "pull-request-open" ||
+      current.semanticLifecycleState === "merged" ||
+      current.semanticLifecycleState === "abandoned" ||
+      current.semanticLifecycleState === "orphaned" ||
+      current.semanticLifecycleState === "cleaned"
+    ) {
+      throw new ManagerError(
+        "session_continue_rejected",
+        `cannot continue a session whose semantic task lifecycle is ${current.semanticLifecycleState}`,
+        409,
+      );
+    }
+
+    if (
+      current.runtimeState === "starting" ||
+      current.runtimeState === "running" ||
+      current.runtimeState === "detached"
+    ) {
+      await this.stop(sessionId);
+      current = await this.get(sessionId);
+    }
+
+    const separator = "\n\n--- Mottainai follow-up ---\n";
+    const instruction = validateInstruction(`${current.instruction}${separator}${followUp}`);
+    const launchArgs = [...current.launchArgs];
+    if (launchArgs.length === 0) {
+      launchArgs.push(instruction);
+    } else {
+      launchArgs[launchArgs.length - 1] = instruction;
+    }
+    this.options.store.updateManagerSession(sessionId, {
+      instruction,
+      launchArgs,
+      latestStatus: "bounded follow-up recorded; relaunching the existing execution context",
+      latestReceipt: receipt(
+        "follow_up_requested",
+        "bounded follow-up recorded for the existing Manager session",
+        "manager",
+      ),
+    });
+    return this.restart(sessionId);
   }
 
   async restart(sessionId: ManagerSessionId): Promise<ManagerSessionRecord> {

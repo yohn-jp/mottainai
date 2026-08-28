@@ -26,6 +26,13 @@ import { resolveGatewayConfig } from "./config.js";
 import type { ProfileConfig, ResolvedGatewayConfig } from "./config.js";
 import { allLocalTools, callLocalTool, localToolsFor } from "./local-tools.js";
 import { callWorkflowCommandTool, workflowCommandTools, workflowCommandToolsFor } from "./workflow/commands/mcp-tools.js";
+import {
+  callHarnessDelegationTool,
+  HARNESS_CAPABILITIES_TOOL_NAME,
+  harnessDelegationTools,
+  isHarnessDelegationTool,
+} from "./workflow/commands/mcp-delegation.js";
+import type { HarnessDelegationService } from "./workflow/domain/harness-delegation.js";
 import type { Logger } from "./logging.js";
 import { InMemoryArtifactStore } from "./retrieve.js";
 import type { ArtifactStore } from "./retrieve.js";
@@ -78,7 +85,15 @@ function prepareUpstreamToolDefinition(upstreamName: string, tool: Tool): Tool {
 }
 
 function gatewayToolRisk(name: string): ToolRisk {
-  const definition = [...allLocalTools, ...workflowCommandTools(), ...adaptiveTools, ...brokerTools, ...codeSearchTools, retrieveTool]
+  const definition = [
+    ...allLocalTools,
+    ...workflowCommandTools(),
+    ...harnessDelegationTools(),
+    ...adaptiveTools,
+    ...brokerTools,
+    ...codeSearchTools,
+    retrieveTool,
+  ]
     .find((tool) => tool.name === name);
   return riskOf(definition?.annotations);
 }
@@ -113,6 +128,7 @@ export function registerProxyHandlers(
   activeProfile: ProfileConfig | undefined = undefined,
   telemetry: TelemetrySink = createTelemetrySink(),
   runtimeDiagnostic?: RuntimeDiagnostic,
+  harnessDelegation?: HarnessDelegationService,
 ): ProxyHandlers {
   const resolvedArtifactStore = artifactStore ?? new InMemoryArtifactStore({
     ttlMs: gatewayConfig.resultTtlMs,
@@ -156,7 +172,15 @@ export function registerProxyHandlers(
     const entries = (await catalog()).tools().filter((entry) => profileAllows(entry, activeProfile));
     const tools = entries.map((entry) => prepareUpstreamToolDefinition(entry.provider, entry.definition));
     // brokered tool は profile に関わらず常に出す。絞り込みは既定の面を減らすためで、到達手段を奪わない。
-    const gatewayTools = [...localToolsFor(gatewayConfig), ...workflowCommandToolsFor(gatewayConfig), ...adaptiveTools, ...brokerTools, ...codeSearchTools, retrieveTool]
+    const gatewayTools = [
+      ...localToolsFor(gatewayConfig),
+      ...workflowCommandToolsFor(gatewayConfig),
+      ...harnessDelegationTools(),
+      ...adaptiveTools,
+      ...brokerTools,
+      ...codeSearchTools,
+      retrieveTool,
+    ]
       .map(compressVisibleToolDefinition);
     return { tools: [...tools, ...gatewayTools] };
   });
@@ -186,6 +210,7 @@ export function registerProxyHandlers(
     const { metadata, forwardedArguments } = extractCallerMetadata(request.params.arguments);
     const isLocal = toolName === RETRIEVE_TOOL_NAME || localToolsFor(gatewayConfig).some((tool) => tool.name === toolName);
     const isWorkflowCommand = workflowCommandToolsFor(gatewayConfig).some((tool) => tool.name === toolName);
+    const isHarnessDelegation = isHarnessDelegationTool(toolName) || toolName === HARNESS_CAPABILITIES_TOOL_NAME;
     const isAdaptive = isAdaptiveTool(toolName);
     const requestId = metadata === undefined ? undefined : await openRequest(metadata);
     const capability = metadata === undefined
@@ -208,7 +233,7 @@ export function registerProxyHandlers(
       });
     }
 
-    await authorize(toolName, isLocal || isWorkflowCommand, isAdaptive);
+    await authorize(toolName, isLocal || isWorkflowCommand || isHarnessDelegation, isAdaptive);
 
     // burst reservation は dispatch (tool 実行) を始める前に確保する。投影確定後に reserve
     // すると、Promise.all で同時に投げられた他呼び出しの実行区間が in-flight 集合へ反映されず、
@@ -218,7 +243,16 @@ export function registerProxyHandlers(
     try {
       let dispatched: ExecutionOutcome;
       try {
-        dispatched = await dispatch(toolName, forwardedArguments, isLocal, isWorkflowCommand, isAdaptive, capability, extra.signal);
+        dispatched = await dispatch(
+          toolName,
+          forwardedArguments,
+          isLocal,
+          isWorkflowCommand,
+          isHarnessDelegation,
+          isAdaptive,
+          capability,
+          extra.signal,
+        );
       } catch (error) {
         const selected = toolName.includes(SEP) ? splitPrefixedName(toolName) : undefined;
         await record(selected === undefined
@@ -267,7 +301,11 @@ export function registerProxyHandlers(
       // brokered search/describe は structured を返し、brokered call は upstream 結果をそのまま返す。
       const tracedResult = requestId === undefined
         ? finalOutcome.result
-        : withRequestId(finalOutcome.result, requestId, isLocal || isWorkflowCommand || isAdaptive || isBrokerTool(toolName) || isCodeSearchTool(toolName));
+        : withRequestId(
+            finalOutcome.result,
+            requestId,
+            isLocal || isWorkflowCommand || isHarnessDelegation || isAdaptive || isBrokerTool(toolName) || isCodeSearchTool(toolName),
+          );
       if (!isLocal) return tracedResult;
       const finalized = finalizeToolResult(
         tracedResult,
@@ -313,6 +351,7 @@ export function registerProxyHandlers(
     args: Record<string, unknown> | undefined,
     isLocal: boolean,
     isWorkflowCommand: boolean,
+    isHarnessDelegation: boolean,
     isAdaptive: boolean,
     capability: string | undefined,
     signal: AbortSignal | undefined,
@@ -379,6 +418,17 @@ export function registerProxyHandlers(
         selectedProvider: "local",
         selectedTool: toolName,
         capability: capability ?? "local",
+        risk: gatewayToolRisk(toolName),
+      });
+    }
+
+    if (isHarnessDelegation) {
+      const result = await callHarnessDelegationTool(toolName, args, harnessDelegation);
+      return normalizeExecutionOutcome({
+        result,
+        selectedProvider: "local",
+        selectedTool: toolName,
+        capability: capability ?? "harness-delegation",
         risk: gatewayToolRisk(toolName),
       });
     }

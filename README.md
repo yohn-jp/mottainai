@@ -92,6 +92,34 @@ codex mcp add mottainai -- npx -y mottainai@0.5.0 serve --config /absolute/path/
 
 `mottainai init` can generate the registration command for the detected client. Use `--latest` only when intentionally following the newest npm release rather than a pinned version.
 
+## Native harness-delegation MCP
+
+The packaged `mottainai-mcp` executable exposes Mottainai's native, high-level harness surface over standard MCP stdio. It does not require `tsx`, a source checkout, Majiwari, or Nawabari client code in the MCP consumer.
+
+Example client configuration:
+
+```json
+{
+  "mcpServers": {
+    "mottainai": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "-p",
+        "mottainai@0.5.0",
+        "mottainai-mcp",
+        "--config",
+        "/absolute/path/to/mottainai.config.json"
+      ]
+    }
+  }
+}
+```
+
+The four delegation tools are `mottainai_delegate_work`, `mottainai_inspect_work`, `mottainai_continue_work`, and `mottainai_cancel_work`. `mottainai_harness_capabilities` returns the versioned status/error vocabulary and the same launch/discovery contract. Delegation returns an opaque stable `workId`; later operations use only that ID. Inspect results are bounded and contain lifecycle/evidence/PR metadata, never raw logs, private registry state, credentials, runtime names, or filesystem paths.
+
+Majiwari is an optional future consumer of this standard command/args plus `tools/list` contract; it is not a runtime dependency and does not own orchestration. See [the native delegation contract](docs/mcp-harness-delegation.md).
+
 ## Managed workflow
 
 The CLI lifecycle is:

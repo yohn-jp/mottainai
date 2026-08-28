@@ -161,6 +161,9 @@ export interface CreateManagerSessionInput {
 }
 
 export interface UpdateManagerSessionInput {
+  instruction?: string;
+  launchCommand?: string;
+  launchArgs?: readonly string[];
   lifecycleState?: ManagerSessionLifecycleState;
   runtimeState?: ManagerRuntimeState;
   semanticLifecycleState?: LifecycleState | "unbound";
