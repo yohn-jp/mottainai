@@ -61,7 +61,6 @@ export async function runHarnessDelegationServer(
   const harnessDelegation = new HarnessDelegationService({
     defaultWorkspaceRoot: snapshot.gatewayConfig.workspaceRoot,
     store: defaultWorkflowStore,
-    nawabari,
     managerForWorkspace,
   });
 
