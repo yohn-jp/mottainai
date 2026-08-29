@@ -119,6 +119,72 @@ test("waitUntilChanged establishes a baseline on the first poll, then returns on
   assert.deepEqual(result.changed[0], { name: "build", from: "queued", to: "in_progress" });
 });
 
+test("waitUntilChanged reports one newly added check as an explicit membership delta", async () => {
+  let call = 0;
+  const result = await waitUntilChanged({
+    fetchChecks: async () => {
+      call += 1;
+      return call === 1
+        ? [{ name: "build", state: "in_progress" }]
+        : [
+            { name: "build", state: "in_progress" },
+            { name: "lint", state: "queued" },
+          ];
+    },
+    policy: POLICY,
+    timeoutMs: 1_000,
+    sleep: noSleep,
+  });
+  assert.deepEqual(result.changed, [{ name: "lint", from: null, to: "queued" }]);
+});
+
+test("waitUntilChanged reports one removed check as an explicit membership delta", async () => {
+  let call = 0;
+  const result = await waitUntilChanged({
+    fetchChecks: async () => {
+      call += 1;
+      return call === 1
+        ? [
+            { name: "build", state: "in_progress" },
+            { name: "lint", state: "queued" },
+          ]
+        : [{ name: "build", state: "in_progress" }];
+    },
+    policy: POLICY,
+    timeoutMs: 1_000,
+    sleep: noSleep,
+  });
+  assert.deepEqual(result.changed, [{ name: "lint", from: "queued", to: null }]);
+});
+
+test("waitUntilChanged returns simultaneous membership and state deltas in deterministic name order", async () => {
+  let call = 0;
+  const result = await waitUntilChanged({
+    fetchChecks: async () => {
+      call += 1;
+      return call === 1
+        ? [
+            { name: "same", state: "in_progress" },
+            { name: "gone", state: "queued" },
+            { name: "build", state: "queued" },
+          ]
+        : [
+            { name: "new", state: "queued" },
+            { name: "same", state: "in_progress" },
+            { name: "build", state: "in_progress" },
+          ];
+    },
+    policy: POLICY,
+    timeoutMs: 1_000,
+    sleep: noSleep,
+  });
+  assert.deepEqual(result.changed, [
+    { name: "build", from: "queued", to: "in_progress" },
+    { name: "gone", from: "queued", to: null },
+    { name: "new", from: null, to: "queued" },
+  ]);
+});
+
 test("waitUntilChanged returns immediately on the first poll if it is already terminal, without requiring a baseline round-trip", async () => {
   const result = await waitUntilChanged({
     fetchChecks: async () => [{ name: "build", state: "success" }],
