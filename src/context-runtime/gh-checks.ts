@@ -8,8 +8,9 @@ export interface CheckSnapshot {
 
 export interface CheckDelta {
   name: string;
-  from: string;
-  to: string;
+  /** `null` means that the check was absent from that snapshot. */
+  from: string | null;
+  to: string | null;
 }
 
 export interface WaitUntilResult {
@@ -98,15 +99,23 @@ export function isTerminalState(state: string): boolean {
   return TERMINAL_STATUSES.has(state);
 }
 
-/** 既知 check 名だけを対象に差分を取る。新規 check（`from === undefined`）は baseline 確立の一部として扱い、delta として報告しない。 */
+function compareCheckNames(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+/** snapshot 間の membership/state 差分を、check 名順の bounded な delta として返す。 */
 function diffChecks(previous: CheckSnapshot[], current: CheckSnapshot[]): CheckDelta[] {
   const previousByName = new Map(previous.map((check) => [check.name, check.state]));
-  const deltas: CheckDelta[] = [];
-  for (const check of current) {
-    const from = previousByName.get(check.name);
-    if (from !== undefined && from !== check.state) deltas.push({ name: check.name, from, to: check.state });
-  }
-  return deltas;
+  const currentByName = new Map(current.map((check) => [check.name, check.state]));
+  const names = [...new Set([...previousByName.keys(), ...currentByName.keys()])].sort(compareCheckNames);
+
+  return names.flatMap((name) => {
+    const from = previousByName.get(name) ?? null;
+    const to = currentByName.get(name) ?? null;
+    return from === to ? [] : [{ name, from, to }];
+  });
 }
 
 function allTerminal(checks: CheckSnapshot[]): boolean {
@@ -131,13 +140,13 @@ export async function waitUntilChanged(deps: WaitUntilDeps): Promise<WaitUntilRe
   const sleep = deps.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
   const now = deps.now ?? Date.now;
   const startedAt = now();
-  let previous: CheckSnapshot[] = [];
+  let previous: CheckSnapshot[] | undefined;
   let pollCount = 0;
 
   for (;;) {
     const current = await deps.fetchChecks();
     pollCount += 1;
-    const changed = diffChecks(previous, current);
+    const changed = previous === undefined ? [] : diffChecks(previous, current);
     const terminal = allTerminal(current);
     const elapsedMs = now() - startedAt;
 
