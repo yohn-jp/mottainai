@@ -75,6 +75,70 @@ test("mottainai_code_search finds a literal match with rg when no other backend 
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test("mottainai_code_search uses a per-file sentinel and enforces the global result limit", async () => {
+  const root = await workspace();
+  try {
+    await fs.writeFile(path.join(root, "exact.txt"), "exact-code\n".repeat(3));
+    await fs.writeFile(path.join(root, "single-overflow.txt"), "single-code\n".repeat(5));
+    await fs.writeFile(path.join(root, "multi-a.txt"), "multi-code\n".repeat(2));
+    await fs.writeFile(path.join(root, "multi-b.txt"), "multi-code\n".repeat(2));
+    const ctx = await context(root);
+
+    const exact = structured(
+      await callCodeSearchTool("mottainai_code_search", { pattern: "exact-code", path: "exact.txt", limit: 3 }, ctx),
+    );
+    assert.equal(exact.truncated, false);
+    assert.equal((exact.metrics as Record<string, number>).observed_matches, 3);
+    assert.equal((exact.facts as unknown[]).length, 3);
+
+    const singleOverflow = structured(
+      await callCodeSearchTool(
+        "mottainai_code_search",
+        { pattern: "single-code", path: "single-overflow.txt", limit: 3 },
+        ctx,
+      ),
+    );
+    assert.equal(singleOverflow.truncated, true);
+    assert.equal((singleOverflow.metrics as Record<string, number>).observed_matches, 4);
+    assert.equal((singleOverflow.facts as unknown[]).length, 3);
+
+    const multipleOverflow = structured(
+      await callCodeSearchTool("mottainai_code_search", { pattern: "multi-code", limit: 3 }, ctx),
+    );
+    assert.equal(multipleOverflow.truncated, true);
+    assert.equal((multipleOverflow.metrics as Record<string, number>).observed_matches, 4);
+    assert.equal((multipleOverflow.facts as unknown[]).length, 3);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("mottainai_code_search reports rg output-limit termination as incomplete", async () => {
+  const root = await workspace();
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-fake-rg-output-limit-"));
+  const fakeRg = path.join(binDir, "rg");
+  await fs.writeFile(fakeRg, ["#!/bin/sh", "yes not-json-line", ""].join("\n"));
+  await fs.chmod(fakeRg, 0o755);
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+  try {
+    const ctx = await context(root);
+    ctx.gatewayConfig = { ...ctx.gatewayConfig, maxOutputBytes: 128, defaultTimeoutMs: 5_000, maxTimeoutMs: 5_000 };
+    const result = structured(await callCodeSearchTool("mottainai_code_search", { pattern: "anything", limit: 1 }, ctx));
+    assert.equal(result.truncated, true);
+    assert.equal(result.output_limited, true);
+    assert.ok(
+      (result.diagnostics as Array<{ code?: string; message: string }>).some(
+        (diagnostic) => diagnostic.code === "RG_OUTPUT_LIMIT" && /incomplete/i.test(diagnostic.message),
+      ),
+    );
+  } finally {
+    process.env.PATH = originalPath;
+    await fs.rm(binDir, { recursive: true, force: true });
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("mottainai_code_search with scope=tracked uses git grep and ignores untracked files", async () => {
   const root = await workspace();
   execFileSync("git", ["init", "-q"], { cwd: root });
@@ -158,10 +222,17 @@ test("mottainai_code_symbol routes to the configured capability provider and pre
     _meta: { requestedTool: request.name, requestedArgs: request.arguments },
   }));
   const ctx = await context(root, [handle], { codegraph__find_callers: ["callers"] });
-  const result = structured(await callCodeSearchTool("mottainai_code_symbol", { symbol: "useful", relation: "callers" }, ctx));
+  const result = structured(await callCodeSearchTool("mottainai_code_symbol", { symbol: "useful", relation: "callers", limit: 3 }, ctx));
   assert.equal(result.backend, "codegraph");
   assert.equal(result.routing_reason, "callers_rank_1");
   assert.ok(result.raw);
+  assert.equal(result.truncated, true);
+  assert.equal(result.truncation_reason, "upstream_limit_unverified");
+  assert.deepEqual(result.diagnostics, [{
+    severity: "warning",
+    code: "UPSTREAM_LIMIT_UNVERIFIED",
+    message: "upstream code-search result has no versioned match-limit guarantee for limit=3",
+  }]);
   await fs.rm(root, { recursive: true, force: true });
 });
 
