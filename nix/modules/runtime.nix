@@ -37,6 +37,12 @@ let
     text = ''
       set -euo pipefail
 
+      # Companions are installed via environment.systemPackages, not this
+      # script's own runtimeInputs (writeShellApplication otherwise pins PATH
+      # to only its declared inputs, hiding system-installed companions from
+      # command -v below).
+      PATH="/run/current-system/sw/bin:$PATH"
+
       generation_link=/nix/var/nix/profiles/system
       if [ -L "$generation_link" ]; then
         generation="$(readlink "$generation_link" | sed -E 's/^system-([0-9]+)-link$/\1/')"
@@ -202,6 +208,9 @@ in
       pkgs.git
       pkgs.openssh
       pkgs.bubblewrap
+      pkgs.mottainai
+      pkgs.nawabari
+      pkgs.zellij
       healthScript
       reconcileScript
     ];
