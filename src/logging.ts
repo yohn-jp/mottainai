@@ -80,11 +80,15 @@ function truncateUtf8(value: string, maxBytes: number): string {
   const bytes = Buffer.from(value, "utf8");
   if (bytes.byteLength <= maxBytes) return value;
 
-  let truncated = bytes.subarray(0, maxBytes).toString("utf8");
-  while (Buffer.byteLength(truncated, "utf8") > maxBytes) {
-    truncated = truncated.slice(0, -1);
+  let byteLength = 0;
+  let end = 0;
+  for (const codePoint of value) {
+    const codePointBytes = Buffer.byteLength(codePoint, "utf8");
+    if (byteLength + codePointBytes > maxBytes) break;
+    byteLength += codePointBytes;
+    end += codePoint.length;
   }
-  return truncated;
+  return value.slice(0, end);
 }
 
 function serializableRawResult(value: unknown): string {

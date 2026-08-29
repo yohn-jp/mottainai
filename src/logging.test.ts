@@ -188,6 +188,49 @@ test("createLogger bounds an oversized record while retaining its digest", async
   assert.match(record.rawResult.sha256 ?? "", /^[0-9a-f]{64}$/);
 });
 
+test("createLogger truncates UTF-8 names only at code point boundaries", async () => {
+  const cases = [
+    { codePoint: "あ", invalidByteBoundaries: [1, 2] },
+    { codePoint: "😀", invalidByteBoundaries: [1, 2, 3] },
+  ] as const;
+
+  for (const field of ["upstreamName", "toolName"] as const) {
+    for (const { codePoint, invalidByteBoundaries } of cases) {
+      for (const invalidByteBoundary of invalidByteBoundaries) {
+        const dir = tmpDir();
+        const logger = createLogger({
+          MOTTAINAI_LOG_DIR: dir,
+          MOTTAINAI_LOG_MAX_FILE_BYTES: String(MIN_LOG_FILE_BYTES),
+        });
+        const prefixLength = 96 - invalidByteBoundary;
+        const record = {
+          upstreamName: "u",
+          toolName: "t",
+          arguments: {},
+          rawResult: { text: "x".repeat(10_000) },
+        };
+        record[field] = `${"a".repeat(prefixLength)}${codePoint}suffix`;
+
+        await logger.log(record);
+
+        const files = assertFilesWithinByteBound(dir, MIN_LOG_FILE_BYTES);
+        assert.equal(files.length, 1);
+        const logged = JSON.parse(fs.readFileSync(path.join(dir, files[0]), "utf8")) as {
+          upstreamName: string;
+          toolName: string;
+          rawResult: { truncated?: boolean; original_bytes?: number; sha256?: string };
+        };
+        assert.equal(logged[field], "a".repeat(prefixLength));
+        assert.ok(!logged[field].includes("\uFFFD"));
+        assert.equal(Buffer.byteLength(logged[field], "utf8"), prefixLength);
+        assert.equal(logged.rawResult.truncated, true);
+        assert.ok((logged.rawResult.original_bytes ?? 0) > 0);
+        assert.match(logged.rawResult.sha256 ?? "", /^[0-9a-f]{64}$/);
+      }
+    }
+  }
+});
+
 test("createLogger keeps an exact-boundary record and rotates before the next write", async () => {
   const dir = tmpDir();
   const maxBytes = MIN_LOG_FILE_BYTES;
