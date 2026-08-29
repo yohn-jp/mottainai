@@ -87,7 +87,7 @@ test("mockup stylesheet links resolve under the /mockups/ HTTP mount", () => {
 test("packaged Wabachi sidebar exposes bounded views and disables unfinished Reviews", () => {
   const wabachi = readManagerAssets()["/mockups/wabachi.html"].body;
   const styles = readManagerAssets()["/mockups/styles.css"].body;
-  assert.match(wabachi, /id="sidebarReviewDesk"[^>]*aria-current="page"[^>]*>[^]*Review desk/u);
+  assert.match(wabachi, /<button class="nav-item active" id="sidebarReviewDesk" data-sidebar-tab="brief" type="button" aria-current="page">[^]*Review desk<\/span><\/button>/u);
   for (const [label, tab] of [["Changes", "impact"], ["Explore", "source"], ["Evidence", "evidence"], ["Relations", "relations"]]) {
     assert.match(wabachi, new RegExp(`<button class="nav-item" data-sidebar-tab="${tab}"[^>]*>[^]*${label}</span></button>`, "u"));
   }
