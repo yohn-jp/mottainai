@@ -52,8 +52,9 @@ function temporaryFiles(workspace: string): string[] {
 test("configuration replacement preserves the original and cleans temporary state at every injected phase", async () => {
   const operations = [
     "config.temp.write",
-    "config.temp.close",
     "config.temp.permission",
+    "config.temp.sync",
+    "config.temp.close",
     "config.rename",
     "config.backup.copy",
   ];

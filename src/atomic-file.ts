@@ -1,22 +1,23 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { addSecondaryDiagnostic } from "./boundary.js";
 import type { BoundaryOperations } from "./boundary.js";
 
 export interface AtomicReplaceOptions {
-  /** temp file に rename 前に適用する permission。省略時は変更しない。 */
+  /** temp file に rename 前に適用する permission。省略時は既存 destination の mode を維持する。 */
   mode?: number;
 }
 
 /**
  * 同一ディレクトリの一時ファイル経由で destination を atomic replace する。
- * complete な一時ファイル作成後にのみ rename するため、write/close/rename の途中失敗でも
- * destination は byte-for-byte 未変更のまま。成功時は一時ディレクトリを残さない。
+ * complete かつ fsync 済みの一時ファイル作成後にのみ rename するため、write/close/rename の
+ * 途中失敗でも destination は byte-for-byte 未変更のまま。成功時は一時ファイルを残さない。
  * cleanup 失敗は primary error を保持し、bounded secondary evidence だけを付加する。
  *
  * permission: `options.mode` を明示指定しない限り、destination が既存ならその mode を
  * temp file へ rename 前に適用し維持する（umask依存で 0600 が 0644 等へ緩むのを防ぐ）。
- * destination が存在しない場合は fs.writeFileSync の既定 mode のまま。rename 後に
+ * destination が存在しない場合は fs.writeFileSync の既定 mode 相当。rename 後に
  * destination を chmod することはない（可視状態には常に最終 mode のファイルのみ現れる）。
  */
 export function replaceFileAtomically(
@@ -28,33 +29,57 @@ export function replaceFileAtomically(
 ): void {
   const directory = path.dirname(filePath);
   boundaries.file(`${operation}.directory.create`, () => fs.mkdirSync(directory, { recursive: true }));
-  const temporaryDirectory = boundaries.file(`${operation}.temp.create`, () =>
-    fs.mkdtempSync(path.join(directory, ".mottainai-tmp-")),
-  );
-  const temporaryPath = path.join(temporaryDirectory, path.basename(filePath));
   const mode = options.mode ?? existingFileMode(filePath);
+  const temporaryFile = boundaries.file(`${operation}.temp.create`, () =>
+    createTemporaryFile(directory, filePath, mode),
+  );
+  const temporaryPath = temporaryFile.path;
+  let fileDescriptor: number | undefined = temporaryFile.fileDescriptor;
   let primary: unknown;
   try {
-    boundaries.file(`${operation}.temp.write`, () => fs.writeFileSync(temporaryPath, content));
-    // writeFileSync owns the OS handle; this named checkpoint makes its close phase
-    // deterministic and injectable without replacing Node's filesystem globally.
-    boundaries.file(`${operation}.temp.close`, () => undefined);
+    boundaries.file(`${operation}.temp.write`, () => fs.writeFileSync(fileDescriptor!, content));
     if (mode !== undefined) {
       boundaries.file(`${operation}.temp.permission`, () => fs.chmodSync(temporaryPath, mode));
     }
+    boundaries.file(`${operation}.temp.sync`, () => fs.fsyncSync(fileDescriptor!));
+    boundaries.file(`${operation}.temp.close`, () => {
+      if (fileDescriptor !== undefined) {
+        fs.closeSync(fileDescriptor);
+        fileDescriptor = undefined;
+      }
+    });
     boundaries.file(`${operation}.rename`, () => fs.renameSync(temporaryPath, filePath));
   } catch (error) {
     primary = error;
-    const cleanupError = cleanupTemporaryDirectory(temporaryDirectory, boundaries, operation, primary);
+    closeTemporaryFile(fileDescriptor);
+    const cleanupError = cleanupTemporaryFile(temporaryPath, boundaries, operation, primary);
     if (cleanupError !== undefined) throw cleanupError;
     throw error;
   }
-  const cleanupError = cleanupTemporaryDirectory(temporaryDirectory, boundaries, operation);
+  const cleanupError = cleanupTemporaryFile(temporaryPath, boundaries, operation);
   if (cleanupError !== undefined) {
     // A successful replacement must not be turned into a protocol-breaking failure
     // merely because best-effort cleanup failed. The diagnostic is intentionally generic.
     console.error(`mottainai: temporary ${operation} cleanup failed; replacement completed`);
   }
+}
+
+interface TemporaryFile {
+  path: string;
+  fileDescriptor: number;
+}
+
+function createTemporaryFile(directory: string, filePath: string, mode: number | undefined): TemporaryFile {
+  const temporaryMode = mode ?? 0o666;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const temporaryPath = path.join(directory, `.mottainai-tmp-${randomUUID()}`);
+    try {
+      return { path: temporaryPath, fileDescriptor: fs.openSync(temporaryPath, "wx", temporaryMode) };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
+  throw new Error(`unable to allocate a temporary file for atomic replacement: ${filePath}`);
 }
 
 /** destinationが存在すればその permission bits を返す。存在しない/statできない場合は undefined。 */
@@ -66,29 +91,34 @@ function existingFileMode(filePath: string): number | undefined {
   }
 }
 
-function cleanupTemporaryDirectory(
-  temporaryDirectory: string,
+function closeTemporaryFile(fileDescriptor: number | undefined): void {
+  if (fileDescriptor === undefined) return;
+  try {
+    fs.closeSync(fileDescriptor);
+  } catch {
+    // Preserve the original operation error; the temporary path cleanup follows.
+  }
+}
+
+function cleanupTemporaryFile(
+  temporaryPath: string,
   boundaries: BoundaryOperations,
   operation: string,
   primary?: unknown,
 ): Error | undefined {
   try {
-    boundaries.file(`${operation}.temp.cleanup`, () =>
-      fs.rmSync(temporaryDirectory, { recursive: true, force: true }),
-    );
+    boundaries.file(`${operation}.temp.cleanup`, () => fs.rmSync(temporaryPath, { force: true }));
     return undefined;
   } catch {
     try {
-      boundaries.file(`${operation}.temp.cleanup.retry`, () =>
-        fs.rmSync(temporaryDirectory, { recursive: true, force: true }),
-      );
+      boundaries.file(`${operation}.temp.cleanup.retry`, () => fs.rmSync(temporaryPath, { force: true }));
       return undefined;
     } catch (retryError) {
       // Fault injection fails before invoking the action. A direct final attempt
-      // keeps a test seam failure from leaving an otherwise removable directory
+      // keeps a test seam failure from leaving an otherwise removable file
       // behind while the injected failure remains secondary evidence.
       try {
-        fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+        fs.rmSync(temporaryPath, { force: true });
       } catch (fallbackError) {
         retryError = fallbackError;
       }
