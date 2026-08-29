@@ -51,19 +51,24 @@
 
       nixosConfigurations = runtimeConfigurations;
 
-      packages = forEachSystem (system: {
-        runtime-system = runtimeConfigurations.${system}.config.system.build.toplevel;
-        runtime-vm = runtimeConfigurations.${system}.config.system.build.vm;
-        runtime-image =
-          let
-            pkgs = nixpkgs.legacyPackages.${system};
-          in
-          import ./runtime-image.nix {
+      packages = forEachSystem (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        {
+          nawabari = import ./packages/nawabari.nix {
+            inherit (pkgs) lib stdenvNoCC fetchurl makeWrapper nodejs_22;
+          };
+          runtime-system = runtimeConfigurations.${system}.config.system.build.toplevel;
+          runtime-vm = runtimeConfigurations.${system}.config.system.build.vm;
+          runtime-image = import ./runtime-image.nix {
             inherit (nixpkgs) lib;
             inherit nixpkgs pkgs;
             runtime = runtimeConfigurations.${system};
           };
-      });
+        }
+      );
 
       checks = forEachSystem (
         system:
@@ -71,6 +76,12 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in
         {
+          nawabari = pkgs.runCommand "nawabari-smoke" {
+            nativeBuildInputs = [ self.packages.${system}.nawabari ];
+          } ''
+            test "$(nawabari --version)" = "0.6.1"
+            touch "$out"
+          '';
           runtime-vm = import ./tests/runtime.nix {
             inherit pkgs;
             inherit (nixpkgs) lib;
