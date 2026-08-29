@@ -52,6 +52,7 @@
       nixosConfigurations = runtimeConfigurations;
 
       packages = forEachSystem (system: {
+        mottainai = import ./mottainai.nix { pkgs = nixpkgs.legacyPackages.${system}; };
         runtime-system = runtimeConfigurations.${system}.config.system.build.toplevel;
         runtime-vm = runtimeConfigurations.${system}.config.system.build.vm;
         runtime-image =
