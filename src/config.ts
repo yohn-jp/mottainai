@@ -439,7 +439,7 @@ function normalizeGateway(value: unknown): GatewayConfig | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw new Error("invalid gateway config");
   rejectUnknownKeys(value, GATEWAY_CONFIG_KEYS, "invalid gateway config");
-  const workspaceRoot = optionalString(value.workspaceRoot, "invalid gateway workspaceRoot");
+  const workspaceRoot = optionalNonEmptyString(value.workspaceRoot, "invalid gateway workspaceRoot");
   return {
     workspaceRoot,
     defaultTimeoutMs: positiveIntegerConfig(value.defaultTimeoutMs, "invalid gateway defaultTimeoutMs"),
@@ -449,8 +449,8 @@ function normalizeGateway(value: unknown): GatewayConfig | undefined {
     resultTtlMs: positiveIntegerConfig(value.resultTtlMs, "invalid gateway resultTtlMs"),
     resultMaxEntries: positiveIntegerConfig(value.resultMaxEntries, "invalid gateway resultMaxEntries"),
     resultMaxBytes: positiveIntegerConfig(value.resultMaxBytes, "invalid gateway resultMaxBytes"),
-    activeProfile: optionalString(value.activeProfile, "invalid gateway activeProfile"),
-    oauthProviderModule: optionalString(value.oauthProviderModule, "invalid gateway oauthProviderModule"),
+    activeProfile: optionalNonEmptyString(value.activeProfile, "invalid gateway activeProfile"),
+    oauthProviderModule: optionalNonEmptyString(value.oauthProviderModule, "invalid gateway oauthProviderModule"),
     capabilityMap: stringArrayRecord(value.capabilityMap, "invalid gateway capabilityMap"),
     toolMetadata: toolMetadataRecord(value.toolMetadata, "invalid gateway toolMetadata"),
     tokenBudgets: tokenBudgetsConfig(value.tokenBudgets, "invalid gateway tokenBudgets"),
@@ -472,7 +472,7 @@ function ghInariConfig(value: unknown, field: string): GhInariConfig | undefined
   if (!isRecord(value)) throw new Error(field);
   rejectUnknownKeys(value, GH_INARI_CONFIG_KEYS, field);
   return {
-    command: optionalString(value.command, `${field}.command`),
+    command: optionalNonEmptyString(value.command, `${field}.command`),
     timeoutMs: positiveIntegerConfig(value.timeoutMs, `${field}.timeoutMs`),
     maxOutputBytes: positiveIntegerConfig(value.maxOutputBytes, `${field}.maxOutputBytes`),
     maxInputBytes: positiveIntegerConfig(value.maxInputBytes, `${field}.maxInputBytes`),
@@ -525,14 +525,14 @@ function worktreeConfig(value: unknown, field: string): WorktreeConfig | undefin
   if (
     allowedBranchPrefixes === undefined ||
     allowedBranchPrefixes.length === 0 ||
-    allowedBranchPrefixes.some((prefix) => prefix.length === 0)
+    allowedBranchPrefixes.some((prefix) => prefix.trim().length === 0)
   ) {
     throw new Error(`${field}.allowedBranchPrefixes must be a non-empty string array of non-empty prefixes`);
   }
   return {
     allowedBranchPrefixes,
-    baseBranch: optionalString(value.baseBranch, `${field}.baseBranch`),
-    worktreeDir: optionalString(value.worktreeDir, `${field}.worktreeDir`),
+    baseBranch: optionalNonEmptyString(value.baseBranch, `${field}.baseBranch`),
+    worktreeDir: optionalNonEmptyString(value.worktreeDir, `${field}.worktreeDir`),
   };
 }
 
@@ -687,8 +687,13 @@ function normalizeUpstream(name: string, value: unknown): Omit<UpstreamConfig, "
     transport === "stdio" ? UPSTREAM_STDIO_KEYS : UPSTREAM_HTTP_KEYS,
     `invalid upstream config: ${name}`,
   );
-  if (transport === "stdio" && typeof value.command !== "string") {
-    throw new Error(`invalid upstream config: ${name}`);
+  if (transport === "stdio") {
+    if (typeof value.command !== "string") {
+      throw new Error(`invalid upstream config: ${name}`);
+    }
+    if (value.command.trim().length === 0) {
+      throw new Error(`invalid upstream command: ${name}`);
+    }
   }
   if (transport === "streamableHttp" && !isHttpUrl(value.url)) {
     const detail = hasHttpUrlUserinfo(value.url) ? "; userinfo is not allowed" : "";
@@ -708,16 +713,16 @@ function normalizeUpstream(name: string, value: unknown): Omit<UpstreamConfig, "
   }
   const common = {
     enabled: value.enabled ?? true,
-    profile: optionalString(value.profile, `invalid upstream profile: ${name}`),
+    profile: optionalNonEmptyString(value.profile, `invalid upstream profile: ${name}`),
     priority: value.priority ?? 0,
-    capabilities: stringArray(value.capabilities, `invalid upstream capabilities: ${name}`) ?? [],
-    preferredFor: stringArray(value.preferredFor, `invalid upstream preferredFor: ${name}`) ?? [],
-    fallbackFor: stringArray(value.fallbackFor, `invalid upstream fallbackFor: ${name}`) ?? [],
+    capabilities: nonEmptyStringArray(value.capabilities, `invalid upstream capabilities: ${name}`) ?? [],
+    preferredFor: nonEmptyStringArray(value.preferredFor, `invalid upstream preferredFor: ${name}`) ?? [],
+    fallbackFor: nonEmptyStringArray(value.fallbackFor, `invalid upstream fallbackFor: ${name}`) ?? [],
     metadata:
       value.metadata === undefined ? undefined : normalizeToolMetadataOverride(value.metadata, `${name}.metadata`),
   };
   if (transport === "streamableHttp") {
-    const headersFromEnv = stringRecord(value.headersFromEnv, `invalid upstream headersFromEnv: ${name}`);
+    const headersFromEnv = nonEmptyStringRecord(value.headersFromEnv, `invalid upstream headersFromEnv: ${name}`);
     const auth = normalizeUpstreamAuth(name, value.auth);
     if (auth !== undefined && headersFromEnv !== undefined) {
       throw new Error(`invalid upstream auth headers: ${name}`);
@@ -738,7 +743,7 @@ function normalizeUpstream(name: string, value: unknown): Omit<UpstreamConfig, "
     command: value.command as string,
     args: stringArray(value.args, `invalid upstream args: ${name}`),
     env: stringRecord(value.env, `invalid upstream env: ${name}`),
-    cwd: optionalString(value.cwd, `invalid upstream cwd: ${name}`),
+    cwd: optionalNonEmptyString(value.cwd, `invalid upstream cwd: ${name}`),
     ...common,
   };
 }
@@ -747,7 +752,12 @@ const UPSTREAM_AUTH_KEYS = ["type", "profile"] as const;
 
 function normalizeUpstreamAuth(name: string, value: unknown): OAuthAuthConfig | undefined {
   if (value === undefined) return undefined;
-  if (!isRecord(value) || value.type !== "oauth" || typeof value.profile !== "string" || value.profile.length === 0) {
+  if (
+    !isRecord(value) ||
+    value.type !== "oauth" ||
+    typeof value.profile !== "string" ||
+    value.profile.trim().length === 0
+  ) {
     throw new Error(`invalid upstream auth: ${name}`);
   }
   rejectUnknownKeys(value, UPSTREAM_AUTH_KEYS, `invalid upstream auth: ${name}`);
@@ -792,7 +802,7 @@ function normalizeProfiles(value: unknown): Record<string, ProfileConfig> {
       return [
         name,
         {
-          includeCapabilities: stringArray(profile.includeCapabilities, `invalid profile capabilities: ${name}`),
+          includeCapabilities: nonEmptyStringArray(profile.includeCapabilities, `invalid profile capabilities: ${name}`),
           denyRisk: denyRiskArray(profile.denyRisk, name),
           rawToolAccess: rawToolAccessValue(profile.rawToolAccess, `invalid profile rawToolAccess: ${name}`),
         },
@@ -837,8 +847,8 @@ function rejectUnknownKeys(value: Record<string, unknown>, allowedKeys: readonly
   }
 }
 
-function optionalString(value: unknown, message: string): string | undefined {
-  if (value !== undefined && typeof value !== "string") {
+function optionalNonEmptyString(value: unknown, message: string): string | undefined {
+  if (value !== undefined && (typeof value !== "string" || value.trim().length === 0)) {
     throw new Error(message);
   }
   return value;
@@ -858,6 +868,14 @@ function stringArray(value: unknown, message: string): string[] | undefined {
   return value as string[] | undefined;
 }
 
+function nonEmptyStringArray(value: unknown, message: string): string[] | undefined {
+  const values = stringArray(value, message);
+  if (values !== undefined && values.some((item) => item.trim().length === 0)) {
+    throw new Error(message);
+  }
+  return values;
+}
+
 function stringRecord(value: unknown, message: string): Record<string, string> | undefined {
   if (value !== undefined && (!isRecord(value) || Object.values(value).some((item) => typeof item !== "string"))) {
     throw new Error(message);
@@ -865,11 +883,21 @@ function stringRecord(value: unknown, message: string): Record<string, string> |
   return value as Record<string, string> | undefined;
 }
 
+function nonEmptyStringRecord(value: unknown, message: string): Record<string, string> | undefined {
+  const record = stringRecord(value, message);
+  if (record !== undefined && Object.values(record).some((item) => item.trim().length === 0)) {
+    throw new Error(message);
+  }
+  return record;
+}
+
 function stringArrayRecord(value: unknown, message: string): Record<string, string[]> | undefined {
   if (value === undefined) return undefined;
   if (
     !isRecord(value) ||
-    Object.values(value).some((entry) => !Array.isArray(entry) || entry.some((item) => typeof item !== "string"))
+    Object.values(value).some(
+      (entry) => !Array.isArray(entry) || entry.some((item) => typeof item !== "string" || item.trim().length === 0),
+    )
   ) {
     throw new Error(message);
   }

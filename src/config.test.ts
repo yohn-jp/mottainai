@@ -244,12 +244,196 @@ test("loadMottainaiConfig rejects worktree.allowedBranchPrefixes containing an e
     /invalid gateway worktree\.allowedBranchPrefixes must be a non-empty string array/,
   );
 
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      version: 2,
+      mcpServers: { one: { command: "node" } },
+      gateway: { worktree: { allowedBranchPrefixes: ["task/", " \t"] } },
+    })),
+    /invalid gateway worktree\.allowedBranchPrefixes must be a non-empty string array/,
+  );
+
   const configPath = writeConfig({
     version: 2,
     mcpServers: { one: { command: "node" } },
     gateway: { worktree: { allowedBranchPrefixes: ["task/"] } },
   });
   assert.deepEqual(loadMottainaiConfig(configPath).gateway?.worktree?.allowedBranchPrefixes, ["task/"]);
+});
+
+test("loadMottainaiConfig rejects empty runtime resource strings with field diagnostics", () => {
+  const cases: Array<{
+    label: string;
+    configFor: (value: string) => unknown;
+    error: RegExp;
+  }> = [
+    {
+      label: "stdio command",
+      configFor: (value) => ({ mcpServers: { one: { command: value } } }),
+      error: /invalid upstream command: one/,
+    },
+    {
+      label: "gateway workspaceRoot",
+      configFor: (value) => ({ mcpServers: { one: { command: "node" } }, gateway: { workspaceRoot: value } }),
+      error: /invalid gateway workspaceRoot/,
+    },
+    {
+      label: "gateway oauthProviderModule",
+      configFor: (value) => ({ mcpServers: { one: { command: "node" } }, gateway: { oauthProviderModule: value } }),
+      error: /invalid gateway oauthProviderModule/,
+    },
+    {
+      label: "gateway ghInari.command",
+      configFor: (value) => ({ mcpServers: { one: { command: "node" } }, gateway: { ghInari: { command: value } } }),
+      error: /invalid gateway ghInari\.command/,
+    },
+    {
+      label: "gateway worktree.baseBranch",
+      configFor: (value) => ({
+        mcpServers: { one: { command: "node" } },
+        gateway: { worktree: { allowedBranchPrefixes: ["task/"], baseBranch: value } },
+      }),
+      error: /invalid gateway worktree\.baseBranch/,
+    },
+    {
+      label: "gateway worktree.worktreeDir",
+      configFor: (value) => ({
+        mcpServers: { one: { command: "node" } },
+        gateway: { worktree: { allowedBranchPrefixes: ["task/"], worktreeDir: value } },
+      }),
+      error: /invalid gateway worktree\.worktreeDir/,
+    },
+    {
+      label: "upstream cwd",
+      configFor: (value) => ({ mcpServers: { one: { command: "node", cwd: value } } }),
+      error: /invalid upstream cwd: one/,
+    },
+    {
+      label: "gateway activeProfile",
+      configFor: (value) => ({ mcpServers: { one: { command: "node" } }, gateway: { activeProfile: value } }),
+      error: /invalid gateway activeProfile/,
+    },
+    {
+      label: "upstream profile",
+      configFor: (value) => ({ mcpServers: { one: { command: "node", profile: value } } }),
+      error: /invalid upstream profile: one/,
+    },
+  ];
+
+  for (const value of ["", " \t\n"]) {
+    for (const entry of cases) {
+      assert.throws(
+        () => loadMottainaiConfig(writeConfig(entry.configFor(value))),
+        entry.error,
+        `${entry.label}: ${JSON.stringify(value)}`,
+      );
+    }
+  }
+});
+
+test("loadMottainaiConfig rejects empty OAuth, capability, category, and environment references", () => {
+  const cases: Array<{
+    label: string;
+    configFor: (value: string) => unknown;
+    error: RegExp;
+  }> = [
+    {
+      label: "OAuth profile",
+      configFor: (value) => ({
+        mcpServers: {
+          one: {
+            transport: "streamableHttp",
+            url: "https://mcp.example.test/mcp",
+            auth: { type: "oauth", profile: value },
+          },
+        },
+      }),
+      error: /invalid upstream auth: one/,
+    },
+    {
+      label: "upstream capability",
+      configFor: (value) => ({ mcpServers: { one: { command: "node", capabilities: [value] } } }),
+      error: /invalid upstream capabilities: one/,
+    },
+    {
+      label: "upstream preferredFor",
+      configFor: (value) => ({ mcpServers: { one: { command: "node", preferredFor: [value] } } }),
+      error: /invalid upstream preferredFor: one/,
+    },
+    {
+      label: "upstream fallbackFor",
+      configFor: (value) => ({ mcpServers: { one: { command: "node", fallbackFor: [value] } } }),
+      error: /invalid upstream fallbackFor: one/,
+    },
+    {
+      label: "profile capability",
+      configFor: (value) => ({
+        mcpServers: { one: { command: "node" } },
+        profiles: { readonly: { includeCapabilities: [value] } },
+      }),
+      error: /invalid profile capabilities: readonly/,
+    },
+    {
+      label: "gateway capability map",
+      configFor: (value) => ({
+        mcpServers: { one: { command: "node" } },
+        gateway: { capabilityMap: { one: [value] } },
+      }),
+      error: /invalid gateway capabilityMap/,
+    },
+    {
+      label: "header environment reference",
+      configFor: (value) => ({
+        mcpServers: {
+          remote: {
+            transport: "streamableHttp",
+            url: "https://mcp.example.test/mcp",
+            headersFromEnv: { Authorization: value },
+          },
+        },
+      }),
+      error: /invalid upstream headersFromEnv: remote/,
+    },
+    {
+      label: "metadata contract",
+      configFor: (value) => ({
+        mcpServers: { one: { command: "node", metadata: { contract: value } } },
+      }),
+      error: /invalid tool metadata: one\.metadata\.contract/,
+    },
+  ];
+
+  for (const value of ["", " \t\n"]) {
+    for (const entry of cases) {
+      assert.throws(
+        () => loadMottainaiConfig(writeConfig(entry.configFor(value))),
+        entry.error,
+        `${entry.label}: ${JSON.stringify(value)}`,
+      );
+    }
+  }
+});
+
+test("loadMottainaiConfig preserves omitted optional runtime values and their defaults", () => {
+  const configPath = writeConfig({
+    version: 2,
+    mcpServers: { one: { command: "node" } },
+    gateway: { worktree: { allowedBranchPrefixes: ["task/"] } },
+  });
+
+  const config = loadMottainaiConfig(configPath);
+  assert.equal(config.gateway?.workspaceRoot, undefined);
+  assert.equal(config.gateway?.activeProfile, undefined);
+  assert.equal(config.gateway?.oauthProviderModule, undefined);
+  assert.equal(config.gateway?.worktree?.baseBranch, undefined);
+  assert.equal(config.gateway?.worktree?.worktreeDir, undefined);
+  assert.equal(config.mcpServers.one.cwd, undefined);
+
+  assert.deepEqual(loadGatewayConfig(configPath).worktree, {
+    allowedBranchPrefixes: ["task/"],
+    baseBranch: "main",
+    worktreeDir: ".worktrees",
+  });
 });
 
 test("loadMottainaiConfig rejects invalid v2 metadata", () => {
