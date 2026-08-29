@@ -173,6 +173,31 @@ oversized path/identity strings; it fails validation instead.
   minimum, so a future incompatible Runtime contract change is caught by
   `pnpm test` rather than discovered in the field.
 
+## Distribution/delivery evidence (Issue #601)
+
+The contract above defines the guest; it does not define how a copy of it
+reaches an operator. Three separate evidence layers exist and must not be
+conflated:
+
+- **Build evidence** (GitHub Actions, automated): `nix build .#runtime-appliance-image`
+  evaluates and builds the same `nixosModules.runtime` this contract defines,
+  projected to a self-bootable disk, and `scripts/build-runtime-appliance-manifest.mjs`
+  emits/verifies the bounded `mottainai.linux-runtime-appliance.v1` manifest
+  (`src/runtime-contract/appliance-manifest.ts`) before the disk is uploaded
+  as a CI artifact. This proves the artifact was built and is internally
+  consistent; it does not prove it boots on real virtualization hardware.
+- **Manual integration evidence** (Proxmox, currently manual):
+  [`docs/runtime-appliance-proxmox.md`](runtime-appliance-proxmox.md) records
+  boot/network/SSH/version/health/persistence proof for the exact downloaded
+  Actions artifact on a real Proxmox/QEMU/KVM host. This proves the built
+  artifact runs; it is not automated and does not make Proxmox a required or
+  supported Runtime provider.
+- **Provider support evidence** (later #600/#261): a supported Runtime
+  provider (Lima locally, a future Proxmox provider) additionally proves
+  reconciliation semantics, capability validation, and fail-closed behavior
+  through Mottainai's own provider adapter. Neither of the two evidence
+  layers above satisfies this on its own.
+
 ## Non-goals (inherited from #231)
 
 - Choosing or implementing the host VM launcher.

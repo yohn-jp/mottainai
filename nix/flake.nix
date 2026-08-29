@@ -57,6 +57,39 @@
       );
     in
     {
+      # Self-bootable delivery projection of the same canonical Runtime
+      # module, for manual QEMU/KVM hosts (Proxmox) that import one disk
+      # through firmware rather than consuming runtime-vm/runtime-image's
+      # direct -kernel/-initrd boot. Only the bootloader/partition/QEMU-guest
+      # delivery concerns differ from runtimeConfigurations above; the guest
+      # module and its overlay are identical, so this is not a second guest
+      # authority. See nix/runtime-appliance-image.nix and Issue #601.
+      applianceConfigurations = forEachSystem (
+        system:
+        nixpkgs.lib.nixosSystem {
+          inherit system;
+          modules = [
+            (nixpkgs + "/nixos/modules/profiles/qemu-guest.nix")
+            self.nixosModules.runtime
+            { nixpkgs.overlays = [ runtimeOverlay ]; }
+            {
+              mottainai.runtime.enable = true;
+
+              boot.loader.grub.enable = true;
+              boot.loader.grub.device = "/dev/vda";
+              boot.loader.timeout = 0;
+              boot.growPartition = true;
+              fileSystems."/" = {
+                device = "/dev/disk/by-label/nixos";
+                fsType = "ext4";
+                autoResize = true;
+              };
+              system.stateVersion = "24.05";
+            }
+          ];
+        }
+      );
+
       # Canonical Runtime module: the single specification consumed both by
       # fresh Runtime image/VM builds (nixosConfigurations, below) and by
       # in-place reconciliation of an existing compatible Runtime. See
@@ -86,6 +119,11 @@
             inherit (nixpkgs) lib;
             inherit nixpkgs pkgs;
             runtime = runtimeConfigurations.${system};
+          };
+          runtime-appliance-image = import ./runtime-appliance-image.nix {
+            inherit (nixpkgs) lib;
+            inherit nixpkgs pkgs;
+            appliance = self.applianceConfigurations.${system};
           };
         }
       );
