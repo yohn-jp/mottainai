@@ -959,6 +959,54 @@ test("issue_view reports a structured failure when gh fails", async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test("gh_checks_await reports malformed provider output and stops polling", async () => {
+  const { root, config } = await workspace();
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-fake-gh-"));
+  const fakeGh = path.join(binDir, "gh");
+  await fs.writeFile(
+    fakeGh,
+    [
+      "#!/bin/sh",
+      "count=0",
+      "if [ -f .gh-call-count ]; then count=$(cat .gh-call-count); fi",
+      "count=$((count + 1))",
+      "printf '%s' \"$count\" > .gh-call-count",
+      "printf '%s\\n' 'not-json-provider-secret'",
+      "exit 0",
+      "",
+    ].join("\n"),
+  );
+  await fs.chmod(fakeGh, 0o755);
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+  try {
+    const result = await callLocalTool(
+      "mottainai_gh_checks_await",
+      { number: 451, timeoutMs: 1_000 },
+      {
+        ...config,
+        worktree: { allowedBranchPrefixes: ["fix"], baseBranch: "main", worktreeDir: ".worktrees" },
+      },
+      new InMemoryArtifactStore(),
+    );
+    const structuredResult = structured(result);
+    assert.equal(result.isError, true);
+    assert.equal(structuredResult.status, "failed");
+    assert.equal(structuredResult.state, "provider_error");
+    assert.equal(structuredResult.failure_classification, "provider_contract");
+    assert.deepEqual(structuredResult.diagnostics, [{ severity: "error", message: "unparsable JSON output" }]);
+    assert.equal(structuredResult.result_id, "");
+    assert.equal(structuredResult.checks, undefined);
+    assert.equal(await fs.readFile(path.join(root, ".gh-call-count"), "utf8"), "1");
+    assert.doesNotMatch(JSON.stringify(structuredResult), /not-json-provider-secret/);
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+    await fs.rm(binDir, { recursive: true, force: true });
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("issue_view throws when the workspace has no worktree config", async () => {
   const { root, config } = await workspace();
   const store = new InMemoryArtifactStore();
