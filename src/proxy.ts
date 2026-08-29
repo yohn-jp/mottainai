@@ -117,6 +117,7 @@ export function registerProxyHandlers(
   const resolvedArtifactStore = artifactStore ?? new InMemoryArtifactStore({
     ttlMs: gatewayConfig.resultTtlMs,
     maxEntries: gatewayConfig.resultMaxEntries,
+    aggregateByteBudget: gatewayConfig.resultMaxBytes,
   });
   // await/watch primitive（Issue #74）の handle は、この connection（= この registerProxyHandlers 呼び出し）にだけ属する。
   const processes = new ProcessRegistry({ policy: gatewayConfig.managedProcesses });

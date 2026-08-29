@@ -1005,8 +1005,12 @@ export function defaultWorkflowStore(): Promise<WorkflowStateStore> {
  * fallback としてのみ使われる。
  */
 let defaultArtifactStore: ArtifactStore | undefined;
-function defaultCheckArtifactStore(): ArtifactStore {
-  defaultArtifactStore ??= new InMemoryArtifactStore();
+function defaultCheckArtifactStore(config: ResolvedGatewayConfig): ArtifactStore {
+  defaultArtifactStore ??= new InMemoryArtifactStore({
+    ttlMs: config.resultTtlMs,
+    maxEntries: config.resultMaxEntries,
+    aggregateByteBudget: config.resultMaxBytes,
+  });
   return defaultArtifactStore;
 }
 
@@ -1057,7 +1061,7 @@ export async function callWorkflowCommandTool(
         args,
         config,
         workflowStore ?? (await defaultWorkflowStore()),
-        artifactStore ?? defaultCheckArtifactStore(),
+        artifactStore ?? defaultCheckArtifactStore(config),
       );
     case "mottainai_workflow_validation_receipt":
       requireWorkflowTasksConfigured(config);
@@ -1065,7 +1069,7 @@ export async function callWorkflowCommandTool(
         args,
         config,
         workflowStore ?? (await defaultWorkflowStore()),
-        artifactStore ?? defaultCheckArtifactStore(),
+        artifactStore ?? defaultCheckArtifactStore(config),
       );
     case "mottainai_workflow_task_commit":
     case "mottainai_workflow_task_push":

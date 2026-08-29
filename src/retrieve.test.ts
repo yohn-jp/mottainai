@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { InMemoryArtifactStore } from "./retrieve.js";
 
+function serializedTextBytes(text: string): number {
+  return Buffer.byteLength(JSON.stringify({ text }), "utf8");
+}
+
 test("artifact store retrieves original text by ID with a bounded line window", () => {
   const store = new InMemoryArtifactStore({ createId: () => "test", maxEntries: 2 });
   const id = store.put({ content: [{ type: "text", text: "one\ntwo\nthree" }] });
@@ -59,6 +63,77 @@ test("artifact store evicts the least recently used entry at the configured maxi
   assert.equal(store.retrieve(first)?.text, "first");
   assert.equal(store.retrieve(second), undefined);
   assert.equal(store.retrieve(third)?.text, "third");
+});
+
+test("artifact store retains exactly the aggregate serialized-byte budget and evicts by LRU when exceeded", () => {
+  const budget = serializedTextBytes("first") + serializedTextBytes("second");
+  let sequence = 0;
+  const store = new InMemoryArtifactStore({
+    aggregateByteBudget: budget,
+    createId: () => `${++sequence}`,
+  });
+  const first = store.putArtifact({ text: "first" });
+  const second = store.putArtifact({ text: "second" });
+
+  assert.equal(store.retrieve(first)?.text, "first");
+  assert.equal(store.retrieve(second)?.text, "second");
+
+  const third = store.putArtifact({ text: "third" });
+  assert.equal(store.retrieve(first), undefined);
+  assert.equal(store.retrieve(second)?.text, "second");
+  assert.equal(store.retrieve(third)?.text, "third");
+});
+
+test("artifact store accounts for replacement growth and shrink without changing serialized-byte totals", () => {
+  const largeText = "large".repeat(20);
+  const budget = serializedTextBytes(largeText);
+  const store = new InMemoryArtifactStore({ aggregateByteBudget: budget });
+
+  store.putArtifact({ text: "first" }, "first");
+  store.putArtifact({ text: "second" }, "second");
+  store.putArtifact({ text: largeText }, "first");
+
+  assert.equal(store.retrieve("first")?.text, largeText);
+  assert.equal(store.retrieve("second"), undefined);
+
+  store.putArtifact({ text: "small" }, "first");
+  store.putArtifact({ text: "second" }, "second");
+  assert.equal(store.retrieve("first")?.text, "small");
+  assert.equal(store.retrieve("second")?.text, "second");
+});
+
+test("artifact store removes expired serialized bytes before the next insertion", () => {
+  let now = 0;
+  const store = new InMemoryArtifactStore({
+    aggregateByteBudget: serializedTextBytes("new"),
+    ttlMs: 10,
+    now: () => now,
+  });
+  const expired = store.putArtifact({ text: "old" }, "old");
+  now = 10;
+
+  assert.deepEqual(store.search("old"), []);
+  const current = store.putArtifact({ text: "new" }, "new");
+  assert.equal(store.retrieve(expired), undefined);
+  assert.equal(store.retrieve(current)?.text, "new");
+});
+
+test("artifact store combines count and aggregate-byte pressure with deterministic LRU eviction", () => {
+  const budget = serializedTextBytes("a") + serializedTextBytes("b");
+  const store = new InMemoryArtifactStore({ aggregateByteBudget: budget, maxEntries: 2 });
+  const first = store.putArtifact({ text: "a" }, "first");
+  const second = store.putArtifact({ text: "b" }, "second");
+  assert.equal(store.retrieve(first)?.text, "a");
+
+  const third = store.putArtifact({ text: "c" }, "third");
+  assert.equal(store.retrieve(second), undefined);
+  assert.equal(store.retrieve(first)?.text, "a");
+  assert.equal(store.retrieve(third)?.text, "c");
+
+  const fourth = store.putArtifact({ text: "dddd" }, "fourth");
+  assert.equal(store.retrieve(first), undefined);
+  assert.equal(store.retrieve(third), undefined);
+  assert.equal(store.retrieve(fourth)?.text, "dddd");
 });
 
 test("artifact store bounds oversized text instead of retaining unbounded output", () => {
@@ -144,4 +219,9 @@ test("artifact store rejects invalid retention and byte limits", () => {
   assert.throws(() => new InMemoryArtifactStore({ maxEntries: 1.5 }), /maxEntries/);
   assert.throws(() => new InMemoryArtifactStore({ maxBytes: Number.POSITIVE_INFINITY }), /maxBytes/);
   assert.throws(() => new InMemoryArtifactStore({ maxBytes: 0 }), /maxBytes/);
+  assert.throws(
+    () => new InMemoryArtifactStore({ aggregateByteBudget: Number.POSITIVE_INFINITY }),
+    /aggregateByteBudget/,
+  );
+  assert.throws(() => new InMemoryArtifactStore({ aggregateByteBudget: 0 }), /aggregateByteBudget/);
 });
