@@ -5,11 +5,16 @@ let
 
   pname = "mottainai";
   version = "0.6.0";
+  sourceRevision = "eb47e9270eb17132139cec9b74b8de399569263a";
   nodejs = pkgs.nodejs_22;
   pnpm = pkgs.pnpm_9;
   nodeSrc = pkgs.srcOnly nodejs;
   nodeGyp = "${nodejs}/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js";
   caBundle = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
+  pnpmLock = pkgs.fetchurl {
+    url = "https://raw.githubusercontent.com/yohn-jp/mottainai/${sourceRevision}/pnpm-lock.yaml";
+    hash = "sha256-oCwMCOEeO5eZqpbHd4JCvs/42l7BUFtZEuDdw+ktAYc=";
+  };
 
   pnpmDeps = pkgs.stdenvNoCC.mkDerivation {
     pname = "${pname}-pnpm-deps";
@@ -25,7 +30,7 @@ let
 
       workdir="$TMPDIR/${pname}-pnpm-deps"
       mkdir -p "$workdir" "$out"
-      cp ${../pnpm-lock.yaml} "$workdir/pnpm-lock.yaml"
+      cp ${pnpmLock} "$workdir/pnpm-lock.yaml"
       cd "$workdir"
       pnpm fetch --prod --frozen-lockfile --ignore-scripts --store-dir "$out"
 
@@ -60,7 +65,7 @@ pkgs.stdenv.mkDerivation {
 
     mkdir source
     tar -xzf "$src" --strip-components=1 -C source
-    cp ${../pnpm-lock.yaml} source/pnpm-lock.yaml
+    cp ${pnpmLock} source/pnpm-lock.yaml
     cd source
 
     runHook postUnpack
