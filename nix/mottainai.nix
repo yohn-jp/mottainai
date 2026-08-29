@@ -45,7 +45,7 @@ let
 
     dontInstall = true;
     outputHashMode = "recursive";
-    outputHash = "sha256-YBKawcrsBZvpE+ek6Mh8jQwuKhaObepWe3C4XOUgb9w=";
+    outputHash = "sha256-WTW1NEqAT2FFFqvn+ddKapRZqwMXYhqnRg0C7ote77A=";
   };
 in
 pkgs.stdenv.mkDerivation {
