@@ -232,6 +232,18 @@ function parseCommandArgs(value: string | undefined): string[] | undefined {
   return parsed;
 }
 
+const INVALID_PRIORITY_MESSAGE = `invalid --priority: expected a finite non-negative safe integer between 0 and ${Number.MAX_SAFE_INTEGER}`;
+
+function parsePriority(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (value.trim() === "") fail(INVALID_PRIORITY_MESSAGE);
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || !Number.isSafeInteger(parsed) || parsed < 0) {
+    fail(INVALID_PRIORITY_MESSAGE);
+  }
+  return parsed;
+}
+
 function jsonFlag(argv: string[], name: string): unknown {
   const raw = requireFlagValue(argv, name);
   if (raw === undefined) return undefined;
@@ -642,7 +654,7 @@ export async function runCli(args: string[]): Promise<number> {
       const transportValue = requireFlagValue(argv, "transport");
       const argsValue = requireFlagValue(argv, "args");
       const cwd = requireFlagValue(argv, "cwd");
-      const priority = requireFlagValue(argv, "priority");
+      const priority = parsePriority(requireFlagValue(argv, "priority"));
       const capabilitiesValue = requireFlagValue(argv, "capabilities");
       const profile = requireFlagValue(argv, "profile");
       const authProfile = requireFlagValue(argv, "auth-profile");
@@ -670,7 +682,7 @@ export async function runCli(args: string[]): Promise<number> {
         ...(commandArgs === undefined ? {} : { args: commandArgs }),
         ...(cwd === undefined ? {} : { cwd }),
         ...(profile === undefined ? {} : { profile }),
-        ...(priority !== undefined ? { priority: Number(priority) } : {}),
+        ...(priority !== undefined ? { priority } : {}),
         ...(capabilities !== undefined && capabilities.length > 0 ? { capabilities } : {}),
         ...(hasFlag(argv, "disabled") ? { enabled: false } : {}),
       };

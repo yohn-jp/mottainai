@@ -273,3 +273,108 @@ test("public CLI skill subcommand reports an unknown scenario to stderr with a n
   assert.equal(result.stdout, "");
   assert.match(result.stderr, /unknown skill scenario: not-a-real-scenario/u);
 });
+
+test("mottainai add rejects invalid priority at the CLI boundary without writing config", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-priority-invalid-"));
+  const configPath = path.join(workspace, "mottainai.config.json");
+  const initialConfig = `${JSON.stringify({ version: 2, mcpServers: {} }, null, 2)}\n`;
+  const runAdd = (priority: string) =>
+    spawnSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        entryPoint,
+        "add",
+        "example",
+        "--command",
+        "node",
+        "--priority",
+        priority,
+        "--config",
+        configPath,
+      ],
+      {
+        cwd: path.resolve(path.dirname(entryPoint), ".."),
+        env: { ...process.env, HOME: workspace, USERPROFILE: workspace },
+        encoding: "utf8",
+      },
+    );
+
+  try {
+    fs.writeFileSync(configPath, initialConfig);
+    for (const priority of ["not-a-number", "NaN", "Infinity", " ", "1.5", "-1", String(Number.MAX_SAFE_INTEGER + 1)]) {
+      const result = runAdd(priority);
+      assert.equal(result.status, 1, `${priority}: ${result.stdout}${result.stderr}`);
+      assert.equal(result.stdout, "", priority);
+      assert.match(
+        result.stderr,
+        /invalid --priority: expected a finite non-negative safe integer between 0 and 9007199254740991/u,
+        priority,
+      );
+      assert.equal(fs.readFileSync(configPath, "utf8"), initialConfig, priority);
+    }
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("mottainai add preserves the default and documented priority boundaries", () => {
+  const cases: ReadonlyArray<{ name: string; value?: string; rawValue?: number; normalizedValue: number }> = [
+    { name: "default", normalizedValue: 0 },
+    { name: "zero", value: "0", rawValue: 0, normalizedValue: 0 },
+    {
+      name: "maximum",
+      value: String(Number.MAX_SAFE_INTEGER),
+      rawValue: Number.MAX_SAFE_INTEGER,
+      normalizedValue: Number.MAX_SAFE_INTEGER,
+    },
+  ];
+
+  for (const entry of cases) {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-priority-valid-"));
+    const configPath = path.join(workspace, "mottainai.config.json");
+    try {
+      fs.writeFileSync(configPath, `${JSON.stringify({ version: 2, mcpServers: {} }, null, 2)}\n`);
+      const result = spawnSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          entryPoint,
+          "add",
+          entry.name,
+          "--command",
+          "node",
+          ...(entry.value === undefined ? [] : ["--priority", entry.value]),
+          "--config",
+          configPath,
+        ],
+        {
+          cwd: path.resolve(path.dirname(entryPoint), ".."),
+          env: { ...process.env, HOME: workspace, USERPROFILE: workspace },
+          encoding: "utf8",
+        },
+      );
+      assert.equal(result.status, 0, `${entry.name}: ${result.stdout}${result.stderr}`);
+      const written = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
+        mcpServers: Record<string, { priority?: number }>;
+      };
+      assert.equal(written.mcpServers[entry.name].priority, entry.rawValue, entry.name);
+
+      const inspected = spawnSync(
+        process.execPath,
+        ["--import", "tsx", entryPoint, "inspect", entry.name, "--config", configPath],
+        {
+          cwd: path.resolve(path.dirname(entryPoint), ".."),
+          env: { ...process.env, HOME: workspace, USERPROFILE: workspace },
+          encoding: "utf8",
+        },
+      );
+      assert.equal(inspected.status, 0, `${entry.name}: ${inspected.stdout}${inspected.stderr}`);
+      assert.equal(JSON.parse(inspected.stdout).priority, entry.normalizedValue, entry.name);
+    } finally {
+      fs.rmSync(workspace, { recursive: true, force: true });
+    }
+  }
+});
