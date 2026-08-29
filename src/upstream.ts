@@ -3,6 +3,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { FetchLike, Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { Implementation, Tool } from "@modelcontextprotocol/sdk/types.js";
+import { StringDecoder } from "node:string_decoder";
 import packageMetadata from "../package.json" with { type: "json" };
 import { resolveBrokerEndpoint } from "./auth.js";
 import type { OAuthCredentialProvider } from "./auth.js";
@@ -178,16 +179,24 @@ async function closeClient(client: Client, providerName: string, timeoutMs: numb
 }
 
 function boundedText(value: string, maxBytes: number): string {
-  if (Buffer.byteLength(value) <= maxBytes) return value;
-  return Buffer.from(value).subarray(-maxBytes).toString("utf8");
+  if (maxBytes <= 0) return "";
+  const bytes = Buffer.from(value, "utf8");
+  if (bytes.byteLength <= maxBytes) return value;
+  const start = Math.max(0, bytes.byteLength - maxBytes);
+  for (let offset = start; offset < bytes.byteLength; offset += 1) {
+    try {
+      return new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(offset));
+    } catch {
+      // The tail starts inside a multi-byte sequence; move to the next byte.
+    }
+  }
+  return "";
 }
 
 function appendTail(values: string[], value: string): void {
-  values.push(value);
-  let bytes = values.reduce((total, entry) => total + Buffer.byteLength(entry), 0);
-  while (bytes > UPSTREAM_STDERR_TAIL_BYTES && values.length > 0) {
-    bytes -= Buffer.byteLength(values.shift() ?? "");
-  }
+  const source = Buffer.byteLength(value, "utf8") >= UPSTREAM_STDERR_TAIL_BYTES ? value : `${values.join("")}${value}`;
+  const bounded = boundedText(source, UPSTREAM_STDERR_TAIL_BYTES);
+  values.splice(0, values.length, bounded);
 }
 
 export const fetchWithoutRedirects: FetchLike = (url, init) => {
@@ -401,6 +410,7 @@ export async function connectUpstream(
   let phase = "transport";
   const transcript: string[] = ["phase=transport started"];
   const stderrTail: string[] = [];
+  let flushStderr = (): void => {};
   try {
     const transport = await withDeadline(
       transportFactory(config, oauthCredentialProvider),
@@ -410,11 +420,24 @@ export async function connectUpstream(
       (lateTransport) => closeResource(lateTransport, config.name, "transport.close", closeTimeoutMs),
     );
     if (transport instanceof StdioClientTransport) {
-      transport.stderr?.on("data", (chunk: Buffer | string) => {
-        const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
-        appendTail(stderrTail, boundedText(text, UPSTREAM_STDERR_TAIL_BYTES));
+      const stderrDecoder = new StringDecoder("utf8");
+      let stderrDecoderFlushed = false;
+      const appendStderr = (text: string): void => {
+        if (text.length === 0) return;
+        appendTail(stderrTail, text);
         process.stderr.write(text);
+      };
+      flushStderr = (): void => {
+        if (stderrDecoderFlushed) return;
+        stderrDecoderFlushed = true;
+        appendStderr(stderrDecoder.end());
+      };
+      transport.stderr?.on("data", (chunk: Buffer | string) => {
+        appendStderr(typeof chunk === "string" ? chunk : stderrDecoder.write(chunk));
       });
+      transport.stderr?.on("end", flushStderr);
+      transport.stderr?.on("close", flushStderr);
+      transport.stderr?.on("error", flushStderr);
     }
     client = createClient(config);
     phase = "initialize";
@@ -430,6 +453,7 @@ export async function connectUpstream(
     // connect() の途中失敗（stdio なら child process が spawn 済みの場合がある）も
     // listTools() の失敗も、同じスコープで client を閉じる。close 自体の失敗で元のエラーを隠さない。
     const cleanupError = client === undefined ? undefined : await closeClient(client, config.name, closeTimeoutMs);
+    flushStderr();
     const details =
       `provider=${config.name} phase=${phase} stderr_tail=${JSON.stringify(stderrTail.join(""))}` +
       ` transcript=${JSON.stringify(transcript)}`;
