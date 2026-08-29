@@ -140,6 +140,14 @@ function parseEnum<T extends string>(value: string | null, allowed: readonly T[]
   return value as T;
 }
 
+function decodePathIdentifier(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    throw new SemanticQueryError("invalid_query", "invalid percent-encoded identifier");
+  }
+}
+
 function parseGraphQuery(url: URL): GraphQuery {
   const limit = parseOptionalLimit(url.searchParams.get("limit"));
   const nodeLimit = parseOptionalLimit(url.searchParams.get("nodeLimit"));
@@ -190,7 +198,7 @@ async function routeApi(
     return;
   }
   if (resource === "entities" && segments.length === 2 && identifier !== undefined) {
-    const entityId = decodeURIComponent(identifier);
+    const entityId = decodePathIdentifier(identifier);
     const entity = await query.getEntity(entityId);
     if (entity === undefined) {
       sendError(response, 404, "not_found", `unknown semantic entity: ${entityId}`, url.pathname);
@@ -248,7 +256,7 @@ async function routeApi(
     return;
   }
   if (resource === "projections" && identifier === "agent" && segments.length === 3) {
-    const entityId = decodeURIComponent(segments[2] ?? "");
+    const entityId = decodePathIdentifier(segments[2] ?? "");
     sendJson(response, 200, await projections.getAgentContext(entityId));
     return;
   }
@@ -257,7 +265,7 @@ async function routeApi(
     return;
   }
   if (resource === "projections" && identifier === "jsdoc" && segments.length === 3) {
-    const entityId = decodeURIComponent(segments[2] ?? "");
+    const entityId = decodePathIdentifier(segments[2] ?? "");
     sendJson(response, 200, await projections.getJsdocProjection(entityId));
     return;
   }
