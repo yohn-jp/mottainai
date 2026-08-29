@@ -105,6 +105,66 @@ test("search matches individual words within a snake_case capability id like tex
   assert.deepEqual(hits[0].matched, ["capability:matches"]);
 });
 
+test("search matches complete tool, provider and qualified identities before tokenization", () => {
+  const index = buildCatalog(
+    [
+      handle("provider.one-prod", [
+        { name: "compound_tool-name.v2", description: "The exact compound tool.", inputSchema: { type: "object" } },
+        { name: "different_tool", description: "Another provider tool.", inputSchema: { type: "object" } },
+      ]),
+    ],
+    [
+      { name: "other", command: "noop", capabilities: ["search"] },
+      { name: "provider.one-prod", command: "noop", capabilities: ["search"] },
+    ],
+  );
+
+  const byTool = index.search({ query: "COMPOUND_tool-name.V2" });
+  assert.equal(byTool[0]?.tool.tool, "compound_tool-name.v2");
+  assert.deepEqual(byTool[0]?.matched, ["name:compound_tool-name.v2"]);
+  assert.equal(byTool[1]?.tool.tool, "different_tool");
+  assert.ok(byTool[0]!.score > byTool[1]!.score);
+
+  // Provider identities are matched as a whole, so '.', '-' and '_' are not discarded.
+  const byProvider = index.search({ query: "PROVIDER.one-prod" });
+  assert.deepEqual(byProvider.map((hit) => hit.tool.tool), ["compound_tool-name.v2", "different_tool"]);
+  assert.deepEqual(byProvider.map((hit) => hit.matched), [
+    ["provider:provider.one-prod"],
+    ["provider:provider.one-prod"],
+  ]);
+
+  // The existing provider__tool form is also a complete catalog identity.
+  const qualified = index.search({ query: "provider.one-prod__compound_tool-name.v2" });
+  assert.equal(qualified[0]?.tool.tool, "compound_tool-name.v2");
+  assert.deepEqual(qualified[0]?.matched, ["identity:provider.one-prod__compound_tool-name.v2"]);
+});
+
+test("one-character queries match only exact tool/provider identities", () => {
+  const index = buildCatalog(
+    [
+      handle("x", [{ name: "long_tool", description: "A long tool.", inputSchema: { type: "object" } }]),
+      handle("other", [{ name: "q", description: "A short tool.", inputSchema: { type: "object" } }]),
+      handle("ordinary", [{ name: "search_tool", description: "An ordinary tool.", inputSchema: { type: "object" } }]),
+    ],
+    [
+      { name: "x", command: "noop" },
+      { name: "other", command: "noop" },
+      { name: "ordinary", command: "noop" },
+    ],
+  );
+
+  assert.deepEqual(index.search({ query: "Q" }).map((hit) => hit.tool.tool), ["q"]);
+  assert.deepEqual(index.search({ query: "X" }).map((hit) => hit.tool.tool), ["long_tool"]);
+  // A non-exact one-character query is not treated as an empty query.
+  assert.deepEqual(index.search({ query: "z" }), []);
+});
+
+test("ordinary multi-token fuzzy search remains available", () => {
+  const hits = catalog().search({ query: "symbol callers" });
+  assert.deepEqual(hits.map((hit) => hit.tool.tool), ["codegraph_explore"]);
+  assert.deepEqual(hits[0]?.matched, ["summary:symbol", "capability:callers"]);
+});
+
 test("search filters by risk and provider without a query", () => {
   const index = catalog();
   assert.deepEqual(index.search({ risk: "read_only" }).map((hit) => hit.tool.tool), ["codegraph_explore"]);
