@@ -1058,7 +1058,9 @@ async function searchTool(args: Args, config: ResolvedGatewayConfig, store: Arti
   const maxResults = numberArg(args, "maxResults") ?? 30;
   if (context < 0 || context > 20) throw new Error("contextLines must be between 0 and 20");
   if (maxResults < 1 || maxResults > 100) throw new Error("maxResults must be between 1 and 100");
-  const rgArgs = ["--json", "--line-number", "--no-heading", "--max-count", String(maxResults)];
+  // `--max-count` is per file. Ask for one extra match as a bounded sentinel so an exact
+  // global result window cannot be mistaken for a complete search when a file has more matches.
+  const rgArgs = ["--json", "--line-number", "--no-heading", "--max-count", String(maxResults + 1)];
   if (mode === "literal") rgArgs.push("--fixed-strings");
   if (context > 0) rgArgs.push("--context", String(context));
   rgArgs.push("--glob", "!.git", "--glob", "!node_modules", "--glob", "!dist", query, searchPath);
@@ -1066,7 +1068,7 @@ async function searchTool(args: Args, config: ResolvedGatewayConfig, store: Arti
   if (run.spawnError) throw new Error(`rg unavailable: ${run.spawnError}`);
 
   // rg 実行そのものの失敗（invalid regex 等）は 0 件成功へ丸めない — issue #449。
-  if (run.exitCode !== 0 && run.exitCode !== 1) {
+  if (run.exitCode !== 0 && run.exitCode !== 1 && !run.outputLimit) {
     const firstCause = boundedDiagnostic(run.stderr || run.stdout);
     const summary = `rg failed: exit=${run.exitCode ?? "signal"} ${firstCause}`;
     const resultId = store.putArtifact({
@@ -1119,7 +1121,34 @@ async function searchTool(args: Args, config: ResolvedGatewayConfig, store: Arti
 
   const { groups, omitted } = truncateGroups(parsed.groups, maxResults);
   const matchCount = groups.reduce((count, group) => count + group.matches.length, 0);
-  const summary = `${matchCount} matches in ${groups.length} files${omitted > 0 ? ` (truncated, omitted=${omitted})` : ""}`;
+  const observedMatchCount = parsed.groups.reduce((count, group) => count + group.matches.length, 0);
+  const matchLimitTruncated = observedMatchCount > maxResults;
+  const outputLimitDiagnostic = run.outputLimit
+    ? [{
+        severity: "warning" as const,
+        code: "RG_OUTPUT_LIMIT",
+        message: "rg output exceeded the bounded capture limit; search results may be incomplete",
+      }]
+    : [];
+  let truncationReason: string | undefined;
+  if (run.outputLimit) {
+    if (matchLimitTruncated) {
+      truncationReason = "match_limit_and_output_limit";
+    } else {
+      truncationReason = "output_limit";
+    }
+  } else if (matchLimitTruncated) {
+    truncationReason = "match_limit";
+  }
+  let summarySuffix = "";
+  if (truncationReason !== undefined) {
+    let omittedSuffix = "";
+    if (omitted > 0) omittedSuffix = `, omitted=${omitted}`;
+    let outputLimitSuffix = "";
+    if (run.outputLimit) outputLimitSuffix = ", output_limit";
+    summarySuffix = ` (truncated${omittedSuffix}${outputLimitSuffix})`;
+  }
+  const summary = `${matchCount} matches in ${groups.length} files${summarySuffix}`;
   const resultId = store.putArtifact({
     text: run.stdout,
     stderr: run.stderr,
@@ -1129,12 +1158,20 @@ async function searchTool(args: Args, config: ResolvedGatewayConfig, store: Arti
     query,
     mode,
     groups,
-    metrics: { raw_bytes: Buffer.byteLength(run.stdout), omitted_matches: omitted },
-    truncated: omitted > 0,
+    diagnostics: outputLimitDiagnostic,
+    metrics: {
+      raw_bytes: Buffer.byteLength(run.stdout),
+      omitted_matches: omitted,
+      observed_matches: observedMatchCount,
+      output_limited: run.outputLimit,
+    },
+    output_limited: run.outputLimit,
+    ...(truncationReason === undefined ? {} : { truncation_reason: truncationReason }),
+    truncated: matchLimitTruncated || run.outputLimit,
   });
 }
 
-// --max-countはファイル単位上限。ここでparse後にグローバル件数で打ち切る（issue #5）。
+// --max-countはファイル単位上限。sentinelを含む出力をparse後にグローバル件数で打ち切る。
 function truncateGroups(
   groups: Array<{ path: string; matches: RgMatch[] }>,
   maxResults: number,

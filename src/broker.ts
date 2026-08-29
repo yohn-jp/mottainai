@@ -1,7 +1,7 @@
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { attachDecisionMetadata, errorMessage } from "./adaptive/decision-metadata.js";
 import type { DecisionMetadata, ExecutionRouting, FallbackAttempt } from "./adaptive/decision-metadata.js";
-import { minimalInputSchema, profileAllows } from "./catalog.js";
+import { CATALOG_DEFAULT_LIMIT, CATALOG_MAX_LIMIT, minimalInputSchema, profileAllows } from "./catalog.js";
 import type { CatalogTool, ToolCatalog, ToolRisk } from "./catalog.js";
 import type { ProfileConfig, ResolvedGatewayConfig } from "./config.js";
 import { OUTPUT_SCHEMA, output } from "./envelope.js";
@@ -132,23 +132,28 @@ async function searchTool(args: Args, context: BrokerContext): Promise<CallToolR
   if (risk !== undefined && !RISK_VALUES.includes(risk as ToolRisk)) {
     throw new Error(`risk must be one of: ${RISK_VALUES.join(", ")}`);
   }
-  const limit = args?.limit;
-  if (limit !== undefined && (typeof limit !== "number" || !Number.isSafeInteger(limit) || limit < 1 || limit > 50)) {
-    throw new Error("limit must be an integer between 1 and 50");
+  const requestedLimit = args?.limit;
+  if (requestedLimit !== undefined && (typeof requestedLimit !== "number"
+    || !Number.isSafeInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > CATALOG_MAX_LIMIT)) {
+    throw new Error(`limit must be an integer between 1 and ${CATALOG_MAX_LIMIT}`);
   }
+  const limit = typeof requestedLimit === "number" ? requestedLimit : CATALOG_DEFAULT_LIMIT;
   const catalog = await context.catalog();
-  const hits = catalog.search({
+  // まず query/provider/risk/capability による全マッチを確定し、profile の許可判定後に
+  // result window を切る。先に limit を適用すると hidden tool が visible slot を消費し、
+  // matched total と truncated が caller-visible な集合からずれる。
+  const accessibleMatches = catalog.searchAll({
     query: stringArg(args, "query"),
     capability: stringArg(args, "capability"),
     risk: risk as ToolRisk | undefined,
     provider: stringArg(args, "provider"),
-    limit,
   }).filter((hit) => rawToolAllowed(hit.tool, context.activeProfile));
-  const total = catalog.tools().length;
-  return output("tool_search", "success", `${hits.length} of ${total} catalog tools matched`, "", {
+  const matchedTotal = accessibleMatches.length;
+  const hits = accessibleMatches.slice(0, limit);
+  return output("tool_search", "success", `${hits.length} of ${matchedTotal} catalog tools matched`, "", {
     facts: hits.map((hit) => ({ ...summarizeTool(hit.tool), score: hit.score, matched: hit.matched })),
-    metrics: { hits: hits.length, catalog_size: total },
-    truncated: hits.length < total,
+    metrics: { hits: hits.length, matched_total: matchedTotal },
+    truncated: hits.length < matchedTotal,
   });
 }
 

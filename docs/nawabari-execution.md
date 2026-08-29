@@ -76,9 +76,11 @@ omits the session target, or treats an incomplete/ambiguous v2 capability as
 compatible. A stale generation is rejected by Nawabari without releasing a
 newer claim set.
 
-The source repository pins Nawabari 0.5.0 only as a development dependency for
-hermetic contract and package tests. Published Mottainai packages do not install
-the companion; operators install the compatible standalone executable explicitly.
+The source repository pins Nawabari 0.6.1 as a development dependency for
+hermetic contract and package tests. The Runtime Nix package uses the same
+released artifact and its companion metadata reports `0.6.1`. Published
+Mottainai packages do not install the companion; operators install the
+compatible standalone executable explicitly.
 
 Nawabari evidence is limited to Git-observable state at a checkpoint. Neither
 product is an OS filesystem sandbox or an observer of direct writes that are

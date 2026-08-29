@@ -133,6 +133,8 @@ export interface GatewayConfig {
   execTargetTokens?: number;
   resultTtlMs?: number;
   resultMaxEntries?: number;
+  /** connection-local aggregate serialized artifact retention budget in bytes. */
+  resultMaxBytes?: number;
   /** `profiles` のどれを現在の profile として使うか。公開 tool の絞り込みは #17 で実装済み。 */
   activeProfile?: string;
   /** OAuth credential provider module。値はtokenではなくhost側broker endpointを返す。 */
@@ -181,6 +183,8 @@ export interface ResolvedGatewayConfig {
   execTargetTokens: number;
   resultTtlMs: number;
   resultMaxEntries: number;
+  /** resolveGatewayConfig always supplies this; optional keeps hand-written test fixtures compatible. */
+  resultMaxBytes?: number;
   capabilityMap: Record<string, string[]>;
   toolMetadata: Record<string, ToolMetadataOverride>;
   /** `gateway.activeProfile` の名前。`profiles` の中身ではなく名前だけをここに持ち回る。 */
@@ -208,6 +212,8 @@ export interface ConfigSnapshot {
   gatewayConfig: ResolvedGatewayConfig;
 }
 
+const DEFAULT_RESULT_MAX_BYTES = 200 * 1024 * 1024;
+
 const DEFAULT_GATEWAY_CONFIG: Omit<ResolvedGatewayConfig, "workspaceRoot"> = {
   defaultTimeoutMs: 120_000,
   maxTimeoutMs: 300_000,
@@ -215,6 +221,7 @@ const DEFAULT_GATEWAY_CONFIG: Omit<ResolvedGatewayConfig, "workspaceRoot"> = {
   execTargetTokens: 1_000,
   resultTtlMs: 15 * 60 * 1000,
   resultMaxEntries: 200,
+  resultMaxBytes: DEFAULT_RESULT_MAX_BYTES,
   capabilityMap: {},
   toolMetadata: {},
   tokenBudgets: { tools: {}, capabilities: {}, profiles: {} },
@@ -249,6 +256,7 @@ export function resolveGatewayConfig(
     execTargetTokens: positiveInteger(config?.execTargetTokens, DEFAULT_GATEWAY_CONFIG.execTargetTokens),
     resultTtlMs: positiveInteger(config?.resultTtlMs, DEFAULT_GATEWAY_CONFIG.resultTtlMs),
     resultMaxEntries: positiveInteger(config?.resultMaxEntries, DEFAULT_GATEWAY_CONFIG.resultMaxEntries),
+    resultMaxBytes: positiveInteger(config?.resultMaxBytes, DEFAULT_RESULT_MAX_BYTES),
     capabilityMap: config?.capabilityMap ?? {},
     toolMetadata: config?.toolMetadata ?? {},
     activeProfile: config?.activeProfile,
@@ -411,6 +419,7 @@ const GATEWAY_CONFIG_KEYS = [
   "execTargetTokens",
   "resultTtlMs",
   "resultMaxEntries",
+  "resultMaxBytes",
   "activeProfile",
   "oauthProviderModule",
   "capabilityMap",
@@ -439,6 +448,7 @@ function normalizeGateway(value: unknown): GatewayConfig | undefined {
     execTargetTokens: positiveIntegerConfig(value.execTargetTokens, "invalid gateway execTargetTokens"),
     resultTtlMs: positiveIntegerConfig(value.resultTtlMs, "invalid gateway resultTtlMs"),
     resultMaxEntries: positiveIntegerConfig(value.resultMaxEntries, "invalid gateway resultMaxEntries"),
+    resultMaxBytes: positiveIntegerConfig(value.resultMaxBytes, "invalid gateway resultMaxBytes"),
     activeProfile: optionalString(value.activeProfile, "invalid gateway activeProfile"),
     oauthProviderModule: optionalString(value.oauthProviderModule, "invalid gateway oauthProviderModule"),
     capabilityMap: stringArrayRecord(value.capabilityMap, "invalid gateway capabilityMap"),
@@ -681,7 +691,8 @@ function normalizeUpstream(name: string, value: unknown): Omit<UpstreamConfig, "
     throw new Error(`invalid upstream config: ${name}`);
   }
   if (transport === "streamableHttp" && !isHttpUrl(value.url)) {
-    throw new Error(`invalid upstream url: ${name}`);
+    const detail = hasHttpUrlUserinfo(value.url) ? "; userinfo is not allowed" : "";
+    throw new Error(`invalid upstream url: ${name}${detail}`);
   }
   if (value.enabled !== undefined && typeof value.enabled !== "boolean") {
     throw new Error(`invalid upstream enabled: ${name}`);
@@ -747,7 +758,20 @@ function isHttpUrl(value: unknown): value is string {
   if (typeof value !== "string") return false;
   try {
     const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:";
+    return (url.protocol === "http:" || url.protocol === "https:")
+      && url.username === ""
+      && url.password === "";
+  } catch {
+    return false;
+  }
+}
+
+function hasHttpUrlUserinfo(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:")
+      && (url.username !== "" || url.password !== "");
   } catch {
     return false;
   }

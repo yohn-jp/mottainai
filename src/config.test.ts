@@ -106,6 +106,38 @@ test("loadMottainaiConfig rejects invalid Streamable HTTP upstreams", () => {
   );
 });
 
+test("loadMottainaiConfig rejects credential-bearing URL userinfo without exposing the URL", () => {
+  const cases = [
+    "https://alice@example.test/mcp",
+    "https://alice:password@example.test/mcp",
+    "https://encoded%40user:encoded%40password@example.test/mcp",
+  ];
+  for (const url of cases) {
+    assert.throws(
+      () => loadMottainaiConfig(writeConfig({
+        version: 2,
+        mcpServers: { remote: { transport: "streamableHttp", url } },
+      })),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /invalid upstream url: remote; userinfo is not allowed/);
+        assert.doesNotMatch(error.message, /alice|password|encoded/iu);
+        return true;
+      },
+    );
+  }
+});
+
+test("loadMottainaiConfig preserves ordinary HTTP URL path, query, and fragment components", () => {
+  const url = "https://mcp.example.test/mcp/extra?mode=stream#fragment";
+  const config = loadMottainaiConfig(writeConfig({
+    version: 2,
+    mcpServers: { remote: { transport: "streamableHttp", url } },
+  }));
+
+  assert.equal(config.mcpServers.remote.url, url);
+});
+
 test("loadMottainaiConfig accepts OAuth broker profiles and rejects token headers beside them", () => {
   const config = loadMottainaiConfig(writeConfig({
     version: 2,
@@ -539,6 +571,23 @@ test("resolveGatewayConfig defaults workflowTasks to false (mottainai_task_start
   assert.equal(resolveGatewayConfig(undefined).workflowTasks, false);
   assert.equal(resolveGatewayConfig({ workflowTasks: true }).workflowTasks, true);
   assert.equal(resolveGatewayConfig({ workflowTasks: false }).workflowTasks, false);
+});
+
+test("resolveGatewayConfig resolves the aggregate artifact byte budget", () => {
+  const defaults = resolveGatewayConfig(undefined);
+  assert.equal(Number.isFinite(defaults.resultMaxBytes), true);
+  assert.equal(resolveGatewayConfig({ resultMaxBytes: 8_192 }).resultMaxBytes, 8_192);
+
+  const configPath = writeConfig({
+    version: 2,
+    mcpServers: {},
+    gateway: { resultMaxBytes: 16_384 },
+  });
+  assert.equal(loadGatewayConfig(configPath).resultMaxBytes, 16_384);
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({ version: 2, mcpServers: {}, gateway: { resultMaxBytes: 0 } })),
+    /invalid gateway resultMaxBytes/,
+  );
 });
 
 test("resolveGatewayConfig defaults await policy and clamps maxPollIntervalMs to at least minPollIntervalMs", () => {

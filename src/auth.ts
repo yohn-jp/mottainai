@@ -16,8 +16,10 @@ function isOAuthCredentialProvider(value: unknown): value is OAuthCredentialProv
 }
 
 class BrokerEndpointValidationError extends Error {
-  constructor(profile: string) {
-    super(`oauth broker returned invalid endpoint: ${profile}`);
+  constructor(profile: string, reason?: "userinfo") {
+    super(
+      `oauth broker returned invalid endpoint: ${profile}${reason === "userinfo" ? "; userinfo is not allowed" : ""}`,
+    );
     this.name = "BrokerEndpointValidationError";
   }
 }
@@ -31,6 +33,9 @@ function brokerUrl(value: URL | string, profile: string): URL {
   }
   if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
     throw new BrokerEndpointValidationError(profile);
+  }
+  if (endpoint.username !== "" || endpoint.password !== "") {
+    throw new BrokerEndpointValidationError(profile, "userinfo");
   }
   return endpoint;
 }

@@ -159,14 +159,14 @@ in
       default = [
         {
           name = "nawabari";
-          minimumVersion = "0.2.0";
+          minimumVersion = "0.6.1";
         }
       ];
       description = ''
         Companion executables the health/capability result reports on.
-        Nawabari is pinned to the minimum standalone-execution version this
-        repository documents (docs/nawabari-execution.md); Mottainai does
-        not auto-install it, an operator installs the compatible standalone
+        Nawabari metadata matches the pinned Runtime package version this
+        repository documents (docs/nawabari-execution.md); Mottainai does not
+        auto-install it, an operator installs the compatible standalone
         executable explicitly.
       '';
     };

@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ResolvedGatewayConfig } from "../../config.js";
 import { GhInariClient } from "../../gh-inari.js";
@@ -30,6 +31,7 @@ import { bundledGovernedBranchTypes } from "../governance/branch.js";
 import { explainWorkflowPolicy } from "../policy/explain.js";
 import { resolveEffectiveWorkflowPolicy } from "../policy/load.js";
 import type { TaskId, WorkflowStateStore } from "../state/store.js";
+import { resolveStateDbPath } from "../../state/paths.js";
 import { validateIssueRef, validateTaskSlug } from "./validate.js";
 
 /**
@@ -192,7 +194,7 @@ function buildTaskStartTool(): Tool {
   return {
     name: "mottainai_workflow_task_start",
     description:
-      "Start a semantic/task orchestration record and delegate the local session, worktree, branch, and claims to the installed Nawabari standalone-execution.v1 companion.",
+      "Start a semantic/task orchestration record and delegate the local session, worktree, branch, and claims to the installed Nawabari standalone-execution.v1 companion. dryRun is zero-write and repeats read-only readiness blockers; the plan explicitly excludes final claim acquisition because it mutates the external Nawabari session.",
     inputSchema: {
       type: "object",
       properties: {
@@ -999,14 +1001,34 @@ export function defaultWorkflowStore(): Promise<WorkflowStateStore> {
 }
 
 /**
+ * Open the existing workflow database for a zero-write preview. A first-run
+ * installation has no database yet, so use an ephemeral schema in that case;
+ * an existing database is opened read-only and is never initialized or
+ * migrated by the preview path.
+ */
+async function previewWorkflowStore(): Promise<WorkflowStateStore> {
+  const { WorkflowSqliteStateStore } = await import("../state/sqlite-store.js");
+  const dbPath = resolveStateDbPath();
+  const store = new WorkflowSqliteStateStore(
+    fs.existsSync(dbPath) ? { dbPath, readOnly: true } : { dbPath: ":memory:" },
+  );
+  store.init();
+  return store;
+}
+
+/**
  * 既定の `ArtifactStore`。managed check の raw stdout/stderr は既定でこのプロセス内
  * インスタンスへ bounded 保存する — `src/proxy.ts` の gateway 経路は connection ごとの
  * `resolvedArtifactStore` を明示的に渡すため、この既定値は CLI 等スタンドアロン呼び出しの
  * fallback としてのみ使われる。
  */
 let defaultArtifactStore: ArtifactStore | undefined;
-function defaultCheckArtifactStore(): ArtifactStore {
-  defaultArtifactStore ??= new InMemoryArtifactStore();
+function defaultCheckArtifactStore(config: ResolvedGatewayConfig): ArtifactStore {
+  defaultArtifactStore ??= new InMemoryArtifactStore({
+    ttlMs: config.resultTtlMs,
+    maxEntries: config.resultMaxEntries,
+    aggregateByteBudget: config.resultMaxBytes,
+  });
   return defaultArtifactStore;
 }
 
@@ -1026,16 +1048,13 @@ export async function callWorkflowCommandTool(
       // （taskStartToolImpl 内の requireWorkflowTasksConfigured は defense in depth として残す）。
       requireWorkflowTasksConfigured(config);
       if (workflowStore === undefined && boolArg(args, "dryRun") === true) {
-        // A preview must not initialize the process-wide persistent store. Use a
-        // short-lived in-memory store for the domain seam and close it before
-        // returning; callers that inject a store retain ownership of it.
-        const { WorkflowSqliteStateStore } = await import("../state/sqlite-store.js");
-        const ephemeral = new WorkflowSqliteStateStore({ dbPath: ":memory:" });
-        ephemeral.init();
+        // Read existing state without initializing or migrating the persistent
+        // store; previewWorkflowStore falls back to memory on first run.
+        const previewStore = await previewWorkflowStore();
         try {
-          return await taskStartToolImpl(args, config, ephemeral);
+          return await taskStartToolImpl(args, config, previewStore);
         } finally {
-          ephemeral.close();
+          previewStore.close();
         }
       }
       return taskStartToolImpl(args, config, workflowStore ?? (await defaultWorkflowStore()));
@@ -1057,7 +1076,7 @@ export async function callWorkflowCommandTool(
         args,
         config,
         workflowStore ?? (await defaultWorkflowStore()),
-        artifactStore ?? defaultCheckArtifactStore(),
+        artifactStore ?? defaultCheckArtifactStore(config),
       );
     case "mottainai_workflow_validation_receipt":
       requireWorkflowTasksConfigured(config);
@@ -1065,7 +1084,7 @@ export async function callWorkflowCommandTool(
         args,
         config,
         workflowStore ?? (await defaultWorkflowStore()),
-        artifactStore ?? defaultCheckArtifactStore(),
+        artifactStore ?? defaultCheckArtifactStore(config),
       );
     case "mottainai_workflow_task_commit":
     case "mottainai_workflow_task_push":
