@@ -31,14 +31,44 @@ test("Manager operational console exposes state-aware Stop and authoritative Rec
   assert.match(html, /id="reconcileAction"[^>]*disabled/u);
   assert.match(html, /function reconcile\(\)[^]*?post\("\/reconcile", \{\}\)[^]*?return refresh\(true\)/u);
   assert.match(html, /reconcileInFlight \|\| !health/u);
-  assert.match(html, /showHomeActionError\(error\.message\)/u);
+  assert.match(html, /showHomeActionError\("Reconcile unavailable", error\.message\)/u);
   assert.match(html, /updateReconcileAction\(\);[^]*?if \(drawerSession !== undefined\) configureStopAction\(drawerSession\);/u);
   assert.match(html, /id="drawerStopAction"[^>]*hidden[^>]*disabled/u);
   assert.match(html, /function stoppable\(session\) \{ return running\(session\); \}/u);
   assert.match(html, /\["starting", "running", "detached"\]/u);
-  assert.match(html, /function stopSession\(session\)[^]*?var sessionId = session\.sessionId;[^]*?post\("\/sessions\/" \+ encodeURIComponent\(sessionId\) \+ "\/stop", \{\}\)[^]*?return refresh\(true\)\.then\(function \(\) \{ return openSession\(sessionId\); \}\)/u);
+  assert.match(html, /function stopSession\(session\)[^]*?var sessionId = session\.sessionId;[^]*?post\("\/sessions\/" \+ encodeURIComponent\(sessionId\) \+ "\/stop", \{\}\)[^]*?return refresh\(true\)\.then\(function \(result\)/u);
   assert.match(html, /available = !!health && stoppable\(session\)/u);
   assert.match(html, /showDrawerActionError\("Stop unavailable", error\.message\)/u);
+});
+
+test("Manager separates successful Stop/Reconcile mutations from failed authoritative refreshes", () => {
+  const html = readManagerViewer();
+  assert.match(html, /function boundedErrorMessage\(error\)/u);
+  assert.match(html, /function refreshRequiredMessage\(operation, error\)/u);
+  assert.match(html, /Authoritative state re-fetch required before relying on this view/u);
+  assert.match(
+    html,
+    /function showHomeRefreshRequired\(operation, error\)[^]*?showHomeActionError\("Refresh required", refreshRequiredMessage\(operation, error\)\)/u,
+  );
+  assert.match(
+    html,
+    /function showDrawerRefreshRequired\(operation, error\)[^]*?showDrawerActionError\("Refresh required", refreshRequiredMessage\(operation, error\)\)/u,
+  );
+  assert.match(html, /return \{ ok: true \};/u);
+  assert.match(html, /return \{ ok: false, error: error \};/u);
+  assert.match(
+    html,
+    /return post\("\/reconcile", \{\}\)\.then\(function \(\) \{[^]*?return refresh\(true\)\.then\(function \(result\) \{[^]*?if \(!result\.ok\) showHomeRefreshRequired\("Reconcile", result\.error\);[^]*?\}, function \(error\) \{\s*showHomeActionError\("Reconcile unavailable", error\.message\);/u,
+  );
+  assert.match(
+    html,
+    /post\("\/sessions\/" \+ encodeURIComponent\(sessionId\) \+ "\/stop", \{\}\)\.then\(function \(\) \{[^]*?return refresh\(true\)\.then\(function \(result\) \{[^]*?if \(!result\.ok\) \{[^]*?showDrawerRefreshRequired\("Stop", result\.error\);[^]*?\}, function \(error\) \{\s*showDrawerActionError\("Stop unavailable", error\.message\);/u,
+  );
+  assert.match(
+    html,
+    /return openSession\(sessionId\)\.then\(function \(detailResult\) \{[^]*?if \(!detailResult\.ok\) showDrawerRefreshRequired\("Stop", detailResult\.error\);/u,
+  );
+  assert.match(html, /function openSession\(id\)[^]*?return \{ ok: false, error: error \};/u);
 });
 
 test("Manager New Task keeps the exact approved request paired with its preview through launch", () => {
