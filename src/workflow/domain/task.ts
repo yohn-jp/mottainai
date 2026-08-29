@@ -20,7 +20,7 @@ import {
 } from "../git/worktree.js";
 import type { BootstrapDecision, RunBootstrapResult, WorktreeNaming } from "../git/worktree.js";
 import { validateBranchNameAgainstGovernance } from "../governance/branch.js";
-import { resolveRepositoryIdentity } from "./identity.js";
+import { resolveRepositoryIdentity, resolveRepositoryIdentityPaths } from "./identity.js";
 import type { RepositoryInstanceId } from "./identity.js";
 import { resolveRepoState } from "./repo-state.js";
 import type { RepoStateKind } from "./repo-state.js";
@@ -878,6 +878,39 @@ export async function getTaskStatusForWorkspace(
     ...lifecycleTransitionStatus(found.task.lifecycleState),
   };
   return { ok: true, active: true, status, ...location };
+}
+
+export type ReadOnlyWorkspaceTaskResult =
+  | { ok: true; active: true; task: TaskRecord }
+  | { ok: true; active: false }
+  | { ok: false; reason: string };
+
+/**
+ * Read-only active-task guard for task-start previews. Unlike
+ * `getTaskStatusForWorkspace`, this path never creates the repository instance
+ * marker: it resolves the canonical Git paths and reuses the instance already
+ * observed in the supplied store. A repository with no observed instance
+ * cannot have a locally registered active worktree, so it is an empty result.
+ */
+export function getActiveTaskForWorkspaceReadOnly(
+  workspaceRoot: string,
+  store: WorkflowStateStore,
+): ReadOnlyWorkspaceTaskResult {
+  const identityResult = resolveRepositoryIdentityPaths(workspaceRoot);
+  if (!identityResult.ok) return { ok: false, reason: identityResult.reason };
+
+  const instance = store.getRepositoryInstanceByCommonDir(identityResult.identity.gitCommonDir);
+  if (instance === undefined) return { ok: true, active: false };
+
+  const found = findActiveTaskAtWorktreePath(store, instance.instanceId, identityResult.identity.worktreePath);
+  if (found === undefined) return { ok: true, active: false };
+  if (found.task === undefined) {
+    return {
+      ok: false,
+      reason: `active worktree ${found.worktree.worktreeId} references task ${found.worktree.taskId}, which is missing from the store`,
+    };
+  }
+  return { ok: true, active: true, task: found.task };
 }
 
 /**

@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { addSecondaryDiagnostic, DIRECT_BOUNDARIES } from "../../boundary.js";
 import type { BoundaryOperations } from "../../boundary.js";
@@ -72,6 +73,8 @@ export interface WorkflowSqliteStateStoreOptions {
   /** 明示指定時はこのパスを使う。省略時は resolveStateDbPath() を使う（session 用と同じ DB ファイルを共有）。 */
   dbPath?: string;
   env?: NodeJS.ProcessEnv;
+  /** Open an existing state database without migrations, pragmas, or filesystem writes. */
+  readOnly?: boolean;
   /** Internal deterministic fault-test seam; not loaded from runtime config. */
   boundaries?: BoundaryOperations;
   /** Internal migration fixture seam used by rollback tests. */
@@ -85,6 +88,14 @@ function restrictToOwner(targetPath: string, mode: number): void {
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
   }
+}
+
+function readOnlyDatabasePath(dbPath: string): string {
+  // An immutable SQLite URI avoids creating WAL/SHM sidecars when there is no
+  // concurrent writer. If sidecars already exist, use the normal read-only
+  // path so an in-flight WAL remains visible to the preview.
+  if (fs.existsSync(`${dbPath}-wal`) || fs.existsSync(`${dbPath}-shm`)) return dbPath;
+  return `${pathToFileURL(dbPath).href}?immutable=1`;
 }
 
 const MAX_MANAGER_DIAGNOSTIC_LENGTH = 512;
@@ -495,18 +506,30 @@ function toAuditRecord(row: Record<string, unknown>): GuardrailAuditRecord {
  */
 export class WorkflowSqliteStateStore implements WorkflowStateStore {
   private readonly dbPath: string;
+  private readonly readOnly: boolean;
   private readonly boundaries: BoundaryOperations;
   private readonly migrations: Migration[];
   private db: DatabaseSync | undefined;
 
   constructor(options: WorkflowSqliteStateStoreOptions = {}) {
     this.dbPath = options.dbPath ?? resolveStateDbPath(options.env ?? process.env);
+    this.readOnly = options.readOnly === true;
     this.boundaries = options.boundaries ?? DIRECT_BOUNDARIES;
     this.migrations = options.migrations ?? [];
   }
 
   init(): void {
     if (this.db !== undefined) return;
+    if (this.readOnly) {
+      // A read-only preview must not create the state file, switch journal
+      // modes, chmod anything, or apply migrations. Callers select an
+      // in-memory fallback when this path does not exist.
+      this.db = this.boundaries.file(
+        "sqlite.open",
+        () => new DatabaseSync(readOnlyDatabasePath(this.dbPath), { readOnly: true }),
+      );
+      return;
+    }
     const isFileBacked = this.dbPath !== ":memory:";
     if (isFileBacked) {
       const dir = path.dirname(this.dbPath);

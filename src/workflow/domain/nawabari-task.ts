@@ -6,7 +6,12 @@ import { validateBranchNameAgainstGovernance } from "../governance/branch.js";
 import { buildWorktreeNaming, decideBootstrap, resolveCanonicalWorktreePath, runBootstrap } from "../git/worktree.js";
 import { resolveRepositoryIdentity, resolveRepositoryIdentityPaths, type RepositoryIdentity } from "./identity.js";
 import { resolveRepoState } from "./repo-state.js";
-import { checkStaleBaseBranch, getTaskStatusForWorkspace, type StartTaskWarning } from "./task.js";
+import {
+  checkStaleBaseBranch,
+  getActiveTaskForWorkspaceReadOnly,
+  getTaskStatusForWorkspace,
+  type StartTaskWarning,
+} from "./task.js";
 import { transitionTask } from "./task-lifecycle.js";
 import { reconcileNawabariClosures } from "./nawabari-close.js";
 import type { RepositoryInstanceId } from "./identity.js";
@@ -79,6 +84,10 @@ export interface NawabariTaskStartPlan {
   baseCommit: string;
   worktree: string;
   claims: SemanticExecutionPlan["claims"];
+  claimAcquisition: {
+    previewed: false;
+    reason: string;
+  };
 }
 
 export type NawabariTaskStartResult =
@@ -210,6 +219,40 @@ function execution(session: NawabariSession): NawabariTaskExecutionReference {
 
 function warning(code: StartTaskWarning["code"], detail: string): StartTaskWarning {
   return { code, detail };
+}
+
+async function taskStartReadinessBlocker(input: {
+  workspaceRoot: string;
+  store: WorkflowStateStore;
+  client: NawabariExecutionClient;
+  dryRun: boolean;
+}): Promise<Extract<NawabariTaskStartResult, { ok: false }> | undefined> {
+  const localTask = input.dryRun
+    ? getActiveTaskForWorkspaceReadOnly(input.workspaceRoot, input.store)
+    : await getTaskStatusForWorkspace(input.workspaceRoot, input.store);
+  if (localTask.ok && localTask.active) {
+    const taskId = "task" in localTask ? localTask.task.taskId : localTask.status.task.taskId;
+    return {
+      ok: false,
+      reason: "active-task-in-workspace",
+      detail: `workspace already has an active task: ${taskId}`,
+    };
+  }
+
+  try {
+    const currentSessionId = await input.client.currentSessionId(input.workspaceRoot);
+    const currentTask = input.store.listTasks().find((task) => task.nawabariSessionId === currentSessionId);
+    if (currentTask !== undefined && currentTask.lifecycleState !== "merged")
+      return {
+        ok: false,
+        reason: "active-task-in-workspace",
+        detail: `workspace already has an active Nawabari task: ${currentTask.taskId}`,
+      };
+  } catch {
+    // Primary checkouts and legacy worktrees do not have a current Nawabari
+    // session; their normal start path continues below.
+  }
+  return undefined;
 }
 
 interface TaskStartExpectation {
@@ -540,29 +583,16 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
 
   // This is orchestration identity, not physical ownership. Refuse to create
   // a second task from an already-managed worktree before asking Nawabari to
-  // provision or claim anything.
-  if (input.dryRun !== true) {
-    const localTask = await getTaskStatusForWorkspace(input.workspaceRoot, input.store);
-    if (localTask.ok && localTask.active)
-      return {
-        ok: false,
-        reason: "active-task-in-workspace",
-        detail: `workspace already has an active task: ${localTask.status.task.taskId}`,
-      };
-    try {
-      const currentSessionId = await client.currentSessionId(input.workspaceRoot);
-      const currentTask = input.store.listTasks().find((task) => task.nawabariSessionId === currentSessionId);
-      if (currentTask !== undefined && currentTask.lifecycleState !== "merged")
-        return {
-          ok: false,
-          reason: "active-task-in-workspace",
-          detail: `workspace already has an active Nawabari task: ${currentTask.taskId}`,
-        };
-    } catch {
-      // Primary checkouts and legacy worktrees do not have a current Nawabari
-      // session; their normal start path continues below.
-    }
-  }
+  // provision or claim anything. The dry-run variant uses only read-only
+  // repository/store evidence so this parity check cannot create an instance
+  // marker or any other persistent state.
+  const readinessBlocker = await taskStartReadinessBlocker({
+    workspaceRoot: input.workspaceRoot,
+    store: input.store,
+    client,
+    dryRun: input.dryRun === true,
+  });
+  if (readinessBlocker !== undefined) return readinessBlocker;
   if (
     (input.policy.worktree.issueRequired === "enforce" || input.policy.worktree.issueRequired === "confirm") &&
     input.issueRef === undefined
@@ -642,6 +672,10 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
           }).relativePath,
         }),
         claims: semanticPlan.claims,
+        claimAcquisition: {
+          previewed: false,
+          reason: "final Nawabari claim acquisition requires an external mutation and runs only during a real start",
+        },
       },
       semanticPlan,
       warnings: staleWarning === undefined ? [] : [staleWarning],

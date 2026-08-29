@@ -141,7 +141,7 @@ mottainai task cleanup [--workspace path]
 mottainai workflow doctor [--workspace path] [--reconcile-closures]
 ```
 
-`task start` delegates worktree creation to Nawabari and returns the canonical worktree path in `execution.worktree`. Follow-up operations must use that returned path. Mottainai does not reconstruct or take ownership of the physical worktree. `--dry-run` validates the same inputs and returns a `plan` preview (branch, base, worktree, and claims) without creating a task, Git worktree/branch, Nawabari session, claim, or persistent state.
+`task start` delegates worktree creation to Nawabari and returns the canonical worktree path in `execution.worktree`. Follow-up operations must use that returned path. Mottainai does not reconstruct or take ownership of the physical worktree. `--dry-run` validates the same inputs and read-only readiness blockers, then returns a `plan` preview (branch, base, worktree, and claims) without creating a task, Git worktree/branch, Nawabari session, claim, or persistent state. The plan marks final claim acquisition as excluded because it requires an external Nawabari mutation.
 
 `task list` is the read-only discovery surface for registered workspaces. It returns a bounded snapshot suitable for external consumers and UIs. Resolve a selected task again with `task status --task-id <id>` immediately before acting; that fresh resolve, rather than the earlier list snapshot, is the authoritative view. Consumers such as Majiwari therefore do not need to read Mottainai or Nawabari internal persistence directly.
 

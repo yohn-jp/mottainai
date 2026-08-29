@@ -221,6 +221,27 @@ test("file-backed store persists across close/reopen with owner-only permissions
   reopened.close();
 });
 
+test("read-only file-backed store reads existing state without initializing or mutating it", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-workflow-sqlite-readonly-test-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const dbPath = path.join(dir, "state.sqlite3");
+
+  const writable = new WorkflowSqliteStateStore({ dbPath });
+  writable.init();
+  writable.observeRepositoryInstance({ rootCommitDigest: digest, instanceId, gitCommonDir: "/repo/.git", canonicalWorktreePath: "/repo" });
+  writable.close();
+
+  const before = fs.readFileSync(dbPath);
+  const directoryBefore = fs.readdirSync(dir).sort();
+  const readonly = new WorkflowSqliteStateStore({ dbPath, readOnly: true });
+  readonly.init();
+  assert.equal(readonly.getRepositoryInstanceByCommonDir("/repo/.git")?.instanceId, instanceId);
+  readonly.close();
+
+  assert.deepEqual(fs.readFileSync(dbPath), before);
+  assert.deepEqual(fs.readdirSync(dir).sort(), directoryBefore);
+});
+
 function openStoreWithInstance(): WorkflowSqliteStateStore {
   const store = openStore();
   store.observeRepositoryInstance({ rootCommitDigest: digest, instanceId, gitCommonDir: "/repo/.git", canonicalWorktreePath: "/repo" });
