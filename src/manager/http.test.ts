@@ -129,6 +129,70 @@ test("Manager HTTP API exposes session state and selected open/stop actions", as
   assert.equal(malformedJson.status, 400);
 });
 
+test("Manager HTTP API rejects wrong methods per route before validation and keeps HEAD/OPTIONS explicit", async (t) => {
+  const root = createTempGitRepo(t);
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store: createWorkflowStore(t),
+    runtime: new HttpFakeRuntime(),
+  });
+  await service.initialize();
+  let reconcileCalls = 0;
+  const reconcileNow = service.reconcileNow.bind(service);
+  service.reconcileNow = async () => {
+    reconcileCalls += 1;
+    return reconcileNow();
+  };
+  const handle = await startDashboardServer({
+    port: 0,
+    viewerHtml: "manager",
+    query: createFixtureQuery(),
+    manager: new ManagerHttpApi(service),
+  });
+  activeServers.push(handle);
+
+  const getRoutePost = await fetch(`${handle.url}api/v1/manager/health`, {
+    method: "POST",
+    headers: { "content-type": "text/plain" },
+    body: "not json",
+  });
+  assert.equal(getRoutePost.status, 405);
+  assert.equal(getRoutePost.headers.get("allow"), "GET");
+  assert.equal((await getRoutePost.json()).error.code, "method_not_allowed");
+
+  const postRoutePut = await fetch(`${handle.url}api/v1/manager/sessions/preview`, {
+    method: "PUT",
+    headers: { "content-type": "text/plain" },
+    body: "not json",
+  });
+  assert.equal(postRoutePut.status, 405);
+  assert.equal(postRoutePut.headers.get("allow"), "POST");
+  assert.equal((await postRoutePut.json()).error.code, "method_not_allowed");
+
+  const postRouteGet = await fetch(`${handle.url}api/v1/manager/reconcile`);
+  assert.equal(postRouteGet.status, 405);
+  assert.equal(postRouteGet.headers.get("allow"), "POST");
+  assert.equal(reconcileCalls, 0);
+
+  const head = await fetch(`${handle.url}api/v1/manager/health`, { method: "HEAD" });
+  assert.equal(head.status, 405);
+  assert.equal(head.headers.get("allow"), "GET");
+  assert.equal(await head.text(), "");
+
+  const options = await fetch(`${handle.url}api/v1/manager/reconcile`, { method: "OPTIONS" });
+  assert.equal(options.status, 405);
+  assert.equal(options.headers.get("allow"), "POST");
+
+  const unknown = await fetch(`${handle.url}api/v1/manager/unknown`, {
+    method: "POST",
+    headers: { "content-type": "text/plain" },
+    body: "not json",
+  });
+  assert.equal(unknown.status, 404);
+  assert.equal(unknown.headers.get("allow"), null);
+  assert.equal((await unknown.json()).error.code, "not_found");
+});
+
 test("Manager HTTP API accepts and filters the Pi launch profile", async (t) => {
   const root = createTempGitRepo(t);
   const service = new ManagerSessionService({

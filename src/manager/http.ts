@@ -193,6 +193,44 @@ function requireSameOrigin(request: IncomingMessage): void {
   }
 }
 
+type ManagerRouteMethod = "GET" | "POST";
+
+function methodsForRoute(segments: readonly string[]): readonly ManagerRouteMethod[] | undefined {
+  if (segments.length === 1 && segments[0] === "health") return ["GET"];
+  if (segments.length === 1 && segments[0] === "sessions") return ["GET", "POST"];
+  if (
+    (segments.length === 2 &&
+      segments[0] === "sessions" &&
+      (segments[1] === "preview" || segments[1] === "preflight")) ||
+    (segments.length === 1 && (segments[0] === "preview" || segments[0] === "preflight"))
+  ) {
+    return ["POST"];
+  }
+  if (segments.length === 2 && segments[0] === "sessions") return ["GET"];
+  if (segments.length === 1 && segments[0] === "reconcile") return ["POST"];
+  if (segments.length === 4 && segments[0] === "nawabari" && segments[1] === "sessions" && segments[3] === "inspect") {
+    return ["POST"];
+  }
+  if (
+    segments.length === 3 &&
+    segments[0] === "sessions" &&
+    (segments[2] === "open-terminal" || segments[2] === "stop" || segments[2] === "restart")
+  ) {
+    return ["POST"];
+  }
+  return undefined;
+}
+
+function sendMethodNotAllowed(response: ServerResponse, allowedMethods: readonly ManagerRouteMethod[]): void {
+  response.setHeader("allow", allowedMethods.join(", "));
+  sendJson(response, 405, {
+    error: {
+      code: "method_not_allowed",
+      message: "Manager route does not allow this method",
+    },
+  });
+}
+
 export class ManagerHttpApi implements ManagerHttpHandler {
   constructor(
     private readonly service: ManagerSessionService,
@@ -210,8 +248,18 @@ export class ManagerHttpApi implements ManagerHttpHandler {
   async handle(request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
     try {
       const method = request.method ?? "GET";
-      if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") requireSameOrigin(request);
       const segments = url.pathname.slice(MANAGER_API_PREFIX.length).split("/").filter(Boolean);
+      const allowedMethods = methodsForRoute(segments);
+      if (allowedMethods === undefined) {
+        sendJson(response, 404, { error: { code: "not_found", message: "Manager route not found" } });
+        return;
+      }
+      // HEAD and OPTIONS are intentionally not implicit aliases for GET or POST.
+      if (!allowedMethods.some((allowedMethod) => allowedMethod === method)) {
+        sendMethodNotAllowed(response, allowedMethods);
+        return;
+      }
+      if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") requireSameOrigin(request);
       if (segments.length === 1 && segments[0] === "health" && method === "GET") {
         sendJson(response, 200, this.service.health());
         return;
@@ -277,7 +325,6 @@ export class ManagerHttpApi implements ManagerHttpHandler {
           return;
         }
       }
-      response.setHeader("allow", "GET, POST");
       sendJson(response, 404, { error: { code: "not_found", message: "Manager route not found" } });
     } catch (error) {
       sendError(
