@@ -64,6 +64,12 @@
       nixosModules.runtime = import ./modules/runtime.nix;
       nixosModules.default = self.nixosModules.runtime;
 
+      # Exposed so a concrete manual-deployment override
+      # (nix/deployments/golden-path.nix) can compose the same package
+      # resolution as the canonical nixosConfigurations below, without a
+      # second overlay/package authority.
+      overlays.default = runtimeOverlay;
+
       nixosConfigurations = runtimeConfigurations;
 
       packages = forEachSystem (
