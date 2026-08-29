@@ -89,6 +89,14 @@ function tokenize(value: string): string[] {
     .filter((token) => token.length > 1);
 }
 
+/**
+ * Exact identity matching is case-insensitive and trims surrounding whitespace, but preserves
+ * separators. A non-empty query that produces no fuzzy tokens therefore remains exact-only.
+ */
+function normalizeIdentity(value: string): string {
+  return value.trim().toLowerCase();
+}
+
 function summarize(description: string | undefined): string {
   const text = (description ?? "").trim().split("\n")[0] ?? "";
   return text.length > SUMMARY_LENGTH ? `${text.slice(0, SUMMARY_LENGTH - 1)}…` : text;
@@ -174,22 +182,23 @@ export function buildCatalog(
     search(query) {
       const limit = Math.min(Math.max(query.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
       const capability = query.capability === undefined ? undefined : normalizeCapability(query.capability).id;
-      const tokens = tokenize(query.query ?? "");
-      const hits: CatalogSearchHit[] = [];
+      const normalizedQuery = normalizeIdentity(query.query ?? "");
+      const tokens = tokenize(normalizedQuery);
+      const hits: RankedCatalogSearchHit[] = [];
       for (const tool of entries) {
         if (query.provider !== undefined && tool.provider !== query.provider) continue;
         if (query.risk !== undefined && tool.risk !== query.risk) continue;
         if (capability !== undefined && !tool.capabilities.includes(capability)) continue;
-        const scored = score(tool, tokens, capability);
-        // フィルタだけの検索は全件が候補。語もフィルタも無いときだけ 0 点を落とす。
-        if (scored.score === 0 && tokens.length > 0) continue;
-        hits.push({ tool, score: scored.score, matched: scored.matched });
+        const scored = score(tool, tokens, capability, normalizedQuery);
+        if (!scored.queryMatched) continue;
+        hits.push({ tool, score: scored.score, matched: scored.matched, exact: scored.exact });
       }
       hits.sort((left, right) =>
-        right.score - left.score
+        Number(right.exact) - Number(left.exact)
+        || right.score - left.score
         || left.tool.provider.localeCompare(right.tool.provider)
         || left.tool.tool.localeCompare(right.tool.tool));
-      return hits.slice(0, limit);
+      return hits.slice(0, limit).map(({ exact: _exact, ...hit }) => hit);
     },
   };
 }
@@ -216,20 +225,49 @@ export function profileAllows(
 }
 
 const CAPABILITY_FILTER_SCORE = 10;
+const EXACT_IDENTITY_SCORE = 100;
 const NAME_EXACT_SCORE = 8;
 const NAME_TOKEN_SCORE = 4;
 const CAPABILITY_TOKEN_SCORE = 3;
 const TAG_TOKEN_SCORE = 2;
 const SUMMARY_TOKEN_SCORE = 1;
 
-function score(tool: CatalogTool, tokens: string[], capability: string | undefined): { score: number; matched: string[] } {
+interface ScoredCatalogTool {
+  score: number;
+  matched: string[];
+  queryMatched: boolean;
+  exact: boolean;
+}
+
+interface RankedCatalogSearchHit extends CatalogSearchHit {
+  exact: boolean;
+}
+
+/**
+ * Compare the raw query with complete catalog identities before fuzzy token scoring. The qualified
+ * `<provider>__<tool>` form is accepted in addition to either identity on its own.
+ */
+function exactIdentityMatch(tool: CatalogTool, query: string): string | undefined {
+  if (query === "") return undefined;
+  if (query === normalizeIdentity(`${tool.provider}__${tool.tool}`)) return `identity:${query}`;
+  if (query === normalizeIdentity(tool.tool)) return `name:${query}`;
+  if (query === normalizeIdentity(tool.provider)) return `provider:${query}`;
+  return undefined;
+}
+
+function score(tool: CatalogTool, tokens: string[], capability: string | undefined, normalizedQuery: string): ScoredCatalogTool {
   const matched: string[] = [];
   let total = 0;
   if (capability !== undefined) {
     total += CAPABILITY_FILTER_SCORE;
     matched.push(`capability:${capability}`);
   }
-  if (tokens.length === 0) return { score: total, matched };
+  const exactMatch = exactIdentityMatch(tool, normalizedQuery);
+  if (exactMatch !== undefined) {
+    return { score: total + EXACT_IDENTITY_SCORE, matched: [...matched, exactMatch], queryMatched: true, exact: true };
+  }
+  if (normalizedQuery === "") return { score: total, matched, queryMatched: true, exact: false };
+  if (tokens.length === 0) return { score: total, matched, queryMatched: false, exact: false };
 
   const name = tool.tool.toLowerCase();
   const summaryTokens = new Set(tokenize(tool.summary));
@@ -238,31 +276,37 @@ function score(tool: CatalogTool, tokens: string[], capability: string | undefin
   // capability id は snake_case（例: text_matches）。tokenize は `_` で分割するため、
   // 素の includes() 比較だと複数語の capability には絶対に一致しない。
   const capabilityTokens = new Set(tool.capabilities.flatMap((value) => tokenize(value)));
+  let queryMatched = false;
   for (const token of tokens) {
     if (name === token) {
       total += NAME_EXACT_SCORE;
       matched.push(`name:${token}`);
+      queryMatched = true;
       continue;
     }
     if (nameTokens.has(token)) {
       total += NAME_TOKEN_SCORE;
       matched.push(`name:${token}`);
+      queryMatched = true;
       continue;
     }
     if (capabilityTokens.has(token)) {
       total += CAPABILITY_TOKEN_SCORE;
       matched.push(`capability:${token}`);
+      queryMatched = true;
       continue;
     }
     if (tagTokens.has(token)) {
       total += TAG_TOKEN_SCORE;
       matched.push(`tag:${token}`);
+      queryMatched = true;
       continue;
     }
     if (summaryTokens.has(token)) {
       total += SUMMARY_TOKEN_SCORE;
       matched.push(`summary:${token}`);
+      queryMatched = true;
     }
   }
-  return { score: total, matched };
+  return { score: total, matched, queryMatched, exact: false };
 }

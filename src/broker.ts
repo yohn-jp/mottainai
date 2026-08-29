@@ -29,11 +29,11 @@ const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: t
 export const brokerTools: Tool[] = [
   {
     name: "mottainai_tool_search",
-    description: "Find upstream tools by capability, tag, name or description. Returns tool ids for describe and call.",
+    description: "Find upstream tools by capability, tag, name or description. Complete tool/provider identities are matched case-insensitively before fuzzy tokenization; one-character queries match only exact identities. Returns tool ids for describe and call.",
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string", description: "Free text matched against tool name, tags and summary." },
+        query: { type: "string", description: "Free text matched against tool/provider identities, tags and summary; one-character queries are exact-only." },
         capability: { type: "string", description: "Evidence capability such as definitions or text_matches." },
         risk: { type: "string", enum: RISK_VALUES },
         provider: { type: "string", description: "Restrict to one upstream." },
