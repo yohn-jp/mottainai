@@ -354,6 +354,16 @@ async function runRg(request: ExecutionRequest, config: ResolvedGatewayConfig): 
   const observedMatchCount = matches.length;
   const limited = matches.slice(0, maxResults);
   const matchLimitTruncated = observedMatchCount > maxResults;
+  let truncationReason: string | undefined;
+  if (run.outputLimit) {
+    if (matchLimitTruncated) {
+      truncationReason = "match_limit_and_output_limit";
+    } else {
+      truncationReason = "output_limit";
+    }
+  } else if (matchLimitTruncated) {
+    truncationReason = "match_limit";
+  }
   return {
     matches: limited,
     truncated: matchLimitTruncated || run.outputLimit,
@@ -366,9 +376,7 @@ async function runRg(request: ExecutionRequest, config: ResolvedGatewayConfig): 
       metrics: { observed_matches: observedMatchCount, output_limited: true },
       outputLimited: true,
     } : { metrics: { observed_matches: observedMatchCount } }),
-    ...(run.outputLimit
-      ? { truncationReason: matchLimitTruncated ? "match_limit_and_output_limit" : "output_limit" }
-      : matchLimitTruncated ? { truncationReason: "match_limit" } : {}),
+    ...(truncationReason === undefined ? {} : { truncationReason }),
   };
 }
 
@@ -389,6 +397,16 @@ async function runGitGrep(request: ExecutionRequest, config: ResolvedGatewayConf
   }
   const limited = matches.slice(0, maxResults);
   const matchLimitTruncated = matches.length > maxResults;
+  let truncationReason: string | undefined;
+  if (run.outputLimit) {
+    if (matchLimitTruncated) {
+      truncationReason = "match_limit_and_output_limit";
+    } else {
+      truncationReason = "output_limit";
+    }
+  } else if (matchLimitTruncated) {
+    truncationReason = "match_limit";
+  }
   return {
     matches: limited,
     truncated: matchLimitTruncated || run.outputLimit,
@@ -399,8 +417,8 @@ async function runGitGrep(request: ExecutionRequest, config: ResolvedGatewayConf
         message: "git grep output exceeded the bounded capture limit; code-search results may be incomplete",
       }],
       outputLimited: true,
-      truncationReason: matchLimitTruncated ? "match_limit_and_output_limit" : "output_limit",
-    } : matchLimitTruncated ? { truncationReason: "match_limit" } : {}),
+    } : {}),
+    ...(truncationReason === undefined ? {} : { truncationReason }),
   };
 }
 
@@ -460,6 +478,16 @@ async function runAstGrep(request: ExecutionRequest, config: ResolvedGatewayConf
     text: entry.text,
   }));
   const matchLimitTruncated = entries.length > matches.length;
+  let truncationReason: string | undefined;
+  if (run.outputLimit) {
+    if (matchLimitTruncated) {
+      truncationReason = "match_limit_and_output_limit";
+    } else {
+      truncationReason = "output_limit";
+    }
+  } else if (matchLimitTruncated) {
+    truncationReason = "match_limit";
+  }
   return {
     matches,
     truncated: matchLimitTruncated || run.outputLimit,
@@ -470,7 +498,7 @@ async function runAstGrep(request: ExecutionRequest, config: ResolvedGatewayConf
         message: "ast-grep output exceeded the bounded capture limit; code-search results may be incomplete",
       }],
       outputLimited: true,
-      truncationReason: matchLimitTruncated ? "match_limit_and_output_limit" : "output_limit",
-    } : matchLimitTruncated ? { truncationReason: "match_limit" } : {}),
+    } : {}),
+    ...(truncationReason === undefined ? {} : { truncationReason }),
   };
 }

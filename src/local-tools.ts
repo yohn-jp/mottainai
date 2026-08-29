@@ -1130,12 +1130,25 @@ async function searchTool(args: Args, config: ResolvedGatewayConfig, store: Arti
         message: "rg output exceeded the bounded capture limit; search results may be incomplete",
       }]
     : [];
-  const truncationReason = run.outputLimit
-    ? matchLimitTruncated ? "match_limit_and_output_limit" : "output_limit"
-    : matchLimitTruncated ? "match_limit" : undefined;
-  const summary = `${matchCount} matches in ${groups.length} files${
-    truncationReason === undefined ? "" : ` (truncated${omitted > 0 ? `, omitted=${omitted}` : ""}${run.outputLimit ? ", output_limit" : ""})`
-  }`;
+  let truncationReason: string | undefined;
+  if (run.outputLimit) {
+    if (matchLimitTruncated) {
+      truncationReason = "match_limit_and_output_limit";
+    } else {
+      truncationReason = "output_limit";
+    }
+  } else if (matchLimitTruncated) {
+    truncationReason = "match_limit";
+  }
+  let summarySuffix = "";
+  if (truncationReason !== undefined) {
+    let omittedSuffix = "";
+    if (omitted > 0) omittedSuffix = `, omitted=${omitted}`;
+    let outputLimitSuffix = "";
+    if (run.outputLimit) outputLimitSuffix = ", output_limit";
+    summarySuffix = ` (truncated${omittedSuffix}${outputLimitSuffix})`;
+  }
+  const summary = `${matchCount} matches in ${groups.length} files${summarySuffix}`;
   const resultId = store.putArtifact({
     text: run.stdout,
     stderr: run.stderr,
