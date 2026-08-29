@@ -132,6 +132,21 @@ function toPathRecord(row: Record<string, unknown>): RepositoryPathRecord {
   };
 }
 
+/**
+ * A changed common-dir is a relocation only after the previous location has
+ * disappeared. If it is still a directory, the same marker may have been
+ * copied to a second repository, so observing it must fail closed.
+ */
+function isExistingCommonDir(gitCommonDir: string): boolean {
+  try {
+    return fs.statSync(gitCommonDir).isDirectory();
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return false;
+    throw new Error(`cannot verify previous repository common-dir ${gitCommonDir}: ${(err as Error).message}`);
+  }
+}
+
 function toTaskRecord(row: Record<string, unknown>): TaskRecord {
   return {
     taskId: row.task_id as TaskId,
@@ -632,7 +647,33 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
           "INSERT INTO repository_instances (instance_id, source_id, git_common_dir, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?)",
         ).run(input.instanceId, source.sourceId, input.gitCommonDir, now, now);
       } else {
-        db.prepare("UPDATE repository_instances SET last_seen_at = ? WHERE instance_id = ?").run(now, input.instanceId);
+        const existingCommonDir = existingInstance.git_common_dir as string;
+        const conflictingInstance = db
+          .prepare("SELECT instance_id FROM repository_instances WHERE git_common_dir = ? AND instance_id != ?")
+          .get(input.gitCommonDir, input.instanceId) as { instance_id: string } | undefined;
+        if (conflictingInstance !== undefined) {
+          throw new Error(
+            `repository common-dir is already owned by another instance: ${input.gitCommonDir} (${conflictingInstance.instance_id})`,
+          );
+        }
+
+        if (existingCommonDir !== input.gitCommonDir) {
+          if (isExistingCommonDir(existingCommonDir)) {
+            throw new Error(
+              `refusing ambiguous repository instance relocation: ${input.instanceId} is still present at ${existingCommonDir}`,
+            );
+          }
+          db.prepare("UPDATE repository_instances SET git_common_dir = ?, last_seen_at = ? WHERE instance_id = ?").run(
+            input.gitCommonDir,
+            now,
+            input.instanceId,
+          );
+        } else {
+          db.prepare("UPDATE repository_instances SET last_seen_at = ? WHERE instance_id = ?").run(
+            now,
+            input.instanceId,
+          );
+        }
       }
       const instance = toInstanceRecord(
         db.prepare("SELECT * FROM repository_instances WHERE instance_id = ?").get(input.instanceId) as Record<
