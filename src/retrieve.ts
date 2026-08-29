@@ -62,6 +62,8 @@ export interface InMemoryArtifactStoreOptions {
   ttlMs?: number;
   maxEntries?: number;
   maxBytes?: number;
+  /** Maximum sum of serialized retained artifact payloads in this store. */
+  aggregateByteBudget?: number;
   now?: () => number;
   createId?: () => string;
   /** Internal deterministic insertion seam; never configured through gateway config. */
@@ -74,11 +76,13 @@ interface StoredArtifact {
   stderr?: string;
   metadata?: ArtifactMetadata;
   expiresAt: number;
+  serializedBytes: number;
 }
 
 const DEFAULT_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_MAX_ENTRIES = 200;
 const DEFAULT_MAX_BYTES = 50 * 1024 * 1024;
+export const DEFAULT_AGGREGATE_BYTE_BUDGET = 4 * DEFAULT_MAX_BYTES;
 const DEFAULT_MAX_LINES = 80;
 const EMPTY_JSON_STRING = '""';
 
@@ -286,6 +290,8 @@ export class InMemoryArtifactStore implements ArtifactStore {
   private readonly ttlMs: number;
   private readonly maxEntries: number;
   private readonly maxBytes: number;
+  private readonly aggregateByteBudget: number;
+  private retainedBytes = 0;
   private readonly now: () => number;
   private readonly createId: () => string;
   private readonly boundaries: BoundaryOperations;
@@ -294,6 +300,7 @@ export class InMemoryArtifactStore implements ArtifactStore {
     const ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
     const maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
     const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
+    const aggregateByteBudget = options.aggregateByteBudget ?? DEFAULT_AGGREGATE_BYTE_BUDGET;
     if (!Number.isFinite(ttlMs) || ttlMs < 0) throw new RangeError("ttlMs must be a finite non-negative number");
     if (!Number.isFinite(maxEntries) || !Number.isInteger(maxEntries) || maxEntries <= 0) {
       throw new RangeError("maxEntries must be a finite positive integer");
@@ -302,9 +309,16 @@ export class InMemoryArtifactStore implements ArtifactStore {
     if (maxBytes < MIN_ARTIFACT_BYTES) {
       throw new RangeError(`maxBytes must be at least ${MIN_ARTIFACT_BYTES} bytes`);
     }
+    if (!Number.isFinite(aggregateByteBudget) || aggregateByteBudget <= 0) {
+      throw new RangeError("aggregateByteBudget must be a finite positive number");
+    }
+    if (aggregateByteBudget < MIN_ARTIFACT_BYTES) {
+      throw new RangeError(`aggregateByteBudget must be at least ${MIN_ARTIFACT_BYTES} bytes`);
+    }
     this.ttlMs = ttlMs;
     this.maxEntries = maxEntries;
     this.maxBytes = maxBytes;
+    this.aggregateByteBudget = aggregateByteBudget;
     this.now = options.now ?? Date.now;
     this.createId = options.createId ?? randomUUID;
     this.boundaries = options.boundaries ?? DIRECT_BOUNDARIES;
@@ -318,25 +332,61 @@ export class InMemoryArtifactStore implements ArtifactStore {
     // Stage all retention/eviction work in a copy. If insertion fails, the
     // previously reachable references and their LRU order remain untouched.
     const nextEntries = new Map(this.entries);
+    let nextRetainedBytes = this.retainedBytes;
     const now = this.now();
     for (const [entryId, entry] of nextEntries) {
-      if (entry.expiresAt <= now) nextEntries.delete(entryId);
+      if (entry.expiresAt <= now) {
+        nextEntries.delete(entryId);
+        nextRetainedBytes -= entry.serializedBytes;
+      }
     }
     while (nextEntries.size >= this.maxEntries) {
       const oldest = nextEntries.keys().next().value;
       if (oldest === undefined) break;
+      nextRetainedBytes -= nextEntries.get(oldest)?.serializedBytes ?? 0;
       nextEntries.delete(oldest);
     }
 
     const resolvedId = id ?? this.nextId();
-    const bounded = boundArtifact(artifact, this.maxBytes);
-    if (payloadBytes(bounded) > this.maxBytes) {
+    const bounded = boundArtifact(artifact, Math.min(this.maxBytes, this.aggregateByteBudget));
+    const serializedBytes = payloadBytes(bounded);
+    if (serializedBytes > this.maxBytes) {
       throw new RangeError(`artifact payload cannot fit within maxBytes=${this.maxBytes}`);
     }
-    nextEntries.set(resolvedId, { ...bounded, expiresAt: now + this.ttlMs });
+    if (serializedBytes > this.aggregateByteBudget) {
+      throw new RangeError(`artifact payload cannot fit within aggregateByteBudget=${this.aggregateByteBudget}`);
+    }
+
+    const previous = nextEntries.get(resolvedId);
+    if (previous !== undefined) nextRetainedBytes -= previous.serializedBytes;
+    nextEntries.set(resolvedId, { ...bounded, expiresAt: now + this.ttlMs, serializedBytes });
+    nextRetainedBytes += serializedBytes;
+
+    while (nextRetainedBytes > this.aggregateByteBudget) {
+      // A replacement keeps its id as the incoming item. If it was already
+      // the oldest entry, evict the next oldest entry instead; this mirrors
+      // insertion semantics while preserving the existing LRU order.
+      let oldest: string | undefined;
+      for (const entryId of nextEntries.keys()) {
+        if (entryId !== resolvedId) {
+          oldest = entryId;
+          break;
+        }
+      }
+      if (oldest === undefined) {
+        throw new RangeError(`artifact payload cannot fit within aggregateByteBudget=${this.aggregateByteBudget}`);
+      }
+      nextRetainedBytes -= nextEntries.get(oldest)?.serializedBytes ?? 0;
+      nextEntries.delete(oldest);
+    }
+
+    if (!Number.isFinite(nextRetainedBytes) || nextRetainedBytes < 0 || nextRetainedBytes > this.aggregateByteBudget) {
+      throw new Error("artifact aggregate byte accounting invariant violated");
+    }
     this.boundaries.storage("artifact.insert", () => {
       this.entries.clear();
       for (const [entryId, entry] of nextEntries) this.entries.set(entryId, entry);
+      this.retainedBytes = nextRetainedBytes;
     });
     return resolvedId;
   }
@@ -349,7 +399,7 @@ export class InMemoryArtifactStore implements ArtifactStore {
     const entry = this.entries.get(id);
     if (!entry) return undefined;
     if (entry.expiresAt <= this.now()) {
-      this.entries.delete(id);
+      this.removeEntry(id);
       return undefined;
     }
     this.entries.delete(id);
@@ -408,7 +458,14 @@ export class InMemoryArtifactStore implements ArtifactStore {
   private deleteExpired(): void {
     const now = this.now();
     for (const [id, entry] of this.entries) {
-      if (entry.expiresAt <= now) this.entries.delete(id);
+      if (entry.expiresAt <= now) this.removeEntry(id);
     }
+  }
+
+  private removeEntry(id: string): void {
+    const entry = this.entries.get(id);
+    if (entry === undefined) return;
+    this.entries.delete(id);
+    this.retainedBytes -= entry.serializedBytes;
   }
 }

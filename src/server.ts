@@ -37,6 +37,7 @@ export async function runServer(
   const artifactStore = new InMemoryArtifactStore({
     ttlMs: snapshot.gatewayConfig.resultTtlMs,
     maxEntries: snapshot.gatewayConfig.resultMaxEntries,
+    aggregateByteBudget: snapshot.gatewayConfig.resultMaxBytes,
   });
 
   const server = new Server({ name: "mottainai", version: packageMetadata.version }, { capabilities: { tools: {} } });

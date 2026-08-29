@@ -573,6 +573,23 @@ test("resolveGatewayConfig defaults workflowTasks to false (mottainai_task_start
   assert.equal(resolveGatewayConfig({ workflowTasks: false }).workflowTasks, false);
 });
 
+test("resolveGatewayConfig resolves the aggregate artifact byte budget", () => {
+  const defaults = resolveGatewayConfig(undefined);
+  assert.equal(Number.isFinite(defaults.resultMaxBytes), true);
+  assert.equal(resolveGatewayConfig({ resultMaxBytes: 8_192 }).resultMaxBytes, 8_192);
+
+  const configPath = writeConfig({
+    version: 2,
+    mcpServers: {},
+    gateway: { resultMaxBytes: 16_384 },
+  });
+  assert.equal(loadGatewayConfig(configPath).resultMaxBytes, 16_384);
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({ version: 2, mcpServers: {}, gateway: { resultMaxBytes: 0 } })),
+    /invalid gateway resultMaxBytes/,
+  );
+});
+
 test("resolveGatewayConfig defaults await policy and clamps maxPollIntervalMs to at least minPollIntervalMs", () => {
   const defaults = resolveGatewayConfig(undefined).await;
   assert.equal(defaults.minPollIntervalMs, 250);
