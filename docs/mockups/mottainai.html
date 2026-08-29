@@ -325,13 +325,26 @@
     button.textContent = reconcileInFlight ? "Reconciling…" : "Reconcile";
   }
 
-  function showHomeActionError(message) {
+  function showHomeActionError(title, message) {
     var existing = q("#homeActionError");
     if (!existing) {
       q(".attention-zone").insertAdjacentHTML("afterbegin", '<div class="detail-block" id="homeActionError"></div>');
       existing = q("#homeActionError");
     }
-    existing.innerHTML = "<b>Reconcile unavailable</b><p>" + esc(message) + "</p>";
+    existing.innerHTML = "<b>" + esc(title) + "</b><p>" + esc(message) + "</p>";
+  }
+  function boundedErrorMessage(error) {
+    var message = error && error.message ? String(error.message).replace(/\s+/gu, " ").trim() : "request failed";
+    return message.length > 160 ? message.slice(0, 157) + "…" : message;
+  }
+  function refreshRequiredMessage(operation, error) {
+    return operation + " succeeded. Authoritative state re-fetch required before relying on this view. (" + boundedErrorMessage(error) + ")";
+  }
+  function showHomeRefreshRequired(operation, error) {
+    showHomeActionError("Refresh required", refreshRequiredMessage(operation, error));
+  }
+  function showDrawerRefreshRequired(operation, error) {
+    showDrawerActionError("Refresh required", refreshRequiredMessage(operation, error));
   }
   function reconcile() {
     if (reconcileInFlight || !health) return Promise.resolve();
@@ -340,9 +353,12 @@
     return post("/reconcile", {}).then(function () {
       var error = q("#homeActionError");
       if (error) error.remove();
-      return refresh(true);
-    }).catch(function (error) {
-      showHomeActionError(error.message);
+      return refresh(true).then(function (result) {
+        if (!result.ok) showHomeRefreshRequired("Reconcile", result.error);
+        return result;
+      });
+    }, function (error) {
+      showHomeActionError("Reconcile unavailable", error.message);
     }).then(function () {
       reconcileInFlight = false;
       updateReconcileAction();
@@ -456,11 +472,13 @@
       q("#drawerAction").textContent = session.operational.attention ? session.operational.attention.actionLabel : "Open managed terminal";
       q("#drawerAction").onclick = function () { action(session, session.operational.attention ? session.operational.attention.safeAction : "open-terminal"); };
       q("#drawerAction").disabled = false;
+      return { ok: true };
     }).catch(function (error) {
       drawerSession = undefined;
       q("#drawerSemanticAction").hidden = true;
       q("#drawerAction").disabled = true;
-      q("#drawerBody").innerHTML = '<div class="detail-block"><b>Session detail unavailable</b><p>' + esc(error.message) + "</p></div>";
+      q("#drawerBody").innerHTML = '<div class="detail-block"><b>Session detail unavailable</b><p>' + esc(boundedErrorMessage(error)) + "</p></div>";
+      return { ok: false, error: error };
     });
   }
 
@@ -488,8 +506,17 @@
     stopInFlightSessionId = sessionId;
     configureStopAction(session);
     return post("/sessions/" + encodeURIComponent(sessionId) + "/stop", {}).then(function () {
-      return refresh(true).then(function () { return openSession(sessionId); });
-    }).catch(function (error) {
+      return refresh(true).then(function (result) {
+        if (!result.ok) {
+          showDrawerRefreshRequired("Stop", result.error);
+          return result;
+        }
+        return openSession(sessionId).then(function (detailResult) {
+          if (!detailResult.ok) showDrawerRefreshRequired("Stop", detailResult.error);
+          return detailResult;
+        });
+      });
+    }, function (error) {
       showDrawerActionError("Stop unavailable", error.message);
     }).then(function () {
       stopInFlightSessionId = null;
@@ -833,12 +860,14 @@
     refreshPromise = Promise.all([request("/health"), request("/sessions?limit=500")]).then(function (parts) {
       refreshInFlight = false;
       health = parts[0]; sessions = parts[1].sessions || []; updateHealth(); renderHome(); renderPalette();
+      return { ok: true };
     }).catch(function (error) {
       refreshInFlight = false;
       health = undefined; sessions = []; updateHealth(); renderPalette();
       qa(".attention-zone .attention-row,.sessions .session-row,.sessions .attention-row").forEach(function (n) { n.remove(); });
-      q(".summary-strip").insertAdjacentHTML("beforebegin", empty("Manager data unavailable: " + error.message));
+      q(".summary-strip").insertAdjacentHTML("beforebegin", empty("Manager data unavailable: " + boundedErrorMessage(error)));
       qa(".summary-num").forEach(function (node) { node.textContent = "—"; });
+      return { ok: false, error: error };
     }).then(function (result) {
       refreshInFlight = false;
       refreshPromise = undefined;
