@@ -57,6 +57,7 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in
         {
+          mottainai = import ./mottainai.nix { inherit pkgs; };
           nawabari = import ./packages/nawabari.nix {
             inherit (pkgs) lib stdenvNoCC fetchurl makeWrapper nodejs_22;
           };
