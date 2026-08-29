@@ -259,3 +259,147 @@ test("waitUntilChanged bounds each poll delay within the policy min/max regardle
     assert.ok(delay <= POLICY.maxPollIntervalMs);
   }
 });
+
+test("waitUntilChanged does not fetch when cancellation is already observed", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  let fetchCount = 0;
+
+  const result = await waitUntilChanged({
+    fetchChecks: async () => {
+      fetchCount += 1;
+      return [];
+    },
+    policy: POLICY,
+    timeoutMs: 1_000,
+    signal: controller.signal,
+  });
+
+  assert.equal(result.cancelled, true);
+  assert.equal(result.pollCount, 0);
+  assert.equal(fetchCount, 0);
+});
+
+test("waitUntilChanged cancels an in-flight sleep without starting another poll", async () => {
+  const controller = new AbortController();
+  let fetchCount = 0;
+  let sleepCount = 0;
+  let logicalNow = 0;
+  let markSleepStarted!: () => void;
+  const sleepStarted = new Promise<void>((resolve) => {
+    markSleepStarted = resolve;
+  });
+
+  const waitPromise = waitUntilChanged({
+    fetchChecks: async (signal) => {
+      assert.equal(signal, controller.signal);
+      fetchCount += 1;
+      return [{ name: "build", state: "in_progress" }];
+    },
+    policy: POLICY,
+    timeoutMs: 1_000,
+    signal: controller.signal,
+    now: () => logicalNow,
+    sleep: (_ms, signal) =>
+      new Promise<void>((resolve) => {
+        sleepCount += 1;
+        markSleepStarted();
+        signal?.addEventListener(
+          "abort",
+          () => {
+            logicalNow = 25;
+            resolve();
+          },
+          { once: true },
+        );
+      }),
+  });
+
+  await sleepStarted;
+  controller.abort();
+  const result = await waitPromise;
+
+  assert.equal(result.cancelled, true);
+  assert.equal(result.pollCount, 1);
+  assert.equal(result.elapsedMs, 25);
+  assert.equal(fetchCount, 1);
+  assert.equal(sleepCount, 1);
+});
+
+test("waitUntilChanged propagates cancellation into an in-flight fetch", async () => {
+  const controller = new AbortController();
+  let fetchCount = 0;
+  let sleepCount = 0;
+  let logicalNow = 0;
+  let markFetchStarted!: () => void;
+  const fetchStarted = new Promise<void>((resolve) => {
+    markFetchStarted = resolve;
+  });
+
+  const waitPromise = waitUntilChanged({
+    fetchChecks: (signal) => {
+      assert.equal(signal, controller.signal);
+      fetchCount += 1;
+      markFetchStarted();
+      return new Promise((resolve) => {
+        signal?.addEventListener(
+          "abort",
+          () => {
+            logicalNow = 40;
+            resolve([{ name: "build", state: "in_progress" }]);
+          },
+          { once: true },
+        );
+      });
+    },
+    policy: POLICY,
+    timeoutMs: 1_000,
+    signal: controller.signal,
+    now: () => logicalNow,
+    sleep: async () => {
+      sleepCount += 1;
+    },
+  });
+
+  await fetchStarted;
+  controller.abort();
+  const result = await waitPromise;
+
+  assert.equal(result.cancelled, true);
+  assert.equal(result.pollCount, 1);
+  assert.equal(result.elapsedMs, 40);
+  assert.equal(fetchCount, 1);
+  assert.equal(sleepCount, 0);
+});
+
+test("waitUntilChanged records cancellation after multiple polls and stops the loop", async () => {
+  const controller = new AbortController();
+  let fetchCount = 0;
+  let sleepCount = 0;
+  let logicalNow = 0;
+
+  const result = await waitUntilChanged({
+    fetchChecks: async () => {
+      fetchCount += 1;
+      return [{ name: "build", state: "in_progress" }];
+    },
+    policy: POLICY,
+    timeoutMs: 1_000,
+    signal: controller.signal,
+    now: () => logicalNow,
+    sleep: async (_ms, signal) => {
+      sleepCount += 1;
+      if (sleepCount === 2) {
+        logicalNow = 60;
+        controller.abort();
+      }
+      assert.equal(signal, controller.signal);
+    },
+  });
+
+  assert.equal(result.cancelled, true);
+  assert.equal(result.pollCount, 2);
+  assert.equal(result.elapsedMs, 60);
+  assert.equal(fetchCount, 2);
+  assert.equal(sleepCount, 2);
+});

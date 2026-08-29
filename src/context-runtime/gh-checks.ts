@@ -20,6 +20,7 @@ export interface WaitUntilResult {
   pollCount: number;
   elapsedMs: number;
   timedOut?: boolean;
+  cancelled?: boolean;
 }
 
 /** `statusCheckRollup` の 1 件から比較用の状態文字列を作る。`conclusion` があればそれを、無ければ `status` を使う。 */
@@ -122,13 +123,54 @@ function allTerminal(checks: CheckSnapshot[]): boolean {
   return checks.length > 0 && checks.every((check) => isTerminalState(check.state));
 }
 
+function isAborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
+}
+
+function sleepFor(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted === true) return Promise.resolve();
+
+  return new Promise((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let settled = false;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      signal?.removeEventListener("abort", finish);
+      resolve();
+    };
+
+    timer = setTimeout(finish, ms);
+    signal?.addEventListener("abort", finish, { once: true });
+    if (signal?.aborted === true) finish();
+  });
+}
+
+function cancelledResult(
+  startedAt: number,
+  now: () => number,
+  checks: CheckSnapshot[],
+  pollCount: number,
+): WaitUntilResult {
+  return {
+    changed: [],
+    terminal: false,
+    checks,
+    pollCount,
+    elapsedMs: now() - startedAt,
+    cancelled: true,
+  };
+}
+
 export interface WaitUntilDeps {
-  fetchChecks: () => Promise<CheckSnapshot[]>;
+  fetchChecks: (signal?: AbortSignal) => Promise<CheckSnapshot[]>;
   policy: AwaitPolicy;
   timeoutMs: number;
-  sleep?: (ms: number) => Promise<void>;
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   random?: () => number;
   now?: () => number;
+  signal?: AbortSignal;
 }
 
 /**
@@ -137,15 +179,25 @@ export interface WaitUntilDeps {
  * 変化の無い中間 snapshot は呼び出し元へ返さない（`changed` が空のまま poll を続ける）。
  */
 export async function waitUntilChanged(deps: WaitUntilDeps): Promise<WaitUntilResult> {
-  const sleep = deps.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const sleep = deps.sleep ?? sleepFor;
   const now = deps.now ?? Date.now;
   const startedAt = now();
   let previous: CheckSnapshot[] | undefined;
   let pollCount = 0;
 
   for (;;) {
-    const current = await deps.fetchChecks();
+    if (isAborted(deps.signal)) return cancelledResult(startedAt, now, previous ?? [], pollCount);
     pollCount += 1;
+
+    let current: CheckSnapshot[];
+    try {
+      current = await deps.fetchChecks(deps.signal);
+    } catch (error) {
+      if (isAborted(deps.signal)) return cancelledResult(startedAt, now, previous ?? [], pollCount);
+      throw error;
+    }
+    if (isAborted(deps.signal)) return cancelledResult(startedAt, now, current, pollCount);
+
     const changed = previous === undefined ? [] : diffChecks(previous, current);
     const terminal = allTerminal(current);
     const elapsedMs = now() - startedAt;
@@ -160,7 +212,14 @@ export async function waitUntilChanged(deps: WaitUntilDeps): Promise<WaitUntilRe
       return { changed: [], terminal: false, checks: current, pollCount, elapsedMs, timedOut: true };
     }
 
+    if (isAborted(deps.signal)) return cancelledResult(startedAt, now, current, pollCount);
     const delay = Math.min(nextPollDelayMs(pollCount - 1, deps.policy, deps.random), remaining);
-    await sleep(delay);
+    try {
+      await sleep(delay, deps.signal);
+    } catch (error) {
+      if (isAborted(deps.signal)) return cancelledResult(startedAt, now, current, pollCount);
+      throw error;
+    }
+    if (isAborted(deps.signal)) return cancelledResult(startedAt, now, current, pollCount);
   }
 }

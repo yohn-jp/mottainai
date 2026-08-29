@@ -288,7 +288,7 @@ export async function callLocalTool(
     case "mottainai_issue_view":
       return issueViewToolImpl(args, config);
     case "mottainai_gh_checks_await":
-      return ghChecksAwaitToolImpl(args, config, telemetry, signal);
+      return ghChecksAwaitToolImpl(args, config, telemetry, signal, boundaries);
     default:
       if (semanticProjectionTools.some((tool) => tool.name === name))
         return callSemanticProjectionTool(name, args, config.workspaceRoot);
@@ -1431,6 +1431,7 @@ async function ghChecksAwaitToolImpl(
   config: ResolvedGatewayConfig,
   telemetry?: TelemetrySink,
   signal?: AbortSignal,
+  boundaries: BoundaryOperations = DIRECT_BOUNDARIES,
 ): Promise<CallToolResult> {
   if (config.worktree === undefined) throw new Error("gh checks tool is not configured for this workspace");
   const number = numberArg(args, "number");
@@ -1440,13 +1441,16 @@ async function ghChecksAwaitToolImpl(
   const timeoutMs = Math.min(requestedTimeout ?? config.await.maxAwaitMs, config.await.maxAwaitMs);
 
   let lastSpawnError: string | undefined;
-  const fetchChecks = async (): Promise<CheckSnapshot[]> => {
+  const fetchChecks = async (fetchSignal?: AbortSignal): Promise<CheckSnapshot[]> => {
     const run = await runProgram(
       "gh",
       ["pr", "view", String(number), "--json", "statusCheckRollup"],
       config.workspaceRoot,
       config.maxTimeoutMs,
       config.maxOutputBytes,
+      undefined,
+      boundaries,
+      fetchSignal,
     );
     if (run.exitCode !== 0) {
       lastSpawnError = firstLine(run.stderr || run.stdout) || "gh pr view failed";
@@ -1458,25 +1462,9 @@ async function ghChecksAwaitToolImpl(
     return normalizeChecks(parsed.checks);
   };
 
-  if (signal?.aborted === true) {
-    return output("gh_checks_await", "partial", `CANCELLED pr=${number}`, "", {
-      pr: number,
-      state: "cancelled",
-      truncated: false,
-    });
-  }
-
-  const abortPromise =
-    signal === undefined
-      ? undefined
-      : new Promise<"cancelled">((resolve) =>
-          signal.addEventListener("abort", () => resolve("cancelled"), { once: true }),
-        );
-
-  let result: Awaited<ReturnType<typeof waitUntilChanged>> | "cancelled";
+  let result: Awaited<ReturnType<typeof waitUntilChanged>>;
   try {
-    const waitPromise = waitUntilChanged({ fetchChecks, policy: config.await, timeoutMs });
-    result = abortPromise === undefined ? await waitPromise : await Promise.race([waitPromise, abortPromise]);
+    result = await waitUntilChanged({ fetchChecks, policy: config.await, timeoutMs, signal });
   } catch (error) {
     if (!(error instanceof StatusCheckRollupParseError)) throw error;
     const summary = `FAIL gh checks await: ${error.reason}`;
@@ -1496,8 +1484,14 @@ async function ghChecksAwaitToolImpl(
     );
   }
 
-  if (result === "cancelled") {
-    telemetry?.recordAwait({ pollCount: 0, elapsedMs: 0, stateChanges: 0, avoidedResponses: 0, outcome: "cancelled" });
+  if (result.cancelled === true) {
+    telemetry?.recordAwait({
+      pollCount: result.pollCount,
+      elapsedMs: result.elapsedMs,
+      stateChanges: result.changed.length,
+      avoidedResponses: Math.max(0, result.pollCount - 1),
+      outcome: "cancelled",
+    });
     return output("gh_checks_await", "partial", `CANCELLED pr=${number}`, "", {
       pr: number,
       state: "cancelled",
