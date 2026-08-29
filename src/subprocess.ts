@@ -222,6 +222,13 @@ export function runChild(
     let killTimer: NodeJS.Timeout | undefined;
     let capture: BoundedFileCapture | undefined;
     let captureError: Error | undefined;
+    const flushDecoders = (): void => {
+      // A byte limit can stop in the middle of a code point. In that case the
+      // pending bytes are intentionally not decoded as a replacement character.
+      if (outputLimit || bytes >= maxOutputBytes) return;
+      stdout += stdoutDecoder.end();
+      stderr += stderrDecoder.end();
+    };
     const normalizeCaptureError = (error: unknown): Error =>
       error instanceof Error ? error : new Error(String(error));
     const failCapture = (error: unknown): void => {
@@ -235,12 +242,14 @@ export function runChild(
         if (killTimer !== undefined) clearTimeout(killTimer);
         if (capture === undefined) {
           if (captureError !== undefined) reject(captureError);
-          else
+          else {
+            flushDecoders();
             resolve({
               ...result,
-              stdout: fitTextToByteLimit(result.stdout, stdoutBytes),
-              stderr: fitTextToByteLimit(result.stderr, stderrBytes),
+              stdout: fitTextToByteLimit(stdout, stdoutBytes),
+              stderr: fitTextToByteLimit(stderr, stderrBytes),
             });
+          }
           return;
         }
         try {
@@ -356,9 +365,14 @@ export type ManagedProcessState = "running" | "exited";
 export class ManagedProcess {
   private readonly child: ReturnType<typeof spawn> | undefined;
   private readonly boundaries: BoundaryOperations;
+  private readonly maxOutputBytes: number;
+  private readonly stdoutDecoder = new StringDecoder("utf8");
+  private readonly stderrDecoder = new StringDecoder("utf8");
   private stdout = "";
   private stderr = "";
   private bytes = 0;
+  private stdoutBytes = 0;
+  private stderrBytes = 0;
   private timedOut = false;
   private outputLimit = false;
   private settledFlag = false;
@@ -377,6 +391,7 @@ export class ManagedProcess {
     boundaries: BoundaryOperations = DIRECT_BOUNDARIES,
   ) {
     this.startedAt = Date.now();
+    this.maxOutputBytes = maxOutputBytes;
     const spawnOptions: SpawnOptions = { cwd, shell, detached: true, stdio: ["ignore", "pipe", "pipe"] };
     if (env !== undefined) spawnOptions.env = env;
     this.boundaries = boundaries;
@@ -410,8 +425,13 @@ export class ManagedProcess {
       }
       const part = chunk.subarray(0, remaining);
       this.bytes += part.length;
-      if (target === "stdout") this.stdout += part.toString("utf8");
-      else this.stderr += part.toString("utf8");
+      if (target === "stdout") {
+        this.stdoutBytes += part.length;
+        this.stdout += this.stdoutDecoder.write(part);
+      } else {
+        this.stderrBytes += part.length;
+        this.stderr += this.stderrDecoder.write(part);
+      }
       if (part.length !== chunk.length) {
         this.outputLimit = true;
         this.terminate();
@@ -489,8 +509,16 @@ export class ManagedProcess {
 
   private finish(result: RunResult): void {
     if (this.settledFlag) return;
+    if (!this.outputLimit && this.bytes < this.maxOutputBytes) {
+      this.stdout += this.stdoutDecoder.end();
+      this.stderr += this.stderrDecoder.end();
+    }
     this.settledFlag = true;
     if (this.killTimer !== undefined) clearTimeout(this.killTimer);
-    this.resolveSettled(result);
+    this.resolveSettled({
+      ...result,
+      stdout: fitTextToByteLimit(this.stdout, this.stdoutBytes),
+      stderr: fitTextToByteLimit(this.stderr, this.stderrBytes),
+    });
   }
 }

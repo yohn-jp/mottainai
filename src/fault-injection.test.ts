@@ -24,6 +24,13 @@ function temporaryDirectory(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), `mottainai-${prefix}-`));
 }
 
+function executableScript(directory: string, name: string, source: string): string {
+  const script = path.join(directory, name);
+  fs.writeFileSync(script, source);
+  fs.chmodSync(script, 0o755);
+  return script;
+}
+
 async function initialize(workspace: string, boundaries = DIRECT_BOUNDARIES, force = false, config?: string) {
   return runInit({
     args: [
@@ -418,6 +425,70 @@ test("process launcher faults are deterministic and return a bounded spawn diagn
   const managed = new ManagedProcess(process.execPath, process.cwd(), 1_000, false, undefined, faults);
   assert.equal((await managed.settled).spawnError, "spawn seam failure");
   assert.equal(managed.state, "exited");
+});
+
+test("subprocess decoders preserve UTF-8 across split stdout and stderr chunks", async () => {
+  const workspace = temporaryDirectory("utf8-stream");
+  const expectedStdout = "日本語😀";
+  const expectedStderr = "診断🙂";
+  const script = executableScript(
+    workspace,
+    "split-output.cjs",
+    `#!/usr/bin/env node
+const fs = require("node:fs");
+const stdout = Buffer.from(${JSON.stringify(expectedStdout)});
+const stderr = Buffer.from(${JSON.stringify(expectedStderr)});
+fs.writeSync(1, stdout.subarray(0, 2));
+fs.writeSync(2, stderr.subarray(0, 5));
+setTimeout(() => {
+  fs.writeSync(1, stdout.subarray(2));
+  fs.writeSync(2, stderr.subarray(5));
+}, 25);
+`,
+  );
+  try {
+    const result = await runProgram(script, [], workspace, 2_000, 1_000);
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stdout, expectedStdout);
+    assert.equal(result.stderr, expectedStderr);
+    assert.doesNotMatch(`${result.stdout}${result.stderr}`, /\uFFFD/u);
+
+    const managed = new ManagedProcess(script, workspace, 1_000, false);
+    const managedResult = await managed.settled;
+    assert.equal(managedResult.exitCode, 0);
+    assert.equal(managedResult.stdout, expectedStdout);
+    assert.equal(managedResult.stderr, expectedStderr);
+    assert.doesNotMatch(`${managedResult.stdout}${managedResult.stderr}`, /\uFFFD/u);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("subprocess output limits do not return a replacement character for a cut code point", async () => {
+  const workspace = temporaryDirectory("utf8-limit");
+  const script = executableScript(
+    workspace,
+    "emoji-output.cjs",
+    `#!/usr/bin/env node
+process.stdout.write("😀");
+`,
+  );
+  try {
+    const result = await runProgram(script, [], workspace, 2_000, 3);
+    assert.equal(result.outputLimit, true);
+    assert.equal(result.stdout, "");
+    assert.ok(Buffer.byteLength(result.stdout, "utf8") <= 3);
+    assert.doesNotMatch(result.stdout, /\uFFFD/u);
+
+    const managed = new ManagedProcess(script, workspace, 3, false);
+    const managedResult = await managed.settled;
+    assert.equal(managedResult.outputLimit, true);
+    assert.equal(managedResult.stdout, "");
+    assert.ok(Buffer.byteLength(managedResult.stdout, "utf8") <= 3);
+    assert.doesNotMatch(managedResult.stdout, /\uFFFD/u);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
 });
 
 test("runChild prefers process-group SIGTERM for timeout termination", async () => {

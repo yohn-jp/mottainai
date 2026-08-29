@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { PassThrough } from "node:stream";
 import test from "node:test";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -337,6 +338,85 @@ test("connectUpstream closes the client and preserves the original error when co
   );
   assert.equal(closed, true);
   assert.equal(listToolsCalled, false);
+});
+
+test("connectUpstream preserves UTF-8 stderr diagnostics across stream chunks", async () => {
+  const transport = new StdioClientTransport({ command: process.execPath, stderr: "pipe" });
+  const stderr = transport.stderr;
+  assert.ok(stderr instanceof PassThrough);
+  const expected = "upstream 日本語🙂";
+  const bytes = Buffer.from(expected, "utf8");
+  const connectError = new Error("connect failed after stderr");
+
+  await assert.rejects(
+    () =>
+      connectUpstream(
+        { name: "split-stderr", command: process.execPath },
+        undefined,
+        () =>
+          ({
+            connect: async () => {
+              stderr?.push(bytes.subarray(0, 2));
+              await new Promise<void>((resolve) => setImmediate(resolve));
+              stderr?.push(bytes.subarray(2));
+              stderr?.push(null);
+              throw connectError;
+            },
+            listTools: async () => ({ tools: [] }),
+            close: async () => {},
+          }) as unknown as Client,
+        { transportFactory: async () => transport },
+      ),
+    (error: unknown) => error === connectError,
+  );
+
+  assert.ok(
+    (connectError as Error & { mottainaiUpstreamDiagnostic: string }).mottainaiUpstreamDiagnostic.includes(
+      `stderr_tail=${JSON.stringify(expected)}`,
+    ),
+  );
+  assert.doesNotMatch(
+    (connectError as Error & { mottainaiUpstreamDiagnostic: string }).mottainaiUpstreamDiagnostic,
+    /\uFFFD/u,
+  );
+});
+
+test("upstream stderr tail cuts only at valid UTF-8 boundaries", async () => {
+  const maxBytes = 16 * 1024;
+  const suffix = "x".repeat(maxBytes - 3);
+  const expectedTail = suffix;
+  const transport = new StdioClientTransport({ command: process.execPath, stderr: "pipe" });
+  const stderr = transport.stderr;
+  assert.ok(stderr instanceof PassThrough);
+  const bytes = Buffer.from(`a😀${suffix}`, "utf8");
+  const connectError = new Error("connect failed after large stderr");
+
+  await assert.rejects(
+    () =>
+      connectUpstream(
+        { name: "bounded-stderr", command: process.execPath },
+        undefined,
+        () =>
+          ({
+            connect: async () => {
+              stderr?.push(bytes.subarray(0, 2));
+              await new Promise<void>((resolve) => setImmediate(resolve));
+              stderr?.push(bytes.subarray(2));
+              stderr?.push(null);
+              throw connectError;
+            },
+            listTools: async () => ({ tools: [] }),
+            close: async () => {},
+          }) as unknown as Client,
+        { transportFactory: async () => transport },
+      ),
+    (error: unknown) => error === connectError,
+  );
+
+  const diagnostic = (connectError as Error & { mottainaiUpstreamDiagnostic: string }).mottainaiUpstreamDiagnostic;
+  assert.ok(diagnostic.includes(`stderr_tail=${JSON.stringify(expectedTail)}`));
+  assert.doesNotMatch(diagnostic, /\uFFFD/u);
+  assert.ok(Buffer.byteLength(expectedTail, "utf8") <= maxBytes);
 });
 
 test("close is resilient to one upstream's close failure and still stops the rest", async () => {
