@@ -290,6 +290,62 @@ test("saveRawConfig leaves no temporary artifact behind on success", () => {
   assert.deepEqual(temporaryArtifacts(filePath), []);
 });
 
+test("saveRawConfig fsyncs the parent directory after atomic rename", () => {
+  const configPath = writeConfig({ mcpServers: { one: { command: "node" } } });
+  const { filePath, raw } = loadRawConfig(configPath);
+  (raw.mcpServers as Record<string, unknown>).two = { command: "node" };
+  const boundaries = new FaultInjector();
+
+  saveRawConfig(filePath, raw, boundaries);
+
+  assert.equal(boundaries.calls.get("config.directory.open"), 1);
+  assert.equal(boundaries.calls.get("config.directory.sync"), 1);
+  assert.equal(boundaries.calls.get("config.directory.close"), 1);
+  const callOrder = [...boundaries.calls.keys()];
+  assert.ok(callOrder.indexOf("config.rename") < callOrder.indexOf("config.directory.open"));
+  assert.ok(callOrder.indexOf("config.directory.open") < callOrder.indexOf("config.directory.sync"));
+  assert.ok(callOrder.indexOf("config.directory.sync") < callOrder.indexOf("config.directory.close"));
+  assert.deepEqual(temporaryArtifacts(filePath), []);
+});
+
+test("saveRawConfig reports parent-directory durability failures after replacement", () => {
+  const operations = ["config.directory.open", "config.directory.sync", "config.directory.close"];
+  for (const operation of operations) {
+    const configPath = writeConfig({ mcpServers: { one: { command: "node" } } });
+    const { filePath, raw } = loadRawConfig(configPath);
+    const original = fs.readFileSync(filePath, "utf8");
+    (raw.mcpServers as Record<string, unknown>).two = { command: "node" };
+    const faults = new FaultInjector({ [operation]: { error: new Error(`primary ${operation}`) } });
+
+    assert.throws(() => saveRawConfig(filePath, raw, faults), new RegExp(`primary ${operation}`), operation);
+    assert.notEqual(fs.readFileSync(filePath, "utf8"), original, operation);
+    assert.deepEqual(temporaryArtifacts(filePath), [], operation);
+  }
+});
+
+test("saveRawConfig preserves the primary directory durability error with cleanup evidence", () => {
+  const configPath = writeConfig({ mcpServers: { one: { command: "node" } } });
+  const { filePath, raw } = loadRawConfig(configPath);
+  (raw.mcpServers as Record<string, unknown>).two = { command: "node" };
+  const faults = new FaultInjector({
+    "config.directory.sync": { error: new Error("primary directory sync failure") },
+    "config.temp.cleanup": { error: new Error("cleanup failure") },
+    "config.temp.cleanup.retry": { error: new Error("cleanup retry failure") },
+  });
+
+  assert.throws(
+    () => saveRawConfig(filePath, raw, faults),
+    (error: unknown) => {
+      assert.equal((error as Error).message, "primary directory sync failure");
+      assert.deepEqual((error as { secondaryDiagnostics?: unknown[] }).secondaryDiagnostics, [
+        { operation: "config.temp.cleanup", message: "cleanup retry failure" },
+      ]);
+      return true;
+    },
+  );
+  assert.deepEqual(temporaryArtifacts(filePath), []);
+});
+
 test("saveRawConfig preserves the destination's existing file mode across atomic replacement", () => {
   for (const mode of [0o600, 0o640]) {
     const configPath = writeConfig({ mcpServers: { one: { command: "node" } } });
