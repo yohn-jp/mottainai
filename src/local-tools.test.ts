@@ -1255,6 +1255,84 @@ test("gh_checks_await reports malformed provider output and stops polling", asyn
   }
 });
 
+test("gh_checks_await cancels an in-flight gh fetch and records completed work", async () => {
+  const { root, config } = await workspace();
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-fake-gh-cancel-"));
+  const fakeGh = path.join(binDir, "gh");
+  await fs.writeFile(
+    fakeGh,
+    [
+      "#!/bin/sh",
+      "count=0",
+      "if [ -f .gh-call-count ]; then count=$(cat .gh-call-count); fi",
+      "count=$((count + 1))",
+      "printf '%s' \"$count\" > .gh-call-count",
+      "printf '%s' started > .gh-fetch-started",
+      "sleep 0.2",
+      'printf \'%s\\n\' \'{"statusCheckRollup":[{"name":"build","status":"IN_PROGRESS","conclusion":null}]}\'',
+      "",
+    ].join("\n"),
+  );
+  await fs.chmod(fakeGh, 0o755);
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+  const controller = new AbortController();
+  const telemetry = createTelemetrySink({
+    MOTTAINAI_TELEMETRY: "1",
+    MOTTAINAI_TELEMETRY_FILE: path.join(binDir, "telemetry.json"),
+  });
+
+  try {
+    const resultPromise = callLocalTool(
+      "mottainai_gh_checks_await",
+      { number: 451, timeoutMs: 500 },
+      {
+        ...config,
+        maxTimeoutMs: 1_000,
+        await: { minPollIntervalMs: 20, maxPollIntervalMs: 20, maxAwaitMs: 500, jitterRatio: 0 },
+        worktree: { allowedBranchPrefixes: ["fix"], baseBranch: "main", worktreeDir: ".worktrees" },
+      },
+      new InMemoryArtifactStore(),
+      undefined,
+      telemetry,
+      undefined,
+      controller.signal,
+    );
+
+    let started = false;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      try {
+        await fs.access(path.join(root, ".gh-fetch-started"));
+        started = true;
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+    }
+    assert.equal(started, true);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    controller.abort();
+
+    const result = structured(await resultPromise);
+    assert.equal(result.status, "partial");
+    assert.equal(result.state, "cancelled");
+    assert.equal(await fs.readFile(path.join(root, ".gh-call-count"), "utf8"), "1");
+
+    const awaitTelemetry = telemetry.snapshot().await;
+    assert.equal(awaitTelemetry.cancelled, 1);
+    assert.equal(awaitTelemetry.poll_count, 1);
+    assert.ok(awaitTelemetry.elapsed_ms > 0);
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(await fs.readFile(path.join(root, ".gh-call-count"), "utf8"), "1");
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+    await fs.rm(binDir, { recursive: true, force: true });
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("issue_view throws when the workspace has no worktree config", async () => {
   const { root, config } = await workspace();
   const store = new InMemoryArtifactStore();

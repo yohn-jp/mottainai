@@ -17,6 +17,7 @@ export interface RunResult {
   signal: string | null;
   timedOut: boolean;
   outputLimit: boolean;
+  cancelled?: boolean;
   spawnError?: string;
 }
 
@@ -155,8 +156,9 @@ export function runProgram(
   maxOutputBytes: number,
   env?: NodeJS.ProcessEnv,
   boundaries: BoundaryOperations = DIRECT_BOUNDARIES,
+  signal?: AbortSignal,
 ): Promise<RunResult> {
-  return runChild(program, args, cwd, timeoutMs, maxOutputBytes, false, undefined, env, boundaries);
+  return runChild(program, args, cwd, timeoutMs, maxOutputBytes, false, undefined, env, boundaries, undefined, signal);
 }
 
 /** `runProgram`と同じ境界で、有限のJSON stdinを子プロセスへ渡す。 */
@@ -169,8 +171,9 @@ export function runProgramWithInput(
   input: string,
   env?: NodeJS.ProcessEnv,
   boundaries: BoundaryOperations = DIRECT_BOUNDARIES,
+  signal?: AbortSignal,
 ): Promise<RunResult> {
-  return runChild(program, args, cwd, timeoutMs, maxOutputBytes, false, undefined, env, boundaries, input);
+  return runChild(program, args, cwd, timeoutMs, maxOutputBytes, false, undefined, env, boundaries, input, signal);
 }
 
 export function runChild(
@@ -184,8 +187,22 @@ export function runChild(
   env?: NodeJS.ProcessEnv,
   boundaries: BoundaryOperations = DIRECT_BOUNDARIES,
   input?: string,
+  signal?: AbortSignal,
 ): Promise<RunResult> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted === true) {
+      resolve({
+        stdout: "",
+        stderr: "",
+        exitCode: null,
+        signal: null,
+        timedOut: false,
+        outputLimit: false,
+        cancelled: true,
+      });
+      return;
+    }
+
     const spawnOptions: SpawnOptions = {
       cwd,
       shell,
@@ -222,6 +239,9 @@ export function runChild(
     let killTimer: NodeJS.Timeout | undefined;
     let capture: BoundedFileCapture | undefined;
     let captureError: Error | undefined;
+    let cancelled = false;
+    let timer: NodeJS.Timeout | undefined;
+    let onAbort: (() => void) | undefined;
     const flushDecoders = (): void => {
       // A byte limit can stop in the middle of a code point. In that case the
       // pending bytes are intentionally not decoded as a replacement character.
@@ -238,14 +258,16 @@ export function runChild(
     const finish = (result: RunResult): void => {
       if (!settled) {
         settled = true;
-        clearTimeout(timer);
+        if (timer !== undefined) clearTimeout(timer);
         if (killTimer !== undefined) clearTimeout(killTimer);
+        if (onAbort !== undefined) signal?.removeEventListener("abort", onAbort);
+        const completed = cancelled || result.cancelled === true ? { ...result, cancelled: true } : result;
         if (capture === undefined) {
           if (captureError !== undefined) reject(captureError);
           else {
             flushDecoders();
             resolve({
-              ...result,
+              ...completed,
               stdout: fitTextToByteLimit(stdout, stdoutBytes),
               stderr: fitTextToByteLimit(stderr, stderrBytes),
             });
@@ -256,7 +278,7 @@ export function runChild(
           void capture.close().then(
             () => {
               if (captureError !== undefined) reject(captureError);
-              else resolve(result);
+              else resolve(completed);
             },
             (error: unknown) => reject(captureError ?? normalizeCaptureError(error)),
           );
@@ -313,12 +335,20 @@ export function runChild(
     child.on("error", (error) =>
       finish({ stdout, stderr, exitCode: null, signal: null, timedOut, outputLimit, spawnError: error.message }),
     );
-    child.on("close", (exitCode, signal) => finish({ stdout, stderr, exitCode, signal, timedOut, outputLimit }));
+    child.on("close", (exitCode, childSignal) =>
+      finish({ stdout, stderr, exitCode, signal: childSignal, timedOut, outputLimit }),
+    );
     if (input !== undefined) child.stdin?.end(input);
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       timedOut = true;
       terminate();
     }, timeoutMs);
+    onAbort = (): void => {
+      cancelled = true;
+      terminate();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
     if (outputFiles !== undefined) {
       try {
         capture = new BoundedFileCapture(
