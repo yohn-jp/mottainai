@@ -32,6 +32,60 @@ export interface RawCheck {
   conclusion?: string | null;
 }
 
+export type StatusCheckRollupParseResult = { ok: true; checks: RawCheck[] } | { ok: false; reason: string };
+
+/** `gh pr view --json statusCheckRollup` の provider output を検証・解釈する。 */
+export function parseStatusCheckRollup(stdout: string): StatusCheckRollupParseResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout) as unknown;
+  } catch {
+    return { ok: false, reason: "unparsable JSON output" };
+  }
+
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, reason: "expected JSON object with statusCheckRollup" };
+  }
+  const payload = parsed as Record<string, unknown>;
+  if (!Object.hasOwn(payload, "statusCheckRollup")) {
+    return { ok: false, reason: "missing statusCheckRollup field" };
+  }
+  if (!Array.isArray(payload.statusCheckRollup)) {
+    return { ok: false, reason: "statusCheckRollup must be an array" };
+  }
+
+  const checks: RawCheck[] = [];
+  for (const [index, item] of payload.statusCheckRollup.entries()) {
+    if (item === null || typeof item !== "object" || Array.isArray(item)) {
+      return { ok: false, reason: `statusCheckRollup[${index}] must be an object` };
+    }
+    const record = item as Record<string, unknown>;
+    if (typeof record.name !== "string" || record.name.length === 0) {
+      return { ok: false, reason: `statusCheckRollup[${index}].name must be a non-empty string` };
+    }
+    if (Object.hasOwn(record, "status") && typeof record.status !== "string") {
+      return { ok: false, reason: `statusCheckRollup[${index}].status must be a string` };
+    }
+    if (Object.hasOwn(record, "conclusion") && record.conclusion !== null && typeof record.conclusion !== "string") {
+      return { ok: false, reason: `statusCheckRollup[${index}].conclusion must be a string or null` };
+    }
+
+    const check: RawCheck = { name: record.name };
+    if (Object.hasOwn(record, "status")) check.status = record.status as string;
+    if (Object.hasOwn(record, "conclusion")) check.conclusion = record.conclusion as string | null;
+    checks.push(check);
+  }
+
+  return { ok: true, checks };
+}
+
+export class StatusCheckRollupParseError extends Error {
+  constructor(readonly reason: string) {
+    super(reason);
+    this.name = "StatusCheckRollupParseError";
+  }
+}
+
 export function normalizeChecks(raw: RawCheck[]): CheckSnapshot[] {
   return raw
     .filter((check): check is RawCheck & { name: string } => typeof check.name === "string" && check.name.length > 0)

@@ -28,8 +28,13 @@ import {
   resolveFileContentIdentity,
 } from "./context-runtime/identity.js";
 import type { ArtifactIdentityMetadata, FileContentIdentity } from "./context-runtime/identity.js";
-import { normalizeChecks, waitUntilChanged } from "./context-runtime/gh-checks.js";
-import type { CheckSnapshot, RawCheck } from "./context-runtime/gh-checks.js";
+import {
+  normalizeChecks,
+  parseStatusCheckRollup,
+  StatusCheckRollupParseError,
+  waitUntilChanged,
+} from "./context-runtime/gh-checks.js";
+import type { CheckSnapshot } from "./context-runtime/gh-checks.js";
 import { ManagedProcessResourceError } from "./context-runtime/process-registry.js";
 import type { ProcessRegistry } from "./context-runtime/process-registry.js";
 import type { StartedProcess } from "./context-runtime/process-registry.js";
@@ -1369,16 +1374,6 @@ async function issueViewToolImpl(args: Args, config: ResolvedGatewayConfig): Pro
   return output("issue_view", "success", summary, "", { issue });
 }
 
-/** `gh pr view --json statusCheckRollup` の stdout を `RawCheck[]` へ解釈する。壊れた/非JSON出力は空配列扱い。 */
-function parseStatusCheckRollup(stdout: string): RawCheck[] {
-  try {
-    const parsed = JSON.parse(stdout) as { statusCheckRollup?: unknown };
-    return Array.isArray(parsed.statusCheckRollup) ? (parsed.statusCheckRollup as RawCheck[]) : [];
-  } catch {
-    return [];
-  }
-}
-
 /**
  * provider/status の await primitive（Issue #74）。`gh pr view` を runtime 側で bounded polling し、
  * 変化の無い中間 snapshot は返さず、terminal 到達 または 意味のある変化のときだけ 1 回応答する。
@@ -1411,7 +1406,9 @@ async function ghChecksAwaitToolImpl(
       return [];
     }
     lastSpawnError = undefined;
-    return normalizeChecks(parseStatusCheckRollup(run.stdout));
+    const parsed = parseStatusCheckRollup(run.stdout);
+    if (!parsed.ok) throw new StatusCheckRollupParseError(parsed.reason);
+    return normalizeChecks(parsed.checks);
   };
 
   if (signal?.aborted === true) {
@@ -1429,8 +1426,28 @@ async function ghChecksAwaitToolImpl(
           signal.addEventListener("abort", () => resolve("cancelled"), { once: true }),
         );
 
-  const waitPromise = waitUntilChanged({ fetchChecks, policy: config.await, timeoutMs });
-  const result = abortPromise === undefined ? await waitPromise : await Promise.race([waitPromise, abortPromise]);
+  let result: Awaited<ReturnType<typeof waitUntilChanged>> | "cancelled";
+  try {
+    const waitPromise = waitUntilChanged({ fetchChecks, policy: config.await, timeoutMs });
+    result = abortPromise === undefined ? await waitPromise : await Promise.race([waitPromise, abortPromise]);
+  } catch (error) {
+    if (!(error instanceof StatusCheckRollupParseError)) throw error;
+    const summary = `FAIL gh checks await: ${error.reason}`;
+    return output(
+      "gh_checks_await",
+      "failed",
+      summary,
+      "",
+      {
+        pr: number,
+        state: "provider_error",
+        failure_classification: "provider_contract",
+        diagnostics: [{ severity: "error", message: error.reason }],
+        truncated: false,
+      },
+      true,
+    );
+  }
 
   if (result === "cancelled") {
     telemetry?.recordAwait({ pollCount: 0, elapsedMs: 0, stateChanges: 0, avoidedResponses: 0, outcome: "cancelled" });

@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isTerminalState, normalizeChecks, waitUntilChanged } from "./gh-checks.js";
+import {
+  isTerminalState,
+  normalizeChecks,
+  parseStatusCheckRollup,
+  StatusCheckRollupParseError,
+  waitUntilChanged,
+} from "./gh-checks.js";
 import type { AwaitPolicy } from "./poll-policy.js";
 
 const POLICY: AwaitPolicy = { minPollIntervalMs: 10, maxPollIntervalMs: 40, maxAwaitMs: 5_000, jitterRatio: 0 };
@@ -19,6 +25,59 @@ test("normalizeChecks maps conclusion over status and lowercases state", () => {
     { name: "coverage/node22", state: "success" },
     { name: "coverage/node24", state: "in_progress" },
   ]);
+});
+
+test("parseStatusCheckRollup accepts a valid empty rollup", () => {
+  assert.deepEqual(parseStatusCheckRollup(JSON.stringify({ statusCheckRollup: [] })), { ok: true, checks: [] });
+});
+
+test("parseStatusCheckRollup accepts valid non-empty checks and preserves normalization inputs", () => {
+  const result = parseStatusCheckRollup(
+    JSON.stringify({
+      statusCheckRollup: [
+        { name: "coverage/node22", status: "COMPLETED", conclusion: "SUCCESS" },
+        { name: "coverage/node24", status: "IN_PROGRESS", conclusion: null },
+      ],
+    }),
+  );
+  assert.deepEqual(result, {
+    ok: true,
+    checks: [
+      { name: "coverage/node22", status: "COMPLETED", conclusion: "SUCCESS" },
+      { name: "coverage/node24", status: "IN_PROGRESS", conclusion: null },
+    ],
+  });
+  if (result.ok) {
+    assert.deepEqual(normalizeChecks(result.checks), [
+      { name: "coverage/node22", state: "success" },
+      { name: "coverage/node24", state: "in_progress" },
+    ]);
+  }
+});
+
+test("parseStatusCheckRollup rejects malformed provider output with bounded reasons", () => {
+  const malformed = [
+    ["not-json-provider-secret", "unparsable JSON output"],
+    [JSON.stringify(["wrong-container"]), "expected JSON object with statusCheckRollup"],
+    [JSON.stringify({}), "missing statusCheckRollup field"],
+    [JSON.stringify({ statusCheckRollup: {} }), "statusCheckRollup must be an array"],
+    [JSON.stringify({ statusCheckRollup: [null] }), "statusCheckRollup[0] must be an object"],
+    [JSON.stringify({ statusCheckRollup: [{ name: 42 }] }), "statusCheckRollup[0].name must be a non-empty string"],
+    [
+      JSON.stringify({ statusCheckRollup: [{ name: "build", status: 42 }] }),
+      "statusCheckRollup[0].status must be a string",
+    ],
+    [
+      JSON.stringify({ statusCheckRollup: [{ name: "build", conclusion: {} }] }),
+      "statusCheckRollup[0].conclusion must be a string or null",
+    ],
+  ] as const;
+
+  for (const [stdout, reason] of malformed) {
+    const result = parseStatusCheckRollup(stdout);
+    assert.deepEqual(result, { ok: false, reason });
+    assert.doesNotMatch(result.reason, /provider-secret/);
+  }
 });
 
 test("isTerminalState recognizes terminal conclusions and rejects in-flight ones", () => {
@@ -100,6 +159,21 @@ test("waitUntilChanged tolerates a transient fetch error by treating it as an em
   });
   assert.equal(result.terminal, true);
   assert.equal(call, 2);
+});
+
+test("waitUntilChanged propagates a provider contract failure instead of fabricating an empty snapshot", async () => {
+  await assert.rejects(
+    () =>
+      waitUntilChanged({
+        fetchChecks: async () => {
+          throw new StatusCheckRollupParseError("malformed statusCheckRollup");
+        },
+        policy: POLICY,
+        timeoutMs: 1_000,
+        sleep: noSleep,
+      }),
+    (error: unknown) => error instanceof StatusCheckRollupParseError && error.reason === "malformed statusCheckRollup",
+  );
 });
 
 test("waitUntilChanged bounds each poll delay within the policy min/max regardless of attempt count", async () => {
