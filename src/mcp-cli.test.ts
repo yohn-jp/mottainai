@@ -71,7 +71,7 @@ function config(directory: string): RawConfig {
 test("mcp cli registers, toggles and removes upstreams", () => {
   const directory = workspace();
 
-  const added = run(directory, "add", "fff", "--command", "/bin/echo", "--args", "one two", "--capabilities", "text_matches, definitions", "--priority", "5");
+  const added = run(directory, "add", "fff", "--command", "/bin/echo", "--args", JSON.stringify(["one", "two"]), "--capabilities", "text_matches, definitions", "--priority", "5");
   assert.equal(added.status, 0);
   assert.equal(added.json.added, "fff");
   assert.deepEqual(config(directory).mcpServers.fff, {
@@ -175,15 +175,53 @@ test("mcp cli rejects empty inline values for every value option before writing"
   }
 });
 
-test("mcp cli preserves option-looking values through explicit inline transport", () => {
+test("mcp cli preserves exact argv element boundaries through JSON transport", () => {
   const directory = workspace();
   try {
-    const added = run(directory, "add", "literal", "--command=--launcher", "--args=--flag --another-flag");
+    const expectedArgs = [
+      "hello world",
+      "",
+      "--flag",
+      'quoted "value"',
+      String.raw`back\\slash\value`,
+      "repeated  whitespace",
+    ];
+    const added = run(directory, "add", "literal", "--command=--launcher", "--args", JSON.stringify(expectedArgs));
     assert.equal(added.status, 0, `${added.stdout}${added.stderr}`);
     assert.deepEqual(config(directory).mcpServers.literal, {
       command: "--launcher",
-      args: ["--flag", "--another-flag"],
+      args: expectedArgs,
     });
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("mcp cli distinguishes an explicit empty argv from omitted args", () => {
+  const directory = workspace();
+  try {
+    assert.equal(run(directory, "add", "without-args", "--command", "/bin/echo").status, 0);
+    assert.deepEqual(config(directory).mcpServers["without-args"], { command: "/bin/echo" });
+
+    const added = run(directory, "add", "empty-args", "--command", "/bin/echo", "--args", "[]");
+    assert.equal(added.status, 0, `${added.stdout}${added.stderr}`);
+    assert.deepEqual(config(directory).mcpServers["empty-args"], { command: "/bin/echo", args: [] });
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("mcp cli rejects legacy whitespace-separated args with a migration diagnostic before writing", () => {
+  const directory = workspace();
+  try {
+    const configPath = path.join(directory, "config.json");
+    const before = fs.readFileSync(configPath, "utf8");
+    const result = run(directory, "add", "legacy", "--command", "/bin/echo", "--args", "one two");
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /invalid --args: expected a JSON array of strings/u);
+    assert.match(result.stderr, /legacy whitespace-separated values are no longer accepted/u);
+    assert.equal(fs.readFileSync(configPath, "utf8"), before);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

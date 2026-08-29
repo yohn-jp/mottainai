@@ -122,7 +122,7 @@ const USAGE = `usage:
 add options:
   --transport streamableHttp  remote transport; inferred from --url
   --auth-profile name   resolve remote auth through the configured OAuth broker provider
-  --args "a b"          command arguments, split on spaces
+  --args json            command arguments as a JSON array of strings
   --cwd path            working directory
   --priority n          routing priority, higher wins
   --capabilities "a,b"  declared evidence capabilities
@@ -211,6 +211,25 @@ function requireFlagValue(argv: string[], name: string): string | undefined {
   )
     fail(`missing value for --${name}`);
   return parsed.value;
+}
+
+const INVALID_ARGS_MESSAGE =
+  'invalid --args: expected a JSON array of strings (for example, --args=\'["one","two"]\'); ' +
+  "legacy whitespace-separated values are no longer accepted";
+
+function parseCommandArgs(value: string | undefined): string[] | undefined {
+  if (value === undefined) return undefined;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    fail(INVALID_ARGS_MESSAGE);
+  }
+  if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string")) {
+    fail(INVALID_ARGS_MESSAGE);
+  }
+  return parsed;
 }
 
 function jsonFlag(argv: string[], name: string): unknown {
@@ -636,7 +655,7 @@ export async function runCli(args: string[]): Promise<number> {
       ) {
         fail(USAGE);
       }
-      const commandArgs = argsValue?.split(" ").filter(Boolean);
+      const commandArgs = parseCommandArgs(argsValue);
       const capabilities = capabilitiesValue
         ?.split(",")
         .map((value) => value.trim())
@@ -648,7 +667,7 @@ export async function runCli(args: string[]): Promise<number> {
       registry[name] = {
         ...(transport === "stdio" ? { command: commandValue } : { transport, url: urlValue }),
         ...(authProfile === undefined ? {} : { auth: { type: "oauth", profile: authProfile } }),
-        ...(commandArgs !== undefined && commandArgs.length > 0 ? { args: commandArgs } : {}),
+        ...(commandArgs === undefined ? {} : { args: commandArgs }),
         ...(cwd === undefined ? {} : { cwd }),
         ...(profile === undefined ? {} : { profile }),
         ...(priority !== undefined ? { priority: Number(priority) } : {}),

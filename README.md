@@ -92,7 +92,7 @@ codex mcp add mottainai -- npx -y mottainai@0.6.0 serve --config /absolute/path/
 
 `mottainai init` can generate the registration command for the detected client. Use `--latest` only when intentionally following the newest npm release rather than a pinned version.
 
-When registering an upstream with `mottainai add`, every value-taking option must be followed by a value; another option token is rejected as a missing value before the configuration is changed. To pass a value that begins with `--`, use the explicit `--option=value` form, such as `--args=--flag`.
+When registering an upstream with `mottainai add`, every value-taking option must be followed by a value; another option token is rejected as a missing value before the configuration is changed. Stdio argv is supplied as one JSON array of strings, such as `--args='["hello world","--flag",""]'`; each array element remains one subprocess argument, including whitespace, quotes, backslashes, and empty strings. Legacy whitespace-separated values such as `--args "one two"` are rejected with a migration diagnostic and do not change the configuration. For other value-taking options, use explicit `--option=value` when the value begins with `--`.
 
 ## Native harness-delegation MCP
 
