@@ -8,7 +8,7 @@
 export interface ManagedProcessPolicyConfig {
   /** Maximum number of live processes in one MCP connection. */
   maxActiveProcesses?: number;
-  /** Maximum number of completed handles retained for a connection. */
+  /** Maximum number of completed handles retained; at least one keeps a just-started result consumable. */
   maxRetainedHandles?: number;
   /** Maximum wall-clock lifetime of one managed process. */
   maxLifetimeMs?: number;
@@ -31,6 +31,7 @@ export const DEFAULT_MANAGED_PROCESS_POLICY: ManagedProcessPolicy = {
 const MAX_ACTIVE_PROCESSES = 1_024;
 const MAX_RETAINED_HANDLES = 4_096;
 const MAX_LIFETIME_MS = 2_147_483_647;
+const MIN_RETAINED_HANDLES = 1;
 
 function boundedInteger(
   value: number | undefined,
@@ -59,7 +60,7 @@ export function resolveManagedProcessPolicy(config?: ManagedProcessPolicyConfig)
       config?.maxRetainedHandles,
       DEFAULT_MANAGED_PROCESS_POLICY.maxRetainedHandles,
       "maxRetainedHandles",
-      0,
+      MIN_RETAINED_HANDLES,
       MAX_RETAINED_HANDLES,
     ),
     maxLifetimeMs: boundedInteger(

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ManagedProcessResourceError, ProcessRegistry } from "./process-registry.js";
+import { ManagedProcess } from "../subprocess.js";
 
 const NODE = process.execPath;
 
@@ -50,6 +51,31 @@ test("start returns an opaque handle immediately and await resolves the terminal
     assert.equal(outcome!.result.exitCode, 0);
     assert.equal(outcome!.result.stdout.trim(), "hi");
   }
+});
+
+test("a process already exited during start remains reachable through terminal await", async (t) => {
+  // Make the constructor's synchronous state check deterministic; the real
+  // settled promise still supplies the process result below.
+  t.mock.getter(ManagedProcess.prototype, "state", () => "exited");
+  const registry = new ProcessRegistry({ policy: { maxRetainedHandles: 1 } });
+  const started = registry.start(`${NODE} -e "process.exit(0)"`, process.cwd(), 1024 * 1024, true);
+
+  assert.equal(registry.activeSize, 0);
+  assert.equal(registry.has(started.handle), true);
+  const outcome = await registry.awaitHandle(started.handle, 5_000);
+  assert.equal(outcome?.kind, "terminal");
+  registry.release(started.handle);
+});
+
+test("a process that exits immediately remains reachable through terminal await", async () => {
+  const registry = new ProcessRegistry({ policy: { maxRetainedHandles: 1 } });
+  const started = registry.start(`${NODE} -e "process.exit(0)"`, process.cwd(), 1024 * 1024, true);
+  assert.equal(registry.has(started.handle), true);
+
+  const outcome = await registry.awaitHandle(started.handle, 5_000);
+  assert.equal(outcome?.kind, "terminal");
+  assert.equal(registry.has(started.handle), true);
+  registry.release(started.handle);
 });
 
 test("await reports command failure via non-zero exit code without throwing", async () => {
@@ -141,6 +167,13 @@ test("active managed-process capacity is rejected before a new child is spawned"
   );
   registry.dispose();
   assert.equal(registry.has(started.handle), false);
+});
+
+test("retention zero is rejected because a successful start needs one reachable terminal result", () => {
+  assert.throws(
+    () => new ProcessRegistry({ policy: { maxRetainedHandles: 0 } }),
+    /invalid managed process policy maxRetainedHandles/,
+  );
 });
 
 test("terminal state releases active capacity while retention stays bounded", async () => {

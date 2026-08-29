@@ -508,7 +508,7 @@ function managedProcessPolicyConfig(value: unknown, field: string): ManagedProce
   rejectUnknownKeys(value, MANAGED_PROCESS_POLICY_CONFIG_KEYS, field);
   const config: ManagedProcessPolicyConfig = {
     maxActiveProcesses: positiveIntegerConfig(value.maxActiveProcesses, `${field}.maxActiveProcesses`),
-    maxRetainedHandles: nonNegativeIntegerConfig(value.maxRetainedHandles, `${field}.maxRetainedHandles`),
+    maxRetainedHandles: positiveIntegerConfig(value.maxRetainedHandles, `${field}.maxRetainedHandles`),
     maxLifetimeMs: positiveIntegerConfig(value.maxLifetimeMs, `${field}.maxLifetimeMs`),
   };
   resolveManagedProcessPolicy(config);
