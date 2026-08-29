@@ -147,21 +147,45 @@ let
         exit 1
       fi
 
-      valid_keys="$(grep -E '^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256) [A-Za-z0-9+/=]+( .*)?$' "$source_file" | head -n 16)"
-      if [ -z "$valid_keys" ]; then
-        echo "mottainai-runtime-bootstrap-authorized-keys: no valid SSH public key line found in $source_file; refusing" >&2
+      # Fail closed on the complete input: every non-empty line must match
+      # the supported SSH public-key grammar, or the whole bootstrap input
+      # is refused — an invalid line is never silently dropped, and a count
+      # over the 16-key bound is refused outright, never silently truncated.
+      key_pattern='^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256) [A-Za-z0-9+/=]+( .*)?$'
+      key_count=0
+      invalid_count=0
+      keys=""
+      while IFS= read -r line || [ -n "$line" ]; do
+        [ -z "$line" ] && continue
+        if printf '%s\n' "$line" | grep -Eq "$key_pattern"; then
+          key_count=$((key_count + 1))
+          keys="$keys$line"$'\n'
+        else
+          invalid_count=$((invalid_count + 1))
+        fi
+      done < "$source_file"
+
+      if [ "$invalid_count" -gt 0 ]; then
+        echo "mottainai-runtime-bootstrap-authorized-keys: $source_file contains $invalid_count line(s) that are not a valid SSH public key; refusing the whole bootstrap input" >&2
+        exit 1
+      fi
+      if [ "$key_count" -eq 0 ]; then
+        echo "mottainai-runtime-bootstrap-authorized-keys: no key lines found in $source_file; refusing" >&2
+        exit 1
+      fi
+      if [ "$key_count" -gt 16 ]; then
+        echo "mottainai-runtime-bootstrap-authorized-keys: $source_file contains $key_count keys, exceeding the 16-key bound; refusing" >&2
         exit 1
       fi
 
       install -d -m 0700 -o ${lib.escapeShellArg cfg.controlUser} -g ${lib.escapeShellArg cfg.controlUser} \
         ${lib.escapeShellArg bootstrapAuthorizedKeysDir}
       staged="$(mktemp)"
-      printf '%s\n' "$valid_keys" > "$staged"
+      printf '%s' "$keys" > "$staged"
       install -m 0600 -o ${lib.escapeShellArg cfg.controlUser} -g ${lib.escapeShellArg cfg.controlUser} \
         "$staged" ${lib.escapeShellArg bootstrapAuthorizedKeysFile}
       rm -f "$staged"
 
-      key_count="$(printf '%s\n' "$valid_keys" | wc -l)"
       echo "mottainai-runtime-bootstrap-authorized-keys: installed $key_count bootstrap key(s) for ${lib.escapeShellArg cfg.controlUser}"
     '';
   };

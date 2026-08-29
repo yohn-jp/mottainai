@@ -78,20 +78,45 @@ pkgs.testers.nixosTest {
             " || systemctl show -p Result mottainai-runtime-health.service | grep -q Result=success"
         )
 
-    with subtest("bounded first-boot SSH key bootstrap installs a validated key into persistent state, not the canonical closure"):
+    # These bootstrap subtests hot-attach/format a virtual disk against an
+    # already-running guest, which does not by itself trigger udev to
+    # (re-)probe and publish /dev/disk/by-label/MTNAI_BOOT — a real boot
+    # instead coldplugs an already-labeled disk before this service starts,
+    # so the symlink is already settled by then. Force and wait for that
+    # probe after every rewrite of the bootstrap disk's content below.
+
+    with subtest("a mixed valid/invalid input line rejects the whole bootstrap input, installing nothing"):
         runtime.succeed("mkfs.ext4 -L MTNAI_BOOT /dev/vdb")
         runtime.succeed("mkdir -p /mnt/bootstrap && mount /dev/vdb /mnt/bootstrap")
+        runtime.succeed(
+            "printf '%s\\n%s\\n'"
+            " 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMixedValidKeyForRuntimeContract valid'"
+            " 'this-is-not-a-valid-ssh-public-key-line'"
+            " > /mnt/bootstrap/authorized_keys"
+        )
+        runtime.succeed("umount /mnt/bootstrap")
+        runtime.succeed("udevadm trigger --settle /dev/vdb")
+        runtime.fail("systemctl start mottainai-runtime-bootstrap-authorized-keys.service")
+        runtime.succeed("test ! -e /var/lib/mottainai-control/.ssh")
+
+    with subtest("more than 16 valid keys rejects the whole bootstrap input instead of truncating"):
+        runtime.succeed("mount /dev/vdb /mnt/bootstrap")
+        too_many_keys = "\n".join(
+            f"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITooManyKeysTest{i:02d} key{i}" for i in range(1, 18)
+        )
+        runtime.succeed(f"cat > /mnt/bootstrap/authorized_keys <<'KEYS_EOF'\n{too_many_keys}\nKEYS_EOF")
+        runtime.succeed("umount /mnt/bootstrap")
+        runtime.succeed("udevadm trigger --settle /dev/vdb")
+        runtime.fail("systemctl start mottainai-runtime-bootstrap-authorized-keys.service")
+        runtime.succeed("test ! -e /var/lib/mottainai-control/.ssh")
+
+    with subtest("bounded first-boot SSH key bootstrap installs every validated key into persistent state, not the canonical closure"):
+        runtime.succeed("mount /dev/vdb /mnt/bootstrap")
         runtime.succeed(
             "echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBootstrapTestKeyForRuntimeContract bootstrap'"
             " > /mnt/bootstrap/authorized_keys"
         )
         runtime.succeed("umount /mnt/bootstrap")
-        # This test writes a filesystem directly to an already-attached
-        # block device against an already-running guest, which does not by
-        # itself trigger udev to (re-)probe and publish
-        # /dev/disk/by-label/MTNAI_BOOT — a real boot instead coldplugs an
-        # already-labeled disk before this service starts, so the symlink is
-        # already settled by then. Force and wait for that probe here.
         runtime.succeed("udevadm trigger --settle /dev/vdb")
         runtime.succeed("systemctl start mottainai-runtime-bootstrap-authorized-keys.service")
         runtime.succeed(
