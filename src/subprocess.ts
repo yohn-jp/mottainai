@@ -131,6 +131,22 @@ class BoundedFileCapture {
   }
 }
 
+function requestGracefulTermination(child: ReturnType<typeof spawn>, boundaries: BoundaryOperations): void {
+  if (child.pid) {
+    try {
+      const sent = boundaries.process("process.group.sigterm", () => process.kill(-child.pid!, "SIGTERM"));
+      if (sent) return;
+    } catch {
+      /* fall back to the child when process-group signaling is unavailable */
+    }
+  }
+  try {
+    boundaries.process("process.child.sigterm", () => child.kill("SIGTERM"));
+  } catch {
+    /* child already ended */
+  }
+}
+
 export function runProgram(
   program: string,
   args: string[],
@@ -202,6 +218,7 @@ export function runChild(
     let timedOut = false;
     let outputLimit = false;
     let settled = false;
+    let terminationRequested = false;
     let killTimer: NodeJS.Timeout | undefined;
     let capture: BoundedFileCapture | undefined;
     let captureError: Error | undefined;
@@ -254,20 +271,9 @@ export function runChild(
       }
     };
     const terminate = (): void => {
-      if (settled) return;
-      if (child.pid) {
-        try {
-          boundaries.process("process.group.sigterm", () => process.kill(-child.pid!, "SIGTERM"));
-        } catch {
-          /* child already ended */
-        }
-      } else {
-        try {
-          boundaries.process("process.child.sigterm", () => child.kill("SIGTERM"));
-        } catch {
-          /* child already ended */
-        }
-      }
+      if (settled || terminationRequested) return;
+      terminationRequested = true;
+      requestGracefulTermination(child, boundaries);
       if (killTimer === undefined) killTimer = setTimeout(forceTerminate, TERMINATION_GRACE_MS);
     };
     const append = (target: "stdout" | "stderr", chunk: Buffer): void => {
@@ -356,6 +362,7 @@ export class ManagedProcess {
   private timedOut = false;
   private outputLimit = false;
   private settledFlag = false;
+  private terminationRequested = false;
   private killTimer: NodeJS.Timeout | undefined;
   private resolveSettled!: (result: RunResult) => void;
   readonly settled: Promise<RunResult>;
@@ -445,20 +452,9 @@ export class ManagedProcess {
 
   /** 猶予付き協調終了（SIGTERM → grace 経過後 SIGKILL）。 */
   terminate(): void {
-    if (this.settledFlag) return;
-    if (this.child?.pid) {
-      try {
-        this.boundaries.process("process.group.sigterm", () => process.kill(-this.child!.pid!, "SIGTERM"));
-      } catch {
-        /* child already ended */
-      }
-    } else {
-      try {
-        this.boundaries.process("process.child.sigterm", () => this.child?.kill("SIGTERM"));
-      } catch {
-        /* child already ended */
-      }
-    }
+    if (this.settledFlag || this.terminationRequested || this.child === undefined) return;
+    this.terminationRequested = true;
+    requestGracefulTermination(this.child, this.boundaries);
     if (this.killTimer === undefined) this.killTimer = setTimeout(() => this.forceTerminate(), TERMINATION_GRACE_MS);
   }
 

@@ -420,6 +420,86 @@ test("process launcher faults are deterministic and return a bounded spawn diagn
   assert.equal(managed.state, "exited");
 });
 
+test("runChild prefers process-group SIGTERM for timeout termination", async () => {
+  const boundaries = new FaultInjector();
+  const result = await runProgram(
+    process.execPath,
+    ["-e", 'process.on("SIGTERM", () => process.exit(0)); setInterval(() => {}, 1000)'],
+    process.cwd(),
+    500,
+    1_000,
+    undefined,
+    boundaries,
+  );
+  assert.equal(result.timedOut, true);
+  assert.equal(result.exitCode, 0);
+  assert.equal(boundaries.calls.get("process.group.sigterm"), 1);
+  assert.equal(boundaries.calls.get("process.child.sigterm") ?? 0, 0);
+  assert.equal(boundaries.calls.get("process.group.sigkill") ?? 0, 0);
+});
+
+test("runChild falls back to child SIGTERM for timeout and output-limit termination", async () => {
+  const cases = [
+    {
+      args: ["-e", 'process.on("SIGTERM", () => process.exit(0)); setInterval(() => {}, 1000)'],
+      timeoutMs: 500,
+      maxOutputBytes: 1_000,
+      timedOut: true,
+      outputLimit: false,
+    },
+    {
+      args: [
+        "-e",
+        'process.on("SIGTERM", () => process.exit(0)); process.stdout.write("x".repeat(1000)); setInterval(() => {}, 1000)',
+      ],
+      timeoutMs: 5_000,
+      maxOutputBytes: 16,
+      timedOut: false,
+      outputLimit: true,
+    },
+  ] as const;
+
+  for (const entry of cases) {
+    const boundaries = new FaultInjector({
+      "process.group.sigterm": { error: new Error("group SIGTERM unavailable") },
+    });
+    const result = await runProgram(
+      process.execPath,
+      [...entry.args],
+      process.cwd(),
+      entry.timeoutMs,
+      entry.maxOutputBytes,
+      undefined,
+      boundaries,
+    );
+    assert.equal(result.timedOut, entry.timedOut);
+    assert.equal(result.outputLimit, entry.outputLimit);
+    assert.equal(result.exitCode, 0);
+    assert.equal(boundaries.calls.get("process.group.sigterm"), 1);
+    assert.equal(boundaries.calls.get("process.child.sigterm"), 1);
+    assert.equal(boundaries.calls.get("process.group.sigkill") ?? 0, 0);
+  }
+});
+
+test("runChild force-escalates after the grace period when SIGTERM is ignored", async () => {
+  const boundaries = new FaultInjector();
+  const result = await runProgram(
+    process.execPath,
+    ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'],
+    process.cwd(),
+    500,
+    1_000,
+    undefined,
+    boundaries,
+  );
+  assert.equal(result.timedOut, true);
+  assert.equal(result.signal, "SIGKILL");
+  assert.equal(boundaries.calls.get("process.group.sigterm"), 1);
+  assert.equal(boundaries.calls.get("process.child.sigterm") ?? 0, 0);
+  assert.equal(boundaries.calls.get("process.group.sigkill"), 1);
+  assert.equal(boundaries.calls.get("process.child.sigkill"), 1);
+});
+
 test("upstream startup timeout closes the failed client and preserves the timeout diagnostic", async () => {
   let closeCalls = 0;
   const pending = new Promise<void>(() => {});
