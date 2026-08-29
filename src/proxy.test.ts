@@ -641,6 +641,46 @@ test("invalid caller metadata is rejected before the upstream is called", async 
   await client.close();
 });
 
+test("owned tool schemas reject invalid arguments before dispatch without echoing values", async () => {
+  let started = false;
+  const registry = new UpstreamRegistry([{ name: "provider", command: "noop" }], async (config) => {
+    started = true;
+    return fakeHandle(config.name, [{ name: "run", inputSchema: { type: "object" } }], async () => ({ content: [] }));
+  });
+  const client = await connectedClient(registry);
+  const secret = "unrelated-secret-value";
+  try {
+    await assert.rejects(
+      () => client.callTool({
+        name: "mottainai_tool_call",
+        arguments: { id: "not-used", arguments: { providerSpecific: "opaque" }, secret },
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof McpError);
+        assert.equal(error.code, -32602);
+        assert.match(error.message, /arguments\.secret.*additionalProperties/);
+        assert.doesNotMatch(error.message, new RegExp(secret));
+        assert.deepEqual(error.data, {
+          code: "invalid_tool_arguments",
+          toolName: "mottainai_tool_call",
+          issues: [
+            {
+              path: "arguments.secret",
+              keyword: "additionalProperties",
+              message: "property is not allowed",
+            },
+          ],
+          truncated: false,
+        });
+        return true;
+      },
+    );
+    assert.equal(started, false);
+  } finally {
+    await client.close();
+  }
+});
+
 test("runtime status reports upstream failures without stopping other upstreams", async () => {
   const registry = new UpstreamRegistry(
     [{ name: "healthy", command: "noop" }, { name: "broken", command: "missing" }],
