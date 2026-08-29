@@ -60,10 +60,12 @@ export interface ToolCatalog {
   tools(): CatalogTool[];
   get(id: string): CatalogTool | undefined;
   search(query: CatalogSearchQuery): CatalogSearchHit[];
+  /** Apply matching and ranking without a result-window limit. */
+  searchAll(query: Omit<CatalogSearchQuery, "limit">): CatalogSearchHit[];
 }
 
-const DEFAULT_LIMIT = 10;
-const MAX_LIMIT = 50;
+export const CATALOG_DEFAULT_LIMIT = 10;
+export const CATALOG_MAX_LIMIT = 50;
 const SUMMARY_LENGTH = 200;
 
 /** 同じ provider/tool なら再起動後も同じ ID になる。describe / call が ID を持ち回れる。 */
@@ -176,30 +178,35 @@ export function buildCatalog(
   entries.sort((left, right) => left.provider.localeCompare(right.provider) || left.tool.localeCompare(right.tool));
   const byId = new Map(entries.map((entry) => [entry.id, entry]));
 
+  const searchAll = (query: Omit<CatalogSearchQuery, "limit">): CatalogSearchHit[] => {
+    const capability = query.capability === undefined ? undefined : normalizeCapability(query.capability).id;
+    const normalizedQuery = normalizeIdentity(query.query ?? "");
+    const tokens = tokenize(normalizedQuery);
+    const hits: RankedCatalogSearchHit[] = [];
+    for (const tool of entries) {
+      if (query.provider !== undefined && tool.provider !== query.provider) continue;
+      if (query.risk !== undefined && tool.risk !== query.risk) continue;
+      if (capability !== undefined && !tool.capabilities.includes(capability)) continue;
+      const scored = score(tool, tokens, capability, normalizedQuery);
+      if (!scored.queryMatched) continue;
+      hits.push({ tool, score: scored.score, matched: scored.matched, exact: scored.exact });
+    }
+    hits.sort((left, right) =>
+      Number(right.exact) - Number(left.exact)
+      || right.score - left.score
+      || left.tool.provider.localeCompare(right.tool.provider)
+      || left.tool.tool.localeCompare(right.tool.tool));
+    return hits.map(({ exact: _exact, ...hit }) => hit);
+  };
+
   return {
     tools: () => [...entries],
     get: (id) => byId.get(id),
     search(query) {
-      const limit = Math.min(Math.max(query.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
-      const capability = query.capability === undefined ? undefined : normalizeCapability(query.capability).id;
-      const normalizedQuery = normalizeIdentity(query.query ?? "");
-      const tokens = tokenize(normalizedQuery);
-      const hits: RankedCatalogSearchHit[] = [];
-      for (const tool of entries) {
-        if (query.provider !== undefined && tool.provider !== query.provider) continue;
-        if (query.risk !== undefined && tool.risk !== query.risk) continue;
-        if (capability !== undefined && !tool.capabilities.includes(capability)) continue;
-        const scored = score(tool, tokens, capability, normalizedQuery);
-        if (!scored.queryMatched) continue;
-        hits.push({ tool, score: scored.score, matched: scored.matched, exact: scored.exact });
-      }
-      hits.sort((left, right) =>
-        Number(right.exact) - Number(left.exact)
-        || right.score - left.score
-        || left.tool.provider.localeCompare(right.tool.provider)
-        || left.tool.tool.localeCompare(right.tool.tool));
-      return hits.slice(0, limit).map(({ exact: _exact, ...hit }) => hit);
+      const limit = Math.min(Math.max(query.limit ?? CATALOG_DEFAULT_LIMIT, 1), CATALOG_MAX_LIMIT);
+      return searchAll(query).slice(0, limit);
     },
+    searchAll,
   };
 }
 

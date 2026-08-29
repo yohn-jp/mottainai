@@ -721,6 +721,98 @@ test("brokered search, describe and call reach an upstream tool without its pref
   await client.close();
 });
 
+test("brokered search reports matched totals after filters and truncates only omitted matches", async () => {
+  const handles = [
+    fakeHandle("alpha", [
+      { name: "read", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } },
+      { name: "write", inputSchema: { type: "object" }, annotations: { readOnlyHint: false, destructiveHint: false } },
+    ], async () => ({ content: [] })),
+    fakeHandle("beta", [
+      { name: "read", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } },
+    ], async () => ({ content: [] })),
+  ];
+  const client = await connectedClient(handles);
+
+  const limited = await client.callTool({ name: "mottainai_tool_search", arguments: { limit: 2 } });
+  const limitedStructured = limited.structuredContent as {
+    summary: string;
+    metrics: { hits: number; matched_total: number };
+    truncated: boolean;
+  };
+  assert.equal(limitedStructured.summary, "2 of 3 catalog tools matched");
+  assert.deepEqual(limitedStructured.metrics, { hits: 2, matched_total: 3 });
+  assert.equal(limitedStructured.truncated, true);
+
+  const filtered = await client.callTool({ name: "mottainai_tool_search", arguments: {
+    provider: "alpha", risk: "read_only", query: "read",
+  } });
+  const filteredStructured = filtered.structuredContent as {
+    summary: string;
+    metrics: { hits: number; matched_total: number };
+    truncated: boolean;
+  };
+  assert.equal(filteredStructured.summary, "1 of 1 catalog tools matched");
+  assert.deepEqual(filteredStructured.metrics, { hits: 1, matched_total: 1 });
+  assert.equal(filteredStructured.truncated, false, "complete filtered results are not catalog truncation");
+
+  const exactLimit = await client.callTool({ name: "mottainai_tool_search", arguments: { provider: "alpha", limit: 2 } });
+  const exactLimitStructured = exactLimit.structuredContent as { metrics: { hits: number; matched_total: number }; truncated: boolean };
+  assert.deepEqual(exactLimitStructured.metrics, { hits: 2, matched_total: 2 });
+  assert.equal(exactLimitStructured.truncated, false, "an exact limit does not omit a result");
+
+  const zero = await client.callTool({ name: "mottainai_tool_search", arguments: { query: "no-such-tool" } });
+  const zeroStructured = zero.structuredContent as {
+    summary: string;
+    metrics: { hits: number; matched_total: number };
+    truncated: boolean;
+  };
+  assert.equal(zeroStructured.summary, "0 of 0 catalog tools matched");
+  assert.deepEqual(zeroStructured.metrics, { hits: 0, matched_total: 0 });
+  assert.equal(zeroStructured.truncated, false, "zero matches are not truncation");
+
+  await client.close();
+});
+
+test("restricted broker search filters hidden tools before applying the result limit", async () => {
+  const handles = [
+    fakeHandle("a-hidden", [
+      { name: "hidden", inputSchema: { type: "object" }, annotations: { readOnlyHint: false, destructiveHint: true } },
+    ], async () => ({ content: [] })),
+    fakeHandle("z-visible", [
+      { name: "visible", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } },
+    ], async () => ({ content: [] })),
+  ];
+  const gateway = resolveGatewayConfig({ capabilityMap: { "a-hidden": ["definitions"], "z-visible": ["definitions"] } });
+  const client = await connectedClient(handles, undefined, undefined, undefined, {
+    gateway,
+    activeProfile: { includeCapabilities: ["definitions"], denyRisk: ["destructive"], rawToolAccess: "restricted" },
+  });
+
+  const visible = await client.callTool({ name: "mottainai_tool_search", arguments: { capability: "definitions", limit: 1 } });
+  const visibleStructured = visible.structuredContent as {
+    summary: string;
+    facts: Array<Record<string, unknown>>;
+    metrics: { hits: number; matched_total: number };
+    truncated: boolean;
+  };
+  assert.equal(visibleStructured.summary, "1 of 1 catalog tools matched");
+  assert.deepEqual(visibleStructured.facts.map((fact) => fact.tool), ["visible"]);
+  assert.deepEqual(visibleStructured.metrics, { hits: 1, matched_total: 1 });
+  assert.equal(visibleStructured.truncated, false);
+
+  const none = await client.callTool({ name: "mottainai_tool_search", arguments: { query: "hidden" } });
+  const noneStructured = none.structuredContent as {
+    summary: string;
+    metrics: { hits: number; matched_total: number };
+    truncated: boolean;
+  };
+  assert.equal(noneStructured.summary, "0 of 0 catalog tools matched");
+  assert.deepEqual(noneStructured.metrics, { hits: 0, matched_total: 0 });
+  assert.equal(noneStructured.truncated, false);
+
+  await client.close();
+});
+
 test("an active profile narrows listTools but never hides the brokered tools", async () => {
   const handles = [
     fakeHandle("codegraph", [
