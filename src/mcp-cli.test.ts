@@ -115,6 +115,50 @@ test("mcp cli registers a Streamable HTTP upstream", () => {
   fs.rmSync(directory, { recursive: true, force: true });
 });
 
+test("mcp cli rejects missing values for every add value option before writing", () => {
+  const cases = [
+    { option: "command", argv: ["--command", "--url", "https://mcp.example.test/mcp"] },
+    { option: "url", argv: ["--url", "--transport", "streamableHttp"] },
+    { option: "transport", argv: ["--command", "/bin/echo", "--transport", "--args", "serve"] },
+    { option: "args", argv: ["--command", "/bin/echo", "--args", "--cwd", "/tmp"] },
+    { option: "cwd", argv: ["--command", "/bin/echo", "--cwd", "--priority", "1"] },
+    { option: "priority", argv: ["--command", "/bin/echo", "--priority", "--capabilities", "text_matches"] },
+    { option: "capabilities", argv: ["--command", "/bin/echo", "--capabilities", "--profile", "development"] },
+    { option: "profile", argv: ["--command", "/bin/echo", "--profile", "--auth-profile", "github"] },
+    { option: "auth-profile", argv: ["--url", "https://mcp.example.test/mcp", "--auth-profile"] },
+    { option: "config", argv: ["--command", "/bin/echo", "--config"] },
+  ] as const;
+
+  for (const { option, argv } of cases) {
+    const directory = workspace();
+    try {
+      const configPath = path.join(directory, "config.json");
+      const before = fs.readFileSync(configPath, "utf8");
+      const result = run(directory, "add", `missing-${option}`, ...argv);
+      assert.equal(result.status, 1, `${option}: ${result.stdout}${result.stderr}`);
+      assert.equal(result.stdout, "", option);
+      assert.match(result.stderr, new RegExp(`missing value for --${option}`));
+      assert.equal(fs.readFileSync(configPath, "utf8"), before, option);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  }
+});
+
+test("mcp cli preserves option-looking values through explicit inline transport", () => {
+  const directory = workspace();
+  try {
+    const added = run(directory, "add", "literal", "--command=--launcher", "--args=--flag --another-flag");
+    assert.equal(added.status, 0, `${added.stdout}${added.stderr}`);
+    assert.deepEqual(config(directory).mcpServers.literal, {
+      command: "--launcher",
+      args: ["--flag", "--another-flag"],
+    });
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("mcp cli requires an OAuth provider module for OAuth remote upstreams", () => {
   const directory = workspace();
 

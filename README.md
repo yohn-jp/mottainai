@@ -92,6 +92,8 @@ codex mcp add mottainai -- npx -y mottainai@0.6.0 serve --config /absolute/path/
 
 `mottainai init` can generate the registration command for the detected client. Use `--latest` only when intentionally following the newest npm release rather than a pinned version.
 
+When registering an upstream with `mottainai add`, every value-taking option must be followed by a value; another option token is rejected as a missing value before the configuration is changed. To pass a value that begins with `--`, use the explicit `--option=value` form, such as `--args=--flag`.
+
 ## Native harness-delegation MCP
 
 The packaged `mottainai-mcp` executable exposes Mottainai's native, high-level harness surface over standard MCP stdio. It does not require `tsx`, a source checkout, Majiwari, or Nawabari client code in the MCP consumer.
