@@ -98,7 +98,7 @@ function validateBoolean(value: unknown, field: string): boolean | undefined {
 
 function validateContract(value: unknown, field: string): string | undefined {
   if (value === undefined) return undefined;
-  if (typeof value !== "string" || value.length === 0) throw new Error(`invalid tool metadata: ${field}`);
+  if (typeof value !== "string" || value.trim().length === 0) throw new Error(`invalid tool metadata: ${field}`);
   return value;
 }
 
