@@ -78,12 +78,18 @@ pkgs.testers.nixosTest {
             " || systemctl show -p Result mottainai-runtime-health.service | grep -q Result=success"
         )
 
-    # These bootstrap subtests hot-attach/format a virtual disk against an
-    # already-running guest, which does not by itself trigger udev to
-    # (re-)probe and publish /dev/disk/by-label/MTNAI_BOOT — a real boot
-    # instead coldplugs an already-labeled disk before this service starts,
-    # so the symlink is already settled by then. Force and wait for that
-    # probe after every rewrite of the bootstrap disk's content below.
+    # These bootstrap subtests hot-write a filesystem directly to an
+    # already-attached block device against an already-running guest, which
+    # does not by itself trigger udev to (re-)probe and publish
+    # /dev/disk/by-label/MTNAI_BOOT — a real boot instead coldplugs an
+    # already-labeled disk before this service starts, so the symlink is
+    # already settled by then. A targeted `udevadm trigger --settle
+    # /dev/vdb` was tried here first and did not reproduce that coldplug
+    # probe (trigger's positional argument selects by /sys path, not a
+    # /dev device node, so it silently matched nothing); a system-wide
+    # `udevadm trigger --settle`, confirmed by explicitly waiting for the
+    # symlink itself, is used instead after every rewrite of the bootstrap
+    # disk's content below.
 
     with subtest("a mixed valid/invalid input line rejects the whole bootstrap input, installing nothing"):
         runtime.succeed("mkfs.ext4 -L MTNAI_BOOT /dev/vdb")
@@ -95,7 +101,8 @@ pkgs.testers.nixosTest {
             " > /mnt/bootstrap/authorized_keys"
         )
         runtime.succeed("umount /mnt/bootstrap")
-        runtime.succeed("udevadm trigger --settle /dev/vdb")
+        runtime.succeed("udevadm trigger --settle")
+        runtime.wait_until_succeeds("test -e /dev/disk/by-label/MTNAI_BOOT")
         runtime.fail("systemctl start mottainai-runtime-bootstrap-authorized-keys.service")
         runtime.succeed("test ! -e /var/lib/mottainai-control/.ssh")
 
@@ -106,7 +113,8 @@ pkgs.testers.nixosTest {
         )
         runtime.succeed(f"cat > /mnt/bootstrap/authorized_keys <<'KEYS_EOF'\n{too_many_keys}\nKEYS_EOF")
         runtime.succeed("umount /mnt/bootstrap")
-        runtime.succeed("udevadm trigger --settle /dev/vdb")
+        runtime.succeed("udevadm trigger --settle")
+        runtime.wait_until_succeeds("test -e /dev/disk/by-label/MTNAI_BOOT")
         runtime.fail("systemctl start mottainai-runtime-bootstrap-authorized-keys.service")
         runtime.succeed("test ! -e /var/lib/mottainai-control/.ssh")
 
@@ -117,7 +125,8 @@ pkgs.testers.nixosTest {
             " > /mnt/bootstrap/authorized_keys"
         )
         runtime.succeed("umount /mnt/bootstrap")
-        runtime.succeed("udevadm trigger --settle /dev/vdb")
+        runtime.succeed("udevadm trigger --settle")
+        runtime.wait_until_succeeds("test -e /dev/disk/by-label/MTNAI_BOOT")
         runtime.succeed("systemctl start mottainai-runtime-bootstrap-authorized-keys.service")
         runtime.succeed(
             "systemctl is-active --quiet mottainai-runtime-bootstrap-authorized-keys.service"
