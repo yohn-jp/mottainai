@@ -11,8 +11,9 @@ export interface AtomicReplaceOptions {
 
 /**
  * 同一ディレクトリの一時ファイル経由で destination を atomic replace する。
- * complete かつ fsync 済みの一時ファイル作成後にのみ rename するため、write/close/rename の
- * 途中失敗でも destination は byte-for-byte 未変更のまま。成功時は一時ファイルを残さない。
+ * complete かつ fsync 済みの一時ファイル作成後にのみ rename し、rename 成功後は親ディレクトリも
+ * fsync する。write/close/rename の途中失敗でも destination は byte-for-byte 未変更のまま。成功時は
+ * 一時ファイルを残さない。
  * cleanup 失敗は primary error を保持し、bounded secondary evidence だけを付加する。
  *
  * permission: `options.mode` を明示指定しない限り、destination が既存ならその mode を
@@ -49,9 +50,10 @@ export function replaceFileAtomically(
       }
     });
     boundaries.file(`${operation}.rename`, () => fs.renameSync(temporaryPath, filePath));
+    syncParentDirectory(directory, boundaries, operation);
   } catch (error) {
     primary = error;
-    closeTemporaryFile(fileDescriptor);
+    closeFileDescriptor(fileDescriptor);
     const cleanupError = cleanupTemporaryFile(temporaryPath, boundaries, operation, primary);
     if (cleanupError !== undefined) throw cleanupError;
     throw error;
@@ -91,7 +93,23 @@ function existingFileMode(filePath: string): number | undefined {
   }
 }
 
-function closeTemporaryFile(fileDescriptor: number | undefined): void {
+function syncParentDirectory(directory: string, boundaries: BoundaryOperations, operation: string): void {
+  let directoryDescriptor: number | undefined;
+  try {
+    directoryDescriptor = boundaries.file(`${operation}.directory.open`, () => fs.openSync(directory, "r"));
+    boundaries.file(`${operation}.directory.sync`, () => fs.fsyncSync(directoryDescriptor!));
+    boundaries.file(`${operation}.directory.close`, () => {
+      if (directoryDescriptor !== undefined) {
+        fs.closeSync(directoryDescriptor);
+        directoryDescriptor = undefined;
+      }
+    });
+  } finally {
+    closeFileDescriptor(directoryDescriptor);
+  }
+}
+
+function closeFileDescriptor(fileDescriptor: number | undefined): void {
   if (fileDescriptor === undefined) return;
   try {
     fs.closeSync(fileDescriptor);
