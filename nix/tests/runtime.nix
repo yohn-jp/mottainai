@@ -1,4 +1,4 @@
-{ pkgs, lib, runtimeModule }:
+{ pkgs, lib, runtimeModule, runtimeOverlay }:
 
 # NixOS VM test proving the mottainai.linux-runtime.v1 surface: SSH service,
 # mottainai-control identity, package/service availability, protected
@@ -14,6 +14,7 @@ pkgs.testers.nixosTest {
     { ... }:
     {
       imports = [ runtimeModule ];
+      nixpkgs.overlays = [ runtimeOverlay ];
       mottainai.runtime = {
         enable = true;
         runtimeIdentity = "test-runtime";
@@ -49,6 +50,11 @@ pkgs.testers.nixosTest {
         runtime.succeed("command -v mottainai-runtime-health")
         runtime.succeed("command -v mottainai-runtime-reconcile")
 
+    with subtest("Mottainai, Nawabari, and Zellij binaries resolve and report versions"):
+        runtime.succeed("mottainai --version")
+        runtime.succeed("nawabari --version")
+        runtime.succeed("zellij --version")
+
     with subtest("health/capability result is bounded JSON matching the contract"):
         runtime.succeed("systemctl start mottainai-runtime-health.service")
         output = runtime.succeed("journalctl -u mottainai-runtime-health.service -o cat -n 50")
@@ -56,6 +62,8 @@ pkgs.testers.nixosTest {
         assert '"schemaVersion": 1' in output
         assert '"generation": "' not in output, "generation must be numeric JSON, not a quoted string"
         assert "MOTTAINAI_" not in output.upper().replace("MOTTAINAI_RUNTIME_HEALTH", "")
+        assert '"name":"nawabari"' in output
+        assert '"present":true' in output
 
     with subtest("health service restarts cleanly"):
         runtime.succeed("systemctl restart mottainai-runtime-health.service")

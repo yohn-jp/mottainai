@@ -13,6 +13,20 @@
         "aarch64-linux"
       ];
       forEachSystem = nixpkgs.lib.genAttrs supportedSystems;
+
+      # Exposes the Mottainai and Nawabari package derivations as pkgs.mottainai
+      # / pkgs.nawabari so the canonical Runtime module can depend on them the
+      # same way it already depends on nixpkgs-provided packages like
+      # pkgs.zellij, without a second package-resolution path.
+      mkMottainai = pkgs: import ./mottainai.nix { inherit pkgs; };
+      mkNawabari = pkgs: import ./packages/nawabari.nix {
+        inherit (pkgs) lib stdenvNoCC fetchurl makeWrapper nodejs_22;
+      };
+      runtimeOverlay = final: prev: {
+        mottainai = mkMottainai final;
+        nawabari = mkNawabari final;
+      };
+
       runtimeConfigurations = forEachSystem (
         system:
         nixpkgs.lib.nixosSystem {
@@ -22,6 +36,7 @@
             # canonical Runtime module; it is not a second guest authority.
             (nixpkgs + "/nixos/modules/virtualisation/qemu-vm.nix")
             self.nixosModules.runtime
+            { nixpkgs.overlays = [ runtimeOverlay ]; }
             {
               mottainai.runtime.enable = true;
 
@@ -57,10 +72,8 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in
         {
-          mottainai = import ./mottainai.nix { inherit pkgs; };
-          nawabari = import ./packages/nawabari.nix {
-            inherit (pkgs) lib stdenvNoCC fetchurl makeWrapper nodejs_22;
-          };
+          mottainai = mkMottainai pkgs;
+          nawabari = mkNawabari pkgs;
           runtime-system = runtimeConfigurations.${system}.config.system.build.toplevel;
           runtime-vm = runtimeConfigurations.${system}.config.system.build.vm;
           runtime-image = import ./runtime-image.nix {
@@ -87,6 +100,7 @@
             inherit pkgs;
             inherit (nixpkgs) lib;
             runtimeModule = self.nixosModules.runtime;
+            runtimeOverlay = runtimeOverlay;
           };
         }
       );

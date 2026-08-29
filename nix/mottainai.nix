@@ -34,12 +34,18 @@ let
       cd "$workdir"
       pnpm fetch --prod --frozen-lockfile --ignore-scripts --store-dir "$out"
 
+      # pnpm stamps each cached package's index.json with a checkedAt
+      # wall-clock timestamp, which otherwise makes this fixed-output
+      # derivation's hash non-reproducible across fetches.
+      find "$out/v3/files" -name '*-index.json' -print0 \
+        | xargs -0 sed -i -E 's/"checkedAt":[0-9]+/"checkedAt":0/g'
+
       runHook postBuild
     '';
 
     dontInstall = true;
     outputHashMode = "recursive";
-    outputHash = "sha256-YBKawcrsBZvpE+ek6Mh8jQwuKhaObepWe3C4XOUgb9w=";
+    outputHash = "sha256-WTW1NEqAT2FFFqvn+ddKapRZqwMXYhqnRg0C7ote77A=";
   };
 in
 pkgs.stdenv.mkDerivation {
@@ -95,6 +101,11 @@ pkgs.stdenv.mkDerivation {
     mkdir -p "$packageRoot"
     cp -a . "$packageRoot/"
     rm -f "$packageRoot/pnpm-lock.yaml"
+
+    # pnpm stamps node_modules/.modules.yaml with a prunedAt wall-clock
+    # timestamp, which otherwise makes this derivation's output non-reproducible.
+    find "$packageRoot" -name '.modules.yaml' -print0 \
+      | xargs -0 --no-run-if-empty sed -i -E 's/^prunedAt: .*$/prunedAt: unset/'
 
     for command in mottainai mtnai; do
       makeWrapper ${nodejs}/bin/node "$out/bin/$command" \
