@@ -345,6 +345,9 @@ export async function createUpstreamTransport(
   if (config.transport === "streamableHttp") {
     if (config.url === undefined) throw new Error(`upstream url missing: ${config.name}`);
     const targetUrl = new URL(config.url);
+    if (targetUrl.username !== "" || targetUrl.password !== "") {
+      throw new Error(`invalid upstream url: ${config.name}; userinfo is not allowed`);
+    }
     let endpoint = targetUrl;
     if (config.auth?.type === "oauth") {
       if (oauthCredentialProvider === undefined) {

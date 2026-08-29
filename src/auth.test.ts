@@ -35,3 +35,21 @@ test("sanitizes OAuth provider failures and rejects non-HTTP broker endpoints", 
     /oauth broker resolution failed: example/,
   );
 });
+
+test("rejects credential-bearing OAuth broker endpoints without exposing the URL", async () => {
+  const url = "https://broker-user:broker-password@example.test/mcp";
+  await assert.rejects(
+    () =>
+      resolveBrokerEndpoint(
+        { resolveEndpoint: async () => url },
+        new URL("https://mcp.example.test/mcp"),
+        "example",
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /oauth broker returned invalid endpoint: example; userinfo is not allowed/);
+      assert.doesNotMatch(error.message, /broker-user|broker-password|example\.test/iu);
+      return true;
+    },
+  );
+});

@@ -681,7 +681,8 @@ function normalizeUpstream(name: string, value: unknown): Omit<UpstreamConfig, "
     throw new Error(`invalid upstream config: ${name}`);
   }
   if (transport === "streamableHttp" && !isHttpUrl(value.url)) {
-    throw new Error(`invalid upstream url: ${name}`);
+    const detail = hasHttpUrlUserinfo(value.url) ? "; userinfo is not allowed" : "";
+    throw new Error(`invalid upstream url: ${name}${detail}`);
   }
   if (value.enabled !== undefined && typeof value.enabled !== "boolean") {
     throw new Error(`invalid upstream enabled: ${name}`);
@@ -747,7 +748,20 @@ function isHttpUrl(value: unknown): value is string {
   if (typeof value !== "string") return false;
   try {
     const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:";
+    return (url.protocol === "http:" || url.protocol === "https:")
+      && url.username === ""
+      && url.password === "";
+  } catch {
+    return false;
+  }
+}
+
+function hasHttpUrlUserinfo(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:")
+      && (url.username !== "" || url.password !== "");
   } catch {
     return false;
   }
