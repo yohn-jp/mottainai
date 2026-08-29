@@ -496,6 +496,19 @@ function managerSessionIdentity(session) {
   };
 }
 
+function managerSessionResourceIdentity(session) {
+  return {
+    sessionId: session.sessionId,
+    taskId: session.taskId,
+    executionSessionId: session.executionSessionId,
+    worktreePath: session.worktreePath,
+    branchName: session.branchName,
+    taskSlug: session.taskSlug,
+    issueRef: session.issueRef,
+    runtimeName: session.runtimeName,
+  };
+}
+
 function readTaskSnapshot(fixture) {
   const dbPath = path.join(fixture.stateDirectory, "state.sqlite3");
   if (!fs.existsSync(dbPath)) return [];
@@ -511,10 +524,53 @@ function readTaskSnapshot(fixture) {
   }
 }
 
+function parseGitWorktrees(output) {
+  const worktrees = [];
+  let current;
+  const flush = () => {
+    if (current === undefined) return;
+    assert.equal(typeof current.path, "string");
+    assert.equal(typeof current.head, "string");
+    if (!("branch" in current)) current.branch = null;
+    worktrees.push(current);
+    current = undefined;
+  };
+  for (const line of output.split(/\r?\n/u)) {
+    if (line.length === 0) {
+      flush();
+    } else if (line.startsWith("worktree ")) {
+      flush();
+      current = { path: line.slice("worktree ".length) };
+    } else if (current !== undefined && line.startsWith("HEAD ")) {
+      current.head = line.slice("HEAD ".length);
+    } else if (current !== undefined && line.startsWith("branch ")) {
+      current.branch = line.slice("branch ".length).replace(/^refs\/heads\//u, "");
+    } else if (current !== undefined && line === "detached") {
+      current.branch = null;
+    }
+  }
+  flush();
+  return worktrees.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function parseGitBranches(output) {
+  return output
+    .split(/\r?\n/u)
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const separator = line.lastIndexOf(" ");
+      assert.ok(separator > 0, `invalid branch snapshot line: ${line}`);
+      return { name: line.slice(0, separator), ref: line.slice(separator + 1) };
+    })
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
 function readGitSnapshot(fixture) {
   return {
-    worktrees: runGit(fixture.workspace, ["worktree", "list", "--porcelain"]),
-    branches: runGit(fixture.workspace, ["for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads"]),
+    worktrees: parseGitWorktrees(runGit(fixture.workspace, ["worktree", "list", "--porcelain"])),
+    branches: parseGitBranches(
+      runGit(fixture.workspace, ["for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads"]),
+    ),
   };
 }
 
@@ -631,6 +687,7 @@ test(
       zellijPath: companions.zellij,
       nawabariPath: companions.nawabari,
     });
+    const gitBaseline = readGitSnapshot(fixture);
     let manager;
     const sessions = [];
     t.after(async () => {
@@ -848,15 +905,37 @@ test(
     await stopAndCleanManagerTask(fixture, manager, unrelated);
 
     const finalSnapshot = await readManagerFixtureSnapshot(fixture, manager);
+    const managedSessionIdentities = sessions.map(managerSessionResourceIdentity);
+    const finalTasksById = new Map(finalSnapshot.tasks.map((task) => [task.task_id, task]));
+    const finalManagerSessionsById = new Map(finalSnapshot.manager.map((session) => [session.sessionId, session]));
+    for (const expected of managedSessionIdentities) {
+      const task = finalTasksById.get(expected.taskId);
+      assert.ok(task, `missing cleaned task ${expected.taskId}`);
+      assert.equal(task.task_slug, expected.taskSlug);
+      assert.equal(task.lifecycle_state, "cleaned");
+
+      const managerSession = finalManagerSessionsById.get(expected.sessionId);
+      assert.ok(managerSession, `missing Manager session ${expected.sessionId}`);
+      assert.deepEqual(managerSessionResourceIdentity(managerSession), expected);
+      assert.equal(
+        finalSnapshot.git.worktrees.some(
+          (worktree) => worktree.path === expected.worktreePath && worktree.branch === expected.branchName,
+        ),
+        false,
+      );
+      assert.equal(
+        finalSnapshot.git.branches.some((branch) => branch.name === expected.branchName),
+        false,
+      );
+    }
+    assert.deepEqual(finalSnapshot.git.worktrees, gitBaseline.worktrees);
+    assert.deepEqual(finalSnapshot.git.branches, gitBaseline.branches);
     assert.equal(
       finalSnapshot.tasks.every((task) => task.lifecycle_state === "cleaned"),
       true,
     );
     assert.equal(finalSnapshot.nawabari.claims.claims?.length ?? 0, 0);
     assert.equal(finalSnapshot.nawabari.sessions.sessions?.length ?? 0, 0);
-    for (const task of finalSnapshot.tasks) {
-      assert.equal(finalSnapshot.git.worktrees.includes(task.task_slug), false);
-    }
     for (const session of finalSnapshot.manager) {
       assert.notEqual(session.semanticLifecycleState, "orphaned");
       assert.equal(session.runtimeState, "stopped");
