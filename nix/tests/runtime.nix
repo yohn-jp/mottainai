@@ -86,6 +86,13 @@ pkgs.testers.nixosTest {
             " > /mnt/bootstrap/authorized_keys"
         )
         runtime.succeed("umount /mnt/bootstrap")
+        # This test writes a filesystem directly to an already-attached
+        # block device against an already-running guest, which does not by
+        # itself trigger udev to (re-)probe and publish
+        # /dev/disk/by-label/MTNAI_BOOT — a real boot instead coldplugs an
+        # already-labeled disk before this service starts, so the symlink is
+        # already settled by then. Force and wait for that probe here.
+        runtime.succeed("udevadm trigger --settle /dev/vdb")
         runtime.succeed("systemctl start mottainai-runtime-bootstrap-authorized-keys.service")
         runtime.succeed(
             "systemctl is-active --quiet mottainai-runtime-bootstrap-authorized-keys.service"
