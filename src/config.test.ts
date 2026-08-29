@@ -310,8 +310,8 @@ test("saveRawConfig rejects an invalid candidate before touching the filesystem 
   assert.deepEqual([...faults.calls.keys()], []);
 });
 
-test("saveRawConfig preserves the previous config byte-for-byte when write, close, or rename fails", () => {
-  const operations = ["config.temp.write", "config.temp.close", "config.rename"];
+test("saveRawConfig preserves the previous config byte-for-byte when write, sync, close, or rename fails", () => {
+  const operations = ["config.temp.write", "config.temp.sync", "config.temp.close", "config.rename"];
   for (const operation of operations) {
     const configPath = writeConfig({ mcpServers: { one: { command: "node" } } });
     const { filePath, raw } = loadRawConfig(configPath);
