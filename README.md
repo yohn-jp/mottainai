@@ -143,7 +143,7 @@ mottainai workflow doctor [--workspace path] [--reconcile-closures]
 
 `task list` is the read-only discovery surface for registered workspaces. It returns a bounded snapshot suitable for external consumers and UIs. Resolve a selected task again with `task status --task-id <id>` immediately before acting; that fresh resolve, rather than the earlier list snapshot, is the authoritative view. Consumers such as Majiwari therefore do not need to read Mottainai or Nawabari internal persistence directly.
 
-`workflow doctor` is read-only by default. `--reconcile-closures` may request Nawabari's normal safe-close path for already integrated executions; Mottainai still does not edit Nawabari registry or claim state directly.
+`workflow doctor` is read-only by default. `--reconcile-closures` may request Nawabari's normal safe-close path for already integrated executions and reports bounded per-task closure outcomes, including reasons for tasks that remain unreconciled; Mottainai still does not edit Nawabari registry or claim state directly.
 
 Managed pull-request creation uses gh-inari as its mutation authority. Mottainai probes the companion contract before mutation and does not fall back to direct GitHub PR creation.
 

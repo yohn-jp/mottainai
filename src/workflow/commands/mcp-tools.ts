@@ -160,7 +160,7 @@ const taskCleanupTool: Tool = {
 const taskLegacyMigrationTool: Tool = {
   name: "mottainai_workflow_task_migrate_legacy",
   description:
-    "Complete or explicitly adopt one pre-cutover task. Complete requires terminal lifecycle and independently observed absence of legacy physical state; adopt requires an explicitly named Nawabari session whose repository, worktree, branch, active state, and ownership identity all match. Ambiguous state fails closed and no legacy physical row is mutated.",
+    "Complete or explicitly adopt one pre-cutover task. Complete can abandon an active task after independently observing absence of legacy physical state; terminal tasks continue to migrate to cleaned. Adopt requires an explicitly named Nawabari session whose repository, worktree, branch, active state, and ownership identity all match. Ambiguous state fails closed and no legacy physical row is mutated.",
   inputSchema: {
     type: "object",
     properties: {
@@ -301,7 +301,7 @@ const validationReceiptTool: Tool = {
 const workflowDoctorTool: Tool = {
   name: "mottainai_workflow_doctor",
   description:
-    'Run the workflow reconciliation doctor and return the same structured report used by the workflow doctor CLI. By default this is strictly read-only: no task/provider state mutation, no filesystem deletion, and no Nawabari session close is performed. Pass reconcileClosures: true to additionally request Nawabari\'s normal safe-close for the caller\'s own prior merged executions (report.mode becomes "reconcile" instead of "read-only"); Mottainai never edits Nawabari registry/claim state directly.',
+    'Run the workflow reconciliation doctor and return the same structured report used by the workflow doctor CLI. By default this is strictly read-only: no task/provider state mutation, no filesystem deletion, and no Nawabari session close is performed. Pass reconcileClosures: true to additionally request Nawabari\'s normal safe-close for the caller\'s own prior merged executions; the report includes bounded per-task closure results with reasons for unreconciled tasks (report.mode becomes "reconcile" instead of "read-only"). Mottainai never edits Nawabari registry/claim state directly.',
   inputSchema: {
     type: "object",
     properties: {

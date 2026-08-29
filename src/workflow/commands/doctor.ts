@@ -37,6 +37,8 @@ export interface WorkflowDoctorReport {
   checks: readonly WorkflowDoctorCheck[];
   problems: readonly WorkflowDoctorProblem[];
   reconciliation: ReconciliationReport;
+  /** Present when `reconcileClosures` was explicitly requested. */
+  closureReconciliation?: ReconcileNawabariClosuresResult;
 }
 
 export interface WorkflowDoctorDependencies {
@@ -163,7 +165,7 @@ export async function collectWorkflowDoctorReport(
       name: "repair-mode",
       status: "pass",
       message: reconcileClosuresRequested
-        ? `reconcile; ${reconciliation.repairPlan.length} informational proposal(s); Nawabari close reconciliation was explicitly requested (attempted ${closeReconciliation?.attempted ?? 0}, closed ${closeReconciliation?.closed ?? 0})`
+        ? `reconcile; ${reconciliation.repairPlan.length} informational proposal(s); Nawabari close reconciliation was explicitly requested (attempted ${closeReconciliation?.attempted ?? 0}, closed ${closeReconciliation?.closed ?? 0}, task results ${closeReconciliation?.tasks.length ?? 0})`
         : `read-only; ${reconciliation.repairPlan.length} informational proposal(s), but physical repair is retired and delegated to Nawabari`,
     },
     {
@@ -219,6 +221,7 @@ export async function collectWorkflowDoctorReport(
     checks,
     problems,
     reconciliation,
+    ...(closeReconciliation === undefined ? {} : { closureReconciliation: closeReconciliation }),
   };
 }
 

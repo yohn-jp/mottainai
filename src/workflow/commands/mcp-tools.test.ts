@@ -619,6 +619,54 @@ test("legacy migration is exposed as an explicit task command", async (t) => {
   store.close();
 });
 
+test("MCP legacy migration releases 102 orphaned active tasks without direct state intervention", async (t) => {
+  const { root, config } = await gitWorkspace(t);
+  const store = openWorkflowStore();
+  t.after(() => store.close());
+  const identity = resolveRepositoryIdentity(root);
+  assert.equal(identity.ok, true);
+  if (!identity.ok) return;
+  store.observeRepositoryInstance({
+    rootCommitDigest: identity.identity.rootCommitDigest,
+    instanceId: identity.identity.instanceId,
+    gitCommonDir: identity.identity.gitCommonDir,
+    canonicalWorktreePath: identity.identity.worktreePath,
+  });
+  const baseCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  const taskIds: string[] = [];
+  for (let index = 0; index < 102; index += 1) {
+    const reserved = store.reserveTask({
+      instanceId: identity.identity.instanceId,
+      taskSlug: `orphaned-${index}`,
+      issueRef: `551-${index}`,
+      baseBranch: "main",
+      baseCommit,
+      allowMultipleActiveTasksPerIssue: true,
+    });
+    assert.equal(reserved.ok, true);
+    if (!reserved.ok) return;
+    assert.equal(transitionTask(store, reserved.task.taskId, "active").ok, true);
+    taskIds.push(reserved.task.taskId);
+  }
+
+  for (const taskId of taskIds) {
+    const result = structured(
+      await callWorkflowCommandTool(
+        "mottainai_workflow_task_migrate_legacy",
+        { taskId, mode: "complete" },
+        enabled(config),
+        store,
+      ),
+    );
+    assert.equal(result.status, "success");
+    assert.equal((result.task as { lifecycleState: string }).lifecycleState, "abandoned");
+  }
+  assert.equal(
+    store.listTasks(identity.identity.instanceId).every((task) => task.lifecycleState === "abandoned"),
+    true,
+  );
+});
+
 test("task_start rejects starting a second task from inside its own already-active worktree (fail-closed guardrail)", async (t) => {
   const { config } = await gitWorkspace(t);
   const store = openWorkflowStore();

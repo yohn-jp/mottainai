@@ -41,7 +41,9 @@ export interface LegacyPhysicalProof {
   cleanupLeaseIds: readonly string[];
   activeWorktreeRowIds: readonly string[];
   observedGitWorktreePaths: readonly string[];
+  observedGitBranches: readonly string[];
   existingLegacyPaths: readonly string[];
+  existingLegacyBranches: readonly string[];
   activeLeaseIds: readonly string[];
 }
 
@@ -82,6 +84,7 @@ interface LegacyState {
   leases: CleanupLeaseRecord[];
   activeWorktrees: WorktreeRecord[];
   activeLeases: CleanupLeaseRecord[];
+  legacyBranchNames: string[];
   proof: LegacyPhysicalProof;
 }
 
@@ -112,6 +115,13 @@ function physicalRowsForTask(store: WorkflowStateStore, task: TaskRecord): Legac
   const taskLeases = leases.filter((lease) => lease.taskId === task.taskId);
   const activeWorktrees = worktrees.filter((worktree) => worktree.status === "active");
   const activeLeases = taskLeases.filter((lease) => ["reserved", "mutating", "verifying"].includes(lease.state));
+  const taskStart = store.getTaskStartReconciliation(task.taskId);
+  const legacyBranchNames = [
+    ...new Set([
+      ...worktrees.map((worktree) => worktree.branchName),
+      ...(taskStart === undefined ? [] : [taskStart.branchName]),
+    ]),
+  ];
   const proof: LegacyPhysicalProof = {
     authority: LEGACY_PHYSICAL_AUTHORITY,
     taskId: task.taskId,
@@ -121,10 +131,12 @@ function physicalRowsForTask(store: WorkflowStateStore, task: TaskRecord): Legac
     cleanupLeaseIds: taskLeases.map((lease) => lease.operationId),
     activeWorktreeRowIds: activeWorktrees.map((worktree) => worktree.worktreeId),
     observedGitWorktreePaths: [],
+    observedGitBranches: [],
     existingLegacyPaths: [],
+    existingLegacyBranches: [],
     activeLeaseIds: activeLeases.map((lease) => lease.operationId),
   };
-  return { task, worktrees, leases: taskLeases, activeWorktrees, activeLeases, proof };
+  return { task, worktrees, leases: taskLeases, activeWorktrees, activeLeases, legacyBranchNames, proof };
 }
 
 async function observeGitWorktreePaths(workspaceRoot: string): Promise<
@@ -139,6 +151,18 @@ async function observeGitWorktreePaths(workspaceRoot: string): Promise<
     if (line.startsWith("worktree ")) paths.push(canonicalPath(line.slice("worktree ".length)));
   }
   return { ok: true, paths };
+}
+
+async function observeGitBranches(
+  workspaceRoot: string,
+): Promise<{ ok: true; branches: string[] } | { ok: false; detail: string }> {
+  const result = await runGitCommand(workspaceRoot, ["for-each-ref", "--format=%(refname:short)", "refs/heads"]);
+  if (!result.usable || result.result.exitCode !== 0)
+    return { ok: false, detail: "Git local branch ownership could not be observed" };
+  return {
+    ok: true,
+    branches: result.result.stdout.split(/\r?\n/u).filter((branch) => branch.length > 0),
+  };
 }
 
 function validateRows(state: LegacyState, mode: LegacyMigrationMode): LegacyMigrationResult | undefined {
@@ -192,14 +216,23 @@ function updateProof(
   proof: LegacyPhysicalProof,
   observedGitWorktreePaths: readonly string[],
   existingLegacyPaths: readonly string[],
+  observedGitBranches: readonly string[] = proof.observedGitBranches,
+  existingLegacyBranches: readonly string[] = proof.existingLegacyBranches,
 ): LegacyPhysicalProof {
-  return { ...proof, observedGitWorktreePaths: [...observedGitWorktreePaths], existingLegacyPaths: [...existingLegacyPaths] };
+  return {
+    ...proof,
+    observedGitWorktreePaths: [...observedGitWorktreePaths],
+    observedGitBranches: [...observedGitBranches],
+    existingLegacyPaths: [...existingLegacyPaths],
+    existingLegacyBranches: [...existingLegacyBranches],
+  };
 }
 
 async function migrateComplete(input: LegacyMigrationInput, state: LegacyState): Promise<LegacyMigrationResult> {
   const rowFailure = validateRows(state, input.mode);
   if (rowFailure !== undefined) return rowFailure;
-  if (!["merged", "abandoned", "orphaned", "cleaned"].includes(state.task.lifecycleState))
+  const activeOrphan = state.task.lifecycleState === "active";
+  if (!activeOrphan && !["merged", "abandoned", "orphaned", "cleaned"].includes(state.task.lifecycleState))
     return failure(
       input.mode,
       "legacy-task-not-terminal",
@@ -208,26 +241,43 @@ async function migrateComplete(input: LegacyMigrationInput, state: LegacyState):
     );
 
   const observed = await observeGitWorktreePaths(input.workspaceRoot);
-  if (!observed.ok)
-    return failure(input.mode, "git-observation-failed", observed.detail, state.proof);
+  if (!observed.ok) return failure(input.mode, "git-observation-failed", observed.detail, state.proof);
+  const observedBranches = await observeGitBranches(input.workspaceRoot);
+  if (!observedBranches.ok) return failure(input.mode, "git-observation-failed", observedBranches.detail, state.proof);
   const existingLegacyPaths = state.worktrees
     .filter((worktree) => worktree.status !== "removed" && fs.existsSync(worktree.canonicalPath))
     .map((worktree) => canonicalPath(worktree.canonicalPath));
-  const proof = updateProof(state.proof, observed.paths, existingLegacyPaths);
+  const existingLegacyBranches = state.legacyBranchNames.filter((branch) => observedBranches.branches.includes(branch));
+  const proof = updateProof(
+    state.proof,
+    observed.paths,
+    existingLegacyPaths,
+    observedBranches.branches,
+    existingLegacyBranches,
+  );
   if (
     state.worktrees.some((worktree) => worktree.status !== "removed") ||
     existingLegacyPaths.length > 0 ||
-    state.worktrees.some((worktree) => observed.paths.some((observedPath) => samePath(observedPath, worktree.canonicalPath)))
+    existingLegacyBranches.length > 0 ||
+    state.worktrees.some((worktree) =>
+      observed.paths.some((observedPath) => samePath(observedPath, worktree.canonicalPath)),
+    )
   )
     return failure(
       input.mode,
       "legacy-physical-state-present",
-      `task ${state.task.taskId} still has legacy physical worktree state; complete it with the pre-cutover workflow or adopt a proven Nawabari session`,
+      `task ${state.task.taskId} still has legacy physical worktree/branch state; complete it with the pre-cutover workflow or adopt a proven Nawabari session`,
       proof,
     );
 
   if (input.dryRun === true || state.task.lifecycleState === "cleaned")
     return { ok: true, authority: LEGACY_PHYSICAL_AUTHORITY, mode: input.mode, task: state.task, proof, dryRun: true };
+  if (activeOrphan) {
+    const transitioned = transitionTask(input.store, state.task.taskId, "abandoned");
+    if (!transitioned.ok)
+      return failure(input.mode, "lifecycle-transition-blocked", transitioned.blocked.blockingRule, proof);
+    return { ok: true, authority: LEGACY_PHYSICAL_AUTHORITY, mode: input.mode, task: transitioned.task, proof };
+  }
   const transitioned = transitionTask(input.store, state.task.taskId, "cleaned");
   if (!transitioned.ok)
     return failure(input.mode, "lifecycle-transition-blocked", transitioned.blocked.blockingRule, proof);
