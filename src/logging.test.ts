@@ -3,10 +3,26 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { createLogger } from "./logging.js";
+import { createLogger, MIN_LOG_FILE_BYTES } from "./logging.js";
 
 function tmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-log-test-"));
+}
+
+function logFiles(dir: string): string[] {
+  return fs.readdirSync(dir).filter((file) => file.endsWith(".jsonl"));
+}
+
+function assertFilesWithinByteBound(dir: string, maxBytes: number): string[] {
+  const files = logFiles(dir);
+  for (const file of files) {
+    const contents = fs.readFileSync(path.join(dir, file), "utf8");
+    assert.ok(Buffer.byteLength(contents, "utf8") <= maxBytes, `${file} exceeds ${maxBytes} bytes`);
+    for (const line of contents.trimEnd().split("\n")) {
+      assert.doesNotThrow(() => JSON.parse(line));
+    }
+  }
+  return files;
 }
 
 test("createLogger returns a no-op logger when MOTTAINAI_LOG=0", async () => {
@@ -127,26 +143,86 @@ test("createLogger excludes records for tools listed in MOTTAINAI_LOG_EXCLUDE_TO
   assert.equal(JSON.parse(lines[0]).toolName, "list");
 });
 
-test("createLogger rolls over to a new file once MOTTAINAI_LOG_MAX_FILE_BYTES is exceeded", async () => {
+test("createLogger normalizes a configured file limit below the supported minimum", async () => {
   const dir = tmpDir();
   const logger = createLogger({ MOTTAINAI_LOG_DIR: dir, MOTTAINAI_LOG_MAX_FILE_BYTES: "10" });
-  await logger.log({ upstreamName: "u", toolName: "t", arguments: { a: 1 }, rawResult: {} });
-  await logger.log({ upstreamName: "u", toolName: "t", arguments: { a: 2 }, rawResult: {} });
+  await logger.log({
+    upstreamName: "u",
+    toolName: "t",
+    arguments: {},
+    rawResult: { text: "x".repeat(10_000) },
+  });
 
-  const files = fs.readdirSync(dir);
-  assert.equal(files.length, 2);
+  const files = assertFilesWithinByteBound(dir, MIN_LOG_FILE_BYTES);
+  assert.equal(files.length, 1);
+  const contents = fs.readFileSync(path.join(dir, files[0]), "utf8");
+  assert.ok(Buffer.byteLength(contents, "utf8") > 0);
+});
+
+test("createLogger rolls over to a new file once MOTTAINAI_LOG_MAX_FILE_BYTES is exceeded", async () => {
+  const dir = tmpDir();
+  const logger = createLogger({
+    MOTTAINAI_LOG_DIR: dir,
+    MOTTAINAI_LOG_MAX_FILE_BYTES: String(MIN_LOG_FILE_BYTES),
+  });
+  for (let index = 0; index < 5; index += 1) {
+    await logger.log({ upstreamName: "u", toolName: "t", arguments: { a: index }, rawResult: {} });
+  }
+
+  const files = assertFilesWithinByteBound(dir, MIN_LOG_FILE_BYTES);
+  assert.ok(files.length > 1);
 });
 
 test("createLogger bounds an oversized record while retaining its digest", async () => {
   const dir = tmpDir();
-  const logger = createLogger({ MOTTAINAI_LOG_DIR: dir, MOTTAINAI_LOG_MAX_FILE_BYTES: "300" });
+  const logger = createLogger({
+    MOTTAINAI_LOG_DIR: dir,
+    MOTTAINAI_LOG_MAX_FILE_BYTES: String(MIN_LOG_FILE_BYTES),
+  });
   await logger.log({ upstreamName: "u", toolName: "t", arguments: {}, rawResult: { text: "x".repeat(10_000) } });
 
-  const line = fs.readFileSync(path.join(dir, fs.readdirSync(dir)[0]), "utf8");
-  assert.ok(Buffer.byteLength(line, "utf8") <= 300);
+  const files = assertFilesWithinByteBound(dir, MIN_LOG_FILE_BYTES);
+  const line = fs.readFileSync(path.join(dir, files[0]), "utf8");
   const record = JSON.parse(line) as { rawResult: { truncated?: boolean; sha256?: string } };
   assert.equal(record.rawResult.truncated, true);
   assert.match(record.rawResult.sha256 ?? "", /^[0-9a-f]{64}$/);
+});
+
+test("createLogger keeps an exact-boundary record and rotates before the next write", async () => {
+  const dir = tmpDir();
+  const maxBytes = MIN_LOG_FILE_BYTES;
+  const lineBytesForPayload = (payloadLength: number): number =>
+    Buffer.byteLength(
+      `${JSON.stringify({
+        id: "0".repeat(36),
+        timestamp: "0".repeat(24),
+        upstreamName: "u",
+        toolName: "t",
+        arguments: { payload: "x".repeat(payloadLength) },
+        rawResult: {},
+      })}\n`,
+      "utf8",
+    );
+
+  let payloadLength = 0;
+  while (lineBytesForPayload(payloadLength) < maxBytes) payloadLength += 1;
+  assert.equal(lineBytesForPayload(payloadLength), maxBytes);
+
+  const logger = createLogger({ MOTTAINAI_LOG_DIR: dir, MOTTAINAI_LOG_MAX_FILE_BYTES: String(maxBytes) });
+  await logger.log({
+    upstreamName: "u",
+    toolName: "t",
+    arguments: { payload: "x".repeat(payloadLength) },
+    rawResult: {},
+  });
+
+  let files = assertFilesWithinByteBound(dir, maxBytes);
+  assert.equal(files.length, 1);
+  assert.equal(fs.statSync(path.join(dir, files[0])).size, maxBytes);
+
+  await logger.log({ upstreamName: "u", toolName: "t", arguments: {}, rawResult: {} });
+  files = assertFilesWithinByteBound(dir, maxBytes);
+  assert.equal(files.length, 2);
 });
 
 test("createLogger does not reject when a raw result cannot be serialized", async () => {
@@ -162,12 +238,20 @@ test("createLogger does not reject when a raw result cannot be serialized", asyn
 
 test("createLogger rolls over to distinct files even within a single timestamp tick", async () => {
   const dir = tmpDir();
-  const logger = createLogger({ MOTTAINAI_LOG_DIR: dir, MOTTAINAI_LOG_MAX_FILE_BYTES: "10" });
+  const logger = createLogger({
+    MOTTAINAI_LOG_DIR: dir,
+    MOTTAINAI_LOG_MAX_FILE_BYTES: String(MIN_LOG_FILE_BYTES),
+  });
   for (let index = 0; index < 5; index += 1) {
-    await logger.log({ upstreamName: "u", toolName: "t", arguments: { a: index }, rawResult: {} });
+    await logger.log({
+      upstreamName: "u",
+      toolName: "t",
+      arguments: { a: "x".repeat(300), index },
+      rawResult: {},
+    });
   }
 
-  const files = fs.readdirSync(dir);
+  const files = assertFilesWithinByteBound(dir, MIN_LOG_FILE_BYTES);
   assert.equal(files.length, 5);
   assert.equal(new Set(files).size, files.length);
   for (const file of files) {
