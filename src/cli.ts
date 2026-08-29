@@ -261,13 +261,18 @@ function resolveWorkflowWorkspace(argv: string[]): string {
 async function openWorkflowStateStore(dbPath?: string, readOnly = false): Promise<WorkflowStateStore> {
   const { WorkflowSqliteStateStore } = await import("./workflow/state/sqlite-store.js");
   const resolvedDbPath = dbPath ?? resolveStateDbPath();
-  const storeOptions = readOnly
-    ? fs.existsSync(resolvedDbPath)
-      ? { dbPath: resolvedDbPath, readOnly: true }
-      : { dbPath: ":memory:" }
-    : dbPath === undefined
-      ? {}
-      : { dbPath };
+  let storeOptions: { dbPath?: string; readOnly?: boolean };
+  if (readOnly) {
+    if (fs.existsSync(resolvedDbPath)) {
+      storeOptions = { dbPath: resolvedDbPath, readOnly: true };
+    } else {
+      storeOptions = { dbPath: ":memory:" };
+    }
+  } else if (dbPath === undefined) {
+    storeOptions = {};
+  } else {
+    storeOptions = { dbPath };
+  }
   const store = new WorkflowSqliteStateStore(storeOptions);
   store.init();
   return store;
