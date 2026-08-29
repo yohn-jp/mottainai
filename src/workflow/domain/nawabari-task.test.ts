@@ -74,6 +74,152 @@ test("task start enriches a resource claim conflict with Nawabari and local task
   );
 });
 
+test("task start does not infer a holder from unrelated claims when owner evidence is absent", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const repository = path.join(root, ".git");
+  const firstSessionId = "00000000-0000-7000-8000-000000000101";
+  const secondSessionId = "00000000-0000-7000-8000-000000000102";
+  const sessions = new Map<string, Record<string, unknown>>([
+    [
+      firstSessionId,
+      {
+        session_id: firstSessionId,
+        repository,
+        worktree: "/unrelated-a",
+        branch: "feat/unrelated-a",
+        state: "active",
+      },
+    ],
+    [
+      secondSessionId,
+      {
+        session_id: secondSessionId,
+        repository,
+        worktree: "/unrelated-b",
+        branch: "feat/unrelated-b",
+        state: "active",
+      },
+    ],
+  ]);
+  const claims = new Map<string, Record<string, unknown>[]>([
+    [
+      firstSessionId,
+      [
+        {
+          schema_version: 2,
+          claim_id: "unrelated-claim-a",
+          session_id: firstSessionId,
+          repository,
+          worktree: "/unrelated-a",
+          resource: "src/a.ts",
+          mode: "exclusive-write",
+          created_at: "2026-01-01T00:00:00.000Z",
+          updated_at: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    ],
+    [
+      secondSessionId,
+      [
+        {
+          schema_version: 2,
+          claim_id: "unrelated-claim-b",
+          session_id: secondSessionId,
+          repository,
+          worktree: "/unrelated-b",
+          resource: "src/b.ts",
+          mode: "exclusive-write",
+          created_at: "2026-01-01T00:00:00.000Z",
+          updated_at: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    ],
+  ]);
+  const calls: string[][] = [];
+  const nawabari = fakeNawabari(root, {
+    sessions,
+    claims,
+    calls,
+    failSessionClaim: {
+      code: "RESOURCE_CLAIM_CONFLICT",
+      message: "Resource claim conflicts with an active session claim",
+    },
+  });
+
+  const blocked = await startNawabariTask({
+    workspaceRoot: root,
+    store,
+    policy: BUILTIN_PRESETS.standard,
+    taskSlug: "diagnostic-task",
+    branchType: "fix",
+    issueRef: "530",
+    nawabari,
+  });
+
+  assert.equal(blocked.ok, false, JSON.stringify(blocked));
+  if (blocked.ok) throw new Error("expected claim conflict");
+  assert.equal(blocked.reason, "nawabari-rejected");
+  assert.match(blocked.detail, /holder unavailable/u);
+  assert.doesNotMatch(blocked.detail, new RegExp(`blocking sessionId=${firstSessionId}`));
+  assert.doesNotMatch(blocked.detail, new RegExp(`blocking sessionId=${secondSessionId}`));
+  assert.equal(
+    calls.some((args) => args[0] === "session" && ["update", "release"].includes(args[1] ?? "")),
+    false,
+    "conflict diagnostics must not mutate Nawabari claims",
+  );
+});
+
+test("task start preserves structured owner identity when claim evidence read fails", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const calls: string[][] = [];
+  const ownerSessionId = "00000000-0000-7000-8000-000000000103";
+  const claimAttempted = () => calls.some((args) => args[0] === "session" && args[1] === "claim");
+  const nawabari = fakeNawabari(root, {
+    calls,
+    get failSessionList() {
+      return claimAttempted();
+    },
+    get failSessionClaim() {
+      return claimAttempted()
+        ? {
+            code: "RESOURCE_CLAIM_CONFLICT",
+            message: "Resource claim conflicts with an active session claim",
+            details: {
+              ownerSessionId,
+              ownerBranch: "feat/owner",
+              ownerWorktree: "/owner-worktree",
+              ownerResource: "**",
+            },
+          }
+        : false;
+    },
+  });
+
+  const blocked = await startNawabariTask({
+    workspaceRoot: root,
+    store,
+    policy: BUILTIN_PRESETS.standard,
+    taskSlug: "diagnostic-read-failure",
+    branchType: "fix",
+    issueRef: "530",
+    nawabari,
+  });
+
+  assert.equal(blocked.ok, false, JSON.stringify(blocked));
+  if (blocked.ok) throw new Error("expected claim conflict");
+  assert.equal(blocked.reason, "nawabari-rejected");
+  assert.match(blocked.detail, new RegExp(`blocking sessionId=${ownerSessionId}`));
+  assert.match(blocked.detail, /branch=feat\/owner/u);
+  assert.doesNotMatch(blocked.detail, /holder unavailable/u);
+  assert.equal(
+    calls.some((args) => args[0] === "session" && ["update", "release"].includes(args[1] ?? "")),
+    false,
+    "conflict diagnostics must not mutate Nawabari claims",
+  );
+});
+
 test("task start dry-run preserves the real-start active local task blocker", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);

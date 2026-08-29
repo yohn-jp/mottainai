@@ -160,7 +160,7 @@ async function resourceClaimConflictDetail(input: {
   try {
     const evidence = await input.client.listClaimEvidence(input.workspaceRoot);
     const claims = evidence.claims.filter(
-      (claim) => ownerSessionId === undefined || claim.sessionId === ownerSessionId,
+      (claim) => ownerSessionId !== undefined && claim.sessionId === ownerSessionId,
     );
     const holders = claims
       .map((claim) => {
@@ -202,7 +202,7 @@ async function resourceClaimConflictDetail(input: {
       (errorDetails?.ownerResource === undefined ? "" : `, resource=${String(errorDetails.ownerResource)}`)
     );
   }
-  return input.error.message;
+  return ownerSessionId === undefined ? `${input.error.message}; holder unavailable` : input.error.message;
 }
 
 async function baseCommit(workspaceRoot: string, branch: string): Promise<string | undefined> {
