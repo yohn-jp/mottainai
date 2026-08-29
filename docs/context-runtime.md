@@ -27,7 +27,7 @@ Call the local `mottainai_telemetry_summary` tool during the same MCP session. T
 
 Important fields:
 
-- `projection_totals`: raw/stored/returned/omitted bytes, projected tokens, and omitted token estimates.
+- `projection_totals`: raw/stored/returned/omitted bytes, projected tokens, and omitted token estimates. `stored_bytes` is the serialized byte count of the artifact currently retained for that projection event after artifact-store bounding; it is `0` when retention is unavailable. It is not aggregate store occupancy, and bytes from artifacts evicted or replaced by the insertion are not counted for the new event.
 - `expansion`: explicit result-expansion count, bytes, and estimated tokens. `retrievals` also includes retrieval/search operations and is not the expansion denominator.
 - `read_governor`: allow/observe/warn/deny decisions and returned raw line/byte volume by requested mode and rule.
 - `burst`: pressure samples, projected/omitted bytes/tokens, and responses reduced or only observed as reducible.

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { resolveGatewayConfig } from "../config.js";
 import { InMemoryArtifactStore } from "../retrieve.js";
+import { FaultInjector } from "../test-support/fault-injection.js";
 import { finalizeToolResult } from "./adapter.js";
 import type { BurstContext } from "./adapter.js";
 import { applyResponseBudget, MIN_RESPONSE_BUDGET, projectedBytes, resolveResponseBudget } from "./budget.js";
@@ -197,6 +198,78 @@ function successResult(text: string): CallToolResult {
     },
   };
 }
+
+test("finalizeToolResult reports bounded UTF-8 artifact bytes rather than candidate bytes", () => {
+  const maxBytes = 160;
+  const store = new InMemoryArtifactStore({ createId: () => "bounded-telemetry", maxBytes });
+  const config = resolveGatewayConfig({ workspaceRoot: process.cwd() });
+  const raw = successResult("あ".repeat(100));
+  const candidateBytes = Buffer.byteLength(JSON.stringify(raw), "utf8");
+
+  const finalized = finalizeToolResult(raw, config, store);
+  const structured = finalized.result.structuredContent as Record<string, unknown>;
+  const resultId = String(structured.result_id ?? "");
+  const retainedBytes = store.getStoredArtifactBytes(resultId);
+  const retrieved = store.retrieve(resultId);
+
+  assert.ok(retrieved);
+  assert.equal(retrieved.text.includes("\uFFFD"), false);
+  assert.notEqual(retainedBytes, undefined);
+  assert.equal(finalized.stats.storedBytes, retainedBytes);
+  assert.ok(retainedBytes! <= maxBytes);
+  assert.ok(retainedBytes! < candidateBytes);
+});
+
+test("finalizeToolResult reports bytes for an ordinary artifact already retained by the store", () => {
+  const store = new InMemoryArtifactStore({ createId: () => "ordinary-telemetry" });
+  const resultId = store.putArtifact({ text: "ordinary retained artifact", metadata: { operation: "test" } });
+  const raw = successResult("ordinary");
+  (raw.structuredContent as Record<string, unknown>).result_id = resultId;
+  const config = resolveGatewayConfig({ workspaceRoot: process.cwd() });
+
+  const finalized = finalizeToolResult(raw, config, store);
+
+  assert.equal(finalized.stats.storedBytes, store.getStoredArtifactBytes(resultId));
+  assert.ok(finalized.stats.storedBytes > 0);
+});
+
+test("finalizeToolResult reports zero bytes and no retrieval claim when evidence retention fails", () => {
+  const faults = new FaultInjector({ "artifact.insert": 1 });
+  const store = new InMemoryArtifactStore({ boundaries: faults, createId: () => "failed-telemetry" });
+  const config = resolveGatewayConfig({ workspaceRoot: process.cwd() });
+
+  const finalized = finalizeToolResult(successResult("retention failure"), config, store);
+  const structured = finalized.result.structuredContent as Record<string, unknown>;
+  const projection = structured.projection as { omissions: Array<{ retrievalAvailable: boolean }> };
+
+  assert.equal(finalized.stats.storedBytes, 0);
+  assert.equal(structured.result_id, "");
+  assert.ok(projection.omissions.length > 0);
+  assert.equal(projection.omissions.every((omission) => omission.retrievalAvailable === false), true);
+  assert.equal(store.getStoredArtifactBytes("mx_failed-telemetry"), undefined);
+});
+
+test("finalizeToolResult reports the current artifact bytes across replacement and eviction", () => {
+  const config = resolveGatewayConfig({ workspaceRoot: process.cwd() });
+
+  const replacementStore = new InMemoryArtifactStore({ createId: () => "replacement-telemetry", aggregateByteBudget: 512 });
+  replacementStore.putArtifact({ text: "old", metadata: { operation: "old" } }, "mx_replacement-telemetry");
+  const replacement = finalizeToolResult(successResult("replacement".repeat(100)), config, replacementStore);
+  const replacementId = String((replacement.result.structuredContent as Record<string, unknown>).result_id ?? "");
+
+  assert.equal(replacementId, "mx_replacement-telemetry");
+  assert.equal(replacement.stats.storedBytes, replacementStore.getStoredArtifactBytes(replacementId));
+  assert.ok(replacement.stats.storedBytes <= 512);
+
+  const evictionStore = new InMemoryArtifactStore({ createId: () => "new-telemetry", aggregateByteBudget: 512 });
+  const evictedId = evictionStore.putArtifact({ text: "old".repeat(100), metadata: { operation: "old" } }, "old");
+  const inserted = finalizeToolResult(successResult("new".repeat(100)), config, evictionStore);
+  const insertedId = String((inserted.result.structuredContent as Record<string, unknown>).result_id ?? "");
+
+  assert.equal(evictionStore.getStoredArtifactBytes(evictedId), undefined);
+  assert.equal(inserted.stats.storedBytes, evictionStore.getStoredArtifactBytes(insertedId));
+  assert.ok(inserted.stats.storedBytes > 0);
+});
 
 /** proxy.ts と同じ流れ: dispatch 前に reserve し、finalize 用の BurstContext を作る。 */
 function burstContext(controller: BurstBudgetController): BurstContext {
