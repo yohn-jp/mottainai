@@ -17,28 +17,33 @@ module the local Runtime golden path
 ([`docs/nix-runtime-golden-path.md`](nix-runtime-golden-path.md)) already
 proves.
 
-## 0. Why one manual customization step is unavoidable
+## 0. The canonical disk is imported and booted unmodified
 
 The canonical Runtime module ships with `controlAuthorizedKeys = []` by
 default so "a fresh generic Runtime cannot be accessed accidentally"
 (`nix/modules/runtime.nix`). A publicly downloadable CI artifact must keep
 that default — baking a real key into a broadly distributed image would be
-publishing a reusable credential, which Issue #601 explicitly forbids.
+publishing a reusable credential, which Issue #601 explicitly forbids. That
+means the artifact as downloaded has no SSH access and no root password
+(`PermitRootLogin no`, `PasswordAuthentication no`, no root password set)
+by design.
 
-That means the artifact as downloaded has no SSH access and no root
-password (`PermitRootLogin no`, `PasswordAuthentication no`, no root
-password set) by design. Getting SSH access therefore needs exactly one
-bounded, manual, non-automated step: writing your own public key into the
-already-built disk's `/etc/ssh/authorized_keys.d/mottainai-control` file
-before first boot.
-
-This is a plain filesystem edit of one ordinary `/etc` file on the disk
-instance you downloaded — not a Nix rebuild, and not an edit to anything
-under `/nix/store` (so the disk's `nixSystemClosure` identity is untouched).
-It is the Proxmox-side equivalent of the `controlAuthorizedKeys` value the
-existing local golden path already supplies at build time
-(`nix/deployments/golden-path.nix`); a generic downloadable artifact can
-only supply it after download, since it has no per-installation build step.
+The exact bytes you downloaded and verified in §1 are what gets imported
+into Proxmox in §3 — this proof never writes to
+`mottainai-runtime-appliance.raw`, mounts it, or otherwise touches it after
+verification. Getting SSH access instead uses the Runtime contract's
+bounded first-boot input
+(`docs/linux-runtime-contract.md#ssh-service-and-bootstrap-prerequisites`,
+`nix/modules/runtime.nix`'s `mottainai-runtime-bootstrap-authorized-keys`
+service): before first boot, build a second, tiny, throwaway disk
+containing exactly one `authorized_keys` file and attach it to the VM
+alongside the untouched canonical disk (§2–§3). On first boot, the guest
+itself finds that disk by filesystem label, validates the key line(s) on
+it, and installs them into `mottainai-control`'s persistent
+`~/.ssh/authorized_keys` — never into `/etc/ssh/authorized_keys.d` (part of
+the immutable closure) and never onto the canonical disk. This is the same
+generic, provider-independent mechanism regardless of which QEMU/KVM host
+runs it; nothing here is Proxmox-specific guest behavior.
 
 ## 1. Download and verify the exact Actions artifact
 
@@ -51,7 +56,8 @@ contains:
   `mottainai.linux-runtime-appliance.v1` manifest.
 
 Verify the disk you downloaded is byte-identical to what CI built and
-verified, **before** the customization step in §2:
+verified. This is the only digest check this proof needs — the disk is
+never written to afterward, in §2 or any later step:
 
 ```sh
 jq -r '.image.sha256' runtime-appliance-manifest.json
@@ -66,38 +72,41 @@ Mottainai source revision, the immutable Nix system/closure identity, and
 the compatible Mottainai/Nawabari versions this specific disk was built
 from.
 
-## 2. One-time SSH key customization (bounded, manual, not a rebuild)
+## 2. Build a separate, tiny SSH-bootstrap disk (the canonical disk is never touched)
 
-Requires `qemu-utils` (already present on any Proxmox host: it ships QEMU).
-Generate a throwaway key for this proof if you do not already have one:
+Requires `e2fsprogs` (already present on any Proxmox host). Generate a
+throwaway key for this proof if you do not already have one:
 
 ```sh
 ssh-keygen -t ed25519 -N '' -f ./proxmox-runtime-key -C proxmox-runtime-appliance-proof
 ```
 
-Mount the downloaded disk's single partition and append your public key to
-the existing (empty) `mottainai-control` authorized-keys file, then unmount:
+Build a small, separate raw disk — labeled exactly `MTNAI_BOOT`, per
+`nix/modules/runtime.nix` — containing only your public key. This file is
+independent of, and never touches, `mottainai-runtime-appliance.raw`:
 
 ```sh
-sudo modprobe nbd max_part=8
-sudo qemu-nbd --connect=/dev/nbd0 mottainai-runtime-appliance.raw
-sudo partprobe /dev/nbd0
-sudo mount /dev/nbd0p1 /mnt
+truncate -s 4M mottainai-runtime-bootstrap.raw
+mkfs.ext4 -L MTNAI_BOOT mottainai-runtime-bootstrap.raw
 
-sudo tee /mnt/etc/ssh/authorized_keys.d/mottainai-control < ./proxmox-runtime-key.pub
-
+sudo modprobe nbd max_part=1
+sudo qemu-nbd --connect=/dev/nbd0 mottainai-runtime-bootstrap.raw
+sudo mount /dev/nbd0 /mnt
+sudo cp ./proxmox-runtime-key.pub /mnt/authorized_keys
 sudo umount /mnt
 sudo qemu-nbd --disconnect /dev/nbd0
 ```
 
-Record in your evidence that this file was empty before this step (a fresh
-CI artifact always ships with `controlAuthorizedKeys = []`) and that no
-other file was modified.
+Record in your evidence that this bootstrap disk is the only place your key
+was written, and that `mottainai-runtime-appliance.raw`'s SHA-256 (§1) is
+unchanged after this step.
 
 ## 3. Import into Proxmox
 
 Pick an unused `<vmid>` and a storage target `<storage>` (e.g. `local-lvm`)
-already configured on the host; adjust the bridge name if not `vmbr0`:
+already configured on the host; adjust the bridge name if not `vmbr0`. The
+canonical disk becomes `scsi0`; the bootstrap disk from §2 is imported and
+attached separately as `scsi1` and only ever read once, at first boot:
 
 ```sh
 qm create <vmid> \
@@ -109,7 +118,9 @@ qm create <vmid> \
   --ostype l26
 
 qm importdisk <vmid> mottainai-runtime-appliance.raw <storage>
+qm importdisk <vmid> mottainai-runtime-bootstrap.raw <storage>
 qm set <vmid> --scsi0 <storage>:vm-<vmid>-disk-0
+qm set <vmid> --scsi1 <storage>:vm-<vmid>-disk-1
 qm set <vmid> --boot order=scsi0
 qm set <vmid> --serial0 socket --vga serial0
 ```
@@ -173,10 +184,11 @@ Record, alongside console/SSH transcripts:
 
 - The full `runtime-appliance-manifest.json` from §1 (source revision, Nix
   system closure, Mottainai/Nawabari versions, disk digest).
-- Confirmation the pre-customization digest matched (§1) and that §2 was
-  the only file written before first boot.
+- The `mottainai-runtime-appliance.raw` SHA-256 from §1, and confirmation it
+  is unchanged after §2–§6 — the canonical disk is imported and booted
+  byte-identical to the Actions artifact throughout this proof.
 - Proxmox VE version, host architecture, and the exact `qm` VM
-  configuration (`qm config <vmid>`).
+  configuration (`qm config <vmid>`, including both `scsi0`/`scsi1`).
 - Boot, network, SSH, version, health, and reboot-persistence output from
   §4–§6.
 

@@ -62,6 +62,20 @@ repository-user package installations during ordinary reconciliation.
   authorized-keys mechanism suitable for remote bootstrap; ordinary
   repository-user principals are a separate allocation (later #230 child)
   and are not created by this contract.
+- `controlAuthorizedKeys` (module option, empty by default) bakes keys into
+  the closure at build time, for a specific installation built directly
+  from source. A provider-independent, credential-free published Runtime
+  Appliance artifact (Issue #601) cannot use that path without either
+  publishing a reusable credential or requiring a rebuild per operator, so
+  the contract also defines one bounded first-boot input:
+  `mottainai-runtime-bootstrap-authorized-keys.service` looks for a
+  separately attached block device labeled `MTNAI_BOOT` containing exactly
+  one `authorized_keys` file (bounded size, validated key lines only), and
+  — once, before `sshd` starts, and only while no key has been installed
+  yet — copies it into `mottainai-control`'s persistent
+  `~/.ssh/authorized_keys` (below). This never writes to the canonical
+  disk/closure itself; see
+  [`docs/runtime-appliance-proxmox.md`](runtime-appliance-proxmox.md).
 
 ## `mottainai-control` trusted identity and protected paths
 
@@ -102,7 +116,8 @@ bump as long as the surface stays satisfied.
 
 - **Persistent, system/control-owned**: `mottainai-control`'s state
   directory (Nawabari session/claim registry, Mottainai brain state,
-  control SSH host keys). Survives Runtime reconciliation.
+  control SSH host keys, and — if installed via the bounded bootstrap input
+  above — `~/.ssh/authorized_keys`). Survives Runtime reconciliation.
 - **Persistent, repository-user-owned**: repository checkouts, HOME, tool
   and package caches. Survives Runtime reconciliation and is never reverted
   by it. Explicitly outside destructive system-generation replacement.

@@ -20,11 +20,17 @@ pkgs.testers.nixosTest {
         runtimeIdentity = "test-runtime";
         controlAuthorizedKeys = [ "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyForRuntimeContract test" ];
       };
+      # A second, blank virtual disk this test formats/labels/populates
+      # itself to exercise the bounded first-boot SSH-key bootstrap input
+      # (Issue #601) without touching the canonical disk image under test.
+      environment.systemPackages = [ pkgs.e2fsprogs ];
+      virtualisation.emptyDiskImages = [ 4 ];
     };
 
   testScript = ''
     start_all()
     runtime.wait_for_unit("multi-user.target")
+    build_identity_before_bootstrap = runtime.succeed("readlink -f /run/current-system").strip()
 
     with subtest("sshd is active with password auth disabled"):
         runtime.wait_for_unit("sshd.service")
@@ -70,6 +76,46 @@ pkgs.testers.nixosTest {
         runtime.succeed(
             "systemctl is-active --quiet mottainai-runtime-health.service"
             " || systemctl show -p Result mottainai-runtime-health.service | grep -q Result=success"
+        )
+
+    with subtest("bounded first-boot SSH key bootstrap installs a validated key into persistent state, not the canonical closure"):
+        runtime.succeed("mkfs.ext4 -L MTNAI_BOOT /dev/vdb")
+        runtime.succeed("mkdir -p /mnt/bootstrap && mount /dev/vdb /mnt/bootstrap")
+        runtime.succeed(
+            "echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBootstrapTestKeyForRuntimeContract bootstrap'"
+            " > /mnt/bootstrap/authorized_keys"
+        )
+        runtime.succeed("umount /mnt/bootstrap")
+        runtime.succeed("systemctl start mottainai-runtime-bootstrap-authorized-keys.service")
+        runtime.succeed(
+            "systemctl is-active --quiet mottainai-runtime-bootstrap-authorized-keys.service"
+            " || systemctl show -p Result mottainai-runtime-bootstrap-authorized-keys.service | grep -q Result=success"
+        )
+        runtime.succeed(
+            "grep -q 'AAAAC3NzaC1lZDI1NTE5AAAAIBootstrapTestKeyForRuntimeContract'"
+            " /var/lib/mottainai-control/.ssh/authorized_keys"
+        )
+        mode = runtime.succeed("stat -c '%a' /var/lib/mottainai-control/.ssh/authorized_keys").strip()
+        assert mode == "600", f"bootstrap authorized_keys must be 0600, got {mode}"
+        dir_mode = runtime.succeed("stat -c '%a' /var/lib/mottainai-control/.ssh").strip()
+        assert dir_mode == "700", f"bootstrap .ssh dir must be 0700, got {dir_mode}"
+        runtime.succeed("sshd -T | grep -qi '\\.ssh/authorized_keys'")
+
+    with subtest("re-running the bootstrap after a key already exists does not clobber later manual key management"):
+        runtime.succeed(
+            "echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIManuallyAddedKeyForRuntimeContract manual'"
+            " >> /var/lib/mottainai-control/.ssh/authorized_keys"
+        )
+        runtime.succeed("systemctl start mottainai-runtime-bootstrap-authorized-keys.service")
+        runtime.succeed(
+            "grep -q 'AAAAC3NzaC1lZDI1NTE5AAAAIManuallyAddedKeyForRuntimeContract'"
+            " /var/lib/mottainai-control/.ssh/authorized_keys"
+        )
+
+    with subtest("the canonical closure/build identity is unaffected by the bootstrap key installation"):
+        after = runtime.succeed("readlink -f /run/current-system").strip()
+        assert after == build_identity_before_bootstrap, (
+            "installing a bootstrap SSH key must never rebuild or mutate the canonical system closure"
         )
   '';
 }
