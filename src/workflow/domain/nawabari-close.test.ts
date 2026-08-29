@@ -212,6 +212,14 @@ test("reconcileNawabariClosures reports a never-attempted task as a non-blocking
   assert.equal(result.blocked.length, 0);
   assert.equal(result.diagnostics.length, 1);
   assert.match(result.diagnostics[0]!.detail, /close identity is ambiguous/);
+  assert.deepEqual(result.tasks, [
+    {
+      taskId: started.task.taskId,
+      status: "not-reconciled",
+      reason: "provider-identity-ambiguous",
+      detail: `task ${started.task.taskId} has 0 provider records; close identity is ambiguous`,
+    },
+  ]);
 });
 
 test("reconciliation never promotes or closes on a mismatched observed head, and leaves an unrelated session untouched", async (t) => {
@@ -265,6 +273,10 @@ test("reconciliation never promotes or closes on a mismatched observed head, and
   });
   assert.equal(result.promoted, 0);
   assert.equal(result.closed, 0);
+  assert.deepEqual(
+    result.tasks.map(({ taskId, status, reason }) => ({ taskId, status, reason })),
+    [{ taskId: target.task.taskId, status: "not-reconciled", reason: "provider-head-mismatch" }],
+  );
   assert.equal(store.getTask(target.task.taskId)?.lifecycleState, "pull-request-open");
   assert.equal(sessions.get(target.task.nawabariSessionId!)?.state, "active");
   assert.equal(sessions.get(unrelatedSessionId)?.state, "active");

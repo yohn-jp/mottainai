@@ -225,6 +225,27 @@ export async function closeNawabariExecution(input: {
   }
 }
 
+export type NawabariClosureTaskResultReason =
+  | "already-closed"
+  | "closed"
+  | "provider-identity-ambiguous"
+  | "provider-observation-unavailable"
+  | "provider-not-integrated"
+  | "provider-head-mismatch"
+  | "lifecycle-transition-blocked"
+  | "integrated-task-persistence-failed"
+  | "provider-identity-changed"
+  | "task-not-merged"
+  | "close-blocked"
+  | "reconciliation-budget-exhausted";
+
+export interface NawabariClosureTaskResult {
+  taskId: string;
+  status: "reconciled" | "not-reconciled";
+  reason: NawabariClosureTaskResultReason;
+  detail: string;
+}
+
 export interface ReconcileNawabariClosuresResult {
   attempted: number;
   closed: number;
@@ -232,6 +253,8 @@ export interface ReconcileNawabariClosuresResult {
   blocked: Array<{ taskId: string; detail: string }>;
   /** Non-blocking observations (e.g. a task that never reached a close attempt); these never stop a new task start. */
   diagnostics: Array<{ taskId: string; detail: string }>;
+  /** Bounded per-task outcome, including tasks skipped because a durable result already exists. */
+  tasks: NawabariClosureTaskResult[];
 }
 
 /**
@@ -258,8 +281,19 @@ export async function reconcileNawabariClosures(input: {
     promoted: 0,
     blocked: [],
     diagnostics: [],
+    tasks: [],
   };
   if (limit === 0) return result;
+
+  const recordTask = (
+    taskId: string,
+    status: "reconciled" | "not-reconciled",
+    reason: NawabariClosureTaskResultReason,
+    detail: string,
+  ): void => {
+    if (result.tasks.some((task) => task.taskId === taskId)) return;
+    result.tasks.push({ taskId, status, reason, detail });
+  };
 
   const providerObserver = input.providerObserver ?? createPullRequestObserver(input.workspaceRoot);
   const tasks = input.store
@@ -277,7 +311,15 @@ export async function reconcileNawabariClosures(input: {
   for (const originalTask of tasks) {
     // Durable closure is a local idempotency fact. Skip it before consuming
     // either the provider-observation or physical-close budget.
-    if (input.store.getNawabariCloseReconciliation(originalTask.taskId)?.state === "closed") continue;
+    if (input.store.getNawabariCloseReconciliation(originalTask.taskId)?.state === "closed") {
+      recordTask(
+        originalTask.taskId,
+        "reconciled",
+        "already-closed",
+        "Nawabari close reconciliation is already durably closed",
+      );
+      continue;
+    }
 
     let task = originalTask;
     let records = input.store.listPullRequestRecordsForTask(task.taskId);
@@ -287,46 +329,64 @@ export async function reconcileNawabariClosures(input: {
       // that never merged, or a detached record from pr_records.task_id's
       // ON DELETE SET NULL) is provider-identity ambiguity, not a close failure.
       // Never let it block every other task's start in this repository instance.
+      const detail = `task ${task.taskId} has ${records.length} provider records; close identity is ambiguous`;
       result.diagnostics.push({
         taskId: task.taskId,
-        detail: `task ${task.taskId} has ${records.length} provider records; close identity is ambiguous`,
+        detail,
       });
+      recordTask(task.taskId, "not-reconciled", "provider-identity-ambiguous", detail);
       continue;
     }
     let providerRecord = records[0]!;
     if (task.lifecycleState !== "merged") {
       let integrated = providerRecord.lifecycleState === "merged";
       let observedMergeRevision: string | undefined;
+      let providerReason: NawabariClosureTaskResultReason = "provider-not-integrated";
+      let providerObservationPerformed = false;
       if (!integrated && providerObservations < limit) {
         providerObservations += 1;
+        providerObservationPerformed = true;
         let observed;
         try {
           observed = await providerObserver(providerRecord);
         } catch (error) {
-          result.diagnostics.push({
-            taskId: task.taskId,
-            detail: `provider reconciliation unavailable for task ${task.taskId}: ${errorDetail(error)}`,
-          });
+          const detail = `provider reconciliation unavailable for task ${task.taskId}: ${errorDetail(error)}`;
+          result.diagnostics.push({ taskId: task.taskId, detail });
+          recordTask(task.taskId, "not-reconciled", "provider-observation-unavailable", detail);
           continue;
         }
         if (!observed.ok) {
-          result.diagnostics.push({
-            taskId: task.taskId,
-            detail:
-              observed.detail ??
-              `provider reconciliation unavailable for ${providerRecord.provider}/${providerRecord.repositoryId}#${providerRecord.prNumber}`,
-          });
+          const detail =
+            observed.detail ??
+            `provider reconciliation unavailable for ${providerRecord.provider}/${providerRecord.repositoryId}#${providerRecord.prNumber}`;
+          result.diagnostics.push({ taskId: task.taskId, detail });
+          recordTask(task.taskId, "not-reconciled", "provider-observation-unavailable", detail);
           continue;
         }
         integrated = observed.lifecycleState === "merged" && observed.headSha === providerRecord.headSha;
         if (integrated) observedMergeRevision = observed.mergeRevision;
-        else if (observed.lifecycleState === "merged")
+        else if (observed.lifecycleState === "merged") {
+          providerReason = "provider-head-mismatch";
           result.diagnostics.push({
             taskId: task.taskId,
             detail: `task ${task.taskId} provider merge head does not match the persisted task-owned head`,
           });
+        }
       }
-      if (!integrated) continue;
+      if (!integrated) {
+        const reason = providerObservationPerformed ? providerReason : "reconciliation-budget-exhausted";
+        recordTask(
+          task.taskId,
+          "not-reconciled",
+          reason,
+          reason === "provider-head-mismatch"
+            ? `task ${task.taskId} provider merge head does not match the persisted task-owned head`
+            : reason === "reconciliation-budget-exhausted"
+              ? `task ${task.taskId} was not provider-observed because the reconciliation budget was exhausted`
+              : `task ${task.taskId} provider state does not prove an integrated task-owned merge`,
+        );
+        continue;
+      }
       try {
         if (observedMergeRevision !== undefined)
           providerRecord = input.store.recordPullRequestMergeRevision(providerRecord.recordId, observedMergeRevision);
@@ -334,30 +394,61 @@ export async function reconcileNawabariClosures(input: {
           providerRecord = input.store.updatePullRequestLifecycleState(providerRecord.recordId, "merged");
         const transitioned = transitionTask(input.store, task.taskId, "merged");
         if (!transitioned.ok) {
-          result.blocked.push({ taskId: task.taskId, detail: transitioned.blocked.blockingRule });
+          const detail = transitioned.blocked.blockingRule;
+          result.blocked.push({ taskId: task.taskId, detail });
+          recordTask(task.taskId, "not-reconciled", "lifecycle-transition-blocked", detail);
           continue;
         }
         task = transitioned.task;
         result.promoted += 1;
       } catch (error) {
+        const detail = `integrated task persistence failed: ${errorDetail(error)}`;
         result.blocked.push({
           taskId: task.taskId,
-          detail: `integrated task persistence failed: ${errorDetail(error)}`,
+          detail,
         });
+        recordTask(task.taskId, "not-reconciled", "integrated-task-persistence-failed", detail);
         continue;
       }
     }
     records = input.store.listPullRequestRecordsForTask(task.taskId);
     if (records.length !== 1) {
+      const detail = `task ${task.taskId} provider identity changed during reconciliation`;
       result.blocked.push({
         taskId: task.taskId,
-        detail: `task ${task.taskId} provider identity changed during reconciliation`,
+        detail,
       });
+      recordTask(task.taskId, "not-reconciled", "provider-identity-changed", detail);
       continue;
     }
     providerRecord = records[0]!;
-    if (task.lifecycleState !== "merged" || providerRecord.lifecycleState !== "merged") continue;
-    if (result.attempted >= limit) break;
+    if (task.lifecycleState !== "merged" || providerRecord.lifecycleState !== "merged") {
+      const detail = `task ${task.taskId} is not in a merged task/provider state after reconciliation`;
+      recordTask(task.taskId, "not-reconciled", "task-not-merged", detail);
+      continue;
+    }
+    if (result.attempted >= limit) {
+      const detail = `task ${task.taskId} was not close-reconciled because the reconciliation budget was exhausted`;
+      recordTask(task.taskId, "not-reconciled", "reconciliation-budget-exhausted", detail);
+      const currentIndex = tasks.findIndex((candidate) => candidate.taskId === originalTask.taskId);
+      for (const remaining of tasks.slice(currentIndex + 1)) {
+        if (input.store.getNawabariCloseReconciliation(remaining.taskId)?.state === "closed")
+          recordTask(
+            remaining.taskId,
+            "reconciled",
+            "already-closed",
+            "Nawabari close reconciliation is already durably closed",
+          );
+        else
+          recordTask(
+            remaining.taskId,
+            "not-reconciled",
+            "reconciliation-budget-exhausted",
+            `task ${remaining.taskId} was not close-reconciled because the reconciliation budget was exhausted`,
+          );
+      }
+      break;
+    }
 
     result.attempted += 1;
     const closed = await closeNawabariExecution({
@@ -367,8 +458,18 @@ export async function reconcileNawabariClosures(input: {
       task,
       providerRecord,
     });
-    if (closed.ok) result.closed += 1;
-    else result.blocked.push({ taskId: task.taskId, detail: closed.detail });
+    if (closed.ok) {
+      result.closed += 1;
+      recordTask(
+        task.taskId,
+        "reconciled",
+        "closed",
+        `Nawabari close reconciliation completed for task ${task.taskId}`,
+      );
+    } else {
+      result.blocked.push({ taskId: task.taskId, detail: closed.detail });
+      recordTask(task.taskId, "not-reconciled", "close-blocked", closed.detail);
+    }
   }
   return result;
 }

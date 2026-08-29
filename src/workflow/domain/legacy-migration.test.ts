@@ -47,30 +47,30 @@ function fakeNawabari(session: NawabariSession): NawabariExecutionClient {
   } as unknown as NawabariExecutionClient;
 }
 
-test("legacy complete requires terminal lifecycle and independently observed physical absence", async (t) => {
+test("legacy complete abandons an active task after independently observing physical absence", async (t) => {
   const fixture = legacyTask(t, "complete");
+  assert.equal(transitionTask(fixture.store, fixture.task.taskId, "active").ok, true);
   const result = await migrateLegacyWorkflowTask({
     workspaceRoot: fixture.root,
     store: fixture.store,
     taskId: fixture.task.taskId,
     mode: "complete",
-  });
-  if (result.ok) throw new Error("expected non-terminal legacy task to be rejected");
-  assert.equal(result.reason, "legacy-task-not-terminal");
-
-  const terminal = terminalTask(fixture.store, fixture.task);
-  const completed = await migrateLegacyWorkflowTask({
-    workspaceRoot: fixture.root,
-    store: fixture.store,
-    taskId: terminal.taskId,
-    mode: "complete",
     now: () => 203,
   });
-  if (!completed.ok) throw new Error(completed.detail);
-  assert.equal(completed.task.lifecycleState, "cleaned");
-  assert.equal(completed.proof.authority, "nawabari");
-  assert.equal(completed.proof.observedAt, 203);
-  assert.deepEqual(completed.proof.worktreeRowIds, []);
+  if (!result.ok) throw new Error(result.detail);
+  assert.equal(result.task.lifecycleState, "abandoned");
+  assert.equal(result.proof.authority, "nawabari");
+  assert.equal(result.proof.observedAt, 203);
+  assert.deepEqual(result.proof.worktreeRowIds, []);
+
+  const cleaned = await migrateLegacyWorkflowTask({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    taskId: fixture.task.taskId,
+    mode: "complete",
+  });
+  if (!cleaned.ok) throw new Error(cleaned.detail);
+  assert.equal(cleaned.task.lifecycleState, "cleaned");
 });
 
 test("legacy complete fails closed when an old physical row or path remains", async (t) => {
@@ -100,6 +100,35 @@ test("legacy complete fails closed when an old physical row or path remains", as
   assert.deepEqual(result.proof?.activeWorktreeRowIds, [before[0]!.worktreeId]);
   assert.deepEqual(fixture.store.listWorktreesForTask(terminal.taskId), before);
   assert.equal(fixture.store.getTask(terminal.taskId)?.lifecycleState, "abandoned");
+});
+
+test("legacy complete fails closed when a recorded legacy branch still exists without a worktree", async (t) => {
+  const fixture = legacyTask(t, "branch-present");
+  assert.equal(transitionTask(fixture.store, fixture.task.taskId, "active").ok, true);
+  const branch = "fix/203-surviving-branch";
+  runGit(["branch", branch], fixture.root);
+  const reserved = fixture.store.reserveWorktree({
+    taskId: fixture.task.taskId,
+    instanceId: fixture.identity.instanceId,
+    branchName: branch,
+    canonicalPath: createTempDir(t, "mottainai-legacy-removed-row-"),
+    baseBranch: "main",
+    baseCommit: runGit(["rev-parse", "HEAD"], fixture.root),
+  });
+  if (!reserved.ok) throw new Error(reserved.reason);
+  fixture.store.activateWorktree(reserved.worktree.worktreeId);
+  fixture.store.markWorktreeRemoved(reserved.worktree.worktreeId);
+
+  const result = await migrateLegacyWorkflowTask({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    taskId: fixture.task.taskId,
+    mode: "complete",
+  });
+  if (result.ok) throw new Error("expected surviving legacy branch to block completion");
+  assert.equal(result.reason, "legacy-physical-state-present");
+  assert.deepEqual(result.proof?.existingLegacyBranches, [branch]);
+  assert.equal(fixture.store.getTask(fixture.task.taskId)?.lifecycleState, "active");
 });
 
 test("legacy adopt attaches one proven Nawabari session without mutating legacy physical rows", async (t) => {

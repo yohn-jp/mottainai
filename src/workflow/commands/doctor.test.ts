@@ -307,6 +307,36 @@ test("workflow doctor requests Nawabari close reconciliation only when explicitl
   });
   assert.equal(report.mode, "reconcile");
   assert.equal(report.checks.find((check) => check.name === "repair-mode")?.message.startsWith("reconcile"), true);
+  assert.deepEqual(
+    report.closureReconciliation?.tasks.map(({ taskId, status, reason }) => ({ taskId, status, reason })),
+    [{ taskId: fixture.task.taskId, status: "reconciled", reason: "closed" }],
+  );
   assert.equal(fixture.sessions.get(fixture.task.nawabariSessionId!)?.state, "closed");
   assert.equal(fixture.store.getNawabariCloseReconciliation(fixture.task.taskId)?.state, "closed");
+});
+
+test("workflow doctor reports the task-level reason when a close candidate is not integrated", async (t) => {
+  const fixture = await mergedDoctorFixture(t);
+  const record = fixture.store.listPullRequestRecordsForTask(fixture.task.taskId)[0]!;
+  fixture.store.updatePullRequestLifecycleState(record.recordId, "open");
+  fixture.store.updateTaskLifecycleState(fixture.task.taskId, "pull-request-open");
+  const report = await collectWorkflowDoctorReport({
+    workspaceRoot: fixture.root,
+    store: fixture.store,
+    reconcileClosures: true,
+    dependencies: {
+      reconcile: async () => cleanReport(),
+      inspectNawabari: cleanNawabari,
+      reconcileClosures: (input) =>
+        reconcileNawabariClosures({
+          ...input,
+          client: fixture.nawabari,
+          providerObserver: async () => ({ ok: true, lifecycleState: "open", headSha: record.headSha }),
+        }),
+    },
+  });
+  assert.deepEqual(
+    report.closureReconciliation?.tasks.map(({ taskId, status, reason }) => ({ taskId, status, reason })),
+    [{ taskId: fixture.task.taskId, status: "not-reconciled", reason: "provider-not-integrated" }],
+  );
 });

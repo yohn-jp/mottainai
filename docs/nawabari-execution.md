@@ -47,15 +47,17 @@ made through the installed JSON contract; the retired Mottainai mutation path
 is not a fallback for managed tasks. Existing pre-cutover tasks without a
 Nawabari reference are never silently adopted. Use the explicit `task
 migrate-legacy` CLI command or `mottainai_workflow_task_migrate_legacy` MCP
-tool. `complete` requires terminal task state and independently observed
-absence of every legacy physical row and path. `adopt` requires an explicitly
-named Nawabari session whose repository, worktree, branch, and active state
-match the legacy record; ambiguous or unprovable identity fails closed. Neither
-mode mutates a legacy worktree, branch, lease, or cleanup row. `workflow doctor`
+tool. `complete` can abandon an active task after independently observing
+absence of every legacy physical row, path, and recorded branch; an
+already-terminal task is migrated to `cleaned`. `adopt` requires an explicitly named Nawabari session
+whose repository, worktree, branch, and active state match the legacy record;
+ambiguous or unprovable identity fails closed. Neither mode mutates a legacy
+worktree, branch, lease, or cleanup row. `workflow doctor`
 labels any observed legacy physical rows as non-authoritative. Its default run
 stays strictly read-only; only an explicit `--reconcile-closures` opt-in (CLI)
 or `reconcileClosures: true` (MCP) also requests Nawabari's normal safe-close
-for the caller's own prior merged executions.
+for the caller's own prior merged executions and returns bounded per-task
+outcomes, including reasons for tasks that remain unreconciled.
 
 The companion is discovered with `nawabari capabilities --json`. Mottainai does
 not auto-install it. Missing, incompatible, malformed, timed-out, or rejected
