@@ -39,6 +39,23 @@ test("transport factory preserves stdio and creates Streamable HTTP transports",
   );
 });
 
+test("transport factory rejects configured HTTP userinfo before creating a transport", async () => {
+  const url = "https://direct-user:direct-password@example.test/mcp";
+  await assert.rejects(
+    () => createUpstreamTransport({
+      name: "remote",
+      transport: "streamableHttp",
+      url,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /invalid upstream url: remote; userinfo is not allowed/);
+      assert.doesNotMatch(error.message, /direct-user|direct-password|example\.test/iu);
+      return true;
+    },
+  );
+});
+
 test("remote fetch disables redirect following and forwards credential headers", async () => {
   const originalFetch = globalThis.fetch;
   let requestInit: RequestInit | undefined;
