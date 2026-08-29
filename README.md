@@ -42,20 +42,20 @@ Requires Node.js >= 22.13 and `rg` (ripgrep) on `PATH`.
 Initialize a workspace:
 
 ```bash
-npx -y mottainai@0.5.0 init
+npx -y mottainai@0.6.0 init
 ```
 
 Check the runtime, configuration, repository state, and managed companions:
 
 ```bash
-npx -y mottainai@0.5.0 doctor
-npx -y mottainai@0.5.0 doctor --json
+npx -y mottainai@0.6.0 doctor
+npx -y mottainai@0.6.0 doctor --json
 ```
 
 For governed development, start work through the task boundary rather than creating an ad-hoc branch/worktree:
 
 ```bash
-npx -y mottainai@0.5.0 task run my-fix \
+npx -y mottainai@0.6.0 task run my-fix \
   --type fix \
   --issue 123 \
   --agent pi
@@ -64,8 +64,8 @@ npx -y mottainai@0.5.0 task run my-fix \
 Or launch the local Manager UI for durable parallel sessions:
 
 ```bash
-npx -y mottainai@0.5.0 manager
-npx -y mottainai@0.5.0 manager --no-open --port 4318
+npx -y mottainai@0.6.0 manager
+npx -y mottainai@0.6.0 manager --no-open --port 4318
 ```
 
 The Manager previews bounded resource scope, performs Nawabari claim preflight, and keeps UI state non-authoritative. Nawabari remains the owner of the physical worktree, branch, and claims.
@@ -75,19 +75,19 @@ The Manager previews bounded resource scope, performs Nawabari claim preflight, 
 The bare command is the MCP stdio entry point:
 
 ```bash
-npx -y mottainai@0.5.0
+npx -y mottainai@0.6.0
 ```
 
 Claude Code:
 
 ```bash
-claude mcp add -s user mottainai -- npx -y mottainai@0.5.0 serve --config /absolute/path/to/mottainai.config.json
+claude mcp add -s user mottainai -- npx -y mottainai@0.6.0 serve --config /absolute/path/to/mottainai.config.json
 ```
 
 Codex:
 
 ```bash
-codex mcp add mottainai -- npx -y mottainai@0.5.0 serve --config /absolute/path/to/mottainai.config.json
+codex mcp add mottainai -- npx -y mottainai@0.6.0 serve --config /absolute/path/to/mottainai.config.json
 ```
 
 `mottainai init` can generate the registration command for the detected client. Use `--latest` only when intentionally following the newest npm release rather than a pinned version.
@@ -106,7 +106,7 @@ Example client configuration:
       "args": [
         "-y",
         "-p",
-        "mottainai@0.5.0",
+        "mottainai@0.6.0",
         "mottainai-mcp",
         "--config",
         "/absolute/path/to/mottainai.config.json"
@@ -118,7 +118,7 @@ Example client configuration:
 
 The four delegation tools are `mottainai_delegate_work`, `mottainai_inspect_work`, `mottainai_continue_work`, and `mottainai_cancel_work`. `mottainai_harness_capabilities` returns the versioned status/error vocabulary and the same launch/discovery contract. Delegation returns an opaque stable `workId`; later operations use only that ID. Inspect results are bounded and contain lifecycle/evidence/PR metadata, never raw logs, private registry state, credentials, runtime names, or filesystem paths.
 
-Majiwari is an optional future consumer of this standard command/args plus `tools/list` contract; it is not a runtime dependency and does not own orchestration. See [the native delegation contract](docs/mcp-harness-delegation.md).
+Majiwari can optionally launch the installed `mottainai-mcp` entrypoint and publish this surface transparently. It remains a transport/publication layer, is not a runtime dependency, and does not own Mottainai orchestration. See [the native delegation contract](docs/mcp-harness-delegation.md).
 
 ## Managed workflow
 
@@ -249,6 +249,7 @@ The bounded agent execution contract lives in [AGENTS.md](AGENTS.md). Contributo
 
 ## Documentation
 
+- [0.6.0 release notes](docs/releases/0.6.0.md)
 - [0.5.0 release notes](docs/releases/0.5.0.md)
 - [0.4.0 release notes](docs/releases/0.4.0.md)
 - [0.3.1 release notes](docs/releases/0.3.1.md)
