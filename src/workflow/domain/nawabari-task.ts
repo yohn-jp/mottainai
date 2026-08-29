@@ -3,7 +3,13 @@ import { runProgram } from "../../subprocess.js";
 import { decideProtectedBranchOperation } from "../policy/protected-branch.js";
 import type { WorkflowPolicyDocument } from "../policy/schema.js";
 import { validateBranchNameAgainstGovernance } from "../governance/branch.js";
-import { buildWorktreeNaming, decideBootstrap, resolveCanonicalWorktreePath, runBootstrap } from "../git/worktree.js";
+import {
+  buildWorktreeNaming,
+  decideBootstrap,
+  resolveCanonicalWorktreePath,
+  runBootstrap,
+  WorktreeNamingError,
+} from "../git/worktree.js";
 import { resolveRepositoryIdentity, resolveRepositoryIdentityPaths, type RepositoryIdentity } from "./identity.js";
 import { resolveRepoState } from "./repo-state.js";
 import {
@@ -603,11 +609,21 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
       detail: `policy.worktree.issueRequired=${input.policy.worktree.issueRequired} but no issueRef was provided`,
     };
 
-  const branch = buildWorktreeNaming({
-    branchType: input.branchType,
-    issueRef: input.issueRef ?? "unlinked",
-    taskSlug: input.taskSlug,
-  }).branchName;
+  let branch: string;
+  try {
+    branch = buildWorktreeNaming({
+      branchType: input.branchType,
+      issueRef: input.issueRef ?? "unlinked",
+      taskSlug: input.taskSlug,
+    }).branchName;
+  } catch (error) {
+    if (!(error instanceof WorktreeNamingError)) throw error;
+    return {
+      ok: false,
+      reason: "invalid-branch-name",
+      detail: `generated branch was rejected before Nawabari mutation: ${error.message}`,
+    };
+  }
   const branchValidation = await validateBranchNameAgainstGovernance(
     branch,
     identity?.canonicalRepositoryRoot ?? identityPaths.canonicalRepositoryRoot,

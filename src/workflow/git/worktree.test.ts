@@ -7,7 +7,15 @@ import { createTempDir } from "../../test-support/tmp-dir.js";
 import { createTempGitRepo, runGit } from "../../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../../test-support/workflow-store.js";
 import type { RepositoryInstanceId } from "../domain/identity.js";
-import { buildWorktreeNaming, createWorktree, decideBootstrap, detectWorktreeCollisions, ensureCanonicalManagedWorktreeRoot, runBootstrap } from "./worktree.js";
+import {
+  buildWorktreeNaming,
+  createWorktree,
+  decideBootstrap,
+  detectWorktreeCollisions,
+  ensureCanonicalManagedWorktreeRoot,
+  runBootstrap,
+  WorktreeNamingError,
+} from "./worktree.js";
 
 test("ensureCanonicalManagedWorktreeRoot rejects a symlink escape at the .mottainai segment before creating anything outside the root", (t) => {
   const root = createTempDir(t, "mottainai-managed-root-test-");
@@ -48,6 +56,23 @@ test("buildWorktreeNaming projects explicit structured input into the governance
   const naming = buildWorktreeNaming({ branchType: "fix", issueRef: "33", taskSlug: "my-task" });
   assert.equal(naming.branchName, "fix/33-my-task");
   assert.equal(naming.relativePath, path.join(".mottainai", "worktrees", "fix-33-my-task"));
+});
+
+test("buildWorktreeNaming rejects a task slug that repeats the issue identity prefix", () => {
+  assert.throws(
+    () => buildWorktreeNaming({ branchType: "fix", issueRef: "378", taskSlug: "378-nawabari-integration-close" }),
+    (error: unknown) => {
+      assert.ok(error instanceof WorktreeNamingError);
+      assert.equal(error.code, "duplicated-issue-identity");
+      assert.match(error.message, /repeats issue identity/);
+      return true;
+    },
+  );
+});
+
+test("buildWorktreeNaming preserves unrelated numeric content in a descriptive slug", () => {
+  const naming = buildWorktreeNaming({ branchType: "fix", issueRef: "378", taskSlug: "manager-510-unrelated" });
+  assert.equal(naming.branchName, "fix/378-manager-510-unrelated");
 });
 
 test("createWorktree succeeds against a real repository and records the base commit", async (t) => {

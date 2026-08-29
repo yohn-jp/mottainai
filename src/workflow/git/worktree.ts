@@ -26,6 +26,15 @@ export interface WorktreeNamingInput {
   taskSlug: string;
 }
 
+export class WorktreeNamingError extends Error {
+  readonly code = "duplicated-issue-identity";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "WorktreeNamingError";
+  }
+}
+
 export const MANAGED_WORKTREE_DIR_RELATIVE = path.join(".mottainai", "worktrees");
 
 export type ManagedWorktreeRootResult =
@@ -92,8 +101,14 @@ export function ensureCanonicalManagedWorktreeRoot(canonicalRepositoryRoot: stri
 }
 
 /** branch rule は governance authority 側で検証する。ここでは structured input を
- * そのまま `<type>/<issue>-<slug>` 候補へ射影し、rule の複製や推測を行わない。 */
+ * `<type>/<issue>-<slug>` 候補へ射影する。同じIssue identityをslugの先頭に
+ * 重複させた候補だけは、意味が変わるため投影前に拒否する。 */
 export function buildWorktreeNaming(input: WorktreeNamingInput): WorktreeNaming {
+  if (input.taskSlug === input.issueRef || input.taskSlug.startsWith(`${input.issueRef}-`)) {
+    throw new WorktreeNamingError(
+      `task slug "${input.taskSlug}" repeats issue identity "${input.issueRef}"; use a descriptive slug without the issue prefix`,
+    );
+  }
   const branchName = `${input.branchType}/${input.issueRef}-${input.taskSlug}`;
   const relativePath = path.join(MANAGED_WORKTREE_DIR_RELATIVE, branchName.replace(/\//g, "-"));
   return { branchName, relativePath };

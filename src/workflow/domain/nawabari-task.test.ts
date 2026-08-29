@@ -9,6 +9,34 @@ import { fakeNawabari } from "../../test-support/nawabari-fixture.js";
 import { createTempGitRepo } from "../../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../../test-support/workflow-store.js";
 
+test("task start rejects a duplicated issue identity before Nawabari mutation", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const calls: string[][] = [];
+  const result = await startNawabariTask({
+    workspaceRoot: root,
+    store,
+    policy: BUILTIN_PRESETS.standard,
+    taskSlug: "378-nawabari-integration-close",
+    branchType: "fix",
+    issueRef: "378",
+    nawabari: fakeNawabari(root, { calls }),
+  });
+
+  assert.equal(result.ok, false, JSON.stringify(result));
+  if (result.ok) return;
+  assert.equal(result.reason, "invalid-branch-name");
+  assert.match(result.detail, /repeats issue identity/);
+  assert.deepEqual(store.listTasks(), []);
+  assert.equal(
+    calls.some(
+      (args) => args[0] === "session" && ["create", "claim", "update", "release", "close"].includes(args[1] ?? ""),
+    ),
+    false,
+    "duplicate identity must be rejected before Nawabari mutation",
+  );
+});
+
 test("task start enriches a resource claim conflict with Nawabari and local task identity", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
