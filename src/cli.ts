@@ -127,6 +127,7 @@ add options:
   --capabilities "a,b"  declared evidence capabilities
   --profile name        profile this upstream belongs to
   --disabled            register without enabling
+  use --option=value when a value itself begins with --
 
 global:
   --config path         config file; defaults to MOTTAINAI_CONFIG or ./mottainai.config.json
@@ -169,9 +170,25 @@ const RUNTIME_USAGE = `usage:
   mottainai runtime status [--state-directory path] [--json]
 `;
 
+interface FlagValue {
+  found: boolean;
+  inline: boolean;
+  value?: string;
+}
+
+function findFlag(argv: string[], name: string): FlagValue {
+  const option = `--${name}`;
+  const inlinePrefix = `${option}=`;
+  const index = argv.findIndex((argument) => argument === option || argument.startsWith(inlinePrefix));
+  if (index === -1) return { found: false, inline: false };
+  const argument = argv[index];
+  if (argument.startsWith(inlinePrefix))
+    return { found: true, inline: true, value: argument.slice(inlinePrefix.length) };
+  return { found: true, inline: false, value: argv[index + 1] };
+}
+
 function flag(argv: string[], name: string): string | undefined {
-  const index = argv.indexOf(`--${name}`);
-  return index === -1 ? undefined : argv[index + 1];
+  return findFlag(argv, name).value;
 }
 
 function hasFlag(argv: string[], name: string): boolean {
@@ -179,14 +196,20 @@ function hasFlag(argv: string[], name: string): boolean {
 }
 
 /** `--name` が渡された場合、値が欠落または別 flag に見える（`--` 始まり）なら fail する。
+ * `--name=value` は option-looking な値を明示的に渡す transport として許可する。
  * 素の `flag()` はそのまま返すため、`--workspace` 抜けが cwd への静かな fallback に、
  * `--workspace --issue 12` が `--issue` を workspace 値として誤読することにつながる
  * （`task start` は worktree/branch を作るため、誤った workspace への書き込みになる）。 */
 function requireFlagValue(argv: string[], name: string): string | undefined {
-  if (!hasFlag(argv, name)) return undefined;
-  const value = flag(argv, name);
-  if (value === undefined || value.startsWith("--")) fail(`missing value for --${name}`);
-  return value;
+  const parsed = findFlag(argv, name);
+  if (!parsed.found) return undefined;
+  if (
+    parsed.value === undefined ||
+    (parsed.inline && parsed.value === "") ||
+    (!parsed.inline && parsed.value.startsWith("--"))
+  )
+    fail(`missing value for --${name}`);
+  return parsed.value;
 }
 
 function jsonFlag(argv: string[], name: string): unknown {
@@ -502,7 +525,7 @@ async function runSemanticCommand(action: string | undefined, argv: string[]): P
 export async function runCli(args: string[]): Promise<number> {
   try {
     const [command = "list", ...argv] = args;
-    const configPath = flag(argv, "config");
+    const configPath = requireFlagValue(argv, "config");
     const runtimeOptions = {
       cwd: process.cwd(),
       environment: process.env,
@@ -581,9 +604,16 @@ export async function runCli(args: string[]): Promise<number> {
       print({ name, ...upstream });
     } else if (command === "add") {
       const name = argv[0];
-      const commandValue = flag(argv, "command");
-      const urlValue = flag(argv, "url");
-      const transport = flag(argv, "transport") ?? (urlValue === undefined ? "stdio" : "streamableHttp");
+      const commandValue = requireFlagValue(argv, "command");
+      const urlValue = requireFlagValue(argv, "url");
+      const transportValue = requireFlagValue(argv, "transport");
+      const argsValue = requireFlagValue(argv, "args");
+      const cwd = requireFlagValue(argv, "cwd");
+      const priority = requireFlagValue(argv, "priority");
+      const capabilitiesValue = requireFlagValue(argv, "capabilities");
+      const profile = requireFlagValue(argv, "profile");
+      const authProfile = requireFlagValue(argv, "auth-profile");
+      const transport = transportValue ?? (urlValue === undefined ? "stdio" : "streamableHttp");
       if (transport !== "stdio" && transport !== "streamableHttp") fail(USAGE);
       if (
         name === undefined ||
@@ -592,23 +622,21 @@ export async function runCli(args: string[]): Promise<number> {
       ) {
         fail(USAGE);
       }
-      const { filePath, raw } = loadRawConfig(configPath);
-      const registry = servers(raw);
-      if (registry[name] !== undefined) fail(`upstream already exists: ${name}`);
-      const args = flag(argv, "args")?.split(" ").filter(Boolean);
-      const capabilities = flag(argv, "capabilities")
+      const commandArgs = argsValue?.split(" ").filter(Boolean);
+      const capabilities = capabilitiesValue
         ?.split(",")
         .map((value) => value.trim())
         .filter(Boolean);
-      const priority = flag(argv, "priority");
-      const authProfile = flag(argv, "auth-profile");
       if (authProfile !== undefined && transport !== "streamableHttp") fail(USAGE);
+      const { filePath, raw } = loadRawConfig(configPath);
+      const registry = servers(raw);
+      if (registry[name] !== undefined) fail(`upstream already exists: ${name}`);
       registry[name] = {
         ...(transport === "stdio" ? { command: commandValue } : { transport, url: urlValue }),
         ...(authProfile === undefined ? {} : { auth: { type: "oauth", profile: authProfile } }),
-        ...(args !== undefined && args.length > 0 ? { args } : {}),
-        ...(flag(argv, "cwd") !== undefined ? { cwd: flag(argv, "cwd") } : {}),
-        ...(flag(argv, "profile") !== undefined ? { profile: flag(argv, "profile") } : {}),
+        ...(commandArgs !== undefined && commandArgs.length > 0 ? { args: commandArgs } : {}),
+        ...(cwd === undefined ? {} : { cwd }),
+        ...(profile === undefined ? {} : { profile }),
         ...(priority !== undefined ? { priority: Number(priority) } : {}),
         ...(capabilities !== undefined && capabilities.length > 0 ? { capabilities } : {}),
         ...(hasFlag(argv, "disabled") ? { enabled: false } : {}),
