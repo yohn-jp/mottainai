@@ -609,10 +609,10 @@ test("resolveGatewayConfig resolves finite managed-process bounds", () => {
     maxLifetimeMs: 300_000,
   });
   assert.deepEqual(resolveGatewayConfig({
-    managedProcesses: { maxActiveProcesses: 2, maxRetainedHandles: 0, maxLifetimeMs: 10_000 },
+    managedProcesses: { maxActiveProcesses: 2, maxRetainedHandles: 1, maxLifetimeMs: 10_000 },
   }).managedProcesses, {
     maxActiveProcesses: 2,
-    maxRetainedHandles: 0,
+    maxRetainedHandles: 1,
     maxLifetimeMs: 10_000,
   });
 });
@@ -621,6 +621,18 @@ test("managed-process policy rejects non-finite, unsafe, and out-of-range bounds
   assert.throws(
     () => resolveGatewayConfig({ managedProcesses: { maxActiveProcesses: 0 } }),
     /invalid managed process policy maxActiveProcesses/,
+  );
+  assert.throws(
+    () => resolveGatewayConfig({ managedProcesses: { maxRetainedHandles: 0 } }),
+    /invalid managed process policy maxRetainedHandles/,
+  );
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      version: 2,
+      mcpServers: {},
+      gateway: { managedProcesses: { maxRetainedHandles: 0 } },
+    })),
+    /invalid gateway managedProcesses\.maxRetainedHandles/,
   );
   assert.throws(
     () => resolveGatewayConfig({ managedProcesses: { maxRetainedHandles: -1 } }),
