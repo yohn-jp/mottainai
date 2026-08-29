@@ -8,6 +8,7 @@ import {
   type NewManagerSessionInput,
 } from "./service.js";
 import type { ManagerUpgradeHandler } from "./terminal-bridge.js";
+import { isCanonicalManagerSessionId } from "./zellij.js";
 import {
   MANAGER_AGENT_KINDS,
   MANAGER_RUNTIME_STATES,
@@ -72,8 +73,7 @@ function sessionIdFromPath(value: string): ManagerSessionId {
   } catch {
     throw new ManagerError("invalid_request", "invalid session id", 400);
   }
-  if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/iu.test(decoded))
-    throw new ManagerError("invalid_request", "invalid session id", 400);
+  if (!isCanonicalManagerSessionId(decoded)) throw new ManagerError("invalid_request", "invalid session id", 400);
   return decoded as ManagerSessionId;
 }
 

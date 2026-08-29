@@ -9,6 +9,7 @@ const DEFAULT_OUTPUT_BYTES = 64 * 1024;
 // needed inspecting.
 const MINIMUM_ZELLIJ_VERSION = [0, 44, 0] as const;
 const SESSION_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/u;
+const CANONICAL_MANAGER_SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const NO_ACTIVE_SESSION_PATTERN = /no session|not found|does not exist|no active [^\n]*sessions/iu;
 const ANSI_ESCAPE_PATTERN = /\x1b\[[0-9;]*[A-Za-z]/gu;
 
@@ -66,6 +67,10 @@ function isBeforeMinimum(version: readonly [number, number, number]): boolean {
 function assertSessionName(sessionName: string): void {
   if (!SESSION_NAME_PATTERN.test(sessionName))
     throw new ZellijRuntimeError("zellij_command_failed", "invalid Zellij session name");
+}
+
+export function isCanonicalManagerSessionId(value: string): boolean {
+  return CANONICAL_MANAGER_SESSION_ID_PATTERN.test(value);
 }
 
 function defaultRunner(binary: string, environment?: NodeJS.ProcessEnv): ZellijCommandRunner {
@@ -320,6 +325,6 @@ export class ZellijCliRuntime implements ZellijRuntime {
 }
 
 export function deriveZellijSessionName(sessionId: string): string {
-  if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/iu.test(sessionId)) throw new Error("invalid manager session id");
+  if (!isCanonicalManagerSessionId(sessionId)) throw new Error("invalid manager session id");
   return `mottainai-${sessionId.toLowerCase()}`;
 }
