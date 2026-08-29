@@ -203,7 +203,11 @@ function hasFlag(argv: string[], name: string): boolean {
 function requireFlagValue(argv: string[], name: string): string | undefined {
   const parsed = findFlag(argv, name);
   if (!parsed.found) return undefined;
-  if (parsed.value === undefined || (!parsed.inline && parsed.value.startsWith("--")))
+  if (
+    parsed.value === undefined ||
+    (parsed.inline && parsed.value === "") ||
+    (!parsed.inline && parsed.value.startsWith("--"))
+  )
     fail(`missing value for --${name}`);
   return parsed.value;
 }
