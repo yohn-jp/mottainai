@@ -1,12 +1,27 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { deriveZellijSessionName, ZellijCliRuntime, ZellijRuntimeError } from "./zellij.js";
+import {
+  deriveZellijSessionName,
+  isCanonicalManagerSessionId,
+  ZellijCliRuntime,
+  ZellijRuntimeError,
+} from "./zellij.js";
 
-test("Zellij session names are deterministic, safe, and independent of prompt text", () => {
+test("Manager session IDs use the canonical UUID shape for runtime naming", () => {
   const id = "12345678-1234-4234-8234-123456789abc";
+  assert.equal(isCanonicalManagerSessionId(id), true);
   assert.equal(deriveZellijSessionName(id), deriveZellijSessionName(id));
   assert.match(deriveZellijSessionName(id), /^mottainai-[a-z0-9-]+$/u);
-  assert.throws(() => deriveZellijSessionName("not-a-session"), /invalid manager session id/);
+  for (const malformed of [
+    "not-a-session",
+    "12345678-12345-4234-8234-123456789abc",
+    "12345678-1234-4234--8234-123456789abc",
+    "12345678-1234-4234-8234-123456789abc-extra",
+    "12345678-1234-4234-8234-123456789abg",
+  ]) {
+    assert.equal(isCanonicalManagerSessionId(malformed), false, malformed);
+    assert.throws(() => deriveZellijSessionName(malformed), /invalid manager session id/);
+  }
 });
 
 test("Zellij adapter builds argv-safe background, pane, inspect, and terminate commands", async () => {

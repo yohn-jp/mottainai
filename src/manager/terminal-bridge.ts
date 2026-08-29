@@ -5,7 +5,7 @@ import * as pty from "node-pty";
 import { ManagerError, type ManagerSessionService } from "./service.js";
 import { MANAGER_API_PREFIX } from "../dashboard/http.js";
 import type { ManagerSessionId } from "../workflow/state/store.js";
-import type { ZellijRuntime } from "./zellij.js";
+import { isCanonicalManagerSessionId, type ZellijRuntime } from "./zellij.js";
 
 const TERMINAL_PATH_PATTERN = /^\/sessions\/([^/]+)\/terminal$/u;
 const DEFAULT_COLS = 80;
@@ -65,7 +65,7 @@ function sessionIdFromTerminalPath(pathname: string): ManagerSessionId | undefin
   } catch {
     return undefined;
   }
-  if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/iu.test(decoded)) return undefined;
+  if (!isCanonicalManagerSessionId(decoded)) return undefined;
   return decoded as ManagerSessionId;
 }
 
