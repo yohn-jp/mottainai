@@ -50,6 +50,7 @@ import { explainWorkflowPolicy } from "./workflow/policy/explain.js";
 import { resolveEffectiveWorkflowPolicy } from "./workflow/policy/load.js";
 import { createWorkflowHookProvider } from "./workflow/hook-provider.js";
 import type { TaskId, WorkflowStateStore } from "./workflow/state/store.js";
+import { resolveStateDbPath } from "./state/paths.js";
 import {
   abandonWorkflowTask,
   cleanupWorkflowTask,
@@ -257,9 +258,22 @@ function resolveWorkflowWorkspace(argv: string[]): string {
  * `policy`/`list`/`init` 等このコマンドを使わない CLI 呼び出しに static import で
  * 持ち込まない — 実際に `task` サブコマンドが呼ばれたときだけ dynamic import する。
  */
-async function openWorkflowStateStore(dbPath?: string): Promise<WorkflowStateStore> {
+async function openWorkflowStateStore(dbPath?: string, readOnly = false): Promise<WorkflowStateStore> {
   const { WorkflowSqliteStateStore } = await import("./workflow/state/sqlite-store.js");
-  const store = new WorkflowSqliteStateStore(dbPath === undefined ? {} : { dbPath });
+  const resolvedDbPath = dbPath ?? resolveStateDbPath();
+  let storeOptions: { dbPath?: string; readOnly?: boolean };
+  if (readOnly) {
+    if (fs.existsSync(resolvedDbPath)) {
+      storeOptions = { dbPath: resolvedDbPath, readOnly: true };
+    } else {
+      storeOptions = { dbPath: ":memory:" };
+    }
+  } else if (dbPath === undefined) {
+    storeOptions = {};
+  } else {
+    storeOptions = { dbPath };
+  }
+  const store = new WorkflowSqliteStateStore(storeOptions);
   store.init();
   return store;
 }
@@ -794,10 +808,10 @@ export async function runCli(args: string[]): Promise<number> {
         return 1;
       }
       const dryRun = hasFlag(argv, "dry-run");
-      // A preview must not even initialize the persistent workflow database.
-      // An in-memory store satisfies the domain seam while keeping the whole
-      // repository/control-plane state unchanged.
-      const store = await openWorkflowStateStore(dryRun ? ":memory:" : undefined);
+      // A preview reads an existing persistent database through a read-only
+      // connection; when no database exists, openWorkflowStateStore falls back
+      // to an ephemeral store without creating one.
+      const store = await openWorkflowStateStore(undefined, dryRun);
       try {
         const started = await startNawabariTask({
           workspaceRoot: workspace,

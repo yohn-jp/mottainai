@@ -12,7 +12,8 @@ import { DEFAULT_AWAIT_POLICY } from "../../context-runtime/poll-policy.js";
 import { callWorkflowCommandTool, workflowCommandTools, workflowCommandToolsFor } from "./mcp-tools.js";
 import { bundledGovernedBranchTypes } from "../governance/branch.js";
 import { resolveRepositoryIdentity } from "../domain/identity.js";
-import { transitionTask } from "../domain/task.js";
+import { startTask, transitionTask } from "../domain/task.js";
+import { BUILTIN_PRESETS } from "../policy/presets.js";
 import { WorkflowSqliteStateStore } from "../state/sqlite-store.js";
 
 function structured(result: CallToolResult): Record<string, unknown> {
@@ -248,7 +249,13 @@ test("task_start dry-run returns a plan without creating a task or worktree", as
     assert.equal(result.status, "success");
     assert.equal(result.dryRun, true);
     assert.equal("task" in result, false);
-    assert.equal((result.plan as { branch: string }).branch, "fix/480-preview");
+    const plan = result.plan as {
+      branch: string;
+      claimAcquisition: { previewed: boolean; reason: string };
+    };
+    assert.equal(plan.branch, "fix/480-preview");
+    assert.equal(plan.claimAcquisition.previewed, false);
+    assert.match(plan.claimAcquisition.reason, /external mutation/u);
     assert.equal(execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: root, encoding: "utf8" }), before);
     assert.deepEqual(store.listTasks(), []);
     assert.equal(
@@ -286,6 +293,44 @@ test("task_start dry-run with the default store leaves persistent state untouche
     assert.equal(result.dryRun, true);
     assert.deepEqual(await fs.readFile(statePath), before);
   } finally {
+    if (previousStateDirectory === undefined) delete process.env.MOTTAINAI_STATE_DIR;
+    else process.env.MOTTAINAI_STATE_DIR = previousStateDirectory;
+  }
+});
+
+test("task_start dry-run with the default store reads an active local blocker without writing state", async (t) => {
+  const { root, config } = await gitWorkspace(t);
+  const stateDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-workflow-default-state-"));
+  t.after(() => fs.rm(stateDirectory, { recursive: true, force: true }));
+  const statePath = path.join(stateDirectory, "state.sqlite3");
+  const seeded = new WorkflowSqliteStateStore({ dbPath: statePath });
+  seeded.init();
+  const previousStateDirectory = process.env.MOTTAINAI_STATE_DIR;
+  process.env.MOTTAINAI_STATE_DIR = stateDirectory;
+  try {
+    const started = await startTask({
+      workspaceRoot: root,
+      store: seeded,
+      policy: BUILTIN_PRESETS.standard,
+      taskSlug: "existing",
+      branchType: "fix",
+      issueRef: "533",
+    });
+    assert.equal(started.ok, true, JSON.stringify(started));
+    if (!started.ok || started.worktree === undefined) throw new Error("active task fixture setup failed");
+    const before = await fs.readFile(statePath);
+    const result = structured(
+      await callWorkflowCommandTool(
+        "mottainai_workflow_task_start",
+        { taskSlug: "preview", branchType: "fix", issueRef: "534", dryRun: true },
+        enabled({ ...config, workspaceRoot: started.worktree.canonicalPath }),
+      ),
+    );
+    assert.equal(result.status, "failed");
+    assert.equal(result.reason, "active-task-in-workspace");
+    assert.deepEqual(await fs.readFile(statePath), before);
+  } finally {
+    seeded.close();
     if (previousStateDirectory === undefined) delete process.env.MOTTAINAI_STATE_DIR;
     else process.env.MOTTAINAI_STATE_DIR = previousStateDirectory;
   }
