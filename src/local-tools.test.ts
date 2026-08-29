@@ -197,6 +197,139 @@ test("search groups rg matches and list omits dependency directories", async (t)
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test("list sorts nested entries and returns a deterministic bounded prefix", async () => {
+  const { root, config } = await workspace();
+  const listingRoot = path.join(root, "listing");
+  try {
+    await fs.mkdir(path.join(listingRoot, "nested"), { recursive: true });
+    await fs.mkdir(path.join(listingRoot, ".cache"));
+    for (const name of ["z.txt", "a.txt", "b.txt"]) await fs.writeFile(path.join(listingRoot, name), name);
+    for (const name of ["b.txt", "a.txt"]) await fs.writeFile(path.join(listingRoot, "nested", name), name);
+    await fs.symlink("nested", path.join(listingRoot, "link"));
+
+    const complete = structured(
+      await callLocalTool(
+        "mottainai_list",
+        { path: "listing", depth: 2, maxEntries: 20, maxBytes: 4_096 },
+        config,
+        new InMemoryArtifactStore(),
+      ),
+    );
+    assert.deepEqual(complete.entries, ["a.txt", "b.txt", "link", "nested/", "nested/a.txt", "nested/b.txt", "z.txt"]);
+    assert.equal(complete.truncated, false);
+    assert.equal(
+      (complete.metrics as Record<string, number>).bytes_returned,
+      Buffer.byteLength((complete.entries as string[]).join("\n"), "utf8"),
+    );
+    assert.ok(!(complete.entries as string[]).some((entry) => entry.startsWith(".cache")));
+
+    const first = structured(
+      await callLocalTool(
+        "mottainai_list",
+        { path: "listing", depth: 2, maxEntries: 5, maxBytes: 4_096 },
+        config,
+        new InMemoryArtifactStore(),
+      ),
+    );
+    const repeated = structured(
+      await callLocalTool(
+        "mottainai_list",
+        { path: "listing", depth: 2, maxEntries: 5, maxBytes: 4_096 },
+        config,
+        new InMemoryArtifactStore(),
+      ),
+    );
+    assert.deepEqual(first.entries, ["a.txt", "b.txt", "link", "nested/", "nested/a.txt"]);
+    assert.deepEqual(repeated.entries, first.entries);
+    assert.equal(first.truncated, true);
+    assert.equal((first.metrics as Record<string, number>).entries_returned, 5);
+    assert.equal((first.metrics as Record<string, number>).entry_limit, 5);
+    assert.ok((first.metrics as Record<string, number>).omitted_entries > 0);
+    assert.deepEqual(first.refinement, { strategy: "narrow_path_or_depth", path: "listing", depth: 1 });
+    assert.deepEqual(first.next_actions, [
+      "Retry with a narrower path or lower depth; results are a deterministic prefix.",
+    ]);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("list reports complete and truncated entry and byte boundaries", async () => {
+  const { root, config } = await workspace();
+  const wideRoot = path.join(root, "wide");
+  const bytesRoot = path.join(root, "bytes");
+  const defaultWideRoot = path.join(root, "default-wide");
+  try {
+    await fs.mkdir(wideRoot);
+    for (let index = 0; index < 12; index += 1) {
+      const name = `file-${String(index).padStart(2, "0")}.txt`;
+      await fs.writeFile(path.join(wideRoot, name), name);
+    }
+    const exactEntries = structured(
+      await callLocalTool(
+        "mottainai_list",
+        { path: "wide", depth: 0, maxEntries: 12, maxBytes: 4_096 },
+        config,
+        new InMemoryArtifactStore(),
+      ),
+    );
+    assert.equal((exactEntries.entries as string[]).length, 12);
+    assert.equal(exactEntries.truncated, false);
+    const overEntries = structured(
+      await callLocalTool(
+        "mottainai_list",
+        { path: "wide", depth: 0, maxEntries: 11, maxBytes: 4_096 },
+        config,
+        new InMemoryArtifactStore(),
+      ),
+    );
+    assert.deepEqual(overEntries.entries, (exactEntries.entries as string[]).slice(0, 11));
+    assert.equal(overEntries.truncated, true);
+    assert.equal((overEntries.metrics as Record<string, number>).omitted_entries_lower_bound, 1);
+
+    await fs.mkdir(defaultWideRoot);
+    for (let index = 0; index < 501; index += 1) {
+      const name = `entry-${String(index).padStart(3, "0")}`;
+      await fs.writeFile(path.join(defaultWideRoot, name), name);
+    }
+    const defaultBound = structured(
+      await callLocalTool("mottainai_list", { path: "default-wide", depth: 0 }, config, new InMemoryArtifactStore()),
+    );
+    assert.equal((defaultBound.entries as string[]).length, 500);
+    assert.equal(defaultBound.truncated, true);
+    assert.equal((defaultBound.metrics as Record<string, number>).entry_limit, 500);
+
+    await fs.mkdir(bytesRoot);
+    await fs.writeFile(path.join(bytesRoot, "a"), "a");
+    await fs.writeFile(path.join(bytesRoot, "b"), "b");
+    const exactBytes = structured(
+      await callLocalTool(
+        "mottainai_list",
+        { path: "bytes", depth: 0, maxEntries: 10, maxBytes: 3 },
+        config,
+        new InMemoryArtifactStore(),
+      ),
+    );
+    assert.deepEqual(exactBytes.entries, ["a", "b"]);
+    assert.equal(exactBytes.truncated, false);
+    assert.equal((exactBytes.metrics as Record<string, number>).bytes_returned, 3);
+    const overBytes = structured(
+      await callLocalTool(
+        "mottainai_list",
+        { path: "bytes", depth: 0, maxEntries: 10, maxBytes: 2 },
+        config,
+        new InMemoryArtifactStore(),
+      ),
+    );
+    assert.deepEqual(overBytes.entries, ["a"]);
+    assert.equal(overBytes.truncated, true);
+    assert.equal((overBytes.metrics as Record<string, number>).bytes_returned, 1);
+    assert.equal((overBytes.metrics as Record<string, number>).byte_limit, 2);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("search caps total matches across files at maxResults and reports truncation", async (t) => {
   const { root, config } = await workspace();
   try {

@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import type { Dirent } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
@@ -60,6 +61,10 @@ import type { HookEvent } from "./hooks/types.js";
 import { callSemanticProjectionTool, semanticProjectionTools } from "./semantics/projections/mcp.js";
 
 const OMITTED_DIRECTORIES = new Set([".git", "node_modules", "dist", "build", "target", ".cache", ".venv", "coverage"]);
+const DEFAULT_LIST_MAX_ENTRIES = 500;
+const MAX_LIST_ENTRIES = 10_000;
+const DEFAULT_LIST_MAX_BYTES = 64 * 1024;
+const MAX_LIST_BYTES = 64 * 1024;
 
 const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
@@ -152,10 +157,26 @@ export const localTools: Tool[] = [
   },
   {
     name: "mottainai_list",
-    description: "List a workspace directory, omitting generated and cache directories.",
+    description:
+      "List a workspace directory in deterministic lexicographic depth-first order, omitting generated and cache directories. Results are bounded; refine truncated results with a narrower path or depth.",
     inputSchema: {
       type: "object",
-      properties: { path: { type: "string" }, depth: { type: "integer", minimum: 0, maximum: 12 } },
+      properties: {
+        path: { type: "string" },
+        depth: { type: "integer", minimum: 0, maximum: 12 },
+        maxEntries: {
+          type: "integer",
+          minimum: 1,
+          maximum: MAX_LIST_ENTRIES,
+          description: "maximum number of entries returned",
+        },
+        maxBytes: {
+          type: "integer",
+          minimum: 1,
+          maximum: MAX_LIST_BYTES,
+          description: "maximum UTF-8 bytes in the newline-delimited entry projection",
+        },
+      },
     },
     outputSchema: OUTPUT_SCHEMA,
     annotations: readOnly,
@@ -1201,16 +1222,47 @@ async function listTool(args: Args, config: ResolvedGatewayConfig, store: Artifa
   const directory = await resolveInside(config.workspaceRoot, stringArg(args, "path"));
   const depth = numberArg(args, "depth") ?? 3;
   if (depth < 0 || depth > 12) throw new Error("depth must be between 0 and 12");
-  const entries: string[] = [];
-  await walk(directory, directory, depth, entries);
-  const summary = `${entries.length} entries depth=${depth}`;
+  const maxEntries = numberArg(args, "maxEntries") ?? DEFAULT_LIST_MAX_ENTRIES;
+  const maxBytes = numberArg(args, "maxBytes") ?? DEFAULT_LIST_MAX_BYTES;
+  if (maxEntries < 1 || maxEntries > MAX_LIST_ENTRIES)
+    throw new Error(`maxEntries must be between 1 and ${MAX_LIST_ENTRIES}`);
+  if (maxBytes < 1 || maxBytes > MAX_LIST_BYTES) throw new Error(`maxBytes must be between 1 and ${MAX_LIST_BYTES}`);
+  const state: ListTraversalState = { entries: [], bytes: 0, maxEntries, maxBytes };
+  const traversal = await walk(directory, directory, depth, state);
+  const relativePath = path.relative(config.workspaceRoot, directory) || ".";
+  const truncated = traversal.hasMore;
+  const summary = `${state.entries.length} entries depth=${depth}${
+    truncated ? ` (truncated ${traversal.reason ?? "budget"})` : ""
+  }`;
   const resultId = store.putArtifact({
-    text: entries.join("\n"),
+    text: state.entries.join("\n"),
     metadata: { operation: "list", cwd: directory, summary },
   });
   return output("list", "success", summary, resultId, {
-    path: path.relative(config.workspaceRoot, directory) || ".",
-    entries,
+    path: relativePath,
+    depth,
+    entries: state.entries,
+    next_actions: truncated ? ["Retry with a narrower path or lower depth; results are a deterministic prefix."] : [],
+    ...(truncated
+      ? {
+          truncation_reason: traversal.reason ?? "budget",
+          refinement: {
+            strategy: "narrow_path_or_depth",
+            path: relativePath,
+            depth: Math.max(0, depth - 1),
+          },
+        }
+      : {}),
+    metrics: {
+      entries_returned: state.entries.length,
+      bytes_returned: state.bytes,
+      entry_limit: maxEntries,
+      byte_limit: maxBytes,
+      omitted_entries: truncated ? 1 : 0,
+      omitted_entries_lower_bound: truncated ? 1 : 0,
+      omitted_entries_exact: !truncated,
+    },
+    truncated,
   });
 }
 
@@ -1542,15 +1594,100 @@ function codeView(source: string, mode: string, filePath: string): string {
   return compressText(source, { json: false, lines: false, code: language ? { language } : false });
 }
 
-async function walk(root: string, current: string, remaining: number, outputEntries: string[]): Promise<void> {
-  if (remaining < 0) return;
-  for (const entry of await fs.readdir(current, { withFileTypes: true })) {
-    if (entry.isDirectory() && OMITTED_DIRECTORIES.has(entry.name)) continue;
+type ListTruncationReason = "entry_limit" | "byte_limit";
+
+interface ListTraversalState {
+  entries: string[];
+  bytes: number;
+  maxEntries: number;
+  maxBytes: number;
+}
+
+interface ListTraversalResult {
+  hasMore: boolean;
+  reason?: ListTruncationReason;
+}
+
+interface SortedDirectoryEntries {
+  entries: Dirent[];
+  hasMore: boolean;
+}
+
+async function walk(
+  root: string,
+  current: string,
+  remaining: number,
+  state: ListTraversalState,
+): Promise<ListTraversalResult> {
+  if (remaining < 0) return { hasMore: false };
+  const directoryEntries = await readSortedDirectory(current, Math.max(1, state.maxEntries - state.entries.length));
+  for (const entry of directoryEntries.entries) {
+    if (state.entries.length >= state.maxEntries) return { hasMore: true, reason: "entry_limit" };
     const absolute = path.join(current, entry.name);
     const relative = path.relative(root, absolute) || ".";
-    outputEntries.push(`${relative}${entry.isDirectory() ? "/" : ""}`);
-    if (entry.isDirectory() && remaining > 0 && !entry.isSymbolicLink())
-      await walk(root, absolute, remaining - 1, outputEntries);
+    const listed = `${relative}${entry.isDirectory() ? "/" : ""}`;
+    const listedBytes = Buffer.byteLength(listed, "utf8");
+    const separatorBytes = state.entries.length === 0 ? 0 : 1;
+    if (state.bytes + separatorBytes + listedBytes > state.maxBytes) return { hasMore: true, reason: "byte_limit" };
+    state.entries.push(listed);
+    state.bytes += separatorBytes + listedBytes;
+    if (entry.isDirectory() && remaining > 0 && !entry.isSymbolicLink()) {
+      const nested = await walk(root, absolute, remaining - 1, state);
+      if (nested.hasMore) return nested;
+    }
+  }
+  return directoryEntries.hasMore ? { hasMore: true, reason: "entry_limit" } : { hasMore: false };
+}
+
+async function readSortedDirectory(current: string, limit: number): Promise<SortedDirectoryEntries> {
+  const selected: Dirent[] = [];
+  let hasMore = false;
+  const directory = await fs.opendir(current, { bufferSize: 1 });
+  try {
+    let entry: Dirent | null;
+    while ((entry = await directory.read()) !== null) {
+      if (entry.isDirectory() && OMITTED_DIRECTORIES.has(entry.name)) continue;
+      if (selected.length < limit) {
+        selected.push(entry);
+        siftUpMaxHeap(selected, selected.length - 1);
+        continue;
+      }
+      hasMore = true;
+      if (compareDirents(entry, selected[0]) < 0) {
+        selected[0] = entry;
+        siftDownMaxHeap(selected, 0);
+      }
+    }
+  } finally {
+    await directory.close();
+  }
+  selected.sort(compareDirents);
+  return { entries: selected, hasMore };
+}
+
+function compareDirents(left: Dirent, right: Dirent): number {
+  return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
+}
+
+function siftUpMaxHeap(heap: Dirent[], index: number): void {
+  while (index > 0) {
+    const parent = Math.floor((index - 1) / 2);
+    if (compareDirents(heap[parent], heap[index]) >= 0) return;
+    [heap[parent], heap[index]] = [heap[index], heap[parent]];
+    index = parent;
+  }
+}
+
+function siftDownMaxHeap(heap: Dirent[], index: number): void {
+  while (true) {
+    const left = index * 2 + 1;
+    const right = left + 1;
+    let largest = index;
+    if (left < heap.length && compareDirents(heap[left], heap[largest]) > 0) largest = left;
+    if (right < heap.length && compareDirents(heap[right], heap[largest]) > 0) largest = right;
+    if (largest === index) return;
+    [heap[index], heap[largest]] = [heap[largest], heap[index]];
+    index = largest;
   }
 }
 
