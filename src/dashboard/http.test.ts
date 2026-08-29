@@ -39,7 +39,7 @@ interface ProjectionBody {
 }
 
 interface ErrorBody {
-  error: { code: string };
+  error: { code: string; message?: string };
 }
 
 afterEach(async () => {
@@ -156,6 +156,41 @@ test("dashboard HTTP adapter rejects unknown enum query values", async () => {
   assert.equal(response.status, 400);
   const body = (await response.json()) as ErrorBody;
   assert.equal(body.error.code, "invalid_query");
+});
+
+test("dashboard HTTP adapter classifies malformed and preserves valid encoded identifiers", async () => {
+  const handle = await startDashboardServer({
+    port: 0,
+    viewerHtml: "<!doctype html><title>fixture viewer</title>",
+    query: createFixtureQuery(),
+  });
+  activeServers.push(handle);
+
+  for (const path of [
+    "api/v1/entities/%ZZ",
+    "api/v1/entities/trailing%",
+    "api/v1/projections/agent/%ZZ",
+    "api/v1/projections/agent/trailing%",
+    "api/v1/projections/jsdoc/%ZZ",
+    "api/v1/projections/jsdoc/trailing%",
+  ]) {
+    const response = await fetch(`${handle.url}${path}`);
+    assert.equal(response.status, 400, path);
+    const body = (await response.json()) as ErrorBody;
+    assert.deepEqual(body.error, {
+      code: "invalid_query",
+      message: "invalid percent-encoded identifier",
+    });
+  }
+
+  for (const path of [
+    `api/v1/entities/${encodeURIComponent("component:read-authorization")}`,
+    `api/v1/projections/agent/${encodeURIComponent("symbol:decide-read")}`,
+    `api/v1/projections/jsdoc/${encodeURIComponent("symbol:decide-read")}`,
+  ]) {
+    const response = await fetch(`${handle.url}${path}`);
+    assert.equal(response.status, 200, path);
+  }
 });
 
 test("dashboard HTTP adapter reports a clear error when the port is already in use", async () => {
