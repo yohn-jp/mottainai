@@ -340,13 +340,6 @@ export class InMemoryArtifactStore implements ArtifactStore {
         nextRetainedBytes -= entry.serializedBytes;
       }
     }
-    while (nextEntries.size >= this.maxEntries) {
-      const oldest = nextEntries.keys().next().value;
-      if (oldest === undefined) break;
-      nextRetainedBytes -= nextEntries.get(oldest)?.serializedBytes ?? 0;
-      nextEntries.delete(oldest);
-    }
-
     const resolvedId = id ?? this.nextId();
     const bounded = boundArtifact(artifact, Math.min(this.maxBytes, this.aggregateByteBudget));
     const serializedBytes = payloadBytes(bounded);
@@ -361,6 +354,13 @@ export class InMemoryArtifactStore implements ArtifactStore {
     if (previous !== undefined) nextRetainedBytes -= previous.serializedBytes;
     nextEntries.set(resolvedId, { ...bounded, expiresAt: now + this.ttlMs, serializedBytes });
     nextRetainedBytes += serializedBytes;
+
+    while (nextEntries.size > this.maxEntries) {
+      const oldest = nextEntries.keys().next().value;
+      if (oldest === undefined) break;
+      nextRetainedBytes -= nextEntries.get(oldest)?.serializedBytes ?? 0;
+      nextEntries.delete(oldest);
+    }
 
     while (nextRetainedBytes > this.aggregateByteBudget) {
       // A replacement keeps its id as the incoming item. If it was already

@@ -65,6 +65,18 @@ test("artifact store evicts the least recently used entry at the configured maxi
   assert.equal(store.retrieve(third)?.text, "third");
 });
 
+test("artifact store keeps unrelated entries when replacing an existing ID at the entry limit", () => {
+  const store = new InMemoryArtifactStore({ maxEntries: 2 });
+  store.putArtifact({ text: "a" }, "a");
+  store.putArtifact({ text: "b" }, "b");
+  assert.equal(store.retrieve("a")?.text, "a");
+
+  store.putArtifact({ text: "replacement" }, "a");
+
+  assert.equal(store.retrieve("b")?.text, "b");
+  assert.equal(store.retrieve("a")?.text, "replacement");
+});
+
 test("artifact store retains exactly the aggregate serialized-byte budget and evicts by LRU when exceeded", () => {
   const budget = serializedTextBytes("first") + serializedTextBytes("second");
   let sequence = 0;
@@ -100,6 +112,34 @@ test("artifact store accounts for replacement growth and shrink without changing
   store.putArtifact({ text: "second" }, "second");
   assert.equal(store.retrieve("first")?.text, "small");
   assert.equal(store.retrieve("second")?.text, "second");
+});
+
+test("artifact store does not evict unrelated entries when replacement preserves the byte budget", () => {
+  const budget = serializedTextBytes("first") + serializedTextBytes("second");
+  const store = new InMemoryArtifactStore({ aggregateByteBudget: budget, maxEntries: 2 });
+
+  store.putArtifact({ text: "first" }, "first");
+  store.putArtifact({ text: "second" }, "second");
+  assert.equal(store.retrieve("first")?.text, "first");
+
+  store.putArtifact({ text: "first" }, "first");
+
+  assert.equal(store.retrieve("second")?.text, "second");
+  assert.equal(store.retrieve("first")?.text, "first");
+});
+
+test("artifact store treats an expired replacement ID as an ordinary insertion", () => {
+  let now = 0;
+  const store = new InMemoryArtifactStore({ maxEntries: 2, ttlMs: 10, now: () => now });
+  store.putArtifact({ text: "expired" }, "expired");
+  now = 5;
+  store.putArtifact({ text: "current" }, "current");
+  now = 10;
+
+  store.putArtifact({ text: "replacement" }, "expired");
+
+  assert.equal(store.retrieve("current")?.text, "current");
+  assert.equal(store.retrieve("expired")?.text, "replacement");
 });
 
 test("artifact store removes expired serialized bytes before the next insertion", () => {
