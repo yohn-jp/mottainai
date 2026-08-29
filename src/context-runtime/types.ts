@@ -65,6 +65,7 @@ export interface SerializedProjection {
 
 export interface ProjectionStats {
   rawBytes: number;
+  /** Serialized bytes of the artifact retained for this event after store bounds; zero when unretained. */
   storedBytes: number;
   returnedBytes: number;
   omittedBytes: number;

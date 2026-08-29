@@ -20,6 +20,13 @@ export interface RetrievedArtifact {
 export interface ArtifactStore {
   put(result: CallToolResult, id?: string): string;
   putArtifact(artifact: StoredArtifactInput, id?: string): string;
+  /**
+   * Return the serialized byte count of the artifact currently retained under
+   * `id`, after all store bounds. `undefined` means the artifact is not
+   * currently retained (including expiry or eviction). This lookup does not
+   * refresh LRU order.
+   */
+  getStoredArtifactBytes(id: string): number | undefined;
   retrieve(id: string, options?: RetrieveOptions): RetrievedArtifact | undefined;
   search(query: string, maxResults?: number): ArtifactSearchResult[];
   /** `put`/`putArtifact` が使う id を、何も保存せずに払い出す。呼び出し側が先に最終結果の byte 長を確定させたいときに使う。 */
@@ -393,6 +400,16 @@ export class InMemoryArtifactStore implements ArtifactStore {
 
   nextId(): string {
     return this.boundaries.storage("artifact.id", () => `mx_${this.createId()}`);
+  }
+
+  getStoredArtifactBytes(id: string): number | undefined {
+    const entry = this.entries.get(id);
+    if (entry === undefined) return undefined;
+    if (entry.expiresAt <= this.now()) {
+      this.removeEntry(id);
+      return undefined;
+    }
+    return entry.serializedBytes;
   }
 
   retrieve(id: string, options: RetrieveOptions = {}): RetrievedArtifact | undefined {

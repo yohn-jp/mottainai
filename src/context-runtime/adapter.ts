@@ -33,6 +33,22 @@ function rawArtifactText(result: CallToolResult): string {
   return JSON.stringify(result);
 }
 
+/**
+ * Projection telemetry measures the artifact currently retained for this
+ * result, not the candidate payload supplied to the store. An unavailable or
+ * invalid observation is conservatively reported as no retained bytes.
+ */
+function retainedArtifactBytes(store: ArtifactStore, resultId: string): number | undefined {
+  if (resultId.length === 0) return undefined;
+  try {
+    const bytes = store.getStoredArtifactBytes(resultId);
+    return typeof bytes === "number" && Number.isFinite(bytes) && bytes >= 0 ? bytes : undefined;
+  } catch {
+    // A failed observation cannot establish that any candidate bytes remain retained.
+    return undefined;
+  }
+}
+
 function shouldRetainEvidence(resultId: string, truncated: boolean, omissions: number): boolean {
   return resultId.length === 0 && (truncated || omissions > 0);
 }
@@ -150,7 +166,10 @@ export function finalizeToolResult(
     ...(result._meta === undefined ? {} : { meta: result._meta }),
   });
   let budgeted = applyResponseBudget(projected, budget);
-  let storedBytes = budgeted.resultId.length > 0 ? rawBytes : 0;
+  // `storedBytes` is an event-level count for the artifact backing this
+  // projection. It is not aggregate store occupancy and does not include
+  // artifacts evicted while this one was inserted.
+  let storedBytes = retainedArtifactBytes(store, budgeted.resultId) ?? 0;
   const burstAdmitted = decideBurstAdmission(budgeted, burst);
 
   if (
@@ -158,12 +177,25 @@ export function finalizeToolResult(
     || (!burstAdmitted && budgeted.resultId.length === 0)
   ) {
     const evidence = rawArtifactText(result);
-    const resultId = store.putArtifact({
-      text: evidence,
-      metadata: { operation: "context_runtime", summary: projected.summary },
-    });
-    storedBytes = Buffer.byteLength(evidence, "utf8");
-    budgeted = applyResponseBudget(markOmissionsRetrievable({ ...projected, resultId }), budget);
+    try {
+      const resultId = store.putArtifact({
+        text: evidence,
+        metadata: { operation: "context_runtime", summary: projected.summary },
+      });
+      const retainedBytes = retainedArtifactBytes(store, resultId);
+      if (retainedBytes !== undefined && resultId.length > 0) {
+        storedBytes = retainedBytes;
+        budgeted = applyResponseBudget(markOmissionsRetrievable({ ...projected, resultId }), budget);
+      } else {
+        // A returned ID without a currently retained artifact is not a valid
+        // retrieval claim, so leave the projection without that ID.
+        storedBytes = 0;
+      }
+    } catch {
+      // Evidence retention is optional; a failed store operation must not turn
+      // the unretained candidate into a positive telemetry measurement.
+      storedBytes = 0;
+    }
   }
 
   const bursted = burstAdmitted ? budgeted : applyBurstReduction(budgeted);

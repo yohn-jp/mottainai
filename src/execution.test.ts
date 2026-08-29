@@ -134,6 +134,7 @@ test("execution budget never stores an unreferenced artifact when the marker-bea
   const countingStore: ArtifactStore = {
     put: (result: CallToolResult, id?: string) => { storeCount += 1; return inner.put(result, id); },
     putArtifact: (artifact: StoredArtifactInput, id?: string) => { storeCount += 1; return inner.putArtifact(artifact, id); },
+    getStoredArtifactBytes: (id: string) => inner.getStoredArtifactBytes(id),
     retrieve: (id: string, options?: RetrieveOptions): RetrievedArtifact | undefined => inner.retrieve(id, options),
     search: (query: string, maxResults?: number): ArtifactSearchResult[] => inner.search(query, maxResults),
     nextId: () => inner.nextId(),
