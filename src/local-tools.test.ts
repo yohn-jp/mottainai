@@ -17,6 +17,7 @@ import { DEFAULT_BURST_BUDGET_POLICY } from "./context-runtime/burst-budget.js";
 import { ProcessRegistry } from "./context-runtime/process-registry.js";
 import { DEFAULT_AWAIT_POLICY } from "./context-runtime/poll-policy.js";
 import { InMemoryArtifactStore } from "./retrieve.js";
+import { FaultInjector } from "./test-support/fault-injection.js";
 import { createTelemetrySink } from "./telemetry.js";
 import { BUILTIN_PRESETS } from "./workflow/policy/presets.js";
 
@@ -53,6 +54,23 @@ async function workspace(): Promise<{ root: string; config: ResolvedGatewayConfi
 function structured(result: Awaited<ReturnType<typeof callLocalTool>>): Record<string, unknown> {
   assert.ok(result.structuredContent);
   return result.structuredContent;
+}
+
+class OutputStatRecorder extends FaultInjector {
+  readonly sizes: number[] = [];
+
+  override file<T>(operation: string, action: () => T): T {
+    const result = super.file(operation, action);
+    if (operation !== "exec.output.stat") return result;
+    return (result as unknown as Promise<{ size: number }>).then((stat) => {
+      this.sizes.push(stat.size);
+      return stat;
+    }) as unknown as T;
+  }
+}
+
+async function executionTempDirectories(): Promise<Set<string>> {
+  return new Set((await fs.readdir(os.tmpdir())).filter((entry) => entry.startsWith("mottainai-exec-")));
 }
 
 test("local tool definitions expose schemas, output schemas, and annotations", () => {
@@ -433,7 +451,7 @@ test("exec preserves Git conflict output without compression", async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 
-test("exec captures npm output through its file redirect adapter", async () => {
+test("exec captures npm output through its bounded file capture adapter", async () => {
   const { root, config } = await workspace();
   const store = new InMemoryArtifactStore({ createId: () => "npm" });
   const result = structured(await callLocalTool("mottainai_exec", { command: "npm --version" }, config, store));
@@ -452,6 +470,153 @@ test("exec captures every command in a package-manager command chain", async () 
   assert.match(result.output as string, /\d+\.\d+\.\d+/);
   assert.match(result.output as string, /chained/);
   await fs.rm(root, { recursive: true, force: true });
+});
+
+test("package-manager capture bounds high-rate disk and read resources", async () => {
+  const { root, config } = await workspace();
+  const maxOutputBytes = 4 * 1024;
+  const boundedConfig = { ...config, maxOutputBytes, defaultTimeoutMs: 5_000, maxTimeoutMs: 5_000 };
+  const boundaries = new OutputStatRecorder();
+  const before = await executionTempDirectories();
+  const originalReadFile = fs.readFile;
+  let readFileCalls = 0;
+  (fs as { readFile: typeof fs.readFile }).readFile = (async (..._args: Parameters<typeof fs.readFile>) => {
+    readFileCalls += 1;
+    throw new Error("unbounded readFile must not be used for package-manager output");
+  }) as typeof fs.readFile;
+  let result: Record<string, unknown>;
+  try {
+    const producer =
+      "process.on('SIGTERM', () => {}); process.stdout.write('x'.repeat(10_000_000)); process.stderr.write('y'.repeat(10_000_000)); setInterval(() => {}, 1000)";
+    result = structured(
+      await callLocalTool(
+        "mottainai_exec",
+        {
+          command: `npm --version >/dev/null; ${JSON.stringify(process.execPath)} -e ${JSON.stringify(producer)}`,
+          targetTokens: 10_000,
+          compression: false,
+        },
+        boundedConfig,
+        new InMemoryArtifactStore(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        boundaries,
+      ),
+    );
+  } finally {
+    (fs as { readFile: typeof fs.readFile }).readFile = originalReadFile;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+  const metrics = result.metrics as Record<string, number>;
+  assert.equal(result.output_limited, true);
+  assert.ok(metrics.stdout_bytes + metrics.stderr_bytes <= maxOutputBytes);
+  assert.ok(Buffer.byteLength(result.output as string, "utf8") <= maxOutputBytes);
+  assert.doesNotMatch(result.output as string, /\uFFFD/u);
+  assert.equal(readFileCalls, 0);
+  assert.equal(boundaries.sizes.length, 2);
+  assert.ok(boundaries.sizes[0] + boundaries.sizes[1] <= maxOutputBytes);
+  assert.ok((boundaries.calls.get("process.group.sigterm") ?? 0) > 0);
+  assert.ok((boundaries.calls.get("process.group.sigkill") ?? 0) > 0);
+  const after = await executionTempDirectories();
+  assert.deepEqual(
+    [...after].filter((entry) => !before.has(entry)),
+    [],
+  );
+});
+
+test("package-manager capture cleans temporary state after failures and injected cleanup faults", async () => {
+  const { root, config } = await workspace();
+  try {
+    const cases = [
+      { command: "npm --version", check: (result: Record<string, unknown>) => assert.equal(result.status, "success") },
+      {
+        command: "npm --version >/dev/null; exit 7",
+        check: (result: Record<string, unknown>) => assert.equal(result.status, "failed"),
+      },
+      {
+        command: "npm --version >/dev/null; sleep 2",
+        options: { timeoutMs: 50 },
+        check: (result: Record<string, unknown>) => assert.equal(result.timed_out, true),
+      },
+    ];
+    for (const entry of cases) {
+      const before = await executionTempDirectories();
+      const result = structured(
+        await callLocalTool(
+          "mottainai_exec",
+          { command: entry.command, ...entry.options },
+          config,
+          new InMemoryArtifactStore(),
+        ),
+      );
+      entry.check(result);
+      const after = await executionTempDirectories();
+      assert.deepEqual(
+        [...after].filter((item) => !before.has(item)),
+        [],
+        entry.command,
+      );
+    }
+
+    const beforeReadFailure = await executionTempDirectories();
+    const readFaults = new FaultInjector({
+      "exec.output.read": { error: new Error("injected output read failure") },
+    });
+    await assert.rejects(
+      () =>
+        callLocalTool(
+          "mottainai_exec",
+          { command: "npm --version", compression: false },
+          config,
+          new InMemoryArtifactStore(),
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          readFaults,
+        ),
+      /injected output read failure/,
+    );
+    const afterReadFailure = await executionTempDirectories();
+    assert.deepEqual(
+      [...afterReadFailure].filter((item) => !beforeReadFailure.has(item)),
+      [],
+    );
+
+    const cleanupFaults = new FaultInjector({
+      "exec.temp.cleanup": { error: new Error("injected cleanup failure") },
+      "exec.temp.cleanup.retry": { error: new Error("injected cleanup retry failure") },
+    });
+    const beforeCleanupFailure = await executionTempDirectories();
+    const cleaned = structured(
+      await callLocalTool(
+        "mottainai_exec",
+        { command: "npm --version" },
+        config,
+        new InMemoryArtifactStore(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        cleanupFaults,
+      ),
+    );
+    assert.equal(cleaned.status, "success");
+    assert.equal(cleanupFaults.calls.get("exec.temp.cleanup"), 1);
+    assert.equal(cleanupFaults.calls.get("exec.temp.cleanup.retry"), 1);
+    const afterCleanupFailure = await executionTempDirectories();
+    assert.deepEqual(
+      [...afterCleanupFailure].filter((item) => !beforeCleanupFailure.has(item)),
+      [],
+    );
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });
 
 test("exec bounds generic output to its target token budget", async () => {
@@ -1341,6 +1506,7 @@ test("exec keeps combined stdout+stderr within maxOutputBytes for multibyte cont
     stdoutBytes + stderrBytes <= limitedConfig.maxOutputBytes,
     `stdout(${stdoutBytes})+stderr(${stderrBytes}) must stay within maxOutputBytes(${limitedConfig.maxOutputBytes})`,
   );
+  assert.doesNotMatch(result.output as string, /\uFFFD/u);
   await fs.rm(root, { recursive: true, force: true });
 });
 

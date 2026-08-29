@@ -1,6 +1,9 @@
+import { createWriteStream } from "node:fs";
 import { spawn } from "node:child_process";
 import type { SpawnOptions } from "node:child_process";
-import fs from "node:fs/promises";
+import { Writable } from "node:stream";
+import { finished } from "node:stream/promises";
+import { StringDecoder } from "node:string_decoder";
 import { DIRECT_BOUNDARIES } from "./boundary.js";
 import type { BoundaryOperations } from "./boundary.js";
 
@@ -20,6 +23,112 @@ export interface RunResult {
 export interface OutputFilePaths {
   stdout: string;
   stderr: string;
+}
+
+const FILE_CAPTURE_HIGH_WATER_MARK = 16 * 1024;
+
+interface FileCaptureState {
+  bytes: number;
+  limit: number;
+  limitSignaled: boolean;
+  onLimit: () => void;
+}
+
+/**
+ * Writes at most the remaining shared output budget to one file. The Writable
+ * boundary applies backpressure while the underlying file stream flushes, so
+ * a fast producer cannot accumulate an unbounded write queue in memory.
+ */
+class BoundedFileWriter extends Writable {
+  private readonly state: FileCaptureState;
+  private readonly destination: ReturnType<typeof createWriteStream>;
+
+  constructor(
+    filePath: string,
+    state: FileCaptureState,
+    boundaries: BoundaryOperations,
+    onError: (error: Error) => void,
+  ) {
+    super({ highWaterMark: FILE_CAPTURE_HIGH_WATER_MARK });
+    this.state = state;
+    this.destination = boundaries.file("process.output.open", () =>
+      createWriteStream(filePath, { flags: "w", highWaterMark: FILE_CAPTURE_HIGH_WATER_MARK }),
+    );
+    this.destination.on("error", (error: Error) => this.destroy(error));
+    this.on("error", onError);
+  }
+
+  override _write(chunk: Buffer, encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding);
+    const remaining = this.state.limit - this.state.bytes;
+    if (remaining <= 0) {
+      signalFileCaptureLimit(this.state);
+      callback();
+      return;
+    }
+    const part = buffer.subarray(0, remaining);
+    this.state.bytes += part.length;
+    if (part.length !== buffer.length) signalFileCaptureLimit(this.state);
+    if (part.length === 0) {
+      callback();
+      return;
+    }
+    this.destination.write(part, callback);
+  }
+
+  override _final(callback: (error?: Error | null) => void): void {
+    this.destination.end(() => callback());
+  }
+
+  override _destroy(error: Error | null, callback: (error?: Error | null) => void): void {
+    this.destination.destroy();
+    callback(error);
+  }
+}
+
+function signalFileCaptureLimit(state: FileCaptureState): void {
+  if (state.limitSignaled) return;
+  state.limitSignaled = true;
+  state.onLimit();
+}
+
+class BoundedFileCapture {
+  readonly stdout: Writable;
+  readonly stderr: Writable;
+  private readonly closed: Promise<void>;
+  private closeRequested = false;
+
+  constructor(
+    paths: OutputFilePaths,
+    maxOutputBytes: number,
+    onLimit: () => void,
+    onError: (error: Error) => void,
+    boundaries: BoundaryOperations,
+  ) {
+    const state: FileCaptureState = {
+      bytes: 0,
+      limit: maxOutputBytes,
+      limitSignaled: false,
+      onLimit,
+    };
+    this.stdout = new BoundedFileWriter(paths.stdout, state, boundaries, onError);
+    try {
+      this.stderr = new BoundedFileWriter(paths.stderr, state, boundaries, onError);
+    } catch (error) {
+      this.stdout.destroy(error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    }
+    this.closed = Promise.all([finished(this.stdout), finished(this.stderr)]).then(() => undefined);
+  }
+
+  close(): Promise<void> {
+    if (!this.closeRequested) {
+      this.closeRequested = true;
+      this.stdout.end();
+      this.stderr.end();
+    }
+    return this.closed;
+  }
 }
 
 export function runProgram(
@@ -60,7 +169,7 @@ export function runChild(
   boundaries: BoundaryOperations = DIRECT_BOUNDARIES,
   input?: string,
 ): Promise<RunResult> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const spawnOptions: SpawnOptions = {
       cwd,
       shell,
@@ -85,19 +194,49 @@ export function runChild(
     }
     let stdout = "";
     let stderr = "";
+    const stdoutDecoder = new StringDecoder("utf8");
+    const stderrDecoder = new StringDecoder("utf8");
     let bytes = 0;
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
     let timedOut = false;
     let outputLimit = false;
     let settled = false;
     let killTimer: NodeJS.Timeout | undefined;
-    let fileLimitTimer: NodeJS.Timeout | undefined;
+    let capture: BoundedFileCapture | undefined;
+    let captureError: Error | undefined;
+    const normalizeCaptureError = (error: unknown): Error =>
+      error instanceof Error ? error : new Error(String(error));
+    const failCapture = (error: unknown): void => {
+      if (captureError === undefined) captureError = normalizeCaptureError(error);
+      terminate();
+    };
     const finish = (result: RunResult): void => {
       if (!settled) {
         settled = true;
         clearTimeout(timer);
         if (killTimer !== undefined) clearTimeout(killTimer);
-        if (fileLimitTimer !== undefined) clearInterval(fileLimitTimer);
-        resolve(result);
+        if (capture === undefined) {
+          if (captureError !== undefined) reject(captureError);
+          else
+            resolve({
+              ...result,
+              stdout: fitTextToByteLimit(result.stdout, stdoutBytes),
+              stderr: fitTextToByteLimit(result.stderr, stderrBytes),
+            });
+          return;
+        }
+        try {
+          void capture.close().then(
+            () => {
+              if (captureError !== undefined) reject(captureError);
+              else resolve(result);
+            },
+            (error: unknown) => reject(captureError ?? normalizeCaptureError(error)),
+          );
+        } catch (error) {
+          reject(captureError ?? normalizeCaptureError(error));
+        }
       }
     };
     const forceTerminate = (): void => {
@@ -115,6 +254,7 @@ export function runChild(
       }
     };
     const terminate = (): void => {
+      if (settled) return;
       if (child.pid) {
         try {
           boundaries.process("process.group.sigterm", () => process.kill(-child.pid!, "SIGTERM"));
@@ -139,42 +279,65 @@ export function runChild(
       }
       const part = chunk.subarray(0, remaining);
       bytes += part.length;
-      if (target === "stdout") stdout += part.toString("utf8");
-      else stderr += part.toString("utf8");
+      if (target === "stdout") {
+        stdoutBytes += part.length;
+        stdout += stdoutDecoder.write(part);
+      } else {
+        stderrBytes += part.length;
+        stderr += stderrDecoder.write(part);
+      }
       if (part.length !== chunk.length) {
         outputLimit = true;
         terminate();
       }
     };
-    child.stdout?.on("data", (chunk: Buffer) => append("stdout", chunk));
-    child.stderr?.on("data", (chunk: Buffer) => append("stderr", chunk));
+    if (outputFiles === undefined) {
+      child.stdout?.on("data", (chunk: Buffer) => append("stdout", chunk));
+      child.stderr?.on("data", (chunk: Buffer) => append("stderr", chunk));
+    }
     child.on("error", (error) =>
       finish({ stdout, stderr, exitCode: null, signal: null, timedOut, outputLimit, spawnError: error.message }),
     );
     child.on("close", (exitCode, signal) => finish({ stdout, stderr, exitCode, signal, timedOut, outputLimit }));
     if (input !== undefined) child.stdin?.end(input);
-    if (outputFiles !== undefined) {
-      fileLimitTimer = setInterval(() => {
-        void Promise.all([
-          boundaries.file("process.output.stat", () => fs.stat(outputFiles.stdout)),
-          boundaries.file("process.output.stat", () => fs.stat(outputFiles.stderr)),
-        ])
-          .then(([stdoutStat, stderrStat]) => {
-            if (stdoutStat.size + stderrStat.size > maxOutputBytes) {
-              outputLimit = true;
-              terminate();
-            }
-          })
-          .catch(() => {
-            // 子プロセス終了と一時ファイル掃除の競合。close event が最終結果を確定する。
-          });
-      }, 50);
-    }
     const timer = setTimeout(() => {
       timedOut = true;
       terminate();
     }, timeoutMs);
+    if (outputFiles !== undefined) {
+      try {
+        capture = new BoundedFileCapture(
+          outputFiles,
+          maxOutputBytes,
+          () => {
+            outputLimit = true;
+            terminate();
+          },
+          failCapture,
+          boundaries,
+        );
+        child.stdout?.pipe(capture.stdout, { end: false });
+        child.stderr?.pipe(capture.stderr, { end: false });
+      } catch (error) {
+        failCapture(error);
+      }
+    }
   });
+}
+
+function fitTextToByteLimit(value: string, maxBytes: number): string {
+  if (Buffer.byteLength(value, "utf8") <= maxBytes) return value;
+  let low = 0;
+  let high = value.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (Buffer.byteLength(value.slice(0, middle), "utf8") <= maxBytes) low = middle;
+    else high = middle - 1;
+  }
+  if (low > 0 && low < value.length && value.charCodeAt(low - 1) >= 0xd800 && value.charCodeAt(low - 1) <= 0xdbff) {
+    low -= 1;
+  }
+  return value.slice(0, low);
 }
 
 export type ManagedProcessState = "running" | "exited";

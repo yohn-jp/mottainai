@@ -3,6 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
+import { addSecondaryDiagnostic, DIRECT_BOUNDARIES } from "./boundary.js";
+import type { BoundaryOperations } from "./boundary.js";
 import { compactToBudget } from "./compress/budget.js";
 import { compressText } from "./compress/index.js";
 import { detectCodeLanguage } from "./compress/code.js";
@@ -255,10 +257,11 @@ export async function callLocalTool(
   processes?: ProcessRegistry,
   signal?: AbortSignal,
   runtimeDiagnostic?: RuntimeDiagnostic,
+  boundaries: BoundaryOperations = DIRECT_BOUNDARIES,
 ): Promise<CallToolResult> {
   switch (name) {
     case "mottainai_exec":
-      return execTool(args, config, store);
+      return execTool(args, config, store, boundaries);
     case "mottainai_exec_start":
       return execStartTool(args, config, requireProcesses(processes));
     case "mottainai_exec_await":
@@ -370,7 +373,12 @@ export async function resolveInside(root: string, requested?: string): Promise<s
   return resolved;
 }
 
-async function execTool(args: Args, config: ResolvedGatewayConfig, store: ArtifactStore): Promise<CallToolResult> {
+async function execTool(
+  args: Args,
+  config: ResolvedGatewayConfig,
+  store: ArtifactStore,
+  boundaries: BoundaryOperations,
+): Promise<CallToolResult> {
   const command = stringArg(args, "command", true)!;
   const cwd = await resolveInside(config.workspaceRoot, stringArg(args, "cwd"));
   const denied = await managedWriteGate(command, cwd, config);
@@ -381,7 +389,7 @@ async function execTool(args: Args, config: ResolvedGatewayConfig, store: Artifa
   const targetTokens = numberArg(args, "targetTokens") ?? config.execTargetTokens;
   if (targetTokens < 128 || targetTokens > 10_000) throw new Error("targetTokens must be between 128 and 10000");
   const started = performance.now();
-  const run = await runShell(command, cwd, timeoutMs, config.maxOutputBytes);
+  const run = await runShell(command, cwd, timeoutMs, config.maxOutputBytes, boundaries);
   const durationMs = Math.round(performance.now() - started);
   const preserveRaw = value(args, "compression") === false;
   return buildExecOutput(run, command, cwd, config.workspaceRoot, durationMs, targetTokens, preserveRaw, store);
@@ -577,6 +585,8 @@ async function buildExecOutput(
   preserveRawArg: boolean,
   store: ArtifactStore,
 ): Promise<CallToolResult> {
+  // Stream retention is bounded by maxOutputBytes; the separator is one byte of
+  // constant framing overhead when both streams are present.
   const raw = [run.stdout, run.stderr].filter(Boolean).join(run.stdout && run.stderr ? "\n" : "");
   const status = run.exitCode === 0 && !run.timedOut && !run.outputLimit ? "success" : "failed";
   const failure = status === "failed" ? await diagnoseExecFailure(run, raw, cwd, workspaceRoot) : undefined;
@@ -1635,31 +1645,54 @@ function firstFailureCause(value: string): string {
 export type { RunResult };
 export { runProgram };
 
-async function runShell(command: string, cwd: string, timeoutMs: number, maxOutputBytes: number): Promise<RunResult> {
-  if (!isPackageManagerCommand(command)) return runChild(command, [], cwd, timeoutMs, maxOutputBytes, true);
-  const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-exec-"));
+async function runShell(
+  command: string,
+  cwd: string,
+  timeoutMs: number,
+  maxOutputBytes: number,
+  boundaries: BoundaryOperations = DIRECT_BOUNDARIES,
+): Promise<RunResult> {
+  if (!isPackageManagerCommand(command))
+    return runChild(command, [], cwd, timeoutMs, maxOutputBytes, true, undefined, undefined, boundaries);
+  const temporaryDirectory = await boundaries.file("exec.temp.create", () =>
+    fs.mkdtemp(path.join(os.tmpdir(), "mottainai-exec-")),
+  );
   const stdoutPath = path.join(temporaryDirectory, "stdout");
   const stderrPath = path.join(temporaryDirectory, "stderr");
+  let primary: unknown;
   try {
     const result = await runChild(
-      `(${command}) > ${shellQuote(stdoutPath)} 2> ${shellQuote(stderrPath)}`,
+      command,
       [],
       cwd,
       timeoutMs,
       maxOutputBytes,
       true,
       { stdout: stdoutPath, stderr: stderrPath },
+      undefined,
+      boundaries,
     );
-    const stdout = await readLimited(stdoutPath, maxOutputBytes);
-    const stderr = await readLimited(stderrPath, Math.max(0, maxOutputBytes - Buffer.byteLength(stdout.text, "utf8")));
+    const stdout = await readLimited(stdoutPath, maxOutputBytes, boundaries);
+    const stderr = await readLimited(
+      stderrPath,
+      Math.max(0, maxOutputBytes - Buffer.byteLength(stdout.text, "utf8")),
+      boundaries,
+    );
     return {
       ...result,
       stdout: stdout.text,
       stderr: stderr.text,
       outputLimit: result.outputLimit || stdout.truncated || stderr.truncated,
     };
+  } catch (error) {
+    primary = error;
+    throw error;
   } finally {
-    await fs.rm(temporaryDirectory, { recursive: true, force: true });
+    const cleanupError = await cleanupTemporaryDirectory(temporaryDirectory, boundaries);
+    if (cleanupError !== undefined) {
+      if (primary !== undefined) throw addSecondaryDiagnostic(primary, "exec.temp.cleanup", cleanupError);
+      throw cleanupError;
+    }
   }
 }
 
@@ -1667,19 +1700,83 @@ function isPackageManagerCommand(command: string): boolean {
   return /^\s*(?:npm|pnpm|yarn|bun|npx)(?:\s|$)/.test(command);
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
-
-async function readLimited(filePath: string, maxBytes: number): Promise<{ text: string; truncated: boolean }> {
+async function readLimited(
+  filePath: string,
+  maxBytes: number,
+  boundaries: BoundaryOperations = DIRECT_BOUNDARIES,
+): Promise<{ text: string; truncated: boolean }> {
+  let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
+  let primary: unknown;
   try {
-    const content = await fs.readFile(filePath);
-    const bounded = trimIncompleteUtf8(content.subarray(0, Math.max(0, maxBytes)));
-    return { text: bounded.toString("utf8"), truncated: content.length > maxBytes };
+    handle = await boundaries.file("exec.output.open", () => fs.open(filePath, "r"));
+    const stat = await boundaries.file("exec.output.stat", () => handle!.stat());
+    const limit = Math.max(0, maxBytes);
+    const readLength = Math.min(limit, stat.size);
+    const buffer = Buffer.alloc(readLength);
+    let bytesRead = 0;
+    while (bytesRead < readLength) {
+      const result = await boundaries.file("exec.output.read", () =>
+        handle!.read(buffer, bytesRead, readLength - bytesRead, bytesRead),
+      );
+      if (result.bytesRead === 0) break;
+      bytesRead += result.bytesRead;
+    }
+    const bounded = trimIncompleteUtf8(buffer.subarray(0, bytesRead));
+    return { text: fitTextToByteLimit(bounded.toString("utf8"), bytesRead), truncated: stat.size > limit };
   } catch (error: unknown) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return { text: "", truncated: false };
+    primary = error;
     throw error;
+  } finally {
+    if (handle !== undefined) {
+      try {
+        await boundaries.file("exec.output.close", () => handle!.close());
+      } catch (error) {
+        if (primary !== undefined) throw addSecondaryDiagnostic(primary, "exec.output.close", error);
+        throw error;
+      }
+    }
   }
+}
+
+async function cleanupTemporaryDirectory(
+  temporaryDirectory: string,
+  boundaries: BoundaryOperations,
+): Promise<Error | undefined> {
+  try {
+    await boundaries.file("exec.temp.cleanup", () => fs.rm(temporaryDirectory, { recursive: true, force: true }));
+    return undefined;
+  } catch {
+    try {
+      await boundaries.file("exec.temp.cleanup.retry", () =>
+        fs.rm(temporaryDirectory, { recursive: true, force: true }),
+      );
+      return undefined;
+    } catch {
+      try {
+        // Fault injection fails before invoking the action. A final direct attempt
+        // keeps injected cleanup failures from leaving the temporary directory behind.
+        await fs.rm(temporaryDirectory, { recursive: true, force: true });
+        return undefined;
+      } catch (fallbackError) {
+        return fallbackError instanceof Error ? fallbackError : new Error(String(fallbackError));
+      }
+    }
+  }
+}
+
+function fitTextToByteLimit(value: string, maxBytes: number): string {
+  if (Buffer.byteLength(value, "utf8") <= maxBytes) return value;
+  let low = 0;
+  let high = value.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (Buffer.byteLength(value.slice(0, middle), "utf8") <= maxBytes) low = middle;
+    else high = middle - 1;
+  }
+  if (low > 0 && low < value.length && value.charCodeAt(low - 1) >= 0xd800 && value.charCodeAt(low - 1) <= 0xdbff)
+    low -= 1;
+  return value.slice(0, low);
 }
 
 /**
