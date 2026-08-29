@@ -27,6 +27,13 @@ const NOOP_LOGGER: Logger = {
 
 const DEFAULT_RETENTION_DAYS = 14;
 const DEFAULT_MAX_FILE_BYTES = 10 * 1024 * 1024;
+/**
+ * Smallest supported effective file size. The bounded log envelope, including
+ * its digest, fits within this limit even after the names are bounded.
+ */
+export const MIN_LOG_FILE_BYTES = 512;
+const MAX_COMPACT_NAME_BYTES = 96;
+const TRUNCATED_ARGUMENTS = "[mottainai log record truncated]";
 
 // key名ベースのredaction。値の中身までは見ない（誤検知よりも見逃しを避ける方向はredact()側の再帰で担保）。
 const REDACT_KEY_PATTERN =
@@ -59,23 +66,64 @@ function resolveRetentionMs(env: NodeJS.ProcessEnv): number {
 }
 
 function resolveMaxFileBytes(env: NodeJS.ProcessEnv): number {
-  return positiveNumber(env.MOTTAINAI_LOG_MAX_FILE_BYTES, DEFAULT_MAX_FILE_BYTES);
+  const configured = Math.floor(positiveNumber(env.MOTTAINAI_LOG_MAX_FILE_BYTES, DEFAULT_MAX_FILE_BYTES));
+  if (configured < MIN_LOG_FILE_BYTES) {
+    console.error(
+      `mottainai: MOTTAINAI_LOG_MAX_FILE_BYTES below the supported minimum; using ${MIN_LOG_FILE_BYTES} bytes`,
+    );
+    return MIN_LOG_FILE_BYTES;
+  }
+  return configured;
+}
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  const bytes = Buffer.from(value, "utf8");
+  if (bytes.byteLength <= maxBytes) return value;
+
+  let byteLength = 0;
+  let end = 0;
+  for (const codePoint of value) {
+    const codePointBytes = Buffer.byteLength(codePoint, "utf8");
+    if (byteLength + codePointBytes > maxBytes) break;
+    byteLength += codePointBytes;
+    end += codePoint.length;
+  }
+  return value.slice(0, end);
+}
+
+function serializableRawResult(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return "[unserializable raw result]";
+  }
 }
 
 function boundedLogLine(record: LogRecord, maxBytes: number): string {
   const line = `${JSON.stringify(record)}\n`;
   if (Buffer.byteLength(line, "utf8") <= maxBytes) return line;
-  const rawResultText = JSON.stringify(record.rawResult);
+
+  const rawResultText = serializableRawResult(record.rawResult);
   const compact: LogRecord = {
     ...record,
-    arguments: "[mottainai log record truncated]",
+    upstreamName: truncateUtf8(record.upstreamName, MAX_COMPACT_NAME_BYTES),
+    toolName: truncateUtf8(record.toolName, MAX_COMPACT_NAME_BYTES),
+    arguments: TRUNCATED_ARGUMENTS,
     rawResult: {
       truncated: true,
       original_bytes: Buffer.byteLength(rawResultText, "utf8"),
       sha256: createHash("sha256").update(rawResultText).digest("hex"),
     },
   };
-  return `${JSON.stringify(compact)}\n`;
+  const compactLine = `${JSON.stringify(compact)}\n`;
+  if (Buffer.byteLength(compactLine, "utf8") <= maxBytes) return compactLine;
+
+  // maxBytes is normalized to MIN_LOG_FILE_BYTES before this helper is used.
+  // Keep the evidence envelope valid if a future field makes the bounded names
+  // too large for the effective limit.
+  const minimalCompactLine = `${JSON.stringify({ ...compact, upstreamName: "", toolName: "" })}\n`;
+  if (Buffer.byteLength(minimalCompactLine, "utf8") <= maxBytes) return minimalCompactLine;
+  throw new Error("mottainai: bounded log record exceeds the supported file limit");
 }
 
 function resolveExcludedTools(env: NodeJS.ProcessEnv): Set<string> {
@@ -142,7 +190,7 @@ function sweepExpiredLogs(logDir: string, maxAgeMs: number, boundaries: Boundary
  * - MOTTAINAI_LOG_REDACT=0 — secret/token/cookie等のredactionを無効化（既定は有効。デバッグ用の逃げ道）
  * - MOTTAINAI_LOG_EXCLUDE_TOOLS — カンマ区切りのtool名。`toolName`単体または`<upstream>__<tool>`でマッチしたら記録しない
  * - MOTTAINAI_LOG_RETENTION_DAYS — 保存日数（既定14日）。起動時に期限切れjsonlを削除
- * - MOTTAINAI_LOG_MAX_FILE_BYTES — 1ファイルの上限バイト数（既定10MiB）。超過したら新規ファイルへロールオーバー
+ * - MOTTAINAI_LOG_MAX_FILE_BYTES — 1ファイルの上限バイト数（既定10MiB）。512未満は512へ正規化し、超過前に新規ファイルへロールオーバー
  */
 export function createLogger(
   env: NodeJS.ProcessEnv = process.env,
@@ -164,8 +212,6 @@ export function createLogger(
   const redactEnabled = isRedactionEnabled(env);
   const excludedTools = resolveExcludedTools(env);
   const maxFileBytes = resolveMaxFileBytes(env);
-  // 最小 envelope 未満の設定でも JSONL を壊さない。通常値では設定値をそのまま使う。
-  const maxRecordBytes = Math.max(maxFileBytes, 256);
 
   let filePath = path.join(logDir, logFileName());
   let currentFileBytes = 0;
@@ -197,7 +243,7 @@ export function createLogger(
 
       writeQueue = writeQueue
         .then(async () => {
-          const line = boundedLogLine(full, maxRecordBytes);
+          const line = boundedLogLine(full, maxFileBytes);
           const lineBytes = Buffer.byteLength(line, "utf8");
           if (currentFileBytes > 0 && currentFileBytes + lineBytes > maxFileBytes) {
             await boundaries.file("logging.rotate", () => {
@@ -205,10 +251,10 @@ export function createLogger(
               currentFileBytes = 0;
             });
           }
-          currentFileBytes += lineBytes;
           await boundaries.file("logging.write", () =>
             fs.promises.appendFile(filePath, line, { encoding: "utf8", mode: 0o600 }),
           );
+          currentFileBytes += lineBytes;
         })
         .catch(() => {
           console.error("mottainai: log persistence unavailable; continuing");
