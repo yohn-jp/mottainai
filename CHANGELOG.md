@@ -11,6 +11,23 @@ in the Claude and Codex registration examples in `README.md` together.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-29
+
+Native harness-delegation MCP release. See
+[docs/releases/0.6.0.md](docs/releases/0.6.0.md) for the full writeup.
+
+- **Added**: packaged `mottainai-mcp` entrypoint exposing native Harness
+  delegation, inspection, continuation, cancellation, and capability discovery
+  over standard MCP stdio.
+- **Changed**: external MCP consumers now use an opaque stable `workId` and
+  Mottainai-owned lifecycle/error/evidence semantics rather than reconstructing
+  task, worktree, session, or runtime state outside the Harness boundary.
+- **Integration**: the packed release candidate was installed locally and
+  exercised successfully through Majiwari alongside the OCR and Inari adapters;
+  Majiwari remains an optional transport/publication layer.
+- **Compatibility**: the existing MCP context/compression gateway remains a
+  separate supported surface and is not replaced by the native Harness MCP.
+
 ## [0.5.0] - 2026-08-27
 
 Managed-workflow and external-discovery release. See
@@ -268,7 +285,8 @@ log` for full history.
 - Raw-data logging of upstream requests/responses to `.mottainai/log/*.jsonl`
   with secret-key redaction, retention limits, and per-tool exclusion.
 
-[Unreleased]: https://github.com/yohn-jp/mottainai/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/yohn-jp/mottainai/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/yohn-jp/mottainai/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/yohn-jp/mottainai/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/yohn-jp/mottainai/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/yohn-jp/mottainai/compare/v0.3.0...v0.3.1
