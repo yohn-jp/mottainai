@@ -644,8 +644,11 @@ export interface WorkflowStateStore {
 
   /**
    * repository source/instance を観測結果として記録する（存在しなければ作成、
-   * あれば last_seen_at 更新）。canonicalWorktreePath が instance の現在の
-   * current path と異なる場合、旧 path を is_current=0 にし新 path を
+   * あれば last_seen_at 更新）。既存 instance の common-dir が変わった場合は、
+   * 旧 common-dir が消滅したことを確認できるときだけ新しい値へ更新する。
+   * 旧 common-dir が残っている、または新 common-dir が別 instance に占有されて
+   * いる場合は fail-closed で拒否する。canonicalWorktreePath が instance の
+   * 現在の current path と異なる場合、旧 path を is_current=0 にし新 path を
    * is_current=1 として追記する（移動検出、履歴は保持）。
    */
   observeRepositoryInstance(input: ObserveRepositoryInstanceInput): ObserveRepositoryInstanceResult;

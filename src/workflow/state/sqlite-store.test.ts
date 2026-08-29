@@ -93,51 +93,72 @@ test("re-observing the same path does not create a duplicate path row or flag a 
   store.close();
 });
 
-test("observing a new canonical path for a known instance is detected as a move", () => {
+test("observing a moved repository updates common-dir and preserves path history", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-workflow-move-test-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const oldRoot = path.join(root, "old-repo");
+  const newRoot = path.join(root, "new-repo");
+  fs.mkdirSync(path.join(oldRoot, ".git"), { recursive: true });
+
   const store = openStore();
   store.observeRepositoryInstance({
     rootCommitDigest: digest,
     instanceId,
-    gitCommonDir: "/repo/.git",
-    canonicalWorktreePath: "/old/repo",
+    gitCommonDir: path.join(oldRoot, ".git"),
+    canonicalWorktreePath: oldRoot,
   });
+  fs.renameSync(oldRoot, newRoot);
+  const oldCommonDir = path.join(oldRoot, ".git");
+  const newCommonDir = path.join(newRoot, ".git");
   const moved = store.observeRepositoryInstance({
     rootCommitDigest: digest,
     instanceId,
-    gitCommonDir: "/repo/.git",
-    canonicalWorktreePath: "/new/repo",
+    gitCommonDir: newCommonDir,
+    canonicalWorktreePath: newRoot,
   });
 
   assert.equal(moved.moved, true);
-  assert.equal(moved.previousCurrentPath, "/old/repo");
+  assert.equal(moved.previousCurrentPath, oldRoot);
+  assert.equal(moved.instance.gitCommonDir, newCommonDir);
+  assert.equal(store.getRepositoryInstanceByCommonDir(newCommonDir)?.instanceId, instanceId);
+  assert.equal(store.getRepositoryInstanceByCommonDir(oldCommonDir), undefined);
 
   const paths = store.listRepositoryPaths(instanceId).sort((left, right) => left.canonicalPath.localeCompare(right.canonicalPath));
   assert.equal(paths.length, 2);
-  const oldPath = paths.find((row) => row.canonicalPath === "/old/repo");
-  const newPath = paths.find((row) => row.canonicalPath === "/new/repo");
+  const oldPath = paths.find((row) => row.canonicalPath === oldRoot);
+  const newPath = paths.find((row) => row.canonicalPath === newRoot);
   assert.equal(oldPath?.isCurrent, false);
   assert.equal(newPath?.isCurrent, true);
   store.close();
 });
 
-test("moving back to a previously observed path flips is_current back without erroring", () => {
+test("moving back to a previously observed repository location restores common-dir and current path", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-workflow-move-back-test-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const pathA = path.join(root, "repo-a");
+  const pathB = path.join(root, "repo-b");
+  fs.mkdirSync(path.join(pathA, ".git"), { recursive: true });
+
   const store = openStore();
-  store.observeRepositoryInstance({ rootCommitDigest: digest, instanceId, gitCommonDir: "/repo/.git", canonicalWorktreePath: "/path/a" });
-  store.observeRepositoryInstance({ rootCommitDigest: digest, instanceId, gitCommonDir: "/repo/.git", canonicalWorktreePath: "/path/b" });
+  store.observeRepositoryInstance({ rootCommitDigest: digest, instanceId, gitCommonDir: path.join(pathA, ".git"), canonicalWorktreePath: pathA });
+  fs.renameSync(pathA, pathB);
+  store.observeRepositoryInstance({ rootCommitDigest: digest, instanceId, gitCommonDir: path.join(pathB, ".git"), canonicalWorktreePath: pathB });
+  fs.renameSync(pathB, pathA);
   const backToA = store.observeRepositoryInstance({
     rootCommitDigest: digest,
     instanceId,
-    gitCommonDir: "/repo/.git",
-    canonicalWorktreePath: "/path/a",
+    gitCommonDir: path.join(pathA, ".git"),
+    canonicalWorktreePath: pathA,
   });
 
   assert.equal(backToA.moved, true);
+  assert.equal(backToA.instance.gitCommonDir, path.join(pathA, ".git"));
   const paths = store.listRepositoryPaths(instanceId);
   assert.equal(paths.length, 2);
-  const pathA = paths.find((row) => row.canonicalPath === "/path/a");
-  const pathB = paths.find((row) => row.canonicalPath === "/path/b");
-  assert.equal(pathA?.isCurrent, true);
-  assert.equal(pathB?.isCurrent, false);
+  const pathARecord = paths.find((row) => row.canonicalPath === pathA);
+  const pathBRecord = paths.find((row) => row.canonicalPath === pathB);
+  assert.equal(pathARecord?.isCurrent, true);
+  assert.equal(pathBRecord?.isCurrent, false);
   store.close();
 });
 
@@ -196,6 +217,76 @@ test("a new instance id reusing a known git_common_dir supersedes the stale inst
 
   const staleRecord = store.getRepositoryInstance(staleInstanceId);
   assert.notEqual(staleRecord?.gitCommonDir, commonDir);
+  const stalePaths = store.listRepositoryPaths(staleInstanceId);
+  assert.equal(stalePaths.length, 1);
+  assert.equal(stalePaths[0]?.canonicalPath, "/repo");
+  assert.equal(stalePaths[0]?.isCurrent, true);
+  assert.equal(store.listRepositoryPaths(freshInstanceId)[0]?.isCurrent, true);
+  store.close();
+});
+
+test("a copied live common-dir with the same instance id is rejected without changing state", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-workflow-duplicate-marker-test-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const oldCommonDir = path.join(root, "original", ".git");
+  const copiedCommonDir = path.join(root, "copy", ".git");
+  fs.mkdirSync(oldCommonDir, { recursive: true });
+  fs.mkdirSync(copiedCommonDir, { recursive: true });
+
+  const store = openStore();
+  store.observeRepositoryInstance({
+    rootCommitDigest: digest,
+    instanceId,
+    gitCommonDir: oldCommonDir,
+    canonicalWorktreePath: path.dirname(oldCommonDir),
+    observedAt: 100,
+  });
+
+  assert.throws(
+    () =>
+      store.observeRepositoryInstance({
+        rootCommitDigest: digest,
+        instanceId,
+        gitCommonDir: copiedCommonDir,
+        canonicalWorktreePath: path.dirname(copiedCommonDir),
+        observedAt: 200,
+      }),
+    /ambiguous repository instance relocation/,
+  );
+  assert.equal(store.getRepositoryInstance(instanceId)?.gitCommonDir, oldCommonDir);
+  assert.equal(store.getRepositoryInstanceByCommonDir(copiedCommonDir), undefined);
+  assert.equal(store.listRepositoryPaths(instanceId).length, 1);
+  store.close();
+});
+
+test("a known instance cannot claim a common-dir currently owned by another instance", () => {
+  const store = openStore();
+  const otherInstanceId = "inst-other" as RepositoryInstanceId;
+  store.observeRepositoryInstance({
+    rootCommitDigest: digest,
+    instanceId,
+    gitCommonDir: "/repo-a/.git",
+    canonicalWorktreePath: "/repo-a",
+  });
+  store.observeRepositoryInstance({
+    rootCommitDigest: digest,
+    instanceId: otherInstanceId,
+    gitCommonDir: "/repo-b/.git",
+    canonicalWorktreePath: "/repo-b",
+  });
+
+  assert.throws(
+    () =>
+      store.observeRepositoryInstance({
+        rootCommitDigest: digest,
+        instanceId,
+        gitCommonDir: "/repo-b/.git",
+        canonicalWorktreePath: "/repo-b",
+      }),
+    /already owned by another instance/,
+  );
+  assert.equal(store.getRepositoryInstanceByCommonDir("/repo-b/.git")?.instanceId, otherInstanceId);
+  assert.equal(store.getRepositoryInstance(instanceId)?.gitCommonDir, "/repo-a/.git");
   store.close();
 });
 
