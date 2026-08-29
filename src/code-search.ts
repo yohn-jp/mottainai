@@ -169,6 +169,16 @@ interface BackendOutcome {
   raw?: unknown;
   truncated: boolean;
   selectedTool?: string;
+  diagnostics?: BackendDiagnostic[];
+  metrics?: Record<string, unknown>;
+  outputLimited?: boolean;
+  truncationReason?: string;
+}
+
+interface BackendDiagnostic {
+  severity: "info" | "warning" | "error";
+  code?: string;
+  message: string;
 }
 
 async function executeCandidates(
@@ -221,7 +231,14 @@ async function executeCandidates(
         routing_reason: candidate.reason,
         fallback_history: attempts,
         raw: outcome.raw,
-        metrics: { matches: outcome.matches.length, attempts: attempts.length + 1 },
+        diagnostics: outcome.diagnostics ?? [],
+        metrics: {
+          matches: outcome.matches.length,
+          attempts: attempts.length + 1,
+          ...(outcome.metrics ?? {}),
+        },
+        ...(outcome.outputLimited === true ? { output_limited: true } : {}),
+        ...(outcome.truncationReason === undefined ? {} : { truncation_reason: outcome.truncationReason }),
         truncated: outcome.truncated,
       });
     return {
@@ -295,7 +312,20 @@ async function runUpstreamCandidate(
     { query: request.query, ...(request.path !== undefined ? { path: request.path } : {}) },
     { config: context.gatewayConfig, capability },
   );
-  return { matches: [], raw: outcome.result.content, truncated: false, selectedTool: candidate.tool ?? `${candidate.provider}__${toolName}` };
+  // No upstream candidate currently exposes a versioned result-limit guarantee. Keep the raw
+  // provider result, but do not claim that the requested default/explicit limit was enforced.
+  return {
+    matches: [],
+    raw: outcome.result.content,
+    truncated: true,
+    diagnostics: [{
+      severity: "warning",
+      code: "UPSTREAM_LIMIT_UNVERIFIED",
+      message: `upstream code-search result has no versioned match-limit guarantee for limit=${request.limit ?? 30}`,
+    }],
+    truncationReason: "upstream_limit_unverified",
+    selectedTool: candidate.tool ?? `${candidate.provider}__${toolName}`,
+  };
 }
 
 function firstLine(value: string): string {
@@ -306,12 +336,14 @@ async function runRg(request: ExecutionRequest, config: ResolvedGatewayConfig): 
   const searchPath = await resolveInside(config.workspaceRoot, request.path);
   const maxResults = request.limit ?? 30;
   const args = [
-    "--json", "--line-number", "--no-heading", "--fixed-strings", "--max-count", String(maxResults),
+    // rg's --max-count is per file. The extra match is a bounded sentinel; the global slice below
+    // remains the authority for the requested result window.
+    "--json", "--line-number", "--no-heading", "--fixed-strings", "--max-count", String(maxResults + 1),
     "--glob", "!.git", "--glob", "!node_modules", "--glob", "!dist", request.query, searchPath,
   ];
   const run = await runProgram("rg", args, config.workspaceRoot, config.maxTimeoutMs, config.maxOutputBytes);
   if (run.spawnError) throw new Error(`rg unavailable: ${run.spawnError}`);
-  if (run.exitCode !== 0 && run.exitCode !== 1) throw new Error(`rg failed: exit=${run.exitCode} ${firstLine(run.stderr)}`);
+  if (run.exitCode !== 0 && run.exitCode !== 1 && !run.outputLimit) throw new Error(`rg failed: exit=${run.exitCode} ${firstLine(run.stderr)}`);
   const parsed = parseRgJson(run.stdout, config.workspaceRoot);
   // exit 0/1 でも event stream が producer 契約通りに parse できない出力は fallback 対象の
   // provider 障害として扱う — silent 0 件成功にしない（issue #449, mottainai_search と同じ semantics）。
@@ -319,8 +351,25 @@ async function runRg(request: ExecutionRequest, config: ResolvedGatewayConfig): 
     throw new Error(`rg output failed to parse as the expected event stream: ${parsed.firstMalformedLine ?? "malformed rg event"}`);
   }
   const matches = parsed.groups.flatMap((group) => group.matches.map((match) => ({ path: group.path, line: match.line, text: match.text })));
+  const observedMatchCount = matches.length;
   const limited = matches.slice(0, maxResults);
-  return { matches: limited, truncated: matches.length > limited.length };
+  const matchLimitTruncated = observedMatchCount > maxResults;
+  return {
+    matches: limited,
+    truncated: matchLimitTruncated || run.outputLimit,
+    ...(run.outputLimit ? {
+      diagnostics: [{
+        severity: "warning" as const,
+        code: "RG_OUTPUT_LIMIT",
+        message: "rg output exceeded the bounded capture limit; code-search results may be incomplete",
+      }],
+      metrics: { observed_matches: observedMatchCount, output_limited: true },
+      outputLimited: true,
+    } : { metrics: { observed_matches: observedMatchCount } }),
+    ...(run.outputLimit
+      ? { truncationReason: matchLimitTruncated ? "match_limit_and_output_limit" : "output_limit" }
+      : matchLimitTruncated ? { truncationReason: "match_limit" } : {}),
+  };
 }
 
 async function runGitGrep(request: ExecutionRequest, config: ResolvedGatewayConfig): Promise<BackendOutcome> {
@@ -330,7 +379,7 @@ async function runGitGrep(request: ExecutionRequest, config: ResolvedGatewayConf
   const args = ["grep", "-n", "-I", "--fixed-strings", "-e", request.query, "--", relativePath];
   const run = await runProgram("git", args, config.workspaceRoot, config.maxTimeoutMs, config.maxOutputBytes);
   if (run.spawnError) throw new Error(`git grep unavailable: ${run.spawnError}`);
-  if (run.exitCode !== 0 && run.exitCode !== 1) throw new Error(`git grep failed: exit=${run.exitCode} ${firstLine(run.stderr)}`);
+  if (run.exitCode !== 0 && run.exitCode !== 1 && !run.outputLimit) throw new Error(`git grep failed: exit=${run.exitCode} ${firstLine(run.stderr)}`);
   const matches: CodeSearchMatch[] = [];
   for (const line of run.stdout.split("\n")) {
     if (line.length === 0) continue;
@@ -339,7 +388,20 @@ async function runGitGrep(request: ExecutionRequest, config: ResolvedGatewayConf
     matches.push({ path: parsed[1], line: Number(parsed[2]), text: parsed[3] });
   }
   const limited = matches.slice(0, maxResults);
-  return { matches: limited, truncated: matches.length > limited.length };
+  const matchLimitTruncated = matches.length > maxResults;
+  return {
+    matches: limited,
+    truncated: matchLimitTruncated || run.outputLimit,
+    ...(run.outputLimit ? {
+      diagnostics: [{
+        severity: "warning" as const,
+        code: "SEARCH_OUTPUT_LIMIT",
+        message: "git grep output exceeded the bounded capture limit; code-search results may be incomplete",
+      }],
+      outputLimited: true,
+      truncationReason: matchLimitTruncated ? "match_limit_and_output_limit" : "output_limit",
+    } : matchLimitTruncated ? { truncationReason: "match_limit" } : {}),
+  };
 }
 
 interface AstGrepMatch {
@@ -355,19 +417,60 @@ async function runAstGrep(request: ExecutionRequest, config: ResolvedGatewayConf
   const args = ["run", "--pattern", request.query, "--json=compact", relativePath];
   const run = await runProgram("ast-grep", args, config.workspaceRoot, config.maxTimeoutMs, config.maxOutputBytes);
   if (run.spawnError) throw new Error(`ast-grep unavailable: ${run.spawnError}`);
-  if (run.exitCode !== 0) throw new Error(`ast-grep failed: exit=${run.exitCode} ${firstLine(run.stderr)}`);
+  if (run.exitCode !== 0 && !run.outputLimit) throw new Error(`ast-grep failed: exit=${run.exitCode} ${firstLine(run.stderr)}`);
   let parsed: unknown;
   try {
     parsed = JSON.parse(run.stdout.length > 0 ? run.stdout : "[]");
   } catch {
+    if (run.outputLimit) {
+      return {
+        matches: [],
+        truncated: true,
+        diagnostics: [{
+          severity: "warning",
+          code: "SEARCH_OUTPUT_LIMIT",
+          message: "ast-grep output exceeded the bounded capture limit; code-search results may be incomplete",
+        }],
+        outputLimited: true,
+        truncationReason: "output_limit",
+      };
+    }
     throw new Error("ast-grep returned malformed JSON");
   }
-  if (!Array.isArray(parsed)) throw new Error("ast-grep returned an unexpected JSON shape");
+  if (!Array.isArray(parsed)) {
+    if (run.outputLimit) {
+      return {
+        matches: [],
+        truncated: true,
+        diagnostics: [{
+          severity: "warning",
+          code: "SEARCH_OUTPUT_LIMIT",
+          message: "ast-grep output exceeded the bounded capture limit; code-search results may be incomplete",
+        }],
+        outputLimited: true,
+        truncationReason: "output_limit",
+      };
+    }
+    throw new Error("ast-grep returned an unexpected JSON shape");
+  }
   const entries = parsed as AstGrepMatch[];
   const matches: CodeSearchMatch[] = entries.slice(0, maxResults).map((entry) => ({
     path: entry.file ?? "",
     line: typeof entry.range?.start?.line === "number" ? entry.range.start.line + 1 : undefined,
     text: entry.text,
   }));
-  return { matches, truncated: entries.length > matches.length };
+  const matchLimitTruncated = entries.length > matches.length;
+  return {
+    matches,
+    truncated: matchLimitTruncated || run.outputLimit,
+    ...(run.outputLimit ? {
+      diagnostics: [{
+        severity: "warning" as const,
+        code: "SEARCH_OUTPUT_LIMIT",
+        message: "ast-grep output exceeded the bounded capture limit; code-search results may be incomplete",
+      }],
+      outputLimited: true,
+      truncationReason: matchLimitTruncated ? "match_limit_and_output_limit" : "output_limit",
+    } : matchLimitTruncated ? { truncationReason: "match_limit" } : {}),
+  };
 }

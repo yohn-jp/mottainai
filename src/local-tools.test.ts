@@ -227,6 +227,89 @@ test("search caps total matches across files at maxResults and reports truncatio
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test("search uses a per-file sentinel to distinguish complete and truncated result windows", async (t) => {
+  const { root, config } = await workspace();
+  try {
+    execFileSync("rg", ["--version"], { stdio: "ignore" });
+  } catch {
+    await fs.rm(root, { recursive: true, force: true });
+    t.skip("rg is not installed");
+    return;
+  }
+  try {
+    await fs.writeFile(path.join(root, "exact.txt"), "exact\n".repeat(3));
+    await fs.writeFile(path.join(root, "single-overflow.txt"), "single-overflow\n".repeat(5));
+    await fs.writeFile(path.join(root, "multi-a.txt"), "multi-overflow\n".repeat(2));
+    await fs.writeFile(path.join(root, "multi-b.txt"), "multi-overflow\n".repeat(2));
+    const store = new InMemoryArtifactStore();
+    const exact = structured(
+      await callLocalTool("mottainai_search", { query: "exact", path: "exact.txt", maxResults: 3 }, { ...config, maxOutputBytes: 64 * 1024 }, store),
+    );
+    assert.equal(exact.truncated, false);
+    assert.equal((exact.metrics as Record<string, number>).observed_matches, 3);
+    assert.equal((exact.groups as Array<{ matches: unknown[] }>)[0].matches.length, 3);
+
+    const singleOverflow = structured(
+      await callLocalTool(
+        "mottainai_search",
+        { query: "single-overflow", path: "single-overflow.txt", maxResults: 3 },
+        { ...config, maxOutputBytes: 64 * 1024 },
+        store,
+      ),
+    );
+    assert.equal(singleOverflow.truncated, true);
+    assert.equal((singleOverflow.metrics as Record<string, number>).observed_matches, 4);
+    assert.equal((singleOverflow.groups as Array<{ matches: unknown[] }>)[0].matches.length, 3);
+
+    const multipleOverflow = structured(
+      await callLocalTool(
+        "mottainai_search",
+        { query: "multi-overflow", path: ".", maxResults: 3 },
+        { ...config, maxOutputBytes: 64 * 1024 },
+        store,
+      ),
+    );
+    const multipleGroups = multipleOverflow.groups as Array<{ matches: unknown[] }>;
+    assert.equal(multipleOverflow.truncated, true);
+    assert.equal((multipleOverflow.metrics as Record<string, number>).observed_matches, 4);
+    assert.equal(multipleGroups.reduce((count, group) => count + group.matches.length, 0), 3);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("search reports output-limit termination as incomplete even when the captured stream has no matches", async () => {
+  const { root, config } = await workspace();
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-fake-rg-output-limit-"));
+  const fakeRg = path.join(binDir, "rg");
+  await fs.writeFile(fakeRg, ["#!/bin/sh", "yes not-json-line", ""].join("\n"));
+  await fs.chmod(fakeRg, 0o755);
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+  try {
+    const result = structured(
+      await callLocalTool(
+        "mottainai_search",
+        { query: "anything", path: ".", maxResults: 1 },
+        { ...config, maxOutputBytes: 128, defaultTimeoutMs: 5_000, maxTimeoutMs: 5_000 },
+        new InMemoryArtifactStore(),
+      ),
+    );
+    assert.equal(result.truncated, true);
+    assert.equal(result.output_limited, true);
+    assert.equal((result.metrics as Record<string, boolean>).output_limited, true);
+    assert.ok(
+      (result.diagnostics as Array<{ code?: string; message: string }>).some(
+        (diagnostic) => diagnostic.code === "RG_OUTPUT_LIMIT" && /incomplete/i.test(diagnostic.message),
+      ),
+    );
+  } finally {
+    process.env.PATH = originalPath;
+    await fs.rm(binDir, { recursive: true, force: true });
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("search returns a successful empty result for a valid query with no matches", async (t) => {
   const { root, config } = await workspace();
   try {
