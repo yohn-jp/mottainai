@@ -17,6 +17,7 @@ import {
   ensureCanonicalManagedWorktreeRoot,
   resolveCanonicalWorktreePath,
   runBootstrap,
+  WorktreeNamingError,
 } from "../git/worktree.js";
 import type { BootstrapDecision, RunBootstrapResult, WorktreeNaming } from "../git/worktree.js";
 import { validateBranchNameAgainstGovernance } from "../governance/branch.js";
@@ -347,7 +348,16 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
         detail: "task workflow worktree branches require an issueRef for the repository governance pattern",
       };
     }
-    naming = buildWorktreeNaming({ branchType: input.branchType, issueRef, taskSlug });
+    try {
+      naming = buildWorktreeNaming({ branchType: input.branchType, issueRef, taskSlug });
+    } catch (error) {
+      if (!(error instanceof WorktreeNamingError)) throw error;
+      return {
+        ok: false,
+        reason: "invalid-branch-name",
+        detail: `generated branch was rejected before Git mutation: ${error.message}`,
+      };
+    }
     const branchValidation = await validateBranchNameAgainstGovernance(
       naming.branchName,
       identityResult.identity.canonicalRepositoryRoot,
