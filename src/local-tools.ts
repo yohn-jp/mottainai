@@ -54,6 +54,7 @@ import {
   withRuntimeUpstreams,
 } from "./runtime-diagnostic.js";
 import type { RuntimeDiagnostic } from "./runtime-diagnostic.js";
+import { assertValidToolArguments } from "./mcp-tool-validation.js";
 import type { UpstreamStatus } from "./upstream.js";
 import { createWorkflowHookProvider } from "./workflow/hook-provider.js";
 import { NawabariExecutionClient } from "./workflow/nawabari.js";
@@ -75,13 +76,14 @@ export const localTools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        command: { type: "string" },
+        command: { type: "string", minLength: 1 },
         cwd: { type: "string" },
         timeoutMs: { type: "integer", minimum: 1 },
         targetTokens: { type: "integer", minimum: 128, maximum: 10000 },
         compression: { type: "boolean" },
       },
       required: ["command"],
+      additionalProperties: false,
     },
     outputSchema: OUTPUT_SCHEMA,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
@@ -93,11 +95,12 @@ export const localTools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        command: { type: "string" },
+        command: { type: "string", minLength: 1 },
         cwd: { type: "string" },
         maxOutputBytes: { type: "integer", minimum: 1 },
       },
       required: ["command"],
+      additionalProperties: false,
     },
     outputSchema: OUTPUT_SCHEMA,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
@@ -109,11 +112,12 @@ export const localTools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        handle: { type: "string" },
+        handle: { type: "string", minLength: 1 },
         timeoutMs: { type: "integer", minimum: 1 },
         targetTokens: { type: "integer", minimum: 128, maximum: 10000 },
       },
       required: ["handle"],
+      additionalProperties: false,
     },
     outputSchema: OUTPUT_SCHEMA,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
@@ -124,16 +128,19 @@ export const localTools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        path: { type: "string" },
+        path: { type: "string", minLength: 1 },
         startLine: { type: "integer", minimum: 1 },
         endLine: { type: "integer", minimum: 1 },
         ifChangedFrom: {
           type: "string",
+          minLength: 1,
+          maxLength: 512,
           description: "Opaque result identity from a prior read; return unchanged when it still matches.",
         },
         mode: { type: "string", enum: ["raw", "outline", "symbols", "auto"], default: "auto" },
       },
       required: ["path"],
+      additionalProperties: false,
     },
     outputSchema: OUTPUT_SCHEMA,
     annotations: readOnly,
@@ -144,13 +151,14 @@ export const localTools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string" },
+        query: { type: "string", minLength: 1 },
         path: { type: "string" },
         mode: { type: "string", enum: ["literal", "regex"] },
         contextLines: { type: "integer", minimum: 0, maximum: 20 },
         maxResults: { type: "integer", minimum: 1, maximum: 100 },
       },
       required: ["query"],
+      additionalProperties: false,
     },
     outputSchema: OUTPUT_SCHEMA,
     annotations: readOnly,
@@ -177,6 +185,7 @@ export const localTools: Tool[] = [
           description: "maximum UTF-8 bytes in the newline-delimited entry projection",
         },
       },
+      additionalProperties: false,
     },
     outputSchema: OUTPUT_SCHEMA,
     annotations: readOnly,
@@ -187,7 +196,7 @@ export const localTools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        id: { type: "string" },
+        id: { type: "string", minLength: 1 },
         stream: { type: "string", enum: ["combined", "stdout", "stderr"] },
         query: { type: "string" },
         contextLines: { type: "integer", minimum: 0, maximum: 20 },
@@ -195,6 +204,7 @@ export const localTools: Tool[] = [
         maxLines: { type: "integer", minimum: 1, maximum: 80 },
       },
       required: ["id"],
+      additionalProperties: false,
     },
     outputSchema: OUTPUT_SCHEMA,
     annotations: readOnly,
@@ -204,8 +214,9 @@ export const localTools: Tool[] = [
     description: "Search compact metadata and raw text from results in this MCP session.",
     inputSchema: {
       type: "object",
-      properties: { query: { type: "string" }, maxResults: { type: "integer", minimum: 1, maximum: 100 } },
+      properties: { query: { type: "string", minLength: 1 }, maxResults: { type: "integer", minimum: 1, maximum: 100 } },
       required: ["query"],
+      additionalProperties: false,
     },
     outputSchema: OUTPUT_SCHEMA,
     annotations: readOnly,
@@ -213,7 +224,7 @@ export const localTools: Tool[] = [
   {
     name: "mottainai_runtime_status",
     description: "Report gateway runtime state and per-upstream provider health.",
-    inputSchema: { type: "object", properties: { provider: { type: "string" } } },
+    inputSchema: { type: "object", properties: { provider: { type: "string" } }, additionalProperties: false },
     outputSchema: OUTPUT_SCHEMA,
     annotations: readOnly,
   },
@@ -221,7 +232,7 @@ export const localTools: Tool[] = [
     name: "mottainai_telemetry_summary",
     description:
       "Report aggregate local usage telemetry: call counts, compression ratio and artifact retrieval rate by provider and capability. Disabled unless MOTTAINAI_TELEMETRY=1.",
-    inputSchema: { type: "object", properties: {} },
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
     outputSchema: OUTPUT_SCHEMA,
     annotations: readOnly,
   },
@@ -237,6 +248,7 @@ const issueViewTool: Tool = {
       number: { type: "integer", minimum: 1 },
     },
     required: ["number"],
+    additionalProperties: false,
   },
   outputSchema: OUTPUT_SCHEMA,
   annotations: readOnly,
@@ -253,6 +265,7 @@ const ghChecksAwaitTool: Tool = {
       timeoutMs: { type: "integer", minimum: 1 },
     },
     required: ["number"],
+    additionalProperties: false,
   },
   outputSchema: OUTPUT_SCHEMA,
   annotations: readOnly,
@@ -285,6 +298,8 @@ export async function callLocalTool(
   runtimeDiagnostic?: RuntimeDiagnostic,
   boundaries: BoundaryOperations = DIRECT_BOUNDARIES,
 ): Promise<CallToolResult> {
+  const tool = allLocalTools.find((candidate) => candidate.name === name);
+  if (tool !== undefined) assertValidToolArguments(tool, args);
   switch (name) {
     case "mottainai_exec":
       return execTool(args, config, store, boundaries);
@@ -892,7 +907,7 @@ async function readTool(
   if (modeValue !== undefined && !(READ_MODES as readonly string[]).includes(modeValue))
     throw new Error("invalid mode");
   const ifChangedFrom = stringArg(args, "ifChangedFrom");
-  if (ifChangedFrom !== undefined && (ifChangedFrom.length === 0 || ifChangedFrom.length > 512)) {
+  if (ifChangedFrom !== undefined && (ifChangedFrom.length === 0 || Array.from(ifChangedFrom).length > 512)) {
     throw new Error("ifChangedFrom must be a non-empty identity up to 512 characters");
   }
   const request = {

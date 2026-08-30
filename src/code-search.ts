@@ -17,6 +17,7 @@ import type { ProfileConfig, ResolvedGatewayConfig } from "./config.js";
 import { OUTPUT_SCHEMA, output } from "./envelope.js";
 import { normalizeExecutionOutcome } from "./execution.js";
 import type { ExecutionOutcome } from "./execution.js";
+import { assertValidToolArguments } from "./mcp-tool-validation.js";
 import { parseRgJson, resolveInside, runProgram } from "./local-tools.js";
 import { callUpstreamTool } from "./upstream-call.js";
 import type { UpstreamCallContext } from "./upstream-call.js";
@@ -45,13 +46,14 @@ export const codeSearchTools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        pattern: { type: "string", description: "Literal text, or an ast-grep pattern using $VAR / $$$ metavariables." },
+        pattern: { type: "string", minLength: 1, description: "Literal text, or an ast-grep pattern using $VAR / $$$ metavariables." },
         kind: { type: "string", enum: ["text", "ast", "auto"], description: "Search kind; default auto (detects ast-grep metavariables)." },
         scope: { type: "string", enum: ["tracked", "workspace"], description: "tracked restricts to git-tracked files via git grep; default workspace." },
-        path: { type: "string", description: "Path relative to workspaceRoot; default workspace root." },
+        path: { type: "string", minLength: 1, description: "Path relative to workspaceRoot; default workspace root." },
         limit: { type: "integer", minimum: 1, maximum: 200, description: "Maximum matches; default 30." },
       },
       required: ["pattern"],
+      additionalProperties: false,
     },
     outputSchema: OUTPUT_SCHEMA,
     annotations: readOnly,
@@ -62,12 +64,13 @@ export const codeSearchTools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        symbol: { type: "string" },
+        symbol: { type: "string", minLength: 1 },
         relation: { type: "string", enum: ["definitions", "references", "callers"], description: "Default definitions." },
-        path: { type: "string", description: "Path relative to workspaceRoot; default workspace root." },
+        path: { type: "string", minLength: 1, description: "Path relative to workspaceRoot; default workspace root." },
         limit: { type: "integer", minimum: 1, maximum: 200, description: "Maximum matches; default 30." },
       },
       required: ["symbol"],
+      additionalProperties: false,
     },
     outputSchema: OUTPUT_SCHEMA,
     annotations: readOnly,
@@ -115,6 +118,8 @@ export interface CodeSearchDispatchOutcome {
 
 /** proxy.ts の trace 記録が実際に選ばれた backend/provider を読めるようにする経路。 */
 export async function dispatchCodeSearchTool(name: string, args: Args, context: CodeSearchContext): Promise<CodeSearchDispatchOutcome> {
+  const tool = codeSearchTools.find((candidate) => candidate.name === name);
+  if (tool !== undefined) assertValidToolArguments(tool, args);
   switch (name) {
     case "mottainai_code_search": return codeSearchTool(args, context);
     case "mottainai_code_symbol": return codeSymbolTool(args, context);
