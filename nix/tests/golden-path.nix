@@ -218,6 +218,30 @@ let
     def run_as_control(command):
         return golden.succeed("su -l mottainai-control -c " + shlex.quote(command))
 
+    # `mottainai-bootstrap reconcile` embeds the *entire* captured nix build
+    # error text verbatim into its JSON error output on failure. That text
+    # can run to several KB with embedded newlines, which corrupts the
+    # nixosTest Python driver's single-block base64 command-output capture
+    # (`binascii.Error: Invalid base64-encoded string`) before the real
+    # error is ever visible. Route the command's own stdout/stderr to a file
+    # inside the guest instead, then read back only a bounded prefix — this
+    # keeps the driver's capture small on both the success and failure paths
+    # while still preserving the real exit code via `exit $ec`.
+    def run_as_control_bounded(command, expect_success, max_bytes=4000):
+        log_path = "/tmp/mottainai-golden-path-cmd.log"
+        wrapped = (
+            command
+            + " > "
+            + log_path
+            + " 2>&1; ec=$?; head -c "
+            + str(max_bytes)
+            + " "
+            + log_path
+            + "; exit $ec"
+        )
+        runner = golden.succeed if expect_success else golden.fail
+        return runner("su -l mottainai-control -c " + shlex.quote(wrapped))
+
     # --repo-root points at this exact repository checkout (already shared
     # into the guest's store, same as sourceV1) rather than the packaged
     # mottainai-bootstrap CLI's own embedded nix-projection copy
@@ -233,20 +257,19 @@ let
     # derivation as the host's, landing on the pre-realized cache hit
     # instead of attempting a network-dependent rebuild with no network.
     def reconcile(mottainai_source_tree):
-        return run_as_control(
+        return run_as_control_bounded(
             "mottainai-bootstrap reconcile --system ${systemString} --repo-root ${source} --mottainai-source "
             + mottainai_source_tree
-            + " --json"
+            + " --json",
+            expect_success=True,
         )
 
     def reconcile_expect_failure(mottainai_source_tree):
-        return golden.fail(
-            "su -l mottainai-control -c "
-            + shlex.quote(
-                "mottainai-bootstrap reconcile --system ${systemString} --repo-root ${source} --mottainai-source "
-                + mottainai_source_tree
-                + " --json"
-            )
+        return run_as_control_bounded(
+            "mottainai-bootstrap reconcile --system ${systemString} --repo-root ${source} --mottainai-source "
+            + mottainai_source_tree
+            + " --json",
+            expect_success=False,
         )
 
     def nar_hash_of(store_path):
