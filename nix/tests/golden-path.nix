@@ -109,7 +109,16 @@ let
   # manifests the test script writes carry the real, guest-computed
   # sourceSha256 (mirroring exactly what production bootstrap/reconcile
   # verifies), so `lib.fakeSha256` here is never checked against anything.
-  mkGoldenManifest = { mottainaiVersion, mottainaiSourceTree }: {
+  # Mirrors testScript's own `golden_manifest` package list exactly
+  # (mottainai + nawabari) — the guest's real `mottainai-bootstrap
+  # reconcile` builds its candidate generation as one buildEnv over BOTH
+  # packages, so genV1.generation/genV2.generation below must be built from
+  # the identical package set to land on the exact same store path the
+  # guest activates (buildEnv's hash depends on its full `paths` list, not
+  # just the mottainai entry). sourceSha256 itself does not affect
+  # `generation`'s hash (only resolveEntry's version match does), so the
+  # placeholder here is fine even though the guest computes a real one.
+  mkGoldenManifest = { mottainaiVersion }: {
     contractId = "mottainai.managed-package-manifest.v1";
     schemaVersion = 1;
     activation.generation = 1;
@@ -123,18 +132,27 @@ let
           sourceSha256 = lib.fakeSha256;
         };
       }
+      {
+        packageId = "nawabari";
+        kind = "nix-flake-package";
+        version = nawabariVersion;
+        source = {
+          flakeRef = "nix/packages/nawabari.nix";
+          sourceSha256 = lib.fakeSha256;
+        };
+      }
     ];
   };
 
   genV1 = mkManagedGeneration {
     system = pkgs.stdenv.hostPlatform.system;
-    manifest = mkGoldenManifest { mottainaiVersion = mottainaiVersionV1; mottainaiSourceTree = sourceV1; };
+    manifest = mkGoldenManifest { mottainaiVersion = mottainaiVersionV1; };
     mottainaiSource = sourceV1;
   };
 
   genV2 = mkManagedGeneration {
     system = pkgs.stdenv.hostPlatform.system;
-    manifest = mkGoldenManifest { mottainaiVersion = mottainaiVersionV2; mottainaiSourceTree = sourceV2; };
+    manifest = mkGoldenManifest { mottainaiVersion = mottainaiVersionV2; };
     mottainaiSource = sourceV2;
   };
 
@@ -198,7 +216,11 @@ pkgs.testers.nixosTest {
 
     def nar_hash_of(store_path):
         sri = golden.succeed(
-            "nix path-info --json --json-format 2 " + store_path + " | jq -r '.[].narHash'"
+            # --json-format 2 nests results under "info" keyed by store path
+            # (matching src/runtime-contract/managed-generation-build.ts's
+            # own narHashOfFactory: `pathInfo.info`, then Object.values),
+            # not a plain top-level array.
+            "nix path-info --json --json-format 2 " + store_path + " | jq -r '.info[].narHash'"
         ).strip()
         expr = 'builtins.convertHash { hash = "' + sri + '"; hashAlgo = "sha256"; toHashFormat = "base16"; }'
         return golden.succeed("nix eval --raw --expr " + shlex.quote(expr)).strip()
