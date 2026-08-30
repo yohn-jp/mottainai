@@ -330,6 +330,22 @@ test("list reports complete and truncated entry and byte boundaries", async () =
   }
 });
 
+test("list rejects fractional limits at runtime without relying on MCP schema", async () => {
+  const { root, config } = await workspace();
+  try {
+    await assert.rejects(
+      () => callLocalTool("mottainai_list", { path: ".", depth: 0, maxEntries: 1.5 }, config, new InMemoryArtifactStore()),
+      /maxEntries must be an integer/,
+    );
+    await assert.rejects(
+      () => callLocalTool("mottainai_list", { path: ".", depth: 0, maxBytes: 1.5 }, config, new InMemoryArtifactStore()),
+      /maxBytes must be an integer/,
+    );
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("search caps total matches across files at maxResults and reports truncation", async (t) => {
   const { root, config } = await workspace();
   try {
