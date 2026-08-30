@@ -130,6 +130,33 @@ test("corrupted persisted state (malformed JSON) fails closed", () => {
   }
 });
 
+// PR review finding P1-5: resolvedMottainaiSource must be optional, since a
+// Nawabari-only manifest (no `mottainai` entry) has nothing to record there.
+
+test("parses a successful build state with no resolvedMottainaiSource (Nawabari-only manifest)", () => {
+  const state = stateWithSuccessfulBuild();
+  const { resolvedMottainaiSource: _omit, ...rest } = state.lastSuccessfulBuild!;
+  const nawabariOnly: BootstrapState = { ...state, lastSuccessfulBuild: rest };
+  const parsed = parseBootstrapState(nawabariOnly);
+  assert.ok(parsed.lastSuccessfulBuild !== undefined);
+  assert.equal(parsed.lastSuccessfulBuild.resolvedMottainaiSource, undefined);
+});
+
+test("persisted evidence round-trips deterministically: lastSuccessfulBuild with no resolvedMottainaiSource", () => {
+  const { root, filePath } = tempStatePath();
+  try {
+    const state = stateWithSuccessfulBuild();
+    const { resolvedMottainaiSource: _omit, ...rest } = state.lastSuccessfulBuild!;
+    const nawabariOnly: BootstrapState = { ...state, lastSuccessfulBuild: rest };
+    writeBootstrapState(filePath, nawabariOnly, DIRECT_BOUNDARIES);
+    const read = readBootstrapState(filePath);
+    assert.deepEqual(read, nawabariOnly);
+    assert.equal(read?.lastSuccessfulBuild?.resolvedMottainaiSource, undefined);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("corrupted persisted state (schema-invalid JSON) fails closed", () => {
   const { root, filePath } = tempStatePath();
   try {

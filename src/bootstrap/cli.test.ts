@@ -77,3 +77,30 @@ test("the CLI's production dispatch always uses CANONICAL_BOOTSTRAP_STATE_FILE_P
   }
   assert.equal(CANONICAL_BOOTSTRAP_STATE_FILE_PATH, "/var/lib/mottainai-control/bootstrap/state.json");
 });
+
+// PR review finding P1-4, exercised through the real CLI boundary (not just
+// runBootstrapBuild directly, which build.test.ts already covers): `build`
+// against a manifest path that does not exist must still route through
+// runBootstrapBuild (via the UnreadableManifest sentinel cli.ts constructs)
+// rather than returning early before any bootstrap-state persistence logic
+// runs. Exercised against CANONICAL_BOOTSTRAP_STATE_FILE_PATH (the real
+// production path, unwritable in this sandbox) so the specific assertion
+// here is behavioral, not structural: a missing manifest file must fail
+// with `invalid_manifest`, proving control reached runBootstrapBuild's
+// manifest-stage rejection — not `bootstrap_state_corruption` or a crash
+// from some earlier code path that never got that far.
+test("build against a nonexistent manifest path fails with invalid_manifest, proving it reached runBootstrapBuild rather than returning early", async () => {
+  const capture = captureStdout();
+  const exitCode = await runBootstrapCli([
+    "build",
+    "/nonexistent/path/manifest.json",
+    "--system",
+    "x86_64-linux",
+    "--json",
+  ]);
+  const output = capture.restore();
+  assert.equal(exitCode, 1);
+  const parsed = JSON.parse(output);
+  assert.equal(parsed.code, "invalid_manifest");
+  assert.match(parsed.message, /manifest file cannot be read/u);
+});

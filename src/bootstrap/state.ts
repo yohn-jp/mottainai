@@ -75,12 +75,19 @@ const lastSuccessfulBuildSchema = z
   .object({
     completedAt: z.string().datetime(),
     desiredManifestSemanticIdentity: sha256HexSchema,
+    // Optional: present only when the manifest actually had a `mottainai`
+    // entry that was resolved. A Nawabari-only manifest (no `mottainai`
+    // entry) has nothing to record here — build.ts omits this key entirely
+    // rather than writing empty-string placeholders, which would otherwise
+    // fail this schema's own non-empty/hex-length constraints (PR review
+    // finding P1-5).
     resolvedMottainaiSource: z
       .object({
         version: z.string().min(1).max(MAX_IDENTITY_LENGTH),
         narHashSha256: sha256HexSchema,
       })
-      .strict(),
+      .strict()
+      .optional(),
     generationIdentity: sha256HexSchema,
     generationStorePath: z.string().min(1).max(MAX_STORE_PATH_LENGTH),
   })
@@ -171,6 +178,16 @@ export function readBootstrapState(filePath: string): BootstrapState | undefined
   return parseBootstrapState(value);
 }
 
+/**
+ * Validates `state` against `BootstrapStateSchema` immediately before
+ * atomic persistence — a second line of defense beyond callers truncating
+ * bounded fields (e.g. `lastAttempt.message`) themselves. If `state` is
+ * ever schema-invalid here, that is a genuine bug in the caller's own
+ * construction logic (not an expected runtime condition), so this fails
+ * closed rather than silently writing an invalid file that a later
+ * `readBootstrapState` call would then reject.
+ */
 export function writeBootstrapState(filePath: string, state: BootstrapState, boundaries: BoundaryOperations): void {
-  replaceFileAtomically(filePath, canonicalBootstrapStateText(state), boundaries, "bootstrap-state-write");
+  const validated = parseBootstrapState(state);
+  replaceFileAtomically(filePath, canonicalBootstrapStateText(validated), boundaries, "bootstrap-state-write");
 }

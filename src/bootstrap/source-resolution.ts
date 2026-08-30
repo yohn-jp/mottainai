@@ -58,39 +58,98 @@ function defaultNarHashOfTree(treePath: string): string {
     .toLowerCase();
 }
 
+/**
+ * Validates a URL (HTTPS-only, host-allowlisted) before handing it to
+ * `fetcher`, which is the low-level "give me bytes for this exact URL"
+ * injection seam (see `ResolveMottainaiSourceOptions.fetcher`). This
+ * function does not itself follow HTTP redirects — that loop lives in
+ * `defaultFetcher` below, which drives the actual `fetch()` call with
+ * `redirect: "manual"` and re-validates every hop against the same
+ * allowlist before following it. Wrapping `fetcher` here still matters even
+ * though `defaultFetcher` re-checks each hop internally: it's what makes
+ * the initial URL check apply uniformly to injected test fetchers too.
+ */
 async function fetchWithRedirects(
   url: string,
   fetcher: (url: string) => Promise<ReadableStream<Uint8Array>>,
+): Promise<ReadableStream<Uint8Array>> {
+  const parsedUrl = new URL(url);
+  if (parsedUrl.protocol !== "https:") {
+    throw new BootstrapError("source_resolution_failure", `non-HTTPS redirect not allowed: ${url}`);
+  }
+  if (!BOOTSTRAP_TRUSTED_REDIRECT_HOSTS.includes(parsedUrl.hostname as (typeof BOOTSTRAP_TRUSTED_REDIRECT_HOSTS)[number])) {
+    throw new BootstrapError("source_resolution_failure", `redirect to untrusted host: ${parsedUrl.hostname}`);
+  }
+  try {
+    return await fetcher(url);
+  } catch (error) {
+    if (error instanceof BootstrapError) throw error;
+    throw new BootstrapError(
+      "source_resolution_failure",
+      `Mottainai source download failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+/**
+ * The raw, single-hop HTTP transport `defaultFetcher`'s manual-redirect
+ * loop drives. Defaults to Node's real `fetch` with `redirect: "manual"`
+ * (production behavior — never follows a redirect transparently). Tests
+ * substitute this with a transport backed by a real `node:http` server so
+ * the redirect-following/host-validation *loop itself* runs unmodified
+ * against real HTTP status/location-header semantics, without needing a
+ * TLS certificate for github.com/codeload.github.com in a hermetic test.
+ */
+export type RawHttpTransport = (url: string) => Promise<{
+  readonly status: number;
+  readonly ok: boolean;
+  readonly body: ReadableStream<Uint8Array> | null;
+  readonly location: string | null;
+}>;
+
+async function defaultRawHttpTransport(url: string): ReturnType<RawHttpTransport> {
+  const response = await fetch(url, { redirect: "manual" });
+  return { status: response.status, ok: response.ok, body: response.body, location: response.headers.get("location") };
+}
+
+/**
+ * Production fetcher: follows redirect hops in a loop via `transport`
+ * (defaults to a real, non-auto-following `fetch`), validating each
+ * resolved hop's protocol (HTTPS-only) and host
+ * (`BOOTSTRAP_TRUSTED_REDIRECT_HOSTS`) before following it, bounded by
+ * `MAX_REDIRECTS`. This is load-bearing: `fetch(url, { redirect: "follow"
+ * })` would follow redirects transparently inside the fetch call itself,
+ * before this module's allowlist check ever saw the final destination
+ * host — exactly the gap this function closes. Mirrors
+ * src/local-runtime/artifacts.ts's `fetchWithRedirects`.
+ */
+export async function defaultFetcher(
+  url: string,
+  transport: RawHttpTransport = defaultRawHttpTransport,
 ): Promise<ReadableStream<Uint8Array>> {
   let currentUrl = url;
   for (let redirectCount = 0; redirectCount < MAX_REDIRECTS; redirectCount++) {
     const parsedUrl = new URL(currentUrl);
     if (parsedUrl.protocol !== "https:") {
-      throw new BootstrapError("source_resolution_failure", `non-HTTPS redirect not allowed: ${currentUrl}`);
+      throw new Error(`non-HTTPS redirect not allowed: ${currentUrl}`);
     }
     if (!BOOTSTRAP_TRUSTED_REDIRECT_HOSTS.includes(parsedUrl.hostname as (typeof BOOTSTRAP_TRUSTED_REDIRECT_HOSTS)[number])) {
-      throw new BootstrapError("source_resolution_failure", `redirect to untrusted host: ${parsedUrl.hostname}`);
+      throw new Error(`redirect to untrusted host: ${parsedUrl.hostname}`);
     }
-    let body: ReadableStream<Uint8Array>;
-    try {
-      body = await fetcher(currentUrl);
-    } catch (error) {
-      throw new BootstrapError(
-        "source_resolution_failure",
-        `Mottainai source download failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
+    const response = await transport(currentUrl);
+    if (response.status >= 300 && response.status < 400) {
+      if (response.location === null) {
+        throw new Error(`redirect response missing location header`);
+      }
+      currentUrl = new URL(response.location, currentUrl).href;
+      continue;
     }
-    return body;
+    if (!response.ok || response.body === null) {
+      throw new Error(`HTTP ${response.status} from ${currentUrl}`);
+    }
+    return response.body;
   }
-  throw new BootstrapError("source_resolution_failure", `exceeded maximum redirect count (${MAX_REDIRECTS})`);
-}
-
-async function defaultFetcher(url: string): Promise<ReadableStream<Uint8Array>> {
-  const response = await fetch(url, { redirect: "follow" });
-  if (!response.ok || response.body === null) {
-    throw new Error(`HTTP ${response.status} from ${url}`);
-  }
-  return response.body;
+  throw new Error(`exceeded maximum redirect count (${MAX_REDIRECTS})`);
 }
 
 async function downloadToFile(

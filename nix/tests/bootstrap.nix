@@ -4,21 +4,37 @@
 # (nix/bootstrap.nix), mirroring nix/tests/managed-generation.nix's style
 # of a `runCommand` check run via `nix build .#checks.<system>.bootstrap`.
 #
-# Two properties this proves that pure evaluation alone cannot:
+# Three properties this proves that pure evaluation alone cannot:
 #
 # 1. The packaged `mottainai-bootstrap status` binary actually runs — in an
 #    isolated $TMPDIR with no prior state and no full `mottainai` package
 #    anywhere in its build environment — and reports present:false without
-#    crashing (Issue #626 AC: "a fresh environment without full Mottainai
-#    installed can request/build ..." — this is the "runs at all" half of
-#    that; src/bootstrap/build.test.ts proves the full build pipeline with
-#    injected dependencies).
+#    crashing.
 #
 # 2. The built closure genuinely excludes the full `mottainai` derivation
 #    and the unrelated root-dependency packages it pulls in (node-pty,
 #    tree-sitter*, xterm, the MCP SDK, ws) — not just that nix/bootstrap.nix
 #    was written with that intent, but that the real store closure has no
 #    reference to any of them.
+#
+# 3. The packaged binary ships its own copy of Issue #625's Nix projection
+#    (nix/managed-generation.nix, nix/mottainai.nix, nix/packages/nawabari.nix,
+#    plus the flake.nix/flake.lock wiring lib.mkManagedGeneration) and can
+#    resolve+build from it with NO repository checkout on the path at all
+#    (PR review finding P0-1: buildManagedGeneration resolves
+#    `${repoRoot}/nix` via `builtins.getFlake`, and this package previously
+#    shipped no `nix/` directory, silently requiring `--repo-root` to point
+#    at a real checkout a fresh Appliance does not have). This check's own
+#    sandbox has no Nix daemon access for a NESTED `nix build`, so it
+#    verifies the file layout `mottainai-bootstrap build` depends on is
+#    actually present in the installed package (`nix-projection/nix/` next
+#    to `bootstrap/main.js`, containing a resolvable `flake.nix` inside a
+#    git working tree) — the real nested-build proof
+#    (`mottainai-bootstrap build <manifest> --system ...` succeeding through
+#    to a real `nix build` invocation, verified manually against this exact
+#    package during development, see PR #636's review response) is
+#    necessarily a manual/CI-level check rather than something this
+#    sandboxed derivation can also exercise.
 #
 # The closure listing itself is obtained via `exportReferencesGraph`, not by
 # shelling out to `nix-store -q --requisites` inside the build sandbox: the
@@ -43,6 +59,18 @@ pkgs.runCommand "mottainai-bootstrap-smoke"
       || { echo "expected present:false in fresh status output, got: $status_output"; exit 1; }
     echo "$status_output" | grep -q '"contractId": "mottainai.bootstrap-state.v1"' \
       || { echo "status output missing contractId: $status_output"; exit 1; }
+
+    # 3. Packaged Nix projection layout: proves the file layout
+    # `mottainai-bootstrap build` needs is actually installed, not just
+    # documented — the real nested `nix build` invocation itself cannot run
+    # inside this sandbox (no Nix daemon access for a nested build here).
+    nixProjection="${bootstrapPackage}/lib/node_modules/mottainai-bootstrap/nix-projection/nix"
+    for expected in flake.nix flake.lock managed-generation.nix mottainai.nix packages/nawabari.nix; do
+      test -f "$nixProjection/$expected" \
+        || { echo "FAIL: packaged bootstrap is missing its own Nix projection file: $expected"; exit 1; }
+    done
+    test -d "$nixProjection/../.git" \
+      || { echo "FAIL: packaged Nix projection is not a git working tree (builtins.getFlake requires one)"; exit 1; }
 
     # 2. Closure-exclusion: the built bootstrap package's own runtime
     # closure must not reference the full mottainai derivation or any of

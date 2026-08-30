@@ -1,10 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { DIRECT_BOUNDARIES } from "../boundary.js";
 import { defaultBootstrapDependencies, readBootstrapStatus, runBootstrapBuild, verifyBootstrap } from "./build.js";
 import { BootstrapError } from "./errors.js";
 import { CANONICAL_BOOTSTRAP_STATE_FILE_PATH } from "./paths.js";
+import { UnreadableManifest } from "./unreadable-manifest.js";
 
 /**
  * Narrow bootstrap dispatcher (Issue #626): `build` / `status` / `verify`
@@ -35,15 +37,26 @@ function printJson(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 }
 
+/**
+ * nix/bootstrap.nix's installPhase copies Issue #625's Nix projection
+ * (flake.nix, flake.lock, managed-generation.nix, mottainai.nix,
+ * packages/nawabari.nix) into a `nix-projection/nix/` directory sibling to
+ * this compiled file's own directory (`$packageRoot/nix-projection/nix`,
+ * next to `$packageRoot/bootstrap/main.js`) — a self-contained git working
+ * tree `buildManagedGeneration`'s `builtins.getFlake` can resolve with no
+ * repository checkout anywhere else on the deployed host (PR review
+ * finding P0-1). This is checked first; a development/CI invocation (via
+ * scripts/bootstrap.mjs, run directly against uncompiled `src/bootstrap/`)
+ * has no such sibling directory, so falls back to `process.cwd()` matching
+ * scripts/build-managed-generation.mjs's own convention of being run from
+ * the repository root. `--repo-root` remains available to override either
+ * default explicitly.
+ */
 function repoRootForNixInvocation(): string {
-  // The bootstrap package (nix/bootstrap.nix) does not embed a repository
-  // checkout — the deployed CLI runs against a manifest and a resolved
-  // source only. When invoked from a development/CI checkout (via
-  // scripts/bootstrap.mjs), the flake lives at this process's cwd's
-  // ancestor; the caller is expected to run this from the repository root,
-  // matching scripts/build-managed-generation.mjs's own convention of
-  // resolving relative to its own file location. This CLI accepts an
-  // explicit --repo-root for exactly that reason rather than guessing.
+  const packagedProjectionRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "nix-projection");
+  if (fs.existsSync(path.join(packagedProjectionRoot, "nix", "flake.nix"))) {
+    return packagedProjectionRoot;
+  }
   return process.cwd();
 }
 
@@ -72,17 +85,18 @@ async function runBuildCommand(argv: readonly string[]): Promise<number> {
     return 1;
   }
 
+  // A manifest file that cannot be read or does not parse as JSON is not
+  // special-cased here: it is wrapped as an UnreadableManifest sentinel that
+  // runBootstrapBuild recognizes and rejects through its normal
+  // lastAttempt-persisting path (PR review finding P1-4 — previously this
+  // returned before runBootstrapBuild was ever called, so no lastAttempt
+  // was persisted for this specific failure, including a first-ever attempt
+  // before any bootstrap state exists).
   let manifestValue: unknown;
   try {
     manifestValue = JSON.parse(fs.readFileSync(path.resolve(manifestPath), "utf8"));
   } catch (error) {
-    const bootstrapError = new BootstrapError(
-      "invalid_manifest",
-      `manifest file cannot be read: ${error instanceof Error ? error.message : String(error)}`,
-    );
-    if (json) printJson({ code: bootstrapError.code, message: bootstrapError.message });
-    else process.stderr.write(`${bootstrapError.code}: ${bootstrapError.message}\n`);
-    return 1;
+    manifestValue = new UnreadableManifest(error instanceof Error ? error.message : String(error));
   }
 
   const deps = defaultBootstrapDependencies({

@@ -212,16 +212,57 @@ is the synchronization check: it reads `pnpm-lock.yaml`'s real `zod@` and
 `@types/node@` resolution entries and asserts they match the literal values
 hardcoded in `nix/bootstrap.nix`, failing loudly the moment they diverge.
 
+### Embedded Nix projection — building with no repository checkout
+
+`buildManagedGeneration` (`src/runtime-contract/managed-generation-build.ts`)
+resolves `${repoRoot}/nix` via `builtins.getFlake` to reach #625's
+`lib.mkManagedGeneration`. A deployed `mottainai-bootstrap build` therefore
+needs a `nix/` directory with a resolvable `flake.nix` — but the whole point
+of this component is running with no Mottainai repository checkout on the
+deployed host. `nix/bootstrap.nix`'s `installPhase` resolves this by
+packaging its own minimal copy of #625's Nix projection alongside the
+compiled CLI: `nix/flake.nix`, `nix/flake.lock`, `nix/managed-generation.nix`,
+`nix/mottainai.nix`, `nix/packages/nawabari.nix`, and `nix/bootstrap.nix`
+itself, copied into `nix-projection/nix/` next to `bootstrap/main.js` inside
+the installed package, and committed into a throwaway git working tree
+there (`builtins.getFlake` requires a VCS working tree to resolve a flake).
+`src/bootstrap/cli.ts`'s `repoRootForNixInvocation` looks for this sibling
+directory first, falling back to `process.cwd()` only for the
+`scripts/bootstrap.mjs` dev/CI entrypoint (which runs directly against
+uncompiled `src/`, where no such packaged sibling exists) — `--repo-root`
+remains available to override either default explicitly.
+
+This works because `lib.mkManagedGeneration`'s own dependency graph never
+forces `mkMottainai`'s `source = ../.` binding (`nix/flake.nix`) — that
+binding is only reachable through `packages.<system>.mottainai`, which this
+projection never touches — so Nix's laziness means the embedded `nix/`
+copy never needs a full repository checkout above it to evaluate or build
+correctly. Verified during development against an isolated git-tracked
+directory containing only this exact file list, with no repository root
+above it: `flake.lib.mkManagedGeneration` evaluated and built a real
+generation from it directly.
+
 `checks.<system>.bootstrap` (`nix/tests/bootstrap.nix`) is a real
-`runCommand` build (not pure evaluation) proving two things pure evaluation
-cannot: the packaged `mottainai-bootstrap status` binary actually runs, with
-no full `mottainai` package present in its build environment, and reports a
-bounded `present: false`; and the built package's real dependency closure
-(obtained via Nix's `exportReferencesGraph` derivation attribute, since a
-sandboxed build has no access to the host store database to query it any
-other way) genuinely excludes the full `mottainai` derivation and the
-unrelated dependencies named above — not merely that `nix/bootstrap.nix`
-was written with that intent.
+`runCommand` build (not pure evaluation) proving three things pure
+evaluation cannot: the packaged `mottainai-bootstrap status` binary actually
+runs, with no full `mottainai` package present in its build environment, and
+reports a bounded `present: false`; the built package's real dependency
+closure (obtained via Nix's `exportReferencesGraph` derivation attribute,
+since a sandboxed build has no access to the host store database to query
+it any other way) genuinely excludes the full `mottainai` derivation and the
+unrelated dependencies named above — not merely that `nix/bootstrap.nix` was
+written with that intent; and the packaged Nix projection's file layout
+(`nix-projection/nix/{flake.nix,flake.lock,managed-generation.nix,
+mottainai.nix,packages/nawabari.nix}` plus a `.git` working tree) is
+actually present in the installed output. That check's own sandbox has no
+Nix daemon access for a *nested* `nix build`, so the full standalone-build
+proof — `mottainai-bootstrap build <manifest> --system <system>` succeeding
+through to a real `nix build` invocation with no checkout anywhere on the
+path — was verified manually against the built package during development
+(a Nawabari-only manifest resolved source, invoked `nix build` against the
+packaged projection, and reached the production control-state write step,
+failing only on a sandboxed test environment's lack of write access to
+`/var/lib/mottainai-control` — not on anything checkout-related).
 
 **This package is deliberately not wired into `nix/modules/runtime.nix` or
 any appliance/runtime closure.** Proving standalone packageability is Issue

@@ -4,10 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { DIRECT_BOUNDARIES } from "../boundary.js";
+import { ManagedGenerationBuildError } from "../runtime-contract/managed-generation-build.js";
 import { MANAGED_PACKAGE_MANIFEST_CONTRACT_ID, MANAGED_PACKAGE_MANIFEST_SCHEMA_VERSION } from "../runtime-contract/managed-package-manifest.js";
 import { defaultBootstrapDependencies, readBootstrapStatus, runBootstrapBuild } from "./build.js";
 import type { BootstrapDependencies } from "./build.js";
 import { readBootstrapState } from "./state.js";
+import { UnreadableManifest } from "./unreadable-manifest.js";
 
 function validManifest(overrides: Record<string, unknown> = {}) {
   return {
@@ -219,6 +221,134 @@ test("scenario 12: a failed later attempt preserves previous successful generati
   }
 });
 
+// PR review finding P1-3: a ManagedGenerationBuildError with phase
+// "metadata"/"source_integrity"/"resolved_version" (thrown by
+// buildManagedGeneration's post-build verification steps) must map to its
+// own distinct BootstrapErrorCode, not collapse into
+// "unsupported_managed_package" or a generic "nix_generation_build_failure".
+
+test("scenario 5c: post-build malformed metadata produces malformed_generation_metadata, not unsupported_managed_package", async () => {
+  const h = harness({
+    runManagedGenerationBuild: async () => {
+      throw new ManagedGenerationBuildError("managed generation metadata is malformed: bad json", "metadata");
+    },
+  });
+  try {
+    await assert.rejects(
+      runBootstrapBuild(validManifest(), h.deps),
+      (error: unknown) => error instanceof Error && (error as { code?: string }).code === "malformed_generation_metadata",
+    );
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("scenario 5d: post-build source-integrity mismatch produces source_integrity_mismatch, not unsupported_managed_package", async () => {
+  const h = harness({
+    runManagedGenerationBuild: async () => {
+      throw new ManagedGenerationBuildError("managed generation source integrity mismatch for packageId=mottainai", "source_integrity");
+    },
+  });
+  try {
+    await assert.rejects(
+      runBootstrapBuild(validManifest(), h.deps),
+      (error: unknown) => error instanceof Error && (error as { code?: string }).code === "source_integrity_mismatch",
+    );
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("scenario 5e: post-build resolved-version mismatch produces requested_resolved_version_mismatch, not unsupported_managed_package", async () => {
+  const h = harness({
+    runManagedGenerationBuild: async () => {
+      throw new ManagedGenerationBuildError("managed generation version mismatch for packageId=mottainai", "resolved_version");
+    },
+  });
+  try {
+    await assert.rejects(
+      runBootstrapBuild(validManifest(), h.deps),
+      (error: unknown) => error instanceof Error && (error as { code?: string }).code === "requested_resolved_version_mismatch",
+    );
+  } finally {
+    h.cleanup();
+  }
+});
+
+// PR review finding P1-5: a Nawabari-only manifest (no `mottainai` entry) is
+// intentionally allowed — runBootstrapBuild skips source resolution when
+// there's no mottainai entry to resolve. The persisted success state must
+// omit resolvedMottainaiSource entirely in that case (not write empty
+// strings, which would fail lastSuccessfulBuildSchema) and must still
+// round-trip through readBootstrapState without throwing.
+
+test("scenario 13: a Nawabari-only manifest persists success state with no resolvedMottainaiSource key", async () => {
+  const h = harness();
+  try {
+    const nawabariOnlyManifest = validManifest({
+      packages: [
+        {
+          packageId: "nawabari",
+          kind: "nix-flake-package",
+          version: "0.6.1",
+          source: { flakeRef: "nix/packages/nawabari.nix", sourceSha256: "b".repeat(64) },
+        },
+      ],
+    });
+
+    const state = await runBootstrapBuild(nawabariOnlyManifest, h.deps);
+    assert.equal(state.lastAttempt.outcome, "success");
+    assert.ok(state.lastSuccessfulBuild !== undefined);
+    assert.equal(state.lastSuccessfulBuild.resolvedMottainaiSource, undefined);
+    assert.ok(!Object.prototype.hasOwnProperty.call(state.lastSuccessfulBuild, "resolvedMottainaiSource"));
+    // source resolution must never run when there's no mottainai entry
+    assert.equal(h.resolveSourceCalls.length, 0);
+
+    // Round-trips through readBootstrapState (i.e. parseBootstrapState)
+    // without throwing.
+    const reread = readBootstrapState(h.stateFilePath);
+    assert.ok(reread !== undefined);
+    assert.equal(reread.lastSuccessfulBuild?.resolvedMottainaiSource, undefined);
+  } finally {
+    h.cleanup();
+  }
+});
+
+// PR review finding P1-6: BootstrapStateSchema's lastAttempt.message is
+// capped at 2048 chars, but a Nix/subprocess/fetch error can plausibly
+// produce a much longer message (long stderr-derived text). Bootstrap must
+// truncate before persisting, or its own normal failure path would write a
+// state.json that violates its own schema and then fail the next
+// status/verify call with bootstrap_state_corruption.
+
+test("scenario 5f: a failure message longer than the 2048-char schema bound is truncated so persisted state stays schema-valid", async () => {
+  const longMessage = `nix build exited with code 1: ${"x".repeat(3000)}`;
+  const h = harness({
+    runManagedGenerationBuild: async () => {
+      throw new Error(longMessage);
+    },
+  });
+  try {
+    await assert.rejects(
+      runBootstrapBuild(validManifest(), h.deps),
+      (error: unknown) => error instanceof Error && (error as { code?: string }).code === "nix_generation_build_failure",
+    );
+    // readBootstrapState validates against BootstrapStateSchema internally —
+    // if the persisted message exceeded the 2048-char bound this throws
+    // BootstrapStateError (bootstrap corrupting its own state via its own
+    // failure path), which is exactly the bug this test guards against.
+    const state = readBootstrapState(h.stateFilePath);
+    assert.ok(state !== undefined);
+    assert.equal(state.lastAttempt.outcome, "failure");
+    assert.equal(state.lastAttempt.errorCode, "nix_generation_build_failure");
+    assert.ok(state.lastAttempt.message !== undefined);
+    assert.ok(state.lastAttempt.message.length <= 2048);
+    assert.ok(state.lastAttempt.message.endsWith("...[truncated]"));
+  } finally {
+    h.cleanup();
+  }
+});
+
 test("scenario 9: no user/workspace mutation — bootstrap only writes under its own state file directory", async () => {
   const h = harness();
   try {
@@ -252,4 +382,53 @@ test("defaultBootstrapDependencies wires resolveMottainaiSource/buildManagedGene
   });
   assert.equal(typeof deps.resolveSource, "function");
   assert.equal(typeof deps.runManagedGenerationBuild, "function");
+});
+
+// PR review finding P1-4: src/bootstrap/cli.ts wraps a manifest file that
+// cannot be read or does not parse as JSON as an UnreadableManifest
+// sentinel and still calls runBootstrapBuild with it, so this failure goes
+// through the same lastAttempt-persisting path as every other
+// invalid-manifest case — including a first-ever attempt, before any
+// bootstrap state exists yet. These tests exercise runBootstrapBuild
+// directly with that sentinel, proving the persistence contract the CLI
+// boundary relies on.
+
+test("scenario P1-4: an UnreadableManifest sentinel (file read/JSON.parse failure at the CLI boundary) still persists lastAttempt", async () => {
+  const h = harness();
+  try {
+    await assert.rejects(
+      runBootstrapBuild(new UnreadableManifest("ENOENT: no such file or directory"), h.deps),
+      (error: unknown) => error instanceof Error && (error as { code?: string }).code === "invalid_manifest",
+    );
+    const state = readBootstrapState(h.stateFilePath);
+    assert.ok(state !== undefined);
+    assert.equal(state.lastAttempt.outcome, "failure");
+    assert.equal(state.lastAttempt.errorCode, "invalid_manifest");
+    assert.match(state.lastAttempt.message ?? "", /manifest file cannot be read/u);
+    assert.match(state.lastAttempt.message ?? "", /ENOENT/u);
+    assert.equal(state.lastAttempt.desiredManifestSemanticIdentity, undefined);
+    assert.equal(state.lastSuccessfulBuild, undefined);
+    assert.equal(h.resolveSourceCalls.length, 0);
+    assert.equal(h.buildCalls.length, 0);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("scenario P1-4: an UnreadableManifest failure preserves a previously recorded successful build", async () => {
+  const h = harness();
+  try {
+    const successState = await runBootstrapBuild(validManifest(), h.deps);
+    assert.ok(successState.lastSuccessfulBuild !== undefined);
+
+    await assert.rejects(runBootstrapBuild(new UnreadableManifest("EACCES: permission denied"), h.deps));
+
+    const state = readBootstrapState(h.stateFilePath);
+    assert.ok(state !== undefined);
+    assert.equal(state.lastAttempt.outcome, "failure");
+    assert.equal(state.lastAttempt.errorCode, "invalid_manifest");
+    assert.deepEqual(state.lastSuccessfulBuild, successState.lastSuccessfulBuild);
+  } finally {
+    h.cleanup();
+  }
 });

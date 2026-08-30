@@ -35,7 +35,7 @@
       # deliberately not wired into nix/modules/runtime.nix or any
       # appliance/runtime closure here (Issue #627's job).
       mkBootstrap = pkgs: import ./bootstrap.nix {
-        inherit (pkgs) lib stdenvNoCC fetchurl makeWrapper nodejs_24 typescript;
+        inherit (pkgs) lib stdenvNoCC fetchurl makeWrapper nodejs_24 typescript git;
         source = ../.;
       };
       runtimeOverlay = final: prev: {

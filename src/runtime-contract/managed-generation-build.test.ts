@@ -115,3 +115,141 @@ test("buildManagedGeneration throws ManagedGenerationBuildError when the nix bui
     ManagedGenerationBuildError,
   );
 });
+
+// PR review finding P1-3: parseManagedGenerationMetadata, verifySourceIntegrity,
+// and assertResolvedVersionsMatch all throw the SAME ManagedGenerationError
+// class from src/runtime-contract/managed-generation.ts, but they mean three
+// different things. buildManagedGeneration must re-throw each as a
+// ManagedGenerationBuildError carrying a distinct `phase`, so
+// src/bootstrap/build.ts's toBootstrapError can map each to its own
+// BootstrapErrorCode instead of collapsing them all into
+// "unsupported_managed_package".
+
+test("buildManagedGeneration throws phase 'metadata' when the emitted metadata file is malformed JSON", async (t) => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-managed-generation-build-test-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const metadataStorePath = path.join(dir, "metadata.json");
+  fs.writeFileSync(metadataStorePath, "{ not valid json");
+
+  await assert.rejects(
+    buildManagedGeneration({
+      repoRoot: "/repo",
+      manifest: manifest(),
+      system: "x86_64-linux",
+      mottainaiSourcePath: "/some/resolved/source",
+      env: {},
+      execFile: fakeExecFile({ metadataStorePath, metadataJson: {}, narHashSha256: "b".repeat(64) }),
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ManagedGenerationBuildError);
+      assert.equal(error.phase, "metadata");
+      return true;
+    },
+  );
+});
+
+test("buildManagedGeneration throws phase 'metadata' when the emitted metadata fails schema validation", async (t) => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-managed-generation-build-test-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const metadataStorePath = path.join(dir, "metadata.json");
+  fs.writeFileSync(metadataStorePath, JSON.stringify({ contractId: "wrong" }));
+
+  await assert.rejects(
+    buildManagedGeneration({
+      repoRoot: "/repo",
+      manifest: manifest(),
+      system: "x86_64-linux",
+      mottainaiSourcePath: "/some/resolved/source",
+      env: {},
+      execFile: fakeExecFile({ metadataStorePath, metadataJson: {}, narHashSha256: "b".repeat(64) }),
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ManagedGenerationBuildError);
+      assert.equal(error.phase, "metadata");
+      return true;
+    },
+  );
+});
+
+test("buildManagedGeneration throws phase 'source_integrity' on a post-build NAR-hash mismatch", async (t) => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-managed-generation-build-test-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const manifestValue = manifest();
+  const metadataStorePath = path.join(dir, "metadata.json");
+  // Metadata resolves to version "0.7.1" (matching the manifest, so
+  // assertResolvedVersionsMatch would pass), but the actual NAR hash the
+  // fake execFile reports differs from the manifest's declared sourceSha256
+  // ("a".repeat(64)), so only verifySourceIntegrity should fail.
+  fs.writeFileSync(metadataStorePath, JSON.stringify(metadataFor(manifestValue, "a".repeat(64), "0.7.1")));
+
+  await assert.rejects(
+    buildManagedGeneration({
+      repoRoot: "/repo",
+      manifest: manifestValue,
+      system: "x86_64-linux",
+      mottainaiSourcePath: "/some/resolved/source",
+      env: {},
+      execFile: fakeExecFile({
+        metadataStorePath,
+        metadataJson: metadataFor(manifestValue, "a".repeat(64), "0.7.1"),
+        narHashSha256: "c".repeat(64),
+      }),
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ManagedGenerationBuildError);
+      assert.equal(error.phase, "source_integrity");
+      return true;
+    },
+  );
+});
+
+test("buildManagedGeneration throws phase 'resolved_version' on a post-build version mismatch", async (t) => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-managed-generation-build-test-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const manifestValue = manifest();
+  const narHashSha256 = "b".repeat(64);
+  const metadataStorePath = path.join(dir, "metadata.json");
+  // sourceSha256 matches (so verifySourceIntegrity passes), but
+  // resolvedVersion "0.9.9" differs from the manifest's requested "0.7.1",
+  // so only assertResolvedVersionsMatch should fail.
+  fs.writeFileSync(metadataStorePath, JSON.stringify(metadataFor(manifestValue, narHashSha256, "0.9.9")));
+
+  await assert.rejects(
+    buildManagedGeneration({
+      repoRoot: "/repo",
+      manifest: {
+        ...manifestValue,
+        packages: [{ ...manifestValue.packages[0], source: { ...manifestValue.packages[0].source, sourceSha256: narHashSha256 } }],
+      },
+      system: "x86_64-linux",
+      mottainaiSourcePath: "/some/resolved/source",
+      env: {},
+      execFile: fakeExecFile({
+        metadataStorePath,
+        metadataJson: metadataFor(manifestValue, narHashSha256, "0.9.9"),
+        narHashSha256,
+      }),
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ManagedGenerationBuildError);
+      assert.equal(error.phase, "resolved_version");
+      return true;
+    },
+  );
+});

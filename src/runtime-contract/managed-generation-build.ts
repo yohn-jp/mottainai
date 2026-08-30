@@ -58,10 +58,32 @@ export interface BuiltManagedGeneration {
   readonly generationIdentity: string;
 }
 
+/**
+ * `phase` distinguishes WHERE within buildManagedGeneration a failure
+ * occurred, so src/bootstrap/build.ts's toBootstrapError can map each
+ * failure to its own BootstrapErrorCode instead of collapsing every
+ * post-build failure into one code (PR review finding P1-3). `"nix_build"`
+ * is the Nix subprocess itself failing (exit code, stderr) — the build
+ * never produced output. `"metadata"` covers both the raw metadata
+ * file read/JSON.parse AND parseManagedGenerationMetadata's schema
+ * validation: the build succeeded per exit code but the metadata it
+ * produced is unreadable or schema-invalid, which is "the build produced
+ * bad metadata" either way — deliberately not split further. `"source_integrity"`
+ * is verifySourceIntegrity's post-build NAR-hash mismatch.
+ * `"resolved_version"` is assertResolvedVersionsMatch's post-build version
+ * mismatch. Defaults to `"nix_build"` so existing construction sites and
+ * scripts/build-managed-generation.mjs (which only lets errors propagate/
+ * print, never inspects `phase`) keep working unchanged.
+ */
+export type ManagedGenerationBuildErrorPhase = "nix_build" | "metadata" | "source_integrity" | "resolved_version";
+
 export class ManagedGenerationBuildError extends Error {
-  constructor(message: string) {
+  readonly phase: ManagedGenerationBuildErrorPhase;
+
+  constructor(message: string, phase: ManagedGenerationBuildErrorPhase = "nix_build") {
     super(message);
     this.name = "ManagedGenerationBuildError";
+    this.phase = phase;
   }
 }
 
@@ -140,10 +162,36 @@ in
     );
   }
 
-  const metadata = parseManagedGenerationMetadata(JSON.parse(fs.readFileSync(metadataStorePath, "utf8")));
+  // Raw metadata file read + JSON.parse, and parseManagedGenerationMetadata's
+  // schema validation, are both "the build produced bad metadata" — grouped
+  // under phase "metadata" (see ManagedGenerationBuildErrorPhase doc above).
+  let metadata: ManagedGenerationMetadata;
+  try {
+    metadata = parseManagedGenerationMetadata(JSON.parse(fs.readFileSync(metadataStorePath, "utf8")));
+  } catch (error) {
+    throw new ManagedGenerationBuildError(
+      `managed generation metadata is malformed: ${error instanceof Error ? error.message : String(error)}`,
+      "metadata",
+    );
+  }
 
-  verifySourceIntegrity(options.manifest, metadata, narHashOfFactory(execFile));
-  assertResolvedVersionsMatch(options.manifest, metadata);
+  try {
+    verifySourceIntegrity(options.manifest, metadata, narHashOfFactory(execFile));
+  } catch (error) {
+    throw new ManagedGenerationBuildError(
+      error instanceof Error ? error.message : String(error),
+      "source_integrity",
+    );
+  }
+
+  try {
+    assertResolvedVersionsMatch(options.manifest, metadata);
+  } catch (error) {
+    throw new ManagedGenerationBuildError(
+      error instanceof Error ? error.message : String(error),
+      "resolved_version",
+    );
+  }
 
   return { metadata, generationIdentity: generationIdentityOf(options.manifest, metadata) };
 }

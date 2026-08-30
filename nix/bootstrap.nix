@@ -1,4 +1,4 @@
-{ lib, stdenvNoCC, fetchurl, makeWrapper, nodejs_24, typescript, source }:
+{ lib, stdenvNoCC, fetchurl, makeWrapper, nodejs_24, typescript, git, source }:
 
 # Minimal standalone packaging of Issue #626's bootstrap CLI
 # (src/bootstrap/**), proving it is independently Nix-packageable without
@@ -66,7 +66,7 @@ stdenvNoCC.mkDerivation {
   # output, so it does not appear in the resulting closure — unlike the npm
   # `typescript` package in this repository's own `dependencies`, which
   # nix/mottainai.nix's full pnpm-install recipe would otherwise pull in.
-  nativeBuildInputs = [ nodejs makeWrapper typescript ];
+  nativeBuildInputs = [ nodejs makeWrapper typescript git ];
 
   # Only the bootstrap file subtree is meaningful input here; unpackPhase
   # copies the whole checkout (cheap — this is source, not a build
@@ -116,6 +116,7 @@ stdenvNoCC.mkDerivation {
       src/bootstrap/paths.ts \
       src/bootstrap/source-resolution.ts \
       src/bootstrap/state.ts \
+      src/bootstrap/unreadable-manifest.ts \
       src/runtime-contract/managed-generation-build.ts \
       src/runtime-contract/managed-generation.ts \
       src/runtime-contract/managed-package-manifest.ts \
@@ -132,6 +133,45 @@ stdenvNoCC.mkDerivation {
     mkdir -p "$packageRoot/node_modules"
     cp -a dist/. "$packageRoot/"
     cp -a "$TMPDIR/node_modules/zod" "$packageRoot/node_modules/zod"
+
+    # Issue #625's Nix projection (nix/managed-generation.nix,
+    # nix/mottainai.nix, nix/packages/nawabari.nix) plus the flake wiring
+    # that exposes lib.mkManagedGeneration (nix/flake.nix, nix/flake.lock)
+    # — copied in so the packaged bootstrap CLI can invoke `nix build`
+    # against its OWN copy without a repository checkout anywhere on the
+    # deployed host (PR review finding P0-1: `buildManagedGeneration`
+    # resolves `''${repoRoot}/nix` via `builtins.getFlake`, and this package
+    # previously shipped no `nix/` directory at all, silently requiring
+    # `--repo-root` to point at a real checkout that a fresh Appliance does
+    # not have). Verified in isolation (a git-tracked directory containing
+    # only this exact file list, no repository root above it) that
+    # `flake.lib.mkManagedGeneration` evaluates and builds correctly:
+    # nixpkgs.legacyPackages/nixpkgs.lib are Nix-store-resolved via the
+    # pinned flake input, not the surrounding checkout, and
+    # mkManagedGeneration never forces mkMottainai's `source = ../.`
+    # binding (only reachable through packages.<system>.mottainai, which
+    # this projection never touches) — Nix's laziness means that binding is
+    # simply never evaluated when only lib.mkManagedGeneration is invoked.
+    nixProjectionRoot="$packageRoot/nix-projection/nix"
+    mkdir -p "$nixProjectionRoot/packages"
+    cp "$src/nix/flake.nix" "$nixProjectionRoot/flake.nix"
+    cp "$src/nix/flake.lock" "$nixProjectionRoot/flake.lock"
+    cp "$src/nix/managed-generation.nix" "$nixProjectionRoot/managed-generation.nix"
+    cp "$src/nix/mottainai.nix" "$nixProjectionRoot/mottainai.nix"
+    cp "$src/nix/bootstrap.nix" "$nixProjectionRoot/bootstrap.nix"
+    cp "$src/nix/packages/nawabari.nix" "$nixProjectionRoot/packages/nawabari.nix"
+    # A git repository, not just a plain directory: builtins.getFlake
+    # requires its target to be a git (or other supported VCS) working tree
+    # to resolve `?dir=nix` as a flake, matching how the real repository
+    # checkout satisfies this today.
+    (
+      cd "$packageRoot/nix-projection"
+      export HOME="$TMPDIR/git-home-for-nix-projection"
+      mkdir -p "$HOME"
+      git init --quiet
+      git -c user.email=bootstrap@localhost -c user.name=bootstrap add -A
+      git -c user.email=bootstrap@localhost -c user.name=bootstrap commit --quiet -m "bootstrap Nix projection snapshot"
+    )
 
     makeWrapper "${nodejs}/bin/node" "$out/bin/mottainai-bootstrap" \
       --add-flags "$packageRoot/bootstrap/main.js"
