@@ -314,6 +314,7 @@ jobs:
               (.compressedAsset.sha256 | test("^[0-9a-f]{64}$")) and
               .compressedAsset.sha256 == $asset_sha256
             ' "$metadata"
+          test "$(jq -r '.sourceRevision' "$metadata")" = "$(jq -r '.sourceRevision' "$manifest")"
 
           roundtrip_directory="$RUNNER_TEMP/runtime-appliance-roundtrip"
           mkdir -p "$roundtrip_directory"
@@ -389,9 +390,12 @@ jobs:
               .canonicalManifest == $manifest_filename and
               .compressedAsset.filename == $asset_filename and
               .compressedAsset.format == "zstd" and
+              ((.compressedAsset.sizeBytes | type) == "number") and
               .compressedAsset.sizeBytes == $asset_size_bytes and
+              (.compressedAsset.sha256 | test("^[0-9a-f]{64}$")) and
               .compressedAsset.sha256 == $asset_sha256
             ' "$remote_metadata"
+          test "$(jq -r '.sourceRevision' "$remote_metadata")" = "$(jq -r '.sourceRevision' "$remote_manifest")"
 
           remote_disk="$downloaded/mottainai-runtime-appliance.raw"
           zstd --decompress --no-progress --force \
