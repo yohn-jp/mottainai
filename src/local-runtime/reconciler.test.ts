@@ -16,13 +16,16 @@ function hash(value: string): string {
 function healthyRuntime(): RuntimeCapabilityResult {
   return {
     contractId: "mottainai.linux-runtime.v1",
-    schemaVersion: 1,
+    schemaVersion: 2,
     runtimeIdentity: "test-runtime",
     architecture: "x86_64-linux",
     buildIdentity: "/nix/store/test-runtime",
     generation: 1,
     stateOwners: { system: ["/var/lib/mottainai-control"], repositoryUser: ["/var/lib/mottainai/repositories"] },
     requiredCompanions: [],
+    readiness: "managed-runtime-ready",
+    bootstrapReady: true,
+    managedRuntimeReady: true,
     reconciliation: "current",
     upgradeRequired: false,
   };

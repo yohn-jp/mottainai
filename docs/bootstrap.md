@@ -10,10 +10,9 @@ standalone Nix packaging lives in
 [`nix/bootstrap.nix`](../nix/bootstrap.nix).
 
 This Issue implements bootstrap/build/status/verify only. It does not
-implement activation, switch, or rollback (#628); it does not slim or embed
-this package into the base Runtime Appliance closure (#627); it does not
-implement publication (#629). Those consume this component without it
-pre-implementing them.
+implement activation, switch, or rollback (#628), and it does not implement
+publication (#629). The #627 base-appliance integration consumes this
+component while keeping activation and managed-runtime health in #628.
 
 ## Relationship to the other Runtime contracts
 
@@ -21,7 +20,7 @@ pre-implementing them.
 | ---------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------- | ------------------------------------------- |
 | `mottainai.managed-package-manifest.v1` | `src/runtime-contract/managed-package-manifest.ts` | Desired-state record of managed packages/versions (#624)             | An operator/release process    | #625 projection, #626 bootstrap, #628 reconciliation |
 | `mottainai.managed-generation.v1`       | `src/runtime-contract/managed-generation.ts`       | Bounded result of one Nix generation build (#625)                    | `nix/managed-generation.nix`   | #626 bootstrap, #628 reconciliation      |
-| `mottainai.bootstrap-state.v1`          | `src/bootstrap/state.ts`                | Bounded evidence of the bootstrap component's last attempt/success (#626) | `bootstrap build`/`status`/`verify` | An operator, or a future #627 boot-time check |
+| `mottainai.bootstrap-state.v1`          | `src/bootstrap/state.ts`                | Bounded evidence of the bootstrap component's last attempt/success (#626) | `bootstrap build`/`status`/`verify` | Runtime bootstrap readiness and managed activation |
 
 ## What this component does
 
@@ -134,8 +133,8 @@ flag and no environment-variable override in production: a single
 invocation must never be able to redirect governed bootstrap state into an
 arbitrary workspace path. Tests override the state path exclusively through
 `BootstrapDependencies.stateFilePath` dependency injection at the module
-level. A future #627 deployment-specific `stateDir` remap, if ever needed,
-is a Nix-level concern (e.g. bind-mounting a different path at
+level. A deployment-specific `stateDir` remap, if ever needed, is a Nix-level
+concern (e.g. bind-mounting a different path at
 `/var/lib/mottainai-control`), not a bootstrap CLI argument.
 
 Writes go through `replaceFileAtomically` (`src/atomic-file.ts`, reused
@@ -155,7 +154,7 @@ full Mottainai runtime as a hidden dependency.
 ```text
 mottainai-bootstrap build <manifest-path> --system <system> [--repo-root <path>] [--json]
 mottainai-bootstrap status [--json]
-mottainai-bootstrap verify [--system <system>] [--json]
+mottainai-bootstrap verify [--json]
 ```
 
 `status`/`verify` output is bounded and machine-readable:
@@ -264,10 +263,11 @@ packaged projection, and reached the production control-state write step,
 failing only on a sandboxed test environment's lack of write access to
 `/var/lib/mottainai-control` — not on anything checkout-related).
 
-**This package is deliberately not wired into `nix/modules/runtime.nix` or
-any appliance/runtime closure.** Proving standalone packageability is Issue
-#626's job; embedding it into the base Runtime Appliance closure (and
-removing the full `mottainai` package from that closure) is Issue #627's.
+The package is the application-facing component of the bootstrap-only base
+Runtime Appliance. #627 wires it into `nix/modules/runtime.nix` while keeping
+the full `mottainai`, `nawabari`, Zellij, and coding-agent packages out of the
+base closure. Its presence establishes executable bootstrap capability; it
+does not mean that a managed application generation has been activated.
 
 ## Constraints this component deliberately honors
 
@@ -286,8 +286,10 @@ removing the full `mottainai` package from that closure) is Issue #627's.
 - `src/runtime-contract/managed-generation-build.ts` never re-parses or
   re-classifies a manifest — that stays `src/bootstrap/build.ts`'s job
   (and, for the CLI-script path, `scripts/build-managed-generation.mjs`'s).
-- Does not require rebuilding `runtime-appliance-image` or
-  `nix/modules/runtime.nix` for a bootstrap-only change (#627's job).
+- A managed Mottainai version/source change does not require rebuilding
+  `runtime-appliance-image` or `nix/modules/runtime.nix`; a bootstrap
+  executable/contract change does, because #627 embeds this package in the
+  base closure.
 
 ## Test layer
 

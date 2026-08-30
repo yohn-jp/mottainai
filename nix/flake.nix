@@ -14,10 +14,10 @@
       ];
       forEachSystem = nixpkgs.lib.genAttrs supportedSystems;
 
-      # Exposes the Mottainai and Nawabari package derivations as pkgs.mottainai
-      # / pkgs.nawabari so the canonical Runtime module can depend on them the
-      # same way it already depends on nixpkgs-provided packages like
-      # pkgs.zellij, without a second package-resolution path.
+      # The managed Mottainai and Nawabari derivations remain flake package
+      # outputs for #625/#626 generation builds. They are intentionally not
+      # overlaid into the canonical appliance system: the base system gets
+      # only the independently packageable bootstrap component below.
       #
       # Mottainai is built from this flake checkout's tracked repository source.
       # Tagged release builds therefore consume the exact tagged source without
@@ -29,18 +29,15 @@
       mkNawabari = pkgs: import ./packages/nawabari.nix {
         inherit (pkgs) lib stdenvNoCC fetchurl makeWrapper nodejs_24;
       };
-      # Standalone bootstrap package (Issue #626) — proves src/bootstrap/**
-      # is independently Nix-packageable, excluding the full mottainai
-      # package's dependency closure. NOT part of runtimeOverlay: it is
-      # deliberately not wired into nix/modules/runtime.nix or any
-      # appliance/runtime closure here (Issue #627's job).
-      mkBootstrap = pkgs: import ./bootstrap.nix {
+      # Standalone bootstrap package (Issue #626) — the only application-facing
+      # package embedded by the bootstrap-only appliance (#627).
+      mkBootstrapFromSource = source: pkgs: import ./bootstrap.nix {
         inherit (pkgs) lib stdenvNoCC fetchurl makeWrapper nodejs_24 typescript git;
-        source = ../.;
+        inherit source;
       };
+      mkBootstrap = pkgs: mkBootstrapFromSource ../. pkgs;
       runtimeOverlay = final: prev: {
-        mottainai = mkMottainai final;
-        nawabari = mkNawabari final;
+        mottainai-bootstrap = mkBootstrap final;
       };
 
       runtimeConfigurations = forEachSystem (
@@ -141,10 +138,8 @@
             inherit nixpkgs pkgs;
             appliance = self.applianceConfigurations.${system};
           };
-          # Issue #626: standalone bootstrap CLI package, proving it builds
-          # and runs independent of the full mottainai package. Not
-          # referenced by nixosConfigurations/applianceConfigurations above
-          # — appliance embedding is Issue #627's job.
+          # Issue #626/#627: standalone bootstrap CLI package, embedded in
+          # the base appliance without the full managed application closure.
           mottainai-bootstrap = mkBootstrap pkgs;
         }
       );
@@ -165,10 +160,9 @@
       # function only projects "manifest + already-resolved exact source"
       # into a deterministic Nix generation, exactly the boundary #625 owns
       # (see docs/managed-generation.md "Source resolution boundary").
-      # `nix#mottainai` (`packages.<system>.mottainai`, used by the
-      # canonical Runtime module) still builds unconditionally from this
-      # flake's own checkout via `mkMottainai`/`source = ../.` above — that
-      # path is unaffected by this parameter.
+      # `nix#mottainai` (`packages.<system>.mottainai`) remains available as a
+      # managed-generation recipe and builds from the exact source supplied
+      # to that generation path; it is not a canonical base-system input.
       lib.mkManagedGeneration =
         { system, manifest, mottainaiSource }:
         let
@@ -217,6 +211,20 @@
             inherit (nixpkgs) lib;
             bootstrapPackage = mkBootstrap pkgs;
             mottainaiPackage = mkMottainai pkgs;
+          };
+          appliance-boundary = import ./tests/runtime-appliance.nix {
+            inherit pkgs;
+            inherit (nixpkgs) lib;
+            inherit nixpkgs;
+            mkManagedGeneration = self.lib.mkManagedGeneration;
+            canonicalAppliance = self.applianceConfigurations.${system};
+            runtimeApplianceImage = import ./runtime-appliance-image.nix {
+              inherit (nixpkgs) lib;
+              inherit nixpkgs pkgs;
+              appliance = self.applianceConfigurations.${system};
+            };
+            bootstrapPackage = mkBootstrap pkgs;
+            source = ../.;
           };
         }
       );

@@ -20,8 +20,8 @@ should contain is a separate contract, documented in
 ## Scope
 
 In scope: the Mottainai-owned Linux system layer of a Runtime target — the
-packages, services, users, SSH, and security prerequisites Mottainai
-requires to operate. Out of scope, per #231's non-goals: the host VM
+stable boot/control/bootstrap substrate, and the managed application generation
+that is activated on top of it. Out of scope, per #231's non-goals: the host VM
 launcher, SSH target discovery/tunneling, repository UID/GID principal
 allocation, requiring repository projects to use Nix, and reverting mutable
 repository-user package installations during ordinary reconciliation.
@@ -29,7 +29,7 @@ repository-user package installations during ordinary reconciliation.
 ## Contract identity and versioning
 
 - Contract id: `mottainai.linux-runtime.v1`.
-- Schema version: `1` (integer, independent of the contract id's `v1`
+- Schema version: `2` (integer, independent of the contract id's `v1`
   suffix; the suffix names a compatibility generation, the schema version
   names the wire-shape revision within it — mirroring the existing
   `nawabari.standalone-execution.v1` / `schemaVersion` split in
@@ -39,6 +39,9 @@ repository-user package installations during ordinary reconciliation.
 - A Runtime reporting a lower schema version than the client's minimum is
   `stale` and reconcilable; a higher/unrecognized major contract id is
   `incompatible` and reconciliation must not proceed automatically.
+- Schema 2 adds the explicit `bootstrap-ready` versus
+  `managed-runtime-ready` readiness fields; a schema-1 result cannot be
+  mistaken for the new two-phase result.
 
 ## Architecture support
 
@@ -97,19 +100,19 @@ repository-user package installations during ordinary reconciliation.
 
 ## Required runtime services and packages
 
-Minimum surface needed to run current Mottainai/Nawabari/Manager behavior
-(per #231's implementation notes — start from the minimum, not a general
-distribution):
+The canonical appliance contains only the minimum stable surface needed to
+boot, access, verify, recover, and bootstrap a managed Runtime:
 
-- Mottainai runtime service/companion packages.
-- Nawabari standalone execution companion (pinned to the version this
-  repository's `package.json` declares as a dev dependency; see
-  [`docs/nawabari-execution.md`](nawabari-execution.md)).
-- `bubblewrap`, referenced as the external OS-sandbox mechanism for
-  `mottainai_exec` (README "No built-in OS sandbox" note); this contract
-  provisions the package, it does not itself define the sandbox policy.
-- `git`, `openssh`, and the base toolchain the pinned Nawabari/Mottainai
-  packages require to run.
+- Nix with flakes enabled, the archive/toolchain prerequisites used by #626,
+  and the independently packageable `mottainai-bootstrap` executable.
+- `git`, `openssh`, and `bubblewrap` as stable control/recovery prerequisites.
+- The `mottainai-control` identity, SSH service, health/reconcile commands,
+  and persistent control-state layout.
+
+Full `mottainai`, `nawabari`, Zellij, and coding-agent CLIs are not appliance
+packages. They are resolved into a managed generation from the #624 manifest
+through #625/#626 and selected by the later #628 activation boundary. The
+absence of those binaries is expected in `bootstrap-ready`.
 
 Exact package/service names are implementation detail of
 `nix/modules/runtime.nix`; this document fixes the required _surface_, not
@@ -119,9 +122,11 @@ bump as long as the surface stays satisfied.
 ## Persistent vs disposable filesystem layout
 
 - **Persistent, system/control-owned**: `mottainai-control`'s state
-  directory (Nawabari session/claim registry, Mottainai brain state,
-  control SSH host keys, and — if installed via the bounded bootstrap input
-  above — `~/.ssh/authorized_keys`). Survives Runtime reconciliation.
+  directory, including `managed-packages/`, `bootstrap/`, and
+  `managed-runtime/` (desired manifest, bootstrap evidence, activation/recovery
+  state), Nawabari session/claim registry, Mottainai brain state, control SSH
+  host keys, and — if installed via the bounded bootstrap input above —
+  `~/.ssh/authorized_keys`. Survives reboot and Runtime reconciliation.
 - **Persistent, repository-user-owned**: repository checkouts, HOME, tool
   and package caches. Survives Runtime reconciliation and is never reverted
   by it. Explicitly outside destructive system-generation replacement.
@@ -143,13 +148,16 @@ shaped by `RuntimeCapabilityResultSchema` in
 | Field                | Meaning                                                                                                                      |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `contractId`         | `mottainai.linux-runtime.v1`                                                                                                 |
-| `schemaVersion`      | `1`                                                                                                                          |
+| `schemaVersion`      | `2`                                                                                                                          |
 | `runtimeIdentity`    | Stable identifier for this Runtime instance (not the build identity)                                                         |
 | `architecture`       | `x86_64-linux` \| `aarch64-linux`                                                                                            |
 | `buildIdentity`      | Store-path derivation hash for the current system closure                                                                    |
 | `generation`         | NixOS system generation number (positive integer — matches `RuntimeGenerationRecord.generation` used by rollback selection)  |
 | `stateOwners`        | `{ system: string[]; repositoryUser: string[] }` — the persistent-path boundary above, reported so callers never hardcode it |
 | `requiredCompanions` | Bounded list of `{ name, minimumVersion, present }` for Nawabari and other pinned companions                                 |
+| `readiness`          | `"bootstrap-ready"` before managed activation, or `"managed-runtime-ready"` after exact-generation health succeeds       |
+| `bootstrapReady`     | boolean; true only when the base control/bootstrap checks pass                                                             |
+| `managedRuntimeReady`| boolean; true only after #628 activates and health-checks a managed generation                                              |
 | `reconciliation`     | `"current" \| "repairable" \| "stale" \| "incompatible"`                                                                     |
 | `upgradeRequired`    | boolean                                                                                                                      |
 
@@ -163,10 +171,9 @@ oversized path/identity strings; it fails validation instead.
 
 ## Update, rollback, and rebuild semantics
 
-- Update/rebuild uses standard NixOS generation switching
-  (`nixos-rebuild switch` against the pinned flake, or the fresh-image
-  build path for new targets — both driven by the same
-  `nix/modules/runtime.nix`).
+- Base appliance updates use the canonical NixOS image/module path. Managed
+  application updates build and activate a separate #625 generation through
+  #626/#628; they do not switch or rebuild the base NixOS closure.
 - Rollback targets the most recent generation whose recorded health result
   had `reconciliation` in `{"current", "repairable"}`; a generation that
   never reported a healthy result is never a rollback target. This
@@ -180,9 +187,12 @@ oversized path/identity strings; it fails validation instead.
 
 - **Nix evaluation/build checks** and **NixOS VM tests**
   (`nix/tests/runtime.nix`) prove SSH service, `mottainai-control` identity,
-  package/service availability, protected control paths, health response,
-  and restart behavior. These require a Nix-capable pipeline; they are not
-  part of `pnpm verify` (see ADR-0002 consequences).
+  bootstrap package/service availability, managed-package absence from the
+  base PATH, protected control paths, readiness-aware health response, and
+  restart behavior. `nix/tests/runtime-appliance.nix` additionally checks the
+  image closure and the bootstrap source/managed-version boundary. These
+  require a Nix-capable pipeline; they are not part of `pnpm verify` (see
+  ADR-0002 consequences).
 - **Deterministic rollback fixture** and **contract-shape tests**
   (`src/runtime-contract/contract.test.ts`) run under the existing
   `node --test` suite and require no Nix toolchain.
@@ -222,10 +232,11 @@ conflated:
   prove it boots on real virtualization hardware.
 - **Manual integration evidence** (Proxmox, currently manual):
   [`docs/runtime-appliance-proxmox.md`](runtime-appliance-proxmox.md) records
-  boot/network/SSH/version/health/persistence proof for the canonical raw disk
-  recovered from the exact downloaded GitHub Release transport envelope on a
-  real Proxmox/QEMU/KVM host. This proves the built artifact runs; it is not
-  automated and does not make Proxmox a required or supported Runtime provider.
+  boot/network/SSH/bootstrap-readiness/health/persistence proof for the
+  canonical raw disk recovered from the exact downloaded GitHub Release
+  transport envelope on a real Proxmox/QEMU/KVM host. Managed application
+  health is a separate post-bootstrap phase; this proof is not automated and
+  does not make Proxmox a required or supported Runtime provider.
 - **Provider support evidence** (later #600/#261): a supported Runtime
   provider (Lima locally, a future Proxmox provider) additionally proves
   reconciliation semantics, capability validation, and fail-closed behavior

@@ -6,8 +6,8 @@ Concrete, reproducible manual deployment proof for the canonical
 [ADR-0002](decisions/0002-linux-runtime-contract.md)): build the Runtime
 image, boot it with the existing QEMU Runtime machinery
 (`nixosConfigurations.<system>.config.system.build.vm`), SSH in as
-`mottainai-control`, exercise Mottainai/Nawabari/Zellij against a cloned
-repository, and verify control and repository state survive a VM restart.
+`mottainai-control`, prove the base reaches `bootstrap-ready` without the
+managed application packages, and verify control state survives a VM restart.
 
 See also [`docs/runtime-appliance-proxmox.md`](runtime-appliance-proxmox.md)
 for the equivalent manual golden path against a self-bootable Runtime
@@ -86,6 +86,8 @@ NIX_DISK_IMAGE=/tmp/golden-path.qcow2 ./result-vm/bin/run-nixos-vm
   proof, not a defect in the Nix build or the Runtime contract.
 
 Wait for `nixos login:` on the console, then in another terminal:
+The guest's `mottainai-runtime-bootstrap-ready.service` must be active before
+the bootstrap health result is considered usable.
 
 ## 4. SSH as `mottainai-control` (acceptance criterion 4)
 
@@ -95,42 +97,42 @@ ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
 # => uid=998(mottainai-control) gid=998(mottainai-control) groups=998(mottainai-control)
 ```
 
-## 5. Mottainai / Nawabari / Zellij / health usable (acceptance criterion 5)
+## 5. Bootstrap readiness and health (acceptance criterion 5)
 
 ```sh
-ssh ... 'mottainai --version && nawabari --version && zellij --version'
+ssh ... 'mottainai-bootstrap status --json'
 ssh ... 'mottainai-runtime-health'
 ```
 
 `mottainai-runtime-health` is invoked directly as the binary (not via
 `systemctl start`, which `mottainai-control` is deliberately not authorized
 to trigger — only the bounded `mottainai-runtime-reconcile` wrapper has a
-passwordless sudo rule per `nix/modules/runtime.nix`). It reports the
-`runtimeIdentity` supplied in step 2, the build's store-path
-`buildIdentity`, and `nawabari` present in `requiredCompanions`.
+passwordless sudo rule per `nix/modules/runtime.nix`). It must report
+`"readiness": "bootstrap-ready"`, `"bootstrapReady": true`, and
+`"managedRuntimeReady": false`. `mottainai`, `nawabari`, and `zellij` must
+not resolve from the base PATH. Their eventual managed-generation presence is
+verified only after #628 activation.
 
-## 6. Clone a repository and invoke Mottainai (acceptance criterion 6)
+## 6. Build and activate a managed generation (post-#628 path)
 
-The control identity's home (`/var/lib/mottainai-control`, mode `0700`,
-system/control-owned persistent state) is writable by `mottainai-control`;
-the shared `/var/lib/mottainai/repositories` root is `root:root 0755` by
-design — per-repository UID/GID principal allocation is explicitly a later
-#230 child, not this contract, so this proof clones under the control
-identity's own home:
+The base only provides the #626 build surface. Once the #624 manifest and #628
+activation path are available, the control identity's home
+(`/var/lib/mottainai-control`, mode `0700`, system/control-owned persistent
+state) is the location for bootstrap and activation evidence. A managed
+generation is built explicitly; it is never installed by a boot script:
 
 ```sh
 ssh ... '
-  git clone --depth 1 https://github.com/yohn-jp/mottainai.git ~/golden-path-demo
-  cd ~/golden-path-demo
-  mottainai --version
-  mottainai --help
-  nawabari session create --label golden-path-demo
+  mottainai-bootstrap build /var/lib/mottainai-control/managed-packages/manifest.json \
+    --system x86_64-linux --json
+  mottainai-bootstrap verify --json
 '
 ```
 
-`nawabari session create` records the session in the control state
-directory (`/var/lib/mottainai-control`), exercising the same
-Nawabari-standalone-execution surface Mottainai's Manager uses.
+The #628 activation/reconcile operation then selects the exact verified
+generation and proves managed-runtime health. Only that later result may
+report `"readiness": "managed-runtime-ready"`; a bootstrap success alone is
+not managed-runtime readiness.
 
 ## 7. Verify state survives a VM restart (acceptance criterion 7)
 
@@ -145,7 +147,7 @@ which is the manual-deployment equivalent of a reboot for a `raw`/`qcow2`
 Runtime disk:
 
 ```sh
-# leave a state marker and force it to disk before power-cycling
+# leave a control-state marker and force it to disk before power-cycling
 ssh ... 'echo golden-path-marker > ~/reboot-state-marker.txt && sync'
 
 # host side: stop the VM process, then relaunch against the same disk
@@ -155,16 +157,15 @@ NIX_DISK_IMAGE=/tmp/golden-path.qcow2 ./result-vm/bin/run-nixos-vm
 
 ssh ... '
   cat ~/reboot-state-marker.txt
-  cd ~/golden-path-demo && git log -1 --oneline
-  cd ~/golden-path-demo-<session-worktree-suffix> && nawabari session id
+  mottainai-bootstrap status --json
   mottainai-runtime-health
 '
 ```
 
-Verified in this proof run: the marker file, the cloned repository's
-`git log`, the Nawabari session id resolved from its managed worktree, and
-`mottainai-runtime-health`'s `runtimeIdentity`/`buildIdentity` were all
-byte-identical before and after the restart.
+Verify the marker, bootstrap evidence, and health `runtimeIdentity` /
+`buildIdentity` are unchanged after the restart. If a managed generation was
+activated, also verify its persisted #628 active/previous state and exact
+managed readiness after the restart.
 
 ## Non-goals not exercised by this proof
 

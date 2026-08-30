@@ -27,6 +27,9 @@ function validResult(overrides: Record<string, unknown> = {}) {
       repositoryUser: ["/var/lib/mottainai/repositories"],
     },
     requiredCompanions: [{ name: "nawabari", minimumVersion: "0.2.0", present: true }],
+    readiness: "managed-runtime-ready",
+    bootstrapReady: true,
+    managedRuntimeReady: true,
     reconciliation: "current",
     upgradeRequired: false,
     ...overrides,
@@ -52,6 +55,22 @@ test("rejects a result carrying fields outside the bounded contract (no secret/e
 test("safeParse reports failure without throwing for callers that prefer it", () => {
   const outcome = RuntimeCapabilityResultSchema.safeParse({ ...validResult(), reconciliation: "unknown" });
   assert.equal(outcome.success, false);
+});
+
+test("parses a fresh appliance as bootstrap-ready while managed runtime is absent", () => {
+  const parsed = parseRuntimeCapabilityResult(
+    validResult({ readiness: "bootstrap-ready", bootstrapReady: true, managedRuntimeReady: false }),
+  );
+  assert.equal(parsed.readiness, "bootstrap-ready");
+  assert.equal(parsed.managedRuntimeReady, false);
+});
+
+test("rejects contradictory readiness flags", () => {
+  assert.throws(() =>
+    parseRuntimeCapabilityResult(
+      validResult({ readiness: "bootstrap-ready", bootstrapReady: true, managedRuntimeReady: true }),
+    ),
+  );
 });
 
 test("rejects a runtimeIdentity longer than the bounded maximum", () => {
@@ -82,8 +101,11 @@ test("rejects a non-integer generation (must line up with RuntimeGenerationRecor
 });
 
 test("isRuntimeContractCompatible accepts a matching contract at or above the minimum schema version", () => {
-  assert.equal(isRuntimeContractCompatible({ contractId: RUNTIME_CONTRACT_ID, schemaVersion: 1 }), true);
-  assert.equal(isRuntimeContractCompatible({ contractId: RUNTIME_CONTRACT_ID, schemaVersion: 3 }, 2), true);
+  assert.equal(isRuntimeContractCompatible({ contractId: RUNTIME_CONTRACT_ID, schemaVersion: RUNTIME_CONTRACT_SCHEMA_VERSION }), true);
+  assert.equal(
+    isRuntimeContractCompatible({ contractId: RUNTIME_CONTRACT_ID, schemaVersion: RUNTIME_CONTRACT_SCHEMA_VERSION + 1 }),
+    true,
+  );
 });
 
 test("released client understands the Runtime version contract: rejects an unrecognized major contract id", () => {

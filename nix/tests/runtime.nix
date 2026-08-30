@@ -1,8 +1,8 @@
 { pkgs, lib, runtimeModule, runtimeOverlay }:
 
 # NixOS VM test proving the mottainai.linux-runtime.v1 surface: SSH service,
-# mottainai-control identity, package/service availability, protected
-# control paths, health response, and restart behavior
+# bootstrap-only package/service availability, protected control paths, health
+# response, and restart behavior
 # (docs/linux-runtime-contract.md "Test layer"). Requires a Nix-capable
 # pipeline (KVM-backed VM test runner); not executed by `pnpm verify`
 # (ADR-0002 consequences).
@@ -28,8 +28,11 @@ pkgs.testers.nixosTest {
     };
 
   testScript = ''
-    start_all()
+    # The reboot persistence subtest needs QEMU to restart the guest instead
+    # of exiting on Ctrl+Alt+Delete; start the sole VM with reboot enabled.
+    runtime.start(allow_reboot=True)
     runtime.wait_for_unit("multi-user.target")
+    runtime.wait_for_unit("mottainai-runtime-bootstrap-ready.service")
     build_identity_before_bootstrap = runtime.succeed("readlink -f /run/current-system").strip()
 
     with subtest("sshd is active with password auth disabled"):
@@ -50,26 +53,44 @@ pkgs.testers.nixosTest {
     with subtest("control state dir is not repository/world readable"):
         runtime.fail("su -s /bin/sh nobody -c 'ls /var/lib/mottainai-control'")
 
-    with subtest("required packages are present"):
+    with subtest("bootstrap prerequisites and persistent state layout are present"):
         runtime.succeed("command -v git")
         runtime.succeed("command -v bwrap")
+        runtime.succeed("command -v nix")
+        runtime.succeed("command -v tar")
+        runtime.succeed("command -v mottainai-bootstrap")
         runtime.succeed("command -v mottainai-runtime-health")
         runtime.succeed("command -v mottainai-runtime-reconcile")
+        runtime.succeed("command -v mottainai-runtime-bootstrap-ready")
+        runtime.succeed("test -d /var/lib/mottainai-control/managed-packages")
+        runtime.succeed("test -d /var/lib/mottainai-control/bootstrap")
+        runtime.succeed("test -d /var/lib/mottainai-control/managed-runtime")
+        runtime.succeed("mottainai-bootstrap status --json | grep -q '\"present\": false'")
 
-    with subtest("Mottainai, Nawabari, and Zellij binaries resolve and report versions"):
-        runtime.succeed("mottainai --version")
-        runtime.succeed("nawabari --version")
-        runtime.succeed("zellij --version")
+    with subtest("managed application packages are absent from the base PATH"):
+        runtime.fail("command -v mottainai")
+        runtime.fail("command -v nawabari")
+        runtime.fail("command -v zellij")
 
     with subtest("health/capability result is bounded JSON matching the contract"):
-        runtime.succeed("systemctl start mottainai-runtime-health.service")
+        runtime.succeed("systemctl restart mottainai-runtime-health.service")
         output = runtime.succeed("journalctl -u mottainai-runtime-health.service -o cat -n 50")
         assert '"contractId": "mottainai.linux-runtime.v1"' in output
-        assert '"schemaVersion": 1' in output
+        assert '"schemaVersion": 2' in output
         assert '"generation": "' not in output, "generation must be numeric JSON, not a quoted string"
         assert "MOTTAINAI_" not in output.upper().replace("MOTTAINAI_RUNTIME_HEALTH", "")
         assert '"name":"nawabari"' in output
-        assert '"present":true' in output
+        assert '"present":false' in output
+        assert '"readiness": "bootstrap-ready"' in output
+        assert '"bootstrapReady": true' in output
+        assert '"managedRuntimeReady": false' in output
+
+    with subtest("bootstrap-ready service is independent of managed application readiness"):
+        runtime.succeed("systemctl is-active --quiet mottainai-runtime-bootstrap-ready.service")
+        runtime.succeed(
+            "systemctl is-active --quiet mottainai-runtime-health.service"
+            " || systemctl show -p Result mottainai-runtime-health.service | grep -q Result=success"
+        )
 
     with subtest("health service restarts cleanly"):
         runtime.succeed("systemctl restart mottainai-runtime-health.service")
@@ -162,6 +183,36 @@ pkgs.testers.nixosTest {
             "grep -q 'AAAAC3NzaC1lZDI1NTE5AAAAIManuallyAddedKeyForRuntimeContract'"
             " /var/lib/mottainai-control/.ssh/authorized_keys"
         )
+
+    with subtest("persistent control-state domains survive a guest reboot"):
+        runtime.succeed(
+            "printf 'manifest-domain-survives-reboot\\n'"
+            " > /var/lib/mottainai-control/managed-packages/reboot-marker"
+        )
+        runtime.succeed(
+            "printf 'bootstrap-domain-survives-reboot\\n'"
+            " > /var/lib/mottainai-control/bootstrap/reboot-marker"
+        )
+        runtime.succeed(
+            "printf 'managed-runtime-domain-survives-reboot\\n'"
+            " > /var/lib/mottainai-control/managed-runtime/reboot-marker"
+        )
+        runtime.succeed("sync")
+        runtime.reboot()
+        runtime.wait_for_unit("mottainai-runtime-bootstrap-ready.service")
+        runtime.succeed(
+            "grep -qx 'manifest-domain-survives-reboot'"
+            " /var/lib/mottainai-control/managed-packages/reboot-marker"
+        )
+        runtime.succeed(
+            "grep -qx 'bootstrap-domain-survives-reboot'"
+            " /var/lib/mottainai-control/bootstrap/reboot-marker"
+        )
+        runtime.succeed(
+            "grep -qx 'managed-runtime-domain-survives-reboot'"
+            " /var/lib/mottainai-control/managed-runtime/reboot-marker"
+        )
+        runtime.succeed("mottainai-bootstrap status --json | grep -q 'present'")
 
     with subtest("the canonical closure/build identity is unaffected by the bootstrap key installation"):
         after = runtime.succeed("readlink -f /run/current-system").strip()

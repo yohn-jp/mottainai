@@ -10,14 +10,55 @@ let
   cfg = config.mottainai.runtime;
 
   contractId = "mottainai.linux-runtime.v1";
-  schemaVersion = 1;
+  schemaVersion = 2;
 
   # System/control-owned vs repository-user-owned persistent state boundary.
   # Reported verbatim in the health/capability result so callers never
   # hardcode it (docs/linux-runtime-contract.md "Persistent vs disposable
-  # filesystem layout").
-  systemStatePaths = [ cfg.stateDir ];
+  # filesystem layout"). These paths are base-appliance state, not part of a
+  # managed application generation.
+  systemStatePaths = [
+    cfg.stateDir
+    "${cfg.stateDir}/managed-packages"
+    "${cfg.stateDir}/bootstrap"
+    "${cfg.stateDir}/managed-runtime"
+  ];
   repositoryUserStatePaths = [ cfg.repositoryStateDir ];
+
+  bootstrapExecutable = "${pkgs.mottainai-bootstrap}/bin/mottainai-bootstrap";
+
+  bootstrapReadinessScript = pkgs.writeShellApplication {
+    name = "mottainai-runtime-bootstrap-ready";
+    runtimeInputs = [ pkgs.coreutils ];
+    text = ''
+      set -euo pipefail
+
+      # writeShellApplication constrains PATH to its declared inputs. The
+      # bootstrap executable and its Nix/tar prerequisites are system
+      # packages, so expose the current system profile explicitly.
+      PATH="/run/current-system/sw/bin:$PATH"
+
+      for state_path in \
+        ${lib.escapeShellArg cfg.stateDir} \
+        ${lib.escapeShellArg "${cfg.stateDir}/managed-packages"} \
+        ${lib.escapeShellArg "${cfg.stateDir}/bootstrap"} \
+        ${lib.escapeShellArg "${cfg.stateDir}/managed-runtime"}; do
+        test -d "$state_path"
+        test -r "$state_path"
+        test -w "$state_path"
+      done
+
+      test -x ${lib.escapeShellArg bootstrapExecutable}
+      command -v nix >/dev/null 2>&1
+      command -v tar >/dev/null 2>&1
+      nix --version >/dev/null
+
+      # A fresh appliance has no bootstrap state yet. `status` must still be
+      # executable and return its bounded "present: false" result; a later
+      # successful build is recorded under the same persistent root.
+      ${lib.escapeShellArg bootstrapExecutable} status --json >/dev/null
+    '';
+  };
 
   companionCheck = companion: ''
     if command -v ${lib.escapeShellArg companion.name} >/dev/null 2>&1; then
@@ -42,6 +83,11 @@ let
       # to only its declared inputs, hiding system-installed companions from
       # command -v below).
       PATH="/run/current-system/sw/bin:$PATH"
+
+      # This service is the base/bootstrap health surface. It deliberately
+      # succeeds before any managed application generation exists; the
+      # managed-runtime-ready phase is owned by the later activation boundary.
+      ${bootstrapReadinessScript}/bin/mottainai-runtime-bootstrap-ready
 
       generation_link=/nix/var/nix/profiles/system
       if [ -L "$generation_link" ]; then
@@ -86,6 +132,9 @@ let
           "repositoryUser": ${builtins.toJSON repositoryUserStatePaths}
         },
         "requiredCompanions": $companions,
+        "readiness": "bootstrap-ready",
+        "bootstrapReady": true,
+        "managedRuntimeReady": false,
         "reconciliation": "current",
         "upgradeRequired": false
       }
@@ -277,8 +326,13 @@ in
 
     systemd.tmpfiles.rules = [
       "d ${cfg.stateDir} 0700 ${cfg.controlUser} ${cfg.controlUser} -"
+      "d ${cfg.stateDir}/managed-packages 0700 ${cfg.controlUser} ${cfg.controlUser} -"
+      "d ${cfg.stateDir}/bootstrap 0700 ${cfg.controlUser} ${cfg.controlUser} -"
+      "d ${cfg.stateDir}/managed-runtime 0700 ${cfg.controlUser} ${cfg.controlUser} -"
       "d ${cfg.repositoryStateDir} 0755 root root -"
     ];
+
+    nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
     services.openssh = {
       enable = true;
@@ -293,11 +347,13 @@ in
       pkgs.git
       pkgs.openssh
       pkgs.bubblewrap
-      pkgs.mottainai
-      pkgs.nawabari
-      pkgs.zellij
+      pkgs.nix
+      pkgs.gnutar
+      pkgs.cacert
+      pkgs.mottainai-bootstrap
       healthScript
       reconcileScript
+      bootstrapReadinessScript
     ];
 
     security.sudo.extraRules = [
@@ -314,11 +370,30 @@ in
 
     systemd.services.mottainai-runtime-health = {
       description = "Mottainai Runtime bounded health/capability result (mottainai.linux-runtime.v1)";
+      after = [ "mottainai-runtime-bootstrap-ready.service" ];
+      requires = [ "mottainai-runtime-bootstrap-ready.service" ];
+      wantedBy = [ "multi-user.target" ];
       serviceConfig = {
         Type = "oneshot";
         User = cfg.controlUser;
         ExecStart = "${healthScript}/bin/mottainai-runtime-health";
         StandardOutput = "journal";
+      };
+    };
+
+    # This is an explicit base-appliance phase. It must be active before the
+    # health result is emitted, while remaining independent of any managed
+    # Mottainai/Nawabari generation.
+    systemd.services.mottainai-runtime-bootstrap-ready = {
+      description = "Mottainai Runtime bootstrap-ready phase (mottainai.linux-runtime.v1)";
+      after = [ "network-online.target" "mottainai-runtime-bootstrap-authorized-keys.service" ];
+      wants = [ "network-online.target" ];
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        User = cfg.controlUser;
+        RemainAfterExit = true;
+        ExecStart = "${bootstrapReadinessScript}/bin/mottainai-runtime-bootstrap-ready";
       };
     };
 

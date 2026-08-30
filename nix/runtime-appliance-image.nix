@@ -38,10 +38,11 @@ pkgs.runCommand "mottainai-runtime-appliance-image-${system}" {
   mkdir -p "$out"
   install -Dm0644 ${diskImage}/nixos.img "$out/mottainai-runtime-appliance.raw"
 
-  # Completed by build-runtime-appliance-manifest.mjs, which adds the
-  # Mottainai source revision and Mottainai/Nawabari package identity these
-  # Nix-only inputs cannot name themselves, plus the disk's size/digest. This
-  # file's own fields are emitted by Nix so the manifest cannot silently
+  # Completed by build-runtime-appliance-manifest.mjs, which adds the source
+  # revision and release metadata these Nix-only inputs cannot name
+  # themselves, plus the disk's size/digest. Managed application package
+  # metadata is not a claim that those packages are in this base closure.
+  # This file's own fields are emitted by Nix so the manifest cannot silently
   # point at a second system definition.
   cat > "$out/runtime-appliance-inputs.json" <<EOF
   {

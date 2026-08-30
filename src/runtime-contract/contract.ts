@@ -8,13 +8,22 @@ import { z } from "zod";
  * within it.
  */
 export const RUNTIME_CONTRACT_ID = "mottainai.linux-runtime.v1" as const;
-export const RUNTIME_CONTRACT_SCHEMA_VERSION = 1 as const;
+export const RUNTIME_CONTRACT_SCHEMA_VERSION = 2 as const;
 
 export const RUNTIME_ARCHITECTURES = ["x86_64-linux", "aarch64-linux"] as const;
 export type RuntimeArchitecture = (typeof RUNTIME_ARCHITECTURES)[number];
 
 export const RECONCILIATION_STATES = ["current", "repairable", "stale", "incompatible"] as const;
 export type ReconciliationState = (typeof RECONCILIATION_STATES)[number];
+
+/**
+ * Readiness is intentionally separate from reconciliation. A fresh base
+ * appliance can be healthy and bootstrap-ready while no managed application
+ * generation exists yet; only an activated generation with successful
+ * managed health is managed-runtime-ready.
+ */
+export const RUNTIME_READINESS_STATES = ["bootstrap-ready", "managed-runtime-ready"] as const;
+export type RuntimeReadiness = (typeof RUNTIME_READINESS_STATES)[number];
 
 export const HEALTHY_RECONCILIATION_STATES = [
   "current",
@@ -61,10 +70,19 @@ export const RuntimeCapabilityResultSchema = z
     generation: z.number().int().min(1),
     stateOwners: runtimeStateOwnersSchema,
     requiredCompanions: z.array(runtimeCompanionSchema).max(MAX_COMPANIONS),
+    readiness: z.enum(RUNTIME_READINESS_STATES),
+    bootstrapReady: z.boolean(),
+    managedRuntimeReady: z.boolean(),
     reconciliation: z.enum(RECONCILIATION_STATES),
     upgradeRequired: z.boolean(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (result) =>
+      result.bootstrapReady &&
+      (result.readiness === "managed-runtime-ready" ? result.managedRuntimeReady : !result.managedRuntimeReady),
+    { message: "readiness flags must describe one coherent Runtime readiness phase" },
+  );
 
 export type RuntimeCapabilityResult = z.infer<typeof RuntimeCapabilityResultSchema>;
 

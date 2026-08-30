@@ -51,17 +51,20 @@ The contract explicitly separates three state domains (detailed in
 `docs/linux-runtime-contract.md` "Persistent vs disposable filesystem
 layout"), not two — persistence and ownership are independent axes:
 
-- **System-owned disposable state** — packages, services, SSH
-  configuration, and the rest of the immutable system closure. Fully
-  reproducible from the pinned NixOS generation and replaced wholesale on
-  every reconciliation.
+- **System-owned disposable state** — the stable substrate, bootstrap
+  executable, services, SSH configuration, and the rest of the immutable base
+  system closure. Fully reproducible from the pinned NixOS generation and
+  replaced wholesale only when the base appliance changes. Fast-moving
+  Mottainai/Nawabari/Zellij/coding-agent packages are separate managed
+  generations, not base-appliance contents.
 - **System/control-owned persistent state** — the `mottainai-control`
-  identity's state directory (Nawabari session/claim registry, Mottainai
-  brain state, control SSH host keys). Survives reconciliation, exactly
-  like repository-user state does; it stays out of the disposable closure
-  precisely because reconciliation must not delete it. It differs from
-  repository-user state only in _who_ owns it: `mottainai-control`, not a
-  repository principal.
+  identity's state directory (desired manifest, bootstrap evidence,
+  activation/recovery state, Nawabari session/claim registry, Mottainai brain
+  state, and control SSH host keys). Survives reboot and managed-generation
+  reconciliation, exactly like repository-user state does; it stays out of
+  the disposable closure precisely because reconciliation must not delete it.
+  It differs from repository-user state only in _who_ owns it:
+  `mottainai-control`, not a repository principal.
 - **Repository-user-owned persistent state** — repository checkouts, HOME,
   tool caches, and other user-mutated data. Never reverted by ordinary
   Runtime reconciliation.
@@ -71,11 +74,12 @@ paths are not world- or repository-readable by default, so repository
 principals cannot read or mutate Mottainai brain state (a prerequisite the
 Nawabari sandbox boundary in yohn-jp/nawabari#80 depends on).
 
-Rollback/upgrade uses NixOS's native generation model: a bad generation is
-rolled back to the prior healthy generation rather than through a
-Mottainai-specific mutation path. The Runtime contract's health/capability
-result reports generation/build identity so `init` and rollback tooling can
-reason about this without a bespoke state machine.
+Base rollback/upgrade uses NixOS's native generation model. Managed package
+updates and rollback use the separate #628 generation-selection boundary; a
+bad managed generation is rolled back to the prior healthy generation without
+rebuilding or mutating the base appliance. The Runtime contract's
+health/capability result reports base build identity plus explicit bootstrap
+versus managed readiness so callers cannot treat one phase as the other.
 
 ## Consequences
 
