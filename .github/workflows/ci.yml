@@ -406,7 +406,13 @@ jobs:
         )
       )
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # This job's guest performs multiple real nix builds/activations plus a
+    # full reboot inside the VM, on top of whatever the runner's own
+    # cache.nixos.org fetch throughput happens to be on a given run —
+    # observed wall time has ranged from under two minutes to well over
+    # fifty. 60 minutes has been cut too close on a slow run; give it real
+    # headroom rather than trading flaky timeouts for a tighter budget.
+    timeout-minutes: 120
     permissions:
       contents: read
     steps:

@@ -213,20 +213,67 @@ let
     };
 
   testScript = ''
+    import binascii
     import shlex
+    import time
+
+    # The nixosTest Python driver captures every machine.succeed/fail/execute
+    # command's output as a single newline-delimited base64 block read back
+    # over the guest's backdoor console. On a slow (non-KVM-accelerated or
+    # otherwise loaded) run, something occasionally interleaves with that
+    # block — observed even on a short, few-byte read, so this is a
+    # driver/console race rather than anything specific to the size of a
+    # given command's output — and the read raises `binascii.Error: Invalid
+    # base64-encoded string`. succeed/fail/execute below wrap the driver's
+    # own methods (aliased before the wrapping so they keep working) with a
+    # bounded retry on exactly that error. Retrying is safe here: every
+    # command this golden path issues is either read-only or itself
+    # idempotent against re-invocation with the same inputs
+    # (`mottainai-bootstrap reconcile`'s #628 reconcileManagedRuntime state
+    # machine included).
+    _golden_succeed = getattr(golden, "succeed")
+    _golden_fail = getattr(golden, "fail")
+    _golden_execute = getattr(golden, "execute")
+
+    def _resilient(call, attempts=3, delay_seconds=2):
+        last_exc = None
+        for attempt in range(1, attempts + 1):
+            try:
+                return call()
+            except binascii.Error as exc:
+                last_exc = exc
+                print(
+                    "console command-capture race (attempt "
+                    + str(attempt)
+                    + "/"
+                    + str(attempts)
+                    + "): "
+                    + str(exc)
+                )
+                time.sleep(delay_seconds)
+        raise last_exc
+
+    def succeed(command):
+        return _resilient(lambda: _golden_succeed(command))
+
+    def fail(command):
+        return _resilient(lambda: _golden_fail(command))
+
+    def execute(command):
+        return _resilient(lambda: _golden_execute(command))
 
     def run_as_control(command):
-        return golden.succeed("su -l mottainai-control -c " + shlex.quote(command))
+        return succeed("su -l mottainai-control -c " + shlex.quote(command))
 
     # `mottainai-bootstrap reconcile` embeds the *entire* captured nix build
-    # error text verbatim into its JSON error output on failure. That text
-    # can run to several KB with embedded newlines, which corrupts the
-    # nixosTest Python driver's single-block base64 command-output capture
-    # (`binascii.Error: Invalid base64-encoded string`) before the real
-    # error is ever visible. Route the command's own stdout/stderr to a file
-    # inside the guest instead, then read back only a bounded prefix — this
-    # keeps the driver's capture small on both the success and failure paths
-    # while still preserving the real exit code via `exit $ec`.
+    # error text verbatim into its JSON error output on failure, which can
+    # run to several KB with embedded newlines — worth keeping out of the
+    # driver's single-block capture regardless of the retry above, since a
+    # huge blob only makes that race more likely to bite and makes any real
+    # failure output far harder to read in CI logs anyway. Route the
+    # command's own stdout/stderr to a file inside the guest instead, then
+    # read back only a bounded prefix, preserving the real exit code via
+    # `exit $ec`.
     def run_as_control_bounded(command, expect_success, max_bytes=4000):
         log_path = "/tmp/mottainai-golden-path-cmd.log"
         wrapped = (
@@ -239,7 +286,7 @@ let
             + log_path
             + "; exit $ec"
         )
-        runner = golden.succeed if expect_success else golden.fail
+        runner = succeed if expect_success else fail
         return runner("su -l mottainai-control -c " + shlex.quote(wrapped))
 
     # --repo-root points at this exact repository checkout (already shared
@@ -273,7 +320,7 @@ let
         )
 
     def nar_hash_of(store_path):
-        sri = golden.succeed(
+        sri = succeed(
             # --json-format 2 nests results under "info" keyed by store path
             # (matching src/runtime-contract/managed-generation-build.ts's
             # own narHashOfFactory: `pathInfo.info`, then Object.values),
@@ -281,7 +328,7 @@ let
             "nix path-info --json --json-format 2 " + store_path + " | jq -r '.info[].narHash'"
         ).strip()
         expr = 'builtins.convertHash { hash = "' + sri + '"; hashAlgo = "sha256"; toHashFormat = "base16"; }'
-        return golden.succeed("nix eval --raw --expr " + shlex.quote(expr)).strip()
+        return succeed("nix eval --raw --expr " + shlex.quote(expr)).strip()
 
     def golden_manifest(mottainai_version, mottainai_sha, nawabari_sha, generation):
         return (
@@ -307,27 +354,27 @@ let
         )
 
     def apply_manifest(text):
-        golden.succeed(
+        succeed(
             "install -d -m 0700 -o mottainai-control -g mottainai-control /var/lib/mottainai-control/managed-packages"
         )
-        golden.succeed(
+        succeed(
             "cat > /var/lib/mottainai-control/managed-packages/manifest.json <<'MOTTAINAI_GOLDEN_PATH_MANIFEST_EOF'\n"
             + text
             + "MOTTAINAI_GOLDEN_PATH_MANIFEST_EOF"
         )
-        golden.succeed(
+        succeed(
             "chown mottainai-control:mottainai-control /var/lib/mottainai-control/managed-packages/manifest.json"
         )
 
     golden.start(allow_reboot=True)
     golden.wait_for_unit("multi-user.target")
     golden.wait_for_unit("mottainai-runtime-bootstrap-ready.service")
-    base_build_identity = golden.succeed("readlink -f /run/current-system").strip()
+    base_build_identity = succeed("readlink -f /run/current-system").strip()
 
     with subtest("fresh appliance reaches bootstrap-ready with full Mottainai/Nawabari absent from base"):
-        golden.fail("command -v mottainai")
-        golden.fail("command -v nawabari")
-        health = golden.succeed("mottainai-runtime-health")
+        fail("command -v mottainai")
+        fail("command -v nawabari")
+        health = succeed("mottainai-runtime-health")
         assert '"readiness": "bootstrap-ready"' in health
         assert '"bootstrapReady": true' in health
         assert '"managedRuntimeReady": false' in health
@@ -350,15 +397,15 @@ let
         assert '"outcome": "initialized"' in reconcile_v1
 
     with subtest("managed-runtime-ready: activated generation v1 reports healthy identities distinct from the base appliance"):
-        current_v1 = golden.succeed("readlink -f /var/lib/mottainai-control/managed-runtime/current").strip()
-        golden.succeed("test -x " + current_v1 + "/bin/mottainai")
-        golden.succeed("test -x " + current_v1 + "/bin/nawabari")
-        assert golden.succeed(current_v1 + "/bin/mottainai --version").strip() == "${mottainaiVersionV1}"
-        assert golden.succeed(current_v1 + "/bin/nawabari --version").strip() == "${nawabariVersion}"
-        health_after_v1 = golden.succeed("mottainai-runtime-health")
+        current_v1 = succeed("readlink -f /var/lib/mottainai-control/managed-runtime/current").strip()
+        succeed("test -x " + current_v1 + "/bin/mottainai")
+        succeed("test -x " + current_v1 + "/bin/nawabari")
+        assert succeed(current_v1 + "/bin/mottainai --version").strip() == "${mottainaiVersionV1}"
+        assert succeed(current_v1 + "/bin/nawabari --version").strip() == "${nawabariVersion}"
+        health_after_v1 = succeed("mottainai-runtime-health")
         assert '"readiness": "managed-runtime-ready"' in health_after_v1
         assert '"managedRuntimeReady": true' in health_after_v1
-        after_v1_build_identity = golden.succeed("readlink -f /run/current-system").strip()
+        after_v1_build_identity = succeed("readlink -f /run/current-system").strip()
         assert after_v1_build_identity == base_build_identity, (
             "activating the first managed generation must never rebuild the base appliance system closure"
         )
@@ -369,43 +416,43 @@ let
         )
         reconcile_v2 = reconcile("${sourceV2}")
         assert '"outcome": "updated"' in reconcile_v2
-        current_v2 = golden.succeed("readlink -f /var/lib/mottainai-control/managed-runtime/current").strip()
+        current_v2 = succeed("readlink -f /var/lib/mottainai-control/managed-runtime/current").strip()
         assert current_v2 != current_v1, "the version-only update must activate a distinct managed generation store path"
-        assert golden.succeed(current_v2 + "/bin/mottainai --version").strip() == "${mottainaiVersionV2}"
-        after_v2_build_identity = golden.succeed("readlink -f /run/current-system").strip()
+        assert succeed(current_v2 + "/bin/mottainai --version").strip() == "${mottainaiVersionV2}"
+        after_v2_build_identity = succeed("readlink -f /run/current-system").strip()
         assert after_v2_build_identity == base_build_identity, (
             "a managed Mottainai-version-only update must never rebuild the base appliance system closure"
         )
 
     with subtest("persistent-unmanaged and ephemeral sentinels, established before the reboot"):
-        golden.succeed(
+        succeed(
             "install -d -m 0755 -o root -g root /var/lib/mottainai/repositories/golden-path-sentinel-repo"
         )
-        golden.succeed(
+        succeed(
             "printf 'persistent-unmanaged-sentinel\\n'"
             " > /var/lib/mottainai/repositories/golden-path-sentinel-repo/UNMANAGED_MARKER"
         )
-        golden.succeed("printf 'ephemeral-sentinel\\n' > /tmp/golden-path-ephemeral-sentinel")
+        succeed("printf 'ephemeral-sentinel\\n' > /tmp/golden-path-ephemeral-sentinel")
 
     with subtest("VM restart preserves desired/active managed-runtime state and MANAGED_READY"):
-        golden.succeed("sync")
+        succeed("sync")
         golden.reboot()
         golden.wait_for_unit("mottainai-runtime-bootstrap-ready.service")
-        after_reboot_build_identity = golden.succeed("readlink -f /run/current-system").strip()
+        after_reboot_build_identity = succeed("readlink -f /run/current-system").strip()
         assert after_reboot_build_identity == base_build_identity
-        current_after_reboot = golden.succeed("readlink -f /var/lib/mottainai-control/managed-runtime/current").strip()
+        current_after_reboot = succeed("readlink -f /var/lib/mottainai-control/managed-runtime/current").strip()
         assert current_after_reboot == current_v2, (
             "the active managed generation pointer must survive a guest reboot unchanged"
         )
-        assert golden.succeed(current_after_reboot + "/bin/mottainai --version").strip() == "${mottainaiVersionV2}"
-        health_after_reboot = golden.succeed("mottainai-runtime-health")
+        assert succeed(current_after_reboot + "/bin/mottainai --version").strip() == "${mottainaiVersionV2}"
+        health_after_reboot = succeed("mottainai-runtime-health")
         assert '"readiness": "managed-runtime-ready"' in health_after_reboot
         assert '"managedRuntimeReady": true' in health_after_reboot
         reconcile_after_reboot = reconcile("${sourceV2}")
         assert '"outcome": "noop"' in reconcile_after_reboot
 
     with subtest("persistent-unmanaged sentinel survives reconciliation and reboot without being reported managed"):
-        golden.succeed(
+        succeed(
             "grep -qx 'persistent-unmanaged-sentinel'"
             " /var/lib/mottainai/repositories/golden-path-sentinel-repo/UNMANAGED_MARKER"
         )
@@ -422,7 +469,7 @@ let
         # Not guaranteed"). This only records what actually happened to it
         # across the reboot above; it never asserts either outcome as a
         # requirement, matching that documented "no guarantee" semantics.
-        ephemeral_status, ephemeral_output = golden.execute("cat /tmp/golden-path-ephemeral-sentinel")
+        ephemeral_status, ephemeral_output = execute("cat /tmp/golden-path-ephemeral-sentinel")
         print("ephemeral sentinel after reboot (no persistence guaranteed) exit=" + str(ephemeral_status) + " output=" + ephemeral_output)
 
     with subtest("force a deliberately unhealthy next generation: real permission-denial fault on a freshly built candidate"):
@@ -437,21 +484,21 @@ let
         apply_manifest(
             golden_manifest("${mottainaiVersionV1}", mottainai_source_sha256_v1, nawabari_source_sha256, 3)
         )
-        golden.succeed("chmod 000 $(readlink -f ${genV1.generation}/bin/mottainai)")
+        succeed("chmod 000 $(readlink -f ${genV1.generation}/bin/mottainai)")
         reconcile_expect_failure("${sourceV1}")
 
     with subtest("deterministic rollback to the prior known-good generation (v2)"):
-        current_after_rollback = golden.succeed("readlink -f /var/lib/mottainai-control/managed-runtime/current").strip()
+        current_after_rollback = succeed("readlink -f /var/lib/mottainai-control/managed-runtime/current").strip()
         assert current_after_rollback == current_v2, (
             "a post-switch health failure must restore the prior known-good generation, not remain on the broken candidate"
         )
-        assert golden.succeed(current_after_rollback + "/bin/mottainai --version").strip() == "${mottainaiVersionV2}"
-        health_after_rollback = golden.succeed("mottainai-runtime-health")
+        assert succeed(current_after_rollback + "/bin/mottainai --version").strip() == "${mottainaiVersionV2}"
+        health_after_rollback = succeed("mottainai-runtime-health")
         assert '"readiness": "managed-runtime-ready"' in health_after_rollback
         assert '"managedRuntimeReady": true' in health_after_rollback
 
     with subtest("bounded machine-readable evidence: appliance identity, bootstrap contract, and generation identities"):
-        evidence_health = golden.succeed("mottainai-runtime-health")
+        evidence_health = succeed("mottainai-runtime-health")
         assert '"contractId": "mottainai.linux-runtime.v1"' in evidence_health
         assert '"runtimeIdentity": "golden-path-appliance"' in evidence_health
         assert '"buildIdentity": "' + base_build_identity + '"' in evidence_health
