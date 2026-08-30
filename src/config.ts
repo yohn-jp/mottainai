@@ -242,6 +242,7 @@ export function resolveGatewayConfig(
   config: GatewayConfig | undefined,
   cwd: string = process.cwd(),
 ): ResolvedGatewayConfig {
+  validateGatewayBounds(config);
   const workspaceRoot = path.resolve(cwd, config?.workspaceRoot ?? cwd);
   const maxTimeoutMs = positiveInteger(config?.maxTimeoutMs, DEFAULT_GATEWAY_CONFIG.maxTimeoutMs);
   const defaultTimeoutMs = Math.min(
@@ -270,6 +271,25 @@ export function resolveGatewayConfig(
     await: resolveAwaitPolicy(config?.await),
     managedProcesses: resolveManagedProcessPolicy(config?.managedProcesses),
   };
+}
+
+function validateGatewayBounds(config: GatewayConfig | undefined): void {
+  if (
+    config?.defaultTimeoutMs !== undefined &&
+    config.maxTimeoutMs !== undefined &&
+    config.defaultTimeoutMs > config.maxTimeoutMs
+  ) {
+    throw new Error("invalid gateway bounds: gateway.defaultTimeoutMs must not exceed gateway.maxTimeoutMs");
+  }
+  if (
+    config?.await?.minPollIntervalMs !== undefined &&
+    config.await.maxPollIntervalMs !== undefined &&
+    config.await.minPollIntervalMs > config.await.maxPollIntervalMs
+  ) {
+    throw new Error(
+      "invalid gateway await bounds: gateway.await.minPollIntervalMs must not exceed gateway.await.maxPollIntervalMs",
+    );
+  }
 }
 
 function resolveAwaitPolicy(config: AwaitPolicyConfig | undefined): AwaitPolicy {
@@ -440,7 +460,7 @@ function normalizeGateway(value: unknown): GatewayConfig | undefined {
   if (!isRecord(value)) throw new Error("invalid gateway config");
   rejectUnknownKeys(value, GATEWAY_CONFIG_KEYS, "invalid gateway config");
   const workspaceRoot = optionalNonEmptyString(value.workspaceRoot, "invalid gateway workspaceRoot");
-  return {
+  const config: GatewayConfig = {
     workspaceRoot,
     defaultTimeoutMs: positiveIntegerConfig(value.defaultTimeoutMs, "invalid gateway defaultTimeoutMs"),
     maxTimeoutMs: positiveIntegerConfig(value.maxTimeoutMs, "invalid gateway maxTimeoutMs"),
@@ -463,6 +483,8 @@ function normalizeGateway(value: unknown): GatewayConfig | undefined {
     managedProcesses: managedProcessPolicyConfig(value.managedProcesses, "invalid gateway managedProcesses"),
     ghInari: ghInariConfig(value.ghInari, "invalid gateway ghInari"),
   };
+  validateGatewayBounds(config);
+  return config;
 }
 
 const GH_INARI_CONFIG_KEYS = ["command", "timeoutMs", "maxOutputBytes", "maxInputBytes"] as const;

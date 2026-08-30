@@ -800,16 +800,69 @@ test("resolveGatewayConfig resolves the aggregate artifact byte budget", () => {
   );
 });
 
-test("resolveGatewayConfig defaults await policy and clamps maxPollIntervalMs to at least minPollIntervalMs", () => {
+test("resolveGatewayConfig rejects contradictory gateway bounds and resolves omitted bounds", () => {
   const defaults = resolveGatewayConfig(undefined).await;
   assert.equal(defaults.minPollIntervalMs, 250);
   assert.equal(defaults.maxPollIntervalMs, 15_000);
   assert.equal(defaults.maxAwaitMs, 120_000);
   assert.equal(defaults.jitterRatio, 0.2);
 
-  const clamped = resolveGatewayConfig({ await: { minPollIntervalMs: 5_000, maxPollIntervalMs: 1_000 } }).await;
-  assert.equal(clamped.minPollIntervalMs, 5_000);
-  assert.equal(clamped.maxPollIntervalMs, 5_000);
+  assert.throws(
+    () => resolveGatewayConfig({ defaultTimeoutMs: 5_000, maxTimeoutMs: 1_000 }),
+    /gateway\.defaultTimeoutMs must not exceed gateway\.maxTimeoutMs/,
+  );
+  assert.throws(
+    () => resolveGatewayConfig({ await: { minPollIntervalMs: 5_000, maxPollIntervalMs: 1_000 } }),
+    /gateway\.await\.minPollIntervalMs must not exceed gateway\.await\.maxPollIntervalMs/,
+  );
+
+  const equal = resolveGatewayConfig({
+    defaultTimeoutMs: 5_000,
+    maxTimeoutMs: 5_000,
+    await: { minPollIntervalMs: 1_000, maxPollIntervalMs: 1_000 },
+  });
+  assert.equal(equal.defaultTimeoutMs, 5_000);
+  assert.equal(equal.maxTimeoutMs, 5_000);
+  assert.equal(equal.await.minPollIntervalMs, 1_000);
+  assert.equal(equal.await.maxPollIntervalMs, 1_000);
+
+  const valid = resolveGatewayConfig({
+    defaultTimeoutMs: 1_000,
+    maxTimeoutMs: 5_000,
+    await: { minPollIntervalMs: 1_000, maxPollIntervalMs: 5_000 },
+  });
+  assert.equal(valid.defaultTimeoutMs, 1_000);
+  assert.equal(valid.maxTimeoutMs, 5_000);
+  assert.equal(valid.await.minPollIntervalMs, 1_000);
+  assert.equal(valid.await.maxPollIntervalMs, 5_000);
+
+  const omitted = resolveGatewayConfig({
+    maxTimeoutMs: 1_000,
+    await: { minPollIntervalMs: 20_000 },
+  });
+  assert.equal(omitted.defaultTimeoutMs, 1_000);
+  assert.equal(omitted.maxTimeoutMs, 1_000);
+  assert.equal(omitted.await.minPollIntervalMs, 20_000);
+  assert.equal(omitted.await.maxPollIntervalMs, 20_000);
+});
+
+test("loadMottainaiConfig rejects contradictory gateway bounds with config paths", () => {
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      version: 2,
+      mcpServers: {},
+      gateway: { defaultTimeoutMs: 5_000, maxTimeoutMs: 1_000 },
+    })),
+    /gateway\.defaultTimeoutMs must not exceed gateway\.maxTimeoutMs/,
+  );
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      version: 2,
+      mcpServers: {},
+      gateway: { await: { minPollIntervalMs: 5_000, maxPollIntervalMs: 1_000 } },
+    })),
+    /gateway\.await\.minPollIntervalMs must not exceed gateway\.await\.maxPollIntervalMs/,
+  );
 });
 
 test("resolveGatewayConfig resolves finite managed-process bounds", () => {
