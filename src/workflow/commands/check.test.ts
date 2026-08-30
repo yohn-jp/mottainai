@@ -233,6 +233,117 @@ test("runWorkflowCheck uses an explicit Nawabari task's execution worktree for e
   ]);
 });
 
+test("combined task worktree resolution and state fingerprints reject mid-check drift without contaminating reuse", async (t) => {
+  const root = createTempGitRepo(t);
+  const checkoutB = cloneCheckout(t, root, "mottainai-validation-worktree-state-b-");
+  const checkoutC = cloneCheckout(t, root, "mottainai-validation-worktree-state-c-");
+  const store = createWorkflowStore(t);
+  const taskB = await attachNawabariTask(root, store, "305-b", "session-b");
+  const taskC = await attachNawabariTask(root, store, "305-c", "session-c");
+
+  const mutationMarker = path.join(root, "mutate-task-worktree-during-check");
+  const stateAwareChecks = [
+    {
+      id: "combined-state",
+      label: "combined worktree/state validation",
+      command: process.execPath,
+      args: [
+        "-e",
+        [
+          `const fs = require("fs");`,
+          `if (fs.existsSync(${JSON.stringify(mutationMarker)})) fs.writeFileSync("file.txt", ${JSON.stringify("changed during check\n")});`,
+          `console.log(process.cwd());`,
+        ].join(";"),
+      ],
+      required: true,
+    },
+  ];
+  const nawabari = fakeNawabari(
+    new Map([
+      ["session-b", checkoutB],
+      ["session-c", checkoutC],
+    ]),
+    [],
+  );
+  const artifactStore = new InMemoryArtifactStore();
+  const dependencies = { artifactStore, checks: stateAwareChecks };
+
+  // The caller checkout is intentionally dirty. It must not affect task B's state identity.
+  fs.writeFileSync(path.join(root, "caller-only.txt"), "caller checkout change\n");
+  const expectedB = await computeStateFingerprint({ workspaceRoot: checkoutB });
+  assert.equal(expectedB.ok, true);
+  if (!expectedB.ok) return;
+
+  const runFor = (taskId: string) => ({ workspaceRoot: root, store, taskId, nawabari, checkId: "combined-state" });
+  const firstB = await runWorkflowCheck(runFor(taskB.taskId), dependencies);
+  assert.equal(firstB.ok, true);
+  if (!firstB.ok) return;
+  assert.equal(firstB.receipt.execution, "executed");
+  assert.equal(firstB.receipt.state, "executed-pass");
+  assert.equal(firstB.receipt.fingerprint, expectedB.fingerprint);
+  assert.ok(firstB.receipt.runId !== undefined);
+  assert.equal(artifactStore.retrieve(firstB.receipt.artifactRef!)?.text.trim(), fs.realpathSync(checkoutB));
+
+  // B and C have the same repository state, but a distinct Nawabari session is a distinct reuse boundary.
+  const firstC = await runWorkflowCheck(runFor(taskC.taskId), dependencies);
+  assert.equal(firstC.ok, true);
+  if (!firstC.ok) return;
+  assert.equal(firstC.receipt.execution, "executed");
+  assert.equal(firstC.receipt.fingerprint, expectedB.fingerprint);
+  assert.equal(artifactStore.retrieve(firstC.receipt.artifactRef!)?.text.trim(), fs.realpathSync(checkoutC));
+
+  // A caller-only change after B's PASS still must not invalidate B's reusable evidence.
+  fs.writeFileSync(path.join(root, "caller-only-after-pass.txt"), "another caller checkout change\n");
+  const reusedB = await getWorkflowValidationReceipt(runFor(taskB.taskId), dependencies);
+  assert.equal(reusedB.ok, true);
+  if (!reusedB.ok) return;
+  assert.equal(reusedB.receipt.checks[0]?.state, "reused-pass");
+  assert.equal(reusedB.receipt.checks[0]?.runId, firstB.receipt.runId);
+  assert.equal(
+    artifactStore.retrieve(reusedB.receipt.checks[0]?.artifactRef ?? "")?.text.trim(),
+    fs.realpathSync(checkoutB),
+  );
+
+  // Force the same check definition to execute while changing only task B's tracked state.
+  fs.writeFileSync(mutationMarker, "mutate B\n");
+  const changedB = await runWorkflowCheck({ ...runFor(taskB.taskId), force: true }, dependencies);
+  assert.equal(changedB.ok, true);
+  if (!changedB.ok) return;
+  assert.equal(changedB.receipt.execution, "executed");
+  assert.equal(changedB.receipt.status, "passed");
+  assert.equal(changedB.receipt.runId, undefined);
+  assert.equal(changedB.receipt.fingerprint, undefined);
+  assert.equal(changedB.receipt.provenance.reasonCode, "fingerprint-unstable");
+
+  // The pre-change PASS remains stored, but it is no longer reusable for B's current state.
+  const staleB = await getWorkflowValidationReceipt(runFor(taskB.taskId), dependencies);
+  assert.equal(staleB.ok, true);
+  if (!staleB.ok) return;
+  assert.equal(staleB.receipt.checks[0]?.state, "stale");
+  assert.deepEqual(staleB.receipt.requiredPending, ["combined-state"]);
+
+  fs.rmSync(mutationMarker);
+  const recoveredB = await runWorkflowCheck(runFor(taskB.taskId), dependencies);
+  assert.equal(recoveredB.ok, true);
+  if (!recoveredB.ok) return;
+  assert.equal(recoveredB.receipt.execution, "executed");
+  assert.equal(recoveredB.receipt.state, "executed-pass");
+  assert.ok(recoveredB.receipt.runId !== undefined);
+  assert.notEqual(recoveredB.receipt.runId, firstB.receipt.runId);
+
+  const reusedRecoveredB = await runWorkflowCheck(runFor(taskB.taskId), dependencies);
+  assert.equal(reusedRecoveredB.ok, true);
+  if (!reusedRecoveredB.ok) return;
+  assert.equal(reusedRecoveredB.receipt.execution, "reused");
+  assert.equal(reusedRecoveredB.receipt.runId, recoveredB.receipt.runId);
+
+  const bRuns = store.listCheckRuns({ instanceId: taskB.instanceId, worktreeId: "nawabari:session-b" });
+  const cRuns = store.listCheckRuns({ instanceId: taskC.instanceId, worktreeId: "nawabari:session-c" });
+  assert.equal(bRuns.length, 2);
+  assert.equal(cRuns.length, 1);
+  assert.equal(store.listCheckRuns({ instanceId: taskB.instanceId, worktreeId: "" }).length, 0);
+});
+
 test("a second runWorkflowCheck call for the same task reuses the prior passing execution", async (t) => {
   const { store, task, worktree, nawabari } = await taskFixture(t);
   const dependencies = { artifactStore: new InMemoryArtifactStore(), checks };
