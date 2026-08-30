@@ -1,20 +1,17 @@
-{ pkgs }:
+{ pkgs, source }:
 
 let
   inherit (pkgs) lib;
 
   pname = "mottainai";
-  version = "0.6.0";
-  sourceRevision = "eb47e9270eb17132139cec9b74b8de399569263a";
+  package = builtins.fromJSON (builtins.readFile (source + "/package.json"));
+  version = package.version;
   nodejs = pkgs.nodejs_22;
   pnpm = pkgs.pnpm_9;
   nodeSrc = pkgs.srcOnly nodejs;
   nodeGyp = "${nodejs}/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js";
   caBundle = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
-  pnpmLock = pkgs.fetchurl {
-    url = "https://raw.githubusercontent.com/yohn-jp/mottainai/${sourceRevision}/pnpm-lock.yaml";
-    hash = "sha256-oCwMCOEeO5eZqpbHd4JCvs/42l7BUFtZEuDdw+ktAYc=";
-  };
+  pnpmLock = source + "/pnpm-lock.yaml";
 
   pnpmDeps = pkgs.stdenvNoCC.mkDerivation {
     pname = "${pname}-pnpm-deps";
@@ -50,11 +47,7 @@ let
 in
 pkgs.stdenv.mkDerivation {
   inherit pname version;
-
-  src = pkgs.fetchurl {
-    url = "https://registry.npmjs.org/mottainai/-/mottainai-${version}.tgz";
-    hash = "sha256-SmuK7osmlK+EAnM48fXnSNv8Wp51JBjQ8SghH04Cf3E=";
-  };
+  src = source;
 
   nativeBuildInputs = [
     nodejs
@@ -70,8 +63,8 @@ pkgs.stdenv.mkDerivation {
     runHook preUnpack
 
     mkdir source
-    tar -xzf "$src" --strip-components=1 -C source
-    cp ${pnpmLock} source/pnpm-lock.yaml
+    cp -a "$src"/. source/
+    chmod -R u+w source
     cd source
 
     runHook postUnpack
@@ -90,6 +83,7 @@ pkgs.stdenv.mkDerivation {
 
     pnpm install --prod --offline --frozen-lockfile --ignore-scripts --store-dir ${pnpmDeps}
     pnpm rebuild node-pty --store-dir ${pnpmDeps}
+    pnpm run build
 
     runHook postBuild
   '';
@@ -100,7 +94,7 @@ pkgs.stdenv.mkDerivation {
     packageRoot="$out/lib/node_modules/${pname}"
     mkdir -p "$packageRoot"
     cp -a . "$packageRoot/"
-    rm -f "$packageRoot/pnpm-lock.yaml"
+    rm -rf "$packageRoot/node_modules/.cache"
 
     # pnpm stamps node_modules/.modules.yaml with a prunedAt wall-clock
     # timestamp, which otherwise makes this derivation's output non-reproducible.
