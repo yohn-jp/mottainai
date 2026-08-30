@@ -1,15 +1,22 @@
-# Manual Proxmox Runtime Appliance import/boot (Issue #601)
+# Manual Proxmox Runtime Appliance import/boot (Issues #601/#603)
 
 Exact, reproducible steps to import the canonical Mottainai Runtime
-Appliance disk artifact published by GitHub Actions
-(`.github/workflows/ci.yml`, job `runtime-appliance-artifact`) into a real
+Appliance raw disk recovered from the compressed distribution assets published
+by the corresponding GitHub Release
+(`.github/workflows/publish.yml`, job `runtime-appliance`) into a real
 Proxmox VE host and prove it boots, becomes network-reachable, accepts SSH,
 runs Mottainai/Nawabari/Zellij, reports Runtime health, and preserves
 required persistent state across a reboot.
 
+The `runtime-appliance-artifact` Actions artifact from
+`.github/workflows/ci.yml` is retention-bound CI/build evidence only. The
+GitHub Release compressed transport envelope and manifests are the stable
+distribution surface used by this procedure. The raw disk remains the
+canonical appliance identity; compression changes only how it is transported.
+
 This is manual integration evidence, distinct from the automated CI build
 evidence and from later Runtime-provider support evidence — see
-[`docs/linux-runtime-contract.md`](linux-runtime-contract.md#distributiondelivery-evidence-issue-601).
+[`docs/linux-runtime-contract.md`](linux-runtime-contract.md#distributiondelivery-evidence-issues-601603).
 It does not make Proxmox a required or automated Runtime provider, does not
 rebuild or mutate the canonical guest definition
 (`nix/modules/runtime.nix`), and reuses the same `mottainai.runtime`
@@ -21,17 +28,17 @@ proves.
 
 The canonical Runtime module ships with `controlAuthorizedKeys = []` by
 default so "a fresh generic Runtime cannot be accessed accidentally"
-(`nix/modules/runtime.nix`). A publicly downloadable CI artifact must keep
+(`nix/modules/runtime.nix`). A publicly downloadable Release asset must keep
 that default — baking a real key into a broadly distributed image would be
 publishing a reusable credential, which Issue #601 explicitly forbids. That
-means the artifact as downloaded has no SSH access and no root password
+means the canonical appliance after decompression has no SSH access and no root password
 (`PermitRootLogin no`, `PasswordAuthentication no`, no root password set)
 by design.
 
-The exact bytes you downloaded and verified in §1 are what gets imported
-into Proxmox in §3 — this proof never writes to
-`mottainai-runtime-appliance.raw`, mounts it, or otherwise touches it after
-verification. Getting SSH access instead uses the Runtime contract's
+The decompressed canonical raw bytes produced and verified in §1 are what get
+imported into Proxmox in §3 — this proof never writes to, mounts, or otherwise
+touches `mottainai-runtime-appliance.raw` after verification. Getting SSH
+access instead uses the Runtime contract's
 bounded first-boot input
 (`docs/linux-runtime-contract.md#ssh-service-and-bootstrap-prerequisites`,
 `nix/modules/runtime.nix`'s `mottainai-runtime-bootstrap-authorized-keys`
@@ -45,32 +52,62 @@ the immutable closure) and never onto the canonical disk. This is the same
 generic, provider-independent mechanism regardless of which QEMU/KVM host
 runs it; nothing here is Proxmox-specific guest behavior.
 
-## 1. Download and verify the exact Actions artifact
+## 1. Download and verify the exact GitHub Release assets
 
-From the `runtime-appliance-artifact` job of the relevant GitHub Actions
-run, download the `mottainai-runtime-appliance-x86_64-linux` artifact. It
-contains:
+From the corresponding Mottainai GitHub Release, download the
+`x86_64-linux` assets. The release contains:
 
-- `mottainai-runtime-appliance.raw` — the canonical self-bootable disk.
+- `mottainai-runtime-appliance.raw.zst` — the fixed-settings zstd transport
+  envelope for the canonical self-bootable raw disk.
 - `runtime-appliance-manifest.json` — its bounded
   `mottainai.linux-runtime-appliance.v1` manifest.
+- `runtime-appliance-release-metadata.json` — bounded metadata containing the
+  compressed asset filename, format, byte size, and SHA-256.
 
-Verify the disk you downloaded is byte-identical to what CI built and
-verified. This is the only digest check this proof needs — the disk is
-never written to afterward, in §2 or any later step:
+The raw disk is intentionally not uploaded as a separate Release asset. The
+`.raw` format and the existing raw manifest remain canonical; `.raw.zst` is
+only a distribution envelope. Do not use a retention-bound Actions artifact as
+the operator distribution source; it is build evidence for the release
+workflow.
+
+Verify the compressed envelope's identity, size, and digest before
+decompressing it. The release workflow uses zstd level 19, `--ultra`, one
+compression thread, and an explicit frame checksum; decompression does not
+alter the canonical bytes:
 
 ```sh
-jq -r '.image.sha256' runtime-appliance-manifest.json
-sha256sum mottainai-runtime-appliance.raw
-# the two values above must match
-jq '{contractId, schemaVersion, architecture, sourceRevision, nixSystemClosure, mottainaiVersion, nawabariVersion}' \
-  runtime-appliance-manifest.json
+set -eu
+compressed=mottainai-runtime-appliance.raw.zst
+manifest=runtime-appliance-manifest.json
+metadata=runtime-appliance-release-metadata.json
+
+test "$(jq -r '.canonicalManifest' "$metadata")" = "$manifest"
+test "$(jq -r '.compressedAsset.filename' "$metadata")" = "$compressed"
+test "$(jq -r '.compressedAsset.format' "$metadata")" = zstd
+test "$(jq -r '.compressedAsset.sizeBytes' "$metadata")" = "$(stat -c '%s' "$compressed")"
+test "$(jq -r '.compressedAsset.sha256' "$metadata")" = "$(sha256sum "$compressed" | awk '{print $1}')"
+test "$(stat -c '%s' "$compressed")" -lt 2147483648
+test "$(jq -r '.sourceRevision' "$metadata")" = "$(jq -r '.sourceRevision' "$manifest")"
+
+zstd --decompress --no-progress -o mottainai-runtime-appliance.raw "$compressed"
+test "$(jq -r '.image.sizeBytes' "$manifest")" = "$(stat -c '%s' mottainai-runtime-appliance.raw)"
+test "$(jq -r '.image.sha256' "$manifest")" = "$(sha256sum mottainai-runtime-appliance.raw | awk '{print $1}')"
 ```
 
-Record the full manifest JSON as part of your evidence — it names the exact
-Mottainai source revision, the immutable Nix system/closure identity, and
-the compatible Mottainai/Nawabari versions this specific disk was built
-from.
+The two final checks prove that the decompressed raw is the canonical image
+described by the existing manifest. Record the full manifest and release
+metadata JSON as part of the evidence:
+
+```sh
+jq '{contractId, schemaVersion, architecture, sourceRevision, nixSystemClosure, mottainaiVersion, nawabariVersion, image}' \
+  "$manifest"
+jq '{contractId, schemaVersion, architecture, sourceRevision, canonicalManifest, compressedAsset}' \
+  "$metadata"
+```
+
+The manifest names the exact Mottainai source revision, immutable Nix
+system/closure identity, and compatible Mottainai/Nawabari versions this
+specific canonical disk was built from.
 
 ## 2. Build a separate, tiny SSH-bootstrap disk (the canonical disk is never touched)
 
@@ -184,9 +221,11 @@ Record, alongside console/SSH transcripts:
 
 - The full `runtime-appliance-manifest.json` from §1 (source revision, Nix
   system closure, Mottainai/Nawabari versions, disk digest).
-- The `mottainai-runtime-appliance.raw` SHA-256 from §1, and confirmation it
-  is unchanged after §2–§6 — the canonical disk is imported and booted
-  byte-identical to the Actions artifact throughout this proof.
+- The full `runtime-appliance-release-metadata.json` and the compressed
+  asset's SHA-256/size from §1, plus the decompressed
+  `mottainai-runtime-appliance.raw` SHA-256 and confirmation it is unchanged
+  after §2–§6. The canonical disk is imported and booted byte-identical to the
+  raw bytes described by the Release manifest throughout this proof.
 - Proxmox VE version, host architecture, and the exact `qm` VM
   configuration (`qm config <vmid>`, including both `scsi0`/`scsi1`).
 - Boot, network, SSH, version, health, and reboot-persistence output from

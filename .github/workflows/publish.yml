@@ -141,3 +141,263 @@ jobs:
             echo "npm emitted a publish warning; treating as failure"
             exit 1
           fi
+
+  runtime-appliance:
+    name: Publish canonical Runtime Appliance release assets
+    # The appliance is a separate release surface from npm. The ordering only
+    # ensures the canonical Nix package's already-declared npm source exists;
+    # the appliance is never added to the npm tarball.
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout exact release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js for release identity and manifest verification
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.18.0
+
+      - name: Install compression tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zstd
+
+      - name: Verify exact tagged release revision and package identity
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          test -n "$RELEASE_TAG"
+          tag_commit="$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")"
+          checked_out_commit="$(git rev-parse --verify HEAD)"
+          test "$checked_out_commit" = "$tag_commit"
+
+          package_version="$(node -p "require('./package.json').version")"
+          tag_version="${RELEASE_TAG#v}"
+          if [ "$package_version" != "$tag_version" ]; then
+            echo "package.json version $package_version does not match tag $tag_version"
+            exit 1
+          fi
+
+          echo "RUNTIME_APPLIANCE_SOURCE_REVISION=$tag_commit" >> "$GITHUB_ENV"
+          echo "RUNTIME_APPLIANCE_PACKAGE_VERSION=$package_version" >> "$GITHUB_ENV"
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      - name: Install Node dependencies for manifest verification
+        run: pnpm install --frozen-lockfile
+
+      - name: Build canonical Runtime Appliance from the tagged source
+        working-directory: nix
+        shell: bash
+        run: |
+          set -euo pipefail
+          nix flake check --no-update-lock-file --no-build --all-systems
+          image_output="$(nix build --no-update-lock-file --no-link --print-out-paths .#runtime-appliance-image)"
+          test -d "$image_output"
+          echo "RUNTIME_APPLIANCE_IMAGE_OUTPUT=$image_output" >> "$GITHUB_ENV"
+
+      - name: Generate and verify the canonical raw manifest and compressed envelope
+        working-directory: nix
+        shell: bash
+        run: |
+          set -euo pipefail
+          mottainai_version="$(nix eval --no-update-lock-file --raw .#packages.x86_64-linux.mottainai.version)"
+          nawabari_version="$(nix eval --no-update-lock-file --raw .#packages.x86_64-linux.nawabari.version)"
+          test "$mottainai_version" = "$RUNTIME_APPLIANCE_PACKAGE_VERSION"
+          test -n "$nawabari_version"
+
+          node ../scripts/build-runtime-appliance-manifest.mjs \
+            --architecture x86_64-linux \
+            --image-output "$RUNTIME_APPLIANCE_IMAGE_OUTPUT" \
+            --source-revision "$RUNTIME_APPLIANCE_SOURCE_REVISION" \
+            --mottainai-version "$mottainai_version" \
+            --nawabari-version "$nawabari_version" \
+            --output "$RUNNER_TEMP/runtime-appliance"
+
+          directory="$RUNNER_TEMP/runtime-appliance/x86_64-linux"
+          manifest="$directory/runtime-appliance-manifest.json"
+          disk="$directory/mottainai-runtime-appliance.raw"
+          test -s "$manifest"
+          test -s "$disk"
+          jq -e \
+            --arg source_revision "$RUNTIME_APPLIANCE_SOURCE_REVISION" \
+            --arg package_version "$RUNTIME_APPLIANCE_PACKAGE_VERSION" \
+            '
+              .contractId == "mottainai.linux-runtime-appliance.v1" and
+              .schemaVersion == 1 and
+              .architecture == "x86_64-linux" and
+              .sourceRevision == $source_revision and
+              .mottainaiVersion == $package_version and
+              (.sourceRevision | test("^[0-9a-f]{40}$")) and
+              (.nixSystemClosure | startswith("/nix/store/")) and
+              .canonicalSource.flake == "nix/flake.nix" and
+              .canonicalSource.output == "applianceConfigurations.x86_64-linux.config.system.build.toplevel" and
+              .image.filename == "mottainai-runtime-appliance.raw" and
+              .image.format == "raw" and
+              ((.image.sizeBytes | type) == "number") and
+              (.image.sizeBytes > 0) and
+              (.image.sha256 | test("^[0-9a-f]{64}$"))
+            ' "$manifest"
+          MANIFEST="$manifest" DISK="$disk" node --import tsx --input-type=module -e '
+            import { readRuntimeApplianceManifest, verifyRuntimeApplianceManifest } from "../src/runtime-contract/appliance-manifest.ts";
+            const manifest = readRuntimeApplianceManifest(process.env.MANIFEST);
+            verifyRuntimeApplianceManifest(manifest, process.env.DISK);
+          '
+
+          compressed="$directory/mottainai-runtime-appliance.raw.zst"
+          metadata="$directory/runtime-appliance-release-metadata.json"
+          # Keep the canonical raw identity unchanged. This is a fixed
+          # distribution-only transport envelope: zstd 19, single-threaded,
+          # with an explicit zstd frame checksum.
+          zstd --compress --ultra -19 --threads=1 --check --no-progress --force --keep \
+            -o "$compressed" "$disk"
+          compressed_size="$(stat -c '%s' "$compressed")"
+          compressed_sha256="$(sha256sum "$compressed" | awk '{print $1}')"
+          test -s "$compressed"
+          test "$compressed_size" -lt 2147483648
+          test "$(stat -c '%s' "$compressed")" = "$compressed_size"
+          test "$(sha256sum "$compressed" | awk '{print $1}')" = "$compressed_sha256"
+
+          jq -n \
+            --arg source_revision "$RUNTIME_APPLIANCE_SOURCE_REVISION" \
+            --arg manifest_filename "$(basename "$manifest")" \
+            --arg asset_filename "$(basename "$compressed")" \
+            --arg asset_sha256 "$compressed_sha256" \
+            --argjson asset_size_bytes "$compressed_size" \
+            '{
+              contractId: "mottainai.linux-runtime-appliance-release.v1",
+              schemaVersion: 1,
+              architecture: "x86_64-linux",
+              sourceRevision: $source_revision,
+              canonicalManifest: $manifest_filename,
+              compressedAsset: {
+                filename: $asset_filename,
+                format: "zstd",
+                sizeBytes: $asset_size_bytes,
+                sha256: $asset_sha256
+              }
+            }' > "$metadata"
+          jq -e \
+            --arg source_revision "$RUNTIME_APPLIANCE_SOURCE_REVISION" \
+            --arg manifest_filename "$(basename "$manifest")" \
+            --arg asset_filename "$(basename "$compressed")" \
+            --arg asset_sha256 "$compressed_sha256" \
+            --argjson asset_size_bytes "$compressed_size" \
+            '
+              .contractId == "mottainai.linux-runtime-appliance-release.v1" and
+              .schemaVersion == 1 and
+              .architecture == "x86_64-linux" and
+              .sourceRevision == $source_revision and
+              (.sourceRevision | test("^[0-9a-f]{40}$")) and
+              .canonicalManifest == $manifest_filename and
+              .compressedAsset.filename == $asset_filename and
+              .compressedAsset.format == "zstd" and
+              ((.compressedAsset.sizeBytes | type) == "number") and
+              .compressedAsset.sizeBytes == $asset_size_bytes and
+              (.compressedAsset.sha256 | test("^[0-9a-f]{64}$")) and
+              .compressedAsset.sha256 == $asset_sha256
+            ' "$metadata"
+
+          roundtrip_directory="$RUNNER_TEMP/runtime-appliance-roundtrip"
+          mkdir -p "$roundtrip_directory"
+          roundtrip_disk="$roundtrip_directory/mottainai-runtime-appliance.raw"
+          zstd --decompress --no-progress --force \
+            -o "$roundtrip_disk" "$compressed"
+          cmp -- "$disk" "$roundtrip_disk"
+          MANIFEST="$manifest" DISK="$roundtrip_disk" node --import tsx --input-type=module -e '
+            import { readRuntimeApplianceManifest, verifyRuntimeApplianceManifest } from "../src/runtime-contract/appliance-manifest.ts";
+            const manifest = readRuntimeApplianceManifest(process.env.MANIFEST);
+            verifyRuntimeApplianceManifest(manifest, process.env.DISK);
+          '
+
+          {
+            echo "RUNTIME_APPLIANCE_DIRECTORY=$directory"
+            echo "RUNTIME_APPLIANCE_COMPRESSED_ASSET=$compressed"
+            echo "RUNTIME_APPLIANCE_MANIFEST=$manifest"
+            echo "RUNTIME_APPLIANCE_RELEASE_METADATA=$metadata"
+          } >> "$GITHUB_ENV"
+
+      - name: Publish and re-verify the compressed appliance and manifests as GitHub Release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          release_tag="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName')"
+          test "$release_tag" = "$RELEASE_TAG"
+
+          compressed="$RUNTIME_APPLIANCE_COMPRESSED_ASSET"
+          manifest="$RUNTIME_APPLIANCE_MANIFEST"
+          metadata="$RUNTIME_APPLIANCE_RELEASE_METADATA"
+          test -s "$compressed"
+          test -s "$manifest"
+          test -s "$metadata"
+          # Do not clobber an existing release asset: a duplicate/mismatched
+          # publication must fail closed rather than replace stable bytes.
+          gh release upload "$RELEASE_TAG" "$compressed" "$manifest" "$metadata" --repo "$GITHUB_REPOSITORY"
+
+          downloaded="$RUNNER_TEMP/runtime-appliance-release-assets"
+          mkdir -p "$downloaded"
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "mottainai-runtime-appliance.raw.zst" \
+            --pattern "runtime-appliance-manifest.json" \
+            --pattern "runtime-appliance-release-metadata.json" \
+            --dir "$downloaded"
+          remote_compressed="$downloaded/mottainai-runtime-appliance.raw.zst"
+          remote_manifest="$downloaded/runtime-appliance-manifest.json"
+          remote_metadata="$downloaded/runtime-appliance-release-metadata.json"
+          test -s "$remote_compressed"
+          test -s "$remote_manifest"
+          test -s "$remote_metadata"
+          cmp -- "$compressed" "$remote_compressed"
+          cmp -- "$manifest" "$remote_manifest"
+          cmp -- "$metadata" "$remote_metadata"
+
+          remote_size="$(stat -c '%s' "$remote_compressed")"
+          remote_sha256="$(sha256sum "$remote_compressed" | awk '{print $1}')"
+          test "$remote_size" -lt 2147483648
+          jq -e \
+            --arg source_revision "$RUNTIME_APPLIANCE_SOURCE_REVISION" \
+            --arg manifest_filename "$(basename "$remote_manifest")" \
+            --arg asset_filename "$(basename "$remote_compressed")" \
+            --arg asset_sha256 "$remote_sha256" \
+            --argjson asset_size_bytes "$remote_size" \
+            '
+              .contractId == "mottainai.linux-runtime-appliance-release.v1" and
+              .schemaVersion == 1 and
+              .architecture == "x86_64-linux" and
+              .sourceRevision == $source_revision and
+              .canonicalManifest == $manifest_filename and
+              .compressedAsset.filename == $asset_filename and
+              .compressedAsset.format == "zstd" and
+              .compressedAsset.sizeBytes == $asset_size_bytes and
+              .compressedAsset.sha256 == $asset_sha256
+            ' "$remote_metadata"
+
+          remote_disk="$downloaded/mottainai-runtime-appliance.raw"
+          zstd --decompress --no-progress --force \
+            -o "$remote_disk" "$remote_compressed"
+          MANIFEST="$remote_manifest" DISK="$remote_disk" node --import tsx --input-type=module -e '
+            import { readRuntimeApplianceManifest, verifyRuntimeApplianceManifest } from "./src/runtime-contract/appliance-manifest.ts";
+            const manifest = readRuntimeApplianceManifest(process.env.MANIFEST);
+            verifyRuntimeApplianceManifest(manifest, process.env.DISK);
+          '
