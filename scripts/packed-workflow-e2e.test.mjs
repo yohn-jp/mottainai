@@ -320,6 +320,295 @@ process.exit(result.status ?? 1);
 `;
 }
 
+function reconciliationNawabariWrapperSource() {
+  return String.raw`
+const fs = require("node:fs");
+const path = require("node:path");
+const { DatabaseSync } = require("node:sqlite");
+const { spawnSync } = require("node:child_process");
+const args = process.argv.slice(2);
+
+function appendJson(filePath, value) {
+  if (filePath !== undefined) fs.appendFileSync(filePath, JSON.stringify(value) + "\n");
+}
+
+function readState() {
+  const statePath = process.env.MOTTAINAI_RECONCILIATION_NAWABARI_STATE;
+  if (statePath === undefined) throw new Error("Nawabari reconciliation state path is missing");
+  try {
+    return JSON.parse(fs.readFileSync(statePath, "utf8"));
+  } catch {
+    return { startFaulted: false, checkpointFaulted: { commit: false, push: false } };
+  }
+}
+
+function writeState(state) {
+  fs.writeFileSync(process.env.MOTTAINAI_RECONCILIATION_NAWABARI_STATE, JSON.stringify(state, null, 2));
+}
+
+function gitSha(args) {
+  const result = spawnSync("git", args, { cwd: process.cwd(), encoding: "utf8" });
+  return result.status === 0 ? result.stdout.trim() : undefined;
+}
+
+function externalTaskReceipt(column, sessionId) {
+  const stateDirectory = process.env.MOTTAINAI_STATE_DIR;
+  if (stateDirectory === undefined || sessionId === undefined) return undefined;
+  const dbPath = path.join(stateDirectory, "state.sqlite3");
+  if (!fs.existsSync(dbPath)) return undefined;
+  let db;
+  try {
+    db = new DatabaseSync(dbPath, { readOnly: true });
+    const row = db
+      .prepare(
+        "SELECT " + column + " AS value FROM " +
+          (column === "commit_sha" ? "commit_reconciliations" : "push_reconciliations") +
+          " WHERE task_id = (SELECT task_id FROM tasks WHERE nawabari_session_id = ?)"
+      )
+      .get(sessionId);
+    return row?.value ?? undefined;
+  } catch {
+    return undefined;
+  } finally {
+    db?.close();
+  }
+}
+
+function remoteSha(remote, branch) {
+  if (remote === undefined || branch === undefined) return undefined;
+  const result = spawnSync("git", ["ls-remote", "--heads", remote, "refs/heads/" + branch], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  if (result.status !== 0) return undefined;
+  return result.stdout.trim().split(/\\s+/u)[0] || undefined;
+}
+
+const state = readState();
+appendJson(process.env.MOTTAINAI_NAWABARI_TRACE, args);
+const pushRemote = args[0] === "push" ? args[args.indexOf("--remote") + 1] : undefined;
+const pushBranch = args[0] === "push" ? args[args.indexOf("--branch") + 1] : undefined;
+const beforeRemote = args[0] === "push" ? remoteSha(pushRemote, pushBranch) : undefined;
+const result = spawnSync(process.env.MOTTAINAI_REAL_NAWABARI, args, {
+  cwd: process.cwd(),
+  env: process.env,
+  encoding: "utf8",
+  stdio: ["ignore", "pipe", "pipe"],
+});
+const parsed = (() => {
+  try {
+    return JSON.parse(result.stdout ?? "");
+  } catch {
+    return undefined;
+  }
+})();
+const successful = result.error === undefined && result.status === 0 && parsed?.ok === true;
+const sessionId = args[args.indexOf("--session") + 1];
+
+if (successful && args[0] === "session" && args[1] === "create") {
+  appendJson(process.env.MOTTAINAI_RECONCILIATION_EFFECT_TRACE, {
+    boundary: "task-start",
+    operation: "session.create",
+    externalSuccess: true,
+    sessionId: parsed.session_id,
+    branch: parsed.branch,
+    worktree: parsed.worktree,
+  });
+  if (process.env.MOTTAINAI_RECONCILIATION_FAULT_STAGE === "start" && state.startFaulted !== true) {
+    state.startFaulted = true;
+    writeState(state);
+    // The session is durable in Nawabari. Kill only the Mottainai caller so
+    // the next packaged invocation must recover it from native evidence.
+    process.kill(process.ppid, "SIGKILL");
+    process.exit(137);
+  }
+}
+
+if (successful && args[0] === "commit") {
+  appendJson(process.env.MOTTAINAI_RECONCILIATION_EFFECT_TRACE, {
+    boundary: "commit",
+    operation: "commit",
+    externalSuccess: true,
+    commitSha: parsed.commit_sha ?? parsed.commitSha,
+    sessionId: parsed.session_id ?? parsed.sessionId,
+  });
+}
+
+if (successful && args[0] === "push") {
+  const afterRemote = remoteSha(pushRemote, pushBranch);
+  appendJson(process.env.MOTTAINAI_RECONCILIATION_EFFECT_TRACE, {
+    boundary: "push",
+    operation: "push",
+    externalSuccess: true,
+    sourceSha: parsed.source_sha ?? parsed.sourceSha,
+    remote: pushRemote,
+    branch: pushBranch,
+    beforeRemote,
+    afterRemote,
+    mutated: beforeRemote !== afterRemote,
+    sessionId: parsed.session_id ?? parsed.sessionId,
+  });
+}
+
+const faultStage = process.env.MOTTAINAI_RECONCILIATION_FAULT_STAGE;
+if (successful && args[0] === "checkpoint" && (faultStage === "commit" || faultStage === "push")) {
+  const receiptColumn = faultStage === "commit" ? "commit_sha" : "result_remote_sha";
+  const receipt = externalTaskReceipt(receiptColumn, sessionId);
+  const checkpointFaulted = state.checkpointFaulted?.[faultStage] === true;
+  if (receipt !== undefined && !checkpointFaulted) {
+    state.checkpointFaulted = { ...(state.checkpointFaulted ?? {}), [faultStage]: true };
+    writeState(state);
+    appendJson(process.env.MOTTAINAI_RECONCILIATION_EFFECT_TRACE, {
+      boundary: faultStage,
+      operation: "post-effect-checkpoint-fault",
+      externalSuccess: true,
+      receipt,
+      sessionId,
+    });
+    process.stdout.write(
+      JSON.stringify({
+        ok: false,
+        command: "checkpoint",
+        code: "INJECTED_POST_EFFECT_FAULT",
+        message: "injected post-effect checkpoint fault",
+      })
+    );
+    process.exit(3);
+  }
+}
+
+if (result.error !== undefined) {
+  process.stderr.write(String(result.error));
+  process.exit(1);
+}
+if (result.stdout) process.stdout.write(result.stdout);
+if (result.stderr) process.stderr.write(result.stderr);
+process.exit(result.status ?? 1);
+`;
+}
+
+function reconciliationGhSource() {
+  return String.raw`
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+
+function readState() {
+  try {
+    return JSON.parse(fs.readFileSync(process.env.MOTTAINAI_RECONCILIATION_PR_STATE, "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+if (process.env.MOTTAINAI_GH_TRACE !== undefined)
+  fs.appendFileSync(process.env.MOTTAINAI_GH_TRACE, JSON.stringify(args) + "\n");
+
+if (args[0] === "pr" && args[1] === "list") {
+  const state = readState();
+  if (state?.pr === undefined) {
+    process.stdout.write("[]\n");
+    process.exit(0);
+  }
+  const conflicting = process.env.MOTTAINAI_RECONCILIATION_PR_LOOKUP === "conflict";
+  process.stdout.write(
+    JSON.stringify([
+      {
+        number: state.pr.number,
+        state: "OPEN",
+        isDraft: false,
+        mergedAt: null,
+        url: state.pr.url,
+        headRefName: state.pr.head,
+        headRefOid: conflicting ? "conflicting-head-identity" : state.pr.headSha,
+        baseRefName: conflicting ? "conflicting-base-identity" : state.pr.base,
+        baseRefOid: state.pr.baseSha,
+      },
+    ]) + "\n",
+  );
+  process.exit(0);
+}
+
+process.stderr.write("unexpected gh invocation: " + args.join(" ") + "\n");
+process.exit(1);
+`;
+}
+
+function reconciliationGhInariSource() {
+  return String.raw`
+const fs = require("node:fs");
+const { spawnSync } = require("node:child_process");
+const args = process.argv.slice(2);
+const input = fs.readFileSync(0, "utf8");
+
+function appendTrace(value) {
+  if (process.env.MOTTAINAI_GH_INARI_TRACE !== undefined)
+    fs.appendFileSync(process.env.MOTTAINAI_GH_INARI_TRACE, JSON.stringify(value) + "\n");
+}
+
+function readState() {
+  try {
+    return JSON.parse(fs.readFileSync(process.env.MOTTAINAI_RECONCILIATION_PR_STATE, "utf8"));
+  } catch {
+    return { createFaulted: false };
+  }
+}
+
+function writeState(state) {
+  fs.writeFileSync(process.env.MOTTAINAI_RECONCILIATION_PR_STATE, JSON.stringify(state, null, 2));
+}
+
+function git(args) {
+  const result = spawnSync("git", args, { cwd: process.cwd(), encoding: "utf8" });
+  if (result.status !== 0) throw new Error("git " + args.join(" ") + " failed");
+  return result.stdout.trim();
+}
+
+appendTrace({ args, input: input.length === 0 ? undefined : input });
+  if (args.includes("--version")) process.stdout.write("gh-inari 0.8.0\n");
+else if (args.includes("--help=full"))
+  process.stdout.write("pr create --from <file.json>\npr get <number> --json\n--from <path>\n--json\n--repository <r>\n--template <id>\n");
+else if (args[0] === "pr" && args[1] === "create") {
+  const request = JSON.parse(input);
+  const state = readState();
+  const existing = state.pr;
+  const head = request.head;
+  const base = request.base;
+  const headSha = git(["rev-parse", "HEAD"]);
+  const baseSha = git(["rev-parse", base]);
+  const pr = existing ?? {
+    number: 30401,
+    url: "https://github.com/fixture-owner/fixture-repo/pull/30401",
+    head,
+    base,
+    headSha,
+    baseSha,
+  };
+  state.pr = pr;
+  state.createCount = (state.createCount ?? 0) + 1;
+  writeState(state);
+  if (process.env.MOTTAINAI_RECONCILIATION_FAULT_STAGE === "pr" && state.createFaulted !== true) {
+    state.createFaulted = true;
+    writeState(state);
+    fs.appendFileSync(
+      process.env.MOTTAINAI_RECONCILIATION_EFFECT_TRACE,
+      JSON.stringify({ boundary: "pull-request", operation: "pr.create", externalSuccess: true, ...pr }) + "\n",
+    );
+    // Preserve the external PR identity while dropping the transport result.
+    process.stdout.write("post-effect provider transport fault\n");
+    process.exit(0);
+  }
+  fs.appendFileSync(
+    process.env.MOTTAINAI_RECONCILIATION_EFFECT_TRACE,
+    JSON.stringify({ boundary: "pull-request", operation: "pr.create", externalSuccess: true, ...pr }) + "\n",
+  );
+  process.stdout.write(JSON.stringify({ ok: true, artifact: { ...pr, state: "OPEN", draft: false } }));
+} else if (args[0] === "pr" && args[1] === "get") {
+  const state = readState();
+  process.stdout.write(JSON.stringify({ ok: true, artifact: { valid: true, number: Number(args[2]), url: state.pr.url } }));
+} else process.stdout.write(JSON.stringify({ ok: false, error: { code: "UNEXPECTED", message: "unexpected gh-inari call" } }));
+`;
+}
+
 function readJsonLines(filePath) {
   if (!fs.existsSync(filePath)) return [];
   return fs
@@ -408,6 +697,7 @@ function createFixture({ mode = "golden", missingGhInari = false, managerAgent =
   return {
     workspace,
     remote,
+    companionDirectory,
     worktree: undefined,
     env,
     realNawabari: nawabariPath,
@@ -423,6 +713,13 @@ function invoke(fixture, cwd, args, expectedStatus = 0) {
   const result = run(binPath, args, { cwd, env: fixture.env, timeout: 30_000 });
   assert.equal(result.status, expectedStatus, `${args.join(" ")}\n${result.stdout}\n${result.stderr}`);
   assert.ok(result.stdout.trim().length > 0, `${args.join(" ")} returned no JSON`);
+  return JSON.parse(result.stdout);
+}
+
+function invokeFailure(fixture, cwd, args) {
+  const result = run(binPath, args, { cwd, env: fixture.env, timeout: 30_000 });
+  assert.equal(result.status, 1, `${args.join(" ")}\n${result.stdout}\n${result.stderr}`);
+  assert.ok(result.stdout.trim().length > 0, `${args.join(" ")} returned no JSON failure`);
   return JSON.parse(result.stdout);
 }
 
@@ -519,6 +816,38 @@ function readTaskSnapshot(fixture) {
         "SELECT task_id, task_slug, issue_ref, nawabari_session_id, lifecycle_state, base_branch, base_commit FROM tasks ORDER BY task_id",
       )
       .all();
+  } finally {
+    db.close();
+  }
+}
+
+function readReconciliationSnapshot(fixture) {
+  const dbPath = path.join(fixture.stateDirectory, "state.sqlite3");
+  if (!fs.existsSync(dbPath)) return { taskStarts: [], commits: [], pushes: [], pullRequests: [] };
+  const db = new DatabaseSync(dbPath, { readOnly: true });
+  try {
+    return {
+      taskStarts: db
+        .prepare(
+          "SELECT task_id, instance_id, task_label, branch_name, base_branch, base_commit, nawabari_session_id, state FROM task_start_reconciliations ORDER BY task_id",
+        )
+        .all(),
+      commits: db
+        .prepare(
+          "SELECT task_id, instance_id, nawabari_session_id, branch_name, before_commit, resources_json, message, state, commit_sha FROM commit_reconciliations ORDER BY task_id",
+        )
+        .all(),
+      pushes: db
+        .prepare(
+          "SELECT task_id, instance_id, nawabari_session_id, source_commit, remote, target_branch, target_ref, state, observed_remote_sha, recovery_observed_remote_sha, result_remote_sha, relation, evidence_complete FROM push_reconciliations ORDER BY task_id",
+        )
+        .all(),
+      pullRequests: db
+        .prepare(
+          "SELECT task_id, instance_id, provider, repository_id, pr_number, url, head_sha, lifecycle_state FROM pr_records ORDER BY task_id",
+        )
+        .all(),
+    };
   } finally {
     db.close();
   }
@@ -1081,6 +1410,275 @@ test(
     const next = invoke(fixture, fixture.workspace, ["task", "start", "issue-377", "--type", "fix", "--issue", "377"]);
     assert.equal(next.ok, true, JSON.stringify(next), "the next task start must not require a manual session close");
     runGit(fixture.workspace, ["worktree", "remove", "--force", next.execution.worktree]);
+  },
+);
+
+test(
+  "packed managed task reconciles every external effect after a post-success fault and process restart",
+  { timeout: TEST_TIMEOUT_MS },
+  (t) => {
+    const companions = companionAvailability();
+    // This is the composed production-path proof: an unavailable Nawabari
+    // companion must block the scenario instead of selecting a legacy Git
+    // executor. The gh-inari executable below is a contract-shaped remote
+    // fixture, while Mottainai still uses its packaged production adapter.
+    assert.ok(companions.nawabari.length > 0, "Nawabari companion is required for external-effect reconciliation");
+
+    const fixture = createFixture({ nawabariPath: companions.nawabari });
+    const nawabariStatePath = path.join(fixture.workspace, "reconciliation-nawabari-state.json");
+    const pullRequestStatePath = path.join(fixture.workspace, "reconciliation-pr-state.json");
+    const effectTracePath = path.join(fixture.workspace, "reconciliation-effects.ndjson");
+    fs.writeFileSync(
+      nawabariStatePath,
+      JSON.stringify({ startFaulted: false, checkpointFaulted: { commit: false, push: false } }, null, 2),
+    );
+    fs.writeFileSync(pullRequestStatePath, JSON.stringify({ createFaulted: false }, null, 2));
+    fs.writeFileSync(effectTracePath, "");
+
+    // Replace only this fixture's companion shims. Every Mottainai operation
+    // remains a packaged child process, so each recovery invocation opens the
+    // same durable state from a fresh process.
+    writeExecutable(path.join(fixture.companionDirectory, "nawabari"), reconciliationNawabariWrapperSource());
+    writeExecutable(path.join(fixture.companionDirectory, "gh"), reconciliationGhSource());
+    writeExecutable(path.join(fixture.companionDirectory, "gh-inari"), reconciliationGhInariSource());
+    Object.assign(fixture.env, {
+      MOTTAINAI_RECONCILIATION_NAWABARI_STATE: nawabariStatePath,
+      MOTTAINAI_RECONCILIATION_PR_STATE: pullRequestStatePath,
+      MOTTAINAI_RECONCILIATION_EFFECT_TRACE: effectTracePath,
+      MOTTAINAI_RECONCILIATION_FAULT_STAGE: "start",
+      MOTTAINAI_RECONCILIATION_PR_LOOKUP: "correct",
+    });
+
+    let sessionId;
+    let worktree;
+    t.after(() => closeFixture(fixture, sessionId, worktree));
+
+    const startArgs = [
+      "task",
+      "start",
+      "external-effect-reconciliation",
+      "--type",
+      "feat",
+      "--issue",
+      "304",
+      "--idempotency-key",
+      "issue-304-external-effect-reconciliation",
+    ];
+    const crashedStart = run(binPath, startArgs, {
+      cwd: fixture.workspace,
+      env: fixture.env,
+      timeout: 30_000,
+    });
+    assert.equal(crashedStart.status, null, `${crashedStart.stdout}\n${crashedStart.stderr}`);
+    assert.equal(crashedStart.signal, "SIGKILL");
+
+    const afterStartFault = readNawabariSnapshot(fixture);
+    const createdSession = afterStartFault.sessions.sessions?.find(
+      (session) => session.branch === "feat/304-external-effect-reconciliation" && session.state === "active",
+    );
+    assert.ok(createdSession, JSON.stringify(afterStartFault));
+    assert.equal(typeof createdSession.session_id, "string");
+
+    fixture.env.MOTTAINAI_RECONCILIATION_FAULT_STAGE = "none";
+    const started = invoke(fixture, fixture.workspace, startArgs);
+    assert.equal(started.ok, true, JSON.stringify(started));
+    assert.equal(started.task.lifecycleState, "active");
+    assert.equal(started.execution.sessionId, createdSession.session_id);
+    assert.equal(started.execution.branch, createdSession.branch);
+    assert.equal(fs.realpathSync(started.execution.worktree), fs.realpathSync(createdSession.worktree));
+    sessionId = started.execution.sessionId;
+    worktree = started.execution.worktree;
+
+    const proofPath = path.join(worktree, "workflow-proof.txt");
+    fs.appendFileSync(proofPath, "composed external-effect proof\n");
+    const commitArgs = [
+      "task",
+      "commit",
+      "--message",
+      "test(workflow): reconcile composed external effects",
+      "--include",
+      "workflow-proof.txt",
+    ];
+    fixture.env.MOTTAINAI_RECONCILIATION_FAULT_STAGE = "commit";
+    const commitFault = invokeFailure(fixture, worktree, commitArgs);
+    assert.equal(commitFault.ok, false);
+    const commitAfterFault = readReconciliationSnapshot(fixture);
+    assert.equal(commitAfterFault.commits.length, 1);
+    assert.equal(typeof commitAfterFault.commits[0].commit_sha, "string");
+    assert.equal(commitAfterFault.commits[0].state, "succeeded");
+
+    fixture.env.MOTTAINAI_RECONCILIATION_FAULT_STAGE = "none";
+    const committed = invoke(fixture, worktree, commitArgs);
+    assert.equal(committed.ok, true, JSON.stringify(committed));
+    assert.equal(committed.commit.recovered, true);
+    const commitSha = committed.commit.commitId;
+    assert.equal(commitSha, commitAfterFault.commits[0].commit_sha);
+    const commitEvidence = committed.commit.executionEvidence;
+    assert.equal(commitEvidence.session_id ?? commitEvidence.sessionId, sessionId);
+    assert.equal(commitEvidence.head_id ?? commitEvidence.headId ?? commitEvidence.head, commitSha);
+
+    const pushArgs = [
+      "task",
+      "push",
+      "--remote",
+      "origin",
+      "--remote-branch",
+      started.execution.branch,
+      "--create-upstream",
+    ];
+    fixture.env.MOTTAINAI_RECONCILIATION_FAULT_STAGE = "push";
+    const pushFault = invokeFailure(fixture, worktree, pushArgs);
+    assert.equal(pushFault.ok, false);
+    const pushAfterFault = readReconciliationSnapshot(fixture);
+    assert.equal(pushAfterFault.pushes.length, 1);
+    assert.equal(pushAfterFault.pushes[0].source_commit, commitSha);
+    assert.equal(pushAfterFault.pushes[0].result_remote_sha, commitSha);
+    assert.equal(pushAfterFault.pushes[0].state, "ambiguous");
+    assert.equal(runGit(fixture.remote, ["rev-parse", `refs/heads/${started.execution.branch}`]), commitSha);
+
+    fixture.env.MOTTAINAI_RECONCILIATION_FAULT_STAGE = "none";
+    const pushRecoveryArgs = ["task", "push", "--remote", "origin", "--remote-branch", started.execution.branch];
+    const pushed = invoke(fixture, worktree, pushRecoveryArgs);
+    assert.equal(pushed.ok, true, JSON.stringify(pushed));
+    assert.equal(pushed.push.recovered, true);
+    assert.equal(pushed.task.lifecycleState, "pushed");
+    assert.equal(pushed.push.nawabari.source_sha ?? pushed.push.nawabari.sourceSha, commitSha);
+    assert.equal(
+      pushed.push.nawabari.target_ref ?? pushed.push.nawabari.targetRef,
+      `refs/heads/${started.execution.branch}`,
+    );
+
+    const pullRequestArgs = [
+      "task",
+      "open-pr",
+      "--title",
+      "test(workflow): reconcile composed external effects",
+      "--repo",
+      "fixture-owner/fixture-repo",
+      "--issue-reference",
+      "304",
+      "--sections-json",
+      JSON.stringify({ summary: "composed external-effect recovery" }),
+      "--acceptance-criteria",
+      "external-effect-reconciliation",
+    ];
+    fixture.env.MOTTAINAI_RECONCILIATION_FAULT_STAGE = "pr";
+    const pullRequestFault = invokeFailure(fixture, worktree, pullRequestArgs);
+    assert.equal(pullRequestFault.ok, false);
+    assert.equal(pullRequestFault.reason, "provider-failed");
+    const pullRequestState = JSON.parse(fs.readFileSync(pullRequestStatePath, "utf8"));
+    assert.ok(pullRequestState.pr, JSON.stringify({ pullRequestFault, pullRequestState }));
+    const externalPullRequest = pullRequestState.pr;
+    assert.equal(externalPullRequest.number, 30401);
+    assert.equal(externalPullRequest.head, started.execution.branch);
+    assert.equal(externalPullRequest.headSha, commitSha);
+    assert.equal(readReconciliationSnapshot(fixture).pullRequests.length, 0);
+
+    // A conflicting provider observation is never permission to retry create.
+    // The next fresh process must fail closed; only a later exact observation
+    // may adopt the already-created immutable PR identity.
+    fixture.env.MOTTAINAI_RECONCILIATION_FAULT_STAGE = "none";
+    fixture.env.MOTTAINAI_RECONCILIATION_PR_LOOKUP = "conflict";
+    const conflictingPullRequest = invokeFailure(fixture, worktree, pullRequestArgs);
+    assert.equal(conflictingPullRequest.ok, false);
+    assert.equal(conflictingPullRequest.reason, "ambiguous-provider-result");
+    assert.equal(readReconciliationSnapshot(fixture).pullRequests.length, 0);
+
+    fixture.env.MOTTAINAI_RECONCILIATION_PR_LOOKUP = "correct";
+    const opened = invoke(fixture, worktree, pullRequestArgs);
+    assert.equal(opened.ok, true, JSON.stringify(opened));
+    assert.equal(opened.reused, true);
+    assert.equal(opened.pullRequest.number, externalPullRequest.number);
+    assert.equal(opened.pullRequest.head.revision, commitSha);
+    assert.equal(opened.pullRequest.head.name, started.execution.branch);
+    assert.equal(opened.pullRequest.base.name, "main");
+    assert.equal(opened.task.lifecycleState, "pull-request-open");
+
+    const finalStatus = invoke(fixture, worktree, ["task", "status"]);
+    assert.equal(finalStatus.ok, true, JSON.stringify(finalStatus));
+    assert.equal(finalStatus.currentState, "pull-request-open");
+    assert.equal(finalStatus.task.taskId, started.task.taskId);
+    assert.equal(finalStatus.pullRequests.length, 1);
+    assert.equal(finalStatus.pullRequests[0].prNumber, externalPullRequest.number);
+
+    const state = readReconciliationSnapshot(fixture);
+    assert.equal(state.taskStarts.length, 1);
+    assert.equal(state.taskStarts[0].task_id, started.task.taskId);
+    assert.equal(state.taskStarts[0].nawabari_session_id, sessionId);
+    assert.equal(state.taskStarts[0].branch_name, started.execution.branch);
+    assert.equal(state.taskStarts[0].state, "active");
+
+    assert.equal(state.commits.length, 1);
+    assert.equal(state.commits[0].task_id, started.task.taskId);
+    assert.equal(state.commits[0].nawabari_session_id, sessionId);
+    assert.equal(state.commits[0].branch_name, started.execution.branch);
+    assert.equal(state.commits[0].commit_sha, commitSha);
+    assert.equal(state.commits[0].state, "reconciled");
+    assert.notEqual(state.commits[0].before_commit, state.commits[0].commit_sha);
+
+    assert.equal(state.pushes.length, 1);
+    assert.equal(state.pushes[0].task_id, started.task.taskId);
+    assert.equal(state.pushes[0].nawabari_session_id, sessionId);
+    assert.equal(state.pushes[0].source_commit, commitSha);
+    assert.equal(state.pushes[0].remote, "origin");
+    assert.equal(state.pushes[0].target_branch, started.execution.branch);
+    assert.equal(state.pushes[0].target_ref, `refs/heads/${started.execution.branch}`);
+    assert.equal(state.pushes[0].result_remote_sha, commitSha);
+    assert.equal(state.pushes[0].state, "reconciled");
+    assert.equal(state.pushes[0].evidence_complete, 1);
+
+    assert.equal(state.pullRequests.length, 1);
+    assert.equal(state.pullRequests[0].task_id, started.task.taskId);
+    assert.equal(state.pullRequests[0].provider, "github");
+    assert.equal(state.pullRequests[0].repository_id, "fixture-owner/fixture-repo");
+    assert.equal(state.pullRequests[0].pr_number, externalPullRequest.number);
+    assert.equal(state.pullRequests[0].head_sha, commitSha);
+    assert.equal(state.pullRequests[0].lifecycle_state, "open");
+
+    const tasks = readTaskSnapshot(fixture);
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0].task_id, started.task.taskId);
+    assert.equal(tasks[0].nawabari_session_id, sessionId);
+    assert.equal(tasks[0].lifecycle_state, "pull-request-open");
+
+    const nawabari = readNawabariSnapshot(fixture);
+    const finalSession = nawabari.sessions.sessions?.find((session) => session.session_id === sessionId);
+    assert.ok(finalSession, JSON.stringify(nawabari));
+    assert.equal(finalSession.branch, started.execution.branch);
+    assert.equal(finalSession.worktree, worktree);
+    assert.equal(finalSession.state, "active");
+
+    const git = readGitSnapshot(fixture);
+    assert.ok(
+      git.worktrees.some((candidate) => candidate.path === worktree && candidate.branch === started.execution.branch),
+    );
+    assert.equal(runGit(fixture.remote, ["rev-parse", `refs/heads/${started.execution.branch}`]), commitSha);
+
+    const effects = readJsonLines(effectTracePath);
+    assert.equal(
+      effects.filter((effect) => effect.operation === "session.create" && effect.externalSuccess === true).length,
+      1,
+    );
+    assert.equal(
+      effects.filter((effect) => effect.operation === "commit" && effect.externalSuccess === true).length,
+      1,
+    );
+    const pushes = effects.filter((effect) => effect.operation === "push" && effect.externalSuccess === true);
+    assert.equal(pushes.length, 2, "the recovery push is an observation/no-op, not a repeated remote mutation");
+    assert.equal(pushes.filter((effect) => effect.mutated === true).length, 1);
+    assert.equal(pushes.filter((effect) => effect.mutated === false).length, 1);
+    assert.equal(
+      effects.filter((effect) => effect.operation === "pr.create" && effect.externalSuccess === true).length,
+      1,
+    );
+
+    const ghInariCreates = readJsonLines(fixture.ghInariTrace).filter(
+      (entry) => entry.args[0] === "pr" && entry.args[1] === "create",
+    );
+    assert.equal(ghInariCreates.length, 1);
+    const ghCalls = readJsonLines(fixture.ghTrace);
+    assert.equal(ghCalls.filter((args) => args[0] === "pr" && args[1] === "create").length, 0);
+    assert.equal(ghCalls.filter((args) => args[0] === "pr" && args[1] === "list").length, 3);
   },
 );
 
