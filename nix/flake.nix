@@ -18,7 +18,14 @@
       # / pkgs.nawabari so the canonical Runtime module can depend on them the
       # same way it already depends on nixpkgs-provided packages like
       # pkgs.zellij, without a second package-resolution path.
-      mkMottainai = pkgs: import ./mottainai.nix { inherit pkgs; };
+      #
+      # Mottainai is built from this flake checkout's tracked repository source.
+      # Tagged release builds therefore consume the exact tagged source without
+      # depending on a package that must first exist in npm.
+      mkMottainai = pkgs: import ./mottainai.nix {
+        inherit pkgs;
+        source = ../.;
+      };
       mkNawabari = pkgs: import ./packages/nawabari.nix {
         inherit (pkgs) lib stdenvNoCC fetchurl makeWrapper nodejs_22;
       };
