@@ -12,6 +12,7 @@ import { ZellijCliRuntime } from "./manager/zellij.js";
 import { localTools } from "./local-tools.js";
 import { dispatchClientHook, runManagedHooksCommand } from "./hooks/commands.js";
 import type { HookCommandContext } from "./hooks/commands.js";
+import { verifyManagedCapabilityRegistration } from "./hooks/managed-registration.js";
 import { formatInitHuman, runInit } from "./init.js";
 import {
   createLocalRuntimeProvisioner,
@@ -354,6 +355,8 @@ function hookContext(
   configPath?: string,
 ): HookCommandContext {
   const resolvedConfigPath = configPath === undefined ? undefined : path.resolve(process.cwd(), configPath);
+  const effectiveConfigPath = resolvedConfigPath ?? path.join(path.resolve(workspaceRoot), "mottainai.config.json");
+  const dispatcher = dispatcherCommand(entryPoint);
   const dispatcherArguments = [
     "--workspace",
     workspaceRoot,
@@ -363,9 +366,15 @@ function hookContext(
     workspaceRoot,
     homeDirectory: environment.HOME ?? environment.USERPROFILE ?? workspaceRoot,
     environment,
-    dispatcherCommand: dispatcherCommand(entryPoint),
+    dispatcherCommand: dispatcher,
     dispatcherArguments,
     exposedTools: exposedHookTools(workspaceRoot, resolvedConfigPath),
+    managedCapability: verifyManagedCapabilityRegistration({
+      workspaceRoot,
+      homeDirectory: environment.HOME ?? environment.USERPROFILE ?? workspaceRoot,
+      configPath: effectiveConfigPath,
+      dispatcherCommand: dispatcher,
+    }),
     configPath: resolvedConfigPath,
     workflowProvider: createWorkflowHookProvider({ workspaceRoot, nawabari: new NawabariExecutionClient() }),
   };

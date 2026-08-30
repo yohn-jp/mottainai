@@ -7,6 +7,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { BUILTIN_PRESETS } from "./workflow/policy/presets.js";
+import { MANAGED_CAPABILITY_REGISTRATION_MARKER } from "./hooks/capabilities.js";
+import { DEFAULT_HOOK_POLICY } from "./hooks/policy.js";
 
 const entryPoint = path.join(path.dirname(fileURLToPath(import.meta.url)), "index.ts");
 
@@ -170,6 +172,83 @@ test("public CLI dispatch projects the workflow authority through a supported cl
     assert.equal(result.status, 2, `${result.stdout}${result.stderr}`);
     assert.equal(result.stdout, "");
     assert.match(result.stderr, /^DENY workflow_protected_branch/u);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("public CLI binds the managed MCP allow path to the verified registration identity", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-managed-identity-"));
+  const configPath = path.join(workspace, "mottainai.config.json");
+  const mcpConfigPath = path.join(workspace, ".mcp.json");
+  const hookPolicyPath = path.join(workspace, ".mottainai", "hooks.json");
+  const runDispatch = () =>
+    spawnSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        entryPoint,
+        "hooks",
+        "dispatch",
+        "--client",
+        "claude",
+        "--workspace",
+        workspace,
+        "--config",
+        configPath,
+      ],
+      {
+        cwd: path.resolve(path.dirname(entryPoint), ".."),
+        env: { ...process.env, HOME: workspace, USERPROFILE: workspace },
+        input: JSON.stringify({
+          hook_event_name: "PreToolUse",
+          tool_name: "mcp__mottainai__mottainai_exec",
+          tool_input: { command: "printf managed-identity" },
+        }),
+        encoding: "utf8",
+      },
+    );
+
+  try {
+    fs.writeFileSync(configPath, JSON.stringify({ version: 2, mcpServers: {} }));
+    fs.mkdirSync(path.dirname(hookPolicyPath), { recursive: true });
+    fs.writeFileSync(hookPolicyPath, JSON.stringify({ ...DEFAULT_HOOK_POLICY, mode: "enforce" }));
+
+    const registrationEnvironment = {
+      MOTTAINAI_CONFIG: configPath,
+      MOTTAINAI_MANAGED_CAPABILITY: MANAGED_CAPABILITY_REGISTRATION_MARKER,
+    };
+    fs.writeFileSync(
+      mcpConfigPath,
+      JSON.stringify({
+        mcpServers: {
+          mottainai: { command: "/bin/false", env: registrationEnvironment },
+        },
+      }),
+    );
+    const foreign = runDispatch();
+    assert.equal(foreign.status, 2, `${foreign.stdout}${foreign.stderr}`);
+    assert.equal(foreign.stdout, "");
+    assert.match(foreign.stderr, /^DENY managed_capability_available;use=mottainai_exec;id=hd_[a-f0-9]{16}\n$/u);
+
+    fs.writeFileSync(
+      mcpConfigPath,
+      JSON.stringify({
+        mcpServers: {
+          mottainai: {
+            command: process.execPath,
+            args: ["--import", "tsx", entryPoint],
+            cwd: workspace,
+            env: registrationEnvironment,
+          },
+        },
+      }),
+    );
+    const managed = runDispatch();
+    assert.equal(managed.status, 0, `${managed.stdout}${managed.stderr}`);
+    assert.equal(managed.stdout, "");
+    assert.equal(managed.stderr, "");
   } finally {
     fs.rmSync(workspace, { recursive: true, force: true });
   }

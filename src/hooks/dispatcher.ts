@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ManagedCapabilityRegistry } from "./capabilities.js";
+import { isVerifiedManagedCapabilityIdentity, type ManagedCapabilityRegistry } from "./capabilities.js";
 import { resolveFailureMode, resolveHookMode } from "./policy.js";
 import type { HookPolicy } from "./policy.js";
 import { composeHookDecision } from "./providers/composition.js";
@@ -39,6 +39,23 @@ export function decideHook(event: HookEvent, options: HookDispatcherOptions): Ho
   const base = baseDecision(event, options);
   const mode = resolveHookMode(options.policy, event.operation);
   const capability = options.capabilities.resolve(event.operation, event);
+  // The replacement itself is already inside the managed capability boundary.
+  // The adapter marker must carry the verified registration/capability identity;
+  // a raw or same-named MCP tool cannot manufacture this allow path.
+  const identity = capability?.identity;
+  if (
+    event.operation === "process.exec" &&
+    event.metadata?.boundary === "managed-capability" &&
+    event.metadata.managedPath === true &&
+    isVerifiedManagedCapabilityIdentity(identity, "process.exec", event.client) &&
+    event.metadata.managedRegistrationId === identity.registrationId &&
+    event.metadata.managedCapabilityId === identity.capabilityId &&
+    event.metadata.tool === identity.toolName &&
+    capability?.available === true &&
+    capability.replacement.trim() !== ""
+  ) {
+    return boundHookDecision({ ...base, decision: "allow", reason: "managed_capability_path" });
+  }
 
   if (capability?.available !== true || capability.replacement.trim() === "") {
     const closed = resolveFailureMode(options.policy, event.operation) === "closed";
@@ -49,12 +66,33 @@ export function decideHook(event: HookEvent, options: HookDispatcherOptions): Ho
       diagnostic: closed ? "failure_mode=closed" : "failure_mode=open",
     });
   }
-  if (mode === "observe") return boundHookDecision({ ...base, decision: "allow", reason: "observe_only", replacement: capability.replacement });
-  if (mode === "warn") return boundHookDecision({ ...base, decision: "warn", reason: "managed_capability_available", replacement: capability.replacement });
-  return boundHookDecision({ ...base, decision: "redirect", reason: "managed_capability_available", replacement: capability.replacement });
+  if (mode === "observe")
+    return boundHookDecision({
+      ...base,
+      decision: "allow",
+      reason: "observe_only",
+      replacement: capability.replacement,
+    });
+  if (mode === "warn")
+    return boundHookDecision({
+      ...base,
+      decision: "warn",
+      reason: "managed_capability_available",
+      replacement: capability.replacement,
+    });
+  return boundHookDecision({
+    ...base,
+    decision: "redirect",
+    reason: "managed_capability_available",
+    replacement: capability.replacement,
+  });
 }
 
-function failureDecision(event: HookEvent, options: HookDispatcherOptions, reason: "hook_timeout" | "hook_error"): HookDecision {
+function failureDecision(
+  event: HookEvent,
+  options: HookDispatcherOptions,
+  reason: "hook_timeout" | "hook_error",
+): HookDecision {
   const closed = resolveFailureMode(options.policy, event.operation) === "closed";
   return boundHookDecision({
     ...baseDecision(event, options),
@@ -67,7 +105,16 @@ function failureDecision(event: HookEvent, options: HookDispatcherOptions, reaso
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("hook timeout")), timeoutMs);
-    promise.then((value) => { clearTimeout(timer); resolve(value); }, (error: unknown) => { clearTimeout(timer); reject(error); });
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
   });
 }
 
@@ -114,7 +161,11 @@ export async function dispatchHookDetailed(event: HookEvent, options: HookDispat
   } catch (error) {
     return {
       baseline,
-      decision: failureDecision(event, options, error instanceof Error && error.message === "hook timeout" ? "hook_timeout" : "hook_error"),
+      decision: failureDecision(
+        event,
+        options,
+        error instanceof Error && error.message === "hook timeout" ? "hook_timeout" : "hook_error",
+      ),
       providers: [],
     };
   }

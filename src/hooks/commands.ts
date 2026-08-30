@@ -25,6 +25,7 @@ import {
 } from "./policy.js";
 import { loadConfigSnapshot } from "../config.js";
 import { createTelemetrySink } from "../telemetry.js";
+import type { ManagedCapabilityIdentity } from "./capabilities.js";
 import type { TelemetrySink } from "../telemetry.js";
 import type { ReadGovernorPolicy } from "../context-runtime/read-policy.js";
 import type { HookPolicyProvider } from "./providers/types.js";
@@ -38,6 +39,8 @@ export interface HookCommandContext {
   dispatcherCommand?: string;
   dispatcherArguments?: readonly string[];
   exposedTools?: ReadonlySet<string>;
+  /** Verified by the caller from the effective client registration. */
+  managedCapability?: ManagedCapabilityIdentity;
   configPath?: string;
   readPolicy?: ReadGovernorPolicy;
   workflowProvider?: HookPolicyProvider;
@@ -203,7 +206,11 @@ export async function dispatchClientHook(
   const telemetry = context.telemetry ?? createTelemetrySink(context.environment);
   const policyResult = loadHookPolicy(context.workspaceRoot);
   const trusted = deriveTrustedHookContext({ workspaceRoot: context.workspaceRoot });
-  const normalized = adapter.normalize(payload, { workspaceRoot: context.workspaceRoot, ...trusted });
+  const normalized = adapter.normalize(payload, {
+    workspaceRoot: context.workspaceRoot,
+    ...trusted,
+    ...(context.managedCapability === undefined ? {} : { managedCapability: context.managedCapability }),
+  });
   if (!normalized.ok) {
     const decision = malformedDecision(policyResult, adapter.client);
     const projection = boundedProjection(
@@ -237,7 +244,11 @@ export async function dispatchClientHook(
   // live local-tool surface at the runtime boundary; direct embedders must do so
   // explicitly so the configured fail-open/fail-closed mode can be applied.
   const exposedTools = context.exposedTools ?? new Set<string>();
-  const capabilities = capabilityRegistryFromRuntime({ dispatcherAvailable, exposedTools });
+  const capabilities = capabilityRegistryFromRuntime({
+    dispatcherAvailable,
+    exposedTools,
+    managedCapability: context.managedCapability,
+  });
   const trace = await dispatchHookDetailed(event, {
     policy: policyResult.policy,
     capabilities,

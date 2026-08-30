@@ -1,4 +1,17 @@
-import type { HookEvent, HookOperation } from "./types.js";
+import type { HookClient, HookEvent, HookOperation } from "./types.js";
+
+export const MANAGED_MCP_SERVER_NAME = "mottainai" as const;
+export const MANAGED_MCP_EXEC_TOOL_NAME = "mcp__mottainai__mottainai_exec" as const;
+export const MANAGED_CAPABILITY_REGISTRATION_ID = "mottainai:mcp:managed:v1" as const;
+export const MANAGED_CAPABILITY_REGISTRATION_MARKER = "mottainai-managed-capability-v1" as const;
+
+/** Identity supplied only after the client registration has been verified. */
+export interface ManagedCapabilityIdentity {
+  client: HookClient;
+  registrationId: string;
+  capabilityId: HookOperation;
+  toolName: string;
+}
 
 export interface ManagedCapability {
   operation: HookOperation;
@@ -6,6 +19,7 @@ export interface ManagedCapability {
   replacement: string;
   available: boolean;
   source: "runtime" | "unavailable";
+  identity?: ManagedCapabilityIdentity;
 }
 
 export interface ManagedCapabilityRegistry {
@@ -16,6 +30,19 @@ export interface ManagedCapabilityRegistry {
 export interface ManagedRuntimeAvailability {
   dispatcherAvailable: boolean;
   exposedTools: ReadonlySet<string>;
+  managedCapability?: ManagedCapabilityIdentity;
+}
+
+export function isVerifiedManagedCapabilityIdentity(
+  value: ManagedCapabilityIdentity | undefined,
+  operation: HookOperation = "process.exec",
+  client?: HookClient,
+): value is ManagedCapabilityIdentity {
+  return value !== undefined
+    && (client === undefined || value.client === client)
+    && value.registrationId === MANAGED_CAPABILITY_REGISTRATION_ID
+    && value.capabilityId === operation
+    && value.toolName === MANAGED_MCP_EXEC_TOOL_NAME;
 }
 
 /** Names are runtime tool identifiers, not a deny list of native executables. */
@@ -52,12 +79,16 @@ export function capabilityRegistryFromRuntime(runtime: ManagedRuntimeAvailabilit
       && runtime.dispatcherAvailable
       && mapping.tool.length > 0
       && runtime.exposedTools.has(mapping.tool);
+    const identity = operation === "process.exec" && isVerifiedManagedCapabilityIdentity(runtime.managedCapability)
+      ? { ...runtime.managedCapability }
+      : undefined;
     return {
       operation,
       id: mapping.id,
       replacement: mapping.tool,
       available,
       source: available ? "runtime" : "unavailable",
+      ...(identity === undefined ? {} : { identity }),
     } satisfies ManagedCapability;
   });
   return createCapabilityRegistry(entries);

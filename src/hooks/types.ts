@@ -11,13 +11,7 @@ export const HOOK_DIAGNOSTIC_MAX_LENGTH = 160;
 
 export type HookClient = "claude" | "codex";
 
-export type HookOperation =
-  | "source.read"
-  | "source.search"
-  | "source.write"
-  | "process.exec"
-  | "git.mutate"
-  | "other";
+export type HookOperation = "source.read" | "source.search" | "source.write" | "process.exec" | "git.mutate" | "other";
 
 export type HookRolloutMode = "observe" | "warn" | "enforce";
 export type HookFailureMode = "open" | "closed";
@@ -27,6 +21,7 @@ export type HookProviderState = "not_applicable" | "authoritative" | "unavailabl
 
 export type HookReasonCode =
   | "managed_capability_available"
+  | "managed_capability_path"
   | "managed_capability_unavailable"
   | "observe_only"
   | "unsupported_operation"
@@ -140,7 +135,9 @@ export function boundHookDecision(decision: HookDecision, maximumBytes = HOOK_DE
       ? {}
       : { diagnostic: bounded(decision.diagnostic, HOOK_DIAGNOSTIC_MAX_LENGTH) }),
     ...(decision.provider === undefined ? {} : { provider: decision.provider }),
-    ...(bounded(decision.rule, HOOK_REASON_MAX_LENGTH) === undefined ? {} : { rule: bounded(decision.rule, HOOK_REASON_MAX_LENGTH) }),
+    ...(bounded(decision.rule, HOOK_REASON_MAX_LENGTH) === undefined
+      ? {}
+      : { rule: bounded(decision.rule, HOOK_REASON_MAX_LENGTH) }),
     ...(decision.providerState === undefined ? {} : { providerState: decision.providerState }),
   };
   if (Buffer.byteLength(JSON.stringify(boundedDecision), "utf8") <= maximumBytes) return boundedDecision;
@@ -157,7 +154,11 @@ export function serializeHookDecision(decision: HookDecision, maximumBytes = HOO
   const serialized = JSON.stringify(boundedDecision);
   if (Buffer.byteLength(serialized, "utf8") <= maximumBytes) return serialized;
   return boundHookText(
-    JSON.stringify({ version: HOOK_CONTRACT_VERSION, decision: boundedDecision.decision, reason: boundedDecision.reason }),
+    JSON.stringify({
+      version: HOOK_CONTRACT_VERSION,
+      decision: boundedDecision.decision,
+      reason: boundedDecision.reason,
+    }),
     maximumBytes,
   );
 }
@@ -168,10 +169,12 @@ export function boundHookText(value: string, maximumBytes: number): string {
 }
 
 export function isHookOperation(value: unknown): value is HookOperation {
-  return value === "source.read"
-    || value === "source.search"
-    || value === "source.write"
-    || value === "process.exec"
-    || value === "git.mutate"
-    || value === "other";
+  return (
+    value === "source.read" ||
+    value === "source.search" ||
+    value === "source.write" ||
+    value === "process.exec" ||
+    value === "git.mutate" ||
+    value === "other"
+  );
 }

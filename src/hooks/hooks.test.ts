@@ -7,7 +7,14 @@ import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { claudeAdapter, codexAdapter } from "./adapters/index.js";
 import { deriveTrustedHookContext } from "./context.js";
-import { capabilityRegistryFromRuntime, createCapabilityRegistry } from "./capabilities.js";
+import {
+  MANAGED_CAPABILITY_REGISTRATION_ID,
+  MANAGED_CAPABILITY_REGISTRATION_MARKER,
+  MANAGED_MCP_EXEC_TOOL_NAME,
+  capabilityRegistryFromRuntime,
+  createCapabilityRegistry,
+} from "./capabilities.js";
+import { verifyManagedCapabilityRegistration } from "./managed-registration.js";
 import { decideHook, dispatchHook } from "./dispatcher.js";
 import { dispatchClientHook, runManagedHooksCommand } from "./commands.js";
 import { recordHookExplanation } from "./explain.js";
@@ -123,6 +130,198 @@ test("native process boundary does not inspect executable spellings", () => {
   assert.equal(first.decision, "redirect");
   assert.equal(second.decision, first.decision);
   assert.equal(third.decision, first.decision);
+});
+
+test("the registered Mottainai exec MCP path is allowed without weakening unknown-tool enforcement", () => {
+  const root = workspace();
+  const configPath = path.join(root, "mottainai.config.json");
+  fs.writeFileSync(configPath, JSON.stringify({ version: 2, mcpServers: {} }));
+  fs.writeFileSync(
+    path.join(root, ".mcp.json"),
+    JSON.stringify({
+      mcpServers: {
+        mottainai: {
+          command: "/bin/sh",
+          cwd: root,
+          env: {
+            MOTTAINAI_CONFIG: configPath,
+            MOTTAINAI_MANAGED_CAPABILITY: MANAGED_CAPABILITY_REGISTRATION_MARKER,
+          },
+        },
+      },
+    }),
+  );
+  const managedCapability = verifyManagedCapabilityRegistration({
+    workspaceRoot: root,
+    homeDirectory: root,
+    configPath,
+    dispatcherCommand: "/bin/sh",
+  });
+  assert.deepEqual(managedCapability, {
+    client: "claude",
+    registrationId: MANAGED_CAPABILITY_REGISTRATION_ID,
+    capabilityId: "process.exec",
+    toolName: MANAGED_MCP_EXEC_TOOL_NAME,
+  });
+  const context = {
+    workspaceRoot: root,
+    ...deriveTrustedHookContext({ workspaceRoot: root }),
+    managedCapability,
+  };
+  const managed = claudeAdapter.normalize(
+    {
+      hook_event_name: "PreToolUse",
+      tool_name: "mcp__mottainai__mottainai_exec",
+      tool_input: { command: "printf managed-hooks-real-client" },
+    },
+    context,
+  );
+  assert.equal(managed.ok, true);
+  if (managed.ok) {
+    assert.equal(managed.event.operation, "process.exec");
+    assert.equal(managed.event.metadata?.boundary, "managed-capability");
+    assert.equal(
+      decideHook(managed.event, {
+        policy: policy("enforce"),
+        capabilities: capabilityRegistryFromRuntime({
+          dispatcherAvailable: true,
+          exposedTools: new Set(["mottainai_exec"]),
+          managedCapability,
+        }),
+      }).reason,
+      "managed_capability_path",
+    );
+    const unavailable = decideHook(managed.event, {
+      policy: policy("enforce"),
+      capabilities: capabilityRegistryFromRuntime({ dispatcherAvailable: false, exposedTools: new Set() }),
+    });
+    assert.equal(unavailable.decision, "deny");
+    assert.equal(unavailable.reason, "managed_capability_unavailable");
+    assert.equal(unavailable.diagnostic, "failure_mode=closed");
+  }
+
+  const foreignClient = codexAdapter.normalize(
+    {
+      hook_event_name: "PreToolUse",
+      tool_name: MANAGED_MCP_EXEC_TOOL_NAME,
+      tool_input: { command: "printf spoofed-client" },
+    },
+    context,
+  );
+  assert.equal(foreignClient.ok, true);
+  if (foreignClient.ok) {
+    assert.equal(foreignClient.event.metadata?.boundary, "native-process");
+    assert.equal(
+      decideHook(foreignClient.event, {
+        policy: policy("enforce"),
+        capabilities: capabilityRegistryFromRuntime({
+          dispatcherAvailable: true,
+          exposedTools: new Set(["mottainai_exec"]),
+          managedCapability,
+        }),
+      }).decision,
+      "redirect",
+    );
+  }
+
+  const unknown = claudeAdapter.normalize(
+    {
+      hook_event_name: "PreToolUse",
+      tool_name: "mcp__other__exec",
+      tool_input: { command: "printf bypass" },
+    },
+    context,
+  );
+  assert.equal(unknown.ok, true);
+  if (unknown.ok) {
+    assert.equal(unknown.event.operation, "process.exec");
+    assert.equal(unknown.event.metadata?.boundary, "native-process");
+    assert.equal(
+      decideHook(unknown.event, {
+        policy: policy("enforce"),
+        capabilities: capabilityRegistryFromRuntime({
+          dispatcherAvailable: true,
+          exposedTools: new Set(["mottainai_exec"]),
+        }),
+      }).decision,
+      "redirect",
+    );
+  }
+
+  for (const tool of [MANAGED_MCP_EXEC_TOOL_NAME, "mottainai_exec"]) {
+    const foreign = claudeAdapter.normalize(
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: tool,
+        tool_input: { command: "printf spoofed" },
+      },
+      { workspaceRoot: root, ...deriveTrustedHookContext({ workspaceRoot: root }) },
+    );
+    assert.equal(foreign.ok, true);
+    if (foreign.ok) {
+      assert.equal(foreign.event.metadata?.boundary, "native-process");
+      assert.equal(
+        decideHook(foreign.event, {
+          policy: policy("enforce"),
+          capabilities: capabilityRegistryFromRuntime({
+            dispatcherAvailable: true,
+            exposedTools: new Set(["mottainai_exec"]),
+          }),
+        }).decision,
+        "redirect",
+      );
+    }
+  }
+
+  const forgedMetadata: HookEvent = {
+    ...event("process.exec"),
+    metadata: {
+      tool: MANAGED_MCP_EXEC_TOOL_NAME,
+      boundary: "managed-capability",
+      managedPath: true,
+      managedRegistrationId: MANAGED_CAPABILITY_REGISTRATION_ID,
+      managedCapabilityId: "process.exec",
+    },
+  };
+  assert.equal(
+    decideHook(forgedMetadata, {
+      policy: policy("enforce"),
+      capabilities: capabilityRegistryFromRuntime({
+        dispatcherAvailable: true,
+        exposedTools: new Set(["mottainai_exec"]),
+      }),
+    }).decision,
+    "redirect",
+  );
+});
+
+test("a same-named foreign registration cannot produce a verified managed identity", () => {
+  const root = workspace();
+  const configPath = path.join(root, "mottainai.config.json");
+  fs.writeFileSync(configPath, JSON.stringify({ version: 2, mcpServers: {} }));
+  fs.writeFileSync(
+    path.join(root, ".mcp.json"),
+    JSON.stringify({
+      mcpServers: {
+        mottainai: {
+          command: "/bin/false",
+          env: {
+            MOTTAINAI_CONFIG: configPath,
+            MOTTAINAI_MANAGED_CAPABILITY: MANAGED_CAPABILITY_REGISTRATION_MARKER,
+          },
+        },
+      },
+    }),
+  );
+  assert.equal(
+    verifyManagedCapabilityRegistration({
+      workspaceRoot: root,
+      homeDirectory: root,
+      configPath,
+      dispatcherCommand: "/bin/sh",
+    }),
+    undefined,
+  );
 });
 
 test("event metadata cannot weaken configured mode or failure semantics", async () => {

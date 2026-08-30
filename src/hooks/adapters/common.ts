@@ -1,6 +1,7 @@
 import type { HookAdapterContext, HookAdapterFailure, HookAdapterSuccess } from "./types.js";
 import type { HookClient, HookEvent, HookOperation, HookTarget } from "../types.js";
 import { HOOK_CONTRACT_VERSION } from "../types.js";
+import { isVerifiedManagedCapabilityIdentity } from "../capabilities.js";
 
 const MAX_VALUE_LENGTH = 160;
 
@@ -95,6 +96,15 @@ export function operationForTool(value: string | undefined): HookOperation {
   }
 }
 
+/** A name match is eligible only when paired with a verified registration identity. */
+function isManagedCapabilityTool(
+  value: string | undefined,
+  identity: HookAdapterContext["managedCapability"],
+  client: HookClient,
+): boolean {
+  return value !== undefined && isVerifiedManagedCapabilityIdentity(identity, "process.exec", client) && identity.toolName === value;
+}
+
 function targetFor(operation: HookOperation, input: Record<string, unknown>): HookTarget | undefined {
   if (operation === "process.exec") {
     const command = boundedValue(input.command ?? input.cmd ?? input.shell_command, 160);
@@ -118,9 +128,21 @@ export function normalizeClientEvent(
   }
   const operation = operationForTool(tool);
   const input = toolInput(raw);
+  const managedCapability = operation === "process.exec" && isManagedCapabilityTool(tool, context.managedCapability, client);
   const metadata: Record<string, string | number | boolean> = {
     tool,
-    boundary: operation === "process.exec" ? "native-process" : "native-tool",
+    boundary: managedCapability
+      ? "managed-capability"
+      : operation === "process.exec"
+        ? "native-process"
+        : "native-tool",
+    ...(managedCapability
+      ? {
+          managedPath: true,
+          managedRegistrationId: context.managedCapability!.registrationId,
+          managedCapabilityId: context.managedCapability!.capabilityId,
+        }
+      : {}),
   };
   if (operation === "source.read" || operation === "source.search") {
     const mode = input.mode;
