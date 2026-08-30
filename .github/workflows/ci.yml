@@ -425,8 +425,10 @@ jobs:
         # built directly, the same pattern nix/deployments/golden-path.nix
         # already uses. --impure is required only for its default
         # self-resolving arguments (builtins.getFlake, builtins.currentSystem).
+        # --show-trace: the default truncated trace is not enough to
+        # diagnose an eval-time failure here.
         working-directory: nix
-        run: nix build --no-update-lock-file --no-link --impure --expr 'import ./tests/golden-path.nix { }'
+        run: nix build --no-update-lock-file --no-link --impure --show-trace --expr 'import ./tests/golden-path.nix { }'
 
   runtime-appliance-artifact:
     name: Publish canonical Runtime Appliance artifact
