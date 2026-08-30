@@ -6,6 +6,7 @@ import type { CatalogTool, ToolCatalog, ToolRisk } from "./catalog.js";
 import type { ProfileConfig, ResolvedGatewayConfig } from "./config.js";
 import { OUTPUT_SCHEMA, output } from "./envelope.js";
 import type { ExecutionOutcome } from "./execution.js";
+import { assertValidToolArguments } from "./mcp-tool-validation.js";
 import { callUpstreamTool } from "./upstream-call.js";
 import type { UpstreamCallContext } from "./upstream-call.js";
 
@@ -33,12 +34,13 @@ export const brokerTools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string", description: "Free text matched against tool/provider identities, tags and summary; one-character queries are exact-only." },
-        capability: { type: "string", description: "Evidence capability such as definitions or text_matches." },
+        query: { type: "string", minLength: 1, description: "Free text matched against tool/provider identities, tags and summary; one-character queries are exact-only." },
+        capability: { type: "string", minLength: 1, description: "Evidence capability such as definitions or text_matches." },
         risk: { type: "string", enum: RISK_VALUES },
-        provider: { type: "string", description: "Restrict to one upstream." },
+        provider: { type: "string", minLength: 1, description: "Restrict to one upstream." },
         limit: { type: "integer", minimum: 1, maximum: 50, description: "Maximum hits; default 10." },
       },
+      additionalProperties: false,
     },
     outputSchema: OUTPUT_SCHEMA,
     annotations: readOnly,
@@ -48,8 +50,9 @@ export const brokerTools: Tool[] = [
     description: "Get the full unmodified input schema and execution metadata of one catalog tool.",
     inputSchema: {
       type: "object",
-      properties: { id: { type: "string", description: "Tool id from mottainai_tool_search." } },
+      properties: { id: { type: "string", minLength: 1, description: "Tool id from mottainai_tool_search." } },
       required: ["id"],
+      additionalProperties: false,
     },
     outputSchema: OUTPUT_SCHEMA,
     annotations: readOnly,
@@ -60,7 +63,7 @@ export const brokerTools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        id: { type: "string", description: "Tool id from mottainai_tool_search." },
+        id: { type: "string", minLength: 1, description: "Tool id from mottainai_tool_search." },
         arguments: {
           type: "object",
           description: "Arguments matching the schema from mottainai_tool_describe.",
@@ -120,6 +123,8 @@ export interface BrokerDispatchOutcome {
 
 /** proxy.ts の trace 記録が実際に選ばれた provider/tool を読めるようにする経路。 */
 export async function dispatchBrokerTool(name: string, args: Args, context: BrokerContext): Promise<BrokerDispatchOutcome> {
+  const tool = brokerTools.find((candidate) => candidate.name === name);
+  if (tool !== undefined) assertValidToolArguments(tool, args);
   switch (name) {
     case "mottainai_tool_search": return { result: await searchTool(args, context) };
     case "mottainai_tool_describe": return { result: await describeTool(args, context) };

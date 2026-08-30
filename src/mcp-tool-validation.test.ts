@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { brokerTools } from "./broker.js";
+import { brokerTools, dispatchBrokerTool } from "./broker.js";
+import { codeSearchTools, dispatchCodeSearchTool } from "./code-search.js";
+import { allLocalTools, callLocalTool } from "./local-tools.js";
 import {
   assertValidToolArguments,
   MAX_TOOL_VALIDATION_ISSUES,
@@ -163,6 +165,55 @@ test("explicit open forwarded arguments do not make the enclosing broker tool op
     validateToolArguments(brokerCall, { id: "catalog-id", unexpected: true }).issues[0]?.keyword,
     "additionalProperties",
   );
+});
+
+test("local, broker, and code-search dispatches validate through their advertised schemas", async () => {
+  const assertInvalid = (path: string, keyword: string) => (error: unknown): boolean => {
+    assert.ok(error instanceof ToolInputValidationError);
+    assert.equal(error.issues[0]?.path, path);
+    assert.equal(error.issues[0]?.keyword, keyword);
+    return true;
+  };
+
+  await assert.rejects(
+    () => callLocalTool("mottainai_exec", { command: "printf unused", timeoutMS: 1 }, undefined as never, undefined as never),
+    assertInvalid("arguments.timeoutMS", "additionalProperties"),
+  );
+  await assert.rejects(
+    () => callLocalTool("mottainai_search", { query: "needle", contextLines: 21 }, undefined as never, undefined as never),
+    assertInvalid("arguments.contextLines", "maximum"),
+  );
+
+  await assert.rejects(
+    () => dispatchBrokerTool("mottainai_tool_search", { limit: 0 }, undefined as never),
+    assertInvalid("arguments.limit", "minimum"),
+  );
+  await assert.rejects(
+    () => dispatchBrokerTool("mottainai_tool_search", { query: "tools", unexpected: true }, undefined as never),
+    assertInvalid("arguments.unexpected", "additionalProperties"),
+  );
+
+  await assert.rejects(
+    () => dispatchCodeSearchTool("mottainai_code_search", { pattern: "needle", limit: 0 }, undefined as never),
+    assertInvalid("arguments.limit", "minimum"),
+  );
+  await assert.rejects(
+    () => dispatchCodeSearchTool("mottainai_code_search", { pattern: "needle", unexpected: true }, undefined as never),
+    assertInvalid("arguments.unexpected", "additionalProperties"),
+  );
+});
+
+test("owned local, broker, and code-search wrapper objects are closed while broker forwarding stays open", () => {
+  for (const tool of [...allLocalTools, ...brokerTools, ...codeSearchTools]) {
+    const schema = tool.inputSchema as unknown as { additionalProperties?: boolean };
+    assert.equal(schema.additionalProperties, false, `${tool.name} must reject unknown properties`);
+  }
+  const brokerCall = brokerTools.find((tool) => tool.name === "mottainai_tool_call");
+  assert.ok(brokerCall);
+  const properties = brokerCall.inputSchema as unknown as {
+    properties: { arguments: { additionalProperties?: boolean } };
+  };
+  assert.equal(properties.properties.arguments.additionalProperties, true);
 });
 
 function assertConformance(

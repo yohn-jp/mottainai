@@ -108,11 +108,11 @@ test("semantic projection local dispatch enforces its declared input schema", as
   try {
     await assert.rejects(
       () => callLocalTool("mottainai_semantic_context", { provider: "fixture" }, config, store),
-      /id is required/,
+      /arguments\.id.*required/,
     );
     await assert.rejects(
       () => callLocalTool("mottainai_semantic_context", { provider: "fixture", id: 42 }, config, store),
-      /id must be a string/,
+      /arguments\.id.*type/,
     );
     await assert.rejects(
       () =>
@@ -122,7 +122,7 @@ test("semantic projection local dispatch enforces its declared input schema", as
           config,
           store,
         ),
-      /maxFacts must be at least 1/,
+      /arguments\.maxFacts.*minimum/,
     );
     await assert.rejects(
       () =>
@@ -132,7 +132,7 @@ test("semantic projection local dispatch enforces its declared input schema", as
           config,
           store,
         ),
-      /includeRationale must be a boolean/,
+      /arguments\.includeRationale.*type/,
     );
     await assert.rejects(
       () =>
@@ -142,8 +142,28 @@ test("semantic projection local dispatch enforces its declared input schema", as
           config,
           store,
         ),
-      /unknown projection input property: extra/,
+      /arguments\.extra.*additionalProperties/,
     );
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("local schema validation rejects a typo before executing a command", async () => {
+  const { root, config } = await workspace();
+  const marker = path.join(root, "must-not-run.txt");
+  try {
+    await assert.rejects(
+      () =>
+        callLocalTool(
+          "mottainai_exec",
+          { command: `touch "${marker}"`, timeoutMS: 1 },
+          config,
+          new InMemoryArtifactStore(),
+        ),
+      /arguments\.timeoutMS.*additionalProperties/,
+    );
+    await assert.rejects(() => fs.access(marker));
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -330,16 +350,16 @@ test("list reports complete and truncated entry and byte boundaries", async () =
   }
 });
 
-test("list rejects fractional limits at runtime without relying on MCP schema", async () => {
+test("list rejects fractional limits through schema-derived runtime validation", async () => {
   const { root, config } = await workspace();
   try {
     await assert.rejects(
       () => callLocalTool("mottainai_list", { path: ".", depth: 0, maxEntries: 1.5 }, config, new InMemoryArtifactStore()),
-      /maxEntries must be an integer/,
+      /arguments\.maxEntries.*type/,
     );
     await assert.rejects(
       () => callLocalTool("mottainai_list", { path: ".", depth: 0, maxBytes: 1.5 }, config, new InMemoryArtifactStore()),
-      /maxBytes must be an integer/,
+      /arguments\.maxBytes.*type/,
     );
   } finally {
     await fs.rm(root, { recursive: true, force: true });
