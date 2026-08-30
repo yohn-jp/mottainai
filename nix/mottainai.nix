@@ -53,7 +53,7 @@ let
     # runnable output, so skip fixup entirely.
     dontFixup = true;
     outputHashMode = "recursive";
-    outputHash = "sha256-hareHdLqbdO5jjhHSiAKcu8DEEwyJNc3+LgxihMIs4c=";
+    outputHash = "sha256-iQxPlRibo4ScYQaScY63B84MR4rvsWZ8/PSWXlJOyqo=";
   };
 in
 pkgs.stdenv.mkDerivation {
