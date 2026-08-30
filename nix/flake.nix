@@ -29,6 +29,15 @@
       mkNawabari = pkgs: import ./packages/nawabari.nix {
         inherit (pkgs) lib stdenvNoCC fetchurl makeWrapper nodejs_24;
       };
+      # Standalone bootstrap package (Issue #626) — proves src/bootstrap/**
+      # is independently Nix-packageable, excluding the full mottainai
+      # package's dependency closure. NOT part of runtimeOverlay: it is
+      # deliberately not wired into nix/modules/runtime.nix or any
+      # appliance/runtime closure here (Issue #627's job).
+      mkBootstrap = pkgs: import ./bootstrap.nix {
+        inherit (pkgs) lib stdenvNoCC fetchurl makeWrapper nodejs_24 typescript;
+        source = ../.;
+      };
       runtimeOverlay = final: prev: {
         mottainai = mkMottainai final;
         nawabari = mkNawabari final;
@@ -132,6 +141,11 @@
             inherit nixpkgs pkgs;
             appliance = self.applianceConfigurations.${system};
           };
+          # Issue #626: standalone bootstrap CLI package, proving it builds
+          # and runs independent of the full mottainai package. Not
+          # referenced by nixosConfigurations/applianceConfigurations above
+          # — appliance embedding is Issue #627's job.
+          mottainai-bootstrap = mkBootstrap pkgs;
         }
       );
 
@@ -197,6 +211,12 @@
             # canonical.
             mottainaiSource = ../.;
             nawabariPackage = mkNawabari pkgs;
+          };
+          bootstrap = import ./tests/bootstrap.nix {
+            inherit pkgs;
+            inherit (nixpkgs) lib;
+            bootstrapPackage = mkBootstrap pkgs;
+            mottainaiPackage = mkMottainai pkgs;
           };
         }
       );
