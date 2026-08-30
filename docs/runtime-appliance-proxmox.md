@@ -1,8 +1,8 @@
 # Manual Proxmox Runtime Appliance import/boot (Issues #601/#603)
 
 Exact, reproducible steps to import the canonical Mottainai Runtime
-Appliance raw disk recovered from the compressed distribution assets published
-by the corresponding GitHub Release
+Appliance raw disk recovered from the digest-pinned GHCR OCI Artifact published
+by the corresponding release
 (`.github/workflows/publish.yml`, job `runtime-appliance`) into a real
 Proxmox VE host and prove it boots, becomes network-reachable, accepts SSH,
 reaches `bootstrap-ready` without the managed application packages, reports
@@ -12,9 +12,12 @@ verified managed generation after bootstrap.
 
 The `runtime-appliance-artifact` Actions artifact from
 `.github/workflows/ci.yml` is retention-bound CI/build evidence only. The
-GitHub Release compressed transport envelope and manifests are the stable
-distribution surface used by this procedure. The raw disk remains the
-canonical appliance identity; compression changes only how it is transported.
+GHCR compressed transport envelope and manifests are the stable distribution
+surface used by this procedure. The OCI digest is the canonical distribution
+identity; the raw disk remains the canonical image identity, and compression
+changes only how it is transported. See
+[`runtime-appliance-oci.md`](runtime-appliance-oci.md) for the provider-neutral
+artifact contract and pull flow.
 
 This is manual integration evidence, distinct from the automated CI build
 evidence and from later Runtime-provider support evidence — see
@@ -30,7 +33,7 @@ proves.
 
 The canonical Runtime module ships with `controlAuthorizedKeys = []` by
 default so "a fresh generic Runtime cannot be accessed accidentally"
-(`nix/modules/runtime.nix`). A publicly downloadable Release asset must keep
+(`nix/modules/runtime.nix`). A publicly downloadable OCI artifact must keep
 that default — baking a real key into a broadly distributed image would be
 publishing a reusable credential, which Issue #601 explicitly forbids. That
 means the canonical appliance after decompression has no SSH access and no root password
@@ -54,10 +57,10 @@ the immutable closure) and never onto the canonical disk. This is the same
 generic, provider-independent mechanism regardless of which QEMU/KVM host
 runs it; nothing here is Proxmox-specific guest behavior.
 
-## 1. Download and verify the exact GitHub Release assets
+## 1. Pull and verify the exact GHCR OCI Artifact
 
-From the corresponding Mottainai GitHub Release, download the
-`x86_64-linux` assets. The release contains:
+Resolve a release locator to a digest once, then use only that digest ref. The
+corresponding artifact contains:
 
 - `mottainai-runtime-appliance.raw.zst` — the fixed-settings zstd transport
   envelope for the canonical self-bootable raw disk.
@@ -66,11 +69,10 @@ From the corresponding Mottainai GitHub Release, download the
 - `runtime-appliance-release-metadata.json` — bounded metadata containing the
   compressed asset filename, format, byte size, and SHA-256.
 
-The raw disk is intentionally not uploaded as a separate Release asset. The
-`.raw` format and the existing raw manifest remain canonical; `.raw.zst` is
-only a distribution envelope. Do not use a retention-bound Actions artifact as
-the operator distribution source; it is build evidence for the release
-workflow.
+The raw disk is intentionally not a separate OCI layer. The `.raw` format and
+the existing raw manifest remain canonical; `.raw.zst` is only a distribution
+envelope. Do not use a retention-bound Actions artifact as the operator
+distribution source; it is build evidence for the release workflow.
 
 Verify the compressed envelope's identity, size, and digest before
 decompressing it. The release workflow uses zstd level 19, `--ultra`, one
@@ -79,21 +81,46 @@ alter the canonical bytes:
 
 ```sh
 set -eu
-compressed=mottainai-runtime-appliance.raw.zst
-manifest=runtime-appliance-manifest.json
-metadata=runtime-appliance-release-metadata.json
+repository=ghcr.io/yohn-jp/mottainai/runtime-appliance
+locator_tag=v0.7.1
+descriptor="$(oras manifest fetch --no-tty --descriptor "$repository:$locator_tag")"
+digest="$(printf '%s' "$descriptor" | jq -er '.digest | select(test("^sha256:[0-9a-f]{64}$"))')"
+artifact_ref="$repository@$digest"
 
-test "$(jq -r '.canonicalManifest' "$metadata")" = "$manifest"
-test "$(jq -r '.compressedAsset.filename' "$metadata")" = "$compressed"
+oras manifest fetch --no-tty --pretty "$artifact_ref" > runtime-appliance-oci-manifest.json
+jq -e \
+  --arg artifact_type application/vnd.mottainai.runtime.appliance.v1 \
+  --arg manifest_media_type application/vnd.oci.image.manifest.v1+json \
+  --arg raw_media_type application/vnd.mottainai.runtime.appliance.raw.v1+zstd \
+  --arg manifest_layer_media_type application/vnd.mottainai.runtime.appliance.manifest.v1+json \
+  --arg metadata_layer_media_type application/vnd.mottainai.runtime.appliance.release-metadata.v1+json \
+  '
+    .schemaVersion == 2 and
+    .mediaType == $manifest_media_type and
+    .artifactType == $artifact_type and
+    (.layers | length) == 3 and
+    ([(.layers[] | .mediaType)] | sort) ==
+      ([$raw_media_type, $manifest_layer_media_type, $metadata_layer_media_type] | sort)
+  ' runtime-appliance-oci-manifest.json
+
+mkdir -p runtime-appliance
+oras pull --no-tty --output runtime-appliance "$artifact_ref"
+
+compressed=runtime-appliance/mottainai-runtime-appliance.raw.zst
+manifest=runtime-appliance/runtime-appliance-manifest.json
+metadata=runtime-appliance/runtime-appliance-release-metadata.json
+
+test "$(jq -r '.canonicalManifest' "$metadata")" = "$(basename "$manifest")"
+test "$(jq -r '.compressedAsset.filename' "$metadata")" = "$(basename "$compressed")"
 test "$(jq -r '.compressedAsset.format' "$metadata")" = zstd
 test "$(jq -r '.compressedAsset.sizeBytes' "$metadata")" = "$(stat -c '%s' "$compressed")"
 test "$(jq -r '.compressedAsset.sha256' "$metadata")" = "$(sha256sum "$compressed" | awk '{print $1}')"
 test "$(stat -c '%s' "$compressed")" -lt 2147483648
 test "$(jq -r '.sourceRevision' "$metadata")" = "$(jq -r '.sourceRevision' "$manifest")"
 
-zstd --decompress --no-progress -o mottainai-runtime-appliance.raw "$compressed"
-test "$(jq -r '.image.sizeBytes' "$manifest")" = "$(stat -c '%s' mottainai-runtime-appliance.raw)"
-test "$(jq -r '.image.sha256' "$manifest")" = "$(sha256sum mottainai-runtime-appliance.raw | awk '{print $1}')"
+zstd --decompress --no-progress -o runtime-appliance/mottainai-runtime-appliance.raw "$compressed"
+test "$(jq -r '.image.sizeBytes' "$manifest")" = "$(stat -c '%s' runtime-appliance/mottainai-runtime-appliance.raw)"
+test "$(jq -r '.image.sha256' "$manifest")" = "$(sha256sum runtime-appliance/mottainai-runtime-appliance.raw | awk '{print $1}')"
 ```
 
 The two final checks prove that the decompressed raw is the canonical image

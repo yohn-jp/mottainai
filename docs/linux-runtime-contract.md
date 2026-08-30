@@ -208,19 +208,22 @@ The contract above defines the guest; it does not define how a copy of it
 reaches an operator. Four separate evidence layers exist and must not be
 conflated:
 
-- **Stable release distribution** (GitHub Release, automated): the
+- **Stable release distribution** (GHCR OCI Artifact, automated): the
   `runtime-appliance` job in [`.github/workflows/publish.yml`](../.github/workflows/publish.yml)
   checks out the exact published release tag, runs
-  `nix build .#runtime-appliance-image` with the locked flake inputs, generates
+  `nix build .#checks.x86_64-linux.appliance-boundary` and
+  `nix build .#runtime-appliance-image` with the locked flake inputs, so the
+  #627 bootstrap-only closure is checked before publication. It then generates
   and verifies the existing bounded raw manifest, compresses the canonical raw
   disk with fixed zstd settings, verifies the compressed digest and size, and
-  re-verifies the raw manifest after decompression. It publishes
-  `mottainai-runtime-appliance.raw.zst`,
-  `runtime-appliance-manifest.json`, and the bounded
-  `runtime-appliance-release-metadata.json` as assets of that GitHub Release.
-  The raw disk and its manifest remain the canonical appliance identity; zstd
-  is only the distribution transport envelope. npm publication remains a
-  separate release job and package surface.
+  re-verifies the raw manifest after decompression. It publishes the raw
+  transport, manifest, and bounded release metadata as three typed layers of
+  the non-container artifact described in
+  [`docs/runtime-appliance-oci.md`](runtime-appliance-oci.md). The registry
+  descriptor's `sha256:` digest is the canonical distribution identity;
+  `v<package-version>` and `contract-v1` are convenience locators only. No
+  GitHub Release asset is uploaded or mutated, so npm publication and GitHub
+  Release notes/source metadata remain separate release surfaces.
 - **Build evidence** (GitHub Actions artifact, automated): `nix build .#runtime-appliance-image`
   evaluates and builds the same `nixosModules.runtime` this contract defines,
   projected to a self-bootable disk, and `scripts/build-runtime-appliance-manifest.mjs`
@@ -233,10 +236,10 @@ conflated:
 - **Manual integration evidence** (Proxmox, currently manual):
   [`docs/runtime-appliance-proxmox.md`](runtime-appliance-proxmox.md) records
   boot/network/SSH/bootstrap-readiness/health/persistence proof for the
-  canonical raw disk recovered from the exact downloaded GitHub Release
-  transport envelope on a real Proxmox/QEMU/KVM host. Managed application
-  health is a separate post-bootstrap phase; this proof is not automated and
-  does not make Proxmox a required or supported Runtime provider.
+  canonical raw disk recovered from the exact digest-pinned GHCR transport
+  envelope on a real Proxmox/QEMU/KVM host. Managed application health is a
+  separate post-bootstrap phase; this proof is not automated and does not make
+  Proxmox a required or supported Runtime provider.
 - **Provider support evidence** (later #600/#261): a supported Runtime
   provider (Lima locally, a future Proxmox provider) additionally proves
   reconciliation semantics, capability validation, and fail-closed behavior
