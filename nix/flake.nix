@@ -141,6 +141,18 @@
           # Issue #626/#627: standalone bootstrap CLI package, embedded in
           # the base appliance without the full managed application closure.
           mottainai-bootstrap = mkBootstrap pkgs;
+          # Issue #630's end-to-end Runtime Appliance golden path. A
+          # `packages.<system>.*` output rather than a `checks.<system>.*`
+          # one — see nix/tests/golden-path.nix's own comment for why.
+          golden-path-vm = import ./tests/golden-path.nix {
+            inherit pkgs;
+            inherit (nixpkgs) lib;
+            mkManagedGeneration = self.lib.mkManagedGeneration;
+            runtimeModule = self.nixosModules.runtime;
+            runtimeOverlay = runtimeOverlay;
+            source = ../.;
+            nawabariPackage = mkNawabari pkgs;
+          };
         }
       );
 
@@ -226,18 +238,10 @@
             bootstrapPackage = mkBootstrap pkgs;
             source = ../.;
           };
-          # Issue #630's end-to-end golden path (nix/tests/golden-path.nix)
-          # is deliberately NOT wired in here: it relies on
-          # `virtualisation.additionalPaths` to register brand-new,
-          # never-before-built generations as valid in the guest's Nix
-          # store, which needs those paths actually realized — that is
-          # incompatible with `nix flake check`'s `--no-build`
-          # evaluation-only pass (it would force-realize them merely to
-          # evaluate this attribute, breaking `nix flake check` for the
-          # whole flake). It is built directly instead, the same
-          # not-a-flake-output pattern nix/deployments/golden-path.nix
-          # already uses; see that file's own default-argument
-          # self-resolution via `builtins.getFlake`.
+          # Issue #630's end-to-end golden path is a
+          # `packages.<system>.golden-path-vm` output above, not a
+          # `checks.<system>.*` one here — see nix/tests/golden-path.nix's
+          # own comment for why.
         }
       );
     };

@@ -1,27 +1,17 @@
-{ mottainaiFlake ? builtins.getFlake (toString ../.)
-, system ? builtins.currentSystem
-, pkgs ? mottainaiFlake.inputs.nixpkgs.legacyPackages.${system}
-, lib ? mottainaiFlake.inputs.nixpkgs.lib
-, mkManagedGeneration ? mottainaiFlake.lib.mkManagedGeneration
-, runtimeModule ? mottainaiFlake.nixosModules.runtime
-, runtimeOverlay ? mottainaiFlake.overlays.default
-, source ? ../..
-, nawabariPackage ? pkgs.callPackage ../packages/nawabari.nix { }
-}:
+{ pkgs, lib, mkManagedGeneration, runtimeModule, runtimeOverlay, source, nawabariPackage }:
 
-# Deliberately NOT a `checks.<system>.*` flake output (unlike every other
-# file in this directory): `virtualisation.additionalPaths` below needs
-# genV1/genV2/sourceV1/sourceV2 actually realized to register them as valid
-# in the guest's Nix store, which conflicts with `nix flake check`'s
-# `--no-build` evaluation-only pass used by CI's cheap universal gate (it
-# would force-realize brand-new, never-before-built derivations merely to
-# evaluate this attribute, breaking that check for the whole flake, not
-# just this one). Built directly instead
-# (`nix build --impure --expr 'import ./tests/golden-path.nix {}'` from
-# `nix/`), the same "not a flake output" pattern
-# nix/deployments/golden-path.nix already uses for its own impure-input
-# reasons — every default argument above resolves the same canonical
-# `nix/flake.nix` outputs `checks.golden-path` would have received.
+# Deliberately wired into `nix/flake.nix` as `packages.<system>.golden-path-vm`,
+# not `checks.<system>.*` (unlike every other file in this directory):
+# `virtualisation.additionalPaths` below needs genV1/genV2/sourceV1/sourceV2
+# actually realized to register them as valid in the guest's Nix store, and
+# constructing a NixOS VM test's driver/boot-script config forces deep
+# evaluation of the whole node closure (unlike an ordinary package, which
+# `nix flake check`'s `--no-build` pass only checks shallowly, i.e.
+# `type == "derivation"`, never forcing `.drvPath`). Both combined broke
+# `nix flake check --no-build --all-systems` — CI's cheap universal gate —
+# for the whole flake when this lived under `checks`, not just for this one
+# check. `packages.<system>.*` gets the same shallow, safe treatment there
+# that every other package in this flake already relies on.
 #
 # Issue #630's end-to-end Runtime Appliance golden path: the same canonical
 # guest module nix/tests/runtime.nix already proves (mottainai.linux-runtime.v1),

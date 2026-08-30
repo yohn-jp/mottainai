@@ -181,10 +181,9 @@ complete lifecycle Issue #630 requires — including the managed-version-only
 update, a real guest reboot, and a deliberately unhealthy generation
 rolling back automatically — is proven automatically, in CI, by
 [`nix/tests/golden-path.nix`](../nix/tests/golden-path.nix)
-(built directly rather than as a flake output — see that file's own
-comment — via `nix build --impure --expr 'import ./tests/golden-path.nix { }'`
-from `nix/`, wired into `.github/workflows/ci.yml`'s `runtime-golden-path`
-job). It targets the same
+(`nix build ./nix#golden-path-vm` — a `packages.<system>.*` output rather
+than `checks.<system>.*`; see that file's own comment for why — wired into
+`.github/workflows/ci.yml`'s `runtime-golden-path` job). It targets the same
 canonical guest module (`nixosModules.runtime`) this document's manual proof
 boots, driven through `mottainai-bootstrap reconcile` exactly as shown
 above, plus:
