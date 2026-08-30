@@ -673,8 +673,17 @@ const UPSTREAM_COMMON_KEYS = [
 ] as const;
 const UPSTREAM_STDIO_KEYS = [...UPSTREAM_COMMON_KEYS, "command", "args", "env", "cwd"] as const;
 const UPSTREAM_HTTP_KEYS = [...UPSTREAM_COMMON_KEYS, "url", "headersFromEnv", "auth"] as const;
+const UPSTREAM_NAME_SEPARATOR = "__";
 
 function normalizeUpstream(name: string, value: unknown): Omit<UpstreamConfig, "name"> {
+  if (name.length === 0) {
+    throw new Error("invalid upstream name: upstream names must be non-empty");
+  }
+  if (name.includes(UPSTREAM_NAME_SEPARATOR)) {
+    throw new Error(
+      `invalid upstream name: "${name}" contains reserved tool namespace separator "${UPSTREAM_NAME_SEPARATOR}"`,
+    );
+  }
   if (!isRecord(value)) {
     throw new Error(`invalid upstream config: ${name}`);
   }

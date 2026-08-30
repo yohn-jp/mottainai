@@ -74,6 +74,11 @@ function compressVisibleToolDefinition(tool: Tool): Tool {
 }
 
 function prepareUpstreamToolDefinition(upstreamName: string, tool: Tool): Tool {
+  if (upstreamName.includes(SEP)) {
+    throw new Error(
+      `invalid upstream name: "${upstreamName}" contains reserved tool namespace separator "${SEP}"`,
+    );
+  }
   return { ...compressVisibleToolDefinition(tool), name: prefixedName(upstreamName, tool.name) };
 }
 

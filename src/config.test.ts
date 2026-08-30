@@ -38,6 +38,32 @@ test("loadMottainaiConfig normalizes v1 upstream defaults", () => {
   });
 });
 
+test("loadMottainaiConfig rejects empty upstream names", () => {
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({ mcpServers: { "": { command: "node" } } })),
+    /invalid upstream name: upstream names must be non-empty/,
+  );
+});
+
+test("loadMottainaiConfig rejects namespace-colliding upstream names before proxy registration", () => {
+  const secret = "not-in-diagnostic";
+  assert.throws(
+    () => loadMottainaiConfig(writeConfig({
+      mcpServers: { "foo__bar": { command: "node", env: { API_TOKEN: secret } } },
+    })),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(
+        error.message,
+        /invalid upstream name: "foo__bar" contains reserved tool namespace separator "__"/,
+      );
+      assert.doesNotMatch(error.message, new RegExp(secret));
+      assert.doesNotMatch(error.message, /foo__bar__baz/);
+      return true;
+    },
+  );
+});
+
 test("loadMottainaiConfig accepts v2-only fields (profiles) without declaring version: 2", () => {
   const config = loadMottainaiConfig(writeConfig({
     mcpServers: {
