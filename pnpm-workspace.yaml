@@ -1,3 +1,10 @@
+# Single-package repository; this file exists only for the allowBuilds and
+# minimumReleaseAgeExclude settings below. pnpm 9 requires a non-empty
+# `packages` field once pnpm-workspace.yaml is present, even for a root-only
+# install (observed when the Nix mottainai derivation copies this file in
+# alongside the tracked source; see issue #606).
+packages:
+  - "."
 allowBuilds:
   esbuild: true
   node-pty: true
