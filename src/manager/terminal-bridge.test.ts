@@ -123,6 +123,77 @@ test("Manager browser terminal bridge relays PTY I/O bidirectionally over WebSoc
   assert.match(received, /still-alive\r\n/u);
 });
 
+test("Manager browser terminal bridge buffers immediate post-open input until delayed PTY preparation completes", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const runtime = new TerminalFakeRuntime();
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime });
+  await service.initialize();
+  const created = await service.start({ instruction: "run the task", agentKind: "codex" });
+  runtime.sessions.add(created.runtimeName);
+
+  let preparationStartedResolve!: () => void;
+  const preparationStarted = new Promise<void>((resolve) => {
+    preparationStartedResolve = resolve;
+  });
+  let releasePreparation!: () => void;
+  const preparationGate = new Promise<void>((resolve) => {
+    releasePreparation = resolve;
+  });
+  const prepareTerminalAttach = service.prepareTerminalAttach.bind(service);
+  service.prepareTerminalAttach = async (sessionId) => {
+    preparationStartedResolve();
+    await preparationGate;
+    return prepareTerminalAttach(sessionId);
+  };
+
+  const terminalBridge = createManagerTerminalBridge({ service, runtime });
+  const handle = await startDashboardServer({
+    port: 0,
+    viewerHtml: "<!doctype html><title>manager</title>",
+    query: createFixtureQuery(),
+    manager: new ManagerHttpApi(service, terminalBridge),
+  });
+  activeServers.push({
+    close: async () => {
+      terminalBridge.close();
+      await handle.close();
+    },
+  });
+
+  const wsUrl = handle.url.replace(/^http:/u, "ws:") + `api/v1/manager/sessions/${created.sessionId}/terminal`;
+  const socket = new WebSocket(wsUrl, { headers: { origin: handle.url.replace(/\/$/u, "") } });
+  activeSockets.push(socket);
+
+  await withTimeout(preparationStarted, 5000);
+  await withTimeout(new Promise<void>((resolve, reject) => {
+    socket.once("open", () => resolve());
+    socket.once("error", reject);
+  }), 5000);
+
+  let received = "";
+  const sawBoth = new Promise<void>((resolve) => {
+    socket.on("message", (data) => {
+      received += data.toString("utf8");
+      if (received.includes("immediate-after-open") && received.includes("ordered-after-open")) resolve();
+    });
+  });
+  try {
+    socket.send("immediate-after-open\n");
+    socket.send(JSON.stringify({ type: "resize", cols: 120, rows: 40 }));
+    socket.send("ordered-after-open\n");
+    assert.equal(received, "");
+  } finally {
+    releasePreparation();
+  }
+
+  await withTimeout(sawBoth, 5000);
+  assert.match(received, /immediate-after-open\r\n/u);
+  assert.match(received, /ordered-after-open\r\n/u);
+  assert.ok(received.indexOf("immediate-after-open") < received.indexOf("ordered-after-open"));
+  assert.doesNotMatch(received, /\{"type":"resize"/u);
+});
+
 test("Manager browser terminal bridge closes with an actionable diagnostic when the session is not attachable", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
