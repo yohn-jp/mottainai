@@ -387,6 +387,43 @@ jobs:
         working-directory: nix
         run: nix build --no-update-lock-file --no-link .#checks.x86_64-linux.runtime-vm
 
+  runtime-golden-path:
+    name: Runtime Appliance end-to-end golden path (Issue #630)
+    needs: runtime-contract-changes
+    # Same path-owned gate as runtime-contract above: this is the most
+    # expensive Nix/QEMU check (two real Mottainai builds plus a guest
+    # boot/reboot), so it runs in its own job/timeout rather than extending
+    # runtime-contract's budget, but only when a change can actually affect
+    # the Nix/QEMU runtime contract it exercises.
+    if: >-
+      needs.runtime-contract-changes.outputs.runtime == 'true' &&
+      (
+        github.event_name != 'pull_request' ||
+        (
+          github.actor != 'dependabot[bot]' &&
+          github.event.pull_request.user.login != 'dependabot[bot]' &&
+          !startsWith(github.event.pull_request.head.ref, 'release/')
+        )
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Nix with KVM support
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+        with:
+          kvm: true
+
+      - name: Execute the Runtime Appliance golden-path NixOS VM test
+        working-directory: nix
+        run: nix build --no-update-lock-file --no-link .#checks.x86_64-linux.golden-path
+
   runtime-appliance-artifact:
     name: Publish canonical Runtime Appliance artifact
     needs: [runtime-contract-changes, runtime-contract]

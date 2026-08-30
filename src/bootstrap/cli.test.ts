@@ -78,6 +78,39 @@ test("the CLI's production dispatch always uses CANONICAL_BOOTSTRAP_STATE_FILE_P
   assert.equal(CANONICAL_BOOTSTRAP_STATE_FILE_PATH, "/var/lib/mottainai-control/bootstrap/state.json");
 });
 
+test("reconcile without --system fails with a usage message, without ever calling reconcileManagedRuntime", async () => {
+  const exitCode = await runBootstrapCli(["reconcile"]);
+  assert.equal(exitCode, 1);
+});
+
+test("reconcile --json against a fresh control-state root fails deterministically reading the canonical manifest, never a caller-supplied path", async () => {
+  // Mirrors the existing "build against a nonexistent manifest path" case
+  // above: this sandboxed environment has no
+  // /var/lib/mottainai-control/managed-packages/manifest.json, so this
+  // exercises reconcileManagedRuntime's own canonical-path default end to
+  // end (never a stateDirectory/manifestPath override) rather than
+  // returning early.
+  const capture = captureStdout();
+  const exitCode = await runBootstrapCli(["reconcile", "--system", "x86_64-linux", "--json"]);
+  const output = capture.restore();
+  assert.equal(exitCode, 1);
+  const parsed = JSON.parse(output);
+  assert.equal(parsed.code, "manifest_read_failure");
+  assert.match(parsed.message, /\/var\/lib\/mottainai-control\/managed-packages\/manifest\.json/u);
+});
+
+test("reconcile never passes stateDirectory/manifestPath/stateFilePath/currentPointerPath overrides to reconcileManagedRuntime", async () => {
+  // Same narrow-surface invariant as the build command's --state-file
+  // test above, applied to Issue #628's reconcile options: a single
+  // invocation must never be able to redirect governed managed-runtime
+  // state into an arbitrary path.
+  const source = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "cli.ts"), "utf8");
+  assert.doesNotMatch(source, /reconcileManagedRuntime\(\{[^}]*stateDirectory/su);
+  assert.doesNotMatch(source, /reconcileManagedRuntime\(\{[^}]*manifestPath/su);
+  assert.doesNotMatch(source, /reconcileManagedRuntime\(\{[^}]*stateFilePath/su);
+  assert.doesNotMatch(source, /reconcileManagedRuntime\(\{[^}]*currentPointerPath/su);
+});
+
 // PR review finding P1-4, exercised through the real CLI boundary (not just
 // runBootstrapBuild directly, which build.test.ts already covers): `build`
 // against a manifest path that does not exist must still route through

@@ -74,7 +74,7 @@ let
 
   healthScript = pkgs.writeShellApplication {
     name = "mottainai-runtime-health";
-    runtimeInputs = [ pkgs.coreutils ];
+    runtimeInputs = [ pkgs.coreutils pkgs.jq ];
     text = ''
       set -euo pipefail
 
@@ -88,6 +88,38 @@ let
       # succeeds before any managed application generation exists; the
       # managed-runtime-ready phase is owned by the later activation boundary.
       ${bootstrapReadinessScript}/bin/mottainai-runtime-bootstrap-ready
+
+      # Issue #628's managed-runtime state.json/current pointer are the sole
+      # authority for managed-application readiness (docs/runtime-state.md
+      # "current is accepted as active only when it matches the persisted
+      # record"). This reads that already-persisted evidence read-only —
+      # it never writes, builds, switches, or re-runs any part of Issue
+      # #628's reconcileManagedRuntime state machine, so a health check can
+      # never itself mutate managed-runtime state. Absence of a managed
+      # generation (a fresh appliance, matching every existing base-only
+      # deployment) falls through to the original bootstrap-ready result
+      # unchanged.
+      readiness="bootstrap-ready"
+      managed_runtime_ready=false
+      reconciliation="current"
+      managed_runtime_state_file=${lib.escapeShellArg "${cfg.stateDir}/managed-runtime/state.json"}
+      managed_runtime_current_pointer=${lib.escapeShellArg "${cfg.stateDir}/managed-runtime/current"}
+      if [ -r "$managed_runtime_state_file" ] && command -v jq >/dev/null 2>&1; then
+        activation_phase="$(jq -r '.activation.phase // "idle"' "$managed_runtime_state_file" 2>/dev/null || echo "unknown")"
+        active_health_state="$(jq -r '.active.health.state // "none"' "$managed_runtime_state_file" 2>/dev/null || echo "unknown")"
+        active_store_path="$(jq -r '.active.storePath // ""' "$managed_runtime_state_file" 2>/dev/null || echo "")"
+        current_target=""
+        if [ -L "$managed_runtime_current_pointer" ]; then
+          current_target="$(readlink -f "$managed_runtime_current_pointer" 2>/dev/null || echo "")"
+        fi
+        if [ "$activation_phase" = "idle" ] \
+          && [ "$active_health_state" = "healthy" ] \
+          && [ -n "$active_store_path" ] \
+          && [ "$current_target" = "$active_store_path" ]; then
+          readiness="managed-runtime-ready"
+          managed_runtime_ready=true
+        fi
+      fi
 
       generation_link=/nix/var/nix/profiles/system
       if [ -L "$generation_link" ]; then
@@ -132,10 +164,10 @@ let
           "repositoryUser": ${builtins.toJSON repositoryUserStatePaths}
         },
         "requiredCompanions": $companions,
-        "readiness": "bootstrap-ready",
+        "readiness": "$readiness",
         "bootstrapReady": true,
-        "managedRuntimeReady": false,
-        "reconciliation": "current",
+        "managedRuntimeReady": $managed_runtime_ready,
+        "reconciliation": "$reconciliation",
         "upgradeRequired": false
       }
       JSON
@@ -350,6 +382,7 @@ in
       pkgs.nix
       pkgs.gnutar
       pkgs.cacert
+      pkgs.jq
       pkgs.mottainai-bootstrap
       healthScript
       reconcileScript

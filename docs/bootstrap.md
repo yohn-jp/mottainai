@@ -143,18 +143,23 @@ fsync — the destination is byte-for-byte unchanged on any partial failure.
 
 ## CLI
 
-`src/bootstrap/cli.ts` dispatches exactly three commands — `build`,
-`status`, `verify` — deliberately narrow, with no `init` alias (reserved,
-unused, for later end-to-end initialization/reconciliation work spanning
-#626/#628) and no task/session/manager/package-catalog UX. It does not
-import `src/cli.ts`, `src/index.ts`, or any manager/workflow/task-session
-module: that independence is what lets bootstrap work without importing the
-full Mottainai runtime as a hidden dependency.
+`src/bootstrap/cli.ts` dispatches `build`, `status`, and `verify` — this
+Issue's own narrow surface, with no `init` alias and no
+task/session/manager/package-catalog UX — plus `reconcile` (Issue #630),
+the end-to-end orchestration `docs/runtime-lifecycle.md` "Command
+responsibility" anticipated: it composes this build interface with Issue
+#628's `reconcileManagedRuntime` state machine
+(`src/runtime-contract/managed-runtime.ts`) rather than reimplementing
+activation here. None of these import `src/cli.ts`, `src/index.ts`, or any
+manager/workflow/task-session module: that independence is what lets
+bootstrap work without importing the full Mottainai runtime as a hidden
+dependency.
 
 ```text
 mottainai-bootstrap build <manifest-path> --system <system> [--repo-root <path>] [--json]
 mottainai-bootstrap status [--json]
 mottainai-bootstrap verify [--json]
+mottainai-bootstrap reconcile --system <system> [--mottainai-source <path>] [--repo-root <path>] [--json]
 ```
 
 `status`/`verify` output is bounded and machine-readable:

@@ -95,15 +95,18 @@ lifecycle:
 mottainai-bootstrap build <manifest>
 mottainai-bootstrap status
 mottainai-bootstrap verify
+mottainai-bootstrap reconcile
 ```
 
 `build` ends after producing and verifying a managed generation and persisting
 bounded bootstrap evidence. It MUST NOT switch active application state.
 
-The end-to-end `init`/reconcile operation belongs to the higher lifecycle that
-combines #626 build with #628 activation. A future full Mottainai command may
-name that orchestration `init` or `reconcile`; #626 does not need an `init`
-alias to implement it.
+The end-to-end orchestration that combines #626 build with #628 activation is
+`mottainai-bootstrap reconcile <manifest>` (Issue #630), composing #626's
+build interface with this document's `reconcileManagedRuntime` state machine
+(`src/runtime-contract/managed-runtime.ts`) — build, verify, atomically
+switch, and health-check, with deterministic rollback on a post-switch
+health failure, in one command.
 
 ## Reconcile input and authority
 
@@ -378,6 +381,14 @@ boot fresh appliance
 
 It also proves that persistent-unmanaged state is never represented as managed
 and that ephemeral state carries no survival guarantee.
+
+This is implemented by
+[`nix/tests/golden-path.nix`](../nix/tests/golden-path.nix), driving the
+real `mottainai-bootstrap reconcile` command (which composes #626's build
+interface with this document's `reconcileManagedRuntime` state machine) end
+to end against the canonical guest module across a real boot and reboot; see
+[`docs/nix-runtime-golden-path.md`](nix-runtime-golden-path.md) "Automated
+end-to-end proof" for how it relates to the manual walkthrough.
 
 ## Non-negotiable invariants
 

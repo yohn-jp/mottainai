@@ -10,12 +10,15 @@
 # typescript, ws) regardless of what bootstrap actually imports. Bootstrap's
 # entire runtime import graph (src/bootstrap/** plus the
 # src/runtime-contract/** modules it composes: managed-package-manifest.ts,
-# managed-generation.ts, managed-generation-build.ts; plus src/atomic-file.ts
-# and src/boundary.ts) uses only `zod` and Node built-ins. This recipe is
-# modeled on nix/packages/nawabari.nix's single-dependency `fetchurl`
-# pattern instead: pin zod directly, do not touch pnpm-lock.yaml at
-# Nix-eval time (this repository's Nix files never parse it), skip the
-# rest of the workspace entirely.
+# managed-generation.ts, managed-generation-build.ts, managed-runtime.ts,
+# managed-runtime-state.ts (Issue #628's activation/reconcile state machine,
+# exposed by src/bootstrap/cli.ts's `reconcile` command for Issue #630's
+# end-to-end evidence); plus src/atomic-file.ts and src/boundary.ts) uses
+# only `zod` and Node built-ins. This recipe is modeled on
+# nix/packages/nawabari.nix's single-dependency `fetchurl` pattern instead:
+# pin zod directly, do not touch pnpm-lock.yaml at Nix-eval time (this
+# repository's Nix files never parse it), skip the rest of the workspace
+# entirely.
 #
 # The zod version/hash pin below is a second, independently-maintained
 # authority against pnpm-lock.yaml's own resolved zod entry — kept in sync
@@ -52,6 +55,8 @@ let
     "src/runtime-contract/managed-generation-build.ts"
     "src/runtime-contract/managed-generation.ts"
     "src/runtime-contract/managed-package-manifest.ts"
+    "src/runtime-contract/managed-runtime.ts"
+    "src/runtime-contract/managed-runtime-state.ts"
     "src/atomic-file.ts"
     "src/boundary.ts"
     "nix/flake.nix"
@@ -173,6 +178,8 @@ stdenvNoCC.mkDerivation {
       src/runtime-contract/managed-generation-build.ts \
       src/runtime-contract/managed-generation.ts \
       src/runtime-contract/managed-package-manifest.ts \
+      src/runtime-contract/managed-runtime.ts \
+      src/runtime-contract/managed-runtime-state.ts \
       src/atomic-file.ts \
       src/boundary.ts
 

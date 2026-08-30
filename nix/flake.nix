@@ -226,6 +226,20 @@
             bootstrapPackage = mkBootstrap pkgs;
             source = ../.;
           };
+          # Issue #630: the complete end-to-end Runtime Appliance golden
+          # path (bootstrap-ready -> managed manifest -> build/activate ->
+          # version-only update -> reboot -> forced-unhealthy rollback ->
+          # managed/unmanaged/ephemeral state boundary) against the same
+          # canonical guest module `runtime-vm` above already boots.
+          golden-path = import ./tests/golden-path.nix {
+            inherit pkgs;
+            inherit (nixpkgs) lib;
+            mkManagedGeneration = self.lib.mkManagedGeneration;
+            runtimeModule = self.nixosModules.runtime;
+            runtimeOverlay = runtimeOverlay;
+            source = ../.;
+            nawabariPackage = mkNawabari pkgs;
+          };
         }
       );
     };

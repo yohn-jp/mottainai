@@ -113,26 +113,33 @@ passwordless sudo rule per `nix/modules/runtime.nix`). It must report
 not resolve from the base PATH. Their eventual managed-generation presence is
 verified only after #628 activation.
 
-## 6. Build and activate a managed generation (post-#628 path)
+## 6. Build and activate a managed generation (#628, via `mottainai-bootstrap reconcile`)
 
-The base only provides the #626 build surface. Once the #624 manifest and #628
-activation path are available, the control identity's home
-(`/var/lib/mottainai-control`, mode `0700`, system/control-owned persistent
-state) is the location for bootstrap and activation evidence. A managed
-generation is built explicitly; it is never installed by a boot script:
+The base only provides the #626 build surface. Once a #624 manifest is
+present, the control identity's home (`/var/lib/mottainai-control`, mode
+`0700`, system/control-owned persistent state) is the location for bootstrap
+and activation evidence. `mottainai-bootstrap reconcile` (Issue #630)
+composes #626's build interface with #628's `reconcileManagedRuntime` state
+machine into the one command that builds, verifies, atomically switches, and
+health-checks a managed generation from the canonical manifest — it never
+partially updates the active Runtime:
 
 ```sh
 ssh ... '
-  mottainai-bootstrap build /var/lib/mottainai-control/managed-packages/manifest.json \
-    --system x86_64-linux --json
-  mottainai-bootstrap verify --json
+  mottainai-bootstrap reconcile --system x86_64-linux --json
 '
 ```
 
-The #628 activation/reconcile operation then selects the exact verified
-generation and proves managed-runtime health. Only that later result may
-report `"readiness": "managed-runtime-ready"`; a bootstrap success alone is
-not managed-runtime readiness.
+`build`/`status`/`verify` remain useful independently (bounded bootstrap
+build evidence without touching active selection), but only `reconcile`'s
+result may report `"readiness": "managed-runtime-ready"` from
+`mottainai-runtime-health` afterward — a bootstrap success alone is not
+managed-runtime readiness. Changing only the managed Mottainai
+version/source and re-running `reconcile` builds and activates a new
+generation without rebuilding the base appliance; a deliberately broken
+candidate generation is rolled back to the prior known-good generation
+automatically, with bounded failure evidence retained in
+`managed-runtime/state.json`.
 
 ## 7. Verify state survives a VM restart (acceptance criterion 7)
 
@@ -166,6 +173,39 @@ Verify the marker, bootstrap evidence, and health `runtimeIdentity` /
 `buildIdentity` are unchanged after the restart. If a managed generation was
 activated, also verify its persisted #628 active/previous state and exact
 managed readiness after the restart.
+
+## Automated end-to-end proof (Issue #630)
+
+This document is a human-operator walkthrough for one manual session. The
+complete lifecycle Issue #630 requires — including the managed-version-only
+update, a real guest reboot, and a deliberately unhealthy generation
+rolling back automatically — is proven automatically, in CI, by
+[`nix/tests/golden-path.nix`](../nix/tests/golden-path.nix)
+(`nix build ./nix#checks.x86_64-linux.golden-path`, wired into
+`.github/workflows/ci.yml`'s `runtime-golden-path` job). It targets the same
+canonical guest module (`nixosModules.runtime`) this document's manual proof
+boots, driven through `mottainai-bootstrap reconcile` exactly as shown
+above, plus:
+
+- changing only the managed Mottainai version and re-activating without
+  rebuilding the base appliance system closure;
+- a real guest reboot proving desired/active managed-runtime state and
+  `managed-runtime-ready` health survive;
+- a deliberately unhealthy candidate generation (a real permission-denial
+  fault on a freshly built, otherwise valid store path) rolling back
+  deterministically to the prior known-good generation;
+- a persistent-unmanaged sentinel under the repository-user state root
+  surviving reconciliation/reboot without ever being reported as managed,
+  and an ephemeral sentinel under `/tmp` whose survival is never asserted
+  either way (`docs/runtime-state.md`'s persistence matrix: "ephemeral/cache/temp:
+  Not guaranteed").
+
+This is not a second, contradictory procedure: it exercises the exact same
+`mottainai-bootstrap reconcile`/`mottainai-runtime-health` commands this
+document names, against the exact same canonical guest module, only
+end-to-end and unattended. Prefer this automated proof as the authoritative,
+reproducible evidence; use this document's manual steps to reproduce or
+debug a specific step by hand.
 
 ## Non-goals not exercised by this proof
 
