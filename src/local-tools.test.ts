@@ -1141,7 +1141,7 @@ test("exec_await is cancellable via AbortSignal without waiting for the process 
   const started = structured(
     await callLocalTool(
       "mottainai_exec_start",
-      { command: `${process.execPath} -e "setTimeout(() => {}, 2000)"` },
+      { command: `${process.execPath} -e "setTimeout(() => process.stdout.write('done'), 100)"` },
       config,
       store,
       undefined,
@@ -1162,7 +1162,26 @@ test("exec_await is cancellable via AbortSignal without waiting for the process 
   );
   controller.abort();
   const awaited = structured(await awaitPromise);
-  assert.equal(awaited.state, "cancelled");
+  assert.equal(awaited.state, "await_cancelled");
+  assert.equal(awaited.process_state, "running");
+  assert.equal(awaited.next_command, `mottainai_exec_await handle=${started.handle}`);
+  assert.equal(awaited.await_state, "await_cancelled");
+  assert.equal(processes.has(started.handle as string), true);
+
+  const reawaited = structured(
+    await callLocalTool(
+      "mottainai_exec_await",
+      { handle: started.handle },
+      config,
+      store,
+      undefined,
+      undefined,
+      processes,
+    ),
+  );
+  assert.equal(reawaited.status, "success");
+  assert.equal(reawaited.exit_code, 0);
+  assert.equal(reawaited.output, "done");
   processes.dispose();
   await fs.rm(root, { recursive: true, force: true });
 });
@@ -1488,7 +1507,7 @@ test("gh_checks_await cancels an in-flight gh fetch and records completed work",
     assert.equal(await fs.readFile(path.join(root, ".gh-call-count"), "utf8"), "1");
 
     const awaitTelemetry = telemetry.snapshot().await;
-    assert.equal(awaitTelemetry.cancelled, 1);
+    assert.equal(awaitTelemetry.await_cancelled, 1);
     assert.equal(awaitTelemetry.poll_count, 1);
     assert.ok(awaitTelemetry.elapsed_ms > 0);
 

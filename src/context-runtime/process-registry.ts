@@ -12,7 +12,7 @@ export interface StartedProcess {
 export type AwaitOutcome =
   | { kind: "terminal"; result: RunResult; elapsedMs: number }
   | { kind: "timeout"; elapsedMs: number; state: "running" }
-  | { kind: "cancelled"; elapsedMs: number };
+  | { kind: "await_cancelled"; elapsedMs: number; processState: "running" | "exited" };
 
 export type ProcessResourceErrorCode = "managed_process_active_capacity_exceeded" | "managed_process_registry_disposed";
 
@@ -144,33 +144,64 @@ export class ProcessRegistry {
     return entry === undefined ? undefined : { command: entry.command, cwd: entry.cwd };
   }
 
+  /**
+   * Waits for one handle. AbortSignal cancels this wait only; it never
+   * terminates, releases, or otherwise changes the managed child.
+   */
   async awaitHandle(handle: string, timeoutMs: number, signal?: AbortSignal): Promise<AwaitOutcome | undefined> {
     this.reap(this.now());
     const entry = this.entries.get(handle);
     if (entry === undefined) return undefined;
     const startedAt = this.now();
 
-    if (signal?.aborted === true) return { kind: "cancelled", elapsedMs: 0 };
+    const terminalOutcome = (result: RunResult): AwaitOutcome => ({
+      kind: "terminal",
+      result,
+      elapsedMs: this.now() - startedAt,
+    });
+    const awaitCancelledOutcome = (processState: "running" | "exited"): AwaitOutcome => ({
+      kind: "await_cancelled",
+      elapsedMs: this.now() - startedAt,
+      processState,
+    });
+
+    // A terminal child is authoritative even when the signal was already
+    // aborted. This prevents a settled result from being hidden by a late
+    // request cancellation.
+    const initialProcessState = entry.managed.state;
+    if (initialProcessState === "exited") return entry.managed.settled.then(terminalOutcome);
+
+    if (signal?.aborted === true) return awaitCancelledOutcome(initialProcessState);
 
     return new Promise<AwaitOutcome>((resolve) => {
       let settled = false;
+      let timer: NodeJS.Timeout | undefined;
       const finish = (outcome: AwaitOutcome): void => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        if (timer !== undefined) clearTimeout(timer);
         signal?.removeEventListener("abort", onAbort);
         resolve(outcome);
       };
-      const timer = setTimeout(() => {
+      timer = setTimeout(() => {
+        // The timer and abort callback are both wait-side events. If the
+        // child has already reached terminal state, let its settled promise
+        // win regardless of callback ordering so the result is not lost.
+        if (entry.managed.state === "exited") return;
         finish({ kind: "timeout", elapsedMs: this.now() - startedAt, state: "running" });
       }, timeoutMs);
       const onAbort = (): void => {
-        finish({ kind: "cancelled", elapsedMs: this.now() - startedAt });
+        // Deterministic race rule: terminal state observed here wins; an
+        // abort observed while running only cancels this wait operation.
+        const processState = entry.managed.state;
+        if (processState === "exited") return;
+        finish(awaitCancelledOutcome(processState));
       };
-      signal?.addEventListener("abort", onAbort, { once: true });
       void entry.managed.settled.then((result) => {
-        finish({ kind: "terminal", result, elapsedMs: this.now() - startedAt });
+        finish(terminalOutcome(result));
       });
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted === true) onAbort();
     });
   }
 

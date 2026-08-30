@@ -70,15 +70,23 @@ export interface AwaitCounts {
   avoided_responses: number;
   terminal: number;
   timeouts: number;
-  cancelled: number;
+  await_cancelled: number;
+  process_timeouts: number;
+  process_terminations: number;
 }
+
+export type AwaitTelemetryOutcome = "terminal" | "timeout" | "await_cancelled" | "cancelled";
+export type ProcessTelemetryOutcome = "completed" | "timed_out" | "terminated";
 
 export interface RecordAwaitInput {
   pollCount: number;
   elapsedMs: number;
   stateChanges: number;
   avoidedResponses: number;
-  outcome: "terminal" | "timeout" | "cancelled";
+  /** `cancelled` is accepted for persisted/caller compatibility and is normalized to await cancellation. */
+  outcome: AwaitTelemetryOutcome;
+  /** Present when a managed child result was observed; no raw process payload is retained. */
+  processOutcome?: ProcessTelemetryOutcome;
 }
 
 export interface RecordToolCallInput {
@@ -263,7 +271,9 @@ function emptyAwait(): AwaitCounts {
     avoided_responses: 0,
     terminal: 0,
     timeouts: 0,
-    cancelled: 0,
+    await_cancelled: 0,
+    process_timeouts: 0,
+    process_terminations: 0,
   };
 }
 
@@ -454,7 +464,14 @@ function loadState(filePath: string, boundaries: BoundaryOperations): TelemetryS
         avoided_responses: typeof awaitRaw.avoided_responses === "number" ? awaitRaw.avoided_responses : 0,
         terminal: typeof awaitRaw.terminal === "number" ? awaitRaw.terminal : 0,
         timeouts: typeof awaitRaw.timeouts === "number" ? awaitRaw.timeouts : 0,
-        cancelled: typeof awaitRaw.cancelled === "number" ? awaitRaw.cancelled : 0,
+        await_cancelled:
+          typeof awaitRaw.await_cancelled === "number"
+            ? awaitRaw.await_cancelled
+            : typeof awaitRaw.cancelled === "number"
+              ? awaitRaw.cancelled
+              : 0,
+        process_timeouts: typeof awaitRaw.process_timeouts === "number" ? awaitRaw.process_timeouts : 0,
+        process_terminations: typeof awaitRaw.process_terminations === "number" ? awaitRaw.process_terminations : 0,
       },
       burst: {
         pressure_samples: typeof burst.pressure_samples === "number" ? burst.pressure_samples : 0,
@@ -675,9 +692,12 @@ export function createTelemetrySink(
       state.await.elapsed_ms += input.elapsedMs;
       state.await.state_changes += input.stateChanges;
       state.await.avoided_responses += input.avoidedResponses;
-      if (input.outcome === "terminal") state.await.terminal += 1;
-      else if (input.outcome === "timeout") state.await.timeouts += 1;
-      else state.await.cancelled += 1;
+      if (input.outcome === "terminal") {
+        state.await.terminal += 1;
+        if (input.processOutcome === "timed_out") state.await.process_timeouts += 1;
+        else if (input.processOutcome === "terminated") state.await.process_terminations += 1;
+      } else if (input.outcome === "timeout") state.await.timeouts += 1;
+      else state.await.await_cancelled += 1;
       persist();
     },
     recordBurstPressure(input) {

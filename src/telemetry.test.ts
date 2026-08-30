@@ -151,18 +151,67 @@ test("recordAwait aggregates poll count, elapsed wait, state changes and avoided
 
   sink.recordAwait({ pollCount: 5, elapsedMs: 1_200, stateChanges: 2, avoidedResponses: 4, outcome: "terminal" });
   sink.recordAwait({ pollCount: 1, elapsedMs: 300, stateChanges: 0, avoidedResponses: 0, outcome: "timeout" });
-  sink.recordAwait({ pollCount: 1, elapsedMs: 10, stateChanges: 0, avoidedResponses: 0, outcome: "cancelled" });
+  sink.recordAwait({ pollCount: 1, elapsedMs: 10, stateChanges: 0, avoidedResponses: 0, outcome: "await_cancelled" });
 
   const snapshot = sink.snapshot();
   assert.deepEqual(snapshot.await, {
-    awaits: 3, poll_count: 7, elapsed_ms: 1_510, state_changes: 2, avoided_responses: 4,
-    terminal: 1, timeouts: 1, cancelled: 1,
+    awaits: 3,
+    poll_count: 7,
+    elapsed_ms: 1_510,
+    state_changes: 2,
+    avoided_responses: 4,
+    terminal: 1,
+    timeouts: 1,
+    await_cancelled: 1,
+    process_timeouts: 0,
+    process_terminations: 0,
   });
 
   await new Promise((resolve) => setTimeout(resolve, 50));
   const persisted = JSON.parse(await fs.readFile(filePath, "utf8")) as { await: { awaits: number } };
   assert.equal(persisted.await.awaits, 3);
 
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("recordAwait distinguishes wait cancellation from managed-process timeout and termination", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-telemetry-process-outcome-"));
+  const sink = createTelemetrySink({
+    MOTTAINAI_TELEMETRY: "1",
+    MOTTAINAI_TELEMETRY_FILE: path.join(dir, "summary.json"),
+  });
+
+  sink.recordAwait({ pollCount: 0, elapsedMs: 10, stateChanges: 0, avoidedResponses: 0, outcome: "await_cancelled" });
+  sink.recordAwait({
+    pollCount: 0,
+    elapsedMs: 20,
+    stateChanges: 1,
+    avoidedResponses: 0,
+    outcome: "terminal",
+    processOutcome: "timed_out",
+  });
+  sink.recordAwait({
+    pollCount: 0,
+    elapsedMs: 20,
+    stateChanges: 1,
+    avoidedResponses: 0,
+    outcome: "terminal",
+    processOutcome: "terminated",
+  });
+
+  assert.deepEqual(sink.snapshot().await, {
+    awaits: 3,
+    poll_count: 0,
+    elapsed_ms: 50,
+    state_changes: 2,
+    avoided_responses: 0,
+    terminal: 2,
+    timeouts: 0,
+    await_cancelled: 1,
+    process_timeouts: 1,
+    process_terminations: 1,
+  });
+  await sink.flush?.();
   await fs.rm(dir, { recursive: true, force: true });
 });
 
