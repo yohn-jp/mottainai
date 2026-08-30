@@ -2,7 +2,7 @@
 , stdenvNoCC
 , fetchurl
 , makeWrapper
-, nodejs_22
+, nodejs_24
 }:
 
 stdenvNoCC.mkDerivation rec {
@@ -24,7 +24,7 @@ stdenvNoCC.mkDerivation rec {
     packageRoot="$out/lib/node_modules/${pname}"
     install -d "$packageRoot" "$out/bin"
     cp -R . "$packageRoot/"
-    makeWrapper "${nodejs_22}/bin/node" "$out/bin/nawabari" \
+    makeWrapper "${nodejs_24}/bin/node" "$out/bin/nawabari" \
       --add-flags "$packageRoot/dist/index.js"
 
     runHook postInstall
