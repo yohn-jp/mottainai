@@ -38,7 +38,7 @@ interface RepositoryGovernanceRulesFile {
  * 「npm 版 Mottainai を別 repository で使うと Mottainai 自身の branch 規則を
  * 強制してしまう」問題を、コード実行のリスクを増やさずに解決する。
  */
-function resolveRepositoryBranchPattern(canonicalRepositoryRoot: string): RegExp | undefined {
+function resolveRepositoryBranchPatternSource(canonicalRepositoryRoot: string): string | undefined {
   const rulesPath = path.join(canonicalRepositoryRoot, REPOSITORY_GOVERNANCE_RULES_RELATIVE);
   let raw: string;
   try {
@@ -50,10 +50,16 @@ function resolveRepositoryBranchPattern(canonicalRepositoryRoot: string): RegExp
     const parsed = JSON.parse(raw) as RepositoryGovernanceRulesFile;
     const pattern = parsed.pullRequest?.branchPattern;
     if (typeof pattern !== "string") return undefined;
-    return new RegExp(pattern);
+    new RegExp(pattern);
+    return pattern;
   } catch {
     return undefined;
   }
+}
+
+function resolveRepositoryBranchPattern(canonicalRepositoryRoot: string): RegExp | undefined {
+  const source = resolveRepositoryBranchPatternSource(canonicalRepositoryRoot);
+  return source === undefined ? undefined : new RegExp(source);
 }
 
 export async function validateBranchNameAgainstGovernance(
@@ -111,4 +117,17 @@ export function bundledGovernedBranchTypes(): readonly string[] {
   }
   cachedBundledBranchTypes = types;
   return types;
+}
+
+/**
+ * Resolve the branch types that can be advertised as a schema enum for a
+ * repository. A repository override with a non-enumerable regex returns
+ * `undefined`; callers should then advertise only the representable string
+ * constraint and leave full-branch validation to
+ * `validateBranchNameAgainstGovernance`.
+ */
+export function governedBranchTypesForRepository(canonicalRepositoryRoot: string): readonly string[] | undefined {
+  const source = resolveRepositoryBranchPatternSource(canonicalRepositoryRoot);
+  if (source === undefined) return bundledGovernedBranchTypes();
+  return branchTypesFromPattern(source);
 }

@@ -15,6 +15,7 @@ import { resolveRepositoryIdentity } from "../domain/identity.js";
 import { startTask, transitionTask } from "../domain/task.js";
 import { BUILTIN_PRESETS } from "../policy/presets.js";
 import { WorkflowSqliteStateStore } from "../state/sqlite-store.js";
+import { ToolInputValidationError } from "../../mcp-tool-validation.js";
 
 function structured(result: CallToolResult): Record<string, unknown> {
   assert.ok(result.structuredContent);
@@ -233,6 +234,104 @@ test("task_start's branchType input schema declares an enum matching the bundled
   assert.equal(properties.dryRun?.type, "boolean");
 });
 
+test("task_start keeps a non-enumerable repository branch governance override authoritative", async (t) => {
+  const { root, config } = await gitWorkspace(t);
+  await fs.mkdir(path.join(root, ".mottainai"), { recursive: true });
+  await fs.writeFile(
+    path.join(root, ".mottainai", "governance-rules.json"),
+    JSON.stringify({ pullRequest: { branchPattern: "^custom/[0-9]+-[a-z0-9]+(?:-[a-z0-9]+)*$" } }),
+  );
+  const enabledConfig = enabled(config);
+  const taskStart = workflowCommandToolsFor(enabledConfig).find((tool) => tool.name === "mottainai_workflow_task_start");
+  assert.ok(taskStart);
+  const properties = taskStart.inputSchema.properties as { branchType?: { enum?: unknown } };
+  assert.equal(properties.branchType?.enum, undefined);
+
+  const store = openWorkflowStore();
+  t.after(() => store.close());
+  const accepted = structured(
+    await callWorkflowCommandTool(
+      "mottainai_workflow_task_start",
+      { taskSlug: "custom-schema", branchType: "custom", issueRef: "462", dryRun: true },
+      enabledConfig,
+      store,
+    ),
+  );
+  assert.equal(accepted.status, "success");
+  assert.equal((accepted.plan as { branch: string }).branch, "custom/462-custom-schema");
+
+  const rejected = structured(
+    await callWorkflowCommandTool(
+      "mottainai_workflow_task_start",
+      { taskSlug: "custom-schema", branchType: "fix", issueRef: "462", dryRun: true },
+      enabledConfig,
+      store,
+    ),
+  );
+  assert.equal(rejected.status, "failed");
+  assert.equal(rejected.reason, "invalid-branch-name");
+});
+
+test("workflow owned envelopes use canonical validation before worktree or store side effects", async (t) => {
+  const { root, config } = await gitWorkspace(t);
+  const store = openWorkflowStore();
+  t.after(() => store.close());
+  const secret = "unrelated-forwarded-value";
+
+  await assert.rejects(
+    () => callWorkflowCommandTool(
+      "mottainai_workflow_task_start",
+      {
+        taskSlug: "schema-check",
+        branchType: "fix",
+        issueRef: "462",
+        typo: secret,
+      },
+      enabled(config),
+      store,
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof ToolInputValidationError);
+      assert.deepEqual(error.issues, [{
+        path: "arguments.typo",
+        keyword: "additionalProperties",
+        message: "property is not allowed",
+      }]);
+      assert.doesNotMatch(error.message, new RegExp(secret));
+      return true;
+    },
+  );
+  assert.deepEqual(store.listTasks(), []);
+  assert.equal(
+    await fs.access(path.join(root, ".git", "mottainai-instance-id")).then(
+      () => true,
+      () => false,
+    ),
+    false,
+  );
+
+  await assert.rejects(
+    () => callWorkflowCommandTool(
+      "mottainai_workflow_task_start",
+      {
+        taskSlug: "schema-check",
+        branchType: "fix",
+        issueRef: "462",
+        semanticPlan: { claims: [{ resource: "src", mode: "unsupported" }] },
+      },
+      enabled(config),
+      store,
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof ToolInputValidationError);
+      assert.equal(error.issues[0]?.path, "arguments.semanticPlan.claims[0].mode");
+      assert.equal(error.issues[0]?.keyword, "enum");
+      return true;
+    },
+  );
+  assert.deepEqual(store.listTasks(), []);
+});
+
 test("task_start dry-run returns a plan without creating a task or worktree", async (t) => {
   const { root, config } = await gitWorkspace(t);
   const store = openWorkflowStore();
@@ -339,19 +438,34 @@ test("task_start dry-run with the default store reads an active local blocker wi
 test('task_start rejects an ungoverned branchType (e.g. "research") before any worktree/Git mutation', async (t) => {
   const { root, config } = await gitWorkspace(t);
   const store = openWorkflowStore();
-  const result = structured(
-    await callWorkflowCommandTool(
+  t.after(() => store.close());
+  await assert.rejects(
+    () => callWorkflowCommandTool(
       "mottainai_workflow_task_start",
       { taskSlug: "example", branchType: "research", issueRef: "9" },
       enabled(config),
       store,
     ),
+    (error: unknown) => {
+      assert.ok(error instanceof ToolInputValidationError);
+      assert.deepEqual(error.issues, [{
+        path: "arguments.branchType",
+        keyword: "enum",
+        message: "must be one of the allowed values",
+      }]);
+      return true;
+    },
   );
-  assert.equal(result.status, "failed");
-  assert.equal(result.reason, "invalid-branch-name");
   const worktreesDir = path.join(root, ".mottainai", "worktrees");
   await assert.rejects(() => fs.access(worktreesDir));
-  store.close();
+  assert.deepEqual(store.listTasks(), []);
+  assert.equal(
+    await fs.access(path.join(root, ".git", "mottainai-instance-id")).then(
+      () => true,
+      () => false,
+    ),
+    false,
+  );
 });
 
 test("task_start always creates a dedicated worktree/branch (never main itself), and task_status reports it only from inside that worktree", async (t) => {

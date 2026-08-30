@@ -718,6 +718,62 @@ test("owned tool schemas reject invalid arguments before dispatch without echoin
   }
 });
 
+test("proxy validates adaptive and workflow owned envelopes before dispatch", async () => {
+  const { traceStore, adaptive } = tracingContext();
+  const client = await connectedClient(
+    [],
+    undefined,
+    undefined,
+    adaptive,
+    { gateway: resolveGatewayConfig({ workflowTasks: true }) },
+  );
+  const secret = "unrelated-forwarded-value";
+  try {
+    await assert.rejects(
+      () => client.callTool({
+        name: "mottainai_plan",
+        arguments: { task: { category: "bug_investigation" }, typo: secret },
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof McpError);
+        assert.equal(error.code, -32602);
+        assert.deepEqual(error.data, {
+          code: "invalid_tool_arguments",
+          toolName: "mottainai_plan",
+          issues: [{
+            path: "arguments.typo",
+            keyword: "additionalProperties",
+            message: "property is not allowed",
+          }],
+          truncated: false,
+        });
+        assert.doesNotMatch(error.message, new RegExp(secret));
+        return true;
+      },
+    );
+    await assert.rejects(
+      () => client.callTool({
+        name: "mottainai_workflow_task_status",
+        arguments: { misspelled: secret },
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof McpError);
+        assert.equal(error.code, -32602);
+        assert.deepEqual((error.data as { issues: unknown[] }).issues, [{
+          path: "arguments.misspelled",
+          keyword: "additionalProperties",
+          message: "property is not allowed",
+        }]);
+        assert.doesNotMatch(error.message, new RegExp(secret));
+        return true;
+      },
+    );
+    assert.deepEqual(traceStore.load(), []);
+  } finally {
+    await client.close();
+  }
+});
+
 test("runtime status reports upstream failures without stopping other upstreams", async () => {
   const registry = new UpstreamRegistry(
     [{ name: "healthy", command: "noop" }, { name: "broken", command: "missing" }],

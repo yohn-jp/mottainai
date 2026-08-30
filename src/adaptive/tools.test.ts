@@ -10,6 +10,7 @@ import { loadActivePolicy, approvePolicy } from "./policy.js";
 import { callAdaptiveTool } from "./tools.js";
 import type { AdaptiveToolContext } from "./tools.js";
 import { createTraceStore } from "./trace.js";
+import { ToolInputValidationError } from "../mcp-tool-validation.js";
 
 function context(): AdaptiveToolContext & { policyDir: string } {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-adaptive-tools-"));
@@ -214,4 +215,39 @@ test("invalid caller metadata is rejected with a readable message", async () => 
   );
   await assert.rejects(() => callAdaptiveTool("mottainai_review", { expected_found: true }, ctx), /request_id must be/);
   await assert.rejects(() => callAdaptiveTool("mottainai_unknown", {}, ctx), /Unknown adaptive tool/);
+});
+
+test("adaptive owned envelopes use canonical validation before trace side effects", async () => {
+  const ctx = context();
+  const secret = "unrelated-forwarded-value";
+
+  await assert.rejects(
+    () => callAdaptiveTool(
+      "mottainai_plan",
+      { task: { category: "bug_investigation" }, misspelled: secret },
+      ctx,
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof ToolInputValidationError);
+      assert.deepEqual(error.issues, [{
+        path: "arguments.misspelled",
+        keyword: "additionalProperties",
+        message: "property is not allowed",
+      }]);
+      assert.doesNotMatch(error.message, new RegExp(secret));
+      return true;
+    },
+  );
+  assert.deepEqual(ctx.traceStore.load(), []);
+
+  await assert.rejects(
+    () => callAdaptiveTool("mottainai_policy_stats", { top: 0 }, ctx),
+    (error: unknown) => {
+      assert.ok(error instanceof ToolInputValidationError);
+      assert.equal(error.issues[0]?.path, "arguments.top");
+      assert.equal(error.issues[0]?.keyword, "minimum");
+      return true;
+    },
+  );
+  assert.deepEqual(ctx.traceStore.load(), []);
 });
