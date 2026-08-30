@@ -127,21 +127,39 @@ current main baseline; the semantic adapter reports that state explicitly and
 dogfood does not remove semantic guidance or claim semantic enforcement.
 
 Real-client evidence is environment-dependent. The deterministic suite is the
-CI gate; local Claude Code/Codex runs may be recorded only as aggregate status,
-version, mode, decision, and bounded response size. The real-client runner uses
-an explicit `--sandbox workspace-write` Codex invocation and an allow-listed
-child environment. It does not use approval/sandbox bypass flags or
-`--dangerously-bypass-hook-trust`; project-local Codex hooks that are not
-trusted by Codex remain a blocker rather than being trusted by the runner.
+CI gate; the real-client runner records only aggregate status, version, mode,
+decision, tool-event counts, and bounded response sizes. The default proof
+target is Claude Code:
+
+```text
+node scripts/run-managed-hooks-real-client.mjs claude
+```
+
+The runner uses Claude's project settings and project MCP configuration, keeps
+the user's normal authentication/trust state, and supplies an explicit
+`--permission-mode auto` tool allow-list for the two bounded test tools. It
+does not use `--bare`, `--dangerously-skip-permissions`,
+`--allow-dangerously-skip-permissions`, or any sandbox/approval bypass flag.
+The native Bash attempt must be redirected by the installed hook; the same
+bounded command must then succeed through the registered
+`mcp__mottainai__mottainai_exec` capability. A client that does not produce
+both live events is blocked evidence, not a pass.
+
+Codex remains available for explicit comparison through the `codex` or `all`
+argument. Its project-hook trust flow is client-owned; the runner never writes
+private trust state or uses `--dangerously-bypass-hook-trust`. An unreviewed
+Codex project hook remains an exact blocker rather than being treated as
+enforced.
 
 Each client invocation gets a fresh explanation-evidence file. If a client exits
 without invoking a configured hook, record `no hook evaluations`; status,
 version, mode, response size, and client events are not enforcement evidence,
 and the runner reports that client's evidence as blocked. Zero evaluations can
-never count as real-client enforcement evidence. Do not commit prompts, session
-logs, source dumps, environment dumps, or credentials. Luna Cloud availability
-is reported separately rather than inferred from local adapter tests.
-Codex may require interactive review of a newly installed project hook through
-its own hooks UI before dispatching it; the runner does not grant trust through
-private state or `--dangerously-bypass-hook-trust`, so an unreviewed entry stays
-blocked until Codex itself reports a hook evaluation.
+never count as real-client enforcement evidence. Hook failure/timeout behavior
+is fail-closed for `process.exec` and remains covered by the deterministic hook
+contract tests; a client error never changes enforce mode to observe or open.
+The runner uninstalls the owned entry and verifies a valid client configuration
+with no managed marker before deleting the disposable fixture. Do not commit
+session logs, source dumps, environment dumps, or credentials; the bounded
+prompt is not included in evidence. Luna Cloud availability is reported
+separately rather than inferred from local adapter tests.

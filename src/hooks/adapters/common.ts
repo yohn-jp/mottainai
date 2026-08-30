@@ -3,6 +3,7 @@ import type { HookClient, HookEvent, HookOperation, HookTarget } from "../types.
 import { HOOK_CONTRACT_VERSION } from "../types.js";
 
 const MAX_VALUE_LENGTH = 160;
+const MANAGED_EXEC_TOOL_NAMES = new Set(["mottainai_exec", "mcp__mottainai__mottainai_exec"]);
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -95,6 +96,15 @@ export function operationForTool(value: string | undefined): HookOperation {
   }
 }
 
+/**
+ * A managed MCP call is already inside the replacement capability. The
+ * client-facing hook must not redirect it back to itself, while unknown tools
+ * continue to use the fail-closed native process classification above.
+ */
+function isManagedCapabilityTool(value: string | undefined): boolean {
+  return value !== undefined && MANAGED_EXEC_TOOL_NAMES.has(value);
+}
+
 function targetFor(operation: HookOperation, input: Record<string, unknown>): HookTarget | undefined {
   if (operation === "process.exec") {
     const command = boundedValue(input.command ?? input.cmd ?? input.shell_command, 160);
@@ -118,9 +128,15 @@ export function normalizeClientEvent(
   }
   const operation = operationForTool(tool);
   const input = toolInput(raw);
+  const managedCapability = isManagedCapabilityTool(tool);
   const metadata: Record<string, string | number | boolean> = {
     tool,
-    boundary: operation === "process.exec" ? "native-process" : "native-tool",
+    boundary: managedCapability
+      ? "managed-capability"
+      : operation === "process.exec"
+        ? "native-process"
+        : "native-tool",
+    ...(managedCapability ? { managedPath: true } : {}),
   };
   if (operation === "source.read" || operation === "source.search") {
     const mode = input.mode;

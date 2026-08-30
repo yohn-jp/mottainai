@@ -125,6 +125,65 @@ test("native process boundary does not inspect executable spellings", () => {
   assert.equal(third.decision, first.decision);
 });
 
+test("the registered Mottainai exec MCP path is allowed without weakening unknown-tool enforcement", () => {
+  const root = workspace();
+  const context = { workspaceRoot: root, ...deriveTrustedHookContext({ workspaceRoot: root }) };
+  const managed = claudeAdapter.normalize(
+    {
+      hook_event_name: "PreToolUse",
+      tool_name: "mcp__mottainai__mottainai_exec",
+      tool_input: { command: "printf managed-hooks-real-client" },
+    },
+    context,
+  );
+  assert.equal(managed.ok, true);
+  if (managed.ok) {
+    assert.equal(managed.event.operation, "process.exec");
+    assert.equal(managed.event.metadata?.boundary, "managed-capability");
+    assert.equal(
+      decideHook(managed.event, {
+        policy: policy("enforce"),
+        capabilities: capabilityRegistryFromRuntime({
+          dispatcherAvailable: true,
+          exposedTools: new Set(["mottainai_exec"]),
+        }),
+      }).reason,
+      "managed_capability_path",
+    );
+    const unavailable = decideHook(managed.event, {
+      policy: policy("enforce"),
+      capabilities: capabilityRegistryFromRuntime({ dispatcherAvailable: false, exposedTools: new Set() }),
+    });
+    assert.equal(unavailable.decision, "deny");
+    assert.equal(unavailable.reason, "managed_capability_unavailable");
+    assert.equal(unavailable.diagnostic, "failure_mode=closed");
+  }
+
+  const unknown = claudeAdapter.normalize(
+    {
+      hook_event_name: "PreToolUse",
+      tool_name: "mcp__other__exec",
+      tool_input: { command: "printf bypass" },
+    },
+    context,
+  );
+  assert.equal(unknown.ok, true);
+  if (unknown.ok) {
+    assert.equal(unknown.event.operation, "process.exec");
+    assert.equal(unknown.event.metadata?.boundary, "native-process");
+    assert.equal(
+      decideHook(unknown.event, {
+        policy: policy("enforce"),
+        capabilities: capabilityRegistryFromRuntime({
+          dispatcherAvailable: true,
+          exposedTools: new Set(["mottainai_exec"]),
+        }),
+      }).decision,
+      "redirect",
+    );
+  }
+});
+
 test("event metadata cannot weaken configured mode or failure semantics", async () => {
   const capabilities = createCapabilityRegistry([
     {
