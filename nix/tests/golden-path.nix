@@ -170,6 +170,19 @@ let
     genV2.generation
     genV2.metadataFile
     nawabariPackage
+    # Runtime closures alone are not enough: mottainai's own build needs a
+    # native-module toolchain (node-gyp's Python, make, ...) that is a
+    # *build-time* input of the mottainai/managed-generation derivations,
+    # never referenced by their *output* closure. Sharing each .drv path
+    # too (not just the built output) additionally shares that full build
+    # closure, so the guest's own real `nix build` (a separate evaluation
+    # of the embedded nix-projection flake, not literally `self`) never
+    # needs network even on a cache miss for the top-level derivation
+    # itself.
+    genV1.generation.drvPath
+    genV1.metadataFile.drvPath
+    genV2.generation.drvPath
+    genV2.metadataFile.drvPath
     # The packaged mottainai-bootstrap CLI's embedded nix-projection
     # (nix/bootstrap.nix's installPhase) carries its own copy of
     # nix/flake.lock, locked to this exact nixpkgs input. Its own
@@ -181,8 +194,8 @@ let
   ];
 
   systemString = pkgs.stdenv.hostPlatform.system;
-in
-pkgs.testers.nixosTest {
+
+  goldenPathTest = pkgs.testers.nixosTest {
   name = "mottainai-runtime-appliance-golden-path";
 
   nodes.golden =
@@ -413,4 +426,23 @@ pkgs.testers.nixosTest {
         print("=== bounded golden-path evidence: mottainai-bootstrap reconcile (final no-op) ===")
         print(evidence_reconcile)
   '';
-}
+  };
+in
+# Forces genV1/genV2's full build closure (including native-module
+# toolchain build inputs, via the .drvPath entries in sharedGuestPaths
+# above) to actually realize on the host as an explicit, unambiguous
+# dependency of this derivation — not merely implied by testScript string
+# interpolation or virtualisation.additionalPaths' own internal closure
+# computation, which only covers runtime references.
+pkgs.runCommand goldenPathTest.name
+  {
+    nativeBuildInputs = [
+      genV1.generation
+      genV1.metadataFile
+      genV2.generation
+      genV2.metadataFile
+    ];
+  }
+  ''
+    cp -r ${goldenPathTest} "$out"
+  ''
