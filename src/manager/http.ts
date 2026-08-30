@@ -206,31 +206,56 @@ function requireSameOrigin(request: IncomingMessage): void {
 }
 
 type ManagerRouteMethod = "GET" | "POST";
+type ManagerRouteName =
+  | "health"
+  | "sessions"
+  | "sessions-preview"
+  | "sessions-preflight"
+  | "preview"
+  | "preflight"
+  | "session"
+  | "reconcile"
+  | "nawabari-inspect"
+  | "open-terminal"
+  | "stop"
+  | "restart";
 
-function methodsForRoute(segments: readonly string[]): readonly ManagerRouteMethod[] | undefined {
-  if (segments.length === 1 && segments[0] === "health") return ["GET"];
-  if (segments.length === 1 && segments[0] === "sessions") return ["GET", "POST"];
-  if (
-    (segments.length === 2 &&
-      segments[0] === "sessions" &&
-      (segments[1] === "preview" || segments[1] === "preflight")) ||
-    (segments.length === 1 && (segments[0] === "preview" || segments[0] === "preflight"))
-  ) {
-    return ["POST"];
-  }
-  if (segments.length === 2 && segments[0] === "sessions") return ["GET"];
-  if (segments.length === 1 && segments[0] === "reconcile") return ["POST"];
-  if (segments.length === 4 && segments[0] === "nawabari" && segments[1] === "sessions" && segments[3] === "inspect") {
-    return ["POST"];
-  }
-  if (
-    segments.length === 3 &&
-    segments[0] === "sessions" &&
-    (segments[2] === "open-terminal" || segments[2] === "stop" || segments[2] === "restart")
-  ) {
-    return ["POST"];
-  }
-  return undefined;
+type ManagerRouteDefinition = {
+  readonly name: ManagerRouteName;
+  readonly path: readonly string[];
+  readonly methods: readonly ManagerRouteMethod[];
+};
+
+// HEAD and OPTIONS are deliberately not implicit aliases here. They are
+// rejected explicitly below so their behavior is stable and local to Manager.
+const MANAGER_ROUTES: readonly ManagerRouteDefinition[] = [
+  { name: "health", path: ["health"], methods: ["GET"] },
+  { name: "sessions", path: ["sessions"], methods: ["GET", "POST"] },
+  // Keep static session aliases ahead of the dynamic session detail route.
+  { name: "sessions-preview", path: ["sessions", "preview"], methods: ["POST"] },
+  { name: "sessions-preflight", path: ["sessions", "preflight"], methods: ["POST"] },
+  { name: "preview", path: ["preview"], methods: ["POST"] },
+  { name: "preflight", path: ["preflight"], methods: ["POST"] },
+  { name: "session", path: ["sessions", ":sessionId"], methods: ["GET"] },
+  { name: "reconcile", path: ["reconcile"], methods: ["POST"] },
+  {
+    name: "nawabari-inspect",
+    path: ["nawabari", "sessions", ":sessionId", "inspect"],
+    methods: ["POST"],
+  },
+  { name: "open-terminal", path: ["sessions", ":sessionId", "open-terminal"], methods: ["POST"] },
+  { name: "stop", path: ["sessions", ":sessionId", "stop"], methods: ["POST"] },
+  { name: "restart", path: ["sessions", ":sessionId", "restart"], methods: ["POST"] },
+];
+
+function routePathMatches(path: readonly string[], segments: readonly string[]): boolean {
+  return (
+    path.length === segments.length && path.every((part, index) => part.startsWith(":") || part === segments[index])
+  );
+}
+
+function routeForPath(segments: readonly string[]): ManagerRouteDefinition | undefined {
+  return MANAGER_ROUTES.find(({ path }) => routePathMatches(path, segments));
 }
 
 function sendMethodNotAllowed(response: ServerResponse, allowedMethods: readonly ManagerRouteMethod[]): void {
@@ -261,78 +286,70 @@ export class ManagerHttpApi implements ManagerHttpHandler {
     try {
       const method = request.method ?? "GET";
       const segments = url.pathname.slice(MANAGER_API_PREFIX.length).split("/").filter(Boolean);
-      const allowedMethods = methodsForRoute(segments);
-      if (allowedMethods === undefined) {
+      const route = routeForPath(segments);
+      if (route === undefined) {
         sendJson(response, 404, { error: { code: "not_found", message: "Manager route not found" } });
         return;
       }
-      // HEAD and OPTIONS are intentionally not implicit aliases for GET or POST.
-      if (!allowedMethods.some((allowedMethod) => allowedMethod === method)) {
-        sendMethodNotAllowed(response, allowedMethods);
+      const routeMethod = method as ManagerRouteMethod;
+      if (!route.methods.includes(routeMethod)) {
+        sendMethodNotAllowed(response, route.methods);
         return;
       }
       if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") requireSameOrigin(request);
-      if (segments.length === 1 && segments[0] === "health" && method === "GET") {
-        sendJson(response, 200, this.service.health());
-        return;
-      }
-      if (segments.length === 1 && segments[0] === "sessions" && method === "GET") {
-        const sessions = await this.service.list(filterFromQuery(url));
-        sendJson(response, 200, { sessions: sessions.map((session) => this.service.projectSessionSummary(session)) });
-        return;
-      }
-      if (segments.length === 1 && segments[0] === "sessions" && method === "POST") {
-        requireJsonContentType(request);
-        sendJson(response, 201, {
-          session: this.service.projectSession(await this.service.start(inputFromBody(await readJsonBody(request)))),
-        });
-        return;
-      }
-      if (
-        ((segments.length === 2 &&
-          segments[0] === "sessions" &&
-          (segments[1] === "preview" || segments[1] === "preflight")) ||
-          (segments.length === 1 && (segments[0] === "preview" || segments[0] === "preflight"))) &&
-        method === "POST"
-      ) {
-        requireJsonContentType(request);
-        sendJson(response, 200, { preview: await this.service.preview(inputFromBody(await readJsonBody(request))) });
-        return;
-      }
-      if (segments.length === 2 && segments[0] === "sessions" && method === "GET") {
-        const session = await this.service.get(sessionIdFromPath(segments[1] ?? ""));
-        sendJson(response, 200, { session: this.service.projectSession(session) });
-        return;
-      }
-      if (segments.length === 1 && segments[0] === "reconcile" && method === "POST") {
-        sendJson(response, 200, {
-          sessions: (await this.service.reconcileNow()).map((session) => this.service.projectSession(session)),
-        });
-        return;
-      }
-      if (
-        segments.length === 4 &&
-        segments[0] === "nawabari" &&
-        segments[1] === "sessions" &&
-        segments[3] === "inspect" &&
-        method === "POST"
-      ) {
-        sendJson(response, 200, {
-          session: await this.service.inspectNawabariSession(nawabariSessionIdFromPath(segments[2] ?? "")),
-        });
-        return;
-      }
-      if (segments.length === 3 && segments[0] === "sessions" && method === "POST") {
-        const sessionId = sessionIdFromPath(segments[1] ?? "");
-        if (segments[2] === "open-terminal") {
-          sendJson(response, 200, { session: this.service.projectSession(await this.service.openTerminal(sessionId)) });
+      switch (route.name) {
+        case "health":
+          sendJson(response, 200, this.service.health());
+          return;
+        case "sessions":
+          if (method === "GET") {
+            const sessions = await this.service.list(filterFromQuery(url));
+            sendJson(response, 200, {
+              sessions: sessions.map((session) => this.service.projectSessionSummary(session)),
+            });
+            return;
+          }
+          requireJsonContentType(request);
+          sendJson(response, 201, {
+            session: this.service.projectSession(await this.service.start(inputFromBody(await readJsonBody(request)))),
+          });
+          return;
+        case "sessions-preview":
+        case "sessions-preflight":
+        case "preview":
+        case "preflight":
+          requireJsonContentType(request);
+          sendJson(response, 200, { preview: await this.service.preview(inputFromBody(await readJsonBody(request))) });
+          return;
+        case "session": {
+          const session = await this.service.get(sessionIdFromPath(segments[1] ?? ""));
+          sendJson(response, 200, { session: this.service.projectSession(session) });
           return;
         }
-        if (segments[2] === "stop") {
-          sendJson(response, 200, { session: this.service.projectSession(await this.service.stop(sessionId)) });
+        case "reconcile":
+          sendJson(response, 200, {
+            sessions: (await this.service.reconcileNow()).map((session) => this.service.projectSession(session)),
+          });
           return;
-        }
-        if (segments[2] === "restart") {
+        case "nawabari-inspect":
+          sendJson(response, 200, {
+            session: await this.service.inspectNawabariSession(nawabariSessionIdFromPath(segments[2] ?? "")),
+          });
+          return;
+        case "open-terminal":
+        case "stop":
+        case "restart": {
+          const sessionId = sessionIdFromPath(segments[1] ?? "");
+          if (route.name === "open-terminal") {
+            sendJson(response, 200, {
+              session: this.service.projectSession(await this.service.openTerminal(sessionId)),
+            });
+            return;
+          }
+          if (route.name === "stop") {
+            sendJson(response, 200, { session: this.service.projectSession(await this.service.stop(sessionId)) });
+            return;
+          }
           sendJson(response, 200, { session: this.service.projectSession(await this.service.restart(sessionId)) });
           return;
         }
