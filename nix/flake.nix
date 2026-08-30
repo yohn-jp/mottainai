@@ -142,15 +142,29 @@
       # `packages.<system>.*` derivation. scripts/build-managed-generation.mjs
       # is the caller (`nix eval --impure` against this attribute), reading
       # the manifest from a file the flake itself never touches.
+      #
+      # `mottainaiSource` is the resolved exact Mottainai source tree the
+      # manifest's requested version should be built from — required, no
+      # default to this flake's own checkout. Resolving *which* source that
+      # is (a tagged release checkout, a fetched tarball, whatever a fresh
+      # bootstrap appliance downloads) is Issue #626's job, not #625's: this
+      # function only projects "manifest + already-resolved exact source"
+      # into a deterministic Nix generation, exactly the boundary #625 owns
+      # (see docs/managed-generation.md "Source resolution boundary").
+      # `nix#mottainai` (`packages.<system>.mottainai`, used by the
+      # canonical Runtime module) still builds unconditionally from this
+      # flake's own checkout via `mkMottainai`/`source = ../.` above — that
+      # path is unaffected by this parameter.
       lib.mkManagedGeneration =
-        { system, manifest }:
+        { system, manifest, mottainaiSource }:
         let
           pkgs = nixpkgs.legacyPackages.${system};
         in
         import ./managed-generation.nix {
           inherit pkgs manifest;
           inherit (nixpkgs) lib;
-          mottainaiPackage = mkMottainai pkgs;
+          buildMottainai = source: import ./mottainai.nix { inherit pkgs source; };
+          mottainaiSource = mottainaiSource;
           nawabariPackage = mkNawabari pkgs;
         };
 
@@ -176,7 +190,12 @@
             inherit pkgs;
             inherit (nixpkgs) lib;
             mkManagedGeneration = self.lib.mkManagedGeneration;
-            mottainaiPackage = mkMottainai pkgs;
+            # This flake's own checkout, standing in for whatever exact
+            # source Issue #626 will resolve in production — the point of
+            # this test is that the projection accepts an externally
+            # supplied source at all, not that this particular source is
+            # canonical.
+            mottainaiSource = ../.;
             nawabariPackage = mkNawabari pkgs;
           };
         }

@@ -25,6 +25,13 @@ const nixDir = path.join(repoRoot, "nix");
 
 const manifestPath = path.resolve(option("manifest"));
 const system = option("system");
+// The manifest's Mottainai entry projects onto an already-resolved exact
+// source tree, not this repository's own checkout (Issue #625 owns
+// manifest+resolved-source -> Nix generation only; Issue #626 owns
+// resolving/fetching which source that is). This script is a caller like
+// any other and must supply one explicitly — no fallback to `../.` here,
+// or every build would silently stay coupled to the checkout invoking it.
+const mottainaiSource = path.resolve(option("mottainai-source"));
 
 // Run via `node --import tsx` (matches scripts/benchmark-semantic-fact-cache.mjs);
 // imports the TypeScript runtime-contract modules directly rather than a
@@ -47,19 +54,37 @@ const manifest = parseManagedPackageManifest(manifestJson);
 // bound at the Nix layer; this is the fast, Nix-toolchain-free gate.
 assertManifestProjectable(manifest);
 
+// mottainaiSource must arrive as a Nix path, not a Nix string: assigning a
+// JSON-string-embedded path directly to a derivation's `src` skips Nix's
+// content-addressing (the sandboxed build then looks for that literal host
+// path and fails — "cp: cannot stat ...: No such file or directory").
+// `--arg` (a real Nix value, not text substituted into the expression)
+// keeps the type correct; `/. + "<path>"` inside the expression converts
+// the absolute path string --arg still hands over into a Nix path value.
 const nixExpr = `
+{ mottainaiSource }:
 let
   flake = builtins.getFlake (toString ${JSON.stringify(repoRoot)} + "?dir=nix");
   manifest = builtins.fromJSON (builtins.readFile ${JSON.stringify(manifestPath)});
 in
-(flake.lib.mkManagedGeneration { system = ${JSON.stringify(system)}; inherit manifest; }).metadataFile
+(flake.lib.mkManagedGeneration { system = ${JSON.stringify(system)}; inherit manifest mottainaiSource; }).metadataFile
 `;
 
 let metadataStorePath;
 try {
   metadataStorePath = execFileSync(
     "nix",
-    ["build", "--impure", "--no-link", "--print-out-paths", "--expr", nixExpr],
+    [
+      "build",
+      "--impure",
+      "--no-link",
+      "--print-out-paths",
+      "--expr",
+      nixExpr,
+      "--arg",
+      "mottainaiSource",
+      `/. + ${JSON.stringify(mottainaiSource)}`,
+    ],
     // CI=true: nix/mottainai.nix's build reads the repository's own
     // node_modules via `source = ../.`; a locally pnpm-installed
     // node_modules otherwise makes pnpm prompt interactively to remove it.

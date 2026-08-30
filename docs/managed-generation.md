@@ -55,6 +55,41 @@ package-resolution framework: extending it to a new packageId/flakeRef is a
 deliberate, reviewed change to both files, never an emergent side effect of
 a manifest declaring one.
 
+## Source resolution boundary
+
+The Mottainai side of the recipe table above is not a pre-built, fixed
+derivation this file receives — `nix/managed-generation.nix`'s signature is
+`{ pkgs, lib, buildMottainai, mottainaiSource, nawabariPackage, manifest }:`,
+where `buildMottainai = source: import ./mottainai.nix { inherit pkgs source; }`
+(`nix/mottainai.nix` partially applied over `pkgs`) is built from the
+caller-supplied `mottainaiSource` argument at projection time. `nix/flake.nix`'s
+`lib.mkManagedGeneration` requires `mottainaiSource` explicitly, with no
+default falling back to this flake's own checkout.
+
+This is a deliberate boundary, not an oversight: an earlier revision of
+this file received a `mottainaiPackage` derivation already fixed to this
+flake's own checkout (`nix/flake.nix`'s `mkMottainai pkgs`, `source = ../.`,
+still used unchanged for `packages.<system>.mottainai` and the canonical
+Runtime module). That made the projection incapable of building any
+Mottainai version other than whatever this exact checkout happened to be —
+impossible to satisfy from a fresh bootstrap appliance building a
+manifest-requested release that isn't this checkout's own tagged version
+(PR #634 review).
+
+**Issue #625 owns projection only**: "manifest + an already-resolved exact
+source -> deterministic Nix generation." **Issue #626 owns resolving which
+source that is** — obtaining/fetching the exact source tree a manifest
+entry's requested version corresponds to (a tagged release checkout, a
+downloaded tarball, whatever a bootstrap appliance's package-manager UX
+produces) is explicitly out of scope here; this projection only consumes
+the result. `scripts/build-managed-generation.mjs`'s `--mottainai-source`
+flag mirrors this: it is a required, already-resolved path, not something
+the script fetches on the caller's behalf.
+
+`nawabariPackage`, by contrast, is still received pre-built: it is
+unaffected by this boundary because `nix/packages/nawabari.nix` already
+resolves its own source internally via `fetchurl`.
+
 ## `sourceSha256` meaning and a known Mottainai fragility
 
 `sourceSha256` is verified as "the exact source Nix resolved and built
@@ -142,16 +177,23 @@ needing to re-derive it from the manifest directly.
 ```sh
 node --import tsx scripts/build-managed-generation.mjs \
   --manifest path/to/manifest.json \
-  --system x86_64-linux
+  --system x86_64-linux \
+  --mottainai-source path/to/resolved/mottainai/source
 ```
 
-The script parses and validates the manifest against #624's schema, fails
-closed via `assertManifestProjectable` before touching Nix for any entry it
-cannot project, invokes `nix build` against
-`nix/flake.nix`'s `lib.mkManagedGeneration` function output (the pinned
-flake inputs — no ambient npm/PATH/network install path), validates the
-resulting metadata against `ManagedGenerationMetadataSchema`, and prints
-the metadata plus the derived `generationIdentity`.
+`--mottainai-source` is required and is not fetched by this script — it
+must already be the exact resolved source tree the manifest's Mottainai
+entry names (see "Source resolution boundary" above). The script parses
+and validates the manifest against #624's schema, fails closed via
+`assertManifestProjectable` before touching Nix for any entry it cannot
+project, invokes `nix build` against `nix/flake.nix`'s
+`lib.mkManagedGeneration` function output (the pinned flake inputs — no
+ambient npm/PATH/network install path) with `mottainaiSource` passed
+through as a Nix path via `--arg` (not string-substituted into the
+expression, which would silently break Nix's content-addressing for that
+source), validates the resulting metadata against
+`ManagedGenerationMetadataSchema`, and prints the metadata plus the derived
+`generationIdentity`.
 
 ## Constraints this projection deliberately honors
 
@@ -202,10 +244,31 @@ match at the Nix layer itself (`requireMatchingVersion`), independent of
 script-side check — a manifest/build mismatch is caught even if a caller
 skips the TypeScript verification layer.
 
+The same file also proves the "Source resolution boundary" section above
+holds, not just that it's documented:
+[`nix/tests/fixtures/alt-mottainai-source`](../nix/tests/fixtures/alt-mottainai-source)
+is a separate tracked source tree with its own `package.json` declaring a
+version (`0.0.1-fixture-alt-source`) this repository checkout's own
+`package.json` does not have. Two assertions exercise it: a manifest
+requesting exactly that fixture version resolves successfully only when
+the fixture is supplied as `mottainaiSource` — a projection silently
+falling back to this flake's own checkout (the bug this refactor fixes)
+would resolve the checkout's version instead and fail this assertion; and
+the same fixture supplied against a manifest requesting _this checkout's_
+version still fails deterministically, proving the version-match check
+isn't trivially satisfied once an external source is wired in. Both run at
+Nix evaluation time, same as the rest of this file.
+
 `nix/managed-generation.nix` was additionally exercised end-to-end against
 a real manifest with `nix build` during development, proving: both
 supported entries resolve and build via the existing `mottainai.nix` /
 `nawabari.nix` derivations; an unsupported `packageId` is rejected by Nix
-before any build starts; and rebuilding after a manifest change that drops
-an already-built package (`mottainai` removed, `nawabari` unchanged) reuses
-the cached `nawabari` derivation rather than rebuilding it.
+before any build starts; rebuilding after a manifest change that drops an
+already-built package (`mottainai` removed, `nawabari` unchanged) reuses
+the cached `nawabari` derivation rather than rebuilding it; and — the
+decoupling proof for the actual build path, not just Nix evaluation — a
+manifest requesting version `9.9.9` against an independent, on-disk copy of
+this repository with `package.json`'s version bumped to `9.9.9` builds
+`mottainai-9.9.9` end to end (`scripts/build-managed-generation.mjs
+--mottainai-source <that independent tree>`), including a passing
+`verifySourceIntegrity` check against that tree's real NAR hash.

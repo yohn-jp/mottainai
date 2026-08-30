@@ -1,12 +1,30 @@
-{ pkgs, lib, mottainaiPackage, nawabariPackage, manifest }:
+{ pkgs, lib, buildMottainai, mottainaiSource, nawabariPackage, manifest }:
 
 # Deterministic projection of a mottainai.managed-package-manifest.v1
 # manifest (src/runtime-contract/managed-package-manifest.ts, Issue #624)
 # into a buildable managed Nix generation (Issue #625). Consumes the
-# existing pkgs.mottainai / pkgs.nawabari derivations (nix/mottainai.nix,
-# nix/packages/nawabari.nix) rather than inventing a second
-# package-resolution path — this file only projects manifest entries onto
-# them, it does not build a general package framework.
+# existing nix/mottainai.nix / nix/packages/nawabari.nix recipes rather
+# than inventing a second package-resolution path — this file only
+# projects manifest entries onto them, it does not build a general package
+# framework.
+#
+# Source resolution boundary (PR #634 review): `mottainaiSource` is an
+# already-resolved exact source tree this projection is handed — it does
+# not decide *which* source that is. Earlier this file received a
+# pre-built `mottainaiPackage` fixed to this flake's own checkout
+# (`nix/flake.nix`'s `mkMottainai pkgs` with `source = ../.`), which made
+# the whole projection incapable of building any Mottainai version other
+# than whatever this exact checkout happens to be — impossible to satisfy
+# from a fresh bootstrap appliance building a manifest-requested release.
+# `buildMottainai` (`source -> derivation`, `nix/mottainai.nix` partially
+# applied over `pkgs`) plus the caller-supplied `mottainaiSource` restores
+# the real boundary: "manifest + resolved exact source -> deterministic
+# Nix generation." Resolving *how* to obtain that source (a tagged release
+# checkout, a fetched tarball, a bootstrap appliance's download) is Issue
+# #626's job — package-manager UX and manifest-to-source-fetching — not
+# implemented here. Nawabari is unaffected: `nix/packages/nawabari.nix`
+# already resolves its own source internally via `fetchurl` and is
+# received here pre-built, same as before.
 #
 # Source-integrity verification (manifest sourceSha256 vs. the exact
 # source tree each derivation actually built from) is deliberately not
@@ -57,6 +75,11 @@ let
   # version; anything else fails deterministically before any build is
   # attempted (Issue #625: "fail deterministically for unsupported package
   # kinds or unavailable recipes").
+  # Built lazily, once, only if a manifest entry actually needs it — Nix
+  # shares this single reference across the (at most one, #624 forbids
+  # duplicate packageId) mottainai entry, so this never rebuilds per entry.
+  mottainaiDerivation = buildMottainai mottainaiSource;
+
   resolveEntry = entry:
     if entry.kind != "nix-flake-package" then
       unsupportedPackage entry "unsupported managed package kind"
@@ -64,7 +87,7 @@ let
       if entry.source.flakeRef != "nix#mottainai" then
         unsupportedPackage entry "no recipe available for this flakeRef"
       else
-        requireMatchingVersion entry mottainaiPackage
+        requireMatchingVersion entry mottainaiDerivation
     else if entry.packageId == "nawabari" then
       if entry.source.flakeRef != "nix/packages/nawabari.nix" then
         unsupportedPackage entry "no recipe available for this flakeRef"
