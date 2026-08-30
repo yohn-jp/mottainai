@@ -214,6 +214,7 @@ let
 
   testScript = ''
     import binascii
+    import json
     import shlex
     import time
 
@@ -497,11 +498,60 @@ let
         assert '"readiness": "managed-runtime-ready"' in health_after_rollback
         assert '"managedRuntimeReady": true' in health_after_rollback
 
+    with subtest("post-rollback state: active/current restored to v2 while the persisted desired identity correctly still reflects the failed v1 attempt (#628 rollback semantics)"):
+        # reconcileManagedRuntime's rollback path (managed-runtime.ts
+        # selectPreviousAndVerify) restores `active`/`current` to the prior
+        # known-good generation, but deliberately does not also rewind the
+        # top-level `desiredManifestSemanticIdentity` back to that
+        # generation's identity — the failed candidate's desired identity is
+        # exactly what was requested, and rollback only undoes the
+        # unsuccessful *activation*, not the request itself. Read the
+        # persisted state directly here (no reconcile call): the manifest on
+        # disk still declares v1/generation 3, so a reconcile at this point
+        # is a real recovery transaction, never a no-op — asserted in the
+        # next subtest instead of here.
+        state_after_rollback = json.loads(
+            succeed("cat /var/lib/mottainai-control/managed-runtime/state.json")
+        )
+        active_after_rollback = state_after_rollback["active"]
+        assert active_after_rollback["storePath"] == current_after_rollback
+        assert active_after_rollback["health"]["state"] == "healthy"
+        assert (
+            state_after_rollback["desiredManifestSemanticIdentity"]
+            != active_after_rollback["desiredManifestSemanticIdentity"]
+        ), (
+            "desired and active identities must diverge after a rollback: the"
+            " persisted desired identity is the failed v1 attempt, never"
+            " silently reset to the restored generation's identity"
+        )
+        failure_after_rollback = state_after_rollback["failure"]
+        assert failure_after_rollback["code"] == "health_failure"
+        assert failure_after_rollback["storePath"] == "${genV1.generation}", (
+            "retained failure evidence must pin to the exact broken v1 candidate, not a generic error"
+        )
+
+    with subtest("recover the desired state to v2: reconcile updates back to the known-good identity (outcome is 'updated', not 'noop', since desired only just caught up with active)"):
+        apply_manifest(
+            golden_manifest("${mottainaiVersionV2}", mottainai_source_sha256_v2, nawabari_source_sha256, 4)
+        )
+        reconcile_after_recovery = reconcile("${sourceV2}")
+        assert '"outcome": "updated"' in reconcile_after_recovery, (
+            "the first reconcile after re-declaring v2 as desired must still"
+            " go through a real build+switch transaction: the persisted"
+            " desired identity only just caught up with the already-active"
+            " generation, so this cannot be a no-op"
+        )
+        current_after_recovery = succeed("readlink -f /var/lib/mottainai-control/managed-runtime/current").strip()
+        assert current_after_recovery == current_v2
+
     with subtest("bounded machine-readable evidence: appliance identity, bootstrap contract, and generation identities"):
         evidence_health = succeed("mottainai-runtime-health")
         assert '"contractId": "mottainai.linux-runtime.v1"' in evidence_health
         assert '"runtimeIdentity": "golden-path-appliance"' in evidence_health
         assert '"buildIdentity": "' + base_build_identity + '"' in evidence_health
+        # Desired and active identities are now equal (the prior subtest
+        # brought the persisted desired identity back in line with v2), so
+        # this repeat call with the same manifest is a genuine no-op.
         evidence_reconcile = reconcile("${sourceV2}")
         assert '"outcome": "noop"' in evidence_reconcile
         assert '"generationIdentity"' in evidence_reconcile
