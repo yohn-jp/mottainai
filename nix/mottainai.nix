@@ -93,7 +93,12 @@ pkgs.stdenv.mkDerivation {
 
     packageRoot="$out/lib/node_modules/${pname}"
     mkdir -p "$packageRoot"
-    cp -a . "$packageRoot/"
+
+    # Build from the exact tracked source, but install the same bounded file
+    # surface declared by package.json rather than copying the repository.
+    pnpm pack --pack-destination "$TMPDIR"
+    tar -xzf "$TMPDIR/${pname}-${version}.tgz" --strip-components=1 -C "$packageRoot"
+    cp -a node_modules "$packageRoot/node_modules"
     rm -rf "$packageRoot/node_modules/.cache"
 
     # pnpm stamps node_modules/.modules.yaml with a prunedAt wall-clock
