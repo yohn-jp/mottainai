@@ -418,15 +418,24 @@ test("Manager API remains loopback host protected and rejects malformed session 
   activeServers.push(handle);
   for (const malformedId of [
     "not-safe",
+    "123456781234-4234-8234-123456789abc",
     "12345678-12345-4234-8234-123456789abc",
     "12345678-1234-4234--8234-123456789abc",
     "12345678-1234-4234-8234-123456789abc-extra",
     "12345678-1234-4234-8234-123456789abg",
+    "12345678-1234-1234-8234-123456789abc",
+    "12345678-1234-5234-8234-123456789abc",
+    "12345678-1234-4234-7234-123456789abc",
+    "12345678-1234-4234-c234-123456789abc",
+    "12345678-1234-4234-8234-123456789ABC",
   ]) {
     const malformed = await fetch(`${handle.url}api/v1/manager/sessions/${malformedId}/stop`, {
       method: "POST",
     });
     assert.equal(malformed.status, 400, malformedId);
+    assert.deepEqual(await malformed.json(), {
+      error: { code: "invalid_request", message: "invalid session id" },
+    });
   }
   const hostile = await new Promise<number | undefined>((resolve, reject) => {
     const client = request(
