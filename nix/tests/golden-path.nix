@@ -86,6 +86,25 @@ let
   # checkout's own checks.
   sourceV1 = source;
 
+  # --repo-root only needs to locate nix/flake.nix so
+  # buildManagedGeneration (managed-generation-build.ts) can resolve
+  # `flake.lib.mkManagedGeneration` via `builtins.getFlake`; it never
+  # affects genV1/genV2's own derivation identity below, since
+  # `mottainaiSource` is supplied to that function independently via
+  # --mottainai-source. Passing sourceV1 directly as --repo-root hit a real
+  # CI failure: once this checkout is added to the Nix store it is named
+  # `<hash>-source`, and interpolating that already-a-store-path value into
+  # `builtins.getFlake (toString repoRoot + "?dir=nix")` as a bare string
+  # made Nix resolve the wrong (truncated) store path — "path
+  # '.../nix/flake.nix' does not exist" — rather than the real one. A plain
+  # re-copy under an explicit, unambiguous derivation name sidesteps
+  # whatever in Nix's flake-ref string parsing that name triggers: same
+  # content, ordinary store path name, nothing for the parser to
+  # misinterpret.
+  repoRootForGuest = pkgs.runCommand "golden-path-repo-root" { } ''
+    cp -a ${sourceV1} "$out"
+  '';
+
   # v2 is a real, independently buildable source tree: the identical
   # tracked checkout with only package.json's version field changed, so it
   # goes through the exact same nix/mottainai.nix build recipe
@@ -165,6 +184,7 @@ let
   sharedGuestPaths = [
     sourceV1
     sourceV2
+    repoRootForGuest
     genV1.generation
     genV1.metadataFile
     genV2.generation
@@ -290,8 +310,9 @@ let
         runner = succeed if expect_success else fail
         return runner("su -l mottainai-control -c " + shlex.quote(wrapped))
 
-    # --repo-root points at this exact repository checkout (already shared
-    # into the guest's store, same as sourceV1) rather than the packaged
+    # --repo-root points at repoRootForGuest, a plain re-copy of this exact
+    # repository checkout (see its own comment above for why a copy rather
+    # than sourceV1/source directly), rather than the packaged
     # mottainai-bootstrap CLI's own embedded nix-projection copy
     # (nix/bootstrap.nix's installPhase re-git-inits a *separate* tree).
     # Real production/manual use relies on that embedded copy precisely so
@@ -300,13 +321,14 @@ let
     # this golden path's job is Issue #628's activation/health/rollback
     # lifecycle, not re-proving #626's packaging in isolation. Evaluating
     # the *identical* nix/ directory genV1/genV2 were themselves built
-    # from (not a byte-identical but separately re-git-init'd copy)
+    # from (repoRootForGuest is a byte-identical copy of the same source
+    # genV1/genV2 build from, just under a different store path name)
     # guarantees the guest's real `nix build` computes the exact same
     # derivation as the host's, landing on the pre-realized cache hit
     # instead of attempting a network-dependent rebuild with no network.
     def reconcile(mottainai_source_tree):
         return run_as_control_bounded(
-            "mottainai-bootstrap reconcile --system ${systemString} --repo-root ${source} --mottainai-source "
+            "mottainai-bootstrap reconcile --system ${systemString} --repo-root ${repoRootForGuest} --mottainai-source "
             + mottainai_source_tree
             + " --json",
             expect_success=True,
@@ -314,7 +336,7 @@ let
 
     def reconcile_expect_failure(mottainai_source_tree):
         return run_as_control_bounded(
-            "mottainai-bootstrap reconcile --system ${systemString} --repo-root ${source} --mottainai-source "
+            "mottainai-bootstrap reconcile --system ${systemString} --repo-root ${repoRootForGuest} --mottainai-source "
             + mottainai_source_tree
             + " --json",
             expect_success=False,
