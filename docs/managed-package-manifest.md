@@ -15,13 +15,13 @@ contract without it pre-implementing them.
 
 Three distinct, non-overlapping contracts exist under `src/runtime-contract/`:
 
-| Contract                              | File                     | Describes                                                                 | Produced by             | Consumed by                              |
-| -------------------------------------- | ------------------------ | -------------------------------------------------------------------------- | ------------------------ | ------------------------------------------ |
-| `mottainai.linux-runtime.v1`           | `contract.ts`             | Live health/capability result an already-running Runtime reports           | A running Runtime         | `mottainai init` reconciliation            |
-| `mottainai.linux-runtime-appliance.v1` | `appliance-manifest.ts`   | Build-time provenance record for the downloadable base disk artifact       | CI appliance build (#601) | Appliance distribution/verification        |
-| `mottainai.managed-package-manifest.v1`| `managed-package-manifest.ts` | Desired-state record of which managed packages/versions a Runtime generation should have | An operator/Mottainai release process | #625 Nix projection, #626/#628 reconciliation |
+| Contract                                | File                          | Describes                                                                                | Produced by                           | Consumed by                                   |
+| --------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------- | --------------------------------------------- |
+| `mottainai.linux-runtime.v1`            | `contract.ts`                 | Live health/capability result an already-running Runtime reports                         | A running Runtime                     | `mottainai init` reconciliation               |
+| `mottainai.linux-runtime-appliance.v1`  | `appliance-manifest.ts`       | Build-time provenance record for the downloadable base disk artifact                     | CI appliance build (#601)             | Appliance distribution/verification           |
+| `mottainai.managed-package-manifest.v1` | `managed-package-manifest.ts` | Desired-state record of which managed packages/versions a Runtime generation should have | An operator/Mottainai release process | #625 Nix projection, #626/#628 reconciliation |
 
-The managed package manifest is desired state — what a generation *should*
+The managed package manifest is desired state — what a generation _should_
 contain — never the live result of inspecting an already-running Runtime,
 and never the appliance's own build provenance. It carries no NixOS build
 output, no Lima/Proxmox/QEMU-specific field, and no host-specific state, so
@@ -54,7 +54,7 @@ Managed package manifest
    ├─ version                         -- exact version/revision
    ├─ source
    │  ├─ flakeRef                     -- pinned input/output this entry projects from
-   │  └─ sourceSha256                 -- integrity digest of the fetched source archive
+   │  └─ sourceSha256                 -- NAR-hash identity of the resolved build source (see below)
    └─ compatibility?                  -- optional: minimumRuntimeContractSchemaVersion, notes
 ```
 
@@ -88,6 +88,41 @@ managed identity simply by naming one.
 Each entry's identity does not depend on ambient `PATH` state: `version` and
 `source.sourceSha256` fully pin what the entry means, independent of
 whatever happens to be installed or resolvable on a given machine.
+
+## `source.sourceSha256` meaning
+
+`source.sourceSha256` is the SHA-256 NAR-hash identity of the exact source
+object Nix resolves and builds this entry's recipe from — unified across
+fetch mechanisms as "resolved build source integrity," not a distribution
+archive digest kept as a separate concept. (Revised from an earlier
+definition, "integrity digest of the fetched source archive," per PR #634
+review: that definition mirrored `nix/packages/nawabari.nix`'s `fetchurl`
+`hash` field directly, but is incompatible with `nix#mottainai`'s recipe
+— `nix/mottainai.nix`, whose build source is a repository checkout tree,
+not a fetched archive.)
+
+Concretely, for the two recipes Issue #625's projection currently supports:
+
+- **Nawabari** (`nix/packages/nawabari.nix`, a `fetchurl`-based recipe): the
+  NAR hash of the fetched source tarball's resolved store path — not the
+  `fetchurl`-native `hash` field on that derivation directly, which is
+  typically a different digest algorithm/encoding (a sha512 SRI hash);
+  computing this NAR hash requires `nix path-info` against the realized
+  store path.
+- **Mottainai** (`nix/mottainai.nix`, a repository-checkout-based recipe,
+  `nix#mottainai`): the NAR hash of the checked-out source tree Nix
+  resolves as that recipe's build input. Because that source is the
+  _entire_ tracked repository checkout, not only the `mottainai` package's
+  own meaningful content, this hash changes with any tracked-file change
+  anywhere in the repository — see
+  [`docs/managed-generation.md`](managed-generation.md) "`sourceSha256`
+  meaning and a known Mottainai fragility" for the full detail. This is an
+  existing property of `nix/mottainai.nix`'s packaging, not something this
+  contract or Issue #625's projection introduces.
+
+Still not a store path in either case: this is the source's own content
+identity, computed before the recipe's own build phase runs, never build
+output.
 
 ## Managed / persistent-unmanaged / ephemeral state boundaries
 
