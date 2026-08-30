@@ -218,9 +218,23 @@ let
     def run_as_control(command):
         return golden.succeed("su -l mottainai-control -c " + shlex.quote(command))
 
+    # --repo-root points at this exact repository checkout (already shared
+    # into the guest's store, same as sourceV1) rather than the packaged
+    # mottainai-bootstrap CLI's own embedded nix-projection copy
+    # (nix/bootstrap.nix's installPhase re-git-inits a *separate* tree).
+    # Real production/manual use relies on that embedded copy precisely so
+    # a fresh Appliance with no repository checkout can still resolve
+    # nix/flake.nix (its own dedicated coverage: nix/tests/bootstrap.nix);
+    # this golden path's job is Issue #628's activation/health/rollback
+    # lifecycle, not re-proving #626's packaging in isolation. Evaluating
+    # the *identical* nix/ directory genV1/genV2 were themselves built
+    # from (not a byte-identical but separately re-git-init'd copy)
+    # guarantees the guest's real `nix build` computes the exact same
+    # derivation as the host's, landing on the pre-realized cache hit
+    # instead of attempting a network-dependent rebuild with no network.
     def reconcile(mottainai_source_tree):
         return run_as_control(
-            "mottainai-bootstrap reconcile --system ${systemString} --mottainai-source "
+            "mottainai-bootstrap reconcile --system ${systemString} --repo-root ${source} --mottainai-source "
             + mottainai_source_tree
             + " --json"
         )
@@ -229,7 +243,7 @@ let
         return golden.fail(
             "su -l mottainai-control -c "
             + shlex.quote(
-                "mottainai-bootstrap reconcile --system ${systemString} --mottainai-source "
+                "mottainai-bootstrap reconcile --system ${systemString} --repo-root ${source} --mottainai-source "
                 + mottainai_source_tree
                 + " --json"
             )
