@@ -143,6 +143,12 @@ test("Manager HTTP API rejects wrong methods per route before validation and kee
     reconcileCalls += 1;
     return reconcileNow();
   };
+  let stopCalls = 0;
+  const stop = service.stop.bind(service);
+  service.stop = async (sessionId) => {
+    stopCalls += 1;
+    return stop(sessionId);
+  };
   const handle = await startDashboardServer({
     port: 0,
     viewerHtml: "manager",
@@ -153,12 +159,20 @@ test("Manager HTTP API rejects wrong methods per route before validation and kee
 
   const getRoutePost = await fetch(`${handle.url}api/v1/manager/health`, {
     method: "POST",
-    headers: { "content-type": "text/plain" },
+    headers: { "content-type": "text/plain", origin: "http://evil.example" },
     body: "not json",
   });
   assert.equal(getRoutePost.status, 405);
   assert.equal(getRoutePost.headers.get("allow"), "GET");
   assert.equal((await getRoutePost.json()).error.code, "method_not_allowed");
+
+  const sessionReadPost = await fetch(`${handle.url}api/v1/manager/sessions/00000000-0000-4000-8000-000000000000`, {
+    method: "POST",
+    headers: { "content-type": "text/plain" },
+    body: "not json",
+  });
+  assert.equal(sessionReadPost.status, 405);
+  assert.equal(sessionReadPost.headers.get("allow"), "GET");
 
   const postRoutePut = await fetch(`${handle.url}api/v1/manager/sessions/preview`, {
     method: "PUT",
@@ -169,10 +183,27 @@ test("Manager HTTP API rejects wrong methods per route before validation and kee
   assert.equal(postRoutePut.headers.get("allow"), "POST");
   assert.equal((await postRoutePut.json()).error.code, "method_not_allowed");
 
+  const dualRoutePatch = await fetch(`${handle.url}api/v1/manager/sessions`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: "{",
+  });
+  assert.equal(dualRoutePatch.status, 405);
+  assert.equal(dualRoutePatch.headers.get("allow"), "GET, POST");
+  assert.equal((await dualRoutePatch.json()).error.code, "method_not_allowed");
+
   const postRouteGet = await fetch(`${handle.url}api/v1/manager/reconcile`);
   assert.equal(postRouteGet.status, 405);
   assert.equal(postRouteGet.headers.get("allow"), "POST");
   assert.equal(reconcileCalls, 0);
+
+  const postMutationGet = await fetch(
+    `${handle.url}api/v1/manager/sessions/00000000-0000-4000-8000-000000000000/stop`,
+    { method: "GET" },
+  );
+  assert.equal(postMutationGet.status, 405);
+  assert.equal(postMutationGet.headers.get("allow"), "POST");
+  assert.equal(stopCalls, 0);
 
   const head = await fetch(`${handle.url}api/v1/manager/health`, { method: "HEAD" });
   assert.equal(head.status, 405);
@@ -185,8 +216,8 @@ test("Manager HTTP API rejects wrong methods per route before validation and kee
 
   const unknown = await fetch(`${handle.url}api/v1/manager/unknown`, {
     method: "POST",
-    headers: { "content-type": "text/plain" },
-    body: "not json",
+    headers: { "content-type": "application/json" },
+    body: "{",
   });
   assert.equal(unknown.status, 404);
   assert.equal(unknown.headers.get("allow"), null);
