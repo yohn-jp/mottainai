@@ -421,8 +421,12 @@ jobs:
           kvm: true
 
       - name: Execute the Runtime Appliance golden-path NixOS VM test
+        # Not a flake output (see nix/tests/golden-path.nix's own comment):
+        # built directly, the same pattern nix/deployments/golden-path.nix
+        # already uses. --impure is required only for its default
+        # self-resolving arguments (builtins.getFlake, builtins.currentSystem).
         working-directory: nix
-        run: nix build --no-update-lock-file --no-link .#checks.x86_64-linux.golden-path
+        run: nix build --no-update-lock-file --no-link --impure --expr 'import ./tests/golden-path.nix { }'
 
   runtime-appliance-artifact:
     name: Publish canonical Runtime Appliance artifact
