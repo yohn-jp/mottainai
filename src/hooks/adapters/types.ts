@@ -1,8 +1,11 @@
 import type { TrustedHookContext } from "../context.js";
+import type { ManagedCapabilityIdentity } from "../capabilities.js";
 import type { HookClient, HookDecision, HookEvent } from "../types.js";
 
 export interface HookAdapterContext extends TrustedHookContext {
   workspaceRoot: string;
+  /** Set only from a verified client registration, never from raw tool_name. */
+  managedCapability?: ManagedCapabilityIdentity;
 }
 
 export interface HookAdapterSuccess {

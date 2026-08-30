@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ManagedCapabilityRegistry } from "./capabilities.js";
+import { isVerifiedManagedCapabilityIdentity, type ManagedCapabilityRegistry } from "./capabilities.js";
 import { resolveFailureMode, resolveHookMode } from "./policy.js";
 import type { HookPolicy } from "./policy.js";
 import { composeHookDecision } from "./providers/composition.js";
@@ -40,12 +40,17 @@ export function decideHook(event: HookEvent, options: HookDispatcherOptions): Ho
   const mode = resolveHookMode(options.policy, event.operation);
   const capability = options.capabilities.resolve(event.operation, event);
   // The replacement itself is already inside the managed capability boundary.
-  // This marker is produced only by the adapter for the registered Mottainai
-  // MCP tool; unknown client tools remain governed as native process calls.
+  // The adapter marker must carry the verified registration/capability identity;
+  // a raw or same-named MCP tool cannot manufacture this allow path.
+  const identity = capability?.identity;
   if (
     event.operation === "process.exec" &&
     event.metadata?.boundary === "managed-capability" &&
     event.metadata.managedPath === true &&
+    isVerifiedManagedCapabilityIdentity(identity, "process.exec", event.client) &&
+    event.metadata.managedRegistrationId === identity.registrationId &&
+    event.metadata.managedCapabilityId === identity.capabilityId &&
+    event.metadata.tool === identity.toolName &&
     capability?.available === true &&
     capability.replacement.trim() !== ""
   ) {

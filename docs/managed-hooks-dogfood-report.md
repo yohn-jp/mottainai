@@ -131,9 +131,10 @@ used. The bounded live aggregate was:
 The controlled native `Bash` process attempt was denied by the live hook with
 `redirect:managed_capability_available`; the equivalent bounded
 `mcp__mottainai__mottainai_exec` call completed successfully through the managed
-path. The adapter now recognizes that registered managed MCP path so enforce
-mode does not redirect a replacement back into itself. Unknown MCP/native tools
-remain on the governed `process.exec` boundary.
+path. The allow decision was bound to the verified project registration
+identity (marker, dispatcher entry point, workspace, and Mottainai config), so
+the adapter did not rely on the raw MCP tool name alone. Unknown or same-named
+unverified MCP/native tools remain on the governed `process.exec` boundary.
 
 The deterministic hook contract test also passes the timeout and invalid-policy
 fail-closed cases. Cleanup removed only the Mottainai-owned entry and left a

@@ -45,6 +45,15 @@ The process operation is classified at the native process boundary. Once
 native tools, and other spellings are the same class; no executable-name deny
 list is consulted.
 
+The enforce-mode allow exception for the exec replacement is bound to a
+verified Claude MCP registration identity. The effective project/local/user
+registration named `mottainai` must carry the Mottainai registration marker
+(`env.MOTTAINAI_MANAGED_CAPABILITY`), invoke the same dispatcher entry point,
+and reference the same Mottainai config as the hook. A matching raw
+`tool_name` without that proof—including a bare or same-named foreign MCP
+tool—remains on the native process boundary and cannot obtain the managed-path
+allow.
+
 Ordinary results are compact and carry stable reason codes such as
 `managed_capability_available` and `managed_capability_unavailable`. Detailed
 bounded records are available through `hooks explain` by decision id.

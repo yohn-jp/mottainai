@@ -11,6 +11,7 @@ const requested = process.argv[2] ?? "claude";
 const clients = requested === "all" ? ["claude", "codex"] : [requested];
 const ENFORCEMENT_MODE = "enforce";
 const MANAGED_EXEC_TOOL = "mcp__mottainai__mottainai_exec";
+const MANAGED_CAPABILITY_MARKER = "mottainai-managed-capability-v1";
 const CHILD_ENVIRONMENT_KEYS = Object.freeze([
   "PATH",
   "HOME",
@@ -99,14 +100,14 @@ function createWorkspace() {
   // capability used by the allowed half of the proof. User HOME is retained
   // for the client's normal authentication/trust state; the fixture itself
   // remains disposable and project-scoped.
-  const mcpConfigPath = path.join(root, "mcp.json");
+  const mcpConfigPath = path.join(root, ".mcp.json");
   writeJson(mcpConfigPath, {
     mcpServers: {
       mottainai: {
         command: process.execPath,
         args: ["--import", "tsx", sourceEntry],
         cwd: root,
-        env: { MOTTAINAI_CONFIG: configPath },
+        env: { MOTTAINAI_CONFIG: configPath, MOTTAINAI_MANAGED_CAPABILITY: MANAGED_CAPABILITY_MARKER },
       },
     },
   });
