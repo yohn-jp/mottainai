@@ -146,6 +146,7 @@
           # one — see nix/tests/golden-path.nix's own comment for why.
           golden-path-vm = import ./tests/golden-path.nix {
             inherit pkgs;
+            inherit nixpkgs;
             inherit (nixpkgs) lib;
             mkManagedGeneration = self.lib.mkManagedGeneration;
             runtimeModule = self.nixosModules.runtime;

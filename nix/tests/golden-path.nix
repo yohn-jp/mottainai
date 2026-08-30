@@ -1,4 +1,4 @@
-{ pkgs, lib, mkManagedGeneration, runtimeModule, runtimeOverlay, source, nawabariPackage }:
+{ pkgs, lib, nixpkgs, mkManagedGeneration, runtimeModule, runtimeOverlay, source, nawabariPackage }:
 
 # Deliberately wired into `nix/flake.nix` as `packages.<system>.golden-path-vm`,
 # not `checks.<system>.*` (unlike every other file in this directory):
@@ -170,6 +170,14 @@ let
     genV2.generation
     genV2.metadataFile
     nawabariPackage
+    # The packaged mottainai-bootstrap CLI's embedded nix-projection
+    # (nix/bootstrap.nix's installPhase) carries its own copy of
+    # nix/flake.lock, locked to this exact nixpkgs input. Its own
+    # `builtins.getFlake` call (managed-generation-build.ts) must resolve
+    # that input without guest network access; sharing the identical,
+    # already-fetched nixpkgs source tree by content (narHash) lets Nix
+    # satisfy it locally instead of fetching from github.com.
+    nixpkgs.outPath
   ];
 
   systemString = pkgs.stdenv.hostPlatform.system;
