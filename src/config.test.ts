@@ -846,6 +846,25 @@ test("resolveGatewayConfig rejects contradictory gateway bounds and resolves omi
   assert.equal(omitted.await.maxPollIntervalMs, 20_000);
 });
 
+test("resolveGatewayConfig reports individual bound errors before contradictory-bound errors", () => {
+  assert.throws(
+    () => resolveGatewayConfig({ defaultTimeoutMs: -1, maxTimeoutMs: -2 }),
+    /invalid gateway defaultTimeoutMs/,
+  );
+  assert.throws(
+    () => resolveGatewayConfig({ defaultTimeoutMs: 2_000, maxTimeoutMs: 1.5 }),
+    /invalid gateway maxTimeoutMs/,
+  );
+  assert.throws(
+    () => resolveGatewayConfig({ await: { minPollIntervalMs: -1, maxPollIntervalMs: -2 } }),
+    /invalid gateway await\.minPollIntervalMs/,
+  );
+  assert.throws(
+    () => resolveGatewayConfig({ await: { minPollIntervalMs: 2_000, maxPollIntervalMs: 1.5 } }),
+    /invalid gateway await\.maxPollIntervalMs/,
+  );
+});
+
 test("loadMottainaiConfig rejects contradictory gateway bounds with config paths", () => {
   assert.throws(
     () => loadMottainaiConfig(writeConfig({

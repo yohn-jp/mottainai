@@ -242,6 +242,10 @@ export function resolveGatewayConfig(
   config: GatewayConfig | undefined,
   cwd: string = process.cwd(),
 ): ResolvedGatewayConfig {
+  positiveIntegerConfig(config?.defaultTimeoutMs, "invalid gateway defaultTimeoutMs");
+  positiveIntegerConfig(config?.maxTimeoutMs, "invalid gateway maxTimeoutMs");
+  positiveIntegerConfig(config?.await?.minPollIntervalMs, "invalid gateway await.minPollIntervalMs");
+  positiveIntegerConfig(config?.await?.maxPollIntervalMs, "invalid gateway await.maxPollIntervalMs");
   validateGatewayBounds(config);
   const workspaceRoot = path.resolve(cwd, config?.workspaceRoot ?? cwd);
   const maxTimeoutMs = positiveInteger(config?.maxTimeoutMs, DEFAULT_GATEWAY_CONFIG.maxTimeoutMs);
