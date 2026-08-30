@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runProgram } from "../subprocess.js";
 import { NawabariExecutionClient, NawabariExecutionError } from "../workflow/nawabari.js";
-import { buildWorktreeNaming } from "../workflow/git/worktree.js";
+import { buildWorktreeNaming, WorktreeNamingError } from "../workflow/git/worktree.js";
 import { validateBranchNameAgainstGovernance } from "../workflow/governance/branch.js";
 import { resolveRepoState } from "../workflow/domain/repo-state.js";
 import {
@@ -783,11 +783,20 @@ async function prepareManagerExecutionPreview(
 
   let branchName = repoState.ok && repoState.state.branch !== undefined ? repoState.state.branch : "HEAD";
   if (taskBound) {
-    branchName = buildWorktreeNaming({
-      branchType: input.branchType,
-      issueRef: input.issueRef ?? "unlinked",
-      taskSlug: input.taskSlug!,
-    }).branchName;
+    try {
+      branchName = buildWorktreeNaming({
+        branchType: input.branchType,
+        issueRef: input.issueRef ?? "unlinked",
+        taskSlug: input.taskSlug!,
+      }).branchName;
+    } catch (error) {
+      if (!(error instanceof WorktreeNamingError)) throw error;
+      throw new ManagerError(
+        "task_start_failed",
+        `generated branch was rejected before Nawabari mutation: ${error.message}`,
+        409,
+      );
+    }
     const branchValidation = await validateBranchNameAgainstGovernance(branchName, repositoryRoot);
     if (!branchValidation.ok) {
       throw new ManagerError(

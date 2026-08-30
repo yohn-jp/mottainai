@@ -9,24 +9,28 @@ import { fakeNawabari } from "../../test-support/nawabari-fixture.js";
 import { createTempGitRepo } from "../../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../../test-support/workflow-store.js";
 
-test("task start rejects a duplicated issue identity before Nawabari mutation", async (t) => {
+test("task start rejects a duplicated issue identity before Nawabari mutation, including an idempotent retry", async (t) => {
   const root = createTempGitRepo(t);
   const store = createWorkflowStore(t);
   const calls: string[][] = [];
-  const result = await startNawabariTask({
+  const input = {
     workspaceRoot: root,
     store,
     policy: BUILTIN_PRESETS.standard,
     taskSlug: "378-nawabari-integration-close",
     branchType: "fix",
     issueRef: "378",
+    idempotencyKey: "duplicate-identity-378",
     nawabari: fakeNawabari(root, { calls }),
-  });
+  };
+  const results = [await startNawabariTask(input), await startNawabariTask(input)];
 
-  assert.equal(result.ok, false, JSON.stringify(result));
-  if (result.ok) return;
-  assert.equal(result.reason, "invalid-branch-name");
-  assert.match(result.detail, /repeats issue identity/);
+  for (const result of results) {
+    assert.equal(result.ok, false, JSON.stringify(result));
+    if (result.ok) continue;
+    assert.equal(result.reason, "invalid-branch-name");
+    assert.match(result.detail, /repeats issue identity/);
+  }
   assert.deepEqual(store.listTasks(), []);
   assert.equal(
     calls.some(

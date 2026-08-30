@@ -73,6 +73,13 @@ test("buildWorktreeNaming rejects a task slug that repeats the issue identity pr
 test("buildWorktreeNaming preserves unrelated numeric content in a descriptive slug", () => {
   const naming = buildWorktreeNaming({ branchType: "fix", issueRef: "378", taskSlug: "manager-510-unrelated" });
   assert.equal(naming.branchName, "fix/378-manager-510-unrelated");
+  const leadingNumber = buildWorktreeNaming({ branchType: "fix", issueRef: "378", taskSlug: "510-unrelated" });
+  assert.equal(leadingNumber.branchName, "fix/378-510-unrelated");
+});
+
+test("buildWorktreeNaming keeps an unlinked task slug distinct from the synthetic identity", () => {
+  const naming = buildWorktreeNaming({ branchType: "fix", issueRef: "unlinked", taskSlug: "maintenance" });
+  assert.equal(naming.branchName, "fix/unlinked-maintenance");
 });
 
 test("createWorktree succeeds against a real repository and records the base commit", async (t) => {

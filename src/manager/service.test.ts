@@ -293,6 +293,44 @@ test("Manager preview exposes the no-scope repository-wide read fallback", async
   assert.equal(preview.fields.find((field) => field.name === "agent")?.state, "derived");
 });
 
+test("Manager task start rejects duplicated Issue identity before mutation and repeats the same rejection on retry", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const runtime = new FakeRuntime();
+  const calls: string[][] = [];
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store,
+    runtime,
+    nawabari: fakeNawabari(root, { calls }),
+  });
+  const input = {
+    instruction: "reject duplicated Issue identity",
+    taskSlug: "378-nawabari-integration-close",
+    issueRef: "378",
+    branchType: "fix",
+    idempotencyKey: "duplicate-identity-378",
+  };
+  const assertRejected = async () =>
+    assert.rejects(service.start(input), (error: unknown) => {
+      assert.ok(error instanceof ManagerError);
+      assert.equal(error.code, "task_start_failed");
+      assert.match(error.message, /repeats issue identity/);
+      return true;
+    });
+
+  await assertRejected();
+  await assertRejected();
+  assert.deepEqual(store.listTasks(), []);
+  assert.deepEqual(store.listManagerSessions(root), []);
+  assert.equal(runtime.started.length, 0);
+  assert.equal(
+    calls.some((args) => args[0] === "session" && ["create", "claim", "update", "release", "close"].includes(args[1] ?? "")),
+    false,
+    "duplicate identity must be rejected before Nawabari mutation",
+  );
+});
+
 test("Manager workspace launch previews use the workspace root when Git identity is unavailable", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-manager-workspace-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

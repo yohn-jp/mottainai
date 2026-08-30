@@ -110,6 +110,26 @@ test("startTask rejects a governance-invalid generated branch before Git or SQLi
   assert.deepEqual(store.listWorktreesForInstance(identity.identity.instanceId), []);
 });
 
+test("startTask rejects a duplicated Issue identity before Git or SQLite reservation", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const result = await startTask({
+    workspaceRoot: root,
+    store,
+    policy: standardPolicy(),
+    taskSlug: "378-nawabari-integration-close",
+    branchType: "fix",
+    issueRef: "378",
+  });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.reason, "invalid-branch-name");
+  assert.match(result.detail, /repeats issue identity/);
+  assert.deepEqual(store.listTasks(), []);
+  assert.equal(runGit(["branch", "--list", "fix/378-378-nawabari-integration-close"], root), "");
+  assert.equal(fs.existsSync(path.join(root, ".mottainai", "worktrees")), false);
+});
+
 test("startTask with bootstrapMode=automatic returns the bootstrap execution outcome (not just the decision)", async (t) => {
   const root = createTempGitRepo(t);
   fs.writeFileSync(path.join(root, "pnpm-lock.yaml"), "lockfileVersion: 9\n");
