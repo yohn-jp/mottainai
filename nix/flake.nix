@@ -214,6 +214,10 @@
           };
           appliance-boundary = import ./tests/runtime-appliance.nix {
             inherit pkgs;
+            inherit (nixpkgs) lib;
+            inherit nixpkgs;
+            mkManagedGeneration = self.lib.mkManagedGeneration;
+            canonicalAppliance = self.applianceConfigurations.${system};
             runtimeApplianceImage = import ./runtime-appliance-image.nix {
               inherit (nixpkgs) lib;
               inherit nixpkgs pkgs;
