@@ -90,6 +90,16 @@ pkgs.testers.nixosTest {
     # `udevadm trigger --settle`, confirmed by explicitly waiting for the
     # symlink itself, is used instead after every rewrite of the bootstrap
     # disk's content below.
+    #
+    # These subtests also use `systemctl restart`, not `start`, on the
+    # bootstrap service: it already ran once at real boot (the blank /dev/vdb
+    # had no MTNAI_BOOT device yet, so it harmlessly no-op'd and exited 0),
+    # leaving it "active (exited)" — `start` on an already-active
+    # Type=oneshot + RemainAfterExit unit does not re-run ExecStart at all.
+    # `restart` forces a fresh ConditionPathExists check and a fresh
+    # ExecStart attempt every time, which is what exercising several
+    # successive bootstrap-disk contents within one boot requires; a real
+    # single boot only ever needs the one natural start.
 
     with subtest("a mixed valid/invalid input line rejects the whole bootstrap input, installing nothing"):
         runtime.succeed("mkfs.ext4 -L MTNAI_BOOT /dev/vdb")
@@ -103,7 +113,7 @@ pkgs.testers.nixosTest {
         runtime.succeed("umount /mnt/bootstrap")
         runtime.succeed("udevadm trigger --settle")
         runtime.wait_until_succeeds("test -e /dev/disk/by-label/MTNAI_BOOT")
-        runtime.fail("systemctl start mottainai-runtime-bootstrap-authorized-keys.service")
+        runtime.fail("systemctl restart mottainai-runtime-bootstrap-authorized-keys.service")
         runtime.succeed("test ! -e /var/lib/mottainai-control/.ssh")
 
     with subtest("more than 16 valid keys rejects the whole bootstrap input instead of truncating"):
@@ -115,7 +125,7 @@ pkgs.testers.nixosTest {
         runtime.succeed("umount /mnt/bootstrap")
         runtime.succeed("udevadm trigger --settle")
         runtime.wait_until_succeeds("test -e /dev/disk/by-label/MTNAI_BOOT")
-        runtime.fail("systemctl start mottainai-runtime-bootstrap-authorized-keys.service")
+        runtime.fail("systemctl restart mottainai-runtime-bootstrap-authorized-keys.service")
         runtime.succeed("test ! -e /var/lib/mottainai-control/.ssh")
 
     with subtest("bounded first-boot SSH key bootstrap installs every validated key into persistent state, not the canonical closure"):
@@ -127,7 +137,7 @@ pkgs.testers.nixosTest {
         runtime.succeed("umount /mnt/bootstrap")
         runtime.succeed("udevadm trigger --settle")
         runtime.wait_until_succeeds("test -e /dev/disk/by-label/MTNAI_BOOT")
-        runtime.succeed("systemctl start mottainai-runtime-bootstrap-authorized-keys.service")
+        runtime.succeed("systemctl restart mottainai-runtime-bootstrap-authorized-keys.service")
         runtime.succeed(
             "systemctl is-active --quiet mottainai-runtime-bootstrap-authorized-keys.service"
             " || systemctl show -p Result mottainai-runtime-bootstrap-authorized-keys.service | grep -q Result=success"
@@ -147,7 +157,7 @@ pkgs.testers.nixosTest {
             "echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIManuallyAddedKeyForRuntimeContract manual'"
             " >> /var/lib/mottainai-control/.ssh/authorized_keys"
         )
-        runtime.succeed("systemctl start mottainai-runtime-bootstrap-authorized-keys.service")
+        runtime.succeed("systemctl restart mottainai-runtime-bootstrap-authorized-keys.service")
         runtime.succeed(
             "grep -q 'AAAAC3NzaC1lZDI1NTE5AAAAIManuallyAddedKeyForRuntimeContract'"
             " /var/lib/mottainai-control/.ssh/authorized_keys"
