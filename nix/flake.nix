@@ -2,7 +2,7 @@
   description = "Mottainai Linux Runtime — canonical NixOS system layer (mottainai.linux-runtime.v1)";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
   };
 
   outputs =
@@ -27,7 +27,7 @@
         source = ../.;
       };
       mkNawabari = pkgs: import ./packages/nawabari.nix {
-        inherit (pkgs) lib stdenvNoCC fetchurl makeWrapper nodejs_22;
+        inherit (pkgs) lib stdenvNoCC fetchurl makeWrapper nodejs_24;
       };
       runtimeOverlay = final: prev: {
         mottainai = mkMottainai final;
