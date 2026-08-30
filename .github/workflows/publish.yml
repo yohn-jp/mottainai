@@ -6,7 +6,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   build:
@@ -101,6 +100,9 @@ jobs:
     needs: smoke-test
     runs-on: ubuntu-latest
     environment: npm
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Checkout
@@ -143,15 +145,23 @@ jobs:
           fi
 
   runtime-appliance:
-    name: Publish canonical Runtime Appliance release assets
+    name: Publish canonical Runtime Appliance OCI Artifact
     # The appliance is a separate release surface from npm. The ordering only
     # ensures the canonical Nix package's already-declared npm source exists;
     # the appliance is never added to the npm tarball.
     needs: publish
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    # The release itself is immutable source/release-note metadata. Runtime
+    # Appliance bytes are published to GHCR as a separate artifact lifecycle.
+    # Keep this job's token scoped to the registry write and tagged-source read
+    # it actually needs; it must not mutate a GitHub Release.
     permissions:
-      contents: write
+      contents: read
+      packages: write
+    outputs:
+      oci_digest: ${{ steps.publish_oci.outputs.digest }}
+      oci_ref: ${{ steps.publish_oci.outputs.ref }}
 
     steps:
       - name: Checkout exact release tag
@@ -209,6 +219,9 @@ jobs:
         run: |
           set -euo pipefail
           nix flake check --no-update-lock-file --no-build --all-systems
+          # #627's final contract: managed application inputs must not enter
+          # the published bootstrap-only base appliance closure.
+          nix build --no-update-lock-file --no-link .#checks.x86_64-linux.appliance-boundary
           image_output="$(nix build --no-update-lock-file --no-link --print-out-paths .#runtime-appliance-image)"
           test -d "$image_output"
           echo "RUNTIME_APPLIANCE_IMAGE_OUTPUT=$image_output" >> "$GITHUB_ENV"
@@ -335,15 +348,23 @@ jobs:
             echo "RUNTIME_APPLIANCE_RELEASE_METADATA=$metadata"
           } >> "$GITHUB_ENV"
 
-      - name: Publish and re-verify the compressed appliance and manifests as GitHub Release assets
+      # ORAS is used for arbitrary OCI artifact files. This intentionally stays
+      # separate from the #627 image/closure implementation. The final
+      # bootstrap-only boundary is checked during the build below; the OCI
+      # mechanics consume only the resulting raw/manifest/metadata files.
+      - name: Setup ORAS CLI
+        uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1.2.4
+        with:
+          version: 1.2.0
+
+      - name: Publish and round-trip verify the Runtime Appliance OCI Artifact
+        id: publish_oci
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
-          release_tag="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName')"
-          test "$release_tag" = "$RELEASE_TAG"
 
           compressed="$RUNTIME_APPLIANCE_COMPRESSED_ASSET"
           manifest="$RUNTIME_APPLIANCE_MANIFEST"
@@ -351,21 +372,137 @@ jobs:
           test -s "$compressed"
           test -s "$manifest"
           test -s "$metadata"
-          # Do not clobber an existing release asset: a duplicate/mismatched
-          # publication must fail closed rather than replace stable bytes.
-          gh release upload "$RELEASE_TAG" "$compressed" "$manifest" "$metadata" --repo "$GITHUB_REPOSITORY"
 
-          downloaded="$RUNNER_TEMP/runtime-appliance-release-assets"
+          # Current release tags are vMAJOR.MINOR.PATCH (optionally with a
+          # prerelease suffix). They remain a compatibility locator in this
+          # dedicated repository; neither this tag nor contract-v1 is identity.
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "unsupported Runtime Appliance release tag for OCI locator: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          oci_version_tag="$RELEASE_TAG"
+          oci_contract_tag="contract-v1"
+
+          if [[ ! "$GITHUB_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "GITHUB_REPOSITORY is not a safe OCI repository source: $GITHUB_REPOSITORY" >&2
+            exit 1
+          fi
+          oci_repository="ghcr.io/${GITHUB_REPOSITORY,,}/runtime-appliance"
+          oci_artifact_type="application/vnd.mottainai.runtime.appliance.v1"
+          oci_manifest_media_type="application/vnd.oci.image.manifest.v1+json"
+          oci_raw_media_type="application/vnd.mottainai.runtime.appliance.raw.v1+zstd"
+          oci_manifest_layer_media_type="application/vnd.mottainai.runtime.appliance.manifest.v1+json"
+          oci_metadata_layer_media_type="application/vnd.mottainai.runtime.appliance.release-metadata.v1+json"
+
+          # GITHUB_TOKEN is scoped to packages:write above. No contents:write
+          # or release mutation capability is granted to this job.
+          printf '%s' "$GH_TOKEN" | oras login ghcr.io \
+            --username "$GITHUB_ACTOR" \
+            --password-stdin
+
+          compressed_name="$(basename "$compressed")"
+          manifest_name="$(basename "$manifest")"
+          metadata_name="$(basename "$metadata")"
+          compressed_size="$(stat -c '%s' "$compressed")"
+          manifest_size="$(stat -c '%s' "$manifest")"
+          metadata_size="$(stat -c '%s' "$metadata")"
+          compressed_digest="sha256:$(sha256sum "$compressed" | awk '{print $1}')"
+          manifest_digest="sha256:$(sha256sum "$manifest" | awk '{print $1}')"
+          metadata_digest="sha256:$(sha256sum "$metadata" | awk '{print $1}')"
+          test "$compressed_size" -gt 0
+          test "$manifest_size" -gt 0
+          test "$metadata_size" -gt 0
+
+          pushed_manifest="$RUNNER_TEMP/runtime-appliance-oci-manifest.json"
+          # ORAS rejects absolute layer paths by default. Use the generated
+          # staging directory as cwd so path validation remains enabled and
+          # layer titles stay the exact artifact basenames.
+          push_directory="$(dirname "$compressed")"
+          (
+            cd "$push_directory"
+            oras push --no-tty \
+              --image-spec v1.1 \
+              --artifact-type "$oci_artifact_type" \
+              --annotation "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+              --annotation "org.opencontainers.image.revision=$RUNTIME_APPLIANCE_SOURCE_REVISION" \
+              --annotation "org.opencontainers.image.version=$RUNTIME_APPLIANCE_PACKAGE_VERSION" \
+              --export-manifest "$pushed_manifest" \
+              "$oci_repository:$oci_version_tag" \
+              "$compressed_name:$oci_raw_media_type" \
+              "$manifest_name:$oci_manifest_layer_media_type" \
+              "$metadata_name:$oci_metadata_layer_media_type"
+          )
+
+          validate_oci_manifest() {
+            local oci_manifest_file="$1"
+            jq -e \
+              --arg artifact_type "$oci_artifact_type" \
+              --arg manifest_media_type "$oci_manifest_media_type" \
+              --arg raw_media_type "$oci_raw_media_type" \
+              --arg manifest_layer_media_type "$oci_manifest_layer_media_type" \
+              --arg metadata_layer_media_type "$oci_metadata_layer_media_type" \
+              --arg raw_name "$compressed_name" \
+              --arg manifest_name "$manifest_name" \
+              --arg metadata_name "$metadata_name" \
+              --arg raw_digest "$compressed_digest" \
+              --arg manifest_digest "$manifest_digest" \
+              --arg metadata_digest "$metadata_digest" \
+              --argjson raw_size "$compressed_size" \
+              --argjson manifest_size "$manifest_size" \
+              --argjson metadata_size "$metadata_size" \
+              '
+                .schemaVersion == 2 and
+                .mediaType == $manifest_media_type and
+                .artifactType == $artifact_type and
+                (.layers | length) == 3 and
+                ([(.layers[] | .mediaType)] | sort) ==
+                  ([$raw_media_type, $manifest_layer_media_type, $metadata_layer_media_type] | sort) and
+                any(.layers[];
+                  .mediaType == $raw_media_type and
+                  .digest == $raw_digest and
+                  .size == $raw_size and
+                  .annotations["org.opencontainers.image.title"] == $raw_name) and
+                any(.layers[];
+                  .mediaType == $manifest_layer_media_type and
+                  .digest == $manifest_digest and
+                  .size == $manifest_size and
+                  .annotations["org.opencontainers.image.title"] == $manifest_name) and
+                any(.layers[];
+                  .mediaType == $metadata_layer_media_type and
+                  .digest == $metadata_digest and
+                  .size == $metadata_size and
+                  .annotations["org.opencontainers.image.title"] == $metadata_name)
+              ' "$oci_manifest_file"
+          }
+
+          # Validate the exact manifest ORAS generated before resolving its
+          # registry descriptor. The descriptor digest below is authoritative.
+          validate_oci_manifest "$pushed_manifest"
+
+          descriptor="$RUNNER_TEMP/runtime-appliance-oci-descriptor.json"
+          oras manifest fetch --no-tty --descriptor "$oci_repository:$oci_version_tag" > "$descriptor"
+          oci_digest="$(jq -er '.digest | select(type == "string" and test("^sha256:[0-9a-f]{64}$"))' "$descriptor")"
+          oci_digest_ref="$oci_repository@$oci_digest"
+          test -n "$oci_digest"
+
+          # The slower-changing contract locator is deliberately only an alias
+          # to the already-resolved digest. Operators must use the digest ref
+          # below for identity and verification.
+          oras tag --no-tty "$oci_digest_ref" "$oci_contract_tag"
+          contract_descriptor="$RUNNER_TEMP/runtime-appliance-oci-contract-descriptor.json"
+          oras manifest fetch --no-tty --descriptor "$oci_repository:$oci_contract_tag" > "$contract_descriptor"
+          test "$(jq -er '.digest' "$contract_descriptor")" = "$oci_digest"
+
+          remote_oci_manifest="$RUNNER_TEMP/runtime-appliance-oci-remote-manifest.json"
+          oras manifest fetch --no-tty --pretty "$oci_digest_ref" > "$remote_oci_manifest"
+          validate_oci_manifest "$remote_oci_manifest"
+
+          downloaded="$RUNNER_TEMP/runtime-appliance-oci-roundtrip"
           mkdir -p "$downloaded"
-          gh release download "$RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --pattern "mottainai-runtime-appliance.raw.zst" \
-            --pattern "runtime-appliance-manifest.json" \
-            --pattern "runtime-appliance-release-metadata.json" \
-            --dir "$downloaded"
-          remote_compressed="$downloaded/mottainai-runtime-appliance.raw.zst"
-          remote_manifest="$downloaded/runtime-appliance-manifest.json"
-          remote_metadata="$downloaded/runtime-appliance-release-metadata.json"
+          oras pull --no-tty --output "$downloaded" "$oci_digest_ref"
+          remote_compressed="$downloaded/$compressed_name"
+          remote_manifest="$downloaded/$manifest_name"
+          remote_metadata="$downloaded/$metadata_name"
           test -s "$remote_compressed"
           test -s "$remote_manifest"
           test -s "$remote_metadata"
@@ -405,3 +542,15 @@ jobs:
             const manifest = readRuntimeApplianceManifest(process.env.MANIFEST);
             verifyRuntimeApplianceManifest(manifest, process.env.DISK);
           '
+
+          echo "digest=$oci_digest" >> "$GITHUB_OUTPUT"
+          echo "ref=$oci_digest_ref" >> "$GITHUB_OUTPUT"
+          echo "RUNTIME_APPLIANCE_OCI_DIGEST=$oci_digest" >> "$GITHUB_ENV"
+          echo "RUNTIME_APPLIANCE_OCI_REF=$oci_digest_ref" >> "$GITHUB_ENV"
+          {
+            echo "### Runtime Appliance OCI Artifact"
+            echo "- digest (authoritative): \`$oci_digest\`"
+            echo "- digest ref: \`$oci_digest_ref\`"
+            echo "- convenience tags: \`$oci_version_tag\`, \`$oci_contract_tag\`"
+            echo "- artifact type: \`$oci_artifact_type\`"
+          } >> "$GITHUB_STEP_SUMMARY"

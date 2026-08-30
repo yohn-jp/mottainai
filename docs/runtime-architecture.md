@@ -196,7 +196,7 @@ lifecycle.
 
 Under #629:
 
-- the Runtime Appliance is published as a non-container OCI Artifact in GHCR;
+- the Runtime Appliance is published as a [non-container OCI Artifact in GHCR](runtime-appliance-oci.md);
 - the OCI digest is the canonical distribution identity;
 - convenience tags are locators, not identity;
 - the raw disk, manifest, and release metadata remain verified as one bounded
