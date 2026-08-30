@@ -47,7 +47,18 @@ export const MAX_IDENTITY_LENGTH = 256 as const;
 export const MAX_VERSION_LENGTH = 128 as const;
 export const MAX_COMPATIBILITY_ENTRIES = 16 as const;
 
-const sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/iu);
+/**
+ * Accepts upper- or lower-case hex but always normalizes to lowercase, so
+ * two manifests differing only in digest case parse to byte-identical
+ * values and therefore always produce the same semantic identity (a
+ * mixed-case sha256HexSchema previously let case differences leak through
+ * into canonicalizeManagedPackageManifest, since canonicalization does not
+ * re-normalize field values).
+ */
+const sha256HexSchema = z
+  .string()
+  .regex(/^[0-9a-f]{64}$/iu)
+  .transform((value) => value.toLowerCase());
 
 /**
  * Exact source/integrity identity for a nix-flake-package entry. `flakeRef`
@@ -177,40 +188,79 @@ function stableStringify(value: unknown): string {
   throw new ManagedPackageManifestError("managed package manifest contains an unsupported value for canonicalization");
 }
 
+function canonicalizePackageEntries(packages: readonly ManagedPackageEntry[]): unknown[] {
+  return [...packages]
+    .sort((left, right) => compareText(left.packageId, right.packageId))
+    .map((entry) => ({
+      packageId: entry.packageId,
+      kind: entry.kind,
+      version: entry.version,
+      source: { flakeRef: entry.source.flakeRef, sourceSha256: entry.source.sourceSha256 },
+      ...(entry.compatibility === undefined ? {} : { compatibility: entry.compatibility }),
+    }));
+}
+
+/**
+ * Full, lossless canonical projection of every required contract field,
+ * including `activation.generation`. This is the persisted-manifest
+ * projection: writing this text to disk and reading it back through
+ * `parseManagedPackageManifest` must reproduce the same manifest, generation
+ * included. It must never be used as an identity source — two manifests that
+ * differ only in `activation.generation` intentionally produce different
+ * text here (see `canonicalizeManagedPackageManifestForIdentity` for the
+ * identity projection, which excludes it).
+ */
+export function canonicalizePersistedManagedPackageManifest(manifest: ManagedPackageManifest): unknown {
+  return {
+    contractId: manifest.contractId,
+    schemaVersion: manifest.schemaVersion,
+    activation: { generation: manifest.activation.generation },
+    packages: canonicalizePackageEntries(manifest.packages),
+  };
+}
+
+/**
+ * Canonical JSON text suitable for writing the persisted manifest to disk
+ * (Issue #624's Runtime control-state location): deterministic key/array
+ * ordering, but lossless — every required field, including
+ * `activation.generation`, round-trips through `parseManagedPackageManifest`
+ * unchanged. Do not use this for semantic identity; use
+ * `semanticIdentityOf`/`canonicalManagedPackageManifestTextForIdentity`
+ * instead, which intentionally excludes reconciliation bookkeeping.
+ */
+export function canonicalPersistedManagedPackageManifestText(manifest: ManagedPackageManifest): string {
+  return stableStringify(canonicalizePersistedManagedPackageManifest(manifest));
+}
+
 /**
  * The semantic-identity projection: activation.generation is excluded
  * because it is bookkeeping for reconciliation ordering, not part of what
  * makes two desired states "the same" (Issue #624: "identical desired state
  * produces identical semantic identity independent of JSON key ordering or
  * incidental timestamps"). Packages are sorted by packageId so entry order
- * in the source JSON never affects identity.
+ * in the source JSON never affects identity. This projection is lossy by
+ * design and must never be used to write the persisted manifest — use
+ * `canonicalizePersistedManagedPackageManifest` for that.
  */
-export function canonicalizeManagedPackageManifest(manifest: ManagedPackageManifest): unknown {
+export function canonicalizeManagedPackageManifestForIdentity(manifest: ManagedPackageManifest): unknown {
   return {
     contractId: manifest.contractId,
     schemaVersion: manifest.schemaVersion,
-    packages: [...manifest.packages]
-      .sort((left, right) => compareText(left.packageId, right.packageId))
-      .map((entry) => ({
-        packageId: entry.packageId,
-        kind: entry.kind,
-        version: entry.version,
-        source: { flakeRef: entry.source.flakeRef, sourceSha256: entry.source.sourceSha256 },
-        ...(entry.compatibility === undefined ? {} : { compatibility: entry.compatibility }),
-      })),
+    packages: canonicalizePackageEntries(manifest.packages),
   };
 }
 
-/** Canonical JSON text for a manifest's semantic identity, exposed for callers that need the serialized form itself (e.g. writing it to disk). */
-export function canonicalManagedPackageManifestText(manifest: ManagedPackageManifest): string {
-  return stableStringify(canonicalizeManagedPackageManifest(manifest));
+/** Canonical JSON text for a manifest's semantic identity only — lossy (excludes activation.generation), never suitable for persisting the manifest itself. */
+export function canonicalManagedPackageManifestTextForIdentity(manifest: ManagedPackageManifest): string {
+  return stableStringify(canonicalizeManagedPackageManifestForIdentity(manifest));
 }
 
 /**
  * Deterministic SHA-256 semantic identity: two manifests with identical
  * desired package state hash identically regardless of source JSON key
- * order, package array order, or activation.generation.
+ * order, package array order, activation.generation, or sourceSha256 digest
+ * case (normalized to lowercase at parse time).
  */
 export function semanticIdentityOf(manifest: ManagedPackageManifest): string {
-  return createHash("sha256").update(canonicalManagedPackageManifestText(manifest), "utf8").digest("hex");
+  return createHash("sha256").update(canonicalManagedPackageManifestTextForIdentity(manifest), "utf8").digest("hex");
 }

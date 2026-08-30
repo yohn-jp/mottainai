@@ -138,25 +138,41 @@ a new Nix option or state directory, and does not require rebuilding
 
 ## Canonical serialization and semantic identity
 
-`semanticIdentityOf` produces a deterministic SHA-256 hex digest over a
-canonicalized projection of the manifest
-(`canonicalizeManagedPackageManifest` / `canonicalManagedPackageManifestText`
-in `managed-package-manifest.ts`):
+Two distinct canonical projections exist, and they are not interchangeable:
+
+- **Persisted serialization** — `canonicalPersistedManagedPackageManifestText`
+  / `canonicalizePersistedManagedPackageManifest`. Lossless: every required
+  contract field, including `activation.generation`, is retained. This is
+  the only serialization suitable for writing the canonical manifest to its
+  persisted location (above); writing it and reading it back through
+  `parseManagedPackageManifest` reproduces the same manifest.
+- **Identity projection** — `semanticIdentityOf` /
+  `canonicalManagedPackageManifestTextForIdentity` /
+  `canonicalizeManagedPackageManifestForIdentity`. Deliberately lossy:
+  `activation.generation` is excluded because it is reconciliation-ordering
+  bookkeeping, not part of what makes two desired states "the same." Two
+  manifests that declare identical package state at different generations
+  report the same semantic identity. This projection must never be used to
+  write the persisted manifest — doing so would silently drop
+  `activation.generation`.
+
+Both projections share the same deterministic canonicalization rules:
 
 - Object keys are sorted (mirrors the canonicalization approach in
   `src/semantics/ir/canonical.ts`'s `stableStringifyValue`, reimplemented
   locally rather than imported since the semantics IR module is a distinct
   subsystem this contract must not depend on).
-- `packages[]` is sorted by `packageId` before hashing, so source JSON entry
-  order never affects identity.
-- `activation.generation` is excluded from the canonicalized projection: it
-  is reconciliation-ordering bookkeeping, not part of what makes two desired
-  states "the same." Two manifests that declare identical package state at
-  different generations report the same semantic identity.
+- `packages[]` is sorted by `packageId`, so source JSON entry order never
+  affects either serialization.
+- `source.sourceSha256` is normalized to lowercase hex at parse time
+  (`parseManagedPackageManifest`), so two manifests whose SHA-256 digests
+  differ only in case parse to byte-identical values and therefore always
+  produce the same semantic identity.
 
-This satisfies the Issue #624 requirement that "identical desired state
-produces identical semantic identity independent of JSON key ordering or
-incidental timestamps" — proven deterministically by the fixtures in
+`semanticIdentityOf` hashes the identity projection with SHA-256. This
+satisfies the Issue #624 requirement that "identical desired state produces
+identical semantic identity independent of JSON key ordering or incidental
+timestamps" — proven deterministically by the fixtures in
 [`src/runtime-contract/managed-package-manifest.test.ts`](../src/runtime-contract/managed-package-manifest.test.ts),
 which require no Nix toolchain or live Runtime.
 

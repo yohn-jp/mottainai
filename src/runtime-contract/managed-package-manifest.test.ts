@@ -7,7 +7,8 @@ import {
   MANAGED_PACKAGE_MANIFEST_RELATIVE_PATH,
   MANAGED_PACKAGE_MANIFEST_SCHEMA_VERSION,
   ManagedPackageManifestError,
-  canonicalManagedPackageManifestText,
+  canonicalManagedPackageManifestTextForIdentity,
+  canonicalPersistedManagedPackageManifestText,
   parseManagedPackageManifest,
   semanticIdentityOf,
 } from "./managed-package-manifest.js";
@@ -156,10 +157,10 @@ test("semantic identity is a deterministic sha256 hex digest, stable across repe
   assert.match(first, /^[0-9a-f]{64}$/u);
 });
 
-test("canonical text is deterministic and reproducible across process runs (no timestamp/incidental fields)", () => {
+test("identity-projection canonical text is deterministic and reproducible across process runs (no incidental fields)", () => {
   const parsed = parseManagedPackageManifest(validManifest());
-  const textA = canonicalManagedPackageManifestText(parsed);
-  const textB = canonicalManagedPackageManifestText(parsed);
+  const textA = canonicalManagedPackageManifestTextForIdentity(parsed);
+  const textB = canonicalManagedPackageManifestTextForIdentity(parsed);
   assert.equal(textA, textB);
   assert.doesNotMatch(textA, /generation/u);
 });
@@ -170,4 +171,51 @@ test("MANAGED_PACKAGE_KINDS is bounded to the explicitly supported ecosystems", 
 
 test("persistence path is a relative path under the control-owned state root, not an absolute host path", () => {
   assert.ok(!MANAGED_PACKAGE_MANIFEST_RELATIVE_PATH.startsWith("/"));
+});
+
+test("persisted canonical serialization retains activation.generation", () => {
+  const parsed = parseManagedPackageManifest(validManifest({ activation: { generation: 7 } }));
+  const persistedText = canonicalPersistedManagedPackageManifestText(parsed);
+  assert.match(persistedText, /"generation":7/u);
+});
+
+test("persisted canonical serialization round-trips through parseManagedPackageManifest", () => {
+  const original = parseManagedPackageManifest(validManifest({ activation: { generation: 3 } }));
+  const persistedText = canonicalPersistedManagedPackageManifestText(original);
+  const reparsed = parseManagedPackageManifest(JSON.parse(persistedText));
+  assert.deepEqual(reparsed, original);
+  assert.equal(reparsed.activation.generation, 3);
+});
+
+test("persisted canonical serialization differs for manifests that differ only in generation, unlike the identity projection", () => {
+  const generationOne = parseManagedPackageManifest(validManifest({ activation: { generation: 1 } }));
+  const generationFive = parseManagedPackageManifest(validManifest({ activation: { generation: 5 } }));
+  assert.notEqual(
+    canonicalPersistedManagedPackageManifestText(generationOne),
+    canonicalPersistedManagedPackageManifestText(generationFive),
+  );
+  assert.equal(semanticIdentityOf(generationOne), semanticIdentityOf(generationFive));
+});
+
+test("sourceSha256 is normalized to lowercase at parse time", () => {
+  const manifest = validManifest();
+  const packages = manifest.packages as Record<string, unknown>[];
+  packages[0] = { ...packages[0], source: { flakeRef: "nix#mottainai", sourceSha256: "A".repeat(64) } };
+  const parsed = parseManagedPackageManifest(manifest);
+  assert.equal(parsed.packages[0]?.source.sourceSha256, "a".repeat(64));
+});
+
+test("semantically identical SHA-256 digests differing only in case produce the same semantic identity", () => {
+  const lowercase = validManifest();
+  const lowercasePackages = lowercase.packages as Record<string, unknown>[];
+  lowercasePackages[0] = { ...lowercasePackages[0], source: { flakeRef: "nix#mottainai", sourceSha256: "a".repeat(64) } };
+
+  const uppercase = validManifest();
+  const uppercasePackages = uppercase.packages as Record<string, unknown>[];
+  uppercasePackages[0] = { ...uppercasePackages[0], source: { flakeRef: "nix#mottainai", sourceSha256: "A".repeat(64) } };
+
+  assert.equal(
+    semanticIdentityOf(parseManagedPackageManifest(lowercase)),
+    semanticIdentityOf(parseManagedPackageManifest(uppercase)),
+  );
 });
