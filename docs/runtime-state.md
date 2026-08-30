@@ -208,8 +208,11 @@ not user/workspace content and not the base appliance.
 
 ## `managed-runtime/state.json` semantics for #628
 
-#628 owns the concrete schema, but it MUST represent these facts without
-ambiguity:
+#628 implements the bounded `mottainai.managed-runtime-state.v1` schema in
+[`src/runtime-contract/managed-runtime-state.ts`](../src/runtime-contract/managed-runtime-state.ts).
+The canonical paths are `managed-runtime/state.json` and the sibling atomic
+consumer pointer `managed-runtime/current`, relative to the control-state
+root. The concrete record represents these facts without ambiguity:
 
 ```text
 managed runtime state
@@ -227,6 +230,37 @@ managed runtime state
    ├─ candidate/staged generation identity, when applicable
    └─ enough evidence to resume or roll back deterministically
 ```
+
+The persisted shape is bounded and machine-readable. In abbreviated form:
+
+```json
+{
+  "contractId": "mottainai.managed-runtime-state.v1",
+  "schemaVersion": 1,
+  "desiredManifestSemanticIdentity": "<sha256>",
+  "active": {
+    "generationIdentity": "<identity>",
+    "storePath": "/nix/store/<verified-generation>",
+    "desiredManifestSemanticIdentity": "<sha256>",
+    "compatibilityContractVersion": 1,
+    "health": { "state": "healthy", "checkedAt": "<timestamp>" }
+  },
+  "previous": "<same known-good record, optional>",
+  "activation": {
+    "phase": "idle | prepared | switched-health-pending | rollback-pending | rollback-health-pending",
+    "candidate": "<verified candidate, when a transaction is in progress>",
+    "previous": "<rollback target, when a transaction is in progress>"
+  },
+  "observed": "<bounded pointer/identity/health observation, optional>",
+  "failure": "<bounded failure evidence, optional>",
+  "updatedAt": "<timestamp>"
+}
+```
+
+`current` is always replaced by a temporary symlink followed by an atomic
+same-directory rename. It is accepted as active only when it matches the
+persisted record and transaction phase; a store listing, PATH, or provider
+metadata can never establish active identity.
 
 The durable activation phase MUST distinguish at least:
 
