@@ -12,6 +12,10 @@ The canonical NixOS specification that implements this contract lives in
 [`nix/`](../nix). The typed, zod-validated TypeScript view of the
 health/capability result lives in
 [`src/runtime-contract/contract.ts`](../src/runtime-contract/contract.ts).
+The desired-state record of which managed packages a Runtime generation
+should contain is a separate contract, documented in
+[`docs/managed-package-manifest.md`](managed-package-manifest.md)
+(`mottainai.managed-package-manifest.v1`, Issue #624).
 
 ## Scope
 
