@@ -5,8 +5,10 @@ Appliance raw disk recovered from the compressed distribution assets published
 by the corresponding GitHub Release
 (`.github/workflows/publish.yml`, job `runtime-appliance`) into a real
 Proxmox VE host and prove it boots, becomes network-reachable, accepts SSH,
-runs Mottainai/Nawabari/Zellij, reports Runtime health, and preserves
-required persistent state across a reboot.
+reaches `bootstrap-ready` without the managed application packages, reports
+readiness-aware Runtime health, and preserves required persistent state across
+a reboot. Managed Mottainai/Nawabari/Zellij packages are installed only in a
+verified managed generation after bootstrap.
 
 The `runtime-appliance-artifact` Actions artifact from
 `.github/workflows/ci.yml` is retention-bound CI/build evidence only. The
@@ -99,15 +101,16 @@ described by the existing manifest. Record the full manifest and release
 metadata JSON as part of the evidence:
 
 ```sh
-jq '{contractId, schemaVersion, architecture, sourceRevision, nixSystemClosure, mottainaiVersion, nawabariVersion, image}' \
+jq '{contractId, schemaVersion, architecture, sourceRevision, nixSystemClosure, image}' \
   "$manifest"
 jq '{contractId, schemaVersion, architecture, sourceRevision, canonicalManifest, compressedAsset}' \
   "$metadata"
 ```
 
-The manifest names the exact Mottainai source revision, immutable Nix
-system/closure identity, and compatible Mottainai/Nawabari versions this
-specific canonical disk was built from.
+The manifest names the exact source revision and immutable Nix system/closure
+identity for this specific canonical disk. Any managed package version fields
+retained by the release manifest are compatibility metadata only; they do not
+assert that those application binaries are in the base closure.
 
 ## 2. Build a separate, tiny SSH-bootstrap disk (the canonical disk is never touched)
 
@@ -176,24 +179,27 @@ qm terminal <vmid>   # or the Proxmox web UI's noVNC/serial console
 
 Wait for `nixos login:` on the console. Confirm a DHCP lease was obtained
 (visible in the console boot log, or from the Proxmox host's DHCP
-server/bridge if you control it).
+server/bridge if you control it). Then wait for
+`mottainai-runtime-bootstrap-ready.service`; this is the guest's explicit
+`bootstrap-ready` phase and does not require a managed application package.
 
-## 5. SSH access and Mottainai/Nawabari/Zellij/health (acceptance criterion 5, part 2)
+## 5. SSH access, bootstrap readiness, and health (acceptance criterion 5, part 2)
 
 ```sh
 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
   -i ./proxmox-runtime-key mottainai-control@<vm-ip> 'id'
 # => uid=...(mottainai-control) gid=...(mottainai-control) groups=...(mottainai-control)
 
-ssh ... 'mottainai --version && nawabari --version && zellij --version'
+ssh ... 'mottainai-bootstrap status --json'
 ssh ... 'mottainai-runtime-health'
 ```
 
 `mottainai-runtime-health`'s output must report
-`"contractId": "mottainai.linux-runtime.v1"` and
-`"name":"nawabari"`/`"present":true`, exactly as the existing local golden
-path proves (`docs/nix-runtime-golden-path.md` step 5) — same module, same
-health contract, different host virtualization stack.
+`"contractId": "mottainai.linux-runtime.v1"`,
+`"readiness": "bootstrap-ready"`, `"bootstrapReady": true`, and
+`"managedRuntimeReady": false`. `mottainai`, `nawabari`, and `zellij` must
+not resolve from the base PATH. The same module and health contract apply on
+Proxmox; only the provider's disk import and VM lifecycle are different.
 
 ## 6. Persistent state across reboot (acceptance criterion 6)
 
@@ -205,6 +211,7 @@ qm reboot <vmid>
 
 ssh ... '
   cat ~/reboot-state-marker.txt
+  mottainai-bootstrap status --json
   mottainai-runtime-health
 '
 ```
@@ -220,7 +227,8 @@ consistent with `nix/modules/runtime.nix`'s security boundary).
 Record, alongside console/SSH transcripts:
 
 - The full `runtime-appliance-manifest.json` from §1 (source revision, Nix
-  system closure, Mottainai/Nawabari versions, disk digest).
+  system closure, and disk digest; managed version metadata is not base
+  closure contents).
 - The full `runtime-appliance-release-metadata.json` and the compressed
   asset's SHA-256/size from §1, plus the decompressed
   `mottainai-runtime-appliance.raw` SHA-256 and confirmation it is unchanged
@@ -228,7 +236,7 @@ Record, alongside console/SSH transcripts:
   raw bytes described by the Release manifest throughout this proof.
 - Proxmox VE version, host architecture, and the exact `qm` VM
   configuration (`qm config <vmid>`, including both `scsi0`/`scsi1`).
-- Boot, network, SSH, version, health, and reboot-persistence output from
+- Boot, network, SSH, bootstrap-readiness, health, and reboot-persistence output from
   §4–§6.
 
 ## Non-goals not exercised by this proof

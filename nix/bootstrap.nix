@@ -22,16 +22,65 @@
 # by src/bootstrap/nix-dependency-pin.test.ts, which fails loudly the
 # moment they diverge. Update both together.
 #
-# This package is intentionally NOT wired into nix/modules/runtime.nix or
-# any appliance/runtime closure here — proving standalone packageability is
-# Issue #626's job; embedding it into the base Runtime Appliance and
-# removing the full `mottainai` package from that closure is Issue #627's.
+# This package is embedded in the bootstrap-only base Runtime Appliance by
+# Issue #627. The source projection below is deliberately narrow so a change
+# to the managed Mottainai package metadata does not change this derivation.
 
 let
   pname = "mottainai-bootstrap";
-  package = builtins.fromJSON (builtins.readFile (source + "/package.json"));
-  version = package.version;
+  # This is the bootstrap component's identity, not the version of any
+  # managed application package. It must remain independent from the root
+  # package.json version, which is a managed-generation input.
+  version = "1.0.0";
   nodejs = nodejs_24;
+
+  # Keep the bootstrap derivation's source closure independent from the full
+  # repository. In particular, package.json, application sources, lockfile,
+  # and unrelated tests must not become inputs to the base appliance merely
+  # because the bootstrap package is built from the repository checkout.
+  # The Nix projection files are included because a deployed bootstrap CLI
+  # must be able to invoke #625 without a repository checkout.
+  sourceFiles = [
+    "src/bootstrap/main.ts"
+    "src/bootstrap/cli.ts"
+    "src/bootstrap/build.ts"
+    "src/bootstrap/errors.ts"
+    "src/bootstrap/paths.ts"
+    "src/bootstrap/source-resolution.ts"
+    "src/bootstrap/state.ts"
+    "src/bootstrap/unreadable-manifest.ts"
+    "src/runtime-contract/managed-generation-build.ts"
+    "src/runtime-contract/managed-generation.ts"
+    "src/runtime-contract/managed-package-manifest.ts"
+    "src/atomic-file.ts"
+    "src/boundary.ts"
+    "nix/flake.nix"
+    "nix/flake.lock"
+    "nix/managed-generation.nix"
+    "nix/mottainai.nix"
+    "nix/bootstrap.nix"
+    "nix/packages/nawabari.nix"
+  ];
+
+  bootstrapSource = builtins.path {
+    name = "${pname}-source";
+    path = source;
+    filter = path: _type:
+      let
+        sourcePath = toString source;
+        candidatePath = toString path;
+        relativePath =
+          if candidatePath == sourcePath then
+            ""
+          else
+            builtins.substring (builtins.stringLength sourcePath + 1) (-1) candidatePath;
+        isRelevantPath = file:
+          relativePath == file
+          || lib.hasPrefix "${file}/" relativePath
+          || lib.hasPrefix "${relativePath}/" file;
+      in
+      relativePath == "" || builtins.any isRelevantPath sourceFiles;
+  };
 
   # Kept in sync with pnpm-lock.yaml's resolved `zod@<version>:` entry by
   # src/bootstrap/nix-dependency-pin.test.ts.
@@ -59,7 +108,7 @@ let
 in
 stdenvNoCC.mkDerivation {
   inherit pname version;
-  src = source;
+  src = bootstrapSource;
 
   # nixpkgs' own `typescript` package is a build-time-only tool here: it
   # compiles src/bootstrap/** but is never referenced by the installed
@@ -78,6 +127,10 @@ stdenvNoCC.mkDerivation {
     cp -a "$src"/. source/
     chmod -R u+w source
     cd source
+    # The filtered source intentionally excludes the repository package.json.
+    # Keep NodeNext compilation in ESM mode without making the managed package
+    # metadata an input to this base derivation.
+    printf '{"type":"module"}\n' > package.json
     runHook postUnpack
   '';
 
@@ -131,6 +184,10 @@ stdenvNoCC.mkDerivation {
 
     packageRoot="$out/lib/node_modules/${pname}"
     mkdir -p "$packageRoot/node_modules"
+    # Preserve the deterministic ESM marker created by unpackPhase. The
+    # repository's managed package.json is intentionally not copied; this
+    # package's module mode is a bootstrap implementation detail.
+    install -Dm0644 package.json "$packageRoot/package.json"
     cp -a dist/. "$packageRoot/"
     cp -a "$TMPDIR/node_modules/zod" "$packageRoot/node_modules/zod"
 
