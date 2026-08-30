@@ -108,7 +108,7 @@ export const localTools: Tool[] = [
   {
     name: "mottainai_exec_await",
     description:
-      "Block inside this call, up to a bounded runtime-enforced timeout, until a mottainai_exec_start handle reaches a terminal state. Returns terminal result, or an explicit timeout with last-known state — never repeats an unchanged snapshot silently.",
+      "Block inside this call, up to a bounded runtime-enforced timeout, until a mottainai_exec_start handle reaches a terminal state. Returns the terminal result, or an explicit await timeout/cancellation with process state and a bounded re-await hint; cancelling the wait does not cancel the child process.",
     inputSchema: {
       type: "object",
       properties: {
@@ -585,6 +585,7 @@ async function execAwaitTool(
     stateChanges: outcome.kind === "terminal" ? 1 : 0,
     avoidedResponses: 0,
     outcome: outcome.kind,
+    processOutcome: outcome.kind === "terminal" ? processTelemetryOutcome(outcome.result) : undefined,
   });
 
   if (outcome.kind === "terminal") {
@@ -604,15 +605,24 @@ async function execAwaitTool(
   const summary =
     outcome.kind === "timeout"
       ? `TIMEOUT handle=${handle} elapsed=${outcome.elapsedMs}ms still running`
-      : `CANCELLED handle=${handle} elapsed=${outcome.elapsedMs}ms`;
+      : `AWAIT_CANCELLED handle=${handle} elapsed=${outcome.elapsedMs}ms wait cancelled; process remains ${outcome.processState}`;
   return output("exec_await", "partial", summary, "", {
     handle,
     elapsed_ms: outcome.elapsedMs,
     timeout_ms: timeoutMs,
-    state: outcome.kind === "timeout" ? "running" : "cancelled",
-    next_command: outcome.kind === "timeout" ? `mottainai_exec_await handle=${handle}` : undefined,
+    state: outcome.kind === "timeout" ? "running" : "await_cancelled",
+    await_state: outcome.kind,
+    process_state: outcome.kind === "timeout" ? "running" : outcome.processState,
+    next_command: `mottainai_exec_await handle=${handle}`,
     truncated: false,
   });
+}
+
+function processTelemetryOutcome(run: RunResult): "completed" | "timed_out" | "terminated" {
+  // A lifetime timeout also ends the child with a signal; classify it as a
+  // process timeout so the two process lifecycle counters stay disjoint.
+  if (run.timedOut) return "timed_out";
+  return run.signal === null ? "completed" : "terminated";
 }
 
 /** `runShell`/`ManagedProcess` の `RunResult` を exec envelope へ変換する。同期 exec と await 経路が共有する。 */

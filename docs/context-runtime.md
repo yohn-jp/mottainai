@@ -31,7 +31,7 @@ Important fields:
 - `expansion`: explicit result-expansion count, bytes, and estimated tokens. `retrievals` also includes retrieval/search operations and is not the expansion denominator.
 - `read_governor`: allow/observe/warn/deny decisions and returned raw line/byte volume by requested mode and rule.
 - `burst`: pressure samples, projected/omitted bytes/tokens, and responses reduced or only observed as reducible.
-- `await`: internal polls, elapsed wait, state changes, terminal/timeout/cancelled outcomes, and outward responses avoided.
+- `await`: internal polls, elapsed wait, state changes, `terminal`, `await_cancelled`, and await `timeouts`, plus observed `process_timeouts`/`process_terminations` and outward responses avoided.
 - `dedupe`: identity hits/misses and estimated bytes/tokens avoided. This is session-local result identity, not Repository Semantics (#52) or a canonical fact cache.
 
 ## Measurement discipline

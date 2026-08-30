@@ -62,7 +62,9 @@ test("a process already exited during start remains reachable through terminal a
 
   assert.equal(registry.activeSize, 0);
   assert.equal(registry.has(started.handle), true);
-  const outcome = await registry.awaitHandle(started.handle, 5_000);
+  const controller = new AbortController();
+  controller.abort();
+  const outcome = await registry.awaitHandle(started.handle, 5_000, controller.signal);
   assert.equal(outcome?.kind, "terminal");
   registry.release(started.handle);
 });
@@ -98,13 +100,54 @@ test("await returns a timeout outcome without killing the process (await timeout
 
 test("await can be cancelled via AbortSignal without waiting for the process", async () => {
   const registry = new ProcessRegistry();
-  const started = registry.start(`${NODE} -e "setTimeout(() => {}, 2000)"`, process.cwd(), 1024 * 1024, true);
+  const started = registry.start(
+    `${NODE} -e "setTimeout(() => process.stdout.write('done'), 100)"`,
+    process.cwd(),
+    1024 * 1024,
+    true,
+  );
   const controller = new AbortController();
   const awaitPromise = registry.awaitHandle(started.handle, 5_000, controller.signal);
   controller.abort();
   const outcome = await awaitPromise;
-  assert.equal(outcome!.kind, "cancelled");
-  registry.dispose();
+  assert.equal(outcome!.kind, "await_cancelled");
+  if (outcome?.kind === "await_cancelled") assert.equal(outcome.processState, "running");
+  assert.equal(registry.has(started.handle), true);
+  assert.equal(registry.activeSize, 1);
+
+  const reawaited = await registry.awaitHandle(started.handle, 5_000);
+  assert.equal(reawaited?.kind, "terminal");
+  if (reawaited?.kind === "terminal") assert.equal(reawaited.result.stdout, "done");
+  registry.release(started.handle);
+});
+
+test("terminal state wins when it is observed before an abort callback", async (t) => {
+  let observedState: "running" | "exited" = "running";
+  t.mock.getter(ManagedProcess.prototype, "state", () => observedState);
+
+  const registry = new ProcessRegistry();
+  const started = registry.start(
+    `${NODE} -e "setTimeout(() => process.stdout.write('terminal'), 25)"`,
+    process.cwd(),
+    1024 * 1024,
+    true,
+  );
+  const controller = new AbortController();
+  const awaitPromise = registry.awaitHandle(started.handle, 5_000, controller.signal);
+
+  // Model the close/abort race at the lifecycle boundary: terminal state is
+  // visible before the abort callback is dispatched, while the settled
+  // promise supplies the authoritative result shortly afterward.
+  observedState = "exited";
+  controller.abort();
+
+  const outcome = await awaitPromise;
+  assert.equal(outcome?.kind, "terminal");
+  if (outcome?.kind === "terminal") {
+    assert.equal(outcome.result.stdout, "terminal");
+    assert.equal(outcome.result.exitCode, 0);
+  }
+  registry.release(started.handle);
 });
 
 test("awaitHandle on an unknown handle resolves to undefined (invalid handle)", async () => {
@@ -126,6 +169,12 @@ test("dispose force-terminates every tracked process (connection/process shutdow
   const registry = new ProcessRegistry();
   const started = registry.start(`${NODE} -e "setTimeout(() => {}, 5000)"`, process.cwd(), 1024 * 1024, true);
   assert.equal(registry.size, 1);
+  const controller = new AbortController();
+  const awaitPromise = registry.awaitHandle(started.handle, 5_000, controller.signal);
+  controller.abort();
+  assert.equal((await awaitPromise)?.kind, "await_cancelled");
+  assert.equal(registry.activeSize, 1);
+
   registry.dispose();
   assert.equal(registry.size, 0);
   // the underlying process should settle (killed) shortly after dispose.
