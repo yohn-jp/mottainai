@@ -10,6 +10,7 @@ import { aggregateTraces } from "./stats.js";
 import type { RoutingStats } from "./stats.js";
 import type { Trace, TraceStore } from "./trace.js";
 import { normalizeCapabilityList, normalizeNoiseList } from "./taxonomy.js";
+import { assertValidToolArguments, ToolInputValidationError } from "../mcp-tool-validation.js";
 
 /**
  * caller-supervised routing の MCP 面。
@@ -27,9 +28,32 @@ const TASK_SCHEMA = {
     confidence: { type: "number", minimum: 0, maximum: 1 },
   },
   required: ["category"],
+  additionalProperties: false,
 };
 
 const CAPABILITY_LIST_SCHEMA = { type: "array" as const, items: { type: "string" as const } };
+
+const REVIEW_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    expected_found: { type: "boolean" as const },
+    sufficient: { type: "boolean" as const },
+    usefulness: { type: "integer" as const, minimum: 1, maximum: 5 },
+    missing_capabilities: CAPABILITY_LIST_SCHEMA,
+    unexpected_noise: { type: "array" as const, items: { type: "string" as const } },
+  },
+  required: ["expected_found", "sufficient"],
+  additionalProperties: false,
+};
+
+const OUTCOME_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    follow_up_requested: { type: "boolean" as const },
+    next_capabilities: CAPABILITY_LIST_SCHEMA,
+  },
+  additionalProperties: false,
+};
 
 const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
@@ -45,6 +69,7 @@ export const adaptiveTools: Tool[] = [
         context: { type: "string", description: "Optional free text; stored as digest unless raw retention is enabled." },
       },
       required: ["task"],
+      additionalProperties: false,
     },
     outputSchema: OUTPUT_SCHEMA,
     annotations: readOnly,
@@ -55,7 +80,7 @@ export const adaptiveTools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        request_id: { type: "string" },
+        request_id: { type: "string", minLength: 1 },
         expected_found: { type: "boolean", description: "Expected evidence was present." },
         sufficient: { type: "boolean", description: "No further exploration needed." },
         usefulness: { type: "integer", minimum: 1, maximum: 5 },
@@ -63,8 +88,15 @@ export const adaptiveTools: Tool[] = [
         unexpected_noise: { type: "array", items: { type: "string" }, description: "Noise labels such as generated_files." },
         follow_up_requested: { type: "boolean" },
         next_capabilities: CAPABILITY_LIST_SCHEMA,
+        review: REVIEW_SCHEMA,
+        outcome: OUTCOME_SCHEMA,
       },
-      required: ["request_id", "expected_found"],
+      required: ["request_id"],
+      anyOf: [
+        { required: ["expected_found", "sufficient"] },
+        { required: ["review"] },
+      ],
+      additionalProperties: false,
     },
     outputSchema: OUTPUT_SCHEMA,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -75,8 +107,8 @@ export const adaptiveTools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        request_id: { type: "string" },
-        execution_id: { type: "string" },
+        request_id: { type: "string", minLength: 1 },
+        execution_id: { type: "string", minLength: 1 },
         expected_found: { type: "boolean" },
         useful: { type: "boolean" },
         sufficient_for_capability: { type: "boolean" },
@@ -84,6 +116,7 @@ export const adaptiveTools: Tool[] = [
         unexpected_noise: { type: "array", items: { type: "string" } },
       },
       required: ["request_id", "execution_id"],
+      additionalProperties: false,
     },
     outputSchema: OUTPUT_SCHEMA,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -94,12 +127,13 @@ export const adaptiveTools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        request_id: { type: "string", description: "Inspect a single trace instead of aggregating." },
-        task_category: { type: "string" },
-        since_hours: { type: "number", minimum: 0 },
+        request_id: { type: "string", minLength: 1, description: "Inspect a single trace instead of aggregating." },
+        task_category: { type: "string", minLength: 1 },
+        since_hours: { type: "number", minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
         reviewed_only: { type: "boolean" },
         top: { type: "integer", minimum: 1, maximum: 50, description: "Entries kept per ranked list; default 10." },
       },
+      additionalProperties: false,
     },
     outputSchema: OUTPUT_SCHEMA,
     annotations: readOnly,
@@ -110,11 +144,12 @@ export const adaptiveTools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        min_support: { type: "integer", minimum: 1, description: "Reviewed traces required per rule; default 5." },
+        min_support: { type: "integer", minimum: 1, maximum: 10_000, description: "Reviewed traces required per rule; default 5." },
         missing_threshold: { type: "number", minimum: 0, maximum: 1, description: "Missing-report rate to add a capability; default 0.3." },
         holdout_ratio: { type: "number", minimum: 0, maximum: 0.9, description: "Newest reviewed traces held out; default 0.3." },
         write: { type: "boolean", description: "Persist the candidate policy file; default true." },
       },
+      additionalProperties: false,
     },
     outputSchema: OUTPUT_SCHEMA,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -140,6 +175,8 @@ type Args = Record<string, unknown> | undefined;
 const DEFAULT_TOP = 10;
 
 export async function callAdaptiveTool(name: string, args: Args, context: AdaptiveToolContext): Promise<CallToolResult> {
+  const advertisedTool = adaptiveTools.find((tool) => tool.name === name);
+  if (advertisedTool !== undefined) assertAdaptiveToolArguments(advertisedTool, args);
   switch (name) {
     case "mottainai_plan": return planTool(args, context);
     case "mottainai_review": return reviewTool(args, context);
@@ -148,6 +185,35 @@ export async function callAdaptiveTool(name: string, args: Args, context: Adapti
     case "mottainai_policy_propose": return proposeTool(args, context);
     default: throw new Error(`Unknown adaptive tool: ${name}`);
   }
+}
+
+/**
+ * Keep the existing semantic parser diagnostics for malformed values it owns,
+ * while routing envelope/unknown-field checks through the canonical validator.
+ * The parser is deliberately run only after a schema failure and has no
+ * persistence or provider effects.
+ */
+function assertAdaptiveToolArguments(tool: Tool, args: Args): void {
+  try {
+    assertValidToolArguments(tool, args);
+  } catch (error) {
+    if (!(error instanceof ToolInputValidationError)) throw error;
+    if (error.issues.some((issue) => issue.keyword === "additionalProperties")) throw error;
+    try {
+      adaptiveSemanticPreflight(tool.name, args);
+    } catch (legacyError) {
+      throw legacyError;
+    }
+    throw error;
+  }
+}
+
+function adaptiveSemanticPreflight(name: string, args: Args): void {
+  if (name === "mottainai_plan") {
+    planMetadata(args);
+    return;
+  }
+  if (name === "mottainai_review") parseReviewInput(args);
 }
 
 function booleanArg(args: Args, key: string): boolean | undefined {
@@ -181,12 +247,16 @@ function storeSnapshot<T>(store: ArtifactStore, operation: string, payload: T): 
   });
 }
 
-async function planTool(args: Args, context: AdaptiveToolContext): Promise<CallToolResult> {
-  const metadata = normalizeCallerMetadata({
+function planMetadata(args: Args): ReturnType<typeof normalizeCallerMetadata> {
+  return normalizeCallerMetadata({
     task: args?.task,
     requested_capabilities: args?.requested_capabilities,
     context: args?.context,
   }, "mottainai_plan");
+}
+
+async function planTool(args: Args, context: AdaptiveToolContext): Promise<CallToolResult> {
+  const metadata = planMetadata(args);
   const task = metadata.task;
   if (task === undefined) throw new Error("task.category is required");
 
@@ -255,7 +325,18 @@ function reviewSection(args: Args, key: string): Args {
   return nested as Record<string, unknown>;
 }
 
-async function reviewTool(args: Args, context: AdaptiveToolContext): Promise<CallToolResult> {
+interface ParsedReviewInput {
+  requestId: string;
+  expectedFound: boolean;
+  sufficient: boolean;
+  usefulness: number | undefined;
+  missing: string[];
+  noise: string[];
+  followUpRequested: boolean;
+  nextCapabilities: string[];
+}
+
+function parseReviewInput(args: Args): ParsedReviewInput {
   const requestId = stringArg(args, "request_id", true)!;
   // issue #40 の例は review / outcome をネストする。フラット引数と両方受ける。
   const review = reviewSection(args, "review");
@@ -271,6 +352,30 @@ async function reviewTool(args: Args, context: AdaptiveToolContext): Promise<Cal
   const noise = normalizeNoiseList(review?.unexpected_noise, "unexpected_noise").map((entry) => entry.id);
   const nextCapabilities = normalizeCapabilityList(outcome?.next_capabilities, "next_capabilities").map((entry) => entry.id);
 
+  return {
+    requestId,
+    expectedFound,
+    sufficient,
+    usefulness,
+    missing,
+    noise,
+    followUpRequested: booleanArg(outcome, "follow_up_requested") ?? nextCapabilities.length > 0,
+    nextCapabilities,
+  };
+}
+
+async function reviewTool(args: Args, context: AdaptiveToolContext): Promise<CallToolResult> {
+  const {
+    requestId,
+    expectedFound,
+    sufficient,
+    usefulness,
+    missing,
+    noise,
+    followUpRequested,
+    nextCapabilities,
+  } = parseReviewInput(args);
+
   const recorded = await context.traceStore.recordReview({
     request_id: requestId,
     expected_found: expectedFound,
@@ -278,7 +383,7 @@ async function reviewTool(args: Args, context: AdaptiveToolContext): Promise<Cal
     usefulness,
     missing_capabilities: missing,
     unexpected_noise: noise,
-    follow_up_requested: booleanArg(outcome, "follow_up_requested") ?? nextCapabilities.length > 0,
+    follow_up_requested: followUpRequested,
     next_capabilities: nextCapabilities,
   });
 

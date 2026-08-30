@@ -15,6 +15,7 @@ import { resolveRepositoryIdentity } from "../domain/identity.js";
 import { startTask, transitionTask } from "../domain/task.js";
 import { BUILTIN_PRESETS } from "../policy/presets.js";
 import { WorkflowSqliteStateStore } from "../state/sqlite-store.js";
+import { ToolInputValidationError } from "../../mcp-tool-validation.js";
 
 function structured(result: CallToolResult): Record<string, unknown> {
   assert.ok(result.structuredContent);
@@ -231,6 +232,66 @@ test("task_start's branchType input schema declares an enum matching the bundled
   assert.deepEqual(properties.branchType?.enum, bundledGovernedBranchTypes());
   assert.equal((properties.branchType?.enum as string[] | undefined)?.includes("research"), false);
   assert.equal(properties.dryRun?.type, "boolean");
+});
+
+test("workflow owned envelopes use canonical validation before worktree or store side effects", async (t) => {
+  const { root, config } = await gitWorkspace(t);
+  const store = openWorkflowStore();
+  t.after(() => store.close());
+  const secret = "unrelated-forwarded-value";
+
+  await assert.rejects(
+    () => callWorkflowCommandTool(
+      "mottainai_workflow_task_start",
+      {
+        taskSlug: "schema-check",
+        branchType: "fix",
+        issueRef: "462",
+        typo: secret,
+      },
+      enabled(config),
+      store,
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof ToolInputValidationError);
+      assert.deepEqual(error.issues, [{
+        path: "arguments.typo",
+        keyword: "additionalProperties",
+        message: "property is not allowed",
+      }]);
+      assert.doesNotMatch(error.message, new RegExp(secret));
+      return true;
+    },
+  );
+  assert.deepEqual(store.listTasks(), []);
+  assert.equal(
+    await fs.access(path.join(root, ".git", "mottainai-instance-id")).then(
+      () => true,
+      () => false,
+    ),
+    false,
+  );
+
+  await assert.rejects(
+    () => callWorkflowCommandTool(
+      "mottainai_workflow_task_start",
+      {
+        taskSlug: "schema-check",
+        branchType: "fix",
+        issueRef: "462",
+        semanticPlan: { claims: [{ resource: "src", mode: "unsupported" }] },
+      },
+      enabled(config),
+      store,
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof ToolInputValidationError);
+      assert.equal(error.issues[0]?.path, "arguments.semanticPlan.claims[0].mode");
+      assert.equal(error.issues[0]?.keyword, "enum");
+      return true;
+    },
+  );
+  assert.deepEqual(store.listTasks(), []);
 });
 
 test("task_start dry-run returns a plan without creating a task or worktree", async (t) => {

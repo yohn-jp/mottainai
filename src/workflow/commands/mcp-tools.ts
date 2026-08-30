@@ -33,6 +33,7 @@ import { resolveEffectiveWorkflowPolicy } from "../policy/load.js";
 import type { TaskId, WorkflowStateStore } from "../state/store.js";
 import { resolveStateDbPath } from "../../state/paths.js";
 import { validateIssueRef, validateTaskSlug } from "./validate.js";
+import { assertValidToolArguments, ToolInputValidationError } from "../../mcp-tool-validation.js";
 
 /**
  * Read-oriented exposure of the Git workflow engine (Issue #39, extending Issue #34).
@@ -51,6 +52,50 @@ import { validateIssueRef, validateTaskSlug } from "./validate.js";
 const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const destructive = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true };
 
+const commitMessageSchema = {
+  type: "object" as const,
+  properties: {
+    type: { type: "string" as const },
+    scope: { type: "string" as const },
+    subject: { type: "string" as const, minLength: 1 },
+    body: { type: "string" as const },
+    footer: { type: "string" as const },
+    breaking: { type: "boolean" as const },
+  },
+  required: ["subject"],
+  additionalProperties: false,
+};
+
+const semanticTargetSchema = {
+  type: "object" as const,
+  properties: {
+    kind: { type: "string" as const, enum: ["symbol", "component", "path"] },
+    id: { type: "string" as const },
+    paths: { type: "array" as const, items: { type: "string" as const } },
+  },
+  required: ["kind", "id"],
+  additionalProperties: false,
+};
+
+const executionClaimSchema = {
+  type: "object" as const,
+  properties: {
+    resource: { type: "string" as const },
+    mode: { type: "string" as const, enum: ["read", "write", "exclusive-write"] },
+  },
+  required: ["resource", "mode"],
+  additionalProperties: false,
+};
+
+const semanticVerificationSchema = {
+  type: "object" as const,
+  properties: {
+    requiredChecks: { type: "array" as const, items: { type: "string" as const } },
+    rationale: { type: "string" as const },
+  },
+  additionalProperties: false,
+};
+
 const taskCommitTool: Tool = {
   name: "mottainai_workflow_task_commit",
   description:
@@ -59,7 +104,7 @@ const taskCommitTool: Tool = {
     type: "object",
     properties: {
       taskId: { type: "string" },
-      message: { type: "object" },
+      message: commitMessageSchema,
       includePaths: { type: "array", items: { type: "string" } },
       dryRun: { type: "boolean" },
     },
@@ -151,7 +196,9 @@ const taskCleanupTool: Tool = {
       taskId: { type: "string" },
       dryRun: { type: "boolean" },
       idempotencyKey: { type: "string" },
-      plan: { type: "object" },
+      // Legacy cleanup plans are accepted as opaque input only so the domain
+      // layer can return its stable retirement diagnostic.
+      plan: { type: "object", additionalProperties: true },
     },
     additionalProperties: false,
   },
@@ -214,10 +261,10 @@ function buildTaskStartTool(): Tool {
         semanticPlan: {
           type: "object",
           properties: {
-            semanticTargets: { type: "array", items: { type: "object" } },
+            semanticTargets: { type: "array", items: semanticTargetSchema },
             explicitPaths: { type: "array", items: { type: "string" } },
-            claims: { type: "array", items: { type: "object" } },
-            verification: { type: "object" },
+            claims: { type: "array", items: executionClaimSchema },
+            verification: semanticVerificationSchema,
             strict: { type: "boolean" },
           },
           additionalProperties: false,
@@ -488,6 +535,44 @@ function semanticPlanArg(args: Args): CreateSemanticExecutionPlanInput | undefin
 
 function requireWorkflowTasksConfigured(config: ResolvedGatewayConfig): void {
   if (!config.workflowTasks) throw new Error("workflow command tools are not configured for this workspace");
+}
+
+/**
+ * Validate the owned envelope before any workflow store or provider path is
+ * opened. Task-start retains its existing domain diagnostics for repository
+ * naming and governance decisions; the schema remains the authority for the
+ * envelope and all nested constraints.
+ */
+function assertWorkflowToolArguments(
+  tool: Tool,
+  args: Args,
+  config: ResolvedGatewayConfig,
+): void {
+  requireWorkflowTasksConfigured(config);
+  try {
+    assertValidToolArguments(tool, args);
+  } catch (error) {
+    if (!(error instanceof ToolInputValidationError)) throw error;
+    if (error.issues.some((issue) => issue.keyword === "additionalProperties")) throw error;
+    if (tool.name === "mottainai_workflow_task_start") {
+      try {
+        taskStartSemanticPreflight(args);
+      } catch (legacyError) {
+        throw legacyError;
+      }
+      if (error.issues.length === 1
+        && error.issues[0]?.path === "arguments.branchType"
+        && error.issues[0]?.keyword === "enum") return;
+    }
+    throw error;
+  }
+}
+
+function taskStartSemanticPreflight(args: Args): void {
+  const taskSlug = stringArg(args, "taskSlug", true)!;
+  validateTaskSlug(taskSlug);
+  const issueRef = stringArg(args, "issueRef", true)!;
+  validateIssueRef(issueRef);
 }
 
 function policyExplainToolImpl(config: ResolvedGatewayConfig): CallToolResult {
@@ -1039,6 +1124,8 @@ export async function callWorkflowCommandTool(
   workflowStore?: WorkflowStateStore,
   artifactStore?: ArtifactStore,
 ): Promise<CallToolResult> {
+  const advertisedTool = workflowCommandTools().find((tool) => tool.name === name);
+  if (advertisedTool !== undefined) assertWorkflowToolArguments(advertisedTool, args, config);
   switch (name) {
     case "mottainai_workflow_policy_explain":
       return policyExplainToolImpl(config);
