@@ -1,57 +1,110 @@
 # Canonical local Runtime
 
-The `mottainai runtime` namespace is the only local Runtime lifecycle authority
-for the `mottainai-local-runtime-v1` profile. Use `mottainai runtime ensure` to
-reconcile it and `mottainai runtime status` to read its persisted state.
-`mottainai init` only sets up MCP configuration/clients and never provisions the
-Runtime, so hosts without a hardware accelerator (CI, containers, sandboxes)
-can still complete client setup.
+> **Architecture status:** the earlier Mottainai-owned direct-QEMU lifecycle
+> described by this document has been superseded by Issue #600. The canonical
+> guest is now defined by the provider-independent bootstrap-only Runtime
+> architecture in [`runtime-architecture.md`](runtime-architecture.md).
 
-The profile is intentionally not a user-selectable provider: QEMU is always the
-machine substrate, with `KVM` on Linux, `HVF` on macOS, and `WHPX` on Windows.
-If the required accelerator is unavailable, `runtime ensure` fails with an
-actionable diagnostic rather than silently skipping Runtime provisioning. It
-never selects TCG, WSL/WSL2, a host-native process, or an arbitrary system
-QEMU installation.
+Local Runtime lifecycle and canonical guest semantics are separate concerns.
+Mottainai owns the declarative Runtime contract, exact appliance identity,
+managed desired state, guest reconciliation policy, and bounded evidence. The
+selected local provider owns physical VM lifecycle and host/VMM integration.
 
-The state root is user-owned and platform-native (`XDG_STATE_HOME` on Linux,
-`~/Library/Application Support` on macOS, and `%LOCALAPPDATA%` on Windows).
-The state contains one stable machine id, the pinned QEMU build identity, the
-locked #231 Runtime image identity, the private QMP endpoint, the fixed SSH
-forward (`127.0.0.1:48321`), and the SSH host-key record. State writes are
-atomic and serialized by a recoverable per-machine lock; an interrupted
-operation cannot cause a disk or identity reset.
+## Current boundary
 
-QEMU and the Runtime image are lazy release artifacts. Their manifests contain
-SHA-256 integrity records, source provenance, GPL corresponding-source data,
-runtime-library/firmware requirements, and the #231 contract/build identity.
-The release image is a projection of `nix/flake.nix`; the TypeScript machine
-adapter does not define a second guest configuration. Host-side lifecycle uses
-the private QMP socket only. Guest health and reconciliation use the versioned
-SSH contract (`mottainai-runtime-health` and the bounded
-`mottainai-runtime-reconcile` command); QEMU Guest Agent is not used.
+```text
+Mottainai Runtime specification
+        |
+        v
+local provider adapter
+        |
+        v
+Lima (initial direction under #600)
+        |
+        v
+QEMU/KVM on Linux
+        |
+        v
+same canonical Runtime Appliance
+```
 
-The v1 lifecycle is bounded and explicit: absent, creating, booting, reachable,
-reconciling, ready, incompatible, repairable, and recreate-required. A
-corrupt image, changed SSH host key, incompatible Runtime contract, or missing
-accelerator is an error rather than a destructive guess.
+Lima is the initial local-provider direction, not part of the guest contract.
+A future provider such as Proxmox must be able to instantiate the same canonical
+appliance without inserting Lima into its path.
 
-Release staging runs the locked Nix output first (`nix build ./nix#runtime-image`).
-That output is a projection of the same `nixosConfigurations` system and
-contains the kernel, initrd, raw disk, and build identity. It is then passed to
-`scripts/build-runtime-image-manifest.mjs --image-output` to record
-kernel/initrd/disk hashes, the lockfile digest, and the real per-image pinned
-SSH host key. The generated manifest stores asset paths relative to itself, so
-the verified bundle remains consumable after staging moves it.
+Mottainai therefore does **not** own, for the Lima-managed local path:
 
-Each platform build also supplies its already-built QEMU executable and
-explicit dependencies to `scripts/build-runtime-qemu-manifest.mjs`. The
-host-independent builder stages the executable, firmware, runtime libraries
-(or records a static-link dependency mode), and license files into
-a deterministic archive, then writes provenance to the manifest. The generated sidecar binds the archive and every
-staged file to real hashes and is verified by
-`scripts/verify-runtime-qemu-artifact.mjs` before an OS-specific integration
-job consumes it; the resulting per-host manifest is what the lazy
-materializer verifies and copies into the private state root.
-`scripts/runtime-qemu-boot-smoke.mjs` is an artifact-level process smoke
-primitive; it does not claim KVM/HVF/WHPX or guest-boot evidence.
+- a private QEMU binary/archive distribution;
+- direct QEMU command-line/device topology construction;
+- private QMP lifecycle as the canonical product interface;
+- provider-specific disk/network/SSH implementation details already owned by
+  the provider.
+
+Mottainai still owns fail-closed validation of the provider/toolchain and
+virtualization capabilities required by a supported profile, plus evidence
+connecting the provider instance to the exact canonical appliance and Runtime
+state.
+
+## Canonical appliance
+
+The appliance is a bootstrap substrate, not a full application snapshot:
+
+```text
+Canonical Runtime Appliance
+├─ NixOS / boot / guest integration
+├─ networking + OpenSSH/control prerequisites
+├─ persistent Runtime control-state layout
+├─ bootstrap/readiness prerequisites
+└─ mottainai-bootstrap
+        |
+        v
+Managed Runtime generation
+├─ mottainai
+├─ nawabari
+└─ other explicitly supported managed packages
+```
+
+Full Mottainai, Nawabari, Zellij, and coding-agent CLIs are not mandatory base
+appliance contents. #627 physically enforces that split. #626 provides the
+minimal bootstrap component; #628 owns activation/reconcile/rollback.
+
+Changing only a managed application version must not rebuild the base appliance.
+See [`runtime-architecture.md`](runtime-architecture.md) for the authoritative
+layer and rebuild boundaries.
+
+## Readiness
+
+Local-provider readiness and guest application readiness are distinct:
+
+1. Provider lifecycle makes the canonical guest reachable.
+2. The guest reaches `bootstrap-ready` without full Mottainai installed.
+3. Bootstrap resolves/builds the exact managed generation.
+4. #628 atomically activates that generation and proves managed-runtime health.
+
+A provider reporting a running VM is not evidence that the managed Runtime is
+healthy. Conversely, guest package semantics never depend on private provider
+state.
+
+## State ownership
+
+Provider instance state remains provider-owned. Canonical guest control state
+lives under the persistent `mottainai-control` state root and includes desired
+managed-package state, bootstrap evidence, and activation/recovery evidence.
+User/workspace data has a separate persistence boundary.
+
+See [`runtime-state.md`](runtime-state.md) for the authoritative ownership and
+survival matrix and [`runtime-lifecycle.md`](runtime-lifecycle.md) for
+activation/restart recovery.
+
+## Historical direct-QEMU model
+
+The previous `mottainai-local-runtime-v1` implementation assumed a
+Mottainai-managed QEMU artifact, private QMP endpoint, fixed SSH forwarding,
+and host-specific KVM/HVF/WHPX behavior. Those details are not forward
+architecture requirements after #600. Generic verification/security primitives
+may be reused, but they must not reintroduce Mottainai-owned VM plumbing that
+the provider boundary intentionally removes.
+
+Issue #600 remains the decision record for the provider migration. This document
+records the current forward contract only; use Git history when historical
+implementation details are required.
