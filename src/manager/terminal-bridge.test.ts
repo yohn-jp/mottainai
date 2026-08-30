@@ -183,7 +183,7 @@ test("Manager browser terminal bridge rejects an unknown session id with a not-f
     },
   });
 
-  const missingSessionId = "00000000-0000-0000-0000-000000000000";
+  const missingSessionId = "00000000-0000-4000-8000-000000000000";
   const wsUrl = handle.url.replace(/^http:/u, "ws:") + `api/v1/manager/sessions/${missingSessionId}/terminal`;
   const socket = new WebSocket(wsUrl, { headers: { origin: handle.url.replace(/\/$/u, "") } });
   activeSockets.push(socket);

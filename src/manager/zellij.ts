@@ -9,7 +9,10 @@ const DEFAULT_OUTPUT_BYTES = 64 * 1024;
 // needed inspecting.
 const MINIMUM_ZELLIJ_VERSION = [0, 44, 0] as const;
 const SESSION_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/u;
-const CANONICAL_MANAGER_SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+// Manager session IDs are emitted by crypto.randomUUID(): lower-case UUID v4
+// values using the RFC 4122 variant. Keep this contract identical for HTTP
+// parsing and every runtime identity derived from the ID.
+const CANONICAL_MANAGER_SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const NO_ACTIVE_SESSION_PATTERN = /no session|not found|does not exist|no active [^\n]*sessions/iu;
 const ANSI_ESCAPE_PATTERN = /\x1b\[[0-9;]*[A-Za-z]/gu;
 
@@ -70,7 +73,9 @@ function assertSessionName(sessionName: string): void {
 }
 
 export function isCanonicalManagerSessionId(value: string): boolean {
-  return CANONICAL_MANAGER_SESSION_ID_PATTERN.test(value);
+  // `$` may match immediately before a final line terminator in JavaScript;
+  // the exact UUID length makes the canonical boundary strict as well.
+  return value.length === 36 && CANONICAL_MANAGER_SESSION_ID_PATTERN.test(value);
 }
 
 function defaultRunner(binary: string, environment?: NodeJS.ProcessEnv): ZellijCommandRunner {

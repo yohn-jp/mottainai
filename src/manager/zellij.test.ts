@@ -14,10 +14,18 @@ test("Manager session IDs use the canonical UUID shape for runtime naming", () =
   assert.match(deriveZellijSessionName(id), /^mottainai-[a-z0-9-]+$/u);
   for (const malformed of [
     "not-a-session",
+    "123456781234-4234-8234-123456789abc",
     "12345678-12345-4234-8234-123456789abc",
     "12345678-1234-4234--8234-123456789abc",
     "12345678-1234-4234-8234-123456789abc-extra",
     "12345678-1234-4234-8234-123456789abg",
+    "12345678-1234-1234-8234-123456789abc",
+    "12345678-1234-5234-8234-123456789abc",
+    "12345678-1234-7234-8234-123456789abc",
+    "12345678-1234-4234-7234-123456789abc",
+    "12345678-1234-4234-c234-123456789abc",
+    "12345678-1234-4234-8234-123456789ABC",
+    "12345678-1234-4234-8234-123456789abc\n",
   ]) {
     assert.equal(isCanonicalManagerSessionId(malformed), false, malformed);
     assert.throws(() => deriveZellijSessionName(malformed), /invalid manager session id/);

@@ -9,6 +9,7 @@ import {
 } from "./service.js";
 import type { ManagerUpgradeHandler } from "./terminal-bridge.js";
 import { isCanonicalManagerSessionId } from "./zellij.js";
+import { isCanonicalNawabariSessionId } from "../workflow/nawabari.js";
 import {
   MANAGER_AGENT_KINDS,
   MANAGER_RUNTIME_STATES,
@@ -66,15 +67,26 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   }
 }
 
-function sessionIdFromPath(value: string): ManagerSessionId {
+function decodedSessionIdFromPath(value: string): string {
   let decoded: string;
   try {
     decoded = decodeURIComponent(value);
   } catch {
     throw new ManagerError("invalid_request", "invalid session id", 400);
   }
+  return decoded;
+}
+
+function sessionIdFromPath(value: string): ManagerSessionId {
+  const decoded = decodedSessionIdFromPath(value);
   if (!isCanonicalManagerSessionId(decoded)) throw new ManagerError("invalid_request", "invalid session id", 400);
   return decoded as ManagerSessionId;
+}
+
+function nawabariSessionIdFromPath(value: string): string {
+  const decoded = decodedSessionIdFromPath(value);
+  if (!isCanonicalNawabariSessionId(decoded)) throw new ManagerError("invalid_request", "invalid session id", 400);
+  return decoded;
 }
 
 function inputFromBody(value: unknown): NewManagerSessionInput {
@@ -306,7 +318,7 @@ export class ManagerHttpApi implements ManagerHttpHandler {
         method === "POST"
       ) {
         sendJson(response, 200, {
-          session: await this.service.inspectNawabariSession(sessionIdFromPath(segments[2] ?? "")),
+          session: await this.service.inspectNawabariSession(nawabariSessionIdFromPath(segments[2] ?? "")),
         });
         return;
       }

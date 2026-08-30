@@ -21,6 +21,9 @@ const REQUIRED_CLOSE_FETCH_OPTIONS = ["--integrated-revision", "--fetch-remote",
 
 const COMMAND_TIMEOUT_MS = 12_000;
 const COMMAND_MAX_OUTPUT_BYTES = 64 * 1024;
+// Nawabari owns these external session identities. Its documented contract is
+// a lower-case RFC 9562 UUIDv7, distinct from Manager's UUIDv4 IDs.
+const CANONICAL_NAWABARI_SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const REQUIRED_NAWABARI_COMMANDS = [
   "session create",
   "session id",
@@ -89,6 +92,12 @@ export interface NawabariCommandRunner {
 const defaultRunner: NawabariCommandRunner = {
   run: (command, args, cwd) => runProgram(command, [...args], cwd, COMMAND_TIMEOUT_MS, COMMAND_MAX_OUTPUT_BYTES),
 };
+
+export function isCanonicalNawabariSessionId(value: string): boolean {
+  // `$` may match immediately before a final line terminator in JavaScript;
+  // the exact UUID length makes the canonical boundary strict as well.
+  return value.length === 36 && CANONICAL_NAWABARI_SESSION_ID_PATTERN.test(value);
+}
 
 export interface NawabariCapabilities {
   contractId: typeof NAWABARI_CONTRACT_ID;
