@@ -15,8 +15,11 @@ permissions:
 jobs:
   standards-self-check:
     name: standards-self-check
-    # The governance/actions/semantics machinery that validate-pr depends on
-    # must itself be provably correct before it is trusted to gate a merge.
+    # Self-verification of the governance/actions/semantics machinery in this
+    # branch's own worktree. validate-pr does not depend on this job: it
+    # checks out and trusts only the base SHA's governance validator (see
+    # validate-pr's "Verify trusted governance revision" step), so this job's
+    # completion is not a precondition for validate-pr's trust model.
     if: >-
       github.event_name != 'pull_request' ||
       (
@@ -56,7 +59,6 @@ jobs:
 
   validate-pr:
     name: validate-pr
-    needs: standards-self-check
     # Job-level filtering keeps required validate-pr checks from remaining
     # pending while excluding Dependabot and release PRs from normal governance.
     if: >-
