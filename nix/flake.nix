@@ -135,6 +135,25 @@
         }
       );
 
+      # Function output (Issue #625): the managed-package-manifest.v1
+      # manifest a caller wants projected is runtime input, not something a
+      # pinned flake package output can take a parameter for, so this is
+      # exposed as a callable function rather than a fixed
+      # `packages.<system>.*` derivation. scripts/build-managed-generation.mjs
+      # is the caller (`nix eval --impure` against this attribute), reading
+      # the manifest from a file the flake itself never touches.
+      lib.mkManagedGeneration =
+        { system, manifest }:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        import ./managed-generation.nix {
+          inherit pkgs manifest;
+          inherit (nixpkgs) lib;
+          mottainaiPackage = mkMottainai pkgs;
+          nawabariPackage = mkNawabari pkgs;
+        };
+
       checks = forEachSystem (
         system:
         let
