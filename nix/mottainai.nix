@@ -37,11 +37,64 @@ let
       pnpm fetch --frozen-lockfile --ignore-scripts --store-dir "$out"
 
       # Older pnpm stores stamp each cached package's index.json with a
-      # checkedAt wall-clock timestamp. pnpm 11 uses an SQLite index instead,
-      # but retain the normalization for stores produced by compatible pnpm
-      # versions.
+      # checkedAt wall-clock timestamp. pnpm 11 stores the same metadata in
+      # an SQLite index, whose row insertion order also depends on fetch
+      # completion order. Normalize both sources of nondeterminism.
       find "$out" -path '*/files/*-index.json' -print0 \
         | xargs -0 --no-run-if-empty sed -i -E 's/"checkedAt":[0-9]+/"checkedAt":0/g'
+
+      indexDb="$out/v11/index.db"
+      if test -f "$indexDb"; then
+        INDEX_DB="$indexDb" node <<'NODE'
+const fs = require("node:fs");
+const { DatabaseSync } = require("node:sqlite");
+
+const indexDb = process.env.INDEX_DB;
+const source = new DatabaseSync("file://" + indexDb + "?immutable=1");
+const rows = source.prepare(
+  "SELECT key, data FROM package_index ORDER BY key"
+).all();
+const canonicalDb = indexDb + ".canonical";
+const target = new DatabaseSync(canonicalDb);
+
+target.exec(`
+  PRAGMA page_size=4096;
+  PRAGMA auto_vacuum=0;
+  PRAGMA journal_mode=DELETE;
+  PRAGMA synchronous=OFF;
+  CREATE TABLE package_index (
+    key TEXT PRIMARY KEY,
+    data BLOB NOT NULL
+  ) WITHOUT ROWID;
+`);
+
+const insert = target.prepare(
+  "INSERT INTO package_index (key, data) VALUES (?, ?)"
+);
+let checkedAtCount = 0;
+target.exec("BEGIN");
+for (const row of rows) {
+  const data = Buffer.from(row.data);
+  for (let offset = 0; offset + 8 < data.length; offset++) {
+    if (data[offset] !== 0xcb) continue;
+    const value = data.readDoubleBE(offset + 1);
+    if (value >= 1e12 && value < 1e13) {
+      data.fill(0, offset + 1, offset + 9);
+      checkedAtCount++;
+    }
+  }
+  insert.run(row.key, data);
+}
+target.exec("COMMIT; ANALYZE package_index;");
+target.close();
+source.close();
+
+if (checkedAtCount === 0) {
+  throw new Error("pnpm index.db did not contain checkedAt timestamps");
+}
+fs.renameSync(canonicalDb, indexDb);
+NODE
+      fi
 
       runHook postBuild
     '';
@@ -53,7 +106,7 @@ let
     # runnable output, so skip fixup entirely.
     dontFixup = true;
     outputHashMode = "recursive";
-    outputHash = "sha256-iQxPlRibo4ScYQaScY63B84MR4rvsWZ8/PSWXlJOyqo=";
+    outputHash = "sha256-OyPBWgRlrnbPjLGx6/8WQThz2xiXJU2RVBi4Cp6G1bI=";
   };
 in
 pkgs.stdenv.mkDerivation {
