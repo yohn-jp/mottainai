@@ -136,6 +136,43 @@ test("listTools prefixes each upstream's tool names with '<upstream>__'", async 
   await client.close();
 });
 
+test("listTools rejects a namespace-colliding upstream before registering an ambiguous tool name", async () => {
+  const client = await connectedClient([
+    fakeHandle("foo__bar", [{ name: "baz", inputSchema: { type: "object" } }], async () => ({ content: [] })),
+  ]);
+
+  try {
+    await assert.rejects(
+      () => client.listTools(),
+      /invalid upstream name: "foo__bar" contains reserved tool namespace separator "__"/,
+    );
+  } finally {
+    await client.close();
+  }
+});
+
+test("valid upstream names round-trip through prefix and split routing", async () => {
+  const calls: Array<{ name: string; arguments?: Record<string, unknown> }> = [];
+  const client = await connectedClient([
+    fakeHandle("foo", [{ name: "bar__baz", inputSchema: { type: "object" } }], async (params) => {
+      calls.push(params as { name: string; arguments?: Record<string, unknown> });
+      return { content: [{ type: "text", text: "ok" }] };
+    }),
+  ]);
+
+  try {
+    const { tools } = await client.listTools();
+    assert.ok(tools.some((tool) => tool.name === "foo__bar__baz"));
+
+    const result = await client.callTool({ name: "foo__bar__baz", arguments: { query: "x" } });
+
+    assert.deepEqual(calls, [{ name: "bar__baz", arguments: { query: "x" } }]);
+    assert.deepEqual(result, { content: [{ type: "text", text: "ok" }] });
+  } finally {
+    await client.close();
+  }
+});
+
 test("listTools starts enabled registry upstreams and excludes disabled upstreams", async () => {
   const started: string[] = [];
   const registry = new UpstreamRegistry([
