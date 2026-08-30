@@ -215,3 +215,36 @@ export function verifySourceIntegrity(
     }
   }
 }
+
+/**
+ * Fails closed when a resolved package's built version does not exactly
+ * match the manifest's requested version (PR #634 review: nix/managed-generation.nix's
+ * `resolveEntry` selects a recipe by (packageId, kind, flakeRef) alone —
+ * without this check, a manifest requesting mottainai@0.7.2 could silently
+ * build whatever version the currently pinned recipe happens to produce
+ * (e.g. 0.7.1), pass source-integrity verification, and be reported as a
+ * successful managed generation. nix/managed-generation.nix independently
+ * enforces the same check at the Nix layer (`requireMatchingVersion`, which
+ * fails the build itself before metadata is even produced); this is the
+ * script-side confirmation that the metadata a build actually produced
+ * still reflects what was requested, matching the same fail-closed
+ * contract as verifySourceIntegrity above.
+ */
+export function assertResolvedVersionsMatch(
+  manifest: ManagedPackageManifest,
+  metadata: ManagedGenerationMetadata,
+): void {
+  for (const entry of manifest.packages) {
+    const resolved = metadata.resolvedIdentity.packages.find((candidate) => candidate.packageId === entry.packageId);
+    if (resolved === undefined) {
+      throw new ManagedGenerationError(
+        `managed generation metadata has no resolved identity entry for packageId=${entry.packageId}`,
+      );
+    }
+    if (resolved.resolvedVersion !== entry.version) {
+      throw new ManagedGenerationError(
+        `managed generation version mismatch for packageId=${entry.packageId}: manifest requests version=${entry.version}, but the resolved build produced version=${resolved.resolvedVersion}`,
+      );
+    }
+  }
+}

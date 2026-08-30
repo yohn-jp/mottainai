@@ -30,8 +30,13 @@ const system = option("system");
 // imports the TypeScript runtime-contract modules directly rather than a
 // compiled dist/ output, since this script is not part of the pnpm build.
 const { parseManagedPackageManifest } = await import("../src/runtime-contract/managed-package-manifest.ts");
-const { assertManifestProjectable, generationIdentityOf, parseManagedGenerationMetadata, verifySourceIntegrity } =
-  await import("../src/runtime-contract/managed-generation.ts");
+const {
+  assertManifestProjectable,
+  assertResolvedVersionsMatch,
+  generationIdentityOf,
+  parseManagedGenerationMetadata,
+  verifySourceIntegrity,
+} = await import("../src/runtime-contract/managed-generation.ts");
 
 const manifestJson = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 const manifest = parseManagedPackageManifest(manifestJson);
@@ -90,6 +95,7 @@ function narHashOf(storePath) {
   return hex;
 }
 verifySourceIntegrity(manifest, metadata, narHashOf);
+assertResolvedVersionsMatch(manifest, metadata);
 
 const generationIdentity = generationIdentityOf(manifest, metadata);
 

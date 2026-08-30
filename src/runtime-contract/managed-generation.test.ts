@@ -5,6 +5,7 @@ import {
   MANAGED_GENERATION_CONTRACT_ID,
   ManagedGenerationError,
   assertManifestProjectable,
+  assertResolvedVersionsMatch,
   generationIdentityOf,
   parseManagedGenerationMetadata,
   verifySourceIntegrity,
@@ -245,4 +246,44 @@ test("verifySourceIntegrity normalizes an uppercase-hex narHash before comparing
     "/nix/store/2222-nawabari-0.6.1.tgz": "B".repeat(64),
   };
   assert.doesNotThrow(() => verifySourceIntegrity(manifest, metadata, (storePath) => narHashes[storePath] ?? ""));
+});
+
+test("assertResolvedVersionsMatch passes when every entry's resolved version matches the manifest's requested version", () => {
+  const manifest = parseManagedPackageManifest(validManifest());
+  const metadata = parseManagedGenerationMetadata(validMetadata());
+  assert.doesNotThrow(() => assertResolvedVersionsMatch(manifest, metadata));
+});
+
+test("assertResolvedVersionsMatch fails closed when the resolved Mottainai version does not match the manifest's requested version (PR #634 review: recipe drift must not silently succeed)", () => {
+  const manifest = parseManagedPackageManifest(
+    validManifest({
+      packages: [
+        { ...(validManifest().packages as Record<string, unknown>[])[0], version: "0.7.2" },
+        (validManifest().packages as Record<string, unknown>[])[1],
+      ],
+    }),
+  );
+  const metadata = parseManagedGenerationMetadata(validMetadata());
+  assert.throws(() => assertResolvedVersionsMatch(manifest, metadata), ManagedGenerationError);
+});
+
+test("assertResolvedVersionsMatch fails closed when the resolved Nawabari version does not match the manifest's requested version", () => {
+  const manifest = parseManagedPackageManifest(
+    validManifest({
+      packages: [
+        (validManifest().packages as Record<string, unknown>[])[0],
+        { ...(validManifest().packages as Record<string, unknown>[])[1], version: "0.6.2" },
+      ],
+    }),
+  );
+  const metadata = parseManagedGenerationMetadata(validMetadata());
+  assert.throws(() => assertResolvedVersionsMatch(manifest, metadata), ManagedGenerationError);
+});
+
+test("assertResolvedVersionsMatch fails closed when metadata has no resolved entry for a requested packageId", () => {
+  const manifest = parseManagedPackageManifest(validManifest());
+  const metadata = parseManagedGenerationMetadata(
+    validMetadata({ resolvedIdentity: { packages: [{ packageId: "mottainai", resolvedVersion: "0.7.1" }] } }),
+  );
+  assert.throws(() => assertResolvedVersionsMatch(manifest, metadata), ManagedGenerationError);
 });

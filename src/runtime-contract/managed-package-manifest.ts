@@ -55,15 +55,35 @@ export const MAX_COMPATIBILITY_ENTRIES = 16 as const;
  * into canonicalizeManagedPackageManifest, since canonicalization does not
  * re-normalize field values).
  */
+// prettier-ignore
 const sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/iu).transform((value) => value.toLowerCase());
 
 /**
  * Exact source/integrity identity for a nix-flake-package entry. `flakeRef`
  * names the pinned input/output this entry projects from (mirrors
- * canonicalSource in appliance-manifest.ts); `sourceSha256` is the integrity
- * digest of the fetched source archive (mirrors nix/packages/nawabari.nix's
- * fetchurl hash), not a store path — store paths are build output, not
- * desired-state input, and must not appear in this manifest.
+ * canonicalSource in appliance-manifest.ts).
+ *
+ * `sourceSha256` is the SHA-256 NAR-hash identity of the exact source object
+ * Nix resolves and builds this entry's recipe from — not a distribution
+ * archive digest kept as a separate concept, and unified across differing
+ * fetch mechanisms (revised from an earlier "fetched source archive"
+ * definition per PR #634 review, which found that definition incompatible
+ * with nix#mottainai's recipe, a repository checkout tree rather than a
+ * fetched archive). Concretely (see docs/managed-generation.md
+ * "sourceSha256 meaning" for the Issue #625 projection side of this):
+ *
+ * - For a fetchurl-based recipe (nix/packages/nawabari.nix), this is the
+ *   NAR hash of the fetched source tarball's store path — not the
+ *   fetchurl-native `hash` field on that derivation, which is typically a
+ *   different digest algorithm/encoding (sha512 SRI); computing this NAR
+ *   hash requires `nix path-info` against the realized store path.
+ * - For a repository-checkout-based recipe (nix/mottainai.nix, `nix#mottainai`),
+ *   this is the NAR hash of the checked-out source tree Nix resolves as that
+ *   recipe's build input.
+ *
+ * Still not a store path: this is the source's own content identity, not
+ * build output, and must not appear in this manifest as anything other than
+ * this integrity digest.
  */
 const nixFlakePackageSourceSchema = z
   .object({

@@ -172,14 +172,38 @@ the metadata plus the derived `generationIdentity`.
 the supported `mottainai`/`nawabari` entries, deterministic rejection of an
 unsupported `packageId` and of a supported `packageId` with an unrecognized
 `flakeRef`, metadata schema acceptance/rejection (unknown contract id,
-strict-schema field rejection), and generation-identity determinism
-(stable across repeated calls, independent of `nixOutput.packages` array
-order and of `activation.generation`, changes when the managed Mottainai
-version changes, changes when the resolved Nix output store path changes
-with the manifest unchanged).
+strict-schema field rejection), generation-identity determinism (stable
+across repeated calls, independent of `nixOutput.packages` array order and
+of `activation.generation`, changes when the managed Mottainai version
+changes, changes when the resolved Nix output store path changes with the
+manifest unchanged), source-integrity verification
+(`verifySourceIntegrity` passes/fails closed against an injected narHash
+lookup), and resolved-version matching (`assertResolvedVersionsMatch`
+passes/fails closed for both Mottainai and Nawabari).
 
-`nix/managed-generation.nix` itself was additionally exercised end-to-end
-against a real manifest with `nix build` during development, proving: both
+`nix/tests/managed-generation.nix` (run as
+`nix build .#checks.<system>.managed-generation`, no KVM/nixosTest
+infrastructure required) is the real-projection counterpart PR #634 review
+asked for: it calls the actual `nix/managed-generation.nix` `resolveEntry`/
+`requireMatchingVersion` logic against the real `pkgs.mottainai` /
+`pkgs.nawabari` derivations (not fabricated stand-ins), proving at Nix
+evaluation time — no build required, `builtins.tryEval` against
+`.generation.outPath` — that: a manifest requesting each package's actual
+current version resolves successfully; a manifest requesting a version
+that does not match the currently pinned recipe (e.g. Mottainai `0.0.0`
+against a `0.7.1` recipe) fails deterministically before any build,
+proving the exact-identity acceptance criterion holds and closing the gap
+PR #634 review found (`resolveEntry` previously selected a recipe by
+`(packageId, kind, flakeRef)` alone and silently ignored `entry.version`);
+an unsupported `packageId` and an unsupported `kind` both fail
+deterministically. `nix/managed-generation.nix` requires this same version
+match at the Nix layer itself (`requireMatchingVersion`), independent of
+`src/runtime-contract/managed-generation.ts`'s `assertResolvedVersionsMatch`
+script-side check — a manifest/build mismatch is caught even if a caller
+skips the TypeScript verification layer.
+
+`nix/managed-generation.nix` was additionally exercised end-to-end against
+a real manifest with `nix build` during development, proving: both
 supported entries resolve and build via the existing `mottainai.nix` /
 `nawabari.nix` derivations; an unsupported `packageId` is rejected by Nix
 before any build starts; and rebuilding after a manifest change that drops

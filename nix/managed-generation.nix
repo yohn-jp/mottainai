@@ -36,12 +36,27 @@ let
   unsupportedPackage = entry: reason:
     throw "managed generation projection: unsupported managed package entry packageId=${entry.packageId} kind=${entry.kind} flakeRef=${entry.source.flakeRef}: ${reason}";
 
+  # Fails closed when the manifest's requested exact version does not match
+  # the version the resolved recipe actually builds (PR #634 review: a
+  # manifest requesting mottainai@0.7.2 must never silently succeed by
+  # building whatever version nix/mottainai.nix currently pins, e.g. 0.7.1
+  # — that would violate Issue #625's exact-identity acceptance criterion).
+  # This is a distinct failure from "no recipe available": the recipe
+  # exists, but the currently pinned recipe does not build the requested
+  # version.
+  requireMatchingVersion = entry: drv:
+    if entry.version != drv.version then
+      throw "managed generation projection: requested version mismatch for packageId=${entry.packageId}: manifest requests version=${entry.version}, but the resolved recipe for flakeRef=${entry.source.flakeRef} builds version=${drv.version}"
+    else
+      drv;
+
   # Resolves one manifest package entry to the existing derivation it
   # projects onto. Only the exact (packageId, kind, flakeRef) combinations
-  # this projection explicitly recognizes ever succeed; anything else fails
-  # deterministically via unsupportedPackage before any build is attempted
-  # (Issue #625: "fail deterministically for unsupported package kinds or
-  # unavailable recipes").
+  # this projection explicitly recognizes ever succeed, and only when the
+  # resolved recipe's own version exactly matches the manifest's requested
+  # version; anything else fails deterministically before any build is
+  # attempted (Issue #625: "fail deterministically for unsupported package
+  # kinds or unavailable recipes").
   resolveEntry = entry:
     if entry.kind != "nix-flake-package" then
       unsupportedPackage entry "unsupported managed package kind"
@@ -49,12 +64,12 @@ let
       if entry.source.flakeRef != "nix#mottainai" then
         unsupportedPackage entry "no recipe available for this flakeRef"
       else
-        mottainaiPackage
+        requireMatchingVersion entry mottainaiPackage
     else if entry.packageId == "nawabari" then
       if entry.source.flakeRef != "nix/packages/nawabari.nix" then
         unsupportedPackage entry "no recipe available for this flakeRef"
       else
-        nawabariPackage
+        requireMatchingVersion entry nawabariPackage
     else
       unsupportedPackage entry "packageId is not projected by this managed generation (initial scope: mottainai, nawabari)";
 

@@ -172,6 +172,13 @@
             runtimeModule = self.nixosModules.runtime;
             runtimeOverlay = runtimeOverlay;
           };
+          managed-generation = import ./tests/managed-generation.nix {
+            inherit pkgs;
+            inherit (nixpkgs) lib;
+            mkManagedGeneration = self.lib.mkManagedGeneration;
+            mottainaiPackage = mkMottainai pkgs;
+            nawabariPackage = mkNawabari pkgs;
+          };
         }
       );
     };
