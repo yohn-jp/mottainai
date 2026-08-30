@@ -3,7 +3,13 @@ import { performance } from "node:perf_hooks";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { FULL_VERIFICATION_SUITES, getTestSuiteFiles, validateTestArchitecture } from "./test-suites.mjs";
+import {
+  FULL_VERIFICATION_SUITES,
+  getTestSuiteFiles,
+  parseShardArgument,
+  shardTestFiles,
+  validateTestArchitecture,
+} from "./test-suites.mjs";
 
 function failure(message, writeError) {
   writeError(`test suite failed: ${message}`);
@@ -40,6 +46,18 @@ export function run({
   if (suiteName === "package") {
     return failure("package suite requires pnpm run test:package, not the node test runner", writeError);
   }
+
+  const shardArgument = argv.slice(3).find((argument) => argument.startsWith("--shard="));
+  if (shardArgument !== undefined) {
+    let shard;
+    try {
+      shard = parseShardArgument(shardArgument.slice("--shard=".length));
+    } catch (error) {
+      return failure(error instanceof Error ? error.message : String(error), writeError);
+    }
+    files = shardTestFiles(files, shard);
+  }
+
   if (files.length === 0) {
     return failure(`${suiteName} suite has no files`, writeError);
   }

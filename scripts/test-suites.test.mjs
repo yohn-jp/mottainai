@@ -8,6 +8,9 @@ import {
   FULL_VERIFICATION_SUITES,
   classifyTestFile,
   discoverRepositoryTestFiles,
+  getTestSuiteFiles,
+  parseShardArgument,
+  shardTestFiles,
   validateTestArchitecture,
 } from "./test-suites.mjs";
 
@@ -81,6 +84,74 @@ test("full verification builds before any built-dist E2E test", () => {
 
 test("build configuration does not trust stale incremental metadata for dist output", () => {
   assert.match(packageJson.scripts.build, /^tsc -p tsconfig\.build\.json --incremental false\b/);
+});
+
+test("parseShardArgument accepts well-formed 1-based index/total pairs", () => {
+  assert.deepEqual(parseShardArgument("1/4"), { index: 1, total: 4 });
+  assert.deepEqual(parseShardArgument("4/4"), { index: 4, total: 4 });
+  assert.deepEqual(parseShardArgument("1/1"), { index: 1, total: 1 });
+});
+
+test("parseShardArgument fails closed on malformed or out-of-range shard specs", () => {
+  for (const invalidValue of ["0/4", "5/4", "1/0", "abc", "1/", "/4", "1/4/2", "-1/4", "1.5/4", undefined, ""]) {
+    assert.throws(() => parseShardArgument(invalidValue), /invalid --shard value/u);
+  }
+});
+
+test("shardTestFiles partitions a sorted file list with no overlap or gaps", () => {
+  const files = getTestSuiteFiles("integration");
+  const total = 4;
+  const shards = Array.from({ length: total }, (_unused, zeroBasedIndex) =>
+    shardTestFiles(files, { index: zeroBasedIndex + 1, total }),
+  );
+
+  const reassembled = shards.flat();
+  assert.deepEqual([...reassembled].sort(), [...files].sort());
+  assert.equal(reassembled.length, files.length);
+  assert.equal(new Set(reassembled).size, files.length);
+
+  for (const shard of shards) {
+    assert.ok(shard.length > 0, "every shard of the integration suite must receive at least one file");
+  }
+});
+
+test("shardTestFiles assignment is deterministic across repeated calls", () => {
+  const files = getTestSuiteFiles("integration");
+  assert.deepEqual(shardTestFiles(files, { index: 2, total: 4 }), shardTestFiles(files, { index: 2, total: 4 }));
+});
+
+test("run-test-suite fails closed on an invalid --shard argument", () => {
+  const errors = [];
+  const status = runTestSuite({
+    argv: ["node", "scripts/run-test-suite.mjs", "integration", "--shard=0/4"],
+    spawnSyncImpl: () => ({ error: undefined, status: 0 }),
+    write: () => {},
+    writeError: (message) => errors.push(message),
+  });
+
+  assert.equal(status, 1);
+  assert.ok(errors.some((message) => message.includes("invalid --shard value")));
+});
+
+test("run-test-suite shards the integration suite's files into the spawned node --test argv", () => {
+  const spawnCalls = [];
+  const status = runTestSuite({
+    argv: ["node", "scripts/run-test-suite.mjs", "integration", "--shard=1/4"],
+    spawnSyncImpl: (command, args) => {
+      spawnCalls.push({ command, args });
+      return { error: undefined, status: 0 };
+    },
+    write: () => {},
+    writeError: () => {},
+  });
+
+  assert.equal(status, 0);
+  assert.equal(spawnCalls.length, 1);
+  const testIndex = spawnCalls[0].args.indexOf("--test");
+  const spawnedFiles = spawnCalls[0].args.slice(testIndex + 1);
+  const expectedFiles = shardTestFiles(getTestSuiteFiles("integration"), { index: 1, total: 4 });
+  assert.deepEqual(spawnedFiles, expectedFiles);
+  assert.ok(spawnedFiles.length < getTestSuiteFiles("integration").length);
 });
 
 test("a slow hosted-runner sample does not fail a passing fast suite", () => {

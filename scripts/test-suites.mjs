@@ -206,6 +206,27 @@ export function getTestSuiteFiles(suiteName, root = process.cwd()) {
   return [...result.suites[suiteName]];
 }
 
+// `--shard=<index>/<total>` addresses one Nth of a suite's sorted file list. Parsing
+// fails closed on anything that is not a well-formed 1-based index within total.
+export function parseShardArgument(rawValue) {
+  const match = /^(\d+)\/(\d+)$/u.exec(rawValue ?? "");
+  if (!match) throw new Error(`invalid --shard value: ${JSON.stringify(rawValue)} (expected <index>/<total>)`);
+  const index = Number.parseInt(match[1], 10);
+  const total = Number.parseInt(match[2], 10);
+  if (total < 1) throw new Error(`invalid --shard value: ${JSON.stringify(rawValue)} (total must be >= 1)`);
+  if (index < 1 || index > total) {
+    throw new Error(`invalid --shard value: ${JSON.stringify(rawValue)} (index must be between 1 and ${total})`);
+  }
+  return { index, total };
+}
+
+// Deterministic round-robin over the suite's sorted file list. Reassignment
+// follows automatically as files are added or removed; this is not duration-aware
+// load balancing.
+export function shardTestFiles(files, { index, total }) {
+  return files.filter((_file, fileIndex) => fileIndex % total === index - 1);
+}
+
 function runAsCommand() {
   const result = validateTestArchitecture(process.argv[2] ?? process.cwd());
   if (result.errors.length > 0) {
