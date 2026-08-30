@@ -13,6 +13,7 @@ import {
   type HarnessSelectorValue,
   type HarnessWorkConstraints,
 } from "../domain/harness-delegation.js";
+import { assertValidToolArguments } from "../../mcp-tool-validation.js";
 
 export const HARNESS_DELEGATION_TOOL_NAMES = [
   "mottainai_delegate_work",
@@ -410,6 +411,8 @@ export async function callHarnessDelegationTool(
   service: HarnessDelegationService | undefined,
 ): Promise<CallToolResult> {
   try {
+    const advertisedTool = harnessDelegationTools().find((tool) => tool.name === name);
+    if (advertisedTool !== undefined) assertValidToolArguments(advertisedTool, args);
     if (name === HARNESS_CAPABILITIES_TOOL_NAME) {
       const parsed = args ?? {};
       rejectUnknownKeys(parsed, ["schemaVersion"]);

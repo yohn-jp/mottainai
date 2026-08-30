@@ -61,9 +61,14 @@ export const brokerTools: Tool[] = [
       type: "object",
       properties: {
         id: { type: "string", description: "Tool id from mottainai_tool_search." },
-        arguments: { type: "object", description: "Arguments matching the schema from mottainai_tool_describe." },
+        arguments: {
+          type: "object",
+          description: "Arguments matching the schema from mottainai_tool_describe.",
+          additionalProperties: true,
+        },
       },
       required: ["id"],
+      additionalProperties: false,
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   },

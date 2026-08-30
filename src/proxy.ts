@@ -1,6 +1,6 @@
 import { performance } from "node:perf_hooks";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { CallToolRequestSchema, ListToolsRequestSchema, McpError } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from "@modelcontextprotocol/sdk/types.js";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { buildCapabilityIndex } from "./adaptive/capabilities.js";
 import { extractCallerMetadata } from "./adaptive/caller.js";
@@ -27,6 +27,7 @@ import type { ProfileConfig, ResolvedGatewayConfig } from "./config.js";
 import { allLocalTools, callLocalTool, localToolsFor } from "./local-tools.js";
 import { callWorkflowCommandTool, workflowCommandTools, workflowCommandToolsFor } from "./workflow/commands/mcp-tools.js";
 import type { Logger } from "./logging.js";
+import { assertValidToolArguments, ToolInputValidationError } from "./mcp-tool-validation.js";
 import { InMemoryArtifactStore } from "./retrieve.js";
 import type { ArtifactStore } from "./retrieve.js";
 import { createTelemetrySink } from "./telemetry.js";
@@ -86,6 +87,36 @@ function gatewayToolRisk(name: string): ToolRisk {
   const definition = [...allLocalTools, ...workflowCommandTools(), ...adaptiveTools, ...brokerTools, ...codeSearchTools, retrieveTool]
     .find((tool) => tool.name === name);
   return riskOf(definition?.annotations);
+}
+
+/** The exact owned definitions exposed by this gateway and used for validation. */
+function gatewayToolsFor(config: ResolvedGatewayConfig): Tool[] {
+  return [
+    ...localToolsFor(config),
+    ...workflowCommandToolsFor(config),
+    ...adaptiveTools,
+    ...brokerTools,
+    ...codeSearchTools,
+    retrieveTool,
+  ];
+}
+
+function gatewayToolFor(config: ResolvedGatewayConfig, name: string): Tool | undefined {
+  return gatewayToolsFor(config).find((tool) => tool.name === name);
+}
+
+function assertOwnedToolArguments(tool: Tool, arguments_: unknown): void {
+  try {
+    assertValidToolArguments(tool, arguments_);
+  } catch (error) {
+    if (!(error instanceof ToolInputValidationError)) throw error;
+    throw new McpError(ErrorCode.InvalidParams, error.message, {
+      code: error.code,
+      toolName: error.toolName,
+      issues: error.issues,
+      truncated: error.truncated,
+    });
+  }
 }
 
 /** local tool は structured output に、upstream 結果は追記 text に request_id を返す。 */
@@ -162,8 +193,7 @@ export function registerProxyHandlers(
     const entries = (await catalog()).tools().filter((entry) => profileAllows(entry, activeProfile));
     const tools = entries.map((entry) => prepareUpstreamToolDefinition(entry.provider, entry.definition));
     // brokered tool は profile に関わらず常に出す。絞り込みは既定の面を減らすためで、到達手段を奪わない。
-    const gatewayTools = [...localToolsFor(gatewayConfig), ...workflowCommandToolsFor(gatewayConfig), ...adaptiveTools, ...brokerTools, ...codeSearchTools, retrieveTool]
-      .map(compressVisibleToolDefinition);
+    const gatewayTools = gatewayToolsFor(gatewayConfig).map(compressVisibleToolDefinition);
     return { tools: [...tools, ...gatewayTools] };
   });
 
@@ -190,6 +220,8 @@ export function registerProxyHandlers(
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const toolName = request.params.name;
     const { metadata, forwardedArguments } = extractCallerMetadata(request.params.arguments);
+    const ownedTool = gatewayToolFor(gatewayConfig, toolName);
+    if (ownedTool !== undefined) assertOwnedToolArguments(ownedTool, forwardedArguments);
     const isLocal = toolName === RETRIEVE_TOOL_NAME || localToolsFor(gatewayConfig).some((tool) => tool.name === toolName);
     const isWorkflowCommand = workflowCommandToolsFor(gatewayConfig).some((tool) => tool.name === toolName);
     const isAdaptive = isAdaptiveTool(toolName);
