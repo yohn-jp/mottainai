@@ -63,6 +63,9 @@ const stdoutBoundaryFiles = new Set([
   "src/mcp.ts",
   "src/workflow/domain/identity-resolve-worker.mjs",
   "src/workflow/domain/task-start-worker.mjs",
+  // Issue #626's own narrow CLI boundary, deliberately independent of
+  // src/cli.ts so bootstrap works without importing the full runtime.
+  "src/bootstrap/cli.ts",
 ]);
 
 const processExitBoundaryFiles = new Set([
@@ -70,6 +73,8 @@ const processExitBoundaryFiles = new Set([
   "src/index.ts",
   "src/mcp.ts",
   "src/workflow/domain/identity-resolve-worker.mjs",
+  // Issue #626's compiled executable entrypoint (see checkTopLevelExecution's boundary list above).
+  "src/bootstrap/main.ts",
 ]);
 
 const signalBoundaryFiles = new Set(["src/index.ts", "src/server.ts", "src/mcp-server.ts"]);
@@ -80,6 +85,7 @@ const argvBoundaryFiles = new Set([
   "src/mcp.ts",
   "src/workflow/domain/identity-resolve-worker.mjs",
   "src/workflow/domain/task-start-worker.mjs",
+  "src/bootstrap/main.ts",
 ]);
 
 // これらは呼び出し側から環境を注入できる既存の設定境界。新規追加は理由をdocsへ記載する。
@@ -106,6 +112,8 @@ const environmentBoundaryFiles = new Set([
   "src/workflow/state/sqlite-store.ts",
   // Manager CLI is the explicit environment injection boundary for its optional runtime binary/provider.
   "src/manager/command.ts",
+  // Issue #626's bootstrap CLI boundary: constructs the nix build subprocess environment (host env + CI=true) and injects it into BootstrapDependencies rather than letting runtime-contract/managed-generation-build.ts read process.env itself.
+  "src/bootstrap/cli.ts",
   // テスト間でHOME/TZ/LANG等を一時的に差し替え、実行後に必ず復元する隔離境界（docs/testing.md）。
   "src/test-support/env.ts",
   // developer machineのglobal/system git設定から隔離したenvを組み立てるための境界（docs/testing.md）。
@@ -412,7 +420,10 @@ function checkTopLevelExecution(sourceFile, root, diagnostics) {
     file === "src/index.ts" ||
     file === "src/mcp.ts" ||
     file === "src/workflow/domain/identity-resolve-worker.mjs" ||
-    file === "src/workflow/domain/task-start-worker.mjs";
+    file === "src/workflow/domain/task-start-worker.mjs" ||
+    // Issue #626's compiled executable entrypoint (nix/bootstrap.nix wraps
+    // this file directly), independent of src/index.ts's boundary.
+    file === "src/bootstrap/main.ts";
   if (boundary) return;
   const statements = sourceFile.statements;
   for (let index = 0; index < statements.length; index += 1) {
