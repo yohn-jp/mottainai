@@ -29,7 +29,11 @@ let
       mkdir -p "$workdir" "$out"
       cp ${pnpmLock} "$workdir/pnpm-lock.yaml"
       cd "$workdir"
-      pnpm fetch --prod --frozen-lockfile --ignore-scripts --store-dir "$out"
+      # Fetches dev dependencies too: `pnpm run build` (tsc) below needs
+      # typescript and @types/node, which --prod would exclude. installPhase
+      # reinstalls with --prod against this same store to produce the
+      # shipped, dev-dependency-free node_modules.
+      pnpm fetch --frozen-lockfile --ignore-scripts --store-dir "$out"
 
       # pnpm stamps each cached package's index.json with a checkedAt
       # wall-clock timestamp, which otherwise makes this fixed-output
@@ -41,8 +45,13 @@ let
     '';
 
     dontInstall = true;
+    # fixupPhase (shebang patching, RPath shrinking) rewrites cached package
+    # files to reference this build's store paths, which a fixed-output
+    # derivation must not do; this store is inert cache content, not a
+    # runnable output, so skip fixup entirely.
+    dontFixup = true;
     outputHashMode = "recursive";
-    outputHash = "sha256-WTW1NEqAT2FFFqvn+ddKapRZqwMXYhqnRg0C7ote77A=";
+    outputHash = "sha256-ZmjfMT8G6gk10a92RC+0nU6RZzKflX8uLoaCbWKwaRA=";
   };
 in
 pkgs.stdenv.mkDerivation {
@@ -81,7 +90,7 @@ pkgs.stdenv.mkDerivation {
     export NODE_EXTRA_CA_CERTS="${caBundle}"
     mkdir -p "$HOME"
 
-    pnpm install --prod --offline --frozen-lockfile --ignore-scripts --store-dir ${pnpmDeps}
+    pnpm install --offline --frozen-lockfile --ignore-scripts --store-dir ${pnpmDeps}
     pnpm rebuild node-pty --store-dir ${pnpmDeps}
     pnpm run build
 
@@ -98,6 +107,13 @@ pkgs.stdenv.mkDerivation {
     # surface declared by package.json rather than copying the repository.
     pnpm pack --pack-destination "$TMPDIR"
     tar -xzf "$TMPDIR/${pname}-${version}.tgz" --strip-components=1 -C "$packageRoot"
+
+    # buildPhase's node_modules carries devDependencies (typescript,
+    # @types/node) needed only by `pnpm run build`; reinstall --prod so the
+    # shipped package doesn't carry them.
+    rm -rf node_modules
+    pnpm install --prod --offline --frozen-lockfile --ignore-scripts --store-dir ${pnpmDeps}
+    pnpm rebuild node-pty --store-dir ${pnpmDeps}
     cp -a node_modules "$packageRoot/node_modules"
     rm -rf "$packageRoot/node_modules/.cache"
 
