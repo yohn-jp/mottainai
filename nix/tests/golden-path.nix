@@ -236,12 +236,10 @@ let
     _golden_execute = getattr(golden, "execute")
 
     def _resilient(call, attempts=3, delay_seconds=2):
-        last_exc = None
         for attempt in range(1, attempts + 1):
             try:
                 return call()
             except binascii.Error as exc:
-                last_exc = exc
                 print(
                     "console command-capture race (attempt "
                     + str(attempt)
@@ -250,8 +248,10 @@ let
                     + "): "
                     + str(exc)
                 )
+                if attempt == attempts:
+                    raise
                 time.sleep(delay_seconds)
-        raise last_exc
+        assert False, "unreachable: the loop above always returns or raises"
 
     def succeed(command):
         return _resilient(lambda: _golden_succeed(command))
