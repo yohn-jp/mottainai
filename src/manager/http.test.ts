@@ -322,7 +322,7 @@ test("Manager HTTP preview returns the effective declaration without external mu
 
 test("Manager HTTP preflight exposes bounded conflict evidence and safe inspect action", async (t) => {
   const root = createTempGitRepo(t);
-  const ownerSessionId = "00000000-0000-4000-8000-000000000001";
+  const ownerSessionId = "00000000-0000-7000-8000-000000000001";
   const sessions = new Map<string, Record<string, unknown>>([
     [
       ownerSessionId,
@@ -425,6 +425,7 @@ test("Manager API remains loopback host protected and rejects malformed session 
     "12345678-1234-4234-8234-123456789abg",
     "12345678-1234-1234-8234-123456789abc",
     "12345678-1234-5234-8234-123456789abc",
+    "12345678-1234-7234-8234-123456789abc",
     "12345678-1234-4234-7234-123456789abc",
     "12345678-1234-4234-c234-123456789abc",
     "12345678-1234-4234-8234-123456789ABC",
