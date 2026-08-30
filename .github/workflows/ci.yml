@@ -222,7 +222,9 @@ jobs:
             runtime:
               - 'nix/**'
               - 'src/local-runtime/**'
+              - 'src/runtime-contract/**'
               - 'scripts/build-runtime-image-manifest.mjs'
+              - 'scripts/build-runtime-appliance-manifest.mjs'
               - '.github/workflows/ci.yml'
 
   runtime-contract:
@@ -321,3 +323,87 @@ jobs:
       - name: Execute the Runtime NixOS VM test
         working-directory: nix
         run: nix build --no-update-lock-file --no-link .#checks.x86_64-linux.runtime-vm
+
+  runtime-appliance-artifact:
+    name: Publish canonical Runtime Appliance artifact
+    needs: [runtime-contract-changes, runtime-contract]
+    # Fails closed behind the existing #259/#568 Nix/Runtime contract checks
+    # (Issue #601 acceptance criterion 3): a canonical identity/behavior
+    # regression there must block artifact publication, not merely be
+    # reported alongside it.
+    if: >-
+      needs.runtime-contract-changes.outputs.runtime == 'true' &&
+      needs.runtime-contract.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      - name: Setup Node.js for manifest generation
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.18.0
+
+      - name: Install Node dependencies for manifest verification
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the canonical, self-bootable Runtime Appliance disk
+        working-directory: nix
+        run: nix build --no-update-lock-file --no-link .#runtime-appliance-image
+
+      - name: Generate and verify the bounded Runtime Appliance manifest
+        working-directory: nix
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_output="$(nix build --no-update-lock-file --no-link --print-out-paths .#runtime-appliance-image)"
+          mottainai_version="$(nix eval --no-update-lock-file --raw .#packages.x86_64-linux.mottainai.version)"
+          nawabari_version="$(nix eval --no-update-lock-file --raw .#packages.x86_64-linux.nawabari.version)"
+          node ../scripts/build-runtime-appliance-manifest.mjs \
+            --architecture x86_64-linux \
+            --image-output "$image_output" \
+            --source-revision "${{ github.sha }}" \
+            --mottainai-version "$mottainai_version" \
+            --nawabari-version "$nawabari_version" \
+            --output "$RUNNER_TEMP/runtime-appliance"
+          manifest="$RUNNER_TEMP/runtime-appliance/x86_64-linux/runtime-appliance-manifest.json"
+          disk="$RUNNER_TEMP/runtime-appliance/x86_64-linux/mottainai-runtime-appliance.raw"
+          test -s "$manifest"
+          jq -e '
+            .contractId == "mottainai.linux-runtime-appliance.v1" and
+            .schemaVersion == 1 and
+            .architecture == "x86_64-linux" and
+            (.sourceRevision | test("^[0-9a-f]{40}$")) and
+            (.nixSystemClosure | startswith("/nix/store/")) and
+            .image.format == "raw" and
+            (.image.sha256 | test("^[0-9a-f]{64}$"))
+          ' "$manifest"
+          MANIFEST="$manifest" DISK="$disk" node --import tsx --input-type=module -e '
+            import { readRuntimeApplianceManifest, verifyRuntimeApplianceManifest } from "../src/runtime-contract/appliance-manifest.ts";
+            const manifest = readRuntimeApplianceManifest(process.env.MANIFEST);
+            verifyRuntimeApplianceManifest(manifest, process.env.DISK);
+          '
+          echo "RUNTIME_APPLIANCE_DIRECTORY=$RUNNER_TEMP/runtime-appliance/x86_64-linux" >> "$GITHUB_ENV"
+
+      - name: Upload the Runtime Appliance disk and manifest as Actions artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mottainai-runtime-appliance-x86_64-linux
+          path: |
+            ${{ env.RUNTIME_APPLIANCE_DIRECTORY }}/mottainai-runtime-appliance.raw
+            ${{ env.RUNTIME_APPLIANCE_DIRECTORY }}/runtime-appliance-manifest.json
+          if-no-files-found: error
+          retention-days: 14

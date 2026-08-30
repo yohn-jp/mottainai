@@ -104,6 +104,91 @@ let
       systemctl restart mottainai-runtime-health.service
     '';
   };
+
+  # Bounded first-boot SSH-key bootstrap input (Issue #601): lets a
+  # provider-independent, credential-free published Runtime Appliance disk
+  # accept an operator's own key without rebuilding the canonical image or
+  # baking a reusable credential into it. The canonical disk/closure this
+  # Runtime boots from is never written to — the key travels on a
+  # separate, small, operator-supplied block device and lands only in
+  # persistent control state (below), never in /etc/ssh/authorized_keys.d
+  # or the Nix store. This is intentionally narrow — one file, one bounded
+  # size, validated key lines only — not a general user-data/cloud-init
+  # execution surface, and not specific to any one provider.
+  bootstrapAuthorizedKeysLabel = "MTNAI_BOOT";
+  bootstrapAuthorizedKeysDir = "${cfg.stateDir}/.ssh";
+  bootstrapAuthorizedKeysFile = "${bootstrapAuthorizedKeysDir}/authorized_keys";
+
+  bootstrapAuthorizedKeysScript = pkgs.writeShellApplication {
+    name = "mottainai-runtime-bootstrap-authorized-keys";
+    runtimeInputs = [ pkgs.coreutils pkgs.util-linux pkgs.gnugrep ];
+    text = ''
+      set -euo pipefail
+
+      device="/dev/disk/by-label/${bootstrapAuthorizedKeysLabel}"
+      if [ ! -e "$device" ]; then
+        echo "mottainai-runtime-bootstrap-authorized-keys: no $device present; nothing to do"
+        exit 0
+      fi
+
+      mount_dir="$(mktemp -d)"
+      trap 'umount "$mount_dir" 2>/dev/null || true; rmdir "$mount_dir" 2>/dev/null || true' EXIT
+      mount -o ro "$device" "$mount_dir"
+
+      source_file="$mount_dir/authorized_keys"
+      if [ ! -f "$source_file" ]; then
+        echo "mottainai-runtime-bootstrap-authorized-keys: $device has no authorized_keys file; nothing to do"
+        exit 0
+      fi
+
+      size="$(stat -c %s "$source_file")"
+      if [ "$size" -gt 8192 ]; then
+        echo "mottainai-runtime-bootstrap-authorized-keys: $source_file exceeds the 8KiB bound; refusing" >&2
+        exit 1
+      fi
+
+      # Fail closed on the complete input: every non-empty line must match
+      # the supported SSH public-key grammar, or the whole bootstrap input
+      # is refused — an invalid line is never silently dropped, and a count
+      # over the 16-key bound is refused outright, never silently truncated.
+      key_pattern='^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256) [A-Za-z0-9+/=]+( .*)?$'
+      key_count=0
+      invalid_count=0
+      keys=""
+      while IFS= read -r line || [ -n "$line" ]; do
+        [ -z "$line" ] && continue
+        if printf '%s\n' "$line" | grep -Eq "$key_pattern"; then
+          key_count=$((key_count + 1))
+          keys="$keys$line"$'\n'
+        else
+          invalid_count=$((invalid_count + 1))
+        fi
+      done < "$source_file"
+
+      if [ "$invalid_count" -gt 0 ]; then
+        echo "mottainai-runtime-bootstrap-authorized-keys: $source_file contains $invalid_count line(s) that are not a valid SSH public key; refusing the whole bootstrap input" >&2
+        exit 1
+      fi
+      if [ "$key_count" -eq 0 ]; then
+        echo "mottainai-runtime-bootstrap-authorized-keys: no key lines found in $source_file; refusing" >&2
+        exit 1
+      fi
+      if [ "$key_count" -gt 16 ]; then
+        echo "mottainai-runtime-bootstrap-authorized-keys: $source_file contains $key_count keys, exceeding the 16-key bound; refusing" >&2
+        exit 1
+      fi
+
+      install -d -m 0700 -o ${lib.escapeShellArg cfg.controlUser} -g ${lib.escapeShellArg cfg.controlUser} \
+        ${lib.escapeShellArg bootstrapAuthorizedKeysDir}
+      staged="$(mktemp)"
+      printf '%s' "$keys" > "$staged"
+      install -m 0600 -o ${lib.escapeShellArg cfg.controlUser} -g ${lib.escapeShellArg cfg.controlUser} \
+        "$staged" ${lib.escapeShellArg bootstrapAuthorizedKeysFile}
+      rm -f "$staged"
+
+      echo "mottainai-runtime-bootstrap-authorized-keys: installed $key_count bootstrap key(s) for ${lib.escapeShellArg cfg.controlUser}"
+    '';
+  };
 in
 {
   options.mottainai.runtime = {
@@ -234,6 +319,22 @@ in
         User = cfg.controlUser;
         ExecStart = "${healthScript}/bin/mottainai-runtime-health";
         StandardOutput = "journal";
+      };
+    };
+
+    # Runs once, before sshd starts accepting connections, and only while no
+    # bootstrap key has been installed yet (ConditionPathExists "!..."): a
+    # later manually-managed authorized_keys is never overwritten by a
+    # bootstrap device left attached or reattached on a subsequent boot.
+    systemd.services.mottainai-runtime-bootstrap-authorized-keys = {
+      description = "Mottainai Runtime bounded first-boot SSH key bootstrap (mottainai.linux-runtime.v1)";
+      before = [ "sshd.service" ];
+      wantedBy = [ "multi-user.target" ];
+      unitConfig.ConditionPathExists = "!${bootstrapAuthorizedKeysFile}";
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = "${bootstrapAuthorizedKeysScript}/bin/mottainai-runtime-bootstrap-authorized-keys";
       };
     };
   };

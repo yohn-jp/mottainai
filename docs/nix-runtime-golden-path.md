@@ -9,6 +9,11 @@ image, boot it with the existing QEMU Runtime machinery
 `mottainai-control`, exercise Mottainai/Nawabari/Zellij against a cloned
 repository, and verify control and repository state survive a VM restart.
 
+See also [`docs/runtime-appliance-proxmox.md`](runtime-appliance-proxmox.md)
+for the equivalent manual golden path against a self-bootable Runtime
+Appliance disk imported into Proxmox instead of this repository's local
+QEMU VM path (Issue #601).
+
 This does not introduce a second guest configuration authority.
 [`nix/deployments/golden-path.nix`](../nix/deployments/golden-path.nix)
 imports the same `nixosModules.runtime` and the same pinned `nixpkgs` input

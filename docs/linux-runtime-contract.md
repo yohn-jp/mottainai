@@ -62,6 +62,20 @@ repository-user package installations during ordinary reconciliation.
   authorized-keys mechanism suitable for remote bootstrap; ordinary
   repository-user principals are a separate allocation (later #230 child)
   and are not created by this contract.
+- `controlAuthorizedKeys` (module option, empty by default) bakes keys into
+  the closure at build time, for a specific installation built directly
+  from source. A provider-independent, credential-free published Runtime
+  Appliance artifact (Issue #601) cannot use that path without either
+  publishing a reusable credential or requiring a rebuild per operator, so
+  the contract also defines one bounded first-boot input:
+  `mottainai-runtime-bootstrap-authorized-keys.service` looks for a
+  separately attached block device labeled `MTNAI_BOOT` containing exactly
+  one `authorized_keys` file (bounded size, validated key lines only), and
+  — once, before `sshd` starts, and only while no key has been installed
+  yet — copies it into `mottainai-control`'s persistent
+  `~/.ssh/authorized_keys` (below). This never writes to the canonical
+  disk/closure itself; see
+  [`docs/runtime-appliance-proxmox.md`](runtime-appliance-proxmox.md).
 
 ## `mottainai-control` trusted identity and protected paths
 
@@ -102,7 +116,8 @@ bump as long as the surface stays satisfied.
 
 - **Persistent, system/control-owned**: `mottainai-control`'s state
   directory (Nawabari session/claim registry, Mottainai brain state,
-  control SSH host keys). Survives Runtime reconciliation.
+  control SSH host keys, and — if installed via the bounded bootstrap input
+  above — `~/.ssh/authorized_keys`). Survives Runtime reconciliation.
 - **Persistent, repository-user-owned**: repository checkouts, HOME, tool
   and package caches. Survives Runtime reconciliation and is never reverted
   by it. Explicitly outside destructive system-generation replacement.
@@ -172,6 +187,31 @@ oversized path/identity strings; it fails validation instead.
   contract id and accepts a schema version at or above its declared
   minimum, so a future incompatible Runtime contract change is caught by
   `pnpm test` rather than discovered in the field.
+
+## Distribution/delivery evidence (Issue #601)
+
+The contract above defines the guest; it does not define how a copy of it
+reaches an operator. Three separate evidence layers exist and must not be
+conflated:
+
+- **Build evidence** (GitHub Actions, automated): `nix build .#runtime-appliance-image`
+  evaluates and builds the same `nixosModules.runtime` this contract defines,
+  projected to a self-bootable disk, and `scripts/build-runtime-appliance-manifest.mjs`
+  emits/verifies the bounded `mottainai.linux-runtime-appliance.v1` manifest
+  (`src/runtime-contract/appliance-manifest.ts`) before the disk is uploaded
+  as a CI artifact. This proves the artifact was built and is internally
+  consistent; it does not prove it boots on real virtualization hardware.
+- **Manual integration evidence** (Proxmox, currently manual):
+  [`docs/runtime-appliance-proxmox.md`](runtime-appliance-proxmox.md) records
+  boot/network/SSH/version/health/persistence proof for the exact downloaded
+  Actions artifact on a real Proxmox/QEMU/KVM host. This proves the built
+  artifact runs; it is not automated and does not make Proxmox a required or
+  supported Runtime provider.
+- **Provider support evidence** (later #600/#261): a supported Runtime
+  provider (Lima locally, a future Proxmox provider) additionally proves
+  reconciliation semantics, capability validation, and fail-closed behavior
+  through Mottainai's own provider adapter. Neither of the two evidence
+  layers above satisfies this on its own.
 
 ## Non-goals (inherited from #231)
 
