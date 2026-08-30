@@ -92,18 +92,30 @@ let
   # affects genV1/genV2's own derivation identity below, since
   # `mottainaiSource` is supplied to that function independently via
   # --mottainai-source. Passing sourceV1 directly as --repo-root hit a real
-  # CI failure: once this checkout is added to the Nix store it is named
-  # `<hash>-source`, and interpolating that already-a-store-path value into
-  # `builtins.getFlake (toString repoRoot + "?dir=nix")` as a bare string
-  # made Nix resolve the wrong (truncated) store path — "path
-  # '.../nix/flake.nix' does not exist" — rather than the real one. A plain
-  # re-copy under an explicit, unambiguous derivation name sidesteps
-  # whatever in Nix's flake-ref string parsing that name triggers: same
-  # content, ordinary store path name, nothing for the parser to
-  # misinterpret.
-  repoRootForGuest = pkgs.runCommand "golden-path-repo-root" { } ''
-    cp -a ${sourceV1} "$out"
-  '';
+  # CI failure ("path '.../nix/flake.nix' does not exist", naming a
+  # different, truncated store path than the one actually passed in) for
+  # exactly the reason nix/bootstrap.nix's own installPhase comment
+  # documents: `builtins.getFlake` requires its target to be a git (or
+  # other supported VCS) working tree to resolve `?dir=nix` as a flake — a
+  # plain `cp -a` of sourceV1 is not one (sourceV1 itself, this flake's own
+  # git-fetched checkout content, does not carry its own `.git`), so
+  # `getFlake` fell back to some other, buggy resolution. git-init this
+  # copy exactly the way nix/bootstrap.nix's installPhase git-inits its own
+  # packaged nix-projection copy for the identical reason.
+  repoRootForGuest = pkgs.runCommand "golden-path-repo-root"
+    { nativeBuildInputs = [ pkgs.git ]; }
+    ''
+      cp -a ${sourceV1} "$out"
+      chmod -R u+w "$out"
+      (
+        cd "$out"
+        export HOME="$TMPDIR/git-home-for-golden-path-repo-root"
+        mkdir -p "$HOME"
+        git init --quiet
+        git -c user.email=golden-path@localhost -c user.name=golden-path add -A
+        git -c user.email=golden-path@localhost -c user.name=golden-path commit --quiet -m "golden-path repo-root snapshot"
+      )
+    '';
 
   # v2 is a real, independently buildable source tree: the identical
   # tracked checkout with only package.json's version field changed, so it
