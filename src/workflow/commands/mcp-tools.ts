@@ -27,7 +27,8 @@ import {
 } from "./write.js";
 import type { CleanupPlan } from "../domain/cleanup-plan.js";
 import type { StructuredCommitMessage } from "../git/commit.js";
-import { bundledGovernedBranchTypes } from "../governance/branch.js";
+import { bundledGovernedBranchTypes, governedBranchTypesForRepository } from "../governance/branch.js";
+import { resolveRepositoryIdentityPaths } from "../domain/identity.js";
 import { explainWorkflowPolicy } from "../policy/explain.js";
 import { resolveEffectiveWorkflowPolicy } from "../policy/load.js";
 import type { TaskId, WorkflowStateStore } from "../state/store.js";
@@ -234,10 +235,13 @@ const policyExplainTool: Tool = {
   annotations: readOnly,
 };
 
-/** `branchType` の enum は Mottainai 自身の bundled governance-rules.json を読んで導出する
- * （`bundledGovernedBranchTypes`）ため、この tool 定義の構築自体を import 時ではなく初回
- * 参照時まで遅延させる（`architecture-check` の import-time-side-effect rule）。 */
-function buildTaskStartTool(): Tool {
+/** `branchType` の enum は effective repository governance から導出する。
+ * type alternation として表現できない repository 固有 regex の場合は enum を省略し、
+ * full branch candidate の検証を domain authority に委ねる。この tool 定義の構築自体は
+ * import 時ではなく初回参照時まで遅延させる（`architecture-check` の import-time-side-effect rule）。 */
+function buildTaskStartTool(branchTypes: readonly string[] | undefined): Tool {
+  const branchTypeSchema =
+    branchTypes === undefined ? { type: "string" as const } : { type: "string" as const, enum: [...branchTypes] };
   return {
     name: "mottainai_workflow_task_start",
     description:
@@ -246,11 +250,7 @@ function buildTaskStartTool(): Tool {
       type: "object",
       properties: {
         taskSlug: { type: "string", minLength: 1, pattern: "^[a-z0-9][a-z0-9-]*$" },
-        // 対象 repository が `.mottainai/governance-rules.json` で独自の type 集合を宣言する場合は、
-        // この enum より広い/狭い可能性がある — 実際の許可判定は `startTask` 内の
-        // `validateBranchNameAgainstGovernance` が repository 固有の override を尊重して行う
-        // 唯一の authority であり続ける。
-        branchType: { type: "string", enum: [...bundledGovernedBranchTypes()] },
+        branchType: branchTypeSchema,
         issueRef: {
           type: "string",
           minLength: 1,
@@ -374,7 +374,7 @@ let cachedWorkflowCommandTools: Tool[] | undefined;
 export function workflowCommandTools(): Tool[] {
   cachedWorkflowCommandTools ??= [
     policyExplainTool,
-    buildTaskStartTool(),
+    buildTaskStartTool(bundledGovernedBranchTypes()),
     taskStatusTool,
     taskListTool,
     workflowDoctorTool,
@@ -389,6 +389,12 @@ export function workflowCommandTools(): Tool[] {
     validationReceiptTool,
   ];
   return cachedWorkflowCommandTools;
+}
+
+function taskStartBranchTypesFor(config: ResolvedGatewayConfig): readonly string[] | undefined {
+  const identity = resolveRepositoryIdentityPaths(config.workspaceRoot);
+  if (!identity.ok) return bundledGovernedBranchTypes();
+  return governedBranchTypesForRepository(identity.identity.canonicalRepositoryRoot);
 }
 
 function legacyMigrationResult(result: Awaited<ReturnType<typeof migrateLegacyWorkflowTask>>): CallToolResult {
@@ -434,7 +440,11 @@ async function legacyMigrationToolImpl(
 /** `config.workflowTasks` 未設定のワークスペースではこのファミリー全体を公開しない
  * （worktree 作成等の副作用を持つため既定非公開）。 */
 export function workflowCommandToolsFor(config: ResolvedGatewayConfig): Tool[] {
-  return config.workflowTasks ? workflowCommandTools() : [];
+  if (!config.workflowTasks) return [];
+  const branchTypes = taskStartBranchTypesFor(config);
+  return workflowCommandTools().map((tool) =>
+    tool.name === "mottainai_workflow_task_start" ? buildTaskStartTool(branchTypes) : tool,
+  );
 }
 
 export function isWorkflowCommandTool(name: string): boolean {
@@ -555,14 +565,7 @@ function assertWorkflowToolArguments(
     if (!(error instanceof ToolInputValidationError)) throw error;
     if (error.issues.some((issue) => issue.keyword === "additionalProperties")) throw error;
     if (tool.name === "mottainai_workflow_task_start") {
-      try {
-        taskStartSemanticPreflight(args);
-      } catch (legacyError) {
-        throw legacyError;
-      }
-      if (error.issues.length === 1
-        && error.issues[0]?.path === "arguments.branchType"
-        && error.issues[0]?.keyword === "enum") return;
+      taskStartSemanticPreflight(args);
     }
     throw error;
   }
@@ -1124,7 +1127,7 @@ export async function callWorkflowCommandTool(
   workflowStore?: WorkflowStateStore,
   artifactStore?: ArtifactStore,
 ): Promise<CallToolResult> {
-  const advertisedTool = workflowCommandTools().find((tool) => tool.name === name);
+  const advertisedTool = workflowCommandToolsFor(config).find((tool) => tool.name === name);
   if (advertisedTool !== undefined) assertWorkflowToolArguments(advertisedTool, args, config);
   switch (name) {
     case "mottainai_workflow_policy_explain":
