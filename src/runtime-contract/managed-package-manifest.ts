@@ -55,10 +55,7 @@ export const MAX_COMPATIBILITY_ENTRIES = 16 as const;
  * into canonicalizeManagedPackageManifest, since canonicalization does not
  * re-normalize field values).
  */
-const sha256HexSchema = z
-  .string()
-  .regex(/^[0-9a-f]{64}$/iu)
-  .transform((value) => value.toLowerCase());
+const sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/iu).transform((value) => value.toLowerCase());
 
 /**
  * Exact source/integrity identity for a nix-flake-package entry. `flakeRef`
