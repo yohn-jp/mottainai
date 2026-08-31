@@ -155,6 +155,7 @@ in
           // on a network fetch that can never succeed here instead of
           // failing fast with a clear error.
           "--offline",
+          "--show-trace",
           "--no-link",
           "--print-out-paths",
           "--expr",

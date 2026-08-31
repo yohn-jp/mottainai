@@ -307,7 +307,7 @@ let
     # command's own stdout/stderr to a file inside the guest instead, then
     # read back only a bounded prefix, preserving the real exit code via
     # `exit $ec`.
-    def run_as_control_bounded(command, expect_success, max_bytes=4000):
+    def run_as_control_bounded(command, expect_success, max_bytes=8000):
         log_path = "/tmp/mottainai-golden-path-cmd.log"
         wrapped = (
             command
