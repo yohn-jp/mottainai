@@ -1,11 +1,19 @@
-{ pkgs, lib, runtimeModule, runtimeOverlay }:
+{ pkgs, lib, runtimeApplianceImage }:
 
-# Issue #630's thin, provider-independent guest proof. The test deliberately
-# uses the production bootstrap command's canonical source resolution: the
-# manifests name the immutable GitHub release tags below, and reconcile is
-# invoked without a source, state, or repository override.
+# Issue #630's thin, provider-independent proof. The node is only a QEMU
+# harness: its root disk is the actual canonical Runtime Appliance image
+# output, and all lifecycle operations below use the production SSH/control
+# boundary inside that image.
 let
   system = pkgs.stdenv.hostPlatform.system;
+  canonicalDiskImage = "${runtimeApplianceImage}/mottainai-runtime-appliance.raw";
+  applianceInputs = builtins.fromJSON (
+    builtins.unsafeDiscardStringContext (
+      builtins.readFile "${runtimeApplianceImage}/runtime-appliance-inputs.json"
+    )
+  );
+  canonicalBuildIdentity = applianceInputs.nixSystemClosure;
+  canonicalSourceJson = builtins.toJSON applianceInputs.canonicalSource;
   mottainaiVersionV1 = "0.7.0";
   mottainaiVersionV2 = "0.7.1";
   # NAR hashes of the exact trees produced by the source resolver's
@@ -15,51 +23,167 @@ let
   nawabariVersion = "0.6.1";
   nawabariSourceSha256 = "1ce810f330b293eee02591c4bb75ee8b489668d53cdbea3aca754e08475b33ba";
 in
-pkgs.testers.nixosTest {
+assert applianceInputs.contractId == "mottainai.linux-runtime-appliance.v1";
+assert applianceInputs.schemaVersion == 1;
+assert applianceInputs.architecture == system;
+assert applianceInputs.canonicalSource.output == "applianceConfigurations.${system}.config.system.build.toplevel";
+(pkgs.testers.nixosTest {
   name = "mottainai-runtime-appliance-golden-path";
 
   nodes.golden =
     { ... }:
     {
-      imports = [ runtimeModule ];
-      nixpkgs.overlays = [ runtimeOverlay ];
-      mottainai.runtime = {
-        enable = true;
-        runtimeIdentity = "runtime-appliance-golden-path";
+      # This is deliberately not a NixOS test system assembled from
+      # production Runtime module. It is the QEMU driver for the already-built canonical
+      # self-bootable appliance disk.
+      virtualisation.diskImage = canonicalDiskImage;
+      virtualisation.directBoot.enable = false;
+      virtualisation.useBootLoader = true;
+      virtualisation.useBIOSBoot = true;
+      virtualisation.installBootLoader = false;
+      virtualisation.mountHostNixStore = false;
+      virtualisation.writableStore = false;
+      # Prevent qemu-vm from replacing the appliance's on-disk filesystem
+      # contract with a test-generated filesystem map.
+      virtualisation.fileSystems = lib.mkForce { };
+      fileSystems."/" = {
+        device = "/dev/disk/by-label/nixos";
+        fsType = "ext4";
       };
-      # Match the canonical QEMU Runtime sizing while leaving enough
-      # persistent Nix store space for the two real managed builds.
+      virtualisation.diskSize = 16384;
+      virtualisation.emptyDiskImages = [ 16 ];
       virtualisation.memorySize = 2048;
       virtualisation.cores = 2;
-      virtualisation.diskSize = 8192;
-      # nixosTest normally clears the guest route and nameservers to make
-      # tests hermetic. This proof intentionally exercises #626's production
-      # HTTPS source resolver against the real release tags, so restore the
-      # standard QEMU user-network route only for this test harness.
-      networking.interfaces.eth0.ipv4.addresses = lib.mkAfter [
+      # The appliance gets its address from the standard QEMU user network;
+      # this is only a host-side SSH forward, not a replacement guest network
+      # configuration.
+      virtualisation.forwardPorts = [
         {
-          address = "10.0.2.15";
-          prefixLength = 24;
+          from = "host";
+          host.address = "127.0.0.1";
+          host.port = 22222;
+          guest.address = "10.0.2.15";
+          guest.port = 22;
         }
       ];
-      networking.defaultGateway = lib.mkForce "10.0.2.2";
-      networking.nameservers = lib.mkForce [ "10.0.2.3" ];
     };
 
-  testScript = ''
+  testScript =
+    { nodes, ... }:
+    ''
     import json
+    import os
     import shlex
+    import subprocess
+    import time
+
+    canonical_disk = ${builtins.toJSON canonicalDiskImage}
+    root_overlay = os.path.join(str(golden.state_dir), "canonical-root-overlay.qcow2")
+    bootstrap_raw = os.path.join(str(golden.state_dir), "bootstrap.raw")
+    bootstrap_disk = os.path.join(str(golden.state_dir), "empty0.qcow2")
+    bootstrap_key = os.path.join(str(golden.state_dir), "bootstrap-ed25519")
+    qemu_img = "${nodes.golden.virtualisation.qemu.package}/bin/qemu-img"
+    mkfs = "${pkgs.e2fsprogs}/bin/mkfs.ext4"
+    debugfs = "${pkgs.e2fsprogs}/bin/debugfs"
+    ssh_keygen = "${pkgs.openssh}/bin/ssh-keygen"
 
     manifest_path = "/var/lib/mottainai-control/managed-packages/manifest.json"
-    repository_state_root = "/var/lib/mottainai/repositories"
-    persistent_sentinel = repository_state_root + "/issue-630-unmanaged/UNMANAGED_MARKER"
+    persistent_sentinel = "/var/lib/mottainai-control/unmanaged/UNMANAGED_MARKER"
     ephemeral_sentinel = "/tmp/issue-630-ephemeral-sentinel"
 
-    def control(command):
-        return golden.succeed("su -l mottainai-control -c " + shlex.quote(command))
+    def run_host(command):
+        result = subprocess.run(command, check=False, capture_output=True, text=True)
+        assert result.returncode == 0, (
+            "host command failed: " + " ".join(command) +
+            "\nstdout: " + result.stdout[-1000:] +
+            "\nstderr: " + result.stderr[-1000:]
+        )
+        return result.stdout
 
-    def control_failure(command):
-        return golden.fail("su -l mottainai-control -c " + shlex.quote(command))
+    # Make the canonical raw image immutable backing storage for the VM's
+    # writable disk. The overlay is created outside the Nix store; the base
+    # appliance itself is never copied, rebuilt, or modified.
+    run_host([
+        qemu_img, "create", "-f", "qcow2", "-F", "raw", "-b",
+        canonical_disk, root_overlay, "16G",
+    ])
+    overlay_info = json.loads(run_host([qemu_img, "info", "--output=json", root_overlay]))
+    assert overlay_info["format"] == "qcow2"
+    assert os.path.realpath(overlay_info["backing-filename"]) == canonical_disk
+    canonical_disk_size = os.stat(canonical_disk).st_size
+    canonical_disk_sha256 = run_host(["sha256sum", canonical_disk]).split()[0]
+
+    # The published appliance intentionally has no NixOS test backdoor and no
+    # baked-in credential. Supply the production MTNAI_BOOT block device with
+    # one ephemeral test key, then use the appliance's real SSH/control path.
+    run_host([ssh_keygen, "-q", "-t", "ed25519", "-N", "", "-f", bootstrap_key])
+    run_host([qemu_img, "create", "-f", "raw", bootstrap_raw, "16M"])
+    run_host([mkfs, "-L", "MTNAI_BOOT", bootstrap_raw])
+    run_host([
+        debugfs, "-w", "-R",
+        "write " + bootstrap_key + ".pub authorized_keys", bootstrap_raw,
+    ])
+    run_host([qemu_img, "convert", "-f", "raw", "-O", "qcow2", bootstrap_raw, bootstrap_disk])
+    os.environ["NIX_DISK_IMAGE"] = root_overlay
+
+    ssh_command = [
+        "${pkgs.openssh}/bin/ssh",
+        "-i", bootstrap_key,
+        "-p", "22222",
+        "-o", "BatchMode=yes",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "LogLevel=ERROR",
+        "-o", "ConnectTimeout=5",
+        "mottainai-control@127.0.0.1",
+    ]
+
+    def wait_for_ssh():
+        # This bounded loop waits only for transport/service readiness after
+        # QEMU boot or reboot. Each lifecycle assertion and reconcile command
+        # below executes exactly once; no failure is hidden by retries.
+        deadline = time.monotonic() + 180
+        last_error = ""
+        while time.monotonic() < deadline:
+            result = subprocess.run(
+                ssh_command + ["true"], check=False, capture_output=True,
+                text=True, timeout=6,
+            )
+            if result.returncode == 0:
+                return
+            last_error = (result.stderr or result.stdout)[-500:]
+            time.sleep(1)
+        raise AssertionError("SSH readiness timed out: " + last_error)
+
+    def guest(command, timeout=300):
+        result = subprocess.run(
+            ssh_command + [command], check=False, capture_output=True,
+            text=True, timeout=timeout,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                "guest command failed (" + str(result.returncode) + "): " + command +
+                "\nstdout: " + result.stdout[-2000:] +
+                "\nstderr: " + result.stderr[-2000:]
+            )
+        return result.stdout
+
+    def guest_failure(command, timeout=900):
+        result = subprocess.run(
+            ssh_command + [command], check=False, capture_output=True,
+            text=True, timeout=timeout,
+        )
+        assert result.returncode != 0, "guest command unexpectedly succeeded: " + command
+        return result.stdout
+
+    def control(command, timeout=300):
+        return guest(command, timeout)
+
+    def control_failure(command, timeout=900):
+        return guest_failure(command, timeout)
+
+    def guest_json(command, timeout=300):
+        return json.loads(control(command, timeout))
 
     def managed_manifest(version, source_sha256, activation_generation):
         return {
@@ -88,27 +212,36 @@ pkgs.testers.nixosTest {
             ],
         }
 
+    def unhealthy_manifest():
+        # Empty packages are schema-valid desired state, but production
+        # reconcileHealthCheck rejects an empty generation because no managed
+        # executable can be proven healthy. This activates a real Nix
+        # generation and exercises production rollback without mutating a
+        # store path or weakening any health rule.
+        return {
+            "contractId": "mottainai.managed-package-manifest.v1",
+            "schemaVersion": 1,
+            "activation": {"generation": 3},
+            "packages": [],
+        }
+
     def write_manifest(manifest):
-        # The production path remains the authority; this only supplies the
-        # operator's desired-state file as root, then restores its canonical
-        # control-user ownership and mode.
         text = json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n"
-        golden.succeed(
-            "install -m 0600 -o mottainai-control -g mottainai-control /dev/null "
-            + shlex.quote(manifest_path)
+        command = (
+            "install -m 0600 /dev/null " + shlex.quote(manifest_path) +
+            " && printf '%s' " + shlex.quote(text) +
+            " > " + shlex.quote(manifest_path)
         )
-        golden.succeed("printf '%s' " + shlex.quote(text) + " > " + shlex.quote(manifest_path))
+        control(command)
 
     def reconcile():
-        return json.loads(
-            control("mottainai-bootstrap reconcile --system ${system} --json")
-        )
+        return guest_json("mottainai-bootstrap reconcile --system ${system} --json", 900)
 
     def managed_status():
-        return json.loads(control("mottainai-bootstrap managed-status --json"))
+        return guest_json("mottainai-bootstrap managed-status --json")
 
     def runtime_health():
-        return json.loads(golden.succeed("mottainai-runtime-health"))
+        return guest_json("mottainai-runtime-health")
 
     def assert_managed_ready(health, status, expected_desired, expected_active):
         assert health["readiness"] == "managed-runtime-ready"
@@ -121,30 +254,28 @@ pkgs.testers.nixosTest {
         assert status["activationPhase"] == "idle"
 
     golden.start(allow_reboot=True)
-    golden.wait_for_unit("multi-user.target")
-    golden.wait_for_unit("mottainai-runtime-bootstrap-ready.service")
-    base_appliance_identity = golden.succeed("readlink -f /run/current-system").strip()
+    wait_for_ssh()
+    base_appliance_identity = control("readlink -f /run/current-system").strip()
+    assert base_appliance_identity == ${builtins.toJSON canonicalBuildIdentity}
 
     with subtest("fresh canonical appliance is bootstrap-ready and has no managed packages"):
-        golden.fail("command -v mottainai")
-        golden.fail("command -v nawabari")
-        golden.fail("command -v zellij")
+        control("systemctl is-active --quiet mottainai-runtime-bootstrap-ready.service")
+        guest_failure("command -v mottainai")
+        guest_failure("command -v nawabari")
+        guest_failure("command -v zellij")
         # Keep closure evidence bounded: report only a forbidden match, never
         # the complete closure or a full build log.
         forbidden = r"/nix/store/[a-z0-9]+-(mottainai|nawabari|zellij)-[0-9]"
-        golden.succeed(
-            "if nix-store -qR "
-            + shlex.quote(base_appliance_identity)
-            + " | grep -Eq "
-            + shlex.quote(forbidden)
-            + "; then exit 1; fi"
+        control(
+            "if nix-store -qR " + shlex.quote(base_appliance_identity) +
+            " | grep -Eq " + shlex.quote(forbidden) + "; then exit 1; fi"
         )
-        bootstrap_status = json.loads(control("mottainai-bootstrap status --json"))
+        bootstrap_status = guest_json("mottainai-bootstrap status --json")
         assert bootstrap_status["contractId"] == "mottainai.bootstrap-state.v1"
         assert bootstrap_status["schemaVersion"] == 1
         assert bootstrap_status["present"] is False
         health = runtime_health()
-        assert health["runtimeIdentity"] == "runtime-appliance-golden-path"
+        assert health["runtimeIdentity"] == "unset"
         assert health["buildIdentity"] == base_appliance_identity
         assert health["readiness"] == "bootstrap-ready"
         assert health["bootstrapReady"] is True
@@ -170,8 +301,8 @@ pkgs.testers.nixosTest {
         store_v1 = reconcile_v1["active"]["storePath"]
         assert reconcile_v1["active"]["packageIds"] == ["mottainai", "nawabari"]
         assert reconcile_v1["active"]["desiredManifestSemanticIdentity"] == desired_v1
-        assert golden.succeed(shlex.quote(store_v1) + "/bin/mottainai --version").strip() == "${mottainaiVersionV1}"
-        assert golden.succeed(shlex.quote(store_v1) + "/bin/nawabari --version").strip() == "${nawabariVersion}"
+        assert guest(shlex.quote(store_v1) + "/bin/mottainai --version").strip() == "${mottainaiVersionV1}"
+        assert guest(shlex.quote(store_v1) + "/bin/nawabari --version").strip() == "${nawabariVersion}"
         status_v1 = managed_status()
         health_v1 = runtime_health()
         assert_managed_ready(health_v1, status_v1, desired_v1, active_v1)
@@ -189,34 +320,37 @@ pkgs.testers.nixosTest {
         assert active_v2 != active_v1
         assert store_v2 != store_v1
         assert reconcile_v2["active"]["packageIds"] == ["mottainai", "nawabari"]
-        assert golden.succeed(shlex.quote(store_v2) + "/bin/mottainai --version").strip() == "${mottainaiVersionV2}"
-        assert golden.succeed(shlex.quote(store_v2) + "/bin/nawabari --version").strip() == "${nawabariVersion}"
+        assert guest(shlex.quote(store_v2) + "/bin/mottainai --version").strip() == "${mottainaiVersionV2}"
+        assert guest(shlex.quote(store_v2) + "/bin/nawabari --version").strip() == "${nawabariVersion}"
         status_v2 = managed_status()
         health_v2 = runtime_health()
         assert_managed_ready(health_v2, status_v2, desired_v2, active_v2)
         assert health_v2["buildIdentity"] == base_appliance_identity
 
     with subtest("persistent-unmanaged and ephemeral sentinel semantics are recorded"):
-        golden.succeed("install -d -m 0755 -o root -g root " + shlex.quote(repository_state_root + "/issue-630-unmanaged"))
-        golden.succeed("printf '%s' persistent-unmanaged-sentinel > " + shlex.quote(persistent_sentinel))
-        golden.succeed("printf '%s' ephemeral-sentinel > " + shlex.quote(ephemeral_sentinel))
-        golden.succeed("sync")
+        control("install -d -m 0755 " + shlex.quote(os.path.dirname(persistent_sentinel)))
+        control("printf '%s' persistent-unmanaged-sentinel > " + shlex.quote(persistent_sentinel))
+        control("printf '%s' ephemeral-sentinel > " + shlex.quote(ephemeral_sentinel))
+        control("sync")
 
     with subtest("reboot preserves desired and active state, readiness, and base identity"):
         golden.reboot()
-        golden.wait_for_unit("mottainai-runtime-bootstrap-ready.service")
-        assert golden.succeed("readlink -f /run/current-system").strip() == base_appliance_identity
+        wait_for_ssh()
+        assert control("readlink -f /run/current-system").strip() == base_appliance_identity
         status_after_reboot = managed_status()
         health_after_reboot = runtime_health()
         assert_managed_ready(health_after_reboot, status_after_reboot, desired_v2, active_v2)
-        assert golden.succeed(shlex.quote(store_v2) + "/bin/mottainai --version").strip() == "${mottainaiVersionV2}"
-        assert golden.succeed(shlex.quote(store_v2) + "/bin/nawabari --version").strip() == "${nawabariVersion}"
+        assert guest(shlex.quote(store_v2) + "/bin/mottainai --version").strip() == "${mottainaiVersionV2}"
+        assert guest(shlex.quote(store_v2) + "/bin/nawabari --version").strip() == "${nawabariVersion}"
         reconcile_after_reboot = reconcile()
         assert reconcile_after_reboot["outcome"] == "noop"
         assert reconcile_after_reboot["active"]["generationIdentity"] == active_v2
-        assert golden.succeed("grep -qx persistent-unmanaged-sentinel " + shlex.quote(persistent_sentinel))
+        assert control("grep -qx persistent-unmanaged-sentinel " + shlex.quote(persistent_sentinel))
         persistent_evidence = "survived"
-        ephemeral_exit, _ = golden.execute("test -f " + shlex.quote(ephemeral_sentinel))
+        ephemeral_exit = subprocess.run(
+            ssh_command + ["test -f " + shlex.quote(ephemeral_sentinel)],
+            check=False, capture_output=True, text=True, timeout=30,
+        ).returncode
         ephemeral_survived = ephemeral_exit == 0
 
     with subtest("unmanaged state is absent from managed evidence and ephemeral policy is explicit"):
@@ -228,32 +362,46 @@ pkgs.testers.nixosTest {
         assert "ephemeral" not in bounded_health.lower()
 
     with subtest("unhealthy next generation rolls back deterministically"):
-        # Re-declaring v1 is a semantic change from active v2. The v1 output
-        # was healthy before; making its exact binary non-executable creates a
-        # real post-switch health failure without changing production logic.
-        write_manifest(managed_manifest(
-            "${mottainaiVersionV1}", "${mottainaiSourceSha256V1}", 3
-        ))
-        golden.succeed("chmod 000 " + shlex.quote(store_v1 + "/bin/mottainai"))
-        control_failure("mottainai-bootstrap reconcile --system ${system} --json")
+        write_manifest(unhealthy_manifest())
+        failure_output = control_failure("mottainai-bootstrap reconcile --system ${system} --json")
+        failure_result = json.loads(failure_output)
+        assert failure_result["code"] == "health_failure"
         rollback_status = managed_status()
         rollback_health = runtime_health()
         assert rollback_status["failure"]["code"] == "health_failure"
         assert rollback_status["failure"]["phase"] == "rollback-pending"
         assert rollback_status["activeGenerationIdentity"] == active_v2
         assert rollback_status["observedGenerationIdentity"] == active_v2
-        assert rollback_status["desiredManifestSemanticIdentity"] == desired_v1
+        assert rollback_status["desiredManifestSemanticIdentity"] != desired_v2
         assert rollback_health["readiness"] == "managed-runtime-ready"
         assert rollback_health["managedRuntimeReady"] is True
         assert rollback_health["reconciliation"] == "repairable"
-        assert golden.succeed("readlink -f /var/lib/mottainai-control/managed-runtime/current").strip() == store_v2
-        assert golden.succeed(shlex.quote(store_v2) + "/bin/mottainai --version").strip() == "${mottainaiVersionV2}"
-        assert golden.succeed("grep -qx persistent-unmanaged-sentinel " + shlex.quote(persistent_sentinel))
-        assert golden.succeed("readlink -f /run/current-system").strip() == base_appliance_identity
+        assert control("readlink -f /var/lib/mottainai-control/managed-runtime/current").strip() == store_v2
+        assert guest(shlex.quote(store_v2) + "/bin/mottainai --version").strip() == "${mottainaiVersionV2}"
+        assert control("grep -qx persistent-unmanaged-sentinel " + shlex.quote(persistent_sentinel))
+        assert control("readlink -f /run/current-system").strip() == base_appliance_identity
+
+    final_disk_sha256 = run_host(["sha256sum", canonical_disk]).split()[0]
+    assert final_disk_sha256 == canonical_disk_sha256
 
     evidence = {
+        "canonicalAppliance": {
+            "contractId": "mottainai.linux-runtime-appliance.v1",
+            "schemaVersion": 1,
+            "architecture": "${system}",
+            "nixSystemClosure": ${builtins.toJSON canonicalBuildIdentity},
+            "canonicalSource": ${canonicalSourceJson},
+            "disk": {
+                "path": canonical_disk,
+                "format": "raw",
+                "sizeBytes": canonical_disk_size,
+                "sha256": canonical_disk_sha256,
+                "backingPathVerified": True,
+                "unchangedAfterLifecycle": final_disk_sha256 == canonical_disk_sha256,
+            },
+        },
         "baseAppliance": {
-            "runtimeIdentity": "runtime-appliance-golden-path",
+            "runtimeIdentity": health_after_reboot["runtimeIdentity"],
             "buildIdentity": base_appliance_identity,
         },
         "bootstrap": {
@@ -265,6 +413,7 @@ pkgs.testers.nixosTest {
                 "desiredGenerationIdentity": desired_v1,
                 "activeGenerationIdentity": active_v1,
                 "storePath": store_v1,
+                "packageIds": ["mottainai", "nawabari"],
                 "packages": {
                     "mottainai": {"version": "${mottainaiVersionV1}", "sourceSha256": "${mottainaiSourceSha256V1}"},
                     "nawabari": {"version": "${nawabariVersion}", "sourceSha256": "${nawabariSourceSha256}"},
@@ -274,6 +423,7 @@ pkgs.testers.nixosTest {
                 "desiredGenerationIdentity": desired_v2,
                 "activeGenerationIdentity": active_v2,
                 "storePath": store_v2,
+                "packageIds": ["mottainai", "nawabari"],
                 "packages": {
                     "mottainai": {"version": "${mottainaiVersionV2}", "sourceSha256": "${mottainaiSourceSha256V2}"},
                     "nawabari": {"version": "${nawabariVersion}", "sourceSha256": "${nawabariSourceSha256}"},
@@ -284,7 +434,14 @@ pkgs.testers.nixosTest {
                 "desiredGenerationIdentity": rollback_status["desiredManifestSemanticIdentity"],
                 "failureCode": rollback_status["failure"]["code"],
                 "readiness": rollback_health["readiness"],
+                "managedRuntimeReady": rollback_health["managedRuntimeReady"],
             },
+        },
+        "postReboot": {
+            "desiredGenerationIdentity": status_after_reboot["desiredManifestSemanticIdentity"],
+            "activeGenerationIdentity": status_after_reboot["activeGenerationIdentity"],
+            "readiness": health_after_reboot["readiness"],
+            "managedRuntimeReady": health_after_reboot["managedRuntimeReady"],
         },
         "sentinels": {
             "persistentUnmanaged": persistent_evidence,
@@ -292,5 +449,11 @@ pkgs.testers.nixosTest {
         },
     }
     print("ISSUE_630_GOLDEN_PATH_EVIDENCE " + json.dumps(evidence, sort_keys=True))
-  '';
-}
+    '';
+}).overrideTestDerivation (_: {
+  # Reconcile intentionally resolves the real tagged source over HTTPS from
+  # inside the guest. The outer Nix build sandbox removes the network
+  # namespace before QEMU starts, so CI must run this derivation with
+  # `sandbox = relaxed`; the guest remains the system under test.
+  __noChroot = true;
+})

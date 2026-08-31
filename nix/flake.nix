@@ -180,6 +180,12 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          runtimeApplianceImage = import ./runtime-appliance-image.nix {
+            inherit pkgs;
+            inherit (nixpkgs) lib;
+            appliance = self.applianceConfigurations.${system};
+            inherit nixpkgs;
+          };
         in
         {
           nawabari = pkgs.runCommand "nawabari-smoke" {
@@ -195,10 +201,8 @@
             runtimeOverlay = runtimeOverlay;
           };
           runtime-appliance-golden-path = import ./tests/runtime-appliance-golden-path.nix {
-            inherit pkgs;
+            inherit pkgs runtimeApplianceImage;
             inherit (nixpkgs) lib;
-            runtimeModule = self.nixosModules.runtime;
-            runtimeOverlay = runtimeOverlay;
           };
           managed-generation = import ./tests/managed-generation.nix {
             inherit pkgs;

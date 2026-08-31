@@ -441,7 +441,13 @@ jobs:
           '
       - name: Execute the Runtime Appliance golden path (Issue #630)
         working-directory: nix
-        run: nix build --no-update-lock-file --no-link .#checks.x86_64-linux.runtime-appliance-golden-path
+        # The guest intentionally exercises the production HTTPS source
+        # resolver. Run this one explicitly networked test derivation outside
+        # the default Nix sandbox; all other Runtime builds stay sandboxed.
+        run: |
+          set -euo pipefail
+          sudo git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          sudo "$(command -v nix)" build --option sandbox relaxed --no-update-lock-file --no-link .#checks.x86_64-linux.runtime-appliance-golden-path
 
   runtime-appliance-artifact:
     name: Publish canonical Runtime Appliance artifact
