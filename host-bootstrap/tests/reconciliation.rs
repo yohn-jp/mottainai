@@ -12,9 +12,10 @@ use mottainai_host_bootstrap::contract::ProviderContract;
 use mottainai_host_bootstrap::error::{BootstrapError, ErrorCode};
 use mottainai_host_bootstrap::host::{HostObservation, KvmObservation};
 use mottainai_host_bootstrap::lock::BootstrapLock;
-use mottainai_host_bootstrap::model::{Classification, Outcome};
+use mottainai_host_bootstrap::model::{Classification, Outcome, QemuIdentity};
 use mottainai_host_bootstrap::paths::{ensure_managed_directories, ManagedPaths};
 use mottainai_host_bootstrap::provider::ArtifactSource;
+use mottainai_host_bootstrap::qemu::QemuOverride;
 use mottainai_host_bootstrap::reconcile::{Bootstrap, BootstrapConfig};
 use sha2::{Digest, Sha256};
 use tar::{Builder, Header};
@@ -82,6 +83,14 @@ fn config(root: PathBuf, contract: ProviderContract) -> BootstrapConfig {
         kvm_path: PathBuf::from("/unused-in-test"),
         contract,
         environment_path: None,
+        qemu_path: None,
+        qemu_override: Some(QemuOverride::Identity(QemuIdentity {
+            system_path: "/fixture/qemu-system-x86_64".to_owned(),
+            system_sha256: "1".repeat(64),
+            image_path: "/fixture/qemu-img".to_owned(),
+            image_sha256: "2".repeat(64),
+            version: "9.2.2".to_owned(),
+        })),
         host_override: Some(HostObservation {
             os: "linux".to_owned(),
             architecture: "x86_64".to_owned(),
@@ -116,7 +125,8 @@ fn verified_materialization_promotes_only_after_digest_verification() {
     let evidence = Bootstrap::new(bootstrap_config.clone()).reconcile_with_source(source.clone());
     assert_eq!(evidence.result, Outcome::Changed);
     assert_eq!(evidence.steps[0].classification, Classification::Satisfied);
-    assert_eq!(evidence.steps[1].classification, Classification::Missing);
+    assert_eq!(evidence.steps[1].classification, Classification::Repairable);
+    assert_eq!(evidence.steps[2].classification, Classification::Missing);
     assert_eq!(source.calls.load(Ordering::SeqCst), 1);
 
     let paths = bootstrap_config.paths();
@@ -211,9 +221,109 @@ fn verified_active_provider_without_state_is_repaired_without_redownload() {
 
     let second = Bootstrap::new(bootstrap_config.clone()).reconcile_with_source(source.clone());
     assert_eq!(second.result, Outcome::Changed);
-    assert_eq!(second.steps[1].classification, Classification::Repairable);
+    assert_eq!(second.steps[2].classification, Classification::Repairable);
     assert_eq!(source.calls.load(Ordering::SeqCst), 1);
     assert!(bootstrap_config.paths().state_file.is_file());
+}
+
+#[test]
+fn modified_active_provider_without_state_is_never_adopted() {
+    let (_temporary, contract, source, bootstrap_config) = fixture();
+    let first = Bootstrap::new(bootstrap_config.clone()).reconcile_with_source(source.clone());
+    assert_eq!(first.result, Outcome::Changed);
+    let binary = bootstrap_config
+        .paths()
+        .provider_directory(&contract.artifact_id)
+        .join("bin/limactl");
+    fs::write(&binary, b"#!/bin/sh\n# modified\nexit 0\n").unwrap();
+    fs::remove_file(&bootstrap_config.paths().state_file).unwrap();
+
+    let second = Bootstrap::new(bootstrap_config.clone()).reconcile_with_source(source.clone());
+    assert_eq!(second.result, Outcome::Blocked);
+    assert_eq!(second.steps[2].classification, Classification::Incompatible);
+    assert_eq!(
+        second.error_code.as_deref(),
+        Some("provider_state_incompatible")
+    );
+    assert_eq!(source.calls.load(Ordering::SeqCst), 1);
+    assert!(!bootstrap_config.paths().state_file.exists());
+}
+
+#[test]
+fn missing_qemu_blocks_lima_materialization() {
+    let (_temporary, _contract, source, mut bootstrap_config) = fixture();
+    bootstrap_config.qemu_override = Some(QemuOverride::Missing);
+
+    let evidence = Bootstrap::new(bootstrap_config.clone()).reconcile_with_source(source.clone());
+    assert_eq!(evidence.result, Outcome::Blocked);
+    assert_eq!(evidence.steps[1].classification, Classification::Missing);
+    assert_eq!(evidence.error_code.as_deref(), Some("qemu_missing"));
+    assert_eq!(source.calls.load(Ordering::SeqCst), 0);
+    assert!(!bootstrap_config.paths().state_file.exists());
+}
+
+#[test]
+fn incompatible_qemu_is_not_adopted() {
+    let (_temporary, _contract, source, mut bootstrap_config) = fixture();
+    bootstrap_config.qemu_override = Some(QemuOverride::Incompatible(
+        "QEMU version is below the supported minimum".to_owned(),
+    ));
+
+    let evidence = Bootstrap::new(bootstrap_config).reconcile_with_source(source.clone());
+    assert_eq!(evidence.result, Outcome::Blocked);
+    assert_eq!(
+        evidence.steps[1].classification,
+        Classification::Incompatible
+    );
+    assert_eq!(evidence.error_code.as_deref(), Some("qemu_incompatible"));
+    assert_eq!(source.calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn changed_qemu_identity_after_state_is_ambiguous() {
+    let (_temporary, _contract, source, mut bootstrap_config) = fixture();
+    let first = Bootstrap::new(bootstrap_config.clone()).reconcile_with_source(source.clone());
+    assert_eq!(first.result, Outcome::Changed);
+    bootstrap_config.qemu_override = Some(QemuOverride::Identity(QemuIdentity {
+        system_path: "/fixture/qemu-system-x86_64".to_owned(),
+        system_sha256: "3".repeat(64),
+        image_path: "/fixture/qemu-img".to_owned(),
+        image_sha256: "2".repeat(64),
+        version: "9.2.2".to_owned(),
+    }));
+
+    let second = Bootstrap::new(bootstrap_config.clone()).reconcile_with_source(source.clone());
+    assert_eq!(second.result, Outcome::Blocked);
+    assert_eq!(second.steps[1].classification, Classification::Ambiguous);
+    assert_eq!(second.error_code.as_deref(), Some("qemu_state_ambiguous"));
+    assert_eq!(source.calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn corrupted_qemu_state_fails_closed() {
+    let (_temporary, _contract, source, bootstrap_config) = fixture();
+    let paths = bootstrap_config.paths();
+    ensure_managed_directories(&paths).unwrap();
+    fs::write(&paths.qemu_state_file, b"{not-json").unwrap();
+
+    let evidence = Bootstrap::new(bootstrap_config).reconcile_with_source(source.clone());
+    assert_eq!(evidence.result, Outcome::Blocked);
+    assert_eq!(evidence.steps[1].classification, Classification::Ambiguous);
+    assert_eq!(evidence.error_code.as_deref(), Some("qemu_state_ambiguous"));
+    assert_eq!(source.calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn interrupted_qemu_state_is_reconciled_atomically() {
+    let (_temporary, _contract, source, bootstrap_config) = fixture();
+    let paths = bootstrap_config.paths();
+    ensure_managed_directories(&paths).unwrap();
+    fs::write(paths.qemu_state_file.with_extension("json.tmp"), b"partial").unwrap();
+
+    let evidence = Bootstrap::new(bootstrap_config.clone()).reconcile_with_source(source);
+    assert_eq!(evidence.result, Outcome::Changed);
+    assert!(!paths.qemu_state_file.with_extension("json.tmp").exists());
+    assert!(paths.qemu_state_file.is_file());
 }
 
 #[cfg(unix)]
@@ -231,7 +341,7 @@ fn ambient_provider_is_not_adopted() {
     let evidence = Bootstrap::new(bootstrap_config.clone()).reconcile_with_source(source.clone());
     assert_eq!(evidence.result, Outcome::Blocked);
     assert_eq!(
-        evidence.steps[1].classification,
+        evidence.steps[2].classification,
         Classification::Incompatible
     );
     assert_eq!(

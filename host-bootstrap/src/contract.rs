@@ -6,11 +6,11 @@ use crate::error::{BootstrapError, ErrorCode};
 
 pub const CONTRACT_SCHEMA_VERSION: &str = "mottainai.host-bootstrap.v1";
 pub const BOOTSTRAP_VERSION: &str = env!("CARGO_PKG_VERSION");
-const DEFAULT_LIMA_VERSION: &str = "2.1.1";
+pub const SUPPORTED_LIMA_VERSION: &str = "2.2.0";
 const DEFAULT_LIMA_ARCHIVE_SHA256: &str =
-    "0f89235de8c3676d988d863cfef37ac7cf4b8a14ba05d5d678a99dfea1db2d3c";
+    "a0ea1ccf6b7335a900adb5f8d2b8384457965fecb1ba72f09b4e3e46d12f424a";
 const DEFAULT_LIMA_ARCHIVE_URL: &str =
-    "https://github.com/lima-vm/lima/releases/download/v2.1.1/lima-2.1.1-Linux-x86_64.tar.gz";
+    "https://github.com/lima-vm/lima/releases/download/v2.2.0/lima-2.2.0-Linux-x86_64.tar.gz";
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ProviderContract {
@@ -30,8 +30,8 @@ impl Default for ProviderContract {
         Self {
             schema_version: CONTRACT_SCHEMA_VERSION.to_owned(),
             provider: "lima".to_owned(),
-            version: DEFAULT_LIMA_VERSION.to_owned(),
-            artifact_id: "lima-2.1.1-linux-x86_64".to_owned(),
+            version: SUPPORTED_LIMA_VERSION.to_owned(),
+            artifact_id: "lima-2.2.0-linux-x86_64".to_owned(),
             artifact_url: DEFAULT_LIMA_ARCHIVE_URL.to_owned(),
             artifact_sha256: DEFAULT_LIMA_ARCHIVE_SHA256.to_owned(),
             max_artifact_bytes: 256 * 1024 * 1024,
@@ -75,7 +75,7 @@ impl ProviderContract {
             && !self.artifact_url.contains(['\n', '\r', '"', '\'']);
         if self.schema_version != CONTRACT_SCHEMA_VERSION
             || self.provider != "lima"
-            || self.version.is_empty()
+            || self.version != SUPPORTED_LIMA_VERSION
             || !safe_artifact_id
             || !url_allowed
             || !valid_digest
@@ -90,5 +90,22 @@ impl ProviderContract {
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ProviderContract, SUPPORTED_LIMA_VERSION};
+    use crate::error::ErrorCode;
+
+    #[test]
+    fn only_the_supported_lima_version_is_valid() {
+        let contract = ProviderContract::default();
+        assert_eq!(contract.version, SUPPORTED_LIMA_VERSION);
+        assert!(contract.validate().is_ok());
+
+        let mut old = contract;
+        old.version = "2.1.1".to_owned();
+        assert_eq!(old.validate().unwrap_err().code, ErrorCode::ContractInvalid);
     }
 }

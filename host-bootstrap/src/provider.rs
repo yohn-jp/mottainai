@@ -57,6 +57,11 @@ pub fn inspect_provider(
         .is_some_and(|metadata| metadata.file_type().is_file());
     let cache_valid =
         cache_is_regular && crate::download::verify_archive(&cache_path, contract).is_ok();
+    let archived_binary_digest = if cache_valid {
+        crate::materialize::archived_executable_digest(&cache_path, contract)?
+    } else {
+        None
+    };
     let cache_exists = cache_metadata.is_some();
     let provider_metadata = fs::symlink_metadata(&desired_directory).ok();
     let provider_is_directory = provider_metadata
@@ -81,6 +86,9 @@ pub fn inspect_provider(
     } else {
         None
     };
+    let materialized_matches_artifact = cache_valid
+        && archived_binary_digest.is_some()
+        && archived_binary_digest.as_deref() == binary_digest.as_deref();
     let state_matches = state.as_ref().is_some_and(|value| {
         value.schema_version == crate::contract::CONTRACT_SCHEMA_VERSION
             && value.provider == contract.provider
@@ -91,6 +99,7 @@ pub fn inspect_provider(
             && value.archive_relative_path == format!("cache/{}.tar.gz", contract.artifact_id)
             && value.host_os == host_os
             && value.host_architecture == host_architecture
+            && materialized_matches_artifact
             && binary_digest.as_deref() == Some(value.managed_binary_sha256.as_str())
     });
     let ambient_classification = classify_ambient_paths(&ambient_paths, paths);
@@ -132,22 +141,25 @@ pub fn inspect_provider(
             Classification::Incompatible,
             Some("managed active provider is not the exact contract identity".to_owned()),
         )
-    } else if state.is_some()
-        && !state_matches
-        && active_is_expected
-        && binary_digest.is_some()
-        && cache_valid
-    {
+    } else if active_is_expected && !materialized_matches_artifact {
+        (
+            Classification::Incompatible,
+            Some(
+                "active provider executable does not match the pinned verified Lima artifact"
+                    .to_owned(),
+            ),
+        )
+    } else if state.is_some() && !state_matches && active_is_expected {
         (
             Classification::Ambiguous,
             Some("managed state cannot prove the active provider identity".to_owned()),
         )
-    } else if state.is_none() && active_is_expected && binary_digest.is_some() && cache_valid {
+    } else if state.is_none() && active_is_expected && materialized_matches_artifact {
         (
             Classification::Repairable,
             Some("active provider is verified but managed state needs recovery".to_owned()),
         )
-    } else if active_is_expected && binary_digest.is_some() && cache_valid && state_matches {
+    } else if active_is_expected && materialized_matches_artifact && state_matches {
         (Classification::Satisfied, None)
     } else if active_is_expected {
         (
@@ -169,7 +181,7 @@ pub fn inspect_provider(
         (Classification::Missing, None)
     };
 
-    let observed_identity = if active_is_expected && binary_digest.is_some() {
+    let observed_identity = if active_is_expected && materialized_matches_artifact {
         Some(contract.identity(Some(display_path(&binary_path))))
     } else {
         None

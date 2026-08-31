@@ -1,9 +1,10 @@
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 
 use flate2::read::GzDecoder;
+use sha2::{Digest, Sha256};
 use tar::Archive;
 
 use crate::contract::ProviderContract;
@@ -63,8 +64,34 @@ pub fn ensure_provider<S: ArtifactSource>(
         fs::rename(&partial_path, &archive_path)
             .map_err(|error| BootstrapError::io("promote verified provider archive", &error))?;
     }
+    let expected_binary_digest =
+        archived_executable_digest(&archive_path, contract)?.ok_or_else(|| {
+            BootstrapError::new(
+                ErrorCode::ProviderArchiveInvalid,
+                "verified provider archive does not contain the declared executable",
+            )
+        })?;
 
     let provider_directory = paths.provider_directory(&contract.artifact_id);
+    if provider_directory.exists() {
+        let existing_digest =
+            verified_executable_digest(&provider_directory.join(&contract.archive_binary_path))?;
+        if existing_digest.as_deref() == Some(expected_binary_digest.as_str()) {
+            // The active link/state may be the only incomplete part. Keep the
+            // verified materialization and reconcile those metadata boundaries.
+        } else if observation.active_is_expected || observation.state.is_some() {
+            return Err(BootstrapError::new(
+                ErrorCode::ProviderStateIncompatible,
+                "existing managed provider does not match the pinned verified Lima artifact",
+            ));
+        } else {
+            // A directory with no active link or state is an interrupted,
+            // unadopted transaction and can be discarded before extraction.
+            fs::remove_dir_all(&provider_directory).map_err(|error| {
+                BootstrapError::io("remove incomplete managed provider directory", &error)
+            })?;
+        }
+    }
     if provider_directory.exists()
         && verified_executable_digest(&provider_directory.join(&contract.archive_binary_path))?
             .is_none()
@@ -103,6 +130,12 @@ pub fn ensure_provider<S: ArtifactSource>(
             "managed provider directory does not contain a regular executable limactl",
         )
     })?;
+    if binary_digest != expected_binary_digest {
+        return Err(BootstrapError::new(
+            ErrorCode::ProviderStateIncompatible,
+            "materialized provider executable does not match the pinned verified Lima artifact",
+        ));
+    }
     ensure_active_link(paths, contract)?;
     let state = ManagedState {
         schema_version: crate::contract::CONTRACT_SCHEMA_VERSION.to_owned(),
@@ -186,6 +219,96 @@ pub(crate) fn verified_executable_digest(path: &Path) -> Result<Option<String>, 
         return Ok(None);
     }
     digest_file(path).map(Some)
+}
+
+/// Return the digest of the executable bytes in the already verified archive.
+/// A digest of the materialized file alone is insufficient: the file must be
+/// compared with the pinned archive before state can be adopted or repaired.
+pub(crate) fn archived_executable_digest(
+    archive_path: &Path,
+    contract: &ProviderContract,
+) -> Result<Option<String>, BootstrapError> {
+    let file = File::open(archive_path)
+        .map_err(|error| BootstrapError::io("open verified provider archive", &error))?;
+    let decoder = GzDecoder::new(file);
+    let mut archive = Archive::new(decoder);
+    let mut found = None;
+    let entries = archive.entries().map_err(|error| {
+        BootstrapError::new(
+            ErrorCode::ProviderArchiveInvalid,
+            format!("read provider archive entries: {error}"),
+        )
+    })?;
+    for entry_result in entries {
+        let mut entry = entry_result.map_err(|error| {
+            BootstrapError::new(
+                ErrorCode::ProviderArchiveInvalid,
+                format!("read provider archive entry: {error}"),
+            )
+        })?;
+        let raw_path = entry.path().map_err(|error| {
+            BootstrapError::new(
+                ErrorCode::ProviderArchiveInvalid,
+                format!("read archive path: {error}"),
+            )
+        })?;
+        let entry_path = normalize_archive_path(&raw_path).ok_or_else(|| {
+            BootstrapError::new(
+                ErrorCode::ProviderArchiveInvalid,
+                "provider archive contains an absolute or parent-traversing path",
+            )
+        })?;
+        if entry_path != Path::new(&contract.archive_binary_path) {
+            continue;
+        }
+        if found.is_some() || !entry.header().entry_type().is_file() {
+            return Err(BootstrapError::new(
+                ErrorCode::ProviderArchiveInvalid,
+                "provider archive executable path is duplicated or not a regular file",
+            ));
+        }
+        if entry.size() == 0 {
+            return Err(BootstrapError::new(
+                ErrorCode::ProviderArchiveInvalid,
+                "provider executable is empty",
+            ));
+        }
+        let mut hasher = Sha256::new();
+        let mut buffer = [0_u8; 64 * 1024];
+        let mut read_total = 0_u64;
+        loop {
+            let read = entry.read(&mut buffer).map_err(|error| {
+                BootstrapError::new(
+                    ErrorCode::ProviderArchiveInvalid,
+                    format!("read provider executable from archive: {error}"),
+                )
+            })?;
+            if read == 0 {
+                break;
+            }
+            read_total = read_total.checked_add(read as u64).ok_or_else(|| {
+                BootstrapError::new(
+                    ErrorCode::ProviderArchiveInvalid,
+                    "provider executable size overflow",
+                )
+            })?;
+            if read_total > MAX_EXTRACTED_BYTES {
+                return Err(BootstrapError::new(
+                    ErrorCode::ProviderArchiveInvalid,
+                    "provider executable exceeds the extracted-size bound",
+                ));
+            }
+            hasher.update(&buffer[..read]);
+        }
+        if read_total != entry.size() {
+            return Err(BootstrapError::new(
+                ErrorCode::ProviderArchiveInvalid,
+                "provider executable size changed while reading archive",
+            ));
+        }
+        found = Some(format!("{:x}", hasher.finalize()));
+    }
+    Ok(found)
 }
 
 pub(crate) fn is_executable(metadata: &fs::Metadata) -> bool {

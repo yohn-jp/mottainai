@@ -57,7 +57,9 @@ fn main() {
                 kvm_path: PathBuf::from("/dev/kvm"),
                 contract: ProviderContract::default(),
                 environment_path: env::var_os("PATH"),
+                qemu_path: None,
                 host_override: None,
+                qemu_override: None,
             });
             let evidence = failure_for_contract(error, &config);
             if json {
@@ -93,6 +95,10 @@ fn parse_config(
             "--kvm-path" => {
                 index += 1;
                 config.kvm_path = value(arguments, index, "--kvm-path")?.into();
+            }
+            "--qemu-path" => {
+                index += 1;
+                config.qemu_path = Some(value(arguments, index, "--qemu-path")?.into());
             }
             "--artifact" => {
                 index += 1;
@@ -146,9 +152,10 @@ fn print_help() {
     println!(
         "mottainai-init {BOOTSTRAP_VERSION}\n\
 Usage: mottainai-init [--json] [--state-directory PATH] [--contract PATH]\n\
-       [--artifact PATH] [--kvm-path PATH]\n\n\
-Reconciles the supported Linux x86_64/KVM Lima provider into the managed\n\
-state directory. No privileged mutation or ambient PATH adoption is performed."
+       [--artifact PATH] [--kvm-path PATH] [--qemu-path PATH]\n\n\
+Reconciles the supported Linux x86_64/KVM Lima provider and its QEMU\n\
+prerequisite into the managed state directory. No privileged mutation,\n\
+package-manager invocation, VM launch, or ambient PATH adoption is performed."
     );
 }
 

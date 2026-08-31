@@ -55,11 +55,30 @@ pub struct ProviderIdentity {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct QemuRequirement {
+    pub system_executable: String,
+    pub image_executable: String,
+    pub minimum_version: String,
+    pub accelerator: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct QemuIdentity {
+    pub system_path: String,
+    pub system_sha256: String,
+    pub image_path: String,
+    pub image_sha256: String,
+    pub version: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct StepEvidence {
     pub name: String,
     pub classification: Classification,
     pub changed: bool,
     pub desired_identity: Option<ProviderIdentity>,
     pub observed_identity: Option<ProviderIdentity>,
+    pub desired_qemu: Option<QemuRequirement>,
+    pub observed_qemu: Option<QemuIdentity>,
     pub diagnostic: Option<String>,
 }

@@ -7,6 +7,7 @@ use crate::error::{BootstrapError, ErrorCode};
 pub struct ManagedPaths {
     pub root: PathBuf,
     pub state_file: PathBuf,
+    pub qemu_state_file: PathBuf,
     pub lock_file: PathBuf,
     pub cache_directory: PathBuf,
     pub providers_directory: PathBuf,
@@ -19,6 +20,7 @@ impl ManagedPaths {
         let root = root.into();
         Self {
             state_file: root.join("state.json"),
+            qemu_state_file: root.join("qemu.json"),
             lock_file: root.join("bootstrap.lock"),
             cache_directory: root.join("cache"),
             providers_directory: root.join("providers"),

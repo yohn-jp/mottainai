@@ -6,7 +6,7 @@ use crate::contract::{BOOTSTRAP_VERSION, CONTRACT_SCHEMA_VERSION};
 use crate::download::digest_file;
 use crate::error::{bound_text, BootstrapError};
 use crate::host::HostObservation;
-use crate::model::{Outcome, ProviderIdentity, StepEvidence};
+use crate::model::{Outcome, ProviderIdentity, QemuIdentity, QemuRequirement, StepEvidence};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ExecutableIdentity {
@@ -22,6 +22,8 @@ pub struct Evidence {
     pub host: HostObservation,
     pub desired_provider: ProviderIdentity,
     pub observed_provider: Option<ProviderIdentity>,
+    pub desired_qemu: QemuRequirement,
+    pub observed_qemu: Option<QemuIdentity>,
     pub steps: Vec<StepEvidence>,
     pub changed: bool,
     pub result: Outcome,
@@ -30,14 +32,20 @@ pub struct Evidence {
 }
 
 impl Evidence {
-    pub fn new(host: HostObservation, desired_provider: ProviderIdentity) -> Self {
+    pub fn new(
+        host: HostObservation,
+        desired_provider: ProviderIdentity,
+        desired_qemu: QemuRequirement,
+    ) -> Self {
         Self {
             schema_version: CONTRACT_SCHEMA_VERSION.to_owned(),
             executable: executable_identity(),
             host,
             desired_provider,
             observed_provider: None,
-            steps: Vec::with_capacity(2),
+            desired_qemu,
+            observed_qemu: None,
+            steps: Vec::with_capacity(3),
             changed: false,
             result: Outcome::Blocked,
             error_code: None,

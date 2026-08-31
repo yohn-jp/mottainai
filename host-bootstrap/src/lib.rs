@@ -8,6 +8,7 @@ pub(crate) mod materialize;
 pub mod model;
 pub mod paths;
 pub mod provider;
+pub mod qemu;
 pub mod reconcile;
 
 pub use contract::{ProviderContract, BOOTSTRAP_VERSION, CONTRACT_SCHEMA_VERSION};
