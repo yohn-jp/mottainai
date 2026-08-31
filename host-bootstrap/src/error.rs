@@ -1,0 +1,80 @@
+use std::fmt::{Display, Formatter};
+
+use serde::Serialize;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorCode {
+    BootstrapLocked,
+    ContractInvalid,
+    DownloadFailed,
+    ProviderArchiveInvalid,
+    ProviderChecksumMismatch,
+    ProviderStateAmbiguous,
+    ProviderStateIncompatible,
+    KvmMissing,
+    KvmInaccessible,
+    KvmNotCharacterDevice,
+    AmbiguousHostCapability,
+    UnsupportedArchitecture,
+    UnsupportedHostProfile,
+    IoError,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BootstrapError {
+    pub code: ErrorCode,
+    pub message: String,
+}
+
+impl BootstrapError {
+    pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: bound_text(&message.into()),
+        }
+    }
+
+    pub fn io(context: &str, error: &std::io::Error) -> Self {
+        Self::new(ErrorCode::IoError, format!("{context}: {error}"))
+    }
+}
+
+impl Display for BootstrapError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {}", self.code_string(), self.message)
+    }
+}
+
+impl std::error::Error for BootstrapError {}
+
+impl BootstrapError {
+    pub fn code_string(&self) -> &'static str {
+        match self.code {
+            ErrorCode::BootstrapLocked => "bootstrap_locked",
+            ErrorCode::ContractInvalid => "contract_invalid",
+            ErrorCode::DownloadFailed => "download_failed",
+            ErrorCode::ProviderArchiveInvalid => "provider_archive_invalid",
+            ErrorCode::ProviderChecksumMismatch => "provider_checksum_mismatch",
+            ErrorCode::ProviderStateAmbiguous => "provider_state_ambiguous",
+            ErrorCode::ProviderStateIncompatible => "provider_state_incompatible",
+            ErrorCode::KvmMissing => "kvm_missing",
+            ErrorCode::KvmInaccessible => "kvm_inaccessible",
+            ErrorCode::KvmNotCharacterDevice => "kvm_not_character_device",
+            ErrorCode::AmbiguousHostCapability => "ambiguous_host_capability",
+            ErrorCode::UnsupportedArchitecture => "unsupported_architecture",
+            ErrorCode::UnsupportedHostProfile => "unsupported_host_profile",
+            ErrorCode::IoError => "io_error",
+        }
+    }
+}
+
+/// Evidence and diagnostics are deliberately bounded before they reach JSON or stderr.
+pub fn bound_text(value: &str) -> String {
+    const LIMIT: usize = 512;
+    let mut result = value.chars().take(LIMIT).collect::<String>();
+    if value.chars().count() > LIMIT {
+        result.push('…');
+    }
+    result
+}

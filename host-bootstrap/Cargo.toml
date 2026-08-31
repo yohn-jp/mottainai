@@ -1,0 +1,26 @@
+[package]
+name = "mottainai-host-bootstrap"
+version = "0.1.0"
+edition = "2021"
+description = "Standalone idempotent host bootstrap for the Mottainai Lima provider"
+license = "MIT"
+
+[lib]
+name = "mottainai_host_bootstrap"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mottainai-init"
+path = "src/main.rs"
+
+[dependencies]
+flate2 = "1.1"
+fs2 = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+tar = "0.4"
+
+[dev-dependencies]
+tempfile = "3.23"
