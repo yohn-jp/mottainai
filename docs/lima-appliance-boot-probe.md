@@ -1,108 +1,84 @@
-# Canonical Runtime Appliance Lima boot probe (Issue #655)
+# Canonical Runtime Appliance Lima delivery probe (Issue #655)
 
-This probe is the physical-delivery pre-adoption proof for Issue #655 and
-parent architecture decision #600, following the Lima lifecycle proof in
+This probe is the physical-delivery pre-adoption experiment for Issue #655 and
+parent architecture decision #600, following the Lima lifecycle probe in
 [docs/lima-validation-probe.md](lima-validation-probe.md) (#649). It answers
-one narrower question that probe does not: does the _exact_ raw disk built by
-`nix build .#runtime-appliance-image` boot and remain usable when Lima
-consumes it directly, rather than Lima's own `template:alpine` base image?
+one narrower question: can the _exact_ raw disk built by
+`nix build .#runtime-appliance-image` boot and remain usable when Lima consumes
+it directly, rather than Lima's own `template:alpine` base image?
 
-It is a research/evidence harness only. It does not implement a Lima
-provider, and it does not build a surrogate NixOS guest configuration — the
-only input disk it ever boots is the one `nix build .#runtime-appliance-image`
-produced, verified byte-for-byte against its published manifest before Lima
-ever touches it.
+It is a research/evidence harness only. It does not implement a Lima provider,
+and it does not build a surrogate NixOS guest configuration. The only appliance
+input it accepts is the exact `runtime-appliance-image` raw disk, verified
+byte-for-byte against its manifest before Lima is invoked.
 
-## Result: confirmed incompatibility, not a passing boot
+## Pre-run readiness hypothesis
 
-**`limactl start` cannot reach `Running` against the canonical appliance
-without changing canonical NixOS guest semantics.** This is not a
-configuration bug in this probe; it is how Lima is documented to work:
+Repository inspection and Lima's documented guest-readiness model indicate a
+specific compatibility risk that the native run must resolve:
 
-- Lima's own boot-readiness gate (the `Running` status `limactl start` and
-  `limactl list` report) is driven by two guest-side marker files,
-  `/run/lima-boot-done` and `/run/lima-ssh-ready`. Both are written by
-  Lima's `boot.sh` provisioning scripts, which Lima delivers to the guest
-  through a cloud-init NoCloud `cidata.iso` seed and which only run if the
-  guest has cloud-init (or an equivalent Lima-aware `lima-init`) installed
-  and configured to consume that seed.
-- This is unchanged by `--plain` mode: plain mode disables Lima's mounts,
-  dynamic port forwarding, containerd, guest agent, and Rosetta, but its own
-  documentation states that "the base user and SSH keys are still
-  configured" — i.e. plain mode still depends on the same cloud-init-consumed
-  provisioning path for guest readiness.
-- No documented/public `limactl` flag (`start --timeout`, `--tty`, `--set`,
-  or any other) changes what "ready" means or skips this gate.
-- The canonical `.#runtime-appliance-image`
-  ([nix/runtime-appliance-image.nix](../nix/runtime-appliance-image.nix),
-  [nix/modules/runtime.nix](../nix/modules/runtime.nix)) has no cloud-init in
-  its closure by design — only the standard `nixos-generators`/NixOS
-  `qemu-guest` profile — and never runs Lima's `boot.sh`. It has its own,
-  independent, bounded first-boot SSH-key bootstrap (a labeled `MTNAI_BOOT`
-  block device consumed once by
-  `mottainai-runtime-bootstrap-authorized-keys.service`), which is the
-  correct and only key-delivery mechanism for this appliance and must not be
-  replaced or duplicated by a Lima-specific one.
+- Lima's `Running`/SSH-readiness path uses guest-side readiness markers such as
+  `/run/lima-boot-done` and `/run/lima-ssh-ready`, normally established by
+  Lima guest provisioning.
+- The canonical Runtime Appliance intentionally does not include cloud-init or
+  a Lima-specific guest bootstrap. It has its own provider-independent,
+  bounded first-boot SSH-key mechanism using a block device labeled
+  `MTNAI_BOOT`.
+- Adding cloud-init or a Lima-specific boot script solely to satisfy Lima would
+  change canonical guest semantics and is outside Issue #655.
 
-Making `limactl start` converge would require adding cloud-init (or a
-Lima-specific `lima-init`-equivalent boot script) to the canonical appliance
-closure — a change to canonical NixOS guest semantics that both the Issue and
-[nix/runtime-appliance-image.nix](../nix/runtime-appliance-image.nix)'s own
-comments explicitly forbid. This probe does not make that change. It stops at
-the incompatibility and documents it, per the Issue's own instruction.
+This is a **hypothesis to verify on a real Linux/KVM host**, not a completed
+native finding. Fixture tests can prove that the probe records this failure
+shape correctly; they cannot prove that real Lima takes that path on the
+canonical appliance.
 
-## What the probe still proves
+If the native run shows `limactl start` cannot reach its required state and the
+returned evidence establishes that this readiness boundary is the exact
+incompatibility, Issue #655's explicit stop condition applies: document the
+incompatibility and do not create a Lima-specific NixOS fork. If Lima reaches
+`Running`, the probe continues normally and records that result instead.
 
-Lima's `Running` status label is not the same question as "is the appliance
-usable." The QEMU `vmType: qemu` driver's default user-mode networking still
-establishes an ordinary SSH port-forward (`sshLocalPort`, reported by
-`limactl list --all-fields --format json`) from the host to the guest's
-sshd, independent of Lima's cloud-init-gated readiness state. This probe:
+## What the probe measures
 
-1. Boots the exact appliance disk through Lima via the documented/public
-   `images: [{location: "file://...", arch, digest}]` limayaml field —
-   substituting _which bytes_ Lima boots, not any guest-visible behavior.
-2. Attaches a small FAT-formatted `additionalDisks` raw disk labeled
-   `MTNAI_BOOT` carrying one `authorized_keys` file — the same delivery
-   mechanism the canonical appliance's own bootstrap service already expects
-   from any block-device source, provider-independent.
-3. Records `limactl start`'s expected failure as first-class bounded
-   evidence (`limactl-start-readiness-gate`, `lima_reported_running: false`).
-4. Independently reaches the guest by plain `ssh` over the QEMU
-   host-forwarded `sshLocalPort`, authenticating with the bootstrap key,
-   bypassing `limactl shell` (which itself depends on the same blocked
-   guest-agent path).
-5. Runs `nix --version` over that direct SSH connection.
-6. Writes one persistent sentinel file under
-   `/var/lib/mottainai-control/`, issues a guest-initiated
-   `systemctl reboot` (not `limactl restart`, which is itself gated on the
-   same never-converging status machine), and reconnects over SSH to verify
+The probe attempts the following without modifying canonical guest semantics:
+
+1. Verify the exact appliance disk size and SHA-256 against its bounded
+   manifest.
+2. Ask Lima to consume that disk through documented/public `images:`
+   configuration.
+3. Attach an `additionalDisks:` key-carrier disk labeled `MTNAI_BOOT`, using
+   the appliance's existing first-boot SSH-key contract.
+4. Run `limactl start` and record its actual result and machine-readable Lima
+   state without treating a fixture expectation as native evidence.
+5. When Lima exposes an SSH local port, attempt direct SSH to the appliance and
+   run `nix --version`.
+6. If SSH succeeds, write a persistent sentinel under
+   `/var/lib/mottainai-control/`, request a guest reboot, reconnect, and verify
    the sentinel survived.
+7. Attempt cleanup and retain bounded machine-readable evidence and bounded
+   command logs.
 
-The probe's overall `pass`/`fail` therefore reflects guest usability
-(direct SSH, `nix --version`, sentinel-survives-reboot), not Lima's own
-status label — and separately records `lima_reported_running` so the two
-questions are never conflated in the evidence.
+The evidence keeps Lima's own reported state separate from direct guest
+usability. A native run may therefore distinguish a provider-readiness failure
+from a guest that is independently reachable; neither conclusion is claimed
+until the native evidence exists.
 
 ## Run on a native Linux/KVM host
 
 Prerequisites:
 
-- native Linux on `x86_64` or `aarch64` (the guest architecture follows the
-  host architecture);
+- native Linux on `x86_64` or `aarch64`;
 - a Lima installation providing `limactl` and its QEMU driver;
 - a user that can open `/dev/kvm` read/write;
 - Node.js 22.13 or later;
-- `ssh` and `ssh-keygen` (OpenSSH client);
-- `mkfs.vfat` and `mcopy` (Debian/Ubuntu: `dosfstools` and `mtools`) to build
-  the small `MTNAI_BOOT` key-carrier disk;
-- Nix with flakes enabled, to build the exact appliance disk.
+- `ssh` and `ssh-keygen`;
+- `mkfs.vfat` and `mcopy` (Debian/Ubuntu: `dosfstools` and `mtools`);
+- Nix with flakes enabled.
 
-The probe does not install packages, change `/dev/kvm` permissions, edit Lima
-configuration outside its own isolated `LIMA_HOME`, or require `sudo` (the
-one `sudo -n systemctl reboot` runs _inside the guest_, via the
-`mottainai-control` sudo rule the canonical appliance already grants — see
-[nix/modules/runtime.nix](../nix/modules/runtime.nix)).
+The probe does not install packages, change `/dev/kvm` permissions, or edit
+Lima configuration outside its isolated `LIMA_HOME`. The one `sudo -n
+systemctl reboot` is issued _inside the guest_ through the existing
+`mottainai-control` sudo rule.
 
 ```bash
 git clone https://github.com/yohn-jp/mottainai.git
@@ -130,25 +106,24 @@ node scripts/lima-appliance-boot-probe.mjs \
   --logs ./lima-appliance-boot-logs
 ```
 
-Exit status `0` means the guest usability checks (direct SSH, `nix
---version`, sentinel-survives-reboot) all passed. Exit status `1` means a
-prerequisite, disk-identity, or guest-usability check failed, or cleanup
-could not be confirmed. `lima_reported_running: false` in the evidence is the
-**expected** outcome given the incompatibility above; it does not by itself
-mean the run failed. Exit status `2` means usage or an unexpected probe
-error.
+Exit status `0` means the guest-usability checks reached by the native run
+(direct SSH, `nix --version`, and sentinel-survives-reboot) passed. Exit status
+`1` means a prerequisite, disk-identity, Lima/guest-usability, or cleanup check
+failed. Exit status `2` means usage or an unexpected probe error.
+
+Do not infer a general Lima incompatibility from fixture tests or from the exit
+status alone. Review the returned `steps`, `lima_reported_running`, and
+`appliance_boot_blocked_diagnostic` fields together with the bounded logs.
 
 ## Isolation and cleanup
 
-Each run creates a fresh temporary `LIMA_HOME`, `HOME`, and `XDG_CACHE_HOME`
-for the child `limactl` processes, and a fresh ephemeral SSH keypair used
-only for the appliance's bootstrap-key delivery — the same isolation pattern
-as [docs/lima-validation-probe.md](lima-validation-probe.md). The instance
-name defaults to `mottainai-655-appliance-probe`. The probe attempts
-`limactl delete --force` in its final phase regardless of outcome, and
-verifies post-delete absence with public `limactl list --format json`. If
-cleanup fails, the evidence records `isolated_state_removed: false` and the
-temporary `LIMA_HOME` path; preserve that diagnostic for review.
+Each run creates fresh temporary `LIMA_HOME`, `HOME`, and `XDG_CACHE_HOME`
+locations for child `limactl` processes and a fresh ephemeral SSH keypair. The
+instance name defaults to `mottainai-655-appliance-probe`. Cleanup attempts
+`limactl delete --force` regardless of outcome and verifies post-delete
+absence with public `limactl list --format json` output. If cleanup cannot be
+confirmed, preserve the diagnostic and temporary state location recorded by
+the probe.
 
 ## Evidence to return
 
@@ -159,17 +134,29 @@ Return these files without editing them:
 ./lima-appliance-boot-logs/
 ```
 
-The JSON file's top-level fields cover: appliance manifest identity and
-recomputed disk digest (`appliance.manifest`, `appliance.disk_verification`),
-Lima version (`lima.version`), host OS/architecture/KVM observation
-(`host`), every step's expected/observed state and pass/fail
-(`steps`), and the overall result including `lima_reported_running` and
-`appliance_boot_blocked_diagnostic` (`result`). Each child SSH/Lima command's
-raw stdout/stderr is retained under `--logs`.
+The JSON evidence records the appliance manifest identity and recomputed disk
+digest, Lima version, host OS/architecture/KVM observations, each attempted
+step and its observed result, `lima_reported_running`, any bounded blocked
+diagnostic, and the overall result. The log directory is supplementary
+diagnostic evidence only.
+
+## Acceptance interpretation
+
+Only a **real Linux/KVM execution** can satisfy the physical-delivery evidence
+requirement. There are two legitimate native outcomes under Issue #655:
+
+- the canonical appliance is usable through Lima and the reached SSH/Nix/reboot
+  checks pass; or
+- the evidence identifies the exact Lima/canonical-guest incompatibility that
+  would require changing canonical guest semantics, in which case work stops
+  and the incompatibility is documented.
+
+Fixture-driven unit tests prove only the harness, parsing, isolation, and
+fail-closed evidence behavior. They are not native acceptance evidence.
 
 ## Non-goals
 
-Same non-goals as Issue #655 itself: no managed Mottainai, Nawabari, or
-Zellij installation; no managed-generation, update, or rollback exercise; no
-#630/#653 golden-path lifecycle semantics; no Lima provider implementation in
-Mottainai. This probe only proves and bounds the physical delivery question.
+No managed Mottainai, Nawabari, or Zellij installation; no managed-generation,
+update, or rollback lifecycle; no #630/#653 golden-path semantics; no production
+Lima provider implementation; and no Lima-specific fork of the canonical
+Runtime Appliance.
