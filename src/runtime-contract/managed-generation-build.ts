@@ -145,6 +145,16 @@ in
         [
           "build",
           "--impure",
+          // This module's whole premise is a Runtime that may have no
+          // network access (a fresh Appliance's only source of Nix inputs
+          // is what is already in its store — nix/flake.lock's pin plus
+          // whatever nixpkgs/etc. shipped with the base image). Without
+          // --offline, a flake input Nix cannot resolve from the local
+          // store purely by chance (e.g. a `getFlake` target whose git
+          // identity differs from what flake.lock last saw) silently blocks
+          // on a network fetch that can never succeed here instead of
+          // failing fast with a clear error.
+          "--offline",
           "--no-link",
           "--print-out-paths",
           "--expr",
