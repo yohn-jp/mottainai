@@ -158,8 +158,19 @@ in
           // store purely by chance (e.g. a `getFlake` target whose git
           // identity differs from what flake.lock last saw) silently blocks
           // on a network fetch that can never succeed here instead of
-          // failing fast with a clear error.
+          // failing fast with a clear error. -vvv diagnosis (bbdfe1f)
+          // caught Nix computing (and preparing to write) a brand-new lock
+          // file for repoRoot instead of trusting flake.lock as committed
+          // -- resolving nixpkgs's branch reference to a concrete rev for
+          // that recomputation is exactly the kind of metadata-only lookup
+          // --offline does not reliably block, matching an intermittent
+          // hang observed even with --offline present. --no-update-lock-file
+          // (already used for this exact reason by the outer `nix build` in
+          // .github/workflows/ci.yml) makes Nix use the committed
+          // flake.lock verbatim and error immediately if that is not
+          // possible, rather than silently trying to recompute it.
           "--offline",
+          "--no-update-lock-file",
           "--show-trace",
           "--no-link",
           "--print-out-paths",
