@@ -205,7 +205,13 @@ override is supplied) — there is no `--state-directory`,
 `--state-file`, `--current-pointer`, or `--manifest-path` flag, and no
 `--mottainai-source` override: unlike `build`'s single-attempt, low-level
 build interface, `reconcile` is the canonical convergence path and always
-resolves the manifest's requested source for real.
+resolves the manifest's requested source for real. This boundary is not
+only a CLI/argv-parsing convention: the exported `runReconcile(options)`
+function underneath `reconcile` itself has no `stateDirectory` or
+`manifest` parameter at all, so no caller — production or test — can pass
+either through it; the only test-facing seam is `reconcileAdapters`,
+which builds the `buildGeneration`/`healthCheck` adapter functions and has
+no state/manifest parameter either.
 
 `reconcile` output is `reconcileManagedRuntime`'s own bounded
 `ManagedRuntimeReconcileResult`/`ManagedRuntimeStatusReport` shape
@@ -374,12 +380,17 @@ require no Nix toolchain except where explicitly noted. They prove:
   fresh control-state root, and rejects a missing `--system` before invoking
   `reconcileManagedRuntime` (`cli.test.ts`)
 - the real `reconcileBuildGeneration`/`reconcileHealthCheck` composition —
-  exercised through `runReconcile` (exported for exactly this) with
-  injected build/health dependencies and a test-only `stateDirectory`
-  seam `runReconcileCommand` never uses — converges initialize, noop, and
-  update outcomes, and a post-switch health failure triggers a real
-  rollback to the prior known-good generation, verified against the
-  persisted state and `current` pointer directly (`cli.test.ts`)
+  exercised by calling `reconcileManagedRuntime` (#628) directly against a
+  temporary `stateDirectory`/`manifest`, with `reconcileAdapters` (the
+  only test-facing seam `cli.ts` exports for reconcile — no
+  state/manifest parameter of any kind) supplying overridden build/health
+  dependencies — converges initialize, noop, and update outcomes, and a
+  post-switch health failure triggers a real rollback to the prior
+  known-good generation, verified against the persisted state and
+  `current` pointer directly (`cli.test.ts`). `runReconcile` itself is
+  canonical-only (`RunReconcileOptions` has no `stateDirectory`/`manifest`
+  field), proven by a structural test scanning its exported type and
+  function body (`cli.test.ts`)
 - `reconcileHealthCheck` proves a real `--version` executable against a
   real fixture binary and fails closed on a real execution failure, and
   fails closed (rather than reporting vacuous health) when a candidate

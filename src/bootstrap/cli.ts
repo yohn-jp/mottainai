@@ -294,16 +294,51 @@ export interface RunReconcileOptions {
   readonly system: string;
   readonly repoRoot: string;
   readonly env: NodeJS.ProcessEnv;
-  readonly dependencies?: ReconcileCommandDependencies;
-  /**
-   * Test-only DI seam mirroring reconcileManagedRuntime's own
-   * ManagedRuntimeReconcileOptions — `runReconcileCommand` (the real CLI
-   * entrypoint) never sets either of these from argv, so the canonical
-   * `/var/lib/mottainai-control/managed-runtime` state root and manifest
-   * remain the only production target.
-   */
-  readonly stateDirectory?: string;
-  readonly manifest?: unknown;
+}
+
+/**
+ * Builds #628's buildGeneration/healthCheck adapters only — no
+ * stateDirectory, no manifest, no canonical-path involvement of any kind.
+ * This is the ONLY test-facing seam this module exports for reconcile:
+ * production (`runReconcile` below) calls it with real defaults and no
+ * `overrides`; a test that wants to exercise the real adapter-shaping
+ * logic end to end calls `reconcileManagedRuntime` directly (imported
+ * from src/runtime-contract/managed-runtime.ts, exactly as
+ * managed-runtime.test.ts already does) with its OWN temporary
+ * `stateDirectory`/`manifest`, passing this function's return value as
+ * that call's `dependencies` — never through this module. Because this
+ * function has no parameter for state/manifest authority at all, no
+ * caller of it — production or test — can redirect canonical
+ * managed-runtime state (review finding on PR #646: an earlier revision
+ * threaded `stateDirectory`/`manifest` through the exported `runReconcile`
+ * itself as a "test-only" seam, which made the production API surface
+ * capable of the override #642 requires it never allow).
+ */
+export function reconcileAdapters(options: {
+  readonly system: string;
+  readonly repoRoot: string;
+  readonly env: NodeJS.ProcessEnv;
+  readonly overrides?: ReconcileCommandDependencies;
+}): {
+  readonly buildGeneration: (manifest: ManagedPackageManifest) => Promise<ManagedRuntimeBuiltGeneration>;
+  readonly healthCheck: (
+    generation: ManagedRuntimeCandidate | ManagedRuntimeGenerationRecord,
+  ) => Promise<ManagedRuntimeHealthCheckResult> | ManagedRuntimeHealthCheckResult;
+} {
+  const resolveSource = options.overrides?.resolveSource ?? resolveMottainaiSource;
+  const runManagedGenerationBuild = options.overrides?.runManagedGenerationBuild ?? buildManagedGeneration;
+  const healthCheck = options.overrides?.healthCheck ?? reconcileHealthCheck;
+  return {
+    buildGeneration: (manifest) =>
+      reconcileBuildGeneration(manifest, {
+        system: options.system,
+        repoRoot: options.repoRoot,
+        env: options.env,
+        resolveSource,
+        runManagedGenerationBuild,
+      }),
+    healthCheck,
+  };
 }
 
 /**
@@ -315,31 +350,14 @@ export interface RunReconcileOptions {
  * ("a future full Mottainai command may name that orchestration init or
  * reconcile"). This performs real activation: build/verify, atomic switch,
  * managed-runtime health, and rollback on a post-switch health failure —
- * never a partial/simulated result. Exported so tests can exercise this
- * exact composition (initialize/noop/update/rollback) with injected
- * build/health dependencies, without a Nix toolchain or `#630`'s VM
- * harness — `runReconcileCommand` below is a thin argv-parsing wrapper
- * over this function using only the real defaults.
+ * never a partial/simulated result. Canonical-only: no dependency,
+ * state-directory, or manifest override of any kind — `reconcileManagedRuntime`
+ * always resolves its own canonical `/var/lib/mottainai-control/managed-runtime`
+ * state and manifest internally. `runReconcileCommand` below is a thin
+ * argv-parsing wrapper over this function.
  */
 export async function runReconcile(options: RunReconcileOptions): Promise<ManagedRuntimeReconcileResult> {
-  const resolveSource = options.dependencies?.resolveSource ?? resolveMottainaiSource;
-  const runManagedGenerationBuild = options.dependencies?.runManagedGenerationBuild ?? buildManagedGeneration;
-  const healthCheck = options.dependencies?.healthCheck ?? reconcileHealthCheck;
-  return reconcileManagedRuntime({
-    ...(options.stateDirectory === undefined ? {} : { stateDirectory: options.stateDirectory }),
-    ...(options.manifest === undefined ? {} : { manifest: options.manifest }),
-    dependencies: {
-      buildGeneration: (manifest) =>
-        reconcileBuildGeneration(manifest, {
-          system: options.system,
-          repoRoot: options.repoRoot,
-          env: options.env,
-          resolveSource,
-          runManagedGenerationBuild,
-        }),
-      healthCheck,
-    },
-  });
+  return reconcileManagedRuntime({ dependencies: reconcileAdapters(options) });
 }
 
 async function runReconcileCommand(argv: readonly string[]): Promise<number> {

@@ -4,9 +4,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { reconcileHealthCheck, runBootstrapCli, runReconcile } from "./cli.js";
+import { reconcileAdapters, reconcileHealthCheck, runBootstrapCli } from "./cli.js";
 import { CANONICAL_BOOTSTRAP_STATE_FILE_PATH } from "./paths.js";
-import { ManagedRuntimeError } from "../runtime-contract/managed-runtime.js";
+import { ManagedRuntimeError, reconcileManagedRuntime } from "../runtime-contract/managed-runtime.js";
 import { readManagedRuntimePointer, readManagedRuntimeState } from "../runtime-contract/managed-runtime-state.js";
 import { generationIdentityOf } from "../runtime-contract/managed-generation.js";
 import type { BuildManagedGenerationOptions, BuiltManagedGeneration } from "../runtime-contract/managed-generation-build.js";
@@ -151,22 +151,54 @@ test("reconcile has no state-directory/state-file/current-pointer/manifest-path 
   }
 });
 
+// Review response (PR #646, re-review): the exported production `runReconcile`
+// itself used to accept `stateDirectory`/`manifest` as a "test-only" DI
+// seam — since it was exported, that made the production API surface
+// capable of overriding canonical managed-runtime state authority
+// regardless of what runReconcileCommand's own argv parsing did. Fixed by
+// removing both from RunReconcileOptions entirely (TypeScript now refuses
+// any caller, including a test, from passing either to runReconcile at
+// all) and moving the test-only DI seam to reconcileAdapters, which has no
+// state/manifest parameter of any kind. This is a structural,
+// source-scanning proof that the fix holds, mirroring the flag-scanning
+// tests above.
+test("runReconcile's exported options type has no stateDirectory/manifest override, and its body passes no state/manifest override to reconcileManagedRuntime", async () => {
+  const source = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "cli.ts"), "utf8");
+  const optionsInterfaceMatch = source.match(/export interface RunReconcileOptions \{([^}]*)\}/u);
+  assert.ok(optionsInterfaceMatch, "expected an exported RunReconcileOptions interface");
+  assert.doesNotMatch(optionsInterfaceMatch[1], /stateDirectory|manifest/u);
+
+  const runReconcileMatch = source.match(
+    /export async function runReconcile\(options: RunReconcileOptions\): Promise<ManagedRuntimeReconcileResult> \{([^}]*)\}/u,
+  );
+  assert.ok(runReconcileMatch, "expected an exported runReconcile function body");
+  assert.doesNotMatch(runReconcileMatch[1], /stateDirectory|options\.manifest/u);
+});
+
 // Review response (PR #646): the tests above only cover reconcile's usage
 // error and its very first manifest-read failure — never the production
 // composition (reconcileBuildGeneration/reconcileHealthCheck wired into
 // #628's reconcileManagedRuntime) actually converging anything.
-// `runReconcile` (exported from cli.ts for exactly this purpose) is
-// exercised directly here with an injected `runManagedGenerationBuild`
-// and `healthCheck`, plus a test-only `stateDirectory`/`manifest` DI
-// seam `runReconcileCommand` itself never uses (see the structural test
-// above) — proving the real adapter-shaping logic this PR adds, not
-// re-proving #628's own state machine, which managed-runtime.test.ts
-// already covers exhaustively. Candidate store paths are fake
-// `/nix/store/<identity>` strings that satisfy assertManagedStorePath's
-// shape check without existing on disk — the same convention
-// managed-runtime.test.ts's own fixture() helper already uses — so
-// `healthCheck` is injected here rather than left at its real default,
-// which would genuinely try to execute a nonexistent binary.
+//
+// This exercises that composition WITHOUT going through `runReconcile`
+// (which is canonical-only — no state/manifest override of any kind, per
+// review) — instead it calls #628's own `reconcileManagedRuntime` directly
+// with a temporary `stateDirectory`/`manifest` (exactly the pattern
+// managed-runtime.test.ts's own fixture() helper already uses) and passes
+// `reconcileAdapters(...)`'s return value as `dependencies`.
+// `reconcileAdapters` is the ONLY test-facing seam cli.ts exports for
+// reconcile, and it has no state/manifest parameter at all — it only
+// builds the buildGeneration/healthCheck adapter functions, with
+// `runManagedGenerationBuild`/`healthCheck` overridden here — so this
+// proves the real adapter-shaping logic this PR adds without any
+// production-exported function accepting authority-path overrides, and
+// without re-proving #628's own state machine, which
+// managed-runtime.test.ts already covers exhaustively. Candidate store
+// paths are fake `/nix/store/<identity>` strings that satisfy
+// assertManagedStorePath's shape check without existing on disk — the
+// same convention managed-runtime.test.ts's own fixture() helper already
+// uses — so `healthCheck` is overridden here rather than left at its real
+// default, which would genuinely try to execute a nonexistent binary.
 
 function nawabariManifest(version: string) {
   return {
@@ -184,7 +216,7 @@ function nawabariManifest(version: string) {
   };
 }
 
-test("runReconcile composes the real production adapters end to end: initialize, noop, update, and post-switch health failure -> rollback", async (t) => {
+test("reconcileAdapters composes the real production build/health logic with reconcileManagedRuntime end to end: initialize, noop, update, and post-switch health failure -> rollback", async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-reconcile-integration-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
 
@@ -218,24 +250,26 @@ test("runReconcile composes the real production adapters end to end: initialize,
   };
 
   const runFor = (manifestVersion: string) =>
-    runReconcile({
-      system: "x86_64-linux",
-      repoRoot: "/unused",
-      env: {},
+    reconcileManagedRuntime({
       stateDirectory: root,
       manifest: nawabariManifest(manifestVersion),
-      dependencies: {
-        runManagedGenerationBuild: build,
-        healthCheck: (candidate) => {
-          const healthy = candidate.storePath !== unhealthyStorePath;
-          return {
-            healthy,
-            generationIdentity: candidate.generationIdentity,
-            storePath: candidate.storePath,
-            ...(healthy ? {} : { reason: "fixture-forced unhealthy" }),
-          };
+      dependencies: reconcileAdapters({
+        system: "x86_64-linux",
+        repoRoot: "/unused",
+        env: {},
+        overrides: {
+          runManagedGenerationBuild: build,
+          healthCheck: (candidate) => {
+            const healthy = candidate.storePath !== unhealthyStorePath;
+            return {
+              healthy,
+              generationIdentity: candidate.generationIdentity,
+              storePath: candidate.storePath,
+              ...(healthy ? {} : { reason: "fixture-forced unhealthy" }),
+            };
+          },
         },
-      },
+      }),
     });
 
   // 1. Initialize: no prior state, first build succeeds and is healthy.
