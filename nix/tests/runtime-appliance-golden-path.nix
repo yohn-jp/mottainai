@@ -349,7 +349,7 @@ in
         reconcile_after_reboot = reconcile()
         assert reconcile_after_reboot["outcome"] == "noop"
         assert reconcile_after_reboot["active"]["generationIdentity"] == active_v2
-        assert control("grep -qx persistent-unmanaged-sentinel " + shlex.quote(persistent_sentinel))
+        assert control("grep -x persistent-unmanaged-sentinel " + shlex.quote(persistent_sentinel))
         persistent_evidence = "survived"
         ephemeral_exit = subprocess.run(
             ssh_command + ["test -f " + shlex.quote(ephemeral_sentinel)],
@@ -382,7 +382,7 @@ in
         assert rollback_health["reconciliation"] == "repairable"
         assert control("readlink -f /var/lib/mottainai-control/managed-runtime/current").strip() == store_v2
         assert guest(shlex.quote(store_v2) + "/bin/mottainai --version").strip() == "${mottainaiVersionV2}"
-        assert control("grep -qx persistent-unmanaged-sentinel " + shlex.quote(persistent_sentinel))
+        assert control("grep -x persistent-unmanaged-sentinel " + shlex.quote(persistent_sentinel))
         assert control("readlink -f /run/current-system").strip() == base_appliance_identity
 
     final_disk_sha256 = run_host(["sha256sum", canonical_disk]).split()[0]
