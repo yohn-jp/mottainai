@@ -145,10 +145,14 @@ in
         deadline = time.monotonic() + 180
         last_error = ""
         while time.monotonic() < deadline:
-            result = subprocess.run(
-                ssh_command + ["true"], check=False, capture_output=True,
-                text=True, timeout=6,
-            )
+            try:
+                result = subprocess.run(
+                    ssh_command + ["true"], check=False, capture_output=True,
+                    text=True, timeout=6,
+                )
+            except subprocess.TimeoutExpired as exc:
+                last_error = "ssh probe exceeded 6s: " + str(exc)
+                continue
             if result.returncode == 0:
                 return
             last_error = (result.stderr or result.stdout)[-500:]
