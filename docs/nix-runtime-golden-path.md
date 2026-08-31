@@ -113,26 +113,34 @@ passwordless sudo rule per `nix/modules/runtime.nix`). It must report
 not resolve from the base PATH. Their eventual managed-generation presence is
 verified only after #628 activation.
 
-## 6. Build and activate a managed generation (post-#628 path)
+## 6. Reconcile the canonical managed generation (post-#628 path)
 
 The base only provides the #626 build surface. Once the #624 manifest and #628
 activation path are available, the control identity's home
 (`/var/lib/mottainai-control`, mode `0700`, system/control-owned persistent
-state) is the location for bootstrap and activation evidence. A managed
-generation is built explicitly; it is never installed by a boot script:
+state) is the location for bootstrap and activation evidence. The supported
+guest-invokable operation is `reconcile`: it resolves the exact manifest
+sources, builds and verifies a generation, atomically selects it, and performs
+managed-runtime health. A managed generation is never installed by a boot
+script:
 
 ```sh
 ssh ... '
-  mottainai-bootstrap build /var/lib/mottainai-control/managed-packages/manifest.json \
-    --system x86_64-linux --json
-  mottainai-bootstrap verify --json
+  mottainai-bootstrap reconcile --system x86_64-linux --json
+  mottainai-bootstrap managed-status --json
+  mottainai-runtime-health
 '
 ```
 
-The #628 activation/reconcile operation then selects the exact verified
-generation and proves managed-runtime health. Only that later result may
-report `"readiness": "managed-runtime-ready"`; a bootstrap success alone is
-not managed-runtime readiness.
+`reconcile` and `managed-status` use the canonical control-state paths and do
+not accept a caller-selected state or manifest path. Only the completed
+reconcile result and the later health projection may report
+`"readiness": "managed-runtime-ready"`; bootstrap build evidence alone is not
+managed-runtime readiness. The automated provider-independent proof is the
+`nix#checks.x86_64-linux.runtime-appliance-golden-path` derivation, executed in
+CI alongside the existing Runtime VM contract test. It uses real Mottainai
+release tags, records bounded JSON evidence, and covers upgrade, reboot,
+rollback, and persistent-unmanaged versus ephemeral state semantics.
 
 ## 7. Verify state survives a VM restart (acceptance criterion 7)
 
@@ -158,6 +166,7 @@ NIX_DISK_IMAGE=/tmp/golden-path.qcow2 ./result-vm/bin/run-nixos-vm
 ssh ... '
   cat ~/reboot-state-marker.txt
   mottainai-bootstrap status --json
+  mottainai-bootstrap managed-status --json
   mottainai-runtime-health
 '
 ```
