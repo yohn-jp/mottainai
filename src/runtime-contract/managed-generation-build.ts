@@ -152,23 +152,12 @@ in
           "--impure",
           // This module's whole premise is a Runtime that may have no
           // network access (a fresh Appliance's only source of Nix inputs
-          // is what is already in its store — nix/flake.lock's pin plus
-          // whatever nixpkgs/etc. shipped with the base image). Without
-          // --offline, a flake input Nix cannot resolve from the local
-          // store purely by chance (e.g. a `getFlake` target whose git
-          // identity differs from what flake.lock last saw) silently blocks
-          // on a network fetch that can never succeed here instead of
-          // failing fast with a clear error. -vvv diagnosis (bbdfe1f)
-          // caught Nix computing (and preparing to write) a brand-new lock
-          // file for repoRoot instead of trusting flake.lock as committed
-          // -- resolving nixpkgs's branch reference to a concrete rev for
-          // that recomputation is exactly the kind of metadata-only lookup
-          // --offline does not reliably block, matching an intermittent
-          // hang observed even with --offline present. --no-update-lock-file
-          // (already used for this exact reason by the outer `nix build` in
-          // .github/workflows/ci.yml) makes Nix use the committed
-          // flake.lock verbatim and error immediately if that is not
-          // possible, rather than silently trying to recompute it.
+          // is what is already in its store). --offline refuses any fetch
+          // Nix cannot satisfy from the local store; --no-update-lock-file
+          // makes it use the committed flake.lock verbatim rather than
+          // silently trying to recompute one (matching the outer `nix
+          // build` in .github/workflows/ci.yml, which uses the same flag
+          // for the same reason).
           "--offline",
           "--no-update-lock-file",
           "--show-trace",
@@ -177,16 +166,24 @@ in
           "--expr",
           nixExpr,
         ],
-        // Every path this invocation needs is already absolute (repoRoot
-        // via toString above, mottainaiSourcePath via the /. + "<path>"
-        // conversion inlined into nixExpr) -- nix never needs a particular
-        // working directory to resolve them. A neutral cwd outside
-        // repoRoot is kept defensively (running from *inside* the exact
-        // repository this invocation also getFlake's by absolute path was
-        // one contributor to the wrong-store-path failures this comment's
-        // git history fixed), even though the real fix turned out to be
-        // dropping --arg/the function-parameter indirection above.
-        { cwd: os.tmpdir(), encoding: "utf8", env: options.env },
+        {
+          // Every path this invocation needs is already absolute (repoRoot
+          // via toString above, mottainaiSourcePath via the /. + "<path>"
+          // conversion inlined into nixExpr), so nix does not need any
+          // particular working directory to resolve them; use a neutral
+          // one rather than repoRoot itself.
+          cwd: os.tmpdir(),
+          encoding: "utf8",
+          env: options.env,
+          // This build must never prompt interactively (it has no
+          // controlling terminal to prompt on): execFileSync's default
+          // stdin is an open, never-closed pipe, so any child process (or
+          // grandchild -- nix/mottainai.nix's own pnpm/node-gyp build
+          // steps) that tries to read from stdin for any reason blocks
+          // forever instead of hitting EOF. Explicit "ignore" gives it an
+          // immediate EOF like /dev/null would.
+          stdio: ["ignore", "pipe", "pipe"],
+        },
       ) as string
     ).trim();
   } catch (error) {
