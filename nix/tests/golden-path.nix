@@ -444,14 +444,27 @@ let
         # with this diagnostic's own filtered output as the last thing the
         # builder printed — guaranteeing it lands inside that 25-line
         # window instead of getting buried.
+        # First pass (5e011b1/8ecc424) showed Nix computing a brand-new lock
+        # file for this flake instead of trusting the flake.lock already
+        # copied into it ("computing lock file node ''", "new lock file: {
+        # ... }") — nix's ~25-line CI display cut off before the "root"
+        # node's own recorded url/type ever came through. Extract exactly
+        # that block (the 16 lines starting at "computing lock file node
+        # ''", i.e. the empty-string root node name) plus the final error
+        # line, instead of a broad grep, so the one thing actually still
+        # missing fits within the visible window this time.
         diag_inner = (
             "nix eval --impure --offline -vvv --expr "
             + shlex.quote(
                 '(builtins.getFlake (toString "${repoRootForGuest}" + "?dir=nix")).lib ? mkManagedGeneration'
             )
             + " > /tmp/golden-path-diag.log 2>&1; "
-            + "echo '=== golden-path getFlake diagnostic (last matching lines) ==='; "
-            + "grep -niE 'flake|fetch|resolv|lock|copying|git|store|path' /tmp/golden-path-diag.log | tail -n 18; "
+            + "echo '=== root node lock computation ==='; "
+            + "grep -A 16 "
+            + shlex.quote("computing lock file node ''")
+            + " /tmp/golden-path-diag.log | head -n 16; "
+            + "echo '=== final error ==='; "
+            + "tail -n 4 /tmp/golden-path-diag.log; "
             + "exit 1"
         )
         succeed("su -l mottainai-control -c " + shlex.quote(diag_inner))
