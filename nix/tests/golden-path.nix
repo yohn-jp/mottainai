@@ -432,20 +432,29 @@ let
         # is thrown directly inside the getFlake builtin itself, with no
         # further Nix-expression-level stack beneath it. -vvv exposes the
         # fetcher's own internal resolution steps (registry lookups,
-        # canonicalization, what it decides to fetch and from where),
-        # captured to a file and grep-filtered for the relevant lines so a
-        # very verbose trace still fits a bounded read.
+        # canonicalization, what it decides to fetch and from where).
+        #
+        # nixosTest's own driver never streams output live to the CI log —
+        # on a build failure, Nix's error reporting only shows the LAST ~25
+        # lines of the whole builder's output, so a plain print() here was
+        # silently pushed out of that window by the real reconcile
+        # subtest's own output a few steps later (confirmed: it never
+        # appeared in a real CI failure). Force *this* command itself to
+        # fail (`exit 1`) so `succeed()` raises immediately, right here,
+        # with this diagnostic's own filtered output as the last thing the
+        # builder printed — guaranteeing it lands inside that 25-line
+        # window instead of getting buried.
         diag_inner = (
             "nix eval --impure --offline -vvv --expr "
             + shlex.quote(
                 '(builtins.getFlake (toString "${repoRootForGuest}" + "?dir=nix")).lib ? mkManagedGeneration'
             )
             + " > /tmp/golden-path-diag.log 2>&1; "
-            + "grep -niE 'flake|fetch|resolv|lock|copying|git|store|path' /tmp/golden-path-diag.log | head -c 6000"
+            + "echo '=== golden-path getFlake diagnostic (last matching lines) ==='; "
+            + "grep -niE 'flake|fetch|resolv|lock|copying|git|store|path' /tmp/golden-path-diag.log | tail -n 18; "
+            + "exit 1"
         )
-        diag_status, diag_output = execute("su -l mottainai-control -c " + shlex.quote(diag_inner))
-        print("=== diagnostic: getFlake verbose resolution trace (grep-filtered, exit=" + str(diag_status) + ") ===")
-        print(diag_output)
+        succeed("su -l mottainai-control -c " + shlex.quote(diag_inner))
 
     with subtest("provide the canonical managed manifest and reconcile: build + activate generation v1 (Mottainai + Nawabari)"):
         apply_manifest(
