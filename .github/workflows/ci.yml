@@ -346,6 +346,9 @@ jobs:
           nix build --no-update-lock-file --no-link .#runtime-vm
           nix build --no-update-lock-file --no-link .#runtime-image
 
+      - name: Verify managed generation build is independent of caller cwd (Issue #643 regression)
+        run: node --import tsx scripts/verify-managed-generation-cwd-independence.mjs x86_64-linux
+
       - name: Generate and validate relocatable Runtime image metadata
         working-directory: nix
         shell: bash
