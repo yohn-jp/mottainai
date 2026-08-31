@@ -18,6 +18,11 @@ cargo build --locked --release --manifest-path host-bootstrap/Cargo.toml
 ./host-bootstrap/target/release/mottainai-init --help
 ~~~
 
+The ordinary target above is a local development build only. The
+distributable `mottainai-init-linux-x86_64` is built and tested with the
+`x86_64-unknown-linux-musl` target; a glibc-linked `target/release` binary is
+not a portable release artifact.
+
 The default provider contract is explicit and immutable: Lima 2.2.0,
 Linux x86_64 archive identity, GitHub HTTPS release URL, and the official
 release SHA-256 `a0ea1ccf6b7335a900adb5f8d2b8384457965fecb1ba72f09b4e3e46d12f424a`.
