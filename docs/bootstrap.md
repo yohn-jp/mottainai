@@ -143,18 +143,18 @@ fsync — the destination is byte-for-byte unchanged on any partial failure.
 
 ## CLI
 
-`src/bootstrap/cli.ts` dispatches exactly three commands — `build`,
-`status`, `verify` — deliberately narrow, with no `init` alias (reserved,
-unused, for later end-to-end initialization/reconciliation work spanning
-#626/#628) and no task/session/manager/package-catalog UX. It does not
-import `src/cli.ts`, `src/index.ts`, or any manager/workflow/task-session
-module: that independence is what lets bootstrap work without importing the
-full Mottainai runtime as a hidden dependency.
+`src/bootstrap/cli.ts` dispatches four commands — `build`, `status`,
+`verify`, `reconcile` — deliberately narrow, with no task/session/manager/
+package-catalog UX. It does not import `src/cli.ts`, `src/index.ts`, or any
+manager/workflow/task-session module: that independence is what lets
+bootstrap work without importing the full Mottainai runtime as a hidden
+dependency.
 
 ```text
 mottainai-bootstrap build <manifest-path> --system <system> [--repo-root <path>] [--json]
 mottainai-bootstrap status [--json]
 mottainai-bootstrap verify [--json]
+mottainai-bootstrap reconcile --system <system> [--repo-root <path>] [--json]
 ```
 
 `status`/`verify` output is bounded and machine-readable:
@@ -173,6 +173,45 @@ mottainai-bootstrap verify [--json]
 parses and, if it names a generation store path, that the store path still
 resolves via `nix path-info` — it never re-fetches source or re-runs `nix
 build`.
+
+### `reconcile` (Issue #642)
+
+`reconcile` is the canonical guest-invokable path from a fresh appliance (or
+any subsequent desired-state change) to `MANAGED_READY`
+([`docs/runtime-lifecycle.md`](runtime-lifecycle.md)): it composes this
+component's build interface (`buildManagedGeneration`, resolving the
+manifest's exact requested Mottainai source through
+`source-resolution.ts` the same way `build` does) with Issue #628's
+already-implemented `reconcileManagedRuntime` state machine
+(`src/runtime-contract/managed-runtime.ts`) as that state machine's
+`buildGeneration` and `healthCheck` dependencies — no parallel build or
+activation logic is implemented in the CLI itself.
+
+`healthCheck` proves each package a candidate generation declares is
+genuinely executable at its exact resolved store path
+(`<storePath>/bin/<packageId> --version`, real and side-effect-free — the
+same minimal proof `nix/packages/nawabari.nix`'s own `installCheckPhase`
+already treats as sufficient) — never ambient `PATH`, never a stub result.
+
+Like `build`/`status`/`verify`, `reconcile` always targets the canonical
+managed-runtime control state
+(`/var/lib/mottainai-control/managed-runtime`, Issue #628's default when no
+override is supplied) — there is no `--state-directory`,
+`--state-file`, `--current-pointer`, or `--manifest-path` flag, and no
+`--mottainai-source` override: unlike `build`'s single-attempt, low-level
+build interface, `reconcile` is the canonical convergence path and always
+resolves the manifest's requested source for real.
+
+`reconcile` output is `reconcileManagedRuntime`'s own bounded
+`ManagedRuntimeReconcileResult`/`ManagedRuntimeStatusReport` shape
+(`src/runtime-contract/managed-runtime.ts`) — `outcome` is one of
+`initialized`, `noop`, `updated`, `removed`, `recovered`, or `rolled-back`.
+A failure exits non-zero with `{ code, message }`, where `code` is one of
+`ManagedRuntimeErrorCode`'s values (`src/runtime-contract/managed-runtime-state.ts`'s
+`MANAGED_RUNTIME_FAILURE_CODES`, plus `manifest_read_failure` and
+`recovery_required`) — a separate taxonomy from the `BootstrapErrorCode`
+table above, since `reconcile` composes #628's activation/rollback state
+machine rather than only #626's build pipeline.
 
 Two production entrypoints share the same dispatcher
 (`src/bootstrap/cli.ts`'s `runBootstrapCli`):
@@ -271,8 +310,11 @@ does not mean that a managed application generation has been activated.
 
 ## Constraints this component deliberately honors
 
-- Does not implement activation, switch, or rollback (#628 owns reconciling
-  a Runtime against a built generation).
+- Does not implement a second activation, switch, or rollback state
+  machine: `reconcile` (#642) composes #628's already-implemented
+  `reconcileManagedRuntime` as its `buildGeneration`/`healthCheck`
+  dependencies rather than reimplementing any part of that transaction
+  logic here.
 - Does not fall back to `PATH`, npm global install, or any unmanaged
   package source on any failure.
 - Does not mutate user/workspace state; all persisted evidence lives under
@@ -321,7 +363,11 @@ require no Nix toolchain except where explicitly noted. They prove:
   later failed attempt preserves previously recorded successful-build
   evidence unchanged (`build.test.ts`)
 - bootstrap performs no user/workspace mutation (`build.test.ts`)
-- the production CLI exposes no state-path override surface (`cli.test.ts`)
+- the production CLI exposes no state-path override surface for `build` or
+  `reconcile` (`cli.test.ts`)
+- `reconcile` fails deterministically with `manifest_read_failure` against a
+  fresh control-state root, and rejects a missing `--system` before invoking
+  `reconcileManagedRuntime` (`cli.test.ts`)
 - no code path in `source-resolution.ts`/`build.ts` invokes `npm`, `npx`, or
   a global install (`source-resolution.test.ts`, `build.test.ts`)
 - `nix/bootstrap.nix`'s pinned `zod`/`@types/node` versions and integrity

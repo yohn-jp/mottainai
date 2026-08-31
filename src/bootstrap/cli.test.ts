@@ -104,3 +104,40 @@ test("build against a nonexistent manifest path fails with invalid_manifest, pro
   assert.equal(parsed.code, "invalid_manifest");
   assert.match(parsed.message, /manifest file cannot be read/u);
 });
+
+// Issue #642: `reconcile` composes #626's build interface with #628's
+// already-implemented reconcileManagedRuntime state machine into one
+// guest-invokable command. These tests exercise the real CLI boundary
+// against the real canonical managed-runtime state root
+// (/var/lib/mottainai-control/managed-runtime), which does not exist in
+// this sandbox — proving reconcile fails deterministically with
+// manifest_read_failure rather than fabricating a manifest or falling back
+// to any other source, without requiring a Nix toolchain or the #630 VM
+// harness.
+
+test("reconcile --json without --system is a usage error, never reaching reconcileManagedRuntime", async () => {
+  const exitCode = await runBootstrapCli(["reconcile", "--json"]);
+  assert.equal(exitCode, 1);
+});
+
+test("reconcile --json against a fresh control-state root fails deterministically with manifest_read_failure", async () => {
+  const capture = captureStdout();
+  const exitCode = await runBootstrapCli(["reconcile", "--system", "x86_64-linux", "--json"]);
+  const output = capture.restore();
+  assert.equal(exitCode, 1);
+  const parsed = JSON.parse(output);
+  assert.equal(parsed.code, "manifest_read_failure");
+});
+
+test("reconcile has no state-directory/state-file/current-pointer/manifest-path override flag: no code path reads one from argv", async () => {
+  // Structural, matching the existing --state-file assertion above:
+  // reconcileManagedRuntime accepts stateDirectory/stateFilePath/
+  // currentPointerPath/manifestPath overrides, and this asserts cli.ts
+  // never reads any of them from argv, so `reconcile` always targets the
+  // canonical managed-runtime control state Issue #628 defaults to.
+  const source = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "cli.ts"), "utf8");
+  for (const flag of ["state-directory", "state-file", "current-pointer", "manifest-path", "mottainai-source"]) {
+    assert.doesNotMatch(source, new RegExp(`requireFlagValue\\([^)]*["'\`]${flag}["'\`]`, "u"));
+    assert.doesNotMatch(source, new RegExp(`hasFlag\\([^)]*["'\`]${flag}["'\`]`, "u"));
+  }
+});

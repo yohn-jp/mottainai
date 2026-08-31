@@ -1,26 +1,42 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { DIRECT_BOUNDARIES } from "../boundary.js";
+import { buildManagedGeneration } from "../runtime-contract/managed-generation-build.js";
+import { ManagedRuntimeError, reconcileManagedRuntime } from "../runtime-contract/managed-runtime.js";
+import type {
+  ManagedRuntimeBuiltGeneration,
+  ManagedRuntimeCandidate,
+  ManagedRuntimeGenerationRecord,
+  ManagedRuntimeHealthResult,
+} from "../runtime-contract/managed-runtime.js";
+import type { ManagedPackageManifest } from "../runtime-contract/managed-package-manifest.js";
 import { defaultBootstrapDependencies, readBootstrapStatus, runBootstrapBuild, verifyBootstrap } from "./build.js";
 import { BootstrapError } from "./errors.js";
 import { CANONICAL_BOOTSTRAP_STATE_FILE_PATH } from "./paths.js";
+import { resolveMottainaiSource } from "./source-resolution.js";
 import { UnreadableManifest } from "./unreadable-manifest.js";
 
 /**
- * Narrow bootstrap dispatcher (Issue #626): `build` / `status` / `verify`
- * only — no `init` alias, no task/session/manager/package-catalog UX.
- * Deliberately does NOT import src/cli.ts, src/index.ts, or any
- * manager/workflow/task-session module: that independence is what lets
- * this CLI work without full `mottainai` installed. Local flag-parsing
- * helpers are re-implemented here rather than imported from src/cli.ts for
- * the same reason.
+ * Narrow bootstrap dispatcher (Issue #626, extended by Issue #642's
+ * reconcile composition): `build` / `status` / `verify` / `reconcile` —
+ * still no task/session/manager/package-catalog UX. Deliberately does NOT
+ * import src/cli.ts, src/index.ts, or any manager/workflow/task-session
+ * module: that independence is what lets this CLI work without full
+ * `mottainai` installed. Local flag-parsing helpers are re-implemented here
+ * rather than imported from src/cli.ts for the same reason.
  *
  * The production state path is always CANONICAL_BOOTSTRAP_STATE_FILE_PATH
  * — there is no `--state-file` flag and no environment-variable override.
  * A single invocation must never be able to redirect governed bootstrap
- * state into an arbitrary workspace path.
+ * state into an arbitrary workspace path. `reconcile` is the same
+ * boundary: it never overrides `reconcileManagedRuntime`'s state
+ * directory/file/pointer/manifest paths, so it always targets the
+ * canonical `/var/lib/mottainai-control/managed-runtime` state Issue #628
+ * defaults to.
  */
 
 function hasFlag(argv: readonly string[], name: string): boolean {
@@ -153,6 +169,133 @@ async function runVerifyCommand(argv: readonly string[]): Promise<number> {
   }
 }
 
+/**
+ * Real, side-effect-free proof that a managed generation's binary is
+ * genuinely executable at its exact resolved store path — `--version` is
+ * the same minimal "does this exact package actually run" probe
+ * nix/packages/nawabari.nix's own installCheckPhase already treats as
+ * sufficient (`test "$($out/bin/nawabari --version)" = "${version}"`), not
+ * a deeper application-level check. This does not compare against the
+ * currently desired manifest version: during rollback recovery this same
+ * function verifies the *previous* known-good generation, whose version
+ * may legitimately differ from the (now-reverted) desired manifest.
+ */
+function verifyManagedBinaryExecutes(storePath: string, packageId: string): string | undefined {
+  const binaryPath = path.join(storePath, "bin", packageId);
+  try {
+    const output = execFileSync(binaryPath, ["--version"], { encoding: "utf8", timeout: 30_000 }).trim();
+    return output.length === 0 ? `${packageId} at ${binaryPath} reported an empty --version output` : undefined;
+  } catch (error) {
+    return `${packageId} at ${binaryPath} failed to execute: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+/** #628's healthCheck adapter: resolves every package the candidate declares through its own store path, never ambient PATH. */
+function reconcileHealthCheck(
+  generation: ManagedRuntimeCandidate | ManagedRuntimeGenerationRecord,
+): ManagedRuntimeHealthResult {
+  for (const packageId of generation.packageIds ?? []) {
+    const failure = verifyManagedBinaryExecutes(generation.storePath, packageId);
+    if (failure !== undefined) {
+      return {
+        healthy: false,
+        generationIdentity: generation.generationIdentity,
+        storePath: generation.storePath,
+        reason: failure,
+      };
+    }
+  }
+  return { healthy: true, generationIdentity: generation.generationIdentity, storePath: generation.storePath };
+}
+
+/**
+ * #628's buildGeneration adapter: resolves the manifest's exact requested
+ * Mottainai source the same way `bootstrap build` does
+ * (src/bootstrap/build.ts's runBootstrapBuild) — real GitHub-tag source
+ * resolution via source-resolution.ts, never a caller-supplied override —
+ * then delegates to #625/#626's build interface.
+ */
+async function reconcileBuildGeneration(
+  manifest: ManagedPackageManifest,
+  options: { readonly system: string; readonly repoRoot: string; readonly env: NodeJS.ProcessEnv },
+): Promise<ManagedRuntimeBuiltGeneration> {
+  const mottainaiEntry = manifest.packages.find((entry) => entry.packageId === "mottainai");
+  let mottainaiSourcePath = options.repoRoot;
+  if (mottainaiEntry !== undefined) {
+    const destinationDirectory = path.join(os.tmpdir(), `mottainai-reconcile-source-${process.pid}`);
+    const resolved = await resolveMottainaiSource({
+      requestedVersion: mottainaiEntry.version,
+      expectedSourceSha256: mottainaiEntry.source.sourceSha256,
+      destinationDirectory,
+    });
+    mottainaiSourcePath = resolved.sourcePath;
+  }
+  const built = await buildManagedGeneration({
+    repoRoot: options.repoRoot,
+    manifest,
+    system: options.system,
+    mottainaiSourcePath,
+    env: options.env,
+  });
+  return {
+    generationIdentity: built.generationIdentity,
+    storePath: built.metadata.nixOutput.storePath,
+    metadata: built.metadata,
+    compatibilityContractVersion: built.metadata.compatibilityContractVersion,
+  };
+}
+
+/**
+ * Composes #626's build interface with #628's already-implemented
+ * `reconcileManagedRuntime` state machine (src/runtime-contract/managed-runtime.ts)
+ * into the one guest-invokable command that converges the managed Runtime
+ * toward its canonical desired manifest — the orchestration
+ * docs/runtime-lifecycle.md's "Command responsibility" section anticipates
+ * ("a future full Mottainai command may name that orchestration init or
+ * reconcile"). This performs real activation: build/verify, atomic switch,
+ * managed-runtime health, and rollback on a post-switch health failure —
+ * never a partial/simulated result. There is no `--mottainai-source`
+ * override: unlike `build`, which is a low-level single-attempt build
+ * interface, `reconcile` is the canonical convergence path and always
+ * resolves the manifest's requested source for real, the same as
+ * `mottainai-bootstrap build`'s own resolveSource dependency.
+ */
+async function runReconcileCommand(argv: readonly string[]): Promise<number> {
+  const system = requireFlagValue(argv, "system");
+  const repoRoot = requireFlagValue(argv, "repo-root") ?? repoRootForNixInvocation();
+  const json = hasFlag(argv, "json");
+
+  if (system === undefined) {
+    process.stderr.write("usage: bootstrap reconcile --system <system> [--repo-root <path>] [--json]\n");
+    return 1;
+  }
+
+  // CI=true: nix/mottainai.nix's build reads the repository's own
+  // node_modules via `source = ../.`; a locally pnpm-installed
+  // node_modules otherwise makes pnpm prompt interactively to remove it.
+  const env = { ...process.env, CI: "true" };
+
+  try {
+    const result = await reconcileManagedRuntime({
+      dependencies: {
+        buildGeneration: (manifest) => reconcileBuildGeneration(manifest, { system, repoRoot, env }),
+        healthCheck: (generation) => reconcileHealthCheck(generation),
+      },
+    });
+    if (json) printJson(result);
+    else process.stdout.write(`reconcile ${result.outcome}: active=${result.active?.generationIdentity ?? "<none>"}\n`);
+    return 0;
+  } catch (error) {
+    const managedError =
+      error instanceof ManagedRuntimeError
+        ? error
+        : new ManagedRuntimeError("build_failure", error instanceof Error ? error.message : String(error));
+    if (json) printJson({ code: managedError.code, message: managedError.message });
+    else process.stderr.write(`${managedError.code}: ${managedError.message}\n`);
+    return 1;
+  }
+}
+
 export async function runBootstrapCli(argv: readonly string[]): Promise<number> {
   const [command, ...rest] = argv;
   switch (command) {
@@ -162,8 +305,10 @@ export async function runBootstrapCli(argv: readonly string[]): Promise<number> 
       return runStatusCommand(rest);
     case "verify":
       return runVerifyCommand(rest);
+    case "reconcile":
+      return runReconcileCommand(rest);
     default:
-      process.stderr.write(`unknown bootstrap command: ${command ?? "<none>"} (expected build, status, or verify)\n`);
+      process.stderr.write(`unknown bootstrap command: ${command ?? "<none>"} (expected build, status, verify, or reconcile)\n`);
       return 1;
   }
 }
