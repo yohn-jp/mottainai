@@ -194,6 +194,12 @@
             runtimeModule = self.nixosModules.runtime;
             runtimeOverlay = runtimeOverlay;
           };
+          runtime-appliance-golden-path = import ./tests/runtime-appliance-golden-path.nix {
+            inherit pkgs;
+            inherit (nixpkgs) lib;
+            runtimeModule = self.nixosModules.runtime;
+            runtimeOverlay = runtimeOverlay;
+          };
           managed-generation = import ./tests/managed-generation.nix {
             inherit pkgs;
             inherit (nixpkgs) lib;

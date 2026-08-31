@@ -439,6 +439,9 @@ jobs:
             const manifest = readRuntimeApplianceManifest(process.env.MANIFEST);
             verifyRuntimeApplianceManifest(manifest, process.env.DISK);
           '
+      - name: Execute the Runtime Appliance golden path (Issue #630)
+        working-directory: nix
+        run: nix build --no-update-lock-file --no-link .#checks.x86_64-linux.runtime-appliance-golden-path
 
   runtime-appliance-artifact:
     name: Publish canonical Runtime Appliance artifact
