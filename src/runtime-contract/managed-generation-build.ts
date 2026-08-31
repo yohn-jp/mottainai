@@ -124,14 +124,20 @@ export async function buildManagedGeneration(options: BuildManagedGenerationOpti
 
   // mottainaiSource must arrive as a Nix path, not a Nix string: assigning a
   // JSON-string-embedded path directly to a derivation's `src` skips Nix's
-  // content-addressing. `--arg` (a real Nix value) keeps the type correct;
-  // `/. + "<path>"` inside the expression converts the absolute path string
-  // --arg hands over into a Nix path value.
+  // content-addressing. `/. + "<path>"` converts the absolute path string
+  // into a Nix path value -- inlined directly into the expression (rather
+  // than supplied via a `{ mottainaiSource }: ...` function parameter and
+  // `--arg`) because `nix build --expr <function> --arg name value` was
+  // observed to make `builtins.getFlake` inside that function resolve the
+  // wrong, truncated store path for a repoRoot that a plain `nix eval
+  // --expr` on the exact same getFlake call resolved correctly. A
+  // self-contained expression with no free variables sidesteps whatever in
+  // that installable/argument-application machinery causes it.
   const nixExpr = `
-{ mottainaiSource }:
 let
   flake = builtins.getFlake (toString ${JSON.stringify(options.repoRoot)} + "?dir=nix");
   manifest = builtins.fromJSON ${JSON.stringify(manifestJson)};
+  mottainaiSource = /. + ${JSON.stringify(options.mottainaiSourcePath)};
 in
 (flake.lib.mkManagedGeneration { system = ${JSON.stringify(options.system)}; inherit manifest mottainaiSource; }).metadataFile
 `;
@@ -159,21 +165,16 @@ in
           "--print-out-paths",
           "--expr",
           nixExpr,
-          "--arg",
-          "mottainaiSource",
-          `/. + ${JSON.stringify(options.mottainaiSourcePath)}`,
         ],
         // Every path this invocation needs is already absolute (repoRoot
         // via toString above, mottainaiSourcePath via the /. + "<path>"
-        // --arg conversion) -- nix never needs a particular working
-        // directory to resolve them. Running from inside repoRoot's own
-        // nix/ directory turned out not to be neutral: with repoRoot
-        // itself a git working tree (golden-path.nix's repoRootForGuest,
-        // and in production the packaged nix-projection), invoking nix
-        // from *inside* the exact repository it also getFlake's by
-        // absolute path produced a self-reference collision (getFlake
-        // resolving to some other, wrong, truncated store path instead of
-        // the one actually passed) that a neutral cwd does not trigger.
+        // conversion inlined into nixExpr) -- nix never needs a particular
+        // working directory to resolve them. A neutral cwd outside
+        // repoRoot is kept defensively (running from *inside* the exact
+        // repository this invocation also getFlake's by absolute path was
+        // one contributor to the wrong-store-path failures this comment's
+        // git history fixed), even though the real fix turned out to be
+        // dropping --arg/the function-parameter indirection above.
         { cwd: os.tmpdir(), encoding: "utf8", env: options.env },
       ) as string
     ).trim();
