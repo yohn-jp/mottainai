@@ -60,7 +60,7 @@ jobs:
         run: |
           cargo build --locked --target x86_64-unknown-linux-musl --release
           cp target/x86_64-unknown-linux-musl/release/mottainai-init mottainai-init-linux-x86_64
-          file mottainai-init-linux-x86_64 | grep -E 'statically linked|musl'
+          file mottainai-init-linux-x86_64 | grep -E 'static(-pie)? linked|musl'
           if readelf -d mottainai-init-linux-x86_64 | grep -q NEEDED; then
             echo 'portable artifact unexpectedly has dynamic dependencies' >&2
             exit 1
