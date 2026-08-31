@@ -399,14 +399,56 @@ jobs:
         working-directory: nix
         run: nix build --no-update-lock-file --no-link .#checks.x86_64-linux.runtime-vm
 
+      # Pull requests validate the exact publishable appliance on this existing
+      # Nix runner/store, but do not persist the generated files.
+      - name: Build the canonical, self-bootable Runtime Appliance disk for PR validation
+        if: github.event_name == 'pull_request'
+        working-directory: nix
+        run: nix build --no-update-lock-file --no-link .#runtime-appliance-image
+
+      - name: Generate and verify the bounded Runtime Appliance manifest for PR validation
+        if: github.event_name == 'pull_request'
+        working-directory: nix
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_output="$(nix build --no-update-lock-file --no-link --print-out-paths .#runtime-appliance-image)"
+          mottainai_version="$(nix eval --no-update-lock-file --raw .#packages.x86_64-linux.mottainai.version)"
+          nawabari_version="$(nix eval --no-update-lock-file --raw .#packages.x86_64-linux.nawabari.version)"
+          node ../scripts/build-runtime-appliance-manifest.mjs \
+            --architecture x86_64-linux \
+            --image-output "$image_output" \
+            --source-revision "${{ github.sha }}" \
+            --mottainai-version "$mottainai_version" \
+            --nawabari-version "$nawabari_version" \
+            --output "$RUNNER_TEMP/runtime-appliance"
+          manifest="$RUNNER_TEMP/runtime-appliance/x86_64-linux/runtime-appliance-manifest.json"
+          disk="$RUNNER_TEMP/runtime-appliance/x86_64-linux/mottainai-runtime-appliance.raw"
+          test -s "$manifest"
+          jq -e '
+            .contractId == "mottainai.linux-runtime-appliance.v1" and
+            .schemaVersion == 1 and
+            .architecture == "x86_64-linux" and
+            (.sourceRevision | test("^[0-9a-f]{40}$")) and
+            (.nixSystemClosure | startswith("/nix/store/")) and
+            .image.format == "raw" and
+            (.image.sha256 | test("^[0-9a-f]{64}$"))
+          ' "$manifest"
+          MANIFEST="$manifest" DISK="$disk" node --import tsx --input-type=module -e '
+            import { readRuntimeApplianceManifest, verifyRuntimeApplianceManifest } from "../src/runtime-contract/appliance-manifest.ts";
+            const manifest = readRuntimeApplianceManifest(process.env.MANIFEST);
+            verifyRuntimeApplianceManifest(manifest, process.env.DISK);
+          '
+
   runtime-appliance-artifact:
     name: Publish canonical Runtime Appliance artifact
     needs: [runtime-contract-changes, runtime-contract]
-    # Fails closed behind the existing #259/#568 Nix/Runtime contract checks
-    # (Issue #601 acceptance criterion 3): a canonical identity/behavior
-    # regression there must block artifact publication, not merely be
-    # reported alongside it.
+    # Persist only the validated artifact from the trusted canonical main push.
+    # Pull requests perform the same appliance proof in runtime-contract above;
+    # this publication job is intentionally skipped for pull_request events.
     if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
       needs.runtime-contract-changes.outputs.runtime == 'true' &&
       needs.runtime-contract.result == 'success'
     runs-on: ubuntu-latest
