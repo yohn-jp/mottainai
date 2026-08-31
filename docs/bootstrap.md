@@ -143,18 +143,19 @@ fsync — the destination is byte-for-byte unchanged on any partial failure.
 
 ## CLI
 
-`src/bootstrap/cli.ts` dispatches four commands — `build`, `status`,
-`verify`, `reconcile` — deliberately narrow, with no task/session/manager/
-package-catalog UX. It does not import `src/cli.ts`, `src/index.ts`, or any
-manager/workflow/task-session module: that independence is what lets
-bootstrap work without importing the full Mottainai runtime as a hidden
-dependency.
+`src/bootstrap/cli.ts` dispatches five commands — `build`, `status`,
+`verify`, `reconcile`, `managed-status` — deliberately narrow, with no
+task/session/manager/package-catalog UX. It does not import `src/cli.ts`,
+`src/index.ts`, or any manager/workflow/task-session module: that
+independence is what lets bootstrap work without importing the full
+Mottainai runtime as a hidden dependency.
 
 ```text
 mottainai-bootstrap build <manifest-path> --system <system> [--repo-root <path>] [--json]
 mottainai-bootstrap status [--json]
 mottainai-bootstrap verify [--json]
 mottainai-bootstrap reconcile --system <system> [--repo-root <path>] [--json]
+mottainai-bootstrap managed-status [--json]
 ```
 
 `status`/`verify` output is bounded and machine-readable:
@@ -223,6 +224,40 @@ A failure exits non-zero with `{ code, message }`, where `code` is one of
 `recovery_required`) — a separate taxonomy from the `BootstrapErrorCode`
 table above, since `reconcile` composes #628's activation/rollback state
 machine rather than only #626's build pipeline.
+
+### `managed-status` (Issue #644)
+
+`managed-status` is the read-only counterpart to `reconcile`: it reports
+#628's already-persisted managed-runtime state through the exact same
+canonical `readManagedRuntimeStatus`
+(`src/runtime-contract/managed-runtime.ts`, real `ManagedRuntimeStateSchema`
+`.strict()` zod validation) `reconcile` uses internally — never a second,
+hand-rolled re-check of a few fields — and never reconciles, builds,
+switches, or rolls back anything. Like `build`/`status`/`verify`/`reconcile`,
+it always targets the canonical managed-runtime control state; there is no
+state-path override flag.
+
+It always exits `0` — a report of corrupt/inconsistent state is itself a
+complete, successful observation for an automated consumer, never a process
+failure — and prints exactly one of three bounded shapes:
+
+```jsonc
+// no managed-runtime state exists yet (a fresh, bootstrap-only appliance)
+{ "valid": true, "present": false }
+
+// canonical state parsed and validated
+{ "valid": true, "present": true, "activationPhase": "idle", "activeGenerationIdentity": "...", "state": { /* ManagedRuntimeState */ }, /* ... */ }
+
+// persisted state failed canonical validation
+{ "valid": false, "code": "state_corrupt", "message": "..." }
+```
+
+`nix/modules/runtime.nix`'s `mottainai-runtime-health` service pipes
+`managed-status --json`'s output into `nix/managed-runtime-health.nix`'s
+pure projection to compute the `mottainai.linux-runtime.v1` health
+result's `readiness`/`managedRuntimeReady`/`reconciliation` fields — see
+[`docs/linux-runtime-contract.md`](linux-runtime-contract.md)'s
+"Managed-runtime readiness projection" section for the exact rules.
 
 Two production entrypoints share the same dispatcher
 (`src/bootstrap/cli.ts`'s `runBootstrapCli`):
@@ -374,8 +409,8 @@ require no Nix toolchain except where explicitly noted. They prove:
   later failed attempt preserves previously recorded successful-build
   evidence unchanged (`build.test.ts`)
 - bootstrap performs no user/workspace mutation (`build.test.ts`)
-- the production CLI exposes no state-path override surface for `build` or
-  `reconcile` (`cli.test.ts`)
+- the production CLI exposes no state-path override surface for `build`,
+  `reconcile`, or `managed-status` (`cli.test.ts`)
 - `reconcile` fails deterministically with `manifest_read_failure` against a
   fresh control-state root, and rejects a missing `--system` before invoking
   `reconcileManagedRuntime` (`cli.test.ts`)
@@ -395,6 +430,13 @@ require no Nix toolchain except where explicitly noted. They prove:
   real fixture binary and fails closed on a real execution failure, and
   fails closed (rather than reporting vacuous health) when a candidate
   declares no package identities (`cli.test.ts`)
+- `managed-status` reports `valid:true, present:false` against a fresh
+  control-state root, and `valid:false` with a bounded `code`/`message`
+  against both malformed JSON and a schema-invalid-but-field-complete
+  state (every field present and well-typed except one `.strict()`-rejected
+  unknown key) — always exiting `0` either way (`cli.test.ts`); the same
+  schema-invalid-but-field-complete case is proven directly against
+  `readManagedRuntimeStatus` in `managed-runtime.test.ts`
 - no code path in `source-resolution.ts`/`build.ts` invokes `npm`, `npx`, or
   a global install (`source-resolution.test.ts`, `build.test.ts`)
 - `nix/bootstrap.nix`'s pinned `zod`/`@types/node` versions and integrity

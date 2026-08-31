@@ -538,3 +538,37 @@ test("status exposes bounded desired, active, previous, and observed identities"
     value.cleanup();
   }
 });
+
+// Issue #644 review response: readManagedRuntimeStatus (and, through it,
+// the guest-invokable `mottainai-bootstrap managed-status` — see
+// src/bootstrap/cli.test.ts) is the canonical validation boundary the
+// managed-runtime health projection depends on. A schema-invalid-but-
+// field-complete record — every field present and well-typed except one
+// unrecognized top-level key ManagedRuntimeStateSchema's `.strict()`
+// rejects — must fail closed rather than being silently accepted because
+// the handful of fields a caller happens to look at are individually
+// fine.
+test("status fails closed on a schema-invalid-but-field-complete state (unrecognized top-level key)", async () => {
+  const value = fixture();
+  try {
+    const stateFile = value.paths();
+    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+    fs.writeFileSync(
+      stateFile,
+      JSON.stringify({
+        contractId: "mottainai.managed-runtime-state.v1",
+        schemaVersion: 1,
+        desiredManifestSemanticIdentity: "a".repeat(64),
+        activation: { phase: "idle" },
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        unexpectedExtraField: true,
+      }),
+    );
+    assert.throws(
+      () => readManagedRuntimeStatus({ stateDirectory: value.root }),
+      (error: unknown) => error instanceof ManagedRuntimeError && error.code === "state_corrupt",
+    );
+  } finally {
+    value.cleanup();
+  }
+});

@@ -1,102 +1,66 @@
 { pkgs, lib, managedRuntimeReadinessScript }:
 
-# Issue #644: real-build proof for nix/managed-runtime-health.nix's
-# read-only projection of #628's managed-runtime/state.json + current
-# pointer into readiness/managedRuntimeReady/reconciliation. Runs as
-# `nix build .#checks.<system>.managed-runtime-health` — a plain
-# `runCommand` executing the packaged script against fixture state
-# directories, no NixOS module evaluation and no KVM/nixosTest
-# infrastructure required, mirroring nix/tests/bootstrap.nix's style of
-# proving a real built binary's behavior rather than only its Nix
-# expression shape.
+# Issue #644 (review response): real-build proof for
+# nix/managed-runtime-health.nix's pure stdin -> stdout projection of
+# `mottainai-bootstrap managed-status --json`'s bounded output into
+# readiness/managedRuntimeReady/reconciliation. Runs as
+# `nix build .#checks.<system>.managed-runtime-health` in CI's
+# runtime-contract job (see .github/workflows/ci.yml's explicit
+# `nix build ... .#checks.x86_64-linux.managed-runtime-health` step --
+# `nix flake check --no-build` alone does not execute a check's build,
+# only evaluate it).
 #
-# Covers the four cases Issue #644's acceptance criteria name: a fresh
-# bootstrap-only appliance (no state.json at all), a healthy active managed
-# generation whose current pointer matches, a healthy active generation
-# whose desired identity has diverged from the currently persisted desired
-# manifest (the shape left behind by a rollback — docs/runtime-state.md:
-# reconcile's own top-level desiredManifestSemanticIdentity moves to the
-# attempted candidate even when that candidate never became active), and
-# invalid/inconsistent state (malformed JSON, an in-flight activation
-# transaction, and a current pointer that disagrees with the persisted
-# active record) — each must fail closed to the same bounded
-# non-managed-ready result a fresh appliance reports.
+# This feeds literal `managed-status`-shaped JSON directly on stdin --
+# no bootstrap package build, no managed-runtime state fixture
+# directories, no filesystem/sandbox access at all, since the script
+# under test performs none either. Real schema validation itself (the
+# thing a caller actually depends on for "is this state canonically
+# valid") is proven separately and directly against
+# readManagedRuntimeStatus/ManagedRuntimeStateSchema in
+# src/runtime-contract/managed-runtime.test.ts and
+# src/bootstrap/cli.test.ts (managed-status's own schema-invalid-but-
+# field-complete coverage) -- this check only proves the readiness
+# projection RULES given an already-validated (or already-rejected)
+# status report, matching the division of responsibility
+# docs/linux-runtime-contract.md's "Managed-runtime readiness projection"
+# section documents.
 
 let
-  healthyRecord = {
-    generationIdentity = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-    storePath = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-mottainai-managed-generation";
-    desiredManifestSemanticIdentity = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-    compatibilityContractVersion = 1;
-    health = {
-      state = "healthy";
-      checkedAt = "2026-01-01T00:00:00.000Z";
-    };
-  };
-
-  baseState = {
-    contractId = "mottainai.managed-runtime-state.v1";
-    schemaVersion = 1;
-    desiredManifestSemanticIdentity = healthyRecord.desiredManifestSemanticIdentity;
-    active = healthyRecord;
-    activation = {
-      phase = "idle";
-    };
-    updatedAt = "2026-01-01T00:00:00.000Z";
-  };
-
-  # A rollback-shaped divergence: `active` is still the old, healthy,
-  # known-good generation, but the top-level desiredManifestSemanticIdentity
-  # has already moved to a newer (failed) candidate — exactly the field
-  # reconcileManagedRuntime's stateWithFailure leaves behind
-  # (src/runtime-contract/managed-runtime.ts), never rewritten back to
-  # match `active` merely because a health check observes it.
-  divergentState = baseState // {
-    desiredManifestSemanticIdentity = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
-  };
-
-  inFlightState = baseState // {
-    activation = {
-      phase = "prepared";
-      candidate = {
-        generationIdentity = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
-        storePath = "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-mottainai-managed-generation";
-        desiredManifestSemanticIdentity = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
-        compatibilityContractVersion = 1;
-      };
-    };
-  };
-
-  writeFixture =
-    name:
-    { state ? null, currentTarget ? null }:
+  run =
+    statusJson:
     ''
-      mkdir -p ${name}
-      ${lib.optionalString (state != null) ''
-        cat > ${name}/state.json <<'STATE_JSON'
-        ${builtins.toJSON state}
-        STATE_JSON
-      ''}
-      ${lib.optionalString (currentTarget != null) ''
-        ln -s ${lib.escapeShellArg currentTarget} ${name}/current
-      ''}
+      result="$(printf '%s' ${lib.escapeShellArg (builtins.toJSON statusJson)} | mottainai-managed-runtime-readiness)"
     '';
 
   assertResult =
-    name:
+    label: statusJson:
     {
       expectedReadiness,
       expectedManagedRuntimeReady,
       expectedReconciliation,
     }:
     ''
-      result="$(mottainai-managed-runtime-readiness ${name})"
+      ${run statusJson}
       expected='{"readiness":"${expectedReadiness}","managedRuntimeReady":${expectedManagedRuntimeReady},"reconciliation":"${expectedReconciliation}"}'
       if [ "$result" != "$expected" ]; then
-        echo "FAIL (${name}): expected $expected, got $result" >&2
+        echo "FAIL (${label}): expected $expected, got $result" >&2
         exit 1
       fi
     '';
+
+  healthyStatus = extra: {
+    valid = true;
+    present = true;
+    activationPhase = "idle";
+    activeGenerationIdentity = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    activeStorePath = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-mottainai-managed-generation";
+    observedGenerationIdentity = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    observedStorePath = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-mottainai-managed-generation";
+    state = {
+      desiredManifestSemanticIdentity = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+      active.desiredManifestSemanticIdentity = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    };
+  } // extra;
 in
 pkgs.runCommand "mottainai-managed-runtime-health-smoke"
   {
@@ -105,71 +69,83 @@ pkgs.runCommand "mottainai-managed-runtime-health-smoke"
   ''
     set -euo pipefail
 
-    # 1. Fresh bootstrap-only appliance: no managed-runtime directory at all.
-    mkdir -p fresh
-    ${assertResult "fresh" {
+    # 1. Fresh bootstrap-only appliance: managed-status reports valid,
+    # present:false (no managed-runtime state exists yet).
+    ${assertResult "fresh" { valid = true; present = false; } {
       expectedReadiness = "bootstrap-ready";
       expectedManagedRuntimeReady = "false";
       expectedReconciliation = "current";
     }}
 
-    # 2. Healthy active generation, idle transaction, current pointer
-    # matches the active store path, desired identity matches active's.
-    ${writeFixture "healthy" { state = baseState; currentTarget = healthyRecord.storePath; }}
-    ${assertResult "healthy" {
+    # 2. Healthy active generation, idle transaction, observed pointer
+    # matches the active store path and identity, desired identity
+    # matches active's.
+    ${assertResult "healthy" (healthyStatus { }) {
       expectedReadiness = "managed-runtime-ready";
       expectedManagedRuntimeReady = "true";
       expectedReconciliation = "current";
     }}
 
-    # 3. Rollback-divergent: active is healthy and current, but the
-    # persisted desired identity has moved past what is actually active —
-    # still managed-runtime-ready (a healthy generation IS running), but
-    # reconciliation reports repairable rather than current, and neither
-    # identity is rewritten to hide the divergence.
-    ${writeFixture "divergent" { state = divergentState; currentTarget = healthyRecord.storePath; }}
-    ${assertResult "divergent" {
+    # 3. Rollback-divergent: active is healthy and observed as current,
+    # but the persisted desired identity has moved past what is actually
+    # active -- still managed-runtime-ready, but reconciliation reports
+    # repairable rather than current. `state` is merged explicitly (not
+    # via the top-level `//` the other cases use) so
+    # state.active.desiredManifestSemanticIdentity survives alongside the
+    # overridden top-level desiredManifestSemanticIdentity -- a shallow
+    # `//` on `state` itself would silently drop it instead of proving a
+    # genuine divergence.
+    ${assertResult "divergent" ((healthyStatus { }) // {
+      state = (healthyStatus { }).state // {
+        desiredManifestSemanticIdentity = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+      };
+    }) {
       expectedReadiness = "managed-runtime-ready";
       expectedManagedRuntimeReady = "true";
       expectedReconciliation = "repairable";
     }}
 
-    # 4a. Invalid/inconsistent: malformed state.json fails closed.
-    mkdir -p malformed
-    printf '{ not valid json' > malformed/state.json
-    ln -s ${lib.escapeShellArg healthyRecord.storePath} malformed/current
-    ${assertResult "malformed" {
+    # 4a. Invalid/inconsistent: managed-status itself rejected the
+    # persisted state as schema-invalid/corrupt (valid:false) -- fails
+    # closed regardless of what code/message accompanies it.
+    ${assertResult "invalid" {
+      valid = false;
+      code = "state_corrupt";
+      message = "managed Runtime state is invalid";
+    } {
       expectedReadiness = "bootstrap-ready";
       expectedManagedRuntimeReady = "false";
       expectedReconciliation = "current";
     }}
 
     # 4b. Invalid/inconsistent: an in-flight activation transaction (not
-    # idle) is never reported as managed-runtime-ready, even though `active`
-    # still names a previously healthy generation.
-    ${writeFixture "in-flight" { state = inFlightState; currentTarget = healthyRecord.storePath; }}
-    ${assertResult "in-flight" {
+    # idle) is never reported as managed-runtime-ready, even though
+    # activeGenerationIdentity still names a previously healthy
+    # generation.
+    ${assertResult "in-flight" (healthyStatus { activationPhase = "prepared"; }) {
       expectedReadiness = "bootstrap-ready";
       expectedManagedRuntimeReady = "false";
       expectedReconciliation = "current";
     }}
 
-    # 4c. Invalid/inconsistent: current pointer disagrees with the
-    # persisted active record.
-    ${writeFixture "mismatched-pointer" { state = baseState; currentTarget = "/nix/store/cccccccccccccccccccccccccccccccc-unexpected"; }}
-    ${assertResult "mismatched-pointer" {
+    # 4c. Invalid/inconsistent: the observed pointer identity disagrees
+    # with the persisted active record (statusFromState already failed to
+    # match them, so observedGenerationIdentity/observedStorePath are
+    # simply absent).
+    ${assertResult "mismatched-pointer" (healthyStatus {
+      observedGenerationIdentity = null;
+      observedStorePath = "/nix/store/cccccccccccccccccccccccccccccccc-unexpected";
+    }) {
       expectedReadiness = "bootstrap-ready";
       expectedManagedRuntimeReady = "false";
       expectedReconciliation = "current";
     }}
 
-    # 4d. Invalid/inconsistent: active recorded, idle phase, but no current
-    # pointer at all (never symlinked).
-    mkdir -p no-pointer
-    cat > no-pointer/state.json <<'STATE_JSON'
-    ${builtins.toJSON baseState}
-    STATE_JSON
-    ${assertResult "no-pointer" {
+    # 4d. Invalid/inconsistent: no observed pointer at all.
+    ${assertResult "no-pointer" (healthyStatus {
+      observedGenerationIdentity = null;
+      observedStorePath = null;
+    }) {
       expectedReadiness = "bootstrap-ready";
       expectedManagedRuntimeReady = "false";
       expectedReconciliation = "current";
