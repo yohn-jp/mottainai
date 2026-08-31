@@ -27,6 +27,13 @@ let
 
   bootstrapExecutable = "${pkgs.mottainai-bootstrap}/bin/mottainai-bootstrap";
 
+  # Issue #644: pure, read-only projection of #628's persisted
+  # managed-runtime/state.json + current pointer into readiness/
+  # managedRuntimeReady/reconciliation. Factored out so
+  # nix/tests/managed-runtime-health.nix can build and exercise it directly
+  # against fixture state directories, without a NixOS module evaluation.
+  managedRuntimeReadinessScript = import ../managed-runtime-health.nix { inherit pkgs lib; };
+
   bootstrapReadinessScript = pkgs.writeShellApplication {
     name = "mottainai-runtime-bootstrap-ready";
     runtimeInputs = [ pkgs.coreutils ];
@@ -74,7 +81,7 @@ let
 
   healthScript = pkgs.writeShellApplication {
     name = "mottainai-runtime-health";
-    runtimeInputs = [ pkgs.coreutils ];
+    runtimeInputs = [ pkgs.coreutils pkgs.jq ];
     text = ''
       set -euo pipefail
 
@@ -88,6 +95,17 @@ let
       # succeeds before any managed application generation exists; the
       # managed-runtime-ready phase is owned by the later activation boundary.
       ${bootstrapReadinessScript}/bin/mottainai-runtime-bootstrap-ready
+
+      # Issue #644: project #628's persisted managed-runtime state into
+      # readiness/managedRuntimeReady/reconciliation. Purely a read of
+      # already-persisted evidence (managed-runtime-health.nix never writes,
+      # builds, switches, or re-runs reconciliation) — absence of a managed
+      # generation (a fresh appliance, matching every existing base-only
+      # deployment) falls through to the bootstrap-ready result unchanged.
+      managed_runtime_result="$(${managedRuntimeReadinessScript}/bin/mottainai-managed-runtime-readiness ${lib.escapeShellArg "${cfg.stateDir}/managed-runtime"})"
+      readiness="$(printf '%s' "$managed_runtime_result" | jq -r '.readiness')"
+      managed_runtime_ready="$(printf '%s' "$managed_runtime_result" | jq -r '.managedRuntimeReady')"
+      reconciliation="$(printf '%s' "$managed_runtime_result" | jq -r '.reconciliation')"
 
       generation_link=/nix/var/nix/profiles/system
       if [ -L "$generation_link" ]; then
@@ -132,10 +150,10 @@ let
           "repositoryUser": ${builtins.toJSON repositoryUserStatePaths}
         },
         "requiredCompanions": $companions,
-        "readiness": "bootstrap-ready",
+        "readiness": "$readiness",
         "bootstrapReady": true,
-        "managedRuntimeReady": false,
-        "reconciliation": "current",
+        "managedRuntimeReady": $managed_runtime_ready,
+        "reconciliation": "$reconciliation",
         "upgradeRequired": false
       }
       JSON

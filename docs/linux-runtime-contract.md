@@ -169,6 +169,57 @@ every string and array field carries an explicit maximum
 Runtime cannot inflate the parsed result with an unbounded companion list or
 oversized path/identity strings; it fails validation instead.
 
+### Managed-runtime readiness projection (Issue #644)
+
+`readiness`, `managedRuntimeReady`, and `reconciliation` are computed by
+`nix/managed-runtime-health.nix`, invoked read-only from
+`nix/modules/runtime.nix`'s `mottainai-runtime-health` service against
+#628's already-persisted `managed-runtime/state.json` and `current`
+pointer (`docs/runtime-state.md`). This command never writes, builds,
+switches, or re-runs any part of `reconcileManagedRuntime` — it only
+projects already-committed evidence.
+
+A managed generation is reported `managed-runtime-ready` only when all of
+the following persisted facts hold simultaneously:
+
+- `activation.phase` is `"idle"` (no activation transaction in progress —
+  `docs/runtime-state.md`: "`current` is accepted as active only when it
+  matches the persisted record and transaction phase");
+- `active.health.state` is `"healthy"`;
+- `active.storePath` is present;
+- the `current` pointer is a symlink whose resolved target equals
+  `active.storePath` exactly.
+
+Any other case — no `managed-runtime/state.json` at all (a fresh,
+bootstrap-only appliance), a file that fails to parse, a non-idle
+activation phase, an unhealthy or absent `active` record, or a `current`
+pointer that is missing or disagrees with `active.storePath` — fails
+closed to the same bounded result a fresh appliance reports: `readiness:
+"bootstrap-ready"`, `managedRuntimeReady: false`, `reconciliation:
+"current"`.
+
+When a managed generation IS `managed-runtime-ready`, `reconciliation`
+further distinguishes whether the active generation still satisfies the
+*currently* persisted desired manifest:
+
+- `active.desiredManifestSemanticIdentity` equals the state record's
+  top-level `desiredManifestSemanticIdentity` → `reconciliation: "current"`.
+- They differ → `reconciliation: "repairable"`. This is the shape a
+  rollback leaves behind: `reconcileManagedRuntime` records the *newest
+  attempted* desired identity at the top level even when that candidate
+  never became active (`src/runtime-contract/managed-runtime.ts`'s
+  `stateWithFailure`), while `active` still names the older, healthy,
+  known-good generation actually running. The health projection reports
+  this divergence rather than silently treating the two identities as
+  equal or rewriting either one to match the other
+  (`docs/runtime-state.md`: "Observed state ... MUST NOT silently rewrite
+  canonical desired/active identities").
+
+This command never performs reconciliation, switching, repair, or
+rollback itself (that stays #628's `reconcileManagedRuntime` and the
+guest-invokable `mottainai-bootstrap reconcile`, Issue #642); it only
+reports what is already true.
+
 ## Update, rollback, and rebuild semantics
 
 - Base appliance updates use the canonical NixOS image/module path. Managed
@@ -193,6 +244,16 @@ oversized path/identity strings; it fails validation instead.
   image closure and the bootstrap source/managed-version boundary. These
   require a Nix-capable pipeline; they are not part of `pnpm verify` (see
   ADR-0002 consequences).
+- **`nix/tests/managed-runtime-health.nix`** (`nix build
+  .#checks.<system>.managed-runtime-health`) is a real `runCommand` build
+  proving the managed-runtime readiness projection above against fixture
+  `managed-runtime/state.json`/`current` directories — a fresh
+  bootstrap-only appliance, a healthy active generation, a rollback-shaped
+  desired/active divergence, and invalid/inconsistent state (malformed
+  JSON, an in-flight activation transaction, a mismatched or absent
+  `current` pointer) — without a NixOS module evaluation or
+  KVM/nixosTest infrastructure, mirroring `nix/tests/managed-generation.nix`'s
+  style of exercising the real projection logic directly.
 - **Deterministic rollback fixture** and **contract-shape tests**
   (`src/runtime-contract/contract.test.ts`) run under the existing
   `node --test` suite and require no Nix toolchain.
