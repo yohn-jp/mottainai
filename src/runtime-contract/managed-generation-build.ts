@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import path from "node:path";
+import os from "node:os";
 import {
   assertResolvedVersionsMatch,
   generationIdentityOf,
@@ -120,19 +120,25 @@ function narHashOfFactory(execFile: typeof execFileSync): (storePath: string) =>
  */
 export async function buildManagedGeneration(options: BuildManagedGenerationOptions): Promise<BuiltManagedGeneration> {
   const execFile = options.execFile ?? execFileSync;
-  const nixDir = path.join(options.repoRoot, "nix");
   const manifestJson = JSON.stringify(options.manifest);
 
   // mottainaiSource must arrive as a Nix path, not a Nix string: assigning a
   // JSON-string-embedded path directly to a derivation's `src` skips Nix's
-  // content-addressing. `--arg` (a real Nix value) keeps the type correct;
-  // `/. + "<path>"` inside the expression converts the absolute path string
-  // --arg hands over into a Nix path value.
+  // content-addressing. `/. + "<path>"` converts the absolute path string
+  // into a Nix path value. This used to be handed in as a function
+  // parameter applied via `--arg`, but `nix build --expr <function> --arg`
+  // resolves `builtins.getFlake` against this same repository
+  // unreliably when the subprocess's cwd is also inside the repository the
+  // flake ref points at (Issue #643) — a self-reference `nix` does not
+  // handle the same way `nix eval --expr` on the identical `getFlake` call
+  // does. Inlining `mottainaiSource` directly into a self-contained
+  // `let ... in` expression with no free variables removes that
+  // function-application indirection entirely.
   const nixExpr = `
-{ mottainaiSource }:
 let
   flake = builtins.getFlake (toString ${JSON.stringify(options.repoRoot)} + "?dir=nix");
   manifest = builtins.fromJSON ${JSON.stringify(manifestJson)};
+  mottainaiSource = /. + ${JSON.stringify(options.mottainaiSourcePath)};
 in
 (flake.lib.mkManagedGeneration { system = ${JSON.stringify(options.system)}; inherit manifest mottainaiSource; }).metadataFile
 `;
@@ -142,18 +148,16 @@ in
     metadataStorePath = (
       execFile(
         "nix",
-        [
-          "build",
-          "--impure",
-          "--no-link",
-          "--print-out-paths",
-          "--expr",
-          nixExpr,
-          "--arg",
-          "mottainaiSource",
-          `/. + ${JSON.stringify(options.mottainaiSourcePath)}`,
-        ],
-        { cwd: nixDir, encoding: "utf8", env: options.env },
+        ["build", "--impure", "--no-link", "--print-out-paths", "--expr", nixExpr],
+        // Neutral cwd, deliberately not inside options.repoRoot: every path
+        // this invocation needs is already absolute (repoRoot via toString
+        // above, mottainaiSourcePath via the inline `/. + "<path>"`
+        // conversion), so nix does not need any particular working
+        // directory to resolve them. Using a directory outside the
+        // repository keeps the subprocess's cwd from ever coinciding with
+        // (or nesting inside) the repository `getFlake` resolves, which is
+        // the self-reference condition Issue #643 traces the defect to.
+        { cwd: os.tmpdir(), encoding: "utf8", env: options.env },
       ) as string
     ).trim();
   } catch (error) {

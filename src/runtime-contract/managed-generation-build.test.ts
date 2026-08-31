@@ -97,6 +97,81 @@ test("buildManagedGeneration succeeds when Nix build, metadata, and integrity al
   assert.equal(result.generationIdentity.length, 64);
 });
 
+// Issue #643: buildManagedGeneration used to spawn `nix build` with cwd set
+// to `${repoRoot}/nix` and pass `mottainaiSource` through `--arg` to a
+// `{ mottainaiSource }: ...` function expression. When the subprocess's cwd
+// was itself inside the repository the expression's `builtins.getFlake`
+// also resolved (a caller running from inside its own checkout), `nix`
+// resolved that self-reference unreliably. These regressions prove the
+// fixed invocation no longer depends on the caller's process.cwd() or on
+// repoRoot self-reference, without requiring a real Nix toolchain.
+test("buildManagedGeneration's nix invocation is independent of the caller's process.cwd()", async (t) => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-managed-generation-build-test-"));
+  const cwdA = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-managed-generation-build-cwd-a-"));
+  const cwdB = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-managed-generation-build-cwd-b-"));
+  const originalCwd = process.cwd();
+  t.after(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(cwdA, { recursive: true, force: true });
+    fs.rmSync(cwdB, { recursive: true, force: true });
+  });
+
+  const manifestValue = manifest();
+  const metadataStorePath = path.join(dir, "metadata.json");
+  const narHashSha256 = "b".repeat(64);
+  fs.writeFileSync(metadataStorePath, JSON.stringify(metadataFor(manifestValue, narHashSha256, "0.7.1")));
+
+  const calls: { args: readonly string[]; cwd: unknown }[] = [];
+  const capturingExecFile = ((command: string, args?: readonly string[], execOptions?: { cwd?: unknown }) => {
+    if (command === "nix" && args?.[0] === "build") {
+      calls.push({ args: args ?? [], cwd: execOptions?.cwd });
+      return `${metadataStorePath}\n`;
+    }
+    if (command === "nix" && args?.[0] === "path-info") {
+      return JSON.stringify({ info: { x: { narHash: `sha256-${Buffer.from(narHashSha256, "hex").toString("base64")}` } } });
+    }
+    if (command === "nix" && args?.[0] === "eval") {
+      return Buffer.from(narHashSha256);
+    }
+    throw new Error(`unexpected execFile invocation: ${command} ${JSON.stringify(args)}`);
+  }) as unknown as typeof import("node:child_process").execFileSync;
+
+  const repoRoot = "/repo/checkout";
+  const buildOptions = {
+    repoRoot,
+    manifest: {
+      ...manifestValue,
+      packages: [{ ...manifestValue.packages[0], source: { ...manifestValue.packages[0].source, sourceSha256: narHashSha256 } }],
+    },
+    system: "x86_64-linux",
+    mottainaiSourcePath: "/some/resolved/source",
+    env: {},
+    execFile: capturingExecFile,
+  };
+
+  process.chdir(cwdA);
+  await buildManagedGeneration(buildOptions);
+  process.chdir(cwdB);
+  await buildManagedGeneration(buildOptions);
+
+  assert.equal(calls.length, 2);
+  const [first, second] = calls;
+  // Identical nix build invocation regardless of the caller's process.cwd()
+  // at call time.
+  assert.deepEqual(first.args, second.args);
+  assert.equal(first.cwd, second.cwd);
+  // No function-application indirection (the removed `--arg` mechanism).
+  assert.ok(!first.args.includes("--arg"));
+  // cwd is neutral: never repoRoot itself, nor nested inside it — the
+  // self-reference condition the defect traced to.
+  assert.notEqual(first.cwd, path.join(repoRoot, "nix"));
+  assert.ok(typeof first.cwd === "string" && !first.cwd.startsWith(repoRoot));
+});
+
 test("buildManagedGeneration throws ManagedGenerationBuildError when the nix build subprocess fails", async () => {
   const failingExecFile = ((command: string, args?: readonly string[]) => {
     if (command === "nix" && args?.[0] === "build") throw new Error("nix build exited with code 1");

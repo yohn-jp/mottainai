@@ -188,12 +188,18 @@ and validates the manifest against #624's schema, fails closed via
 `assertManifestProjectable` before touching Nix for any entry it cannot
 project, invokes `nix build` against `nix/flake.nix`'s
 `lib.mkManagedGeneration` function output (the pinned flake inputs — no
-ambient npm/PATH/network install path) with `mottainaiSource` passed
-through as a Nix path via `--arg` (not string-substituted into the
-expression, which would silently break Nix's content-addressing for that
-source), validates the resulting metadata against
-`ManagedGenerationMetadataSchema`, and prints the metadata plus the derived
-`generationIdentity`.
+ambient npm/PATH/network install path) with `mottainaiSource` converted to a
+Nix path value via `/. + "<path>"` and inlined directly into a
+self-contained `--expr` (not string-substituted as a raw string, which would
+silently break Nix's content-addressing for that source, and not passed
+through `--arg` to a function parameter — Issue #643: that indirection made
+`builtins.getFlake` resolve unreliably when the subprocess's working
+directory was itself inside the same repository the flake ref points at).
+The subprocess also runs from a neutral working directory rather than
+inside the repository, so the same manifest and resolved source always
+produce the same build regardless of the caller's own current directory.
+The result validates against `ManagedGenerationMetadataSchema`, and the
+script prints the metadata plus the derived `generationIdentity`.
 
 ## Constraints this projection deliberately honors
 
