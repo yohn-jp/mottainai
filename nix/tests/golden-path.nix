@@ -424,6 +424,29 @@ let
         assert len(mottainai_source_sha256_v2) == 64
         assert mottainai_source_sha256_v1 != mottainai_source_sha256_v2
 
+    with subtest("diagnostic: isolate builtins.getFlake's own resolution of repoRootForGuest with verbose Nix fetcher logging"):
+        # Temporary diagnostic (not part of #630's lifecycle proof): every
+        # prior fix attempt (renaming the store path, git-init'ing it) has
+        # failed to change the "path .../nix/flake.nix does not exist"
+        # error, and --show-trace added nothing beyond confirming the error
+        # is thrown directly inside the getFlake builtin itself, with no
+        # further Nix-expression-level stack beneath it. -vvv exposes the
+        # fetcher's own internal resolution steps (registry lookups,
+        # canonicalization, what it decides to fetch and from where),
+        # captured to a file and grep-filtered for the relevant lines so a
+        # very verbose trace still fits a bounded read.
+        diag_inner = (
+            "nix eval --impure --offline -vvv --expr "
+            + shlex.quote(
+                '(builtins.getFlake (toString "${repoRootForGuest}" + "?dir=nix")).lib ? mkManagedGeneration'
+            )
+            + " > /tmp/golden-path-diag.log 2>&1; "
+            + "grep -niE 'flake|fetch|resolv|lock|copying|git|store|path' /tmp/golden-path-diag.log | head -c 6000"
+        )
+        diag_status, diag_output = execute("su -l mottainai-control -c " + shlex.quote(diag_inner))
+        print("=== diagnostic: getFlake verbose resolution trace (grep-filtered, exit=" + str(diag_status) + ") ===")
+        print(diag_output)
+
     with subtest("provide the canonical managed manifest and reconcile: build + activate generation v1 (Mottainai + Nawabari)"):
         apply_manifest(
             golden_manifest("${mottainaiVersionV1}", mottainai_source_sha256_v1, nawabari_source_sha256, 1)
