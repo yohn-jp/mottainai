@@ -424,52 +424,6 @@ let
         assert len(mottainai_source_sha256_v2) == 64
         assert mottainai_source_sha256_v1 != mottainai_source_sha256_v2
 
-    with subtest("diagnostic: isolate builtins.getFlake's own resolution of repoRootForGuest with verbose Nix fetcher logging"):
-        # Temporary diagnostic (not part of #630's lifecycle proof): every
-        # prior fix attempt (renaming the store path, git-init'ing it) has
-        # failed to change the "path .../nix/flake.nix does not exist"
-        # error, and --show-trace added nothing beyond confirming the error
-        # is thrown directly inside the getFlake builtin itself, with no
-        # further Nix-expression-level stack beneath it. -vvv exposes the
-        # fetcher's own internal resolution steps (registry lookups,
-        # canonicalization, what it decides to fetch and from where).
-        #
-        # nixosTest's own driver never streams output live to the CI log —
-        # on a build failure, Nix's error reporting only shows the LAST ~25
-        # lines of the whole builder's output, so a plain print() here was
-        # silently pushed out of that window by the real reconcile
-        # subtest's own output a few steps later (confirmed: it never
-        # appeared in a real CI failure). Force *this* command itself to
-        # fail (`exit 1`) so `succeed()` raises immediately, right here,
-        # with this diagnostic's own filtered output as the last thing the
-        # builder printed — guaranteeing it lands inside that 25-line
-        # window instead of getting buried.
-        # First pass (5e011b1/8ecc424) showed Nix computing a brand-new lock
-        # file for this flake instead of trusting the flake.lock already
-        # copied into it ("computing lock file node" for the empty-string
-        # root name, then "new lock file: { ... }") — nix's ~25-line CI
-        # display cut off before the "root" node's own recorded url/type
-        # ever came through. Extract exactly that block (the 16 lines
-        # starting at "computing lock file node" for the empty-string root
-        # name) plus the final error line, instead of a broad grep, so the
-        # one thing actually still missing fits within the visible window
-        # this time.
-        diag_inner = (
-            "nix eval --impure --offline -vvv --expr "
-            + shlex.quote(
-                '(builtins.getFlake (toString "${repoRootForGuest}" + "?dir=nix")).lib ? mkManagedGeneration'
-            )
-            + " > /tmp/golden-path-diag.log 2>&1; "
-            + "echo '=== root node lock computation ==='; "
-            + "grep -A 16 "
-            + shlex.quote("computing lock file node " + "'" + "'")
-            + " /tmp/golden-path-diag.log | head -n 16; "
-            + "echo '=== final error ==='; "
-            + "tail -n 4 /tmp/golden-path-diag.log; "
-            + "exit 1"
-        )
-        succeed("su -l mottainai-control -c " + shlex.quote(diag_inner))
-
     with subtest("provide the canonical managed manifest and reconcile: build + activate generation v1 (Mottainai + Nawabari)"):
         apply_manifest(
             golden_manifest("${mottainaiVersionV1}", mottainai_source_sha256_v1, nawabari_source_sha256, 1)

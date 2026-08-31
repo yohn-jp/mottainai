@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import path from "node:path";
+import os from "node:os";
 import {
   assertResolvedVersionsMatch,
   generationIdentityOf,
@@ -120,7 +120,6 @@ function narHashOfFactory(execFile: typeof execFileSync): (storePath: string) =>
  */
 export async function buildManagedGeneration(options: BuildManagedGenerationOptions): Promise<BuiltManagedGeneration> {
   const execFile = options.execFile ?? execFileSync;
-  const nixDir = path.join(options.repoRoot, "nix");
   const manifestJson = JSON.stringify(options.manifest);
 
   // mottainaiSource must arrive as a Nix path, not a Nix string: assigning a
@@ -164,7 +163,18 @@ in
           "mottainaiSource",
           `/. + ${JSON.stringify(options.mottainaiSourcePath)}`,
         ],
-        { cwd: nixDir, encoding: "utf8", env: options.env },
+        // Every path this invocation needs is already absolute (repoRoot
+        // via toString above, mottainaiSourcePath via the /. + "<path>"
+        // --arg conversion) -- nix never needs a particular working
+        // directory to resolve them. Running from inside repoRoot's own
+        // nix/ directory turned out not to be neutral: with repoRoot
+        // itself a git working tree (golden-path.nix's repoRootForGuest,
+        // and in production the packaged nix-projection), invoking nix
+        // from *inside* the exact repository it also getFlake's by
+        // absolute path produced a self-reference collision (getFlake
+        // resolving to some other, wrong, truncated store path instead of
+        // the one actually passed) that a neutral cwd does not trigger.
+        { cwd: os.tmpdir(), encoding: "utf8", env: options.env },
       ) as string
     ).trim();
   } catch (error) {
