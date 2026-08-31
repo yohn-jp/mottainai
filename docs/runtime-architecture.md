@@ -7,6 +7,10 @@ must remain stable across #624–#630.
 Component-specific documents remain authoritative for their own field shapes
 and algorithms. In particular:
 
+- [host-bootstrap.md](host-bootstrap.md) (Issue #654) owns the standalone
+  host-side Linux/KVM provider bootstrap; it is distinct from the #626 guest
+  bootstrap and from provider VM lifecycle.
+
 - [`managed-package-manifest.md`](managed-package-manifest.md) owns the
   `mottainai.managed-package-manifest.v1` desired-state schema (#624).
 - [`managed-generation.md`](managed-generation.md) owns deterministic

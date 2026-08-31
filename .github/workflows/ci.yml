@@ -15,6 +15,73 @@ permissions:
   contents: read
 
 jobs:
+  host-bootstrap:
+    name: host bootstrap (Rust)
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --profile minimal --no-self-update
+
+      - name: Install portable Linux target
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          rustup target add x86_64-unknown-linux-musl
+
+      - name: Format
+        run: cargo fmt --manifest-path host-bootstrap/Cargo.toml -- --check
+
+      - name: Test
+        run: cargo test --locked --manifest-path host-bootstrap/Cargo.toml
+
+      - name: Test portable Linux target
+        run: cargo test --locked --target x86_64-unknown-linux-musl --manifest-path host-bootstrap/Cargo.toml
+
+      - name: Lint
+        run: cargo clippy --locked --manifest-path host-bootstrap/Cargo.toml --all-targets -- -D warnings
+
+      - name: Build Linux x86_64 release artifact
+        working-directory: host-bootstrap
+        run: |
+          cargo build --locked --target x86_64-unknown-linux-musl --release
+          cp target/x86_64-unknown-linux-musl/release/mottainai-init mottainai-init-linux-x86_64
+          file mottainai-init-linux-x86_64 | grep -E 'static(-pie)? linked|musl'
+          if readelf -d mottainai-init-linux-x86_64 | grep -q NEEDED; then
+            echo 'portable artifact unexpectedly has dynamic dependencies' >&2
+            exit 1
+          fi
+          if readelf -l mottainai-init-linux-x86_64 | grep -q INTERP; then
+            echo 'portable artifact unexpectedly has a dynamic loader' >&2
+            exit 1
+          fi
+          ./mottainai-init-linux-x86_64 --version
+          sha256sum mottainai-init-linux-x86_64 > mottainai-init-linux-x86_64.sha256
+
+      - name: Upload host bootstrap release artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mottainai-init-linux-x86_64
+          path: |
+            host-bootstrap/mottainai-init-linux-x86_64
+            host-bootstrap/mottainai-init-linux-x86_64.sha256
+          if-no-files-found: error
+          retention-days: 14
+
   static-integrity:
     name: static integrity (typecheck / lint / architecture / build)
     # Keep the workflow subscribed so required checks resolve as skipped/success.
