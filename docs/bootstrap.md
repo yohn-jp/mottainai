@@ -192,6 +192,11 @@ genuinely executable at its exact resolved store path
 (`<storePath>/bin/<packageId> --version`, real and side-effect-free — the
 same minimal proof `nix/packages/nawabari.nix`'s own `installCheckPhase`
 already treats as sufficient) — never ambient `PATH`, never a stub result.
+A candidate that declares no package identities at all (`packageIds`
+absent or empty — schema-legal, e.g. an empty-`packages` desired manifest)
+fails closed rather than reporting vacuous health: nothing to execute
+means nothing was proven, so it is never silently promoted to known-good
+on that basis alone.
 
 Like `build`/`status`/`verify`, `reconcile` always targets the canonical
 managed-runtime control state
@@ -368,6 +373,17 @@ require no Nix toolchain except where explicitly noted. They prove:
 - `reconcile` fails deterministically with `manifest_read_failure` against a
   fresh control-state root, and rejects a missing `--system` before invoking
   `reconcileManagedRuntime` (`cli.test.ts`)
+- the real `reconcileBuildGeneration`/`reconcileHealthCheck` composition —
+  exercised through `runReconcile` (exported for exactly this) with
+  injected build/health dependencies and a test-only `stateDirectory`
+  seam `runReconcileCommand` never uses — converges initialize, noop, and
+  update outcomes, and a post-switch health failure triggers a real
+  rollback to the prior known-good generation, verified against the
+  persisted state and `current` pointer directly (`cli.test.ts`)
+- `reconcileHealthCheck` proves a real `--version` executable against a
+  real fixture binary and fails closed on a real execution failure, and
+  fails closed (rather than reporting vacuous health) when a candidate
+  declares no package identities (`cli.test.ts`)
 - no code path in `source-resolution.ts`/`build.ts` invokes `npm`, `npx`, or
   a global install (`source-resolution.test.ts`, `build.test.ts`)
 - `nix/bootstrap.nix`'s pinned `zod`/`@types/node` versions and integrity

@@ -6,18 +6,21 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { DIRECT_BOUNDARIES } from "../boundary.js";
 import { buildManagedGeneration } from "../runtime-contract/managed-generation-build.js";
+import type { BuildManagedGenerationOptions, BuiltManagedGeneration } from "../runtime-contract/managed-generation-build.js";
 import { ManagedRuntimeError, reconcileManagedRuntime } from "../runtime-contract/managed-runtime.js";
 import type {
   ManagedRuntimeBuiltGeneration,
   ManagedRuntimeCandidate,
   ManagedRuntimeGenerationRecord,
-  ManagedRuntimeHealthResult,
+  ManagedRuntimeHealthCheckResult,
+  ManagedRuntimeReconcileResult,
 } from "../runtime-contract/managed-runtime.js";
 import type { ManagedPackageManifest } from "../runtime-contract/managed-package-manifest.js";
 import { defaultBootstrapDependencies, readBootstrapStatus, runBootstrapBuild, verifyBootstrap } from "./build.js";
 import { BootstrapError } from "./errors.js";
 import { CANONICAL_BOOTSTRAP_STATE_FILE_PATH } from "./paths.js";
 import { resolveMottainaiSource } from "./source-resolution.js";
+import type { ResolveMottainaiSourceOptions, ResolvedMottainaiSource } from "./source-resolution.js";
 import { UnreadableManifest } from "./unreadable-manifest.js";
 
 /**
@@ -190,11 +193,31 @@ function verifyManagedBinaryExecutes(storePath: string, packageId: string): stri
   }
 }
 
-/** #628's healthCheck adapter: resolves every package the candidate declares through its own store path, never ambient PATH. */
-function reconcileHealthCheck(
+/**
+ * #628's healthCheck adapter: resolves every package the candidate declares
+ * through its own store path, never ambient PATH. A candidate that declares
+ * NO package identities (`packageIds` absent or empty — schema-legal, e.g.
+ * an empty-`packages` desired manifest) fails closed rather than reporting
+ * vacuous health: docs/runtime-lifecycle.md's "Managed health" requires
+ * this check to "prove the application generation is executable", and a
+ * generation with nothing to execute cannot be proven anything, so it must
+ * never be silently promoted to known-good on that basis (review response:
+ * a prior revision looped `packageIds ?? []`, which reported `healthy:
+ * true` for zero packages without verifying anything at all).
+ */
+export function reconcileHealthCheck(
   generation: ManagedRuntimeCandidate | ManagedRuntimeGenerationRecord,
-): ManagedRuntimeHealthResult {
-  for (const packageId of generation.packageIds ?? []) {
+): ManagedRuntimeHealthCheckResult {
+  const packageIds = generation.packageIds ?? [];
+  if (packageIds.length === 0) {
+    return {
+      healthy: false,
+      generationIdentity: generation.generationIdentity,
+      storePath: generation.storePath,
+      reason: "managed generation declares no package identities to verify",
+    };
+  }
+  for (const packageId of packageIds) {
     const failure = verifyManagedBinaryExecutes(generation.storePath, packageId);
     if (failure !== undefined) {
       return {
@@ -209,6 +232,22 @@ function reconcileHealthCheck(
 }
 
 /**
+ * Injectable seam for `runReconcile`'s composition below. Production
+ * (`runReconcileCommand`) never overrides any of these — real GitHub-tag
+ * source resolution, real `nix build`, real `--version` executable proof.
+ * Tests inject fakes here to exercise the real adapter-shaping/composition
+ * logic (reconcileBuildGeneration/reconcileHealthCheck) and #628's
+ * reconcileManagedRuntime state machine together, without a Nix toolchain.
+ */
+export interface ReconcileCommandDependencies {
+  readonly resolveSource?: (options: ResolveMottainaiSourceOptions) => Promise<ResolvedMottainaiSource>;
+  readonly runManagedGenerationBuild?: (options: BuildManagedGenerationOptions) => Promise<BuiltManagedGeneration>;
+  readonly healthCheck?: (
+    generation: ManagedRuntimeCandidate | ManagedRuntimeGenerationRecord,
+  ) => Promise<ManagedRuntimeHealthCheckResult> | ManagedRuntimeHealthCheckResult;
+}
+
+/**
  * #628's buildGeneration adapter: resolves the manifest's exact requested
  * Mottainai source the same way `bootstrap build` does
  * (src/bootstrap/build.ts's runBootstrapBuild) — real GitHub-tag source
@@ -217,20 +256,26 @@ function reconcileHealthCheck(
  */
 async function reconcileBuildGeneration(
   manifest: ManagedPackageManifest,
-  options: { readonly system: string; readonly repoRoot: string; readonly env: NodeJS.ProcessEnv },
+  options: {
+    readonly system: string;
+    readonly repoRoot: string;
+    readonly env: NodeJS.ProcessEnv;
+    readonly resolveSource: (options: ResolveMottainaiSourceOptions) => Promise<ResolvedMottainaiSource>;
+    readonly runManagedGenerationBuild: (options: BuildManagedGenerationOptions) => Promise<BuiltManagedGeneration>;
+  },
 ): Promise<ManagedRuntimeBuiltGeneration> {
   const mottainaiEntry = manifest.packages.find((entry) => entry.packageId === "mottainai");
   let mottainaiSourcePath = options.repoRoot;
   if (mottainaiEntry !== undefined) {
     const destinationDirectory = path.join(os.tmpdir(), `mottainai-reconcile-source-${process.pid}`);
-    const resolved = await resolveMottainaiSource({
+    const resolved = await options.resolveSource({
       requestedVersion: mottainaiEntry.version,
       expectedSourceSha256: mottainaiEntry.source.sourceSha256,
       destinationDirectory,
     });
     mottainaiSourcePath = resolved.sourcePath;
   }
-  const built = await buildManagedGeneration({
+  const built = await options.runManagedGenerationBuild({
     repoRoot: options.repoRoot,
     manifest,
     system: options.system,
@@ -245,6 +290,22 @@ async function reconcileBuildGeneration(
   };
 }
 
+export interface RunReconcileOptions {
+  readonly system: string;
+  readonly repoRoot: string;
+  readonly env: NodeJS.ProcessEnv;
+  readonly dependencies?: ReconcileCommandDependencies;
+  /**
+   * Test-only DI seam mirroring reconcileManagedRuntime's own
+   * ManagedRuntimeReconcileOptions — `runReconcileCommand` (the real CLI
+   * entrypoint) never sets either of these from argv, so the canonical
+   * `/var/lib/mottainai-control/managed-runtime` state root and manifest
+   * remain the only production target.
+   */
+  readonly stateDirectory?: string;
+  readonly manifest?: unknown;
+}
+
 /**
  * Composes #626's build interface with #628's already-implemented
  * `reconcileManagedRuntime` state machine (src/runtime-contract/managed-runtime.ts)
@@ -254,12 +315,33 @@ async function reconcileBuildGeneration(
  * ("a future full Mottainai command may name that orchestration init or
  * reconcile"). This performs real activation: build/verify, atomic switch,
  * managed-runtime health, and rollback on a post-switch health failure —
- * never a partial/simulated result. There is no `--mottainai-source`
- * override: unlike `build`, which is a low-level single-attempt build
- * interface, `reconcile` is the canonical convergence path and always
- * resolves the manifest's requested source for real, the same as
- * `mottainai-bootstrap build`'s own resolveSource dependency.
+ * never a partial/simulated result. Exported so tests can exercise this
+ * exact composition (initialize/noop/update/rollback) with injected
+ * build/health dependencies, without a Nix toolchain or `#630`'s VM
+ * harness — `runReconcileCommand` below is a thin argv-parsing wrapper
+ * over this function using only the real defaults.
  */
+export async function runReconcile(options: RunReconcileOptions): Promise<ManagedRuntimeReconcileResult> {
+  const resolveSource = options.dependencies?.resolveSource ?? resolveMottainaiSource;
+  const runManagedGenerationBuild = options.dependencies?.runManagedGenerationBuild ?? buildManagedGeneration;
+  const healthCheck = options.dependencies?.healthCheck ?? reconcileHealthCheck;
+  return reconcileManagedRuntime({
+    ...(options.stateDirectory === undefined ? {} : { stateDirectory: options.stateDirectory }),
+    ...(options.manifest === undefined ? {} : { manifest: options.manifest }),
+    dependencies: {
+      buildGeneration: (manifest) =>
+        reconcileBuildGeneration(manifest, {
+          system: options.system,
+          repoRoot: options.repoRoot,
+          env: options.env,
+          resolveSource,
+          runManagedGenerationBuild,
+        }),
+      healthCheck,
+    },
+  });
+}
+
 async function runReconcileCommand(argv: readonly string[]): Promise<number> {
   const system = requireFlagValue(argv, "system");
   const repoRoot = requireFlagValue(argv, "repo-root") ?? repoRootForNixInvocation();
@@ -276,12 +358,7 @@ async function runReconcileCommand(argv: readonly string[]): Promise<number> {
   const env = { ...process.env, CI: "true" };
 
   try {
-    const result = await reconcileManagedRuntime({
-      dependencies: {
-        buildGeneration: (manifest) => reconcileBuildGeneration(manifest, { system, repoRoot, env }),
-        healthCheck: (generation) => reconcileHealthCheck(generation),
-      },
-    });
+    const result = await runReconcile({ system, repoRoot, env });
     if (json) printJson(result);
     else process.stdout.write(`reconcile ${result.outcome}: active=${result.active?.generationIdentity ?? "<none>"}\n`);
     return 0;
