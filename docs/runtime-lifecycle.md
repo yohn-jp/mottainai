@@ -327,7 +327,13 @@ contracts, but it must distinguish:
 
 A health timeout/error is not success. Rollback policy may distinguish bounded
 retryable observations internally, but the generation is not promoted to
-known-good without an explicit successful health result.
+known-good without an explicit successful health result. This activation-time
+health check is distinct from the read-only `mottainai-runtime-health`
+readiness projection (Issue #644, `docs/linux-runtime-contract.md`
+"Managed-runtime readiness projection"): that command never performs health
+checks, reconciliation, or activation itself — it only reports the
+already-persisted outcome of the activation health check above, from
+`managed-runtime/state.json` and `current`.
 
 ## Package removal
 

@@ -212,6 +212,14 @@
             bootstrapPackage = mkBootstrap pkgs;
             mottainaiPackage = mkMottainai pkgs;
           };
+          managed-runtime-health = import ./tests/managed-runtime-health.nix {
+            inherit pkgs;
+            inherit (nixpkgs) lib;
+            managedRuntimeReadinessScript = import ./managed-runtime-health.nix {
+              inherit pkgs;
+              inherit (nixpkgs) lib;
+            };
+          };
           appliance-boundary = import ./tests/runtime-appliance.nix {
             inherit pkgs;
             inherit (nixpkgs) lib;

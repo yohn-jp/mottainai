@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { DIRECT_BOUNDARIES } from "../boundary.js";
 import { buildManagedGeneration } from "../runtime-contract/managed-generation-build.js";
 import type { BuildManagedGenerationOptions, BuiltManagedGeneration } from "../runtime-contract/managed-generation-build.js";
-import { ManagedRuntimeError, reconcileManagedRuntime } from "../runtime-contract/managed-runtime.js";
+import { ManagedRuntimeError, reconcileManagedRuntime, readManagedRuntimeStatus } from "../runtime-contract/managed-runtime.js";
 import type {
   ManagedRuntimeBuiltGeneration,
   ManagedRuntimeCandidate,
@@ -25,8 +25,9 @@ import { UnreadableManifest } from "./unreadable-manifest.js";
 
 /**
  * Narrow bootstrap dispatcher (Issue #626, extended by Issue #642's
- * reconcile composition): `build` / `status` / `verify` / `reconcile` —
- * still no task/session/manager/package-catalog UX. Deliberately does NOT
+ * reconcile composition and Issue #644's read-only status projection):
+ * `build` / `status` / `verify` / `reconcile` / `managed-status` — still
+ * no task/session/manager/package-catalog UX. Deliberately does NOT
  * import src/cli.ts, src/index.ts, or any manager/workflow/task-session
  * module: that independence is what lets this CLI work without full
  * `mottainai` installed. Local flag-parsing helpers are re-implemented here
@@ -35,11 +36,12 @@ import { UnreadableManifest } from "./unreadable-manifest.js";
  * The production state path is always CANONICAL_BOOTSTRAP_STATE_FILE_PATH
  * — there is no `--state-file` flag and no environment-variable override.
  * A single invocation must never be able to redirect governed bootstrap
- * state into an arbitrary workspace path. `reconcile` is the same
- * boundary: it never overrides `reconcileManagedRuntime`'s state
- * directory/file/pointer/manifest paths, so it always targets the
- * canonical `/var/lib/mottainai-control/managed-runtime` state Issue #628
- * defaults to.
+ * state into an arbitrary workspace path. `reconcile` and `managed-status`
+ * are the same boundary: neither overrides `reconcileManagedRuntime`'s/
+ * `readManagedRuntimeStatus`'s state directory/file/pointer/manifest
+ * paths, so both always target the canonical
+ * `/var/lib/mottainai-control/managed-runtime` state Issue #628 defaults
+ * to.
  */
 
 function hasFlag(argv: readonly string[], name: string): boolean {
@@ -391,6 +393,54 @@ async function runReconcileCommand(argv: readonly string[]): Promise<number> {
   }
 }
 
+/**
+ * Issue #644: the guest-invokable read-only counterpart to `reconcile`.
+ * Never reconciles, builds, switches, or rolls back — it only reports
+ * #628's already-persisted managed-runtime state, through the SAME
+ * canonical `readManagedRuntimeStatus` (real `ManagedRuntimeStateSchema`
+ * `.strict()` zod validation, not a hand-rolled re-check) that
+ * `src/runtime-contract/managed-runtime.ts` already uses internally, so
+ * "is this state canonically valid" is answered in exactly one place.
+ *
+ * Always exits 0: a report of corrupt/inconsistent state is itself a
+ * complete, successful observation for an automated consumer like
+ * `nix/modules/runtime.nix`'s `mottainai-runtime-health` (which pipes this
+ * command's `--json` output into `nix/managed-runtime-health.nix`'s
+ * projection) — never a process failure. The output is always one of
+ * exactly three bounded shapes:
+ *
+ * - `{ valid: true, present: false }` — no managed-runtime state exists
+ *   yet (a fresh, bootstrap-only appliance).
+ * - `{ valid: true, present: true, ...ManagedRuntimeStatusReport }` — the
+ *   canonical state parsed and validated; `activationPhase`,
+ *   `activeGenerationIdentity`/`activeStorePath`,
+ *   `observedGenerationIdentity`/`observedStorePath` (already matched
+ *   against the real `current` pointer by #628's own `statusFromState`),
+ *   and the full validated `state` are all present when applicable.
+ * - `{ valid: false, code, message }` — the persisted state failed
+ *   canonical validation (malformed JSON, schema-invalid, an unreadable
+ *   `current` pointer, or an ambiguous pointer/state combination) and
+ *   MUST be treated as not managed-ready by any caller.
+ */
+function runManagedStatusCommand(argv: readonly string[]): number {
+  const json = hasFlag(argv, "json");
+  let result: { readonly valid: true; readonly present: boolean } | { readonly valid: false; readonly code: string; readonly message: string };
+  try {
+    const report = readManagedRuntimeStatus();
+    result = { valid: true, ...report };
+  } catch (error) {
+    const managedError =
+      error instanceof ManagedRuntimeError
+        ? error
+        : new ManagedRuntimeError("state_corrupt", error instanceof Error ? error.message : String(error));
+    result = { valid: false, code: managedError.code, message: managedError.message };
+  }
+  if (json) printJson(result);
+  else if (result.valid) process.stdout.write(`managed-status: present=${result.present}\n`);
+  else process.stdout.write(`managed-status: invalid (${result.code}: ${result.message})\n`);
+  return 0;
+}
+
 export async function runBootstrapCli(argv: readonly string[]): Promise<number> {
   const [command, ...rest] = argv;
   switch (command) {
@@ -402,8 +452,12 @@ export async function runBootstrapCli(argv: readonly string[]): Promise<number> 
       return runVerifyCommand(rest);
     case "reconcile":
       return runReconcileCommand(rest);
+    case "managed-status":
+      return runManagedStatusCommand(rest);
     default:
-      process.stderr.write(`unknown bootstrap command: ${command ?? "<none>"} (expected build, status, verify, or reconcile)\n`);
+      process.stderr.write(
+        `unknown bootstrap command: ${command ?? "<none>"} (expected build, status, verify, reconcile, or managed-status)\n`,
+      );
       return 1;
   }
 }

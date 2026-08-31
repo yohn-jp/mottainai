@@ -6,7 +6,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { reconcileAdapters, reconcileHealthCheck, runBootstrapCli } from "./cli.js";
 import { CANONICAL_BOOTSTRAP_STATE_FILE_PATH } from "./paths.js";
-import { ManagedRuntimeError, reconcileManagedRuntime } from "../runtime-contract/managed-runtime.js";
+import { MANAGED_RUNTIME_CONTROL_STATE_ROOT, ManagedRuntimeError, reconcileManagedRuntime } from "../runtime-contract/managed-runtime.js";
 import { readManagedRuntimePointer, readManagedRuntimeState } from "../runtime-contract/managed-runtime-state.js";
 import { generationIdentityOf } from "../runtime-contract/managed-generation.js";
 import type { BuildManagedGenerationOptions, BuiltManagedGeneration } from "../runtime-contract/managed-generation-build.js";
@@ -366,4 +366,83 @@ test("reconcileHealthCheck proves a real executable and fails closed on a real e
     packageIds: ["nawabari-broken"],
   });
   assert.equal(typeof unhealthy === "object" && unhealthy !== null ? unhealthy.healthy : unhealthy, false);
+});
+
+// Issue #644: `managed-status` is the read-only counterpart to `reconcile`
+// — it reports #628's already-persisted managed-runtime state through the
+// same canonical readManagedRuntimeStatus (real ManagedRuntimeStateSchema
+// zod validation) reconcile itself uses, never a hand-rolled re-check, and
+// never mutates anything.
+
+test("managed-status --json against a fresh control-state root reports valid:true, present:false", async () => {
+  const capture = captureStdout();
+  const exitCode = await runBootstrapCli(["managed-status", "--json"]);
+  const output = capture.restore();
+  assert.equal(exitCode, 0);
+  const parsed = JSON.parse(output);
+  assert.equal(parsed.valid, true);
+  assert.equal(parsed.present, false);
+});
+
+test("managed-status --json reports valid:false with a bounded code/message against malformed persisted state", async (t) => {
+  const stateDirectory = path.join(MANAGED_RUNTIME_CONTROL_STATE_ROOT, "managed-runtime");
+  const stateFile = path.join(stateDirectory, "state.json");
+  const alreadyPresent = fs.existsSync(stateFile);
+  t.after(() => {
+    if (!alreadyPresent) fs.rmSync(stateFile, { force: true });
+  });
+  fs.mkdirSync(stateDirectory, { recursive: true });
+  fs.writeFileSync(stateFile, "{ not valid json");
+
+  const capture = captureStdout();
+  const exitCode = await runBootstrapCli(["managed-status", "--json"]);
+  const output = capture.restore();
+  assert.equal(exitCode, 0);
+  const parsed = JSON.parse(output);
+  assert.equal(parsed.valid, false);
+  assert.equal(parsed.code, "state_corrupt");
+  assert.equal(typeof parsed.message, "string");
+});
+
+test("managed-status --json reports valid:false against a schema-invalid-but-field-complete state (unknown top-level key)", async (t) => {
+  const stateDirectory = path.join(MANAGED_RUNTIME_CONTROL_STATE_ROOT, "managed-runtime");
+  const stateFile = path.join(stateDirectory, "state.json");
+  const alreadyPresent = fs.existsSync(stateFile);
+  t.after(() => {
+    if (!alreadyPresent) fs.rmSync(stateFile, { force: true });
+  });
+  fs.mkdirSync(stateDirectory, { recursive: true });
+  // Every field a valid mottainai.managed-runtime-state.v1 record needs is
+  // present and well-typed EXCEPT for one unrecognized top-level key
+  // (`.strict()` rejects it) — proving readiness depends on real schema
+  // strictness, not merely "does this parse as an object with the right
+  // shape of a few fields".
+  fs.writeFileSync(
+    stateFile,
+    JSON.stringify({
+      contractId: "mottainai.managed-runtime-state.v1",
+      schemaVersion: 1,
+      desiredManifestSemanticIdentity: "a".repeat(64),
+      activation: { phase: "idle" },
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      unexpectedExtraField: true,
+    }),
+  );
+
+  const capture = captureStdout();
+  const exitCode = await runBootstrapCli(["managed-status", "--json"]);
+  const output = capture.restore();
+  assert.equal(exitCode, 0);
+  const parsed = JSON.parse(output);
+  assert.equal(parsed.valid, false);
+  assert.equal(parsed.code, "state_corrupt");
+});
+
+test("managed-status has no state-directory/state-file/current-pointer/manifest-path override flag: no code path reads one from argv", async () => {
+  const source = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "cli.ts"), "utf8");
+  const managedStatusSection = source.slice(source.indexOf("function runManagedStatusCommand"));
+  for (const flag of ["state-directory", "state-file", "current-pointer", "manifest-path"]) {
+    assert.doesNotMatch(managedStatusSection, new RegExp(`requireFlagValue\\([^)]*["'\`]${flag}["'\`]`, "u"));
+    assert.doesNotMatch(managedStatusSection, new RegExp(`hasFlag\\([^)]*["'\`]${flag}["'\`]`, "u"));
+  }
 });

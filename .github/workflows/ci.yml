@@ -349,6 +349,15 @@ jobs:
       - name: Verify managed generation build is independent of caller cwd (Issue #643 regression)
         run: node --import tsx scripts/verify-managed-generation-cwd-independence.mjs x86_64-linux
 
+      - name: Execute the managed-runtime health projection check (Issue #644)
+        working-directory: nix
+        # `nix flake check --no-build` above only evaluates checks; it
+        # never builds/runs them, so this non-VM check needs its own
+        # explicit build step (review response on PR #647) the same way
+        # "Execute the Runtime NixOS VM test" below already does for the
+        # VM check.
+        run: nix build --no-update-lock-file --no-link .#checks.x86_64-linux.managed-runtime-health
+
       - name: Generate and validate relocatable Runtime image metadata
         working-directory: nix
         shell: bash

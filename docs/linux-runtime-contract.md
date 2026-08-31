@@ -169,6 +169,84 @@ every string and array field carries an explicit maximum
 Runtime cannot inflate the parsed result with an unbounded companion list or
 oversized path/identity strings; it fails validation instead.
 
+### Managed-runtime readiness projection (Issue #644)
+
+`readiness`, `managedRuntimeReady`, and `reconciliation` are computed in
+two layers, invoked read-only from `nix/modules/runtime.nix`'s
+`mottainai-runtime-health` service:
+
+1. **`mottainai-bootstrap managed-status --json`**
+   (`src/bootstrap/cli.ts`'s `runManagedStatusCommand`, Issue #642's
+   bootstrap CLI extended by #644) reads #628's already-persisted
+   `managed-runtime/state.json` and `current` pointer through the exact
+   same canonical, zod-`.strict()`-validated `readManagedRuntimeStatus`
+   (`src/runtime-contract/managed-runtime.ts`) that `reconcile` itself
+   uses — never a second, hand-rolled re-check of a few fields. It always
+   exits `0` and prints one of exactly three bounded shapes: `{ valid:
+   true, present: false }` (no managed-runtime state exists yet — a
+   fresh, bootstrap-only appliance); `{ valid: true, present: true,
+   ...ManagedRuntimeStatusReport }` (the canonical state parsed
+   successfully, including `activationPhase` and the pointer-matched
+   `observedGenerationIdentity`/`observedStorePath` #628's own
+   `statusFromState` already computes); or `{ valid: false, code,
+   message }` (the persisted state failed canonical validation — malformed
+   JSON, schema-invalid, an unreadable `current` pointer, or an ambiguous
+   pointer/state combination).
+2. **`nix/managed-runtime-health.nix`** (`mottainai-managed-runtime-readiness`)
+   is a pure `stdin -> stdout` projection of that bounded status into the
+   three health fields — no filesystem access of its own, so it cannot be
+   pointed at anything other than whatever `managed-status` reports for
+   the canonical state root.
+
+Neither layer writes, builds, switches, or re-runs any part of
+`reconcileManagedRuntime` — together they only project already-committed
+evidence.
+
+A managed generation is reported `managed-runtime-ready` only when the
+status report is `{ valid: true, present: true, ... }` AND all of the
+following hold simultaneously:
+
+- `activationPhase` is `"idle"` (no activation transaction in progress —
+  `docs/runtime-state.md`: "`current` is accepted as active only when it
+  matches the persisted record and transaction phase");
+- `activeGenerationIdentity` is present (schema-guaranteed to be a
+  *healthy* record — `ManagedRuntimeGenerationRecordSchema` requires
+  `health.state` to be the literal `"healthy"`, so a validated `active`
+  record can never be anything else);
+- `observedGenerationIdentity`/`observedStorePath` (already computed by
+  `statusFromState` matching the real `current` pointer against `active`)
+  equal `activeGenerationIdentity`/`activeStorePath` exactly.
+
+Any other case — `valid: false` (schema-invalid/corrupt canonical state),
+`present: false` (a fresh, bootstrap-only appliance), a non-idle
+activation phase, an absent `active` record, or an observed pointer that
+is missing or disagrees with the active generation — fails closed to the
+same bounded result a fresh appliance reports: `readiness:
+"bootstrap-ready"`, `managedRuntimeReady: false`, `reconciliation:
+"current"`.
+
+When a managed generation IS `managed-runtime-ready`, `reconciliation`
+further distinguishes whether the active generation still satisfies the
+*currently* persisted desired manifest:
+
+- `state.active.desiredManifestSemanticIdentity` equals
+  `state.desiredManifestSemanticIdentity` → `reconciliation: "current"`.
+- They differ → `reconciliation: "repairable"`. This is the shape a
+  rollback leaves behind: `reconcileManagedRuntime` records the *newest
+  attempted* desired identity at the top level even when that candidate
+  never became active (`src/runtime-contract/managed-runtime.ts`'s
+  `stateWithFailure`), while `active` still names the older, healthy,
+  known-good generation actually running. The health projection reports
+  this divergence rather than silently treating the two identities as
+  equal or rewriting either one to match the other
+  (`docs/runtime-state.md`: "Observed state ... MUST NOT silently rewrite
+  canonical desired/active identities").
+
+Neither layer ever performs reconciliation, switching, repair, or
+rollback itself (that stays #628's `reconcileManagedRuntime` and the
+guest-invokable `mottainai-bootstrap reconcile`, Issue #642); together
+they only report what is already true.
+
 ## Update, rollback, and rebuild semantics
 
 - Base appliance updates use the canonical NixOS image/module path. Managed
@@ -193,6 +271,23 @@ oversized path/identity strings; it fails validation instead.
   image closure and the bootstrap source/managed-version boundary. These
   require a Nix-capable pipeline; they are not part of `pnpm verify` (see
   ADR-0002 consequences).
+- **`nix/tests/managed-runtime-health.nix`** (`nix build
+  .#checks.<system>.managed-runtime-health`, wired into
+  `.github/workflows/ci.yml`'s `runtime-contract` job as an explicit build
+  step — `nix flake check --no-build` alone does not execute a check's
+  build) is a real `runCommand` build proving the readiness-projection
+  RULES above given an already-validated (or already-rejected)
+  `managed-status`-shaped status report fed directly on stdin — a fresh
+  bootstrap-only appliance, a healthy active generation, a rollback-shaped
+  desired/active divergence, and invalid/inconsistent state (`valid:
+  false`, an in-flight activation transaction, a mismatched or absent
+  observed pointer) — with no filesystem/sandbox access at all, since the
+  script under test performs none either. Real canonical schema validation
+  itself is proven separately, directly against
+  `readManagedRuntimeStatus`, in `src/bootstrap/cli.test.ts`'s
+  `managed-status` coverage (including a schema-invalid-but-field-complete
+  case: every field present and well-typed except one `.strict()`-rejected
+  unknown key) and `src/runtime-contract/managed-runtime.test.ts`.
 - **Deterministic rollback fixture** and **contract-shape tests**
   (`src/runtime-contract/contract.test.ts`) run under the existing
   `node --test` suite and require no Nix toolchain.
