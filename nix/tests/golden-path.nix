@@ -309,8 +309,17 @@ let
     # `exit $ec`.
     def run_as_control_bounded(command, expect_success, max_bytes=8000):
         log_path = "/tmp/mottainai-golden-path-cmd.log"
+        # 9e23f70 fixed the cwd self-reference bug, but the very next run
+        # hung silently for the full 1-hour nixosTest safety timeout with
+        # --offline still in effect — inconsistent with a network block
+        # (that fails fast) and never diagnosed further, since the whole
+        # hour was spent with zero output. `timeout 240` bounds this
+        # command to 4 minutes so any future hang here fails fast (exit
+        # 124) with a real, fast signal instead of silently burning the
+        # entire CI budget again.
         wrapped = (
-            command
+            "timeout 240 "
+            + command
             + " > "
             + log_path
             + " 2>&1; ec=$?; head -c "
