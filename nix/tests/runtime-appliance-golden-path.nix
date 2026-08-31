@@ -7,13 +7,7 @@
 let
   system = pkgs.stdenv.hostPlatform.system;
   canonicalDiskImage = "${runtimeApplianceImage}/mottainai-runtime-appliance.raw";
-  applianceInputs = builtins.fromJSON (
-    builtins.unsafeDiscardStringContext (
-      builtins.readFile "${runtimeApplianceImage}/runtime-appliance-inputs.json"
-    )
-  );
-  canonicalBuildIdentity = applianceInputs.nixSystemClosure;
-  canonicalSourceJson = builtins.toJSON applianceInputs.canonicalSource;
+  applianceInputsPath = "${runtimeApplianceImage}/runtime-appliance-inputs.json";
   mottainaiVersionV1 = "0.7.0";
   mottainaiVersionV2 = "0.7.1";
   # NAR hashes of the exact trees produced by the source resolver's
@@ -23,10 +17,6 @@ let
   nawabariVersion = "0.6.1";
   nawabariSourceSha256 = "1ce810f330b293eee02591c4bb75ee8b489668d53cdbea3aca754e08475b33ba";
 in
-assert applianceInputs.contractId == "mottainai.linux-runtime-appliance.v1";
-assert applianceInputs.schemaVersion == 1;
-assert applianceInputs.architecture == system;
-assert applianceInputs.canonicalSource.output == "applianceConfigurations.${system}.config.system.build.toplevel";
 (pkgs.testers.nixosTest {
   name = "mottainai-runtime-appliance-golden-path";
 
@@ -78,6 +68,7 @@ assert applianceInputs.canonicalSource.output == "applianceConfigurations.${syst
     import time
 
     canonical_disk = ${builtins.toJSON canonicalDiskImage}
+    appliance_inputs_path = ${builtins.toJSON applianceInputsPath}
     root_overlay = os.path.join(str(golden.state_dir), "canonical-root-overlay.qcow2")
     bootstrap_raw = os.path.join(str(golden.state_dir), "bootstrap.raw")
     bootstrap_disk = os.path.join(str(golden.state_dir), "empty0.qcow2")
@@ -99,6 +90,15 @@ assert applianceInputs.canonicalSource.output == "applianceConfigurations.${syst
             "\nstderr: " + result.stderr[-1000:]
         )
         return result.stdout
+
+    with open(appliance_inputs_path, "r", encoding="utf-8") as handle:
+        appliance_inputs = json.load(handle)
+    assert appliance_inputs["contractId"] == "mottainai.linux-runtime-appliance.v1"
+    assert appliance_inputs["schemaVersion"] == 1
+    assert appliance_inputs["architecture"] == "${system}"
+    canonical_source = appliance_inputs["canonicalSource"]
+    assert canonical_source["output"] == "applianceConfigurations.${system}.config.system.build.toplevel"
+    canonical_build_identity = appliance_inputs["nixSystemClosure"]
 
     # Make the canonical raw image immutable backing storage for the VM's
     # writable disk. The overlay is created outside the Nix store; the base
@@ -256,7 +256,7 @@ assert applianceInputs.canonicalSource.output == "applianceConfigurations.${syst
     golden.start(allow_reboot=True)
     wait_for_ssh()
     base_appliance_identity = control("readlink -f /run/current-system").strip()
-    assert base_appliance_identity == ${builtins.toJSON canonicalBuildIdentity}
+    assert base_appliance_identity == canonical_build_identity
 
     with subtest("fresh canonical appliance is bootstrap-ready and has no managed packages"):
         control("systemctl is-active --quiet mottainai-runtime-bootstrap-ready.service")
@@ -389,8 +389,8 @@ assert applianceInputs.canonicalSource.output == "applianceConfigurations.${syst
             "contractId": "mottainai.linux-runtime-appliance.v1",
             "schemaVersion": 1,
             "architecture": "${system}",
-            "nixSystemClosure": ${builtins.toJSON canonicalBuildIdentity},
-            "canonicalSource": ${canonicalSourceJson},
+            "nixSystemClosure": canonical_build_identity,
+            "canonicalSource": canonical_source,
             "disk": {
                 "path": canonical_disk,
                 "format": "raw",
