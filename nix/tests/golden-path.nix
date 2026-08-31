@@ -433,6 +433,52 @@ let
         assert len(mottainai_source_sha256_v2) == 64
         assert mottainai_source_sha256_v1 != mottainai_source_sha256_v2
 
+    with subtest("diagnostic: snapshot the process tree while the v1 reconcile call is hanging"):
+        # Five theory-driven fixes (cwd, dropping --arg, --no-update-lock-file,
+        # closing stdin) have all failed to change the same ~240s hang with
+        # zero CLI output -- time to stop guessing and look at the actual
+        # process tree while it is stuck, rather than propose a sixth fix
+        # blind. Launch the real reconcile call in the background as root
+        # (mottainai-control cannot read nix-daemon's or the nix build
+        # user's /proc entries; root can read every process's), wait well
+        # into the hang window observed every time so far, then snapshot
+        # every process's state and kernel wait-channel (wchan names the
+        # exact syscall/condition a blocked process is parked on) before
+        # killing everything.
+        apply_manifest(
+            golden_manifest("${mottainaiVersionV1}", mottainai_source_sha256_v1, nawabari_source_sha256, 1)
+        )
+        diag_script = """
+        cat > /tmp/golden-path-diag.sh <<'SCRIPT_EOF'
+        #!/bin/sh
+        set -u
+        su -l mottainai-control -c "timeout 200 mottainai-bootstrap reconcile --system ${systemString} --repo-root ${repoRootForGuest} --mottainai-source ${sourceV1} --json > /tmp/mottainai-golden-path-cmd.log 2>&1" &
+        su_pid=$!
+        sleep 45
+        {
+          echo snapshot-after-45s
+          for p in /proc/[0-9]*; do
+            n=$(basename "$p")
+            [ -r "$p/status" ] || continue
+            comm=$(cat "$p/comm" 2>/dev/null)
+            wchan=$(cat "$p/wchan" 2>/dev/null)
+            ppid=$(grep "^PPid:" "$p/status" 2>/dev/null | cut -f2)
+            state=$(grep "^State:" "$p/status" 2>/dev/null | cut -f2-)
+            printf "pid=%s ppid=%s comm=%s state=%s wchan=%s\\n" "$n" "$ppid" "$comm" "$state" "$wchan"
+          done
+        } > /tmp/golden-path-ps-snapshot.log 2>&1
+        kill -9 "$su_pid" 2>/dev/null || true
+        pkill -9 -f mottainai-bootstrap 2>/dev/null || true
+        pkill -9 -f "nix build" 2>/dev/null || true
+        wait 2>/dev/null || true
+        SCRIPT_EOF
+        chmod +x /tmp/golden-path-diag.sh
+        /tmp/golden-path-diag.sh
+        grep -E "mottainai|nix-daemon|nix|node|pnpm|su |sh" /tmp/golden-path-ps-snapshot.log | head -c 6000
+        exit 1
+        """
+        succeed(diag_script)
+
     with subtest("provide the canonical managed manifest and reconcile: build + activate generation v1 (Mottainai + Nawabari)"):
         apply_manifest(
             golden_manifest("${mottainaiVersionV1}", mottainai_source_sha256_v1, nawabari_source_sha256, 1)
