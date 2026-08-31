@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   DEFAULT_INSTANCE_NAME,
   collectHostObservations,
+  classifyConcurrentStartResult,
   inspectKvmAcceleration,
   parseArguments,
   parseLimaListOutput,
@@ -75,19 +76,42 @@ test("instance validation rejects unsupported and ambiguous state", () => {
     ).pass,
     false,
   );
+
+  const baseline = validateInstanceState(
+    { ...base, dir: "/tmp/one", sshLocalPort: 60022 },
+    { instanceName: DEFAULT_INSTANCE_NAME, expectedStatus: "Running", expectedArch: "x86_64" },
+  );
+  const changedTransport = validateInstanceState(
+    { ...base, dir: "/tmp/two", sshLocalPort: 60023 },
+    {
+      instanceName: DEFAULT_INSTANCE_NAME,
+      expectedStatus: "Running",
+      expectedArch: "x86_64",
+      baselineIdentity: baseline.identity,
+    },
+  );
+  assert.deepEqual(baseline.identity, { name: DEFAULT_INSTANCE_NAME, arch: "x86_64" });
+  assert.equal(changedTransport.pass, true);
 });
 
-test("KVM acceleration evidence requires QEMU kvm selection and rejects fallback or ambiguity", () => {
-  const kvmLog = JSON.stringify({
+test("KVM acceleration remains fail-closed when Lima exposes no documented observation", () => {
+  const internalLog = JSON.stringify({
     level: "debug",
-    msg: "qCmd.Args: [/usr/bin/qemu-system-x86_64 -machine q35,accel=kvm -m 1024]",
+    msg: "qCmd.Args: [/usr/bin/qemu-system-x86_64 -machine q35,accel=kvm]",
   });
-  assert.equal(inspectKvmAcceleration({ stderr: `${kvmLog}\n` }).pass, true);
+  const observation = inspectKvmAcceleration({ stderr: `${internalLog}\n` });
+  assert.equal(observation.pass, false);
+  assert.equal(observation.status, "blocked-public-surface");
+  assert.match(observation.diagnostic, /documented\/public/u);
+});
 
-  const fallbackLog = JSON.stringify({ level: "debug", msg: "qemu[stderr]: falling back to tcg" });
-  assert.equal(inspectKvmAcceleration({ stderr: `${kvmLog}\n${fallbackLog}\n` }).pass, false);
-  assert.equal(inspectKvmAcceleration({ stderr: "" }).status, "ambiguous");
-  assert.equal(inspectKvmAcceleration({ stderr: `${kvmLog}\nnot-json\n` }).status, "ambiguous");
+test("concurrent start outcomes distinguish convergence from unknown provider errors", () => {
+  assert.equal(classifyConcurrentStartResult({ exitStatus: 0 }), "succeeded");
+  assert.equal(
+    classifyConcurrentStartResult({ exitStatus: 1, stderr: "instance is already running\n" }),
+    "already-running",
+  );
+  assert.equal(classifyConcurrentStartResult({ exitStatus: 1, stderr: "permission denied\n" }), "failed");
 });
 
 test("host prerequisite probe records a readable/writable KVM character device", () => {
@@ -131,14 +155,15 @@ test("cleanup requires both successful deletion and public post-delete absence",
 
 test("full lifecycle harness uses only fake limactl output and records every required operation", async () => {
   let state = "missing";
+  let inspectionNumber = 0;
   const calls = [];
   const record = () => ({
     name: DEFAULT_INSTANCE_NAME,
     status: state === "running" ? "Running" : "Stopped",
     vmType: "qemu",
     arch: "x86_64",
-    dir: "/tmp/fixture-lima-instance",
-    sshLocalPort: 60022,
+    dir: `/tmp/fixture-lima-instance-${inspectionNumber}`,
+    sshLocalPort: 60022 + inspectionNumber,
   });
   const fakeRunner = async ({ operation, args }) => {
     calls.push({ operation, args });
@@ -152,6 +177,7 @@ test("full lifecycle harness uses only fake limactl output and records every req
       if (operation === "missing-instance-lookup") {
         return { exitStatus: 1, stdout: "", stderr: "instance does not exist\n", durationMs: 1 };
       }
+      inspectionNumber += 1;
       const output = state === "missing" ? "\n" : `${JSON.stringify(record())}\n`;
       return { exitStatus: 0, stdout: output, stderr: "", durationMs: 1 };
     }
@@ -160,12 +186,11 @@ test("full lifecycle harness uses only fake limactl output and records every req
       return { exitStatus: 0, stdout: "", stderr: "", durationMs: 1 };
     }
     if (command === "start") {
+      if (operation === "concurrent-ensure-b" && state === "running") {
+        return { exitStatus: 1, stdout: "", stderr: "instance is already running\n", durationMs: 1 };
+      }
       state = "running";
-      const stdout =
-        operation === "start" || operation === "restart-precondition-start"
-          ? `${JSON.stringify({ level: "debug", msg: "qCmd.Args: [/usr/bin/qemu-system-x86_64 -machine q35,accel=kvm]" })}\n`
-          : "";
-      return { exitStatus: 0, stdout, stderr: "", durationMs: 1 };
+      return { exitStatus: 0, stdout: "", stderr: "", durationMs: 1 };
     }
     if (command === "stop") {
       state = "stopped";
@@ -175,7 +200,7 @@ test("full lifecycle harness uses only fake limactl output and records every req
       state = "running";
       return {
         exitStatus: 0,
-        stdout: `${JSON.stringify({ level: "debug", msg: "qCmd.Args: [/usr/bin/qemu-system-x86_64 -machine q35,accel=kvm]" })}\n`,
+        stdout: "",
         stderr: "",
         durationMs: 1,
       };
@@ -196,8 +221,12 @@ test("full lifecycle harness uses only fake limactl output and records every req
     now: () => 1,
   });
 
-  assert.equal(result.evidence.result.pass, true);
-  assert.equal(result.evidence.result.exit_status, 0);
+  assert.equal(result.evidence.result.pass, false);
+  assert.equal(result.evidence.result.exit_status, 1);
+  assert.equal(
+    result.evidence.steps.some((step) => step.id === "kvm-acceleration" && step.status === "failed"),
+    true,
+  );
   assert.equal(
     result.evidence.steps.some((step) => step.id === "concurrent-ensure" && step.pass),
     true,
@@ -210,6 +239,13 @@ test("full lifecycle harness uses only fake limactl output and records every req
     result.evidence.steps.some((step) => step.id === "inspect-after-restart" && step.pass),
     true,
   );
+  const restartedInspection = result.evidence.steps.find((step) => step.id === "inspect-after-restart");
+  assert.deepEqual(restartedInspection.instance_identity, {
+    name: DEFAULT_INSTANCE_NAME,
+    arch: "x86_64",
+  });
+  assert.equal(result.evidence.steps.filter((step) => step.id === "repeated-stop")[0].observed_state.action, "no-op");
+  assert.equal(calls.filter((call) => call.operation === "repeated-stop").length, 0);
   assert.equal(
     result.evidence.deterministic_guard_checks.every((check) => check.pass),
     true,

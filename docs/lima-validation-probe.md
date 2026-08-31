@@ -48,34 +48,33 @@ The probe never reads Lima instance files, private sockets, QEMU process state, 
 
 The probe uses these [public Lima surfaces](https://lima-vm.io/docs/reference/):
 
-| Purpose                         | Public interface                                                                                        |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| availability/version            | `limactl --version`                                                                                     |
-| machine-readable state          | [`limactl list --all-fields --format json [INSTANCE]`](https://lima-vm.io/docs/reference/limactl_list/) |
-| creation and lifecycle          | `limactl create`, `start`, `stop`, `restart`, `delete --force`                                          |
-| guest health/recovery           | `limactl shell <INSTANCE> /bin/true`                                                                    |
-| KVM selection/error observation | `limactl --log-format json --log-level debug start/restart`                                             |
+| Purpose                     | Public interface                                                                                        |
+| --------------------------- | ------------------------------------------------------------------------------------------------------- |
+| availability/version        | `limactl --version`                                                                                     |
+| machine-readable state      | [`limactl list --all-fields --format json [INSTANCE]`](https://lima-vm.io/docs/reference/limactl_list/) |
+| creation and lifecycle      | `limactl create`, `start`, `stop`, `restart`, `delete --force`                                          |
+| guest health/recovery       | `limactl shell <INSTANCE> /bin/true`                                                                    |
+| KVM capability prerequisite | native `/dev/kvm` readable and writable                                                                 |
+| actual KVM-use observation  | unavailable through Lima's documented/public CLI surfaces                                               |
 
-KVM validation has two independent gates:
+The probe validates the host KVM prerequisite and that the instance uses Lima's QEMU driver (`vmType: qemu`). It intentionally does not claim that QEMU selected KVM. Lima's documented `list --format json` and logging controls do not expose actual accelerator selection as a supported machine-readable observation. The `virtualization.actual_acceleration` evidence is therefore recorded with status `blocked-public-surface` and `pass: false`, and the overall probe result remains failed until Lima exposes a supported observation.
 
-1. the invoking user must be able to open the native `/dev/kvm` character device read/write;
-2. Lima's documented JSON logging controls must expose QEMU arguments selecting `accel=kvm`, and the captured Lima log must contain no KVM initialization error or `falling back to tcg` diagnostic.
-
-If the debug JSON does not expose QEMU arguments, if its output is ambiguous, or if the accelerator cannot be determined, the probe fails closed. This is deliberate: the probe does not substitute private-state polling or direct QEMU/QMP inspection for missing public evidence. The accelerator observation is recorded as `virtualization.actual_acceleration`. The `--plain` isolation behavior and `LIMA_HOME` override are documented by Lima's [plain-mode](https://lima-vm.io/docs/config/plain/) and [environment-variable](https://lima-vm.io/docs/config/environment-variables/) references.
+This is a deliberate fail-closed conclusion, not a missing test. The probe does not parse internal debug strings such as `qCmd.Args:`, substitute private-state polling, or inspect QEMU/QMP directly. The `--plain` isolation behavior and `LIMA_HOME` override are documented by Lima's [plain-mode](https://lima-vm.io/docs/config/plain/) and [environment-variable](https://lima-vm.io/docs/config/environment-variables/) references.
 
 The primary evidence is one bounded JSON document. It contains the Mottainai revision, probe version, host OS and architecture, Lima version, KVM observations, every lifecycle step's expected and observed state, exit status, duration, public instance identity, pass/fail state, and short diagnostics. Each child stream is separately retained under `--logs`, capped at 64 KiB per stream, and marked as truncated in the command result when applicable.
+
+Identity comparisons use the product-level instance name and guest architecture. Lima's instance directory and SSH local port remain provider transport observations only and are not required to remain stable across reconciliation.
 
 The lifecycle sequence is:
 
 1. host prerequisites and Lima version;
 2. missing-instance lookup;
 3. create and stopped inspection;
-4. start, KVM observation, and running inspection;
-5. repeated start/ensure and two concurrent start calls;
-6. guest shell health check;
-7. stop, repeated stop, and stopped inspections;
-8. start, restart, stable-identity inspection, and guest recovery check;
-9. final stop, stopped inspection, forced cleanup, and evidence retention.
+4. start, blocked public-surface KVM observation, and running inspection;
+5. repeated start/ensure and guest shell health check;
+6. stop, stopped inspection, repeated-stop reconciliation no-op, and stopped inspection;
+7. two concurrent start calls from `Stopped`, final inspection, restart, and guest recovery check;
+8. final stop, stopped inspection, forced cleanup, and evidence retention.
 
 The probe also runs deterministic local guard fixtures for unsupported VM type, ambiguous status, and incomplete inspection. These fixtures prove the harness's fail-closed logic; they are not native Linux/KVM acceptance evidence.
 
@@ -92,6 +91,6 @@ The JSON file is the review entry point. The log directory is supplementary diag
 
 ## Acceptance boundary
 
-Automated fixture tests in this repository verify parsing, fail-closed guards, KVM-log interpretation, prerequisite observation, command isolation, and the lifecycle harness using fake `limactl` output. They do not pass the Issue's native Linux/KVM acceptance criteria.
+Automated fixture tests in this repository verify parsing, fail-closed guards, the public-surface KVM block, prerequisite observation, command isolation, provider-outcome classification, transport-independent identity, and the lifecycle harness using fake `limactl` output. They do not pass the Issue's native Linux/KVM acceptance criteria.
 
-The real acceptance decision remains pending until a human runs the command above on a native Linux/KVM host and returns the evidence JSON plus separate bounded logs. A successful local test run or mocked probe run must not be interpreted as proof that Lima uses KVM on the target host.
+The lifecycle evidence can still be collected by running the command above on a native Linux/KVM host, but it cannot prove actual KVM use through the currently documented Lima surface. A successful local test run or mocked probe run must not be interpreted as proof that Lima uses KVM on the target host.

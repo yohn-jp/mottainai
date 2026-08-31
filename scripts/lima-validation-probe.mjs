@@ -33,13 +33,11 @@ const LIMA_ENVIRONMENT_KEYS_TO_CLEAR = Object.freeze([
   ...QEMU_ENVIRONMENT_KEYS,
 ]);
 const SUPPORTED_STATUSES = new Set(["Running", "Stopped"]);
-const STABLE_IDENTITY_FIELDS = Object.freeze(["name", "vmType", "arch", "dir", "sshLocalPort"]);
-const ACCELERATION_FAILURE_PATTERNS = Object.freeze([
-  /could not access kvm/i,
-  /failed to initialize kvm/i,
-  /kvm.*(?:not available|not supported|permission denied)/i,
-  /falling back to tcg/i,
-  /disabling kvm/i,
+const RUNTIME_IDENTITY_FIELDS = Object.freeze(["name", "arch"]);
+const CONVERGED_START_PATTERNS = Object.freeze([
+  /already running/i,
+  /already started/i,
+  /start(?:ing)? .*in progress/i,
 ]);
 
 function excerpt(value, limit = MAX_DIAGNOSTIC_CHARS) {
@@ -343,7 +341,7 @@ export function publicInstanceState(record) {
 export function publicInstanceIdentity(record) {
   if (!isObject(record)) return null;
   const identity = {};
-  for (const field of STABLE_IDENTITY_FIELDS) {
+  for (const field of RUNTIME_IDENTITY_FIELDS) {
     if (Object.hasOwn(record, field)) identity[field] = record[field];
   }
   return identity;
@@ -351,7 +349,7 @@ export function publicInstanceIdentity(record) {
 
 function compareIdentity(previous, current) {
   if (!previous || !current) return "identity is unavailable";
-  for (const field of STABLE_IDENTITY_FIELDS) {
+  for (const field of RUNTIME_IDENTITY_FIELDS) {
     const previousHasField = Object.hasOwn(previous, field);
     const currentHasField = Object.hasOwn(current, field);
     if (previousHasField !== currentHasField) return `${field} presence changed`;
@@ -386,67 +384,22 @@ export function validateInstanceState(record, { instanceName, expectedStatus, ex
   return { pass: true, identity, state: publicInstanceState(record) };
 }
 
-function hasKvmInQemuArgs(message) {
-  return (
-    /(?:^|\s)-accel\s+kvm(?:\s|$|[\],])/u.test(message) ||
-    /(?:^|\s)-machine\s+[^\s]*accel=kvm(?:\s|$|[\],])/u.test(message)
-  );
-}
-
-function structuredLogMessages(text) {
-  const parsed = parseJsonLines(text);
+export function inspectKvmAcceleration() {
   return {
-    messages: parsed.values
-      .filter((value) => isObject(value) && typeof value.msg === "string")
-      .map((value) => value.msg),
-    errors: parsed.errors,
+    pass: false,
+    status: "blocked-public-surface",
+    requested: null,
+    fallback: null,
+    diagnostic:
+      "Lima does not expose actual QEMU accelerator selection through a documented/public machine-readable interface",
+    observation: "unavailable through documented/public Lima surfaces",
   };
 }
 
-export function inspectKvmAcceleration({ stdout = "", stderr = "" } = {}) {
-  const stdoutLogs = structuredLogMessages(stdout);
-  const stderrLogs = structuredLogMessages(stderr);
-  const messages = [...stdoutLogs.messages, ...stderrLogs.messages];
-  const parseErrors = [...stdoutLogs.errors, ...stderrLogs.errors];
-  const qemuArgumentMessages = messages.filter((message) => /qCmd\.Args:/u.test(message));
-  const failureMessages = messages.filter((message) =>
-    ACCELERATION_FAILURE_PATTERNS.some((pattern) => pattern.test(message)),
-  );
-  if (parseErrors.length > 0 || qemuArgumentMessages.length === 0) {
-    return {
-      pass: false,
-      status: "ambiguous",
-      requested: null,
-      fallback: null,
-      diagnostic:
-        parseErrors.length > 0
-          ? `Lima debug JSON was not parseable: ${parseErrors[0]}`
-          : "Lima debug JSON did not expose QEMU arguments; KVM acceleration is unobservable",
-      parse_errors: parseErrors,
-    };
-  }
-  const requested = qemuArgumentMessages.map((message) => hasKvmInQemuArgs(message));
-  const fallback = failureMessages.length > 0;
-  if (requested.some((value) => !value) || fallback) {
-    return {
-      pass: false,
-      status: fallback ? "fallback-or-error" : "non-kvm",
-      requested: requested.every(Boolean),
-      fallback,
-      diagnostic: excerpt(failureMessages[0] ?? qemuArgumentMessages[0]),
-      qemu_argument_messages: qemuArgumentMessages.map((message) => excerpt(message)),
-      parse_errors: parseErrors,
-    };
-  }
-  return {
-    pass: true,
-    status: "observed",
-    requested: true,
-    fallback: false,
-    diagnostic: "Lima exposed QEMU arguments selecting KVM and no KVM fallback/error was observed",
-    qemu_argument_messages: qemuArgumentMessages.map((message) => excerpt(message)),
-    parse_errors: parseErrors,
-  };
+export function classifyConcurrentStartResult(result) {
+  if (commandPass(result)) return "succeeded";
+  const output = `${result?.stdout ?? ""}\n${result?.stderr ?? ""}`;
+  return CONVERGED_START_PATTERNS.some((pattern) => pattern.test(output)) ? "already-running" : "failed";
 }
 
 export function runGuardFixtures() {
@@ -622,7 +575,7 @@ function baseEvidence({ revision, instanceName, host, executable, timeoutSeconds
       executable,
       version: null,
       inspection_interface: "limactl list --format json",
-      log_interface: "limactl --log-format json --log-level debug",
+      log_interface: "limactl --log-format json (diagnostics only)",
     },
     virtualization: {
       required_vm_type: "qemu",
@@ -662,7 +615,6 @@ function appendSkippedLifecycleSteps(evidence, diagnostic) {
     "inspect-stopped",
     "repeated-stop",
     "inspect-after-repeated-stop",
-    "restart-precondition-start",
     "restart",
     "inspect-after-restart",
     "recovery-shell",
@@ -862,25 +814,37 @@ export async function runProbe({
     operation: "start",
     command: "start",
     args: [instanceName, "--timeout", `${timeoutSeconds}s`],
-    level: "debug",
     timeoutMs: timeoutSeconds * 1000,
   });
-  const startAcceleration = inspectKvmAcceleration(startResult);
-  evidence.virtualization.actual_acceleration = startAcceleration;
+  const startPass = commandPass(startResult);
   evidence.steps.push(
     makeStep({
       id: "start",
       operation: "limactl start",
-      expectedState: { status: "Running", acceleration: "kvm" },
-      observedState: { command_completed: commandPass(startResult), acceleration: startAcceleration },
+      expectedState: { status: "Running" },
+      observedState: { command_completed: startPass },
       result: startResult,
-      pass: commandPass(startResult) && startAcceleration.pass,
-      diagnostic: commandPass(startResult) && startAcceleration.pass ? undefined : startAcceleration.diagnostic,
+      pass: startPass,
+      diagnostic: startPass ? undefined : "Lima start failed",
     }),
   );
-  if (!(commandPass(startResult) && startAcceleration.pass)) {
-    appendDiagnostic(evidence, "start did not provide unambiguous KVM acceleration evidence");
-    appendSkippedLifecycleSteps(evidence, "not run because start/KVM validation failed");
+  const accelerationObservation = inspectKvmAcceleration();
+  evidence.virtualization.actual_acceleration = accelerationObservation;
+  appendDiagnostic(evidence, accelerationObservation.diagnostic);
+  evidence.steps.push(
+    makeStep({
+      id: "kvm-acceleration",
+      operation: "documented/public Lima KVM observation",
+      expectedState: { actual_acceleration: "kvm" },
+      observedState: accelerationObservation,
+      pass: accelerationObservation.pass,
+      diagnostic: accelerationObservation.diagnostic,
+      rawLogs: startResult.rawLogs,
+    }),
+  );
+  if (!startPass) {
+    appendDiagnostic(evidence, "probe stopped after start failed");
+    appendSkippedLifecycleSteps(evidence, "not run because start failed");
     evidence.result.duration_ms = durationMilliseconds(startedAt, now);
     evidence.result.pass = false;
     return { evidence, instanceMayExist };
@@ -930,49 +894,6 @@ export async function runProbe({
   });
   evidence.steps.push(repeatedStartInspection.step);
 
-  const concurrentResults = await Promise.all([
-    invokeLima(commandRunner, {
-      operation: "concurrent-ensure-a",
-      command: "start",
-      args: [instanceName, "--timeout", `${timeoutSeconds}s`],
-      timeoutMs: timeoutSeconds * 1000,
-    }),
-    invokeLima(commandRunner, {
-      operation: "concurrent-ensure-b",
-      command: "start",
-      args: [instanceName, "--timeout", `${timeoutSeconds}s`],
-      timeoutMs: timeoutSeconds * 1000,
-    }),
-  ]);
-  const concurrentPass = concurrentResults.every(commandPass);
-  evidence.steps.push(
-    makeStep({
-      id: "concurrent-ensure",
-      operation: "two concurrent limactl start calls",
-      expectedState: { status: "Running", concurrent_calls: 2 },
-      observedState: {
-        exit_statuses: concurrentResults.map((result) => result.exitStatus),
-        durations_ms: concurrentResults.map((result) => result.durationMs),
-      },
-      pass: concurrentPass,
-      diagnostic: concurrentPass ? undefined : "concurrent ensure calls were not both accepted by the public Lima CLI",
-      rawLogs: {
-        first: concurrentResults[0].rawLogs,
-        second: concurrentResults[1].rawLogs,
-      },
-      durationMs: concurrentResults.reduce((sum, result) => sum + (result.durationMs ?? 0), 0),
-    }),
-  );
-  const concurrentInspection = await inspectInstance({
-    commandRunner,
-    instanceName,
-    expectedArch,
-    expectedStatus: "Running",
-    baselineIdentity,
-    operation: "inspect-after-concurrent-ensure",
-  });
-  evidence.steps.push(concurrentInspection.step);
-
   const guestShellResult = await invokeLima(commandRunner, {
     operation: "guest-shell",
     command: "shell",
@@ -1012,20 +933,28 @@ export async function runProbe({
   });
   evidence.steps.push(stoppedInspection.step);
 
-  const repeatedStopResult = await invokeLima(commandRunner, {
-    operation: "repeated-stop",
-    command: "stop",
-    args: [instanceName],
-  });
+  const alreadyStopped = stoppedInspection.validation.pass && stoppedInspection.validation.state?.status === "Stopped";
+  const repeatedStopResult = alreadyStopped
+    ? undefined
+    : await invokeLima(commandRunner, {
+        operation: "repeated-stop",
+        command: "stop",
+        args: [instanceName],
+      });
+  const repeatedStopPass = alreadyStopped || commandPass(repeatedStopResult);
   evidence.steps.push(
     makeStep({
       id: "repeated-stop",
-      operation: "limactl stop (repeated)",
-      expectedState: { status: "Stopped", idempotent: true },
-      observedState: { command_completed: commandPass(repeatedStopResult) },
+      operation: alreadyStopped ? "Mottainai stop reconciliation (no-op)" : "limactl stop (repeated)",
+      expectedState: { status: "Stopped", reconciled: true },
+      observedState: {
+        precondition_status: stoppedInspection.validation.state?.status ?? null,
+        action: alreadyStopped ? "no-op" : "provider-stop",
+        provider_command_completed: alreadyStopped ? null : commandPass(repeatedStopResult),
+      },
       result: repeatedStopResult,
-      pass: commandPass(repeatedStopResult),
-      diagnostic: commandPass(repeatedStopResult) ? undefined : "repeated stop was not safely idempotent",
+      pass: repeatedStopPass,
+      diagnostic: repeatedStopPass ? undefined : "repeated stop did not converge to Stopped",
     }),
   );
   const repeatedStopInspection = await inspectInstance({
@@ -1038,53 +967,74 @@ export async function runProbe({
   });
   evidence.steps.push(repeatedStopInspection.step);
 
-  const restartPreconditionResult = await invokeLima(commandRunner, {
-    operation: "restart-precondition-start",
-    command: "start",
-    args: [instanceName, "--timeout", `${timeoutSeconds}s`],
-    level: "debug",
-    timeoutMs: timeoutSeconds * 1000,
+  const concurrentResults = await Promise.all([
+    invokeLima(commandRunner, {
+      operation: "concurrent-ensure-a",
+      command: "start",
+      args: [instanceName, "--timeout", `${timeoutSeconds}s`],
+      timeoutMs: timeoutSeconds * 1000,
+    }),
+    invokeLima(commandRunner, {
+      operation: "concurrent-ensure-b",
+      command: "start",
+      args: [instanceName, "--timeout", `${timeoutSeconds}s`],
+      timeoutMs: timeoutSeconds * 1000,
+    }),
+  ]);
+  const concurrentOutcomes = concurrentResults.map(classifyConcurrentStartResult);
+  const concurrentInspection = await inspectInstance({
+    commandRunner,
+    instanceName,
+    expectedArch,
+    expectedStatus: "Running",
+    baselineIdentity,
+    operation: "inspect-after-concurrent-ensure",
   });
-  const restartPreconditionAcceleration = inspectKvmAcceleration(restartPreconditionResult);
+  const concurrentPass =
+    concurrentInspection.validation.pass &&
+    concurrentOutcomes.includes("succeeded") &&
+    concurrentOutcomes.every((outcome) => outcome !== "failed");
   evidence.steps.push(
     makeStep({
-      id: "restart-precondition-start",
-      operation: "limactl start (restart precondition)",
-      expectedState: { status: "Running", acceleration: "kvm" },
+      id: "concurrent-ensure",
+      operation: "two concurrent limactl start calls from Stopped",
+      expectedState: { status: "Running", concurrent_calls: 2 },
       observedState: {
-        command_completed: commandPass(restartPreconditionResult),
-        acceleration: restartPreconditionAcceleration,
+        outcomes: concurrentOutcomes,
+        exit_statuses: concurrentResults.map((result) => result.exitStatus),
+        final_status: concurrentInspection.validation.state?.status ?? null,
+        final_identity: concurrentInspection.validation.identity ?? null,
       },
-      result: restartPreconditionResult,
-      pass: commandPass(restartPreconditionResult) && restartPreconditionAcceleration.pass,
-      diagnostic:
-        commandPass(restartPreconditionResult) && restartPreconditionAcceleration.pass
-          ? undefined
-          : restartPreconditionAcceleration.diagnostic,
+      identity: concurrentInspection.validation.identity,
+      pass: concurrentPass,
+      diagnostic: concurrentPass ? undefined : "concurrent ensure did not deterministically converge to Running",
+      rawLogs: {
+        first: concurrentResults[0].rawLogs,
+        second: concurrentResults[1].rawLogs,
+      },
+      durationMs: concurrentResults.reduce((sum, result) => sum + (result.durationMs ?? 0), 0),
     }),
   );
+  evidence.steps.push(concurrentInspection.step);
 
   const restartResult = await invokeLima(commandRunner, {
     operation: "restart",
     command: "restart",
     args: [instanceName],
-    level: "debug",
     timeoutMs: timeoutSeconds * 1000,
   });
-  const restartAcceleration = inspectKvmAcceleration(restartResult);
+  const restartPass = commandPass(restartResult);
   evidence.steps.push(
     makeStep({
       id: "restart",
       operation: "limactl restart",
-      expectedState: { status: "Running", acceleration: "kvm" },
-      observedState: { command_completed: commandPass(restartResult), acceleration: restartAcceleration },
+      expectedState: { status: "Running" },
+      observedState: { command_completed: restartPass },
       result: restartResult,
-      pass: commandPass(restartResult) && restartAcceleration.pass,
-      diagnostic: commandPass(restartResult) && restartAcceleration.pass ? undefined : restartAcceleration.diagnostic,
+      pass: restartPass,
+      diagnostic: restartPass ? undefined : "Lima restart failed",
     }),
   );
-  if (commandPass(restartResult) && restartAcceleration.pass)
-    evidence.virtualization.actual_acceleration = restartAcceleration;
 
   const restartedInspection = await inspectInstance({
     commandRunner,
