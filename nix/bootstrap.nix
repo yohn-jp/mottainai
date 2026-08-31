@@ -52,6 +52,8 @@ let
     "src/runtime-contract/managed-generation-build.ts"
     "src/runtime-contract/managed-generation.ts"
     "src/runtime-contract/managed-package-manifest.ts"
+    "src/runtime-contract/managed-runtime.ts"
+    "src/runtime-contract/managed-runtime-state.ts"
     "src/atomic-file.ts"
     "src/boundary.ts"
     "nix/flake.nix"
@@ -173,6 +175,8 @@ stdenvNoCC.mkDerivation {
       src/runtime-contract/managed-generation-build.ts \
       src/runtime-contract/managed-generation.ts \
       src/runtime-contract/managed-package-manifest.ts \
+      src/runtime-contract/managed-runtime.ts \
+      src/runtime-contract/managed-runtime-state.ts \
       src/atomic-file.ts \
       src/boundary.ts
 

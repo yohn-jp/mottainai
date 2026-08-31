@@ -88,22 +88,25 @@ An active symlink/store path without successful health is not `MANAGED_READY`.
 
 ## Command responsibility
 
-The #626 bootstrap command surface is intentionally narrower than the full
-lifecycle:
+The #626 bootstrap command surface, extended by Issue #642, is:
 
 ```text
 mottainai-bootstrap build <manifest>
 mottainai-bootstrap status
 mottainai-bootstrap verify
+mottainai-bootstrap reconcile
 ```
 
 `build` ends after producing and verifying a managed generation and persisting
 bounded bootstrap evidence. It MUST NOT switch active application state.
 
-The end-to-end `init`/reconcile operation belongs to the higher lifecycle that
-combines #626 build with #628 activation. A future full Mottainai command may
-name that orchestration `init` or `reconcile`; #626 does not need an `init`
-alias to implement it.
+`reconcile` is the end-to-end operation that combines #626 build with #628
+activation: it always converges the canonical `managed-runtime` control state
+against the canonical desired manifest (`src/runtime-contract/managed-runtime.ts`'s
+`reconcileManagedRuntime`), never a caller-supplied state directory, file,
+pointer, or manifest path. It is the one supported guest-invokable path to
+initialize, update, no-op, or roll back a managed generation; a fresh
+appliance has exactly this one path to reach `MANAGED_READY`.
 
 ## Reconcile input and authority
 
