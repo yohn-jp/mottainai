@@ -416,6 +416,28 @@ jobs:
       - name: Verify managed generation build is independent of caller cwd (Issue #643 regression)
         run: node --import tsx scripts/verify-managed-generation-cwd-independence.mjs x86_64-linux
 
+      # Issue #662: build and smoke-verify every entry in the first
+      # supported managed Runtime package catalog (each package's own
+      # installCheckPhase/check derivation runs as part of its build).
+      - name: Build and smoke-verify the managed Runtime package catalog (Issue #662)
+        working-directory: nix
+        run: |
+          set -euo pipefail
+          nix build --no-update-lock-file --no-link .#mottainai .#nawabari .#zellij
+          nix build --no-update-lock-file --no-link .#checks.x86_64-linux.zellij
+
+      # `nix flake check --no-build` above only evaluates checks; it never
+      # builds/runs them, so the real-projection catalog test
+      # (nix/tests/managed-generation.nix) needs its own explicit build step,
+      # the same way "Execute the managed-runtime health projection check"
+      # below already does for that non-VM check.
+      - name: Execute the managed generation projection check (Issue #625/#662)
+        working-directory: nix
+        run: nix build --no-update-lock-file --no-link .#checks.x86_64-linux.managed-generation
+
+      - name: Build the full managed Runtime package catalog end to end (Issue #662)
+        run: node --import tsx scripts/verify-managed-generation-catalog.mjs x86_64-linux
+
       - name: Execute the managed-runtime health projection check (Issue #644)
         working-directory: nix
         # `nix flake check --no-build` above only evaluates checks; it

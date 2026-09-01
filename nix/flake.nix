@@ -29,6 +29,20 @@
       mkNawabari = pkgs: import ./packages/nawabari.nix {
         inherit (pkgs) lib stdenvNoCC fetchurl makeWrapper nodejs_24;
       };
+      # Zellij (Issue #662): an explicitly delegated nixpkgs package identity
+      # rather than a repository-owned recipe — nixpkgs already packages it
+      # with the version/source control this catalog needs, so no recipe is
+      # reimplemented here (constraint: "prefer existing high-quality
+      # nixpkgs packages ... create repository-owned recipes only where the
+      # product requires stronger version/source control or the package is
+      # unavailable"). Deliberately `zellij-unwrapped`, not `pkgs.zellij`:
+      # the latter is a `symlinkJoin` wrapper (nixpkgs `pkgs/by-name/ze/zellij/package.nix`)
+      # whose own `.src` is not the upstream Zellij source tree, which would
+      # make nix/managed-generation.nix's `sourceStorePath` projection (every
+      # resolved entry's `"${r.drv.src}"`) reference the wrong object for
+      # this package. `zellij-unwrapped` is the real `fetchFromGitHub`-based
+      # derivation both provide `bin/zellij` from identically.
+      mkZellij = pkgs: pkgs.zellij-unwrapped;
       # Standalone bootstrap package (Issue #626) — the only application-facing
       # package embedded by the bootstrap-only appliance (#627).
       mkBootstrapFromSource = source: pkgs: import ./bootstrap.nix {
@@ -126,6 +140,7 @@
         {
           mottainai = mkMottainai pkgs;
           nawabari = mkNawabari pkgs;
+          zellij = mkZellij pkgs;
           runtime-system = runtimeConfigurations.${system}.config.system.build.toplevel;
           runtime-vm = runtimeConfigurations.${system}.config.system.build.vm;
           runtime-image = import ./runtime-image.nix {
@@ -174,6 +189,7 @@
           buildMottainai = source: import ./mottainai.nix { inherit pkgs source; };
           mottainaiSource = mottainaiSource;
           nawabariPackage = mkNawabari pkgs;
+          zellijPackage = mkZellij pkgs;
         };
 
       checks = forEachSystem (
@@ -192,6 +208,12 @@
             nativeBuildInputs = [ self.packages.${system}.nawabari ];
           } ''
             test "$(nawabari --version)" = "0.6.1"
+            touch "$out"
+          '';
+          zellij = pkgs.runCommand "zellij-smoke" {
+            nativeBuildInputs = [ self.packages.${system}.zellij ];
+          } ''
+            zellij --version | grep -qF "0.44.3"
             touch "$out"
           '';
           runtime-vm = import ./tests/runtime.nix {
@@ -215,6 +237,7 @@
             # canonical.
             mottainaiSource = ../.;
             nawabariPackage = mkNawabari pkgs;
+            zellijPackage = mkZellij pkgs;
           };
           bootstrap = import ./tests/bootstrap.nix {
             inherit pkgs;

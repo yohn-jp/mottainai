@@ -36,9 +36,17 @@ export const MANAGED_GENERATION_COMPATIBILITY_CONTRACT_VERSION = 1 as const;
  * for unsupported package kinds or unavailable recipes" without requiring a
  * Nix toolchain to prove it in tests.
  */
+// Issue #662 adds zellij: an explicitly delegated nixpkgs package identity
+// (nix/flake.nix's `mkZellij` -> pinned `nixpkgs#zellij-unwrapped`, not a
+// repository-owned recipe) rather than a new fetchurl/repo-checkout recipe,
+// per that Issue's constraint to prefer existing high-quality nixpkgs
+// packages. `coding-agent-cli` stays absent from this table: it is a
+// #624-recognized packageId with no projection here, since Issue #662 only
+// projects a package once Mottainai claims first-class support for it.
 const SUPPORTED_PROJECTIONS: ReadonlyArray<{ packageId: string; kind: string; flakeRef: string }> = [
   { packageId: "mottainai", kind: "nix-flake-package", flakeRef: "nix#mottainai" },
   { packageId: "nawabari", kind: "nix-flake-package", flakeRef: "nix/packages/nawabari.nix" },
+  { packageId: "zellij", kind: "nix-flake-package", flakeRef: "nixpkgs#zellij-unwrapped" },
 ];
 
 export class ManagedGenerationError extends Error {
