@@ -8,6 +8,8 @@ import {
   reconcileManagedRuntime,
   recoverManagedRuntime,
   readManagedRuntimeStatus,
+  SUPPORTED_RUNTIME_CONTRACT_ID,
+  SUPPORTED_RUNTIME_CONTRACT_SCHEMA_VERSION,
   type ManagedRuntimeBuiltGeneration,
   type ManagedRuntimeCandidate,
   type ManagedRuntimeHealthResult,
@@ -19,6 +21,7 @@ import {
   readManagedRuntimeState,
   writeManagedRuntimeState,
 } from "./managed-runtime-state.js";
+import { RUNTIME_CONTRACT_ID, RUNTIME_CONTRACT_SCHEMA_VERSION } from "./contract.js";
 import type { ManagedRuntimeState } from "./managed-runtime-state.js";
 import {
   MANAGED_PACKAGE_MANIFEST_CONTRACT_ID,
@@ -46,6 +49,15 @@ function packageEntry(packageId: "mottainai" | "nawabari", version: string) {
       sourceSha256: "a".repeat(64),
     },
   };
+}
+
+function manifestWithRuntimeMinimum(minimumRuntimeContractSchemaVersion: number): ManagedPackageManifest {
+  return manifest([
+    {
+      ...packageEntry("mottainai", "0.7.1"),
+      compatibility: { minimumRuntimeContractSchemaVersion },
+    },
+  ]);
 }
 
 function candidate(
@@ -306,6 +318,53 @@ test("initial post-switch health failure removes the unproven pointer and return
     assert.equal(state.active, undefined);
     assert.equal(state.activation.phase, "idle");
     assert.equal(state.failure?.generationIdentity, "generation-1");
+    assert.equal(readManagedRuntimePointer(path.join(value.root, "managed-runtime", "current")), undefined);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("default compatibility uses the canonical schema 2 and accepts a schema-2 manifest", async () => {
+  assert.equal(SUPPORTED_RUNTIME_CONTRACT_ID, RUNTIME_CONTRACT_ID);
+  assert.equal(SUPPORTED_RUNTIME_CONTRACT_SCHEMA_VERSION, RUNTIME_CONTRACT_SCHEMA_VERSION);
+  const value = fixture();
+  try {
+    const result = await reconcileManagedRuntime({
+      ...value.baseOptions(),
+      manifest: manifestWithRuntimeMinimum(RUNTIME_CONTRACT_SCHEMA_VERSION),
+    });
+    assert.equal(result.outcome, "initialized");
+    assert.equal(value.buildCalls, 1);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("schema-1-compatible manifests remain accepted under the canonical schema 2", async () => {
+  const value = fixture();
+  try {
+    const result = await reconcileManagedRuntime({
+      ...value.baseOptions(),
+      manifest: manifestWithRuntimeMinimum(1),
+    });
+    assert.equal(result.outcome, "initialized");
+    assert.equal(value.buildCalls, 1);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("default compatibility fails closed when a manifest requires a newer Runtime schema", async () => {
+  const value = fixture();
+  try {
+    await assert.rejects(
+      reconcileManagedRuntime({
+        ...value.baseOptions(),
+        manifest: manifestWithRuntimeMinimum(RUNTIME_CONTRACT_SCHEMA_VERSION + 1),
+      }),
+      (error: unknown) => error instanceof ManagedRuntimeError && error.code === "compatibility_mismatch",
+    );
+    assert.equal(value.buildCalls, 0);
     assert.equal(readManagedRuntimePointer(path.join(value.root, "managed-runtime", "current")), undefined);
   } finally {
     value.cleanup();
