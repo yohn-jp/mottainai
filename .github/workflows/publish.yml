@@ -307,19 +307,17 @@ jobs:
                 sha256: $asset_sha256
               }
             }' > "$metadata"
-          validate_release_metadata() {
+          validate_release_metadata_bytes() {
             local metadata_file="$1"
             local manifest_filename="$2"
             local asset_filename="$3"
             local asset_size_bytes="$4"
             local asset_sha256="$5"
-            local asset_digest="$6"
             jq -e \
               --arg source_revision "$RUNTIME_APPLIANCE_SOURCE_REVISION" \
               --arg manifest_filename "$manifest_filename" \
               --arg asset_filename "$asset_filename" \
               --arg asset_sha256 "$asset_sha256" \
-              --arg asset_digest "$asset_digest" \
               --argjson asset_size_bytes "$asset_size_bytes" \
               '
                 .contractId == "mottainai.linux-runtime-appliance-release.v1" and
@@ -333,17 +331,15 @@ jobs:
                 ((.compressedAsset.sizeBytes | type) == "number") and
                 .compressedAsset.sizeBytes == $asset_size_bytes and
                 (.compressedAsset.sha256 | test("^[0-9a-f]{64}$")) and
-                .compressedAsset.sha256 == $asset_sha256 and
-                ("sha256:" + .compressedAsset.sha256) == $asset_digest
+                .compressedAsset.sha256 == $asset_sha256
               ' "$metadata_file"
           }
-          validate_release_metadata \
+          validate_release_metadata_bytes \
             "$metadata" \
             "$(basename "$manifest")" \
             "$(basename "$compressed")" \
             "$compressed_size" \
-            "$compressed_sha256" \
-            "$compressed_digest"
+            "$compressed_sha256"
           test "$(jq -r '.sourceRevision' "$metadata")" = "$(jq -r '.sourceRevision' "$manifest")"
 
           roundtrip_directory="$RUNNER_TEMP/runtime-appliance-roundtrip"
@@ -492,9 +488,47 @@ jobs:
               ' "$oci_manifest_file"
           }
 
+          validate_release_metadata() {
+            local metadata_file="$1"
+            local manifest_filename="$2"
+            local asset_filename="$3"
+            local asset_size_bytes="$4"
+            local asset_sha256="$5"
+            local asset_digest="$6"
+            jq -e \
+              --arg source_revision "$RUNTIME_APPLIANCE_SOURCE_REVISION" \
+              --arg manifest_filename "$manifest_filename" \
+              --arg asset_filename "$asset_filename" \
+              --arg asset_sha256 "$asset_sha256" \
+              --arg asset_digest "$asset_digest" \
+              --argjson asset_size_bytes "$asset_size_bytes" \
+              '
+                .contractId == "mottainai.linux-runtime-appliance-release.v1" and
+                .schemaVersion == 1 and
+                .architecture == "x86_64-linux" and
+                .sourceRevision == $source_revision and
+                (.sourceRevision | test("^[0-9a-f]{40}$")) and
+                .canonicalManifest == $manifest_filename and
+                .compressedAsset.filename == $asset_filename and
+                .compressedAsset.format == "zstd" and
+                ((.compressedAsset.sizeBytes | type) == "number") and
+                .compressedAsset.sizeBytes == $asset_size_bytes and
+                (.compressedAsset.sha256 | test("^[0-9a-f]{64}$")) and
+                .compressedAsset.sha256 == $asset_sha256 and
+                ("sha256:" + .compressedAsset.sha256) == $asset_digest
+              ' "$metadata_file"
+          }
+
           # Validate the exact manifest ORAS generated before resolving its
           # registry descriptor. The descriptor digest below is authoritative.
           validate_oci_manifest "$pushed_manifest"
+          validate_release_metadata \
+            "$metadata" \
+            "$manifest_name" \
+            "$compressed_name" \
+            "$compressed_size" \
+            "$compressed_sha256" \
+            "$compressed_digest"
 
           descriptor="$RUNNER_TEMP/runtime-appliance-oci-descriptor.json"
           oras manifest fetch --no-tty --descriptor "$oci_repository:$oci_version_tag" > "$descriptor"
@@ -513,6 +547,14 @@ jobs:
           remote_oci_manifest="$RUNNER_TEMP/runtime-appliance-oci-remote-manifest.json"
           oras manifest fetch --no-tty --pretty "$oci_digest_ref" > "$remote_oci_manifest"
           validate_oci_manifest "$remote_oci_manifest"
+          remote_raw_descriptor="$(jq -er \
+            --arg raw_media_type "$oci_raw_media_type" \
+            '[.layers[] | select(.mediaType == $raw_media_type)] | if length == 1 then .[0] else empty end' \
+            "$remote_oci_manifest")"
+          remote_raw_digest="$(printf '%s' "$remote_raw_descriptor" | jq -er \
+            '.digest | select(type == "string") | select(test("^sha256:[0-9a-f]{64}$"))')"
+          remote_raw_size="$(printf '%s' "$remote_raw_descriptor" | jq -er \
+            '.size | select(type == "number") | select(. >= 0 and . == floor)')"
 
           downloaded="$RUNNER_TEMP/runtime-appliance-oci-roundtrip"
           mkdir -p "$downloaded"
@@ -530,13 +572,15 @@ jobs:
           remote_size="$(stat -c '%s' "$remote_compressed")"
           remote_sha256="$(sha256sum "$remote_compressed" | awk '{print $1}')"
           test "$remote_size" -lt 2147483648
+          test "$remote_size" = "$remote_raw_size"
+          test "sha256:$remote_sha256" = "$remote_raw_digest"
           validate_release_metadata \
             "$remote_metadata" \
             "$(basename "$remote_manifest")" \
             "$(basename "$remote_compressed")" \
-            "$remote_size" \
+            "$remote_raw_size" \
             "$remote_sha256" \
-            "sha256:$remote_sha256"
+            "$remote_raw_digest"
           test "$(jq -r '.sourceRevision' "$remote_metadata")" = "$(jq -r '.sourceRevision' "$remote_manifest")"
 
           remote_disk="$downloaded/mottainai-runtime-appliance.raw"
