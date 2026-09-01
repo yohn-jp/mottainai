@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import process from "node:process";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { replaceFileAtomically } from "../atomic-file.js";
@@ -19,6 +20,7 @@ export const MANAGED_RUNTIME_STATE_SCHEMA_VERSION = 1 as const;
 export const MANAGED_RUNTIME_STATE_RELATIVE_PATH = "managed-runtime/state.json" as const;
 export const MANAGED_RUNTIME_CURRENT_RELATIVE_PATH = "managed-runtime/current" as const;
 export const MANAGED_RUNTIME_MANIFEST_RELATIVE_PATH = "managed-packages/manifest.json" as const;
+export const MANAGED_RUNTIME_LOCK_RELATIVE_PATH = "managed-runtime/reconcile.lock" as const;
 export const MANAGED_RUNTIME_CONTROL_STATE_ROOT = "/var/lib/mottainai-control" as const;
 export const MANAGED_RUNTIME_STATE_FILE_PATH = path.join(
   MANAGED_RUNTIME_CONTROL_STATE_ROOT,
@@ -31,6 +33,10 @@ export const MANAGED_RUNTIME_CURRENT_POINTER_PATH = path.join(
 export const MANAGED_RUNTIME_MANIFEST_PATH = path.join(
   MANAGED_RUNTIME_CONTROL_STATE_ROOT,
   MANAGED_RUNTIME_MANIFEST_RELATIVE_PATH,
+);
+export const MANAGED_RUNTIME_LOCK_PATH = path.join(
+  MANAGED_RUNTIME_CONTROL_STATE_ROOT,
+  MANAGED_RUNTIME_LOCK_RELATIVE_PATH,
 );
 
 export const MANAGED_RUNTIME_ACTIVATION_PHASES = [
@@ -166,12 +172,31 @@ export class ManagedRuntimeStateError extends Error {
   }
 }
 
+export type ManagedRuntimeLockErrorCode = "busy" | "unavailable";
+
+export class ManagedRuntimeLockError extends ManagedRuntimeStateError {
+  readonly code: ManagedRuntimeLockErrorCode;
+  readonly operation: string;
+
+  constructor(code: ManagedRuntimeLockErrorCode, message: string, operation = "unknown") {
+    super(message);
+    this.name = "ManagedRuntimeLockError";
+    this.code = code;
+    this.operation = operation;
+  }
+}
+
+export interface ManagedRuntimeWriterLock {
+  release(): void;
+}
+
 export interface ManagedRuntimePaths {
   readonly stateRoot: string;
   readonly managedRuntimeDirectory: string;
   readonly stateFile: string;
   readonly currentPointer: string;
   readonly manifestFile: string;
+  readonly lockFile: string;
 }
 
 /** Compatibility aliases for consumers that call the pointer an activation path. */
@@ -193,7 +218,138 @@ export function resolveManagedRuntimePaths(
     stateFile: path.join(root, MANAGED_RUNTIME_STATE_RELATIVE_PATH),
     currentPointer: path.join(root, MANAGED_RUNTIME_CURRENT_RELATIVE_PATH),
     manifestFile: path.join(root, MANAGED_RUNTIME_MANIFEST_RELATIVE_PATH),
+    lockFile: path.join(root, MANAGED_RUNTIME_LOCK_RELATIVE_PATH),
   };
+}
+
+const MAX_LOCK_OWNER_LENGTH = 128 as const;
+const LOCK_OWNER_PATTERN = /^pid:([1-9][0-9]{0,9}):([0-9a-f-]{36})$/u;
+
+function lockErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function lockUnavailable(operation: string, error: unknown): ManagedRuntimeLockError {
+  return new ManagedRuntimeLockError(
+    "unavailable",
+    `managed Runtime writer lock ${operation} failed: ${lockErrorMessage(error)}`,
+    operation,
+  );
+}
+
+function readLockOwner(lockFile: string, boundaries: BoundaryOperations): string | undefined {
+  try {
+    const stat = boundaries.file("managed-runtime-writer-lock.inspect", () => fs.lstatSync(lockFile));
+    if (!stat.isSymbolicLink()) {
+      throw new ManagedRuntimeLockError("unavailable", "managed Runtime writer lock is not a symlink");
+    }
+    const owner = boundaries.file("managed-runtime-writer-lock.owner.read", () => fs.readlinkSync(lockFile));
+    if (owner.length > MAX_LOCK_OWNER_LENGTH || !LOCK_OWNER_PATTERN.test(owner)) {
+      throw new ManagedRuntimeLockError("unavailable", "managed Runtime writer lock owner is invalid");
+    }
+    return owner;
+  } catch (error) {
+    if (error instanceof ManagedRuntimeLockError) throw error;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw lockUnavailable("read", error);
+  }
+}
+
+function ownerPid(owner: string): number {
+  const match = LOCK_OWNER_PATTERN.exec(owner);
+  if (match === null) {
+    throw new ManagedRuntimeLockError("unavailable", "managed Runtime writer lock owner is invalid");
+  }
+  return Number(match[1]);
+}
+
+/** Treat permission/unknown process errors conservatively as a live owner. */
+function isProcessAlive(pid: number, boundaries: BoundaryOperations): boolean {
+  try {
+    boundaries.process("managed-runtime-writer-lock.owner-probe", () => process.kill(pid, 0));
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ESRCH") return false;
+    if (code === "EPERM") return true;
+    throw lockUnavailable("owner probe", error);
+  }
+}
+
+/**
+ * Acquire the non-blocking writer boundary for one canonical managed-runtime
+ * state root. The symlink creation is the exclusive create operation; its
+ * bounded owner identity makes a marker left by a dead process recoverable
+ * without introducing another managed-generation registry.
+ */
+export function acquireManagedRuntimeWriterLock(
+  lockFile: string,
+  boundaries: BoundaryOperations = DIRECT_BOUNDARIES,
+): ManagedRuntimeWriterLock {
+  const directory = path.dirname(lockFile);
+  try {
+    boundaries.file("managed-runtime-writer-lock.directory.create", () =>
+      fs.mkdirSync(directory, { recursive: true, mode: 0o700 }),
+    );
+  } catch (error) {
+    throw lockUnavailable("directory preparation", error);
+  }
+
+  const owner = `pid:${process.pid}:${randomUUID()}`;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      boundaries.file("managed-runtime-writer-lock.create", () => fs.symlinkSync(owner, lockFile));
+      let released = false;
+      return {
+        release(): void {
+          if (released) return;
+          const currentOwner = readLockOwner(lockFile, boundaries);
+          if (currentOwner === undefined) {
+            throw new ManagedRuntimeLockError("unavailable", "managed Runtime writer lock disappeared before release");
+          }
+          if (currentOwner !== owner) {
+            throw new ManagedRuntimeLockError("unavailable", "managed Runtime writer lock ownership changed");
+          }
+          try {
+            boundaries.file("managed-runtime-writer-lock.release", () => fs.unlinkSync(lockFile));
+          } catch (error) {
+            throw lockUnavailable("release", error);
+          }
+          released = true;
+        },
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+        if (error instanceof ManagedRuntimeLockError) throw error;
+        throw lockUnavailable("create", error);
+      }
+    }
+
+    const incumbent = readLockOwner(lockFile, boundaries);
+    if (incumbent === undefined) continue;
+    const incumbentPid = ownerPid(incumbent);
+    if (isProcessAlive(incumbentPid, boundaries)) {
+      throw new ManagedRuntimeLockError("busy", "managed Runtime reconcile is busy");
+    }
+
+    // Re-read before removing a stale marker so a contender that replaced it
+    // is never accidentally unlinked. This is deliberately bounded and
+    // non-blocking; a live/unknown owner remains fail-closed.
+    const confirmedOwner = readLockOwner(lockFile, boundaries);
+    if (confirmedOwner === undefined) continue;
+    if (confirmedOwner !== incumbent) continue;
+    if (isProcessAlive(ownerPid(confirmedOwner), boundaries)) {
+      throw new ManagedRuntimeLockError("busy", "managed Runtime reconcile is busy");
+    }
+    try {
+      boundaries.file("managed-runtime-writer-lock.stale-break", () => fs.unlinkSync(lockFile));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw lockUnavailable("stale break", error);
+    }
+  }
+
+  throw new ManagedRuntimeLockError("busy", "managed Runtime reconcile is busy");
 }
 
 /** Fails closed before a path can become an activation target. */

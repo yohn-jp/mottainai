@@ -20,6 +20,7 @@ import {
   writeManagedRuntimeState,
 } from "./managed-runtime-state.js";
 import type { ManagedRuntimeState } from "./managed-runtime-state.js";
+import type { BoundaryOperations } from "../boundary.js";
 import {
   MANAGED_PACKAGE_MANIFEST_CONTRACT_ID,
   MANAGED_PACKAGE_MANIFEST_SCHEMA_VERSION,
@@ -114,6 +115,7 @@ function fixture(
 
 const initialManifest = manifest([packageEntry("mottainai", "0.7.1"), packageEntry("nawabari", "0.6.1")]);
 const updatedManifest = manifest([packageEntry("mottainai", "0.7.2"), packageEntry("nawabari", "0.6.1")]);
+const competingManifest = manifest([packageEntry("mottainai", "0.7.3"), packageEntry("nawabari", "0.6.1")]);
 const removalManifest = manifest([packageEntry("mottainai", "0.7.1")]);
 
 test("fresh init builds, stages, atomically activates, health-checks, and persists a known-good generation", async () => {
@@ -289,6 +291,146 @@ test("post-switch health failure rolls back deterministically and retains bounde
       readManagedRuntimePointer(path.join(value.root, "managed-runtime", "current")),
       "/nix/store/generation-1",
     );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test(
+  "concurrent reconciles serialize through health and rollback without double activation",
+  { timeout: 10_000 },
+  async () => {
+    const value = fixture();
+    try {
+      await reconcileManagedRuntime({ ...value.baseOptions(), manifest: initialManifest });
+      const pointerSwitches: string[] = [];
+      const boundaries: BoundaryOperations = {
+        file(operation, action) {
+          if (operation === "managed-runtime-pointer.rename") pointerSwitches.push(operation);
+          return action();
+        },
+        process(_operation, action) {
+          return action();
+        },
+        storage(_operation, action) {
+          return action();
+        },
+      };
+      let allowFirstHealth!: () => void;
+      const firstHealthPending = new Promise<void>((resolve) => {
+        allowFirstHealth = resolve;
+      });
+      let firstHealthStarted!: () => void;
+      const firstHealthObserved = new Promise<void>((resolve) => {
+        firstHealthStarted = resolve;
+      });
+
+      const first = reconcileManagedRuntime({
+        ...value.baseOptions(),
+        manifest: updatedManifest,
+        boundaries,
+        dependencies: {
+          buildGeneration: () => ({
+            generationIdentity: "generation-concurrent-a",
+            storePath: "/nix/store/generation-concurrent-a",
+          }),
+          healthCheck: async (generation) => {
+            if (generation.generationIdentity === "generation-concurrent-a") {
+              firstHealthStarted();
+              await firstHealthPending;
+              return { healthy: false, generationIdentity: generation.generationIdentity, reason: "candidate failed" };
+            }
+            return { healthy: true, generationIdentity: generation.generationIdentity };
+          },
+        },
+      });
+      await firstHealthObserved;
+
+      // The first actor has switched the pointer but has not yet completed health
+      // or rollback. Status remains independently readable at this point.
+      const statusWhileWriterIsHeld = readManagedRuntimeStatus({ stateDirectory: value.root });
+      assert.equal(statusWhileWriterIsHeld.activationPhase, "switched-health-pending");
+      assert.equal(statusWhileWriterIsHeld.observedStorePath, "/nix/store/generation-concurrent-a");
+
+      let secondBuildCalls = 0;
+      await assert.rejects(
+        reconcileManagedRuntime({
+          ...value.baseOptions(),
+          manifest: competingManifest,
+          dependencies: {
+            buildGeneration: () => {
+              secondBuildCalls += 1;
+              return { generationIdentity: "generation-concurrent-b", storePath: "/nix/store/generation-concurrent-b" };
+            },
+            healthCheck: async (generation) => ({ healthy: true, generationIdentity: generation.generationIdentity }),
+          },
+        }),
+        (error: unknown) =>
+          error instanceof ManagedRuntimeError && error.code === "reconcile_busy" && error.message.length <= 2_048,
+      );
+      assert.equal(secondBuildCalls, 0);
+      const pending = readManagedRuntimeState(value.paths());
+      assert.equal(pending?.activation.phase, "switched-health-pending");
+      assert.equal(pending?.activation.candidate?.generationIdentity, "generation-concurrent-a");
+
+      allowFirstHealth();
+      await assert.rejects(
+        first,
+        (error: unknown) => error instanceof ManagedRuntimeError && error.code === "health_failure",
+      );
+      const finalState = readManagedRuntimeState(value.paths());
+      assert.equal(finalState?.activation.phase, "idle");
+      assert.equal(finalState?.active?.generationIdentity, "generation-1");
+      assert.equal(finalState?.failure?.generationIdentity, "generation-concurrent-a");
+      assert.equal(
+        readManagedRuntimePointer(path.join(value.root, "managed-runtime", "current")),
+        "/nix/store/generation-1",
+      );
+      assert.equal(pointerSwitches.length, 2, "only candidate activation and its rollback may switch current");
+      assert.equal(fs.existsSync(path.join(value.root, "managed-runtime", "reconcile.lock")), false);
+    } finally {
+      value.cleanup();
+    }
+  },
+);
+
+test("reconcile breaks a writer lock left by a dead process before activation recovery", async () => {
+  const value = fixture();
+  try {
+    await reconcileManagedRuntime({ ...value.baseOptions(), manifest: initialManifest });
+    const prior = readManagedRuntimeState(value.paths());
+    assert.ok(prior?.active);
+    const desiredIdentity = semanticIdentityOf(updatedManifest);
+    const staged = candidate("generation-recovered-after-crash", desiredIdentity, ["mottainai", "nawabari"]);
+    writeManagedRuntimeState(value.paths(), {
+      ...prior,
+      desiredManifestSemanticIdentity: desiredIdentity,
+      activation: {
+        phase: "prepared",
+        transactionId: "stale-lock-recovery",
+        candidate: staged,
+        previous: prior.active,
+        startedAt: "2026-08-30T00:00:00.000Z",
+        updatedAt: "2026-08-30T00:00:00.000Z",
+      },
+      updatedAt: "2026-08-30T00:00:00.000Z",
+    });
+    const lockFile = path.join(value.root, "managed-runtime", "reconcile.lock");
+    fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+    fs.symlinkSync("pid:999999999:00000000-0000-4000-8000-000000000000", lockFile);
+    const result = await reconcileManagedRuntime({
+      ...value.baseOptions(),
+      manifest: updatedManifest,
+      dependencies: {
+        buildGeneration: () => {
+          throw new Error("activation recovery must not rebuild");
+        },
+        healthCheck: async (generation) => ({ healthy: true, generationIdentity: generation.generationIdentity }),
+      },
+    });
+    assert.equal(result.outcome, "recovered");
+    assert.equal(result.active?.generationIdentity, staged.generationIdentity);
+    assert.equal(fs.existsSync(lockFile), false);
   } finally {
     value.cleanup();
   }

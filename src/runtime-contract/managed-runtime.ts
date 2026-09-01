@@ -13,6 +13,7 @@ import {
   MANAGED_RUNTIME_MANIFEST_RELATIVE_PATH,
   MANAGED_RUNTIME_STATE_CONTRACT_ID,
   MANAGED_RUNTIME_STATE_SCHEMA_VERSION,
+  acquireManagedRuntimeWriterLock,
   atomicallySelectManagedRuntimeGeneration,
   assertManagedStorePath,
   clearManagedRuntimePointer,
@@ -31,8 +32,10 @@ import type {
   ManagedRuntimeObservedState,
   ManagedRuntimePaths,
   ManagedRuntimeState,
+  ManagedRuntimeWriterLock,
 } from "./managed-runtime-state.js";
-import { DIRECT_BOUNDARIES } from "../boundary.js";
+import { ManagedRuntimeLockError } from "./managed-runtime-state.js";
+import { addSecondaryDiagnostic, DIRECT_BOUNDARIES } from "../boundary.js";
 import type { BoundaryOperations } from "../boundary.js";
 
 /** Minimum supported managed-generation metadata contract. */
@@ -175,7 +178,11 @@ export interface ManagedRuntimeReconcileResult {
   readonly status: ManagedRuntimeStatusReport;
 }
 
-export type ManagedRuntimeErrorCode = ManagedRuntimeFailureCode | "manifest_read_failure" | "recovery_required";
+export type ManagedRuntimeErrorCode =
+  | ManagedRuntimeFailureCode
+  | "manifest_read_failure"
+  | "recovery_required"
+  | "reconcile_busy";
 
 export class ManagedRuntimeError extends Error {
   readonly code: ManagedRuntimeErrorCode;
@@ -219,8 +226,14 @@ function statePaths(
   const resolved = resolveManagedRuntimePaths(options.stateDirectory ?? MANAGED_RUNTIME_CONTROL_STATE_ROOT);
   const stateFileDirectory = options.stateFilePath === undefined ? undefined : path.dirname(options.stateFilePath);
   const derivedRoot = stateFileDirectory === undefined ? undefined : path.dirname(stateFileDirectory);
+  const managedRuntimeDirectory =
+    stateFileDirectory ??
+    (options.currentPointerPath === undefined
+      ? resolved.managedRuntimeDirectory
+      : path.dirname(options.currentPointerPath));
   return {
     ...resolved,
+    managedRuntimeDirectory,
     stateFile: options.stateFilePath ?? resolved.stateFile,
     currentPointer:
       options.currentPointerPath ??
@@ -230,6 +243,7 @@ function statePaths(
       (derivedRoot === undefined
         ? resolved.manifestFile
         : path.join(derivedRoot, MANAGED_RUNTIME_MANIFEST_RELATIVE_PATH)),
+    lockFile: path.join(managedRuntimeDirectory, path.basename(resolved.lockFile)),
   };
 }
 
@@ -1040,6 +1054,56 @@ function statusFromState(state: ManagedRuntimeState, pointer: string | undefined
   };
 }
 
+function acquireWriterLock(paths: ManagedRuntimePaths, boundaries: BoundaryOperations): ManagedRuntimeWriterLock {
+  try {
+    return acquireManagedRuntimeWriterLock(paths.lockFile, boundaries);
+  } catch (error) {
+    if (error instanceof ManagedRuntimeLockError && error.code === "busy") {
+      throw new ManagedRuntimeError("reconcile_busy", error.message);
+    }
+    if (error instanceof ManagedRuntimeLockError && error.operation === "directory preparation") {
+      // Preserve the pre-lock CLI contract for an unprovisioned/inaccessible
+      // canonical root: there is no transaction state to inspect or mutate.
+      throw new ManagedRuntimeError(
+        "manifest_read_failure",
+        `managed package manifest cannot be read: ${boundedMessage(error.message)}`,
+      );
+    }
+    throw new ManagedRuntimeError(
+      "state_corrupt",
+      `managed Runtime writer lock is unavailable: ${boundedMessage(errorMessage(error))}`,
+    );
+  }
+}
+
+async function withWriterLock<T>(
+  paths: ManagedRuntimePaths,
+  boundaries: BoundaryOperations,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const lock = acquireWriterLock(paths, boundaries);
+  let result: T;
+  try {
+    result = await operation();
+  } catch (error) {
+    try {
+      lock.release();
+    } catch (releaseError) {
+      throw addSecondaryDiagnostic(error, "managed-runtime-writer-lock.release", releaseError);
+    }
+    throw error;
+  }
+  try {
+    lock.release();
+  } catch (error) {
+    throw new ManagedRuntimeError(
+      "state_corrupt",
+      `managed Runtime writer lock release failed: ${boundedMessage(errorMessage(error))}`,
+    );
+  }
+  return result;
+}
+
 /** Read bounded status/evidence without mutating state or guessing from the Nix store. */
 export function readManagedRuntimeStatus(options: ManagedRuntimeStatusOptions = {}): ManagedRuntimeStatusReport {
   const paths = statePaths(options);
@@ -1070,12 +1134,12 @@ export function readManagedRuntimeManifest(
  * owns only managed-generation selection and control-state evidence; it never
  * mutates the base appliance or persistent user/workspace data.
  */
-export async function reconcileManagedRuntime(
+async function reconcileManagedRuntimeLocked(
   options: ManagedRuntimeReconcileOptions,
+  boundaries: BoundaryOperations,
+  now: () => Date,
+  paths: ManagedRuntimePaths,
 ): Promise<ManagedRuntimeReconcileResult> {
-  const boundaries = options.boundaries ?? DIRECT_BOUNDARIES;
-  const now = options.now ?? (() => new Date());
-  const paths = statePaths(options);
   let loaded: { state: ManagedRuntimeState | undefined; pointer: string | undefined };
   try {
     loaded = loadStateAndPointer(paths);
@@ -1410,19 +1474,29 @@ export async function reconcileManagedRuntime(
   return resultFromState(committed, paths, rolledBack ? "rolled-back" : recovered ? "recovered" : outcome);
 }
 
-/** Explicit recovery entrypoint; it never starts a new build for an interrupted transaction. */
-export async function recoverManagedRuntime(
+/** Serialize the complete canonical managed-runtime mutation transaction. */
+export async function reconcileManagedRuntime(
   options: ManagedRuntimeReconcileOptions,
 ): Promise<ManagedRuntimeReconcileResult> {
   const boundaries = options.boundaries ?? DIRECT_BOUNDARIES;
   const now = options.now ?? (() => new Date());
   const paths = statePaths(options);
+  return withWriterLock(paths, boundaries, () => reconcileManagedRuntimeLocked(options, boundaries, now, paths));
+}
+
+/** Explicit recovery entrypoint; it never starts a new build for an interrupted transaction. */
+async function recoverManagedRuntimeLocked(
+  options: ManagedRuntimeReconcileOptions,
+  boundaries: BoundaryOperations,
+  now: () => Date,
+  paths: ManagedRuntimePaths,
+): Promise<ManagedRuntimeReconcileResult> {
   const loaded = loadStateAndPointer(paths);
   if (loaded.state === undefined || loaded.state.activation.phase === "idle") {
     // There is no durable transaction to recover. Fall through to the normal
     // lifecycle so a fresh deployment can still initialize and an idle state
     // can perform its ordinary health/no-op/update decision.
-    return reconcileManagedRuntime(options);
+    return reconcileManagedRuntimeLocked(options, boundaries, now, paths);
   }
   const recovery = await recoverTransaction(
     loaded.state,
@@ -1434,6 +1508,15 @@ export async function recoverManagedRuntime(
     supportedGenerationCompatibilityVersion(options),
   );
   return resultFromState(recovery.state, paths, recovery.rolledBack ? "rolled-back" : "recovered");
+}
+
+export async function recoverManagedRuntime(
+  options: ManagedRuntimeReconcileOptions,
+): Promise<ManagedRuntimeReconcileResult> {
+  const boundaries = options.boundaries ?? DIRECT_BOUNDARIES;
+  const now = options.now ?? (() => new Date());
+  const paths = statePaths(options);
+  return withWriterLock(paths, boundaries, () => recoverManagedRuntimeLocked(options, boundaries, now, paths));
 }
 
 /** Stateful facade for guest services that perform repeated reconcile/status calls. */

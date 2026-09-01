@@ -221,7 +221,7 @@ no state/manifest parameter either.
 A failure exits non-zero with `{ code, message }`, where `code` is one of
 `ManagedRuntimeErrorCode`'s values (`src/runtime-contract/managed-runtime-state.ts`'s
 `MANAGED_RUNTIME_FAILURE_CODES`, plus `manifest_read_failure` and
-`recovery_required`) — a separate taxonomy from the `BootstrapErrorCode`
+`recovery_required` and `reconcile_busy`) — a separate taxonomy from the `BootstrapErrorCode`
 table above, since `reconcile` composes #628's activation/rollback state
 machine rather than only #626's build pipeline.
 

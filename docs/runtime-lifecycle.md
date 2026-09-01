@@ -108,6 +108,16 @@ pointer, or manifest path. It is the one supported guest-invokable path to
 initialize, update, no-op, or roll back a managed generation; a fresh
 appliance has exactly this one path to reach `MANAGED_READY`.
 
+Before reading transaction state, `reconcile` acquires the exclusive
+`managed-runtime/reconcile.lock` owned by the same canonical control-state
+authority. The lock is held through build/prepare, pointer switch, health,
+rollback, and final state persistence. A live owner produces a bounded,
+non-blocking busy result; `managed-status` remains read-only and does not
+require this mutation authority. This writer serialization is separate from
+crash recovery: if a process dies, its bounded owner marker is breakable only
+after the recorded owner is no longer alive, and the next reconcile still uses
+the persisted activation phase plus the exact `current` pointer to recover.
+
 ## Reconcile input and authority
 
 Reconcile begins from the canonical #624 manifest under the Runtime control
