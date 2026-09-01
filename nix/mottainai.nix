@@ -31,6 +31,12 @@ let
     # #700 (Node 24 floor) pnpm-lock.yaml, HEAD's current lockfile.
     "8482f6b15b2d31c68a6ecb289b68bb26b40814cca3c9a0ca37ad1c4ca87c3234" =
       "sha256-rnud8yo06KfMQCIt4IenalU/RINW6BfpgpciOejugd0=";
+    # nix/tests/fixtures/alt-mottainai-source's empty (no-dependency)
+    # pnpm-lock.yaml, used by managed-generation.nix and
+    # runtime-appliance.nix's non-checkout-source projection tests.
+    # Placeholder pending the real fetch hash Nix reports for it.
+    "f0bcde463fa201480015b9caa7db2017d3c1b6ca9c7e133df955038c54333d48" =
+      lib.fakeSha256;
   };
   pnpmDepsOutputHash =
     knownPnpmDepsHashes.${pnpmLockContentHash}
