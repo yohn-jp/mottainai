@@ -203,6 +203,67 @@ fn managed_paths() -> (TempDir, ManagedPaths) {
     (temporary, paths)
 }
 
+fn rewrite_appliance_state_field(
+    paths: &ManagedPaths,
+    reference: &ApplianceReference,
+    field: &str,
+    value: &str,
+) {
+    let state_path = paths.appliance_state_path(&reference.digest);
+    let mut state: serde_json::Value =
+        serde_json::from_slice(&fs::read(&state_path).unwrap()).unwrap();
+    state[field] = serde_json::Value::String(value.to_owned());
+    fs::write(state_path, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
+}
+
+fn assert_appliance_schema_is_incompatible(schema_version: &str) {
+    let fixture = build_fixture();
+    let (_temp, paths) = managed_paths();
+    ensure_appliance(&paths, &fixture.reference, &fixture.oci).unwrap();
+    let raw_path = paths.appliance_raw_path(&fixture.reference.digest);
+    let raw_before = fs::read(&raw_path).unwrap();
+    rewrite_appliance_state_field(&paths, &fixture.reference, "schema_version", schema_version);
+    let state_path = paths.appliance_state_path(&fixture.reference.digest);
+    let state_before = fs::read(&state_path).unwrap();
+
+    let observation = inspect_appliance(&paths, &fixture.reference).unwrap();
+    assert_eq!(observation.classification, Classification::Incompatible);
+    assert!(observation.raw_path.is_none());
+
+    fixture.oci.fetch_manifest_calls.store(0, Ordering::SeqCst);
+    fixture.oci.fetch_blob_calls.store(0, Ordering::SeqCst);
+    let error = ensure_appliance(&paths, &fixture.reference, &fixture.oci).unwrap_err();
+    assert_eq!(error.code, ErrorCode::ApplianceStateIncompatible);
+    assert_eq!(fixture.oci.fetch_manifest_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(fixture.oci.fetch_blob_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(fs::read(raw_path).unwrap(), raw_before);
+    assert_eq!(fs::read(state_path).unwrap(), state_before);
+}
+
+fn assert_appliance_identity_is_incompatible(field: &str, value: &str) {
+    let fixture = build_fixture();
+    let (_temp, paths) = managed_paths();
+    ensure_appliance(&paths, &fixture.reference, &fixture.oci).unwrap();
+    let raw_path = paths.appliance_raw_path(&fixture.reference.digest);
+    let raw_before = fs::read(&raw_path).unwrap();
+    rewrite_appliance_state_field(&paths, &fixture.reference, field, value);
+    let state_path = paths.appliance_state_path(&fixture.reference.digest);
+    let state_before = fs::read(&state_path).unwrap();
+
+    let observation = inspect_appliance(&paths, &fixture.reference).unwrap();
+    assert_eq!(observation.classification, Classification::Incompatible);
+    assert!(observation.raw_path.is_none());
+
+    fixture.oci.fetch_manifest_calls.store(0, Ordering::SeqCst);
+    fixture.oci.fetch_blob_calls.store(0, Ordering::SeqCst);
+    let error = ensure_appliance(&paths, &fixture.reference, &fixture.oci).unwrap_err();
+    assert_eq!(error.code, ErrorCode::ApplianceStateIncompatible);
+    assert_eq!(fixture.oci.fetch_manifest_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(fixture.oci.fetch_blob_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(fs::read(raw_path).unwrap(), raw_before);
+    assert_eq!(fs::read(state_path).unwrap(), state_before);
+}
+
 #[test]
 fn valid_appliance_is_resolved_verified_and_materialized() {
     let fixture = build_fixture();
@@ -248,6 +309,62 @@ fn oversized_declared_raw_image_is_rejected_before_decompression() {
             .exists(),
         "an oversized declared image must not be materialized"
     );
+}
+
+#[test]
+fn ambiguous_orphaned_raw_disk_keeps_the_existing_verified_repair_policy() {
+    let fixture = build_fixture();
+    let (_temp, paths) = managed_paths();
+    let raw_path = paths.appliance_raw_path(&fixture.reference.digest);
+    fs::create_dir_all(raw_path.parent().unwrap()).unwrap();
+    fs::write(&raw_path, b"orphaned-raw-disk").unwrap();
+
+    let observation = inspect_appliance(&paths, &fixture.reference).unwrap();
+    assert_eq!(observation.classification, Classification::Ambiguous);
+
+    let repaired_path = ensure_appliance(&paths, &fixture.reference, &fixture.oci).unwrap();
+    assert_eq!(fs::read(repaired_path).unwrap(), fixture.raw_bytes);
+    assert_eq!(fixture.oci.fetch_manifest_calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn appliance_state_with_wrong_schema_is_not_satisfied() {
+    assert_appliance_schema_is_incompatible("mottainai.host-bootstrap.appliance.legacy");
+}
+
+#[test]
+fn appliance_state_with_future_schema_is_not_satisfied() {
+    assert_appliance_schema_is_incompatible("mottainai.host-bootstrap.appliance.v2");
+}
+
+#[test]
+fn appliance_state_with_mismatched_registry_is_not_satisfied() {
+    assert_appliance_identity_is_incompatible("registry", "registry.example.invalid");
+}
+
+#[test]
+fn appliance_state_with_mismatched_repository_is_not_satisfied() {
+    assert_appliance_identity_is_incompatible("repository", "other/runtime-appliance");
+}
+
+#[test]
+fn appliance_state_with_mismatched_digest_is_not_satisfied() {
+    assert_appliance_identity_is_incompatible("digest", &format!("sha256:{}", "0".repeat(64)));
+}
+
+#[test]
+fn malformed_appliance_state_fails_closed() {
+    let fixture = build_fixture();
+    let (_temp, paths) = managed_paths();
+    let state_path = paths.appliance_state_path(&fixture.reference.digest);
+    fs::create_dir_all(state_path.parent().unwrap()).unwrap();
+    fs::write(state_path, b"{not valid json").unwrap();
+
+    let error = match inspect_appliance(&paths, &fixture.reference) {
+        Ok(_) => panic!("malformed appliance state must fail closed"),
+        Err(error) => error,
+    };
+    assert_eq!(error.code, ErrorCode::ApplianceStateAmbiguous);
 }
 
 #[test]
@@ -326,7 +443,7 @@ fn decompressed_disk_digest_mismatch_fails_closed() {
 }
 
 #[test]
-fn tampered_materialized_raw_disk_is_detected_as_incompatible_and_self_healed() {
+fn tampered_materialized_raw_disk_is_detected_as_incompatible_and_not_replaced() {
     let fixture = build_fixture();
     let (_temp, paths) = managed_paths();
     let raw_path = ensure_appliance(&paths, &fixture.reference, &fixture.oci).unwrap();
@@ -337,12 +454,16 @@ fn tampered_materialized_raw_disk_is_detected_as_incompatible_and_self_healed() 
     let observation = inspect_appliance(&paths, &fixture.reference).unwrap();
     assert_eq!(observation.classification, Classification::Incompatible);
 
-    // `ensure_appliance` still converges to a verified state by re-deriving
-    // it from the trusted OCI source, exactly like the managed Lima
-    // provider's own repair path; it does not fail closed forever just
-    // because a repair source remains available.
-    let repaired_path = ensure_appliance(&paths, &fixture.reference, &fixture.oci).unwrap();
-    assert_eq!(fs::read(repaired_path).unwrap(), fixture.raw_bytes);
+    // An incompatible managed state is not replaced implicitly, even when
+    // the trusted OCI source remains available.
+    let fetches_before = fixture.oci.fetch_manifest_calls.load(Ordering::SeqCst);
+    let error = ensure_appliance(&paths, &fixture.reference, &fixture.oci).unwrap_err();
+    assert_eq!(error.code, ErrorCode::ApplianceStateIncompatible);
+    assert_eq!(
+        fixture.oci.fetch_manifest_calls.load(Ordering::SeqCst),
+        fetches_before
+    );
+    assert_eq!(fs::read(raw_path).unwrap(), b"tampered-after-verification");
 }
 
 #[test]
