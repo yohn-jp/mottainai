@@ -203,6 +203,54 @@ impl OciSource for HttpOciSource {
 
 pub const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
 
+/// Reads a local, content-addressed OCI Artifact layout instead of a
+/// network registry: the manifest is read verbatim from `manifest_path` and
+/// verified against the requested digest exactly like `HttpOciSource` would
+/// verify a registry response, and each blob is read from
+/// `blobs_directory/<hex-digest>` — the same `blobs/sha256/<hex>` naming
+/// convention OCI content stores and `oras pull` use. This exists so a
+/// build pipeline can prove `ensure_appliance` against the exact bytes of an
+/// already-built canonical Runtime Appliance without a registry in the
+/// loop; see `scripts/build-runtime-appliance-oci-fixture.mjs`.
+#[derive(Clone, Debug)]
+pub struct FileOciSource {
+    pub manifest_path: std::path::PathBuf,
+    pub blobs_directory: std::path::PathBuf,
+}
+
+impl OciSource for FileOciSource {
+    fn fetch_manifest(&self, _repository: &str, digest: &str) -> Result<Vec<u8>, BootstrapError> {
+        validate_digest(digest)?;
+        let bytes = fs::read(&self.manifest_path)
+            .map_err(|error| BootstrapError::io("read local OCI manifest fixture", &error))?;
+        verify_digest_bytes(&bytes, digest)?;
+        Ok(bytes)
+    }
+
+    fn fetch_blob(
+        &self,
+        _repository: &str,
+        digest: &str,
+        destination: &Path,
+        max_bytes: u64,
+    ) -> Result<(), BootstrapError> {
+        validate_digest(digest)?;
+        let hex = digest.trim_start_matches("sha256:");
+        let source = self.blobs_directory.join(hex);
+        let metadata = fs::metadata(&source)
+            .map_err(|error| BootstrapError::io("inspect local OCI blob fixture", &error))?;
+        if metadata.len() > max_bytes {
+            return Err(BootstrapError::new(
+                ErrorCode::ApplianceDownloadFailed,
+                "local OCI blob fixture exceeds the configured download size bound",
+            ));
+        }
+        let file = fs::File::open(&source)
+            .map_err(|error| BootstrapError::io("open local OCI blob fixture", &error))?;
+        write_bounded_verified(file, destination, max_bytes, digest)
+    }
+}
+
 fn bearer_token_url(challenge: &str) -> Option<String> {
     let rest = challenge.trim().strip_prefix("Bearer ")?;
     let mut realm = None;

@@ -420,14 +420,13 @@ pub fn ensure_runtime<C: LimaCli, S: OciSource>(
             true
         }
         Some(instance) => {
-            if instance
-                .vm_type
-                .as_deref()
-                .is_some_and(|vm_type| vm_type != "qemu")
-            {
+            // Fail closed on absent vmType too: only an explicit, observed
+            // `qemu` value is accepted as the supported driver. A missing
+            // field must never be treated as an implicit pass.
+            if instance.vm_type.as_deref() != Some("qemu") {
                 let error = BootstrapError::new(
                     ErrorCode::LimaInstanceIncompatible,
-                    "existing Lima instance does not use the supported qemu vmType",
+                    "existing Lima instance does not report the supported qemu vmType",
                 );
                 evidence.fail(&error);
                 return evidence;
@@ -517,21 +516,28 @@ pub fn ensure_runtime<C: LimaCli, S: OciSource>(
     evidence
 }
 
-/// Reaches the canonical guest/bootstrap Runtime health boundary
-/// (`mottainai-bootstrap managed-status --json`, documented in
-/// `docs/linux-runtime-contract.md`) through `limactl shell`, the same
-/// documented public guest-exec surface used for guest health/recovery
-/// elsewhere in this repository. This deliberately does not stop at Lima's
-/// own `Running` state, and it does not invent a Lima-specific readiness
-/// substitute.
+const LINUX_RUNTIME_CONTRACT_ID: &str = "mottainai.linux-runtime.v1";
+const LINUX_RUNTIME_MINIMUM_SCHEMA_VERSION: i64 = 2;
+
+/// Reaches the canonical guest/bootstrap Runtime health boundary through
+/// `limactl shell` (the same documented public guest-exec surface used for
+/// guest health/recovery elsewhere in this repository): the packaged
+/// `mottainai-runtime-health` executable
+/// (`nix/modules/runtime.nix`'s `healthScript`, on `PATH` via
+/// `environment.systemPackages`), the same command the guest's own
+/// `mottainai-runtime-health.service` runs. This is the full
+/// `mottainai.linux-runtime.v1` schema-2 health/capability result
+/// (`docs/linux-runtime-contract.md`) — `contractId`, `schemaVersion`,
+/// `bootstrapReady`, `managedRuntimeReady`, `readiness`, `reconciliation` —
+/// not a reinterpretation of the lower-level `mottainai-bootstrap
+/// managed-status --json` read this script itself projects from. This
+/// deliberately does not stop at Lima's own `Running` state, and it does
+/// not invent a Lima-specific readiness substitute.
 fn check_guest_health<C: LimaCli>(
     cli: &C,
     instance: &str,
 ) -> Result<serde_json::Value, BootstrapError> {
-    let output = cli.shell(
-        instance,
-        &["mottainai-bootstrap", "managed-status", "--json"],
-    )?;
+    let output = cli.shell(instance, &["mottainai-runtime-health"])?;
     let trimmed = output.trim();
     let value: serde_json::Value = serde_json::from_str(trimmed).map_err(|error| {
         BootstrapError::new(
@@ -539,10 +545,31 @@ fn check_guest_health<C: LimaCli>(
             format!("guest health boundary did not return valid JSON: {error}"),
         )
     })?;
-    if value.get("valid").and_then(serde_json::Value::as_bool) != Some(true) {
+    if value.get("contractId").and_then(serde_json::Value::as_str)
+        != Some(LINUX_RUNTIME_CONTRACT_ID)
+    {
         return Err(BootstrapError::new(
             ErrorCode::RuntimeNotReady,
-            "guest health boundary reported an invalid managed-runtime state",
+            "guest health boundary reported an unrecognized Runtime contract id",
+        ));
+    }
+    let schema_version = value
+        .get("schemaVersion")
+        .and_then(serde_json::Value::as_i64);
+    if schema_version.is_none_or(|version| version < LINUX_RUNTIME_MINIMUM_SCHEMA_VERSION) {
+        return Err(BootstrapError::new(
+            ErrorCode::RuntimeNotReady,
+            "guest health boundary reported a Runtime contract schema version below the supported minimum",
+        ));
+    }
+    if value
+        .get("bootstrapReady")
+        .and_then(serde_json::Value::as_bool)
+        != Some(true)
+    {
+        return Err(BootstrapError::new(
+            ErrorCode::RuntimeNotReady,
+            "guest health boundary reported bootstrapReady: false",
         ));
     }
     Ok(value)
@@ -623,7 +650,7 @@ mod tests {
     #[derive(Clone, Debug)]
     struct FakeInstance {
         status: String,
-        vm_type: String,
+        vm_type: Option<String>,
     }
 
     struct FakeLimaCli {
@@ -643,12 +670,12 @@ mod tests {
             }
         }
 
-        fn with_instance(self, name: &str, status: &str, vm_type: &str) -> Self {
+        fn with_instance(self, name: &str, status: &str, vm_type: Option<&str>) -> Self {
             self.instances.borrow_mut().insert(
                 name.to_owned(),
                 FakeInstance {
                     status: status.to_owned(),
-                    vm_type: vm_type.to_owned(),
+                    vm_type: vm_type.map(str::to_owned),
                 },
             );
             self
@@ -664,7 +691,7 @@ mod tests {
                 .map(|(name, instance)| LimaInstanceInfo {
                     name: name.clone(),
                     status: Some(instance.status.clone()),
-                    vm_type: Some(instance.vm_type.clone()),
+                    vm_type: instance.vm_type.clone(),
                 })
                 .collect())
         }
@@ -675,7 +702,7 @@ mod tests {
                 instance.to_owned(),
                 FakeInstance {
                     status: "Stopped".to_owned(),
-                    vm_type: "qemu".to_owned(),
+                    vm_type: Some("qemu".to_owned()),
                 },
             );
             Ok(())
@@ -693,7 +720,26 @@ mod tests {
 
         fn shell(&self, _instance: &str, _command: &[&str]) -> Result<String, BootstrapError> {
             *self.shell_calls.borrow_mut() += 1;
-            Ok(r#"{"valid":true,"present":false}"#.to_owned())
+            // Shaped exactly like `mottainai-runtime-health`'s real
+            // schema-2 output (`nix/modules/runtime.nix`'s `healthScript`)
+            // for a fresh bootstrap-only appliance: bootstrapReady is true,
+            // no managed generation exists yet.
+            Ok(serde_json::json!({
+                "contractId": "mottainai.linux-runtime.v1",
+                "schemaVersion": 2,
+                "runtimeIdentity": "fixture-runtime",
+                "architecture": "x86_64-linux",
+                "buildIdentity": "/nix/store/fixture-system",
+                "generation": 1,
+                "stateOwners": { "system": [], "repositoryUser": [] },
+                "requiredCompanions": [],
+                "readiness": "bootstrap-ready",
+                "bootstrapReady": true,
+                "managedRuntimeReady": false,
+                "reconciliation": "current",
+                "upgradeRequired": false,
+            })
+            .to_string())
         }
     }
 
@@ -852,7 +898,7 @@ mod tests {
     fn ambient_unrecorded_instance_fails_closed_without_adoption() {
         let (_temp, paths) = managed_paths();
         seed_appliance(&paths, &reference());
-        let cli = FakeLimaCli::new().with_instance("mottainai-runtime", "Running", "qemu");
+        let cli = FakeLimaCli::new().with_instance("mottainai-runtime", "Running", Some("qemu"));
         let evidence = ensure_runtime(
             &paths,
             &spec(),
@@ -873,7 +919,26 @@ mod tests {
     fn incompatible_vm_type_fails_closed() {
         let (_temp, paths) = managed_paths();
         seed_appliance(&paths, &reference());
-        let cli = FakeLimaCli::new().with_instance("mottainai-runtime", "Running", "vz");
+        let cli = FakeLimaCli::new().with_instance("mottainai-runtime", "Running", Some("vz"));
+        let evidence = ensure_runtime(
+            &paths,
+            &spec(),
+            &cli,
+            &FakeOciSource,
+            &RuntimeEnsureConfig::default(),
+        );
+        assert_eq!(evidence.result, Outcome::Blocked);
+        assert_eq!(
+            evidence.error_code.as_deref(),
+            Some("lima_instance_incompatible")
+        );
+    }
+
+    #[test]
+    fn absent_vm_type_fails_closed_rather_than_passing_implicitly() {
+        let (_temp, paths) = managed_paths();
+        seed_appliance(&paths, &reference());
+        let cli = FakeLimaCli::new().with_instance("mottainai-runtime", "Running", None);
         let evidence = ensure_runtime(
             &paths,
             &spec(),

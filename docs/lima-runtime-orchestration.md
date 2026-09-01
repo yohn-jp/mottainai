@@ -53,12 +53,20 @@ ready state:
    json`, `create`, `start`, and `shell` (guest exec). No private state
    files, sockets, or driver internals are read.
 4. **Wait for the canonical guest/bootstrap health boundary**, not merely
-   Lima's own `Running` state: `limactl shell <instance> -- mottainai-bootstrap
-   managed-status --json`, the same re-runnable, always-`exit 0` bounded
-   command documented in [`linux-runtime-contract.md`](linux-runtime-contract.md#managed-runtime-readiness-projection-issue-644).
-   A Lima instance reported `Running` with an unreachable or invalid guest
-   health boundary is reported not-ready (`runtime_not_ready`), never
-   silently accepted.
+   Lima's own `Running` state: `limactl shell <instance> --
+   mottainai-runtime-health`, the packaged executable
+   (`nix/modules/runtime.nix`'s `healthScript`, exposed via
+   `environment.systemPackages`) that produces the full
+   `mottainai.linux-runtime.v1` schema-2 health/capability result —
+   `contractId`, `schemaVersion`, `bootstrapReady`, `managedRuntimeReady`,
+   `readiness`, `reconciliation` — documented in
+   [`linux-runtime-contract.md`](linux-runtime-contract.md#healthcapability-result).
+   This is the same command the guest's own
+   `mottainai-runtime-health.service` runs; `mottainai-init` never
+   reinterprets the lower-level `mottainai-bootstrap managed-status --json`
+   read itself. A Lima instance reported `Running` with an unreachable
+   guest, a malformed/mismatched contract, or `bootstrapReady: false` is
+   reported not-ready (`runtime_not_ready`), never silently accepted.
 5. **Report deterministic bounded evidence** — instance name, appliance
    digest, Lima status, whether anything changed, and the guest health
    result — as one JSON document (`--json`) or a short human summary.
@@ -87,6 +95,10 @@ ready state:
 - An instance in any Lima status other than `Running`/`Stopped` (for
   example a driver-reported broken state) fails closed as
   `lima_instance_ambiguous` rather than guessing at a repair action.
+- An existing instance that does not report an explicit `qemu` `vmType` —
+  including one that omits the field entirely — fails closed as
+  `lima_instance_incompatible`. A missing observation is never treated as an
+  implicit pass.
 
 ## Prerequisite: the managed Lima provider
 
@@ -107,7 +119,14 @@ establishes for the Lima provider archive.
   every reconciliation path in this document against hermetic `limactl`/OCI
   fixtures (`host-bootstrap/tests/appliance.rs`,
   `host-bootstrap/src/lima.rs`'s test module); real-hardware evidence
-  remains separate, per #661's own non-goals.
+  remains separate, per #661's own non-goals. CI additionally proves the
+  production artifact boundary itself, not only synthetic fixtures: the
+  `runtime-contract` job builds the real `runtime-appliance-image`, packages
+  it into a local OCI-shaped layout
+  (`scripts/build-runtime-appliance-oci-fixture.mjs`), and runs
+  `host-bootstrap/tests/appliance_real.rs` (an `#[ignore]`d test, driven
+  explicitly by that CI step) to resolve and byte-verify it through
+  `ensure_appliance` — still no KVM required.
 - This does not run or depend on the Node-based research probes
   (`scripts/lima-validation-probe.mjs`,
   `scripts/lima-appliance-boot-probe.mjs`). Those remain pre-adoption
