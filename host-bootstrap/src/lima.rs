@@ -606,6 +606,24 @@ pub fn ensure_runtime_locked<C: LimaCli, S: OciSource>(
             return evidence;
         }
     };
+    if let Some(state) = recorded_state.as_ref() {
+        if state.schema_version != RUNTIME_STATE_SCHEMA_VERSION {
+            let error = BootstrapError::new(
+                ErrorCode::LimaInstanceAmbiguous,
+                "managed runtime instance state schema version is not supported; reconciliation is refused",
+            );
+            evidence.fail(&error);
+            return evidence;
+        }
+        if state.instance_name != spec.instance_name {
+            let error = BootstrapError::new(
+                ErrorCode::LimaInstanceAmbiguous,
+                "managed runtime instance state does not match the exact requested instance name",
+            );
+            evidence.fail(&error);
+            return evidence;
+        }
+    }
 
     let instances = match cli.list_all() {
         Ok(instances) => instances,
@@ -619,7 +637,9 @@ pub fn ensure_runtime_locked<C: LimaCli, S: OciSource>(
         .find(|instance| instance.name == spec.instance_name);
 
     let matches_recorded = recorded_state.as_ref().is_some_and(|state| {
-        state.appliance_digest == spec.appliance.digest
+        state.schema_version == RUNTIME_STATE_SCHEMA_VERSION
+            && state.instance_name == spec.instance_name
+            && state.appliance_digest == spec.appliance.digest
             && state.config_identity_sha256 == desired_identity
     });
 
@@ -1243,6 +1263,25 @@ mod tests {
         raw_path
     }
 
+    fn seed_runtime_state(
+        paths: &ManagedPaths,
+        spec: &RuntimeSpec,
+        schema_version: &str,
+        instance_name: &str,
+    ) {
+        let raw_path = paths.appliance_raw_path(&spec.appliance.digest);
+        let rendered = render_lima_config(spec, &raw_path);
+        let state = RuntimeState {
+            schema_version: schema_version.to_owned(),
+            instance_name: instance_name.to_owned(),
+            appliance_digest: spec.appliance.digest.clone(),
+            config_identity_sha256: config_identity(&rendered),
+        };
+        let state_path = paths.runtime_state_path(&spec.instance_name);
+        fs::create_dir_all(state_path.parent().unwrap()).unwrap();
+        write_state(&state_path, &state).unwrap();
+    }
+
     fn managed_paths() -> (TempDir, ManagedPaths) {
         let temp = TempDir::new().unwrap();
         let paths = ManagedPaths::new(temp.path().join("state"));
@@ -1402,6 +1441,112 @@ mod tests {
             2,
             "health is re-verified each ensure"
         );
+    }
+
+    fn assert_runtime_schema_is_rejected_before_lima_reconciliation(schema_version: &str) {
+        let (_temp, paths) = managed_paths();
+        let runtime_spec = spec();
+        seed_appliance(&paths, &runtime_spec.appliance);
+        seed_runtime_state(
+            &paths,
+            &runtime_spec,
+            schema_version,
+            &runtime_spec.instance_name,
+        );
+        let cli = FakeLimaCli::new();
+
+        let evidence = ensure_runtime(
+            &paths,
+            &runtime_spec,
+            &cli,
+            &FakeOciSource,
+            &RuntimeEnsureConfig {
+                health_check_attempts: 1,
+                health_check_interval: Duration::from_millis(0),
+            },
+        );
+        assert_eq!(evidence.result, Outcome::Blocked);
+        assert_eq!(
+            evidence.error_code.as_deref(),
+            Some("lima_instance_ambiguous")
+        );
+        assert_eq!(*cli.create_calls.borrow(), 0);
+        assert_eq!(*cli.start_calls.borrow(), 0);
+    }
+
+    #[test]
+    fn runtime_state_with_wrong_schema_is_rejected_before_lima_reconciliation() {
+        assert_runtime_schema_is_rejected_before_lima_reconciliation(
+            "mottainai.host-bootstrap.lima-runtime-state.legacy",
+        );
+    }
+
+    #[test]
+    fn runtime_state_with_future_schema_is_rejected_before_lima_reconciliation() {
+        assert_runtime_schema_is_rejected_before_lima_reconciliation(
+            "mottainai.host-bootstrap.lima-runtime-state.v2",
+        );
+    }
+
+    #[test]
+    fn runtime_state_with_mismatched_instance_identity_is_rejected_before_lima_reconciliation() {
+        let (_temp, paths) = managed_paths();
+        let runtime_spec = spec();
+        seed_appliance(&paths, &runtime_spec.appliance);
+        seed_runtime_state(
+            &paths,
+            &runtime_spec,
+            RUNTIME_STATE_SCHEMA_VERSION,
+            "other-runtime",
+        );
+        let cli = FakeLimaCli::new();
+
+        let evidence = ensure_runtime(
+            &paths,
+            &runtime_spec,
+            &cli,
+            &FakeOciSource,
+            &RuntimeEnsureConfig {
+                health_check_attempts: 1,
+                health_check_interval: Duration::from_millis(0),
+            },
+        );
+        assert_eq!(evidence.result, Outcome::Blocked);
+        assert_eq!(
+            evidence.error_code.as_deref(),
+            Some("lima_instance_ambiguous")
+        );
+        assert_eq!(*cli.create_calls.borrow(), 0);
+        assert_eq!(*cli.start_calls.borrow(), 0);
+    }
+
+    #[test]
+    fn malformed_runtime_state_fails_closed_before_lima_reconciliation() {
+        let (_temp, paths) = managed_paths();
+        let runtime_spec = spec();
+        seed_appliance(&paths, &runtime_spec.appliance);
+        let state_path = paths.runtime_state_path(&runtime_spec.instance_name);
+        fs::create_dir_all(state_path.parent().unwrap()).unwrap();
+        fs::write(state_path, b"{not valid json").unwrap();
+        let cli = FakeLimaCli::new();
+
+        let evidence = ensure_runtime(
+            &paths,
+            &runtime_spec,
+            &cli,
+            &FakeOciSource,
+            &RuntimeEnsureConfig {
+                health_check_attempts: 1,
+                health_check_interval: Duration::from_millis(0),
+            },
+        );
+        assert_eq!(evidence.result, Outcome::Blocked);
+        assert_eq!(
+            evidence.error_code.as_deref(),
+            Some("lima_instance_ambiguous")
+        );
+        assert_eq!(*cli.create_calls.borrow(), 0);
+        assert_eq!(*cli.start_calls.borrow(), 0);
     }
 
     #[test]

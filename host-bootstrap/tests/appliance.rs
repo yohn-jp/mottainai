@@ -203,6 +203,30 @@ fn managed_paths() -> (TempDir, ManagedPaths) {
     (temporary, paths)
 }
 
+fn rewrite_appliance_state_field(
+    paths: &ManagedPaths,
+    reference: &ApplianceReference,
+    field: &str,
+    value: &str,
+) {
+    let state_path = paths.appliance_state_path(&reference.digest);
+    let mut state: serde_json::Value =
+        serde_json::from_slice(&fs::read(&state_path).unwrap()).unwrap();
+    state[field] = serde_json::Value::String(value.to_owned());
+    fs::write(state_path, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
+}
+
+fn assert_appliance_schema_is_incompatible(schema_version: &str) {
+    let fixture = build_fixture();
+    let (_temp, paths) = managed_paths();
+    ensure_appliance(&paths, &fixture.reference, &fixture.oci).unwrap();
+    rewrite_appliance_state_field(&paths, &fixture.reference, "schema_version", schema_version);
+
+    let observation = inspect_appliance(&paths, &fixture.reference).unwrap();
+    assert_eq!(observation.classification, Classification::Incompatible);
+    assert!(observation.raw_path.is_none());
+}
+
 #[test]
 fn valid_appliance_is_resolved_verified_and_materialized() {
     let fixture = build_fixture();
@@ -248,6 +272,47 @@ fn oversized_declared_raw_image_is_rejected_before_decompression() {
             .exists(),
         "an oversized declared image must not be materialized"
     );
+}
+
+#[test]
+fn appliance_state_with_wrong_schema_is_not_satisfied() {
+    assert_appliance_schema_is_incompatible("mottainai.host-bootstrap.appliance.legacy");
+}
+
+#[test]
+fn appliance_state_with_future_schema_is_not_satisfied() {
+    assert_appliance_schema_is_incompatible("mottainai.host-bootstrap.appliance.v2");
+}
+
+#[test]
+fn appliance_state_with_mismatched_registry_is_not_satisfied() {
+    let fixture = build_fixture();
+    let (_temp, paths) = managed_paths();
+    ensure_appliance(&paths, &fixture.reference, &fixture.oci).unwrap();
+    rewrite_appliance_state_field(
+        &paths,
+        &fixture.reference,
+        "registry",
+        "registry.example.invalid",
+    );
+
+    let observation = inspect_appliance(&paths, &fixture.reference).unwrap();
+    assert_eq!(observation.classification, Classification::Incompatible);
+}
+
+#[test]
+fn malformed_appliance_state_fails_closed() {
+    let fixture = build_fixture();
+    let (_temp, paths) = managed_paths();
+    let state_path = paths.appliance_state_path(&fixture.reference.digest);
+    fs::create_dir_all(state_path.parent().unwrap()).unwrap();
+    fs::write(state_path, b"{not valid json").unwrap();
+
+    let error = match inspect_appliance(&paths, &fixture.reference) {
+        Ok(_) => panic!("malformed appliance state must fail closed"),
+        Err(error) => error,
+    };
+    assert_eq!(error.code, ErrorCode::ApplianceStateAmbiguous);
 }
 
 #[test]

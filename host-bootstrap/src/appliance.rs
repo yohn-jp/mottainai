@@ -246,21 +246,26 @@ pub fn inspect_appliance(
                 .then(|| "an appliance raw disk exists with no managed state record".to_owned()),
         });
     };
+    if state.schema_version != APPLIANCE_STATE_SCHEMA_VERSION
+        || state.registry != reference.registry
+        || state.digest != reference.digest
+        || state.repository != reference.repository
+    {
+        return Ok(ApplianceObservation {
+            classification: Classification::Incompatible,
+            raw_path: None,
+            diagnostic: Some(
+                "managed appliance state does not match the supported contract or requested appliance identity"
+                    .to_owned(),
+            ),
+        });
+    }
     if !raw_is_file {
         return Ok(ApplianceObservation {
             classification: Classification::Repairable,
             raw_path: None,
             diagnostic: Some(
                 "managed appliance state exists but the raw disk is missing".to_owned(),
-            ),
-        });
-    }
-    if state.digest != reference.digest || state.repository != reference.repository {
-        return Ok(ApplianceObservation {
-            classification: Classification::Incompatible,
-            raw_path: None,
-            diagnostic: Some(
-                "managed appliance state does not match the requested immutable digest".to_owned(),
             ),
         });
     }
