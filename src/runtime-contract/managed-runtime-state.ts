@@ -237,21 +237,61 @@ function lockUnavailable(operation: string, error: unknown): ManagedRuntimeLockE
   );
 }
 
+function readLockOwnerDirect(lockFile: string): string | undefined {
+  const stat = fs.lstatSync(lockFile);
+  if (!stat.isSymbolicLink()) {
+    throw new ManagedRuntimeLockError("unavailable", "managed Runtime writer lock is not a symlink");
+  }
+  const owner = fs.readlinkSync(lockFile);
+  if (owner.length > MAX_LOCK_OWNER_LENGTH || !LOCK_OWNER_PATTERN.test(owner)) {
+    throw new ManagedRuntimeLockError("unavailable", "managed Runtime writer lock owner is invalid");
+  }
+  return owner;
+}
+
 function readLockOwner(lockFile: string, boundaries: BoundaryOperations): string | undefined {
   try {
-    const stat = boundaries.file("managed-runtime-writer-lock.inspect", () => fs.lstatSync(lockFile));
-    if (!stat.isSymbolicLink()) {
-      throw new ManagedRuntimeLockError("unavailable", "managed Runtime writer lock is not a symlink");
-    }
-    const owner = boundaries.file("managed-runtime-writer-lock.owner.read", () => fs.readlinkSync(lockFile));
-    if (owner.length > MAX_LOCK_OWNER_LENGTH || !LOCK_OWNER_PATTERN.test(owner)) {
-      throw new ManagedRuntimeLockError("unavailable", "managed Runtime writer lock owner is invalid");
-    }
-    return owner;
+    return boundaries.file("managed-runtime-writer-lock.inspect", () => readLockOwnerDirect(lockFile));
   } catch (error) {
     if (error instanceof ManagedRuntimeLockError) throw error;
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw lockUnavailable("read", error);
+  }
+}
+
+/**
+ * Reclaim only the marker that was verified by this attempt. The owner check
+ * and unlink are kept in one synchronous file-boundary operation so a test or
+ * another actor cannot replace the marker between the final check and the
+ * stale break. A replacement is treated as a failed reclaim and retried as a
+ * normal lock acquisition, which preserves the replacement owner's lock.
+ */
+function removeStaleLockIfOwned(
+  lockFile: string,
+  expectedOwner: string,
+  boundaries: BoundaryOperations,
+): boolean {
+  try {
+    return boundaries.file("managed-runtime-writer-lock.stale-break", () => {
+      let currentOwner: string | undefined;
+      try {
+        currentOwner = readLockOwnerDirect(lockFile);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+        throw error;
+      }
+      if (currentOwner !== expectedOwner) return false;
+      try {
+        fs.unlinkSync(lockFile);
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+        throw error;
+      }
+    });
+  } catch (error) {
+    if (error instanceof ManagedRuntimeLockError) throw error;
+    throw lockUnavailable("stale break", error);
   }
 }
 
@@ -332,21 +372,16 @@ export function acquireManagedRuntimeWriterLock(
       throw new ManagedRuntimeLockError("busy", "managed Runtime reconcile is busy");
     }
 
-    // Re-read before removing a stale marker so a contender that replaced it
-    // is never accidentally unlinked. This is deliberately bounded and
-    // non-blocking; a live/unknown owner remains fail-closed.
+    // Re-read before the ownership-safe stale break so a contender that
+    // replaced it is never accidentally unlinked. This is deliberately
+    // bounded and non-blocking; a live/unknown owner remains fail-closed.
     const confirmedOwner = readLockOwner(lockFile, boundaries);
     if (confirmedOwner === undefined) continue;
     if (confirmedOwner !== incumbent) continue;
     if (isProcessAlive(ownerPid(confirmedOwner), boundaries)) {
       throw new ManagedRuntimeLockError("busy", "managed Runtime reconcile is busy");
     }
-    try {
-      boundaries.file("managed-runtime-writer-lock.stale-break", () => fs.unlinkSync(lockFile));
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
-      throw lockUnavailable("stale break", error);
-    }
+    if (!removeStaleLockIfOwned(lockFile, confirmedOwner, boundaries)) continue;
   }
 
   throw new ManagedRuntimeLockError("busy", "managed Runtime reconcile is busy");

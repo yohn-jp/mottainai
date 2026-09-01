@@ -15,11 +15,13 @@ import {
 } from "./managed-runtime.js";
 import {
   atomicallySelectManagedRuntimeGeneration,
+  acquireManagedRuntimeWriterLock,
   readManagedRuntimePointer,
   readManagedRuntimeState,
   writeManagedRuntimeState,
 } from "./managed-runtime-state.js";
 import type { ManagedRuntimeState } from "./managed-runtime-state.js";
+import { DIRECT_BOUNDARIES } from "../boundary.js";
 import type { BoundaryOperations } from "../boundary.js";
 import {
   MANAGED_PACKAGE_MANIFEST_CONTRACT_ID,
@@ -430,6 +432,47 @@ test("reconcile breaks a writer lock left by a dead process before activation re
     });
     assert.equal(result.outcome, "recovered");
     assert.equal(result.active?.generationIdentity, staged.generationIdentity);
+    assert.equal(fs.existsSync(lockFile), false);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("stale-lock recovery never removes a replacement contender's live lock", () => {
+  const value = fixture();
+  try {
+    const lockFile = path.join(value.root, "managed-runtime", "reconcile.lock");
+    fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+    fs.symlinkSync("pid:999999999:00000000-0000-4000-8000-000000000000", lockFile);
+
+    let replacementLock: ReturnType<typeof acquireManagedRuntimeWriterLock> | undefined;
+    const firstBoundaries: BoundaryOperations = {
+      file(operation, action) {
+        if (operation === "managed-runtime-writer-lock.stale-break" && replacementLock === undefined) {
+          // Force contender B to reclaim and acquire between contender A's
+          // final owner check and A's stale-break operation.
+          replacementLock = acquireManagedRuntimeWriterLock(lockFile, DIRECT_BOUNDARIES);
+        }
+        return action();
+      },
+      process(_operation, action) {
+        return action();
+      },
+      storage(_operation, action) {
+        return action();
+      },
+    };
+
+    try {
+      assert.throws(
+        () => acquireManagedRuntimeWriterLock(lockFile, firstBoundaries),
+        (error: unknown) => error instanceof Error && error.message === "managed Runtime reconcile is busy",
+      );
+      assert.ok(replacementLock, "the replacement contender must acquire the stale lock");
+      assert.match(fs.readlinkSync(lockFile), /^pid:[1-9][0-9]{0,9}:[0-9a-f-]{36}$/u);
+    } finally {
+      replacementLock?.release();
+    }
     assert.equal(fs.existsSync(lockFile), false);
   } finally {
     value.cleanup();
