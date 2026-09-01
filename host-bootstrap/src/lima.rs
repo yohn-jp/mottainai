@@ -143,7 +143,7 @@ pub fn render_lima_config(spec: &RuntimeSpec, appliance_raw_path: &Path) -> Stri
     // RuntimeSpec::validate rejects unsupported control characters before this
     // function is called by ensure_runtime. All remaining values are scalar
     // data, so the structured serializer cannot expose them as YAML syntax.
-    serde_yaml::to_string(&config).expect("supported Lima configuration is serializable")
+    serde_saphyr::to_string(&config).expect("supported Lima configuration is serializable")
 }
 
 #[derive(Serialize)]
@@ -1139,7 +1139,7 @@ mod tests {
     #[test]
     fn config_render_is_bounded_and_has_no_default_mounts() {
         let rendered = render_lima_config(&spec(), Path::new("/tmp/appliance.raw"));
-        let parsed: serde_yaml::Value = serde_yaml::from_str(&rendered).unwrap();
+        let parsed: serde_json::Value = serde_saphyr::from_str(&rendered).unwrap();
 
         assert!(rendered.contains("vmType: qemu"));
         assert!(rendered.contains("mounts: []"));
@@ -1148,7 +1148,7 @@ mod tests {
             parsed["images"][0]["location"].as_str(),
             Some("/tmp/appliance.raw")
         );
-        assert_eq!(parsed["mounts"].as_sequence().unwrap().len(), 0);
+        assert_eq!(parsed["mounts"].as_array().unwrap().len(), 0);
     }
 
     #[test]
@@ -1162,7 +1162,7 @@ mod tests {
         let appliance_path = Path::new(r#"/managed/appliance\disk"image.raw"#);
 
         let rendered = render_lima_config(&configured, appliance_path);
-        let parsed: serde_yaml::Value = serde_yaml::from_str(&rendered).unwrap();
+        let parsed: serde_json::Value = serde_saphyr::from_str(&rendered).unwrap();
 
         assert_eq!(
             parsed["images"][0]["location"].as_str(),
