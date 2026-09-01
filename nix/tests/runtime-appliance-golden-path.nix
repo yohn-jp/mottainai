@@ -159,6 +159,26 @@ in
             time.sleep(1)
         raise AssertionError("SSH readiness timed out: " + last_error)
 
+    def wait_for_bootstrap_ready():
+        # CI runs this golden path concurrently with the host-bootstrap
+        # appliance_real proof on the same runner (Issue #694). SSH
+        # transport can become reachable before the guest finishes
+        # activating mottainai-runtime-bootstrap-ready.service under that
+        # shared CPU load, so poll readiness the same bounded way
+        # wait_for_ssh does instead of asserting on the first probe.
+        deadline = time.monotonic() + 90
+        last_error = ""
+        while time.monotonic() < deadline:
+            result = subprocess.run(
+                ssh_command + ["systemctl is-active --quiet mottainai-runtime-bootstrap-ready.service"],
+                check=False, capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0:
+                return
+            last_error = (result.stderr or result.stdout)[-500:]
+            time.sleep(1)
+        raise AssertionError("bootstrap-ready readiness timed out: " + last_error)
+
     def guest(command, timeout=300):
         result = subprocess.run(
             ssh_command + [command], check=False, capture_output=True,
@@ -263,7 +283,7 @@ in
     assert base_appliance_identity == canonical_build_identity
 
     with subtest("fresh canonical appliance is bootstrap-ready and has no managed packages"):
-        control("systemctl is-active --quiet mottainai-runtime-bootstrap-ready.service")
+        wait_for_bootstrap_ready()
         guest_failure("command -v mottainai")
         guest_failure("command -v nawabari")
         guest_failure("command -v zellij")
