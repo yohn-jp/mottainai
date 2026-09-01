@@ -240,6 +240,30 @@ fn assert_appliance_schema_is_incompatible(schema_version: &str) {
     assert_eq!(fs::read(state_path).unwrap(), state_before);
 }
 
+fn assert_appliance_identity_is_incompatible(field: &str, value: &str) {
+    let fixture = build_fixture();
+    let (_temp, paths) = managed_paths();
+    ensure_appliance(&paths, &fixture.reference, &fixture.oci).unwrap();
+    let raw_path = paths.appliance_raw_path(&fixture.reference.digest);
+    let raw_before = fs::read(&raw_path).unwrap();
+    rewrite_appliance_state_field(&paths, &fixture.reference, field, value);
+    let state_path = paths.appliance_state_path(&fixture.reference.digest);
+    let state_before = fs::read(&state_path).unwrap();
+
+    let observation = inspect_appliance(&paths, &fixture.reference).unwrap();
+    assert_eq!(observation.classification, Classification::Incompatible);
+    assert!(observation.raw_path.is_none());
+
+    fixture.oci.fetch_manifest_calls.store(0, Ordering::SeqCst);
+    fixture.oci.fetch_blob_calls.store(0, Ordering::SeqCst);
+    let error = ensure_appliance(&paths, &fixture.reference, &fixture.oci).unwrap_err();
+    assert_eq!(error.code, ErrorCode::ApplianceStateIncompatible);
+    assert_eq!(fixture.oci.fetch_manifest_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(fixture.oci.fetch_blob_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(fs::read(raw_path).unwrap(), raw_before);
+    assert_eq!(fs::read(state_path).unwrap(), state_before);
+}
+
 #[test]
 fn valid_appliance_is_resolved_verified_and_materialized() {
     let fixture = build_fixture();
@@ -315,18 +339,17 @@ fn appliance_state_with_future_schema_is_not_satisfied() {
 
 #[test]
 fn appliance_state_with_mismatched_registry_is_not_satisfied() {
-    let fixture = build_fixture();
-    let (_temp, paths) = managed_paths();
-    ensure_appliance(&paths, &fixture.reference, &fixture.oci).unwrap();
-    rewrite_appliance_state_field(
-        &paths,
-        &fixture.reference,
-        "registry",
-        "registry.example.invalid",
-    );
+    assert_appliance_identity_is_incompatible("registry", "registry.example.invalid");
+}
 
-    let observation = inspect_appliance(&paths, &fixture.reference).unwrap();
-    assert_eq!(observation.classification, Classification::Incompatible);
+#[test]
+fn appliance_state_with_mismatched_repository_is_not_satisfied() {
+    assert_appliance_identity_is_incompatible("repository", "other/runtime-appliance");
+}
+
+#[test]
+fn appliance_state_with_mismatched_digest_is_not_satisfied() {
+    assert_appliance_identity_is_incompatible("digest", &format!("sha256:{}", "0".repeat(64)));
 }
 
 #[test]
