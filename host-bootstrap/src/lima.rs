@@ -1,7 +1,7 @@
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -158,6 +158,86 @@ pub trait LimaCli {
     fn shell(&self, instance: &str, command: &[&str]) -> Result<String, BootstrapError>;
 }
 
+fn drain_bounded_output<R: Read>(mut reader: R) -> io::Result<Vec<u8>> {
+    const READ_BUFFER_SIZE: usize = 8 * 1024;
+    let mut retained = Vec::with_capacity(MAX_COMMAND_OUTPUT);
+    let mut buffer = [0_u8; READ_BUFFER_SIZE];
+    loop {
+        let read = reader.read(&mut buffer)?;
+        if read == 0 {
+            return Ok(retained);
+        }
+        let remaining = MAX_COMMAND_OUTPUT.saturating_sub(retained.len());
+        retained.extend_from_slice(&buffer[..read.min(remaining)]);
+    }
+}
+
+fn spawn_output_reader<R: Read + Send + 'static>(
+    reader: R,
+    stream: &'static str,
+) -> Result<thread::JoinHandle<io::Result<Vec<u8>>>, BootstrapError> {
+    thread::Builder::new()
+        .name(format!("limactl-{stream}-reader"))
+        .spawn(move || drain_bounded_output(reader))
+        .map_err(|error| {
+            BootstrapError::new(
+                ErrorCode::LimaCommandFailed,
+                format!("could not start limactl {stream} reader: {error}"),
+            )
+        })
+}
+
+fn join_output_reader(
+    reader: thread::JoinHandle<io::Result<Vec<u8>>>,
+    stream: &str,
+) -> Result<Vec<u8>, BootstrapError> {
+    match reader.join() {
+        Ok(Ok(output)) => Ok(output),
+        Ok(Err(error)) => Err(BootstrapError::new(
+            ErrorCode::LimaCommandFailed,
+            format!("could not read limactl {stream} output: {error}"),
+        )),
+        Err(_) => Err(BootstrapError::new(
+            ErrorCode::LimaCommandFailed,
+            format!("limactl {stream} output reader panicked"),
+        )),
+    }
+}
+
+fn join_output_readers(
+    stdout_reader: thread::JoinHandle<io::Result<Vec<u8>>>,
+    stderr_reader: thread::JoinHandle<io::Result<Vec<u8>>>,
+) -> Result<(Vec<u8>, Vec<u8>), BootstrapError> {
+    let stdout = join_output_reader(stdout_reader, "stdout");
+    let stderr = join_output_reader(stderr_reader, "stderr");
+    match (stdout, stderr) {
+        (Ok(stdout), Ok(stderr)) => Ok((stdout, stderr)),
+        (Err(error), _) | (_, Err(error)) => Err(error),
+    }
+}
+
+fn terminate_and_wait(child: &mut Child) -> Result<(), BootstrapError> {
+    let kill_result = child.kill();
+    let wait_result = child.wait();
+    if let Err(error) = wait_result {
+        return Err(BootstrapError::new(
+            ErrorCode::LimaCommandFailed,
+            format!("could not wait for terminated limactl: {error}"),
+        ));
+    }
+    if let Err(error) = kill_result {
+        // The child may have exited between try_wait and kill. The wait above
+        // still establishes deterministic reaping in that race.
+        if error.kind() != io::ErrorKind::NotFound {
+            return Err(BootstrapError::new(
+                ErrorCode::LimaCommandFailed,
+                format!("could not terminate limactl: {error}"),
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub struct SystemLimaCli {
     pub binary_path: PathBuf,
     pub lima_home: PathBuf,
@@ -178,44 +258,102 @@ impl SystemLimaCli {
                     format!("could not execute limactl: {error}"),
                 )
             })?;
+
+        let stdout = match child.stdout.take() {
+            Some(stdout) => stdout,
+            None => {
+                let cleanup = terminate_and_wait(&mut child);
+                return match cleanup {
+                    Ok(()) => Err(BootstrapError::new(
+                        ErrorCode::LimaCommandFailed,
+                        "limactl stdout pipe was not available",
+                    )),
+                    Err(error) => Err(error),
+                };
+            }
+        };
+        let stderr = match child.stderr.take() {
+            Some(stderr) => stderr,
+            None => {
+                let cleanup = terminate_and_wait(&mut child);
+                return match cleanup {
+                    Ok(()) => Err(BootstrapError::new(
+                        ErrorCode::LimaCommandFailed,
+                        "limactl stderr pipe was not available",
+                    )),
+                    Err(error) => Err(error),
+                };
+            }
+        };
+        let stdout_reader = match spawn_output_reader(stdout, "stdout") {
+            Ok(reader) => reader,
+            Err(error) => {
+                let cleanup = terminate_and_wait(&mut child);
+                return match cleanup {
+                    Ok(()) => Err(error),
+                    Err(cleanup_error) => Err(cleanup_error),
+                };
+            }
+        };
+        let stderr_reader = match spawn_output_reader(stderr, "stderr") {
+            Ok(reader) => reader,
+            Err(error) => {
+                let cleanup = terminate_and_wait(&mut child);
+                let stdout_result = join_output_reader(stdout_reader, "stdout");
+                return match cleanup {
+                    Err(cleanup_error) => Err(cleanup_error),
+                    Ok(()) => match stdout_result {
+                        Err(reader_error) => Err(reader_error),
+                        Ok(_) => Err(error),
+                    },
+                };
+            }
+        };
+
         let deadline = Instant::now() + timeout;
         loop {
             match child.try_wait() {
-                Ok(Some(_)) => break,
+                Ok(Some(status)) => {
+                    let (stdout, stderr) = join_output_readers(stdout_reader, stderr_reader)?;
+                    if !status.success() {
+                        let mut combined = String::from_utf8_lossy(&stdout).into_owned();
+                        combined.push('\n');
+                        combined.push_str(&String::from_utf8_lossy(&stderr));
+                        let bounded: String = combined.chars().take(MAX_COMMAND_OUTPUT).collect();
+                        return Err(BootstrapError::new(
+                            ErrorCode::LimaCommandFailed,
+                            format!("limactl {} failed: {bounded}", arguments.join(" ")),
+                        ));
+                    }
+                    return Ok(String::from_utf8_lossy(&stdout)
+                        .chars()
+                        .take(MAX_COMMAND_OUTPUT)
+                        .collect());
+                }
                 Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
                 Ok(None) => {
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    let cleanup = terminate_and_wait(&mut child);
+                    let output = join_output_readers(stdout_reader, stderr_reader);
+                    cleanup?;
+                    output?;
                     return Err(BootstrapError::new(
                         ErrorCode::LimaCommandFailed,
                         "limactl command timed out",
                     ));
                 }
                 Err(error) => {
-                    return Err(BootstrapError::new(
+                    let wait_error = BootstrapError::new(
                         ErrorCode::LimaCommandFailed,
                         format!("could not wait for limactl: {error}"),
-                    ))
+                    );
+                    let cleanup = terminate_and_wait(&mut child);
+                    let output = join_output_readers(stdout_reader, stderr_reader);
+                    cleanup?;
+                    output?;
+                    return Err(wait_error);
                 }
             }
         }
-        let output = child.wait_with_output().map_err(|error| {
-            BootstrapError::new(
-                ErrorCode::LimaCommandFailed,
-                format!("could not collect limactl output: {error}"),
-            )
-        })?;
-        let mut combined = String::from_utf8_lossy(&output.stdout).into_owned();
-        if !output.status.success() {
-            combined.push('\n');
-            combined.push_str(&String::from_utf8_lossy(&output.stderr));
-            let bounded: String = combined.chars().take(MAX_COMMAND_OUTPUT).collect();
-            return Err(BootstrapError::new(
-                ErrorCode::LimaCommandFailed,
-                format!("limactl {} failed: {bounded}", arguments.join(" ")),
-            ));
-        }
-        Ok(combined.chars().take(MAX_COMMAND_OUTPUT).collect())
     }
 }
 
@@ -646,6 +784,97 @@ mod tests {
     use crate::error::ErrorCode;
     use crate::oci::OciSource;
     use crate::paths::ManagedPaths;
+
+    const OUTPUT_FIXTURE_BYTES: usize = MAX_COMMAND_OUTPUT * 4;
+
+    fn output_fixture_cli() -> SystemLimaCli {
+        SystemLimaCli {
+            binary_path: std::env::current_exe().unwrap(),
+            lima_home: std::env::temp_dir(),
+        }
+    }
+
+    fn running_as_fixture(filter: &str) -> bool {
+        std::env::args().any(|argument| argument == filter)
+    }
+
+    #[test]
+    fn limactl_output_fixture() {
+        if !running_as_fixture("limactl_output_fixture") {
+            return;
+        }
+        let payload = vec![b'o'; OUTPUT_FIXTURE_BYTES];
+        let mut stdout = io::stdout().lock();
+        stdout.write_all(&payload).unwrap();
+        stdout.flush().unwrap();
+        drop(stdout);
+
+        let mut stderr = io::stderr().lock();
+        stderr.write_all(&payload).unwrap();
+        stderr.flush().unwrap();
+    }
+
+    #[test]
+    fn limactl_failure_output_fixture() {
+        if !running_as_fixture("limactl_failure_output_fixture") {
+            return;
+        }
+        let mut stdout = io::stdout().lock();
+        stdout.write_all(b"stdout-diagnostic").unwrap();
+        stdout.flush().unwrap();
+        drop(stdout);
+
+        let mut stderr = io::stderr().lock();
+        stderr.write_all(b"stderr-diagnostic").unwrap();
+        stderr.flush().unwrap();
+        std::process::exit(17);
+    }
+
+    #[test]
+    fn limactl_timeout_fixture() {
+        if !running_as_fixture("limactl_timeout_fixture") {
+            return;
+        }
+        thread::sleep(Duration::from_secs(30));
+    }
+
+    #[test]
+    fn large_stdout_and_stderr_are_drained_before_successful_exit() {
+        let output = output_fixture_cli()
+            .run(
+                &["limactl_output_fixture", "--nocapture"],
+                Duration::from_secs(10),
+            )
+            .unwrap();
+        assert!(output.len() <= MAX_COMMAND_OUTPUT);
+    }
+
+    #[test]
+    fn failure_preserves_bounded_stdout_and_stderr_diagnostics() {
+        let error = output_fixture_cli()
+            .run(
+                &["limactl_failure_output_fixture", "--nocapture"],
+                Duration::from_secs(10),
+            )
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::LimaCommandFailed);
+        assert!(error.message.contains("stdout-diagnostic"));
+        assert!(error.message.contains("stderr-diagnostic"));
+        assert!(error.message.chars().count() <= 512);
+    }
+
+    #[test]
+    fn timeout_reaps_child_and_returns_stable_bounded_error() {
+        let error = output_fixture_cli()
+            .run(
+                &["limactl_timeout_fixture", "--nocapture"],
+                Duration::from_millis(100),
+            )
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::LimaCommandFailed);
+        assert_eq!(error.message, "limactl command timed out");
+        assert!(error.message.chars().count() <= 512);
+    }
 
     #[derive(Clone, Debug)]
     struct FakeInstance {
