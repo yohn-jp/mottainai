@@ -192,7 +192,8 @@ export const localTools: Tool[] = [
   },
   {
     name: "mottainai_result_get",
-    description: "Get a bounded section of a stored raw result.",
+    description:
+      "Get a bounded section of a stored raw result. A startLine at or beyond EOF returns an empty 0-0 window.",
     inputSchema: {
       type: "object",
       properties: {

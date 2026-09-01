@@ -40,6 +40,60 @@ test("artifact store keeps the matching line when context exceeds maxLines", () 
   assert.equal(result?.returnedStartLine, 3);
 });
 
+test("artifact store reports coherent ranges at the first line, last line, and EOF", () => {
+  const store = new InMemoryArtifactStore({ createId: () => "line-bounds" });
+  const id = store.put({ content: [{ type: "text", text: "one\ntwo\nthree" }] });
+
+  assert.deepEqual(store.retrieve(id, { startLine: 0, maxLines: 1 }), {
+    id,
+    text: "one",
+    totalLines: 3,
+    returnedStartLine: 1,
+    returnedEndLine: 1,
+    omittedLines: 2,
+  });
+  assert.deepEqual(store.retrieve(id, { startLine: 2, maxLines: 1 }), {
+    id,
+    text: "three",
+    totalLines: 3,
+    returnedStartLine: 3,
+    returnedEndLine: 3,
+    omittedLines: 2,
+  });
+  for (const startLine of [3, 100]) {
+    assert.deepEqual(store.retrieve(id, { startLine }), {
+      id,
+      text: "",
+      totalLines: 3,
+      returnedStartLine: 0,
+      returnedEndLine: 0,
+      omittedLines: 3,
+    });
+  }
+});
+
+test("artifact store keeps empty artifact range metadata coherent", () => {
+  const store = new InMemoryArtifactStore({ createId: () => "empty" });
+  const id = store.putArtifact({ text: "" });
+
+  assert.deepEqual(store.retrieve(id), {
+    id,
+    text: "",
+    totalLines: 1,
+    returnedStartLine: 1,
+    returnedEndLine: 1,
+    omittedLines: 0,
+  });
+  assert.deepEqual(store.retrieve(id, { startLine: 1 }), {
+    id,
+    text: "",
+    totalLines: 1,
+    returnedStartLine: 0,
+    returnedEndLine: 0,
+    omittedLines: 1,
+  });
+});
+
 test("artifact store expires entries at the configured TTL", () => {
   let now = 0;
   const store = new InMemoryArtifactStore({ ttlMs: 10, now: () => now, createId: () => "ttl" });

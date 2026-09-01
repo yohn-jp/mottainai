@@ -10,8 +10,17 @@ export interface RetrievedArtifact {
   stream?: "combined" | "stdout" | "stderr";
   text: string;
   totalLines: number;
+  /**
+   * One-based inclusive range for a non-empty window. A request at or beyond
+   * EOF returns the explicit empty range 0-0; otherwise this is within
+   * 1..totalLines.
+   */
   returnedStartLine: number;
   returnedEndLine: number;
+  /**
+   * Total source lines not included in the returned window. For 0-0 this is
+   * totalLines; otherwise it is totalLines - (end - start + 1).
+   */
   omittedLines: number;
   matchLine?: number;
   identity?: ArtifactIdentityMetadata;
@@ -433,15 +442,16 @@ export class InMemoryArtifactStore implements ArtifactStore {
         ? Math.max(0, options.startLine ?? 0)
         : Math.max(0, matchIndex - Math.min(contextLines, maxLines - 1));
     const selected = lines.slice(startLine, startLine + maxLines);
-    const endLine = startLine + selected.length;
+    const returnedStartLine = selected.length === 0 ? 0 : startLine + 1;
+    const returnedEndLine = selected.length === 0 ? 0 : startLine + selected.length;
 
     return {
       id,
       ...(stream === "combined" ? {} : { stream }),
       text: selected.join("\n"),
       totalLines: lines.length,
-      returnedStartLine: startLine + 1,
-      returnedEndLine: endLine,
+      returnedStartLine,
+      returnedEndLine,
       omittedLines: lines.length - selected.length,
       ...(matchIndex === -1 ? {} : { matchLine: matchIndex + 1 }),
       ...(entry.metadata?.identity === undefined ? {} : { identity: entry.metadata.identity }),

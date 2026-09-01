@@ -1665,6 +1665,74 @@ test("search rejects out-of-range contextLines and maxResults without relying so
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test("result retrieval dispatch rejects bounds outside its advertised schemas", async () => {
+  const { root, config } = await workspace();
+  const store = new InMemoryArtifactStore({ createId: () => "result-validation" });
+  const id = store.putArtifact({ text: "one\ntwo\nthree" });
+  try {
+    for (const contextLines of [-1, 21, 2.5, NaN, Infinity, -Infinity]) {
+      await assert.rejects(
+        () => callLocalTool("mottainai_result_get", { id, contextLines }, config, store),
+        /arguments\.contextLines.*(?:minimum|maximum|type)/,
+      );
+    }
+    for (const startLine of [-1, 2.5, NaN, Infinity, -Infinity]) {
+      await assert.rejects(
+        () => callLocalTool("mottainai_result_get", { id, startLine }, config, store),
+        /arguments\.startLine.*(?:minimum|type)/,
+      );
+    }
+    for (const maxLines of [0, 81, 2.5, NaN, Infinity, -Infinity]) {
+      await assert.rejects(
+        () => callLocalTool("mottainai_result_get", { id, maxLines }, config, store),
+        /arguments\.maxLines.*(?:minimum|maximum|type)/,
+      );
+    }
+    for (const maxResults of [0, 101, 2.5, NaN, Infinity, -Infinity]) {
+      await assert.rejects(
+        () => callLocalTool("mottainai_result_search", { query: "one", maxResults }, config, store),
+        /arguments\.maxResults.*(?:minimum|maximum|type)/,
+      );
+    }
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("result retrieval dispatch accepts schema boundaries and keeps query matches in-window", async () => {
+  const { root, config } = await workspace();
+  const store = new InMemoryArtifactStore({ createId: () => "result-boundaries" });
+  const id = store.putArtifact({ text: "before\nneedle\nafter" });
+  try {
+    for (const contextLines of [0, 20]) {
+      const result = structured(
+        await callLocalTool("mottainai_result_get", { id, contextLines, startLine: 0, maxLines: 1 }, config, store),
+      );
+      assert.equal(result.status, "success");
+      assert.equal(result.returnedStartLine, 1);
+      assert.equal(result.returnedEndLine, 1);
+    }
+    for (const maxLines of [1, 80]) {
+      const result = structured(
+        await callLocalTool("mottainai_result_get", { id, query: "needle", maxLines }, config, store),
+      );
+      assert.equal(result.matchLine, 2);
+      assert.ok(
+        (result.returnedStartLine as number) <= (result.matchLine as number) &&
+          (result.matchLine as number) <= (result.returnedEndLine as number),
+      );
+    }
+    for (const maxResults of [1, 100]) {
+      const result = structured(
+        await callLocalTool("mottainai_result_search", { query: "one", maxResults }, config, store),
+      );
+      assert.equal(result.status, "success");
+    }
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("search accepts boundary-valid contextLines and maxResults", async (t) => {
   const { root, config } = await workspace();
   try {
