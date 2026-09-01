@@ -106,7 +106,7 @@ NODE
     # runnable output, so skip fixup entirely.
     dontFixup = true;
     outputHashMode = "recursive";
-    outputHash = "sha256-rnud8yo06KfMQCIt4IenalU/RINW6BfpgpciOejugd0=";
+    outputHash = "sha256-OyPBWgRlrnbPjLGx6/8WQThz2xiXJU2RVBi4Cp6G1bI=";
   };
 in
 pkgs.stdenv.mkDerivation {
