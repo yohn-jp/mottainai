@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 
 use crate::appliance::{ensure_appliance, ApplianceReference};
 use crate::error::{BootstrapError, ErrorCode};
+use crate::lock::BootstrapLock;
 use crate::model::Outcome;
 use crate::oci::OciSource;
 use crate::paths::ManagedPaths;
@@ -486,6 +487,46 @@ pub fn ensure_runtime<C: LimaCli, S: OciSource>(
     }
     evidence.appliance_digest = Some(spec.appliance.digest.clone());
 
+    if let Err(error) = fs::create_dir_all(&paths.root)
+        .map_err(|error| BootstrapError::io("create managed state root", &error))
+    {
+        evidence.fail(&error);
+        return evidence;
+    }
+    let lock = match BootstrapLock::acquire(paths) {
+        Ok(lock) => lock,
+        Err(error) => {
+            evidence.fail(&error);
+            return evidence;
+        }
+    };
+
+    ensure_runtime_locked(paths, spec, cli, oci, config, &lock)
+}
+
+/// Performs the mutating Runtime reconciliation while the caller-owned
+/// `BootstrapLock` remains held. The lock must cover the same managed state
+/// root as `paths`; this entry point exists so the production CLI can acquire
+/// the writer authority before its provider inspection as well.
+pub fn ensure_runtime_locked<C: LimaCli, S: OciSource>(
+    paths: &ManagedPaths,
+    spec: &RuntimeSpec,
+    cli: &C,
+    oci: &S,
+    config: &RuntimeEnsureConfig,
+    lock: &BootstrapLock,
+) -> RuntimeEvidence {
+    let mut evidence = RuntimeEvidence::new(&spec.instance_name);
+    if let Err(error) = lock.validate_for(paths) {
+        evidence.fail(&error);
+        return evidence;
+    }
+    if let Err(error) = spec.validate() {
+        evidence.fail(&error);
+        return evidence;
+    }
+    evidence.appliance_digest = Some(spec.appliance.digest.clone());
+
     let raw_path = match ensure_appliance(paths, &spec.appliance, oci) {
         Ok(path) => path,
         Err(error) => {
@@ -777,6 +818,11 @@ mod tests {
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::path::PathBuf;
+    use std::sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        mpsc, Arc, Barrier, Mutex,
+    };
+    use std::thread;
 
     use tempfile::TempDir;
 
@@ -972,6 +1018,107 @@ mod tests {
         }
     }
 
+    /// A thread-safe provider fixture whose `create` publishes the external
+    /// instance before returning an error. The first list call is held open
+    /// so a concurrent ensure must contend on the bootstrap lock before it
+    /// can observe or repeat that post-effect create.
+    struct PostEffectLimaCli {
+        instances: Mutex<HashMap<String, FakeInstance>>,
+        create_calls: AtomicUsize,
+        start_calls: AtomicUsize,
+        list_calls: AtomicUsize,
+        list_entered: Arc<Barrier>,
+        release_list: Arc<Barrier>,
+        fail_first_create: AtomicBool,
+    }
+
+    impl PostEffectLimaCli {
+        fn new(list_entered: Arc<Barrier>, release_list: Arc<Barrier>) -> Self {
+            Self {
+                instances: Mutex::new(HashMap::new()),
+                create_calls: AtomicUsize::new(0),
+                start_calls: AtomicUsize::new(0),
+                list_calls: AtomicUsize::new(0),
+                list_entered,
+                release_list,
+                fail_first_create: AtomicBool::new(true),
+            }
+        }
+    }
+
+    impl LimaCli for PostEffectLimaCli {
+        fn list_all(&self) -> Result<Vec<LimaInstanceInfo>, BootstrapError> {
+            if self.list_calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                self.list_entered.wait();
+                self.release_list.wait();
+            }
+            Ok(self
+                .instances
+                .lock()
+                .expect("post-effect fixture instance lock")
+                .iter()
+                .map(|(name, instance)| LimaInstanceInfo {
+                    name: name.clone(),
+                    status: Some(instance.status.clone()),
+                    vm_type: instance.vm_type.clone(),
+                })
+                .collect())
+        }
+
+        fn create(&self, instance: &str, _config_path: &Path) -> Result<(), BootstrapError> {
+            self.create_calls.fetch_add(1, Ordering::SeqCst);
+            self.instances
+                .lock()
+                .expect("post-effect fixture instance lock")
+                .insert(
+                    instance.to_owned(),
+                    FakeInstance {
+                        status: "Stopped".to_owned(),
+                        vm_type: Some("qemu".to_owned()),
+                    },
+                );
+            if self.fail_first_create.swap(false, Ordering::SeqCst) {
+                return Err(BootstrapError::new(
+                    ErrorCode::LimaCommandFailed,
+                    "simulated limactl create failure after external instance creation",
+                ));
+            }
+            Ok(())
+        }
+
+        fn start(&self, instance: &str) -> Result<(), BootstrapError> {
+            self.start_calls.fetch_add(1, Ordering::SeqCst);
+            let mut instances = self
+                .instances
+                .lock()
+                .expect("post-effect fixture instance lock");
+            let entry = instances.get_mut(instance).ok_or_else(|| {
+                BootstrapError::new(ErrorCode::LimaCommandFailed, "start: no such instance")
+            })?;
+            entry.status = "Running".to_owned();
+            Ok(())
+        }
+
+        fn shell(&self, _instance: &str, _command: &[&str]) -> Result<String, BootstrapError> {
+            Ok(serde_json::json!({
+                "contractId": "mottainai.linux-runtime.v1",
+                "schemaVersion": 2,
+                "runtimeIdentity": "fixture-runtime",
+                "architecture": "x86_64-linux",
+                "buildIdentity": "/nix/store/fixture-system",
+                "generation": 1,
+                "stateOwners": { "system": [], "repositoryUser": [] },
+                "requiredCompanions": [],
+                "readiness": "bootstrap-ready",
+                "bootstrapReady": true,
+                "managedRuntimeReady": false,
+                "reconciliation": "current",
+                "upgradeRequired": false,
+            })
+            .to_string())
+        }
+    }
+
     struct FakeOciSource;
 
     impl OciSource for FakeOciSource {
@@ -1048,6 +1195,115 @@ mod tests {
         let paths = ManagedPaths::new(temp.path().join("state"));
         crate::paths::ensure_managed_directories(&paths).unwrap();
         (temp, paths)
+    }
+
+    #[test]
+    fn concurrent_ensures_contend_before_post_effect_create_and_do_not_duplicate_it() {
+        let (_temp, paths) = managed_paths();
+        seed_appliance(&paths, &reference());
+        let list_entered = Arc::new(Barrier::new(2));
+        let release_list = Arc::new(Barrier::new(2));
+        let cli = Arc::new(PostEffectLimaCli::new(
+            Arc::clone(&list_entered),
+            Arc::clone(&release_list),
+        ));
+        let quick_config = RuntimeEnsureConfig {
+            health_check_attempts: 1,
+            health_check_interval: Duration::from_millis(0),
+        };
+
+        let first_paths = paths.clone();
+        let first_cli = Arc::clone(&cli);
+        let first_config = quick_config.clone();
+        let first = thread::spawn(move || {
+            ensure_runtime(
+                &first_paths,
+                &spec(),
+                first_cli.as_ref(),
+                &FakeOciSource,
+                &first_config,
+            )
+        });
+        list_entered.wait();
+
+        let second_paths = paths.clone();
+        let second_cli = Arc::clone(&cli);
+        let second_config = quick_config.clone();
+        let (second_done, second_result) = mpsc::channel();
+        let second_thread = thread::spawn(move || {
+            let evidence = ensure_runtime(
+                &second_paths,
+                &spec(),
+                second_cli.as_ref(),
+                &FakeOciSource,
+                &second_config,
+            );
+            second_done
+                .send(evidence)
+                .expect("concurrent ensure result receiver should remain available");
+        });
+        let second = second_result
+            .recv_timeout(Duration::from_secs(1))
+            .expect("concurrent ensure should fail fast on lock contention");
+        assert_eq!(second.result, Outcome::Blocked);
+        assert_eq!(second.error_code.as_deref(), Some("bootstrap_locked"));
+        assert_eq!(cli.create_calls.load(Ordering::SeqCst), 0);
+        assert!(!paths
+            .runtime_instance_directory(&spec().instance_name)
+            .join("lima.yaml")
+            .exists());
+        assert!(!paths
+            .runtime_instance_directory(&spec().instance_name)
+            .join("state.json")
+            .exists());
+
+        release_list.wait();
+        let first = first
+            .join()
+            .expect("first ensure thread should finish after release");
+        assert_eq!(first.result, Outcome::Blocked);
+        assert_eq!(first.error_code.as_deref(), Some("lima_command_failed"));
+        assert_eq!(cli.create_calls.load(Ordering::SeqCst), 1);
+
+        second_thread
+            .join()
+            .expect("concurrent ensure thread should finish cleanly");
+        let resumed = ensure_runtime(&paths, &spec(), cli.as_ref(), &FakeOciSource, &quick_config);
+        assert_eq!(resumed.result, Outcome::Changed);
+        assert_eq!(cli.create_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(cli.start_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn mismatched_lock_fails_before_any_runtime_mutation() {
+        let temporary = TempDir::new().unwrap();
+        let locked_paths = ManagedPaths::new(temporary.path().join("locked-state"));
+        let target_paths = ManagedPaths::new(temporary.path().join("target-state"));
+        fs::create_dir_all(&locked_paths.root).unwrap();
+        let lock = BootstrapLock::acquire(&locked_paths).unwrap();
+        let cli = FakeLimaCli::new();
+
+        let evidence = ensure_runtime_locked(
+            &target_paths,
+            &spec(),
+            &cli,
+            &FakeOciSource,
+            &RuntimeEnsureConfig {
+                health_check_attempts: 1,
+                health_check_interval: Duration::from_millis(0),
+            },
+            &lock,
+        );
+
+        assert_eq!(evidence.result, Outcome::Blocked);
+        assert_eq!(
+            evidence.error_code.as_deref(),
+            Some("bootstrap_lock_mismatch")
+        );
+        assert!(!target_paths.root.exists());
+        assert_eq!(*cli.create_calls.borrow(), 0);
+        assert_eq!(*cli.start_calls.borrow(), 0);
+        assert_eq!(*cli.shell_calls.borrow(), 0);
     }
 
     #[test]

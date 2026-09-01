@@ -2,15 +2,19 @@ use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
-    Arc,
+    Arc, Barrier,
 };
+use std::thread;
 
 use flate2::{write::GzEncoder, Compression};
+use mottainai_host_bootstrap::appliance::ApplianceReference;
 use mottainai_host_bootstrap::contract::ProviderContract;
 use mottainai_host_bootstrap::error::{BootstrapError, ErrorCode};
 use mottainai_host_bootstrap::host::{HostObservation, KvmObservation};
+use mottainai_host_bootstrap::lima::{RuntimeSpec, RUNTIME_SPEC_SCHEMA_VERSION};
 use mottainai_host_bootstrap::lock::BootstrapLock;
 use mottainai_host_bootstrap::model::{Classification, Outcome, QemuIdentity};
 use mottainai_host_bootstrap::paths::{ensure_managed_directories, ManagedPaths};
@@ -42,6 +46,34 @@ impl ArtifactSource for FixtureSource {
         file.write_all(&self.bytes)
             .and_then(|_| file.sync_all())
             .map_err(|error| BootstrapError::io("write fixture download", &error))
+    }
+}
+
+#[derive(Clone)]
+struct BlockingFixtureSource {
+    bytes: Arc<Vec<u8>>,
+    calls: Arc<AtomicUsize>,
+    entered: Arc<Barrier>,
+    release: Arc<Barrier>,
+}
+
+impl ArtifactSource for BlockingFixtureSource {
+    fn download(
+        &self,
+        _contract: &ProviderContract,
+        destination: &Path,
+    ) -> Result<(), BootstrapError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        self.entered.wait();
+        self.release.wait();
+        let mut file = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(destination)
+            .map_err(|error| BootstrapError::io("create blocking fixture download", &error))?;
+        file.write_all(&self.bytes)
+            .and_then(|_| file.sync_all())
+            .map_err(|error| BootstrapError::io("write blocking fixture download", &error))
     }
 }
 
@@ -119,6 +151,22 @@ fn fixture() -> (TempDir, ProviderContract, FixtureSource, BootstrapConfig) {
     (temporary, contract, source, bootstrap)
 }
 
+fn runtime_spec() -> RuntimeSpec {
+    RuntimeSpec {
+        schema_version: RUNTIME_SPEC_SCHEMA_VERSION.to_owned(),
+        instance_name: "mottainai-runtime".to_owned(),
+        architecture: "x86_64".to_owned(),
+        cpus: 2,
+        memory_mib: 4096,
+        appliance: ApplianceReference {
+            registry: "ghcr.io".to_owned(),
+            repository: "yohn-jp/mottainai/runtime-appliance".to_owned(),
+            digest: format!("sha256:{}", "a".repeat(64)),
+        },
+        mounts: Vec::new(),
+    }
+}
+
 #[test]
 fn verified_materialization_promotes_only_after_digest_verification() {
     let (_temporary, contract, source, bootstrap_config) = fixture();
@@ -194,6 +242,57 @@ fn lock_behavior_is_non_blocking_and_released_on_drop() {
     assert_eq!(second.code, ErrorCode::BootstrapLocked);
     drop(first);
     assert!(BootstrapLock::acquire(&paths).is_ok());
+}
+
+#[test]
+fn runtime_ensure_contends_with_bootstrap_before_mutating_shared_runtime_state() {
+    let (temporary, _contract, source, bootstrap_config) = fixture();
+    let paths = bootstrap_config.paths();
+    ensure_managed_directories(&paths).unwrap();
+    let entered = Arc::new(Barrier::new(2));
+    let release = Arc::new(Barrier::new(2));
+    let blocking_source = BlockingFixtureSource {
+        bytes: Arc::clone(&source.bytes),
+        calls: Arc::clone(&source.calls),
+        entered: Arc::clone(&entered),
+        release: Arc::clone(&release),
+    };
+
+    let bootstrap_handle = thread::spawn(move || {
+        Bootstrap::new(bootstrap_config).reconcile_with_source(blocking_source)
+    });
+    entered.wait();
+
+    let spec_path = temporary.path().join("runtime-spec.json");
+    fs::write(&spec_path, serde_json::to_vec(&runtime_spec()).unwrap()).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_mottainai-init"))
+        .args([
+            "runtime",
+            "ensure",
+            "--spec",
+            spec_path.to_str().unwrap(),
+            "--state-directory",
+            paths.root.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .expect("production runtime ensure should launch");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("\"error_code\":\"bootstrap_locked\""));
+    assert!(!paths
+        .runtime_instance_directory("mottainai-runtime")
+        .exists());
+    assert!(!paths.staging_appliance_directory().exists());
+    assert!(!paths
+        .appliance_directory(&runtime_spec().appliance.digest)
+        .exists());
+
+    release.wait();
+    let bootstrap_evidence = bootstrap_handle
+        .join()
+        .expect("bootstrap thread should finish after release");
+    assert_eq!(bootstrap_evidence.result, Outcome::Changed);
+    assert_eq!(source.calls.load(Ordering::SeqCst), 1);
 }
 
 #[test]
