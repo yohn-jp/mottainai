@@ -22,31 +22,9 @@ test("governance-check-local passes with a valid title/body/files triple", (t) =
   t.after(() => fs.rmSync(path.dirname(bodyFile), { recursive: true, force: true }));
   fs.writeFileSync(
     bodyFile,
-    [
-      "## Summary",
-      "A concrete summary.",
-      "## Linked issue",
-      "Closes #1",
-      "## Scope",
-      "### Included",
-      "Included scope.",
-      "### Excluded",
-      "Excluded scope.",
-      "## Implementation",
-      "Key decisions.",
-      "## Behavioral changes",
-      "Operational changes.",
-      "## Validation",
-      "- [x] Typecheck",
-      "- [x] Tests",
-      "- [x] Build",
-      "## Risks",
-      "Risks and mitigations.",
-      "## Breaking changes",
-      "No.",
-      "## Review focus",
-      "Areas for reviewers to inspect.",
-    ].join("\n"),
+    fs
+      .readFileSync(new URL("../.github/PULL_REQUEST_TEMPLATE/default.md", import.meta.url), "utf8")
+      .replace("Closes #", "Closes #1"),
   );
   const result = run(["--title", "feat(cli): add local governance check", "--body-file", bodyFile, "--files", "/dev/null"]);
   assert.equal(result.exitCode, 0, result.stdout);
@@ -57,31 +35,9 @@ test("governance-check-local fails on an invalid branch name even when title/bod
   t.after(() => fs.rmSync(path.dirname(bodyFile), { recursive: true, force: true }));
   fs.writeFileSync(
     bodyFile,
-    [
-      "## Summary",
-      "A concrete summary.",
-      "## Linked issue",
-      "Closes #1",
-      "## Scope",
-      "### Included",
-      "Included scope.",
-      "### Excluded",
-      "Excluded scope.",
-      "## Implementation",
-      "Key decisions.",
-      "## Behavioral changes",
-      "Operational changes.",
-      "## Validation",
-      "- [x] Typecheck",
-      "- [x] Tests",
-      "- [x] Build",
-      "## Risks",
-      "Risks and mitigations.",
-      "## Breaking changes",
-      "No.",
-      "## Review focus",
-      "Areas for reviewers to inspect.",
-    ].join("\n"),
+    fs
+      .readFileSync(new URL("../.github/PULL_REQUEST_TEMPLATE/default.md", import.meta.url), "utf8")
+      .replace("Closes #", "Closes #1"),
   );
   const result = run(["--title", "feat(cli): add local governance check", "--body-file", bodyFile, "--files", "/dev/null", "--branch", "no-issue-number-here"]);
   assert.equal(result.exitCode, 1);

@@ -1,9 +1,6 @@
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 
 const rules = JSON.parse(readFileSync(new URL("./governance-rules.json", import.meta.url), "utf8"));
-const inariPullRequest = JSON.parse(
-  readFileSync(new URL("../.github/inari/pull-requests/default.json", import.meta.url), "utf8"),
-);
 const inariIssuesDir = new URL("../.github/inari/issues/", import.meta.url);
 const inariIssueTemplates = readdirSync(inariIssuesDir)
   .filter((name) => name.endsWith(".json"))
@@ -40,10 +37,6 @@ function meaningful(value) {
   return !isPlaceholder(value.replace(/<!--[^]*?-->/g, "").trim());
 }
 
-function hasUnfinishedPlaceholder(body) {
-  return body.split(/\r?\n/).some((line) => /^(?:tbd|todo|fixme|wip)(?:\s*[:.-].*)?$/i.test(line.trim()));
-}
-
 function changed(files, patterns) {
   return files.some((file) => patterns.some((pattern) => new RegExp(pattern).test(file)));
 }
@@ -57,33 +50,6 @@ function hasCompletedCheckbox(body, item) {
     }
     return false;
   });
-}
-
-function compiledPrHeadings() {
-  const sections = Array.isArray(inariPullRequest.sections) ? inariPullRequest.sections : [];
-  return sections
-    .map((section) => section?.label)
-    .filter((label) => typeof label === "string" && label.trim().length > 0);
-}
-
-function configuredPrHeadings() {
-  return Array.isArray(rules.pullRequest.requiredSections) ? rules.pullRequest.requiredSections : [];
-}
-
-/**
- * The compiled Inari template is the PR-body shape authority. The copy in
- * governance-rules.json is retained only as a fail-fast synchronization
- * assertion because branch/title/checklist rules still live there.
- */
-function validatePrContractSynchronization(errors) {
-  const compiled = compiledPrHeadings();
-  const configured = configuredPrHeadings();
-  if (JSON.stringify(compiled) !== JSON.stringify(configured)) {
-    errors.push(
-      `governance PR headings drifted from Inari contract: expected ${compiled.join(", ") || "none"}`,
-    );
-  }
-  return compiled;
 }
 
 function bodyHeadings(body) {
@@ -154,23 +120,19 @@ export function validatePullRequest({ title, body, draft = false, files = [] }) 
   if (body.trim().length < rules.pullRequest.minimumBodyLength)
     errors.push(`body must be at least ${rules.pullRequest.minimumBodyLength} characters`);
 
-  const requiredHeadings = validatePrContractSynchronization(errors);
-  for (const heading of requiredHeadings) {
-    if (!meaningful(sectionBody(body, heading))) errors.push(`required section is empty: ${heading}`);
-  }
+  // Inari owns PR headings, fields, and the fixed Validation checklist.
+  // Mottainai owns only shared metadata and conditional product-specific gates.
 
   const issues = extractClosingIssues(body);
   if (issues.length !== 1) errors.push("exactly one closing Issue is required");
 
   if (!draft) {
-    for (const item of rules.pullRequest.validationItems) {
-      if (!hasCompletedCheckbox(body, item)) errors.push(`Validation must be completed: ${item}`);
-    }
+    // This conditional gate is Mottainai-specific; it is not an Inari fixed
+    // checklist item and does not add a PR-template section.
     if (changed(files, rules.pullRequest.packageCheckPaths) && !hasCompletedCheckbox(body, "Package check")) {
       errors.push("Validation must be completed: Package check");
     }
   }
-  if (!draft && hasUnfinishedPlaceholder(body)) errors.push("non-draft PR contains an unfinished placeholder");
 
   const changedFileRules = rules.pullRequest.changedFileRules;
   if (changed(files, changedFileRules.compressionPaths)) {

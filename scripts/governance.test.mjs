@@ -16,23 +16,9 @@ The observed behavior or error.
 ## Context
 Logs, workaround, related Issues, or environment details.`;
 
-const pullRequestBody = `## Summary
-Align repository governance with the compiled Inari pull-request contract so a PR created by the supported Mottainai and gh-inari path can pass its own repository gate without manual section stuffing. The body intentionally contains only fields that Inari declares.
-
-## Linked issue
-Closes #486
-
-## Changes
-The PR validator uses the Inari-declared five-section body shape. Existing title, branch, minimum body length, linked-Issue, validation checklist, package check, compression test, and CLI evidence rules remain independent non-shape governance checks.
-
-## Validation
-- [x] Typecheck
-- [x] Tests
-- [x] Build
-- [ ] Package check
-
-## Review focus
-Confirm that no Scope, Implementation, Behavioral changes, Test contract, Regression proof, Validation evidence, Release impact, Risks, Breaking changes, Migration / compatibility, or Security impact section is needed for this body to pass.`;
+const pullRequestBody = fs
+  .readFileSync(new URL("../.github/PULL_REQUEST_TEMPLATE/default.md", import.meta.url), "utf8")
+  .replace("Closes #", "Closes #486");
 
 function validatePullRequestContract(overrides = {}) {
   return validatePullRequest({
@@ -40,11 +26,6 @@ function validatePullRequestContract(overrides = {}) {
     body: pullRequestBody,
     ...overrides,
   });
-}
-
-function blankSection(body, heading) {
-  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return body.replace(new RegExp(`(## ${escaped}\\n)[\\s\\S]*?(?=\\n## |$)`), "$1");
 }
 
 test("valid issue contract passes", () => {
@@ -56,47 +37,20 @@ test("issue acceptance criteria requires a checklist", () => {
   assert.ok(result.includes("Acceptance criteria must contain a checklist item"));
 });
 
-test("compiled Inari five-section pull request passes without legacy section stuffing", () => {
+test("canonical Inari-generated pull request passes without manual shape repair", () => {
   const result = validatePullRequestContract();
   assert.deepEqual(result.errors, []);
   assert.deepEqual(result.warnings, []);
   assert.deepEqual(result.closingIssues, [486]);
 });
 
-test("governance-rules PR headings stay synchronized with compiled Inari labels", () => {
+test("Inari owns PR presentation and fixed checklist semantics", () => {
   const rules = JSON.parse(fs.readFileSync(new URL("./governance-rules.json", import.meta.url), "utf8"));
-  const inari = JSON.parse(
-    fs.readFileSync(new URL("../.github/inari/pull-requests/default.json", import.meta.url), "utf8"),
-  );
-  assert.deepEqual(
-    rules.pullRequest.requiredSections,
-    inari.sections.map((section) => section.label),
-  );
-});
+  assert.equal("requiredSections" in rules.pullRequest, false);
+  assert.equal("validationItems" in rules.pullRequest, false);
 
-test("each Inari-declared PR section is required and no retired section is required", () => {
-  for (const heading of ["Summary", "Linked issue", "Changes", "Validation", "Review focus"]) {
-    const body = blankSection(pullRequestBody, heading);
-    assert.ok(validatePullRequestContract({ body }).errors.includes(`required section is empty: ${heading}`), heading);
-  }
-  const result = validatePullRequestContract();
-  for (const retired of [
-    "Scope",
-    "Included",
-    "Excluded",
-    "Implementation",
-    "Behavioral changes",
-    "Test contract",
-    "Regression proof",
-    "Validation evidence",
-    "Release impact",
-    "Risks",
-    "Breaking changes",
-    "Migration / compatibility",
-    "Security impact",
-  ]) {
-    assert.ok(!result.errors.some((error) => error.includes(retired)), retired);
-  }
+  const body = `Closes #486\n${"repository evidence ".repeat(20)}`;
+  assert.deepEqual(validatePullRequestContract({ body }).errors, []);
 });
 
 test("title rules remain enforced", () => {
@@ -123,20 +77,8 @@ test("exactly one closing Issue remains required", () => {
   );
 });
 
-test("Typecheck Tests and Build checkboxes remain required for non-draft PRs", () => {
-  for (const item of ["Typecheck", "Tests", "Build"]) {
-    const body = pullRequestBody.replace(`- [x] ${item}`, `- [ ] ${item}`);
-    assert.ok(validatePullRequestContract({ body }).errors.includes(`Validation must be completed: ${item}`), item);
-  }
-});
-
-test("canonical Inari-escaped validation checkboxes remain accepted", () => {
-  const body = pullRequestBody.replaceAll("- [x]", "\\- [x]");
-  assert.deepEqual(validatePullRequestContract({ body }).errors, []);
-});
-
-test("Draft PRs may leave validation checks incomplete", () => {
-  const body = pullRequestBody.replaceAll("[x]", "[ ]");
+test("draft PRs skip the conditional Package check gate", () => {
+  const body = pullRequestBody;
   assert.deepEqual(validatePullRequestContract({ body, draft: true, files: ["package.json"] }).errors, []);
 });
 
@@ -152,6 +94,9 @@ test("Package check remains required for distribution-impacting files", () => {
   ]) {
     assert.ok(validatePullRequestContract({ files: [file] }).errors.includes("Validation must be completed: Package check"), file);
   }
+
+  const body = `${pullRequestBody}\n- [x] Package check`;
+  assert.deepEqual(validatePullRequestContract({ body, files: ["package.json"] }).errors, []);
 });
 
 test("compression and CLI changed-file checks remain independent of PR section shape", () => {
