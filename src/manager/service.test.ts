@@ -24,6 +24,7 @@ import type { SemanticExecutionPlan } from "../semantics/execution-plan.js";
 class FakeRuntime implements ZellijRuntime {
   readonly sessions = new Set<string>();
   readonly started: { sessionName: string; cwd: string; command: string; args: readonly string[] }[] = [];
+  readonly inspected: string[] = [];
   readonly attached: string[] = [];
   readonly terminated: string[] = [];
 
@@ -32,6 +33,7 @@ class FakeRuntime implements ZellijRuntime {
   }
 
   async inspect(sessionName: string): Promise<ZellijObservedState> {
+    this.inspected.push(sessionName);
     return this.sessions.has(sessionName) ? "running" : "absent";
   }
 
@@ -54,6 +56,25 @@ class FakeRuntime implements ZellijRuntime {
     return "fake-zellij";
   }
 }
+
+test("Manager service rejects malformed session IDs before runtime lookup", async (t) => {
+  const root = createTempGitRepo(t);
+  const runtime = new FakeRuntime();
+  const service = new ManagerSessionService({ workspaceRoot: root, store: createWorkflowStore(t), runtime });
+  await service.initialize();
+
+  await assert.rejects(
+    service.get("12345678-12345-4234-8234-123456789abc" as ManagerSessionId),
+    (error: unknown) => {
+      assert.ok(error instanceof ManagerError);
+      assert.equal(error.code, "invalid_request");
+      assert.equal(error.statusCode, 400);
+      assert.equal(error.message, "invalid session id");
+      return true;
+    },
+  );
+  assert.deepEqual(runtime.inspected, []);
+});
 
 test("operational projection keeps semantic lifecycle authoritative when the agent process exits", async (t) => {
   const root = createTempGitRepo(t);
