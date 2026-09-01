@@ -32,13 +32,14 @@ import type {
   ManagedRuntimePaths,
   ManagedRuntimeState,
 } from "./managed-runtime-state.js";
+import { RUNTIME_CONTRACT_ID, RUNTIME_CONTRACT_SCHEMA_VERSION } from "./contract.js";
 import { DIRECT_BOUNDARIES } from "../boundary.js";
 import type { BoundaryOperations } from "../boundary.js";
 
 /** Minimum supported managed-generation metadata contract. */
 export const SUPPORTED_MANAGED_GENERATION_COMPATIBILITY_CONTRACT_VERSION = 1 as const;
-export const SUPPORTED_RUNTIME_CONTRACT_ID = "mottainai.linux-runtime.v1" as const;
-export const SUPPORTED_RUNTIME_CONTRACT_SCHEMA_VERSION = 1 as const;
+export const SUPPORTED_RUNTIME_CONTRACT_ID = RUNTIME_CONTRACT_ID;
+export const SUPPORTED_RUNTIME_CONTRACT_SCHEMA_VERSION = RUNTIME_CONTRACT_SCHEMA_VERSION;
 
 const MAX_ERROR_MESSAGE_LENGTH = 2_048 as const;
 const MAX_HEALTH_EVIDENCE_LENGTH = 2_048 as const;

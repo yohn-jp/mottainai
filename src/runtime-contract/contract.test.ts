@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import {
   HEALTHY_RECONCILIATION_STATES,
@@ -35,6 +37,17 @@ function validResult(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+function nixRuntimeContractSchemaVersion(): number {
+  const source = fs.readFileSync(fileURLToPath(new URL("../../nix/modules/runtime.nix", import.meta.url)), "utf8");
+  const match = source.match(/^\s*schemaVersion = (\d+);\s*$/mu);
+  assert.ok(match, "nix/modules/runtime.nix must declare the canonical Runtime schema version");
+  return Number(match[1]);
+}
+
+test("Nix and TypeScript Runtime contract authorities remain aligned", () => {
+  assert.equal(nixRuntimeContractSchemaVersion(), RUNTIME_CONTRACT_SCHEMA_VERSION);
+});
 
 test("parses a well-formed bounded health/capability result", () => {
   const parsed = parseRuntimeCapabilityResult(validResult());
