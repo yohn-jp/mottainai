@@ -129,6 +129,16 @@ pkgs.stdenv.mkDerivation {
     mkdir source
     cp -a "$src"/. source/
     chmod -R u+w source
+    # This derivation always installs its own dependencies from the
+    # pnpmDeps fixed-output store (buildPhase below); a node_modules
+    # that happened to already exist in $src (e.g. an impure mottainaiSource
+    # pointing at a live checkout with a host-installed node_modules, as
+    # scripts/verify-managed-generation-catalog.mjs's Issue #662 CI proof
+    # does) must never be carried into the build — pnpm's own removal of a
+    # pre-existing node_modules prompts interactively and aborts under
+    # --offline in a sandboxed, non-TTY build regardless of a CI env var,
+    # since the Nix build sandbox does not inherit the caller's environment.
+    rm -rf source/node_modules
     cd source
 
     runHook postUnpack
