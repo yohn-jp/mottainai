@@ -71,6 +71,23 @@ ready state:
    digest, Lima status, whether anything changed, and the guest health
    result — as one JSON document (`--json`) or a short human summary.
 
+## Shared writer lock and ownership
+
+`mottainai-init runtime ensure` is a writer of the same host-bootstrap state
+root as the host bootstrap. The host bootstrap owns QEMU and managed Lima
+provider state; `runtime ensure` owns the verified `appliances/` materialization,
+the `runtime/` configuration and provenance records, and the isolated
+`lima-home/` used by its `limactl` calls. Both paths use the root's existing
+`bootstrap.lock` (`BootstrapLock`) as one non-blocking writer boundary and hold
+it through the full reconciliation, including external Lima create/start
+operations and provider/appliance state promotion.
+
+A busy lock fails closed with the stable bounded `bootstrap_locked`
+classification. The root directory can be created to make the lock file
+available, but no state, configuration, or staging write is performed before
+the lock is acquired. Read-only inspection helpers may be called independently;
+they do not grant mutation authority to a caller.
+
 ## Idempotency and fail-closed reconciliation
 
 - A **missing** instance is created and started. The Lima instance

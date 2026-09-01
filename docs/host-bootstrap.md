@@ -136,13 +136,24 @@ ensure`, are keyed the same idempotent, digest-verified way as the provider
 directory above, and are documented in
 [`lima-runtime-orchestration.md`](lima-runtime-orchestration.md).
 
-Only the bootstrap process owns this location. A non-blocking filesystem lock
-serializes invocations. Downloaded bytes first land in a .part file, are
-size- and digest-verified, and are atomically promoted. Archive extraction is
-performed into staging, then atomically promoted to the immutable provider
-identity. The active link and state.json are promoted only after the provider
-executable and archive identity verify. Stale staging or partial downloads are
-discarded and safely retried on the next locked run.
+The host bootstrap and `mottainai-init runtime ensure` share ownership of this
+state root. Host bootstrap owns QEMU/provider state (`qemu.json`, `cache/`,
+`providers/`, `active`, and the provider staging boundary); `runtime ensure`
+owns verified Appliance materialization (`appliances/`), managed Runtime
+configuration/state (`runtime/`), and its isolated Lima home (`lima-home/`).
+Both mutating paths acquire the same non-blocking `bootstrap.lock` before any
+state, configuration, staging, provider, Appliance, or Lima mutation and hold
+it through the complete reconciliation. Lock contention returns the bounded
+`bootstrap_locked` classification; it never waits or guesses at recovery.
+
+The state-root directory may be created as the prerequisite for opening the
+lock, but no state/configuration/staging write occurs before writer authority
+is acquired. Downloaded bytes first land in a .part file, are size- and
+digest-verified, and are atomically promoted. Archive extraction is performed
+into staging, then atomically promoted to the immutable provider identity. The
+active link and state.json are promoted only after the provider executable and
+archive identity verify. Stale staging or partial downloads are discarded and
+safely retried on the next locked run.
 
 Ambient limactl binaries are never adopted. A non-managed or multiply
 resolved ambient binary is classified as incompatible or ambiguous and blocks

@@ -5,8 +5,9 @@ use std::time::Duration;
 use mottainai_host_bootstrap::contract::ProviderContract;
 use mottainai_host_bootstrap::error::{BootstrapError, ErrorCode};
 use mottainai_host_bootstrap::lima::{
-    ensure_runtime, RuntimeEnsureConfig, RuntimeSpec, SystemLimaCli,
+    ensure_runtime_locked, RuntimeEnsureConfig, RuntimeSpec, SystemLimaCli,
 };
+use mottainai_host_bootstrap::lock::BootstrapLock;
 use mottainai_host_bootstrap::model::Classification;
 use mottainai_host_bootstrap::oci::HttpOciSource;
 use mottainai_host_bootstrap::provider::{inspect_provider, FileArtifactSource};
@@ -277,6 +278,9 @@ fn run_runtime_ensure(
         bootstrap_config.state_directory = state_directory;
     }
     let paths = bootstrap_config.paths();
+    std::fs::create_dir_all(&paths.root)
+        .map_err(|error| BootstrapError::io("create managed state root", &error))?;
+    let lock = BootstrapLock::acquire(&paths)?;
     let contract = ProviderContract::default();
     let observation = inspect_provider(
         &paths,
@@ -300,12 +304,13 @@ fn run_runtime_ensure(
         registry: spec.appliance.registry.clone(),
         timeout: Duration::from_secs(300),
     };
-    Ok(ensure_runtime(
+    Ok(ensure_runtime_locked(
         &paths,
         &spec,
         &cli,
         &oci,
         &RuntimeEnsureConfig::default(),
+        &lock,
     ))
 }
 
