@@ -26,6 +26,7 @@ pub trait OciSource {
 }
 
 pub const OCI_MANIFEST_ACCEPT: &str = "application/vnd.oci.image.manifest.v1+json";
+const MAX_BEARER_TOKEN_RESPONSE_BYTES: u64 = 16 * 1024;
 
 #[derive(Clone, Debug)]
 pub struct HttpOciSource {
@@ -104,12 +105,30 @@ impl HttpOciSource {
                 ),
             ));
         }
-        let token_body: serde_json::Value = token_response.json().map_err(|error| {
-            BootstrapError::new(
+        if token_response
+            .content_length()
+            .is_some_and(|length| length > MAX_BEARER_TOKEN_RESPONSE_BYTES)
+        {
+            return Err(BootstrapError::new(
                 ErrorCode::ApplianceDownloadFailed,
-                format!("parse OCI registry bearer token response: {error}"),
-            )
-        })?;
+                "OCI registry bearer token response exceeds the bounded token response size",
+            ));
+        }
+        let token_bytes = read_bounded_body(
+            token_response,
+            MAX_BEARER_TOKEN_RESPONSE_BYTES,
+            ErrorCode::ApplianceDownloadFailed,
+            "read OCI registry bearer token response",
+            ErrorCode::ApplianceDownloadFailed,
+            "OCI registry bearer token response exceeds the bounded token response size",
+        )?;
+        let token_body: serde_json::Value =
+            serde_json::from_slice(&token_bytes).map_err(|error| {
+                BootstrapError::new(
+                    ErrorCode::ApplianceDownloadFailed,
+                    format!("parse OCI registry bearer token response: {error}"),
+                )
+            })?;
         let token = token_body
             .get("token")
             .or_else(|| token_body.get("access_token"))
@@ -152,20 +171,25 @@ impl OciSource for HttpOciSource {
                 ),
             ));
         }
-        let bytes = response.bytes().map_err(|error| {
-            BootstrapError::new(
-                ErrorCode::ApplianceDownloadFailed,
-                format!("read OCI registry manifest body: {error}"),
-            )
-        })?;
-        if bytes.len() as u64 > MAX_MANIFEST_BYTES {
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_MANIFEST_BYTES)
+        {
             return Err(BootstrapError::new(
                 ErrorCode::ApplianceManifestInvalid,
                 "OCI registry manifest exceeds the bounded manifest size",
             ));
         }
+        let bytes = read_bounded_body(
+            response,
+            MAX_MANIFEST_BYTES,
+            ErrorCode::ApplianceDownloadFailed,
+            "read OCI registry manifest body",
+            ErrorCode::ApplianceManifestInvalid,
+            "OCI registry manifest exceeds the bounded manifest size",
+        )?;
         verify_digest_bytes(&bytes, digest)?;
-        Ok(bytes.to_vec())
+        Ok(bytes)
     }
 
     fn fetch_blob(
@@ -202,6 +226,35 @@ impl OciSource for HttpOciSource {
 }
 
 pub const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
+
+/// Reads at most one byte beyond the ceiling so overflow is detected without
+/// buffering an unbounded response.
+fn read_bounded_body<R: Read>(
+    source: R,
+    maximum: u64,
+    read_error_code: ErrorCode,
+    read_context: &str,
+    oversized_error_code: ErrorCode,
+    oversized_message: &str,
+) -> Result<Vec<u8>, BootstrapError> {
+    let read_limit = maximum.checked_add(1).ok_or_else(|| {
+        BootstrapError::new(
+            read_error_code,
+            format!("{read_context}: response size bound overflow"),
+        )
+    })?;
+    let mut bytes = Vec::new();
+    source
+        .take(read_limit)
+        .read_to_end(&mut bytes)
+        .map_err(|error| {
+            BootstrapError::new(read_error_code, format!("{read_context}: {error}"))
+        })?;
+    if bytes.len() as u64 > maximum {
+        return Err(BootstrapError::new(oversized_error_code, oversized_message));
+    }
+    Ok(bytes)
+}
 
 /// Reads a local, content-addressed OCI Artifact layout instead of a
 /// network registry: the manifest is read verbatim from `manifest_path` and
@@ -407,8 +460,22 @@ fn write_bounded_verified<R: Read>(
 
 #[cfg(test)]
 mod tests {
-    use super::{bearer_token_url, validate_digest};
+    use std::io::{self, Cursor, Read};
+
+    use super::{
+        bearer_token_url, read_bounded_body, validate_digest, MAX_BEARER_TOKEN_RESPONSE_BYTES,
+        MAX_MANIFEST_BYTES,
+    };
     use crate::error::ErrorCode;
+
+    struct InfiniteBody(u8);
+
+    impl Read for InfiniteBody {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            buffer.fill(self.0);
+            Ok(buffer.len())
+        }
+    }
 
     #[test]
     fn bearer_challenge_is_parsed_into_a_token_url() {
@@ -428,5 +495,73 @@ mod tests {
         assert!(validate_digest(&exact).is_ok());
         let error = validate_digest(&wrong_case).unwrap_err();
         assert_eq!(error.code, ErrorCode::ApplianceReferenceInvalid);
+    }
+
+    #[test]
+    fn oversized_manifest_body_is_rejected_before_parsing() {
+        let error = read_bounded_body(
+            InfiniteBody(b'm'),
+            MAX_MANIFEST_BYTES,
+            ErrorCode::ApplianceDownloadFailed,
+            "read OCI registry manifest body",
+            ErrorCode::ApplianceManifestInvalid,
+            "OCI registry manifest exceeds the bounded manifest size",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, ErrorCode::ApplianceManifestInvalid);
+        assert_eq!(
+            error.message,
+            "OCI registry manifest exceeds the bounded manifest size"
+        );
+    }
+
+    #[test]
+    fn oversized_bearer_token_body_is_rejected_before_json_parsing() {
+        let error = read_bounded_body(
+            InfiniteBody(b't'),
+            MAX_BEARER_TOKEN_RESPONSE_BYTES,
+            ErrorCode::ApplianceDownloadFailed,
+            "read OCI registry bearer token response",
+            ErrorCode::ApplianceDownloadFailed,
+            "OCI registry bearer token response exceeds the bounded token response size",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, ErrorCode::ApplianceDownloadFailed);
+        assert_eq!(
+            error.message,
+            "OCI registry bearer token response exceeds the bounded token response size"
+        );
+    }
+
+    #[test]
+    fn bounded_body_without_content_length_is_accepted() {
+        let body = br#"{"schemaVersion":2}"#;
+        let bytes = read_bounded_body(
+            Cursor::new(body),
+            MAX_MANIFEST_BYTES,
+            ErrorCode::ApplianceDownloadFailed,
+            "read OCI registry manifest body",
+            ErrorCode::ApplianceManifestInvalid,
+            "OCI registry manifest exceeds the bounded manifest size",
+        )
+        .expect("bounded manifest body");
+        assert_eq!(bytes, body);
+    }
+
+    #[test]
+    fn bounded_bearer_token_body_without_content_length_is_accepted() {
+        let body = br#"{"token":"test-token"}"#;
+        let bytes = read_bounded_body(
+            Cursor::new(body),
+            MAX_BEARER_TOKEN_RESPONSE_BYTES,
+            ErrorCode::ApplianceDownloadFailed,
+            "read OCI registry bearer token response",
+            ErrorCode::ApplianceDownloadFailed,
+            "OCI registry bearer token response exceeds the bounded token response size",
+        )
+        .expect("bounded bearer token body");
+        let token_body: serde_json::Value =
+            serde_json::from_slice(&bytes).expect("valid bearer token JSON");
+        assert_eq!(token_body["token"], "test-token");
     }
 }
