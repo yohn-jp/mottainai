@@ -24,10 +24,15 @@ pub const APPLIANCE_METADATA_LAYER_MEDIA_TYPE: &str =
     "application/vnd.mottainai.runtime.appliance.release-metadata.v1+json";
 
 const MAX_LAYER_JSON_BYTES: u64 = 64 * 1024;
-/// Bounds the compressed and decompressed appliance disk transfer/allocation.
+/// Bounds the compressed appliance disk transfer.
+///
 /// The canonical appliance is a bootstrap-only disk (see #627); 8 GiB is a
 /// generous ceiling that still fails closed against a corrupt/oversized
 /// response instead of accepting unbounded registry content.
+const MAX_APPLIANCE_COMPRESSED_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+
+/// Bounds the decompressed appliance disk materialization. Artifact metadata
+/// may tighten this bound, but it can never raise the product hard limit.
 const MAX_APPLIANCE_RAW_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 
 /// Pins the canonical Runtime Appliance by its immutable OCI digest. A tag
@@ -160,13 +165,19 @@ pub fn ensure_appliance<S: OciSource>(
     cross_verify_metadata(&appliance_manifest, &release_metadata)?;
     let image = require_string_field(&appliance_manifest, "image", "sha256")?;
     let image_size = require_u64_field(&appliance_manifest, "image", "sizeBytes")?;
+    if image_size > MAX_APPLIANCE_RAW_BYTES {
+        return Err(BootstrapError::new(
+            ErrorCode::ApplianceManifestInvalid,
+            "declared appliance raw disk exceeds the maximum supported size",
+        ));
+    }
 
     let compressed_path = staging.join("mottainai-runtime-appliance.raw.zst");
     source.fetch_blob(
         &reference.repository,
         &raw_layer.digest,
         &compressed_path,
-        raw_layer.size.min(MAX_APPLIANCE_RAW_BYTES),
+        raw_layer.size.min(MAX_APPLIANCE_COMPRESSED_BYTES),
     )?;
 
     let raw_path = staging.join("mottainai-runtime-appliance.raw");
@@ -443,14 +454,32 @@ fn require_u64_field(
         })
 }
 
+struct RemoveStagedOutputOnFailure<'a> {
+    path: &'a std::path::Path,
+    active: bool,
+}
+
+impl Drop for RemoveStagedOutputOnFailure<'_> {
+    fn drop(&mut self) {
+        if self.active {
+            let _ = fs::remove_file(self.path);
+        }
+    }
+}
+
 /// Decompresses the zstd-compressed appliance disk while hashing the
-/// decompressed output in a single pass, bounded by the manifest's declared
-/// size so a corrupt or hostile stream cannot force unbounded allocation.
+/// decompressed output in a single pass, bounded by the lower of the
+/// manifest's declared size and the product hard limit.
 fn decompress_and_hash(
     compressed_path: &std::path::Path,
     destination: &std::path::Path,
-    bound_bytes: u64,
+    declared_bound_bytes: u64,
 ) -> Result<(String, u64), BootstrapError> {
+    let bound_bytes = effective_raw_bound(declared_bound_bytes);
+    let mut cleanup = RemoveStagedOutputOnFailure {
+        path: destination,
+        active: false,
+    };
     let compressed = File::open(compressed_path)
         .map_err(|error| BootstrapError::io("open staged compressed appliance disk", &error))?;
     let mut decoder = ruzstd::StreamingDecoder::new(compressed).map_err(|error| {
@@ -464,16 +493,26 @@ fn decompress_and_hash(
         .write(true)
         .open(destination)
         .map_err(|error| BootstrapError::io("create staged appliance raw disk", &error))?;
+    cleanup.active = true;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0_u8; 1024 * 1024];
     let mut total = 0_u64;
     loop {
-        let read = decoder.read(&mut buffer).map_err(|error| {
-            BootstrapError::new(
-                ErrorCode::ApplianceManifestInvalid,
-                format!("decompress appliance disk: {error}"),
-            )
-        })?;
+        // Read only the remaining permitted bytes, plus a one-byte probe
+        // at the limit, so no over-limit data is materialized on disk.
+        let read_capacity = if total >= bound_bytes {
+            1
+        } else {
+            bound_bytes.saturating_sub(total).min(buffer.len() as u64) as usize
+        };
+        let read = decoder
+            .read(&mut buffer[..read_capacity])
+            .map_err(|error| {
+                BootstrapError::new(
+                    ErrorCode::ApplianceManifestInvalid,
+                    format!("decompress appliance disk: {error}"),
+                )
+            })?;
         if read == 0 {
             break;
         }
@@ -484,10 +523,9 @@ fn decompress_and_hash(
             )
         })?;
         if total > bound_bytes {
-            let _ = fs::remove_file(destination);
             return Err(BootstrapError::new(
                 ErrorCode::ApplianceDigestMismatch,
-                "decompressed appliance disk exceeds its declared manifest size",
+                "decompressed appliance disk exceeds its effective size bound",
             ));
         }
         hasher.update(&buffer[..read]);
@@ -498,7 +536,12 @@ fn decompress_and_hash(
     output
         .sync_all()
         .map_err(|error| BootstrapError::io("sync staged appliance raw disk", &error))?;
+    cleanup.active = false;
     Ok((format!("{:x}", hasher.finalize()), total))
+}
+
+fn effective_raw_bound(declared_bound_bytes: u64) -> u64 {
+    declared_bound_bytes.min(MAX_APPLIANCE_RAW_BYTES)
 }
 
 fn digest_file(path: &std::path::Path) -> Result<String, BootstrapError> {
@@ -561,4 +604,44 @@ fn write_state(path: &std::path::Path, state: &ApplianceState) -> Result<(), Boo
         BootstrapError::io("atomically promote managed appliance state", &error)
     })?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{decompress_and_hash, effective_raw_bound, MAX_APPLIANCE_RAW_BYTES};
+    use crate::error::ErrorCode;
+    use std::fs;
+    use tempfile::tempdir;
+
+    fn zstd_frame(content: &[u8]) -> Vec<u8> {
+        assert!(content.len() < 256);
+        let mut frame = vec![0x28, 0xB5, 0x2F, 0xFD, 0b0010_0000, content.len() as u8];
+        let header = ((content.len() as u32) << 3) | 1;
+        frame.push((header & 0xFF) as u8);
+        frame.push(((header >> 8) & 0xFF) as u8);
+        frame.push(((header >> 16) & 0xFF) as u8);
+        frame.extend_from_slice(content);
+        frame
+    }
+
+    #[test]
+    fn oversized_declared_bound_is_clamped_to_the_product_limit() {
+        assert_eq!(effective_raw_bound(u64::MAX), MAX_APPLIANCE_RAW_BYTES);
+    }
+
+    #[test]
+    fn overexpanding_zstd_stream_removes_partial_output() {
+        let temporary = tempdir().unwrap();
+        let compressed_path = temporary.path().join("appliance.raw.zst");
+        let destination = temporary.path().join("appliance.raw");
+        fs::write(&compressed_path, zstd_frame(&[0xA5; 64])).unwrap();
+
+        let error = decompress_and_hash(&compressed_path, &destination, 32).unwrap_err();
+
+        assert_eq!(error.code, ErrorCode::ApplianceDigestMismatch);
+        assert!(
+            !destination.exists(),
+            "partial oversized output must be removed"
+        );
+    }
 }
