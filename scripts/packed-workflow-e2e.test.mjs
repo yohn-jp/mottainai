@@ -11,6 +11,8 @@ import { extractTarball, linkDependencies, packRepository, resolvePackagedBin } 
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TEST_TIMEOUT_MS = 120_000;
+const FIXTURE_CLEANUP_MAX_RETRIES = 5;
+const FIXTURE_CLEANUP_RETRY_DELAY_MS = 100;
 let suiteRoot;
 let binPath;
 
@@ -986,8 +988,66 @@ function closeFixture(fixture, sessionId, worktree) {
       timeout: 15_000,
     });
   }
-  fs.rmSync(fixture.workspace, { recursive: true, force: true });
+  removeFixtureWorkspace(fixture.workspace);
 }
+
+function removeFixtureWorkspace(workspace, rmSync = fs.rmSync) {
+  rmSync(workspace, {
+    recursive: true,
+    force: true,
+    maxRetries: FIXTURE_CLEANUP_MAX_RETRIES,
+    retryDelay: FIXTURE_CLEANUP_RETRY_DELAY_MS,
+  });
+}
+
+test("packed workflow fixture cleanup recovers transient removal faults and exposes persistent ones", () => {
+  function faultInjectingRmSync({ failures }) {
+    let attempts = 0;
+    return {
+      get attempts() {
+        return attempts;
+      },
+      remove(target, options) {
+        assert.equal(options.maxRetries, FIXTURE_CLEANUP_MAX_RETRIES);
+        assert.equal(options.retryDelay, FIXTURE_CLEANUP_RETRY_DELAY_MS);
+        for (let attempt = 0; attempt <= options.maxRetries; attempt += 1) {
+          attempts += 1;
+          if (failures > 0) {
+            failures -= 1;
+            continue;
+          }
+          return fs.rmSync(target, { ...options, maxRetries: 0 });
+        }
+        const error = new Error("injected recursive removal failure");
+        error.code = "ENOTEMPTY";
+        throw error;
+      },
+    };
+  }
+
+  const transientWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-packed-cleanup-transient-"));
+  const transientRemoval = faultInjectingRmSync({ failures: 1 });
+  try {
+    removeFixtureWorkspace(transientWorkspace, transientRemoval.remove);
+    assert.equal(fs.existsSync(transientWorkspace), false);
+    assert.equal(transientRemoval.attempts, 2);
+  } finally {
+    fs.rmSync(transientWorkspace, { recursive: true, force: true });
+  }
+
+  const persistentWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-packed-cleanup-persistent-"));
+  const persistentRemoval = faultInjectingRmSync({ failures: Number.POSITIVE_INFINITY });
+  try {
+    assert.throws(
+      () => removeFixtureWorkspace(persistentWorkspace, persistentRemoval.remove),
+      (error) => error?.code === "ENOTEMPTY",
+    );
+    assert.equal(persistentRemoval.attempts, FIXTURE_CLEANUP_MAX_RETRIES + 1);
+    assert.equal(fs.existsSync(persistentWorkspace), true);
+  } finally {
+    fs.rmSync(persistentWorkspace, { recursive: true, force: true });
+  }
+});
 
 function companionAvailability() {
   const env = isolatedEnv(repoRoot);
@@ -1032,7 +1092,7 @@ test(
         }
       }
       await stopManagerProcess(manager);
-      fs.rmSync(fixture.workspace, { recursive: true, force: true });
+      removeFixtureWorkspace(fixture.workspace);
     });
 
     manager = await startManagerProcess(fixture);
