@@ -713,6 +713,40 @@ interface TapTestResults {
 
 /** TAP の result line（`ok N ...` / `not ok N ...`）。次のfailureのblockとの境界を判定するのに使う。 */
 const TAP_RESULT_LINE = /^(?:not )?ok \d+\b/;
+const TAP_NON_ACTIONABLE_DIRECTIVE = /\s+#\s+(?:TODO|SKIP)\b/iu;
+const TAP_DIAGNOSTIC_LINE = /^\s*(?:error|message):\s*(.*)$/iu;
+const TAP_MULTILINE_INDICATOR = /^[|>][+-]?$/u;
+
+function normalizeTapDiagnostic(value: string): string {
+  const normalized = value.replace(/^['"]|['"]$/g, "");
+  return normalized.length > DIAGNOSTIC_MAX_CHARS ? `${normalized.slice(0, DIAGNOSTIC_MAX_CHARS)}…` : normalized;
+}
+
+function tapFailureDiagnostic(lines: string[], index: number): string {
+  for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+    const trimmed = lines[cursor].trim();
+    if (TAP_RESULT_LINE.test(trimmed)) break;
+    if (trimmed === "...") break;
+    const diagnosticMatch = TAP_DIAGNOSTIC_LINE.exec(lines[cursor]);
+    if (diagnosticMatch === null) continue;
+    const value = diagnosticMatch[1].trim();
+    if (!TAP_MULTILINE_INDICATOR.test(value)) {
+      const normalized = normalizeTapDiagnostic(value);
+      return normalized.length > 0 ? normalized : "test failed";
+    }
+
+    for (let bodyCursor = cursor + 1; bodyCursor < lines.length; bodyCursor += 1) {
+      const body = lines[bodyCursor].trim();
+      if (TAP_RESULT_LINE.test(body) || body === "...") break;
+      if (body.length > 0) {
+        const normalized = normalizeTapDiagnostic(body);
+        return normalized.length > 0 ? normalized : "test failed";
+      }
+    }
+    break;
+  }
+  return "test failed";
+}
 
 /** TAP footer と not ok block は機械的に読める。圧縮前の原文から最小失敗情報を残す。 */
 function tapTestResults(raw: string, resultId: string, outputOmitted: boolean): TapTestResults | undefined {
@@ -727,19 +761,10 @@ function tapTestResults(raw: string, resultId: string, outputOmitted: boolean): 
   const failures: TapTestFailure[] = [];
   for (let index = 0; index < lines.length; index += 1) {
     const match = /^not ok \d+ - (.+?)(?: # .*)?$/.exec(lines[index].trim());
-    if (match === null) continue;
+    if (match === null || TAP_NON_ACTIONABLE_DIRECTIVE.test(lines[index])) continue;
     // 自分のblock（次の ok/not ok result lineの手前まで）だけを診断情報の探索範囲にする。
     // 診断の無いfailureが後続failureの診断を誤って引き継がないように。
-    let diagnostic = "test failed";
-    for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
-      if (TAP_RESULT_LINE.test(lines[cursor].trim())) break;
-      const diagnosticMatch = /^\s*(?:error|message):\s*(.*)$/.exec(lines[cursor]);
-      if (diagnosticMatch !== null) {
-        diagnostic = diagnosticMatch[1].trim();
-        break;
-      }
-    }
-    failures.push({ name: match[1], diagnostic: diagnostic.replace(/^['"]|['"]$/g, "") });
+    failures.push({ name: match[1], diagnostic: tapFailureDiagnostic(lines, index) });
   }
   if (Object.keys(counters).length === 0 && failures.length === 0) return undefined;
   return { format: "tap", ...counters, failures, output_omitted: outputOmitted, result_id: resultId };

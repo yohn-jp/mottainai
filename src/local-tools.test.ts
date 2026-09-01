@@ -997,6 +997,48 @@ test("tapTestResults does not let a later failure's diagnostic leak into an earl
   await fs.rm(root, { recursive: true, force: true });
 });
 
+test("tapTestResults excludes TODO/SKIP outcomes and keeps multiline and quoted diagnostics compact", async () => {
+  const { root, config } = await workspace();
+  const store = new InMemoryArtifactStore({ createId: () => "tap-directives" });
+  const command = [
+    "printf 'TAP version 13\\nnot ok 1 - expected failure # TODO known issue\\nnot ok 2 - unavailable test # SKIP missing dependency\\nok 3 - skipped test # SKIP platform\\nnot ok 4 - real multiline failure\\n  ---\\n  message: |\\n    expected value did not match\\n    additional detail\\n  ...\\nnot ok 5 - quoted failure\\n  ---\\n  error: \"quoted diagnostic\"\\n  ...\\nok 6 - passing test\\n'",
+    "printf '1..6\\n# tests 6\\n# pass 2\\n# fail 2\\n# cancelled 0\\n# skipped 1\\n# todo 1\\n'",
+    "exit 1",
+  ].join("; ");
+  const result = structured(await callLocalTool("mottainai_exec", { command }, config, store));
+  assert.deepEqual(result.test_results, {
+    format: "tap",
+    total: 6,
+    pass: 2,
+    fail: 2,
+    cancelled: 0,
+    skipped: 1,
+    todo: 1,
+    failures: [
+      { name: "real multiline failure", diagnostic: "expected value did not match" },
+      { name: "quoted failure", diagnostic: "quoted diagnostic" },
+    ],
+    output_omitted: false,
+    result_id: "mx_tap-directives",
+  });
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test("tapTestResults does not infer counters when TAP footer evidence is absent", async () => {
+  const { root, config } = await workspace();
+  const store = new InMemoryArtifactStore({ createId: () => "tap-no-footer" });
+  const command =
+    "printf 'not ok 1 - expected failure # TODO deferred\\nok 2 - unavailable # SKIP platform\\nnot ok 3 - actual failure\\n'";
+  const result = structured(await callLocalTool("mottainai_exec", { command }, config, store));
+  assert.deepEqual(result.test_results, {
+    format: "tap",
+    failures: [{ name: "actual failure", diagnostic: "test failed" }],
+    output_omitted: false,
+    result_id: "mx_tap-no-footer",
+  });
+  await fs.rm(root, { recursive: true, force: true });
+});
+
 // --- exec_start / exec_await: start/await primitives (Issue #74) ---
 
 test("exec_start returns an opaque handle immediately, and exec_await blocks until terminal state", async () => {
