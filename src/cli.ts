@@ -14,12 +14,6 @@ import { dispatchClientHook, runManagedHooksCommand } from "./hooks/commands.js"
 import type { HookCommandContext } from "./hooks/commands.js";
 import { verifyManagedCapabilityRegistration } from "./hooks/managed-registration.js";
 import { formatInitHuman, runInit } from "./init.js";
-import {
-  createLocalRuntimeProvisioner,
-  formatLocalRuntimeEnsureHuman,
-  formatLocalRuntimeStatusHuman,
-  readLocalRuntimeStatus,
-} from "./local-runtime/index.js";
 import { createRuntimeDiagnostic, formatRuntimeDiagnosticHuman } from "./runtime-diagnostic.js";
 import { runServer } from "./server.js";
 import {
@@ -72,8 +66,6 @@ import type { CleanupPlan } from "./workflow/domain/cleanup-plan.js";
 const USAGE = `usage:
   mottainai                                      start the MCP stdio server
   mottainai init [options]                       initialize a workspace configuration
-  mottainai runtime ensure [options]             reconcile the local Runtime
-  mottainai runtime status [options]             show persisted local Runtime state
   mottainai serve                                start the MCP stdio server explicitly
   mottainai dashboard [options]                  start the local semantic project viewer (fixture|live)
   mottainai manager [options]                    start the local Zellij-backed agent Manager
@@ -147,10 +139,6 @@ init options:
   --no-doctor            skip post-initialization diagnostics
   --latest               register the unpinned npm package
 
-runtime options:
-  --state-directory path local Runtime state root
-  --json                 emit one JSON document
-
 policy/task options:
   --workspace path      Git repository root; defaults to the current Git repository's top level
   --type type           explicit branch type for "task start/run" (required)
@@ -167,10 +155,10 @@ hooks options:
   --mode observe|warn|enforce set the managed rollout mode for install/repair
 `;
 
-const RUNTIME_USAGE = `usage:
-  mottainai runtime ensure [--state-directory path] [--json]
-  mottainai runtime status [--state-directory path] [--json]
-`;
+const RUNTIME_DEPRECATION_MESSAGE =
+  "The npm CLI no longer provides `mottainai runtime ensure/status`; local Runtime lifecycle is owned by the standalone " +
+  "`mottainai-init` artifact. Use `mottainai-init runtime ensure --spec PATH [--json]`. The command exits before reading " +
+  "or writing legacy Runtime state.";
 
 interface FlagValue {
   found: boolean;
@@ -594,29 +582,11 @@ export async function runCli(args: string[]): Promise<number> {
       else console.log(formatInitHuman(summary));
       return summary.ok ? 0 : 1;
     } else if (command === "runtime") {
-      const action = argv[0];
-      if (action !== "ensure" && action !== "status") fail(USAGE);
       if (hasFlag(argv, "help")) {
-        console.log(RUNTIME_USAGE);
+        console.log(RUNTIME_DEPRECATION_MESSAGE);
         return 0;
       }
-      const runtimeOptions = {
-        environment: process.env,
-        homeDirectory: process.env.HOME ?? process.env.USERPROFILE,
-        platform: process.platform,
-        architecture: process.arch,
-        stateDirectory: requireFlagValue(argv, "state-directory"),
-      };
-      if (action === "status") {
-        const status = readLocalRuntimeStatus(runtimeOptions);
-        if (hasFlag(argv, "json")) print(status);
-        else console.log(formatLocalRuntimeStatusHuman(status));
-        return 0;
-      }
-      const result = await createLocalRuntimeProvisioner().ensure(runtimeOptions);
-      if (hasFlag(argv, "json")) print(result);
-      else console.log(formatLocalRuntimeEnsureHuman(result));
-      return result.ok ? 0 : 1;
+      fail(RUNTIME_DEPRECATION_MESSAGE);
     } else if (command === "semantic") {
       return runSemanticCommand(argv[0], argv.slice(1));
     } else if (command === "dashboard") {

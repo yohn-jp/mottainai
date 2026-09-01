@@ -225,11 +225,15 @@ Managed process handles are connection-local and finite. Active process count, r
 
 ## Supported runtime model
 
-- Linux: Tier 1.
-- Windows 11: local Runtime uses QEMU + WHPX.
-- macOS: local Runtime uses QEMU + HVF, with Apple Silicon as the primary target.
+The standalone `mottainai-init` artifact owns the supported local Runtime
+lifecycle: Linux x86_64 with Lima and QEMU/KVM. Run
+`mottainai-init runtime ensure --spec PATH [--json]` to reconcile that path.
+The npm CLI's historical `mottainai runtime ensure/status` commands are
+retired and fail before reading or writing Runtime state.
 
-The `mottainai runtime` namespace is the local Runtime lifecycle authority. Missing required acceleration fails closed instead of silently changing the execution model.
+Direct QEMU/KVM users may consume the canonical Runtime Appliance directly;
+that provider-independent capability is separate from `mottainai-init`'s Lima
+adapter.
 
 ## Development
 

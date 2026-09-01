@@ -109,8 +109,8 @@ Pi-backed managed-development and authority-convergence release. See
   (`>=0.4.1` contract), managed PR mutation is gh-inari-only (`>=0.7.0`
   companion contract), and Manager is a multi-agent execution control plane
   rather than a Codex-only launcher.
-- **Changed**: Runtime lifecycle is explicitly owned by `mottainai runtime
-  ensure|status`, and PR CI is organized around merge-integrity/product
+- **Changed**: Runtime lifecycle is explicitly owned by standalone
+  `mottainai-init`, and PR CI is organized around merge-integrity/product
   contracts rather than non-authoritative informational automation.
 - **Fixed**: external-effect crash/retry reconciliation for task start,
   commit, push and PR creation; authoritative validation-worktree/stable

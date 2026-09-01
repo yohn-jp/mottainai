@@ -351,7 +351,6 @@ jobs:
           filters: |
             runtime:
               - 'nix/**'
-              - 'src/local-runtime/**'
               - 'src/runtime-contract/**'
               - 'scripts/build-runtime-image-manifest.mjs'
               - 'scripts/build-runtime-appliance-manifest.mjs'
@@ -474,17 +473,18 @@ jobs:
             .kernelPath == "kernel" and
             .initrdPath == "initrd" and
             .diskPath == "runtime-disk.raw" and
+            (.kernelSha256 | test("^[0-9a-f]{64}$")) and
+            (.initrdSha256 | test("^[0-9a-f]{64}$")) and
+            (.diskSha256 | test("^[0-9a-f]{64}$")) and
             (.canonicalSource.lockSha256 | test("^[0-9a-f]{64}$"))
           ' "$manifest"
-          MANIFEST="$manifest" node --import tsx --input-type=module -e '
-            import { readRuntimeImageManifest, verifyMaterializedRuntimeImage } from "../src/local-runtime/image.ts";
-            const manifest = readRuntimeImageManifest(process.env.MANIFEST);
-            verifyMaterializedRuntimeImage({
-              kernelImage: manifest.kernelPath,
-              initrdImage: manifest.initrdPath,
-              diskImage: manifest.diskPath,
-            }, manifest);
-          '
+          manifest_directory="$(dirname "$manifest")"
+          for asset in kernel initrd disk; do
+            relative_path="$(jq -r ".${asset}Path" "$manifest")"
+            expected_hash="$(jq -r ".${asset}Sha256" "$manifest")"
+            actual_hash="$(sha256sum "$manifest_directory/$relative_path" | awk '{print $1}')"
+            test "$actual_hash" = "$expected_hash"
+          done
 
       - name: Execute the Runtime NixOS VM test
         working-directory: nix

@@ -122,7 +122,7 @@ function hasOption(args: string[], name: string): boolean {
 
 function parseArguments(args: string[]): InitArguments {
   if (hasOption(args, "runtime")) {
-    throw new Error("--runtime is not an init option; use `mottainai runtime ensure`");
+    throw new Error("--runtime is not an init option; use `mottainai-init runtime ensure --spec PATH`");
   }
   const scopeValue = optionValue(args, "scope");
   if (scopeValue !== undefined && scopeValue !== "personal" && scopeValue !== "project") {
