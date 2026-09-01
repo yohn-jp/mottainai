@@ -17,9 +17,12 @@ permissions:
 jobs:
   host-bootstrap:
     name: host bootstrap (Rust)
+    needs: runtime-contract-changes
     if: >-
+      needs.runtime-contract-changes.outputs.host_bootstrap == 'true' &&
       github.event_name != 'pull_request' ||
       (
+        needs.runtime-contract-changes.outputs.host_bootstrap == 'true' &&
         github.actor != 'dependabot[bot]' &&
         github.event.pull_request.user.login != 'dependabot[bot]' &&
         !startsWith(github.event.pull_request.head.ref, 'release/')
@@ -33,6 +36,17 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Restore Cargo registry and target cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            host-bootstrap/target
+          key: ${{ runner.os }}-mottainai-cargo-${{ hashFiles('host-bootstrap/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-mottainai-cargo-${{ hashFiles('host-bootstrap/Cargo.lock') }}-
 
       - name: Install Rust toolchain
         run: rustup toolchain install stable --profile minimal --no-self-update
@@ -84,11 +98,14 @@ jobs:
 
   static-integrity:
     name: static integrity (typecheck / lint / architecture / build)
+    needs: runtime-contract-changes
     # Keep the workflow subscribed so required checks resolve as skipped/success.
     # Only normal pull requests consume the normal PR CI jobs.
     if: >-
+      needs.runtime-contract-changes.outputs.node == 'true' &&
       github.event_name != 'pull_request' ||
       (
+        needs.runtime-contract-changes.outputs.node == 'true' &&
         github.actor != 'dependabot[bot]' &&
         github.event.pull_request.user.login != 'dependabot[bot]' &&
         !startsWith(github.event.pull_request.head.ref, 'release/')
@@ -128,9 +145,12 @@ jobs:
 
   test-integration:
     name: test:integration (shard ${{ matrix.shard }}/4)
+    needs: runtime-contract-changes
     if: >-
+      needs.runtime-contract-changes.outputs.integration == 'true' &&
       github.event_name != 'pull_request' ||
       (
+        needs.runtime-contract-changes.outputs.integration == 'true' &&
         github.actor != 'dependabot[bot]' &&
         github.event.pull_request.user.login != 'dependabot[bot]' &&
         !startsWith(github.event.pull_request.head.ref, 'release/')
@@ -185,17 +205,20 @@ jobs:
           zellij --version
 
       # Bounded black-box coverage: task start / worktree isolation, managed
-      # mutation boundaries, lifecycle/state consistency, and cleanup. Split
-      # into a deterministic 4-way round-robin shard so each standard
-      # GitHub-hosted runner (4 CPU / 16 GB RAM) is not the sole bottleneck.
+      # mutation boundaries, lifecycle/state consistency, and cleanup. The
+      # repository-controlled timing table assigns files to a deterministic
+      # duration-aware 4-way layout; every file remains covered exactly once.
       - name: Test (managed workflow lifecycle contract, shard ${{ matrix.shard }}/4)
         run: pnpm run test:integration -- --shard=${{ matrix.shard }}/4
 
   build-and-package-e2e:
     name: build / packed artifact e2e / package
+    needs: runtime-contract-changes
     if: >-
+      needs.runtime-contract-changes.outputs.package == 'true' &&
       github.event_name != 'pull_request' ||
       (
+        needs.runtime-contract-changes.outputs.package == 'true' &&
         github.actor != 'dependabot[bot]' &&
         github.event.pull_request.user.login != 'dependabot[bot]' &&
         !startsWith(github.event.pull_request.head.ref, 'release/')
@@ -281,7 +304,7 @@ jobs:
           test "$package_status" -eq 0
 
   runtime-contract-changes:
-    name: detect Nix/QEMU runtime-contract path changes
+    name: detect CI ownership path changes
     if: >-
       github.event_name != 'pull_request' ||
       (
@@ -292,6 +315,11 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       runtime: ${{ steps.filter.outputs.runtime }}
+      host_bootstrap: ${{ steps.filter.outputs.host_bootstrap }}
+      node: ${{ steps.filter.outputs.node }}
+      integration: ${{ steps.filter.outputs.integration }}
+      package: ${{ steps.filter.outputs.package }}
+      governance: ${{ steps.filter.outputs.governance }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -305,13 +333,62 @@ jobs:
           filters: |
             runtime:
               - 'nix/**'
+              - 'src/bootstrap/**'
               - 'src/local-runtime/**'
               - 'src/runtime-contract/**'
+              - 'src/atomic-file.ts'
+              - 'src/boundary.ts'
               - 'scripts/build-runtime-image-manifest.mjs'
               - 'scripts/build-runtime-appliance-manifest.mjs'
               - 'scripts/build-runtime-appliance-oci-fixture.mjs'
               - 'host-bootstrap/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
               - '.github/workflows/ci.yml'
+            host_bootstrap:
+              - 'host-bootstrap/**'
+              - '.github/workflows/ci.yml'
+            node:
+              - 'src/**'
+              - 'scripts/architecture-check.mjs'
+              - 'scripts/copy-dashboard-assets.mjs'
+              - 'scripts/generate-build-metadata.mjs'
+              - 'scripts/**/*.ts'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'tsconfig.json'
+              - 'tsconfig.build.json'
+              - 'eslint.config.mjs'
+              - 'prettier.config.mjs'
+              - '.github/workflows/ci.yml'
+            integration:
+              - 'src/**'
+              - 'scripts/lib/**'
+              - 'scripts/fixtures/**'
+              - 'scripts/run-test-suite.mjs'
+              - 'scripts/test-suites.mjs'
+              - 'scripts/test-suites.test.mjs'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - '.github/workflows/ci.yml'
+            package:
+              - 'src/**'
+              - 'scripts/smoke-test.mjs'
+              - 'scripts/run-package-suite.mjs'
+              - 'scripts/mcp-stdio-package.test.mjs'
+              - 'scripts/packed-workflow-e2e.test.mjs'
+              - 'scripts/gh-inari-package-smoke.mjs'
+              - 'scripts/lib/mcp-blackbox-*.mjs'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - '.github/workflows/ci.yml'
+            governance:
+              - '.github/inari/**'
+              - '.github/workflows/governance.yml'
+              - 'scripts/governance-*.mjs'
+              - 'scripts/validate-*.mjs'
+              - 'scripts/semantic-governance.ts'
+              - 'scripts/coverage-policy.json'
 
   runtime-contract:
     name: Nix Runtime evaluation / image / VM test
@@ -339,6 +416,17 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Restore Cargo registry and target cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            host-bootstrap/target
+          key: ${{ runner.os }}-mottainai-cargo-${{ hashFiles('host-bootstrap/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-mottainai-cargo-${{ hashFiles('host-bootstrap/Cargo.lock') }}-
+
       - name: Install Nix with KVM support
         uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
         with:
@@ -361,13 +449,35 @@ jobs:
         working-directory: nix
         run: nix flake check --no-update-lock-file --no-build --all-systems
 
-      - name: Build canonical Runtime system, VM, and image projection
+      - name: Build canonical Runtime system, VM, and image projection concurrently
         working-directory: nix
         run: |
-          set -euo pipefail
-          nix build --no-update-lock-file --no-link .#runtime-system
-          nix build --no-update-lock-file --no-link .#runtime-vm
-          nix build --no-update-lock-file --no-link .#runtime-image
+          set -uo pipefail
+          nix build --no-update-lock-file --no-link .#runtime-system >"$RUNNER_TEMP/runtime-system.log" 2>&1 &
+          system_pid=$!
+          nix build --no-update-lock-file --no-link .#runtime-vm >"$RUNNER_TEMP/runtime-vm.log" 2>&1 &
+          vm_pid=$!
+          nix build --no-update-lock-file --no-link .#runtime-image >"$RUNNER_TEMP/runtime-image.log" 2>&1 &
+          image_pid=$!
+
+          set +e
+          wait "$system_pid"
+          system_status=$?
+          wait "$vm_pid"
+          vm_status=$?
+          wait "$image_pid"
+          image_status=$?
+          set -e
+
+          echo "=== runtime-system ==="
+          cat "$RUNNER_TEMP/runtime-system.log"
+          echo "=== runtime-vm ==="
+          cat "$RUNNER_TEMP/runtime-vm.log"
+          echo "=== runtime-image ==="
+          cat "$RUNNER_TEMP/runtime-image.log"
+          test "$system_status" -eq 0
+          test "$vm_status" -eq 0
+          test "$image_status" -eq 0
 
       - name: Verify managed generation build is independent of caller cwd (Issue #643 regression)
         run: node --import tsx scripts/verify-managed-generation-cwd-independence.mjs x86_64-linux
@@ -507,11 +617,33 @@ jobs:
           MOTTAINAI_REAL_APPLIANCE_OCI_MANIFEST: ${{ runner.temp }}/runtime-appliance-oci-fixture/oci-manifest.json
           MOTTAINAI_REAL_APPLIANCE_BLOBS_DIR: ${{ runner.temp }}/runtime-appliance-oci-fixture/blobs
           MOTTAINAI_REAL_APPLIANCE_RAW_DISK: ${{ runner.temp }}/runtime-appliance/x86_64-linux/mottainai-runtime-appliance.raw
+          MOTTAINAI_APPLIANCE_TIMING: "1"
         run: |
-          cargo test --locked --manifest-path host-bootstrap/Cargo.toml \
-            --test appliance_real -- --ignored --test-threads=1
+          set -euo pipefail
+          golden_log="$RUNNER_TEMP/runtime-appliance-golden-path.log"
+          (
+            set -euo pipefail
+            sudo git config --global --add safe.directory "$GITHUB_WORKSPACE"
+            cd nix
+            sudo "$(command -v nix)" build --option sandbox relaxed --no-update-lock-file --no-link .#checks.x86_64-linux.runtime-appliance-golden-path
+          ) >"$golden_log" 2>&1 &
+          golden_pid=$!
 
-      - name: Execute the Runtime Appliance golden path (Issue #630)
+          set +e
+          cargo test --locked --manifest-path host-bootstrap/Cargo.toml \
+            --test appliance_real -- --ignored --test-threads=1 --nocapture
+          real_status=$?
+          wait "$golden_pid"
+          golden_status=$?
+          set -e
+
+          echo "=== Runtime Appliance golden path ==="
+          cat "$golden_log"
+          test "$real_status" -eq 0
+          test "$golden_status" -eq 0
+
+      - name: Execute the Runtime Appliance golden path (Issue #630, main push)
+        if: github.event_name != 'pull_request'
         working-directory: nix
         # The guest intentionally exercises the production HTTPS source
         # resolver. Run this one explicitly networked test derivation outside

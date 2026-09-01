@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { run as runTestSuite } from "./run-test-suite.mjs";
 import {
   FULL_VERIFICATION_SUITES,
+  INTEGRATION_TEST_TIMINGS_MS,
   classifyTestFile,
   discoverRepositoryTestFiles,
   getTestSuiteFiles,
@@ -118,6 +119,16 @@ test("shardTestFiles partitions a sorted file list with no overlap or gaps", () 
 test("shardTestFiles assignment is deterministic across repeated calls", () => {
   const files = getTestSuiteFiles("integration");
   assert.deepEqual(shardTestFiles(files, { index: 2, total: 4 }), shardTestFiles(files, { index: 2, total: 4 }));
+});
+
+test("integration shard assignment separates measured slow files", () => {
+  const files = getTestSuiteFiles("integration");
+  const assignments = new Map();
+  for (let shardIndex = 1; shardIndex <= 4; shardIndex += 1) {
+    for (const file of shardTestFiles(files, { index: shardIndex, total: 4 })) assignments.set(file, shardIndex);
+  }
+  const slowFiles = Object.keys(INTEGRATION_TEST_TIMINGS_MS);
+  assert.equal(new Set(slowFiles.map((file) => assignments.get(file))).size, slowFiles.length);
 });
 
 test("run-test-suite fails closed on an invalid --shard argument", () => {

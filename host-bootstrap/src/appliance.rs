@@ -1,6 +1,7 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -83,6 +84,30 @@ struct ApplianceState {
 
 const APPLIANCE_STATE_SCHEMA_VERSION: &str = "mottainai.host-bootstrap.appliance.v1";
 
+struct ApplianceTiming {
+    enabled: bool,
+    started: Instant,
+}
+
+impl ApplianceTiming {
+    fn new() -> Self {
+        Self {
+            enabled: std::env::var_os("MOTTAINAI_APPLIANCE_TIMING")
+                .is_some_and(|value| value == "1"),
+            started: Instant::now(),
+        }
+    }
+
+    fn mark(&self, phase: &str) {
+        if self.enabled {
+            eprintln!(
+                "appliance_real timing phase={phase} elapsed_ms={}",
+                self.started.elapsed().as_millis()
+            );
+        }
+    }
+}
+
 pub struct ApplianceObservation {
     pub classification: Classification,
     pub raw_path: Option<PathBuf>,
@@ -98,9 +123,11 @@ pub fn ensure_appliance<S: OciSource>(
     reference: &ApplianceReference,
     source: &S,
 ) -> Result<PathBuf, BootstrapError> {
+    let timing = ApplianceTiming::new();
     reference.validate()?;
     let observation = inspect_appliance(paths, reference)?;
     if observation.classification == Classification::Satisfied {
+        timing.mark("managed-state-reuse");
         return Ok(observation
             .raw_path
             .expect("satisfied appliance observation carries a raw path"));
@@ -124,6 +151,7 @@ pub fn ensure_appliance<S: OciSource>(
         .map_err(|error| BootstrapError::io("create appliance staging directory", &error))?;
 
     let manifest_bytes = source.fetch_manifest(&reference.repository, &reference.digest)?;
+    timing.mark("manifest-oci-resolution");
     let manifest: serde_json::Value = serde_json::from_slice(&manifest_bytes).map_err(|error| {
         BootstrapError::new(
             ErrorCode::ApplianceManifestInvalid,
@@ -171,6 +199,7 @@ pub fn ensure_appliance<S: OciSource>(
     })?;
 
     cross_verify_metadata(&appliance_manifest, &release_metadata)?;
+    timing.mark("manifest-and-release-metadata");
     let image = require_string_field(&appliance_manifest, "image", "sha256")?;
     let image_size = require_u64_field(&appliance_manifest, "image", "sizeBytes")?;
     if image_size > MAX_APPLIANCE_RAW_BYTES {
@@ -187,9 +216,11 @@ pub fn ensure_appliance<S: OciSource>(
         &compressed_path,
         raw_layer.size.min(MAX_APPLIANCE_COMPRESSED_BYTES),
     )?;
+    timing.mark("raw-blob-download-and-verification");
 
     let raw_path = staging.join("mottainai-runtime-appliance.raw");
     let (raw_sha256, raw_size) = decompress_and_hash(&compressed_path, &raw_path, image_size)?;
+    timing.mark("decompression-materialization-and-hash");
     if raw_sha256 != image || raw_size != image_size {
         return Err(BootstrapError::new(
             ErrorCode::ApplianceDigestMismatch,
@@ -217,17 +248,8 @@ pub fn ensure_appliance<S: OciSource>(
         raw_size_bytes: raw_size,
     };
     write_state(&paths.appliance_state_path(&reference.digest), &state)?;
-
-    let final_observation = inspect_appliance(paths, reference)?;
-    if final_observation.classification != Classification::Satisfied {
-        return Err(BootstrapError::new(
-            ErrorCode::ApplianceStateIncompatible,
-            final_observation
-                .diagnostic
-                .unwrap_or_else(|| "materialized appliance cannot be proven safe".to_owned()),
-        ));
-    }
-    Ok(final_observation.raw_path.expect("just verified"))
+    timing.mark("atomic-promotion-and-state");
+    Ok(paths.appliance_raw_path(&reference.digest))
 }
 
 pub fn inspect_appliance(
