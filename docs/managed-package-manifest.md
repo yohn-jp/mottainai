@@ -89,6 +89,18 @@ Each entry's identity does not depend on ambient `PATH` state: `version` and
 `source.sourceSha256` fully pin what the entry means, independent of
 whatever happens to be installed or resolvable on a given machine.
 
+## Runtime compatibility requirements
+
+`compatibility.minimumRuntimeContractSchemaVersion` is checked during
+reconciliation against the Runtime contract schema reported by the appliance.
+The canonical `mottainai-bootstrap reconcile` path has no appliance override;
+in that case its default is the current `RUNTIME_CONTRACT_SCHEMA_VERSION`
+from [`src/runtime-contract/contract.ts`](../src/runtime-contract/contract.ts),
+currently schema `2`, matching [`nix/modules/runtime.nix`](../nix/modules/runtime.nix)
+and this document's Runtime contract authority. Requirements at or below the
+current schema, including schema `1`, are accepted. A requirement above it
+fails closed with `compatibility_mismatch` before build or activation.
+
 ## `source.sourceSha256` meaning
 
 `source.sourceSha256` is the SHA-256 NAR-hash identity of the exact source

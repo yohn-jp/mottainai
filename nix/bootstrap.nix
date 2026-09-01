@@ -51,6 +51,7 @@ let
     "src/bootstrap/unreadable-manifest.ts"
     "src/runtime-contract/managed-generation-build.ts"
     "src/runtime-contract/managed-generation.ts"
+    "src/runtime-contract/contract.ts"
     "src/runtime-contract/managed-package-manifest.ts"
     "src/runtime-contract/managed-runtime.ts"
     "src/runtime-contract/managed-runtime-state.ts"
@@ -174,6 +175,7 @@ stdenvNoCC.mkDerivation {
       src/bootstrap/unreadable-manifest.ts \
       src/runtime-contract/managed-generation-build.ts \
       src/runtime-contract/managed-generation.ts \
+      src/runtime-contract/contract.ts \
       src/runtime-contract/managed-package-manifest.ts \
       src/runtime-contract/managed-runtime.ts \
       src/runtime-contract/managed-runtime-state.ts \
