@@ -164,6 +164,38 @@ fn build_fixture() -> Fixture {
     }
 }
 
+fn replace_appliance_manifest(fixture: &mut Fixture, image_sha256: &str, image_size: u64) {
+    let appliance_manifest = serde_json::json!({
+        "sourceRevision": "abc123",
+        "image": { "sha256": image_sha256, "sizeBytes": image_size },
+    });
+    let appliance_manifest_bytes = serde_json::to_vec(&appliance_manifest).unwrap();
+    let appliance_manifest_digest = digest_of(&appliance_manifest_bytes);
+    fixture.oci.blobs.insert(
+        appliance_manifest_digest.clone(),
+        appliance_manifest_bytes.clone(),
+    );
+
+    let (_, oci_manifest_bytes) = fixture.oci.manifest.take().unwrap();
+    let mut oci_manifest: serde_json::Value = serde_json::from_slice(&oci_manifest_bytes).unwrap();
+    let layer = oci_manifest["layers"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|layer| {
+            layer.get("mediaType").and_then(serde_json::Value::as_str)
+                == Some("application/vnd.mottainai.runtime.appliance.manifest.v1+json")
+        })
+        .unwrap();
+    layer["digest"] = serde_json::json!(appliance_manifest_digest);
+    layer["size"] = serde_json::json!(appliance_manifest_bytes.len() as u64);
+
+    let oci_manifest_bytes = serde_json::to_vec(&oci_manifest).unwrap();
+    let oci_manifest_digest = digest_of(&oci_manifest_bytes);
+    fixture.oci.manifest = Some((oci_manifest_digest.clone(), oci_manifest_bytes));
+    fixture.reference.digest = oci_manifest_digest;
+}
+
 fn managed_paths() -> (TempDir, ManagedPaths) {
     let temporary = TempDir::new().unwrap();
     let paths = ManagedPaths::new(temporary.path().join("state"));
@@ -196,6 +228,26 @@ fn repeated_ensure_is_idempotent_and_touches_no_network() {
         "an already-verified digest must not be re-fetched"
     );
     assert_eq!(fixture.oci.fetch_blob_calls.load(Ordering::SeqCst), 3);
+}
+
+#[test]
+fn oversized_declared_raw_image_is_rejected_before_decompression() {
+    let mut fixture = build_fixture();
+    let raw_sha256 = format!("{:x}", Sha256::digest(&fixture.raw_bytes));
+    replace_appliance_manifest(&mut fixture, &raw_sha256, u64::MAX);
+
+    let (_temp, paths) = managed_paths();
+    let error = ensure_appliance(&paths, &fixture.reference, &fixture.oci).unwrap_err();
+
+    assert_eq!(error.code, ErrorCode::ApplianceManifestInvalid);
+    assert_eq!(fixture.oci.fetch_blob_calls.load(Ordering::SeqCst), 2);
+    assert!(
+        !paths
+            .staging_appliance_directory()
+            .join("mottainai-runtime-appliance.raw")
+            .exists(),
+        "an oversized declared image must not be materialized"
+    );
 }
 
 #[test]
