@@ -13,6 +13,35 @@ let
   caBundle = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
   pnpmLock = source + "/pnpm-lock.yaml";
 
+  # `pnpm fetch`'s output depends only on pnpm-lock.yaml's content, not on
+  # `version` or which caller built it. The golden path (Issue #630) builds
+  # this same derivation for historical tagged mottainai releases (0.7.0,
+  # 0.7.1) alongside HEAD; those releases carry a pre-#700 (Node 22
+  # devDependency floor) lockfile distinct from HEAD's post-#700 (Node 24)
+  # one. Key the fixed-output pin by the lockfile's own content hash so both
+  # call sites resolve the pin that actually matches what they fetch,
+  # instead of one hardcoded value silently only being correct for whichever
+  # lockfile was current when it was last updated.
+  pnpmLockContentHash = builtins.hashFile "sha256" pnpmLock;
+  knownPnpmDepsHashes = {
+    # Pre-#700 pnpm-lock.yaml (Node 22 devDependency floor). Shared by the
+    # golden path's historical 0.7.0 and 0.7.1 tagged-release fixtures.
+    "a02c0c08e11e3b9799aa96c7778242becff8da5ec1505b5912e0ddc3e92d0187" =
+      "sha256-OyPBWgRlrnbPjLGx6/8WQThz2xiXJU2RVBi4Cp6G1bI=";
+    # #700 (Node 24 floor) pnpm-lock.yaml, HEAD's current lockfile.
+    "8482f6b15b2d31c68a6ecb289b68bb26b40814cca3c9a0ca37ad1c4ca87c3234" =
+      "sha256-rnud8yo06KfMQCIt4IenalU/RINW6BfpgpciOejugd0=";
+    # nix/tests/fixtures/alt-mottainai-source's empty (no-dependency)
+    # pnpm-lock.yaml, used by managed-generation.nix and
+    # runtime-appliance.nix's non-checkout-source projection tests.
+    # Placeholder pending the real fetch hash Nix reports for it.
+    "f0bcde463fa201480015b9caa7db2017d3c1b6ca9c7e133df955038c54333d48" =
+      "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+  };
+  pnpmDepsOutputHash =
+    knownPnpmDepsHashes.${pnpmLockContentHash}
+      or (throw "nix/mottainai.nix: no known pnpm-deps outputHash for pnpm-lock.yaml content hash ${pnpmLockContentHash} (source ${pname}@${version}); run `pnpm fetch` for this lockfile once, add the reported hash to knownPnpmDepsHashes");
+
   pnpmDeps = pkgs.stdenvNoCC.mkDerivation {
     pname = "${pname}-pnpm-deps";
     inherit version;
@@ -106,7 +135,7 @@ NODE
     # runnable output, so skip fixup entirely.
     dontFixup = true;
     outputHashMode = "recursive";
-    outputHash = "sha256-rnud8yo06KfMQCIt4IenalU/RINW6BfpgpciOejugd0=";
+    outputHash = pnpmDepsOutputHash;
   };
 in
 pkgs.stdenv.mkDerivation {

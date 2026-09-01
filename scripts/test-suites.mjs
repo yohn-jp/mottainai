@@ -55,6 +55,18 @@ const nonStandardsTestFiles = Object.freeze([
   "scripts/mcp-stdio-package.test.mjs",
 ]);
 
+// Representative GitHub-hosted runner measurements from the CI runs that
+// motivated Issue #694. These are deliberately repository-controlled and
+// conservative: unknown/new files receive the bounded baseline estimate and
+// are still assigned, so adding a test can never silently drop coverage.
+export const INTEGRATION_TEST_TIMINGS_MS = Object.freeze({
+  "src/manager/claim-preflight.parity.test.ts": 72_000,
+  "src/mcp-cli.test.ts": 57_000,
+  "src/cli.test.ts": 20_000,
+  "src/init.test.ts": 12_000,
+});
+const DEFAULT_INTEGRATION_TEST_TIMING_MS = 1_000;
+
 export const TEST_SUITE_RULES = Object.freeze({
   fast: Object.freeze({
     include: Object.freeze(["src/**/*.test.ts"]),
@@ -220,11 +232,31 @@ export function parseShardArgument(rawValue) {
   return { index, total };
 }
 
-// Deterministic round-robin over the suite's sorted file list. Reassignment
-// follows automatically as files are added or removed; this is not duration-aware
-// load balancing.
+// Deterministic longest-processing-time assignment. Files are sorted by the
+// checked-in timing estimate and then by their stable suite order; each file
+// goes to the currently lightest shard. Returning files in suite order keeps
+// Node's invocation order stable while the assignment remains duration-aware.
 export function shardTestFiles(files, { index, total }) {
-  return files.filter((_file, fileIndex) => fileIndex % total === index - 1);
+  const assignments = new Map();
+  const loads = Array.from({ length: total }, () => 0);
+  const orderedFiles = files
+    .map((file, fileIndex) => ({
+      file,
+      fileIndex,
+      timing: INTEGRATION_TEST_TIMINGS_MS[file] ?? DEFAULT_INTEGRATION_TEST_TIMING_MS,
+    }))
+    .sort((left, right) => right.timing - left.timing || left.fileIndex - right.fileIndex);
+
+  for (const entry of orderedFiles) {
+    let target = 0;
+    for (let candidate = 1; candidate < total; candidate += 1) {
+      if (loads[candidate] < loads[target]) target = candidate;
+    }
+    assignments.set(entry.file, target);
+    loads[target] += entry.timing;
+  }
+
+  return files.filter((file) => assignments.get(file) === index - 1);
 }
 
 function runAsCommand() {
