@@ -79,17 +79,31 @@ test("assertManifestProjectable accepts the supported mottainai/nawabari nix-fla
   assert.doesNotThrow(() => assertManifestProjectable(parseManagedPackageManifest(validManifest())));
 });
 
-test("assertManifestProjectable rejects an unsupported packageId deterministically, before any Nix build", () => {
+test("assertManifestProjectable accepts the supported zellij nix-flake-package entry (Issue #662)", () => {
   const manifest = validManifest();
   const packages = manifest.packages as Record<string, unknown>[];
-  // zellij is a recognized #624 packageId but has no #625 projection recipe
-  // yet — this proves rejection is scoped to "this projection has a
-  // recipe", not merely "#624 recognizes the identity".
   packages.push({
     packageId: "zellij",
     kind: "nix-flake-package",
+    version: "0.44.3",
+    source: { flakeRef: "nixpkgs#zellij-unwrapped", sourceSha256: "c".repeat(64) },
+  });
+  assert.doesNotThrow(() => assertManifestProjectable(parseManagedPackageManifest(manifest)));
+});
+
+test("assertManifestProjectable rejects an unsupported packageId deterministically, before any Nix build", () => {
+  const manifest = validManifest();
+  const packages = manifest.packages as Record<string, unknown>[];
+  // coding-agent-cli is a recognized #624 packageId but has no projection
+  // recipe (Issue #662 only projects a package once Mottainai claims
+  // first-class support for it, which is not yet the case) — this proves
+  // rejection is scoped to "this projection has a recipe", not merely
+  // "#624 recognizes the identity".
+  packages.push({
+    packageId: "coding-agent-cli",
+    kind: "nix-flake-package",
     version: "1.0.0",
-    source: { flakeRef: "nix#zellij", sourceSha256: "c".repeat(64) },
+    source: { flakeRef: "nix#coding-agent-cli", sourceSha256: "c".repeat(64) },
   });
   const parsed = parseManagedPackageManifest(manifest);
   assert.throws(() => assertManifestProjectable(parsed), ManagedGenerationError);

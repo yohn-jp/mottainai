@@ -1,4 +1,4 @@
-{ pkgs, lib, buildMottainai, mottainaiSource, nawabariPackage, manifest }:
+{ pkgs, lib, buildMottainai, mottainaiSource, nawabariPackage, zellijPackage, manifest }:
 
 # Deterministic projection of a mottainai.managed-package-manifest.v1
 # manifest (src/runtime-contract/managed-package-manifest.ts, Issue #624)
@@ -44,12 +44,23 @@
 # forces `runtime-appliance-image` to rebuild (Issue #625 acceptance
 # criterion; see docs/managed-generation.md "Independence from the bootable
 # appliance").
+#
+# Issue #662 completes the first supported managed Runtime package catalog
+# by adding Zellij: `zellijPackage` is received pre-built the same way
+# `nawabariPackage` is (no per-manifest-entry construction needed, since
+# nixpkgs already resolves the whole recipe) — `nix/flake.nix`'s `mkZellij`
+# delegates directly to the pinned nixpkgs `zellij-unwrapped` derivation
+# rather than a repository-owned recipe, per this Issue's constraint to
+# prefer existing high-quality nixpkgs packages over reinventing one.
+# `coding-agent-cli` remains a #624-recognized identity with no projection
+# here: Issue #662 only projects a package once Mottainai claims first-class
+# support for it, which is not yet the case.
 
 let
   contractId = "mottainai.managed-generation.v1";
   compatibilityContractVersion = 1;
 
-  supportedPackageIds = [ "mottainai" "nawabari" ];
+  supportedPackageIds = [ "mottainai" "nawabari" "zellij" ];
 
   unsupportedPackage = entry: reason:
     throw "managed generation projection: unsupported managed package entry packageId=${entry.packageId} kind=${entry.kind} flakeRef=${entry.source.flakeRef}: ${reason}";
@@ -93,15 +104,20 @@ let
         unsupportedPackage entry "no recipe available for this flakeRef"
       else
         requireMatchingVersion entry nawabariPackage
+    else if entry.packageId == "zellij" then
+      if entry.source.flakeRef != "nixpkgs#zellij-unwrapped" then
+        unsupportedPackage entry "no recipe available for this flakeRef"
+      else
+        requireMatchingVersion entry zellijPackage
     else
-      unsupportedPackage entry "packageId is not projected by this managed generation (initial scope: mottainai, nawabari)";
+      unsupportedPackage entry "packageId is not projected by this managed generation (supported catalog: mottainai, nawabari, zellij)";
 
   unsupportedEntries = builtins.filter (entry: !(builtins.elem entry.packageId supportedPackageIds)) manifest.packages;
 
   resolved = map (entry: { inherit entry; drv = resolveEntry entry; }) manifest.packages;
 in
 if unsupportedEntries != [ ] then
-  unsupportedPackage (builtins.head unsupportedEntries) "packageId is not projected by this managed generation (initial scope: mottainai, nawabari)"
+  unsupportedPackage (builtins.head unsupportedEntries) "packageId is not projected by this managed generation (supported catalog: mottainai, nawabari, zellij)"
 else
 rec {
   inherit resolved;

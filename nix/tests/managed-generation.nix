@@ -1,4 +1,4 @@
-{ pkgs, lib, mkManagedGeneration, mottainaiSource, nawabariPackage }:
+{ pkgs, lib, mkManagedGeneration, mottainaiSource, nawabariPackage, zellijPackage }:
 
 # Pure-evaluation proof that nix/managed-generation.nix fails deterministically
 # for exactly the cases Issue #625 requires (PR #634 review: "add real
@@ -66,8 +66,19 @@ let
     };
   };
 
+  zellijEntry = {
+    packageId = "zellij";
+    kind = "nix-flake-package";
+    version = zellijPackage.version;
+    source = {
+      flakeRef = "nixpkgs#zellij-unwrapped";
+      sourceSha256 = "0000000000000000000000000000000000000000000000000000000000000000";
+    };
+  };
+
   correctMottainai = forceGeneration { manifest = baseManifest // { packages = [ mottainaiEntry ]; }; };
   correctNawabari = forceGeneration { manifest = baseManifest // { packages = [ nawabariEntry ]; }; };
+  correctZellij = forceGeneration { manifest = baseManifest // { packages = [ zellijEntry ]; }; };
 
   wrongVersionMottainai = forceGeneration {
     manifest = baseManifest // { packages = [ (mottainaiEntry // { version = "0.0.0-does-not-exist"; }) ]; };
@@ -75,16 +86,25 @@ let
   wrongVersionNawabari = forceGeneration {
     manifest = baseManifest // { packages = [ (nawabariEntry // { version = "0.0.0-does-not-exist"; }) ]; };
   };
+  wrongVersionZellij = forceGeneration {
+    manifest = baseManifest // { packages = [ (zellijEntry // { version = "0.0.0-does-not-exist"; }) ]; };
+  };
 
+  # coding-agent-cli is a #624-recognized packageId (MANAGED_PACKAGE_IDS)
+  # with no #662 projection recipe: Issue #662 only projects a package once
+  # Mottainai claims first-class support for it, which is not yet the case.
+  # This proves rejection is scoped to "this projection has a recipe", not
+  # merely "the manifest layer recognizes the identity" — the same role
+  # `zellij` played here before Issue #662 completed its own projection.
   unsupportedPackageId = forceGeneration {
     manifest = baseManifest // {
       packages = [
         {
-          packageId = "zellij";
+          packageId = "coding-agent-cli";
           kind = "nix-flake-package";
           version = "1.0.0";
           source = {
-            flakeRef = "nix#zellij";
+            flakeRef = "nix#coding-agent-cli";
             sourceSha256 = "0000000000000000000000000000000000000000000000000000000000000000";
           };
         }
@@ -136,12 +156,20 @@ let
       condition = correctNawabari.success;
     }
     {
+      name = "correct zellij version resolves and evaluates successfully";
+      condition = correctZellij.success;
+    }
+    {
       name = "a requested mottainai version that does not match the resolved recipe fails deterministically";
       condition = !wrongVersionMottainai.success;
     }
     {
       name = "a requested nawabari version that does not match the resolved recipe fails deterministically";
       condition = !wrongVersionNawabari.success;
+    }
+    {
+      name = "a requested zellij version that does not match the resolved recipe fails deterministically";
+      condition = !wrongVersionZellij.success;
     }
     {
       name = "an unsupported packageId fails deterministically";

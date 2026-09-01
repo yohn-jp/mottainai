@@ -203,6 +203,17 @@ pkgs.stdenv.mkDerivation {
     runHook postInstall
   '';
 
+  # Issue #662: every managed Runtime package catalog entry needs a bounded
+  # smoke check, mirroring nix/packages/nawabari.nix's own installCheckPhase.
+  # installPhase's makeWrapper already special-cases `--version` to print the
+  # exact package version without starting the full CLI.
+  doInstallCheck = true;
+  installCheckPhase = ''
+    runHook preInstallCheck
+    test "$($out/bin/mottainai --version)" = "${version}"
+    runHook postInstallCheck
+  '';
+
   meta = {
     description = "Coding-agent orchestration and MCP context runtime";
     homepage = "https://github.com/yohn-jp/mottainai";

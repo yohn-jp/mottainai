@@ -109,16 +109,20 @@ function narHashOfFactory(execFile: typeof execFileSync): (storePath: string) =>
 }
 
 /**
- * Invokes `nix build` against `nix/flake.nix`'s `lib.mkManagedGeneration`
- * function output, validates the resulting metadata, verifies source
- * integrity and resolved-version match, and returns the metadata plus
- * derived generation identity. Throws `ManagedGenerationBuildError` on a
- * Nix build failure (the caller is responsible for distinguishing "Nix
- * itself is unavailable" from "the build failed" before calling this, since
- * that distinction matters to Issue #626's error taxonomy but not to this
- * module's own contract).
+ * The `nix build` + metadata read/parse phase of `buildManagedGeneration`,
+ * extracted so a caller can obtain the real resolved Nix output (including
+ * each package's `sourceStorePath`) without also requiring the manifest's
+ * declared `sourceSha256`/`version` to already be correct — useful for
+ * Issue #662's CI catalog proof (`scripts/verify-managed-generation-catalog.mjs`),
+ * which resolves the real NAR hash for each catalog package from a
+ * placeholder-hash manifest before constructing the manifest it actually
+ * verifies against. `buildManagedGeneration` below composes this with
+ * `verifySourceIntegrity`/`assertResolvedVersionsMatch`; this function
+ * performs neither check itself.
  */
-export async function buildManagedGeneration(options: BuildManagedGenerationOptions): Promise<BuiltManagedGeneration> {
+export async function buildManagedGenerationMetadata(
+  options: BuildManagedGenerationOptions,
+): Promise<ManagedGenerationMetadata> {
   const execFile = options.execFile ?? execFileSync;
   const manifestJson = JSON.stringify(options.manifest);
 
@@ -169,15 +173,34 @@ in
   // Raw metadata file read + JSON.parse, and parseManagedGenerationMetadata's
   // schema validation, are both "the build produced bad metadata" — grouped
   // under phase "metadata" (see ManagedGenerationBuildErrorPhase doc above).
-  let metadata: ManagedGenerationMetadata;
   try {
-    metadata = parseManagedGenerationMetadata(JSON.parse(fs.readFileSync(metadataStorePath, "utf8")));
+    return parseManagedGenerationMetadata(JSON.parse(fs.readFileSync(metadataStorePath, "utf8")));
   } catch (error) {
     throw new ManagedGenerationBuildError(
       `managed generation metadata is malformed: ${error instanceof Error ? error.message : String(error)}`,
       "metadata",
     );
   }
+}
+
+/** Computes the hex sha256 NAR hash of a realized Nix store path — the same computation `verifySourceIntegrity` needs `narHashOf` to perform, exposed standalone for callers (Issue #662's `scripts/verify-managed-generation-catalog.mjs`) that need a package's real resolved source identity outside `buildManagedGeneration`'s own verification flow. */
+export function computeNarHash(storePath: string, execFile: typeof execFileSync = execFileSync): string {
+  return narHashOfFactory(execFile)(storePath);
+}
+
+/**
+ * Invokes `nix build` against `nix/flake.nix`'s `lib.mkManagedGeneration`
+ * function output, validates the resulting metadata, verifies source
+ * integrity and resolved-version match, and returns the metadata plus
+ * derived generation identity. Throws `ManagedGenerationBuildError` on a
+ * Nix build failure (the caller is responsible for distinguishing "Nix
+ * itself is unavailable" from "the build failed" before calling this, since
+ * that distinction matters to Issue #626's error taxonomy but not to this
+ * module's own contract).
+ */
+export async function buildManagedGeneration(options: BuildManagedGenerationOptions): Promise<BuiltManagedGeneration> {
+  const execFile = options.execFile ?? execFileSync;
+  const metadata = await buildManagedGenerationMetadata(options);
 
   try {
     verifySourceIntegrity(options.manifest, metadata, narHashOfFactory(execFile));

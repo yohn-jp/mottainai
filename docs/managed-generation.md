@@ -43,17 +43,59 @@ recognizes are ever built:
 | ----------- | ------------------- | --------------------------- | --------------------------------------------------- |
 | `mottainai` | `nix-flake-package` | `nix#mottainai`             | `nix/mottainai.nix` (existing repository packaging) |
 | `nawabari`  | `nix-flake-package` | `nix/packages/nawabari.nix` | `nix/packages/nawabari.nix` (existing packaging)    |
+| `zellij`    | `nix-flake-package` | `nixpkgs#zellij-unwrapped`  | Delegated nixpkgs identity (`nix/flake.nix`'s `mkZellij`, no repository-owned recipe) |
 
 A manifest entry outside this table — an unsupported `packageId` (e.g.
-`zellij`, recognized by #624 but not yet projected here), an unsupported
-`kind`, or an unrecognized `flakeRef` — is rejected deterministically
-before any Nix build is attempted
+`coding-agent-cli`, recognized by #624 but not yet projected here), an
+unsupported `kind`, or an unrecognized `flakeRef` — is rejected
+deterministically before any Nix build is attempted
 (`src/runtime-contract/managed-generation.ts`'s `assertManifestProjectable`,
 mirrored by `nix/managed-generation.nix`'s own `resolveEntry` as the
 authoritative Nix-level gate). This is a closed table, not a general
 package-resolution framework: extending it to a new packageId/flakeRef is a
 deliberate, reviewed change to both files, never an emergent side effect of
 a manifest declaring one.
+
+## The first supported managed Runtime package catalog (Issue #662)
+
+The table above **is** the first explicit, documented supported managed
+Runtime package catalog: `mottainai`, `nawabari`, `zellij`. Nothing becomes
+supported merely by existing in nixpkgs/npm or being on `PATH` — a package
+is in the catalog only once both this table and `nix/managed-generation.nix`
+carry a deliberate entry for it, and `MANAGED_PACKAGE_IDS`
+(`src/runtime-contract/managed-package-manifest.ts`) recognizes its
+identity.
+
+`coding-agent-cli` is deliberately excluded from this catalog at this
+release stage. It remains a recognized `MANAGED_PACKAGE_IDS` identity (so a
+future manifest can name it once a concrete coding-agent/runtime package and
+Mottainai's first-class support commitment for it both exist), but no
+`(packageId, kind, flakeRef)` entry projects it — a manifest naming it is
+rejected the same as any other unsupported `packageId` (see
+`nix/tests/managed-generation.nix`'s `unsupportedPackageId` assertion and
+`src/runtime-contract/managed-generation.test.ts`'s equivalent). This is a
+deliberate scope boundary, not an oversight: Issue #662's non-goals rule out
+"adding tools with no explicit Mottainai support commitment merely for
+completeness."
+
+`zellij` is packaged as a **delegated nixpkgs identity** rather than a
+repository-owned recipe (`nix/flake.nix`'s `mkZellij pkgs = pkgs.zellij-unwrapped`):
+nixpkgs already packages Zellij with the exact version/source control this
+catalog needs, so no recipe is reimplemented (Issue #662's constraint:
+"prefer existing high-quality nixpkgs packages ... create repository-owned
+recipes only where the product requires stronger version/source control or
+the package is unavailable"). `zellij-unwrapped` is used rather than the
+`zellij` nixpkgs attribute itself: the latter (`pkgs/by-name/ze/zellij/package.nix`)
+is a `symlinkJoin` wrapper whose own `.src` is not the upstream Zellij
+source tree, which would make this file's `sourceStorePath` projection
+(every resolved entry's `"${r.drv.src}"`, in `metadataFile` below) reference
+the wrong object for this package; `zellij-unwrapped` is the real
+`fetchFromGitHub`-based derivation, and both provide the identical
+`bin/zellij`. The catalog's pinned identity — version `0.44.3` against this
+flake's locked nixpkgs input (`nix/flake.lock`) — matches the same Zellij
+release this repository's own CI already installs independently for
+`src/manager/zellij.ts`'s integration/e2e/package suites (`.github/workflows/ci.yml`)
+and satisfies that module's `MINIMUM_ZELLIJ_VERSION` floor.
 
 ## Source resolution boundary
 
@@ -217,33 +259,36 @@ script prints the metadata plus the derived `generationIdentity`.
 
 `src/runtime-contract/managed-generation.test.ts` runs under the existing
 `node --test` suite and requires no Nix toolchain. It proves: acceptance of
-the supported `mottainai`/`nawabari` entries, deterministic rejection of an
-unsupported `packageId` and of a supported `packageId` with an unrecognized
-`flakeRef`, metadata schema acceptance/rejection (unknown contract id,
-strict-schema field rejection), generation-identity determinism (stable
-across repeated calls, independent of `nixOutput.packages` array order and
-of `activation.generation`, changes when the managed Mottainai version
-changes, changes when the resolved Nix output store path changes with the
-manifest unchanged), source-integrity verification
-(`verifySourceIntegrity` passes/fails closed against an injected narHash
-lookup), and resolved-version matching (`assertResolvedVersionsMatch`
-passes/fails closed for both Mottainai and Nawabari).
+the supported `mottainai`/`nawabari`/`zellij` entries, deterministic
+rejection of an unsupported `packageId` (`coding-agent-cli`, Issue #662's
+recognized-but-unprojected identity) and of a supported `packageId` with an
+unrecognized `flakeRef`, metadata schema acceptance/rejection (unknown
+contract id, strict-schema field rejection), generation-identity
+determinism (stable across repeated calls, independent of
+`nixOutput.packages` array order and of `activation.generation`, changes
+when the managed Mottainai version changes, changes when the resolved Nix
+output store path changes with the manifest unchanged), source-integrity
+verification (`verifySourceIntegrity` passes/fails closed against an
+injected narHash lookup), and resolved-version matching
+(`assertResolvedVersionsMatch` passes/fails closed for both Mottainai and
+Nawabari).
 
 `nix/tests/managed-generation.nix` (run as
 `nix build .#checks.<system>.managed-generation`, no KVM/nixosTest
 infrastructure required) is the real-projection counterpart PR #634 review
 asked for: it calls the actual `nix/managed-generation.nix` `resolveEntry`/
 `requireMatchingVersion` logic against the real `pkgs.mottainai` /
-`pkgs.nawabari` derivations (not fabricated stand-ins), proving at Nix
-evaluation time — no build required, `builtins.tryEval` against
-`.generation.outPath` — that: a manifest requesting each package's actual
-current version resolves successfully; a manifest requesting a version
-that does not match the currently pinned recipe (e.g. Mottainai `0.0.0`
-against a `0.7.1` recipe) fails deterministically before any build,
-proving the exact-identity acceptance criterion holds and closing the gap
-PR #634 review found (`resolveEntry` previously selected a recipe by
-`(packageId, kind, flakeRef)` alone and silently ignored `entry.version`);
-an unsupported `packageId` and an unsupported `kind` both fail
+`pkgs.nawabari` / `pkgs.zellij-unwrapped` derivations (not fabricated
+stand-ins), proving at Nix evaluation time — no build required,
+`builtins.tryEval` against `.generation.outPath` — that: a manifest
+requesting each package's actual current version resolves successfully; a
+manifest requesting a version that does not match the currently pinned
+recipe (e.g. Mottainai `0.0.0` against a `0.7.1` recipe) fails
+deterministically before any build, proving the exact-identity acceptance
+criterion holds and closing the gap PR #634 review found (`resolveEntry`
+previously selected a recipe by `(packageId, kind, flakeRef)` alone and
+silently ignored `entry.version`); an unsupported `packageId`
+(`coding-agent-cli`, Issue #662) and an unsupported `kind` both fail
 deterministically. `nix/managed-generation.nix` requires this same version
 match at the Nix layer itself (`requireMatchingVersion`), independent of
 `src/runtime-contract/managed-generation.ts`'s `assertResolvedVersionsMatch`
@@ -278,3 +323,35 @@ this repository with `package.json`'s version bumped to `9.9.9` builds
 `mottainai-9.9.9` end to end (`scripts/build-managed-generation.mjs
 --mottainai-source <that independent tree>`), including a passing
 `verifySourceIntegrity` check against that tree's real NAR hash.
+
+### Full-catalog CI proof (Issue #662)
+
+The above was a manual, development-time exercise for the original
+mottainai/nawabari pair. Issue #662's CI (`runtime-contract` job,
+`.github/workflows/ci.yml`) now automates the equivalent proof for the
+**complete three-package catalog** on every Nix-affecting PR:
+
+1. `nix build .#mottainai .#nawabari .#zellij` builds all three catalog
+   packages directly, which also runs each one's own bounded smoke check
+   (`nix/mottainai.nix` / `nix/packages/nawabari.nix`'s `installCheckPhase`,
+   `nix/flake.nix`'s `checks.zellij`) — proving "package smoke
+   verification" against real, realized store paths, not fixtures.
+2. `nix build .#checks.x86_64-linux.managed-generation` builds
+   `nix/tests/managed-generation.nix` (see above), proving exact-version
+   success and deterministic rejection (unsupported `packageId`, unsupported
+   `kind`, version mismatch) for the full catalog at Nix evaluation speed.
+3. A dedicated step resolves each catalog package's real NAR hash (`nix
+   path-info` against the already-realized `.src` from step 1, converted via
+   `builtins.convertHash`, the same computation
+   `src/runtime-contract/managed-generation-build.ts`'s `narHashOfFactory`
+   performs) and constructs a manifest declaring exactly those hashes and
+   each package's actual resolved version. Running
+   `scripts/build-managed-generation.mjs` against that manifest is the real
+   **full-catalog build**: `assertManifestProjectable`, the Nix build, exact
+   resolved identity/store paths, `verifySourceIntegrity`, and
+   `assertResolvedVersionsMatch` all pass end to end for all three packages
+   in one generation — printed as the same `mottainai.managed-generation.v1`
+   metadata a caller would receive in production. The same step then
+   corrupts one package's declared `sourceSha256` by a single character and
+   re-runs the script, asserting it now fails — a live, source-mismatch
+   rejection proof against the real build, not a mocked unit test.
