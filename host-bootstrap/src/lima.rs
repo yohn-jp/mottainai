@@ -87,13 +87,19 @@ impl RuntimeSpec {
             return invalid("runtime mount list exceeds the bounded mount count");
         }
         for mount in &self.mounts {
-            let bounded = |value: &str| !value.is_empty() && value.len() <= MAX_PATH_LENGTH;
+            let bounded = |value: &str| {
+                !value.is_empty()
+                    && value.len() <= MAX_PATH_LENGTH
+                    && value.chars().all(|character| !character.is_control())
+            };
             if !bounded(&mount.host_path)
                 || !bounded(&mount.guest_path)
                 || !Path::new(&mount.host_path).is_absolute()
                 || !Path::new(&mount.guest_path).is_absolute()
             {
-                return invalid("runtime mount paths must be bounded absolute paths");
+                return invalid(
+                    "runtime mount paths must be bounded absolute paths without control characters",
+                );
             }
         }
         self.appliance.validate()
@@ -105,32 +111,79 @@ impl RuntimeSpec {
 /// provisioning is added beyond documented `limactl` YAML configuration
 /// keys, and no host path is mounted unless the spec explicitly lists it.
 pub fn render_lima_config(spec: &RuntimeSpec, appliance_raw_path: &Path) -> String {
-    let mut yaml = String::new();
-    yaml.push_str("vmType: qemu\n");
-    yaml.push_str(&format!("arch: \"{}\"\n", spec.architecture));
-    yaml.push_str(&format!("cpus: {}\n", spec.cpus));
-    yaml.push_str(&format!("memory: \"{}MiB\"\n", spec.memory_mib));
-    yaml.push_str("images:\n");
-    yaml.push_str(&format!(
-        "  - location: \"{}\"\n    arch: \"{}\"\n",
-        appliance_raw_path.display(),
-        spec.architecture
-    ));
-    yaml.push_str("mountType: none\n");
-    if spec.mounts.is_empty() {
-        yaml.push_str("mounts: []\n");
-    } else {
-        yaml.push_str("mounts:\n");
-        for mount in &spec.mounts {
-            yaml.push_str(&format!(
-                "  - location: \"{}\"\n    mountPoint: \"{}\"\n    writable: {}\n",
-                mount.host_path, mount.guest_path, mount.writable
-            ));
-        }
-    }
-    yaml.push_str("ssh:\n  loadDotSSHPubKeys: false\n");
-    yaml.push_str("containerd:\n  system: false\n  user: false\n");
-    yaml
+    let appliance_path = appliance_raw_path.to_string_lossy();
+    let config = LimaConfig {
+        vm_type: "qemu",
+        arch: &spec.architecture,
+        cpus: spec.cpus,
+        memory: format!("{}MiB", spec.memory_mib),
+        images: [LimaImage {
+            location: appliance_path.as_ref(),
+            arch: &spec.architecture,
+        }],
+        mount_type: "none",
+        mounts: spec
+            .mounts
+            .iter()
+            .map(|mount| LimaMount {
+                location: &mount.host_path,
+                mount_point: &mount.guest_path,
+                writable: mount.writable,
+            })
+            .collect(),
+        ssh: LimaSsh {
+            load_dot_ssh_pub_keys: false,
+        },
+        containerd: LimaContainerd {
+            system: false,
+            user: false,
+        },
+    };
+
+    // RuntimeSpec::validate rejects unsupported control characters before this
+    // function is called by ensure_runtime. All remaining values are scalar
+    // data, so the structured serializer cannot expose them as YAML syntax.
+    serde_yaml::to_string(&config).expect("supported Lima configuration is serializable")
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LimaConfig<'a> {
+    vm_type: &'static str,
+    arch: &'a str,
+    cpus: u32,
+    memory: String,
+    images: [LimaImage<'a>; 1],
+    mount_type: &'static str,
+    mounts: Vec<LimaMount<'a>>,
+    ssh: LimaSsh,
+    containerd: LimaContainerd,
+}
+
+#[derive(Serialize)]
+struct LimaImage<'a> {
+    location: &'a str,
+    arch: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LimaMount<'a> {
+    location: &'a str,
+    mount_point: &'a str,
+    writable: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LimaSsh {
+    load_dot_ssh_pub_keys: bool,
+}
+
+#[derive(Serialize)]
+struct LimaContainerd {
+    system: bool,
+    user: bool,
 }
 
 fn config_identity(rendered: &str) -> String {
@@ -1086,8 +1139,105 @@ mod tests {
     #[test]
     fn config_render_is_bounded_and_has_no_default_mounts() {
         let rendered = render_lima_config(&spec(), Path::new("/tmp/appliance.raw"));
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&rendered).unwrap();
+
         assert!(rendered.contains("vmType: qemu"));
         assert!(rendered.contains("mounts: []"));
         assert!(!rendered.contains("cloud-init"));
+        assert_eq!(
+            parsed["images"][0]["location"].as_str(),
+            Some("/tmp/appliance.raw")
+        );
+        assert_eq!(parsed["mounts"].as_sequence().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn config_render_preserves_quoted_and_backslashed_paths_as_scalars() {
+        let mut configured = spec();
+        configured.mounts.push(MountSpec {
+            host_path: r#"/host/with\backslash"quote"#.to_owned(),
+            guest_path: r#"/guest/with\backslash"quote"#.to_owned(),
+            writable: true,
+        });
+        let appliance_path = Path::new(r#"/managed/appliance\disk"image.raw"#);
+
+        let rendered = render_lima_config(&configured, appliance_path);
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&rendered).unwrap();
+
+        assert_eq!(
+            parsed["images"][0]["location"].as_str(),
+            Some(appliance_path.to_str().unwrap())
+        );
+        assert_eq!(
+            parsed["mounts"][0]["location"].as_str(),
+            Some(configured.mounts[0].host_path.as_str())
+        );
+        assert_eq!(
+            parsed["mounts"][0]["mountPoint"].as_str(),
+            Some(configured.mounts[0].guest_path.as_str())
+        );
+        assert_eq!(parsed["mounts"][0]["writable"].as_bool(), Some(true));
+    }
+
+    #[test]
+    fn mount_paths_with_newline_or_control_characters_fail_closed() {
+        for invalid_path in [
+            "/workspace/line\nbreak",
+            "/workspace/tab\tbreak",
+            "/workspace/zero\u{0000}break",
+        ] {
+            let mut configured = spec();
+            configured.mounts.push(MountSpec {
+                host_path: invalid_path.to_owned(),
+                guest_path: "/guest/workspace".to_owned(),
+                writable: false,
+            });
+
+            let error = configured.validate().unwrap_err();
+            assert_eq!(
+                error.code,
+                ErrorCode::RuntimeSpecInvalid,
+                "{invalid_path:?}"
+            );
+        }
+
+        let mut configured = spec();
+        configured.mounts.push(MountSpec {
+            host_path: "/workspace/ordinary".to_owned(),
+            guest_path: "/guest/line\nbreak".to_owned(),
+            writable: false,
+        });
+        assert_eq!(
+            configured.validate().unwrap_err().code,
+            ErrorCode::RuntimeSpecInvalid
+        );
+    }
+
+    #[test]
+    fn invalid_mount_path_is_rejected_before_lima_configuration_creation() {
+        let (_temp, paths) = managed_paths();
+        let cli = FakeLimaCli::new();
+        let mut configured = spec();
+        configured.mounts.push(MountSpec {
+            host_path: "/workspace/injected\nmountPoint: /unexpected".to_owned(),
+            guest_path: "/guest/workspace".to_owned(),
+            writable: false,
+        });
+
+        let evidence = ensure_runtime(
+            &paths,
+            &configured,
+            &cli,
+            &FakeOciSource,
+            &RuntimeEnsureConfig {
+                health_check_attempts: 1,
+                health_check_interval: Duration::from_millis(0),
+            },
+        );
+
+        assert_eq!(evidence.result, Outcome::Blocked);
+        assert_eq!(evidence.error_code.as_deref(), Some("runtime_spec_invalid"));
+        assert_eq!(*cli.create_calls.borrow(), 0);
+        assert_eq!(*cli.start_calls.borrow(), 0);
     }
 }
