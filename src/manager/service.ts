@@ -48,7 +48,13 @@ import {
   type ManagerClaimPreflight,
   type ManagerClaimTaskIdentity,
 } from "./claim-preflight.js";
-import { deriveZellijSessionName, ZellijRuntimeError, type ZellijObservedState, type ZellijRuntime } from "./zellij.js";
+import {
+  deriveZellijSessionName,
+  isCanonicalManagerSessionId,
+  ZellijRuntimeError,
+  type ZellijObservedState,
+  type ZellijRuntime,
+} from "./zellij.js";
 
 const MAX_INSTRUCTION_LENGTH = 64 * 1024;
 const MAX_PROVIDER_LENGTH = 128;
@@ -2079,6 +2085,9 @@ export class ManagerSessionService {
   }
 
   private async withSessionOperation<T>(sessionId: ManagerSessionId, operation: () => Promise<T>): Promise<T> {
+    if (!isCanonicalManagerSessionId(sessionId)) {
+      throw new ManagerError("invalid_request", "invalid session id", 400);
+    }
     const previous = this.sessionOperations.get(sessionId) ?? Promise.resolve();
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
