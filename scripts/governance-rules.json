@@ -3,14 +3,6 @@
     "titlePattern": "^(feat|fix|docs|refactor|test|chore|build)\\((cli|proxy|config|compression|routing|upstream|security|release|docs|ci|workflow|runtime)\\): [a-z0-9].{4,}$",
     "branchPattern": "^(feat|fix|docs|refactor|test|chore)/[0-9]+-[a-z0-9]+(?:-[a-z0-9]+)*$",
     "minimumBodyLength": 300,
-    "requiredSections": [
-      "Summary",
-      "Linked issue",
-      "Changes",
-      "Validation",
-      "Review focus"
-    ],
-    "validationItems": ["Typecheck", "Tests", "Build"],
     "packageCheckPaths": [
       "^package\\.json$",
       "^pnpm-lock\\.yaml$",

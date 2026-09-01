@@ -61,6 +61,8 @@ jobs:
     name: validate-pr
     # Job-level filtering keeps required validate-pr checks from remaining
     # pending while excluding Dependabot and release PRs from normal governance.
+    # Inari owns PR headings, fields, and the fixed Validation checklist;
+    # validate-pr owns shared metadata and conditional Mottainai quality gates.
     if: >-
       github.event_name != 'pull_request' ||
       (
