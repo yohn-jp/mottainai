@@ -85,8 +85,10 @@ operations and provider/appliance state promotion.
 A busy lock fails closed with the stable bounded `bootstrap_locked`
 classification. The root directory can be created to make the lock file
 available, but no state, configuration, or staging write is performed before
-the lock is acquired. Read-only inspection helpers may be called independently;
-they do not grant mutation authority to a caller.
+the lock is acquired. The lock-scoped Runtime mutation entrypoint also rejects
+the lock if it is bound to a different state root, before invoking Appliance,
+Runtime-state, or Lima mutation. Read-only inspection helpers may be called
+independently; they do not grant mutation authority to a caller.
 
 ## Idempotency and fail-closed reconciliation
 

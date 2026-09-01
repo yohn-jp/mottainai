@@ -1,4 +1,5 @@
 use std::fs::{File, OpenOptions};
+use std::path::PathBuf;
 
 use fs2::FileExt;
 
@@ -8,6 +9,7 @@ use crate::paths::ManagedPaths;
 #[derive(Debug)]
 pub struct BootstrapLock {
     file: File,
+    root: PathBuf,
 }
 
 impl BootstrapLock {
@@ -29,7 +31,20 @@ impl BootstrapLock {
                 BootstrapError::io("acquire bootstrap lock", &error)
             }
         })?;
-        Ok(Self { file })
+        Ok(Self {
+            file,
+            root: paths.root.clone(),
+        })
+    }
+
+    pub(crate) fn validate_for(&self, paths: &ManagedPaths) -> Result<(), BootstrapError> {
+        if self.root != paths.root {
+            return Err(BootstrapError::new(
+                ErrorCode::BootstrapLockMismatch,
+                "bootstrap lock is bound to a different managed state root",
+            ));
+        }
+        Ok(())
     }
 }
 

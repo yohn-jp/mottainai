@@ -514,9 +514,13 @@ pub fn ensure_runtime_locked<C: LimaCli, S: OciSource>(
     cli: &C,
     oci: &S,
     config: &RuntimeEnsureConfig,
-    _lock: &BootstrapLock,
+    lock: &BootstrapLock,
 ) -> RuntimeEvidence {
     let mut evidence = RuntimeEvidence::new(&spec.instance_name);
+    if let Err(error) = lock.validate_for(paths) {
+        evidence.fail(&error);
+        return evidence;
+    }
     if let Err(error) = spec.validate() {
         evidence.fail(&error);
         return evidence;
@@ -1268,6 +1272,38 @@ mod tests {
         assert_eq!(resumed.result, Outcome::Changed);
         assert_eq!(cli.create_calls.load(Ordering::SeqCst), 1);
         assert_eq!(cli.start_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn mismatched_lock_fails_before_any_runtime_mutation() {
+        let temporary = TempDir::new().unwrap();
+        let locked_paths = ManagedPaths::new(temporary.path().join("locked-state"));
+        let target_paths = ManagedPaths::new(temporary.path().join("target-state"));
+        fs::create_dir_all(&locked_paths.root).unwrap();
+        let lock = BootstrapLock::acquire(&locked_paths).unwrap();
+        let cli = FakeLimaCli::new();
+
+        let evidence = ensure_runtime_locked(
+            &target_paths,
+            &spec(),
+            &cli,
+            &FakeOciSource,
+            &RuntimeEnsureConfig {
+                health_check_attempts: 1,
+                health_check_interval: Duration::from_millis(0),
+            },
+            &lock,
+        );
+
+        assert_eq!(evidence.result, Outcome::Blocked);
+        assert_eq!(
+            evidence.error_code.as_deref(),
+            Some("bootstrap_lock_mismatch")
+        );
+        assert!(!target_paths.root.exists());
+        assert_eq!(*cli.create_calls.borrow(), 0);
+        assert_eq!(*cli.start_calls.borrow(), 0);
+        assert_eq!(*cli.shell_calls.borrow(), 0);
     }
 
     #[test]

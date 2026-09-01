@@ -6,6 +6,7 @@ use serde::Serialize;
 #[serde(rename_all = "snake_case")]
 pub enum ErrorCode {
     BootstrapLocked,
+    BootstrapLockMismatch,
     ContractInvalid,
     DownloadFailed,
     ProviderArchiveInvalid,
@@ -67,6 +68,7 @@ impl BootstrapError {
     pub fn code_string(&self) -> &'static str {
         match self.code {
             ErrorCode::BootstrapLocked => "bootstrap_locked",
+            ErrorCode::BootstrapLockMismatch => "bootstrap_lock_mismatch",
             ErrorCode::ContractInvalid => "contract_invalid",
             ErrorCode::DownloadFailed => "download_failed",
             ErrorCode::ProviderArchiveInvalid => "provider_archive_invalid",
