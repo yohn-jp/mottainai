@@ -36,7 +36,7 @@ let
     # runtime-appliance.nix's non-checkout-source projection tests.
     # Placeholder pending the real fetch hash Nix reports for it.
     "f0bcde463fa201480015b9caa7db2017d3c1b6ca9c7e133df955038c54333d48" =
-      lib.fakeSha256;
+      "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
   };
   pnpmDepsOutputHash =
     knownPnpmDepsHashes.${pnpmLockContentHash}
