@@ -105,6 +105,14 @@ pub fn ensure_appliance<S: OciSource>(
             .raw_path
             .expect("satisfied appliance observation carries a raw path"));
     }
+    if observation.classification == Classification::Incompatible {
+        return Err(BootstrapError::new(
+            ErrorCode::ApplianceStateIncompatible,
+            observation
+                .diagnostic
+                .unwrap_or_else(|| "managed appliance state is incompatible".to_owned()),
+        ));
+    }
 
     let directory = paths.appliance_directory(&reference.digest);
     let staging = paths.staging_appliance_directory();
