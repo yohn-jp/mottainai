@@ -14,7 +14,7 @@ function fixture(config: Record<string, unknown>): { directory: string; configPa
 
 function dependencies(overrides: Partial<DoctorDependencies> = {}): Partial<DoctorDependencies> {
   return {
-    nodeVersion: "22.13.0",
+    nodeVersion: "24.0.0",
     environment: {},
     resolveCommand: (command) => `/bin/${command}`,
     pathKind: () => "directory",
@@ -40,7 +40,7 @@ test("doctor reports the required runtime and local prerequisites without spawni
   assert.equal(report.warnings, 0);
   assert.equal(report.checked, 1);
   assert.equal(commandChecks, 2);
-  assert.match(formatDoctorHuman(report), /✓ Node\.js 22\.13\.0/);
+  assert.match(formatDoctorHuman(report), /✓ Node\.js 24\.0\.0/);
   assert.match(formatDoctorHuman(report), /0 errors, 0 warnings$/);
   fs.rmSync(directory, { recursive: true, force: true });
 });
@@ -48,7 +48,7 @@ test("doctor reports the required runtime and local prerequisites without spawni
 test("doctor collects Node, rg, workspace and state-directory failures", () => {
   const { directory, configPath } = fixture({ version: 2, mcpServers: {} });
   const report = collectDoctorReport({ configPath, cwd: directory, dependencies: dependencies({
-    nodeVersion: "22.12.9",
+    nodeVersion: "23.99.9",
     resolveCommand: () => undefined,
     pathKind: (candidate) => candidate.endsWith(".mottainai") ? "missing" : "directory",
     isWritable: () => false,
@@ -58,7 +58,7 @@ test("doctor collects Node, rg, workspace and state-directory failures", () => {
   assert.equal(report.errors, 3);
   assert.equal(report.warnings, 1);
   assert.deepEqual(report.problems.map((problem) => problem.message), [
-    "Node.js 22.12.9; requires >= 22.13.0",
+    "Node.js 23.99.9; requires >= 24.0.0",
     "rg command not executable",
     `.mottainai is not writable: ${path.join(directory, ".mottainai")}`,
     "no upstream is enabled; only local tools will be served",

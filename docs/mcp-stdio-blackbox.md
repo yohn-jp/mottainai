@@ -43,7 +43,7 @@ proofにならない。
 `scripts/mcp-stdio-package.test.mjs`はmetadataがtarballに含まれ、packが検証対象の
 `dist`を再buildしないこと、consumer cwd/config解決をまたいでもpacked identityが
 維持されること、`runtime_status`が同じidentityを返すことを検証する。release workflow
-はbuildしたtarballをartifactとして保存し、Node 22/24のisolated consumer smokeを
+はbuildしたtarballをartifactとして保存し、Node 24のisolated consumer smokeを
 通過した同一tarballをpublishする。
 
 ## Black-box harness
@@ -121,4 +121,4 @@ pollingはfixture filesystem stateの観測専用。arbitrary sleepでprotocol r
 
 LinuxがTier 1 / canonical runtime。WSL2はLinux runtimeとしてsupported、macOSはbest effort / Tier 2。native Windowsはunsupportedで、WindowsユーザーはWSL2を利用する。`v0.1.2`はnative Windowsのhistorical final release/tag。
 
-PR CIはUbuntuのNode 22 canonical full validationとNode 24 compatibility smokeで構成する。EOF、disconnect、built-dist protocol、package subset、SIGINT/SIGTERM、bounded cleanupはsupported Linux pathで検証する。生成pathにspaceがあってもpack/extractを壊さない。
+PR CIはUbuntuのNode 24 canonical full validationで構成する。EOF、disconnect、built-dist protocol、package subset、SIGINT/SIGTERM、bounded cleanupはsupported Linux pathで検証する。生成pathにspaceがあってもpack/extractを壊さない。

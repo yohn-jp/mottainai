@@ -147,7 +147,7 @@ test("doctor missing-config identity and runtime-status identity share the canon
     const report = collectDoctorReport({
       cwd: root,
       configPath,
-      dependencies: { environment: {}, nodeVersion: "22.13.0" },
+      dependencies: { environment: {}, nodeVersion: "24.0.0" },
       runtime: {
         entryPoint: "/tmp/source-project/src/index.ts",
         buildMetadata: null,

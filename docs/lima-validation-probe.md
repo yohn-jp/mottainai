@@ -9,7 +9,7 @@ Prerequisites:
 - native Linux on `x86_64` or `aarch64` (the guest architecture follows the host architecture);
 - a Lima installation providing `limactl` and its QEMU driver;
 - a user that can open `/dev/kvm` read/write;
-- Node.js 22.13 or later;
+- Node.js 24 or later;
 - network access for Lima's built-in `template:alpine` image on the first run.
 
 The probe does not install packages, change `/dev/kvm` permissions, edit Lima configuration, or require `sudo`.

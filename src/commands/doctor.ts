@@ -52,7 +52,7 @@ export interface CollectDoctorReportOptions {
   runtime?: Partial<RuntimeDiagnosticOptions>;
 }
 
-const MINIMUM_NODE_VERSION = [22, 13, 0] as const;
+const MINIMUM_NODE_VERSION = [24, 0, 0] as const;
 
 function isExecutable(candidate: string): boolean {
   try {
@@ -149,7 +149,7 @@ export function collectDoctorReport(options: CollectDoctorReportOptions = {}): D
 
   add(versionAtLeast(dependencies.nodeVersion, MINIMUM_NODE_VERSION)
     ? { name: "node", status: "pass", message: `Node.js ${dependencies.nodeVersion}` }
-    : { name: "node", status: "error", message: `Node.js ${dependencies.nodeVersion}; requires >= 22.13.0` });
+    : { name: "node", status: "error", message: `Node.js ${dependencies.nodeVersion}; requires >= 24.0.0` });
   add({ name: "config", status: "pass", message: `Config: ${configPath}` });
 
   const workspaceKind = dependencies.pathKind(gatewayConfig.workspaceRoot);
