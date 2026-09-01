@@ -1,10 +1,14 @@
 # Standalone host bootstrap
 
 mottainai-init is the host-side bootstrap for the initial local provider
-profile: Linux x86_64, KVM, and the Lima/QEMU provider boundary. It prepares
-the machine that launches a Runtime Appliance. It is not the #626 guest
-bootstrap, does not install managed Mottainai generations, and does not own
-Lima VM lifecycle, appliance boot, QEMU topology, or Proxmox deployment.
+profile: Linux x86_64, KVM, and the Lima/QEMU provider boundary. Its default
+invocation (no subcommand) prepares the machine that launches a Runtime
+Appliance: the verified Lima provider binary and the QEMU/KVM prerequisite.
+Its `runtime ensure` subcommand (#661, see
+[`lima-runtime-orchestration.md`](lima-runtime-orchestration.md)) converges a
+local Lima-managed Runtime instance to ready state using that verified
+provider. Neither owns the #626 guest bootstrap or managed Mottainai
+generation installation, QEMU topology construction, or Proxmox deployment.
 
 ## Contract and execution
 
@@ -115,8 +119,22 @@ $HOME/.local/state/mottainai/host-bootstrap/
 ├── providers/
 │   └── <artifact-id>/
 │       └── bin/limactl
-└── staging/
+├── staging/
+├── appliances/                 # runtime ensure: verified canonical Appliance disks, by digest
+│   └── <sha256-hex>/
+│       ├── mottainai-runtime-appliance.raw
+│       └── state.json
+├── runtime/                    # runtime ensure: managed Lima instance configuration/state
+│   └── <instance-name>/
+│       ├── lima.yaml
+│       └── state.json
+└── lima-home/                  # runtime ensure: isolated LIMA_HOME for managed limactl invocations
 ~~~
+
+`appliances/` and `runtime/` are populated only by `mottainai-init runtime
+ensure`, are keyed the same idempotent, digest-verified way as the provider
+directory above, and are documented in
+[`lima-runtime-orchestration.md`](lima-runtime-orchestration.md).
 
 Only the bootstrap process owns this location. A non-blocking filesystem lock
 serializes invocations. Downloaded bytes first land in a .part file, are

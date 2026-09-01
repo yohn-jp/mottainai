@@ -355,6 +355,8 @@ jobs:
               - 'src/runtime-contract/**'
               - 'scripts/build-runtime-image-manifest.mjs'
               - 'scripts/build-runtime-appliance-manifest.mjs'
+              - 'scripts/build-runtime-appliance-oci-fixture.mjs'
+              - 'host-bootstrap/**'
               - '.github/workflows/ci.yml'
 
   runtime-contract:
@@ -528,6 +530,33 @@ jobs:
             const manifest = readRuntimeApplianceManifest(process.env.MANIFEST);
             verifyRuntimeApplianceManifest(manifest, process.env.DISK);
           '
+
+      - name: Install Rust toolchain for the host-bootstrap Appliance composition proof
+        if: github.event_name == 'pull_request'
+        run: rustup toolchain install stable --profile minimal --no-self-update
+
+      - name: Build a local OCI-shaped fixture from the real canonical Runtime Appliance (Issue #661)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y zstd
+          node scripts/build-runtime-appliance-oci-fixture.mjs \
+            --manifest "$RUNNER_TEMP/runtime-appliance/x86_64-linux/runtime-appliance-manifest.json" \
+            --disk "$RUNNER_TEMP/runtime-appliance/x86_64-linux/mottainai-runtime-appliance.raw" \
+            --output "$RUNNER_TEMP/runtime-appliance-oci-fixture"
+
+      - name: Prove mottainai-init resolves/verifies the real canonical Runtime Appliance (Issue #661)
+        if: github.event_name == 'pull_request'
+        env:
+          MOTTAINAI_REAL_APPLIANCE_OCI_MANIFEST: ${{ runner.temp }}/runtime-appliance-oci-fixture/oci-manifest.json
+          MOTTAINAI_REAL_APPLIANCE_BLOBS_DIR: ${{ runner.temp }}/runtime-appliance-oci-fixture/blobs
+          MOTTAINAI_REAL_APPLIANCE_RAW_DISK: ${{ runner.temp }}/runtime-appliance/x86_64-linux/mottainai-runtime-appliance.raw
+        run: |
+          cargo test --locked --manifest-path host-bootstrap/Cargo.toml \
+            --test appliance_real -- --ignored --test-threads=1
+
       - name: Execute the Runtime Appliance golden path (Issue #630)
         working-directory: nix
         # The guest intentionally exercises the production HTTPS source

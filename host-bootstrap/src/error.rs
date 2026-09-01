@@ -22,6 +22,18 @@ pub enum ErrorCode {
     UnsupportedArchitecture,
     UnsupportedHostProfile,
     IoError,
+    RuntimeSpecInvalid,
+    ApplianceReferenceInvalid,
+    ApplianceManifestInvalid,
+    ApplianceDigestMismatch,
+    ApplianceDownloadFailed,
+    ApplianceStateAmbiguous,
+    ApplianceStateIncompatible,
+    ProviderNotBootstrapped,
+    LimaCommandFailed,
+    LimaInstanceIncompatible,
+    LimaInstanceAmbiguous,
+    RuntimeNotReady,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -71,6 +83,18 @@ impl BootstrapError {
             ErrorCode::UnsupportedArchitecture => "unsupported_architecture",
             ErrorCode::UnsupportedHostProfile => "unsupported_host_profile",
             ErrorCode::IoError => "io_error",
+            ErrorCode::RuntimeSpecInvalid => "runtime_spec_invalid",
+            ErrorCode::ApplianceReferenceInvalid => "appliance_reference_invalid",
+            ErrorCode::ApplianceManifestInvalid => "appliance_manifest_invalid",
+            ErrorCode::ApplianceDigestMismatch => "appliance_digest_mismatch",
+            ErrorCode::ApplianceDownloadFailed => "appliance_download_failed",
+            ErrorCode::ApplianceStateAmbiguous => "appliance_state_ambiguous",
+            ErrorCode::ApplianceStateIncompatible => "appliance_state_incompatible",
+            ErrorCode::ProviderNotBootstrapped => "provider_not_bootstrapped",
+            ErrorCode::LimaCommandFailed => "lima_command_failed",
+            ErrorCode::LimaInstanceIncompatible => "lima_instance_incompatible",
+            ErrorCode::LimaInstanceAmbiguous => "lima_instance_ambiguous",
+            ErrorCode::RuntimeNotReady => "runtime_not_ready",
         }
     }
 }
