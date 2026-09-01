@@ -37,7 +37,7 @@ Mottainai does not silently replace these authorities when they are unavailable.
 
 ## Quick start
 
-Requires Node.js >= 22.13 and `rg` (ripgrep) on `PATH`.
+Requires Node.js >= 24.0.0 and `rg` (ripgrep) on `PATH`.
 
 Initialize a workspace:
 

@@ -25,7 +25,7 @@ failure causes.
 - Prettier `3.6.2` provides deterministic formatting for the ESM/TypeScript
   tool files and has no runtime dependency on the gateway.
 - ESLint `9.29.0` with `typescript-eslint` `8.66.0` provides the pinned flat
-  configuration and a small safety rule set for Node 22/24.
+  configuration and a small safety rule set for the Node 24 runtime.
 - `scripts/architecture-check.mjs` uses the repository's pinned TypeScript
   compiler API. It parses ASTs, resolves relative modules with NodeNext
   resolution, and builds a production import graph; it does not implement

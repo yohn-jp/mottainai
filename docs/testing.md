@@ -52,9 +52,9 @@ classifier は suite 未所属、複数 suite 所属、fast への process/E2E/p
 
 ## CI topology
 
-Linux / Node 22 を canonical correctness 環境とし、Node 24 は runtime/package compatibility smoke を担当する。native Windows は supported runtime ではなく、Windows 利用者は WSL2 を使う。macOS は best-effort / Tier 2。
+Linux / Node 24 を canonical correctness 環境とする。native Windows は supported runtime ではなく、Windows 利用者は WSL2 を使う。macOS は best-effort / Tier 2。
 
-Canonical Node 22 path は変更内容に応じて次を実行する。
+Canonical Node 24 path は変更内容に応じて次を実行する。
 
 - standards / static integrity;
 - typecheck;
@@ -64,8 +64,6 @@ Canonical Node 22 path は変更内容に応じて次を実行する。
 - built-dist E2E;
 - coverage;
 - packed consumer/package contract。
-
-Node 24 は同じ full suite を重複実行せず、install/build/packed consumer/MCP compatibility を確認する。
 
 GitHub Ruleset の required check は GitHub 側の設定が正本であり、この文書から推測しない。CI に表示される非-required job も、該当層の executable evidence として有効である。
 

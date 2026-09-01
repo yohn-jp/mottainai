@@ -87,7 +87,7 @@ function toReadDecisionRecord(row: Record<string, unknown>): ReadDecisionRecord 
 }
 
 /**
- * SQLite backed StateStore。`node:sqlite`（Node 22+、experimental）を使う。
+ * SQLite backed StateStore。`node:sqlite`（Node 24+、experimental）を使う。
  * 追加の native 依存を増やさないための選択。DB は resolveStateDbPath() が返す
  * OS state directory 配下に置く（呼び出し側が dbPath を明示すればそちらを使う）。
  */

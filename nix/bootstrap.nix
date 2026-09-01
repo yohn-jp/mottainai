@@ -101,8 +101,8 @@ let
   # nixpkgs `typescript` nativeBuildInput above. Kept in sync with
   # pnpm-lock.yaml's resolved `@types/node@<version>:` entry by
   # src/bootstrap/nix-dependency-pin.test.ts.
-  typesNodeVersion = "22.20.1";
-  typesNodeSha512 = "sha512-EANqOCF9QFyra+4pfxUcX9STKJpCLjMbObVzljIJomAWSnuSIEAvyzEU53GaajbXJEgdh0iEcPL+DGvpUd4k1Q==";
+  typesNodeVersion = "24.13.3";
+  typesNodeSha512 = "sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q==";
 
   typesNodeTarball = fetchurl {
     url = "https://registry.npmjs.org/@types/node/-/node-${typesNodeVersion}.tgz";

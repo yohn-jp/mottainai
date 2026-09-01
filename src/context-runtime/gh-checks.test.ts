@@ -17,13 +17,13 @@ function noSleep(): Promise<void> {
 
 test("normalizeChecks maps conclusion over status and lowercases state", () => {
   const checks = normalizeChecks([
-    { name: "coverage/node22", status: "COMPLETED", conclusion: "SUCCESS" },
-    { name: "coverage/node24", status: "IN_PROGRESS", conclusion: null },
+    { name: "coverage/primary", status: "COMPLETED", conclusion: "SUCCESS" },
+    { name: "coverage/package", status: "IN_PROGRESS", conclusion: null },
     { name: "", status: "QUEUED" },
   ]);
   assert.deepEqual(checks, [
-    { name: "coverage/node22", state: "success" },
-    { name: "coverage/node24", state: "in_progress" },
+    { name: "coverage/primary", state: "success" },
+    { name: "coverage/package", state: "in_progress" },
   ]);
 });
 
@@ -35,22 +35,22 @@ test("parseStatusCheckRollup accepts valid non-empty checks and preserves normal
   const result = parseStatusCheckRollup(
     JSON.stringify({
       statusCheckRollup: [
-        { name: "coverage/node22", status: "COMPLETED", conclusion: "SUCCESS" },
-        { name: "coverage/node24", status: "IN_PROGRESS", conclusion: null },
+        { name: "coverage/primary", status: "COMPLETED", conclusion: "SUCCESS" },
+        { name: "coverage/package", status: "IN_PROGRESS", conclusion: null },
       ],
     }),
   );
   assert.deepEqual(result, {
     ok: true,
     checks: [
-      { name: "coverage/node22", status: "COMPLETED", conclusion: "SUCCESS" },
-      { name: "coverage/node24", status: "IN_PROGRESS", conclusion: null },
+      { name: "coverage/primary", status: "COMPLETED", conclusion: "SUCCESS" },
+      { name: "coverage/package", status: "IN_PROGRESS", conclusion: null },
     ],
   });
   if (result.ok) {
     assert.deepEqual(normalizeChecks(result.checks), [
-      { name: "coverage/node22", state: "success" },
-      { name: "coverage/node24", state: "in_progress" },
+      { name: "coverage/primary", state: "success" },
+      { name: "coverage/package", state: "in_progress" },
     ]);
   }
 });

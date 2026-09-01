@@ -252,7 +252,7 @@ function containsRange(container, nested) {
   return container.startOffset <= nested.startOffset && container.endOffset >= nested.endOffset;
 }
 
-// Mirrors Node 22's range merge: exact V8 source ranges are the identity.
+// Mirrors V8's range merge: exact source ranges are the identity.
 function mergeCoverageRanges(oldFunction, newFunction) {
   const mergedRanges = [];
   const add = (range) => {

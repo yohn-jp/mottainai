@@ -108,7 +108,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          node-version: "24"
           cache: pnpm
 
       - name: Install dependencies
@@ -155,7 +155,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          node-version: "24"
           cache: pnpm
 
       - name: Install required system dependencies
@@ -216,7 +216,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          node-version: "24"
           cache: pnpm
 
       - name: Install required system dependencies
@@ -279,52 +279,6 @@ jobs:
           cat "$package_log"
           test "$e2e_status" -eq 0
           test "$package_status" -eq 0
-
-  node-compatibility-smoke:
-    name: packed artifact Node compatibility smoke (Node 24)
-    # engines.node declares >=22.13; this is compatibility evidence for the
-    # current supported major beyond the floor, not a second full suite.
-    if: >-
-      github.event_name != 'pull_request' ||
-      (
-        github.actor != 'dependabot[bot]' &&
-        github.event.pull_request.user.login != 'dependabot[bot]' &&
-        !startsWith(github.event.pull_request.head.ref, 'release/')
-      )
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-        with:
-          version: 11.18.0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "24"
-          cache: pnpm
-
-      # See the build-and-package-e2e job: the packed golden path (#334)
-      # requires a real Zellij, not a stub.
-      - name: Install Zellij
-        run: |
-          set -euo pipefail
-          curl -fsSL -o /tmp/zellij.tar.gz "https://github.com/zellij-org/zellij/releases/download/v0.44.3/zellij-x86_64-unknown-linux-musl.tar.gz"
-          echo "0f7c346788627f506c0a28296517768633cff24fc822a739f8264b640ecad751  /tmp/zellij.tar.gz" | sha256sum -c -
-          sudo tar -xzf /tmp/zellij.tar.gz -C /usr/local/bin
-          sudo chmod +x /usr/local/bin/zellij
-          rm /tmp/zellij.tar.gz
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build and packed consumer / MCP compatibility smoke
-        run: pnpm run test:package
 
   runtime-contract-changes:
     name: detect Nix/QEMU runtime-contract path changes
@@ -393,7 +347,7 @@ jobs:
       - name: Setup Node.js for manifest generation
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          node-version: "24"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -594,7 +548,7 @@ jobs:
       - name: Setup Node.js for manifest generation
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          node-version: "24"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10

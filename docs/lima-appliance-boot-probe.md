@@ -70,7 +70,7 @@ Prerequisites:
 - native Linux on `x86_64` or `aarch64`;
 - a Lima installation providing `limactl` and its QEMU driver;
 - a user that can open `/dev/kvm` read/write;
-- Node.js 22.13 or later;
+- Node.js 24 or later;
 - `ssh` and `ssh-keygen`;
 - `mkfs.vfat` and `mcopy` (Debian/Ubuntu: `dosfstools` and `mtools`);
 - Nix with flakes enabled.

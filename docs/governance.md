@@ -102,7 +102,6 @@ mistaken for a packed-product proof:
 - fast unit/contract tests;
 - integration/process and managed workflow lifecycle tests;
 - built-dist E2E and packed consumer/product-contract tests;
-- Node compatibility smoke;
 - path-sensitive Runtime/QEMU checks when applicable.
 
 The exact commands and classification live in `package.json`,
