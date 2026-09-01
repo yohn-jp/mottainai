@@ -13,6 +13,9 @@ pub struct ManagedPaths {
     pub providers_directory: PathBuf,
     pub staging_directory: PathBuf,
     pub active_link: PathBuf,
+    pub appliances_directory: PathBuf,
+    pub runtime_directory: PathBuf,
+    pub lima_home_directory: PathBuf,
 }
 
 impl ManagedPaths {
@@ -26,6 +29,9 @@ impl ManagedPaths {
             providers_directory: root.join("providers"),
             staging_directory: root.join("staging"),
             active_link: root.join("active"),
+            appliances_directory: root.join("appliances"),
+            runtime_directory: root.join("runtime"),
+            lima_home_directory: root.join("lima-home"),
             root,
         }
     }
@@ -40,6 +46,40 @@ impl ManagedPaths {
 
     pub fn staging_provider_directory(&self) -> PathBuf {
         self.staging_directory.join("provider")
+    }
+
+    /// Digest is the `sha256:<hex>` reference; only the hex half is used as
+    /// the directory name so the immutable identity stays filesystem-safe.
+    pub fn appliance_directory(&self, digest: &str) -> PathBuf {
+        let hex = digest.strip_prefix("sha256:").unwrap_or(digest);
+        self.appliances_directory.join(hex)
+    }
+
+    pub fn appliance_raw_path(&self, digest: &str) -> PathBuf {
+        self.appliance_directory(digest)
+            .join("mottainai-runtime-appliance.raw")
+    }
+
+    pub fn appliance_state_path(&self, digest: &str) -> PathBuf {
+        self.appliance_directory(digest).join("state.json")
+    }
+
+    pub fn staging_appliance_directory(&self) -> PathBuf {
+        self.staging_directory.join("appliance")
+    }
+
+    pub fn runtime_instance_directory(&self, instance_name: &str) -> PathBuf {
+        self.runtime_directory.join(instance_name)
+    }
+
+    pub fn runtime_config_path(&self, instance_name: &str) -> PathBuf {
+        self.runtime_instance_directory(instance_name)
+            .join("lima.yaml")
+    }
+
+    pub fn runtime_state_path(&self, instance_name: &str) -> PathBuf {
+        self.runtime_instance_directory(instance_name)
+            .join("state.json")
     }
 }
 
@@ -68,6 +108,8 @@ pub fn ensure_managed_directories(paths: &ManagedPaths) -> Result<(), BootstrapE
     ensure_directory(&paths.cache_directory, "managed cache directory")?;
     ensure_directory(&paths.providers_directory, "managed providers directory")?;
     ensure_directory(&paths.staging_directory, "managed staging directory")?;
+    ensure_directory(&paths.appliances_directory, "managed appliances directory")?;
+    ensure_directory(&paths.runtime_directory, "managed runtime directory")?;
     Ok(())
 }
 

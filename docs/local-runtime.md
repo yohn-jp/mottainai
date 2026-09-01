@@ -32,6 +32,11 @@ Lima is the initial local-provider direction, not part of the guest contract.
 A future provider such as Proxmox must be able to instantiate the same canonical
 appliance without inserting Lima into its path.
 
+The production `mottainai-init runtime ensure` implementation of this local
+Lima path, and how it differs from direct canonical-Appliance consumption by
+another provider, is documented in
+[`lima-runtime-orchestration.md`](lima-runtime-orchestration.md).
+
 Mottainai therefore does **not** own, for the Lima-managed local path:
 
 - a private QEMU binary/archive distribution;
