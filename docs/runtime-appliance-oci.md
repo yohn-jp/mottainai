@@ -93,6 +93,7 @@ set -eu
 compressed=runtime-appliance/mottainai-runtime-appliance.raw.zst
 manifest=runtime-appliance/runtime-appliance-manifest.json
 metadata=runtime-appliance/runtime-appliance-release-metadata.json
+raw_media_type=application/vnd.mottainai.runtime.appliance.raw.v1+zstd
 
 test -s "$compressed"
 test -s "$manifest"
