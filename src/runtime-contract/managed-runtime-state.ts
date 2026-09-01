@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
+import process from "node:process";
 import { randomUUID } from "node:crypto";
+import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { replaceFileAtomically } from "../atomic-file.js";
 import type { BoundaryOperations } from "../boundary.js";
@@ -19,6 +21,7 @@ export const MANAGED_RUNTIME_STATE_SCHEMA_VERSION = 1 as const;
 export const MANAGED_RUNTIME_STATE_RELATIVE_PATH = "managed-runtime/state.json" as const;
 export const MANAGED_RUNTIME_CURRENT_RELATIVE_PATH = "managed-runtime/current" as const;
 export const MANAGED_RUNTIME_MANIFEST_RELATIVE_PATH = "managed-packages/manifest.json" as const;
+export const MANAGED_RUNTIME_LOCK_RELATIVE_PATH = "managed-runtime/reconcile.lock" as const;
 export const MANAGED_RUNTIME_CONTROL_STATE_ROOT = "/var/lib/mottainai-control" as const;
 export const MANAGED_RUNTIME_STATE_FILE_PATH = path.join(
   MANAGED_RUNTIME_CONTROL_STATE_ROOT,
@@ -31,6 +34,10 @@ export const MANAGED_RUNTIME_CURRENT_POINTER_PATH = path.join(
 export const MANAGED_RUNTIME_MANIFEST_PATH = path.join(
   MANAGED_RUNTIME_CONTROL_STATE_ROOT,
   MANAGED_RUNTIME_MANIFEST_RELATIVE_PATH,
+);
+export const MANAGED_RUNTIME_LOCK_PATH = path.join(
+  MANAGED_RUNTIME_CONTROL_STATE_ROOT,
+  MANAGED_RUNTIME_LOCK_RELATIVE_PATH,
 );
 
 export const MANAGED_RUNTIME_ACTIVATION_PHASES = [
@@ -166,12 +173,31 @@ export class ManagedRuntimeStateError extends Error {
   }
 }
 
+export type ManagedRuntimeLockErrorCode = "busy" | "unavailable";
+
+export class ManagedRuntimeLockError extends ManagedRuntimeStateError {
+  readonly code: ManagedRuntimeLockErrorCode;
+  readonly operation: string;
+
+  constructor(code: ManagedRuntimeLockErrorCode, message: string, operation = "unknown") {
+    super(message);
+    this.name = "ManagedRuntimeLockError";
+    this.code = code;
+    this.operation = operation;
+  }
+}
+
+export interface ManagedRuntimeWriterLock {
+  release(): void;
+}
+
 export interface ManagedRuntimePaths {
   readonly stateRoot: string;
   readonly managedRuntimeDirectory: string;
   readonly stateFile: string;
   readonly currentPointer: string;
   readonly manifestFile: string;
+  readonly lockFile: string;
 }
 
 /** Compatibility aliases for consumers that call the pointer an activation path. */
@@ -193,6 +219,110 @@ export function resolveManagedRuntimePaths(
     stateFile: path.join(root, MANAGED_RUNTIME_STATE_RELATIVE_PATH),
     currentPointer: path.join(root, MANAGED_RUNTIME_CURRENT_RELATIVE_PATH),
     manifestFile: path.join(root, MANAGED_RUNTIME_MANIFEST_RELATIVE_PATH),
+    lockFile: path.join(root, MANAGED_RUNTIME_LOCK_RELATIVE_PATH),
+  };
+}
+
+function lockErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function lockUnavailable(operation: string, error: unknown): ManagedRuntimeLockError {
+  return new ManagedRuntimeLockError(
+    "unavailable",
+    `managed Runtime writer lock ${operation} failed: ${lockErrorMessage(error)}`,
+    operation,
+  );
+}
+
+function requireNodeSqlite(): typeof import("node:sqlite") {
+  return process.getBuiltinModule("node:sqlite");
+}
+
+function isSqliteBusy(error: unknown): boolean {
+  const code = (error as { code?: unknown }).code;
+  return code === "ERR_SQLITE_BUSY" || (code === "ERR_SQLITE_ERROR" && lockErrorMessage(error).includes("database is locked"));
+}
+
+/**
+ * Acquire the non-blocking writer boundary for one canonical managed-runtime
+ * state root. SQLite's BEGIN IMMEDIATE supplies the OS-backed lock and keeps
+ * it tied to the canonical lock file until the returned handle is closed.
+ * Unlike a PID marker, the lock is released by the kernel when its process
+ * dies, so recovery never needs a path-based stale-owner deletion.
+ */
+export function acquireManagedRuntimeWriterLock(
+  lockFile: string,
+  boundaries: BoundaryOperations = DIRECT_BOUNDARIES,
+): ManagedRuntimeWriterLock {
+  const directory = path.dirname(lockFile);
+  try {
+    boundaries.file("managed-runtime-writer-lock.directory.create", () =>
+      fs.mkdirSync(directory, { recursive: true, mode: 0o700 }),
+    );
+  } catch (error) {
+    throw lockUnavailable("directory preparation", error);
+  }
+
+  try {
+    const stat = boundaries.file("managed-runtime-writer-lock.inspect", () => {
+      try {
+        return fs.lstatSync(lockFile);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+        throw error;
+      }
+    });
+    if (stat?.isSymbolicLink()) {
+      throw new ManagedRuntimeLockError("unavailable", "managed Runtime writer lock must not be a symlink");
+    }
+  } catch (error) {
+    if (error instanceof ManagedRuntimeLockError) throw error;
+    throw lockUnavailable("inspect", error);
+  }
+
+  let db: DatabaseSync | undefined;
+  try {
+    // Keep node:sqlite lazy: managed-status and other read-only commands must
+    // not load the experimental module when they do not reconcile.
+    const { DatabaseSync } = requireNodeSqlite();
+    db = boundaries.file("managed-runtime-writer-lock.open", () => new DatabaseSync(lockFile));
+    boundaries.file("managed-runtime-writer-lock.begin", () => {
+      db!.exec("PRAGMA busy_timeout = 0; BEGIN IMMEDIATE;");
+    });
+  } catch (error) {
+    if (db !== undefined) {
+      try {
+        boundaries.file("managed-runtime-writer-lock.close.after-acquire-failure", () => db!.close());
+      } catch {
+        // Preserve the acquisition error; the failed handle does not own the writer transaction.
+      }
+    }
+    if (isSqliteBusy(error)) {
+      throw new ManagedRuntimeLockError("busy", "managed Runtime reconcile is busy", "begin");
+    }
+    if (error instanceof ManagedRuntimeLockError) throw error;
+    throw lockUnavailable("begin", error);
+  }
+
+  let released = false;
+  return {
+    release(): void {
+      if (released) return;
+      let failure: unknown;
+      try {
+        boundaries.file("managed-runtime-writer-lock.release", () => db!.exec("ROLLBACK"));
+      } catch (error) {
+        failure = error;
+      }
+      try {
+        boundaries.file("managed-runtime-writer-lock.close", () => db!.close());
+      } catch (error) {
+        failure ??= error;
+      }
+      released = true;
+      if (failure !== undefined) throw lockUnavailable("release", failure);
+    },
   };
 }
 

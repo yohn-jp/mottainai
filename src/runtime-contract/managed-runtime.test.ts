@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -17,12 +18,15 @@ import {
 } from "./managed-runtime.js";
 import {
   atomicallySelectManagedRuntimeGeneration,
+  acquireManagedRuntimeWriterLock,
+  ManagedRuntimeLockError,
   readManagedRuntimePointer,
   readManagedRuntimeState,
   writeManagedRuntimeState,
 } from "./managed-runtime-state.js";
 import { RUNTIME_CONTRACT_ID, RUNTIME_CONTRACT_SCHEMA_VERSION } from "./contract.js";
 import type { ManagedRuntimeState } from "./managed-runtime-state.js";
+import type { BoundaryOperations } from "../boundary.js";
 import {
   MANAGED_PACKAGE_MANIFEST_CONTRACT_ID,
   MANAGED_PACKAGE_MANIFEST_SCHEMA_VERSION,
@@ -126,7 +130,97 @@ function fixture(
 
 const initialManifest = manifest([packageEntry("mottainai", "0.7.1"), packageEntry("nawabari", "0.6.1")]);
 const updatedManifest = manifest([packageEntry("mottainai", "0.7.2"), packageEntry("nawabari", "0.6.1")]);
+const competingManifest = manifest([packageEntry("mottainai", "0.7.3"), packageEntry("nawabari", "0.6.1")]);
 const removalManifest = manifest([packageEntry("mottainai", "0.7.1")]);
+
+interface WriterWorkerOutcome {
+  readonly status: "acquired" | "busy";
+  readonly pid: number;
+}
+
+function startWriterWorker(
+  lockFile: string,
+  startFile: string,
+  releaseFile: string,
+): {
+  readonly child: ChildProcess;
+  readonly outcome: Promise<WriterWorkerOutcome>;
+  readonly completion: Promise<void>;
+} {
+  const stateModule = new URL("./managed-runtime-state.ts", import.meta.url).href;
+  const workerScript = `
+    import fs from "node:fs";
+    import process from "node:process";
+    import { acquireManagedRuntimeWriterLock } from ${JSON.stringify(stateModule)};
+
+    const [lockFile, startFile, releaseFile] = process.argv.slice(1);
+    const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
+    const waitForFile = (file) => {
+      const deadline = Date.now() + 10_000;
+      while (!fs.existsSync(file)) {
+        if (Date.now() >= deadline) throw new Error("timed out waiting for " + file);
+        Atomics.wait(waitBuffer, 0, 0, 5);
+      }
+    };
+
+    try {
+      waitForFile(startFile);
+      const lock = acquireManagedRuntimeWriterLock(lockFile);
+      process.stdout.write("acquired:" + process.pid + "\\n");
+      waitForFile(releaseFile);
+      lock.release();
+    } catch (error) {
+      if (error instanceof Error && error.message === "managed Runtime reconcile is busy") {
+        process.stdout.write("busy:" + process.pid + "\\n");
+      } else {
+        process.stderr.write(error instanceof Error ? error.stack ?? error.message : String(error));
+        process.exitCode = 1;
+      }
+    }
+  `;
+  const child = spawn(
+    process.execPath,
+    ["--import", "tsx", "--input-type=module", "--eval", workerScript, lockFile, startFile, releaseFile],
+    {
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  let stderr = "";
+  child.stderr?.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString("utf8");
+  });
+  const outcome = new Promise<WriterWorkerOutcome>((resolve, reject) => {
+    let stdout = "";
+    let settled = false;
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+      const match = /^(acquired|busy):([1-9][0-9]*)$/mu.exec(stdout.trim());
+      if (match === null || settled) return;
+      settled = true;
+      resolve({ status: match[1] as WriterWorkerOutcome["status"], pid: Number(match[2]) });
+    });
+    child.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    });
+    child.once("close", (code, signal) => {
+      if (settled) return;
+      settled = true;
+      reject(
+        new Error(`writer worker exited before reporting outcome: code=${code}, signal=${signal}, stderr=${stderr}`),
+      );
+    });
+  });
+  const completion = new Promise<void>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => {
+      if (code === 0) resolve();
+      else reject(new Error(`writer worker failed: code=${code}, signal=${signal}, stderr=${stderr}`));
+    });
+  });
+  return { child, outcome, completion };
+}
 
 test("fresh init builds, stages, atomically activates, health-checks, and persists a known-good generation", async () => {
   const value = fixture();
@@ -302,6 +396,262 @@ test("post-switch health failure rolls back deterministically and retains bounde
       "/nix/store/generation-1",
     );
   } finally {
+    value.cleanup();
+  }
+});
+
+test(
+  "concurrent reconciles serialize through health and rollback without double activation",
+  { timeout: 10_000 },
+  async () => {
+    const value = fixture();
+    try {
+      await reconcileManagedRuntime({ ...value.baseOptions(), manifest: initialManifest });
+      const pointerSwitches: string[] = [];
+      const boundaries: BoundaryOperations = {
+        file(operation, action) {
+          if (operation === "managed-runtime-pointer.rename") pointerSwitches.push(operation);
+          return action();
+        },
+        process(_operation, action) {
+          return action();
+        },
+        storage(_operation, action) {
+          return action();
+        },
+      };
+      let allowFirstHealth!: () => void;
+      const firstHealthPending = new Promise<void>((resolve) => {
+        allowFirstHealth = resolve;
+      });
+      let firstHealthStarted!: () => void;
+      const firstHealthObserved = new Promise<void>((resolve) => {
+        firstHealthStarted = resolve;
+      });
+
+      const first = reconcileManagedRuntime({
+        ...value.baseOptions(),
+        manifest: updatedManifest,
+        boundaries,
+        dependencies: {
+          buildGeneration: () => ({
+            generationIdentity: "generation-concurrent-a",
+            storePath: "/nix/store/generation-concurrent-a",
+          }),
+          healthCheck: async (generation) => {
+            if (generation.generationIdentity === "generation-concurrent-a") {
+              firstHealthStarted();
+              await firstHealthPending;
+              return { healthy: false, generationIdentity: generation.generationIdentity, reason: "candidate failed" };
+            }
+            return { healthy: true, generationIdentity: generation.generationIdentity };
+          },
+        },
+      });
+      await firstHealthObserved;
+
+      // The first actor has switched the pointer but has not yet completed health
+      // or rollback. Status remains independently readable at this point.
+      const statusWhileWriterIsHeld = readManagedRuntimeStatus({ stateDirectory: value.root });
+      assert.equal(statusWhileWriterIsHeld.activationPhase, "switched-health-pending");
+      assert.equal(statusWhileWriterIsHeld.observedStorePath, "/nix/store/generation-concurrent-a");
+
+      let secondBuildCalls = 0;
+      await assert.rejects(
+        reconcileManagedRuntime({
+          ...value.baseOptions(),
+          manifest: competingManifest,
+          dependencies: {
+            buildGeneration: () => {
+              secondBuildCalls += 1;
+              return { generationIdentity: "generation-concurrent-b", storePath: "/nix/store/generation-concurrent-b" };
+            },
+            healthCheck: async (generation) => ({ healthy: true, generationIdentity: generation.generationIdentity }),
+          },
+        }),
+        (error: unknown) =>
+          error instanceof ManagedRuntimeError && error.code === "reconcile_busy" && error.message.length <= 2_048,
+      );
+      assert.equal(secondBuildCalls, 0);
+      const pending = readManagedRuntimeState(value.paths());
+      assert.equal(pending?.activation.phase, "switched-health-pending");
+      assert.equal(pending?.activation.candidate?.generationIdentity, "generation-concurrent-a");
+
+      allowFirstHealth();
+      await assert.rejects(
+        first,
+        (error: unknown) => error instanceof ManagedRuntimeError && error.code === "health_failure",
+      );
+      const finalState = readManagedRuntimeState(value.paths());
+      assert.equal(finalState?.activation.phase, "idle");
+      assert.equal(finalState?.active?.generationIdentity, "generation-1");
+      assert.equal(finalState?.failure?.generationIdentity, "generation-concurrent-a");
+      assert.equal(
+        readManagedRuntimePointer(path.join(value.root, "managed-runtime", "current")),
+        "/nix/store/generation-1",
+      );
+      assert.equal(pointerSwitches.length, 2, "only candidate activation and its rollback may switch current");
+      assert.equal(fs.statSync(path.join(value.root, "managed-runtime", "reconcile.lock")).isFile(), true);
+    } finally {
+      value.cleanup();
+    }
+  },
+);
+
+test("reconcile recovers a prepared activation after a crashed writer without rebuilding", async () => {
+  const value = fixture();
+  try {
+    await reconcileManagedRuntime({ ...value.baseOptions(), manifest: initialManifest });
+    const prior = readManagedRuntimeState(value.paths());
+    assert.ok(prior?.active);
+    const desiredIdentity = semanticIdentityOf(updatedManifest);
+    const staged = candidate("generation-recovered-after-crash", desiredIdentity, ["mottainai", "nawabari"]);
+    writeManagedRuntimeState(value.paths(), {
+      ...prior,
+      desiredManifestSemanticIdentity: desiredIdentity,
+      activation: {
+        phase: "prepared",
+        transactionId: "stale-lock-recovery",
+        candidate: staged,
+        previous: prior.active,
+        startedAt: "2026-08-30T00:00:00.000Z",
+        updatedAt: "2026-08-30T00:00:00.000Z",
+      },
+      updatedAt: "2026-08-30T00:00:00.000Z",
+    });
+    const lockFile = path.join(value.root, "managed-runtime", "reconcile.lock");
+    fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+    fs.writeFileSync(lockFile, "");
+    const result = await reconcileManagedRuntime({
+      ...value.baseOptions(),
+      manifest: updatedManifest,
+      dependencies: {
+        buildGeneration: () => {
+          throw new Error("activation recovery must not rebuild");
+        },
+        healthCheck: async (generation) => ({ healthy: true, generationIdentity: generation.generationIdentity }),
+      },
+    });
+    assert.equal(result.outcome, "recovered");
+    assert.equal(result.active?.generationIdentity, staged.generationIdentity);
+    assert.equal(fs.statSync(lockFile).isFile(), true);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("legacy stale PID markers fail closed without reclamation", () => {
+  const value = fixture();
+  const lockFile = path.join(value.root, "managed-runtime", "reconcile.lock");
+  const legacyMarker = "pid:999999999:00000000-0000-4000-8000-000000000000";
+  try {
+    fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+    fs.symlinkSync(legacyMarker, lockFile);
+    assert.throws(
+      () => acquireManagedRuntimeWriterLock(lockFile),
+      (error: unknown) =>
+        error instanceof ManagedRuntimeLockError &&
+        error.code === "unavailable" &&
+        error.message === "managed Runtime writer lock must not be a symlink",
+    );
+    assert.equal(fs.readlinkSync(lockFile), legacyMarker);
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("two independent OS processes cannot replace the OS-held canonical lock", { timeout: 10_000 }, async () => {
+  const value = fixture();
+  const lockFile = path.join(value.root, "managed-runtime", "reconcile.lock");
+  const coordinationDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-lock-workers-"));
+  const startFile = path.join(coordinationDirectory, "start");
+  const releaseFile = path.join(coordinationDirectory, "release");
+  const workers = [
+    startWriterWorker(lockFile, startFile, releaseFile),
+    startWriterWorker(lockFile, startFile, releaseFile),
+  ];
+  let workersCompleted = false;
+  try {
+    fs.writeFileSync(startFile, "start");
+    const outcomes = await Promise.all(workers.map((worker) => worker.outcome));
+    assert.equal(outcomes.filter((outcome) => outcome.status === "acquired").length, 1);
+    assert.equal(outcomes.filter((outcome) => outcome.status === "busy").length, 1);
+    assert.notEqual(outcomes[0]?.pid, outcomes[1]?.pid, "contenders must be independent OS processes");
+    assert.equal(fs.statSync(lockFile).isFile(), true);
+
+    fs.writeFileSync(releaseFile, "release");
+    await Promise.all(workers.map((worker) => worker.completion));
+    workersCompleted = true;
+    const nextOwner = acquireManagedRuntimeWriterLock(lockFile);
+    nextOwner.release();
+  } finally {
+    if (!workersCompleted) {
+      for (const worker of workers) {
+        if (worker.child.exitCode === null) worker.child.kill("SIGKILL");
+      }
+    }
+    await Promise.allSettled(workers.map((worker) => worker.completion));
+    value.cleanup();
+    fs.rmSync(coordinationDirectory, { recursive: true, force: true });
+  }
+});
+
+test("writer lock is released by process death and the next reconcile can recover", { timeout: 10_000 }, async () => {
+  const value = fixture();
+  const lockFile = path.join(value.root, "managed-runtime", "reconcile.lock");
+  fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+  const child = spawn(
+    process.execPath,
+    [
+      "-e",
+      [
+        'const { DatabaseSync } = process.getBuiltinModule("node:sqlite");',
+        "const db = new DatabaseSync(process.argv[1]);",
+        'db.exec("PRAGMA busy_timeout = 0; BEGIN IMMEDIATE;");',
+        'process.stdout.write("ready\\n");',
+        "setInterval(() => {}, 1000);",
+      ].join(""),
+      lockFile,
+    ],
+    { stdio: ["ignore", "pipe", "ignore"] },
+  );
+  let exited = false;
+  const childExit = new Promise<void>((resolve) => {
+    child.once("close", () => {
+      exited = true;
+      resolve();
+    });
+  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("writer lock child did not become ready")), 5_000);
+      child.stdout.on("data", (chunk: Buffer) => {
+        if (!chunk.toString().includes("ready")) return;
+        clearTimeout(timer);
+        resolve();
+      });
+      child.once("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+      child.once("close", (code, signal) => {
+        clearTimeout(timer);
+        reject(new Error(`writer lock child exited before readiness: code=${code}, signal=${signal}`));
+      });
+    });
+    await assert.rejects(
+      Promise.resolve().then(() => acquireManagedRuntimeWriterLock(lockFile)),
+      (error: unknown) => error instanceof Error && error.message === "managed Runtime reconcile is busy",
+    );
+    child.kill("SIGKILL");
+    await childExit;
+    const recoveredLock = acquireManagedRuntimeWriterLock(lockFile);
+    recoveredLock.release();
+  } finally {
+    if (!exited) {
+      child.kill("SIGKILL");
+      await childExit;
+    }
     value.cleanup();
   }
 });
