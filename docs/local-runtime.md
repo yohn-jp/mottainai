@@ -12,6 +12,12 @@ selected local provider owns physical VM lifecycle and host/VMM integration.
 
 ## Current boundary
 
+The npm package does not own local VM lifecycle. Its historical
+`mottainai runtime ensure/status` namespace is retired and fails before it
+reads or writes Runtime state. The supported local lifecycle entrypoint is the
+standalone `mottainai-init` artifact:
+`mottainai-init runtime ensure --spec PATH [--json]`.
+
 ```text
 Mottainai Runtime specification
         |

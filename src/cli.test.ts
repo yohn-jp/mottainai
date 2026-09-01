@@ -33,30 +33,29 @@ test("early public CLI failure includes bounded runtime identity without stdout 
   }
 });
 
-test("public CLI exposes read-only runtime status without creating state", () => {
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-runtime-status-"));
-  const stateDirectory = path.join(workspace, "runtime-state");
-  try {
-    const result = spawnSync(
-      process.execPath,
-      ["--import", "tsx", entryPoint, "runtime", "status", "--json", "--state-directory", stateDirectory],
-      {
-        cwd: path.resolve(path.dirname(entryPoint), ".."),
-        env: { ...process.env, HOME: workspace, USERPROFILE: workspace },
-        encoding: "utf8",
-      },
-    );
-    assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
-    assert.deepEqual(JSON.parse(result.stdout), {
-      ok: true,
-      machineId: "mottainai-local-runtime-v1",
-      lifecycle: "absent",
-      stateDirectory: path.join(path.resolve(stateDirectory), "mottainai-local-runtime-v1"),
-      stateFile: path.join(path.resolve(stateDirectory), "mottainai-local-runtime-v1", "state.json"),
-    });
-    assert.equal(fs.existsSync(stateDirectory), false);
-  } finally {
-    fs.rmSync(workspace, { recursive: true, force: true });
+test("public Runtime commands fail closed before entering the retired artifact path", () => {
+  for (const action of ["ensure", "status"]) {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), `mottainai-cli-runtime-${action}-`));
+    const stateDirectory = path.join(workspace, "runtime-state");
+    try {
+      const result = spawnSync(
+        process.execPath,
+        ["--import", "tsx", entryPoint, "runtime", action, "--json", "--state-directory", stateDirectory],
+        {
+          cwd: path.resolve(path.dirname(entryPoint), ".."),
+          env: { ...process.env, HOME: workspace, USERPROFILE: workspace },
+          encoding: "utf8",
+        },
+      );
+      assert.equal(result.status, 1, `${result.stdout}${result.stderr}`);
+      const error = JSON.parse(result.stdout) as { ok?: boolean; error?: string };
+      assert.equal(error.ok, false);
+      assert.match(error.error ?? "", /mottainai-init runtime ensure --spec PATH/);
+      assert.doesNotMatch(error.error ?? "", /managed QEMU|not-built|QMP/iu);
+      assert.equal(fs.existsSync(stateDirectory), false);
+    } finally {
+      fs.rmSync(workspace, { recursive: true, force: true });
+    }
   }
 });
 
@@ -90,7 +89,7 @@ test("top-level init rejects the removed Runtime provisioning option before writ
       },
     );
     assert.equal(result.status, 1);
-    assert.match(result.stderr, /use `mottainai runtime ensure`/);
+    assert.match(result.stderr, /use `mottainai-init runtime ensure --spec PATH`/);
     assert.equal(fs.existsSync(configPath), false);
   } finally {
     fs.rmSync(workspace, { recursive: true, force: true });
