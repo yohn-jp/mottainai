@@ -1055,7 +1055,7 @@ function statusFromState(state: ManagedRuntimeState, pointer: string | undefined
   };
 }
 
-function acquireWriterLock(paths: ManagedRuntimePaths, boundaries: BoundaryOperations): ManagedRuntimeWriterLock {
+async function acquireWriterLock(paths: ManagedRuntimePaths, boundaries: BoundaryOperations): Promise<ManagedRuntimeWriterLock> {
   try {
     return acquireManagedRuntimeWriterLock(paths.lockFile, boundaries);
   } catch (error) {
@@ -1082,7 +1082,7 @@ async function withWriterLock<T>(
   boundaries: BoundaryOperations,
   operation: () => Promise<T>,
 ): Promise<T> {
-  const lock = acquireWriterLock(paths, boundaries);
+  const lock = await acquireWriterLock(paths, boundaries);
   let result: T;
   try {
     result = await operation();

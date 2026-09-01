@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { randomUUID } from "node:crypto";
+import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { replaceFileAtomically } from "../atomic-file.js";
 import type { BoundaryOperations } from "../boundary.js";
@@ -222,9 +223,6 @@ export function resolveManagedRuntimePaths(
   };
 }
 
-const MAX_LOCK_OWNER_LENGTH = 128 as const;
-const LOCK_OWNER_PATTERN = /^pid:([1-9][0-9]{0,9}):([0-9a-f-]{36})$/u;
-
 function lockErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -237,90 +235,21 @@ function lockUnavailable(operation: string, error: unknown): ManagedRuntimeLockE
   );
 }
 
-function readLockOwnerDirect(lockFile: string): string | undefined {
-  const stat = fs.lstatSync(lockFile);
-  if (!stat.isSymbolicLink()) {
-    throw new ManagedRuntimeLockError("unavailable", "managed Runtime writer lock is not a symlink");
-  }
-  const owner = fs.readlinkSync(lockFile);
-  if (owner.length > MAX_LOCK_OWNER_LENGTH || !LOCK_OWNER_PATTERN.test(owner)) {
-    throw new ManagedRuntimeLockError("unavailable", "managed Runtime writer lock owner is invalid");
-  }
-  return owner;
+function requireNodeSqlite(): typeof import("node:sqlite") {
+  return process.getBuiltinModule("node:sqlite");
 }
 
-function readLockOwner(lockFile: string, boundaries: BoundaryOperations): string | undefined {
-  try {
-    return boundaries.file("managed-runtime-writer-lock.inspect", () => readLockOwnerDirect(lockFile));
-  } catch (error) {
-    if (error instanceof ManagedRuntimeLockError) throw error;
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    throw lockUnavailable("read", error);
-  }
-}
-
-/**
- * Reclaim only the marker that was verified by this attempt. The owner check
- * and unlink are kept in one synchronous file-boundary operation so a test or
- * another actor cannot replace the marker between the final check and the
- * stale break. A replacement is treated as a failed reclaim and retried as a
- * normal lock acquisition, which preserves the replacement owner's lock.
- */
-function removeStaleLockIfOwned(
-  lockFile: string,
-  expectedOwner: string,
-  boundaries: BoundaryOperations,
-): boolean {
-  try {
-    return boundaries.file("managed-runtime-writer-lock.stale-break", () => {
-      let currentOwner: string | undefined;
-      try {
-        currentOwner = readLockOwnerDirect(lockFile);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-        throw error;
-      }
-      if (currentOwner !== expectedOwner) return false;
-      try {
-        fs.unlinkSync(lockFile);
-        return true;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-        throw error;
-      }
-    });
-  } catch (error) {
-    if (error instanceof ManagedRuntimeLockError) throw error;
-    throw lockUnavailable("stale break", error);
-  }
-}
-
-function ownerPid(owner: string): number {
-  const match = LOCK_OWNER_PATTERN.exec(owner);
-  if (match === null) {
-    throw new ManagedRuntimeLockError("unavailable", "managed Runtime writer lock owner is invalid");
-  }
-  return Number(match[1]);
-}
-
-/** Treat permission/unknown process errors conservatively as a live owner. */
-function isProcessAlive(pid: number, boundaries: BoundaryOperations): boolean {
-  try {
-    boundaries.process("managed-runtime-writer-lock.owner-probe", () => process.kill(pid, 0));
-    return true;
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ESRCH") return false;
-    if (code === "EPERM") return true;
-    throw lockUnavailable("owner probe", error);
-  }
+function isSqliteBusy(error: unknown): boolean {
+  const code = (error as { code?: unknown }).code;
+  return code === "ERR_SQLITE_BUSY" || (code === "ERR_SQLITE_ERROR" && lockErrorMessage(error).includes("database is locked"));
 }
 
 /**
  * Acquire the non-blocking writer boundary for one canonical managed-runtime
- * state root. The symlink creation is the exclusive create operation; its
- * bounded owner identity makes a marker left by a dead process recoverable
- * without introducing another managed-generation registry.
+ * state root. SQLite's BEGIN IMMEDIATE supplies the OS-backed lock and keeps
+ * it tied to the canonical lock file until the returned handle is closed.
+ * Unlike a PID marker, the lock is released by the kernel when its process
+ * dies, so recovery never needs a path-based stale-owner deletion.
  */
 export function acquireManagedRuntimeWriterLock(
   lockFile: string,
@@ -335,56 +264,66 @@ export function acquireManagedRuntimeWriterLock(
     throw lockUnavailable("directory preparation", error);
   }
 
-  const owner = `pid:${process.pid}:${randomUUID()}`;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      boundaries.file("managed-runtime-writer-lock.create", () => fs.symlinkSync(owner, lockFile));
-      let released = false;
-      return {
-        release(): void {
-          if (released) return;
-          const currentOwner = readLockOwner(lockFile, boundaries);
-          if (currentOwner === undefined) {
-            throw new ManagedRuntimeLockError("unavailable", "managed Runtime writer lock disappeared before release");
-          }
-          if (currentOwner !== owner) {
-            throw new ManagedRuntimeLockError("unavailable", "managed Runtime writer lock ownership changed");
-          }
-          try {
-            boundaries.file("managed-runtime-writer-lock.release", () => fs.unlinkSync(lockFile));
-          } catch (error) {
-            throw lockUnavailable("release", error);
-          }
-          released = true;
-        },
-      };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-        if (error instanceof ManagedRuntimeLockError) throw error;
-        throw lockUnavailable("create", error);
+  try {
+    const stat = boundaries.file("managed-runtime-writer-lock.inspect", () => {
+      try {
+        return fs.lstatSync(lockFile);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+        throw error;
       }
+    });
+    if (stat?.isSymbolicLink()) {
+      throw new ManagedRuntimeLockError("unavailable", "managed Runtime writer lock must not be a symlink");
     }
-
-    const incumbent = readLockOwner(lockFile, boundaries);
-    if (incumbent === undefined) continue;
-    const incumbentPid = ownerPid(incumbent);
-    if (isProcessAlive(incumbentPid, boundaries)) {
-      throw new ManagedRuntimeLockError("busy", "managed Runtime reconcile is busy");
-    }
-
-    // Re-read before the ownership-safe stale break so a contender that
-    // replaced it is never accidentally unlinked. This is deliberately
-    // bounded and non-blocking; a live/unknown owner remains fail-closed.
-    const confirmedOwner = readLockOwner(lockFile, boundaries);
-    if (confirmedOwner === undefined) continue;
-    if (confirmedOwner !== incumbent) continue;
-    if (isProcessAlive(ownerPid(confirmedOwner), boundaries)) {
-      throw new ManagedRuntimeLockError("busy", "managed Runtime reconcile is busy");
-    }
-    if (!removeStaleLockIfOwned(lockFile, confirmedOwner, boundaries)) continue;
+  } catch (error) {
+    if (error instanceof ManagedRuntimeLockError) throw error;
+    throw lockUnavailable("inspect", error);
   }
 
-  throw new ManagedRuntimeLockError("busy", "managed Runtime reconcile is busy");
+  let db: DatabaseSync | undefined;
+  try {
+    // Keep node:sqlite lazy: managed-status and other read-only commands must
+    // not load the experimental module when they do not reconcile.
+    const { DatabaseSync } = requireNodeSqlite();
+    db = boundaries.file("managed-runtime-writer-lock.open", () => new DatabaseSync(lockFile));
+    boundaries.file("managed-runtime-writer-lock.begin", () => {
+      db!.exec("PRAGMA busy_timeout = 0; BEGIN IMMEDIATE;");
+    });
+  } catch (error) {
+    if (db !== undefined) {
+      try {
+        boundaries.file("managed-runtime-writer-lock.close.after-acquire-failure", () => db!.close());
+      } catch {
+        // Preserve the acquisition error; the failed handle does not own the writer transaction.
+      }
+    }
+    if (isSqliteBusy(error)) {
+      throw new ManagedRuntimeLockError("busy", "managed Runtime reconcile is busy", "begin");
+    }
+    if (error instanceof ManagedRuntimeLockError) throw error;
+    throw lockUnavailable("begin", error);
+  }
+
+  let released = false;
+  return {
+    release(): void {
+      if (released) return;
+      let failure: unknown;
+      try {
+        boundaries.file("managed-runtime-writer-lock.release", () => db!.exec("ROLLBACK"));
+      } catch (error) {
+        failure = error;
+      }
+      try {
+        boundaries.file("managed-runtime-writer-lock.close", () => db!.close());
+      } catch (error) {
+        failure ??= error;
+      }
+      released = true;
+      if (failure !== undefined) throw lockUnavailable("release", failure);
+    },
+  };
 }
 
 /** Fails closed before a path can become an activation target. */

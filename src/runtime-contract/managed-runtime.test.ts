@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -24,7 +25,6 @@ import {
 } from "./managed-runtime-state.js";
 import { RUNTIME_CONTRACT_ID, RUNTIME_CONTRACT_SCHEMA_VERSION } from "./contract.js";
 import type { ManagedRuntimeState } from "./managed-runtime-state.js";
-import { DIRECT_BOUNDARIES } from "../boundary.js";
 import type { BoundaryOperations } from "../boundary.js";
 import {
   MANAGED_PACKAGE_MANIFEST_CONTRACT_ID,
@@ -401,14 +401,14 @@ test(
         "/nix/store/generation-1",
       );
       assert.equal(pointerSwitches.length, 2, "only candidate activation and its rollback may switch current");
-      assert.equal(fs.existsSync(path.join(value.root, "managed-runtime", "reconcile.lock")), false);
+      assert.equal(fs.statSync(path.join(value.root, "managed-runtime", "reconcile.lock")).isFile(), true);
     } finally {
       value.cleanup();
     }
   },
 );
 
-test("reconcile breaks a writer lock left by a dead process before activation recovery", async () => {
+test("reconcile recovers a prepared activation after a crashed writer without rebuilding", async () => {
   const value = fixture();
   try {
     await reconcileManagedRuntime({ ...value.baseOptions(), manifest: initialManifest });
@@ -431,7 +431,7 @@ test("reconcile breaks a writer lock left by a dead process before activation re
     });
     const lockFile = path.join(value.root, "managed-runtime", "reconcile.lock");
     fs.mkdirSync(path.dirname(lockFile), { recursive: true });
-    fs.symlinkSync("pid:999999999:00000000-0000-4000-8000-000000000000", lockFile);
+    fs.writeFileSync(lockFile, "");
     const result = await reconcileManagedRuntime({
       ...value.baseOptions(),
       manifest: updatedManifest,
@@ -444,49 +444,99 @@ test("reconcile breaks a writer lock left by a dead process before activation re
     });
     assert.equal(result.outcome, "recovered");
     assert.equal(result.active?.generationIdentity, staged.generationIdentity);
-    assert.equal(fs.existsSync(lockFile), false);
+    assert.equal(fs.statSync(lockFile).isFile(), true);
   } finally {
     value.cleanup();
   }
 });
 
-test("stale-lock recovery never removes a replacement contender's live lock", () => {
+test("two concurrent writer contenders cannot replace the OS-held canonical lock", async () => {
   const value = fixture();
   try {
     const lockFile = path.join(value.root, "managed-runtime", "reconcile.lock");
-    fs.mkdirSync(path.dirname(lockFile), { recursive: true });
-    fs.symlinkSync("pid:999999999:00000000-0000-4000-8000-000000000000", lockFile);
+    const attempts = await Promise.allSettled([
+      Promise.resolve().then(() => acquireManagedRuntimeWriterLock(lockFile)),
+      Promise.resolve().then(() => acquireManagedRuntimeWriterLock(lockFile)),
+    ]);
+    const acquired = attempts.filter(
+      (attempt): attempt is PromiseFulfilledResult<ReturnType<typeof acquireManagedRuntimeWriterLock>> =>
+        attempt.status === "fulfilled",
+    );
+    const rejected = attempts.filter((attempt) => attempt.status === "rejected");
+    assert.equal(acquired.length, 1);
+    assert.equal(rejected.length, 1);
+    assert.equal(
+      (rejected[0] as PromiseRejectedResult).reason instanceof Error
+        ? (rejected[0] as PromiseRejectedResult).reason.message
+        : undefined,
+      "managed Runtime reconcile is busy",
+    );
+    assert.equal(fs.statSync(lockFile).isFile(), true);
 
-    let replacementLock: ReturnType<typeof acquireManagedRuntimeWriterLock> | undefined;
-    const firstBoundaries: BoundaryOperations = {
-      file(operation, action) {
-        if (operation === "managed-runtime-writer-lock.stale-break" && replacementLock === undefined) {
-          // Force contender B to reclaim and acquire between contender A's
-          // final owner check and A's stale-break operation.
-          replacementLock = acquireManagedRuntimeWriterLock(lockFile, DIRECT_BOUNDARIES);
-        }
-        return action();
-      },
-      process(_operation, action) {
-        return action();
-      },
-      storage(_operation, action) {
-        return action();
-      },
-    };
-
-    try {
-      assert.throws(
-        () => acquireManagedRuntimeWriterLock(lockFile, firstBoundaries),
-        (error: unknown) => error instanceof Error && error.message === "managed Runtime reconcile is busy",
-      );
-      assert.ok(replacementLock, "the replacement contender must acquire the stale lock");
-      assert.match(fs.readlinkSync(lockFile), /^pid:[1-9][0-9]{0,9}:[0-9a-f-]{36}$/u);
-    } finally {
-      replacementLock?.release();
-    }
-    assert.equal(fs.existsSync(lockFile), false);
+    acquired[0].value.release();
+    const nextOwner = acquireManagedRuntimeWriterLock(lockFile);
+    nextOwner.release();
   } finally {
+    value.cleanup();
+  }
+});
+
+test("writer lock is released by process death and the next reconcile can recover", { timeout: 10_000 }, async () => {
+  const value = fixture();
+  const lockFile = path.join(value.root, "managed-runtime", "reconcile.lock");
+  fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+  const child = spawn(
+    process.execPath,
+    [
+      "-e",
+      [
+        'const { DatabaseSync } = process.getBuiltinModule("node:sqlite");',
+        "const db = new DatabaseSync(process.argv[1]);",
+        'db.exec("PRAGMA busy_timeout = 0; BEGIN IMMEDIATE;");',
+        'process.stdout.write("ready\\n");',
+        "setInterval(() => {}, 1000);",
+      ].join(""),
+      lockFile,
+    ],
+    { stdio: ["ignore", "pipe", "ignore"] },
+  );
+  let exited = false;
+  const childExit = new Promise<void>((resolve) => {
+    child.once("close", () => {
+      exited = true;
+      resolve();
+    });
+  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("writer lock child did not become ready")), 5_000);
+      child.stdout.on("data", (chunk: Buffer) => {
+        if (!chunk.toString().includes("ready")) return;
+        clearTimeout(timer);
+        resolve();
+      });
+      child.once("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+      child.once("close", (code, signal) => {
+        clearTimeout(timer);
+        reject(new Error(`writer lock child exited before readiness: code=${code}, signal=${signal}`));
+      });
+    });
+    await assert.rejects(
+      Promise.resolve().then(() => acquireManagedRuntimeWriterLock(lockFile)),
+      (error: unknown) => error instanceof Error && error.message === "managed Runtime reconcile is busy",
+    );
+    child.kill("SIGKILL");
+    await childExit;
+    const recoveredLock = acquireManagedRuntimeWriterLock(lockFile);
+    recoveredLock.release();
+  } finally {
+    if (!exited) {
+      child.kill("SIGKILL");
+      await childExit;
+    }
     value.cleanup();
   }
 });
