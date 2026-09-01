@@ -554,3 +554,117 @@ jobs:
             echo "- convenience tags: \`$oci_version_tag\`, \`$oci_contract_tag\`"
             echo "- artifact type: \`$oci_artifact_type\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  host-bootstrap-init:
+    name: Publish mottainai-init release artifact
+    # #660: a durable, versioned, independently verifiable distribution
+    # surface for the standalone host bootstrap binary. This is unrelated to
+    # the npm package and does not depend on it; it does not add any Lima
+    # orchestration or Runtime Appliance publication behavior.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout exact release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact tagged release revision
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          test -n "$RELEASE_TAG"
+          tag_commit="$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")"
+          checked_out_commit="$(git rev-parse --verify HEAD)"
+          test "$checked_out_commit" = "$tag_commit"
+          echo "HOST_BOOTSTRAP_SOURCE_REVISION=$tag_commit" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --profile minimal --no-self-update
+
+      - name: Install portable Linux target
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          rustup target add x86_64-unknown-linux-musl
+
+      - name: Build the portable release artifact from the locked package definition
+        working-directory: host-bootstrap
+        run: |
+          set -euo pipefail
+          cargo build --locked --target x86_64-unknown-linux-musl --release
+          cp target/x86_64-unknown-linux-musl/release/mottainai-init mottainai-init-linux-x86_64
+          file mottainai-init-linux-x86_64 | grep -E 'static(-pie)? linked|musl'
+          if readelf -d mottainai-init-linux-x86_64 | grep -q NEEDED; then
+            echo 'portable artifact unexpectedly has dynamic dependencies' >&2
+            exit 1
+          fi
+          if readelf -l mottainai-init-linux-x86_64 | grep -q INTERP; then
+            echo 'portable artifact unexpectedly has a dynamic loader' >&2
+            exit 1
+          fi
+          ./mottainai-init-linux-x86_64 --version
+          sha256sum mottainai-init-linux-x86_64 > mottainai-init-linux-x86_64.sha256
+          echo "HOST_BOOTSTRAP_ARTIFACT_DIGEST=$(awk '{print $1}' mottainai-init-linux-x86_64.sha256)" >> "$GITHUB_ENV"
+
+      - name: Publish the release artifact, failing closed on any identity change
+        working-directory: host-bootstrap
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          asset_names="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"
+          if grep -qx 'mottainai-init-linux-x86_64.sha256' <<<"$asset_names"; then
+            gh release download "$RELEASE_TAG" \
+              --pattern 'mottainai-init-linux-x86_64.sha256' \
+              --output existing-mottainai-init-linux-x86_64.sha256 \
+              --clobber
+            published_digest="$(awk '{print $1}' existing-mottainai-init-linux-x86_64.sha256)"
+            if [ "$published_digest" != "$HOST_BOOTSTRAP_ARTIFACT_DIGEST" ]; then
+              echo "published mottainai-init-linux-x86_64 digest ($published_digest) does not match this build ($HOST_BOOTSTRAP_ARTIFACT_DIGEST); refusing to replace an immutable release artifact" >&2
+              exit 1
+            fi
+            echo "identical bytes already published for $RELEASE_TAG; publication is idempotent"
+          else
+            gh release upload "$RELEASE_TAG" \
+              mottainai-init-linux-x86_64 \
+              mottainai-init-linux-x86_64.sha256
+          fi
+
+      - name: Retrieve and verify the published artifact from a fresh location
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          fresh_dir="$RUNNER_TEMP/mottainai-init-fresh-fetch"
+          mkdir -p "$fresh_dir"
+          base_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
+          curl -fsSL -o "$fresh_dir/mottainai-init-linux-x86_64" "$base_url/mottainai-init-linux-x86_64"
+          curl -fsSL -o "$fresh_dir/mottainai-init-linux-x86_64.sha256" "$base_url/mottainai-init-linux-x86_64.sha256"
+          cd "$fresh_dir"
+          sha256sum --check mottainai-init-linux-x86_64.sha256
+          fetched_digest="$(awk '{print $1}' mottainai-init-linux-x86_64.sha256)"
+          if [ "$fetched_digest" != "$HOST_BOOTSTRAP_ARTIFACT_DIGEST" ]; then
+            echo "published artifact digest ($fetched_digest) does not match the built artifact ($HOST_BOOTSTRAP_ARTIFACT_DIGEST)" >&2
+            exit 1
+          fi
+          chmod +x mottainai-init-linux-x86_64
+          ./mottainai-init-linux-x86_64 --version
+
+      - name: Record release evidence
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          {
+            echo "### mottainai-init release artifact"
+            echo "- release tag: \`$RELEASE_TAG\`"
+            echo "- source revision: \`$HOST_BOOTSTRAP_SOURCE_REVISION\`"
+            echo "- binary digest (sha256): \`$HOST_BOOTSTRAP_ARTIFACT_DIGEST\`"
+            echo "- publication reference: \`https://github.com/${GITHUB_REPOSITORY}/releases/download/$RELEASE_TAG/mottainai-init-linux-x86_64\`"
+          } >> "$GITHUB_STEP_SUMMARY"
