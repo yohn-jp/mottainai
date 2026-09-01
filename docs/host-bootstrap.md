@@ -43,6 +43,32 @@ The --json result also reports the running executable version and digest.
 The binary does not invoke sudo, a shell, apt, dnf, pacman, or any other
 package manager.
 
+## Fetching the published release artifact
+
+Every tagged Mottainai release publishes `mottainai-init-linux-x86_64` and its
+detached `mottainai-init-linux-x86_64.sha256` digest sidecar as durable,
+immutable release assets. No repository checkout, Rust toolchain, Node, or
+Nix is required to obtain or verify them. From a fresh Linux x86_64 host,
+substitute the exact release tag (for example `v0.7.1`) and run:
+
+~~~bash
+RELEASE_TAG=v0.7.1
+curl -fsSLO "https://github.com/yohn-jp/mottainai/releases/download/${RELEASE_TAG}/mottainai-init-linux-x86_64"
+curl -fsSLO "https://github.com/yohn-jp/mottainai/releases/download/${RELEASE_TAG}/mottainai-init-linux-x86_64.sha256"
+sha256sum --check mottainai-init-linux-x86_64.sha256
+chmod +x mottainai-init-linux-x86_64
+./mottainai-init-linux-x86_64 --version
+~~~
+
+`sha256sum --check` fails closed on any missing, mismatched, or mutated
+bytes; do not execute the binary if it does not pass. The publishing release
+workflow performs this same fetch-and-verify sequence against the just-
+published assets, from a fresh location outside the build directory, before
+the release is considered successful. Re-running publication for an already
+published release tag is idempotent for identical bytes and fails the
+workflow rather than silently replacing a published asset with different
+bytes.
+
 ## Reconciliation
 
 Every step follows:
