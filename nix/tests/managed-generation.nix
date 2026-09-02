@@ -20,6 +20,14 @@
 # "the current checkout's source is rejected for a version it cannot
 # produce" pair below exercises that boundary directly, not just the
 # same-source path every other assertion here uses.
+#
+# Issue #702 sharpens that decoupling proof into an ownership proof: it is
+# not enough that an external source's *version* differs from HEAD's — the
+# resolved package must come from that source's *own* nix#mottainai recipe,
+# never from HEAD's nix/mottainai.nix reinterpreting a foreign source tree.
+# The drvPath-equality/inequality assertions below (headRecipeIsGenuinelyUsed,
+# externalSourceNotReinterpretedByHeadRecipe) and the no-flake-output/
+# no-historical-hash-registry assertions prove exactly that.
 
 let
   defaultMottainaiSource = mottainaiSource;
@@ -116,26 +124,31 @@ let
     manifest = baseManifest // { packages = [ (mottainaiEntry // { kind = "npm-package"; }) ]; };
   };
 
-  # Decoupling proof (PR #634 review, second finding): a source tree that is
-  # provably not this flake's checkout: ./fixtures/alt-mottainai-source is a
-  # separate tracked tree with its own package.json declaring a version
-  # (0.0.1-fixture-alt-source) that this checkout's own package.json does
-  # not have. A manifest requesting exactly that version resolves
-  # successfully only if `mottainaiSource` is genuinely threaded through to
-  # nix/mottainai.nix's version resolution — a projection that silently
-  # fell back to this flake's own checkout (this file's `mottainaiSource`
-  # default, or a hardcoded `../.` the way the pre-fix code had) would
-  # resolve the current checkout's version instead and fail this exact
-  # version-match assertion.
+  # Decoupling proof (PR #634 review, second finding; sharpened by Issue
+  # #702 into "the release's own recipe is used, not HEAD's"):
+  # ./fixtures/alt-mottainai-source is a separate tracked tree with its own
+  # package.json declaring a version (0.0.1-fixture-alt-source) that this
+  # checkout's own package.json does not have, and its own nix/flake.nix +
+  # nix/mottainai.nix (a dependency-free recipe using the raw `derivation`
+  # builtin, unrelated to HEAD's nix/mottainai.nix or nixpkgs pin — see
+  # that fixture's own comments). Read directly from package.json, not via
+  # `../mottainai.nix` (HEAD's own recipe) the way the pre-#702 test did —
+  # this test must not itself couple back to HEAD's recipe to learn the
+  # fixture's version.
   altSourceVersion =
-    (import ../mottainai.nix {
-      inherit pkgs;
-      source = ./fixtures/alt-mottainai-source;
-    }).version;
-  externalSourceIsGenuinelyUsed = forceGeneration {
+    (builtins.fromJSON (builtins.readFile (./fixtures/alt-mottainai-source + "/package.json"))).version;
+
+  # A manifest requesting exactly that version resolves successfully only
+  # if `mottainaiSource` is genuinely threaded through to that source's own
+  # flake — a projection that silently fell back to this flake's own
+  # checkout (this file's `mottainaiSource` default, or a hardcoded `../.`
+  # the way the pre-#634 code had) would resolve the current checkout's
+  # version instead and fail this exact version-match assertion.
+  externalSourceGeneration = forceGeneration {
     manifest = baseManifest // { packages = [ (mottainaiEntry // { version = altSourceVersion; }) ]; };
     mottainaiSource = ./fixtures/alt-mottainai-source;
   };
+  externalSourceIsGenuinelyUsed = externalSourceGeneration;
 
   # The same alternate source, but the manifest requests the *current
   # checkout's* version rather than the fixture's own — must fail, proving
@@ -145,6 +158,71 @@ let
     manifest = baseManifest // { packages = [ (mottainaiEntry // { version = currentMottainaiVersion; }) ]; };
     mottainaiSource = ./fixtures/alt-mottainai-source;
   };
+
+  # Resolves the real (entry, drv) pair nix/managed-generation.nix picked
+  # for the mottainai packageId, forcing only .drvPath (a derivation's
+  # store path is a deterministic function of its inputs — computable
+  # without building, same laziness property forceGeneration relies on for
+  # .generation.outPath above).
+  resolvedMottainaiDrvPath =
+    { manifest, mottainaiSource ? defaultMottainaiSource }:
+    let
+      result = mkManagedGeneration {
+        system = pkgs.stdenv.hostPlatform.system;
+        inherit manifest mottainaiSource;
+      };
+    in
+    builtins.unsafeDiscardStringContext (builtins.head result.resolved).drv.drvPath;
+
+  # Issue #702 regression: "HEAD source -> HEAD's own package recipe."
+  # mottainaiSource defaulting to this checkout must resolve to *exactly*
+  # the derivation nix/mottainai.nix (HEAD's Node.js 24 recipe) itself
+  # builds for this same source — proving the release-owned resolution
+  # path and HEAD's own recipe are not two divergent things that merely
+  # happen to agree on a version string.
+  headRecipeIsGenuinelyUsed = builtins.tryEval (
+    resolvedMottainaiDrvPath { manifest = baseManifest // { packages = [ mottainaiEntry ]; }; }
+    == builtins.unsafeDiscardStringContext (import ../mottainai.nix { inherit pkgs; source = mottainaiSource; }).drvPath
+  );
+
+  # Issue #702 regression: "historical source -> that release's own
+  # nix#mottainai recipe, never HEAD's." Resolving the alternate fixture
+  # through the real projection must NOT produce the same derivation HEAD's
+  # own nix/mottainai.nix would produce if (the pre-#702 bug) it were
+  # called directly against that foreign source — proving the fixture's
+  # own recipe, not HEAD's, is what actually got used to build it.
+  externalSourceNotReinterpretedByHeadRecipe = builtins.tryEval (
+    resolvedMottainaiDrvPath {
+      manifest = baseManifest // { packages = [ (mottainaiEntry // { version = altSourceVersion; }) ]; };
+      mottainaiSource = ./fixtures/alt-mottainai-source;
+    }
+    != builtins.unsafeDiscardStringContext (import ../mottainai.nix {
+      inherit pkgs;
+      source = ./fixtures/alt-mottainai-source;
+    }).drvPath
+  );
+
+  # Issue #702 acceptance criterion: "A release source without the
+  # expected package output fails deterministically."
+  # ./fixtures/alt-mottainai-source-no-flake has a package.json but no
+  # nix/flake.nix at all — it does not own a nix#mottainai recipe, the way
+  # a real historical release checkout always would.
+  sourceWithoutExpectedPackageOutput = forceGeneration {
+    manifest = baseManifest // { packages = [ (mottainaiEntry // { version = "0.0.1-fixture-no-flake"; }) ]; };
+    mottainaiSource = ./fixtures/alt-mottainai-source-no-flake;
+  };
+
+  # Issue #702 acceptance criterion: "nix/mottainai.nix contains no
+  # historical-release lockfile/outputHash mapping" / "no placeholder/fake
+  # fixed-output hash remains." A pure string check against the recipe's
+  # own source text, not just behavioral — the pre-#702 file could satisfy
+  # every build-behavior assertion above while still carrying a dead
+  # historical-lockfile table.
+  mottainaiRecipeSourceText = builtins.readFile ../mottainai.nix;
+  mottainaiRecipeHasNoHistoricalHashRegistry =
+    !(lib.hasInfix "knownPnpmDepsHashes" mottainaiRecipeSourceText)
+    && !(lib.hasInfix "pnpmLockContentHash" mottainaiRecipeSourceText)
+    && !(lib.hasInfix "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" mottainaiRecipeSourceText);
 
   assertions = [
     {
@@ -194,6 +272,27 @@ let
       # above isn't trivially satisfied once an external source is wired in.
       name = "requesting the current checkout's version against an externally supplied source still fails deterministically";
       condition = !externalSourceStillEnforcesVersionMatch.success;
+    }
+    {
+      name = "HEAD's own source resolves via HEAD's own nix/mottainai.nix recipe (Node.js 24), not a divergent resolution path";
+      condition = headRecipeIsGenuinelyUsed.success && headRecipeIsGenuinelyUsed.value;
+    }
+    {
+      name = "a historical/external source's resolved package is not HEAD's nix/mottainai.nix reinterpreting that foreign source";
+      condition = externalSourceNotReinterpretedByHeadRecipe.success && externalSourceNotReinterpretedByHeadRecipe.value;
+    }
+    {
+      # Issue #702 acceptance criterion: a release source exposing no
+      # nix#mottainai package output (no nix/flake.nix at all here) must
+      # fail deterministically, never silently fall back to HEAD's recipe.
+      name = "a mottainaiSource without the expected nix#mottainai package output fails deterministically";
+      condition = !sourceWithoutExpectedPackageOutput.success;
+    }
+    {
+      # Issue #702 acceptance criterion: no historical-lockfile mapping and
+      # no placeholder/fake fixed-output hash remains in nix/mottainai.nix.
+      name = "nix/mottainai.nix carries no historical-lockfile hash registry or placeholder fixed-output hash";
+      condition = mottainaiRecipeHasNoHistoricalHashRegistry;
     }
   ];
 

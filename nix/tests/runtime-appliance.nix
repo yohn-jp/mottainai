@@ -17,8 +17,13 @@ let
   currentMottainaiVersion =
     (import ../mottainai.nix { inherit pkgs source; }).version;
   alternateSource = ./fixtures/alt-mottainai-source;
+  # Issue #702: read straight from package.json rather than via
+  # `../mottainai.nix` (HEAD's own recipe) — this alternate source is a
+  # foreign release tree with its own nix/flake.nix + nix/mottainai.nix
+  # (nix/tests/fixtures/alt-mottainai-source), and this test must not
+  # itself couple back to HEAD's recipe to learn its version.
   alternateMottainaiVersion =
-    (import ../mottainai.nix { inherit pkgs; source = alternateSource; }).version;
+    (builtins.fromJSON (builtins.readFile (alternateSource + "/package.json"))).version;
 
   # These are two real #624/#626 managed inputs with the same package shape,
   # differing only in the resolved Mottainai version/source metadata. Each

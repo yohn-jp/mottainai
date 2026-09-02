@@ -186,7 +186,6 @@
         import ./managed-generation.nix {
           inherit pkgs manifest;
           inherit (nixpkgs) lib;
-          buildMottainai = source: import ./mottainai.nix { inherit pkgs source; };
           mottainaiSource = mottainaiSource;
           nawabariPackage = mkNawabari pkgs;
           zellijPackage = mkZellij pkgs;

@@ -501,17 +501,6 @@ jobs:
         working-directory: nix
         run: nix build --no-update-lock-file --no-link .#checks.x86_64-linux.managed-generation
 
-      - name: TEMP DEBUG real fetch hash for alt-mottainai-source pnpmDeps
-        working-directory: nix
-        run: |
-          nix build --no-update-lock-file --no-link --impure --expr '
-            let
-              flake = builtins.getFlake (toString ./.);
-              pkgs = import flake.inputs.nixpkgs { system = "x86_64-linux"; };
-            in
-            (import ./mottainai.nix { inherit pkgs; source = ./tests/fixtures/alt-mottainai-source; }).pnpmDeps
-          ' || true
-
       - name: Build the full managed Runtime package catalog end to end (Issue #662)
         run: node --import tsx scripts/verify-managed-generation-catalog.mjs x86_64-linux
 
