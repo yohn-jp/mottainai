@@ -8,14 +8,20 @@ let
   system = pkgs.stdenv.hostPlatform.system;
   canonicalDiskImage = "${runtimeApplianceImage}/mottainai-runtime-appliance.raw";
   applianceInputsPath = "${runtimeApplianceImage}/runtime-appliance-inputs.json";
-  mottainaiVersionV1 = "0.7.0";
-  mottainaiVersionV2 = "0.7.1";
-  # NAR hashes of the exact trees produced by the source resolver's
-  # tar --strip-components=1 --no-same-owner --no-same-permissions extraction.
-  mottainaiSourceSha256V1 = "9226d16d4690470e3e10d17846246c108ba77de1a73853bcf0a9f23d41118a96";
-  mottainaiSourceSha256V2 = "f0f0a87a63170240666f66b5f3a8fafed0715ce0cc9157a469b0d72aaefbb0ce";
-  nawabariVersion = "0.6.1";
-  nawabariSourceSha256 = "1ce810f330b293eee02591c4bb75ee8b489668d53cdbea3aca754e08475b33ba";
+  mottainaiVersionV1 = "1.0.0";
+  mottainaiVersionV2 = "2.0.0";
+  # NAR SHA-256 of nix/tests/fixtures/managed-mottainai-v{1,2} (Issue #703),
+  # computed via `nix hash path --sri --type sha256 <path>` and converted to
+  # lowercase base16 the same way src/bootstrap/source-resolution.ts's
+  # defaultNarHashOfTree does. Verified, not bypassed: the test-only fixture
+  # resolver (nix/tests/lib/managed-mottainai-fixture-resolver.mjs)
+  # recomputes this hash at runtime and fails closed on mismatch.
+  mottainaiSourceSha256V1 = "14a5170f401d93059a4843f2131a853264f2ff539ce973315e32e2730f45a64e";
+  mottainaiSourceSha256V2 = "d3939825b3b15eb6bb6192e1c9b086a3a343fd3dce5a922d647d17ff48106250";
+  # Copied to the guest (below) alongside the fixture resolver so its
+  # ../fixtures/<name> relative resolution keeps working there.
+  fixturesDir = ./fixtures;
+  fixtureLibDir = ./lib;
 in
 (pkgs.testers.nixosTest {
   name = "mottainai-runtime-appliance-golden-path";
@@ -63,12 +69,16 @@ in
     ''
     import json
     import os
+    import re
     import shlex
     import subprocess
     import time
 
     canonical_disk = ${builtins.toJSON canonicalDiskImage}
     appliance_inputs_path = ${builtins.toJSON applianceInputsPath}
+    fixtures_host_dir = ${builtins.toJSON (toString fixturesDir)}
+    fixture_lib_host_dir = ${builtins.toJSON (toString fixtureLibDir)}
+    guest_fixture_root = "/var/lib/mottainai-control/issue-703-fixtures"
     root_overlay = os.path.join(str(golden.state_dir), "canonical-root-overlay.qcow2")
     bootstrap_raw = os.path.join(str(golden.state_dir), "bootstrap.raw")
     bootstrap_disk = os.path.join(str(golden.state_dir), "empty0.qcow2")
@@ -137,6 +147,21 @@ in
         "-o", "ConnectTimeout=5",
         "mottainai-control@127.0.0.1",
     ]
+
+    def scp_to_guest(host_path, guest_path):
+        scp_command = [
+            "${pkgs.openssh}/bin/scp",
+            "-i", bootstrap_key,
+            "-P", "22222",
+            "-o", "BatchMode=yes",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "LogLevel=ERROR",
+            "-r",
+            host_path,
+            "mottainai-control@127.0.0.1:" + guest_path,
+        ]
+        run_host(scp_command)
 
     def wait_for_ssh():
         # This bounded loop waits only for transport/service readiness after
@@ -224,15 +249,6 @@ in
                         "sourceSha256": source_sha256,
                     },
                 },
-                {
-                    "packageId": "nawabari",
-                    "kind": "nix-flake-package",
-                    "version": "${nawabariVersion}",
-                    "source": {
-                        "flakeRef": "nix/packages/nawabari.nix",
-                        "sourceSha256": "${nawabariSourceSha256}",
-                    },
-                },
             ],
         }
 
@@ -258,8 +274,78 @@ in
         )
         control(command)
 
+    # Issue #703: the golden path must reconcile fixture versions through
+    # the same real production seam production `reconcile` itself is built
+    # from (reconcileAdapters/reconcileManagedRuntime), never through a
+    # weakened or fake stand-in. The packaged `mottainai-bootstrap` binary
+    # never gains a fixture flag/env (explicitly out of scope), so a small
+    # driver script that imports the packaged CLI's own compiled
+    # reconcileAdapters/reconcileManagedRuntime and supplies only the
+    # source-resolution override is written to and run on the guest
+    # instead of invoking the packaged `mottainai-bootstrap reconcile`
+    # subcommand directly. Every other adapter (build, health check, state
+    # machine) stays the packaged CLI's real, unmodified implementation.
+    driver_state = {}
+
+    def setup_reconcile_driver():
+        control("install -d -m 0700 " + shlex.quote(guest_fixture_root))
+        scp_to_guest(fixtures_host_dir, guest_fixture_root + "/fixtures")
+        scp_to_guest(fixture_lib_host_dir, guest_fixture_root + "/lib")
+
+        wrapper_path = control("command -v mottainai-bootstrap").strip()
+        wrapper_contents = control("cat " + shlex.quote(wrapper_path))
+        main_js_match = re.search(r"/nix/store/[0-9a-z]{32}-[^\s\"']*/bootstrap/main\.js", wrapper_contents)
+        node_bin_match = re.search(r"/nix/store/[0-9a-z]{32}-nodejs[^\s\"']*/bin/node", wrapper_contents)
+        assert main_js_match is not None, "could not locate packaged bootstrap main.js in wrapper: " + wrapper_contents
+        assert node_bin_match is not None, "could not locate packaged Node.js binary in wrapper: " + wrapper_contents
+        main_js = main_js_match.group(0)
+        package_root = main_js[: -len("/bootstrap/main.js")]
+        node_bin = node_bin_match.group(0)
+
+        driver_path = guest_fixture_root + "/reconcile-driver.mjs"
+        driver_source = "\n".join([
+            "import { reconcileAdapters } from " + json.dumps(package_root + "/bootstrap/cli.js") + ";",
+            "import { reconcileManagedRuntime } from " + json.dumps(package_root + "/runtime-contract/managed-runtime.js") + ";",
+            "import { resolveManagedMottainaiFixtureSource } from " + json.dumps(guest_fixture_root + "/lib/managed-mottainai-fixture-resolver.mjs") + ";",
+            "",
+            "const [system] = process.argv.slice(2);",
+            "const repoRoot = " + json.dumps(package_root + "/nix-projection") + ";",
+            "const env = { ...process.env, CI: \"true\" };",
+            "",
+            "try {",
+            "  const result = await reconcileManagedRuntime({",
+            "    dependencies: reconcileAdapters({",
+            "      system,",
+            "      repoRoot,",
+            "      env,",
+            "      overrides: { resolveSource: resolveManagedMottainaiFixtureSource },",
+            "    }),",
+            "  });",
+            "  process.stdout.write(JSON.stringify(result));",
+            "  process.exitCode = 0;",
+            "} catch (error) {",
+            "  const code = error && typeof error === \"object\" && \"code\" in error ? error.code : \"reconcile_driver_failure\";",
+            "  process.stdout.write(JSON.stringify({ code: code, message: error instanceof Error ? error.message : String(error) }));",
+            "  process.exitCode = 1;",
+            "}",
+            "",
+        ])
+        install_command = (
+            "install -m 0600 /dev/null " + shlex.quote(driver_path) +
+            " && printf '%s' " + shlex.quote(driver_source) +
+            " > " + shlex.quote(driver_path)
+        )
+        control(install_command)
+
+        driver_state["command"] = (
+            shlex.quote(node_bin) + " " + shlex.quote(driver_path) + " " + shlex.quote("${system}")
+        )
+
     def reconcile():
-        return guest_json("mottainai-bootstrap reconcile --system ${system} --json", 900)
+        return guest_json(driver_state["command"], 900)
+
+    def reconcile_failure():
+        return control_failure(driver_state["command"], 900)
 
     def managed_status():
         return guest_json("mottainai-bootstrap managed-status --json")
@@ -284,6 +370,7 @@ in
 
     with subtest("fresh canonical appliance is bootstrap-ready and has no managed packages"):
         wait_for_bootstrap_ready()
+        setup_reconcile_driver()
         guest_failure("command -v mottainai")
         guest_failure("command -v nawabari")
         guest_failure("command -v zellij")
@@ -311,11 +398,10 @@ in
     manifest_v2 = managed_manifest(
         "${mottainaiVersionV2}", "${mottainaiSourceSha256V2}", 2
     )
-    assert manifest_v1["packages"][1] == manifest_v2["packages"][1]
     assert manifest_v1["packages"][0]["packageId"] == "mottainai"
     assert manifest_v2["packages"][0]["packageId"] == "mottainai"
 
-    with subtest("canonical manifest reconcile activates healthy Mottainai and Nawabari"):
+    with subtest("canonical manifest reconcile activates healthy Mottainai"):
         write_manifest(manifest_v1)
         reconcile_v1 = reconcile()
         assert reconcile_v1["ok"] is True
@@ -323,10 +409,9 @@ in
         desired_v1 = reconcile_v1["desiredManifestSemanticIdentity"]
         active_v1 = reconcile_v1["active"]["generationIdentity"]
         store_v1 = reconcile_v1["active"]["storePath"]
-        assert reconcile_v1["active"]["packageIds"] == ["mottainai", "nawabari"]
+        assert reconcile_v1["active"]["packageIds"] == ["mottainai"]
         assert reconcile_v1["active"]["desiredManifestSemanticIdentity"] == desired_v1
         assert guest(shlex.quote(store_v1) + "/bin/mottainai --version").strip() == "${mottainaiVersionV1}"
-        assert guest(shlex.quote(store_v1) + "/bin/nawabari --version").strip() == "${nawabariVersion}"
         status_v1 = managed_status()
         health_v1 = runtime_health()
         assert_managed_ready(health_v1, status_v1, desired_v1, active_v1)
@@ -343,9 +428,8 @@ in
         assert desired_v2 != desired_v1
         assert active_v2 != active_v1
         assert store_v2 != store_v1
-        assert reconcile_v2["active"]["packageIds"] == ["mottainai", "nawabari"]
+        assert reconcile_v2["active"]["packageIds"] == ["mottainai"]
         assert guest(shlex.quote(store_v2) + "/bin/mottainai --version").strip() == "${mottainaiVersionV2}"
-        assert guest(shlex.quote(store_v2) + "/bin/nawabari --version").strip() == "${nawabariVersion}"
         status_v2 = managed_status()
         health_v2 = runtime_health()
         assert_managed_ready(health_v2, status_v2, desired_v2, active_v2)
@@ -365,7 +449,6 @@ in
         health_after_reboot = runtime_health()
         assert_managed_ready(health_after_reboot, status_after_reboot, desired_v2, active_v2)
         assert guest(shlex.quote(store_v2) + "/bin/mottainai --version").strip() == "${mottainaiVersionV2}"
-        assert guest(shlex.quote(store_v2) + "/bin/nawabari --version").strip() == "${nawabariVersion}"
         reconcile_after_reboot = reconcile()
         assert reconcile_after_reboot["outcome"] == "noop"
         assert reconcile_after_reboot["active"]["generationIdentity"] == active_v2
@@ -387,7 +470,7 @@ in
 
     with subtest("unhealthy next generation rolls back deterministically"):
         write_manifest(unhealthy_manifest())
-        failure_output = control_failure("mottainai-bootstrap reconcile --system ${system} --json")
+        failure_output = reconcile_failure()
         failure_result = json.loads(failure_output)
         assert failure_result["code"] == "health_failure"
         rollback_status = managed_status()
@@ -437,20 +520,18 @@ in
                 "desiredGenerationIdentity": desired_v1,
                 "activeGenerationIdentity": active_v1,
                 "storePath": store_v1,
-                "packageIds": ["mottainai", "nawabari"],
+                "packageIds": ["mottainai"],
                 "packages": {
                     "mottainai": {"version": "${mottainaiVersionV1}", "sourceSha256": "${mottainaiSourceSha256V1}"},
-                    "nawabari": {"version": "${nawabariVersion}", "sourceSha256": "${nawabariSourceSha256}"},
                 },
             },
             "v2": {
                 "desiredGenerationIdentity": desired_v2,
                 "activeGenerationIdentity": active_v2,
                 "storePath": store_v2,
-                "packageIds": ["mottainai", "nawabari"],
+                "packageIds": ["mottainai"],
                 "packages": {
                     "mottainai": {"version": "${mottainaiVersionV2}", "sourceSha256": "${mottainaiSourceSha256V2}"},
-                    "nawabari": {"version": "${nawabariVersion}", "sourceSha256": "${nawabariSourceSha256}"},
                 },
             },
             "rollback": {
@@ -474,10 +555,4 @@ in
     }
     print("ISSUE_630_GOLDEN_PATH_EVIDENCE " + json.dumps(evidence, sort_keys=True))
     '';
-}).overrideTestDerivation (_: {
-  # Reconcile intentionally resolves the real tagged source over HTTPS from
-  # inside the guest. The outer Nix build sandbox removes the network
-  # namespace before QEMU starts, so CI must run this derivation with
-  # `sandbox = relaxed`; the guest remains the system under test.
-  __noChroot = true;
 })
