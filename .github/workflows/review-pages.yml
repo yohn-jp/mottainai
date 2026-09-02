@@ -44,10 +44,12 @@ jobs:
           node-version: "24"
           package-manager-cache: false
 
-      # Installs @alibaba-group/open-code-review (pinned in package.json),
-      # the deterministic, LLM-free OCR CLI build-ocr.mjs delegates to.
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      # Review Pages is an extractable boundary. Its dedicated manifest and
+      # lockfile contain only the pinned OCR delegate dependency; do not pay
+      # the repository runtime/devDependency installation cost here.
+      - name: Install Review Pages dependencies
+        working-directory: review-pages
+        run: pnpm install --ignore-workspace --frozen-lockfile --prod --ignore-scripts
 
       - name: Generate review package
         env:
