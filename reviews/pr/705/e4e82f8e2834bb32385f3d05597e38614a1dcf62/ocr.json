@@ -1,0 +1,300 @@
+{
+  "provider": {
+    "id": "review-pages-deterministic",
+    "name": "Review Pages deterministic review-unit export",
+    "note": "Open Code Review remains disabled (see scripts/review-preflight.mjs UNBOUNDED_REVIEWERS); this export is generated directly from Git rather than from a live OCR run, and will be replaced by OCR's own structured export once one is published.",
+    "ocrIntegration": "none-live",
+    "version": "1.0.0"
+  },
+  "reviewUnits": [
+    {
+      "hunks": [
+        {
+          "newLines": 62,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": ".github/workflows/review-pages.yml",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 126,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/README.md",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 73,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/schema/manifest.schema.json",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 21,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/schema/pr-index.schema.json",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 33,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/build-checks.mjs",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 26,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/build-diff.mjs",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 43,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/build-issue.mjs",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 36,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/build-ocr.mjs",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 169,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/generate-review-package.mjs",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 25,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/lib/canonical-json.mjs",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 94,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/lib/git.mjs",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 35,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/lib/github-api.mjs",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 33,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/lib/markdown.mjs",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 66,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/lib/schema-validator.mjs",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 160,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/publish-to-pages.mjs",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 66,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/render-html.mjs",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 46,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/validate-manifest.mjs",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 54,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/test/bounded-output.test.mjs",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 20,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/test/canonical-json.test.mjs",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 190,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/test/generate-review-package.test.mjs",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 36,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/test/helpers/fixture-repo.mjs",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 67,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/test/manifest-schema.test.mjs",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 38,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/test/markdown.test.mjs",
+      "status": "added"
+    },
+    {
+      "hunks": [
+        {
+          "newLines": 173,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/test/publish-to-pages.test.mjs",
+      "status": "added"
+    }
+  ],
+  "schemaVersion": "mottainai.review-pages.ocr-export/v1"
+}
