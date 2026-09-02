@@ -1,0 +1,6 @@
+{
+  "provider": null,
+  "reason": "OpenCodeReview has no repository-enforceable request-token bound and stays disabled (scripts/review-preflight.mjs UNBOUNDED_REVIEWERS); no workflow in this repository invokes it, and it exposes no structured export surface to consume.",
+  "schemaVersion": "mottainai.review-pages.ocr-status/v1",
+  "status": "unavailable"
+}
