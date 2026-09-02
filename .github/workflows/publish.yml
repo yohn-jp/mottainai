@@ -428,7 +428,8 @@ jobs:
           compressed_size="$(stat -c '%s' "$compressed")"
           manifest_size="$(stat -c '%s' "$manifest")"
           metadata_size="$(stat -c '%s' "$metadata")"
-          compressed_digest="sha256:$(sha256sum "$compressed" | awk '{print $1}')"
+          compressed_sha256="$(sha256sum "$compressed" | awk '{print $1}')"
+          compressed_digest="sha256:$compressed_sha256"
           manifest_digest="sha256:$(sha256sum "$manifest" | awk '{print $1}')"
           metadata_digest="sha256:$(sha256sum "$metadata" | awk '{print $1}')"
           test "$compressed_size" -gt 0
