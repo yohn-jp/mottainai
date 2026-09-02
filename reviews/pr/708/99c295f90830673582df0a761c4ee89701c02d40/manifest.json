@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "7427544c82a952c8e091c59850e941f0eb5feadd",
+    "draft": false,
+    "headRef": "test/703-runtime-golden-path-fixtures",
+    "headSha": "99c295f90830673582df0a761c4ee89701c02d40",
+    "number": 708,
+    "title": "test(ci): replace historical Mottainai/Nawabari releases with deterministic fixtures in the runtime golden path"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "99c295f90830673582df0a761c4ee89701c02d40",
+    "immutable": true,
+    "shortId": "99c295f90830"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-02T10:32:37.078Z"
+  }
+}
