@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "01ab8da5a61e33d162f276e9d0b74e2bed2d3225",
+    "draft": false,
+    "headRef": "feat/720-review-projection",
+    "headSha": "06bbacfe67002dc1dd7325ca439f2bbea102b42a",
+    "number": 737,
+    "title": "feat(workflow): project autonomous review results into Pages and Checks"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "06bbacfe67002dc1dd7325ca439f2bbea102b42a",
+    "immutable": true,
+    "shortId": "06bbacfe6700"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-02T13:23:19.673Z"
+  }
+}
