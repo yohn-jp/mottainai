@@ -1,0 +1,51 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "A canonical Runtime Appliance built from one exact current `main` commit is published to GHCR using the existing Runtime Appliance OCI contract."
+    },
+    {
+      "checked": false,
+      "text": "The immutable OCI manifest digest is recorded and resolves successfully from GHCR."
+    },
+    {
+      "checked": false,
+      "text": "The published manifest/layers match the existing artifact/media-type contract; no alternative package format is introduced."
+    },
+    {
+      "checked": false,
+      "text": "Published metadata identifies the exact source revision and canonical raw Appliance identity."
+    },
+    {
+      "checked": false,
+      "text": "The compressed/raw identities required by the existing consumer contract are present and internally consistent."
+    },
+    {
+      "checked": false,
+      "text": "A complete `runtime-spec.json` is produced with the exact `registry`, `repository`, and immutable `digest`."
+    },
+    {
+      "checked": false,
+      "text": "`mottainai-init` can consume that spec without requiring a mutable tag, local source checkout, or publication-only override."
+    },
+    {
+      "checked": false,
+      "text": "The final Issue/PR evidence includes the exact deployment commands for a Linux x86_64 host with usable `/dev/kvm`."
+    },
+    {
+      "checked": false,
+      "text": "No unrelated Runtime, Lima, Manager, migration, compatibility, or CLI redesign is included."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 709,
+    "state": "closed",
+    "title": "release(runtime): publish the canonical Runtime Appliance to GHCR for immediate dogfood deployment",
+    "url": "https://github.com/yohn-jp/mottainai/issues/709"
+  },
+  "linked": {
+    "number": 709
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
