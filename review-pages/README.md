@@ -8,10 +8,11 @@ originating contract.
 
 This directory is a self-contained boundary: it has no dependency on
 `src/`, the MCP runtime, or any other Mottainai code, and no
-implementation logic lives in `.github/workflows/review-pages.yml`
-beyond orchestration (checkout, run the scripts below, push). It is
-designed to be extractable into an independent package later without
-redesigning its public data contract.
+review-package implementation logic lives in `.github/workflows/review-pages.yml`
+beyond orchestration (checkout, run the scripts below, push) and the minimal
+pre-checkout timestamp bootstrap needed before repository files are available.
+The directory is designed to be extractable into an independent package later
+without redesigning its public data contract.
 
 The workflow splits generation from publication into two jobs so the
 step that processes PR-controlled content (diff, issue body, PR
@@ -28,6 +29,7 @@ as a build artifact.
 | PR identity, diff metadata, Issue intent, checks    | `review-pages/src/*` (this directory)                                              |
 | Governance/policy evaluation                        | `scripts/governance-lib.mjs` and related governance tooling — surfaced, not redone |
 | Publication to GitHub Pages                         | `review-pages/src/publish-to-pages.mjs`, invoked by the workflow                   |
+| Latency measurement                                 | `review-pages/src/lib/latency.mjs` and `src/measure-pages-visibility.mjs`          |
 | Triggering, checkout, credentials                   | `.github/workflows/review-pages.yml`                                               |
 
 ## Open Code Review integration
@@ -190,14 +192,71 @@ rejected differing-content republish, a reproduction of a genuine push
 race and its retry recovery, and multi-PR / multi-revision coexistence
 checks.
 
+## Latency evidence
+
+Each eligible Review Pages run records bounded evidence in the
+`review-pages-latency-generate` and `review-pages-latency-publish` Actions
+artifacts and appends a compact table to the job summary. The evidence has
+only run/revision identifiers, UTC timestamps, monotonic timestamps, stage
+durations, and HTTP visibility status; it never contains PR bodies,
+credentials, or raw logs.
+
+The generate job measures runner marker, checkout, setup, dependency install,
+generation, validation, and artifact upload. The publish job measures its
+runner marker, checkout, setup, artifact download, and publication. The
+`generation-complete`, `gh-pages-push-complete`, and `http-visible` milestones
+remain separate. Stage durations are calculated from Node's monotonic clock
+within each runner. Since the two jobs use different runners, deltas between
+jobs use UTC wall-clock timestamps and are labelled informational. If
+`github.run_started_at` is available, the summary also reports the delay from
+workflow start to each runner marker; this is a queue/startup baseline, not an
+SLO.
+
+The HTTP observation polls the expected immutable manifest path with bounded
+attempts and a bounded response size. A missing or stale Pages response is
+recorded as measurement evidence and does not turn a successful publication
+into a failed workflow. Set the optional repository variable
+`REVIEW_PAGES_BASE_URL` when the project uses a custom Pages URL; otherwise
+the standard `https://<owner>.github.io/<repository>` project URL is used.
+
+### Current baseline
+
+The first baseline was captured from the real, non-draft [PR #735 run
+33630221776](https://github.com/yohn-jp/mottainai/actions/runs/33630221776)
+on 2026-09-02. Recorded monotonic stage durations were:
+
+| Job      | Stage            | Duration |
+| -------- | ---------------- | -------: |
+| generate | checkout         |  2353 ms |
+| generate | setup            |  4767 ms |
+| generate | install          | 11714 ms |
+| generate | generation       |  1064 ms |
+| generate | validation       |   191 ms |
+| generate | artifact handoff |  1352 ms |
+| publish  | checkout         |  2213 ms |
+| publish  | setup            |   863 ms |
+| publish  | artifact handoff |  2540 ms |
+| publish  | publish          |  2319 ms |
+| publish  | Pages serving    | 30474 ms |
+
+The expected manifest became HTTP-visible on attempt 7, about 30.5 seconds
+after the gh-pages push marker. Pages serving was the dominant boundary in
+this run; dependency installation was the next largest measured stage at
+11.7 seconds. The workflow-start-to-runner-marker field was unavailable in
+this run, so queue/startup delay remains unmeasured until that metadata is
+exposed. This is baseline evidence only; no hard pass/fail latency target is
+defined from it.
+
 ## Scripts
 
-| Script                            | Purpose                                                                        |
-| --------------------------------- | ------------------------------------------------------------------------------ |
-| `src/generate-review-package.mjs` | Orchestrates `build-*` modules into a manifest + resource set for one revision |
-| `src/validate-manifest.mjs`       | Validates `manifest.json`/`pr-index.json` against `schema/*.schema.json`       |
-| `src/publish-to-pages.mjs`        | Merges a generated revision into the `gh-pages` branch with retry              |
-| `src/verify-pages-serving.mjs`    | Bounded public-HTTP reachability and revision-identity verification            |
+| Script                             | Purpose                                                                        |
+| ---------------------------------- | ------------------------------------------------------------------------------ |
+| `src/generate-review-package.mjs`  | Orchestrates `build-*` modules into a manifest + resource set for one revision |
+| `src/validate-manifest.mjs`        | Validates `manifest.json`/`pr-index.json` against `schema/*.schema.json`       |
+| `src/publish-to-pages.mjs`         | Merges a generated revision into the `gh-pages` branch with retry              |
+| `src/verify-pages-serving.mjs`     | Bounded public-HTTP reachability and revision-identity verification            |
+| `src/lib/latency.mjs`              | Records bounded monotonic stage timing and renders run-summary evidence        |
+| `src/measure-pages-visibility.mjs` | Observes the expected manifest over HTTP without changing publication          |
 
 Run the test suite with:
 
