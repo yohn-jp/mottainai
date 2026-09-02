@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "c36be71197fadb39aacf1c7edce6b9d61765305d",
+    "draft": false,
+    "headRef": "fix/745-lima-mounttype-value",
+    "headSha": "0f6ecd8a0141ca651de6dd05f714f21e8294db7e",
+    "number": 746,
+    "title": "fix(runtime): use a Lima-valid mountType instead of the nonexistent none"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "0f6ecd8a0141ca651de6dd05f714f21e8294db7e",
+    "immutable": true,
+    "shortId": "0f6ecd8a0141"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-02T13:53:31.014Z"
+  }
+}

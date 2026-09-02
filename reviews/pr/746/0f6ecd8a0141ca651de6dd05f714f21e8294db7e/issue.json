@@ -1,0 +1,16 @@
+{
+  "acceptanceCriteria": [],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 745,
+    "state": "open",
+    "title": "fix(runtime): mottainai-init generates mountType: none, which Lima 2.2.0 rejects",
+    "url": "https://github.com/yohn-jp/mottainai/issues/745"
+  },
+  "linked": {
+    "number": 745
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

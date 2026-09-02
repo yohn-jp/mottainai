@@ -1,0 +1,32 @@
+{
+  "baseSha": "c36be71197fadb39aacf1c7edce6b9d61765305d",
+  "files": [
+    {
+      "additions": 12,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 6,
+          "newStart": 125,
+          "oldLines": 1,
+          "oldStart": 125
+        },
+        {
+          "newLines": 6,
+          "newStart": 1791,
+          "oldLines": 0,
+          "oldStart": 1785
+        }
+      ],
+      "path": "host-bootstrap/src/lima.rs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "0f6ecd8a0141ca651de6dd05f714f21e8294db7e",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 12,
+    "deletions": 1,
+    "filesChanged": 1
+  }
+}
