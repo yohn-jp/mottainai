@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #744 @ 20262abf93fc</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #744: fix(review-pages): tolerate GitHub Pages propagation delay</h1>
+<p>Base <code>main</code> @ <code>72d9f1cff4ccbd30fa8c029d8d87a55b16b8d0ba</code> &rarr;
+Head <code>fix/743-review-pages-propagation</code> @ <code>20262abf93fc5552a018e8cfcac23aa486e2ccd6</code></p>
+<p>Revision <code>20262abf93fc</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/743">#743</a> fix: do not fail Review Pages CI while GitHub Pages is still propagating (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Review package generation and manifest validation still fail the workflow on error.</li>
+<li>[ ] Failure to commit/push the package to `gh-pages` still fails the workflow.</li>
+<li>[ ] A successful `gh-pages` push followed by bounded HTTP 404/propagation delay does not fail the workflow.</li>
+<li>[ ] The pending/not-yet-serving state remains visible in logs or the workflow summary.</li>
+<li>[ ] Tests cover the non-fatal propagation-delay path without weakening actual publication failure handling.</li></ul>
+
+
+
+<h2>Changed files (2, +40/-128)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>review-pages/src/publish-to-pages.mjs</td><td>modified</td><td>+28</td><td>-128</td></tr>
+<tr><td>review-pages/test/pages-serving-exit-code.test.mjs</td><td>added</td><td>+12</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

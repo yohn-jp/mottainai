@@ -1,0 +1,37 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Review package generation and manifest validation still fail the workflow on error."
+    },
+    {
+      "checked": false,
+      "text": "Failure to commit/push the package to `gh-pages` still fails the workflow."
+    },
+    {
+      "checked": false,
+      "text": "A successful `gh-pages` push followed by bounded HTTP 404/propagation delay does not fail the workflow."
+    },
+    {
+      "checked": false,
+      "text": "The pending/not-yet-serving state remains visible in logs or the workflow summary."
+    },
+    {
+      "checked": false,
+      "text": "Tests cover the non-fatal propagation-delay path without weakening actual publication failure handling."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 743,
+    "state": "open",
+    "title": "fix: do not fail Review Pages CI while GitHub Pages is still propagating",
+    "url": "https://github.com/yohn-jp/mottainai/issues/743"
+  },
+  "linked": {
+    "number": 743
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

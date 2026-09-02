@@ -1,0 +1,52 @@
+{
+  "baseSha": "72d9f1cff4ccbd30fa8c029d8d87a55b16b8d0ba",
+  "headSha": "20262abf93fc5552a018e8cfcac23aa486e2ccd6",
+  "preview": {
+    "excluded_count": 0,
+    "excluded_files": [],
+    "from": "72d9f1cff4ccbd30fa8c029d8d87a55b16b8d0ba",
+    "merge_base": "72d9f1cff4ccbd30fa8c029d8d87a55b16b8d0ba",
+    "mode": "range",
+    "reviewable_count": 2,
+    "reviewable_files": [
+      {
+        "deletions": 128,
+        "insertions": 28,
+        "path": "review-pages/src/publish-to-pages.mjs",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 12,
+        "path": "review-pages/test/pages-serving-exit-code.test.mjs",
+        "status": "added"
+      }
+    ],
+    "schema_version": "1",
+    "to": "20262abf93fc5552a018e8cfcac23aa486e2ccd6",
+    "total_deletions": 128,
+    "total_files": 2,
+    "total_insertions": 40
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.1"
+  },
+  "rule": {
+    "groups": [
+      {
+        "files": [
+          "review-pages/src/publish-to-pages.mjs",
+          "review-pages/test/pages-serving-exit-code.test.mjs"
+        ],
+        "group_id": 1,
+        "pattern": "default",
+        "rule": "#### Correctness\nIs the logic correct? Are there missing boundary conditions?\nAre exceptions handled properly?\nIs it thread-safe in concurrent scenarios?\n\n#### Security\nAre there security vulnerabilities such as SQL injection or XSS?\nIs sensitive information handled correctly?\nIs permission validation complete?\n\n#### Performance\nAre there obvious performance issues (e.g., N+1 queries, unnecessary loops)?\nAre resources properly released?\n\n#### Maintainability\nIs the code clear and easy to understand?\nDo names accurately express intent?\nDoes it follow the project’s existing code style and architecture patterns?\n\n#### Test Coverage\nDo critical logic paths have corresponding test cases?\nDo test cases cover boundary conditions?",
+        "source": "system"
+      }
+    ],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}

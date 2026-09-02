@@ -1,0 +1,190 @@
+{
+  "baseSha": "72d9f1cff4ccbd30fa8c029d8d87a55b16b8d0ba",
+  "files": [
+    {
+      "additions": 28,
+      "deletions": 128,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 8,
+          "oldLines": 6,
+          "oldStart": 9
+        },
+        {
+          "newLines": 0,
+          "newStart": 12,
+          "oldLines": 4,
+          "oldStart": 19
+        },
+        {
+          "newLines": 1,
+          "newStart": 26,
+          "oldLines": 3,
+          "oldStart": 36
+        },
+        {
+          "newLines": 0,
+          "newStart": 29,
+          "oldLines": 13,
+          "oldStart": 42
+        },
+        {
+          "newLines": 1,
+          "newStart": 41,
+          "oldLines": 2,
+          "oldStart": 66
+        },
+        {
+          "newLines": 1,
+          "newStart": 77,
+          "oldLines": 12,
+          "oldStart": 103
+        },
+        {
+          "newLines": 1,
+          "newStart": 86,
+          "oldLines": 18,
+          "oldStart": 123
+        },
+        {
+          "newLines": 0,
+          "newStart": 88,
+          "oldLines": 1,
+          "oldStart": 143
+        },
+        {
+          "newLines": 0,
+          "newStart": 92,
+          "oldLines": 1,
+          "oldStart": 148
+        },
+        {
+          "newLines": 0,
+          "newStart": 93,
+          "oldLines": 1,
+          "oldStart": 150
+        },
+        {
+          "newLines": 1,
+          "newStart": 98,
+          "oldLines": 13,
+          "oldStart": 155
+        },
+        {
+          "newLines": 1,
+          "newStart": 103,
+          "oldLines": 3,
+          "oldStart": 172
+        },
+        {
+          "newLines": 0,
+          "newStart": 105,
+          "oldLines": 1,
+          "oldStart": 177
+        },
+        {
+          "newLines": 0,
+          "newStart": 126,
+          "oldLines": 1,
+          "oldStart": 199
+        },
+        {
+          "newLines": 4,
+          "newStart": 131,
+          "oldLines": 0,
+          "oldStart": 203
+        },
+        {
+          "newLines": 1,
+          "newStart": 143,
+          "oldLines": 3,
+          "oldStart": 212
+        },
+        {
+          "newLines": 1,
+          "newStart": 152,
+          "oldLines": 8,
+          "oldStart": 223
+        },
+        {
+          "newLines": 3,
+          "newStart": 158,
+          "oldLines": 5,
+          "oldStart": 236
+        },
+        {
+          "newLines": 1,
+          "newStart": 166,
+          "oldLines": 5,
+          "oldStart": 246
+        },
+        {
+          "newLines": 2,
+          "newStart": 168,
+          "oldLines": 4,
+          "oldStart": 252
+        },
+        {
+          "newLines": 1,
+          "newStart": 172,
+          "oldLines": 6,
+          "oldStart": 258
+        },
+        {
+          "newLines": 1,
+          "newStart": 175,
+          "oldLines": 3,
+          "oldStart": 266
+        },
+        {
+          "newLines": 2,
+          "newStart": 180,
+          "oldLines": 6,
+          "oldStart": 273
+        },
+        {
+          "newLines": 4,
+          "newStart": 184,
+          "oldLines": 5,
+          "oldStart": 281
+        },
+        {
+          "newLines": 1,
+          "newStart": 189,
+          "oldLines": 1,
+          "oldStart": 287
+        },
+        {
+          "newLines": 1,
+          "newStart": 194,
+          "oldLines": 3,
+          "oldStart": 292
+        }
+      ],
+      "path": "review-pages/src/publish-to-pages.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 12,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 12,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/test/pages-serving-exit-code.test.mjs",
+      "status": "added"
+    }
+  ],
+  "headSha": "20262abf93fc5552a018e8cfcac23aa486e2ccd6",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 40,
+    "deletions": 128,
+    "filesChanged": 2
+  }
+}
