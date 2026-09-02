@@ -1,0 +1,26 @@
+{
+  "baseSha": "b47bfe7e21e2c6612b9e865e108bcd5b0af03b7f",
+  "files": [
+    {
+      "additions": 9,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 9,
+          "newStart": 36,
+          "oldLines": 0,
+          "oldStart": 35
+        }
+      ],
+      "path": ".github/workflows/publish.yml",
+      "status": "modified"
+    }
+  ],
+  "headSha": "399dc854eb495f3c1c153b55f608bcf12febcec5",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 9,
+    "deletions": 0,
+    "filesChanged": 1
+  }
+}

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #711 @ 399dc854eb49</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #711: fix(ci): provision the canonical control-state root before host-bootstrap tests</h1>
+<p>Base <code>main</code> @ <code>b47bfe7e21e2c6612b9e865e108bcd5b0af03b7f</code> &rarr;
+Head <code>fix/709-cli-test-eacces</code> @ <code>399dc854eb495f3c1c153b55f608bcf12febcec5</code></p>
+<p>Revision <code>399dc854eb49</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/709">#709</a> release(runtime): publish the canonical Runtime Appliance to GHCR for immediate dogfood deployment (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] A canonical Runtime Appliance built from one exact current `main` commit is published to GHCR using the existing Runtime Appliance OCI contract.</li>
+<li>[ ] The immutable OCI manifest digest is recorded and resolves successfully from GHCR.</li>
+<li>[ ] The published manifest/layers match the existing artifact/media-type contract; no alternative package format is introduced.</li>
+<li>[ ] Published metadata identifies the exact source revision and canonical raw Appliance identity.</li>
+<li>[ ] The compressed/raw identities required by the existing consumer contract are present and internally consistent.</li>
+<li>[ ] A complete `runtime-spec.json` is produced with the exact `registry`, `repository`, and immutable `digest`.</li>
+<li>[ ] `mottainai-init` can consume that spec without requiring a mutable tag, local source checkout, or publication-only override.</li>
+<li>[ ] The final Issue/PR evidence includes the exact deployment commands for a Linux x86_64 host with usable `/dev/kvm`.</li>
+<li>[ ] No unrelated Runtime, Lima, Manager, migration, compatibility, or CLI redesign is included.</li></ul>
+
+<h2>Changed files (1, +9/-0)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/publish.yml</td><td>modified</td><td>+9</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

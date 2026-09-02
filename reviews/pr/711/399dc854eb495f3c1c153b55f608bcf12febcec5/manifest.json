@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "b47bfe7e21e2c6612b9e865e108bcd5b0af03b7f",
+    "draft": false,
+    "headRef": "fix/709-cli-test-eacces",
+    "headSha": "399dc854eb495f3c1c153b55f608bcf12febcec5",
+    "number": 711,
+    "title": "fix(ci): provision the canonical control-state root before host-bootstrap tests"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "399dc854eb495f3c1c153b55f608bcf12febcec5",
+    "immutable": true,
+    "shortId": "399dc854eb49"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-02T11:41:13.456Z"
+  }
+}
