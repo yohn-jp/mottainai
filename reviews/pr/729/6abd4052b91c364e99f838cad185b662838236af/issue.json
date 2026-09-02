@@ -1,0 +1,49 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "A versioned JSON schema and TypeScript/JSDoc-compatible data contract are defined under the isolated review-pages/review boundary rather than core runtime."
+    },
+    {
+      "checked": false,
+      "text": "Exact repository/PR/base/head identity is mandatory."
+    },
+    {
+      "checked": false,
+      "text": "Verdict is restricted to APPROVE / CHANGES_REQUIRED / INCONCLUSIVE."
+    },
+    {
+      "checked": false,
+      "text": "Findings support severity, blocking, evidence references, optional source location and lifecycle status."
+    },
+    {
+      "checked": false,
+      "text": "Inspected inputs, omitted inputs and unknowns are representable and distinguishable."
+    },
+    {
+      "checked": false,
+      "text": "Stale-head misuse is prevented by explicit head-SHA identity."
+    },
+    {
+      "checked": false,
+      "text": "Schema validation tests cover valid results and malformed/ambiguous/stale-identity fixtures."
+    },
+    {
+      "checked": false,
+      "text": "No LLM provider implementation is introduced in this issue."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "enhancement"
+    ],
+    "number": 716,
+    "state": "open",
+    "title": "feat: define structured autonomous review result contract",
+    "url": "https://github.com/yohn-jp/mottainai/issues/716"
+  },
+  "linked": {
+    "number": 716
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

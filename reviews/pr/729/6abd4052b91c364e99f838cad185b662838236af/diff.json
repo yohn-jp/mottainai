@@ -1,0 +1,108 @@
+{
+  "baseSha": "4f634778d31c8681caf1dd0b2e35170b832208e0",
+  "files": [
+    {
+      "additions": 75,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 75,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/review/autonomous-review-result.d.ts",
+      "status": "added"
+    },
+    {
+      "additions": 161,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 161,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/review/autonomous-review-result.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 231,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 231,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/review/autonomous-review-result.schema.json",
+      "status": "added"
+    },
+    {
+      "additions": 2,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/review/index.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 37,
+      "deletions": 5,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 2,
+          "oldLines": 1,
+          "oldStart": 2
+        },
+        {
+          "newLines": 19,
+          "newStart": 37,
+          "oldLines": 2,
+          "oldStart": 36
+        },
+        {
+          "newLines": 16,
+          "newStart": 58,
+          "oldLines": 2,
+          "oldStart": 40
+        }
+      ],
+      "path": "review-pages/src/lib/schema-validator.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 136,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 136,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/test/autonomous-review-result.test.mjs",
+      "status": "added"
+    }
+  ],
+  "headSha": "6abd4052b91c364e99f838cad185b662838236af",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 642,
+    "deletions": 5,
+    "filesChanged": 6
+  }
+}
