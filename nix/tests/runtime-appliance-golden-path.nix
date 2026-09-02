@@ -16,8 +16,8 @@ let
   # defaultNarHashOfTree does. Verified, not bypassed: the test-only fixture
   # resolver (nix/tests/lib/managed-mottainai-fixture-resolver.mjs)
   # recomputes this hash at runtime and fails closed on mismatch.
-  mottainaiSourceSha256V1 = "cd631e2f029320ef2e3dd43ad514f9b272c5c36656a67360c1a71d5d0a082804";
-  mottainaiSourceSha256V2 = "97fc2fbbc00ebd9b47e0c6cf9744b5fc5099ee39b50af72840eb6f30ef88962b";
+  mottainaiSourceSha256V1 = "04660726df6e8c2393fc53960de9c979b5304e0868d851b2874838d003e5461a";
+  mottainaiSourceSha256V2 = "e17a64ed43842871597812316b0d50856fe8bc22d4d6d488c78671be4ce7b342";
   # Copied to the guest (below) alongside the fixture resolver so its
   # ../fixtures/<name> relative resolution keeps working there.
   fixturesDir = ./fixtures;
@@ -302,6 +302,21 @@ in
         package_root = main_js[: -len("/bootstrap/main.js")]
         node_bin = node_bin_match.group(0)
 
+        # The fixture flakes (nix/tests/fixtures/managed-mottainai-v{1,2})
+        # build with the raw `derivation` builtin rather than
+        # pkgs.stdenv(NoCC).mkDerivation/pkgs.runCommand: those pull in
+        # this guest's pinned nixpkgs revision's full stdenv bootstrap
+        # closure (glibc, a Python needed only to build that closure, ...),
+        # which is not guaranteed to already be cached on a guest with no
+        # general internet access. Instead the fixture flakes read their
+        # builder/PATH from MOTTAINAI_FIXTURE_BASH/MOTTAINAI_FIXTURE_COREUTILS_DIR
+        # via the impure build environment (builtins.getEnv, under the same
+        # --impure evaluation the production build already requires) —
+        # resolved here from this exact guest's own real PATH, so no new
+        # package is ever fetched or built to support the fixture itself.
+        coreutils_dir = control("dirname \"$(command -v mkdir)\"").strip()
+        bash_path = control("command -v bash").strip()
+
         driver_path = guest_fixture_root + "/reconcile-driver.mjs"
         driver_source = "\n".join([
             "import { reconcileAdapters } from " + json.dumps(package_root + "/bootstrap/cli.js") + ";",
@@ -310,7 +325,12 @@ in
             "",
             "const [system] = process.argv.slice(2);",
             "const repoRoot = " + json.dumps(package_root + "/nix-projection") + ";",
-            "const env = { ...process.env, CI: \"true\" };",
+            "const env = {",
+            "  ...process.env,",
+            "  CI: \"true\",",
+            "  MOTTAINAI_FIXTURE_COREUTILS_DIR: " + json.dumps(coreutils_dir) + ",",
+            "  MOTTAINAI_FIXTURE_BASH: " + json.dumps(bash_path) + ",",
+            "};",
             "",
             "try {",
             "  const result = await reconcileManagedRuntime({",

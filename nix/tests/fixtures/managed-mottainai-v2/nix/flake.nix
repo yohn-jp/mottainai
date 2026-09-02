@@ -1,23 +1,26 @@
 {
   description = "Issue #703 repository-owned managed Mottainai fixture source (version 2.0.0)";
 
-  # Pinned to the exact same nixpkgs revision as ../../../../flake.lock —
-  # deliberately not a second independent pin. Only needed for a real
-  # bash/coreutils PATH inside the Nix build sandbox (a bare builder =
-  # "/bin/sh" has no PATH there at all — nix/tests/fixtures/alt-mottainai-source
-  # only gets away with that because it is a pure-evaluation-only fixture
-  # that is never actually built). Deliberately the raw `derivation`
-  # builtin with only pkgs.bash/pkgs.coreutils as inputs, not
-  # pkgs.stdenv(NoCC).mkDerivation or pkgs.runCommand(NoCC): those pull in
-  # this nixpkgs revision's full stdenv bootstrap closure, which is not
-  # necessarily already cached on a fresh guest with no general internet
-  # access, unlike bash/coreutils themselves.
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-
+  # Deliberately no inputs: this fixture must build with no compilation and
+  # no network access. A bare `builder = "/bin/sh"` has no PATH inside the
+  # Nix build sandbox (nix/tests/fixtures/alt-mottainai-source only gets
+  # away with that because it is a pure-evaluation-only fixture that is
+  # never actually built), and pulling in nixpkgs (even just
+  # pkgs.bash/pkgs.coreutils) for a real build risks needing a stdenv
+  # bootstrap closure that is not guaranteed to already be cached on a
+  # guest with no general internet access. Instead this flake reads the
+  # already-verified, already-present-on-this-guest bash/coreutils paths
+  # from the impure build environment (the same --impure evaluation
+  # src/runtime-contract/managed-generation-build.ts's own `nix build
+  # --impure` already requires) — set by
+  # nix/tests/runtime-appliance-golden-path.nix before invoking reconcile,
+  # from this exact guest's own `command -v`.
   outputs =
-    { self, nixpkgs }:
+    { self }:
     let
       version = "2.0.0";
+      coreutilsBinDir = builtins.getEnv "MOTTAINAI_FIXTURE_COREUTILS_DIR";
+      bashPath = builtins.getEnv "MOTTAINAI_FIXTURE_BASH";
       script = ''
         mkdir -p "$out/bin"
         cat > "$out/bin/mottainai" <<'MOTTAINAI_FIXTURE_EOF'
@@ -44,15 +47,12 @@
       # own Mottainai source tree from its own nix/flake.nix.
       mkMottainai =
         system:
-        let
-          pkgs = nixpkgs.legacyPackages.${system};
-        in
         derivation {
           name = "mottainai-${version}";
           inherit system version;
-          builder = "${pkgs.bash}/bin/bash";
+          builder = bashPath;
           args = [ "-c" script ];
-          PATH = "${pkgs.coreutils}/bin";
+          PATH = coreutilsBinDir;
         } // { src = ../.; };
     in
     {
