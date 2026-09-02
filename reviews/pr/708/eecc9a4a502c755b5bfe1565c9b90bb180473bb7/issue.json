@@ -1,0 +1,87 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Default PR `runtime-appliance-golden-path` contains no `0.7.0`, `0.7.1`, `nawabariVersion`, historical source SHA, GitHub tag download, or historical application source build."
+    },
+    {
+      "checked": false,
+      "text": "Exactly two repository-owned Mottainai fixture source trees exist: version `1.0.0` and `2.0.0`."
+    },
+    {
+      "checked": false,
+      "text": "Fixture packages have no Node/npm/pnpm dependency graph and perform no network access."
+    },
+    {
+      "checked": false,
+      "text": "Fixture source NAR hashes are verified rather than bypassed."
+    },
+    {
+      "checked": false,
+      "text": "Golden-path manifests contain exactly one package ID: `mottainai`."
+    },
+    {
+      "checked": false,
+      "text": "The real managed-generation Nix builder is used."
+    },
+    {
+      "checked": false,
+      "text": "The real generation identity calculation is used."
+    },
+    {
+      "checked": false,
+      "text": "The real activation/current symlink path is used."
+    },
+    {
+      "checked": false,
+      "text": "The real production managed-runtime health check is used."
+    },
+    {
+      "checked": false,
+      "text": "The real production rollback state machine is used."
+    },
+    {
+      "checked": false,
+      "text": "Fresh activation, version update, reboot persistence, no-op reconciliation, rollback, unmanaged-state semantics, and canonical appliance immutability retain equivalent assertions."
+    },
+    {
+      "checked": false,
+      "text": "`mottainai --version` proves `1.0.0` for generation 1 and `2.0.0` for generation 2."
+    },
+    {
+      "checked": false,
+      "text": "Default PR golden path performs no external historical-release network fetch."
+    },
+    {
+      "checked": false,
+      "text": "Relaxed sandboxing is removed if historical network fetch was its only requirement."
+    },
+    {
+      "checked": false,
+      "text": "Current HEAD Node.js 24/Nix package validation remains real and separate from fixtures."
+    },
+    {
+      "checked": false,
+      "text": "No production source resolver, production CLI fixture mode, manifest schema, or canonical path override is introduced."
+    },
+    {
+      "checked": false,
+      "text": "#702/#706 release-owned resolution behavior remains intact."
+    },
+    {
+      "checked": false,
+      "text": "Review Pages/OCR for the resulting PR contains the deterministic review package introduced by #704/#707; no special OCR handling is added in this Issue."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 703,
+    "state": "open",
+    "title": "test(ci): stop rebuilding historical Mottainai releases in the per-PR runtime golden path",
+    "url": "https://github.com/yohn-jp/mottainai/issues/703"
+  },
+  "linked": {
+    "number": 703
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #708 @ eecc9a4a502c</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #708: test(ci): replace historical Mottainai/Nawabari releases with deterministic fixtures in the runtime golden path</h1>
+<p>Base <code>main</code> @ <code>7427544c82a952c8e091c59850e941f0eb5feadd</code> &rarr;
+Head <code>test/703-runtime-golden-path-fixtures</code> @ <code>eecc9a4a502c755b5bfe1565c9b90bb180473bb7</code></p>
+<p>Revision <code>eecc9a4a502c</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/703">#703</a> test(ci): stop rebuilding historical Mottainai releases in the per-PR runtime golden path (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Default PR `runtime-appliance-golden-path` contains no `0.7.0`, `0.7.1`, `nawabariVersion`, historical source SHA, GitHub tag download, or historical application source build.</li>
+<li>[ ] Exactly two repository-owned Mottainai fixture source trees exist: version `1.0.0` and `2.0.0`.</li>
+<li>[ ] Fixture packages have no Node/npm/pnpm dependency graph and perform no network access.</li>
+<li>[ ] Fixture source NAR hashes are verified rather than bypassed.</li>
+<li>[ ] Golden-path manifests contain exactly one package ID: `mottainai`.</li>
+<li>[ ] The real managed-generation Nix builder is used.</li>
+<li>[ ] The real generation identity calculation is used.</li>
+<li>[ ] The real activation/current symlink path is used.</li>
+<li>[ ] The real production managed-runtime health check is used.</li>
+<li>[ ] The real production rollback state machine is used.</li>
+<li>[ ] Fresh activation, version update, reboot persistence, no-op reconciliation, rollback, unmanaged-state semantics, and canonical appliance immutability retain equivalent assertions.</li>
+<li>[ ] `mottainai --version` proves `1.0.0` for generation 1 and `2.0.0` for generation 2.</li>
+<li>[ ] Default PR golden path performs no external historical-release network fetch.</li>
+<li>[ ] Relaxed sandboxing is removed if historical network fetch was its only requirement.</li>
+<li>[ ] Current HEAD Node.js 24/Nix package validation remains real and separate from fixtures.</li>
+<li>[ ] No production source resolver, production CLI fixture mode, manifest schema, or canonical path override is introduced.</li>
+<li>[ ] #702/#706 release-owned resolution behavior remains intact.</li>
+<li>[ ] Review Pages/OCR for the resulting PR contains the deterministic review package introduced by #704/#707; no special OCR handling is added in this Issue.</li></ul>
+
+<h2>Changed files (8, +355/-36)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>nix/tests/fixtures/managed-mottainai-v1/nix/flake.lock</td><td>added</td><td>+27</td><td>-0</td></tr>
+<tr><td>nix/tests/fixtures/managed-mottainai-v1/nix/flake.nix</td><td>added</td><td>+62</td><td>-0</td></tr>
+<tr><td>nix/tests/fixtures/managed-mottainai-v1/package.json</td><td>added</td><td>+5</td><td>-0</td></tr>
+<tr><td>nix/tests/fixtures/managed-mottainai-v2/nix/flake.lock</td><td>added</td><td>+27</td><td>-0</td></tr>
+<tr><td>nix/tests/fixtures/managed-mottainai-v2/nix/flake.nix</td><td>added</td><td>+62</td><td>-0</td></tr>
+<tr><td>nix/tests/fixtures/managed-mottainai-v2/package.json</td><td>added</td><td>+5</td><td>-0</td></tr>
+<tr><td>nix/tests/lib/managed-mottainai-fixture-resolver.mjs</td><td>added</td><td>+56</td><td>-0</td></tr>
+<tr><td>nix/tests/runtime-appliance-golden-path.nix</td><td>modified</td><td>+111</td><td>-36</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
