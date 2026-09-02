@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #731 @ cee0e0daee27</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #731: chore(ci): verify review pages serving after publication</h1>
+<p>Base <code>main</code> @ <code>4f634778d31c8681caf1dd0b2e35170b832208e0</code> &rarr;
+Head <code>chore/725-review-pages-serving-check</code> @ <code>cee0e0daee27fc05eb867a673d475b8e42bc5117</code></p>
+<p>Revision <code>cee0e0daee27</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/725">#725</a> chore: verify Review Pages availability after gh-pages publication (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Publish completion knows the expected Pages URL for the exact PR/head manifest without guessing from local filesystem state.</li>
+<li>[ ] A bounded retry/poll verifies HTTP reachability and manifest repository/PR/head identity.</li>
+<li>[ ] Outcomes distinguish at least push failure, published-but-not-serving, serving-wrong-identity, and success.</li>
+<li>[ ] Retry duration is bounded and cannot hold the workflow indefinitely.</li>
+<li>[ ] Verification sends no credentials to the public Pages endpoint and logs no secrets.</li>
+<li>[ ] Tests cover delayed availability, persistent 404, wrong manifest identity and success through a hermetic HTTP fixture.</li>
+<li>[ ] Documentation states the required repository Pages configuration and the diagnostic emitted when it is absent/misconfigured.</li>
+<li>[ ] Existing immutable revision and concurrent multi-PR publication behavior is unchanged.</li></ul>
+
+<h2>Changed files (5, +366/-1)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/review-pages.yml</td><td>modified</td><td>+4</td><td>-0</td></tr>
+<tr><td>review-pages/README.md</td><td>modified</td><td>+25</td><td>-1</td></tr>
+<tr><td>review-pages/src/publish-to-pages.mjs</td><td>modified</td><td>+?</td><td>-?</td></tr>
+<tr><td>review-pages/src/verify-pages-serving.mjs</td><td>added</td><td>+211</td><td>-0</td></tr>
+<tr><td>review-pages/test/verify-pages-serving.test.mjs</td><td>added</td><td>+126</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

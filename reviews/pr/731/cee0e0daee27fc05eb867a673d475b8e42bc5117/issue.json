@@ -1,0 +1,47 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Publish completion knows the expected Pages URL for the exact PR/head manifest without guessing from local filesystem state."
+    },
+    {
+      "checked": false,
+      "text": "A bounded retry/poll verifies HTTP reachability and manifest repository/PR/head identity."
+    },
+    {
+      "checked": false,
+      "text": "Outcomes distinguish at least push failure, published-but-not-serving, serving-wrong-identity, and success."
+    },
+    {
+      "checked": false,
+      "text": "Retry duration is bounded and cannot hold the workflow indefinitely."
+    },
+    {
+      "checked": false,
+      "text": "Verification sends no credentials to the public Pages endpoint and logs no secrets."
+    },
+    {
+      "checked": false,
+      "text": "Tests cover delayed availability, persistent 404, wrong manifest identity and success through a hermetic HTTP fixture."
+    },
+    {
+      "checked": false,
+      "text": "Documentation states the required repository Pages configuration and the diagnostic emitted when it is absent/misconfigured."
+    },
+    {
+      "checked": false,
+      "text": "Existing immutable revision and concurrent multi-PR publication behavior is unchanged."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 725,
+    "state": "open",
+    "title": "chore: verify Review Pages availability after gh-pages publication",
+    "url": "https://github.com/yohn-jp/mottainai/issues/725"
+  },
+  "linked": {
+    "number": 725
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
