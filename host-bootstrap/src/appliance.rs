@@ -198,7 +198,8 @@ pub fn ensure_appliance<S: OciSource>(
         )
     })?;
 
-    cross_verify_metadata(&appliance_manifest, &release_metadata)?;
+    let (compressed_sha256, compressed_size) =
+        cross_verify_metadata(&appliance_manifest, &release_metadata, raw_layer)?;
     timing.mark("manifest-and-release-metadata");
     let image = require_string_field(&appliance_manifest, "image", "sha256")?;
     let image_size = require_u64_field(&appliance_manifest, "image", "sizeBytes")?;
@@ -206,6 +207,13 @@ pub fn ensure_appliance<S: OciSource>(
         return Err(BootstrapError::new(
             ErrorCode::ApplianceManifestInvalid,
             "declared appliance raw disk exceeds the maximum supported size",
+        ));
+    }
+
+    if raw_layer.size > MAX_APPLIANCE_RAW_BYTES {
+        return Err(BootstrapError::new(
+            ErrorCode::ApplianceManifestInvalid,
+            "compressed appliance layer exceeds the bounded appliance size",
         ));
     }
 
@@ -217,6 +225,21 @@ pub fn ensure_appliance<S: OciSource>(
         raw_layer.size.min(MAX_APPLIANCE_COMPRESSED_BYTES),
     )?;
     timing.mark("raw-blob-download-and-verification");
+
+    let actual_compressed_size = fs::metadata(&compressed_path)
+        .map_err(|error| BootstrapError::io("inspect staged compressed appliance disk", &error))?
+        .len();
+    let actual_compressed_sha256 = digest_file(&compressed_path)?;
+    if actual_compressed_size != compressed_size
+        || actual_compressed_size != raw_layer.size
+        || actual_compressed_sha256 != compressed_sha256
+        || format!("sha256:{actual_compressed_sha256}") != raw_layer.digest
+    {
+        return Err(BootstrapError::new(
+            ErrorCode::ApplianceManifestInvalid,
+            "compressed appliance bytes do not match their release metadata and OCI descriptor",
+        ));
+    }
 
     let raw_path = staging.join("mottainai-runtime-appliance.raw");
     let (raw_sha256, raw_size) = decompress_and_hash(&compressed_path, &raw_path, image_size)?;
@@ -415,7 +438,8 @@ fn find_layer<'a>(
 fn cross_verify_metadata(
     manifest: &serde_json::Value,
     metadata: &serde_json::Value,
-) -> Result<(), BootstrapError> {
+    raw_layer: &LayerDescriptor,
+) -> Result<(String, u64), BootstrapError> {
     let invalid = || {
         BootstrapError::new(
             ErrorCode::ApplianceManifestInvalid,
@@ -451,7 +475,29 @@ fn cross_verify_metadata(
     if compressed.get("format").and_then(serde_json::Value::as_str) != Some("zstd") {
         return Err(invalid());
     }
-    Ok(())
+    let compressed_sha256 = compressed
+        .get("sha256")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(invalid)?;
+    if !is_lowercase_sha256_hex(compressed_sha256) {
+        return Err(invalid());
+    }
+    let compressed_size = compressed
+        .get("sizeBytes")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(invalid)?;
+    if compressed_size != raw_layer.size
+        || format!("sha256:{compressed_sha256}") != raw_layer.digest
+    {
+        return Err(invalid());
+    }
+    Ok((compressed_sha256.to_owned(), compressed_size))
+}
+
+fn is_lowercase_sha256_hex(value: &str) -> bool {
+    value.len() == 64
+        && value.chars().all(|character| character.is_ascii_hexdigit())
+        && value == value.to_ascii_lowercase()
 }
 
 fn require_string_field(
@@ -580,14 +626,14 @@ fn effective_raw_bound(declared_bound_bytes: u64) -> u64 {
 }
 
 fn digest_file(path: &std::path::Path) -> Result<String, BootstrapError> {
-    let mut file =
-        File::open(path).map_err(|error| BootstrapError::io("open appliance raw disk", &error))?;
+    let mut file = File::open(path)
+        .map_err(|error| BootstrapError::io("open appliance file for digest", &error))?;
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 1024 * 1024];
     loop {
         let read = file
             .read(&mut buffer)
-            .map_err(|error| BootstrapError::io("read appliance raw disk", &error))?;
+            .map_err(|error| BootstrapError::io("read appliance file for digest", &error))?;
         if read == 0 {
             break;
         }
