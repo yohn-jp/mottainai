@@ -210,6 +210,7 @@ export async function generateReviewPackage({
   buildIssueFn = buildIssue,
   buildChecksFn = buildChecks,
   maxBuilderConcurrency = MAX_BUILDER_CONCURRENCY,
+  reviewResult,
 }) {
   if (!isEligibleForGeneration(pullRequest)) {
     throw new Error("draft pull requests do not produce a review-ready revision");
@@ -291,6 +292,7 @@ export async function generateReviewPackage({
       ocr: "ocr.json",
       checks: "checks.json",
       html: "index.html",
+      ...(reviewResult ? { reviewResult: "review-result.json" } : {}),
     },
     volatile: {
       fields: ["volatile.generatedAt", "checks.checkRuns"],
@@ -298,7 +300,12 @@ export async function generateReviewPackage({
     },
   };
 
-  const html = renderHtml({ manifest, diff, issue });
+  const html = renderHtml({
+    manifest,
+    diff,
+    issue,
+    ...(reviewResult ? { reviewResult, reviewResultHref: "review-result.json" } : {}),
+  });
 
   const prIndex = {
     schemaVersion: PR_INDEX_SCHEMA_VERSION,
@@ -311,9 +318,12 @@ export async function generateReviewPackage({
     },
   };
 
+  const resources = { "issue.json": issue, "diff.json": diff, "ocr.json": ocr, "checks.json": checks };
+  if (reviewResult) resources["review-result.json"] = reviewResult;
+
   return {
     manifest,
-    resources: { "issue.json": issue, "diff.json": diff, "ocr.json": ocr, "checks.json": checks },
+    resources,
     html,
     prIndex,
   };

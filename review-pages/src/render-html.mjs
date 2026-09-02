@@ -1,3 +1,5 @@
+import { renderReviewResult } from "./review-projection.mjs";
+
 function escapeHtml(value) {
   return String(value).replace(
     /[&<>"']/gu,
@@ -8,7 +10,16 @@ function escapeHtml(value) {
 // A small static human view over the manifest. The JSON resources are
 // the canonical contract; this page exists only to make them legible
 // without downloading each file.
-export function renderHtml({ manifest, diff, issue }) {
+export function renderHtml({
+  manifest,
+  diff,
+  issue,
+  reviewResult,
+  latestHeadSha,
+  latestRevision,
+  prIndex,
+  reviewResultHref,
+}) {
   const pr = manifest.pullRequest;
   const fileRows = diff.files
     .map(
@@ -21,6 +32,14 @@ export function renderHtml({ manifest, diff, issue }) {
   const acceptanceRows = issue.acceptanceCriteria
     .map((item) => `<li>${item.checked ? "[x]" : "[ ]"} ${escapeHtml(item.text)}</li>`)
     .join("\n");
+  const reviewSection = reviewResult
+    ? renderReviewResult({
+        reviewResult,
+        manifest,
+        latestHeadSha: latestHeadSha ?? latestRevision?.headSha ?? prIndex?.latest?.headSha ?? manifest.revision.id,
+        ...(reviewResultHref !== undefined ? { reviewResultHref } : {}),
+      })
+    : "";
 
   return `<!doctype html>
 <html lang="en">
@@ -45,6 +64,8 @@ Head <code>${escapeHtml(pr.headRef)}</code> @ <code>${escapeHtml(pr.headSha)}</c
 <h2>Linked issue</h2>
 ${issue.issue ? `<p><a href="${escapeHtml(issue.issue.url ?? "#")}">#${issue.issue.number}</a> ${escapeHtml(issue.issue.title ?? "")} (${escapeHtml(issue.issue.state ?? "")})</p>` : "<p>none</p>"}
 ${acceptanceRows ? `<h3>Acceptance criteria</h3><ul>${acceptanceRows}</ul>` : ""}
+
+${reviewSection}
 
 <h2>Changed files (${diff.stats.filesChanged}, +${diff.stats.additions}/-${diff.stats.deletions})</h2>
 <table>
