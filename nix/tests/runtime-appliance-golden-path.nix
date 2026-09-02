@@ -16,8 +16,8 @@ let
   # defaultNarHashOfTree does. Verified, not bypassed: the test-only fixture
   # resolver (nix/tests/lib/managed-mottainai-fixture-resolver.mjs)
   # recomputes this hash at runtime and fails closed on mismatch.
-  mottainaiSourceSha256V1 = "074f2e821e5bb6929b70ca0ed3a663574802a2348e6273095eba981dbcb2fce8";
-  mottainaiSourceSha256V2 = "d5799c3cfa903ef14b9e7ade3d6f99c5d94c374a63b132334f7c55d826dc0cdc";
+  mottainaiSourceSha256V1 = "5b9ddc91458011d7f79fcc8776ad51b8c71841d862832b7cbaa9c561c3d0303e";
+  mottainaiSourceSha256V2 = "7adaf4e05f8f419e2bb083cae96b61e4b60d17328e82f1409abe5dfb753db64e";
   # Copied to the guest (below) alongside the fixture resolver so its
   # ../fixtures/<name> relative resolution keeps working there.
   fixturesDir = ./fixtures;

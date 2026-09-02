@@ -1,13 +1,17 @@
 {
   description = "Issue #703 repository-owned managed Mottainai fixture source (version 1.0.0)";
 
-  # Deliberately no inputs: this fixture must build with no compilation and
-  # no network access, so it needs no nixpkgs (or any other) pin at all —
-  # only the `derivation` builtin, the same dependency-free approach
-  # nix/tests/fixtures/alt-mottainai-source/nix/mottainai.nix already uses
-  # for a pure-evaluation fixture.
+  # Pinned to the exact same nixpkgs revision as ../../../../flake.lock —
+  # deliberately not a second independent pin. Only needed for
+  # pkgs.runCommandNoCC's coreutils (mkdir/sed/chmod), so the sandboxed
+  # builder has a real PATH; the fixture itself still performs no
+  # compilation and reaches the network only through the ordinary,
+  # already-cached nixpkgs dependency every other check in this repository
+  # resolves the same way.
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+
   outputs =
-    { self }:
+    { self, nixpkgs }:
     let
       version = "1.0.0";
       script = ''
@@ -36,13 +40,10 @@
       # own Mottainai source tree from its own nix/flake.nix.
       mkMottainai =
         system:
-        derivation {
-          name = "mottainai-${version}";
-          inherit system version;
-          builder = "/bin/sh";
-          args = [ "-c" script ];
-          PATH = "/bin:/usr/bin";
-        } // { src = ../.; };
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        pkgs.runCommandNoCC "mottainai-${version}" { inherit version; } script // { src = ../.; };
     in
     {
       packages.x86_64-linux.mottainai = mkMottainai "x86_64-linux";
