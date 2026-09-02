@@ -24,7 +24,7 @@ as a build artifact.
 
 | Concern                                             | Owner                                                                              |
 | --------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Deterministic review-oriented preparation semantics | Open Code Review (upstream), once it exposes a structured export — see below       |
+| Deterministic review-oriented preparation semantics | Open Code Review (`@alibaba-group/open-code-review`, `ocr delegate`) — see below   |
 | PR identity, diff metadata, Issue intent, checks    | `review-pages/src/*` (this directory)                                              |
 | Governance/policy evaluation                        | `scripts/governance-lib.mjs` and related governance tooling — surfaced, not redone |
 | Publication to GitHub Pages                         | `review-pages/src/publish-to-pages.mjs`, invoked by the workflow                   |
@@ -32,32 +32,44 @@ as a build artifact.
 
 ## Open Code Review integration
 
-Investigated surface: `scripts/review-preflight.mjs` and
-`.github/workflows/*.yml`. Findings —
+`OpenCodeReview` (see `scripts/review-preflight.mjs`) as invoked via a
+manual PR-comment slash-command stays disabled — its pinned action
+exposes no repository-enforceable request-token bound (unrelated to
+this section: that's LLM-backed semantic review, not what Review Pages
+uses). Review Pages instead installs the OCR CLI package,
+`@alibaba-group/open-code-review` (pinned in `package.json`,
+`node_modules/.bin/ocr`), and consumes its documented **delegate mode**
+— a deterministic, LLM-free structured-output surface built for
+exactly this kind of host-agent consumption:
 
-- `OpenCodeReview` is a manual, comment-triggered third-party GitHub
-  Action (`MANUAL_REVIEW_COMMANDS.OpenCodeReview = "/open-code-review"`).
-  Its pinned action exposes no repository-enforceable request-token
-  bound, so it is listed in `UNBOUNDED_REVIEWERS` and stays disabled.
-- No workflow in this repository currently invokes OpenCodeReview or
-  `review-preflight.mjs`.
-- None of OCR's own deterministic review-preparation logic
-  (changed-file selection, bundling, rule resolution, positioning) is
-  repository-owned code — it lives inside OCR's own third-party action —
-  so there is nothing in this repository to re-export.
+```text
+PR base/head
+    ↓
+ocr delegate preview --format json --from <base> --to <head>
+    ↓
+reviewable_files / excluded_files
+    ↓
+ocr delegate rule --format json <reviewable files>
+    ↓
+review-pages envelope (schema, provider, base/head SHA)
+    ↓
+ocr.json
+```
 
-There is therefore no structured OCR output for Review Pages to consume,
-and this subsystem does not reimplement any of OCR's review-preparation
-semantics. `review-pages/src/build-ocr.mjs` records that integration
-state as an honest, versioned `ocr.json`
-(`mottainai.review-pages.ocr-status/v1`, currently always
-`status: "unavailable"`) rather than fabricating OCR-shaped content, so a
-future PR that gives OCR an enforceable request bound and a real
-structured export can populate `status: "available"` without a breaking
-schema change. Diff positioning (changed files, line/column hunk
-anchors) that Review Pages _does_ generate lives in `diff.json` — it is
-Review Pages' own "cheap deterministic diff metadata" per Issue #704's
-Change Information category, computed with plain `git diff`, not an OCR
+`build-ocr.mjs` (via `lib/ocr-cli.mjs`) runs both delegate subcommands
+and stores their JSON output close to verbatim under `ocr.json`'s
+`preview`/`rule` fields, alongside `provider` (OCR's npm package name
+and installed version), `baseSha`, `headSha`, and a schema version. It
+does not reimplement OCR's changed-file selection, exclusion, or rule
+resolution — that JSON _is_ OCR's own output. The one normalization
+applied is stripping `preview.repository`, an absolute local filesystem
+path that duplicates `manifest.repository` and isn't portable evidence.
+Delegate mode never calls an LLM and needs no credentials.
+
+Diff positioning (all changed files — not curated by OCR's
+reviewable/excluded split — plus line/column hunk anchors) that Review
+Pages generates independently lives in `diff.json`: plain `git diff`
+plumbing under Issue #704's Change Information category, not an OCR
 stand-in.
 
 ## Generated layout

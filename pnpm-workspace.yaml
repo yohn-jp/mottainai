@@ -6,6 +6,13 @@
 packages:
   - "."
 allowBuilds:
+  # The ocr CLI launcher (bin/ocr.js) execs a platform-specific binary
+  # already installed via optionalDependencies; postinstall's
+  # scripts/install.js only exists as a network-download fallback for
+  # platforms without a matching optionalDependency package. Denied
+  # deliberately to avoid running an arbitrary postinstall script from a
+  # third-party package for functionality this repository doesn't need.
+  '@alibaba-group/open-code-review': false
   esbuild: true
   node-pty: true
   tree-sitter: true

@@ -8,22 +8,25 @@ function git(args, cwd) {
 }
 
 // A small, fixed two-commit repository used across generator tests:
-// base adds two files, head modifies one and adds another. Every test
-// gets its own temp directory so runs never interfere.
+// base adds two files, head modifies one and adds another. `.js`
+// extensions are deliberate — OCR's own delegate preview treats them as
+// reviewable, exercising the full preview -> rule chain in
+// build-ocr.mjs. Every test gets its own temp directory so runs never
+// interfere.
 export function createFixtureRepo() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-review-pages-"));
   git(["init", "--initial-branch", "main", "."], dir);
   git(["config", "user.name", "fixture"], dir);
   git(["config", "user.email", "fixture@example.com"], dir);
 
-  fs.writeFileSync(path.join(dir, "a.txt"), "line one\nline two\n");
-  fs.writeFileSync(path.join(dir, "b.txt"), "unchanged\n");
+  fs.writeFileSync(path.join(dir, "a.js"), "function a() {\n  return 1;\n}\n");
+  fs.writeFileSync(path.join(dir, "b.js"), "function b() {\n  return 2;\n}\n");
   git(["add", "-A"], dir);
   git(["commit", "-m", "base"], dir);
   const baseSha = git(["rev-parse", "HEAD"], dir);
 
-  fs.writeFileSync(path.join(dir, "a.txt"), "line one\nline two changed\nline three\n");
-  fs.writeFileSync(path.join(dir, "c.txt"), "new file\n");
+  fs.writeFileSync(path.join(dir, "a.js"), "function a() {\n  return 1;\n}\nfunction extra() {\n  return 3;\n}\n");
+  fs.writeFileSync(path.join(dir, "c.js"), "function c() {\n  return 4;\n}\n");
   git(["add", "-A"], dir);
   git(["commit", "-m", "head"], dir);
   const headSha = git(["rev-parse", "HEAD"], dir);

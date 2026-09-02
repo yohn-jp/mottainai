@@ -1,34 +1,40 @@
-export const OCR_STATUS_SCHEMA_VERSION = "mottainai.review-pages.ocr-status/v1";
+import { runOcrPreview, runOcrRule, ocrPackageVersion } from "./lib/ocr-cli.mjs";
 
-// Open Code Review ("OpenCodeReview") integration boundary.
+export const OCR_SCHEMA_VERSION = "mottainai.review-pages.ocr/v1";
+
+const OCR_PACKAGE_NAME = "@alibaba-group/open-code-review";
+
+// Open Code Review integration boundary.
 //
-// Investigated surface (scripts/review-preflight.mjs, .github/workflows/):
-// OpenCodeReview is a manual, comment-triggered third-party GitHub Action
-// (MANUAL_REVIEW_COMMANDS.OpenCodeReview = "/open-code-review"). Its pinned
-// action exposes no repository-enforceable request-token bound, so it is
-// listed in UNBOUNDED_REVIEWERS and stays disabled; no workflow in this
-// repository currently invokes it or review-preflight.mjs, and none of
-// OCR's own deterministic review-preparation logic (changed-file
-// selection, bundling, rule resolution, positioning) exists as
-// repository-owned code that could be re-exported. There is therefore no
-// structured OCR output for Review Pages to consume, and none of that
-// logic is reimplemented here.
+// OCR ships a documented, LLM-free "delegate" mode built exactly for
+// this: `ocr delegate preview` performs OCR's own deterministic
+// changed-file selection/exclusion, and `ocr delegate rule` resolves
+// OCR's own review rules for the files preview selected. Review Pages
+// consumes both verbatim as the canonical source for review-oriented
+// deterministic analysis; it does not reimplement file selection,
+// exclusion, or rule resolution itself. No LLM credentials are used —
+// delegate mode never calls a model.
 //
-// ocr.json instead records this integration state as an honest,
-// versioned status so a future PR — one that gives OpenCodeReview an
-// enforceable request bound and a structured export, or wires one up
-// deterministically — can populate a real `available` record without a
-// breaking schema change. Diff-positioning data Review Pages does own
-// (changed files, line/column hunk anchors) lives in diff.json, not
-// here; see build-diff.mjs.
-export function buildOcrStatus() {
+// `preview.repository` is stripped: it is an absolute local filesystem
+// path from the `--repo` argument, not portable/meaningful evidence,
+// and duplicates `manifest.repository`.
+export function buildOcr({ cwd, baseSha, headSha }) {
+  const preview = runOcrPreview({ cwd, baseSha, headSha });
+  const { repository: _repository, ...normalizedPreview } = preview;
+
+  const reviewableFiles = (preview.reviewable_files ?? []).map((file) => file.path);
+  const rule = runOcrRule({ cwd, baseSha, headSha, files: reviewableFiles });
+
   return {
-    schemaVersion: OCR_STATUS_SCHEMA_VERSION,
-    status: "unavailable",
-    reason:
-      "OpenCodeReview has no repository-enforceable request-token bound and stays disabled " +
-      "(scripts/review-preflight.mjs UNBOUNDED_REVIEWERS); no workflow in this repository " +
-      "invokes it, and it exposes no structured export surface to consume.",
-    provider: null,
+    schemaVersion: OCR_SCHEMA_VERSION,
+    provider: {
+      package: OCR_PACKAGE_NAME,
+      version: ocrPackageVersion(),
+      cli: "ocr delegate",
+    },
+    baseSha,
+    headSha,
+    preview: normalizedPreview,
+    rule,
   };
 }

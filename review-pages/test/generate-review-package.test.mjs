@@ -93,10 +93,10 @@ test("diff.json records per-file status and counts from the fixture repo", async
     const { resources } = await generateReviewPackage(baseInput(fixture));
     const diff = resources["diff.json"];
     const byPath = Object.fromEntries(diff.files.map((file) => [file.path, file]));
-    assert.equal(byPath["a.txt"].status, "modified");
-    assert.equal(byPath["c.txt"].status, "added");
+    assert.equal(byPath["a.js"].status, "modified");
+    assert.equal(byPath["c.js"].status, "added");
     assert.equal(
-      diff.files.some((file) => file.path === "b.txt"),
+      diff.files.some((file) => file.path === "b.js"),
       false,
     );
     assert.equal(diff.stats.filesChanged, 2);
@@ -105,14 +105,27 @@ test("diff.json records per-file status and counts from the fixture repo", async
   }
 });
 
-test("ocr.json honestly reports OCR as unavailable rather than reimplementing it", async () => {
+test("ocr.json consumes OCR's own delegate preview/rule output rather than reimplementing it", async () => {
   const fixture = createFixtureRepo();
   try {
     const { resources } = await generateReviewPackage(baseInput(fixture));
     const ocr = resources["ocr.json"];
-    assert.equal(ocr.status, "unavailable");
-    assert.equal(ocr.provider, null);
-    assert.equal("reviewUnits" in ocr, false);
+    assert.equal(ocr.provider.package, "@alibaba-group/open-code-review");
+    assert.match(ocr.provider.version, /^\d+\.\d+\.\d+$/u);
+    assert.equal(ocr.provider.cli, "ocr delegate");
+    assert.equal(ocr.baseSha, fixture.baseSha);
+    assert.equal(ocr.headSha, fixture.headSha);
+
+    // preview: OCR's own changed-file selection (a.js/c.js are reviewable
+    // .js files; b.js is unchanged and never appears).
+    assert.equal("repository" in ocr.preview, false, "the local filesystem path is stripped");
+    const reviewablePaths = ocr.preview.reviewable_files.map((file) => file.path).sort();
+    assert.deepEqual(reviewablePaths, ["a.js", "c.js"]);
+
+    // rule: OCR's own resolved review rules for those files.
+    assert.ok(ocr.rule.groups.length > 0);
+    const filesInGroups = ocr.rule.groups.flatMap((group) => group.files);
+    assert.deepEqual([...filesInGroups].sort(), ["a.js", "c.js"]);
   } finally {
     removeFixtureRepo(fixture.dir);
   }
@@ -123,7 +136,7 @@ test("diff.json carries Review Pages' own hunk-positioning metadata", async () =
   try {
     const { resources } = await generateReviewPackage(baseInput(fixture));
     const diff = resources["diff.json"];
-    const changed = diff.files.find((file) => file.path === "a.txt");
+    const changed = diff.files.find((file) => file.path === "a.js");
     assert.ok(changed.hunks.length > 0);
     assert.ok(Number.isInteger(changed.hunks[0].newStart));
   } finally {
