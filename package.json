@@ -75,6 +75,7 @@
     "zod": "^3.24.4"
   },
   "devDependencies": {
+    "@alibaba-group/open-code-review": "1.11.1",
     "@types/node": "^24.0.0",
     "@types/ws": "^8.18.1",
     "eslint": "9.29.0",

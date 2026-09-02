@@ -1,0 +1,21 @@
+{
+  "$schemaVersion": "mottainai.review-pages.pr-index/v1",
+  "type": "object",
+  "required": ["schemaVersion", "number", "latest"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "type": "string", "pattern": "^mottainai\\.review-pages\\.pr-index/v\\d+$" },
+    "number": { "type": "integer", "minimum": 1 },
+    "latest": {
+      "type": ["object", "null"],
+      "required": ["headSha", "shortId", "path", "generatedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "headSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "shortId": { "type": "string" },
+        "path": { "type": "string" },
+        "generatedAt": { "type": "string" }
+      }
+    }
+  }
+}

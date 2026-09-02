@@ -46,6 +46,9 @@ const integrationPatterns = Object.freeze([
   "src/upstream.test.ts",
   "src/workflow/**/*.test.ts",
   "scripts/lib/mcp-blackbox-client.test.mjs",
+  "review-pages/test/generate-review-package.test.mjs",
+  "review-pages/test/publish-to-pages.test.mjs",
+  "review-pages/test/bounded-output.test.mjs",
 ]);
 
 const e2ePatterns = Object.freeze(["src/e2e/**/*.spec.ts"]);
@@ -69,7 +72,7 @@ const DEFAULT_INTEGRATION_TEST_TIMING_MS = 1_000;
 
 export const TEST_SUITE_RULES = Object.freeze({
   fast: Object.freeze({
-    include: Object.freeze(["src/**/*.test.ts"]),
+    include: Object.freeze(["src/**/*.test.ts", "review-pages/test/*.test.mjs"]),
     exclude: integrationPatterns,
   }),
   integration: Object.freeze({

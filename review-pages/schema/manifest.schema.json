@@ -1,0 +1,73 @@
+{
+  "$schemaVersion": "mottainai.review-pages.manifest/v1",
+  "type": "object",
+  "required": ["schemaVersion", "generator", "repository", "pullRequest", "revision", "resources", "volatile"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "type": "string", "pattern": "^mottainai\\.review-pages\\.manifest/v\\d+$" },
+    "generator": {
+      "type": "object",
+      "required": ["name", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" }
+      }
+    },
+    "repository": {
+      "type": "object",
+      "required": ["owner", "name", "fullName"],
+      "additionalProperties": false,
+      "properties": {
+        "owner": { "type": "string" },
+        "name": { "type": "string" },
+        "fullName": { "type": "string" }
+      }
+    },
+    "pullRequest": {
+      "type": "object",
+      "required": ["number", "title", "baseRef", "baseSha", "headRef", "headSha", "draft"],
+      "additionalProperties": false,
+      "properties": {
+        "number": { "type": "integer", "minimum": 1 },
+        "title": { "type": ["string", "null"] },
+        "baseRef": { "type": "string" },
+        "baseSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "headRef": { "type": "string" },
+        "headSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "draft": { "type": "boolean" }
+      }
+    },
+    "revision": {
+      "type": "object",
+      "required": ["id", "shortId", "immutable"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "shortId": { "type": "string", "pattern": "^[0-9a-f]{7,12}$" },
+        "immutable": { "type": "boolean", "enum": [true] }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "required": ["issue", "diff", "ocr", "checks", "html"],
+      "additionalProperties": false,
+      "properties": {
+        "issue": { "type": "string" },
+        "diff": { "type": "string" },
+        "ocr": { "type": "string" },
+        "checks": { "type": "string" },
+        "html": { "type": "string" }
+      }
+    },
+    "volatile": {
+      "type": "object",
+      "required": ["fields", "generatedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "fields": { "type": "array", "items": { "type": "string" } },
+        "generatedAt": { "type": "string" }
+      }
+    }
+  }
+}

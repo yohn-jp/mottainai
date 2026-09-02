@@ -1,0 +1,108 @@
+name: Review Pages
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: review-pages-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Untrusted, deterministic processing of PR-controlled content (diff,
+  # issue body, PR metadata). No write permission at all.
+  generate:
+    name: Generate review package
+    # Draft PRs are not review-ready revisions; ready_for_review produces
+    # the first one, and every later eligible head change the next.
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: read
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.18.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      # Installs @alibaba-group/open-code-review (pinned in package.json),
+      # the deterministic, LLM-free OCR CLI build-ocr.mjs delegates to.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate review package
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REVIEW_PAGES_OUTPUT_DIR: ${{ runner.temp }}/review-pages-output
+        run: node review-pages/src/generate-review-package.mjs
+
+      - name: Validate manifest
+        env:
+          REVIEW_PAGES_OUTPUT_DIR: ${{ runner.temp }}/review-pages-output
+        run: |
+          head_sha="$(node -p "require(process.env.REVIEW_PAGES_OUTPUT_DIR + '/pr-index.json').latest.headSha")"
+          node review-pages/src/validate-manifest.mjs \
+            "$REVIEW_PAGES_OUTPUT_DIR/$head_sha/manifest.json" \
+            "$REVIEW_PAGES_OUTPUT_DIR/pr-index.json"
+
+      - name: Upload generated package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: review-pages-output
+          path: ${{ runner.temp }}/review-pages-output
+          retention-days: 1
+
+  # Trusted publication only: no PR-controlled processing happens here,
+  # just pushing the already-generated, already-validated package.
+  publish:
+    name: Publish to gh-pages
+    needs: generate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Download generated package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: review-pages-output
+          path: ${{ runner.temp }}/review-pages-output
+
+      - name: Publish to gh-pages
+        env:
+          REVIEW_PAGES_REMOTE_URL: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          REVIEW_PAGES_BRANCH: gh-pages
+          REVIEW_PAGES_PR_NUMBER: ${{ github.event.pull_request.number }}
+          REVIEW_PAGES_OUTPUT_DIR: ${{ runner.temp }}/review-pages-output
+          REVIEW_PAGES_WORK_DIR: ${{ runner.temp }}/review-pages-publish
+        run: node review-pages/src/publish-to-pages.mjs
