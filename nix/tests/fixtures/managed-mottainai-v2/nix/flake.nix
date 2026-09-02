@@ -1,44 +1,49 @@
 {
   description = "Issue #703 repository-owned managed Mottainai fixture source (version 2.0.0)";
 
-  # Deliberately no inputs: this fixture must build with no compilation and
-  # no network access. A bare `builder = "/bin/sh"` has no PATH inside the
-  # Nix build sandbox (nix/tests/fixtures/alt-mottainai-source only gets
-  # away with that because it is a pure-evaluation-only fixture that is
-  # never actually built), and pulling in nixpkgs (even just
-  # pkgs.bash/pkgs.coreutils) for a real build risks needing a stdenv
-  # bootstrap closure that is not guaranteed to already be cached on a
-  # guest with no general internet access. Instead this flake reads the
-  # already-verified, already-present-on-this-guest bash/coreutils paths
-  # from the impure build environment (the same --impure evaluation
-  # src/runtime-contract/managed-generation-build.ts's own `nix build
-  # --impure` already requires) — set by
-  # nix/tests/runtime-appliance-golden-path.nix before invoking reconcile,
-  # from this exact guest's own `command -v`.
+  # Deliberately no inputs and no coreutils/bash of any kind: this fixture
+  # must build with no compilation and no network access, and this guest's
+  # bash/coreutils closures have proven not to be self-contained enough for
+  # the sandboxed builder to use directly (missing PATH entries, symlinked
+  # /run/current-system paths outside the sandbox, and — once given real
+  # Nix store context — a bash closure that itself pulled in a stdenv
+  # bootstrap rebuild the guest has no network path to complete). Node.js
+  # is the one guest-present executable this whole reconcile flow already
+  # depends on and runs successfully (the very process executing this
+  # build), so this fixture uses it as its builder and does every
+  # filesystem operation through Node's own fs API — no mkdir/sed/chmod/sh
+  # subprocess at all. MOTTAINAI_FIXTURE_NODE is set by
+  # nix/tests/runtime-appliance-golden-path.nix from this exact guest's
+  # own packaged bootstrap CLI wrapper (the same store path the driver
+  # script itself already runs on), via the impure build environment
+  # (builtins.getEnv, under the same --impure evaluation the production
+  # build already requires).
   outputs =
     { self }:
     let
       version = "2.0.0";
-      # builtins.storePath (not a plain string) so these evaluate with real
-      # Nix store context: a plain builtins.getEnv string has no context,
-      # so the sandboxed builder below never sees these paths as build
-      # dependencies and the Nix sandbox never mounts them, even though the
-      # paths themselves are genuinely valid and present on this guest.
-      coreutilsBinDir = builtins.storePath (builtins.getEnv "MOTTAINAI_FIXTURE_COREUTILS_DIR");
-      bashPath = builtins.storePath (builtins.getEnv "MOTTAINAI_FIXTURE_BASH");
+      # builtins.storePath (not a plain string) so this evaluates with
+      # real Nix store context: a plain builtins.getEnv string has no
+      # context, so the sandboxed builder would never see it as a build
+      # dependency and the Nix sandbox would never mount it, even though
+      # the path itself is genuinely present on this guest.
+      nodePath = builtins.storePath (builtins.getEnv "MOTTAINAI_FIXTURE_NODE");
       script = ''
-        mkdir -p "$out/bin"
-        cat > "$out/bin/mottainai" <<'MOTTAINAI_FIXTURE_EOF'
-        #!/bin/sh
-        if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then
-          printf '%s\n' "FIXTURE_VERSION"
-          exit 0
-        fi
-        echo "mottainai: unsupported argument" >&2
-        exit 1
-        MOTTAINAI_FIXTURE_EOF
-        sed -i "s/FIXTURE_VERSION/${version}/" "$out/bin/mottainai"
-        chmod +x "$out/bin/mottainai"
+        const fs = require("fs");
+        const path = require("path");
+        const binDir = path.join(process.env.out, "bin");
+        fs.mkdirSync(binDir, { recursive: true });
+        const lines = [
+          "#!/bin/sh",
+          "if [ \"$#\" -eq 1 ] && [ \"$1\" = \"--version\" ]; then",
+          "  printf '%s\\n' \"${version}\"",
+          "  exit 0",
+          "fi",
+          "echo \"mottainai: unsupported argument\" >&2",
+          "exit 1",
+          "",
+        ];
+        fs.writeFileSync(path.join(binDir, "mottainai"), lines.join("\n"), { mode: 0o755 });
       '';
       # `src` is added onto the derivation's own result attrset (not passed
       # as a derivation input, so it is never a build dependency the
@@ -55,9 +60,8 @@
         derivation {
           name = "mottainai-${version}";
           inherit system version;
-          builder = "${bashPath}";
-          args = [ "-c" script ];
-          PATH = "${coreutilsBinDir}";
+          builder = "${nodePath}";
+          args = [ "-e" script ];
         } // { src = ../.; };
     in
     {

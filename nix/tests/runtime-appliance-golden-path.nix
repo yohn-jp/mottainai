@@ -16,8 +16,8 @@ let
   # defaultNarHashOfTree does. Verified, not bypassed: the test-only fixture
   # resolver (nix/tests/lib/managed-mottainai-fixture-resolver.mjs)
   # recomputes this hash at runtime and fails closed on mismatch.
-  mottainaiSourceSha256V1 = "730bd4bf5c0db2203b7a45502e6316ae38da46ee928482314a119323f7051d65";
-  mottainaiSourceSha256V2 = "fa49b8e4b16ee6e2df5f5a60cc0ed364937b649e2891d8410b771819be83c3eb";
+  mottainaiSourceSha256V1 = "c58d9dda210e835fe591b8ba0f0766dd63a10f5da3d5e1c2b84ec5edcf50f848";
+  mottainaiSourceSha256V2 = "51bafc2ac8e8a374f62af13291fdcfe195c8323ec9f92ddec1d766149e1d2f9a";
   # Copied to the guest (below) alongside the fixture resolver so its
   # ../fixtures/<name> relative resolution keeps working there.
   fixturesDir = ./fixtures;
@@ -303,23 +303,20 @@ in
         node_bin = node_bin_match.group(0)
 
         # The fixture flakes (nix/tests/fixtures/managed-mottainai-v{1,2})
-        # build with the raw `derivation` builtin rather than
-        # pkgs.stdenv(NoCC).mkDerivation/pkgs.runCommand: those pull in
-        # this guest's pinned nixpkgs revision's full stdenv bootstrap
-        # closure (glibc, a Python needed only to build that closure, ...),
-        # which is not guaranteed to already be cached on a guest with no
-        # general internet access. Instead the fixture flakes read their
-        # builder/PATH from MOTTAINAI_FIXTURE_BASH/MOTTAINAI_FIXTURE_COREUTILS_DIR
-        # via the impure build environment (builtins.getEnv, under the same
-        # --impure evaluation the production build already requires) —
-        # resolved here from this exact guest's own real PATH, so no new
-        # package is ever fetched or built to support the fixture itself.
-        # `readlink -f`, not just `command -v`: PATH resolves through
-        # /run/current-system/sw/bin, a symlink farm outside the Nix build
-        # sandbox — the sandboxed builder can only see real /nix/store
-        # paths, so this must resolve all the way to those.
-        coreutils_dir = control("dirname \"$(readlink -f \"$(command -v mkdir)\")\"").strip()
-        bash_path = control("readlink -f \"$(command -v bash)\"").strip()
+        # build with the raw `derivation` builtin, using this guest's own
+        # packaged Node.js (node_bin, resolved above from the packaged
+        # bootstrap CLI wrapper) as their builder and doing every
+        # filesystem operation through Node's fs API — no mkdir/sed/chmod/sh
+        # subprocess. Earlier attempts using bash/coreutils
+        # (pkgs.stdenv(NoCC).mkDerivation, pkgs.runCommand, or even this
+        # guest's own bash resolved via `command -v`/`readlink -f`) either
+        # pulled in this nixpkgs revision's full stdenv bootstrap closure
+        # (glibc, a Python needed only to build that closure) or hit a
+        # bash closure this guest's Nix store could not complete either —
+        # neither guaranteed already cached/complete on a guest with no
+        # general internet access, unlike node_bin, which this exact
+        # driver process is itself already running on.
+        node_bin_for_fixture = node_bin
 
         driver_path = guest_fixture_root + "/reconcile-driver.mjs"
         driver_source = "\n".join([
@@ -332,8 +329,7 @@ in
             "const env = {",
             "  ...process.env,",
             "  CI: \"true\",",
-            "  MOTTAINAI_FIXTURE_COREUTILS_DIR: " + json.dumps(coreutils_dir) + ",",
-            "  MOTTAINAI_FIXTURE_BASH: " + json.dumps(bash_path) + ",",
+            "  MOTTAINAI_FIXTURE_NODE: " + json.dumps(node_bin_for_fixture) + ",",
             "};",
             "",
             "try {",
