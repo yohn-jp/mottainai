@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #685 @ e18e74a12249</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #685: fix(runtime): verify complete appliance OCI metadata contract</h1>
+<p>Base <code>main</code> @ <code>0bc6008f427b831ad2216a57ae35dd33c5a554a6</code> &rarr;
+Head <code>fix/670-verify-runtime-appliance-oci-metadata</code> @ <code>e18e74a12249101a8b02b1e6bff50a7288583161</code></p>
+<p>Revision <code>e18e74a12249</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/670">#670</a> fix(runtime): verify the complete Runtime Appliance OCI metadata contract (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] `compressedAsset.sha256` is required in the documented lowercase SHA-256 representation and validated structurally.</li>
+<li>[ ] `compressedAsset.sizeBytes` is required and bounded.</li>
+<li>[ ] Release metadata compressed digest/size must exactly match the raw OCI layer descriptor.</li>
+<li>[ ] Downloaded compressed bytes must exactly match both the descriptor and release metadata before decompression.</li>
+<li>[ ] Descriptor-size mismatch, compressed digest mismatch, corrupted compressed bytes, and malformed metadata fail closed with bounded diagnostics.</li>
+<li>[ ] The valid published Runtime Appliance shape remains accepted and idempotent reuse remains unchanged.</li>
+<li>[ ] Publish workflow/operator documentation enforce the same compressed identity contract as the Rust consumer.</li>
+<li>[ ] Focused tests cover every mismatch boundary above.</li></ul>
+
+<h2>Changed files (4, +303/-68)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/publish.yml</td><td>modified</td><td>+88</td><td>-39</td></tr>
+<tr><td>docs/runtime-appliance-oci.md</td><td>modified</td><td>+36</td><td>-13</td></tr>
+<tr><td>host-bootstrap/src/appliance.rs</td><td>modified</td><td>+52</td><td>-6</td></tr>
+<tr><td>host-bootstrap/tests/appliance.rs</td><td>modified</td><td>+127</td><td>-10</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

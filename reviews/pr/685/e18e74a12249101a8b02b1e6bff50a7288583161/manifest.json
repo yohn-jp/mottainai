@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "0bc6008f427b831ad2216a57ae35dd33c5a554a6",
+    "draft": false,
+    "headRef": "fix/670-verify-runtime-appliance-oci-metadata",
+    "headSha": "e18e74a12249101a8b02b1e6bff50a7288583161",
+    "number": 685,
+    "title": "fix(runtime): verify complete appliance OCI metadata contract"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "e18e74a12249101a8b02b1e6bff50a7288583161",
+    "immutable": true,
+    "shortId": "e18e74a12249"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-02T11:48:47.995Z"
+  }
+}

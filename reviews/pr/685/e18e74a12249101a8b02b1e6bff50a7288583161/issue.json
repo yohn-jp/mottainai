@@ -1,0 +1,49 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "`compressedAsset.sha256` is required in the documented lowercase SHA-256 representation and validated structurally."
+    },
+    {
+      "checked": false,
+      "text": "`compressedAsset.sizeBytes` is required and bounded."
+    },
+    {
+      "checked": false,
+      "text": "Release metadata compressed digest/size must exactly match the raw OCI layer descriptor."
+    },
+    {
+      "checked": false,
+      "text": "Downloaded compressed bytes must exactly match both the descriptor and release metadata before decompression."
+    },
+    {
+      "checked": false,
+      "text": "Descriptor-size mismatch, compressed digest mismatch, corrupted compressed bytes, and malformed metadata fail closed with bounded diagnostics."
+    },
+    {
+      "checked": false,
+      "text": "The valid published Runtime Appliance shape remains accepted and idempotent reuse remains unchanged."
+    },
+    {
+      "checked": false,
+      "text": "Publish workflow/operator documentation enforce the same compressed identity contract as the Rust consumer."
+    },
+    {
+      "checked": false,
+      "text": "Focused tests cover every mismatch boundary above."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 670,
+    "state": "open",
+    "title": "fix(runtime): verify the complete Runtime Appliance OCI metadata contract",
+    "url": "https://github.com/yohn-jp/mottainai/issues/670"
+  },
+  "linked": {
+    "number": 670
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

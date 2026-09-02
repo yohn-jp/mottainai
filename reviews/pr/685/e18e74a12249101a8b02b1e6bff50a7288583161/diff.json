@@ -1,0 +1,164 @@
+{
+  "baseSha": "0bc6008f427b831ad2216a57ae35dd33c5a554a6",
+  "files": [
+    {
+      "additions": 88,
+      "deletions": 39,
+      "hunks": [
+        {
+          "newLines": 33,
+          "newStart": 319,
+          "oldLines": 20,
+          "oldStart": 319
+        },
+        {
+          "newLines": 31,
+          "newStart": 500,
+          "oldLines": 0,
+          "oldStart": 486
+        },
+        {
+          "newLines": 7,
+          "newStart": 534,
+          "oldLines": 0,
+          "oldStart": 489
+        },
+        {
+          "newLines": 8,
+          "newStart": 559,
+          "oldLines": 0,
+          "oldStart": 507
+        },
+        {
+          "newLines": 9,
+          "newStart": 584,
+          "oldLines": 19,
+          "oldStart": 525
+        }
+      ],
+      "path": ".github/workflows/publish.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 36,
+      "deletions": 13,
+      "hunks": [
+        {
+          "newLines": 5,
+          "newStart": 43,
+          "oldLines": 0,
+          "oldStart": 42
+        },
+        {
+          "newLines": 5,
+          "newStart": 59,
+          "oldLines": 5,
+          "oldStart": 54
+        },
+        {
+          "newLines": 7,
+          "newStart": 83,
+          "oldLines": 2,
+          "oldStart": 78
+        },
+        {
+          "newLines": 1,
+          "newStart": 96,
+          "oldLines": 0,
+          "oldStart": 85
+        },
+        {
+          "newLines": 18,
+          "newStart": 101,
+          "oldLines": 6,
+          "oldStart": 90
+        }
+      ],
+      "path": "docs/runtime-appliance-oci.md",
+      "status": "modified"
+    },
+    {
+      "additions": 52,
+      "deletions": 6,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 201,
+          "oldLines": 1,
+          "oldStart": 201
+        },
+        {
+          "newLines": 7,
+          "newStart": 213,
+          "oldLines": 0,
+          "oldStart": 211
+        },
+        {
+          "newLines": 15,
+          "newStart": 229,
+          "oldLines": 0,
+          "oldStart": 220
+        },
+        {
+          "newLines": 2,
+          "newStart": 441,
+          "oldLines": 1,
+          "oldStart": 418
+        },
+        {
+          "newLines": 23,
+          "newStart": 478,
+          "oldLines": 1,
+          "oldStart": 454
+        },
+        {
+          "newLines": 2,
+          "newStart": 629,
+          "oldLines": 2,
+          "oldStart": 583
+        },
+        {
+          "newLines": 1,
+          "newStart": 636,
+          "oldLines": 1,
+          "oldStart": 590
+        }
+      ],
+      "path": "host-bootstrap/src/appliance.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 127,
+      "deletions": 10,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 106,
+          "oldLines": 10,
+          "oldStart": 106
+        },
+        {
+          "newLines": 70,
+          "newStart": 193,
+          "oldLines": 0,
+          "oldStart": 198
+        },
+        {
+          "newLines": 53,
+          "newStart": 340,
+          "oldLines": 0,
+          "oldStart": 275
+        }
+      ],
+      "path": "host-bootstrap/tests/appliance.rs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "e18e74a12249101a8b02b1e6bff50a7288583161",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 303,
+    "deletions": 68,
+    "filesChanged": 4
+  }
+}
