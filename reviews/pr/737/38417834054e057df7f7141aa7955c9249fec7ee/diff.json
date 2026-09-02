@@ -1,0 +1,145 @@
+{
+  "baseSha": "a4afa1d32981a238805d755579ee0e2665983640",
+  "files": [
+    {
+      "additions": 1,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 431,
+          "oldLines": 2,
+          "oldStart": 431
+        }
+      ],
+      "path": ".github/workflows/publish.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 60,
+          "oldLines": 0,
+          "oldStart": 59
+        }
+      ],
+      "path": "review-pages/schema/manifest.schema.json",
+      "status": "modified"
+    },
+    {
+      "additions": 12,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 31,
+          "oldLines": 0,
+          "oldStart": 30
+        },
+        {
+          "newLines": 1,
+          "newStart": 80,
+          "oldLines": 0,
+          "oldStart": 78
+        },
+        {
+          "newLines": 6,
+          "newStart": 88,
+          "oldLines": 1,
+          "oldStart": 86
+        },
+        {
+          "newLines": 3,
+          "newStart": 106,
+          "oldLines": 0,
+          "oldStart": 98
+        },
+        {
+          "newLines": 1,
+          "newStart": 111,
+          "oldLines": 1,
+          "oldStart": 101
+        }
+      ],
+      "path": "review-pages/src/generate-review-package.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": null,
+      "deletions": null,
+      "hunks": [],
+      "path": "review-pages/src/publish-to-pages.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 22,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        },
+        {
+          "newLines": 10,
+          "newStart": 13,
+          "oldLines": 1,
+          "oldStart": 11
+        },
+        {
+          "newLines": 8,
+          "newStart": 35,
+          "oldLines": 0,
+          "oldStart": 23
+        },
+        {
+          "newLines": 2,
+          "newStart": 68,
+          "oldLines": 0,
+          "oldStart": 48
+        }
+      ],
+      "path": "review-pages/src/render-html.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 437,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 437,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/review-projection.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 174,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 174,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/test/review-projection.test.mjs",
+      "status": "added"
+    }
+  ],
+  "headSha": "38417834054e057df7f7141aa7955c9249fec7ee",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 647,
+    "deletions": 5,
+    "filesChanged": 7
+  }
+}

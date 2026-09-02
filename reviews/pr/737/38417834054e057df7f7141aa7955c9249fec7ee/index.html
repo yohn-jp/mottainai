@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #737 @ 38417834054e</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #737: feat(workflow): project autonomous review results into Pages and Checks</h1>
+<p>Base <code>main</code> @ <code>a4afa1d32981a238805d755579ee0e2665983640</code> &rarr;
+Head <code>feat/720-review-projection</code> @ <code>38417834054e057df7f7141aa7955c9249fec7ee</code></p>
+<p>Revision <code>38417834054e</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/720">#720</a> feat: project autonomous review results into Review Pages and GitHub Checks (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Static revision HTML can render a structured review-result fixture without changing its semantics.</li>
+<li>[ ] Verdict, blocking findings, confidence, inspected inputs and unknowns are visible.</li>
+<li>[ ] Stale/superseded head state is explicit.</li>
+<li>[ ] A GitHub Check projection contract is implemented/tested for APPROVE, CHANGES_REQUIRED and INCONCLUSIVE.</li>
+<li>[ ] Check identity is exact-head scoped and contains a Review Pages revision link.</li>
+<li>[ ] No raw model transcript or private reasoning is written to Pages or GitHub.</li>
+<li>[ ] Projection tests use fixtures and remain independent of live LLM execution.</li>
+<li>[ ] Auto-merge and remediation are not introduced.</li></ul>
+
+
+
+<h2>Changed files (7, +647/-5)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/publish.yml</td><td>modified</td><td>+1</td><td>-2</td></tr>
+<tr><td>review-pages/schema/manifest.schema.json</td><td>modified</td><td>+1</td><td>-0</td></tr>
+<tr><td>review-pages/src/generate-review-package.mjs</td><td>modified</td><td>+12</td><td>-2</td></tr>
+<tr><td>review-pages/src/publish-to-pages.mjs</td><td>modified</td><td>+?</td><td>-?</td></tr>
+<tr><td>review-pages/src/render-html.mjs</td><td>modified</td><td>+22</td><td>-1</td></tr>
+<tr><td>review-pages/src/review-projection.mjs</td><td>added</td><td>+437</td><td>-0</td></tr>
+<tr><td>review-pages/test/review-projection.test.mjs</td><td>added</td><td>+174</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

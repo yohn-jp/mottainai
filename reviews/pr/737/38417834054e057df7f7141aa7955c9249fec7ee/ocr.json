@@ -1,0 +1,89 @@
+{
+  "baseSha": "a4afa1d32981a238805d755579ee0e2665983640",
+  "headSha": "38417834054e057df7f7141aa7955c9249fec7ee",
+  "preview": {
+    "excluded_count": 1,
+    "excluded_files": [
+      {
+        "deletions": 0,
+        "exclude_reason": "binary",
+        "insertions": 0,
+        "path": "review-pages/src/publish-to-pages.mjs",
+        "status": "binary"
+      }
+    ],
+    "from": "a4afa1d32981a238805d755579ee0e2665983640",
+    "merge_base": "4f634778d31c8681caf1dd0b2e35170b832208e0",
+    "mode": "range",
+    "reviewable_count": 5,
+    "reviewable_files": [
+      {
+        "deletions": 0,
+        "insertions": 1,
+        "path": "review-pages/schema/manifest.schema.json",
+        "status": "modified"
+      },
+      {
+        "deletions": 2,
+        "insertions": 12,
+        "path": "review-pages/src/generate-review-package.mjs",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "insertions": 22,
+        "path": "review-pages/src/render-html.mjs",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 437,
+        "path": "review-pages/src/review-projection.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 174,
+        "path": "review-pages/test/review-projection.test.mjs",
+        "status": "added"
+      }
+    ],
+    "schema_version": "1",
+    "to": "38417834054e057df7f7141aa7955c9249fec7ee",
+    "total_deletions": 3,
+    "total_files": 6,
+    "total_insertions": 646
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.1"
+  },
+  "rule": {
+    "groups": [
+      {
+        "files": [
+          "review-pages/schema/manifest.schema.json"
+        ],
+        "group_id": 1,
+        "pattern": "**/*.{json,json5}",
+        "rule": "Check JSON files for spelling errors in json-keys; ignore the content of json-values.",
+        "source": "system"
+      },
+      {
+        "files": [
+          "review-pages/src/generate-review-package.mjs",
+          "review-pages/src/render-html.mjs",
+          "review-pages/src/review-projection.mjs",
+          "review-pages/test/review-projection.test.mjs"
+        ],
+        "group_id": 2,
+        "pattern": "default",
+        "rule": "#### Correctness\nIs the logic correct? Are there missing boundary conditions?\nAre exceptions handled properly?\nIs it thread-safe in concurrent scenarios?\n\n#### Security\nAre there security vulnerabilities such as SQL injection or XSS?\nIs sensitive information handled correctly?\nIs permission validation complete?\n\n#### Performance\nAre there obvious performance issues (e.g., N+1 queries, unnecessary loops)?\nAre resources properly released?\n\n#### Maintainability\nIs the code clear and easy to understand?\nDo names accurately express intent?\nDoes it follow the project’s existing code style and architecture patterns?\n\n#### Test Coverage\nDo critical logic paths have corresponding test cases?\nDo test cases cover boundary conditions?",
+        "source": "system"
+      }
+    ],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}

@@ -1,0 +1,49 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Static revision HTML can render a structured review-result fixture without changing its semantics."
+    },
+    {
+      "checked": false,
+      "text": "Verdict, blocking findings, confidence, inspected inputs and unknowns are visible."
+    },
+    {
+      "checked": false,
+      "text": "Stale/superseded head state is explicit."
+    },
+    {
+      "checked": false,
+      "text": "A GitHub Check projection contract is implemented/tested for APPROVE, CHANGES_REQUIRED and INCONCLUSIVE."
+    },
+    {
+      "checked": false,
+      "text": "Check identity is exact-head scoped and contains a Review Pages revision link."
+    },
+    {
+      "checked": false,
+      "text": "No raw model transcript or private reasoning is written to Pages or GitHub."
+    },
+    {
+      "checked": false,
+      "text": "Projection tests use fixtures and remain independent of live LLM execution."
+    },
+    {
+      "checked": false,
+      "text": "Auto-merge and remediation are not introduced."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "enhancement"
+    ],
+    "number": 720,
+    "state": "open",
+    "title": "feat: project autonomous review results into Review Pages and GitHub Checks",
+    "url": "https://github.com/yohn-jp/mottainai/issues/720"
+  },
+  "linked": {
+    "number": 720
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
