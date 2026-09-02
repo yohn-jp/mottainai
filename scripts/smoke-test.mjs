@@ -140,7 +140,7 @@ function main() {
 
     // The packed consumer smoke is intentionally hermetic and must not claim
     // host virtualization hardware it does not own. `init` only validates the
-    // released CLI/config surface; Runtime lifecycle belongs to `runtime`.
+    // released CLI/config surface; Runtime lifecycle belongs to `mottainai-init`.
     console.log("running init --yes --dry-run --scope project --client none --no-doctor --json...");
     const initResult = spawnSync(
       process.execPath,
@@ -174,21 +174,24 @@ function main() {
     if (fs.existsSync(configPath)) fail(`dry-run init wrote configuration file at ${configPath}`);
 
     const runtimeStateDirectory = path.join(installDirectory, "runtime-state");
-    console.log("running packed runtime ensure --help...");
+    console.log("running packed retired runtime ensure --help...");
     const runtimeEnsureHelpResult = spawnSync(process.execPath, [primaryBin, "runtime", "ensure", "--help"], {
       cwd: installDirectory,
       encoding: "utf8",
       timeout: 10_000,
     });
-    if (runtimeEnsureHelpResult.status !== 0 || !runtimeEnsureHelpResult.stdout.includes("runtime ensure"))
+    if (
+      runtimeEnsureHelpResult.status !== 0 ||
+      !runtimeEnsureHelpResult.stdout.includes("mottainai-init runtime ensure --spec PATH")
+    )
       fail(
-        `runtime ensure help was not callable: ${runtimeEnsureHelpResult.status}\n${runtimeEnsureHelpResult.stdout}\n${runtimeEnsureHelpResult.stderr}`,
+        `runtime ensure deprecation guidance was not callable: ${runtimeEnsureHelpResult.status}\n${runtimeEnsureHelpResult.stdout}\n${runtimeEnsureHelpResult.stderr}`,
       );
 
-    console.log("running packed runtime status --json...");
-    const runtimeStatusResult = spawnSync(
+    console.log("running packed retired runtime ensure --json...");
+    const runtimeEnsureResult = spawnSync(
       process.execPath,
-      [primaryBin, "runtime", "status", "--json", "--state-directory", runtimeStateDirectory],
+      [primaryBin, "runtime", "ensure", "--json", "--state-directory", runtimeStateDirectory],
       {
         cwd: installDirectory,
         encoding: "utf8",
@@ -196,19 +199,22 @@ function main() {
         timeout: 10_000,
       },
     );
-    if (runtimeStatusResult.status !== 0)
+    if (runtimeEnsureResult.status !== 1)
       fail(
-        `runtime status exited with status ${runtimeStatusResult.status}:\n${runtimeStatusResult.stdout}\n${runtimeStatusResult.stderr}`,
+        `retired runtime ensure exited with status ${runtimeEnsureResult.status}:\n${runtimeEnsureResult.stdout}\n${runtimeEnsureResult.stderr}`,
       );
-    let runtimeStatus;
+    let runtimeError;
     try {
-      runtimeStatus = JSON.parse(runtimeStatusResult.stdout);
+      runtimeError = JSON.parse(runtimeEnsureResult.stdout);
     } catch {
-      fail(`runtime status --json did not print valid JSON:\n${runtimeStatusResult.stdout}`);
+      fail(`retired runtime ensure --json did not print valid JSON:\n${runtimeEnsureResult.stdout}`);
     }
-    if (runtimeStatus.ok !== true || runtimeStatus.lifecycle !== "absent")
-      fail(`runtime status did not report an absent Runtime: ${JSON.stringify(runtimeStatus)}`);
-    if (fs.existsSync(runtimeStateDirectory)) fail("runtime status created the state directory");
+    if (
+      runtimeError.ok !== false ||
+      !String(runtimeError.error ?? "").includes("mottainai-init runtime ensure --spec PATH")
+    )
+      fail(`retired runtime ensure did not return deprecation guidance: ${JSON.stringify(runtimeError)}`);
+    if (fs.existsSync(runtimeStateDirectory)) fail("retired runtime ensure created the state directory");
 
     console.log("running packed Mottainai gh-inari companion smoke...");
     run(process.execPath, ["scripts/gh-inari-package-smoke.mjs", installedPackageDirectory], {

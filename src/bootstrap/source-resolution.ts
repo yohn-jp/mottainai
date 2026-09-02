@@ -14,9 +14,10 @@ import { BootstrapError } from "./errors.js";
  * checkout, no PATH lookup, no npm global install — only a pinned,
  * verified fetch of the exact tagged release the manifest requests.
  *
- * Modeled on src/local-runtime/artifacts.ts's download/verify/extract
- * patterns (HTTPS-only, host allowlist, streaming size-capped download,
- * tar safety checks), adapted for a source-tree fetch: `sourceSha256` is
+ * Uses the same bounded download/verify/extract invariants as the repository's
+ * artifact resolvers (HTTPS-only, host allowlist, streaming size-capped
+ * download, tar safety checks), adapted for a source-tree fetch:
+ * `sourceSha256` is
  * verified against the NAR hash of the *extracted tree content*, not the
  * archive bytes — GitHub's auto-generated tag archives are not guaranteed
  * byte-stable across gzip implementation changes, only their tree content
@@ -120,8 +121,8 @@ async function defaultRawHttpTransport(url: string): ReturnType<RawHttpTransport
  * `MAX_REDIRECTS`. This is load-bearing: `fetch(url, { redirect: "follow"
  * })` would follow redirects transparently inside the fetch call itself,
  * before this module's allowlist check ever saw the final destination
- * host — exactly the gap this function closes. Mirrors
- * src/local-runtime/artifacts.ts's `fetchWithRedirects`.
+ * host — exactly the gap this function closes. The redirect policy remains
+ * bounded and explicit at this source-resolution boundary.
  */
 export async function defaultFetcher(
   url: string,
@@ -195,8 +196,8 @@ function isSafeArchiveEntry(entry: string): boolean {
 
 /**
  * Enumerates and type-checks archive entries before extracting (rejects
- * symlinks/special files and unsafe paths), mirroring
- * src/local-runtime/artifacts.ts's extractDownloadedArchive. `--strip-components=1`
+ * symlinks/special files and unsafe paths), mirroring the repository's
+ * bounded archive extraction policy. `--strip-components=1`
  * drops GitHub's auto-generated `<repo>-<tag>/` wrapper directory — the
  * same idiom nix/mottainai.nix's own installPhase already uses for its
  * `pnpm pack` tarball.

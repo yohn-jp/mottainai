@@ -178,7 +178,7 @@ managed readiness after the restart.
 
 ## Non-goals not exercised by this proof
 
-Per Issue #572: no automatic `mottainai runtime ensure` provisioning, no
+Per Issue #572: no automatic Runtime provisioning, no
 automatic SSH key injection, no automatic repository sync, no host-to-guest
 RPC beyond the health/reconcile commands above, no automatic NixOS
 upgrade/rollback, and no QEMU artifact/lifecycle redesign — this proof
