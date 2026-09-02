@@ -555,4 +555,20 @@ in
     }
     print("ISSUE_630_GOLDEN_PATH_EVIDENCE " + json.dumps(evidence, sort_keys=True))
     '';
+}).overrideTestDerivation (_: {
+  # Not required for a historical HTTPS source fetch any more (Issue #703
+  # replaced that with repository-owned fixtures resolved with no network
+  # access). Still required because the guest reconciler's real
+  # managed-generation build (nix/managed-generation.nix's metadataFile)
+  # runs a nested `nix build` inside the guest, and that build needs
+  # cache.nixos.org reachability whenever the guest's Nix store doesn't
+  # already have every stdenv-bootstrap closure the fixture version being
+  # built happens to need. The outer Nix build sandbox removes the network
+  # namespace before QEMU starts, which severs the guest's user-mode network
+  # from the host's real network stack; CI must run this derivation with
+  # `sandbox = relaxed` for that guest-internal build to reach the cache.
+  # Removing this reintroduces a deterministic guest-side DNS failure
+  # (`Could not resolve host: www.python.org`) building glibc from source,
+  # confirmed on this Issue's PR (#708).
+  __noChroot = true;
 })
