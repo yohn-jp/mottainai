@@ -1,0 +1,16 @@
+{
+  "acceptanceCriteria": [],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 726,
+    "state": "open",
+    "title": "fix(ci): host-bootstrap-init release asset upload fails with HTTP 422 on an immutable release",
+    "url": "https://github.com/yohn-jp/mottainai/issues/726"
+  },
+  "linked": {
+    "number": 726
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
