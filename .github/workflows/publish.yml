@@ -1,20 +1,136 @@
 name: Publish to npm
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
+    paths: [package.json]
+
+# Serialize the entire release lifecycle. Two overlapping runs would race
+# each other creating the same tag/draft release, or double-publish to
+# npm/GHCR/the release's assets. cancel-in-progress stays false: a
+# publication in progress must run to completion (or fail on its own
+# terms), never be torn down mid-publish by a later push.
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
+  prepare-release:
+    name: Prepare draft release
+    # #726: GitHub Release immutability is enforced only after a release is
+    # published; draft releases and their assets remain freely mutable. The
+    # previous release: types: [published] trigger guaranteed every asset
+    # upload in this workflow raced an already-immutable release and failed
+    # (mottainai-init's HTTP 422 on every real run). Merging a release/<semver>
+    # PR to main (governance.yml's existing release-PR contract) is the only
+    # thing that changes package.json's version, so that version change is
+    # now the sole trigger for the whole release lifecycle: this job creates
+    # the tag and a draft release before any asset exists, and
+    # finalize-release below is the only place that ever flips it to
+    # published, once every asset-producing job has succeeded.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      should_release: ${{ steps.detect.outputs.should_release }}
+      version: ${{ steps.detect.outputs.version }}
+      tag: ${{ steps.detect.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history: the idempotency check below may need to resolve a
+          # pre-existing draft's targetCommitish, which can be an older
+          # commit than a shallow fetch would include.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect whether package.json's version actually changed
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_version="$(node -p "require('./package.json').version")"
+          if git rev-parse --verify --quiet HEAD^ >/dev/null; then
+            previous_version="$(git show HEAD^:package.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version" 2>/dev/null || echo "")"
+          else
+            previous_version=""
+          fi
+          if [ "$current_version" = "$previous_version" ]; then
+            echo "package.json version unchanged ($current_version); nothing to release"
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! [[ "$current_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "package.json version is not a bare MAJOR.MINOR.PATCH: $current_version" >&2
+            exit 1
+          fi
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+          echo "version=$current_version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$current_version" >> "$GITHUB_OUTPUT"
+
+      - name: Create or resume the git tag and draft release
+        # Idempotent by design: a run that fails after this step (e.g. in
+        # build/publish/runtime-appliance/host-bootstrap-init) must be
+        # resumable by re-running the workflow rather than requiring manual
+        # cleanup. If the tag/release already exist, reuse them only when
+        # their identity matches this exact run (same commit, still a
+        # draft); any mismatch fails closed instead of silently adopting a
+        # different release.
+        if: steps.detect.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.detect.outputs.tag }}
+          VERSION: ${{ steps.detect.outputs.version }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          existing="$(gh release view "$TAG" --json isDraft,targetCommitish 2>/dev/null || true)"
+          if [ -n "$existing" ]; then
+            existing_is_draft="$(jq -r '.isDraft' <<<"$existing")"
+            existing_target="$(jq -r '.targetCommitish' <<<"$existing")"
+            if [ "$existing_is_draft" != "true" ]; then
+              echo "release $TAG already exists and is not a draft; refusing to reuse or recreate it" >&2
+              exit 1
+            fi
+            resolved_target="$(git rev-parse --verify "${existing_target}^{commit}")"
+            if [ "$resolved_target" != "$TARGET_SHA" ]; then
+              echo "release $TAG already exists as a draft but targets $resolved_target, not this run's $TARGET_SHA; refusing to reuse a different commit's draft" >&2
+              exit 1
+            fi
+            echo "draft release $TAG already exists for this exact commit; reusing it"
+            exit 0
+          fi
+
+          notes_file="docs/releases/$VERSION.md"
+          if [ -f "$notes_file" ]; then
+            gh release create "$TAG" \
+              --target "$TARGET_SHA" \
+              --title "Mottainai $VERSION" \
+              --notes-file "$notes_file" \
+              --draft
+          else
+            gh release create "$TAG" \
+              --target "$TARGET_SHA" \
+              --title "Mottainai $VERSION" \
+              --generate-notes \
+              --draft
+          fi
+
   build:
+    needs: prepare-release
+    if: needs.prepare-release.outputs.should_release == 'true'
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.prepare-release.outputs.tag }}
           persist-credentials: false
 
       - name: Setup pnpm
@@ -56,7 +172,7 @@ jobs:
 
       - name: Verify release version
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
         run: |
           package_version="$(node -p "require('./package.json').version")"
           tag_version="${RELEASE_TAG#v}"
@@ -76,7 +192,7 @@ jobs:
           retention-days: 1
 
   smoke-test:
-    needs: build
+    needs: [prepare-release, build]
     name: packed package smoke test (${{ matrix.os }}, Node ${{ matrix.node-version }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -89,6 +205,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.prepare-release.outputs.tag }}
           persist-credentials: false
 
       - name: Setup Node.js
@@ -106,7 +223,7 @@ jobs:
         shell: bash
 
   publish:
-    needs: smoke-test
+    needs: [prepare-release, smoke-test]
     runs-on: ubuntu-latest
     environment: npm
     permissions:
@@ -117,6 +234,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.prepare-release.outputs.tag }}
           persist-credentials: false
 
       - name: Setup Node.js
@@ -158,13 +276,14 @@ jobs:
     # The appliance is a separate release surface from npm. The ordering only
     # ensures the canonical Nix package's already-declared npm source exists;
     # the appliance is never added to the npm tarball.
-    needs: publish
+    needs: [prepare-release, publish]
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    # The release itself is immutable source/release-note metadata. Runtime
-    # Appliance bytes are published to GHCR as a separate artifact lifecycle.
-    # Keep this job's token scoped to the registry write and tagged-source read
-    # it actually needs; it must not mutate a GitHub Release.
+    # The release itself is immutable source/release-note metadata once
+    # published. Runtime Appliance bytes are published to GHCR as a separate
+    # artifact lifecycle. Keep this job's token scoped to the registry write
+    # and tagged-source read it actually needs; it must not mutate a GitHub
+    # Release.
     permissions:
       contents: read
       packages: write
@@ -176,7 +295,7 @@ jobs:
       - name: Checkout exact release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ needs.prepare-release.outputs.tag }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -198,7 +317,7 @@ jobs:
       - name: Verify exact tagged release revision and package identity
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
         run: |
           set -euo pipefail
           test -n "$RELEASE_TAG"
@@ -384,7 +503,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
         run: |
           set -euo pipefail
 
@@ -619,7 +738,13 @@ jobs:
     # #660: a durable, versioned, independently verifiable distribution
     # surface for the standalone host bootstrap binary. This is unrelated to
     # the npm package and does not depend on it; it does not add any Lima
-    # orchestration or Runtime Appliance publication behavior.
+    # orchestration or Runtime Appliance publication behavior. It runs
+    # against the still-draft release from prepare-release: draft release
+    # assets are always mutable (#726), so this upload never races
+    # publication immutability the way it did under the old
+    # release: published trigger.
+    needs: prepare-release
+    if: needs.prepare-release.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -628,13 +753,13 @@ jobs:
       - name: Checkout exact release tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ needs.prepare-release.outputs.tag }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Verify exact tagged release revision
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
         run: |
           set -euo pipefail
           test -n "$RELEASE_TAG"
@@ -675,7 +800,7 @@ jobs:
         working-directory: host-bootstrap
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
         run: |
           set -euo pipefail
           asset_names="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"
@@ -686,7 +811,7 @@ jobs:
               --clobber
             published_digest="$(awk '{print $1}' existing-mottainai-init-linux-x86_64.sha256)"
             if [ "$published_digest" != "$HOST_BOOTSTRAP_ARTIFACT_DIGEST" ]; then
-              echo "published mottainai-init-linux-x86_64 digest ($published_digest) does not match this build ($HOST_BOOTSTRAP_ARTIFACT_DIGEST); refusing to replace an immutable release artifact" >&2
+              echo "published mottainai-init-linux-x86_64 digest ($published_digest) does not match this build ($HOST_BOOTSTRAP_ARTIFACT_DIGEST); refusing to replace an artifact already recorded for this release" >&2
               exit 1
             fi
             echo "identical bytes already published for $RELEASE_TAG; publication is idempotent"
@@ -698,14 +823,19 @@ jobs:
 
       - name: Retrieve and verify the published artifact from a fresh location
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           fresh_dir="$RUNNER_TEMP/mottainai-init-fresh-fetch"
           mkdir -p "$fresh_dir"
-          base_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
-          curl -fsSL -o "$fresh_dir/mottainai-init-linux-x86_64" "$base_url/mottainai-init-linux-x86_64"
-          curl -fsSL -o "$fresh_dir/mottainai-init-linux-x86_64.sha256" "$base_url/mottainai-init-linux-x86_64.sha256"
+          # The release is still a draft at this point, so the assets are not
+          # yet reachable at the public releases/download URL; fetch them
+          # through the API the same way any draft-release asset must be.
+          gh release download "$RELEASE_TAG" \
+            --dir "$fresh_dir" \
+            --pattern 'mottainai-init-linux-x86_64*' \
+            --clobber
           cd "$fresh_dir"
           sha256sum --check mottainai-init-linux-x86_64.sha256
           fetched_digest="$(awk '{print $1}' mottainai-init-linux-x86_64.sha256)"
@@ -718,7 +848,7 @@ jobs:
 
       - name: Record release evidence
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
         run: |
           {
             echo "### mottainai-init release artifact"
@@ -727,3 +857,28 @@ jobs:
             echo "- binary digest (sha256): \`$HOST_BOOTSTRAP_ARTIFACT_DIGEST\`"
             echo "- publication reference: \`https://github.com/${GITHUB_REPOSITORY}/releases/download/$RELEASE_TAG/mottainai-init-linux-x86_64\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  finalize-release:
+    name: Publish the GitHub Release
+    # #726: this is the only step in the entire workflow permitted to flip
+    # the release from draft to published. It only runs once every
+    # asset-producing job has succeeded, so immutability only ever starts
+    # applying to a release whose assets are already complete. A failure in
+    # any dependency leaves the release as a draft rather than publishing a
+    # release with a missing or inconsistent asset.
+    needs: [prepare-release, publish, runtime-appliance, host-bootstrap-init]
+    if: needs.prepare-release.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Publish the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
+        run: gh release edit "$RELEASE_TAG" --draft=false
