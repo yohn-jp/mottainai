@@ -57,6 +57,7 @@
         "diff": { "type": "string" },
         "ocr": { "type": "string" },
         "checks": { "type": "string" },
+        "reviewResult": { "type": "string" },
         "html": { "type": "string" }
       }
     },
