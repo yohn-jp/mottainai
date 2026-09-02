@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "153b9baac226dc4289cec65cfc183b6e8265ae99",
+    "draft": false,
+    "headRef": "feat/704-review-pages",
+    "headSha": "95d4960bf5e8c04051de61e0cde23f6b2f63bd00",
+    "number": 707,
+    "title": "feat(workflow): publish deterministic PR review context as static Review Pages"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "95d4960bf5e8c04051de61e0cde23f6b2f63bd00",
+    "immutable": true,
+    "shortId": "95d4960bf5e8"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-02T03:59:54.125Z"
+  }
+}

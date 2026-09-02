@@ -1,0 +1,274 @@
+{
+  "baseSha": "153b9baac226dc4289cec65cfc183b6e8265ae99",
+  "headSha": "95d4960bf5e8c04051de61e0cde23f6b2f63bd00",
+  "preview": {
+    "excluded_count": 2,
+    "excluded_files": [
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 182,
+        "path": "review-pages/README.md",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "binary",
+        "insertions": 0,
+        "path": "review-pages/src/publish-to-pages.mjs",
+        "status": "binary"
+      }
+    ],
+    "from": "153b9baac226dc4289cec65cfc183b6e8265ae99",
+    "merge_base": "153b9baac226dc4289cec65cfc183b6e8265ae99",
+    "mode": "range",
+    "reviewable_count": 27,
+    "reviewable_files": [
+      {
+        "deletions": 0,
+        "insertions": 108,
+        "path": ".github/workflows/review-pages.yml",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 1,
+        "path": "package.json",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 65,
+        "path": "pnpm-lock.yaml",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 7,
+        "path": "pnpm-workspace.yaml",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 73,
+        "path": "review-pages/schema/manifest.schema.json",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 21,
+        "path": "review-pages/schema/pr-index.schema.json",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 33,
+        "path": "review-pages/src/build-checks.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 32,
+        "path": "review-pages/src/build-diff.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 43,
+        "path": "review-pages/src/build-issue.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 40,
+        "path": "review-pages/src/build-ocr.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 169,
+        "path": "review-pages/src/generate-review-package.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 25,
+        "path": "review-pages/src/lib/canonical-json.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 94,
+        "path": "review-pages/src/lib/git.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 35,
+        "path": "review-pages/src/lib/github-api.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 33,
+        "path": "review-pages/src/lib/markdown.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 65,
+        "path": "review-pages/src/lib/ocr-cli.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 66,
+        "path": "review-pages/src/lib/schema-validator.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 66,
+        "path": "review-pages/src/render-html.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 46,
+        "path": "review-pages/src/validate-manifest.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 54,
+        "path": "review-pages/test/bounded-output.test.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 20,
+        "path": "review-pages/test/canonical-json.test.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 215,
+        "path": "review-pages/test/generate-review-package.test.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 39,
+        "path": "review-pages/test/helpers/fixture-repo.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 67,
+        "path": "review-pages/test/manifest-schema.test.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 38,
+        "path": "review-pages/test/markdown.test.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 280,
+        "path": "review-pages/test/publish-to-pages.test.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 1,
+        "insertions": 4,
+        "path": "scripts/test-suites.mjs",
+        "status": "modified"
+      }
+    ],
+    "schema_version": "1",
+    "to": "95d4960bf5e8c04051de61e0cde23f6b2f63bd00",
+    "total_deletions": 1,
+    "total_files": 29,
+    "total_insertions": 1921
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.1"
+  },
+  "rule": {
+    "groups": [
+      {
+        "files": [
+          ".github/workflows/review-pages.yml"
+        ],
+        "group_id": 1,
+        "pattern": ".github/workflows/**/*.{yaml,yml}",
+        "rule": "#### Security\n- **pull_request_target misuse**: Using `pull_request_target` with `actions/checkout` referencing PR head code is dangerous — it runs untrusted code with write permissions. Flag if checkout ref points to PR head without isolation\n- **Secrets exposure**: Secrets must not be printed to logs (e.g., `echo ${{ secrets.X }}`). Verify secrets are only passed via `env:` blocks to steps that need them\n- **Excessive permissions**: Check if `permissions` is set to least-privilege. Flag `permissions: write-all` or missing `permissions` key (defaults to broad access). Each job should declare only the permissions it needs\n- **Unpinned action versions**: Third-party actions should be pinned to a full commit SHA (e.g., `uses: actions/checkout@<sha>`), not just a tag. Tags are mutable and can be hijacked. First-party (`actions/*`) pinned to `v4` is acceptable\n- **Script injection**: Expressions like `${{ github.event.issue.title }}` used directly in `run:` blocks enable code injection. These must be passed through environment variables instead\n- **Hardcoded credentials**: Tokens, passwords, or API keys directly in the workflow file (not via secrets)\n\n#### Correctness\n- **Missing `fetch-depth: 0`**: When a workflow needs git history (tags, merge-base, changelog generation), verify `actions/checkout` uses `fetch-depth: 0`\n- **Incorrect condition logic**: Verify `if:` conditions are correct (e.g., `github.event_name == 'pull_request'` vs `'pull_request_target'`); ensure boolean expressions are properly quoted\n- **Matrix strategy gaps**: Check that matrix combinations cover required platforms. Flag if `fail-fast` is true (default) but all matrix legs must succeed\n- **Missing `shell` specification**: When using `run:` with multi-line scripts on self-hosted runners, shell should be explicit (bash vs sh vs pwsh)\n- **Broken job dependencies**: Verify `needs:` references exist as actual job IDs in the same workflow. Check for circular dependencies\n- **Typos in action inputs**: Misspelled input names for actions (e.g., `fetch-detph` instead of `fetch-depth`) are silently ignored\n\n#### Reliability\n- **Missing timeout**: Jobs without `timeout-minutes` can run indefinitely and consume runner resources. Flag jobs that lack timeout (especially on self-hosted runners)\n- **No concurrency control**: Workflows triggered by push/PR without `concurrency` group may create redundant runs. Suggest `concurrency` with `cancel-in-progress` where appropriate\n- **Uncached dependencies**: Build workflows that install dependencies without caching (no `actions/cache` or built-in caching) on every run\n\n#### Best Practices\n- **Deprecated features**: Flag usage of deprecated syntax (`set-output`, `save-state`, `::set-output`, `actions/checkout@v2/v3` when v4 is available)\n- **Missing `continue-on-error` awareness**: If a step failure should not fail the whole job, it needs `continue-on-error: true`; conversely, verify non-critical steps don't silently swallow failures with `|| true` hiding real errors\n- **Container image tags**: Using `latest` tag for container images is unreliable; prefer specific version tags",
+        "source": "system"
+      },
+      {
+        "files": [
+          "package.json"
+        ],
+        "group_id": 2,
+        "pattern": "**/package.json",
+        "rule": "- Avoid introducing dependencies with a version of `latest` or `*`; use specific version numbers instead. Note: ignore this rule when the version number is not on a newly added line of code\n- Dependency conflicts or duplicate declarations: the same dependency exists in both `dependencies` and `devDependencies`\n- Required tool dependencies not declared: tool names such as eslint, jest, or prettier appear in `scripts` but are not listed in `devDependencies`",
+        "source": "system"
+      },
+      {
+        "files": [
+          "pnpm-lock.yaml",
+          "pnpm-workspace.yaml"
+        ],
+        "group_id": 3,
+        "pattern": "**/*.{yaml,yml}",
+        "rule": "Check for spelling errors in yaml-keys within YAML files; ignore the content of yaml-values.",
+        "source": "system"
+      },
+      {
+        "files": [
+          "review-pages/schema/manifest.schema.json",
+          "review-pages/schema/pr-index.schema.json"
+        ],
+        "group_id": 4,
+        "pattern": "**/*.{json,json5}",
+        "rule": "Check JSON files for spelling errors in json-keys; ignore the content of json-values.",
+        "source": "system"
+      },
+      {
+        "files": [
+          "review-pages/src/build-checks.mjs",
+          "review-pages/src/build-diff.mjs",
+          "review-pages/src/build-issue.mjs",
+          "review-pages/src/build-ocr.mjs",
+          "review-pages/src/generate-review-package.mjs",
+          "review-pages/src/lib/canonical-json.mjs",
+          "review-pages/src/lib/git.mjs",
+          "review-pages/src/lib/github-api.mjs",
+          "review-pages/src/lib/markdown.mjs",
+          "review-pages/src/lib/ocr-cli.mjs",
+          "review-pages/src/lib/schema-validator.mjs",
+          "review-pages/src/render-html.mjs",
+          "review-pages/src/validate-manifest.mjs",
+          "review-pages/test/bounded-output.test.mjs",
+          "review-pages/test/canonical-json.test.mjs",
+          "review-pages/test/generate-review-package.test.mjs",
+          "review-pages/test/helpers/fixture-repo.mjs",
+          "review-pages/test/manifest-schema.test.mjs",
+          "review-pages/test/markdown.test.mjs",
+          "review-pages/test/publish-to-pages.test.mjs",
+          "scripts/test-suites.mjs"
+        ],
+        "group_id": 5,
+        "pattern": "default",
+        "rule": "#### Correctness\nIs the logic correct? Are there missing boundary conditions?\nAre exceptions handled properly?\nIs it thread-safe in concurrent scenarios?\n\n#### Security\nAre there security vulnerabilities such as SQL injection or XSS?\nIs sensitive information handled correctly?\nIs permission validation complete?\n\n#### Performance\nAre there obvious performance issues (e.g., N+1 queries, unnecessary loops)?\nAre resources properly released?\n\n#### Maintainability\nIs the code clear and easy to understand?\nDo names accurately express intent?\nDoes it follow the project’s existing code style and architecture patterns?\n\n#### Test Coverage\nDo critical logic paths have corresponding test cases?\nDo test cases cover boundary conditions?",
+        "source": "system"
+      }
+    ],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}

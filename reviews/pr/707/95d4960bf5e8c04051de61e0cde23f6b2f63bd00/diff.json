@@ -1,0 +1,429 @@
+{
+  "baseSha": "153b9baac226dc4289cec65cfc183b6e8265ae99",
+  "files": [
+    {
+      "additions": 108,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 108,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": ".github/workflows/review-pages.yml",
+      "status": "added"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 78,
+          "oldLines": 0,
+          "oldStart": 77
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 65,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 42,
+          "oldLines": 0,
+          "oldStart": 41
+        },
+        {
+          "newLines": 35,
+          "newStart": 72,
+          "oldLines": 0,
+          "oldStart": 68
+        },
+        {
+          "newLines": 27,
+          "newStart": 1152,
+          "oldLines": 0,
+          "oldStart": 1113
+        }
+      ],
+      "path": "pnpm-lock.yaml",
+      "status": "modified"
+    },
+    {
+      "additions": 7,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 7,
+          "newStart": 9,
+          "oldLines": 0,
+          "oldStart": 8
+        }
+      ],
+      "path": "pnpm-workspace.yaml",
+      "status": "modified"
+    },
+    {
+      "additions": 182,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 182,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/README.md",
+      "status": "added"
+    },
+    {
+      "additions": 73,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 73,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/schema/manifest.schema.json",
+      "status": "added"
+    },
+    {
+      "additions": 21,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 21,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/schema/pr-index.schema.json",
+      "status": "added"
+    },
+    {
+      "additions": 33,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 33,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/build-checks.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 32,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 32,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/build-diff.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 43,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 43,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/build-issue.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 40,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 40,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/build-ocr.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 169,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 169,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/generate-review-package.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 25,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 25,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/lib/canonical-json.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 94,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 94,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/lib/git.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 35,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 35,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/lib/github-api.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 33,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 33,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/lib/markdown.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 65,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 65,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/lib/ocr-cli.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 66,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 66,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/lib/schema-validator.mjs",
+      "status": "added"
+    },
+    {
+      "additions": null,
+      "deletions": null,
+      "hunks": [],
+      "path": "review-pages/src/publish-to-pages.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 66,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 66,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/render-html.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 46,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 46,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/validate-manifest.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 54,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 54,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/test/bounded-output.test.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 20,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 20,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/test/canonical-json.test.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 215,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 215,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/test/generate-review-package.test.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 39,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 39,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/test/helpers/fixture-repo.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 67,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 67,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/test/manifest-schema.test.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 38,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 38,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/test/markdown.test.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 280,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 280,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/test/publish-to-pages.test.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 4,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 49,
+          "oldLines": 0,
+          "oldStart": 48
+        },
+        {
+          "newLines": 1,
+          "newStart": 75,
+          "oldLines": 1,
+          "oldStart": 72
+        }
+      ],
+      "path": "scripts/test-suites.mjs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "95d4960bf5e8c04051de61e0cde23f6b2f63bd00",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 1921,
+    "deletions": 1,
+    "filesChanged": 29
+  }
+}
