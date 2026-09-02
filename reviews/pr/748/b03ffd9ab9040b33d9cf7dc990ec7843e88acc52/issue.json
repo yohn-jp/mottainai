@@ -1,0 +1,41 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Opening the GitHub Pages site root exposes links to published PR review pages."
+    },
+    {
+      "checked": false,
+      "text": "`/reviews/pr/<PR>/` provides a stable human-facing route to the latest immutable revision for that PR."
+    },
+    {
+      "checked": false,
+      "text": "Publishing a new revision updates only the mutable navigation projection while preserving all immutable revision directories."
+    },
+    {
+      "checked": false,
+      "text": "Publishing multiple PRs preserves all root-index entries."
+    },
+    {
+      "checked": false,
+      "text": "Tests cover stable PR navigation, root navigation, and update-to-latest behavior."
+    },
+    {
+      "checked": false,
+      "text": "Existing immutable revision conflict handling and publication retry semantics remain unchanged."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "enhancement"
+    ],
+    "number": 747,
+    "state": "open",
+    "title": "feat: add stable navigation paths for Review Pages",
+    "url": "https://github.com/yohn-jp/mottainai/issues/747"
+  },
+  "linked": {
+    "number": 747
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
