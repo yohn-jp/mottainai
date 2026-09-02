@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #687 @ 4be885891cac</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #687: fix(runtime): retire legacy npm runtime surface</h1>
+<p>Base <code>main</code> @ <code>0bc6008f427b831ad2216a57ae35dd33c5a554a6</code> &rarr;
+Head <code>fix/674-retire-legacy-runtime-ensure-surface</code> @ <code>4be885891cac29b90bbf3248cc2fe400625c780d</code></p>
+<p>Revision <code>4be885891cac</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/674">#674</a> fix(runtime): retire the legacy TypeScript direct-QEMU runtime ensure surface (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] `mottainai runtime ensure/status` no longer silently routes to the superseded direct managed-QEMU/QMP implementation.</li>
+<li>[ ] The supported user-facing path is explicit: either the npm CLI safely delegates/discovers the standalone `mottainai-init` contract, or it deprecates/removes the Runtime subcommand and directs users to `mottainai-init`.</li>
+<li>[ ] No fix resurrects Mottainai-owned QEMU artifact distribution or private QMP lifecycle contrary to #600.</li>
+<li>[ ] Direct QEMU/KVM users may still consume the canonical Runtime Appliance directly; that provider-independent capability is not coupled to the npm CLI legacy implementation.</li>
+<li>[ ] Obsolete `src/local-runtime/*` code and QEMU artifact contracts are removed from the reachable production surface and deleted where no retained consumer requires them.</li>
+<li>[ ] CLI/help/docs/tests describe the same canonical Runtime architecture and do not claim unavailable managed-QEMU artifacts.</li>
+<li>[ ] A regression test proves the public Runtime command cannot enter the all-`not-built` legacy artifact path.</li></ul>
+
+<h2>Changed files (34, +94/-4518)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/ci.yml</td><td>modified</td><td>+10</td><td>-10</td></tr>
+<tr><td>CHANGELOG.md</td><td>modified</td><td>+2</td><td>-2</td></tr>
+<tr><td>docs/local-runtime.md</td><td>modified</td><td>+6</td><td>-0</td></tr>
+<tr><td>docs/nix-runtime-golden-path.md</td><td>modified</td><td>+1</td><td>-1</td></tr>
+<tr><td>docs/releases/0.2.0.md</td><td>modified</td><td>+6</td><td>-6</td></tr>
+<tr><td>README.md</td><td>modified</td><td>+9</td><td>-5</td></tr>
+<tr><td>scripts/architecture-check.mjs</td><td>modified</td><td>+0</td><td>-2</td></tr>
+<tr><td>scripts/build-runtime-qemu-manifest.mjs</td><td>removed</td><td>+0</td><td>-187</td></tr>
+<tr><td>scripts/build-runtime-qemu-manifest.test.mjs</td><td>removed</td><td>+0</td><td>-189</td></tr>
+<tr><td>scripts/runtime-qemu-boot-smoke.mjs</td><td>removed</td><td>+0</td><td>-74</td></tr>
+<tr><td>scripts/runtime-qemu-contract.mjs</td><td>removed</td><td>+0</td><td>-43</td></tr>
+<tr><td>scripts/smoke-test.mjs</td><td>modified</td><td>+21</td><td>-15</td></tr>
+<tr><td>scripts/verify-runtime-qemu-artifact.mjs</td><td>removed</td><td>+0</td><td>-121</td></tr>
+<tr><td>src/bootstrap/source-resolution.ts</td><td>modified</td><td>+8</td><td>-7</td></tr>
+<tr><td>src/cli.test.ts</td><td>modified</td><td>+24</td><td>-25</td></tr>
+<tr><td>src/cli.ts</td><td>modified</td><td>+6</td><td>-36</td></tr>
+<tr><td>src/init.ts</td><td>modified</td><td>+1</td><td>-1</td></tr>
+<tr><td>src/local-runtime/artifacts.test.ts</td><td>removed</td><td>+0</td><td>-355</td></tr>
+<tr><td>src/local-runtime/artifacts.ts</td><td>removed</td><td>+0</td><td>-710</td></tr>
+<tr><td>src/local-runtime/host.test.ts</td><td>removed</td><td>+0</td><td>-61</td></tr>
+<tr><td>src/local-runtime/host.ts</td><td>removed</td><td>+0</td><td>-85</td></tr>
+<tr><td>src/local-runtime/image.test.ts</td><td>removed</td><td>+0</td><td>-37</td></tr>
+<tr><td>src/local-runtime/image.ts</td><td>removed</td><td>+0</td><td>-251</td></tr>
+<tr><td>src/local-runtime/index.ts</td><td>removed</td><td>+0</td><td>-9</td></tr>
+<tr><td>src/local-runtime/qmp.test.ts</td><td>removed</td><td>+0</td><td>-128</td></tr>
+<tr><td>src/local-runtime/qmp.ts</td><td>removed</td><td>+0</td><td>-332</td></tr>
+<tr><td>src/local-runtime/reconciler.test.ts</td><td>removed</td><td>+0</td><td>-548</td></tr>
+<tr><td>src/local-runtime/reconciler.ts</td><td>removed</td><td>+0</td><td>-349</td></tr>
+<tr><td>src/local-runtime/ssh.test.ts</td><td>removed</td><td>+0</td><td>-52</td></tr>
+<tr><td>src/local-runtime/ssh.ts</td><td>removed</td><td>+0</td><td>-210</td></tr>
+<tr><td>src/local-runtime/state.ts</td><td>removed</td><td>+0</td><td>-218</td></tr>
+<tr><td>src/local-runtime/status.test.ts</td><td>removed</td><td>+0</td><td>-97</td></tr>
+<tr><td>src/local-runtime/status.ts</td><td>removed</td><td>+0</td><td>-83</td></tr>
+<tr><td>src/local-runtime/types.ts</td><td>removed</td><td>+0</td><td>-269</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

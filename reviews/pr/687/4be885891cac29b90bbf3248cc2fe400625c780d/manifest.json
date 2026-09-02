@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "0bc6008f427b831ad2216a57ae35dd33c5a554a6",
+    "draft": false,
+    "headRef": "fix/674-retire-legacy-runtime-ensure-surface",
+    "headSha": "4be885891cac29b90bbf3248cc2fe400625c780d",
+    "number": 687,
+    "title": "fix(runtime): retire legacy npm runtime surface"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "4be885891cac29b90bbf3248cc2fe400625c780d",
+    "immutable": true,
+    "shortId": "4be885891cac"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-02T11:50:11.528Z"
+  }
+}

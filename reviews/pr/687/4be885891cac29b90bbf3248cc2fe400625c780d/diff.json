@@ -1,0 +1,626 @@
+{
+  "baseSha": "0bc6008f427b831ad2216a57ae35dd33c5a554a6",
+  "files": [
+    {
+      "additions": 10,
+      "deletions": 10,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 336,
+          "oldLines": 1,
+          "oldStart": 337
+        },
+        {
+          "newLines": 3,
+          "newStart": 540,
+          "oldLines": 0,
+          "oldStart": 540
+        },
+        {
+          "newLines": 7,
+          "newStart": 545,
+          "oldLines": 9,
+          "oldStart": 543
+        }
+      ],
+      "path": ".github/workflows/ci.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 112,
+          "oldLines": 2,
+          "oldStart": 112
+        }
+      ],
+      "path": "CHANGELOG.md",
+      "status": "modified"
+    },
+    {
+      "additions": 6,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 6,
+          "newStart": 15,
+          "oldLines": 0,
+          "oldStart": 14
+        }
+      ],
+      "path": "docs/local-runtime.md",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 181,
+          "oldLines": 1,
+          "oldStart": 181
+        }
+      ],
+      "path": "docs/nix-runtime-golden-path.md",
+      "status": "modified"
+    },
+    {
+      "additions": 6,
+      "deletions": 6,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 96,
+          "oldLines": 4,
+          "oldStart": 96
+        },
+        {
+          "newLines": 2,
+          "newStart": 147,
+          "oldLines": 2,
+          "oldStart": 147
+        }
+      ],
+      "path": "docs/releases/0.2.0.md",
+      "status": "modified"
+    },
+    {
+      "additions": 9,
+      "deletions": 5,
+      "hunks": [
+        {
+          "newLines": 9,
+          "newStart": 228,
+          "oldLines": 5,
+          "oldStart": 228
+        }
+      ],
+      "path": "README.md",
+      "status": "modified"
+    },
+    {
+      "additions": 0,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 103,
+          "oldLines": 2,
+          "oldStart": 104
+        }
+      ],
+      "path": "scripts/architecture-check.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 0,
+      "deletions": 187,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 187,
+          "oldStart": 1
+        }
+      ],
+      "path": "scripts/build-runtime-qemu-manifest.mjs",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 189,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 189,
+          "oldStart": 1
+        }
+      ],
+      "path": "scripts/build-runtime-qemu-manifest.test.mjs",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 74,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 74,
+          "oldStart": 1
+        }
+      ],
+      "path": "scripts/runtime-qemu-boot-smoke.mjs",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 43,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 43,
+          "oldStart": 1
+        }
+      ],
+      "path": "scripts/runtime-qemu-contract.mjs",
+      "status": "removed"
+    },
+    {
+      "additions": 21,
+      "deletions": 15,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 143,
+          "oldLines": 1,
+          "oldStart": 143
+        },
+        {
+          "newLines": 1,
+          "newStart": 177,
+          "oldLines": 1,
+          "oldStart": 177
+        },
+        {
+          "newLines": 4,
+          "newStart": 183,
+          "oldLines": 1,
+          "oldStart": 183
+        },
+        {
+          "newLines": 1,
+          "newStart": 188,
+          "oldLines": 1,
+          "oldStart": 185
+        },
+        {
+          "newLines": 2,
+          "newStart": 191,
+          "oldLines": 2,
+          "oldStart": 188
+        },
+        {
+          "newLines": 1,
+          "newStart": 194,
+          "oldLines": 1,
+          "oldStart": 191
+        },
+        {
+          "newLines": 1,
+          "newStart": 202,
+          "oldLines": 1,
+          "oldStart": 199
+        },
+        {
+          "newLines": 1,
+          "newStart": 204,
+          "oldLines": 1,
+          "oldStart": 201
+        },
+        {
+          "newLines": 1,
+          "newStart": 206,
+          "oldLines": 1,
+          "oldStart": 203
+        },
+        {
+          "newLines": 1,
+          "newStart": 208,
+          "oldLines": 1,
+          "oldStart": 205
+        },
+        {
+          "newLines": 1,
+          "newStart": 210,
+          "oldLines": 1,
+          "oldStart": 207
+        },
+        {
+          "newLines": 6,
+          "newStart": 212,
+          "oldLines": 3,
+          "oldStart": 209
+        }
+      ],
+      "path": "scripts/smoke-test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 0,
+      "deletions": 121,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 121,
+          "oldStart": 1
+        }
+      ],
+      "path": "scripts/verify-runtime-qemu-artifact.mjs",
+      "status": "removed"
+    },
+    {
+      "additions": 8,
+      "deletions": 7,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 17,
+          "oldLines": 3,
+          "oldStart": 17
+        },
+        {
+          "newLines": 2,
+          "newStart": 124,
+          "oldLines": 2,
+          "oldStart": 123
+        },
+        {
+          "newLines": 2,
+          "newStart": 199,
+          "oldLines": 2,
+          "oldStart": 198
+        }
+      ],
+      "path": "src/bootstrap/source-resolution.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 24,
+      "deletions": 25,
+      "hunks": [
+        {
+          "newLines": 23,
+          "newStart": 36,
+          "oldLines": 24,
+          "oldStart": 36
+        },
+        {
+          "newLines": 1,
+          "newStart": 92,
+          "oldLines": 1,
+          "oldStart": 93
+        }
+      ],
+      "path": "src/cli.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 6,
+      "deletions": 36,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 16,
+          "oldLines": 6,
+          "oldStart": 17
+        },
+        {
+          "newLines": 0,
+          "newStart": 68,
+          "oldLines": 2,
+          "oldStart": 75
+        },
+        {
+          "newLines": 0,
+          "newStart": 141,
+          "oldLines": 4,
+          "oldStart": 150
+        },
+        {
+          "newLines": 4,
+          "newStart": 158,
+          "oldLines": 4,
+          "oldStart": 170
+        },
+        {
+          "newLines": 0,
+          "newStart": 584,
+          "oldLines": 2,
+          "oldStart": 597
+        },
+        {
+          "newLines": 1,
+          "newStart": 586,
+          "oldLines": 14,
+          "oldStart": 600
+        },
+        {
+          "newLines": 1,
+          "newStart": 589,
+          "oldLines": 4,
+          "oldStart": 616
+        }
+      ],
+      "path": "src/cli.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 125,
+          "oldLines": 1,
+          "oldStart": 125
+        }
+      ],
+      "path": "src/init.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 0,
+      "deletions": 355,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 355,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/local-runtime/artifacts.test.ts",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 710,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 710,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/local-runtime/artifacts.ts",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 61,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 61,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/local-runtime/host.test.ts",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 85,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 85,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/local-runtime/host.ts",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 37,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 37,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/local-runtime/image.test.ts",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 251,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 251,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/local-runtime/image.ts",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 9,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 9,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/local-runtime/index.ts",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 128,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 128,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/local-runtime/qmp.test.ts",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 332,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 332,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/local-runtime/qmp.ts",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 548,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 548,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/local-runtime/reconciler.test.ts",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 349,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 349,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/local-runtime/reconciler.ts",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 52,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 52,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/local-runtime/ssh.test.ts",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 210,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 210,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/local-runtime/ssh.ts",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 218,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 218,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/local-runtime/state.ts",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 97,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 97,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/local-runtime/status.test.ts",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 83,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 83,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/local-runtime/status.ts",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 269,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 269,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/local-runtime/types.ts",
+      "status": "removed"
+    }
+  ],
+  "headSha": "4be885891cac29b90bbf3248cc2fe400625c780d",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 94,
+    "deletions": 4518,
+    "filesChanged": 34
+  }
+}

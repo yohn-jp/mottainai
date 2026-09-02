@@ -1,0 +1,45 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "`mottainai runtime ensure/status` no longer silently routes to the superseded direct managed-QEMU/QMP implementation."
+    },
+    {
+      "checked": false,
+      "text": "The supported user-facing path is explicit: either the npm CLI safely delegates/discovers the standalone `mottainai-init` contract, or it deprecates/removes the Runtime subcommand and directs users to `mottainai-init`."
+    },
+    {
+      "checked": false,
+      "text": "No fix resurrects Mottainai-owned QEMU artifact distribution or private QMP lifecycle contrary to #600."
+    },
+    {
+      "checked": false,
+      "text": "Direct QEMU/KVM users may still consume the canonical Runtime Appliance directly; that provider-independent capability is not coupled to the npm CLI legacy implementation."
+    },
+    {
+      "checked": false,
+      "text": "Obsolete `src/local-runtime/*` code and QEMU artifact contracts are removed from the reachable production surface and deleted where no retained consumer requires them."
+    },
+    {
+      "checked": false,
+      "text": "CLI/help/docs/tests describe the same canonical Runtime architecture and do not claim unavailable managed-QEMU artifacts."
+    },
+    {
+      "checked": false,
+      "text": "A regression test proves the public Runtime command cannot enter the all-`not-built` legacy artifact path."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 674,
+    "state": "open",
+    "title": "fix(runtime): retire the legacy TypeScript direct-QEMU runtime ensure surface",
+    "url": "https://github.com/yohn-jp/mottainai/issues/674"
+  },
+  "linked": {
+    "number": 674
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
