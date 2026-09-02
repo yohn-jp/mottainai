@@ -1,0 +1,59 @@
+{
+  "baseSha": "c36be71197fadb39aacf1c7edce6b9d61765305d",
+  "headSha": "48bbe7000dbe56272fb95f5c01e29ad24a7fa7e0",
+  "preview": {
+    "excluded_count": 0,
+    "excluded_files": [],
+    "from": "c36be71197fadb39aacf1c7edce6b9d61765305d",
+    "merge_base": "c36be71197fadb39aacf1c7edce6b9d61765305d",
+    "mode": "range",
+    "reviewable_count": 3,
+    "reviewable_files": [
+      {
+        "deletions": 0,
+        "insertions": 103,
+        "path": "review-pages/src/navigation-pages.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 3,
+        "path": "review-pages/src/publish-to-pages.mjs",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 68,
+        "path": "review-pages/test/navigation-pages.test.mjs",
+        "status": "added"
+      }
+    ],
+    "schema_version": "1",
+    "to": "48bbe7000dbe56272fb95f5c01e29ad24a7fa7e0",
+    "total_deletions": 0,
+    "total_files": 3,
+    "total_insertions": 174
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.1"
+  },
+  "rule": {
+    "groups": [
+      {
+        "files": [
+          "review-pages/src/navigation-pages.mjs",
+          "review-pages/src/publish-to-pages.mjs",
+          "review-pages/test/navigation-pages.test.mjs"
+        ],
+        "group_id": 1,
+        "pattern": "default",
+        "rule": "#### Correctness\nIs the logic correct? Are there missing boundary conditions?\nAre exceptions handled properly?\nIs it thread-safe in concurrent scenarios?\n\n#### Security\nAre there security vulnerabilities such as SQL injection or XSS?\nIs sensitive information handled correctly?\nIs permission validation complete?\n\n#### Performance\nAre there obvious performance issues (e.g., N+1 queries, unnecessary loops)?\nAre resources properly released?\n\n#### Maintainability\nIs the code clear and easy to understand?\nDo names accurately express intent?\nDoes it follow the project’s existing code style and architecture patterns?\n\n#### Test Coverage\nDo critical logic paths have corresponding test cases?\nDo test cases cover boundary conditions?",
+        "source": "system"
+      }
+    ],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}
