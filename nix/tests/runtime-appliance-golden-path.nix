@@ -390,6 +390,15 @@ in
 
     with subtest("fresh canonical appliance is bootstrap-ready and has no managed packages"):
         wait_for_bootstrap_ready()
+        # Bounded, temporary diagnostic (Issue #703 CI investigation): confirms
+        # whether this guest can reach the binary cache substituter at all,
+        # to distinguish "no general internet access" from "this one
+        # revision's stdenv closure isn't cached yet". Prints one line;
+        # never asserts, so it cannot itself fail the test.
+        network_probe = control(
+            "nix store info --store https://cache.nixos.org --json 2>&1 | head -c 300 || true"
+        ).strip()
+        print("MOTTAINAI_FIXTURE_NETWORK_PROBE " + network_probe)
         setup_reconcile_driver()
         guest_failure("command -v mottainai")
         guest_failure("command -v nawabari")
