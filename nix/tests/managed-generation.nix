@@ -55,7 +55,33 @@ let
   # of recipe ownership even though it does not resolve that source's own
   # pinned nixpkgs the way the production driver's `builtins.getFlake` call
   # does.
-  mottainaiPackageFromSource = source: import (source + "/nix/mottainai.nix") { inherit pkgs source; };
+  #
+  # `hasMottainaiRecipe`/the two `builtins.readDir` calls below guard the
+  # case where the file is absent (the `sourceWithoutExpectedPackageOutput`
+  # fixture): under `nix flake check`, this flake's own tracked-file source
+  # filtering makes even *asking* about a path that isn't a git-tracked file
+  # here — directly `import`ing it, or `builtins.pathExists` on it — throw
+  # "Path '...' does not exist in Git repository", a class of failure
+  # `builtins.tryEval` does not reliably catch (the same as
+  # `builtins.getFlake`'s purity restriction; see
+  # nix/managed-generation.nix's own comments). `readDir` on a directory
+  # that *does* exist has no such restriction — it just lists whatever
+  # tracked entries are actually there — so checking for a `"nix"`
+  # directory entry, then a `"mottainai.nix"` entry inside it, only ever
+  # asks about paths already known to exist, and lets a source with neither
+  # raise an ordinary, `tryEval`-catchable `throw` instead.
+  hasMottainaiRecipe = source:
+    let
+      topEntries = builtins.readDir source;
+    in
+    (topEntries.nix or null) == "directory"
+    && ((builtins.readDir (source + "/nix"))."mottainai.nix" or null) == "regular";
+
+  mottainaiPackageFromSource = source:
+    if !(hasMottainaiRecipe source) then
+      throw "nix/tests/managed-generation.nix: mottainai source at ${toString source} has no nix/mottainai.nix"
+    else
+      import (source + "/nix/mottainai.nix") { inherit pkgs source; };
 
   forceGeneration =
     { manifest, mottainaiSource ? defaultMottainaiSource }:

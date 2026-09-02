@@ -31,8 +31,21 @@ let
   # `builtins.getFlake` itself). Resolve each source's own nix/mottainai.nix
   # by plain `import` here — never HEAD's `../mottainai.nix` applied to a
   # foreign source — the same pure resolution nix/tests/managed-generation.nix
-  # uses and explains in its own header comment.
-  mottainaiPackageFromSource = mottainaiSource: import (mottainaiSource + "/nix/mottainai.nix") { inherit pkgs; source = mottainaiSource; };
+  # uses and explains in its own header comment (including why a
+  # `builtins.readDir`-based existence check guards this rather than
+  # `builtins.pathExists`/a direct `import` on a possibly-missing path).
+  hasMottainaiRecipe = mottainaiSource:
+    let
+      topEntries = builtins.readDir mottainaiSource;
+    in
+    (topEntries.nix or null) == "directory"
+    && ((builtins.readDir (mottainaiSource + "/nix"))."mottainai.nix" or null) == "regular";
+
+  mottainaiPackageFromSource = mottainaiSource:
+    if !(hasMottainaiRecipe mottainaiSource) then
+      throw "nix/tests/runtime-appliance.nix: mottainai source at ${toString mottainaiSource} has no nix/mottainai.nix"
+    else
+      import (mottainaiSource + "/nix/mottainai.nix") { inherit pkgs; source = mottainaiSource; };
 
   # These are two real #624/#626 managed inputs with the same package shape,
   # differing only in the resolved Mottainai version/source metadata. Each
