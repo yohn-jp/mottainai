@@ -2,12 +2,16 @@
   description = "Issue #703 repository-owned managed Mottainai fixture source (version 1.0.0)";
 
   # Pinned to the exact same nixpkgs revision as ../../../../flake.lock —
-  # deliberately not a second independent pin. Only needed for
-  # pkgs.runCommandNoCC's coreutils (mkdir/sed/chmod), so the sandboxed
-  # builder has a real PATH; the fixture itself still performs no
-  # compilation and reaches the network only through the ordinary,
-  # already-cached nixpkgs dependency every other check in this repository
-  # resolves the same way.
+  # deliberately not a second independent pin. Only needed for a real
+  # bash/coreutils PATH inside the Nix build sandbox (a bare builder =
+  # "/bin/sh" has no PATH there at all — nix/tests/fixtures/alt-mottainai-source
+  # only gets away with that because it is a pure-evaluation-only fixture
+  # that is never actually built). Deliberately the raw `derivation`
+  # builtin with only pkgs.bash/pkgs.coreutils as inputs, not
+  # pkgs.stdenv(NoCC).mkDerivation or pkgs.runCommand(NoCC): those pull in
+  # this nixpkgs revision's full stdenv bootstrap closure, which is not
+  # necessarily already cached on a fresh guest with no general internet
+  # access, unlike bash/coreutils themselves.
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
 
   outputs =
@@ -43,7 +47,13 @@
         let
           pkgs = nixpkgs.legacyPackages.${system};
         in
-        pkgs.runCommandNoCC "mottainai-${version}" { inherit version; } script // { src = ../.; };
+        derivation {
+          name = "mottainai-${version}";
+          inherit system version;
+          builder = "${pkgs.bash}/bin/bash";
+          args = [ "-c" script ];
+          PATH = "${pkgs.coreutils}/bin";
+        } // { src = ../.; };
     in
     {
       packages.x86_64-linux.mottainai = mkMottainai "x86_64-linux";
