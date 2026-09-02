@@ -19,8 +19,13 @@
     { self }:
     let
       version = "1.0.0";
-      coreutilsBinDir = builtins.getEnv "MOTTAINAI_FIXTURE_COREUTILS_DIR";
-      bashPath = builtins.getEnv "MOTTAINAI_FIXTURE_BASH";
+      # builtins.storePath (not a plain string) so these evaluate with real
+      # Nix store context: a plain builtins.getEnv string has no context,
+      # so the sandboxed builder below never sees these paths as build
+      # dependencies and the Nix sandbox never mounts them, even though the
+      # paths themselves are genuinely valid and present on this guest.
+      coreutilsBinDir = builtins.storePath (builtins.getEnv "MOTTAINAI_FIXTURE_COREUTILS_DIR");
+      bashPath = builtins.storePath (builtins.getEnv "MOTTAINAI_FIXTURE_BASH");
       script = ''
         mkdir -p "$out/bin"
         cat > "$out/bin/mottainai" <<'MOTTAINAI_FIXTURE_EOF'
@@ -50,9 +55,9 @@
         derivation {
           name = "mottainai-${version}";
           inherit system version;
-          builder = bashPath;
+          builder = "${bashPath}";
           args = [ "-c" script ];
-          PATH = coreutilsBinDir;
+          PATH = "${coreutilsBinDir}";
         } // { src = ../.; };
     in
     {
