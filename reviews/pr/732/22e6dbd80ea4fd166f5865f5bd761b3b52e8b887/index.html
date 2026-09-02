@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #732 @ 22e6dbd80ea4</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #732: chore(ci): parallelize Review Pages package builders</h1>
+<p>Base <code>main</code> @ <code>4f634778d31c8681caf1dd0b2e35170b832208e0</code> &rarr;
+Head <code>chore/724-review-pages-parallel-builders</code> @ <code>22e6dbd80ea4fd166f5865f5bd761b3b52e8b887</code></p>
+<p>Revision <code>22e6dbd80ea4</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/724">#724</a> chore: parallelize independent Review Pages package builders (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Independent builder work executes concurrently with an explicit dependency graph rather than accidental shared-state ordering.</li>
+<li>[ ] Final generated resources and manifest remain byte-for-byte deterministic for fixed injected inputs except documented volatile fields.</li>
+<li>[ ] Each builder failure retains bounded attributable diagnostics; one rejection does not swallow another failure silently.</li>
+<li>[ ] Shared GitHub/API/process limits are respected and concurrency is bounded.</li>
+<li>[ ] Existing Review Pages generation/schema/publication tests remain green.</li>
+<li>[ ] Focused timing evidence demonstrates whether wall-clock generation improves on representative fixtures or a real PR run.</li>
+<li>[ ] No builder&#39;s semantic ownership is duplicated or moved into workflow YAML.</li></ul>
+
+<h2>Changed files (3, +404/-16)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>review-pages/src/generate-review-package.mjs</td><td>modified</td><td>+231</td><td>-16</td></tr>
+<tr><td>review-pages/src/review-package-builder-worker.mjs</td><td>added</td><td>+22</td><td>-0</td></tr>
+<tr><td>review-pages/test/generate-review-package.test.mjs</td><td>modified</td><td>+151</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

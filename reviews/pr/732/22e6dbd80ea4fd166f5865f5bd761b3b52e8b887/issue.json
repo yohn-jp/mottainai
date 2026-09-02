@@ -1,0 +1,43 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Independent builder work executes concurrently with an explicit dependency graph rather than accidental shared-state ordering."
+    },
+    {
+      "checked": false,
+      "text": "Final generated resources and manifest remain byte-for-byte deterministic for fixed injected inputs except documented volatile fields."
+    },
+    {
+      "checked": false,
+      "text": "Each builder failure retains bounded attributable diagnostics; one rejection does not swallow another failure silently."
+    },
+    {
+      "checked": false,
+      "text": "Shared GitHub/API/process limits are respected and concurrency is bounded."
+    },
+    {
+      "checked": false,
+      "text": "Existing Review Pages generation/schema/publication tests remain green."
+    },
+    {
+      "checked": false,
+      "text": "Focused timing evidence demonstrates whether wall-clock generation improves on representative fixtures or a real PR run."
+    },
+    {
+      "checked": false,
+      "text": "No builder's semantic ownership is duplicated or moved into workflow YAML."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 724,
+    "state": "open",
+    "title": "chore: parallelize independent Review Pages package builders",
+    "url": "https://github.com/yohn-jp/mottainai/issues/724"
+  },
+  "linked": {
+    "number": 724
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
