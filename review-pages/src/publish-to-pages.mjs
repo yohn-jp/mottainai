@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { canonicalStringify } from "./lib/canonical-json.mjs";
+import { refreshNavigationPages } from "./navigation-pages.mjs";
 import { buildExpectedManifestUrl, PAGES_SERVING_OUTCOMES, verifyPagesManifest } from "./verify-pages-serving.mjs";
 
 const DEFAULT_MAX_ATTEMPTS = 5;
@@ -47,6 +48,8 @@ export function mergeRevisionIntoSite(siteDir, prNumber, revisionSourceDir, prIn
   }
 
   fs.copyFileSync(prIndexSourceFile, path.join(prDir, "index.json"));
+  const prIndex = JSON.parse(fs.readFileSync(prIndexSourceFile, "utf8"));
+  refreshNavigationPages(siteDir, prNumber, prIndex);
   return revisionTargetDir;
 }
 
