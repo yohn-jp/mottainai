@@ -33,6 +33,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ripgrep
 
+      - name: Provision the canonical control-state root for host-bootstrap tests
+        # src/bootstrap/cli.test.ts exercises the real canonical
+        # /var/lib/mottainai-control path (Issue #628/#644 contract) rather
+        # than an injected override. The runner user needs write access to
+        # that exact path for those tests to reach their assertions.
+        run: |
+          sudo mkdir -p /var/lib/mottainai-control
+          sudo chown "$(id -u):$(id -g)" /var/lib/mottainai-control
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
