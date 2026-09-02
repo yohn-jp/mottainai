@@ -1,0 +1,73 @@
+{
+  "available": true,
+  "checkRuns": [
+    {
+      "conclusion": "skipped",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33634794484/job/100262905268",
+      "name": "build / packed artifact e2e / package",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33634794484/job/100262838331",
+      "name": "detect CI ownership path changes",
+      "status": "completed"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33634794654/job/100262843607",
+      "name": "Generate review package",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": "skipped",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33634794484/job/100262904876",
+      "name": "host bootstrap (Rust)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "skipped",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33634794484/job/100262905472",
+      "name": "Nix Runtime evaluation / image / VM test",
+      "status": "completed"
+    },
+    {
+      "conclusion": "skipped",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33634794484/job/100262906203",
+      "name": "Publish canonical Runtime Appliance artifact",
+      "status": "completed"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33634795485/job/100262842180",
+      "name": "standards-self-check",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": "skipped",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33634794484/job/100262904861",
+      "name": "static integrity (typecheck / lint / architecture / build)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "skipped",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33634794484/job/100262904888",
+      "name": "test:integration (shard ${{ matrix.shard }}/4)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33634795485/job/100262842456",
+      "name": "validate-pr",
+      "status": "completed"
+    },
+    {
+      "conclusion": "skipped",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33634795485/job/100262843770",
+      "name": "validate-release",
+      "status": "completed"
+    }
+  ],
+  "headSha": "84b34abd48a0c5e3ed035c6383b9b28e3b16d005",
+  "schemaVersion": "mottainai.review-pages.checks/v1"
+}

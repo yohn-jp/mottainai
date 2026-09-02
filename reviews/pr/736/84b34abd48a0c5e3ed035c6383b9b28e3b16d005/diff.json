@@ -1,0 +1,40 @@
+{
+  "baseSha": "01ab8da5a61e33d162f276e9d0b74e2bed2d3225",
+  "files": [
+    {
+      "additions": 530,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 530,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/autonomous-review.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 223,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 223,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/test/autonomous-review.test.mjs",
+      "status": "added"
+    }
+  ],
+  "headSha": "84b34abd48a0c5e3ed035c6383b9b28e3b16d005",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 753,
+    "deletions": 0,
+    "filesChanged": 2
+  }
+}

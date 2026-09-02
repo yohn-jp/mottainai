@@ -1,0 +1,49 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "One command/function can review a fixed PR-revision fixture end to end from structured input to structured result."
+    },
+    {
+      "checked": false,
+      "text": "Output validates against the review-result contract and is anchored to exact repository/PR/base/head identity."
+    },
+    {
+      "checked": false,
+      "text": "Blocking findings include evidence references and source location when available."
+    },
+    {
+      "checked": false,
+      "text": "Reviewer cannot silently expand into unbounded repository exploration."
+    },
+    {
+      "checked": false,
+      "text": "Insufficient/contradictory evidence produces INCONCLUSIVE."
+    },
+    {
+      "checked": false,
+      "text": "Provider failures and malformed model output fail with bounded typed diagnostics."
+    },
+    {
+      "checked": false,
+      "text": "Tests cover APPROVE, CHANGES_REQUIRED, INCONCLUSIVE, malformed output and provider failure using hermetic/fake provider fixtures."
+    },
+    {
+      "checked": false,
+      "text": "No auto-fix, auto-merge or multi-agent critic architecture is introduced."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "enhancement"
+    ],
+    "number": 718,
+    "state": "open",
+    "title": "feat: execute one autonomous AI review for an exact PR revision",
+    "url": "https://github.com/yohn-jp/mottainai/issues/718"
+  },
+  "linked": {
+    "number": 718
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
