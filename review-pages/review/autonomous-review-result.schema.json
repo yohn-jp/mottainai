@@ -1,0 +1,231 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "mottainai.autonomous-review.result/v1",
+  "$schemaVersion": "mottainai.autonomous-review.result/v1",
+  "title": "Mottainai autonomous review result",
+  "description": "The machine-readable result of reviewing exactly one pull-request revision.",
+  "type": "object",
+  "required": ["schemaVersion", "identity", "status", "verdict", "findings", "confidence", "inputs", "unknowns"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^mottainai\\.autonomous-review\\.result/v1$"
+    },
+    "identity": {
+      "type": "object",
+      "required": ["repository", "pullRequest", "baseSha", "headSha"],
+      "additionalProperties": false,
+      "properties": {
+        "repository": {
+          "type": "string",
+          "pattern": "^[^/\\s]+/[^/\\s]+$",
+          "minLength": 3,
+          "maxLength": 200
+        },
+        "pullRequest": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "baseSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "headSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "complete", "failed"]
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["APPROVE", "CHANGES_REQUIRED", "INCONCLUSIVE"]
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": ["id", "severity", "blocking", "title", "rationale", "evidence", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low", "info"]
+          },
+          "blocking": {
+            "type": "boolean"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "required": ["resource", "reference"],
+              "additionalProperties": false,
+              "properties": {
+                "resource": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "reference": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "excerpt": {
+                  "type": "string",
+                  "maxLength": 600
+                }
+              }
+            }
+          },
+          "location": {
+            "type": "object",
+            "required": ["path", "start", "end"],
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "start": {
+                "type": "object",
+                "required": ["line"],
+                "additionalProperties": false,
+                "properties": {
+                  "line": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "column": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              },
+              "end": {
+                "type": "object",
+                "required": ["line"],
+                "additionalProperties": false,
+                "properties": {
+                  "line": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "column": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": ["new", "open", "resolved", "accepted", "dismissed", "superseded"]
+          }
+        }
+      }
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "inputs": {
+      "type": "object",
+      "required": ["inspected", "omitted"],
+      "additionalProperties": false,
+      "properties": {
+        "inspected": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "required": ["resource"],
+            "additionalProperties": false,
+            "properties": {
+              "resource": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "references": {
+                "type": "array",
+                "maxItems": 50,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                }
+              }
+            }
+          }
+        },
+        "omitted": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "required": ["resource", "reason"],
+            "additionalProperties": false,
+            "properties": {
+              "resource": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              }
+            }
+          }
+        }
+      }
+    },
+    "unknowns": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": ["id", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        }
+      }
+    }
+  }
+}
