@@ -5,13 +5,22 @@ import { fileURLToPath } from "node:url";
 
 const MAX_BUFFER_BYTES = 16 * 1024 * 1024;
 
-// The repository root that has @alibaba-group/open-code-review installed
-// as a pinned devDependency (this file's own checkout), not necessarily
-// the repository being analyzed (`cwd`/`--repo`) — tests point the
-// latter at throwaway fixture repos while still using this repo's own
-// installed `ocr` binary.
+// Review Pages has its own pinned OCR dependency so the generation workflow
+// does not install the repository's unrelated dependencies. The repository
+// root fallback keeps existing root-level test invocations working while the
+// boundary is adopted; both locations resolve the same pinned package.
 function ocrPackageRoot() {
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+  const reviewPagesRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const repositoryRoot = path.resolve(reviewPagesRoot, "..");
+  const packageRoots = [reviewPagesRoot, repositoryRoot];
+
+  for (const packageRoot of packageRoots) {
+    if (fs.existsSync(path.join(packageRoot, "node_modules", "@alibaba-group", "open-code-review", "package.json"))) {
+      return packageRoot;
+    }
+  }
+
+  throw new Error("@alibaba-group/open-code-review is not installed for Review Pages");
 }
 
 function ocrBinaryPath() {
