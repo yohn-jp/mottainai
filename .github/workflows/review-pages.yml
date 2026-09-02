@@ -27,11 +27,62 @@ jobs:
       issues: read
       pull-requests: read
     steps:
+      # The repository is not available until checkout. Capture the first
+      # runner marker and checkout start with Node's monotonic clock so the
+      # helper can finish the boundary after the action has run.
+      - name: Record runner start and checkout boundary
+        env:
+          REVIEW_PAGES_LATENCY_FILE: ${{ runner.temp }}/review-pages-latency-generate.json
+          REVIEW_PAGES_WORKFLOW_STARTED_AT: ${{ github.run_started_at }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          import path from "node:path";
+
+          const timestamp = () => ({
+            monotonicNs: process.hrtime.bigint().toString(),
+            wallClock: new Date().toISOString(),
+          });
+          const filePath = process.env.REVIEW_PAGES_LATENCY_FILE;
+          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+          fs.writeFileSync(
+            filePath,
+            `${JSON.stringify({
+              bootstrap: {
+                runnerStart: timestamp(),
+                checkoutStart: timestamp(),
+                workflowStartedAt: process.env.REVIEW_PAGES_WORKFLOW_STARTED_AT || null,
+              },
+            })}\n`,
+          );
+          NODE
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Initialize and complete checkout timing
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          GITHUB_WORKFLOW: ${{ github.workflow }}
+          REVIEW_PAGES_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REVIEW_PAGES_LATENCY_FILE: ${{ runner.temp }}/review-pages-latency-generate.json
+          REVIEW_PAGES_LATENCY_JOB: generate
+          REVIEW_PAGES_PR_NUMBER: ${{ github.event.pull_request.number }}
+          REVIEW_PAGES_WORKFLOW_STARTED_AT: ${{ github.run_started_at }}
+        run: |
+          node review-pages/src/lib/latency.mjs init
+          node review-pages/src/lib/latency.mjs complete checkout
+
+      - name: Start setup timing
+        env:
+          REVIEW_PAGES_LATENCY_FILE: ${{ runner.temp }}/review-pages-latency-generate.json
+          REVIEW_PAGES_LATENCY_JOB: generate
+        run: node review-pages/src/lib/latency.mjs start setup
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -44,16 +95,50 @@ jobs:
           node-version: "24"
           package-manager-cache: false
 
+      - name: Complete setup and start install timing
+        env:
+          REVIEW_PAGES_LATENCY_FILE: ${{ runner.temp }}/review-pages-latency-generate.json
+          REVIEW_PAGES_LATENCY_JOB: generate
+        run: |
+          node review-pages/src/lib/latency.mjs complete setup
+          node review-pages/src/lib/latency.mjs start install
+
       # Installs @alibaba-group/open-code-review (pinned in package.json),
       # the deterministic, LLM-free OCR CLI build-ocr.mjs delegates to.
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Complete install and start generation timing
+        env:
+          REVIEW_PAGES_LATENCY_FILE: ${{ runner.temp }}/review-pages-latency-generate.json
+          REVIEW_PAGES_LATENCY_JOB: generate
+        run: |
+          node review-pages/src/lib/latency.mjs complete install
+          node review-pages/src/lib/latency.mjs start generation
 
       - name: Generate review package
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REVIEW_PAGES_OUTPUT_DIR: ${{ runner.temp }}/review-pages-output
         run: node review-pages/src/generate-review-package.mjs
+
+      - name: Complete generation timing
+        env:
+          REVIEW_PAGES_LATENCY_FILE: ${{ runner.temp }}/review-pages-latency-generate.json
+          REVIEW_PAGES_LATENCY_JOB: generate
+        run: node review-pages/src/lib/latency.mjs complete generation
+
+      - name: Record generation-complete milestone
+        env:
+          REVIEW_PAGES_LATENCY_FILE: ${{ runner.temp }}/review-pages-latency-generate.json
+          REVIEW_PAGES_LATENCY_JOB: generate
+        run: node review-pages/src/lib/latency.mjs mark generation-complete
+
+      - name: Start validation timing
+        env:
+          REVIEW_PAGES_LATENCY_FILE: ${{ runner.temp }}/review-pages-latency-generate.json
+          REVIEW_PAGES_LATENCY_JOB: generate
+        run: node review-pages/src/lib/latency.mjs start validation
 
       - name: Validate manifest
         env:
@@ -64,12 +149,44 @@ jobs:
             "$REVIEW_PAGES_OUTPUT_DIR/$head_sha/manifest.json" \
             "$REVIEW_PAGES_OUTPUT_DIR/pr-index.json"
 
+      - name: Complete validation and start artifact handoff timing
+        env:
+          REVIEW_PAGES_LATENCY_FILE: ${{ runner.temp }}/review-pages-latency-generate.json
+          REVIEW_PAGES_LATENCY_JOB: generate
+        run: |
+          node review-pages/src/lib/latency.mjs complete validation
+          node review-pages/src/lib/latency.mjs start artifact-handoff
+
       - name: Upload generated package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: review-pages-output
           path: ${{ runner.temp }}/review-pages-output
           retention-days: 1
+
+      - name: Complete artifact handoff timing
+        if: always()
+        env:
+          REVIEW_PAGES_LATENCY_FILE: ${{ runner.temp }}/review-pages-latency-generate.json
+          REVIEW_PAGES_LATENCY_JOB: generate
+        run: node review-pages/src/lib/latency.mjs complete artifact-handoff
+
+      - name: Report generation latency
+        if: always()
+        env:
+          REVIEW_PAGES_LATENCY_FILE: ${{ runner.temp }}/review-pages-latency-generate.json
+        run: |
+          if [ -f "$REVIEW_PAGES_LATENCY_FILE" ]; then
+            node review-pages/src/lib/latency.mjs summary >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload generation latency evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: review-pages-latency-generate
+          path: ${{ runner.temp }}/review-pages-latency-generate.json
+          retention-days: 7
 
   # Trusted publication only: no PR-controlled processing happens here,
   # just pushing the already-generated, already-validated package.
@@ -81,10 +198,58 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Record runner start and checkout boundary
+        env:
+          REVIEW_PAGES_LATENCY_FILE: ${{ runner.temp }}/review-pages-latency-publish.json
+          REVIEW_PAGES_WORKFLOW_STARTED_AT: ${{ github.run_started_at }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          import path from "node:path";
+
+          const timestamp = () => ({
+            monotonicNs: process.hrtime.bigint().toString(),
+            wallClock: new Date().toISOString(),
+          });
+          const filePath = process.env.REVIEW_PAGES_LATENCY_FILE;
+          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+          fs.writeFileSync(
+            filePath,
+            `${JSON.stringify({
+              bootstrap: {
+                runnerStart: timestamp(),
+                checkoutStart: timestamp(),
+                workflowStartedAt: process.env.REVIEW_PAGES_WORKFLOW_STARTED_AT || null,
+              },
+            })}\n`,
+          );
+          NODE
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Initialize and complete checkout timing
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          GITHUB_WORKFLOW: ${{ github.workflow }}
+          REVIEW_PAGES_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REVIEW_PAGES_LATENCY_FILE: ${{ runner.temp }}/review-pages-latency-publish.json
+          REVIEW_PAGES_LATENCY_JOB: publish
+          REVIEW_PAGES_PR_NUMBER: ${{ github.event.pull_request.number }}
+          REVIEW_PAGES_WORKFLOW_STARTED_AT: ${{ github.run_started_at }}
+        run: |
+          node review-pages/src/lib/latency.mjs init
+          node review-pages/src/lib/latency.mjs complete checkout
+
+      - name: Start setup timing
+        env:
+          REVIEW_PAGES_LATENCY_FILE: ${{ runner.temp }}/review-pages-latency-publish.json
+          REVIEW_PAGES_LATENCY_JOB: publish
+        run: node review-pages/src/lib/latency.mjs start setup
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -92,13 +257,48 @@ jobs:
           node-version: "24"
           package-manager-cache: false
 
+      - name: Complete setup and start artifact handoff timing
+        env:
+          REVIEW_PAGES_LATENCY_FILE: ${{ runner.temp }}/review-pages-latency-publish.json
+          REVIEW_PAGES_LATENCY_JOB: publish
+        run: |
+          node review-pages/src/lib/latency.mjs complete setup
+          node review-pages/src/lib/latency.mjs start artifact-handoff
+
       - name: Download generated package
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: review-pages-output
           path: ${{ runner.temp }}/review-pages-output
 
+      - name: Download generation latency evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: review-pages-latency-generate
+          path: ${{ runner.temp }}/review-pages-latency-input
+
+      - name: Complete artifact handoff timing
+        if: always()
+        env:
+          REVIEW_PAGES_LATENCY_FILE: ${{ runner.temp }}/review-pages-latency-publish.json
+          REVIEW_PAGES_LATENCY_JOB: publish
+        run: node review-pages/src/lib/latency.mjs complete artifact-handoff
+
+      - name: Merge generation latency evidence
+        if: success()
+        env:
+          REVIEW_PAGES_LATENCY_FILE: ${{ runner.temp }}/review-pages-latency-publish.json
+          REVIEW_PAGES_LATENCY_JOB: publish
+        run: node review-pages/src/lib/latency.mjs merge "$RUNNER_TEMP/review-pages-latency-input/review-pages-latency-generate.json"
+
+      - name: Start publish timing
+        env:
+          REVIEW_PAGES_LATENCY_FILE: ${{ runner.temp }}/review-pages-latency-publish.json
+          REVIEW_PAGES_LATENCY_JOB: publish
+        run: node review-pages/src/lib/latency.mjs start publish
+
       - name: Publish to gh-pages
+        id: publish
         env:
           REVIEW_PAGES_REMOTE_URL: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
           REVIEW_PAGES_BRANCH: gh-pages
@@ -106,3 +306,49 @@ jobs:
           REVIEW_PAGES_OUTPUT_DIR: ${{ runner.temp }}/review-pages-output
           REVIEW_PAGES_WORK_DIR: ${{ runner.temp }}/review-pages-publish
         run: node review-pages/src/publish-to-pages.mjs
+
+      - name: Record gh-pages-push-complete milestone
+        if: steps.publish.outcome == 'success'
+        env:
+          REVIEW_PAGES_LATENCY_FILE: ${{ runner.temp }}/review-pages-latency-publish.json
+          REVIEW_PAGES_LATENCY_JOB: publish
+        run: node review-pages/src/lib/latency.mjs mark gh-pages-push-complete
+
+      - name: Complete publish timing
+        if: always()
+        env:
+          REVIEW_PAGES_LATENCY_FILE: ${{ runner.temp }}/review-pages-latency-publish.json
+          REVIEW_PAGES_LATENCY_JOB: publish
+        run: node review-pages/src/lib/latency.mjs complete publish
+
+      - name: Measure Pages HTTP visibility
+        if: always()
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          REVIEW_PAGES_BASE_URL: ${{ vars.REVIEW_PAGES_BASE_URL }}
+          REVIEW_PAGES_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REVIEW_PAGES_HTTP_ATTEMPTS: "12"
+          REVIEW_PAGES_HTTP_DELAY_MS: "5000"
+          REVIEW_PAGES_HTTP_TIMEOUT_MS: "10000"
+          REVIEW_PAGES_LATENCY_FILE: ${{ runner.temp }}/review-pages-latency-publish.json
+          REVIEW_PAGES_LATENCY_JOB: publish
+          REVIEW_PAGES_PR_NUMBER: ${{ github.event.pull_request.number }}
+          REVIEW_PAGES_PUBLISH_SUCCEEDED: ${{ steps.publish.outcome == 'success' }}
+        run: node review-pages/src/measure-pages-visibility.mjs
+
+      - name: Report publication latency
+        if: always()
+        env:
+          REVIEW_PAGES_LATENCY_FILE: ${{ runner.temp }}/review-pages-latency-publish.json
+        run: |
+          if [ -f "$REVIEW_PAGES_LATENCY_FILE" ]; then
+            node review-pages/src/lib/latency.mjs summary >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload publication latency evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: review-pages-latency-publish
+          path: ${{ runner.temp }}/review-pages-latency-publish.json
+          retention-days: 7
