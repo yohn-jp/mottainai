@@ -10,13 +10,20 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function validatedHeadSha(prIndex) {
+  const headSha = prIndex?.latest?.headSha;
+  if (typeof headSha !== "string" || !/^[0-9a-f]{40}$/u.test(headSha)) {
+    throw new Error("Review Pages navigation requires latest.headSha to be a 40-character lowercase hex SHA");
+  }
+  return headSha;
+}
+
 function readPrIndex(prDir) {
   const indexPath = path.join(prDir, "index.json");
   if (!fs.existsSync(indexPath)) return null;
   try {
     const index = JSON.parse(fs.readFileSync(indexPath, "utf8"));
-    const headSha = index?.latest?.headSha;
-    if (typeof headSha !== "string" || !/^[0-9a-f]{40}$/u.test(headSha)) return null;
+    validatedHeadSha(index);
     return index;
   } catch {
     return null;
@@ -24,7 +31,7 @@ function readPrIndex(prDir) {
 }
 
 export function renderPrNavigation(prNumber, prIndex) {
-  const headSha = prIndex.latest.headSha;
+  const headSha = validatedHeadSha(prIndex);
   const shortId = prIndex.latest.shortId ?? headSha.slice(0, 12);
   const target = `${headSha}/`;
   return `<!doctype html>
@@ -71,6 +78,7 @@ ${rows}
 }
 
 export function refreshNavigationPages(siteDir, prNumber, prIndex) {
+  validatedHeadSha(prIndex);
   const prRoot = path.join(siteDir, "reviews", "pr");
   const prDir = path.join(prRoot, String(prNumber));
   fs.writeFileSync(path.join(prDir, "index.html"), renderPrNavigation(prNumber, prIndex));
