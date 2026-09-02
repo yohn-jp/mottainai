@@ -190,10 +190,31 @@ the standard `https://<owner>.github.io/<repository>` project URL is used.
 
 ### Current baseline
 
-Baseline capture is intentionally recorded from a real non-draft PR run after
-the measurement workflow is enabled. The first captured run and its dominant
-boundary are recorded here before any latency optimization is evaluated. No
-hard pass/fail latency target is defined from this single observation.
+The first baseline was captured from the real, non-draft [PR #735 run
+33630221776](https://github.com/yohn-jp/mottainai/actions/runs/33630221776)
+on 2026-09-02. Recorded monotonic stage durations were:
+
+| Job      | Stage            | Duration |
+| -------- | ---------------- | -------: |
+| generate | checkout         |  2353 ms |
+| generate | setup            |  4767 ms |
+| generate | install          | 11714 ms |
+| generate | generation       |  1064 ms |
+| generate | validation       |   191 ms |
+| generate | artifact handoff |  1352 ms |
+| publish  | checkout         |  2213 ms |
+| publish  | setup            |   863 ms |
+| publish  | artifact handoff |  2540 ms |
+| publish  | publish          |  2319 ms |
+| publish  | Pages serving    | 30474 ms |
+
+The expected manifest became HTTP-visible on attempt 7, about 30.5 seconds
+after the gh-pages push marker. Pages serving was the dominant boundary in
+this run; dependency installation was the next largest measured stage at
+11.7 seconds. The workflow-start-to-runner-marker field was unavailable in
+this run, so queue/startup delay remains unmeasured until that metadata is
+exposed. This is baseline evidence only; no hard pass/fail latency target is
+defined from it.
 
 ## Scripts
 
