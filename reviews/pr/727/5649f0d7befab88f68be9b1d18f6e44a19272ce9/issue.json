@@ -1,0 +1,43 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Review Pages generation no longer requires an unconditional `fetch-depth: 0` checkout."
+    },
+    {
+      "checked": false,
+      "text": "Exact event base/head SHAs are fetched and verified before generation."
+    },
+    {
+      "checked": false,
+      "text": "OCR delegate and `diff.json` observe the same comparison semantics as before on representative fixtures/real PR runs."
+    },
+    {
+      "checked": false,
+      "text": "Force-push, rebased head and non-trivial ancestry cases either work deterministically or fail with bounded explicit diagnostics."
+    },
+    {
+      "checked": false,
+      "text": "No fallback silently performs a recursive/unbounded history fetch without recording why."
+    },
+    {
+      "checked": false,
+      "text": "Existing generation/determinism tests remain green and a real PR workflow proves the optimized fetch path."
+    },
+    {
+      "checked": false,
+      "text": "Publication/security permissions are unchanged."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 723,
+    "state": "open",
+    "title": "chore: replace full-history Review Pages checkout with targeted PR revision fetch",
+    "url": "https://github.com/yohn-jp/mottainai/issues/723"
+  },
+  "linked": {
+    "number": 723
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

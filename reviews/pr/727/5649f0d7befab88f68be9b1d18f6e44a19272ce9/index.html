@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #727 @ 5649f0d7befa</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #727: chore(workflow): replace full-history Review Pages checkout with targeted PR revision fetch</h1>
+<p>Base <code>main</code> @ <code>01ab8da5a61e33d162f276e9d0b74e2bed2d3225</code> &rarr;
+Head <code>chore/723-review-pages-fetch</code> @ <code>5649f0d7befab88f68be9b1d18f6e44a19272ce9</code></p>
+<p>Revision <code>5649f0d7befa</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/723">#723</a> chore: replace full-history Review Pages checkout with targeted PR revision fetch (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Review Pages generation no longer requires an unconditional `fetch-depth: 0` checkout.</li>
+<li>[ ] Exact event base/head SHAs are fetched and verified before generation.</li>
+<li>[ ] OCR delegate and `diff.json` observe the same comparison semantics as before on representative fixtures/real PR runs.</li>
+<li>[ ] Force-push, rebased head and non-trivial ancestry cases either work deterministically or fail with bounded explicit diagnostics.</li>
+<li>[ ] No fallback silently performs a recursive/unbounded history fetch without recording why.</li>
+<li>[ ] Existing generation/determinism tests remain green and a real PR workflow proves the optimized fetch path.</li>
+<li>[ ] Publication/security permissions are unchanged.</li></ul>
+
+<h2>Changed files (2, +93/-2)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/review-pages.yml</td><td>modified</td><td>+58</td><td>-2</td></tr>
+<tr><td>review-pages/test/review-pages-workflow-fetch.test.mjs</td><td>added</td><td>+35</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
