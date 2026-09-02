@@ -1,0 +1,49 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "One function/CLI-testable adapter converts an exact published/generated Review Pages revision into bounded structured AI-review input."
+    },
+    {
+      "checked": false,
+      "text": "Repository/PR/base/head identity and source-resource provenance survive unchanged."
+    },
+    {
+      "checked": false,
+      "text": "Issue intent, diff inventory, OCR output and checks are represented without duplicating their semantics."
+    },
+    {
+      "checked": false,
+      "text": "Missing/partial resources are explicit rather than silently dropped."
+    },
+    {
+      "checked": false,
+      "text": "Raw source bodies, CI logs and broad repository scans are excluded."
+    },
+    {
+      "checked": false,
+      "text": "Fixed fixture input produces deterministic output."
+    },
+    {
+      "checked": false,
+      "text": "Tests cover complete, partial and malformed revision packages."
+    },
+    {
+      "checked": false,
+      "text": "Reviewer/LLM execution is not implemented here."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "enhancement"
+    ],
+    "number": 717,
+    "state": "open",
+    "title": "feat: assemble bounded AI review input from Review Pages evidence",
+    "url": "https://github.com/yohn-jp/mottainai/issues/717"
+  },
+  "linked": {
+    "number": 717
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

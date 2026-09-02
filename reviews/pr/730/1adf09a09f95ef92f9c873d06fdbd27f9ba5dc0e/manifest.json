@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "01ab8da5a61e33d162f276e9d0b74e2bed2d3225",
+    "draft": false,
+    "headRef": "feat/717-review-input",
+    "headSha": "1adf09a09f95ef92f9c873d06fdbd27f9ba5dc0e",
+    "number": 730,
+    "title": "feat(workflow): assemble bounded AI review input from Review Pages evidence"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "1adf09a09f95ef92f9c873d06fdbd27f9ba5dc0e",
+    "immutable": true,
+    "shortId": "1adf09a09f95"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-02T13:17:19.573Z"
+  }
+}
