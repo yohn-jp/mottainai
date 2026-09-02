@@ -1,0 +1,54 @@
+{
+  "baseSha": "a4afa1d32981a238805d755579ee0e2665983640",
+  "files": [
+    {
+      "additions": 1,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 431,
+          "oldLines": 2,
+          "oldStart": 431
+        }
+      ],
+      "path": ".github/workflows/publish.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 530,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 530,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/autonomous-review.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 223,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 223,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/test/autonomous-review.test.mjs",
+      "status": "added"
+    }
+  ],
+  "headSha": "8f90029e16487301ee7fb3806d3f1a1fd00147b0",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 754,
+    "deletions": 2,
+    "filesChanged": 3
+  }
+}

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #736 @ 8f90029e1648</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #736: feat(workflow): execute one autonomous AI review for an exact PR revision</h1>
+<p>Base <code>main</code> @ <code>a4afa1d32981a238805d755579ee0e2665983640</code> &rarr;
+Head <code>feat/718-autonomous-review</code> @ <code>8f90029e16487301ee7fb3806d3f1a1fd00147b0</code></p>
+<p>Revision <code>8f90029e1648</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/718">#718</a> feat: execute one autonomous AI review for an exact PR revision (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] One command/function can review a fixed PR-revision fixture end to end from structured input to structured result.</li>
+<li>[ ] Output validates against the review-result contract and is anchored to exact repository/PR/base/head identity.</li>
+<li>[ ] Blocking findings include evidence references and source location when available.</li>
+<li>[ ] Reviewer cannot silently expand into unbounded repository exploration.</li>
+<li>[ ] Insufficient/contradictory evidence produces INCONCLUSIVE.</li>
+<li>[ ] Provider failures and malformed model output fail with bounded typed diagnostics.</li>
+<li>[ ] Tests cover APPROVE, CHANGES_REQUIRED, INCONCLUSIVE, malformed output and provider failure using hermetic/fake provider fixtures.</li>
+<li>[ ] No auto-fix, auto-merge or multi-agent critic architecture is introduced.</li></ul>
+
+<h2>Changed files (3, +754/-2)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/publish.yml</td><td>modified</td><td>+1</td><td>-2</td></tr>
+<tr><td>review-pages/src/autonomous-review.mjs</td><td>added</td><td>+530</td><td>-0</td></tr>
+<tr><td>review-pages/test/autonomous-review.test.mjs</td><td>added</td><td>+223</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
