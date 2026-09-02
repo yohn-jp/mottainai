@@ -1,0 +1,16 @@
+{
+  "acceptanceCriteria": [],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 740,
+    "state": "open",
+    "title": "fix(runtime): mottainai-init generates an unknown Lima ssh field, blocking runtime ensure",
+    "url": "https://github.com/yohn-jp/mottainai/issues/740"
+  },
+  "linked": {
+    "number": 740
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
