@@ -1,4 +1,4 @@
-{ pkgs, lib, buildMottainai, mottainaiSource, nawabariPackage, zellijPackage, manifest }:
+{ pkgs, lib, mottainaiPackage, nawabariPackage, zellijPackage, manifest }:
 
 # Deterministic projection of a mottainai.managed-package-manifest.v1
 # manifest (src/runtime-contract/managed-package-manifest.ts, Issue #624)
@@ -8,21 +8,50 @@
 # projects manifest entries onto them, it does not build a general package
 # framework.
 #
-# Source resolution boundary (PR #634 review): `mottainaiSource` is an
-# already-resolved exact source tree this projection is handed — it does
-# not decide *which* source that is. Earlier this file received a
-# pre-built `mottainaiPackage` fixed to this flake's own checkout
-# (`nix/flake.nix`'s `mkMottainai pkgs` with `source = ../.`), which made
-# the whole projection incapable of building any Mottainai version other
-# than whatever this exact checkout happens to be — impossible to satisfy
-# from a fresh bootstrap appliance building a manifest-requested release.
-# `buildMottainai` (`source -> derivation`, `nix/mottainai.nix` partially
-# applied over `pkgs`) plus the caller-supplied `mottainaiSource` restores
-# the real boundary: "manifest + resolved exact source -> deterministic
-# Nix generation." Resolving *how* to obtain that source (a tagged release
-# checkout, a fetched tarball, a bootstrap appliance's download) is Issue
-# #626's job — package-manager UX and manifest-to-source-fetching — not
-# implemented here. Nawabari is unaffected: `nix/packages/nawabari.nix`
+# Package resolution vs. generation projection boundary (PR #634 review,
+# sharpened by Issue #702): this file only *projects* manifest entries onto
+# already-resolved package derivations — `mottainaiPackage`, like
+# `nawabariPackage`/`zellijPackage` below, arrives pre-built. It does not
+# decide *which* source `mottainaiPackage` was built from, nor how. Two
+# earlier designs got this boundary wrong in opposite ways:
+#
+# - Pre-#634: this file always built `mkMottainai pkgs` internally
+#   (`nix/flake.nix`'s `source = ../.`, this flake's own checkout, fixed).
+#   That made the projection incapable of building any Mottainai version
+#   other than whatever this exact checkout happened to be — impossible to
+#   satisfy from a fresh bootstrap appliance building a manifest-requested
+#   release that isn't this checkout's own tagged version.
+# - #634 through #702: this file instead took a `mottainaiSource` (an
+#   already-resolved exact source tree, e.g. a historical tagged release)
+#   plus a `buildMottainai = source: import ./mottainai.nix { inherit pkgs
+#   source; }` function — HEAD's own `nix/mottainai.nix` (its current
+#   Node.js 24 toolchain/nixpkgs pin) partially applied over `pkgs`, then
+#   called against whatever foreign source was supplied. That combined
+#   "HEAD's current recipe" with "a foreign release's source" in a way
+#   neither side owns on its own, and forced HEAD to carry a permanent
+#   `pnpm-lock.yaml content hash -> outputHash` table spanning every
+#   historical lockfile it might ever be asked to reinterpret.
+#
+# `mottainaiPackage` now arrives pre-resolved: the caller (Issue #626's
+# production driver, `src/runtime-contract/managed-generation-build.ts`)
+# resolves it from `mottainaiSource`'s own `nix/flake.nix` via
+# `builtins.getFlake`, at that caller's own already-impure `nix build
+# --impure` call site — never inside this file. That split is required, not
+# stylistic: `builtins.getFlake` on an unlocked local path is an impure
+# operation Nix refuses in pure evaluation, and `nix flake check`
+# (`.github/workflows/ci.yml`) evaluates `checks.<system>.managed-generation`
+# / `checks.<system>.appliance-boundary` — both of which exercise this file
+# — without `--impure`. Keeping this file's own signature pure-resolvable
+# (a plain pre-built derivation argument, exactly like `nawabariPackage`/
+# `zellijPackage` always were) is what makes both true at once: HEAD is
+# still resolved from HEAD's own flake, a historical release is still
+# resolved from that release's own flake, and `nix flake check` still
+# evaluates cleanly. `nix/tests/managed-generation.nix` resolves its own
+# `mottainaiPackage` values the same pure way its checks require (a plain
+# `import` of a source tree's own `nix/mottainai.nix`, never HEAD's copy of
+# that file) — see that file's own comments for why that is still a
+# meaningful proof despite not exercising `builtins.getFlake` itself.
+# Nawabari is unaffected by any of this: `nix/packages/nawabari.nix`
 # already resolves its own source internally via `fetchurl` and is
 # received here pre-built, same as before.
 #
@@ -79,18 +108,6 @@ let
     else
       drv;
 
-  # Resolves one manifest package entry to the existing derivation it
-  # projects onto. Only the exact (packageId, kind, flakeRef) combinations
-  # this projection explicitly recognizes ever succeed, and only when the
-  # resolved recipe's own version exactly matches the manifest's requested
-  # version; anything else fails deterministically before any build is
-  # attempted (Issue #625: "fail deterministically for unsupported package
-  # kinds or unavailable recipes").
-  # Built lazily, once, only if a manifest entry actually needs it — Nix
-  # shares this single reference across the (at most one, #624 forbids
-  # duplicate packageId) mottainai entry, so this never rebuilds per entry.
-  mottainaiDerivation = buildMottainai mottainaiSource;
-
   resolveEntry = entry:
     if entry.kind != "nix-flake-package" then
       unsupportedPackage entry "unsupported managed package kind"
@@ -98,7 +115,7 @@ let
       if entry.source.flakeRef != "nix#mottainai" then
         unsupportedPackage entry "no recipe available for this flakeRef"
       else
-        requireMatchingVersion entry mottainaiDerivation
+        requireMatchingVersion entry mottainaiPackage
     else if entry.packageId == "nawabari" then
       if entry.source.flakeRef != "nix/packages/nawabari.nix" then
         unsupportedPackage entry "no recipe available for this flakeRef"

@@ -167,27 +167,33 @@
       # is the caller (`nix eval --impure` against this attribute), reading
       # the manifest from a file the flake itself never touches.
       #
-      # `mottainaiSource` is the resolved exact Mottainai source tree the
-      # manifest's requested version should be built from — required, no
-      # default to this flake's own checkout. Resolving *which* source that
-      # is (a tagged release checkout, a fetched tarball, whatever a fresh
-      # bootstrap appliance downloads) is Issue #626's job, not #625's: this
-      # function only projects "manifest + already-resolved exact source"
-      # into a deterministic Nix generation, exactly the boundary #625 owns
-      # (see docs/managed-generation.md "Source resolution boundary").
-      # `nix#mottainai` (`packages.<system>.mottainai`) remains available as a
-      # managed-generation recipe and builds from the exact source supplied
-      # to that generation path; it is not a canonical base-system input.
+      # `mottainaiPackage` is the already-resolved, already-built Mottainai
+      # package derivation the manifest's requested version should project
+      # onto — required, no default to `mkMottainai pkgs` (this flake's own
+      # checkout). Resolving *which* source produced it, and building it
+      # from that source's own `nix/flake.nix` (Issue #702: a release owns
+      # its own recipe/toolchain/nixpkgs pin, never HEAD's
+      # `nix/mottainai.nix` reinterpreting a foreign source) is the caller's
+      # job — `src/runtime-contract/managed-generation-build.ts` resolves it
+      # via `builtins.getFlake` at its own impure `nix build --impure` call
+      # site, and `nix/tests/managed-generation.nix` resolves it purely for
+      # `nix flake check` (see nix/managed-generation.nix's own comments for
+      # why `builtins.getFlake` cannot live inside this function or
+      # nix/managed-generation.nix itself). This function only projects
+      # "manifest + already-resolved packages" into a deterministic Nix
+      # generation, exactly the boundary #625 owns (see
+      # docs/managed-generation.md "Source resolution boundary").
+      # `nix#mottainai` (`packages.<system>.mottainai`) remains available as
+      # a managed-generation recipe and builds from this flake's own
+      # checkout; it is not a canonical base-system input.
       lib.mkManagedGeneration =
-        { system, manifest, mottainaiSource }:
+        { system, manifest, mottainaiPackage }:
         let
           pkgs = nixpkgs.legacyPackages.${system};
         in
         import ./managed-generation.nix {
-          inherit pkgs manifest;
+          inherit pkgs manifest mottainaiPackage;
           inherit (nixpkgs) lib;
-          buildMottainai = source: import ./mottainai.nix { inherit pkgs source; };
-          mottainaiSource = mottainaiSource;
           nawabariPackage = mkNawabari pkgs;
           zellijPackage = mkZellij pkgs;
         };
