@@ -51,7 +51,7 @@ jobs:
               bootstrap: {
                 runnerStart: timestamp(),
                 checkoutStart: timestamp(),
-                workflowStartedAt: process.env.REVIEW_PAGES_WORKFLOW_STARTED_AT || null,
+                workflowStartedAt: process.env.GITHUB_RUN_STARTED_AT || process.env.REVIEW_PAGES_WORKFLOW_STARTED_AT || null,
               },
             })}\n`,
           );
@@ -219,7 +219,7 @@ jobs:
               bootstrap: {
                 runnerStart: timestamp(),
                 checkoutStart: timestamp(),
-                workflowStartedAt: process.env.REVIEW_PAGES_WORKFLOW_STARTED_AT || null,
+                workflowStartedAt: process.env.GITHUB_RUN_STARTED_AT || process.env.REVIEW_PAGES_WORKFLOW_STARTED_AT || null,
               },
             })}\n`,
           );

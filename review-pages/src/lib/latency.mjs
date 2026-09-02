@@ -70,7 +70,9 @@ function metadataFromEnvironment(environment) {
     runAttempt: optionalInteger(environment.GITHUB_RUN_ATTEMPT),
     pullRequestNumber: optionalInteger(environment.REVIEW_PAGES_PR_NUMBER),
     headSha: optionalSha(environment.REVIEW_PAGES_HEAD_SHA),
-    workflowStartedAt: validIsoTimestamp(environment.REVIEW_PAGES_WORKFLOW_STARTED_AT),
+    workflowStartedAt: validIsoTimestamp(
+      environment.GITHUB_RUN_STARTED_AT ?? environment.REVIEW_PAGES_WORKFLOW_STARTED_AT,
+    ),
   };
 }
 
