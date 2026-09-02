@@ -76,8 +76,8 @@ in
 
     canonical_disk = ${builtins.toJSON canonicalDiskImage}
     appliance_inputs_path = ${builtins.toJSON applianceInputsPath}
-    fixtures_host_dir = ${builtins.toJSON (toString fixturesDir)}
-    fixture_lib_host_dir = ${builtins.toJSON (toString fixtureLibDir)}
+    fixtures_host_dir = ${builtins.toJSON fixturesDir}
+    fixture_lib_host_dir = ${builtins.toJSON fixtureLibDir}
     guest_fixture_root = "/var/lib/mottainai-control/issue-703-fixtures"
     root_overlay = os.path.join(str(golden.state_dir), "canonical-root-overlay.qcow2")
     bootstrap_raw = os.path.join(str(golden.state_dir), "bootstrap.raw")
