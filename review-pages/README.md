@@ -37,8 +37,9 @@ manual PR-comment slash-command stays disabled — its pinned action
 exposes no repository-enforceable request-token bound (unrelated to
 this section: that's LLM-backed semantic review, not what Review Pages
 uses). Review Pages instead installs the OCR CLI package,
-`@alibaba-group/open-code-review` (pinned in `package.json`,
-`node_modules/.bin/ocr`), and consumes its documented **delegate mode**
+`@alibaba-group/open-code-review` (pinned in `review-pages/package.json` and
+`review-pages/pnpm-lock.yaml`, installed under `review-pages/node_modules/.bin/ocr`),
+and consumes its documented **delegate mode**
 — a deterministic, LLM-free structured-output surface built for
 exactly this kind of host-agent consumption:
 
@@ -65,6 +66,13 @@ resolution — that JSON _is_ OCR's own output. The one normalization
 applied is stripping `preview.repository`, an absolute local filesystem
 path that duplicates `manifest.repository` and isn't portable evidence.
 Delegate mode never calls an LLM and needs no credentials.
+
+The generation workflow installs this boundary with
+`pnpm install --ignore-workspace --frozen-lockfile --prod --ignore-scripts`
+from `review-pages/`. The dedicated lockfile contains only the pinned OCR
+delegate and its platform binary packages; lifecycle scripts are disabled
+because the supported GitHub Actions runner receives the matching pinned
+optional binary package directly.
 
 Diff positioning (all changed files — not curated by OCR's
 reviewable/excluded split — plus line/column hunk anchors) that Review

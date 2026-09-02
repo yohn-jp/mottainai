@@ -1,0 +1,9 @@
+{
+  "name": "mottainai-review-pages",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@alibaba-group/open-code-review": "1.11.1"
+  }
+}
