@@ -1,5 +1,6 @@
 // Minimal JSON Schema (draft-07 subset) validator: type, required,
-// properties, additionalProperties, items, enum, pattern, minimum. This
+// properties, additionalProperties, items, enum, pattern, numeric and
+// collection/string bounds. This
 // is deliberately not a general-purpose library — Review Pages schemas
 // only use this subset, and depending on a full validator would be more
 // machinery than the contract needs.
@@ -33,12 +34,43 @@ function validateNode(schema, value, path, errors) {
     }
   }
 
-  if (typeof value === "number" && schema.minimum !== undefined && value < schema.minimum) {
-    errors.push(`${path}: must be >= ${schema.minimum}`);
+  if (typeof value === "string") {
+    if (schema.minLength !== undefined && value.length < schema.minLength) {
+      errors.push(`${path}: must contain at least ${schema.minLength} characters`);
+    }
+    if (schema.maxLength !== undefined && value.length > schema.maxLength) {
+      errors.push(`${path}: must contain at most ${schema.maxLength} characters`);
+    }
   }
 
-  if (Array.isArray(value) && schema.items !== undefined) {
-    value.forEach((item, index) => validateNode(schema.items, item, `${path}[${index}]`, errors));
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      errors.push(`${path}: must be a finite number`);
+    }
+    if (schema.minimum !== undefined && value < schema.minimum) {
+      errors.push(`${path}: must be >= ${schema.minimum}`);
+    }
+    if (schema.maximum !== undefined && value > schema.maximum) {
+      errors.push(`${path}: must be <= ${schema.maximum}`);
+    }
+  }
+
+  if (Array.isArray(value)) {
+    if (schema.minItems !== undefined && value.length < schema.minItems) {
+      errors.push(`${path}: must contain at least ${schema.minItems} items`);
+    }
+    if (schema.maxItems !== undefined && value.length > schema.maxItems) {
+      errors.push(`${path}: must contain at most ${schema.maxItems} items`);
+    }
+    if (schema.uniqueItems === true) {
+      const serialized = value.map((item) => JSON.stringify(item));
+      if (new Set(serialized).size !== serialized.length) {
+        errors.push(`${path}: must contain unique items`);
+      }
+    }
+    if (schema.items !== undefined) {
+      value.forEach((item, index) => validateNode(schema.items, item, `${path}[${index}]`, errors));
+    }
   }
 
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
