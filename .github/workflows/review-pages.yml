@@ -12,15 +12,17 @@ permissions:
   contents: read
 
 jobs:
-  generate-and-publish:
-    name: Generate and publish review package
+  # Untrusted, deterministic processing of PR-controlled content (diff,
+  # issue body, PR metadata). No write permission at all.
+  generate:
+    name: Generate review package
     # Draft PRs are not review-ready revisions; ready_for_review produces
     # the first one, and every later eligible head change the next.
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: write
+      contents: read
       checks: read
       issues: read
       pull-requests: read
@@ -51,6 +53,40 @@ jobs:
           node review-pages/src/validate-manifest.mjs \
             "$REVIEW_PAGES_OUTPUT_DIR/$head_sha/manifest.json" \
             "$REVIEW_PAGES_OUTPUT_DIR/pr-index.json"
+
+      - name: Upload generated package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: review-pages-output
+          path: ${{ runner.temp }}/review-pages-output
+          retention-days: 1
+
+  # Trusted publication only: no PR-controlled processing happens here,
+  # just pushing the already-generated, already-validated package.
+  publish:
+    name: Publish to gh-pages
+    needs: generate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Download generated package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: review-pages-output
+          path: ${{ runner.temp }}/review-pages-output
 
       - name: Publish to gh-pages
         env:

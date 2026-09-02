@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { buildDiff } from "./build-diff.mjs";
-import { buildOcrExport } from "./build-ocr.mjs";
+import { buildOcrStatus } from "./build-ocr.mjs";
 import { buildIssue } from "./build-issue.mjs";
 import { buildChecks } from "./build-checks.mjs";
 import { renderHtml } from "./render-html.mjs";
@@ -34,7 +34,7 @@ export async function generateReviewPackage({
   }
 
   const diff = buildDiff({ baseSha: pullRequest.baseSha, headSha: pullRequest.headSha, cwd });
-  const ocr = buildOcrExport({ baseSha: pullRequest.baseSha, headSha: pullRequest.headSha, cwd, files: diff.files });
+  const ocr = buildOcrStatus();
   const issue = await buildIssue({
     owner: repository.owner,
     repo: repository.name,

@@ -1,12 +1,18 @@
-import { collectChangedFiles } from "./lib/git.mjs";
+import { collectChangedFiles, collectHunkPositions } from "./lib/git.mjs";
 
 export const DIFF_SCHEMA_VERSION = "mottainai.review-pages.diff/v1";
 
-// Cheap, deterministic diff metadata: per-file status and line counts.
-// No hunk content is included here — GitHub remains the canonical source
-// for the diff itself; see ocr.json for positioning data.
+// Cheap, deterministic diff metadata: per-file status, line counts, and
+// zero-context hunk positions (line/column anchors only — no diff
+// content). This is Review Pages' own "other cheap deterministic diff
+// metadata" per Issue #704's Change Information category; it is plain
+// Git plumbing, not derived from or a stand-in for Open Code Review's
+// review-preparation pipeline (see build-ocr.mjs).
 export function buildDiff({ baseSha, headSha, cwd }) {
-  const files = collectChangedFiles(baseSha, headSha, { cwd });
+  const files = collectChangedFiles(baseSha, headSha, { cwd }).map((file) => ({
+    ...file,
+    hunks: collectHunkPositions(baseSha, headSha, file.path, { cwd }),
+  }));
   const stats = files.reduce(
     (totals, file) => ({
       filesChanged: totals.filesChanged + 1,

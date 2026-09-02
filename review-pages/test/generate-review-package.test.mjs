@@ -105,13 +105,25 @@ test("diff.json records per-file status and counts from the fixture repo", async
   }
 });
 
-test("ocr.json exports deterministic review units without duplicating live OCR", async () => {
+test("ocr.json honestly reports OCR as unavailable rather than reimplementing it", async () => {
   const fixture = createFixtureRepo();
   try {
     const { resources } = await generateReviewPackage(baseInput(fixture));
     const ocr = resources["ocr.json"];
-    assert.equal(ocr.provider.ocrIntegration, "none-live");
-    const changed = ocr.reviewUnits.find((unit) => unit.path === "a.txt");
+    assert.equal(ocr.status, "unavailable");
+    assert.equal(ocr.provider, null);
+    assert.equal("reviewUnits" in ocr, false);
+  } finally {
+    removeFixtureRepo(fixture.dir);
+  }
+});
+
+test("diff.json carries Review Pages' own hunk-positioning metadata", async () => {
+  const fixture = createFixtureRepo();
+  try {
+    const { resources } = await generateReviewPackage(baseInput(fixture));
+    const diff = resources["diff.json"];
+    const changed = diff.files.find((file) => file.path === "a.txt");
     assert.ok(changed.hunks.length > 0);
     assert.ok(Number.isInteger(changed.hunks[0].newStart));
   } finally {
