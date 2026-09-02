@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "bdff86043fa9f511db9baa0248e529c4fde193c7",
+    "draft": false,
+    "headRef": "fix/740-lima-ssh-field-rename",
+    "headSha": "6ec333e653667d9a18c495e2c3cb3a9134676010",
+    "number": 742,
+    "title": "fix(runtime): rename Lima's loadDotSSHPubKeys field to match its real schema"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "6ec333e653667d9a18c495e2c3cb3a9134676010",
+    "immutable": true,
+    "shortId": "6ec333e65366"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-02T13:34:03.421Z"
+  }
+}
