@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #707 @ 579ed9841769</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #707: feat: publish deterministic PR review context as static Review Pages</h1>
+<p>Base <code>main</code> @ <code>0b2fc60ca76ec1450cda34ce56e17561f9b2b342</code> &rarr;
+Head <code>feat/704-review-pages</code> @ <code>579ed984176984bb1d46f655c87e3662cd5c74ba</code></p>
+<p>Revision <code>579ed9841769</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/704">#704</a> feat: publish deterministic PR review context as static Review Pages (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] A dedicated Review Pages implementation directory exists and contains the schema/generation logic without embedding that logic in the main CI workflow.</li>
+<li>[ ] A versioned machine-readable review manifest schema is defined and validated.</li>
+<li>[ ] The generator records PR number, base SHA, head SHA, linked Issue information where available, changed-file/diff metadata, OCR deterministic output, checks/CI evidence, and governance state where available.</li>
+<li>[ ] Open Code Review output is exported/consumed through a structured interface rather than reimplementing OCR review preparation semantics.</li>
+<li>[ ] Draft PRs do not produce review-ready published revisions.</li>
+<li>[ ] `ready_for_review` and later eligible head changes generate a SHA-specific review package.</li>
+<li>[ ] Each published head-SHA path is immutable and a PR-level index resolves the latest eligible revision.</li>
+<li>[ ] GitHub Actions publishes the generated package to the repository&#39;s GitHub Pages site using standard hosted Actions only; no paid/larger runner dependency is introduced.</li>
+<li>[ ] A reviewer can obtain the complete canonical review package for a PR revision via plain HTTP without MCP or GitHub Actions artifact APIs.</li>
+<li>[ ] Publication is safe under concurrent PR updates and does not allow one PR deployment to erase or overwrite another PR&#39;s published review data.</li>
+<li>[ ] Generated/static output excludes unnecessary raw logs and binaries and remains bounded enough for GitHub Pages limits.</li>
+<li>[ ] Tests prove deterministic generation from fixed fixture inputs and schema validation of the published manifest.</li>
+<li>[ ] Documentation states the ownership boundary between Open Code Review, Review Pages generation, GitHub Actions publication, and downstream reviewers.</li></ul>
+
+<h2>Changed files (25, +1696/-1)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/review-pages.yml</td><td>added</td><td>+62</td><td>-0</td></tr>
+<tr><td>review-pages/README.md</td><td>added</td><td>+126</td><td>-0</td></tr>
+<tr><td>review-pages/schema/manifest.schema.json</td><td>added</td><td>+73</td><td>-0</td></tr>
+<tr><td>review-pages/schema/pr-index.schema.json</td><td>added</td><td>+21</td><td>-0</td></tr>
+<tr><td>review-pages/src/build-checks.mjs</td><td>added</td><td>+33</td><td>-0</td></tr>
+<tr><td>review-pages/src/build-diff.mjs</td><td>added</td><td>+26</td><td>-0</td></tr>
+<tr><td>review-pages/src/build-issue.mjs</td><td>added</td><td>+43</td><td>-0</td></tr>
+<tr><td>review-pages/src/build-ocr.mjs</td><td>added</td><td>+36</td><td>-0</td></tr>
+<tr><td>review-pages/src/generate-review-package.mjs</td><td>added</td><td>+169</td><td>-0</td></tr>
+<tr><td>review-pages/src/lib/canonical-json.mjs</td><td>added</td><td>+25</td><td>-0</td></tr>
+<tr><td>review-pages/src/lib/git.mjs</td><td>added</td><td>+94</td><td>-0</td></tr>
+<tr><td>review-pages/src/lib/github-api.mjs</td><td>added</td><td>+35</td><td>-0</td></tr>
+<tr><td>review-pages/src/lib/markdown.mjs</td><td>added</td><td>+33</td><td>-0</td></tr>
+<tr><td>review-pages/src/lib/schema-validator.mjs</td><td>added</td><td>+66</td><td>-0</td></tr>
+<tr><td>review-pages/src/publish-to-pages.mjs</td><td>added</td><td>+160</td><td>-0</td></tr>
+<tr><td>review-pages/src/render-html.mjs</td><td>added</td><td>+66</td><td>-0</td></tr>
+<tr><td>review-pages/src/validate-manifest.mjs</td><td>added</td><td>+46</td><td>-0</td></tr>
+<tr><td>review-pages/test/bounded-output.test.mjs</td><td>added</td><td>+54</td><td>-0</td></tr>
+<tr><td>review-pages/test/canonical-json.test.mjs</td><td>added</td><td>+20</td><td>-0</td></tr>
+<tr><td>review-pages/test/generate-review-package.test.mjs</td><td>added</td><td>+190</td><td>-0</td></tr>
+<tr><td>review-pages/test/helpers/fixture-repo.mjs</td><td>added</td><td>+36</td><td>-0</td></tr>
+<tr><td>review-pages/test/manifest-schema.test.mjs</td><td>added</td><td>+67</td><td>-0</td></tr>
+<tr><td>review-pages/test/markdown.test.mjs</td><td>added</td><td>+38</td><td>-0</td></tr>
+<tr><td>review-pages/test/publish-to-pages.test.mjs</td><td>added</td><td>+173</td><td>-0</td></tr>
+<tr><td>scripts/test-suites.mjs</td><td>modified</td><td>+4</td><td>-1</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
