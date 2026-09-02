@@ -21,5 +21,15 @@ test("Review Pages generation checks out the event head and fetches only the exa
   assert.match(generateJob, /git fetch --no-tags --depth=1 origin "\$BASE_SHA"/u);
   assert.match(generateJob, /git rev-parse --verify HEAD\^\{commit\}/u);
   assert.match(generateJob, /git rev-parse --verify "\$BASE_SHA\^\{commit\}"/u);
-  assert.match(generateJob, /unbounded-depth fallback/u);
+  assert.match(generateJob, /unbounded-depth fetch/u);
+});
+
+test("Review Pages generation deepens both shallow histories until a merge-base is found, bounded by a max attempt count", () => {
+  assert.match(generateJob, /MAX_DEEPEN_ATTEMPTS=10/u);
+  assert.match(generateJob, /until git merge-base "\$BASE_SHA" "\$HEAD_SHA"/u);
+  assert.match(generateJob, /git fetch --no-tags --deepen=50 origin "\$BASE_SHA" "\$HEAD_SHA"/u);
+  assert.match(
+    generateJob,
+    /no merge-base found between \$BASE_SHA and \$HEAD_SHA after \$MAX_DEEPEN_ATTEMPTS deepen attempts/u,
+  );
 });

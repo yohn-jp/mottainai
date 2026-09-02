@@ -57,9 +57,14 @@ jobs:
             exit 1
           fi
 
-          # Fetch only the event's exact base commit. There is deliberately no
-          # unbounded-depth fallback: an unavailable or ambiguous revision
-          # must stop generation instead of changing diff semantics.
+          # Fetch the event's exact base commit, then deepen both the head
+          # and base shallow histories together until a merge-base exists.
+          # A single --depth=1 fetch of the base only ever yields that one
+          # commit object: it shares no ancestry with the equally shallow
+          # head, so merge-base can never resolve without deepening. The
+          # deepen step is bounded, not unlimited: an ancestry that never
+          # converges within MAX_DEEPEN_ATTEMPTS must stop generation
+          # instead of falling back to an unbounded-depth fetch.
           if ! git fetch --no-tags --depth=1 origin "$BASE_SHA"; then
             echo "targeted fetch failed for event base $BASE_SHA" >&2
             exit 1
@@ -72,6 +77,17 @@ jobs:
             echo "fetched base mismatch: expected $BASE_SHA, got $fetched_base" >&2
             exit 1
           fi
+
+          MAX_DEEPEN_ATTEMPTS=10
+          attempt=0
+          until git merge-base "$BASE_SHA" "$HEAD_SHA" >/dev/null 2>&1; do
+            attempt=$((attempt + 1))
+            if [[ "$attempt" -gt "$MAX_DEEPEN_ATTEMPTS" ]]; then
+              echo "no merge-base found between $BASE_SHA and $HEAD_SHA after $MAX_DEEPEN_ATTEMPTS deepen attempts" >&2
+              exit 1
+            fi
+            git fetch --no-tags --deepen=50 origin "$BASE_SHA" "$HEAD_SHA"
+          done
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
