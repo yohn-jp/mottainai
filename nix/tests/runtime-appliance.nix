@@ -19,11 +19,20 @@ let
   alternateSource = ./fixtures/alt-mottainai-source;
   # Issue #702: read straight from package.json rather than via
   # `../mottainai.nix` (HEAD's own recipe) — this alternate source is a
-  # foreign release tree with its own nix/flake.nix + nix/mottainai.nix
+  # foreign release tree with its own nix/mottainai.nix
   # (nix/tests/fixtures/alt-mottainai-source), and this test must not
   # itself couple back to HEAD's recipe to learn its version.
   alternateMottainaiVersion =
     (builtins.fromJSON (builtins.readFile (alternateSource + "/package.json"))).version;
+
+  # Issue #702: mkManagedGeneration now takes an already-resolved
+  # `mottainaiPackage`, not a `mottainaiSource` (nix/managed-generation.nix
+  # must stay pure-evaluable for `nix flake check`, so it can never call
+  # `builtins.getFlake` itself). Resolve each source's own nix/mottainai.nix
+  # by plain `import` here — never HEAD's `../mottainai.nix` applied to a
+  # foreign source — the same pure resolution nix/tests/managed-generation.nix
+  # uses and explains in its own header comment.
+  mottainaiPackageFromSource = mottainaiSource: import (mottainaiSource + "/nix/mottainai.nix") { inherit pkgs; source = mottainaiSource; };
 
   # These are two real #624/#626 managed inputs with the same package shape,
   # differing only in the resolved Mottainai version/source metadata. Each
@@ -79,7 +88,7 @@ let
       managedGeneration = mkManagedGeneration {
         system = pkgs.stdenv.hostPlatform.system;
         manifest = managedManifest managedInput;
-        mottainaiSource = managedInput.source;
+        mottainaiPackage = mottainaiPackageFromSource managedInput.source;
       };
       managedGenerationDrvPath =
         builtins.unsafeDiscardStringContext managedGeneration.generation.drvPath;

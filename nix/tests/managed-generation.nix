@@ -14,33 +14,59 @@
 #
 # Also proves the PR #634 review's second finding is fixed: the projection
 # is not coupled to this flake's own checkout as Mottainai's only possible
-# source. `mkManagedGeneration` now requires an explicit `mottainaiSource`
-# argument (nix/managed-generation.nix "Source resolution boundary"); the
-# "an externally supplied alternate source resolves successfully" /
-# "the current checkout's source is rejected for a version it cannot
-# produce" pair below exercises that boundary directly, not just the
-# same-source path every other assertion here uses.
+# source. The "an externally supplied alternate source resolves
+# successfully" / "the current checkout's source is rejected for a version
+# it cannot produce" pair below exercises that boundary directly, not just
+# the same-source path every other assertion here uses.
 #
 # Issue #702 sharpens that decoupling proof into an ownership proof: it is
 # not enough that an external source's *version* differs from HEAD's — the
-# resolved package must come from that source's *own* nix#mottainai recipe,
-# never from HEAD's nix/mottainai.nix reinterpreting a foreign source tree.
+# resolved package must come from that source's *own* nix/mottainai.nix
+# recipe, never from HEAD's copy of that file reinterpreting a foreign
+# source tree. `mkManagedGeneration` (nix/flake.nix's `lib.mkManagedGeneration`)
+# no longer takes a `mottainaiSource` to resolve internally — it takes an
+# already-resolved `mottainaiPackage` derivation, exactly like
+# `nawabariPackage`/`zellijPackage` (nix/managed-generation.nix's own
+# comments explain why: `builtins.getFlake` cannot appear anywhere this file
+# reaches, since `nix flake check` evaluates this whole check without
+# `--impure`). `mottainaiPackageFromSource` below resolves that argument the
+# only way available under pure evaluation: a plain `import` of a source
+# tree's own `nix/mottainai.nix` — never `../mottainai.nix` (HEAD's copy).
+# That is a weaker proof than the production driver's `builtins.getFlake`
+# resolution (it does not exercise a foreign source's own pinned nixpkgs —
+# only its own recipe *file*), but it is not a fallback to the pre-#702 bug
+# pattern: the file imported is always the supplied source's own, and
+# nix/tests/runtime-appliance-golden-path.nix already proves the full
+# getFlake-based, own-nixpkgs-pin resolution end to end against real
+# historical tagged releases (v0.7.0/v0.7.1) through the real production
+# driver running inside that test's guest VM.
 # The drvPath-equality/inequality assertions below (headRecipeIsGenuinelyUsed,
-# externalSourceNotReinterpretedByHeadRecipe) and the no-flake-output/
-# no-historical-hash-registry assertions prove exactly that.
+# externalSourceNotReinterpretedByHeadRecipe) and the no-package-output/
+# no-historical-hash-registry assertions prove exactly that ownership
+# boundary at this pure-evaluation layer.
 
 let
   defaultMottainaiSource = mottainaiSource;
 
+  # Issue #702: resolves a source tree's own `nix/mottainai.nix` — never
+  # HEAD's `../mottainai.nix` applied to a foreign source. A plain `import`
+  # (not `builtins.getFlake`) so this stays usable from pure evaluation;
+  # see this file's header comment for why that is still a meaningful proof
+  # of recipe ownership even though it does not resolve that source's own
+  # pinned nixpkgs the way the production driver's `builtins.getFlake` call
+  # does.
+  mottainaiPackageFromSource = source: import (source + "/nix/mottainai.nix") { inherit pkgs source; };
+
   forceGeneration =
     { manifest, mottainaiSource ? defaultMottainaiSource }:
-    let
-      result = mkManagedGeneration {
-        system = pkgs.stdenv.hostPlatform.system;
-        inherit manifest mottainaiSource;
-      };
-    in
-    builtins.tryEval (builtins.unsafeDiscardStringContext result.generation.outPath);
+    builtins.tryEval (
+      builtins.unsafeDiscardStringContext
+        (mkManagedGeneration {
+          system = pkgs.stdenv.hostPlatform.system;
+          inherit manifest;
+          mottainaiPackage = mottainaiPackageFromSource mottainaiSource;
+        }).generation.outPath
+    );
 
   baseManifest = {
     contractId = "mottainai.managed-package-manifest.v1";
@@ -128,7 +154,7 @@ let
   # #702 into "the release's own recipe is used, not HEAD's"):
   # ./fixtures/alt-mottainai-source is a separate tracked tree with its own
   # package.json declaring a version (0.0.1-fixture-alt-source) that this
-  # checkout's own package.json does not have, and its own nix/flake.nix +
+  # checkout's own package.json does not have, and its own
   # nix/mottainai.nix (a dependency-free recipe using the raw `derivation`
   # builtin, unrelated to HEAD's nix/mottainai.nix or nixpkgs pin — see
   # that fixture's own comments). Read directly from package.json, not via
@@ -140,7 +166,7 @@ let
 
   # A manifest requesting exactly that version resolves successfully only
   # if `mottainaiSource` is genuinely threaded through to that source's own
-  # flake — a projection that silently fell back to this flake's own
+  # recipe — a projection that silently fell back to this flake's own
   # checkout (this file's `mottainaiSource` default, or a hardcoded `../.`
   # the way the pre-#634 code had) would resolve the current checkout's
   # version instead and fail this exact version-match assertion.
@@ -169,7 +195,8 @@ let
     let
       result = mkManagedGeneration {
         system = pkgs.stdenv.hostPlatform.system;
-        inherit manifest mottainaiSource;
+        inherit manifest;
+        mottainaiPackage = mottainaiPackageFromSource mottainaiSource;
       };
     in
     builtins.unsafeDiscardStringContext (builtins.head result.resolved).drv.drvPath;
@@ -205,8 +232,8 @@ let
   # Issue #702 acceptance criterion: "A release source without the
   # expected package output fails deterministically."
   # ./fixtures/alt-mottainai-source-no-flake has a package.json but no
-  # nix/flake.nix at all — it does not own a nix#mottainai recipe, the way
-  # a real historical release checkout always would.
+  # nix/mottainai.nix at all — it does not own a nix#mottainai recipe, the
+  # way a real historical release checkout always would.
   sourceWithoutExpectedPackageOutput = forceGeneration {
     manifest = baseManifest // { packages = [ (mottainaiEntry // { version = "0.0.1-fixture-no-flake"; }) ]; };
     mottainaiSource = ./fixtures/alt-mottainai-source-no-flake;
@@ -283,8 +310,8 @@ let
     }
     {
       # Issue #702 acceptance criterion: a release source exposing no
-      # nix#mottainai package output (no nix/flake.nix at all here) must
-      # fail deterministically, never silently fall back to HEAD's recipe.
+      # nix/mottainai.nix (no nix#mottainai package output) must fail
+      # deterministically, never silently fall back to HEAD's recipe.
       name = "a mottainaiSource without the expected nix#mottainai package output fails deterministically";
       condition = !sourceWithoutExpectedPackageOutput.success;
     }

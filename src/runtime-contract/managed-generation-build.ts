@@ -138,13 +138,37 @@ export async function buildManagedGenerationMetadata(
   // does. Inlining `mottainaiSource` directly into a self-contained
   // `let ... in` expression with no free variables removes that
   // function-application indirection entirely.
+  //
+  // Issue #702: mottainaiSource owns its own nix#mottainai recipe,
+  // toolchain, and nixpkgs pin — resolved here, from that source tree's own
+  // nix/flake.nix, via builtins.getFlake, at this call site's own impure
+  // `nix build --impure` invocation. nix/managed-generation.nix itself stays
+  // pure-evaluable (required by `nix flake check`, which evaluates
+  // `checks.<system>.*` without `--impure`): it never calls getFlake, it
+  // only receives an already-resolved `mottainaiPackage` derivation, the
+  // same way it already receives `nawabariPackage`/`zellijPackage`. Plain
+  // `+` string concatenation (not `${}` Nix interpolation) is used
+  // throughout so this stays a literal template with no accidental overlap
+  // with this file's own JS template-literal interpolation syntax.
   const nixExpr = `
 let
   flake = builtins.getFlake (toString ${JSON.stringify(options.repoRoot)} + "?dir=nix");
   manifest = builtins.fromJSON ${JSON.stringify(manifestJson)};
+  system = ${JSON.stringify(options.system)};
   mottainaiSource = /. + ${JSON.stringify(options.mottainaiSourcePath)};
+  mottainaiSourceFlake = builtins.getFlake (toString mottainaiSource + "?dir=nix");
+  mottainaiPackagesForSystem =
+    if !(mottainaiSourceFlake ? packages) || !(builtins.hasAttr system mottainaiSourceFlake.packages) then
+      throw ("managed generation build: mottainai source at " + toString mottainaiSource + " flake exposes no packages." + system + " output")
+    else
+      builtins.getAttr system mottainaiSourceFlake.packages;
+  mottainaiPackage =
+    if !(mottainaiPackagesForSystem ? mottainai) then
+      throw ("managed generation build: mottainai source at " + toString mottainaiSource + " flake exposes no packages." + system + ".mottainai output")
+    else
+      mottainaiPackagesForSystem.mottainai;
 in
-(flake.lib.mkManagedGeneration { system = ${JSON.stringify(options.system)}; inherit manifest mottainaiSource; }).metadataFile
+(flake.lib.mkManagedGeneration { inherit system manifest mottainaiPackage; }).metadataFile
 `;
 
   let metadataStorePath: string;

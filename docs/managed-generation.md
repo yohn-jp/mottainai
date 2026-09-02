@@ -99,11 +99,12 @@ and satisfies that module's `MINIMUM_ZELLIJ_VERSION` floor.
 
 ## Source resolution boundary
 
-The Mottainai side of the recipe table above is not a pre-built, fixed
-derivation this file receives — `nix/managed-generation.nix`'s signature is
-`{ pkgs, lib, mottainaiSource, nawabariPackage, zellijPackage, manifest }:`.
-`nix/flake.nix`'s `lib.mkManagedGeneration` requires `mottainaiSource`
-explicitly, with no default falling back to this flake's own checkout.
+The Mottainai side of the recipe table above is not resolved by
+`nix/managed-generation.nix` itself — its signature is
+`{ pkgs, lib, mottainaiPackage, nawabariPackage, zellijPackage, manifest }:`.
+`nix/flake.nix`'s `lib.mkManagedGeneration` requires `mottainaiPackage`
+explicitly (an already-built derivation), with no default falling back to
+this flake's own checkout.
 
 This is a deliberate boundary, not an oversight: an earlier revision of
 this file received a `mottainaiPackage` derivation already fixed to this
@@ -115,52 +116,88 @@ impossible to satisfy from a fresh bootstrap appliance building a
 manifest-requested release that isn't this checkout's own tagged version
 (PR #634 review).
 
-**Issue #625 owns projection only**: "manifest + an already-resolved exact
-source -> deterministic Nix generation." **Issue #626 owns resolving which
-source that is** — obtaining/fetching the exact source tree a manifest
-entry's requested version corresponds to (a tagged release checkout, a
+**Issue #625 owns projection only**: "manifest + already-resolved packages
+-> deterministic Nix generation." **Issue #626 owns resolving which source
+a manifest entry corresponds to and building it into a package** —
+obtaining/fetching the exact source tree (a tagged release checkout, a
 downloaded tarball, whatever a bootstrap appliance's package-manager UX
-produces) is explicitly out of scope here; this projection only consumes
-the result. `scripts/build-managed-generation.mjs`'s `--mottainai-source`
-flag mirrors this: it is a required, already-resolved path, not something
-the script fetches on the caller's behalf.
+produces) and turning it into `mottainaiPackage` is explicitly out of scope
+here; this projection only consumes the result.
+`src/runtime-contract/managed-generation-build.ts` (driven by
+`scripts/build-managed-generation.mjs`'s `--mottainai-source` flag) is the
+caller that performs this resolution, described below.
 
-`nawabariPackage`, by contrast, is still received pre-built: it is
-unaffected by this boundary because `nix/packages/nawabari.nix` already
-resolves its own source internally via `fetchurl`.
+`nawabariPackage`/`zellijPackage`, by contrast, were always received
+pre-built this same way: `nix/packages/nawabari.nix` resolves its own
+source internally via `fetchurl`, and `zellij` delegates to a pinned
+nixpkgs identity — `mottainaiPackage` now follows the identical shape.
 
 ### Release-owned recipe resolution (Issue #702)
 
-Between #634 and #702, `mottainaiSource` was still projected through a
-`buildMottainai = source: import ./mottainai.nix { inherit pkgs source; }`
-function — HEAD's own `nix/mottainai.nix` partially applied over `pkgs`,
-then called against whatever `mottainaiSource` was supplied, including a
-historical tagged release's source tree. That combined "HEAD's current
-recipe" with "a foreign source" in a way neither side owns: a release
-already carries its own `nix/flake.nix` pinned to its own release-era
-nixpkgs, Node.js/pnpm versions, and matching `pnpmDeps.outputHash` for its
-own lockfile (e.g. `v0.7.0`'s pre-#700 Node.js 22 recipe). Forcing HEAD to
-rebuild that release meant HEAD's `nix/mottainai.nix` had to carry a
-`pnpm-lock.yaml content hash -> outputHash` table spanning every lockfile
-any historical release might ever need — permanent mutable knowledge in
-HEAD that every future HEAD toolchain migration would have to extend.
+Between #634 and #702, this file itself took a `mottainaiSource` (an
+already-resolved exact source tree) plus a `buildMottainai = source: import
+./mottainai.nix { inherit pkgs source; }` function — HEAD's own
+`nix/mottainai.nix` partially applied over `pkgs`, then called against
+whatever `mottainaiSource` was supplied, including a historical tagged
+release's source tree. That combined "HEAD's current recipe" with "a
+foreign source" in a way neither side owns: a release already carries its
+own `nix/flake.nix` pinned to its own release-era nixpkgs, Node.js/pnpm
+versions, and matching `pnpmDeps.outputHash` for its own lockfile (e.g.
+`v0.7.0`'s pre-#700 Node.js 22 recipe). Forcing HEAD to rebuild that
+release meant HEAD's `nix/mottainai.nix` had to carry a `pnpm-lock.yaml
+content hash -> outputHash` table spanning every lockfile any historical
+release might ever need — permanent mutable knowledge in HEAD that every
+future HEAD toolchain migration would have to extend.
 
-`nix/managed-generation.nix` instead resolves `mottainaiSource`'s own
-`nix#mottainai` package output directly from that source tree's own
-`nix/flake.nix` (`builtins.getFlake (toString mottainaiSource + "?dir=nix")`,
-the same flakeref shape `src/runtime-contract/managed-generation-build.ts`
-already uses to load HEAD's own flake). There is only one resolution path:
-when `mottainaiSource` is this flake's own checkout, it resolves to the
-exact same recipe `nix/flake.nix`'s own `packages.<system>.mottainai`
-output builds; when it is a historical tagged release, it resolves that
-release's own recipe, toolchain, nixpkgs pin, and dependency hash — never
-HEAD's. `nix/mottainai.nix` therefore only ever builds from its own tree
-and needs a single fixed-output hash for its own current lockfile, not a
-historical-lockfile registry. A source exposing no `nix/flake.nix`, or
-whose flake exposes no `packages.<system>.mottainai` output, fails
-deterministically before any build is attempted — see
-`nix/tests/managed-generation.nix`'s `sourceWithoutExpectedPackageOutput`
-assertion and its `nix/tests/fixtures/alt-mottainai-source-no-flake` fixture.
+The natural fix — resolve a source's own `nix#mottainai` output via
+`builtins.getFlake` inside `nix/managed-generation.nix` — turned out to be
+incompatible with `nix flake check` (used by
+`.github/workflows/ci.yml`'s `Nix Runtime evaluation` job): `getFlake` on
+an unlocked local path is an impure operation Nix refuses outside
+`--impure`, and `nix flake check` evaluates `checks.<system>.*` — which
+exercises `nix/managed-generation.nix` through
+`checks.<system>.managed-generation` / `checks.<system>.appliance-boundary`
+— without it. `builtins.tryEval` does not catch this class of failure; it
+aborted the whole `nix flake check` invocation regardless.
+
+Resolution therefore moved one layer up, to whichever caller already runs
+impure: `src/runtime-contract/managed-generation-build.ts`'s
+`buildManagedGenerationMetadata` already invokes `nix build --impure` (see
+"`sourceSha256` meaning" below for why). Its Nix expression now resolves
+`mottainaiSource`'s own `packages.<system>.mottainai` via
+`builtins.getFlake (toString mottainaiSource + "?dir=nix")` — the same
+flakeref shape it already uses to load HEAD's own flake — *before* calling
+`flake.lib.mkManagedGeneration`, and passes the resolved derivation in as
+`mottainaiPackage`. `nix/managed-generation.nix` and
+`nix/flake.nix`'s `lib.mkManagedGeneration` never call `getFlake`
+themselves, so both stay pure-evaluable. There is still only one
+production resolution path: when `mottainaiSource` is this flake's own
+checkout, it resolves to the exact same recipe `nix/flake.nix`'s own
+`packages.<system>.mottainai` output builds; when it is a historical
+tagged release, it resolves that release's own recipe, toolchain, nixpkgs
+pin, and dependency hash — never HEAD's. `nix/mottainai.nix` therefore
+only ever builds from its own tree and needs a single fixed-output hash
+for its own current lockfile, not a historical-lockfile registry. A source
+exposing no `nix/flake.nix`, or whose flake exposes no
+`packages.<system>.mottainai` output, fails deterministically before any
+build is attempted, at that same call site.
+
+`nix/tests/managed-generation.nix` and `nix/tests/runtime-appliance.nix`
+(both pure-evaluated by `nix flake check`) resolve `mottainaiPackage`
+their own way: a plain `import (source + "/nix/mottainai.nix") { inherit
+pkgs source; }` — still always that source's own recipe file, never HEAD's
+`../mottainai.nix` applied to a foreign source, but without resolving that
+source's own pinned nixpkgs the way `builtins.getFlake` does (plain
+`import` reuses whatever `pkgs` the caller already has). That is a
+narrower proof than the production path's, sufficient for these pure-eval
+regression tests (`nix/tests/managed-generation.nix`'s
+`headRecipeIsGenuinelyUsed`/`externalSourceNotReinterpretedByHeadRecipe`/
+`sourceWithoutExpectedPackageOutput` assertions and their
+`nix/tests/fixtures/alt-mottainai-source`/`alt-mottainai-source-no-flake`
+fixtures) — the full `getFlake`-based, own-nixpkgs-pin resolution is
+additionally proven end to end against real historical tagged releases
+(`v0.7.0`/`v0.7.1`) by `nix/tests/runtime-appliance-golden-path.nix`, which
+runs the real production driver inside its guest VM.
 
 ## `sourceSha256` meaning and a known Mottainai fragility
 
@@ -348,7 +385,7 @@ specifically: HEAD's own source resolves to the exact `drvPath`
 is provably _not_ what HEAD's `nix/mottainai.nix` would produce if called
 directly against that foreign source — the pre-#702 bug pattern
 (`externalSourceNotReinterpretedByHeadRecipe`); a `mottainaiSource` with no
-`nix/flake.nix` at all
+`nix/mottainai.nix` at all
 ([`nix/tests/fixtures/alt-mottainai-source-no-flake`](../nix/tests/fixtures/alt-mottainai-source-no-flake))
 fails deterministically instead of falling back to HEAD's recipe; and
 `nix/mottainai.nix`'s own source text contains no historical-lockfile hash
