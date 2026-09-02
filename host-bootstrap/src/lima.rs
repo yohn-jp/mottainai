@@ -122,7 +122,12 @@ pub fn render_lima_config(spec: &RuntimeSpec, appliance_raw_path: &Path) -> Stri
             location: appliance_path.as_ref(),
             arch: &spec.architecture,
         }],
-        mount_type: "none",
+        // Lima 2.2.0 only accepts reverse-sshfs/9p/virtiofs/wsl2 here; it
+        // has no "none" mount type, unlike this crate's prior assumption.
+        // "9p" is Lima's own QEMU default (see its bundled default.yaml),
+        // and with `mounts: []` below no host path is ever actually
+        // mounted regardless of which valid value is configured here.
+        mount_type: "9p",
         mounts: spec
             .mounts
             .iter()
@@ -1783,6 +1788,12 @@ mod tests {
             Some("/tmp/appliance.raw")
         );
         assert_eq!(parsed["mounts"].as_array().unwrap().len(), 0);
+        // Lima 2.2.0 only accepts reverse-sshfs/9p/virtiofs/wsl2 for
+        // mountType and rejects "none" outright (`limactl create` fails
+        // closed on the whole config, not just this field) -- with
+        // mounts: [] above, no host path is ever mounted regardless of
+        // which valid value is configured here.
+        assert_eq!(parsed["mountType"].as_str(), Some("9p"));
         // Lima 2.2.0 names this field loadDotSSHPubKeys (SSH fully
         // capitalized), not the camelCase-derived loadDotSshPubKeys; a
         // regression here makes `limactl create` reject the whole config
