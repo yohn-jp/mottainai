@@ -1,0 +1,94 @@
+{
+  "baseSha": "4f634778d31c8681caf1dd0b2e35170b832208e0",
+  "files": [
+    {
+      "additions": 6,
+      "deletions": 4,
+      "hunks": [
+        {
+          "newLines": 6,
+          "newStart": 47,
+          "oldLines": 4,
+          "oldStart": 47
+        }
+      ],
+      "path": ".github/workflows/review-pages.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 9,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 9,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/package.json",
+      "status": "added"
+    },
+    {
+      "additions": 79,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 79,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/pnpm-lock.yaml",
+      "status": "added"
+    },
+    {
+      "additions": 10,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 40,
+          "oldLines": 2,
+          "oldStart": 40
+        },
+        {
+          "newLines": 7,
+          "newStart": 70,
+          "oldLines": 0,
+          "oldStart": 68
+        }
+      ],
+      "path": "review-pages/README.md",
+      "status": "modified"
+    },
+    {
+      "additions": 15,
+      "deletions": 6,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 8,
+          "oldLines": 5,
+          "oldStart": 8
+        },
+        {
+          "newLines": 11,
+          "newStart": 13,
+          "oldLines": 1,
+          "oldStart": 14
+        }
+      ],
+      "path": "review-pages/src/lib/ocr-cli.mjs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "ba412012fbd17e4e4446f621b08296cd8e6a77ed",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 119,
+    "deletions": 12,
+    "filesChanged": 5
+  }
+}

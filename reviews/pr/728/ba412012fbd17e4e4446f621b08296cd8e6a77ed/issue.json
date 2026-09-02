@@ -1,0 +1,43 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Review Pages generation installs only its required dependency surface or proves with measurement that the root install is already the minimal safe path."
+    },
+    {
+      "checked": false,
+      "text": "OCR delegate remains pinned and invoked through the same supported contract."
+    },
+    {
+      "checked": false,
+      "text": "Frozen/immutable dependency resolution is preserved; no floating install is introduced."
+    },
+    {
+      "checked": false,
+      "text": "Existing Review Pages tests and a real workflow generation run pass."
+    },
+    {
+      "checked": false,
+      "text": "No Mottainai runtime/MCP dependency is pulled in solely for Review Pages generation unless explicitly required and documented."
+    },
+    {
+      "checked": false,
+      "text": "Generated review package bytes remain semantically equivalent for fixed fixtures."
+    },
+    {
+      "checked": false,
+      "text": "The change does not alter trusted publication permissions or PR-content security boundaries."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 722,
+    "state": "open",
+    "title": "chore: minimize Review Pages dependency installation",
+    "url": "https://github.com/yohn-jp/mottainai/issues/722"
+  },
+  "linked": {
+    "number": 722
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
