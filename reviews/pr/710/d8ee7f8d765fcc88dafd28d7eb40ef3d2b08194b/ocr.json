@@ -1,0 +1,60 @@
+{
+  "baseSha": "030f20cc24ca43f5bfe59acd79a75aa44cd73bd2",
+  "headSha": "d8ee7f8d765fcc88dafd28d7eb40ef3d2b08194b",
+  "preview": {
+    "excluded_count": 2,
+    "excluded_files": [
+      {
+        "deletions": 10,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 11,
+        "path": "README.md",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 31,
+        "path": "docs/releases/0.8.0.md",
+        "status": "added"
+      }
+    ],
+    "from": "030f20cc24ca43f5bfe59acd79a75aa44cd73bd2",
+    "merge_base": "030f20cc24ca43f5bfe59acd79a75aa44cd73bd2",
+    "mode": "range",
+    "reviewable_count": 1,
+    "reviewable_files": [
+      {
+        "deletions": 1,
+        "insertions": 1,
+        "path": "package.json",
+        "status": "modified"
+      }
+    ],
+    "schema_version": "1",
+    "to": "d8ee7f8d765fcc88dafd28d7eb40ef3d2b08194b",
+    "total_deletions": 11,
+    "total_files": 3,
+    "total_insertions": 43
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.1"
+  },
+  "rule": {
+    "groups": [
+      {
+        "files": [
+          "package.json"
+        ],
+        "group_id": 1,
+        "pattern": "**/package.json",
+        "rule": "- Avoid introducing dependencies with a version of `latest` or `*`; use specific version numbers instead. Note: ignore this rule when the version number is not on a newly added line of code\n- Dependency conflicts or duplicate declarations: the same dependency exists in both `dependencies` and `devDependencies`\n- Required tool dependencies not declared: tool names such as eslint, jest, or prettier appear in `scripts` but are not listed in `devDependencies`",
+        "source": "system"
+      }
+    ],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}
