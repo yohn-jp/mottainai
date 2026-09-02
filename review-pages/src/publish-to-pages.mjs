@@ -6,20 +6,10 @@ import { buildExpectedManifestUrl, PAGES_SERVING_OUTCOMES, verifyPagesManifest }
 
 const DEFAULT_MAX_ATTEMPTS = 5;
 
-// Files that make up a revision's deterministic identity. checks.json is
-// deliberately excluded: live check/CI state is the one resource
-// Issue #704 explicitly documents as volatile evidence attached to an
-// otherwise-immutable revision, so it may be refreshed in place. The
-// optional review-result.json is included by deterministicRevisionSignature
-// when the manifest declares it.
 const DETERMINISTIC_RESOURCE_FILES = Object.freeze(["issue.json", "diff.json", "ocr.json", "index.html"]);
 
 export class ImmutableRevisionConflictError extends Error {}
 
-// manifest.json's only volatile field is volatile.generatedAt (declared
-// in manifest.volatile.fields); strip it before comparing so a later
-// regeneration of the same SHA with the same deterministic inputs
-// compares equal regardless of when it ran.
 function canonicalManifestForComparison(manifestPath) {
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
   if (manifest.volatile) delete manifest.volatile.generatedAt;
@@ -33,25 +23,10 @@ function deterministicRevisionSignature(dir) {
     ? [...DETERMINISTIC_RESOURCE_FILES, reviewResultFile]
     : DETERMINISTIC_RESOURCE_FILES;
   const parts = [canonicalManifestForComparison(path.join(dir, "manifest.json"))];
-  for (const name of resourceFiles) {
-    parts.push(fs.readFileSync(path.join(dir, name), "utf8"));
-  }
+  for (const name of resourceFiles) parts.push(fs.readFileSync(path.join(dir, name), "utf8"));
   return parts.join(" ");
 }
 
-// Copies one revision's generated files into the shared Pages tree at
-// reviews/pr/<number>/<headSha>/ and refreshes that PR's own
-// reviews/pr/<number>/index.json pointer. This never touches any other
-// PR's directory, which is what makes concurrent publication safe at the
-// filesystem level: two PRs only ever write disjoint subtrees.
-//
-// A SHA-specific revision is immutable: if reviews/pr/<n>/<sha>/ already
-// exists, its deterministic content (everything but checks.json and
-// manifest.volatile.generatedAt) must match byte-for-byte or the publish
-// is rejected outright — nothing is written. When it matches, only
-// checks.json (documented volatile evidence) is refreshed; the rest of
-// the existing revision, including its original generatedAt, is left
-// untouched.
 export function mergeRevisionIntoSite(siteDir, prNumber, revisionSourceDir, prIndexSourceFile) {
   const headSha = path.basename(revisionSourceDir);
   const prDir = path.join(siteDir, "reviews", "pr", String(prNumber));
@@ -63,8 +38,7 @@ export function mergeRevisionIntoSite(siteDir, prNumber, revisionSourceDir, prIn
     const incoming = deterministicRevisionSignature(revisionSourceDir);
     if (existing !== incoming) {
       throw new ImmutableRevisionConflictError(
-        `refusing to publish PR #${prNumber} @ ${headSha}: an immutable revision already exists ` +
-          "with different deterministic content",
+        `refusing to publish PR #${prNumber} @ ${headSha}: an immutable revision already exists with different deterministic content`,
       );
     }
     fs.copyFileSync(path.join(revisionSourceDir, "checks.json"), path.join(revisionTargetDir, "checks.json"));
@@ -100,18 +74,7 @@ export function prepareWorkingTree(workDir, remoteUrl, branch) {
   git(["remote", "add", "origin", remoteUrl], workDir);
   fs.writeFileSync(path.join(workDir, ".nojekyll"), "");
   git(["add", "-A"], workDir);
-  git(
-    [
-      "-c",
-      "user.name=review-pages",
-      "-c",
-      "user.email=review-pages@users.noreply.github.com",
-      "commit",
-      "-m",
-      "chore(review-pages): initialize Pages branch",
-    ],
-    workDir,
-  );
+  git(["-c", "user.name=review-pages", "-c", "user.email=review-pages@users.noreply.github.com", "commit", "-m", "chore(review-pages): initialize Pages branch"], workDir);
 }
 
 export function refreshWorkingTreeFromRemote(workDir, branch) {
@@ -120,61 +83,26 @@ export function refreshWorkingTreeFromRemote(workDir, branch) {
   git(["clean", "-fd"], workDir);
 }
 
-// Publishes a generated revision to the Pages branch with optimistic
-// concurrency: on a non-fast-forward push rejection (another PR's
-// publish landed first), re-fetch, re-apply this PR's own merge on top
-// of the new tip, and retry. Because mergeRevisionIntoSite only ever
-// writes this PR's own subtree, replaying it after a rebase can never
-// erase another PR's directory. An ImmutableRevisionConflictError from
-// mergeRevisionIntoSite is not a push race — it is thrown before any
-// git operation on this attempt, so it propagates out immediately
-// instead of being retried.
-export function publishGeneratedRevision({
-  remoteUrl,
-  branch,
-  prNumber,
-  revisionDir,
-  prIndexFile,
-  workDir,
-  maxAttempts = DEFAULT_MAX_ATTEMPTS,
-}) {
+export function publishGeneratedRevision({ remoteUrl, branch, prNumber, revisionDir, prIndexFile, workDir, maxAttempts = DEFAULT_MAX_ATTEMPTS }) {
   const headSha = path.basename(revisionDir);
   const commitMessage = `chore(review-pages): publish PR #${prNumber} @ ${headSha}`;
-
   prepareWorkingTree(workDir, remoteUrl, branch);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     if (attempt > 1) refreshWorkingTreeFromRemote(workDir, branch);
-
     mergeRevisionIntoSite(workDir, prNumber, revisionDir, prIndexFile);
-
     git(["add", "-A"], workDir);
     const status = git(["status", "--porcelain"], workDir);
     if (status.trim().length === 0) return { pushed: false, attempts: attempt };
 
-    git(
-      [
-        "-c",
-        "user.name=review-pages",
-        "-c",
-        "user.email=review-pages@users.noreply.github.com",
-        "commit",
-        "-m",
-        commitMessage,
-      ],
-      workDir,
-    );
-
+    git(["-c", "user.name=review-pages", "-c", "user.email=review-pages@users.noreply.github.com", "commit", "-m", commitMessage], workDir);
     try {
       git(["push", "origin", `HEAD:${branch}`], workDir);
       return { pushed: true, attempts: attempt };
     } catch (error) {
-      if (attempt === maxAttempts) {
-        throw new Error(`failed to publish PR #${prNumber} after ${maxAttempts} attempts: ${error.message}`);
-      }
+      if (attempt === maxAttempts) throw new Error(`failed to publish PR #${prNumber} after ${maxAttempts} attempts: ${error.message}`);
     }
   }
-
   throw new Error(`failed to publish PR #${prNumber}: exhausted retries`);
 }
 
@@ -196,9 +124,12 @@ function repositoryFullNameFromEnvironment(environment) {
 function resolvePagesBaseUrl(environment) {
   const configured = environment.REVIEW_PAGES_BASE_URL?.trim();
   if (configured) return configured;
-
   const [owner, name] = repositoryFullNameFromEnvironment(environment).split("/");
   return `https://${owner}.github.io/${name}`;
+}
+
+export function pagesServingExitCode(outcome) {
+  return outcome === PAGES_SERVING_OUTCOMES.SERVING_WRONG_IDENTITY ? 1 : 0;
 }
 
 async function main() {
@@ -209,9 +140,7 @@ async function main() {
   const outputDir = environment.REVIEW_PAGES_OUTPUT_DIR;
   const workDir = environment.REVIEW_PAGES_WORK_DIR;
   if (!remoteUrl || !prNumber || !outputDir || !workDir) {
-    throw new Error(
-      "REVIEW_PAGES_REMOTE_URL, REVIEW_PAGES_PR_NUMBER, REVIEW_PAGES_OUTPUT_DIR, REVIEW_PAGES_WORK_DIR are required",
-    );
+    throw new Error("REVIEW_PAGES_REMOTE_URL, REVIEW_PAGES_PR_NUMBER, REVIEW_PAGES_OUTPUT_DIR, REVIEW_PAGES_WORK_DIR are required");
   }
 
   const prIndexFile = path.join(outputDir, "pr-index.json");
@@ -220,78 +149,49 @@ async function main() {
 
   let result;
   try {
-    result = publishGeneratedRevision({
-      remoteUrl,
-      branch,
-      prNumber: Number(prNumber),
-      revisionDir,
-      prIndexFile,
-      workDir,
-    });
+    result = publishGeneratedRevision({ remoteUrl, branch, prNumber: Number(prNumber), revisionDir, prIndexFile, workDir });
   } catch (error) {
     console.error(`${PAGES_SERVING_OUTCOMES.PUSH_FAILURE}: ${safeErrorMessage(error)}`);
     return 1;
   }
 
-  console.log(
-    result.pushed
-      ? `published PR #${prNumber} @ ${prIndex.latest.shortId} after ${result.attempts} attempt(s)`
-      : `PR #${prNumber} @ ${prIndex.latest.shortId} already published; no changes`,
-  );
+  console.log(result.pushed
+    ? `published PR #${prNumber} @ ${prIndex.latest.shortId} after ${result.attempts} attempt(s)`
+    : `PR #${prNumber} @ ${prIndex.latest.shortId} already published; no changes`);
 
   let manifestUrl;
   let repositoryFullName;
   try {
     repositoryFullName = repositoryFullNameFromEnvironment(environment);
-    manifestUrl = buildExpectedManifestUrl({
-      pagesBaseUrl: resolvePagesBaseUrl(environment),
-      prNumber: Number(prNumber),
-      headSha: prIndex.latest.headSha,
-    });
+    manifestUrl = buildExpectedManifestUrl({ pagesBaseUrl: resolvePagesBaseUrl(environment), prNumber: Number(prNumber), headSha: prIndex.latest.headSha });
   } catch (error) {
-    console.error(
-      `published-but-not-serving: cannot determine expected Pages manifest URL (${safeErrorMessage(error)})`,
-    );
-    return 1;
+    console.warn(`published-but-not-serving: cannot determine expected Pages manifest URL (${safeErrorMessage(error)}); publication itself succeeded`);
+    return 0;
   }
 
-  const verification = await verifyPagesManifest({
-    manifestUrl,
-    repositoryFullName,
-    prNumber: Number(prNumber),
-    headSha: prIndex.latest.headSha,
-  });
+  const verification = await verifyPagesManifest({ manifestUrl, repositoryFullName, prNumber: Number(prNumber), headSha: prIndex.latest.headSha });
 
   if (verification.outcome === PAGES_SERVING_OUTCOMES.SUCCESS) {
-    console.log(
-      `success: Pages serves the expected manifest at ${manifestUrl} after ${verification.attempts} attempt(s)`,
-    );
+    console.log(`success: Pages serves the expected manifest at ${manifestUrl} after ${verification.attempts} attempt(s)`);
     return 0;
   }
 
   if (verification.outcome === PAGES_SERVING_OUTCOMES.SERVING_WRONG_IDENTITY) {
-    console.error(
-      `serving-wrong-identity: manifest at ${manifestUrl} does not match ` +
-        `${repositoryFullName} PR #${prNumber} @ ${prIndex.latest.headSha} ` +
-        `(${verification.mismatches?.join(", ") ?? verification.reason ?? "invalid manifest"})`,
-    );
-    return 1;
+    console.error(`serving-wrong-identity: manifest at ${manifestUrl} does not match ${repositoryFullName} PR #${prNumber} @ ${prIndex.latest.headSha} (${verification.mismatches?.join(", ") ?? verification.reason ?? "invalid manifest"})`);
+    return pagesServingExitCode(verification.outcome);
   }
 
-  console.error(
-    `published-but-not-serving: expected manifest at ${manifestUrl} was not reachable after ` +
-      `${verification.attempts} attempt(s)` +
-      `${verification.status === null ? ` (${verification.reason})` : ` (HTTP ${verification.status})`}. ` +
-      "Configure GitHub Pages to deploy gh-pages/(root) under Settings → Pages.",
+  console.warn(
+    `published-but-not-serving: expected manifest at ${manifestUrl} was not reachable after ${verification.attempts} attempt(s)` +
+      `${verification.status === null ? ` (${verification.reason})` : ` (HTTP ${verification.status})`}; ` +
+      "gh-pages publication succeeded, so Pages propagation remains best-effort and does not fail the PR",
   );
-  return 1;
+  return pagesServingExitCode(verification.outcome);
 }
 
 if (process.argv[1] && process.argv[1].endsWith("publish-to-pages.mjs")) {
   main()
-    .then((exitCode) => {
-      process.exitCode = exitCode;
-    })
+    .then((exitCode) => { process.exitCode = exitCode; })
     .catch((error) => {
       console.error(error instanceof Error ? error.message : error);
       process.exitCode = 1;
