@@ -4,6 +4,8 @@ import {
   generateReviewPackage,
   isEligibleForGeneration,
   MANIFEST_SCHEMA_VERSION,
+  runBuilderGraph,
+  ReviewPackageBuilderError,
 } from "../src/generate-review-package.mjs";
 import { canonicalStringify } from "../src/lib/canonical-json.mjs";
 import { createFixtureRepo, removeFixtureRepo } from "./helpers/fixture-repo.mjs";
@@ -67,7 +69,9 @@ test("generation from fixed fixture inputs is byte-for-byte deterministic", asyn
     assert.equal(canonicalStringify(first.manifest), canonicalStringify(second.manifest));
     assert.equal(canonicalStringify(first.resources["diff.json"]), canonicalStringify(second.resources["diff.json"]));
     assert.equal(canonicalStringify(first.resources["ocr.json"]), canonicalStringify(second.resources["ocr.json"]));
+    assert.equal(canonicalStringify(first.resources), canonicalStringify(second.resources));
     assert.equal(first.html, second.html);
+    assert.equal(canonicalStringify(first.prIndex), canonicalStringify(second.prIndex));
   } finally {
     removeFixtureRepo(fixture.dir);
   }
@@ -212,4 +216,151 @@ test("the PR-level index resolves to the just-generated revision", async () => {
   } finally {
     removeFixtureRepo(fixture.dir);
   }
+});
+
+test("independent builders overlap while concurrency remains bounded", async () => {
+  const started = [];
+  let active = 0;
+  let maxActive = 0;
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+
+  const resultPromise = runBuilderGraph(
+    ["issue", "checks", "diff", "ocr"].map((name) => ({
+      name,
+      dependsOn: [],
+      run: async () => {
+        started.push(name);
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await gate;
+        active -= 1;
+        return name;
+      },
+    })),
+    { maxConcurrency: 2 },
+  );
+
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(started, ["issue", "checks"]);
+  assert.equal(maxActive, 2);
+  release();
+  assert.deepEqual(await resultPromise, { issue: "issue", checks: "checks", diff: "diff", ocr: "ocr" });
+  assert.deepEqual(started, ["issue", "checks", "diff", "ocr"]);
+});
+
+test("generation joins all independent builders before deterministic assembly", async () => {
+  const baseSha = "1".repeat(40);
+  const headSha = "2".repeat(40);
+  const started = [];
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  let allStarted;
+  const allStartedPromise = new Promise((resolve) => {
+    allStarted = resolve;
+  });
+  const makeBuilder = (name, value) => async () => {
+    started.push(name);
+    if (started.length === 4) allStarted();
+    await gate;
+    return value;
+  };
+
+  const generation = generateReviewPackage({
+    repository: { owner: "yohn-jp", name: "mottainai" },
+    pullRequest: {
+      number: 724,
+      title: "parallel builders",
+      baseRef: "main",
+      baseSha,
+      headRef: "feature/724",
+      headSha,
+      draft: false,
+      body: "",
+    },
+    token: "test-token",
+    cwd: process.cwd(),
+    generatedAt: "2026-09-01T00:00:00.000Z",
+    maxBuilderConcurrency: 4,
+    buildIssueFn: makeBuilder("issue", {
+      schemaVersion: "mottainai.review-pages.issue/v1",
+      linked: null,
+      issue: null,
+      acceptanceCriteria: [],
+    }),
+    buildChecksFn: makeBuilder("checks", {
+      schemaVersion: "mottainai.review-pages.checks/v1",
+      headSha,
+      available: true,
+      checkRuns: [],
+    }),
+    buildDiffFn: makeBuilder("diff", {
+      schemaVersion: "mottainai.review-pages.diff/v1",
+      baseSha,
+      headSha,
+      files: [],
+      stats: { filesChanged: 0, additions: 0, deletions: 0 },
+    }),
+    buildOcrFn: makeBuilder("ocr", {
+      schemaVersion: "mottainai.review-pages.ocr/v1",
+      provider: { package: "test", version: "0.0.0", cli: "test" },
+      baseSha,
+      headSha,
+      preview: {},
+      rule: {},
+    }),
+  });
+
+  await allStartedPromise;
+  assert.deepEqual(started, ["issue", "checks", "diff", "ocr"]);
+  release();
+  const generated = await generation;
+  assert.equal(generated.manifest.revision.id, headSha);
+  assert.deepEqual(Object.keys(generated.resources), ["issue.json", "diff.json", "ocr.json", "checks.json"]);
+});
+
+test("builder failures remain attributable and independent work still completes", async () => {
+  let completed = false;
+  await assert.rejects(
+    () =>
+      runBuilderGraph([
+        {
+          name: "issue",
+          dependsOn: [],
+          run: async () => {
+            throw new Error("i".repeat(2_000));
+          },
+        },
+        {
+          name: "checks",
+          dependsOn: [],
+          run: async () => {
+            throw new Error("checks unavailable");
+          },
+        },
+        {
+          name: "diff",
+          dependsOn: [],
+          run: async () => {
+            completed = true;
+            return { ok: true };
+          },
+        },
+      ]),
+    (error) => {
+      assert.ok(error instanceof ReviewPackageBuilderError);
+      assert.deepEqual(
+        error.failures.map(({ name }) => name),
+        ["issue", "checks"],
+      );
+      assert.equal(error.failures[0].message.length, 512);
+      assert.equal(error.failures[1].message, "checks unavailable");
+      return true;
+    },
+  );
+  assert.equal(completed, true);
 });

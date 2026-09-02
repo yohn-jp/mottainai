@@ -39,8 +39,9 @@ manual PR-comment slash-command stays disabled — its pinned action
 exposes no repository-enforceable request-token bound (unrelated to
 this section: that's LLM-backed semantic review, not what Review Pages
 uses). Review Pages instead installs the OCR CLI package,
-`@alibaba-group/open-code-review` (pinned in `package.json`,
-`node_modules/.bin/ocr`), and consumes its documented **delegate mode**
+`@alibaba-group/open-code-review` (pinned in `review-pages/package.json` and
+`review-pages/pnpm-lock.yaml`, installed under `review-pages/node_modules/.bin/ocr`),
+and consumes its documented **delegate mode**
 — a deterministic, LLM-free structured-output surface built for
 exactly this kind of host-agent consumption:
 
@@ -67,6 +68,13 @@ resolution — that JSON _is_ OCR's own output. The one normalization
 applied is stripping `preview.repository`, an absolute local filesystem
 path that duplicates `manifest.repository` and isn't portable evidence.
 Delegate mode never calls an LLM and needs no credentials.
+
+The generation workflow installs this boundary with
+`pnpm install --ignore-workspace --frozen-lockfile --prod --ignore-scripts`
+from `review-pages/`. The dedicated lockfile contains only the pinned OCR
+delegate and its platform binary packages; lifecycle scripts are disabled
+because the supported GitHub Actions runner receives the matching pinned
+optional binary package directly.
 
 Diff positioning (all changed files — not curated by OCR's
 reviewable/excluded split — plus line/column hunk anchors) that Review
@@ -134,7 +142,30 @@ Publication targets a dedicated `gh-pages` branch (classic
 Actions deployment, which replaces the entire site on every deploy and
 would violate the no-overwrite requirement below). One-time repository
 setup: **Settings → Pages → Source: Deploy from a branch → `gh-pages` /
-`(root)`**.
+`(root)`**. The workflow then verifies the immutable URL
+`<Pages site>/reviews/pr/<number>/<full-head-sha>/manifest.json` over
+public HTTP. For the default project Pages site, the expected base URL is
+derived from `GITHUB_REPOSITORY`; set the repository variable
+`REVIEW_PAGES_BASE_URL` when the repository uses a custom Pages domain.
+The value must be an absolute HTTP(S) URL without credentials, query, or
+fragment.
+
+After the push, the bounded serving check reports one of these outcomes:
+
+- `success`: the expected manifest is reachable and its repository, PR
+  number, and head/revision SHA match the generated revision.
+- `published-but-not-serving`: the push completed, but the manifest stayed
+  unreachable (for example, a persistent 404). The diagnostic points to
+  **Settings → Pages** and the required `gh-pages` / `(root)` configuration.
+- `serving-wrong-identity`: an HTTP 2xx response contained a manifest for a
+  different repository, PR, or revision; the workflow fails closed without
+  retrying that immutable identity mismatch.
+- `push-failure`: the trusted `gh-pages` push did not complete, so serving
+  verification is not attempted.
+
+Only the manifest URL is requested, with an `Accept` header and no
+authorization header. A fixed attempt count, request timeout, and retry
+delay bound the check even when Pages is unavailable.
 
 `src/publish-to-pages.mjs` merges only `reviews/pr/<number>/...` into the
 branch's working tree (`mergeRevisionIntoSite`) and pushes with
@@ -223,6 +254,7 @@ defined from it.
 | `src/generate-review-package.mjs`  | Orchestrates `build-*` modules into a manifest + resource set for one revision |
 | `src/validate-manifest.mjs`        | Validates `manifest.json`/`pr-index.json` against `schema/*.schema.json`       |
 | `src/publish-to-pages.mjs`         | Merges a generated revision into the `gh-pages` branch with retry              |
+| `src/verify-pages-serving.mjs`     | Bounded public-HTTP reachability and revision-identity verification            |
 | `src/lib/latency.mjs`              | Records bounded monotonic stage timing and renders run-summary evidence        |
 | `src/measure-pages-visibility.mjs` | Observes the expected manifest over HTTP without changing publication          |
 
