@@ -27,11 +27,51 @@ jobs:
       issues: read
       pull-requests: read
     steps:
-      - name: Checkout
+      - name: Checkout exact PR head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          # The package is generated from the immutable event head, not the
+          # synthetic pull-request merge ref. The base is fetched below with
+          # the same bounded depth used for the exact tree comparison.
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
           persist-credentials: false
+
+      - name: Fetch and verify exact PR base
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "pull_request base/head SHA must be 40 lowercase hexadecimal characters" >&2
+            exit 1
+          fi
+
+          if ! checked_out_head="$(git rev-parse --verify HEAD^{commit})"; then
+            echo "checkout did not produce a commit for event head $HEAD_SHA" >&2
+            exit 1
+          fi
+          if [[ "$checked_out_head" != "$HEAD_SHA" ]]; then
+            echo "checkout head mismatch: expected $HEAD_SHA, got $checked_out_head" >&2
+            exit 1
+          fi
+
+          # Fetch only the event's exact base commit. There is deliberately no
+          # unbounded-depth fallback: an unavailable or ambiguous revision
+          # must stop generation instead of changing diff semantics.
+          if ! git fetch --no-tags --depth=1 origin "$BASE_SHA"; then
+            echo "targeted fetch failed for event base $BASE_SHA" >&2
+            exit 1
+          fi
+          if ! fetched_base="$(git rev-parse --verify "$BASE_SHA^{commit}")"; then
+            echo "targeted fetch did not provide event base $BASE_SHA" >&2
+            exit 1
+          fi
+          if [[ "$fetched_base" != "$BASE_SHA" ]]; then
+            echo "fetched base mismatch: expected $BASE_SHA, got $fetched_base" >&2
+            exit 1
+          fi
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
