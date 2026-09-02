@@ -176,8 +176,12 @@ struct LimaMount<'a> {
 }
 
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 struct LimaSsh {
+    // Lima's actual field name capitalizes SSH in full
+    // (loadDotSSHPubKeys), which #[serde(rename_all = "camelCase")]
+    // cannot produce from load_dot_ssh_pub_keys -- it renders
+    // loadDotSshPubKeys, an unknown field Lima 2.2.0 rejects outright.
+    #[serde(rename = "loadDotSSHPubKeys")]
     load_dot_ssh_pub_keys: bool,
 }
 
@@ -1779,6 +1783,13 @@ mod tests {
             Some("/tmp/appliance.raw")
         );
         assert_eq!(parsed["mounts"].as_array().unwrap().len(), 0);
+        // Lima 2.2.0 names this field loadDotSSHPubKeys (SSH fully
+        // capitalized), not the camelCase-derived loadDotSshPubKeys; a
+        // regression here makes `limactl create` reject the whole config
+        // as an unknown field, which no other test in this suite exercises
+        // against a real limactl binary.
+        assert_eq!(parsed["ssh"]["loadDotSSHPubKeys"].as_bool(), Some(false));
+        assert!(parsed["ssh"].get("loadDotSshPubKeys").is_none());
     }
 
     #[test]
