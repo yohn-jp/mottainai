@@ -16,8 +16,8 @@ let
   # defaultNarHashOfTree does. Verified, not bypassed: the test-only fixture
   # resolver (nix/tests/lib/managed-mottainai-fixture-resolver.mjs)
   # recomputes this hash at runtime and fails closed on mismatch.
-  mottainaiSourceSha256V1 = "c58d9dda210e835fe591b8ba0f0766dd63a10f5da3d5e1c2b84ec5edcf50f848";
-  mottainaiSourceSha256V2 = "51bafc2ac8e8a374f62af13291fdcfe195c8323ec9f92ddec1d766149e1d2f9a";
+  mottainaiSourceSha256V1 = "09932f6282e0023c6a099ac08e5eca311e8910a85fee24a849ea183ed68b29fc";
+  mottainaiSourceSha256V2 = "801fcda193feb8773eb74119aff4fdcca74efa40dcbc22df9b5803ca6f7fd48b";
   # Copied to the guest (below) alongside the fixture resolver so its
   # ../fixtures/<name> relative resolution keeps working there.
   fixturesDir = ./fixtures;
@@ -302,22 +302,6 @@ in
         package_root = main_js[: -len("/bootstrap/main.js")]
         node_bin = node_bin_match.group(0)
 
-        # The fixture flakes (nix/tests/fixtures/managed-mottainai-v{1,2})
-        # build with the raw `derivation` builtin, using this guest's own
-        # packaged Node.js (node_bin, resolved above from the packaged
-        # bootstrap CLI wrapper) as their builder and doing every
-        # filesystem operation through Node's fs API — no mkdir/sed/chmod/sh
-        # subprocess. Earlier attempts using bash/coreutils
-        # (pkgs.stdenv(NoCC).mkDerivation, pkgs.runCommand, or even this
-        # guest's own bash resolved via `command -v`/`readlink -f`) either
-        # pulled in this nixpkgs revision's full stdenv bootstrap closure
-        # (glibc, a Python needed only to build that closure) or hit a
-        # bash closure this guest's Nix store could not complete either —
-        # neither guaranteed already cached/complete on a guest with no
-        # general internet access, unlike node_bin, which this exact
-        # driver process is itself already running on.
-        node_bin_for_fixture = node_bin
-
         driver_path = guest_fixture_root + "/reconcile-driver.mjs"
         driver_source = "\n".join([
             "import { reconcileAdapters } from " + json.dumps(package_root + "/bootstrap/cli.js") + ";",
@@ -326,11 +310,7 @@ in
             "",
             "const [system] = process.argv.slice(2);",
             "const repoRoot = " + json.dumps(package_root + "/nix-projection") + ";",
-            "const env = {",
-            "  ...process.env,",
-            "  CI: \"true\",",
-            "  MOTTAINAI_FIXTURE_NODE: " + json.dumps(node_bin_for_fixture) + ",",
-            "};",
+            "const env = { ...process.env, CI: \"true\" };",
             "",
             "try {",
             "  const result = await reconcileManagedRuntime({",
@@ -390,15 +370,6 @@ in
 
     with subtest("fresh canonical appliance is bootstrap-ready and has no managed packages"):
         wait_for_bootstrap_ready()
-        # Bounded, temporary diagnostic (Issue #703 CI investigation): confirms
-        # whether this guest can reach the binary cache substituter at all,
-        # to distinguish "no general internet access" from "this one
-        # revision's stdenv closure isn't cached yet". Prints one line;
-        # never asserts, so it cannot itself fail the test.
-        network_probe = control(
-            "nix store info --store https://cache.nixos.org --json 2>&1 | head -c 300 || true"
-        ).strip()
-        print("MOTTAINAI_FIXTURE_NETWORK_PROBE " + network_probe)
         setup_reconcile_driver()
         guest_failure("command -v mottainai")
         guest_failure("command -v nawabari")
