@@ -314,8 +314,12 @@ in
         # --impure evaluation the production build already requires) —
         # resolved here from this exact guest's own real PATH, so no new
         # package is ever fetched or built to support the fixture itself.
-        coreutils_dir = control("dirname \"$(command -v mkdir)\"").strip()
-        bash_path = control("command -v bash").strip()
+        # `readlink -f`, not just `command -v`: PATH resolves through
+        # /run/current-system/sw/bin, a symlink farm outside the Nix build
+        # sandbox — the sandboxed builder can only see real /nix/store
+        # paths, so this must resolve all the way to those.
+        coreutils_dir = control("dirname \"$(readlink -f \"$(command -v mkdir)\")\"").strip()
+        bash_path = control("readlink -f \"$(command -v bash)\"").strip()
 
         driver_path = guest_fixture_root + "/reconcile-driver.mjs"
         driver_source = "\n".join([
