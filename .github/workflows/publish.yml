@@ -5,6 +5,15 @@ on:
     branches: [main]
     paths: [package.json]
 
+# Serialize the entire release lifecycle. Two overlapping runs would race
+# each other creating the same tag/draft release, or double-publish to
+# npm/GHCR/the release's assets. cancel-in-progress stays false: a
+# publication in progress must run to completion (or fail on its own
+# terms), never be torn down mid-publish by a later push.
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -33,7 +42,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 2
+          # Full history: the idempotency check below may need to resolve a
+          # pre-existing draft's targetCommitish, which can be an older
+          # commit than a shallow fetch would include.
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Detect whether package.json's version actually changed
@@ -60,7 +72,14 @@ jobs:
           echo "version=$current_version" >> "$GITHUB_OUTPUT"
           echo "tag=v$current_version" >> "$GITHUB_OUTPUT"
 
-      - name: Create the git tag and draft release
+      - name: Create or resume the git tag and draft release
+        # Idempotent by design: a run that fails after this step (e.g. in
+        # build/publish/runtime-appliance/host-bootstrap-init) must be
+        # resumable by re-running the workflow rather than requiring manual
+        # cleanup. If the tag/release already exist, reuse them only when
+        # their identity matches this exact run (same commit, still a
+        # draft); any mismatch fails closed instead of silently adopting a
+        # different release.
         if: steps.detect.outputs.should_release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -69,6 +88,24 @@ jobs:
           TARGET_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+
+          existing="$(gh release view "$TAG" --json isDraft,targetCommitish 2>/dev/null || true)"
+          if [ -n "$existing" ]; then
+            existing_is_draft="$(jq -r '.isDraft' <<<"$existing")"
+            existing_target="$(jq -r '.targetCommitish' <<<"$existing")"
+            if [ "$existing_is_draft" != "true" ]; then
+              echo "release $TAG already exists and is not a draft; refusing to reuse or recreate it" >&2
+              exit 1
+            fi
+            resolved_target="$(git rev-parse --verify "${existing_target}^{commit}")"
+            if [ "$resolved_target" != "$TARGET_SHA" ]; then
+              echo "release $TAG already exists as a draft but targets $resolved_target, not this run's $TARGET_SHA; refusing to reuse a different commit's draft" >&2
+              exit 1
+            fi
+            echo "draft release $TAG already exists for this exact commit; reusing it"
+            exit 0
+          fi
+
           notes_file="docs/releases/$VERSION.md"
           if [ -f "$notes_file" ]; then
             gh release create "$TAG" \
