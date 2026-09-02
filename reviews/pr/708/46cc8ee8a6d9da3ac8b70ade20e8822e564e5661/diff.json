@@ -1,0 +1,216 @@
+{
+  "baseSha": "7427544c82a952c8e091c59850e941f0eb5feadd",
+  "files": [
+    {
+      "additions": 62,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 62,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "nix/tests/fixtures/managed-mottainai-v1/nix/flake.nix",
+      "status": "added"
+    },
+    {
+      "additions": 5,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 5,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "nix/tests/fixtures/managed-mottainai-v1/package.json",
+      "status": "added"
+    },
+    {
+      "additions": 62,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 62,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "nix/tests/fixtures/managed-mottainai-v2/nix/flake.nix",
+      "status": "added"
+    },
+    {
+      "additions": 5,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 5,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "nix/tests/fixtures/managed-mottainai-v2/package.json",
+      "status": "added"
+    },
+    {
+      "additions": 56,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 56,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "nix/tests/lib/managed-mottainai-fixture-resolver.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 131,
+      "deletions": 36,
+      "hunks": [
+        {
+          "newLines": 14,
+          "newStart": 11,
+          "oldLines": 8,
+          "oldStart": 11
+        },
+        {
+          "newLines": 1,
+          "newStart": 72,
+          "oldLines": 0,
+          "oldStart": 65
+        },
+        {
+          "newLines": 3,
+          "newStart": 79,
+          "oldLines": 0,
+          "oldStart": 71
+        },
+        {
+          "newLines": 15,
+          "newStart": 151,
+          "oldLines": 0,
+          "oldStart": 140
+        },
+        {
+          "newLines": 0,
+          "newStart": 251,
+          "oldLines": 9,
+          "oldStart": 227
+        },
+        {
+          "newLines": 87,
+          "newStart": 277,
+          "oldLines": 0,
+          "oldStart": 260
+        },
+        {
+          "newLines": 4,
+          "newStart": 365,
+          "oldLines": 1,
+          "oldStart": 262
+        },
+        {
+          "newLines": 1,
+          "newStart": 393,
+          "oldLines": 0,
+          "oldStart": 286
+        },
+        {
+          "newLines": 0,
+          "newStart": 420,
+          "oldLines": 1,
+          "oldStart": 314
+        },
+        {
+          "newLines": 1,
+          "newStart": 424,
+          "oldLines": 1,
+          "oldStart": 318
+        },
+        {
+          "newLines": 1,
+          "newStart": 432,
+          "oldLines": 1,
+          "oldStart": 326
+        },
+        {
+          "newLines": 0,
+          "newStart": 434,
+          "oldLines": 1,
+          "oldStart": 329
+        },
+        {
+          "newLines": 1,
+          "newStart": 451,
+          "oldLines": 1,
+          "oldStart": 346
+        },
+        {
+          "newLines": 0,
+          "newStart": 452,
+          "oldLines": 1,
+          "oldStart": 348
+        },
+        {
+          "newLines": 0,
+          "newStart": 471,
+          "oldLines": 1,
+          "oldStart": 368
+        },
+        {
+          "newLines": 1,
+          "newStart": 493,
+          "oldLines": 1,
+          "oldStart": 390
+        },
+        {
+          "newLines": 1,
+          "newStart": 543,
+          "oldLines": 1,
+          "oldStart": 440
+        },
+        {
+          "newLines": 0,
+          "newStart": 545,
+          "oldLines": 1,
+          "oldStart": 443
+        },
+        {
+          "newLines": 1,
+          "newStart": 552,
+          "oldLines": 1,
+          "oldStart": 450
+        },
+        {
+          "newLines": 0,
+          "newStart": 554,
+          "oldLines": 1,
+          "oldStart": 453
+        },
+        {
+          "newLines": 0,
+          "newStart": 577,
+          "oldLines": 6,
+          "oldStart": 477
+        }
+      ],
+      "path": "nix/tests/runtime-appliance-golden-path.nix",
+      "status": "modified"
+    }
+  ],
+  "headSha": "46cc8ee8a6d9da3ac8b70ade20e8822e564e5661",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 321,
+    "deletions": 36,
+    "filesChanged": 6
+  }
+}
