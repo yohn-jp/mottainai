@@ -1,0 +1,172 @@
+{
+  "baseSha": "4f634778d31c8681caf1dd0b2e35170b832208e0",
+  "files": [
+    {
+      "additions": 246,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 30,
+          "newStart": 30,
+          "oldLines": 0,
+          "oldStart": 29
+        },
+        {
+          "newLines": 21,
+          "newStart": 66,
+          "oldLines": 0,
+          "oldStart": 35
+        },
+        {
+          "newLines": 8,
+          "newStart": 98,
+          "oldLines": 0,
+          "oldStart": 46
+        },
+        {
+          "newLines": 8,
+          "newStart": 111,
+          "oldLines": 0,
+          "oldStart": 51
+        },
+        {
+          "newLines": 18,
+          "newStart": 125,
+          "oldLines": 0,
+          "oldStart": 57
+        },
+        {
+          "newLines": 8,
+          "newStart": 152,
+          "oldLines": 0,
+          "oldStart": 66
+        },
+        {
+          "newLines": 24,
+          "newStart": 167,
+          "oldLines": 0,
+          "oldStart": 73
+        },
+        {
+          "newLines": 27,
+          "newStart": 201,
+          "oldLines": 0,
+          "oldStart": 83
+        },
+        {
+          "newLines": 21,
+          "newStart": 233,
+          "oldLines": 0,
+          "oldStart": 88
+        },
+        {
+          "newLines": 8,
+          "newStart": 260,
+          "oldLines": 0,
+          "oldStart": 94
+        },
+        {
+          "newLines": 26,
+          "newStart": 274,
+          "oldLines": 0,
+          "oldStart": 100
+        },
+        {
+          "newLines": 1,
+          "newStart": 301,
+          "oldLines": 0,
+          "oldStart": 101
+        },
+        {
+          "newLines": 46,
+          "newStart": 309,
+          "oldLines": 0,
+          "oldStart": 108
+        }
+      ],
+      "path": ".github/workflows/review-pages.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 47,
+      "deletions": 9,
+      "hunks": [
+        {
+          "newLines": 5,
+          "newStart": 11,
+          "oldLines": 4,
+          "oldStart": 11
+        },
+        {
+          "newLines": 1,
+          "newStart": 32,
+          "oldLines": 0,
+          "oldStart": 30
+        },
+        {
+          "newLines": 34,
+          "newStart": 164,
+          "oldLines": 0,
+          "oldStart": 161
+        },
+        {
+          "newLines": 7,
+          "newStart": 200,
+          "oldLines": 5,
+          "oldStart": 164
+        }
+      ],
+      "path": "review-pages/README.md",
+      "status": "modified"
+    },
+    {
+      "additions": 452,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 452,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/lib/latency.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 217,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 217,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/src/measure-pages-visibility.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 165,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 165,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "review-pages/test/latency.test.mjs",
+      "status": "added"
+    }
+  ],
+  "headSha": "3a0a18937d0354c1f68f3e4f0ba6dff30f5e3be1",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 1127,
+    "deletions": 9,
+    "filesChanged": 5
+  }
+}
