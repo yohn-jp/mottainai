@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #735 @ 5073f60d07cb</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #735: chore(workflow): measure Review Pages latency</h1>
+<p>Base <code>main</code> @ <code>4f634778d31c8681caf1dd0b2e35170b832208e0</code> &rarr;
+Head <code>chore/721-review-pages-latency</code> @ <code>5073f60d07cb5d883d7311d614ea5ec67eb7fec7</code></p>
+<p>Revision <code>5073f60d07cb</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/721">#721</a> chore: measure Review Pages generation publication and serving latency (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] One workflow run reports duration for each material Review Pages stage with monotonic timestamps.</li>
+<li>[ ] Generation-complete, gh-pages-push-complete and HTTP-visible timestamps are distinguishable.</li>
+<li>[ ] Queue/runner startup delay is separated where GitHub event/job metadata permits it.</li>
+<li>[ ] Timing evidence is bounded and contains no PR source body, credentials or raw CI logs.</li>
+<li>[ ] Existing deterministic review package bytes and publication semantics are unchanged.</li>
+<li>[ ] Documentation records a current baseline from at least one real non-draft PR run and identifies the dominant latency boundary.</li>
+<li>[ ] No hard pass/fail SLO is introduced before baseline evidence exists.</li></ul>
+
+<h2>Changed files (5, +1148/-9)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/review-pages.yml</td><td>modified</td><td>+246</td><td>-0</td></tr>
+<tr><td>review-pages/README.md</td><td>modified</td><td>+68</td><td>-9</td></tr>
+<tr><td>review-pages/src/lib/latency.mjs</td><td>added</td><td>+452</td><td>-0</td></tr>
+<tr><td>review-pages/src/measure-pages-visibility.mjs</td><td>added</td><td>+217</td><td>-0</td></tr>
+<tr><td>review-pages/test/latency.test.mjs</td><td>added</td><td>+165</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
