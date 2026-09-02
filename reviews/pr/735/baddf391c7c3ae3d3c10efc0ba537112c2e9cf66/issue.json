@@ -1,0 +1,43 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "One workflow run reports duration for each material Review Pages stage with monotonic timestamps."
+    },
+    {
+      "checked": false,
+      "text": "Generation-complete, gh-pages-push-complete and HTTP-visible timestamps are distinguishable."
+    },
+    {
+      "checked": false,
+      "text": "Queue/runner startup delay is separated where GitHub event/job metadata permits it."
+    },
+    {
+      "checked": false,
+      "text": "Timing evidence is bounded and contains no PR source body, credentials or raw CI logs."
+    },
+    {
+      "checked": false,
+      "text": "Existing deterministic review package bytes and publication semantics are unchanged."
+    },
+    {
+      "checked": false,
+      "text": "Documentation records a current baseline from at least one real non-draft PR run and identifies the dominant latency boundary."
+    },
+    {
+      "checked": false,
+      "text": "No hard pass/fail SLO is introduced before baseline evidence exists."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 721,
+    "state": "open",
+    "title": "chore: measure Review Pages generation publication and serving latency",
+    "url": "https://github.com/yohn-jp/mottainai/issues/721"
+  },
+  "linked": {
+    "number": 721
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

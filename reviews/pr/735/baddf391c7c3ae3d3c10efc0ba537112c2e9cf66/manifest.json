@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "bdff86043fa9f511db9baa0248e529c4fde193c7",
+    "draft": false,
+    "headRef": "chore/721-review-pages-latency",
+    "headSha": "baddf391c7c3ae3d3c10efc0ba537112c2e9cf66",
+    "number": 735,
+    "title": "chore(workflow): measure Review Pages latency"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "baddf391c7c3ae3d3c10efc0ba537112c2e9cf66",
+    "immutable": true,
+    "shortId": "baddf391c7c3"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-02T13:33:45.042Z"
+  }
+}
