@@ -1,0 +1,49 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "A deterministic function compares a prior review fixture with a new-head review-input fixture."
+    },
+    {
+      "checked": false,
+      "text": "Prior verdict is always invalidated on head rollover."
+    },
+    {
+      "checked": false,
+      "text": "Finding states distinguish unchanged/current, resolved, obsolete and re-evaluate-required."
+    },
+    {
+      "checked": false,
+      "text": "Evidence reuse is explicit and bounded; stale evidence is not silently retained."
+    },
+    {
+      "checked": false,
+      "text": "Ambiguous scope changes trigger full-review fallback."
+    },
+    {
+      "checked": false,
+      "text": "Output preserves exact old/new head provenance."
+    },
+    {
+      "checked": false,
+      "text": "Tests cover unchanged fix-adjacent push, finding resolution, finding obsolescence, unrelated new change and full-review fallback."
+    },
+    {
+      "checked": false,
+      "text": "This issue does not call an LLM or publish to GitHub."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "enhancement"
+    ],
+    "number": 719,
+    "state": "open",
+    "title": "feat: carry autonomous review findings across PR head revisions",
+    "url": "https://github.com/yohn-jp/mottainai/issues/719"
+  },
+  "linked": {
+    "number": 719
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

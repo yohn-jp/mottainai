@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "4f634778d31c8681caf1dd0b2e35170b832208e0",
+    "draft": false,
+    "headRef": "feat/719-review-rereview",
+    "headSha": "4d94d9d08969e3bbc3c312d385f95ed909046539",
+    "number": 734,
+    "title": "feat(ci): prepare autonomous review re-review findings"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "4d94d9d08969e3bbc3c312d385f95ed909046539",
+    "immutable": true,
+    "shortId": "4d94d9d08969"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-02T12:30:08.137Z"
+  }
+}

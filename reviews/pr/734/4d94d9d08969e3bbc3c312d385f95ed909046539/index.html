@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #734 @ 4d94d9d08969</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #734: feat(ci): prepare autonomous review re-review findings</h1>
+<p>Base <code>main</code> @ <code>4f634778d31c8681caf1dd0b2e35170b832208e0</code> &rarr;
+Head <code>feat/719-review-rereview</code> @ <code>4d94d9d08969e3bbc3c312d385f95ed909046539</code></p>
+<p>Revision <code>4d94d9d08969</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/719">#719</a> feat: carry autonomous review findings across PR head revisions (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] A deterministic function compares a prior review fixture with a new-head review-input fixture.</li>
+<li>[ ] Prior verdict is always invalidated on head rollover.</li>
+<li>[ ] Finding states distinguish unchanged/current, resolved, obsolete and re-evaluate-required.</li>
+<li>[ ] Evidence reuse is explicit and bounded; stale evidence is not silently retained.</li>
+<li>[ ] Ambiguous scope changes trigger full-review fallback.</li>
+<li>[ ] Output preserves exact old/new head provenance.</li>
+<li>[ ] Tests cover unchanged fix-adjacent push, finding resolution, finding obsolescence, unrelated new change and full-review fallback.</li>
+<li>[ ] This issue does not call an LLM or publish to GitHub.</li></ul>
+
+<h2>Changed files (2, +748/-0)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>review-pages/src/re-review.mjs</td><td>added</td><td>+578</td><td>-0</td></tr>
+<tr><td>review-pages/test/re-review.test.mjs</td><td>added</td><td>+170</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
