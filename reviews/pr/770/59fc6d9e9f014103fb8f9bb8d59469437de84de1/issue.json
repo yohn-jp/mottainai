@@ -1,0 +1,51 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "CI change detection exposes explicit host-bootstrap, Nix Runtime, VM, and Appliance ownership classes in addition to the existing non-Runtime classes."
+    },
+    {
+      "checked": false,
+      "text": "`host-bootstrap/**` alone no longer implies the broad Nix Runtime/VM/Appliance validation class."
+    },
+    {
+      "checked": false,
+      "text": "Files that define or consume a shared Appliance/VM contract trigger all true dependent classes."
+    },
+    {
+      "checked": false,
+      "text": "Workflow/config changes conservatively invalidate every class whose selection semantics they can change."
+    },
+    {
+      "checked": false,
+      "text": "A representative host-bootstrap-only fixture/change proves heavy Nix VM/Appliance validation is not selected."
+    },
+    {
+      "checked": false,
+      "text": "Representative Nix, VM, and Appliance path fixtures prove the corresponding class is selected."
+    },
+    {
+      "checked": false,
+      "text": "Required-check/ruleset behavior remains deterministic for skipped classes."
+    },
+    {
+      "checked": false,
+      "text": "No Runtime validation assertions are deleted in this Issue; only ownership/selection is changed."
+    },
+    {
+      "checked": false,
+      "text": "CI/governance validation passes."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 766,
+    "state": "open",
+    "title": "ci: split change detection by contract ownership",
+    "url": "https://github.com/yohn-jp/mottainai/issues/766"
+  },
+  "linked": {
+    "number": 766
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

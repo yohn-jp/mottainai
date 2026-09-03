@@ -1,0 +1,31 @@
+{
+  "available": true,
+  "checkRuns": [
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33815513603/job/100846679746",
+      "name": "Generate review package",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33815513890/job/100846681006",
+      "name": "standards-self-check",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33815513890/job/100846680724",
+      "name": "validate-pr",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": "skipped",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33815513890/job/100846681576",
+      "name": "validate-release",
+      "status": "completed"
+    }
+  ],
+  "headSha": "59fc6d9e9f014103fb8f9bb8d59469437de84de1",
+  "schemaVersion": "mottainai.review-pages.checks/v1"
+}

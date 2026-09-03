@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "b182959533d96bd49c7f5fa7272ebcd50b830adc",
+    "draft": false,
+    "headRef": "refactor/766-ci-contract-ownership",
+    "headSha": "59fc6d9e9f014103fb8f9bb8d59469437de84de1",
+    "number": 770,
+    "title": "ci: split change detection by contract ownership"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "59fc6d9e9f014103fb8f9bb8d59469437de84de1",
+    "immutable": true,
+    "shortId": "59fc6d9e9f01"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-03T22:58:47.513Z"
+  }
+}
