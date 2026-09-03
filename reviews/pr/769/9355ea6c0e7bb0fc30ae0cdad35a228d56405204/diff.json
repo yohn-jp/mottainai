@@ -1,0 +1,26 @@
+{
+  "baseSha": "22d024e011258af548c3f16be7aa41fc4978513e",
+  "files": [
+    {
+      "additions": 219,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 219,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "docs/ci-topology.md",
+      "status": "added"
+    }
+  ],
+  "headSha": "9355ea6c0e7bb0fc30ae0cdad35a228d56405204",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 219,
+    "deletions": 0,
+    "filesChanged": 1
+  }
+}

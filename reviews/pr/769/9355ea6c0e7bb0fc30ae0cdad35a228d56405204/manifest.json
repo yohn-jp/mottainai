@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "22d024e011258af548c3f16be7aa41fc4978513e",
+    "draft": false,
+    "headRef": "docs/765-ci-topology",
+    "headSha": "9355ea6c0e7bb0fc30ae0cdad35a228d56405204",
+    "number": 769,
+    "title": "docs(ci): define contract-owned CI topology"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "9355ea6c0e7bb0fc30ae0cdad35a228d56405204",
+    "immutable": true,
+    "shortId": "9355ea6c0e7b"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-03T14:15:07.009Z"
+  }
+}

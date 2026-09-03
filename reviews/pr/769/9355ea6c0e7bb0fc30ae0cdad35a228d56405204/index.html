@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #769 @ 9355ea6c0e7b</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #769: docs(ci): define contract-owned CI topology</h1>
+<p>Base <code>main</code> @ <code>22d024e011258af548c3f16be7aa41fc4978513e</code> &rarr;
+Head <code>docs/765-ci-topology</code> @ <code>9355ea6c0e7bb0fc30ae0cdad35a228d56405204</code></p>
+<p>Revision <code>9355ea6c0e7b</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/765">#765</a> docs(ci): document the contract-owned CI topology (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] `docs/ci-topology.md` exists and identifies #764 as its architecture authority.</li>
+<li>[ ] PR, `main`, release, and #261 certification responsibilities are explicitly separated.</li>
+<li>[ ] The contract ownership/path invalidation matrix covers governance, Node/static, product/integration, package, host-bootstrap, Nix Runtime, VM, Appliance, and publication.</li>
+<li>[ ] The document explicitly rejects blanket `host-bootstrap/** -&gt; full Nix/VM/Appliance` invalidation.</li>
+<li>[ ] The document states when an Appliance-defining PR must build/verify the canonical Appliance and when full cross-boundary Appliance golden-path certification runs on `main`.</li>
+<li>[ ] A #763 worked example states the targeted checks that should and should not execute.</li>
+<li>[ ] Required-check determinism, cache correctness semantics, concurrency invariants, and latency SLOs are documented.</li>
+<li>[ ] Current workflow behavior that intentionally differs from the target is clearly labeled as migration debt rather than described as the intended architecture.</li>
+<li>[ ] No workflow behavior or product code is changed in this PR.</li>
+<li>[ ] Documentation is sufficiently concrete for follow-up Issues to reference individual ownership classes and tier boundaries without re-specifying them.</li></ul>
+
+
+
+<h2>Changed files (1, +219/-0)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>docs/ci-topology.md</td><td>added</td><td>+219</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

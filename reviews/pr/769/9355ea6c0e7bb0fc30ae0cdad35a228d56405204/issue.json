@@ -1,0 +1,55 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "`docs/ci-topology.md` exists and identifies #764 as its architecture authority."
+    },
+    {
+      "checked": false,
+      "text": "PR, `main`, release, and #261 certification responsibilities are explicitly separated."
+    },
+    {
+      "checked": false,
+      "text": "The contract ownership/path invalidation matrix covers governance, Node/static, product/integration, package, host-bootstrap, Nix Runtime, VM, Appliance, and publication."
+    },
+    {
+      "checked": false,
+      "text": "The document explicitly rejects blanket `host-bootstrap/** -> full Nix/VM/Appliance` invalidation."
+    },
+    {
+      "checked": false,
+      "text": "The document states when an Appliance-defining PR must build/verify the canonical Appliance and when full cross-boundary Appliance golden-path certification runs on `main`."
+    },
+    {
+      "checked": false,
+      "text": "A #763 worked example states the targeted checks that should and should not execute."
+    },
+    {
+      "checked": false,
+      "text": "Required-check determinism, cache correctness semantics, concurrency invariants, and latency SLOs are documented."
+    },
+    {
+      "checked": false,
+      "text": "Current workflow behavior that intentionally differs from the target is clearly labeled as migration debt rather than described as the intended architecture."
+    },
+    {
+      "checked": false,
+      "text": "No workflow behavior or product code is changed in this PR."
+    },
+    {
+      "checked": false,
+      "text": "Documentation is sufficiently concrete for follow-up Issues to reference individual ownership classes and tier boundaries without re-specifying them."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 765,
+    "state": "open",
+    "title": "docs(ci): document the contract-owned CI topology",
+    "url": "https://github.com/yohn-jp/mottainai/issues/765"
+  },
+  "linked": {
+    "number": 765
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
