@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #770 @ fbaba8b45ab7</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #770: ci: split change detection by contract ownership</h1>
+<p>Base <code>main</code> @ <code>b182959533d96bd49c7f5fa7272ebcd50b830adc</code> &rarr;
+Head <code>refactor/766-ci-contract-ownership</code> @ <code>fbaba8b45ab7b0f354050d402e13f3e3103a4759</code></p>
+<p>Revision <code>fbaba8b45ab7</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/766">#766</a> ci: split change detection by contract ownership (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] CI change detection exposes explicit host-bootstrap, Nix Runtime, VM, and Appliance ownership classes in addition to the existing non-Runtime classes.</li>
+<li>[ ] `host-bootstrap/**` alone no longer implies the broad Nix Runtime/VM/Appliance validation class.</li>
+<li>[ ] Files that define or consume a shared Appliance/VM contract trigger all true dependent classes.</li>
+<li>[ ] Workflow/config changes conservatively invalidate every class whose selection semantics they can change.</li>
+<li>[ ] A representative host-bootstrap-only fixture/change proves heavy Nix VM/Appliance validation is not selected.</li>
+<li>[ ] Representative Nix, VM, and Appliance path fixtures prove the corresponding class is selected.</li>
+<li>[ ] Required-check/ruleset behavior remains deterministic for skipped classes.</li>
+<li>[ ] No Runtime validation assertions are deleted in this Issue; only ownership/selection is changed.</li>
+<li>[ ] CI/governance validation passes.</li></ul>
+
+
+
+<h2>Changed files (4, +269/-14)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/ci.yml</td><td>modified</td><td>+44</td><td>-11</td></tr>
+<tr><td>package.json</td><td>modified</td><td>+4</td><td>-3</td></tr>
+<tr><td>scripts/ci-contract-ownership.mjs</td><td>added</td><td>+106</td><td>-0</td></tr>
+<tr><td>scripts/ci-contract-ownership.test.mjs</td><td>added</td><td>+115</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
