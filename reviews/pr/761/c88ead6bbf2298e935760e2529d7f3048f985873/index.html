@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #761 @ c88ead6bbf22</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #761: feat: integrate bounded gh-makami PR observation</h1>
+<p>Base <code>main</code> @ <code>5bd31dd6ee370518d9f2f98ce609bb0a77bcddac</code> &rarr;
+Head <code>feat/415-makami-pr-observation</code> @ <code>c88ead6bbf2298e935760e2529d7f3048f985873</code></p>
+<p>Revision <code>c88ead6bbf22</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/415">#415</a> feat: integrate the gh-makami companion with explicit bounded PR observation (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] One internal companion client owns all supported gh-makami invocation.</li>
+<li>[ ] Explicit repository/PR identity is required and independent of unrelated cwd.</li>
+<li>[ ] Current generation/head plus bounded normalized snapshot/delta/await results decode from the supported public contract.</li>
+<li>[ ] Missing/incompatible/timeout/non-JSON/malformed results fail closed with stable bounded diagnostics.</li>
+<li>[ ] No managed call path falls back to direct GitHub observation.</li>
+<li>[ ] Client performs no GitHub mutation.</li>
+<li>[ ] Hermetic/packed process tests cover successful observation, unchanged await/timeout, malformed result, missing companion, incompatible contract, and explicit identity mismatch.</li></ul>
+
+
+
+<h2>Changed files (8, +1228/-2)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>mottainai.config.json.example</td><td>modified</td><td>+6</td><td>-0</td></tr>
+<tr><td>package.json</td><td>modified</td><td>+2</td><td>-2</td></tr>
+<tr><td>scripts/gh-makami-package-smoke.mjs</td><td>added</td><td>+102</td><td>-0</td></tr>
+<tr><td>scripts/smoke-test.mjs</td><td>modified</td><td>+6</td><td>-0</td></tr>
+<tr><td>scripts/test-suites.mjs</td><td>modified</td><td>+1</td><td>-0</td></tr>
+<tr><td>src/config.ts</td><td>modified</td><td>+24</td><td>-0</td></tr>
+<tr><td>src/gh-makami.test.ts</td><td>added</td><td>+269</td><td>-0</td></tr>
+<tr><td>src/gh-makami.ts</td><td>added</td><td>+818</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

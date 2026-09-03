@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "5bd31dd6ee370518d9f2f98ce609bb0a77bcddac",
+    "draft": false,
+    "headRef": "feat/415-makami-pr-observation",
+    "headSha": "c88ead6bbf2298e935760e2529d7f3048f985873",
+    "number": 761,
+    "title": "feat: integrate bounded gh-makami PR observation"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "c88ead6bbf2298e935760e2529d7f3048f985873",
+    "immutable": true,
+    "shortId": "c88ead6bbf22"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-03T12:20:10.001Z"
+  }
+}

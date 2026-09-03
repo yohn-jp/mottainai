@@ -1,0 +1,166 @@
+{
+  "baseSha": "5bd31dd6ee370518d9f2f98ce609bb0a77bcddac",
+  "files": [
+    {
+      "additions": 6,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 6,
+          "newStart": 43,
+          "oldLines": 0,
+          "oldStart": 42
+        }
+      ],
+      "path": "mottainai.config.json.example",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 52,
+          "oldLines": 2,
+          "oldStart": 52
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 102,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 102,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/gh-makami-package-smoke.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 6,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 6,
+          "newStart": 221,
+          "oldLines": 0,
+          "oldStart": 220
+        }
+      ],
+      "path": "scripts/smoke-test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 41,
+          "oldLines": 0,
+          "oldStart": 40
+        }
+      ],
+      "path": "scripts/test-suites.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 24,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 25,
+          "oldLines": 0,
+          "oldStart": 24
+        },
+        {
+          "newLines": 2,
+          "newStart": 171,
+          "oldLines": 0,
+          "oldStart": 168
+        },
+        {
+          "newLines": 2,
+          "newStart": 205,
+          "oldLines": 0,
+          "oldStart": 200
+        },
+        {
+          "newLines": 1,
+          "newStart": 238,
+          "oldLines": 0,
+          "oldStart": 231
+        },
+        {
+          "newLines": 1,
+          "newStart": 280,
+          "oldLines": 0,
+          "oldStart": 272
+        },
+        {
+          "newLines": 1,
+          "newStart": 468,
+          "oldLines": 0,
+          "oldStart": 459
+        },
+        {
+          "newLines": 1,
+          "newStart": 498,
+          "oldLines": 0,
+          "oldStart": 488
+        },
+        {
+          "newLines": 14,
+          "newStart": 518,
+          "oldLines": 0,
+          "oldStart": 507
+        }
+      ],
+      "path": "src/config.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 269,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 269,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/gh-makami.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 818,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 818,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/gh-makami.ts",
+      "status": "added"
+    }
+  ],
+  "headSha": "c88ead6bbf2298e935760e2529d7f3048f985873",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 1228,
+    "deletions": 2,
+    "filesChanged": 8
+  }
+}

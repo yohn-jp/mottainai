@@ -1,0 +1,45 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "One internal companion client owns all supported gh-makami invocation."
+    },
+    {
+      "checked": false,
+      "text": "Explicit repository/PR identity is required and independent of unrelated cwd."
+    },
+    {
+      "checked": false,
+      "text": "Current generation/head plus bounded normalized snapshot/delta/await results decode from the supported public contract."
+    },
+    {
+      "checked": false,
+      "text": "Missing/incompatible/timeout/non-JSON/malformed results fail closed with stable bounded diagnostics."
+    },
+    {
+      "checked": false,
+      "text": "No managed call path falls back to direct GitHub observation."
+    },
+    {
+      "checked": false,
+      "text": "Client performs no GitHub mutation."
+    },
+    {
+      "checked": false,
+      "text": "Hermetic/packed process tests cover successful observation, unchanged await/timeout, malformed result, missing companion, incompatible contract, and explicit identity mismatch."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "enhancement"
+    ],
+    "number": 415,
+    "state": "open",
+    "title": "feat: integrate the gh-makami companion with explicit bounded PR observation",
+    "url": "https://github.com/yohn-jp/mottainai/issues/415"
+  },
+  "linked": {
+    "number": 415
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
