@@ -1,0 +1,55 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "PR Runtime validation is decomposed into explicit Nix Runtime, VM, Appliance, and bootstrap-composition proof boundaries consistent with `docs/ci-topology.md`."
+    },
+    {
+      "checked": false,
+      "text": "Nix Runtime-only changes do not automatically execute VM or Appliance work unless their dependency graph is actually invalidated."
+    },
+    {
+      "checked": false,
+      "text": "VM-semantic changes execute the required Runtime build/evaluation prerequisites plus VM validation."
+    },
+    {
+      "checked": false,
+      "text": "Appliance-defining changes build the canonical Appliance and validate its bounded manifest before merge."
+    },
+    {
+      "checked": false,
+      "text": "Host-bootstrap-only changes can complete using hermetic/fixed descriptor/manifest/OCI contract fixtures without rebuilding the canonical Nix VM/Appliance."
+    },
+    {
+      "checked": false,
+      "text": "Shared contract changes select every true dependent validation class."
+    },
+    {
+      "checked": false,
+      "text": "Stable required-check/ruleset semantics remain deterministic despite internal decomposition/skips."
+    },
+    {
+      "checked": false,
+      "text": "Failure output identifies the owning contract rather than hiding all failures behind one monolithic Runtime job."
+    },
+    {
+      "checked": false,
+      "text": "No assertion is removed solely for latency; assertions move only to the proof boundary that owns them."
+    },
+    {
+      "checked": false,
+      "text": "Representative CI evidence covers a host-bootstrap-only PR, a VM-affecting PR, and an Appliance-affecting PR."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 767,
+    "state": "open",
+    "title": "ci(runtime): decompose PR Runtime validation into targeted contract gates",
+    "url": "https://github.com/yohn-jp/mottainai/issues/767"
+  },
+  "linked": {
+    "number": 767
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

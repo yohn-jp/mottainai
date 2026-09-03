@@ -1,0 +1,172 @@
+{
+  "baseSha": "e8eebfb4aa49f4fc2d0407131b879dd654088bfa",
+  "files": [
+    {
+      "additions": 187,
+      "deletions": 52,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 422,
+          "oldLines": 2,
+          "oldStart": 422
+        },
+        {
+          "newLines": 5,
+          "newStart": 425,
+          "oldLines": 5,
+          "oldStart": 425
+        },
+        {
+          "newLines": 1,
+          "newStart": 445,
+          "oldLines": 1,
+          "oldStart": 445
+        },
+        {
+          "newLines": 1,
+          "newStart": 454,
+          "oldLines": 12,
+          "oldStart": 454
+        },
+        {
+          "newLines": 0,
+          "newStart": 455,
+          "oldLines": 2,
+          "oldStart": 467
+        },
+        {
+          "newLines": 1,
+          "newStart": 457,
+          "oldLines": 1,
+          "oldStart": 470
+        },
+        {
+          "newLines": 1,
+          "newStart": 467,
+          "oldLines": 1,
+          "oldStart": 480
+        },
+        {
+          "newLines": 1,
+          "newStart": 474,
+          "oldLines": 1,
+          "oldStart": 487
+        },
+        {
+          "newLines": 1,
+          "newStart": 476,
+          "oldLines": 27,
+          "oldStart": 489
+        },
+        {
+          "newLines": 69,
+          "newStart": 516,
+          "oldLines": 0,
+          "oldStart": 554
+        },
+        {
+          "newLines": 67,
+          "newStart": 627,
+          "oldLines": 0,
+          "oldStart": 596
+        },
+        {
+          "newLines": 38,
+          "newStart": 793,
+          "oldLines": 0,
+          "oldStart": 695
+        }
+      ],
+      "path": ".github/workflows/ci.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 6,
+      "deletions": 6,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 207,
+          "oldLines": 1,
+          "oldStart": 207
+        },
+        {
+          "newLines": 1,
+          "newStart": 209,
+          "oldLines": 1,
+          "oldStart": 209
+        },
+        {
+          "newLines": 1,
+          "newStart": 211,
+          "oldLines": 1,
+          "oldStart": 211
+        },
+        {
+          "newLines": 3,
+          "newStart": 215,
+          "oldLines": 3,
+          "oldStart": 215
+        }
+      ],
+      "path": "docs/ci-topology.md",
+      "status": "modified"
+    },
+    {
+      "additions": 4,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 30,
+          "oldLines": 1,
+          "oldStart": 30
+        },
+        {
+          "newLines": 2,
+          "newStart": 54,
+          "oldLines": 2,
+          "oldStart": 53
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 111,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 111,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/ci-runtime-contract-gates.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 103,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 103,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/ci-runtime-contract-gates.test.mjs",
+      "status": "added"
+    }
+  ],
+  "headSha": "ff7253f03da2fd13e355f37d7f54939350a8690f",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 411,
+    "deletions": 61,
+    "filesChanged": 5
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "e8eebfb4aa49f4fc2d0407131b879dd654088bfa",
+    "draft": false,
+    "headRef": "refactor/767-runtime-contract-gates",
+    "headSha": "ff7253f03da2fd13e355f37d7f54939350a8690f",
+    "number": 771,
+    "title": "refactor(ci): decompose PR Runtime validation into targeted contract gates"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "ff7253f03da2fd13e355f37d7f54939350a8690f",
+    "immutable": true,
+    "shortId": "ff7253f03da2"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-03T23:44:30.885Z"
+  }
+}
