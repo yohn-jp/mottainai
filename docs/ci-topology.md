@@ -204,16 +204,16 @@ The current workflow did select the full Runtime chain because `host-bootstrap/*
 
 ## Current implementation debt
 
-At the time this document was introduced, `.github/workflows/ci.yml` still contains a broad `runtime` ownership filter that includes `host-bootstrap/**`, and the `Nix Runtime evaluation / image / VM test` job still combines multiple proof classes on one large job boundary.
+[#766](https://github.com/yohn-jp/mottainai/issues/766) and [#767](https://github.com/yohn-jp/mottainai/issues/767) closed the broad `runtime` ownership filter and the single monolithic `Nix Runtime evaluation / image / VM test` job. Change detection now selects `runtime_nix`/`runtime_vm`/`runtime_appliance`/`host_bootstrap` as explicit overlapping classes, and PR validation runs as independently skippable `runtime-nix`, `runtime-vm`, and `runtime-appliance` jobs behind a stable aggregate `Nix Runtime evaluation / image / VM test` merge gate.
 
-The same PR job also performs PR-only canonical Appliance build/manifest work and real canonical Appliance OCI/bootstrap composition, while trusted `main` separately owns the canonical publication path. The result is stronger-than-necessary proof on broadly selected PRs and weak separation between rejection evidence and canonical integration evidence.
+The remaining known debt: an Appliance-defining PR still performs the full real canonical Appliance OCI/bootstrap composition and golden-path certification directly on the PR (now gated to `runtime_appliance`-affecting PRs only, not every Runtime-affecting PR), while trusted `main` separately owns canonical publication. Moving that full composition/golden-path proof to affected trusted `main` pushes is #768's event-boundary change, not yet made.
 
-These are known migration debts, not architectural exceptions.
+This is a known migration debt, not an architectural exception.
 
 ## Migration plan
 
-- [#766](https://github.com/yohn-jp/mottainai/issues/766) — split change detection by contract ownership and remove blanket `host-bootstrap/** -> full runtime` invalidation.
-- [#767](https://github.com/yohn-jp/mottainai/issues/767) — decompose PR Runtime validation into targeted Nix, VM, Appliance, and bootstrap-composition gates.
-- [#768](https://github.com/yohn-jp/mottainai/issues/768) — move full real-canonical-Appliance composition/golden-path certification to affected trusted `main` pushes and gate canonical publication on it.
+- [x] [#766](https://github.com/yohn-jp/mottainai/issues/766) — split change detection by contract ownership and remove blanket `host-bootstrap/** -> full runtime` invalidation.
+- [x] [#767](https://github.com/yohn-jp/mottainai/issues/767) — decompose PR Runtime validation into targeted Nix, VM, Appliance, and bootstrap-composition gates.
+- [ ] [#768](https://github.com/yohn-jp/mottainai/issues/768) — move full real-canonical-Appliance composition/golden-path certification to affected trusted `main` pushes and gate canonical publication on it.
 
 After those changes, measure representative Node, host-bootstrap, Nix Runtime, VM, Appliance, and trusted-main critical paths. Create a cache/runner optimization Issue only if the remaining measured latency still justifies one.
