@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "013063477efc242dbe0b309bae1181397fe70f27",
+    "draft": false,
+    "headRef": "feat/755-deployment-descriptor",
+    "headSha": "b0423599845319e46d1c020b2214d280726ab0e5",
+    "number": 758,
+    "title": "feat(release): publish one immutable deployment descriptor (#755)"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "b0423599845319e46d1c020b2214d280726ab0e5",
+    "immutable": true,
+    "shortId": "b04235998453"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-03T11:29:41.465Z"
+  }
+}
