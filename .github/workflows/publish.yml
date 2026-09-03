@@ -314,6 +314,9 @@ jobs:
     outputs:
       oci_digest: ${{ steps.publish_oci.outputs.digest }}
       oci_ref: ${{ steps.publish_oci.outputs.ref }}
+      raw_sha256: ${{ steps.publish_oci.outputs.raw_sha256 }}
+      raw_size_bytes: ${{ steps.publish_oci.outputs.raw_size_bytes }}
+      manifest_sha256: ${{ steps.publish_oci.outputs.manifest_sha256 }}
 
     steps:
       - name: Checkout exact release tag
@@ -815,6 +818,9 @@ jobs:
 
           echo "digest=$oci_digest" >> "$GITHUB_OUTPUT"
           echo "ref=$oci_digest_ref" >> "$GITHUB_OUTPUT"
+          echo "raw_sha256=$(jq -er '.image.sha256' "$remote_manifest")" >> "$GITHUB_OUTPUT"
+          echo "raw_size_bytes=$(jq -er '.image.sizeBytes' "$remote_manifest")" >> "$GITHUB_OUTPUT"
+          echo "manifest_sha256=$(sha256sum "$remote_manifest" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
           echo "RUNTIME_APPLIANCE_OCI_DIGEST=$oci_digest" >> "$GITHUB_ENV"
           echo "RUNTIME_APPLIANCE_OCI_REF=$oci_digest_ref" >> "$GITHUB_ENV"
           {
@@ -950,6 +956,130 @@ jobs:
             echo "- publication reference: \`https://github.com/${GITHUB_REPOSITORY}/releases/download/$RELEASE_TAG/mottainai-init-linux-x86_64\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  deployment-descriptor:
+    name: Publish immutable deployment descriptor
+    # #755: fan in independently completed release surfaces only after their
+    # exact identities are available. The descriptor remains a draft-release
+    # asset until finalize-release publishes the immutable release.
+    needs: [prepare-release, build, runtime-appliance, host-bootstrap-init]
+    if: needs.prepare-release.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout exact release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare-release.outputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.18.0
+
+      - name: Install descriptor validator dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download the canonical Route 1 payload
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: mottainai-tarball
+
+      - name: Download the exact Route 4 init artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release download "$RELEASE_TAG" --pattern 'mottainai-init-linux-x86_64' --dir "$RUNNER_TEMP/init" --clobber
+
+      - name: Assemble and validate the release descriptor
+        env:
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
+          SOURCE_REVISION: ${{ github.sha }}
+          OCI_DIGEST: ${{ needs.runtime-appliance.outputs.oci_digest }}
+          RAW_SHA256: ${{ needs.runtime-appliance.outputs.raw_sha256 }}
+          RAW_SIZE_BYTES: ${{ needs.runtime-appliance.outputs.raw_size_bytes }}
+          MANIFEST_SHA256: ${{ needs.runtime-appliance.outputs.manifest_sha256 }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          tarball="$(find . -maxdepth 1 -type f -name 'mottainai-*.tgz' -print -quit)"
+          node scripts/verify-canonical-payload.mjs --tarball "$tarball" --identity "$tarball.identity.json"
+          lock_sha256="$(sha256sum nix/flake.lock | awk '{print $1}')"
+          payload_sha256="$(jq -er '.payload.sha256' "$tarball.identity.json")"
+          test "$payload_sha256" = "$(sha256sum "$tarball" | awk '{print $1}')"
+          managed_identity="$(printf '%s' "$version:$SOURCE_REVISION:$payload_sha256:$lock_sha256" | sha256sum | awk '{print $1}')"
+          # Route 2 identity inputs are release-bound and payload-bound; the
+          # owning Nix build may replace this fan-in file with its realized
+          # NAR identities, but no descriptor is accepted without one.
+          jq -n \
+            --arg identity "$managed_identity" \
+            --arg lock "$lock_sha256" \
+            --arg payload "$payload_sha256" \
+            --arg version "$version" \
+            '{identity:$identity, flakeLockSha256:$lock, applicationPayloadSha256:$payload, packages:[{packageId:"mottainai",version:$version,flakeRef:"nix#mottainai",sourceSha256:$payload}]}' \
+            > "$RUNNER_TEMP/managed-generation.json"
+          jq -n \
+            --arg digest "$OCI_DIGEST" \
+            --arg raw "$RAW_SHA256" \
+            --argjson size "$RAW_SIZE_BYTES" \
+            --arg manifest "$MANIFEST_SHA256" \
+            '{digest:$digest,rawSha256:$raw,rawSizeBytes:$size,manifestSha256:$manifest}' \
+            > "$RUNNER_TEMP/appliance-metadata.json"
+          node scripts/create-release-deployment-descriptor-input.mjs \
+            --version "$version" \
+            --source-revision "$SOURCE_REVISION" \
+            --tarball "$tarball" \
+            --init "$RUNNER_TEMP/init/mottainai-init-linux-x86_64" \
+            --appliance-metadata "$RUNNER_TEMP/appliance-metadata.json" \
+            --provider-profile release/deployment-provider-profile-linux-x86_64.json \
+            --managed-generation "$RUNNER_TEMP/managed-generation.json" \
+            --output "$RUNNER_TEMP/deployment-descriptor-input.json"
+          node --import tsx scripts/build-deployment-descriptor.mjs \
+            --input "$RUNNER_TEMP/deployment-descriptor-input.json" \
+            --output mottainai-deployment-v1.json \
+            --identity-output mottainai-deployment-v1.json.sha256
+
+      - name: Publish descriptor assets idempotently
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          assets="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"
+          if grep -qx 'mottainai-deployment-v1.json.sha256' <<<"$assets"; then
+            gh release download "$RELEASE_TAG" --pattern 'mottainai-deployment-v1.json*' --dir "$RUNNER_TEMP/existing-descriptor" --clobber
+            cmp -- mottainai-deployment-v1.json.sha256 "$RUNNER_TEMP/existing-descriptor/mottainai-deployment-v1.json.sha256"
+            cmp -- mottainai-deployment-v1.json "$RUNNER_TEMP/existing-descriptor/mottainai-deployment-v1.json"
+          else
+            gh release upload "$RELEASE_TAG" mottainai-deployment-v1.json mottainai-deployment-v1.json.sha256
+          fi
+          {
+            echo "### Deployment descriptor"
+            echo "- release: \`$RELEASE_TAG\`"
+            echo "- identity: \`$(awk '{print $1}' mottainai-deployment-v1.json.sha256)\`"
+            echo "- asset: \`mottainai-deployment-v1.json\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retrieve and verify descriptor from the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/descriptor-fresh"
+          gh release download "$RELEASE_TAG" --pattern 'mottainai-deployment-v1.json*' --dir "$RUNNER_TEMP/descriptor-fresh" --clobber
+          cd "$RUNNER_TEMP/descriptor-fresh"
+          sha256sum --check mottainai-deployment-v1.json.sha256
+
   finalize-release:
     name: Publish the GitHub Release
     # #726: this is the only step in the entire workflow permitted to flip
@@ -958,7 +1088,7 @@ jobs:
     # applying to a release whose assets are already complete. A failure in
     # any dependency leaves the release as a draft rather than publishing a
     # release with a missing or inconsistent asset.
-    needs: [prepare-release, publish, runtime-appliance, host-bootstrap-init]
+    needs: [prepare-release, publish, runtime-appliance, host-bootstrap-init, deployment-descriptor]
     if: needs.prepare-release.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:

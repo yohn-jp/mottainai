@@ -20,6 +20,10 @@ and algorithms. In particular:
 - [`linux-runtime-contract.md`](linux-runtime-contract.md) owns the live
   Linux guest capability/health result, subject to the bootstrap-only
   architecture clarified here.
+- [`deployment-descriptor.md`](deployment-descriptor.md) and
+  `src/runtime-contract/deployment-descriptor.ts` own the immutable
+  `mottainai.deployment.v1` release identity graph (#755). It connects the
+  four routes without transferring provider VM lifecycle ownership.
 
 When an older document describes a full application stack baked into the base
 appliance, this document supersedes that assumption. The base appliance is a
