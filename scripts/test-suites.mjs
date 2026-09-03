@@ -38,6 +38,7 @@ const integrationPatterns = Object.freeze([
   "src/telemetry.test.ts",
   "src/fault-injection.test.ts",
   "src/gh-inari.test.ts",
+  "src/gh-makami.test.ts",
   "src/init.test.ts",
   "src/local-tools.test.ts",
   "src/logging.test.ts",
