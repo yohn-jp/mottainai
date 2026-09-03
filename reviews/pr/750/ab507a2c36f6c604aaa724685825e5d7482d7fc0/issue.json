@@ -1,0 +1,47 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Add a numbered ADR under `docs/decisions/` defining the complete four-layer deployment ladder and responsibility table."
+    },
+    {
+      "checked": false,
+      "text": "Document exact preconditions, outputs, delegated lower route, readiness criteria, and failure boundary for each route."
+    },
+    {
+      "checked": false,
+      "text": "State explicitly that Route 4 provisions/verifies the supported QEMU host toolchain while Lima continues to own QEMU VM lifecycle/device topology."
+    },
+    {
+      "checked": false,
+      "text": "State explicitly how Route 2 consumes Route 1 and Route 3 consumes Route 2 so higher layers cannot silently diverge."
+    },
+    {
+      "checked": false,
+      "text": "Define immutable release/artifact identity propagation through all four routes and a zero-manual normal deployment target."
+    },
+    {
+      "checked": false,
+      "text": "Identify which existing decisions are preserved and which specific #600/#654/#232 QEMU-supply wording is superseded."
+    },
+    {
+      "checked": false,
+      "text": "List current implementation gaps without claiming unimplemented behavior is already available."
+    },
+    {
+      "checked": false,
+      "text": "Link the ADR from the deployment Epic/tracker and use it as the architecture authority for the subsequent implementation Issues."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 749,
+    "state": "open",
+    "title": "docs(runtime): codify the layered declarative deployment architecture",
+    "url": "https://github.com/yohn-jp/mottainai/issues/749"
+  },
+  "linked": {
+    "number": 749
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

@@ -1,0 +1,26 @@
+{
+  "baseSha": "61f3ea66ea6f725ce1ee44e4b4cbaacd2f3afd2e",
+  "files": [
+    {
+      "additions": 327,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 327,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "docs/decisions/0003-layered-declarative-deployment.md",
+      "status": "added"
+    }
+  ],
+  "headSha": "ab507a2c36f6c604aaa724685825e5d7482d7fc0",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 327,
+    "deletions": 0,
+    "filesChanged": 1
+  }
+}

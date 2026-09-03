@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "61f3ea66ea6f725ce1ee44e4b4cbaacd2f3afd2e",
+    "draft": false,
+    "headRef": "docs/749-deployment-architecture",
+    "headSha": "ab507a2c36f6c604aaa724685825e5d7482d7fc0",
+    "number": 750,
+    "title": "docs(runtime): define layered declarative deployment architecture"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "ab507a2c36f6c604aaa724685825e5d7482d7fc0",
+    "immutable": true,
+    "shortId": "ab507a2c36f6"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-03T05:00:52.712Z"
+  }
+}
