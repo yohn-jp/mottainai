@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use fs2::FileExt;
 
 use crate::error::{BootstrapError, ErrorCode};
-use crate::paths::ManagedPaths;
+use crate::paths::{ensure_managed_root, ManagedPaths};
 
 #[derive(Debug)]
 pub struct BootstrapLock {
@@ -14,6 +14,7 @@ pub struct BootstrapLock {
 
 impl BootstrapLock {
     pub fn acquire(paths: &ManagedPaths) -> Result<Self, BootstrapError> {
+        ensure_managed_root(paths)?;
         let file = OpenOptions::new()
             .create(true)
             .truncate(false)

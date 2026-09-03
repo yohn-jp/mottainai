@@ -141,6 +141,11 @@ fn config(root: PathBuf, contract: ProviderContract) -> BootstrapConfig {
 
 fn fixture() -> (TempDir, ProviderContract, FixtureSource, BootstrapConfig) {
     let temporary = tempfile::tempdir().unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(temporary.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    }
     let bytes = archive();
     let source = FixtureSource {
         bytes: Arc::new(bytes.clone()),

@@ -8,6 +8,8 @@ pub struct ManagedPaths {
     pub root: PathBuf,
     pub state_file: PathBuf,
     pub qemu_state_file: PathBuf,
+    pub qemu_directory: PathBuf,
+    pub qemu_staging_directory: PathBuf,
     pub lock_file: PathBuf,
     pub cache_directory: PathBuf,
     pub providers_directory: PathBuf,
@@ -24,6 +26,8 @@ impl ManagedPaths {
         Self {
             state_file: root.join("state.json"),
             qemu_state_file: root.join("qemu.json"),
+            qemu_directory: root.join("qemu"),
+            qemu_staging_directory: root.join("staging").join("qemu"),
             lock_file: root.join("bootstrap.lock"),
             cache_directory: root.join("cache"),
             providers_directory: root.join("providers"),
@@ -42,6 +46,17 @@ impl ManagedPaths {
 
     pub fn archive_path(&self, artifact_id: &str) -> PathBuf {
         self.cache_directory.join(format!("{artifact_id}.tar.gz"))
+    }
+
+    pub fn qemu_archive_path(&self, artifact_id: &str) -> PathBuf {
+        self.cache_directory.join(format!("{artifact_id}.tar.gz"))
+    }
+
+    pub fn qemu_binary_path(&self, version: &str, executable: &str) -> PathBuf {
+        self.qemu_directory
+            .join(version)
+            .join("bin")
+            .join(executable)
     }
 
     pub fn staging_provider_directory(&self) -> PathBuf {
@@ -104,18 +119,50 @@ pub fn default_state_directory() -> Result<PathBuf, BootstrapError> {
 }
 
 pub fn ensure_managed_directories(paths: &ManagedPaths) -> Result<(), BootstrapError> {
-    ensure_directory(&paths.root, "managed state root")?;
+    ensure_managed_root(paths)?;
     ensure_directory(&paths.cache_directory, "managed cache directory")?;
     ensure_directory(&paths.providers_directory, "managed providers directory")?;
     ensure_directory(&paths.staging_directory, "managed staging directory")?;
     ensure_directory(&paths.appliances_directory, "managed appliances directory")?;
     ensure_directory(&paths.runtime_directory, "managed runtime directory")?;
+    ensure_directory(&paths.qemu_directory, "managed QEMU directory")?;
     Ok(())
+}
+
+/// Establishes the state-root trust boundary before any state or lock file is
+/// opened. A state tree writable by another user could otherwise substitute a
+/// provider or QEMU identity between inspection and activation.
+pub fn ensure_managed_root(paths: &ManagedPaths) -> Result<(), BootstrapError> {
+    match std::fs::symlink_metadata(&paths.root) {
+        Ok(metadata) if metadata.file_type().is_dir() => {
+            validate_private_directory(&metadata, "managed state root")
+        }
+        Ok(_) => Err(BootstrapError::new(
+            ErrorCode::IoError,
+            "managed state root is not a real directory",
+        )),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            std::fs::create_dir_all(&paths.root)
+                .map_err(|error| BootstrapError::io("create managed state root", &error))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&paths.root, std::fs::Permissions::from_mode(0o700))
+                    .map_err(|error| BootstrapError::io("protect managed state root", &error))?;
+            }
+            let metadata = std::fs::symlink_metadata(&paths.root)
+                .map_err(|error| BootstrapError::io("inspect managed state root", &error))?;
+            validate_private_directory(&metadata, "managed state root")
+        }
+        Err(error) => Err(BootstrapError::io("inspect managed state root", &error)),
+    }
 }
 
 fn ensure_directory(path: &Path, description: &str) -> Result<(), BootstrapError> {
     match std::fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_dir() => Ok(()),
+        Ok(metadata) if metadata.file_type().is_dir() => {
+            validate_private_directory(&metadata, description)
+        }
         Ok(_) => Err(BootstrapError::new(
             ErrorCode::IoError,
             format!("{description} is not a real directory"),
@@ -123,8 +170,16 @@ fn ensure_directory(path: &Path, description: &str) -> Result<(), BootstrapError
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             std::fs::create_dir_all(path)
                 .map_err(|error| BootstrapError::io(description, &error))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+                    .map_err(|error| BootstrapError::io(description, &error))?;
+            }
             match std::fs::symlink_metadata(path) {
-                Ok(metadata) if metadata.file_type().is_dir() => Ok(()),
+                Ok(metadata) if metadata.file_type().is_dir() => {
+                    validate_private_directory(&metadata, description)
+                }
                 Ok(_) => Err(BootstrapError::new(
                     ErrorCode::IoError,
                     format!("{description} is not a real directory"),
@@ -137,6 +192,33 @@ fn ensure_directory(path: &Path, description: &str) -> Result<(), BootstrapError
             &error,
         )),
     }
+}
+
+fn validate_private_directory(
+    metadata: &std::fs::Metadata,
+    description: &str,
+) -> Result<(), BootstrapError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let current_uid = unsafe { libc::geteuid() };
+        if metadata.uid() != current_uid {
+            return Err(BootstrapError::new(
+                ErrorCode::IoError,
+                format!("{description} is not owned by the invoking user"),
+            ));
+        }
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return Err(BootstrapError::new(
+                ErrorCode::IoError,
+                format!(
+                    "{description} must not be group/world accessible (mode {:o})",
+                    metadata.permissions().mode()
+                ),
+            ));
+        }
+    }
+    Ok(())
 }
 
 pub fn display_path(path: &Path) -> String {

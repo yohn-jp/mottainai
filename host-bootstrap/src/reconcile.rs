@@ -7,9 +7,12 @@ use crate::evidence::{diagnostic, Evidence};
 use crate::host::{classify_host, host_error, inspect_host_at, HostObservation};
 use crate::lock::BootstrapLock;
 use crate::model::{Classification, Outcome, StepEvidence};
-use crate::paths::{default_state_directory, ManagedPaths};
+use crate::paths::{default_state_directory, ensure_managed_root, ManagedPaths};
 use crate::provider::{ensure_provider, inspect_provider, ArtifactSource, HttpArtifactSource};
-use crate::qemu::{ensure_qemu, inspect_override, inspect_qemu, requirement, QemuOverride};
+use crate::qemu::{
+    ensure_provisioned_qemu, ensure_qemu, inspect_override, inspect_qemu, requirement,
+    HttpQemuArtifactSource, QemuArtifactSource, QemuContract, QemuOverride,
+};
 
 #[derive(Clone, Debug)]
 pub struct BootstrapConfig {
@@ -52,10 +55,39 @@ impl Bootstrap {
     }
 
     pub fn reconcile(&self) -> Evidence {
-        self.reconcile_with_source(HttpArtifactSource)
+        self.reconcile_with_contract_and_sources(
+            HttpArtifactSource,
+            HttpQemuArtifactSource,
+            QemuContract::default(),
+        )
     }
 
     pub fn reconcile_with_source<S: ArtifactSource>(&self, source: S) -> Evidence {
+        self.reconcile_with_contract_and_sources(
+            source,
+            HttpQemuArtifactSource,
+            QemuContract::default(),
+        )
+    }
+
+    pub fn reconcile_with_sources<S: ArtifactSource, Q: QemuArtifactSource>(
+        &self,
+        provider_source: S,
+        qemu_source: Q,
+    ) -> Evidence {
+        self.reconcile_with_contract_and_sources(
+            provider_source,
+            qemu_source,
+            QemuContract::default(),
+        )
+    }
+
+    pub fn reconcile_with_contract_and_sources<S: ArtifactSource, Q: QemuArtifactSource>(
+        &self,
+        source: S,
+        qemu_source: Q,
+        qemu_contract: QemuContract,
+    ) -> Evidence {
         let host = self.config.host_override.clone().unwrap_or_else(|| {
             inspect_host_at(
                 &self.config.kvm_path,
@@ -85,6 +117,15 @@ impl Bootstrap {
             evidence.fail(&error, false);
             return evidence;
         }
+        if let Err(error) = qemu_contract.validate() {
+            evidence.steps.push(qemu_step(
+                Classification::Ambiguous,
+                None,
+                Some(&error.message),
+            ));
+            evidence.fail(&error, false);
+            return evidence;
+        }
 
         let host_classification = classify_host(&host);
         evidence.steps.push(host_step(
@@ -98,8 +139,7 @@ impl Bootstrap {
             return evidence;
         }
 
-        if let Err(error) = std::fs::create_dir_all(&paths.root) {
-            let error = BootstrapError::io("create managed state root", &error);
+        if let Err(error) = ensure_managed_root(&paths) {
             evidence.fail(&error, false);
             return evidence;
         }
@@ -141,15 +181,41 @@ impl Bootstrap {
             qemu_observation.observed_identity.clone(),
             qemu_observation.diagnostic.as_deref(),
         ));
-        if matches!(
+        let qemu_requires_provisioning = self.config.qemu_override.is_none()
+            && self.config.qemu_path.is_none()
+            && qemu_observation.state.is_none()
+            && matches!(
+                qemu_observation.classification,
+                Classification::Incompatible | Classification::Missing | Classification::Repairable
+            );
+        if qemu_requires_provisioning {
+            match ensure_provisioned_qemu(
+                &paths,
+                &qemu_contract,
+                &qemu_source,
+                &host.os,
+                &host.architecture,
+            ) {
+                Ok(identity) => {
+                    evidence.observed_qemu = Some(identity);
+                    evidence.steps[1].changed = true;
+                    evidence.steps[1].classification = Classification::Repairable;
+                    evidence.steps[1].observed_qemu = evidence.observed_qemu.clone();
+                    evidence.changed = true;
+                }
+                Err(error) => {
+                    evidence.fail(&error, false);
+                    return evidence;
+                }
+            }
+        } else if matches!(
             qemu_observation.classification,
             Classification::Incompatible | Classification::Ambiguous | Classification::Missing
         ) {
             let error = crate::qemu::error_for_observation(&qemu_observation);
             evidence.fail(&error, false);
             return evidence;
-        }
-        if qemu_observation.classification == Classification::Repairable {
+        } else if qemu_observation.classification == Classification::Repairable {
             if let Err(error) = ensure_qemu(&paths, &qemu_observation, &host.os, &host.architecture)
             {
                 evidence.fail(&error, false);
@@ -229,7 +295,16 @@ impl Bootstrap {
             return evidence;
         }
         if observation.classification == Classification::Satisfied {
-            evidence.result = Outcome::NoOp;
+            evidence.result = if evidence.changed {
+                Outcome::Changed
+            } else {
+                Outcome::NoOp
+            };
+            if evidence.changed {
+                evidence.diagnostic = diagnostic(Some(
+                    "verified managed Lima provider and QEMU host toolchain",
+                ));
+            }
             return evidence;
         }
 

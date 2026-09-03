@@ -3,7 +3,8 @@
 mottainai-init is the host-side bootstrap for the initial local provider
 profile: Linux x86_64, KVM, and the Lima/QEMU provider boundary. Its default
 invocation (no subcommand) prepares the machine that launches a Runtime
-Appliance: the verified Lima provider binary and the QEMU/KVM prerequisite.
+Appliance: the verified Lima provider binary and a pinned, verified QEMU/KVM
+host toolchain.
 Its `runtime ensure` subcommand (#661, see
 [`lima-runtime-orchestration.md`](lima-runtime-orchestration.md)) converges a
 local Lima-managed Runtime instance to ready state using that verified
@@ -33,6 +34,13 @@ release SHA-256 `a0ea1ccf6b7335a900adb5f8d2b8384457965fecb1ba72f09b4e3e46d12f424
 A reviewed contract JSON
 may be supplied with --contract; it must still identify the supported Lima
 provider and pass the schema, URL, path, size, timeout, and digest checks.
+
+When QEMU is absent, Route 4 automatically materializes the reviewed
+hermeticbuild static QEMU 11.0.0 Linux x86_64 system and image artifacts.
+Their release URLs, archive digests, executable paths, and version are fixed
+in the compiled QEMU contract; no package manager or operator research is
+required. If acquisition is unavailable, convergence fails closed with a
+bounded remediation diagnostic.
 
 For a release artifact, verify the detached digest/provenance before executing
 it:
@@ -113,6 +121,8 @@ $HOME/.local/state/mottainai/host-bootstrap/
 ├── bootstrap.lock
 ├── state.json                 # Lima artifact/materialization proof
 ├── qemu.json                  # QEMU prerequisite proof
+├── qemu/                      # pinned relocatable QEMU host-toolchain closure
+│   └── 11.0.0/                # bin/ tools and share/qemu firmware/data
 ├── active -> providers/<artifact-id>
 ├── cache/
 │   └── <artifact-id>.tar.gz
@@ -161,22 +171,31 @@ convergence.
 
 ## QEMU/KVM prerequisite
 
-The supported Lima provider requires the host-side `qemu-system-x86_64` and
-`qemu-img` tools in one installation. Before Lima is downloaded or activated,
-the bootstrap uniquely resolves both tools, requires regular executable files,
-checks that both report the same version (at least QEMU 8.2.0), and runs
-`qemu-system-x86_64 -accel help` to prove that the binary advertises `kvm`.
-It records each resolved path and SHA-256 in `qemu.json` and rechecks those
-values on every run. A changed, ambiguous, incompatible, or missing QEMU
-prerequisite blocks Lima convergence.
+The supported Lima provider requires `qemu-system-x86_64`, `qemu-img`, and the
+matching QEMU firmware/data closure from one exact installation. Route 4 first
+checks the managed QEMU state. If no explicitly adopted installation is
+recorded, it downloads the three pinned archives into bounded `.part` files,
+verifies their SHA-256 digests, extracts
+only the declared regular executables into a private staging directory, and
+atomically activates the complete closure. It then requires both binaries to
+be x86_64 ELF executables, report the pinned version (11.0.0), and come from
+the same materialized closure. `qemu-system-x86_64 -accel help` must advertise
+`kvm`; missing or inaccessible `/dev/kvm` remains a host capability failure.
 
-Mottainai does not distribute a private QEMU archive or invoke `sudo`,
-`apt`, `dnf`, `pacman`, Nix, or a shell. This preserves the #654 ownership
-boundary: the host administrator or base image supplies QEMU, while
-`mottainai-init` proves and records the exact host installation required by
-Lima. Removing `qemu.json` only permits a fresh contract proof; it does not
-permit an unverified binary to be used, and a same-version replacement is
-identified by its newly observed digest.
+The exact artifact IDs and provenance are recorded in `qemu.json` alongside
+the executable paths and SHA-256 values. Every run re-verifies those values;
+corrupt, truncated, wrong-version, wrong-architecture, or changed managed
+artifacts fail closed. Interrupted downloads and staging are discarded and
+retried, while a verified unchanged closure is reused without downloading.
+
+Lima remains the sole VM lifecycle, QEMU command-line, and device-topology
+authority. Mottainai owns only bounded artifact acquisition, verification,
+materialization, and binding. Before each managed `limactl` operation,
+`mottainai-init` sets `QEMU_SYSTEM_X86_64` to the verified executable and puts
+its directory first in a controlled child `PATH`; an unrelated ambient QEMU
+cannot silently replace it. Arbitrary ambient QEMU is never silently adopted.
+An external installation may be adopted only with an explicit `--qemu-path`
+and is still identity-verified.
 
 ## Evidence
 
@@ -201,12 +220,10 @@ experiment; this bootstrap does not start a VM.
 
 ## Manual Linux x86_64/KVM validation
 
-On a fresh supported Linux x86_64 host, first provision the distribution's
-QEMU system-emulation package through the host's normal image or administrator
-workflow. That action is deliberately outside `mottainai-init`; it must leave
-`qemu-system-x86_64` and `qemu-img` on PATH and `/dev/kvm` readable and
-writable by the invoking user. Then run the following exact sequence from the
-directory containing the detached release artifacts:
+On a fresh supported Linux x86_64 host, ensure only the hardware capability
+(`/dev/kvm`) and network are available. `mottainai-init` provisions the pinned
+Lima/QEMU host toolchain itself. Run the following sequence from the directory
+containing the detached release artifacts:
 
 ~~~bash
 sha256sum --check mottainai-init-linux-x86_64.sha256
@@ -214,16 +231,12 @@ test "$(uname -s)" = Linux
 test "$(uname -m)" = x86_64
 test -c /dev/kvm
 test -r /dev/kvm && test -w /dev/kvm
-qemu-system-x86_64 --version
-qemu-img --version
-qemu-system-x86_64 -accel help | grep -E '^kvm([[:space:]]|$)'
 ./mottainai-init-linux-x86_64 --json --state-directory "$HOME/.local/state/mottainai/host-bootstrap"
 ./mottainai-init-linux-x86_64 --json --state-directory "$HOME/.local/state/mottainai/host-bootstrap"
 ~~~
 
-The first successful run must report `changed`, with host and QEMU
-`satisfied`/`repairable` evidence and Lima `missing`/`repairable` evidence.
-The second run must report `no-op`, perform no download, and leave both
-`state.json` and `qemu.json` unchanged. This command sequence does not claim
-the real-host criterion passed until it has actually been run on a host where
-`/dev/kvm` opens successfully.
+The first successful run must report `changed`, with QEMU and Lima materialized
+under managed state. The second run must report `no-op`, perform no download,
+and preserve both `state.json` and `qemu.json`. This command sequence does not
+claim the real-host criterion passed until it has actually been run on a host
+where `/dev/kvm` opens successfully.
