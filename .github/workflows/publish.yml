@@ -404,6 +404,62 @@ jobs:
             "$identity_output"
           echo "Route 2 consumed canonical Route 1 payload $payload_sha256 for $RELEASE_TAG"
 
+      - name: Execute Route 2 closure smoke from the exact canonical payload (Issue #752)
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload="$(find "$RUNNER_TEMP/mottainai-canonical-payload" -maxdepth 1 -type f -name 'mottainai-*.tgz' -print -quit)"
+          identity="$payload.identity.json"
+          payload_sha256="$(jq -er '.payload.sha256' "$identity")"
+          package_output="$(nix build --impure --no-update-lock-file --no-link --print-out-paths --expr "
+            let
+              flake = builtins.getFlake (toString (/. + \"$GITHUB_WORKSPACE/nix\"));
+              source = /. + \"$GITHUB_WORKSPACE\";
+              payload = /. + \"$payload\";
+            in flake.lib.mkMottainaiFromPayload {
+              system = \"x86_64-linux\";
+              inherit source payload;
+              payloadSha256 = \"$payload_sha256\";
+            }
+          ")"
+          metadata_output="$(nix build --impure --no-update-lock-file --no-link --print-out-paths --expr "
+            let
+              flake = builtins.getFlake (toString (/. + \"$GITHUB_WORKSPACE/nix\"));
+              source = /. + \"$GITHUB_WORKSPACE\";
+              payload = /. + \"$payload\";
+              mottainai = flake.lib.mkMottainaiFromPayload {
+                system = \"x86_64-linux\";
+                inherit source payload;
+                payloadSha256 = \"$payload_sha256\";
+              };
+              manifest = {
+                contractId = \"mottainai.managed-package-manifest.v1\";
+                schemaVersion = 1;
+                activation.generation = 1;
+                packages = [{
+                  packageId = \"mottainai\";
+                  kind = \"nix-flake-package\";
+                  version = \"$RUNTIME_APPLIANCE_PACKAGE_VERSION\";
+                  source = {
+                    flakeRef = \"nix#mottainai\";
+                    sourceSha256 = \"0000000000000000000000000000000000000000000000000000000000000000\";
+                  };
+                }];
+              };
+            in (flake.lib.mkManagedGeneration {
+              system = \"x86_64-linux\";
+              inherit manifest;
+              mottainaiPackage = mottainai;
+            }).metadataFile
+          ")"
+          generation_output="$(jq -er '.nixOutput.storePath' "$metadata_output")"
+          node scripts/route2-runtime-smoke.mjs \
+            --generation "$generation_output" \
+            --package-root "$package_output" \
+            --metadata "$metadata_output" \
+            --payload-identity "$package_output/share/mottainai/canonical-payload.json" \
+            --evidence "$RUNNER_TEMP/route2-runtime-closure-evidence.json"
+
       - name: Prove Route 2 rejects a changed payload
         shell: bash
         run: |

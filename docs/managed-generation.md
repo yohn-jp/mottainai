@@ -27,7 +27,8 @@ nix/managed-generation.nix   -- resolves each entry to an existing
         |                        pkgs.nawabari), fails deterministically
         |                        for anything it has no recipe for
         v
-managed generation build      -- pkgs.buildEnv of the resolved packages,
+managed generation build      -- pkgs.buildEnv of the resolved packages and
+        |                        the explicit Route 2 runtime dependency catalog,
         |                        independent of runtime-appliance-image
         v
 managed-generation-metadata.json (mottainai.managed-generation.v1)
@@ -96,6 +97,61 @@ flake's locked nixpkgs input (`nix/flake.lock`) — matches the same Zellij
 release this repository's own CI already installs independently for
 `src/manager/zellij.ts`'s integration/e2e/package suites (`.github/workflows/ci.yml`)
 and satisfies that module's `MINIMUM_ZELLIJ_VERSION` floor.
+
+## Route 2 runtime dependency closure (Issue #752)
+
+The managed generation also contains the lower-level executables required by
+the supported Mottainai CLI/MCP surface. The fixed Route 2 catalog in
+`nix/managed-generation.nix` currently declares these dependencies explicitly
+and records their pinned nixpkgs versions and realized store paths:
+
+| packageId | command | supported operation |
+| --------- | ------- | ------------------- |
+| `git` | `git` | repository/worktree operations and Git-backed workflows |
+| `ripgrep` | `rg` | built-in `mottainai_search` and local code search |
+
+The complete Route 1 external-prerequisite inventory is intentionally split
+by ownership:
+
+| prerequisite | Route 2 disposition |
+| ------------ | ------------------- |
+| Node.js 24, npm-compatible package runtime, native libraries, and production Node modules | declared by `nix/mottainai.nix` and wrapped with an absolute Nix Node path |
+| `git` and `rg` | pinned in the fixed closure catalog above and joined into every managed generation |
+| `nawabari` 0.6.1 and `zellij` 0.44.3 | explicit, versioned managed application packages in the catalog table above |
+| `ast-grep` for an explicit AST-search request | optional caller/provider backend; absence fails closed and is not silently replaced by lossy text search |
+| `codegraph`, `fff-mcp`, `gh`, and provider-specific clients | optional configured authority integrations; their executable is a declared integration/host prerequisite, not an undeclared Route 2 baseline dependency |
+| POSIX shell and arbitrary commands passed to `mottainai_exec`, plus remote Git transport helpers such as SSH | caller-/host-/kernel-provided facilities for intentionally user-supplied operations; not part of built-in functional readiness |
+
+These are closure dependencies, not additional manifest package identities:
+the manifest remains the catalog of application packages (`mottainai`,
+`nawabari`, and `zellij`), while the Route 2 Nix derivation owns the exact
+lower-level execution prerequisites those packages need. `pkgs.buildEnv`
+joins both sets, so the functional runtime resolves `git` and `rg` from the
+realized managed generation rather than the host `PATH`. Configured authority
+tools such as CodeGraph, `fff-mcp`, `ast-grep`, `gh`, or a provider-specific
+client remain explicit optional integration requirements; they are not
+silently treated as part of the supported built-in closure.
+
+The Route 2 execution precondition is a realized Nix managed generation built
+from the exact canonical Route 1 payload. Host Node/npm/git/rg installation is
+not a substitute. Nix/NixOS, the supported Linux architecture, filesystem
+access, and any host/kernel facilities required by the enclosing appliance
+remain lower-level infrastructure preconditions; appliance provisioning and
+virtualization are outside this Route 2 contract.
+
+The focused acceptance check is:
+
+```sh
+nix build .#checks.x86_64-linux.route2-runtime-closure
+```
+
+It performs a real `serve` → `mottainai_search` CLI operation with the
+generation-only `PATH`, starts the packaged `mottainai-mcp` entrypoint over
+stdio and exercises bounded MCP requests, then proves that removing `rg`
+causes the search operation to fail. It emits
+`mottainai.route2-functional-readiness.v1` evidence containing the canonical
+payload, generation store path, exact runtime dependency identities, and both
+functional readiness results. `--version` remains an identity probe only.
 
 ## Source resolution boundary
 

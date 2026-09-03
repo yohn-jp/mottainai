@@ -215,6 +215,30 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          mottainaiPackage = mkMottainai pkgs;
+          route2Manifest = {
+            contractId = "mottainai.managed-package-manifest.v1";
+            schemaVersion = 1;
+            activation.generation = 1;
+            packages = [
+              {
+                packageId = "mottainai";
+                kind = "nix-flake-package";
+                version = mottainaiPackage.version;
+                source = {
+                  flakeRef = "nix#mottainai";
+                  # This check exercises the realized closure; source
+                  # integrity is verified by the managed-generation driver.
+                  sourceSha256 = "0000000000000000000000000000000000000000000000000000000000000000";
+                };
+              }
+            ];
+          };
+          route2Generation = self.lib.mkManagedGeneration {
+            inherit system;
+            manifest = route2Manifest;
+            mottainaiPackage = mottainaiPackage;
+          };
           runtimeApplianceImage = import ./runtime-appliance-image.nix {
             inherit pkgs;
             inherit (nixpkgs) lib;
@@ -271,6 +295,15 @@
               inherit pkgs;
               inherit (nixpkgs) lib;
             };
+          };
+          route2-runtime-closure = import ./tests/route2-runtime-closure.nix {
+            inherit pkgs;
+            inherit (nixpkgs) lib;
+            source = ../.;
+            managedGeneration = route2Generation.generation;
+            managedGenerationMetadata = route2Generation.metadataFile;
+            inherit mottainaiPackage;
+            runtimeDependencies = route2Generation.runtimeDependencies;
           };
           appliance-boundary = import ./tests/runtime-appliance.nix {
             inherit pkgs;

@@ -200,6 +200,7 @@ pkgs.stdenv.mkDerivation {
     pnpm
     nodejs.python
     pkgs.gnumake
+    pkgs.jq
     pkgs.makeWrapper
   ];
 
@@ -285,14 +286,13 @@ NODE
     rm -rf "$packageRoot/node_modules/.cache"
 
     mkdir -p "$out/share/mottainai"
-    printf '%s\n' \
-      '{' \
-      '  "contractId": "mottainai.canonical-application-payload.v1",' \
-      '  "schemaVersion": 1,' \
-      '  "packageName": "${pname}",' \
-      '  "packageVersion": "${version}",' \
-      '  "sha256": '"$actual_payload_sha256" \
-      '}' > "$out/share/mottainai/canonical-payload.json"
+    jq -n \
+      --arg contractId "mottainai.canonical-application-payload.v1" \
+      --arg packageName "${pname}" \
+      --arg packageVersion "${version}" \
+      --arg sha256 "$actual_payload_sha256" \
+      '{ contractId: $contractId, schemaVersion: 1, packageName: $packageName, packageVersion: $packageVersion, sha256: $sha256 }' \
+      > "$out/share/mottainai/canonical-payload.json"
 
     # pnpm stamps these generated state files with wall-clock timestamps,
     # which otherwise makes this derivation's output non-reproducible.

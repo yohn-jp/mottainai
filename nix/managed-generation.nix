@@ -91,6 +91,27 @@ let
 
   supportedPackageIds = [ "mottainai" "nawabari" "zellij" ];
 
+  # Route 2's application closure owns the external executables used by the
+  # supported Mottainai surface. They are deliberately not resolved from the
+  # host PATH and are not manifest entries: the manifest names application
+  # packages, while this fixed catalog closes the lower-level execution
+  # prerequisites those packages require. The pinned nixpkgs input supplies
+  # their exact versions and store identities.
+  runtimeDependencies = [
+    {
+      packageId = "git";
+      command = "git";
+      version = pkgs.git.version;
+      drv = pkgs.git;
+    }
+    {
+      packageId = "ripgrep";
+      command = "rg";
+      version = pkgs.ripgrep.version;
+      drv = pkgs.ripgrep;
+    }
+  ];
+
   unsupportedPackage = entry: reason:
     throw "managed generation projection: unsupported managed package entry packageId=${entry.packageId} kind=${entry.kind} flakeRef=${entry.source.flakeRef}: ${reason}";
 
@@ -138,13 +159,15 @@ if unsupportedEntries != [ ] then
 else
 rec {
   inherit resolved;
+  inherit runtimeDependencies;
 
   # A single buildEnv distinct from any appliance/system closure: this is
   # the "managed generation" build artifact itself, independent of
-  # runtime-appliance-image.nix / runtime-system.
+  # runtime-appliance-image.nix / runtime-system. The application packages
+  # and the explicit Route 2 runtime dependency catalog share this boundary.
   generation = pkgs.buildEnv {
     name = "mottainai-managed-generation";
-    paths = map (r: r.drv) resolved;
+    paths = (map (r: r.drv) resolved) ++ (map (dependency: dependency.drv) runtimeDependencies);
   };
 
   requestedIdentity.packages = map (r: {
