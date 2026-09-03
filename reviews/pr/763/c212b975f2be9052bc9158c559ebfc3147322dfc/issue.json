@@ -1,0 +1,55 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "One production Route 3 invocation can take an exact canonical Appliance plus desired release/generation intent from missing instance to active managed Runtime without a human logging into the guest."
+    },
+    {
+      "checked": false,
+      "text": "The canonical first-boot control/authentication mechanism works through Lima without broad HOME key import and without changing the guest into a Lima-specific image."
+    },
+    {
+      "checked": false,
+      "text": "The desired managed-package manifest/generation intent is materialized automatically from release input; no manual guest file injection is required on the golden path."
+    },
+    {
+      "checked": false,
+      "text": "Production orchestration invokes the canonical guest bootstrap/reconcile boundary and verifies the exact desired/active generation identity."
+    },
+    {
+      "checked": false,
+      "text": "A guest reporting only `bootstrapReady=true` cannot make Route 3 return success when `managedRuntimeReady` for the intended generation is false."
+    },
+    {
+      "checked": false,
+      "text": "Final Route 3 success proves representative packaged Mottainai CLI and MCP behavior inside the active managed generation."
+    },
+    {
+      "checked": false,
+      "text": "Repeated ensure on an unchanged healthy instance is a no-op and does not rebuild/re-activate the current generation unnecessarily."
+    },
+    {
+      "checked": false,
+      "text": "A failed new generation preserves/returns to known-good state according to the canonical bootstrap rollback contract and Route 3 reports the failure truthfully."
+    },
+    {
+      "checked": false,
+      "text": "Tests cover fresh bootstrap-only guest, already-managed current guest, wrong/stale generation, bootstrap failure, activation health failure/rollback, lost/restarted instance, and no-op convergence with hermetic provider/guest fixtures where possible."
+    },
+    {
+      "checked": false,
+      "text": "Real Linux/KVM certification remains #261; this Issue exhausts repository-CI-provable Route 3 composition first."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 753,
+    "state": "open",
+    "title": "feat(runtime): make Route 3 converge the Lima Runtime to managed Mottainai readiness",
+    "url": "https://github.com/yohn-jp/mottainai/issues/753"
+  },
+  "linked": {
+    "number": 753
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "ff5013b4005a49df494a49ede259ff94f232e08f",
+    "draft": false,
+    "headRef": "feat/753-route3-managed-readiness",
+    "headSha": "c212b975f2be9052bc9158c559ebfc3147322dfc",
+    "number": 763,
+    "title": "feat(runtime): converge Route 3 to managed Mottainai readiness"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "c212b975f2be9052bc9158c559ebfc3147322dfc",
+    "immutable": true,
+    "shortId": "c212b975f2be"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-03T13:12:52.584Z"
+  }
+}
