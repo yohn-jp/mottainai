@@ -181,14 +181,22 @@ jobs:
             exit 1
           fi
 
-      - name: Pack tarball
-        run: npm pack
+      - name: Pack canonical Route 1 payload
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/mottainai-canonical-payload"
+          node scripts/pack-canonical-payload.mjs \
+            --output-dir "$RUNNER_TEMP/mottainai-canonical-payload" \
+            > /dev/null
+          payload="$(find "$RUNNER_TEMP/mottainai-canonical-payload" -maxdepth 1 -type f -name 'mottainai-*.tgz' -print -quit)"
+          identity="$payload.identity.json"
+          node scripts/verify-canonical-payload.mjs --tarball "$payload" --identity "$identity"
 
       - name: Upload tarball
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mottainai-tarball
-          path: mottainai-*.tgz
+          path: ${{ runner.temp }}/mottainai-canonical-payload/*
           retention-days: 1
 
   smoke-test:
@@ -218,8 +226,16 @@ jobs:
         with:
           name: mottainai-tarball
 
+      - name: Verify canonical payload identity
+        run: |
+          set -euo pipefail
+          payload="$(find . -maxdepth 1 -type f -name 'mottainai-*.tgz' -print -quit)"
+          node scripts/verify-canonical-payload.mjs \
+            --tarball "$payload" \
+            --identity "$payload.identity.json"
+
       - name: Smoke test packed tarball
-        run: node scripts/smoke-test.mjs --tarball "$(ls mottainai-*.tgz)"
+        run: node scripts/smoke-test.mjs --tarball "$(find . -maxdepth 1 -type f -name 'mottainai-*.tgz' -print -quit)"
         shell: bash
 
   publish:
@@ -251,6 +267,14 @@ jobs:
         with:
           name: mottainai-tarball
 
+      - name: Verify canonical payload identity before publication
+        run: |
+          set -euo pipefail
+          payload="$(find . -maxdepth 1 -type f -name 'mottainai-*.tgz' -print -quit)"
+          node scripts/verify-canonical-payload.mjs \
+            --tarball "$payload" \
+            --identity "$payload.identity.json"
+
       - name: Check whether version is already published
         id: registry
         run: |
@@ -265,7 +289,7 @@ jobs:
         if: steps.registry.outputs.published != 'true'
         run: |
           set -o pipefail
-          npm publish "$(ls mottainai-*.tgz)" 2>&1 | tee publish.log
+          npm publish "$(find . -maxdepth 1 -type f -name 'mottainai-*.tgz' -print -quit)" 2>&1 | tee publish.log
           if grep -q "npm warn publish" publish.log; then
             echo "npm emitted a publish warning; treating as failure"
             exit 1
@@ -273,10 +297,10 @@ jobs:
 
   runtime-appliance:
     name: Publish canonical Runtime Appliance OCI Artifact
-    # The appliance is a separate release surface from npm. The ordering only
-    # ensures the canonical Nix package's already-declared npm source exists;
-    # the appliance is never added to the npm tarball.
-    needs: [prepare-release, publish]
+    # The appliance is a separate release surface from npm. It consumes the
+    # release-local canonical payload artifact and therefore can finish before
+    # public npm publication; registry ordering must not be a Route 2 input.
+    needs: [prepare-release, build]
     runs-on: ubuntu-latest
     timeout-minutes: 90
     # The release itself is immutable source/release-note metadata once
@@ -338,8 +362,76 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
 
+      - name: Download canonical Route 1 payload
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: mottainai-tarball
+          path: ${{ runner.temp }}/mottainai-canonical-payload
+
       - name: Install Node dependencies for manifest verification
         run: pnpm install --frozen-lockfile
+
+      - name: Build Route 2 package from the exact Route 1 payload
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          payload="$(find "$RUNNER_TEMP/mottainai-canonical-payload" -maxdepth 1 -type f -name 'mottainai-*.tgz' -print -quit)"
+          identity="$payload.identity.json"
+          node scripts/verify-canonical-payload.mjs --tarball "$payload" --identity "$identity"
+          payload_sha256="$(jq -er '.payload.sha256' "$identity")"
+          test "$payload_sha256" = "$(sha256sum "$payload" | awk '{print $1}')"
+          package_output="$(nix build --impure --no-update-lock-file --no-link --print-out-paths --expr "
+            let
+              flake = builtins.getFlake (toString (/. + \"$GITHUB_WORKSPACE/nix\"));
+              source = /. + \"$GITHUB_WORKSPACE\";
+              payload = /. + \"$payload\";
+            in flake.lib.mkMottainaiFromPayload {
+              system = \"x86_64-linux\";
+              inherit source payload;
+              payloadSha256 = \"$payload_sha256\";
+            }
+          ")"
+          identity_output="$package_output/share/mottainai/canonical-payload.json"
+          jq -e \
+            --arg version "$(node -p "require('./package.json').version")" \
+            --arg sha256 "$payload_sha256" \
+            '.contractId == "mottainai.canonical-application-payload.v1" and .schemaVersion == 1 and .packageName == "mottainai" and .packageVersion == $version and .sha256 == $sha256' \
+            "$identity_output"
+          echo "Route 2 consumed canonical Route 1 payload $payload_sha256 for $RELEASE_TAG"
+
+      - name: Prove Route 2 rejects a changed payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload="$(find "$RUNNER_TEMP/mottainai-canonical-payload" -maxdepth 1 -type f -name 'mottainai-*.tgz' -print -quit)"
+          changed_payload="$RUNNER_TEMP/mottainai-canonical-payload/changed-payload.tgz"
+          cp "$payload" "$changed_payload"
+          node - "$changed_payload" <<'NODE'
+          const fs = require("node:fs");
+          const file = process.argv[2];
+          const bytes = fs.readFileSync(file);
+          bytes[bytes.length - 1] ^= 1;
+          fs.writeFileSync(file, bytes);
+          NODE
+          payload_sha256="$(jq -er '.payload.sha256' "$payload.identity.json")"
+          if nix build --impure --no-update-lock-file --no-link --expr "
+            let
+              flake = builtins.getFlake (toString (/. + \"$GITHUB_WORKSPACE/nix\"));
+              source = /. + \"$GITHUB_WORKSPACE\";
+              payload = /. + \"$changed_payload\";
+            in flake.lib.mkMottainaiFromPayload {
+              system = \"x86_64-linux\";
+              inherit source payload;
+              payloadSha256 = \"$payload_sha256\";
+            }
+          " >/tmp/mottainai-route2-tamper.log 2>&1; then
+            echo 'changed Route 1 payload unexpectedly passed Route 2 verification' >&2
+            cat /tmp/mottainai-route2-tamper.log >&2
+            exit 1
+          fi
+          grep -q 'canonical Route 1 payload sha256 mismatch' /tmp/mottainai-route2-tamper.log
 
       - name: Build canonical Runtime Appliance from the tagged source
         working-directory: nix

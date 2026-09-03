@@ -28,6 +28,13 @@ try {
   const distMtime = fs.statSync(distEntry).mtimeMs;
   const packed = packRepository(repoRoot, artifactDirectory);
   const tarballPath = packed.tarballPath;
+  run(process.execPath, [
+    "scripts/verify-canonical-payload.mjs",
+    "--tarball",
+    tarballPath,
+    "--identity",
+    packed.metadataPath,
+  ]);
   const environment = {
     ...process.env,
     MOTTAINAI_PACKAGE_TARBALL: tarballPath,

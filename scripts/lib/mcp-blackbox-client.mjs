@@ -3,8 +3,8 @@
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { packCanonicalPayload } from "./canonical-payload.mjs";
 
-const npmInvocation = { command: "npm", prefixArgs: [] };
 const tarCommand = "tar";
 export const MAX_TRANSCRIPT_BYTES = 32 * 1024;
 export const MAX_STDERR_TAIL_BYTES = 16 * 1024;
@@ -13,24 +13,7 @@ const MAX_STDIN_ERROR_BYTES = 1_024;
 
 /** 既存の dist を pack する。build は CI/local の明示的な Build stage で先に行う。 */
 export function packRepository(repoRoot, destinationDir) {
-  const stdout = execFileSync(npmInvocation.command, [
-    ...npmInvocation.prefixArgs,
-    "pack",
-    "--json",
-    "--ignore-scripts",
-    "--pack-destination",
-    destinationDir,
-  ], {
-    cwd: repoRoot,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    shell: false,
-  });
-  const [info] = JSON.parse(stdout);
-  return {
-    tarballPath: path.join(destinationDir, info.filename),
-    packedFiles: info.files.map((entry) => entry.path),
-  };
+  return packCanonicalPayload(repoRoot, destinationDir);
 }
 
 /** tar 展開のみで npm/pnpm install は行わない。依存解決のネットワークアクセスを避ける。 */
