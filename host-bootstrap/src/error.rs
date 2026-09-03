@@ -35,6 +35,8 @@ pub enum ErrorCode {
     LimaInstanceIncompatible,
     LimaInstanceAmbiguous,
     RuntimeNotReady,
+    ManagedGenerationReconcileFailed,
+    ManagedRuntimeSmokeFailed,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -97,6 +99,8 @@ impl BootstrapError {
             ErrorCode::LimaInstanceIncompatible => "lima_instance_incompatible",
             ErrorCode::LimaInstanceAmbiguous => "lima_instance_ambiguous",
             ErrorCode::RuntimeNotReady => "runtime_not_ready",
+            ErrorCode::ManagedGenerationReconcileFailed => "managed_generation_reconcile_failed",
+            ErrorCode::ManagedRuntimeSmokeFailed => "managed_runtime_smoke_failed",
         }
     }
 }

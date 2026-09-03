@@ -169,6 +169,7 @@ fn runtime_spec() -> RuntimeSpec {
             digest: format!("sha256:{}", "a".repeat(64)),
         },
         mounts: Vec::new(),
+        managed_generation: None,
     }
 }
 

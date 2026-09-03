@@ -2,9 +2,12 @@
 
 This document is the production-implementation record for the local Lima
 provider adapter described by [#600](https://github.com/yohn-jp/mottainai/issues/600)
-and scoped by [#661](https://github.com/yohn-jp/mottainai/issues/661). It
-describes what `mottainai-init runtime ensure` does and, explicitly, what it
-is not: a second way to define or consume the canonical Runtime Appliance.
+and scoped by [#661](https://github.com/yohn-jp/mottainai/issues/661), extended
+by [#753](https://github.com/yohn-jp/mottainai/issues/753) to converge to
+managed Runtime readiness per [ADR-0003](decisions/0003-layered-declarative-deployment.md).
+It describes what `mottainai-init runtime ensure` does and, explicitly, what it
+is not: a second way to define or consume the canonical Runtime Appliance, or
+a second managed-generation build/activation/rollback authority.
 
 ## Scope: local Lima orchestration vs. direct Appliance consumption
 
@@ -67,9 +70,36 @@ ready state:
    read itself. A Lima instance reported `Running` with an unreachable
    guest, a malformed/mismatched contract, or `bootstrapReady: false` is
    reported not-ready (`runtime_not_ready`), never silently accepted.
-5. **Report deterministic bounded evidence** — instance name, appliance
-   digest, Lima status, whether anything changed, and the guest health
-   result — as one JSON document (`--json`) or a short human summary.
+5. **Converge the intended managed generation, when requested** (Issue
+   #753, `lima.rs`'s `converge_managed_generation`) — when the Runtime
+   specification's optional `managed_generation` names a desired
+   `mottainai.managed-package-manifest.v1` document and its exact
+   `mottainai.managed-generation.v1` identity,
+   `scripts/build-lima-runtime-spec.mjs` having derived both from a release
+   deployment descriptor (`docs/deployment-descriptor.md`) with no manual
+   guest file injection:
+   - the exact intended generation identity is checked first, through the
+     same canonical, read-only `mottainai-bootstrap managed-status --json`
+     the health projection itself consumes — an already-active, healthy,
+     matching generation makes this whole step a true no-op;
+   - otherwise the manifest is written to the guest's canonical
+     `managed-packages/manifest.json` and `mottainai-bootstrap reconcile
+     --system x86_64-linux --json` is invoked over the same `limactl shell`
+     transport — the existing #628/#642 build/activate/health/rollback
+     authority, never a second package/generation implementation;
+   - guest health is re-verified and the intended generation identity is
+     confirmed active; `bootstrapReady: true` alone, or a healthy
+     *different* generation, is never accepted;
+   - a bounded packaged CLI/MCP functional smoke (`mottainai --version` and
+     one `mottainai-mcp` stdio `initialize` exchange) runs against the
+     active generation before Route 3 reports success.
+   A Runtime specification with no `managed_generation` preserves the
+   pre-#753 boundary exactly: convergence stops at `bootstrapReady`.
+6. **Report deterministic bounded evidence** — instance name, appliance
+   digest, Lima status, whether anything changed, the guest health
+   result, and (when a managed generation was requested)
+   `managed_runtime_ready`/`functional_smoke_verified` — as one JSON
+   document (`--json`) or a short human summary.
 
 ## Shared writer lock and ownership
 
@@ -136,6 +166,11 @@ passes the verified binding into that provider.
 - This is not a generic multi-provider abstraction. Only a concrete Lima
   provider adapter exists; a future second provider (e.g. Proxmox) is out
   of scope until it is actually needed (#600's own constraint).
+- This does not build, activate, health-check, or roll back a managed
+  generation itself. `converge_managed_generation` transports a manifest
+  and invokes the guest's own packaged `mottainai-bootstrap reconcile`;
+  every build/activation/rollback decision remains #628/#642's authority
+  (`src/runtime-contract/managed-runtime.ts`).
 - This does not perform real Linux/KVM hardware acceptance. CI exercises
   every reconciliation path in this document against hermetic `limactl`/OCI
   fixtures (`host-bootstrap/tests/appliance.rs`,

@@ -171,7 +171,11 @@ prerequisite into the managed state directory. No privileged mutation,\n\
 package-manager invocation, VM launch, or ambient PATH adoption is performed.\n\n\
 `runtime ensure` converges the local Lima-managed Runtime instance described\n\
 by the given Runtime specification to ready state: it requires the Lima\n\
-provider above to already be bootstrapped."
+provider above to already be bootstrapped. When the specification names a\n\
+managed_generation, convergence continues past bootstrapReady to the exact\n\
+intended managed generation and a bounded packaged CLI/MCP functional smoke;\n\
+scripts/build-lima-runtime-spec.mjs derives that specification, including\n\
+the managed generation intent, from a release deployment descriptor."
     );
 }
 
