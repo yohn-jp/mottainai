@@ -1,0 +1,140 @@
+{
+  "baseSha": "5bd31dd6ee370518d9f2f98ce609bb0a77bcddac",
+  "headSha": "6bdb47730c306d1323f1e4631f9f69cfa52b51d2",
+  "preview": {
+    "excluded_count": 3,
+    "excluded_files": [
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 12,
+        "path": "docs/deployment-route-implementation.md",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 57,
+        "path": "docs/managed-generation.md",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 8,
+        "path": "docs/managed-package-manifest.md",
+        "status": "modified"
+      }
+    ],
+    "from": "5bd31dd6ee370518d9f2f98ce609bb0a77bcddac",
+    "merge_base": "5bd31dd6ee370518d9f2f98ce609bb0a77bcddac",
+    "mode": "range",
+    "reviewable_count": 8,
+    "reviewable_files": [
+      {
+        "deletions": 0,
+        "insertions": 5,
+        "path": ".github/workflows/ci.yml",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 56,
+        "path": ".github/workflows/publish.yml",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 33,
+        "path": "nix/flake.nix",
+        "status": "modified"
+      },
+      {
+        "deletions": 2,
+        "insertions": 25,
+        "path": "nix/managed-generation.nix",
+        "status": "modified"
+      },
+      {
+        "deletions": 8,
+        "insertions": 8,
+        "path": "nix/mottainai.nix",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 49,
+        "path": "nix/tests/route2-runtime-closure.nix",
+        "status": "added"
+      },
+      {
+        "deletions": 2,
+        "insertions": 2,
+        "path": "package.json",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 330,
+        "path": "scripts/route2-runtime-smoke.mjs",
+        "status": "added"
+      }
+    ],
+    "schema_version": "1",
+    "to": "6bdb47730c306d1323f1e4631f9f69cfa52b51d2",
+    "total_deletions": 13,
+    "total_files": 11,
+    "total_insertions": 585
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.1"
+  },
+  "rule": {
+    "groups": [
+      {
+        "files": [
+          ".github/workflows/ci.yml",
+          ".github/workflows/publish.yml"
+        ],
+        "group_id": 1,
+        "pattern": ".github/workflows/**/*.{yaml,yml}",
+        "rule": "#### Security\n- **pull_request_target misuse**: Using `pull_request_target` with `actions/checkout` referencing PR head code is dangerous — it runs untrusted code with write permissions. Flag if checkout ref points to PR head without isolation\n- **Secrets exposure**: Secrets must not be printed to logs (e.g., `echo ${{ secrets.X }}`). Verify secrets are only passed via `env:` blocks to steps that need them\n- **Excessive permissions**: Check if `permissions` is set to least-privilege. Flag `permissions: write-all` or missing `permissions` key (defaults to broad access). Each job should declare only the permissions it needs\n- **Unpinned action versions**: Third-party actions should be pinned to a full commit SHA (e.g., `uses: actions/checkout@<sha>`), not just a tag. Tags are mutable and can be hijacked. First-party (`actions/*`) pinned to `v4` is acceptable\n- **Script injection**: Expressions like `${{ github.event.issue.title }}` used directly in `run:` blocks enable code injection. These must be passed through environment variables instead\n- **Hardcoded credentials**: Tokens, passwords, or API keys directly in the workflow file (not via secrets)\n\n#### Correctness\n- **Missing `fetch-depth: 0`**: When a workflow needs git history (tags, merge-base, changelog generation), verify `actions/checkout` uses `fetch-depth: 0`\n- **Incorrect condition logic**: Verify `if:` conditions are correct (e.g., `github.event_name == 'pull_request'` vs `'pull_request_target'`); ensure boolean expressions are properly quoted\n- **Matrix strategy gaps**: Check that matrix combinations cover required platforms. Flag if `fail-fast` is true (default) but all matrix legs must succeed\n- **Missing `shell` specification**: When using `run:` with multi-line scripts on self-hosted runners, shell should be explicit (bash vs sh vs pwsh)\n- **Broken job dependencies**: Verify `needs:` references exist as actual job IDs in the same workflow. Check for circular dependencies\n- **Typos in action inputs**: Misspelled input names for actions (e.g., `fetch-detph` instead of `fetch-depth`) are silently ignored\n\n#### Reliability\n- **Missing timeout**: Jobs without `timeout-minutes` can run indefinitely and consume runner resources. Flag jobs that lack timeout (especially on self-hosted runners)\n- **No concurrency control**: Workflows triggered by push/PR without `concurrency` group may create redundant runs. Suggest `concurrency` with `cancel-in-progress` where appropriate\n- **Uncached dependencies**: Build workflows that install dependencies without caching (no `actions/cache` or built-in caching) on every run\n\n#### Best Practices\n- **Deprecated features**: Flag usage of deprecated syntax (`set-output`, `save-state`, `::set-output`, `actions/checkout@v2/v3` when v4 is available)\n- **Missing `continue-on-error` awareness**: If a step failure should not fail the whole job, it needs `continue-on-error: true`; conversely, verify non-critical steps don't silently swallow failures with `|| true` hiding real errors\n- **Container image tags**: Using `latest` tag for container images is unreliable; prefer specific version tags",
+        "source": "system"
+      },
+      {
+        "files": [
+          "nix/flake.nix",
+          "nix/managed-generation.nix",
+          "nix/mottainai.nix",
+          "nix/tests/route2-runtime-closure.nix"
+        ],
+        "group_id": 2,
+        "pattern": "**/*.nix",
+        "rule": "> Favor precision over recall: report only Nix issues that are likely to break evaluation, reproducibility, build isolation, security, or deployment behavior. Do not report formatting that `nixfmt` or project style would handle, and do not require flakes when the repository intentionally uses channels or legacy Nix.\n\n#### Evaluation and Attribute Sets\n- Duplicate attribute definitions in the same attrset, or an attribute override that unintentionally replaces a previously defined value in the changed scope.\n- Referencing `self`, `super`, `pkgs`, `config`, or function arguments that are not in scope for the changed expression.\n- `inherit` statements that reference missing names, or inherit from an attrset that cannot contain the requested attribute.\n- Recursive attrsets (`rec`) where a value depends on itself directly or through an obvious cycle.\n\n#### Reproducibility and Pinning\n- Fetchers such as `fetchTarball`, `fetchGit`, `fetchurl`, `fetchFromGitHub`, or `builtins.fetch*` without a fixed revision and hash when the source affects a package, module, or deployment output.\n- Version strings, source revisions, and hashes that are changed inconsistently, for example a package version bump without the matching source revision/hash update.\n- Imports from `<nixpkgs>` or mutable channels in otherwise pinned flake or lockfile-based code, unless existing neighboring code deliberately follows the same pattern.\n\n#### Build and Packaging Correctness\n- Derivations that use undeclared build tools or runtime dependencies instead of adding them to `nativeBuildInputs`, `buildInputs`, `propagatedBuildInputs`, or wrapper inputs.\n- Phase overrides that drop required default behavior without reintroducing it, such as replacing `installPhase` without installing outputs into `$out`.\n- Hardcoded host paths, user home paths, or `/usr/bin` tools inside derivations that should build in the Nix sandbox.\n- `meta.mainProgram`, `passthru.tests`, or output names that are changed inconsistently with installed binaries or referenced package attributes.\n\n#### NixOS and Home Manager Modules\n- Options used before declaration, options with defaults whose type does not match the declared `types.*`, or renamed options without a compatibility alias or migration path.\n- Systemd service, timer, user, group, port, or file path changes that conflict with existing module options or make activation fail.\n- Secrets or credentials embedded directly in module defaults, environment variables, scripts, or generated config instead of coming from secret management or protected files.\n\n#### Overlays and Flakes\n- Overlay functions with argument order or names swapped (`final`/`prev`, `self`/`super`) causing packages to be pulled from the wrong package set.\n- Flake outputs that reference missing inputs, unsupported systems, or package attributes not defined for every advertised system.\n- Adding a package/app/check/devShell for one system while the surrounding flake helper expects all systems to expose the same attribute.\n\n#### Review Scope\n- Focus on evaluation failures, non-reproducible sources, sandbox escapes, missing dependencies, module activation errors, and secret exposure.\n- Do not flag preference-only style choices, attr ordering, or idioms that are consistent with neighboring Nix files.",
+        "source": "system"
+      },
+      {
+        "files": [
+          "package.json"
+        ],
+        "group_id": 3,
+        "pattern": "**/package.json",
+        "rule": "- Avoid introducing dependencies with a version of `latest` or `*`; use specific version numbers instead. Note: ignore this rule when the version number is not on a newly added line of code\n- Dependency conflicts or duplicate declarations: the same dependency exists in both `dependencies` and `devDependencies`\n- Required tool dependencies not declared: tool names such as eslint, jest, or prettier appear in `scripts` but are not listed in `devDependencies`",
+        "source": "system"
+      },
+      {
+        "files": [
+          "scripts/route2-runtime-smoke.mjs"
+        ],
+        "group_id": 4,
+        "pattern": "default",
+        "rule": "#### Correctness\nIs the logic correct? Are there missing boundary conditions?\nAre exceptions handled properly?\nIs it thread-safe in concurrent scenarios?\n\n#### Security\nAre there security vulnerabilities such as SQL injection or XSS?\nIs sensitive information handled correctly?\nIs permission validation complete?\n\n#### Performance\nAre there obvious performance issues (e.g., N+1 queries, unnecessary loops)?\nAre resources properly released?\n\n#### Maintainability\nIs the code clear and easy to understand?\nDo names accurately express intent?\nDoes it follow the project’s existing code style and architecture patterns?\n\n#### Test Coverage\nDo critical logic paths have corresponding test cases?\nDo test cases cover boundary conditions?",
+        "source": "system"
+      }
+    ],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}
