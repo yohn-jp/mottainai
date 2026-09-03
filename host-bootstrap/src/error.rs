@@ -37,6 +37,7 @@ pub enum ErrorCode {
     RuntimeNotReady,
     ManagedGenerationReconcileFailed,
     ManagedRuntimeSmokeFailed,
+    DeploymentDescriptorInvalid,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -101,6 +102,7 @@ impl BootstrapError {
             ErrorCode::RuntimeNotReady => "runtime_not_ready",
             ErrorCode::ManagedGenerationReconcileFailed => "managed_generation_reconcile_failed",
             ErrorCode::ManagedRuntimeSmokeFailed => "managed_runtime_smoke_failed",
+            ErrorCode::DeploymentDescriptorInvalid => "deployment_descriptor_invalid",
         }
     }
 }

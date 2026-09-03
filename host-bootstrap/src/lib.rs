@@ -1,5 +1,6 @@
 pub mod appliance;
 pub mod contract;
+pub mod deployment_descriptor;
 pub(crate) mod download;
 pub mod error;
 pub mod evidence;

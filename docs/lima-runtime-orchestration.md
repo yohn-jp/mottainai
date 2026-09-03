@@ -74,10 +74,14 @@ ready state:
    #753, `lima.rs`'s `converge_managed_generation`) — when the Runtime
    specification's optional `managed_generation` names a desired
    `mottainai.managed-package-manifest.v1` document and its exact
-   `mottainai.managed-generation.v1` identity,
-   `scripts/build-lima-runtime-spec.mjs` having derived both from a release
-   deployment descriptor (`docs/deployment-descriptor.md`) with no manual
-   guest file injection:
+   `mottainai.managed-generation.v1` identity. `mottainai-init runtime ensure
+   --descriptor PATH` derives both directly from a release deployment
+   descriptor (`docs/deployment-descriptor.md`,
+   `host-bootstrap/src/deployment_descriptor.rs`) inside the standalone Rust
+   bootstrap itself, after verifying the descriptor's exact bytes against its
+   published sha256 sidecar — no Node, repository checkout, or ambient host
+   dependency; `--spec PATH` still accepts an already-built specification
+   document directly, with no manual guest file injection either way:
    - the exact intended generation identity is checked first, through the
      same canonical, read-only `mottainai-bootstrap managed-status --json`
      the health projection itself consumes — an already-active, healthy,
