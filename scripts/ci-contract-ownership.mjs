@@ -44,6 +44,7 @@ export function parseFilterClasses(filtersBlockText) {
 
   for (const rawLine of filtersBlockText.split(/\r?\n/u)) {
     if (rawLine.trim().length === 0) continue;
+    if (rawLine.trim().startsWith("#")) continue;
 
     const classMatch = rawLine.match(/^\s*([A-Za-z0-9_]+):\s*$/u);
     if (classMatch !== null) {

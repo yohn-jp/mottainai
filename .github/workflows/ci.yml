@@ -341,6 +341,12 @@ jobs:
           filters: |
             host_bootstrap:
               - 'host-bootstrap/**'
+              # Shared Appliance manifest contract: the TypeScript side is a
+              # true co-owner, not just a runtime_appliance consumer, so a
+              # schema change here must also gate the Rust consumer tests
+              # (host-bootstrap/tests/appliance_real.rs) that verify against it.
+              - 'src/runtime-contract/appliance-manifest.ts'
+              - 'src/runtime-contract/appliance-manifest.test.ts'
               - '.github/workflows/ci.yml'
             runtime_nix:
               - 'nix/**'

@@ -71,6 +71,18 @@ test("shared Appliance contract consumed by host-bootstrap selects both true dep
   assertSelection(["host-bootstrap/tests/appliance_real.rs"], { host_bootstrap: true, runtime_appliance: true });
 });
 
+test("shared Appliance manifest contract change on the TypeScript side also gates the Rust consumer (host_bootstrap)", () => {
+  for (const filePath of [
+    "src/runtime-contract/appliance-manifest.ts",
+    "src/runtime-contract/appliance-manifest.test.ts",
+  ]) {
+    const selected = classifyChangedFiles(classes, [filePath]);
+    assert.equal(selected.host_bootstrap, true, `${filePath} did not select host_bootstrap`);
+    assert.equal(selected.runtime_appliance, true, `${filePath} did not select runtime_appliance`);
+    assert.equal(selected.runtime_vm, false, `${filePath} unexpectedly selected runtime_vm`);
+  }
+});
+
 test("host-bootstrap change that does not touch a shared Appliance/VM file never selects runtime classes", () => {
   const selected = classifyChangedFiles(classes, ["host-bootstrap/src/reconcile.rs"]);
   assert.equal(selected.host_bootstrap, true);
