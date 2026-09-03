@@ -19,9 +19,22 @@ Route 1 is implemented and distributed as the canonical npm package. Node.js is 
 
 The npm payload is the single application identity consumed by stronger routes. Route 2 must consume or prove the exact Route 1 payload rather than independently creating a second Mottainai application build.
 
+The release surface is `scripts/pack-canonical-payload.mjs`. It performs the
+single `npm pack --ignore-scripts` operation after the explicit build stage and
+writes the tarball together with a versioned identity sidecar containing the
+package metadata, included-file surface, lockfile digest, SHA-256, and npm
+integrity value. Package smoke tests and `npm publish` consume that same
+tarball. The sidecar and tarball are verified before either consumer proceeds.
+
 ## Route 2 — Nix is the Runtime closure vehicle
 
 Route 2 is expressed as the Nix Runtime/application closure and managed Runtime generation. Its purpose is to turn the Route 1 application payload plus all declared runtime dependencies into a deterministic Nix-managed execution environment.
+
+`nix/mottainai.nix` consumes the release-local tarball through its
+`canonicalPayload`/`canonicalPayloadSha256` boundary and verifies the raw
+payload digest before adding pinned Node/native dependencies. A local Nix build
+may produce the release-local payload once when no tarball is supplied; the
+Route 2 derivation itself never repacks or rebuilds `dist`.
 
 Route 2 is not merely a disk image. The canonical NixOS Runtime Appliance is the system boundary that can host the Route 2 closure, while the fast-moving managed generation remains independently activatable and rollback-capable as required by ADR-0003.
 

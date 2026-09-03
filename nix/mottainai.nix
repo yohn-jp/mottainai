@@ -1,4 +1,8 @@
-{ pkgs, source }:
+{ pkgs, source, canonicalPayload ? null, canonicalPayloadSha256 ? null }:
+
+assert
+  canonicalPayload == null
+  || (canonicalPayloadSha256 != null && builtins.match "^[0-9a-f]{64}$" canonicalPayloadSha256 != null);
 
 let
   inherit (pkgs) lib;
@@ -121,6 +125,71 @@ NODE
     outputHashMode = "recursive";
     outputHash = pnpmDepsOutputHash;
   };
+
+  # Route 1's sole pack operation for local Nix builds. Release workflows
+  # provide `canonicalPayload` from their already-packed artifact instead;
+  # this derivation is lazy in that case and therefore cannot create a second
+  # application payload behind the release artifact's back.
+  generatedCanonicalPayload = pkgs.stdenv.mkDerivation {
+    pname = "${pname}-canonical-payload";
+    inherit version;
+    src = source;
+
+    nativeBuildInputs = [ nodejs pnpm nodejs.python pkgs.gnumake ];
+    dontConfigure = true;
+
+    unpackPhase = ''
+      runHook preUnpack
+      mkdir source
+      cp -a "$src"/. source/
+      chmod -R u+w source
+      rm -rf source/node_modules
+      cd source
+      runHook postUnpack
+    '';
+
+    buildPhase = ''
+      runHook preBuild
+      export HOME="$TMPDIR/home"
+      export PATH="${nodejs}/lib/node_modules/npm/bin/node-gyp-bin:$PATH"
+      export npm_config_nodedir="${nodeSrc}"
+      export npm_config_node_gyp="${nodeGyp}"
+      export SSL_CERT_FILE="${caBundle}"
+      export NODE_EXTRA_CA_CERTS="${caBundle}"
+      export pnpm_config_pm_on_fail=ignore
+      export pnpm_config_minimum_release_age=0
+      mkdir -p "$HOME" "$TMPDIR/pnpm-store"
+      cp -R ${pnpmDeps}/. "$TMPDIR/pnpm-store/"
+      chmod -R u+w "$TMPDIR/pnpm-store"
+      pnpm install --offline --frozen-lockfile --ignore-scripts --store-dir "$TMPDIR/pnpm-store"
+      pnpm rebuild node-pty --store-dir "$TMPDIR/pnpm-store"
+      pnpm run build
+      runHook postBuild
+    '';
+
+    installPhase = ''
+      runHook preInstall
+      mkdir -p "$out"
+      # Use the same checked-in canonical pack surface as the release workflow;
+      # Nix is only the local producer when no release-local payload is given.
+      node scripts/pack-canonical-payload.mjs --output-dir "$out" > "$TMPDIR/pack-identity.json"
+      payload="$(find "$out" -maxdepth 1 -type f -name 'mottainai-*.tgz' -print -quit | xargs -r basename)"
+      test -s "$out/$payload"
+      sha256sum "$out/$payload" | awk '{print $1}' > "$out/payload.sha256"
+      runHook postInstall
+    '';
+  };
+
+  payloadPath =
+    if canonicalPayload == null then
+      "${generatedCanonicalPayload}/mottainai-${version}.tgz"
+    else
+      canonicalPayload;
+  payloadSha256 =
+    if canonicalPayloadSha256 == null then
+      "$(cat ${generatedCanonicalPayload}/payload.sha256)"
+    else
+      canonicalPayloadSha256;
 in
 pkgs.stdenv.mkDerivation {
   inherit pname version;
@@ -157,34 +226,11 @@ pkgs.stdenv.mkDerivation {
     runHook postUnpack
   '';
 
+  # The application payload has already been built and packed by Route 1.
+  # Route 2 only verifies and consumes it; no build or pack command belongs in
+  # this derivation.
   buildPhase = ''
     runHook preBuild
-
-    export HOME="$TMPDIR/home"
-    export PATH="${nodejs}/lib/node_modules/npm/bin/node-gyp-bin:$PATH"
-    export npm_config_nodedir="${nodeSrc}"
-    export npm_config_node_gyp="${nodeGyp}"
-    export SSL_CERT_FILE="${caBundle}"
-    export NODE_EXTRA_CA_CERTS="${caBundle}"
-    # The repository's packageManager field is documentation for developers;
-    # the pinned nixpkgs pnpm is the build tool and must not bootstrap another
-    # pnpm release or touch the network.
-    export pnpm_config_pm_on_fail=ignore
-    export pnpm_config_minimum_release_age=0
-    mkdir -p "$HOME"
-
-    # pnpm 11 updates its SQLite store index even for offline installs. Work
-    # from a writable copy so the fixed-output store remains immutable while
-    # the build and production-only reinstall share the same dependencies.
-    pnpmStore="$TMPDIR/pnpm-store"
-    mkdir -p "$pnpmStore"
-    cp -R ${pnpmDeps}/. "$pnpmStore/"
-    chmod -R u+w "$pnpmStore"
-
-    pnpm install --offline --frozen-lockfile --ignore-scripts --store-dir "$pnpmStore"
-    pnpm rebuild node-pty --store-dir "$pnpmStore"
-    pnpm run build
-
     runHook postBuild
   '';
 
@@ -194,19 +240,59 @@ pkgs.stdenv.mkDerivation {
     packageRoot="$out/lib/node_modules/${pname}"
     mkdir -p "$packageRoot"
 
-    # Build from the exact tracked source, but install the same bounded file
-    # surface declared by package.json rather than copying the repository.
-    pnpm pack --pack-destination "$TMPDIR"
-    tar -xzf "$TMPDIR/${pname}-${version}.tgz" --strip-components=1 -C "$packageRoot"
+    payload="${payloadPath}"
+    expected_payload_sha256="${payloadSha256}"
+    actual_payload_sha256="$(sha256sum "$payload" | awk '{print $1}')"
+    test "$actual_payload_sha256" = "$expected_payload_sha256" \
+      || { echo "canonical Route 1 payload sha256 mismatch: $actual_payload_sha256 != $expected_payload_sha256" >&2; exit 1; }
+    tar -xzf "$payload" --strip-components=1 -C "$packageRoot"
 
-    # buildPhase's node_modules carries devDependencies (typescript,
-    # @types/node) needed only by `pnpm run build`; reinstall --prod so the
-    # shipped package doesn't carry them.
+    # Metadata and entrypoints are part of the shared payload boundary. The
+    # source checkout supplies lockfile/dependency inputs only; its package
+    # metadata must agree with the tarball that Route 2 just consumed.
+    node - "$packageRoot/package.json" "$src/package.json" <<'NODE'
+const fs = require("node:fs");
+const [payloadPath, sourcePath] = process.argv.slice(2);
+const payload = JSON.parse(fs.readFileSync(payloadPath, "utf8"));
+const source = JSON.parse(fs.readFileSync(sourcePath, "utf8"));
+for (const key of ["name", "version", "bin"]) {
+  if (JSON.stringify(payload[key]) !== JSON.stringify(source[key])) {
+    throw new Error(`canonical payload metadata mismatch for ''${key}`);
+  }
+}
+if (payload.name !== "mottainai") throw new Error(`unexpected payload package ''${payload.name}`);
+NODE
+
+    # Install only production dependencies around the already-packed payload;
+    # devDependencies never enter the Route 2 output.
+    export HOME="$TMPDIR/home"
+    export PATH="${nodejs}/lib/node_modules/npm/bin/node-gyp-bin:$PATH"
+    export npm_config_nodedir="${nodeSrc}"
+    export npm_config_node_gyp="${nodeGyp}"
+    export SSL_CERT_FILE="${caBundle}"
+    export NODE_EXTRA_CA_CERTS="${caBundle}"
+    export pnpm_config_pm_on_fail=ignore
+    export pnpm_config_minimum_release_age=0
+    mkdir -p "$HOME"
+    pnpmStore="$TMPDIR/pnpm-store"
+    mkdir -p "$pnpmStore"
+    cp -R ${pnpmDeps}/. "$pnpmStore/"
+    chmod -R u+w "$pnpmStore"
     rm -rf node_modules
     pnpm install --prod --offline --frozen-lockfile --ignore-scripts --store-dir "$pnpmStore"
     pnpm rebuild node-pty --store-dir "$pnpmStore"
     cp -a node_modules "$packageRoot/node_modules"
     rm -rf "$packageRoot/node_modules/.cache"
+
+    mkdir -p "$out/share/mottainai"
+    printf '%s\n' \
+      '{' \
+      '  "contractId": "mottainai.canonical-application-payload.v1",' \
+      '  "schemaVersion": 1,' \
+      '  "packageName": "${pname}",' \
+      '  "packageVersion": "${version}",' \
+      '  "sha256": '"$actual_payload_sha256" \
+      '}' > "$out/share/mottainai/canonical-payload.json"
 
     # pnpm stamps these generated state files with wall-clock timestamps,
     # which otherwise makes this derivation's output non-reproducible.

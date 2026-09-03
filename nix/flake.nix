@@ -26,6 +26,17 @@
         inherit pkgs;
         source = ../.;
       };
+      # Route 2 release handoff: consume the exact Route 1 tarball produced
+      # before registry publication. The digest is mandatory for this entry
+      # point so a changed tarball fails closed during the Nix build.
+      mkMottainaiFromPayload =
+        { system, source, payload, payloadSha256 }:
+        import ./mottainai.nix {
+          pkgs = nixpkgs.legacyPackages.${system};
+          inherit source;
+          canonicalPayload = payload;
+          canonicalPayloadSha256 = payloadSha256;
+        };
       mkNawabari = pkgs: import ./packages/nawabari.nix {
         inherit (pkgs) lib stdenvNoCC fetchurl makeWrapper nodejs_24;
       };
@@ -197,6 +208,8 @@
           nawabariPackage = mkNawabari pkgs;
           zellijPackage = mkZellij pkgs;
         };
+
+      lib.mkMottainaiFromPayload = mkMottainaiFromPayload;
 
       checks = forEachSystem (
         system:
