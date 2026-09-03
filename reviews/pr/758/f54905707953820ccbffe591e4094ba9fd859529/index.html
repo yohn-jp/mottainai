@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #758 @ f54905707953</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #758: feat(release): publish one immutable deployment descriptor (#755)</h1>
+<p>Base <code>main</code> @ <code>52bedc55c5c867aa320263a0944139edc08016e4</code> &rarr;
+Head <code>feat/755-deployment-descriptor</code> @ <code>f54905707953820ccbffe591e4094ba9fd859529</code></p>
+<p>Revision <code>f54905707953</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/755">#755</a> feat(release): publish one immutable deployment descriptor for all four routes (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Add a bounded versioned deployment descriptor schema with deterministic canonical identity and strict validation.</li>
+<li>[ ] Release CI emits one descriptor for the exact tagged release containing all Route 1-4 identities/profile information required by the initial Linux `x86_64` profile.</li>
+<li>[ ] Route 1 application identity matches the exact canonical payload from #751.</li>
+<li>[ ] Route 2 managed-generation/Nix inputs in the descriptor resolve the same release lineage and cannot silently target HEAD or another tag.</li>
+<li>[ ] Runtime Appliance reference uses immutable OCI digest and validates against published canonical Appliance metadata.</li>
+<li>[ ] `mottainai-init` carries a cryptographic immutable identity sufficient for pre-execution verification.</li>
+<li>[ ] Lima/QEMU requirements are represented as an explicit supported provider/provisioning profile that can identify and verify the dependency actually selected by Route 4 without declaring Mottainai ownership of its VM lifecycle.</li>
+<li>[ ] Descriptor generation detects and rejects cross-release/source mismatches among Mottainai-owned referenced artifacts and incompatible provider-profile combinations.</li>
+<li>[ ] The descriptor is published through a durable versioned public surface and a fresh consumer can retrieve and validate it without repository checkout.</li>
+<li>[ ] Normal Route 3/4 code can derive the current `RuntimeSpec`/equivalent Appliance identity, initial managed-generation intent, and Route 4 provider requirements from one selected release descriptor, eliminating mandatory manual digest/spec/manifest/provider wiring.</li>
+<li>[ ] Release workflow no longer encodes a false architectural dependency where the Runtime Appliance must wait for public npm registry publication merely because both belong to one release; exact Route 1 payload identity is sufficient.</li>
+<li>[ ] Tests cover canonical success, missing identity/profile, mutable-only artifact reference, wrong source revision, wrong architecture/profile, digest mismatch, unknown schema, incompatible Lima/QEMU profile, and historical immutable descriptor retrieval.</li>
+<li>[ ] Documentation shows the one-release golden path and clearly separates advanced explicit artifact/provider overrides.</li></ul>
+
+
+
+<h2>Changed files (8, +921/-5)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/publish.yml</td><td>modified</td><td>+133</td><td>-5</td></tr>
+<tr><td>docs/deployment-descriptor.md</td><td>added</td><td>+65</td><td>-0</td></tr>
+<tr><td>docs/runtime-architecture.md</td><td>modified</td><td>+4</td><td>-0</td></tr>
+<tr><td>release/deployment-provider-profile-linux-x86_64.json</td><td>added</td><td>+28</td><td>-0</td></tr>
+<tr><td>scripts/build-deployment-descriptor.mjs</td><td>added</td><td>+54</td><td>-0</td></tr>
+<tr><td>scripts/create-release-deployment-descriptor-input.mjs</td><td>added</td><td>+122</td><td>-0</td></tr>
+<tr><td>src/runtime-contract/deployment-descriptor.test.ts</td><td>added</td><td>+151</td><td>-0</td></tr>
+<tr><td>src/runtime-contract/deployment-descriptor.ts</td><td>added</td><td>+364</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

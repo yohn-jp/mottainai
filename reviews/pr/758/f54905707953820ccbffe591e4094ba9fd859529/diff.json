@@ -1,0 +1,148 @@
+{
+  "baseSha": "52bedc55c5c867aa320263a0944139edc08016e4",
+  "files": [
+    {
+      "additions": 133,
+      "deletions": 5,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 276,
+          "oldLines": 4,
+          "oldStart": 276
+        },
+        {
+          "newLines": 3,
+          "newStart": 293,
+          "oldLines": 0,
+          "oldStart": 292
+        },
+        {
+          "newLines": 3,
+          "newStart": 729,
+          "oldLines": 0,
+          "oldStart": 725
+        },
+        {
+          "newLines": 122,
+          "newStart": 867,
+          "oldLines": 0,
+          "oldStart": 860
+        },
+        {
+          "newLines": 1,
+          "newStart": 997,
+          "oldLines": 1,
+          "oldStart": 869
+        }
+      ],
+      "path": ".github/workflows/publish.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 65,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 65,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "docs/deployment-descriptor.md",
+      "status": "added"
+    },
+    {
+      "additions": 4,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 23,
+          "oldLines": 0,
+          "oldStart": 22
+        }
+      ],
+      "path": "docs/runtime-architecture.md",
+      "status": "modified"
+    },
+    {
+      "additions": 28,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 28,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "release/deployment-provider-profile-linux-x86_64.json",
+      "status": "added"
+    },
+    {
+      "additions": 54,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 54,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/build-deployment-descriptor.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 122,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 122,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/create-release-deployment-descriptor-input.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 151,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 151,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/runtime-contract/deployment-descriptor.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 364,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 364,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/runtime-contract/deployment-descriptor.ts",
+      "status": "added"
+    }
+  ],
+  "headSha": "f54905707953820ccbffe591e4094ba9fd859529",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 921,
+    "deletions": 5,
+    "filesChanged": 8
+  }
+}
