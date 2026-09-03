@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #762 @ 5cc7f565f2fa</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #762: feat(runtime): close Route 2 Nix runtime closure</h1>
+<p>Base <code>main</code> @ <code>6b654178d658394d32e10c6b80eaec878a72e1c7</code> &rarr;
+Head <code>feat/752-route2-runtime-closure</code> @ <code>5cc7f565f2fa6de46989224aea7c26ec4141d287</code></p>
+<p>Revision <code>5cc7f565f2fa</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/752">#752</a> feat(runtime): close the Route 2 Nix Runtime dependency and readiness contract (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Enumerate the Route 1 external runtime prerequisites actually required by supported CLI/MCP behavior and map each to an explicit Route 2 Nix dependency or documented lower-level system prerequisite.</li>
+<li>[ ] `rg` and any equivalent required executable are available from the Nix/managed Runtime closure without relying on host PATH.</li>
+<li>[ ] Route 2 builds from the canonical Route 1 payload identity established by #751.</li>
+<li>[ ] A hermetic functional smoke exercises at least one real Mottainai CLI operation that needs external runtime tooling, not only `--version`.</li>
+<li>[ ] A hermetic MCP stdio smoke starts the packaged Route 2 MCP entrypoint and completes a bounded protocol interaction.</li>
+<li>[ ] Removing a declared runtime dependency causes the focused Route 2 acceptance test to fail.</li>
+<li>[ ] Managed-generation health/evidence reports the exact package/generation identity used for the functional smoke.</li>
+<li>[ ] Documentation states the exact Route 2 precondition and what dependencies are closed by Nix versus intentionally remaining host/kernel prerequisites.</li></ul>
+
+
+
+<h2>Changed files (11, +585/-13)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/ci.yml</td><td>modified</td><td>+5</td><td>-0</td></tr>
+<tr><td>.github/workflows/publish.yml</td><td>modified</td><td>+56</td><td>-0</td></tr>
+<tr><td>docs/deployment-route-implementation.md</td><td>modified</td><td>+12</td><td>-0</td></tr>
+<tr><td>docs/managed-generation.md</td><td>modified</td><td>+57</td><td>-1</td></tr>
+<tr><td>docs/managed-package-manifest.md</td><td>modified</td><td>+8</td><td>-0</td></tr>
+<tr><td>nix/flake.nix</td><td>modified</td><td>+33</td><td>-0</td></tr>
+<tr><td>nix/managed-generation.nix</td><td>modified</td><td>+25</td><td>-2</td></tr>
+<tr><td>nix/mottainai.nix</td><td>modified</td><td>+8</td><td>-8</td></tr>
+<tr><td>nix/tests/route2-runtime-closure.nix</td><td>added</td><td>+49</td><td>-0</td></tr>
+<tr><td>package.json</td><td>modified</td><td>+2</td><td>-2</td></tr>
+<tr><td>scripts/route2-runtime-smoke.mjs</td><td>added</td><td>+330</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

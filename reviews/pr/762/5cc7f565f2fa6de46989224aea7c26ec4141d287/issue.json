@@ -1,0 +1,47 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Enumerate the Route 1 external runtime prerequisites actually required by supported CLI/MCP behavior and map each to an explicit Route 2 Nix dependency or documented lower-level system prerequisite."
+    },
+    {
+      "checked": false,
+      "text": "`rg` and any equivalent required executable are available from the Nix/managed Runtime closure without relying on host PATH."
+    },
+    {
+      "checked": false,
+      "text": "Route 2 builds from the canonical Route 1 payload identity established by #751."
+    },
+    {
+      "checked": false,
+      "text": "A hermetic functional smoke exercises at least one real Mottainai CLI operation that needs external runtime tooling, not only `--version`."
+    },
+    {
+      "checked": false,
+      "text": "A hermetic MCP stdio smoke starts the packaged Route 2 MCP entrypoint and completes a bounded protocol interaction."
+    },
+    {
+      "checked": false,
+      "text": "Removing a declared runtime dependency causes the focused Route 2 acceptance test to fail."
+    },
+    {
+      "checked": false,
+      "text": "Managed-generation health/evidence reports the exact package/generation identity used for the functional smoke."
+    },
+    {
+      "checked": false,
+      "text": "Documentation states the exact Route 2 precondition and what dependencies are closed by Nix versus intentionally remaining host/kernel prerequisites."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 752,
+    "state": "open",
+    "title": "feat(runtime): close the Route 2 Nix Runtime dependency and readiness contract",
+    "url": "https://github.com/yohn-jp/mottainai/issues/752"
+  },
+  "linked": {
+    "number": 752
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

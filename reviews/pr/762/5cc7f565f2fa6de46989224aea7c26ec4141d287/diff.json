@@ -1,0 +1,208 @@
+{
+  "baseSha": "6b654178d658394d32e10c6b80eaec878a72e1c7",
+  "files": [
+    {
+      "additions": 5,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 340,
+          "oldLines": 0,
+          "oldStart": 339
+        },
+        {
+          "newLines": 4,
+          "newStart": 507,
+          "oldLines": 0,
+          "oldStart": 505
+        }
+      ],
+      "path": ".github/workflows/ci.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 56,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 56,
+          "newStart": 407,
+          "oldLines": 0,
+          "oldStart": 406
+        }
+      ],
+      "path": ".github/workflows/publish.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 12,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 12,
+          "newStart": 41,
+          "oldLines": 0,
+          "oldStart": 40
+        }
+      ],
+      "path": "docs/deployment-route-implementation.md",
+      "status": "modified"
+    },
+    {
+      "additions": 57,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 30,
+          "oldLines": 1,
+          "oldStart": 30
+        },
+        {
+          "newLines": 55,
+          "newStart": 101,
+          "oldLines": 0,
+          "oldStart": 99
+        }
+      ],
+      "path": "docs/managed-generation.md",
+      "status": "modified"
+    },
+    {
+      "additions": 8,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 8,
+          "newStart": 92,
+          "oldLines": 0,
+          "oldStart": 91
+        }
+      ],
+      "path": "docs/managed-package-manifest.md",
+      "status": "modified"
+    },
+    {
+      "additions": 33,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 24,
+          "newStart": 218,
+          "oldLines": 0,
+          "oldStart": 217
+        },
+        {
+          "newLines": 9,
+          "newStart": 299,
+          "oldLines": 0,
+          "oldStart": 274
+        }
+      ],
+      "path": "nix/flake.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 25,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 21,
+          "newStart": 94,
+          "oldLines": 0,
+          "oldStart": 93
+        },
+        {
+          "newLines": 1,
+          "newStart": 162,
+          "oldLines": 0,
+          "oldStart": 140
+        },
+        {
+          "newLines": 2,
+          "newStart": 166,
+          "oldLines": 1,
+          "oldStart": 144
+        },
+        {
+          "newLines": 1,
+          "newStart": 170,
+          "oldLines": 1,
+          "oldStart": 147
+        }
+      ],
+      "path": "nix/managed-generation.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 8,
+      "deletions": 8,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 203,
+          "oldLines": 0,
+          "oldStart": 202
+        },
+        {
+          "newLines": 7,
+          "newStart": 289,
+          "oldLines": 8,
+          "oldStart": 288
+        }
+      ],
+      "path": "nix/mottainai.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 49,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 49,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "nix/tests/route2-runtime-closure.nix",
+      "status": "added"
+    },
+    {
+      "additions": 2,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 52,
+          "oldLines": 2,
+          "oldStart": 52
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 330,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 330,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/route2-runtime-smoke.mjs",
+      "status": "added"
+    }
+  ],
+  "headSha": "5cc7f565f2fa6de46989224aea7c26ec4141d287",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 585,
+    "deletions": 13,
+    "filesChanged": 11
+  }
+}

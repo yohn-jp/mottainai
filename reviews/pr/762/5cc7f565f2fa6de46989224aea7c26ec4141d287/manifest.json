@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "6b654178d658394d32e10c6b80eaec878a72e1c7",
+    "draft": false,
+    "headRef": "feat/752-route2-runtime-closure",
+    "headSha": "5cc7f565f2fa6de46989224aea7c26ec4141d287",
+    "number": 762,
+    "title": "feat(runtime): close Route 2 Nix runtime closure"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "5cc7f565f2fa6de46989224aea7c26ec4141d287",
+    "immutable": true,
+    "shortId": "5cc7f565f2fa"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-03T12:44:27.404Z"
+  }
+}
