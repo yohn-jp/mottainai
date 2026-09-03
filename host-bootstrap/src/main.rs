@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use mottainai_host_bootstrap::contract::ProviderContract;
+use mottainai_host_bootstrap::deployment_descriptor::runtime_spec_from_descriptor;
 use mottainai_host_bootstrap::error::{BootstrapError, ErrorCode};
 use mottainai_host_bootstrap::lima::{
     ensure_runtime_locked, RuntimeEnsureConfig, RuntimeSpec, SystemLimaCli,
@@ -165,13 +166,25 @@ fn print_help() {
         "mottainai-init {BOOTSTRAP_VERSION}\n\
 Usage: mottainai-init [--json] [--state-directory PATH] [--contract PATH]\n\
        [--artifact PATH] [--kvm-path PATH] [--qemu-path PATH]\n\
-       mottainai-init runtime ensure --spec PATH [--json] [--state-directory PATH]\n\n\
+       mottainai-init runtime ensure --spec PATH [--json] [--state-directory PATH]\n\
+       mottainai-init runtime ensure --descriptor PATH [--sidecar PATH]\n\
+           [--instance-name NAME] [--cpus N] [--memory-mib N] [--json]\n\
+           [--state-directory PATH]\n\n\
 Reconciles the supported Linux x86_64/KVM Lima provider and its QEMU\n\
 prerequisite into the managed state directory. No privileged mutation,\n\
 package-manager invocation, VM launch, or ambient PATH adoption is performed.\n\n\
 `runtime ensure` converges the local Lima-managed Runtime instance described\n\
 by the given Runtime specification to ready state: it requires the Lima\n\
-provider above to already be bootstrapped."
+provider above to already be bootstrapped. When the specification names a\n\
+managed_generation, convergence continues past bootstrapReady to the exact\n\
+intended managed generation and a bounded packaged CLI/MCP functional smoke.\n\n\
+`--spec PATH` accepts an already-built Runtime specification document.\n\
+`--descriptor PATH` instead derives that specification, including the\n\
+managed generation intent, directly from an exact published deployment\n\
+descriptor (#755/ADR-0003) after verifying it against its sha256 sidecar\n\
+(`<descriptor>.sha256` unless `--sidecar` names another path) — no Node,\n\
+repository checkout, or ambient host dependency is used. Exactly one of\n\
+`--spec`/`--descriptor` is required."
     );
 }
 
@@ -238,6 +251,11 @@ fn run_runtime_ensure(
     arguments: &[String],
 ) -> Result<mottainai_host_bootstrap::RuntimeEvidence, BootstrapError> {
     let mut spec_path: Option<PathBuf> = None;
+    let mut descriptor_path: Option<PathBuf> = None;
+    let mut sidecar_path: Option<PathBuf> = None;
+    let mut instance_name = "mottainai-runtime".to_owned();
+    let mut cpus: u32 = 2;
+    let mut memory_mib: u64 = 4096;
     let mut state_directory: Option<PathBuf> = None;
     let mut index = 0;
     while index < arguments.len() {
@@ -246,6 +264,38 @@ fn run_runtime_ensure(
             "--spec" => {
                 index += 1;
                 spec_path = Some(value(arguments, index, "--spec")?.into());
+            }
+            "--descriptor" => {
+                index += 1;
+                descriptor_path = Some(value(arguments, index, "--descriptor")?.into());
+            }
+            "--sidecar" => {
+                index += 1;
+                sidecar_path = Some(value(arguments, index, "--sidecar")?.into());
+            }
+            "--instance-name" => {
+                index += 1;
+                instance_name = value(arguments, index, "--instance-name")?;
+            }
+            "--cpus" => {
+                index += 1;
+                cpus = value(arguments, index, "--cpus")?.parse().map_err(|_| {
+                    BootstrapError::new(
+                        ErrorCode::RuntimeSpecInvalid,
+                        "--cpus must be a positive integer",
+                    )
+                })?;
+            }
+            "--memory-mib" => {
+                index += 1;
+                memory_mib = value(arguments, index, "--memory-mib")?
+                    .parse()
+                    .map_err(|_| {
+                        BootstrapError::new(
+                            ErrorCode::RuntimeSpecInvalid,
+                            "--memory-mib must be a positive integer",
+                        )
+                    })?;
             }
             "--state-directory" => {
                 index += 1;
@@ -260,20 +310,44 @@ fn run_runtime_ensure(
         }
         index += 1;
     }
-    let spec_path = spec_path.ok_or_else(|| {
-        BootstrapError::new(
-            ErrorCode::RuntimeSpecInvalid,
-            "runtime ensure requires --spec PATH",
-        )
-    })?;
-    let spec_contents = std::fs::read_to_string(&spec_path)
-        .map_err(|error| BootstrapError::io("read runtime specification", &error))?;
-    let spec: RuntimeSpec = serde_json::from_str(&spec_contents).map_err(|error| {
-        BootstrapError::new(
-            ErrorCode::RuntimeSpecInvalid,
-            format!("parse runtime specification: {error}"),
-        )
-    })?;
+    let spec = match (spec_path, descriptor_path) {
+        (Some(_), Some(_)) => {
+            return Err(BootstrapError::new(
+                ErrorCode::RuntimeSpecInvalid,
+                "runtime ensure accepts exactly one of --spec or --descriptor, not both",
+            ));
+        }
+        (Some(spec_path), None) => {
+            let spec_contents = std::fs::read_to_string(&spec_path)
+                .map_err(|error| BootstrapError::io("read runtime specification", &error))?;
+            serde_json::from_str::<RuntimeSpec>(&spec_contents).map_err(|error| {
+                BootstrapError::new(
+                    ErrorCode::RuntimeSpecInvalid,
+                    format!("parse runtime specification: {error}"),
+                )
+            })?
+        }
+        (None, Some(descriptor_path)) => {
+            let sidecar_path = sidecar_path.unwrap_or_else(|| {
+                let mut path = descriptor_path.clone().into_os_string();
+                path.push(".sha256");
+                path.into()
+            });
+            runtime_spec_from_descriptor(
+                &descriptor_path,
+                &sidecar_path,
+                &instance_name,
+                cpus,
+                memory_mib,
+            )?
+        }
+        (None, None) => {
+            return Err(BootstrapError::new(
+                ErrorCode::RuntimeSpecInvalid,
+                "runtime ensure requires --spec PATH or --descriptor PATH",
+            ));
+        }
+    };
 
     let mut bootstrap_config = BootstrapConfig::from_defaults()?;
     if let Some(state_directory) = state_directory {

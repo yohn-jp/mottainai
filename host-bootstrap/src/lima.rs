@@ -23,6 +23,16 @@ const MAX_PATH_LENGTH: usize = 4096;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
 const CREATE_START_TIMEOUT: Duration = Duration::from_secs(180);
 const MAX_COMMAND_OUTPUT: usize = 64 * 1024;
+/// Bounded ceiling for the desired managed-package manifest document
+/// (#753) — generous for the closed `MANAGED_PACKAGE_IDS` set
+/// (src/runtime-contract/managed-package-manifest.ts caps 64 entries), but
+/// never unbounded.
+const MAX_MANIFEST_BYTES: usize = 64 * 1024;
+/// Guest-side reconcile/smoke operations touch the network (Nix
+/// substituters, GitHub source resolution) and can legitimately run far
+/// longer than the bounded `COMMAND_TIMEOUT` used for inspection-only
+/// `limactl shell` calls.
+const MANAGED_GENERATION_COMMAND_TIMEOUT: Duration = Duration::from_secs(1800);
 
 /// An explicit, bounded workspace mount. Never defaulted or inferred: the
 /// canonical Runtime Appliance boundary (#600) requires bounded, intentional
@@ -33,6 +43,24 @@ pub struct MountSpec {
     pub guest_path: String,
     #[serde(default)]
     pub writable: bool,
+}
+
+/// The exact desired managed-generation intent for Route 3 (#753): the
+/// canonical `mottainai.managed-package-manifest.v1` document, opaque to
+/// this crate. `mottainai-bootstrap reconcile` on the guest is the sole
+/// parser/validator/generation authority for its bytes (src/runtime-contract
+/// /managed-package-manifest.ts); Rust never re-implements that schema, it
+/// only transports and byte-verifies the manifest identity.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ManagedGenerationIntent {
+    /// Exact `mottainai.managed-generation.v1` identity this manifest must
+    /// converge the guest to — matched against the guest's own
+    /// `activeGenerationIdentity` after reconciliation to prove the
+    /// *intended* generation activated, not merely *a* healthy one.
+    pub identity: String,
+    /// The canonical manifest document, forwarded byte-for-byte to the
+    /// guest's persisted `managed-packages/manifest.json`.
+    pub manifest: serde_json::Value,
 }
 
 /// Product-level intent only: no QEMU flags or Lima internals. Mirrors the
@@ -48,6 +76,11 @@ pub struct RuntimeSpec {
     pub appliance: ApplianceReference,
     #[serde(default)]
     pub mounts: Vec<MountSpec>,
+    /// Desired Route 2 managed-generation intent (#753). `None` means the
+    /// guest converges to `bootstrapReady` only — the pre-#753 Route 3
+    /// boundary, still valid for callers that only need the base Appliance.
+    #[serde(default)]
+    pub managed_generation: Option<ManagedGenerationIntent>,
 }
 
 impl RuntimeSpec {
@@ -101,6 +134,28 @@ impl RuntimeSpec {
                 return invalid(
                     "runtime mount paths must be bounded absolute paths without control characters",
                 );
+            }
+        }
+        if let Some(managed_generation) = &self.managed_generation {
+            let identity_ok = !managed_generation.identity.is_empty()
+                && managed_generation.identity.len() == 64
+                && managed_generation
+                    .identity
+                    .chars()
+                    .all(|character| character.is_ascii_hexdigit());
+            if !identity_ok {
+                return invalid(
+                    "managed generation identity must be a 64-character hex sha256 digest",
+                );
+            }
+            if !managed_generation.manifest.is_object() {
+                return invalid("managed generation manifest must be a JSON object");
+            }
+            let serialized_len = serde_json::to_string(&managed_generation.manifest)
+                .map(|text| text.len())
+                .unwrap_or(usize::MAX);
+            if serialized_len > MAX_MANIFEST_BYTES {
+                return invalid("managed generation manifest exceeds the bounded document size");
             }
         }
         self.appliance.validate()
@@ -219,6 +274,19 @@ pub trait LimaCli {
     fn create(&self, instance: &str, config_path: &Path) -> Result<(), BootstrapError>;
     fn start(&self, instance: &str) -> Result<(), BootstrapError>;
     fn shell(&self, instance: &str, command: &[&str]) -> Result<String, BootstrapError>;
+    /// Same guest-exec surface as `shell`, bounded by an explicit timeout
+    /// instead of the short inspection-only default. Used for #753's
+    /// managed-generation reconcile/smoke calls, which perform real network
+    /// and build work on the guest. Defaults to `shell` so existing
+    /// implementations are unaffected; `SystemLimaCli` overrides it.
+    fn shell_with_timeout(
+        &self,
+        instance: &str,
+        command: &[&str],
+        _timeout: Duration,
+    ) -> Result<String, BootstrapError> {
+        self.shell(instance, command)
+    }
 }
 
 fn drain_bounded_output<R: Read>(mut reader: R) -> io::Result<Vec<u8>> {
@@ -498,9 +566,18 @@ impl LimaCli for SystemLimaCli {
     }
 
     fn shell(&self, instance: &str, command: &[&str]) -> Result<String, BootstrapError> {
+        self.shell_with_timeout(instance, command, COMMAND_TIMEOUT)
+    }
+
+    fn shell_with_timeout(
+        &self,
+        instance: &str,
+        command: &[&str],
+        timeout: Duration,
+    ) -> Result<String, BootstrapError> {
         let mut arguments = vec!["--tty=false", "shell", instance, "--"];
         arguments.extend_from_slice(command);
-        self.run(&arguments, COMMAND_TIMEOUT)
+        self.run(&arguments, timeout)
     }
 }
 
@@ -522,6 +599,15 @@ pub struct RuntimeEvidence {
     pub result: Outcome,
     pub guest_reachable: bool,
     pub guest_status: Option<serde_json::Value>,
+    /// True only when the guest health boundary reported
+    /// `managedRuntimeReady: true` for the exact requested generation
+    /// identity (#753). `None` when `RuntimeSpec.managed_generation` was not
+    /// requested — a bootstrap-only convergence never claims this field.
+    pub managed_runtime_ready: Option<bool>,
+    /// True only after the bounded packaged CLI/MCP functional smoke
+    /// (#753's acceptance criterion) has run and succeeded against the
+    /// active managed generation.
+    pub functional_smoke_verified: Option<bool>,
     pub error_code: Option<String>,
     pub diagnostic: Option<String>,
 }
@@ -537,6 +623,8 @@ impl RuntimeEvidence {
             result: Outcome::Blocked,
             guest_reachable: false,
             guest_status: None,
+            managed_runtime_ready: None,
+            functional_smoke_verified: None,
             error_code: None,
             diagnostic: None,
         }
@@ -802,12 +890,255 @@ pub fn ensure_runtime_locked<C: LimaCli, S: OciSource>(
         return evidence;
     }
 
+    if let Some(managed_generation) = &spec.managed_generation {
+        let already_active = match intended_generation_active(
+            cli,
+            &spec.instance_name,
+            &managed_generation.identity,
+        ) {
+            Ok(active) => active,
+            Err(error) => {
+                evidence.fail(&error);
+                return evidence;
+            }
+        };
+        if !already_active {
+            match converge_managed_generation(cli, &spec.instance_name, managed_generation) {
+                Ok(()) => evidence.changed = true,
+                Err(error) => {
+                    evidence.fail(&error);
+                    return evidence;
+                }
+            }
+
+            let mut last_convergence_error: Option<BootstrapError> = None;
+            for attempt in 0..config.health_check_attempts.max(1) {
+                if attempt > 0 {
+                    thread::sleep(config.health_check_interval);
+                }
+                match check_guest_health(cli, &spec.instance_name) {
+                    Ok(status) => {
+                        evidence.guest_status = Some(status);
+                        last_convergence_error = None;
+                        break;
+                    }
+                    Err(error) => last_convergence_error = Some(error),
+                }
+            }
+            if let Some(error) = last_convergence_error {
+                evidence.fail(&error);
+                return evidence;
+            }
+        }
+
+        let intended_active = match intended_generation_active(
+            cli,
+            &spec.instance_name,
+            &managed_generation.identity,
+        ) {
+            Ok(active) => active,
+            Err(error) => {
+                evidence.fail(&error);
+                return evidence;
+            }
+        };
+        if !intended_active {
+            let error = BootstrapError::new(
+                ErrorCode::RuntimeNotReady,
+                "guest did not report managedRuntimeReady for the intended generation identity after reconciliation",
+            );
+            evidence.fail(&error);
+            return evidence;
+        }
+        evidence.managed_runtime_ready = Some(true);
+
+        if let Err(error) = run_functional_smoke(cli, &spec.instance_name) {
+            evidence.managed_runtime_ready = Some(true);
+            evidence.functional_smoke_verified = Some(false);
+            evidence.fail(&error);
+            return evidence;
+        }
+        evidence.functional_smoke_verified = Some(true);
+    }
+
     evidence.result = if evidence.changed {
         Outcome::Changed
     } else {
         Outcome::NoOp
     };
     evidence
+}
+
+/// True only when the canonical guest/bootstrap health boundary reports
+/// `managedRuntimeReady: true` AND the exact intended generation identity is
+/// the one active — never merely "some generation is healthy" (#753
+/// acceptance: `bootstrapReady` alone, or a healthy-but-different
+/// generation, must not be accepted as success). `mottainai-runtime-health`
+/// itself has no generation-identity field (`contract.ts`'s
+/// `RuntimeCapabilityResultSchema` is deliberately `.strict()` with only a
+/// boolean), so identity is confirmed through the same canonical, read-only
+/// `mottainai-bootstrap managed-status --json` the health projection itself
+/// consumes (Issue #644) — never a second, hand-rolled status re-check.
+fn intended_generation_active<C: LimaCli>(
+    cli: &C,
+    instance: &str,
+    intended_identity: &str,
+) -> Result<bool, BootstrapError> {
+    let health = check_guest_health(cli, instance)?;
+    if health
+        .get("managedRuntimeReady")
+        .and_then(serde_json::Value::as_bool)
+        != Some(true)
+    {
+        return Ok(false);
+    }
+    let status_output = cli.shell(
+        instance,
+        &["mottainai-bootstrap", "managed-status", "--json"],
+    )?;
+    let status: serde_json::Value =
+        serde_json::from_str(status_output.trim()).map_err(|error| {
+            BootstrapError::new(
+                ErrorCode::RuntimeNotReady,
+                format!("guest managed-status did not return valid JSON: {error}"),
+            )
+        })?;
+    if status.get("valid").and_then(serde_json::Value::as_bool) != Some(true)
+        || status.get("present").and_then(serde_json::Value::as_bool) != Some(true)
+    {
+        return Ok(false);
+    }
+    Ok(status
+        .get("activeGenerationIdentity")
+        .and_then(serde_json::Value::as_str)
+        == Some(intended_identity))
+}
+
+/// Materializes the desired manifest on the guest's canonical control state
+/// root and invokes the packaged `mottainai-bootstrap reconcile`, the same
+/// production seam Issue #628/#642 already implement — this function adds
+/// no new build/activation/rollback logic, only guest-exec transport for
+/// bytes and one command invocation, exactly as ADR-0003 requires ("Route 3
+/// orchestration may transport desired intent and invoke guest bootstrap,
+/// but it must not become a second package/generation authority").
+fn converge_managed_generation<C: LimaCli>(
+    cli: &C,
+    instance: &str,
+    managed_generation: &ManagedGenerationIntent,
+) -> Result<(), BootstrapError> {
+    let manifest_text = serde_json::to_string(&managed_generation.manifest).map_err(|error| {
+        BootstrapError::new(
+            ErrorCode::RuntimeSpecInvalid,
+            format!("serialize managed generation manifest: {error}"),
+        )
+    })?;
+    // `mottainai-bootstrap reconcile` (src/bootstrap/cli.ts) always resolves
+    // its own canonical manifest path
+    // (/var/lib/mottainai-control/managed-packages/manifest.json) — there is
+    // no override flag, by design (review finding on PR #646, quoted in
+    // reconcileAdapters' own doc comment). The manifest must therefore exist
+    // at that exact path before `reconcile` runs; this is the only
+    // "manual guest file injection" Route 3 performs, and it happens through
+    // the same bounded `limactl shell` transport already used for health,
+    // never a second SSH/credential channel.
+    let write_script = "set -eu; manifest_path=\"$1\"; shift; \
+install -m 0600 /dev/null \"$manifest_path\" && printf '%s' \"$1\" > \"$manifest_path\"";
+    cli.shell_with_timeout(
+        instance,
+        &[
+            "sh",
+            "-c",
+            write_script,
+            "write-managed-package-manifest",
+            MANAGED_PACKAGE_MANIFEST_GUEST_PATH,
+            &manifest_text,
+        ],
+        COMMAND_TIMEOUT,
+    )?;
+
+    // `mottainai-bootstrap reconcile --json` (src/bootstrap/cli.ts's
+    // runReconcileCommand) exits non-zero and prints `{code, message}` on
+    // ANY failure — invalid/incompatible manifest, build failure, and
+    // activation-health failure with rollback are all `ManagedRuntimeError`s
+    // it catches and reports the same way, never a success-shaped `ok:
+    // false`/"rolled-back-without-activating" result. A non-zero exit from
+    // `mottainai-bootstrap` makes `limactl shell` itself exit non-zero,
+    // which `cli.shell_with_timeout` above already turns into `Err` with the
+    // guest's own bounded `{code, message}` text folded into the message —
+    // so reaching this line at all already means the exact desired
+    // generation activated (`reconcileManagedRuntime`'s only non-throwing
+    // outcomes: "initialized" | "noop" | "updated" | "removed" | "recovered").
+    let reconcile_output = cli
+        .shell_with_timeout(
+            instance,
+            &[
+                "mottainai-bootstrap",
+                "reconcile",
+                "--system",
+                "x86_64-linux",
+                "--json",
+            ],
+            MANAGED_GENERATION_COMMAND_TIMEOUT,
+        )
+        .map_err(|error| {
+            BootstrapError::new(
+                ErrorCode::ManagedGenerationReconcileFailed,
+                format!(
+                    "guest managed-generation reconcile failed: {}",
+                    error.message
+                ),
+            )
+        })?;
+    let _: serde_json::Value = serde_json::from_str(reconcile_output.trim()).map_err(|error| {
+        BootstrapError::new(
+            ErrorCode::ManagedGenerationReconcileFailed,
+            format!("guest reconcile did not return valid JSON despite a successful exit: {error}"),
+        )
+    })?;
+    Ok(())
+}
+
+/// The exact canonical persisted-manifest path
+/// (`MANAGED_PACKAGE_MANIFEST_RELATIVE_PATH` under `mottainai-control`'s
+/// `stateDir`) `docs/managed-package-manifest.md` defines. Duplicated as a
+/// literal rather than imported because this crate has no TypeScript
+/// dependency; `host-bootstrap/tests/reconciliation.rs` and the golden-path
+/// Nix test both exercise the real guest path independently.
+const MANAGED_PACKAGE_MANIFEST_GUEST_PATH: &str =
+    "/var/lib/mottainai-control/managed-packages/manifest.json";
+
+/// Bounded, representative packaged Mottainai CLI and MCP smoke (#753's
+/// final acceptance criterion), run against the active managed generation's
+/// own `PATH` on the guest — never a Mottainai-owned re-implementation of
+/// `reconcileHealthCheck`'s per-binary `--version` proof (that gate already
+/// ran, inside reconcile, before activation). This proves the two supported
+/// entrypoints application operators actually invoke: the `mottainai` CLI
+/// and one MCP stdio JSON-RPC `initialize` exchange with `mottainai-mcp`.
+fn run_functional_smoke<C: LimaCli>(cli: &C, instance: &str) -> Result<(), BootstrapError> {
+    let script = r#"set -eu
+mottainai --version >/dev/null
+request='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"mottainai-init-route3-smoke","version":"1"}}}'
+response="$(printf '%s\n' "$request" | timeout 30 mottainai-mcp 2>/dev/null | head -n 1)"
+case "$response" in
+  *'"result"'*) ;;
+  *) echo "mcp initialize did not return a result: $response" >&2; exit 1 ;;
+esac
+"#;
+    cli.shell_with_timeout(
+        instance,
+        &["sh", "-c", script],
+        MANAGED_GENERATION_COMMAND_TIMEOUT,
+    )
+    .map(|_| ())
+    .map_err(|error| {
+        BootstrapError::new(
+            ErrorCode::ManagedRuntimeSmokeFailed,
+            format!(
+                "packaged Mottainai CLI/MCP functional smoke failed: {}",
+                error.message
+            ),
+        )
+    })
 }
 
 const LINUX_RUNTIME_CONTRACT_ID: &str = "mottainai.linux-runtime.v1";
@@ -1044,11 +1375,30 @@ mod tests {
         vm_type: Option<String>,
     }
 
+    /// Drives `FakeLimaCli::shell`'s managed-generation-aware responses.
+    /// `active_identity` is the generation the fake reports as already
+    /// active/healthy (via `managed-status`) *before* any reconcile call in
+    /// the current test; `reconcile_activates` is the identity a call to
+    /// `mottainai-bootstrap reconcile` promotes to active (simulating a real
+    /// convergence). `reconcile_error`/`smoke_error`, when set, make the
+    /// corresponding guest command fail instead.
+    #[derive(Clone, Debug, Default)]
+    struct ManagedGenerationFixture {
+        active_identity: RefCell<Option<String>>,
+        reconcile_activates: Option<String>,
+        reconcile_error: Option<String>,
+        smoke_error: Option<String>,
+        manifest_writes: RefCell<u32>,
+        reconcile_calls: RefCell<u32>,
+        smoke_calls: RefCell<u32>,
+    }
+
     struct FakeLimaCli {
         instances: RefCell<HashMap<String, FakeInstance>>,
         create_calls: RefCell<u32>,
         start_calls: RefCell<u32>,
         shell_calls: RefCell<u32>,
+        managed_generation: ManagedGenerationFixture,
     }
 
     impl FakeLimaCli {
@@ -1058,6 +1408,7 @@ mod tests {
                 create_calls: RefCell::new(0),
                 start_calls: RefCell::new(0),
                 shell_calls: RefCell::new(0),
+                managed_generation: ManagedGenerationFixture::default(),
             }
         }
 
@@ -1069,6 +1420,26 @@ mod tests {
                     vm_type: vm_type.map(str::to_owned),
                 },
             );
+            self
+        }
+
+        fn with_active_generation(self, identity: &str) -> Self {
+            *self.managed_generation.active_identity.borrow_mut() = Some(identity.to_owned());
+            self
+        }
+
+        fn with_reconcile_activating(mut self, identity: &str) -> Self {
+            self.managed_generation.reconcile_activates = Some(identity.to_owned());
+            self
+        }
+
+        fn with_reconcile_failure(mut self, message: &str) -> Self {
+            self.managed_generation.reconcile_error = Some(message.to_owned());
+            self
+        }
+
+        fn with_smoke_failure(mut self, message: &str) -> Self {
+            self.managed_generation.smoke_error = Some(message.to_owned());
             self
         }
     }
@@ -1109,28 +1480,87 @@ mod tests {
             Ok(())
         }
 
-        fn shell(&self, _instance: &str, _command: &[&str]) -> Result<String, BootstrapError> {
+        fn shell(&self, instance: &str, command: &[&str]) -> Result<String, BootstrapError> {
+            self.shell_with_timeout(instance, command, COMMAND_TIMEOUT)
+        }
+
+        fn shell_with_timeout(
+            &self,
+            _instance: &str,
+            command: &[&str],
+            _timeout: Duration,
+        ) -> Result<String, BootstrapError> {
             *self.shell_calls.borrow_mut() += 1;
-            // Shaped exactly like `mottainai-runtime-health`'s real
-            // schema-2 output (`nix/modules/runtime.nix`'s `healthScript`)
-            // for a fresh bootstrap-only appliance: bootstrapReady is true,
-            // no managed generation exists yet.
-            Ok(serde_json::json!({
-                "contractId": "mottainai.linux-runtime.v1",
-                "schemaVersion": 2,
-                "runtimeIdentity": "fixture-runtime",
-                "architecture": "x86_64-linux",
-                "buildIdentity": "/nix/store/fixture-system",
-                "generation": 1,
-                "stateOwners": { "system": [], "repositoryUser": [] },
-                "requiredCompanions": [],
-                "readiness": "bootstrap-ready",
-                "bootstrapReady": true,
-                "managedRuntimeReady": false,
-                "reconciliation": "current",
-                "upgradeRequired": false,
-            })
-            .to_string())
+            match command.first().copied() {
+                Some("sh") if command.get(3) == Some(&"write-managed-package-manifest") => {
+                    *self.managed_generation.manifest_writes.borrow_mut() += 1;
+                    Ok(String::new())
+                }
+                Some("sh") => {
+                    *self.managed_generation.smoke_calls.borrow_mut() += 1;
+                    match &self.managed_generation.smoke_error {
+                        Some(message) => Err(BootstrapError::new(
+                            ErrorCode::LimaCommandFailed,
+                            message.clone(),
+                        )),
+                        None => Ok(String::new()),
+                    }
+                }
+                Some("mottainai-bootstrap") if command.get(1) == Some(&"reconcile") => {
+                    *self.managed_generation.reconcile_calls.borrow_mut() += 1;
+                    if let Some(message) = &self.managed_generation.reconcile_error {
+                        return Err(BootstrapError::new(
+                            ErrorCode::LimaCommandFailed,
+                            message.clone(),
+                        ));
+                    }
+                    if let Some(activated) = &self.managed_generation.reconcile_activates {
+                        *self.managed_generation.active_identity.borrow_mut() =
+                            Some(activated.clone());
+                    }
+                    Ok(serde_json::json!({ "ok": true, "outcome": "updated" }).to_string())
+                }
+                Some("mottainai-bootstrap") if command.get(1) == Some(&"managed-status") => {
+                    let active = self.managed_generation.active_identity.borrow().clone();
+                    Ok(match active {
+                        Some(identity) => serde_json::json!({
+                            "valid": true,
+                            "present": true,
+                            "activationPhase": "idle",
+                            "activeGenerationIdentity": identity,
+                            "observedGenerationIdentity": identity,
+                        })
+                        .to_string(),
+                        None => serde_json::json!({ "valid": true, "present": false }).to_string(),
+                    })
+                }
+                _ => {
+                    // Shaped exactly like `mottainai-runtime-health`'s real
+                    // schema-2 output (`nix/modules/runtime.nix`'s
+                    // `healthScript`): bootstrapReady is always true once
+                    // the guest is reachable, and managedRuntimeReady
+                    // mirrors whether this fixture currently has an active
+                    // managed generation recorded.
+                    let managed_runtime_ready =
+                        self.managed_generation.active_identity.borrow().is_some();
+                    Ok(serde_json::json!({
+                        "contractId": "mottainai.linux-runtime.v1",
+                        "schemaVersion": 2,
+                        "runtimeIdentity": "fixture-runtime",
+                        "architecture": "x86_64-linux",
+                        "buildIdentity": "/nix/store/fixture-system",
+                        "generation": 1,
+                        "stateOwners": { "system": [], "repositoryUser": [] },
+                        "requiredCompanions": [],
+                        "readiness": if managed_runtime_ready { "managed-runtime-ready" } else { "bootstrap-ready" },
+                        "bootstrapReady": true,
+                        "managedRuntimeReady": managed_runtime_ready,
+                        "reconciliation": "current",
+                        "upgradeRequired": false,
+                    })
+                    .to_string())
+                }
+            }
         }
     }
 
@@ -1280,6 +1710,36 @@ mod tests {
             memory_mib: 4096,
             appliance: reference(),
             mounts: Vec::new(),
+            managed_generation: None,
+        }
+    }
+
+    fn managed_generation_identity() -> String {
+        "b".repeat(64)
+    }
+
+    fn spec_with_managed_generation() -> RuntimeSpec {
+        RuntimeSpec {
+            managed_generation: Some(ManagedGenerationIntent {
+                identity: managed_generation_identity(),
+                manifest: serde_json::json!({
+                    "contractId": "mottainai.managed-package-manifest.v1",
+                    "schemaVersion": 1,
+                    "activation": { "generation": 1 },
+                    "packages": [
+                        {
+                            "packageId": "mottainai",
+                            "kind": "nix-flake-package",
+                            "version": "0.9.0",
+                            "source": {
+                                "flakeRef": "nix#mottainai",
+                                "sourceSha256": "c".repeat(64),
+                            },
+                        },
+                    ],
+                }),
+            }),
+            ..spec()
         }
     }
 
@@ -1484,6 +1944,225 @@ mod tests {
             2,
             "health is re-verified each ensure"
         );
+    }
+
+    #[test]
+    fn fresh_bootstrap_only_guest_converges_to_managed_runtime_ready() {
+        let (_temp, paths) = managed_paths();
+        seed_appliance(&paths, &reference());
+        let identity = managed_generation_identity();
+        let cli = FakeLimaCli::new().with_reconcile_activating(&identity);
+        let quick_config = RuntimeEnsureConfig {
+            health_check_attempts: 1,
+            health_check_interval: Duration::from_millis(0),
+        };
+
+        let evidence = ensure_runtime(
+            &paths,
+            &spec_with_managed_generation(),
+            &cli,
+            &FakeOciSource,
+            &quick_config,
+        );
+
+        assert_eq!(evidence.result, Outcome::Changed);
+        assert_eq!(evidence.managed_runtime_ready, Some(true));
+        assert_eq!(evidence.functional_smoke_verified, Some(true));
+        assert_eq!(*cli.managed_generation.manifest_writes.borrow(), 1);
+        assert_eq!(*cli.managed_generation.reconcile_calls.borrow(), 1);
+        assert_eq!(*cli.managed_generation.smoke_calls.borrow(), 1);
+    }
+
+    #[test]
+    fn already_managed_current_guest_is_a_true_no_op() {
+        let (_temp, paths) = managed_paths();
+        seed_appliance(&paths, &reference());
+        let identity = managed_generation_identity();
+        let cli = FakeLimaCli::new().with_active_generation(&identity);
+        let quick_config = RuntimeEnsureConfig {
+            health_check_attempts: 1,
+            health_check_interval: Duration::from_millis(0),
+        };
+
+        let first = ensure_runtime(
+            &paths,
+            &spec_with_managed_generation(),
+            &cli,
+            &FakeOciSource,
+            &quick_config,
+        );
+        assert_eq!(
+            first.result,
+            Outcome::Changed,
+            "lima instance creation itself still counts as change"
+        );
+        assert_eq!(first.managed_runtime_ready, Some(true));
+        assert_eq!(
+            *cli.managed_generation.reconcile_calls.borrow(),
+            0,
+            "an already-active intended generation must never invoke reconcile"
+        );
+        assert_eq!(*cli.managed_generation.manifest_writes.borrow(), 0);
+
+        let second = ensure_runtime(
+            &paths,
+            &spec_with_managed_generation(),
+            &cli,
+            &FakeOciSource,
+            &quick_config,
+        );
+        assert_eq!(second.result, Outcome::NoOp);
+        assert_eq!(second.managed_runtime_ready, Some(true));
+        assert_eq!(second.functional_smoke_verified, Some(true));
+        assert_eq!(
+            *cli.managed_generation.reconcile_calls.borrow(),
+            0,
+            "repeated ensure against an unchanged healthy generation must not reconcile"
+        );
+    }
+
+    #[test]
+    fn wrong_generation_active_converges_to_the_intended_one() {
+        let (_temp, paths) = managed_paths();
+        seed_appliance(&paths, &reference());
+        let stale_identity = "d".repeat(64);
+        let intended_identity = managed_generation_identity();
+        let cli = FakeLimaCli::new()
+            .with_active_generation(&stale_identity)
+            .with_reconcile_activating(&intended_identity);
+        let quick_config = RuntimeEnsureConfig {
+            health_check_attempts: 1,
+            health_check_interval: Duration::from_millis(0),
+        };
+
+        let evidence = ensure_runtime(
+            &paths,
+            &spec_with_managed_generation(),
+            &cli,
+            &FakeOciSource,
+            &quick_config,
+        );
+
+        assert_eq!(evidence.result, Outcome::Changed);
+        assert_eq!(evidence.managed_runtime_ready, Some(true));
+        assert_eq!(*cli.managed_generation.reconcile_calls.borrow(), 1);
+        assert_eq!(
+            cli.managed_generation.active_identity.borrow().as_deref(),
+            Some(intended_identity.as_str())
+        );
+    }
+
+    #[test]
+    fn reconcile_failure_fails_closed_and_never_claims_managed_readiness() {
+        let (_temp, paths) = managed_paths();
+        seed_appliance(&paths, &reference());
+        let cli = FakeLimaCli::new()
+            .with_reconcile_failure("simulated activation health failure; rolled back");
+        let quick_config = RuntimeEnsureConfig {
+            health_check_attempts: 1,
+            health_check_interval: Duration::from_millis(0),
+        };
+
+        let evidence = ensure_runtime(
+            &paths,
+            &spec_with_managed_generation(),
+            &cli,
+            &FakeOciSource,
+            &quick_config,
+        );
+
+        assert_eq!(evidence.result, Outcome::Blocked);
+        assert_eq!(
+            evidence.error_code.as_deref(),
+            Some("managed_generation_reconcile_failed")
+        );
+        assert_ne!(evidence.managed_runtime_ready, Some(true));
+        assert_ne!(evidence.functional_smoke_verified, Some(true));
+        assert_eq!(
+            *cli.managed_generation.smoke_calls.borrow(),
+            0,
+            "smoke must never run after a reconcile failure"
+        );
+    }
+
+    #[test]
+    fn bootstrap_ready_alone_never_satisfies_a_requested_managed_generation() {
+        let (_temp, paths) = managed_paths();
+        seed_appliance(&paths, &reference());
+        // No reconcile_activates configured: reconcile "succeeds" (guest
+        // accepts the call) but the fixture never actually records an
+        // active generation, modelling a guest that only ever reaches
+        // bootstrapReady. Route 3 must not accept this as success.
+        let cli = FakeLimaCli::new();
+        let quick_config = RuntimeEnsureConfig {
+            health_check_attempts: 1,
+            health_check_interval: Duration::from_millis(0),
+        };
+
+        let evidence = ensure_runtime(
+            &paths,
+            &spec_with_managed_generation(),
+            &cli,
+            &FakeOciSource,
+            &quick_config,
+        );
+
+        assert_eq!(evidence.result, Outcome::Blocked);
+        assert_eq!(evidence.error_code.as_deref(), Some("runtime_not_ready"));
+        assert_ne!(evidence.managed_runtime_ready, Some(true));
+    }
+
+    #[test]
+    fn functional_smoke_failure_fails_closed_after_managed_runtime_ready() {
+        let (_temp, paths) = managed_paths();
+        seed_appliance(&paths, &reference());
+        let identity = managed_generation_identity();
+        let cli = FakeLimaCli::new()
+            .with_active_generation(&identity)
+            .with_smoke_failure("mcp initialize did not return a result");
+        let quick_config = RuntimeEnsureConfig {
+            health_check_attempts: 1,
+            health_check_interval: Duration::from_millis(0),
+        };
+
+        let evidence = ensure_runtime(
+            &paths,
+            &spec_with_managed_generation(),
+            &cli,
+            &FakeOciSource,
+            &quick_config,
+        );
+
+        assert_eq!(evidence.result, Outcome::Blocked);
+        assert_eq!(
+            evidence.error_code.as_deref(),
+            Some("managed_runtime_smoke_failed")
+        );
+        assert_eq!(
+            evidence.managed_runtime_ready,
+            Some(true),
+            "activation itself succeeded; only the smoke proof failed"
+        );
+        assert_eq!(evidence.functional_smoke_verified, Some(false));
+    }
+
+    #[test]
+    fn no_managed_generation_requested_preserves_pre_753_bootstrap_only_behavior() {
+        let (_temp, paths) = managed_paths();
+        seed_appliance(&paths, &reference());
+        let cli = FakeLimaCli::new();
+        let quick_config = RuntimeEnsureConfig {
+            health_check_attempts: 1,
+            health_check_interval: Duration::from_millis(0),
+        };
+
+        let evidence = ensure_runtime(&paths, &spec(), &cli, &FakeOciSource, &quick_config);
+
+        assert_eq!(evidence.result, Outcome::Changed);
+        assert_eq!(evidence.managed_runtime_ready, None);
+        assert_eq!(evidence.functional_smoke_verified, None);
+        assert_eq!(*cli.managed_generation.reconcile_calls.borrow(), 0);
+        assert_eq!(*cli.managed_generation.smoke_calls.borrow(), 0);
     }
 
     fn assert_runtime_schema_is_rejected_before_lima_reconciliation(schema_version: &str) {
