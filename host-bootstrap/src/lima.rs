@@ -13,7 +13,7 @@ use crate::error::{BootstrapError, ErrorCode};
 use crate::lock::BootstrapLock;
 use crate::model::Outcome;
 use crate::oci::OciSource;
-use crate::paths::ManagedPaths;
+use crate::paths::{ensure_managed_root, ManagedPaths};
 
 pub const RUNTIME_SPEC_SCHEMA_VERSION: &str = "mottainai.host-bootstrap.lima-runtime-spec.v1";
 const RUNTIME_STATE_SCHEMA_VERSION: &str = "mottainai.host-bootstrap.lima-runtime-state.v1";
@@ -304,23 +304,58 @@ fn terminate_and_wait(child: &mut Child) -> Result<(), BootstrapError> {
 pub struct SystemLimaCli {
     pub binary_path: PathBuf,
     pub lima_home: PathBuf,
+    /// Exact verified QEMU system executable selected by Route 4. When set,
+    /// both this path and its sibling qemu-img are placed first in the child
+    /// PATH so Lima cannot resolve a different ambient runtime.
+    pub qemu_system_path: Option<PathBuf>,
 }
 
 impl SystemLimaCli {
     fn run(&self, arguments: &[&str], timeout: Duration) -> Result<String, BootstrapError> {
-        let mut child = Command::new(&self.binary_path)
+        let mut command = Command::new(&self.binary_path);
+        command
             .args(arguments)
             .env("LIMA_HOME", &self.lima_home)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| {
+            .stderr(Stdio::piped());
+        if let Some(qemu_system_path) = &self.qemu_system_path {
+            let qemu_directory = qemu_system_path.parent().ok_or_else(|| {
                 BootstrapError::new(
                     ErrorCode::LimaCommandFailed,
-                    format!("could not execute limactl: {error}"),
+                    "verified QEMU system path has no parent directory",
                 )
             })?;
+            let lima_directory = self.binary_path.parent().ok_or_else(|| {
+                BootstrapError::new(
+                    ErrorCode::LimaCommandFailed,
+                    "managed Lima path has no parent directory",
+                )
+            })?;
+            let mut path_entries = vec![qemu_directory.to_path_buf(), lima_directory.to_path_buf()];
+            if let Some(ambient_path) = std::env::var_os("PATH") {
+                path_entries.extend(std::env::split_paths(&ambient_path));
+            }
+            let controlled_path = std::env::join_paths(path_entries).map_err(|error| {
+                BootstrapError::new(
+                    ErrorCode::LimaCommandFailed,
+                    format!("could not construct the Lima child PATH: {error}"),
+                )
+            })?;
+            command
+                .env("QEMU_SYSTEM_X86_64", qemu_system_path)
+                .env(
+                    "QEMU_DATA_DIR",
+                    qemu_directory.join("..").join("share/qemu"),
+                )
+                .env("PATH", controlled_path);
+        }
+        let mut child = command.spawn().map_err(|error| {
+            BootstrapError::new(
+                ErrorCode::LimaCommandFailed,
+                format!("could not execute limactl: {error}"),
+            )
+        })?;
 
         let stdout = match child.stdout.take() {
             Some(stdout) => stdout,
@@ -549,9 +584,7 @@ pub fn ensure_runtime<C: LimaCli, S: OciSource>(
     }
     evidence.appliance_digest = Some(spec.appliance.digest.clone());
 
-    if let Err(error) = fs::create_dir_all(&paths.root)
-        .map_err(|error| BootstrapError::io("create managed state root", &error))
-    {
+    if let Err(error) = ensure_managed_root(paths) {
         evidence.fail(&error);
         return evidence;
     }
@@ -919,6 +952,7 @@ mod tests {
         SystemLimaCli {
             binary_path: std::env::current_exe().unwrap(),
             lima_home: std::env::temp_dir(),
+            qemu_system_path: None,
         }
     }
 
@@ -1380,7 +1414,7 @@ mod tests {
         let temporary = TempDir::new().unwrap();
         let locked_paths = ManagedPaths::new(temporary.path().join("locked-state"));
         let target_paths = ManagedPaths::new(temporary.path().join("target-state"));
-        fs::create_dir_all(&locked_paths.root).unwrap();
+        ensure_managed_root(&locked_paths).unwrap();
         let lock = BootstrapLock::acquire(&locked_paths).unwrap();
         let cli = FakeLimaCli::new();
 
@@ -1891,5 +1925,47 @@ mod tests {
         assert_eq!(evidence.error_code.as_deref(), Some("runtime_spec_invalid"));
         assert_eq!(*cli.create_calls.borrow(), 0);
         assert_eq!(*cli.start_calls.borrow(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lima_child_is_bound_to_verified_qemu_when_ambient_path_has_another_binary() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temporary = TempDir::new().unwrap();
+        let verified_directory = temporary.path().join("verified");
+        let ambient_directory = temporary.path().join("ambient");
+        fs::create_dir_all(&verified_directory).unwrap();
+        fs::create_dir_all(&ambient_directory).unwrap();
+        let verified = verified_directory.join("qemu-system-x86_64");
+        let ambient = ambient_directory.join("qemu-system-x86_64");
+        for (path, marker) in [(&verified, "QEMU-A"), (&ambient, "QEMU-B")] {
+            fs::write(path, format!("#!/bin/sh\nprintf '%s\\n' {marker}\n")).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let marker_path = temporary.path().join("selected");
+        let limactl = ambient_directory.join("limactl");
+        fs::write(
+            &limactl,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$QEMU_SYSTEM_X86_64\" > '{}'\nprintf '%s\\n' \"$(qemu-system-x86_64 --version)\" >> '{}'\nprintf '%s\\n' '{{\"name\":\"probe\",\"status\":\"Running\",\"vmType\":\"qemu\"}}'\n",
+                marker_path.display(),
+                marker_path.display(),
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&limactl, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let cli = SystemLimaCli {
+            binary_path: limactl,
+            lima_home: temporary.path().join("lima-home"),
+            qemu_system_path: Some(verified.clone()),
+        };
+        let instances = cli.list_all().unwrap();
+        assert_eq!(instances.len(), 1);
+        let selected = fs::read_to_string(marker_path).unwrap();
+        assert!(selected.contains(verified.to_str().unwrap()));
+        assert!(selected.contains("QEMU-A"));
+        assert!(!selected.contains("QEMU-B"));
     }
 }

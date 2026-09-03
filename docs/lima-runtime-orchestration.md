@@ -122,12 +122,14 @@ independently; they do not grant mutation authority to a caller.
 ## Prerequisite: the managed Lima provider
 
 `runtime ensure` requires the managed Lima provider (`mottainai-init` with
-no subcommand) to already be bootstrapped and verified; it refuses to run
-against an ambient `limactl` and fails closed with
-`provider_not_bootstrapped` otherwise. This keeps the whole `limactl`
-identity — the exact binary this orchestration invokes — inside the same
-verified-artifact boundary [`host-bootstrap.md`](host-bootstrap.md) already
-establishes for the Lima provider archive.
+no subcommand) and its verified QEMU host toolchain to already be bootstrapped
+and verified; it refuses to run against an ambient `limactl` or QEMU and fails
+closed with `provider_not_bootstrapped` otherwise. This keeps the whole
+`limactl` identity — and the exact QEMU system executable/image pair it may
+resolve — inside the same verified-artifact boundary
+[`host-bootstrap.md`](host-bootstrap.md) already establishes for Route 4.
+Lima remains the sole VM/QEMU lifecycle authority; `runtime ensure` only
+passes the verified binding into that provider.
 
 ## Non-goals
 

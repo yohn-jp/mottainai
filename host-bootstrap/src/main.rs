@@ -10,7 +10,9 @@ use mottainai_host_bootstrap::lima::{
 use mottainai_host_bootstrap::lock::BootstrapLock;
 use mottainai_host_bootstrap::model::Classification;
 use mottainai_host_bootstrap::oci::HttpOciSource;
+use mottainai_host_bootstrap::paths::ensure_managed_root;
 use mottainai_host_bootstrap::provider::{inspect_provider, FileArtifactSource};
+use mottainai_host_bootstrap::qemu::{inspect_qemu, managed_qemu_system_path};
 use mottainai_host_bootstrap::reconcile::{failure_for_contract, Bootstrap, BootstrapConfig};
 use mottainai_host_bootstrap::BOOTSTRAP_VERSION;
 
@@ -278,8 +280,7 @@ fn run_runtime_ensure(
         bootstrap_config.state_directory = state_directory;
     }
     let paths = bootstrap_config.paths();
-    std::fs::create_dir_all(&paths.root)
-        .map_err(|error| BootstrapError::io("create managed state root", &error))?;
+    ensure_managed_root(&paths)?;
     let lock = BootstrapLock::acquire(&paths)?;
     let contract = ProviderContract::default();
     let observation = inspect_provider(
@@ -296,9 +297,23 @@ fn run_runtime_ensure(
         ));
     }
     let limactl_path = paths.active_link.join(&contract.archive_binary_path);
+    let qemu_observation = inspect_qemu(
+        &paths,
+        None,
+        env::var_os("PATH").as_deref(),
+        env::consts::OS,
+        env::consts::ARCH,
+    )?;
+    if qemu_observation.classification != Classification::Satisfied {
+        return Err(BootstrapError::new(
+            ErrorCode::ProviderNotBootstrapped,
+            "the managed QEMU prerequisite is not bootstrapped or no longer verifies",
+        ));
+    }
     let cli = SystemLimaCli {
         binary_path: limactl_path,
         lima_home: paths.lima_home_directory.clone(),
+        qemu_system_path: Some(managed_qemu_system_path(&paths)?),
     };
     let oci = HttpOciSource {
         registry: spec.appliance.registry.clone(),

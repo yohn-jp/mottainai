@@ -18,4 +18,7 @@ pub use contract::{ProviderContract, BOOTSTRAP_VERSION, CONTRACT_SCHEMA_VERSION}
 pub use evidence::Evidence;
 pub use lima::{ensure_runtime, RuntimeEnsureConfig, RuntimeEvidence, RuntimeSpec};
 pub use model::{Classification, Outcome};
+pub use qemu::{
+    HttpQemuArtifactSource, QemuArtifact, QemuArtifactSource, QemuContract, QemuDataArtifact,
+};
 pub use reconcile::{Bootstrap, BootstrapConfig};
