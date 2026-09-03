@@ -314,7 +314,9 @@ jobs:
       )
     runs-on: ubuntu-latest
     outputs:
-      runtime: ${{ steps.filter.outputs.runtime }}
+      runtime_nix: ${{ steps.filter.outputs.runtime_nix }}
+      runtime_vm: ${{ steps.filter.outputs.runtime_vm }}
+      runtime_appliance: ${{ steps.filter.outputs.runtime_appliance }}
       host_bootstrap: ${{ steps.filter.outputs.host_bootstrap }}
       node: ${{ steps.filter.outputs.node }}
       integration: ${{ steps.filter.outputs.integration }}
@@ -326,12 +328,21 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Filter runtime-owned paths
+      # Contract-ownership classes, not directory buckets (docs/ci-topology.md).
+      # `host-bootstrap/**` alone must never imply the Nix Runtime/VM/Appliance
+      # classes (Issue #766) - only files that truly define or consume a
+      # shared Runtime/VM/Appliance contract get overlapping ownership, and
+      # workflow/config inputs that can change selection semantics stay in
+      # every class conservatively.
+      - name: Filter contract-owned paths
         id: filter
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           filters: |
-            runtime:
+            host_bootstrap:
+              - 'host-bootstrap/**'
+              - '.github/workflows/ci.yml'
+            runtime_nix:
               - 'nix/**'
               - 'src/bootstrap/**'
               - 'src/runtime-contract/**'
@@ -339,14 +350,26 @@ jobs:
               - 'src/boundary.ts'
               - 'scripts/route2-runtime-smoke.mjs'
               - 'scripts/build-runtime-image-manifest.mjs'
-              - 'scripts/build-runtime-appliance-manifest.mjs'
-              - 'scripts/build-runtime-appliance-oci-fixture.mjs'
-              - 'host-bootstrap/**'
               - 'package.json'
               - 'pnpm-lock.yaml'
               - '.github/workflows/ci.yml'
-            host_bootstrap:
-              - 'host-bootstrap/**'
+            runtime_vm:
+              - 'nix/modules/runtime.nix'
+              - 'nix/runtime-image.nix'
+              - 'nix/tests/runtime.nix'
+              - '.github/workflows/ci.yml'
+            runtime_appliance:
+              - 'nix/runtime-appliance-image.nix'
+              - 'nix/tests/runtime-appliance.nix'
+              - 'nix/tests/runtime-appliance-golden-path.nix'
+              - 'scripts/build-runtime-appliance-manifest.mjs'
+              - 'scripts/build-runtime-appliance-oci-fixture.mjs'
+              - 'src/runtime-contract/appliance-manifest.ts'
+              - 'src/runtime-contract/appliance-manifest.test.ts'
+              - 'host-bootstrap/src/appliance.rs'
+              - 'host-bootstrap/src/oci.rs'
+              - 'host-bootstrap/tests/appliance.rs'
+              - 'host-bootstrap/tests/appliance_real.rs'
               - '.github/workflows/ci.yml'
             node:
               - 'src/**'
@@ -394,10 +417,16 @@ jobs:
     name: Nix Runtime evaluation / image / VM test
     needs: runtime-contract-changes
     # Path-owned: this expensive validation runs only when a changed path can
-    # invalidate the Nix/QEMU runtime contract. Unrelated PRs get a
+    # invalidate the Nix Runtime, VM, or Appliance contract classes
+    # (docs/ci-topology.md). Unrelated PRs, including host-bootstrap-only
+    # changes that do not touch a shared Appliance/VM contract file, get a
     # deterministic successful skip under the same stable check name.
     if: >-
-      needs.runtime-contract-changes.outputs.runtime == 'true' &&
+      (
+        needs.runtime-contract-changes.outputs.runtime_nix == 'true' ||
+        needs.runtime-contract-changes.outputs.runtime_vm == 'true' ||
+        needs.runtime-contract-changes.outputs.runtime_appliance == 'true'
+      ) &&
       (
         github.event_name != 'pull_request' ||
         (
@@ -667,7 +696,11 @@ jobs:
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
-      needs.runtime-contract-changes.outputs.runtime == 'true' &&
+      (
+        needs.runtime-contract-changes.outputs.runtime_nix == 'true' ||
+        needs.runtime-contract-changes.outputs.runtime_vm == 'true' ||
+        needs.runtime-contract-changes.outputs.runtime_appliance == 'true'
+      ) &&
       needs.runtime-contract.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 60
