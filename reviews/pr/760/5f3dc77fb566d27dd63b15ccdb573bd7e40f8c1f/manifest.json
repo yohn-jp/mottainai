@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "52bedc55c5c867aa320263a0944139edc08016e4",
+    "draft": false,
+    "headRef": "feat/754-verified-lima-qemu-toolchain",
+    "headSha": "5f3dc77fb566d27dd63b15ccdb573bd7e40f8c1f",
+    "number": 760,
+    "title": "feat(runtime): provision verified Lima/QEMU toolchain"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "5f3dc77fb566d27dd63b15ccdb573bd7e40f8c1f",
+    "immutable": true,
+    "shortId": "5f3dc77fb566"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-03T11:04:49.998Z"
+  }
+}

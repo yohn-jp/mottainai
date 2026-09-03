@@ -1,0 +1,456 @@
+{
+  "baseSha": "52bedc55c5c867aa320263a0944139edc08016e4",
+  "files": [
+    {
+      "additions": 45,
+      "deletions": 32,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 6,
+          "oldLines": 1,
+          "oldStart": 6
+        },
+        {
+          "newLines": 7,
+          "newStart": 38,
+          "oldLines": 0,
+          "oldStart": 36
+        },
+        {
+          "newLines": 2,
+          "newStart": 124,
+          "oldLines": 0,
+          "oldStart": 115
+        },
+        {
+          "newLines": 25,
+          "newStart": 174,
+          "oldLines": 16,
+          "oldStart": 164
+        },
+        {
+          "newLines": 4,
+          "newStart": 223,
+          "oldLines": 6,
+          "oldStart": 204
+        },
+        {
+          "newLines": 0,
+          "newStart": 233,
+          "oldLines": 3,
+          "oldStart": 217
+        },
+        {
+          "newLines": 5,
+          "newStart": 238,
+          "oldLines": 6,
+          "oldStart": 224
+        }
+      ],
+      "path": "docs/host-bootstrap.md",
+      "status": "modified"
+    },
+    {
+      "additions": 8,
+      "deletions": 6,
+      "hunks": [
+        {
+          "newLines": 8,
+          "newStart": 125,
+          "oldLines": 6,
+          "oldStart": 125
+        }
+      ],
+      "path": "docs/lima-runtime-orchestration.md",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 634,
+          "oldLines": 0,
+          "oldStart": 633
+        }
+      ],
+      "path": "host-bootstrap/Cargo.lock",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 19,
+          "oldLines": 0,
+          "oldStart": 18
+        }
+      ],
+      "path": "host-bootstrap/Cargo.toml",
+      "status": "modified"
+    },
+    {
+      "additions": 3,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 21,
+          "oldLines": 0,
+          "oldStart": 20
+        }
+      ],
+      "path": "host-bootstrap/src/lib.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 86,
+      "deletions": 10,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 16,
+          "oldLines": 1,
+          "oldStart": 16
+        },
+        {
+          "newLines": 4,
+          "newStart": 307,
+          "oldLines": 0,
+          "oldStart": 306
+        },
+        {
+          "newLines": 2,
+          "newStart": 315,
+          "oldLines": 1,
+          "oldStart": 311
+        },
+        {
+          "newLines": 3,
+          "newStart": 321,
+          "oldLines": 3,
+          "oldStart": 316
+        },
+        {
+          "newLines": 1,
+          "newStart": 326,
+          "oldLines": 1,
+          "oldStart": 321
+        },
+        {
+          "newLines": 30,
+          "newStart": 329,
+          "oldLines": 0,
+          "oldStart": 323
+        },
+        {
+          "newLines": 1,
+          "newStart": 587,
+          "oldLines": 3,
+          "oldStart": 552
+        },
+        {
+          "newLines": 1,
+          "newStart": 955,
+          "oldLines": 0,
+          "oldStart": 921
+        },
+        {
+          "newLines": 1,
+          "newStart": 1417,
+          "oldLines": 1,
+          "oldStart": 1383
+        },
+        {
+          "newLines": 42,
+          "newStart": 1929,
+          "oldLines": 0,
+          "oldStart": 1894
+        }
+      ],
+      "path": "host-bootstrap/src/lima.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 7,
+          "oldLines": 1,
+          "oldStart": 7
+        },
+        {
+          "newLines": 1,
+          "newStart": 17,
+          "oldLines": 0,
+          "oldStart": 16
+        }
+      ],
+      "path": "host-bootstrap/src/lock.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 17,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 13,
+          "oldLines": 0,
+          "oldStart": 12
+        },
+        {
+          "newLines": 1,
+          "newStart": 15,
+          "oldLines": 0,
+          "oldStart": 13
+        },
+        {
+          "newLines": 1,
+          "newStart": 283,
+          "oldLines": 2,
+          "oldStart": 281
+        },
+        {
+          "newLines": 13,
+          "newStart": 300,
+          "oldLines": 0,
+          "oldStart": 298
+        },
+        {
+          "newLines": 1,
+          "newStart": 316,
+          "oldLines": 0,
+          "oldStart": 301
+        }
+      ],
+      "path": "host-bootstrap/src/main.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 85,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 11,
+          "oldLines": 0,
+          "oldStart": 10
+        },
+        {
+          "newLines": 2,
+          "newStart": 29,
+          "oldLines": 0,
+          "oldStart": 26
+        },
+        {
+          "newLines": 11,
+          "newStart": 51,
+          "oldLines": 0,
+          "oldStart": 46
+        },
+        {
+          "newLines": 1,
+          "newStart": 122,
+          "oldLines": 1,
+          "oldStart": 107
+        },
+        {
+          "newLines": 1,
+          "newStart": 128,
+          "oldLines": 0,
+          "oldStart": 112
+        },
+        {
+          "newLines": 29,
+          "newStart": 132,
+          "oldLines": 0,
+          "oldStart": 115
+        },
+        {
+          "newLines": 3,
+          "newStart": 163,
+          "oldLines": 1,
+          "oldStart": 118
+        },
+        {
+          "newLines": 6,
+          "newStart": 173,
+          "oldLines": 0,
+          "oldStart": 125
+        },
+        {
+          "newLines": 3,
+          "newStart": 180,
+          "oldLines": 1,
+          "oldStart": 127
+        },
+        {
+          "newLines": 27,
+          "newStart": 197,
+          "oldLines": 0,
+          "oldStart": 141
+        }
+      ],
+      "path": "host-bootstrap/src/paths.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 810,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 9,
+          "oldLines": 0,
+          "oldStart": 8
+        },
+        {
+          "newLines": 9,
+          "newStart": 22,
+          "oldLines": 0,
+          "oldStart": 19
+        },
+        {
+          "newLines": 245,
+          "newStart": 35,
+          "oldLines": 0,
+          "oldStart": 23
+        },
+        {
+          "newLines": 13,
+          "newStart": 290,
+          "oldLines": 0,
+          "oldStart": 33
+        },
+        {
+          "newLines": 13,
+          "newStart": 436,
+          "oldLines": 0,
+          "oldStart": 166
+        },
+        {
+          "newLines": 1,
+          "newStart": 454,
+          "oldLines": 0,
+          "oldStart": 171
+        },
+        {
+          "newLines": 452,
+          "newStart": 549,
+          "oldLines": 0,
+          "oldStart": 265
+        },
+        {
+          "newLines": 10,
+          "newStart": 1009,
+          "oldLines": 0,
+          "oldStart": 273
+        },
+        {
+          "newLines": 10,
+          "newStart": 1230,
+          "oldLines": 0,
+          "oldStart": 484
+        },
+        {
+          "newLines": 55,
+          "newStart": 1321,
+          "oldLines": 0,
+          "oldStart": 565
+        }
+      ],
+      "path": "host-bootstrap/src/qemu.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 84,
+      "deletions": 9,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 10,
+          "oldLines": 1,
+          "oldStart": 10
+        },
+        {
+          "newLines": 4,
+          "newStart": 12,
+          "oldLines": 1,
+          "oldStart": 12
+        },
+        {
+          "newLines": 5,
+          "newStart": 58,
+          "oldLines": 1,
+          "oldStart": 55
+        },
+        {
+          "newLines": 25,
+          "newStart": 66,
+          "oldLines": 0,
+          "oldStart": 58
+        },
+        {
+          "newLines": 9,
+          "newStart": 120,
+          "oldLines": 0,
+          "oldStart": 87
+        },
+        {
+          "newLines": 1,
+          "newStart": 142,
+          "oldLines": 2,
+          "oldStart": 101
+        },
+        {
+          "newLines": 28,
+          "newStart": 184,
+          "oldLines": 1,
+          "oldStart": 144
+        },
+        {
+          "newLines": 1,
+          "newStart": 218,
+          "oldLines": 2,
+          "oldStart": 151
+        },
+        {
+          "newLines": 10,
+          "newStart": 298,
+          "oldLines": 1,
+          "oldStart": 232
+        }
+      ],
+      "path": "host-bootstrap/src/reconcile.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 5,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 5,
+          "newStart": 144,
+          "oldLines": 0,
+          "oldStart": 143
+        }
+      ],
+      "path": "host-bootstrap/tests/reconciliation.rs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "5f3dc77fb566d27dd63b15ccdb573bd7e40f8c1f",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 1147,
+    "deletions": 63,
+    "filesChanged": 12
+  }
+}

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #760 @ 5f3dc77fb566</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #760: feat(runtime): provision verified Lima/QEMU toolchain</h1>
+<p>Base <code>main</code> @ <code>52bedc55c5c867aa320263a0944139edc08016e4</code> &rarr;
+Head <code>feat/754-verified-lima-qemu-toolchain</code> @ <code>5f3dc77fb566d27dd63b15ccdb573bd7e40f8c1f</code></p>
+<p>Revision <code>5f3dc77fb566</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/754">#754</a> feat(runtime): provision and bind a verified Lima QEMU host toolchain in Route 4 (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] The Route 4 implementation entrypoint is the standalone compiled Rust `mottainai-init`; execution does not require Node, npm, Python, Nix, Lima, QEMU, or a Rust toolchain to be preinstalled.</li>
+<li>[ ] On a host with no supported Lima installation, bootstrap detects the gap and either provisions Lima through the reviewed supported strategy or emits bounded actionable installation guidance when automatic provisioning is unavailable/unsafe.</li>
+<li>[ ] On a host where the selected Lima profile requires QEMU and no supported QEMU is present, bootstrap detects the gap and either provisions the supported QEMU runtime or emits bounded actionable installation guidance when automatic provisioning is unavailable/unsafe.</li>
+<li>[ ] Canonical Route 4 fresh-host acceptance includes an automatic supported provisioning path; documentation-only guidance is not sufficient to claim the strongest zero-manual golden path.</li>
+<li>[ ] Any adopted or provisioned Lima/QEMU runtime records the exact identity/provenance required by the selected Route 4 profile before Route 3 begins.</li>
+<li>[ ] Corrupt, truncated, wrong-version, wrong-architecture, or identity-mismatched managed artifacts are rejected before activation/use.</li>
+<li>[ ] Lima is launched through the supported binding contract so an unrelated ambient QEMU cannot silently replace the verified QEMU runtime.</li>
+<li>[ ] A regression test proves that verifying QEMU A while ambient PATH also exposes QEMU B cannot cause Route 3 to use QEMU B silently.</li>
+<li>[ ] Repeated unchanged Route 4 bootstrap is a no-op apart from bounded observation/verification and preserves the established provider identity.</li>
+<li>[ ] Interrupted prerequisite provisioning is restart-safe and does not leave partially trusted active state.</li>
+<li>[ ] Missing/inaccessible `/dev/kvm` still fails before Route 3 acceptance with no silent TCG fallback.</li>
+<li>[ ] No production code reintroduces direct QEMU/QMP VM lifecycle, QEMU command construction, or Mottainai-defined device topology.</li>
+<li>[ ] Documentation clearly distinguishes requirement, provisioning, and operational ownership and keeps Route 3&#39;s explicit &quot;supported Lima/QEMU already available&quot; entry precondition.</li></ul>
+
+
+
+<h2>Changed files (12, +1147/-63)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>docs/host-bootstrap.md</td><td>modified</td><td>+45</td><td>-32</td></tr>
+<tr><td>docs/lima-runtime-orchestration.md</td><td>modified</td><td>+8</td><td>-6</td></tr>
+<tr><td>host-bootstrap/Cargo.lock</td><td>modified</td><td>+1</td><td>-0</td></tr>
+<tr><td>host-bootstrap/Cargo.toml</td><td>modified</td><td>+1</td><td>-0</td></tr>
+<tr><td>host-bootstrap/src/lib.rs</td><td>modified</td><td>+3</td><td>-0</td></tr>
+<tr><td>host-bootstrap/src/lima.rs</td><td>modified</td><td>+86</td><td>-10</td></tr>
+<tr><td>host-bootstrap/src/lock.rs</td><td>modified</td><td>+2</td><td>-1</td></tr>
+<tr><td>host-bootstrap/src/main.rs</td><td>modified</td><td>+17</td><td>-2</td></tr>
+<tr><td>host-bootstrap/src/paths.rs</td><td>modified</td><td>+85</td><td>-3</td></tr>
+<tr><td>host-bootstrap/src/qemu.rs</td><td>modified</td><td>+810</td><td>-0</td></tr>
+<tr><td>host-bootstrap/src/reconcile.rs</td><td>modified</td><td>+84</td><td>-9</td></tr>
+<tr><td>host-bootstrap/tests/reconciliation.rs</td><td>modified</td><td>+5</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

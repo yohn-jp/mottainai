@@ -1,0 +1,67 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "The Route 4 implementation entrypoint is the standalone compiled Rust `mottainai-init`; execution does not require Node, npm, Python, Nix, Lima, QEMU, or a Rust toolchain to be preinstalled."
+    },
+    {
+      "checked": false,
+      "text": "On a host with no supported Lima installation, bootstrap detects the gap and either provisions Lima through the reviewed supported strategy or emits bounded actionable installation guidance when automatic provisioning is unavailable/unsafe."
+    },
+    {
+      "checked": false,
+      "text": "On a host where the selected Lima profile requires QEMU and no supported QEMU is present, bootstrap detects the gap and either provisions the supported QEMU runtime or emits bounded actionable installation guidance when automatic provisioning is unavailable/unsafe."
+    },
+    {
+      "checked": false,
+      "text": "Canonical Route 4 fresh-host acceptance includes an automatic supported provisioning path; documentation-only guidance is not sufficient to claim the strongest zero-manual golden path."
+    },
+    {
+      "checked": false,
+      "text": "Any adopted or provisioned Lima/QEMU runtime records the exact identity/provenance required by the selected Route 4 profile before Route 3 begins."
+    },
+    {
+      "checked": false,
+      "text": "Corrupt, truncated, wrong-version, wrong-architecture, or identity-mismatched managed artifacts are rejected before activation/use."
+    },
+    {
+      "checked": false,
+      "text": "Lima is launched through the supported binding contract so an unrelated ambient QEMU cannot silently replace the verified QEMU runtime."
+    },
+    {
+      "checked": false,
+      "text": "A regression test proves that verifying QEMU A while ambient PATH also exposes QEMU B cannot cause Route 3 to use QEMU B silently."
+    },
+    {
+      "checked": false,
+      "text": "Repeated unchanged Route 4 bootstrap is a no-op apart from bounded observation/verification and preserves the established provider identity."
+    },
+    {
+      "checked": false,
+      "text": "Interrupted prerequisite provisioning is restart-safe and does not leave partially trusted active state."
+    },
+    {
+      "checked": false,
+      "text": "Missing/inaccessible `/dev/kvm` still fails before Route 3 acceptance with no silent TCG fallback."
+    },
+    {
+      "checked": false,
+      "text": "No production code reintroduces direct QEMU/QMP VM lifecycle, QEMU command construction, or Mottainai-defined device topology."
+    },
+    {
+      "checked": false,
+      "text": "Documentation clearly distinguishes requirement, provisioning, and operational ownership and keeps Route 3's explicit \"supported Lima/QEMU already available\" entry precondition."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 754,
+    "state": "open",
+    "title": "feat(runtime): provision and bind a verified Lima QEMU host toolchain in Route 4",
+    "url": "https://github.com/yohn-jp/mottainai/issues/754"
+  },
+  "linked": {
+    "number": 754
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
