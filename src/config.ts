@@ -22,6 +22,8 @@ import { normalizeToolMetadataOverride, RISK_VALUES } from "./adaptive/metadata.
 import type { ToolMetadataOverride } from "./adaptive/metadata.js";
 import { DEFAULT_GH_INARI_CONFIG, resolveGhInariConfig } from "./gh-inari.js";
 import type { GhInariConfig, ResolvedGhInariConfig } from "./gh-inari.js";
+import { DEFAULT_GH_MAKAMI_CONFIG, resolveGhMakamiConfig } from "./gh-makami.js";
+import type { GhMakamiConfig, ResolvedGhMakamiConfig } from "./gh-makami.js";
 
 export interface OAuthAuthConfig {
   type: "oauth";
@@ -166,6 +168,8 @@ export interface GatewayConfig {
   managedProcesses?: ManagedProcessPolicyConfig;
   /** Mottainai-managed governed GitHub mutationの唯一のauthorityとなる外部gh-inari companionの実行境界。 */
   ghInari?: GhInariConfig;
+  /** Mottainai-managed read-only PR observationの唯一のauthorityとなる外部gh-makami companionの実行境界。 */
+  ghMakami?: GhMakamiConfig;
 }
 
 export interface AwaitPolicyConfig {
@@ -198,6 +202,8 @@ export interface ResolvedGatewayConfig {
   burstBudget: BurstBudgetPolicy;
   /** 設定を手書きする既存fixtureとの互換性のためoptional。resolveGatewayConfigでは必ず解決する。 */
   ghInari?: ResolvedGhInariConfig;
+  /** 設定を手書きする既存fixtureとの互換性のためoptional。resolveGatewayConfigでは必ず解決する。 */
+  ghMakami?: ResolvedGhMakamiConfig;
   worktree?: ResolvedWorktreeConfig;
   workflowTasks: boolean;
   await: AwaitPolicy;
@@ -229,6 +235,7 @@ const DEFAULT_GATEWAY_CONFIG: Omit<ResolvedGatewayConfig, "workspaceRoot"> = {
   readGovernor: DEFAULT_READ_GOVERNOR_POLICY,
   burstBudget: DEFAULT_BURST_BUDGET_POLICY,
   ghInari: DEFAULT_GH_INARI_CONFIG,
+  ghMakami: DEFAULT_GH_MAKAMI_CONFIG,
   workflowTasks: false,
   await: DEFAULT_AWAIT_POLICY,
   managedProcesses: DEFAULT_MANAGED_PROCESS_POLICY,
@@ -270,6 +277,7 @@ export function resolveGatewayConfig(
     readGovernor: resolveReadGovernorPolicy(config?.readGovernor),
     burstBudget: resolveBurstBudgetPolicy(config?.burstBudget),
     ghInari: resolveGhInariConfig(config?.ghInari),
+    ghMakami: resolveGhMakamiConfig(config?.ghMakami),
     worktree: resolveWorktreeConfig(config?.worktree),
     workflowTasks: config?.workflowTasks === true,
     await: resolveAwaitPolicy(config?.await),
@@ -457,6 +465,7 @@ const GATEWAY_CONFIG_KEYS = [
   "await",
   "managedProcesses",
   "ghInari",
+  "ghMakami",
 ] as const;
 
 function normalizeGateway(value: unknown): GatewayConfig | undefined {
@@ -486,6 +495,7 @@ function normalizeGateway(value: unknown): GatewayConfig | undefined {
     await: awaitPolicyConfig(value.await, "invalid gateway await"),
     managedProcesses: managedProcessPolicyConfig(value.managedProcesses, "invalid gateway managedProcesses"),
     ghInari: ghInariConfig(value.ghInari, "invalid gateway ghInari"),
+    ghMakami: ghMakamiConfig(value.ghMakami, "invalid gateway ghMakami"),
   };
   validateGatewayBounds(config);
   return config;
@@ -497,6 +507,20 @@ function ghInariConfig(value: unknown, field: string): GhInariConfig | undefined
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw new Error(field);
   rejectUnknownKeys(value, GH_INARI_CONFIG_KEYS, field);
+  return {
+    command: optionalNonEmptyString(value.command, `${field}.command`),
+    timeoutMs: positiveIntegerConfig(value.timeoutMs, `${field}.timeoutMs`),
+    maxOutputBytes: positiveIntegerConfig(value.maxOutputBytes, `${field}.maxOutputBytes`),
+    maxInputBytes: positiveIntegerConfig(value.maxInputBytes, `${field}.maxInputBytes`),
+  };
+}
+
+const GH_MAKAMI_CONFIG_KEYS = ["command", "timeoutMs", "maxOutputBytes", "maxInputBytes"] as const;
+
+function ghMakamiConfig(value: unknown, field: string): GhMakamiConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error(field);
+  rejectUnknownKeys(value, GH_MAKAMI_CONFIG_KEYS, field);
   return {
     command: optionalNonEmptyString(value.command, `${field}.command`),
     timeoutMs: positiveIntegerConfig(value.timeoutMs, `${field}.timeoutMs`),

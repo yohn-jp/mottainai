@@ -40,6 +40,12 @@
       "timeoutMs": 30000,
       "maxOutputBytes": 1048576,
       "maxInputBytes": 1048576
+    },
+    "ghMakami": {
+      "command": "gh-makami",
+      "timeoutMs": 30000,
+      "maxOutputBytes": 1048576,
+      "maxInputBytes": 1048576
     }
   }
 }

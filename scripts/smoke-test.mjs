@@ -222,6 +222,12 @@ function main() {
       env: process.env,
     });
 
+    console.log("running packed Mottainai gh-makami companion smoke...");
+    run(process.execPath, ["scripts/gh-makami-package-smoke.mjs", installedPackageDirectory], {
+      cwd: repoRoot,
+      env: process.env,
+    });
+
     console.log("running bare invocation without a configuration...");
     const missingConfigPath = path.join(installDirectory, "missing.config.json");
     const bareResult = spawnSync(process.execPath, [primaryBin], {
