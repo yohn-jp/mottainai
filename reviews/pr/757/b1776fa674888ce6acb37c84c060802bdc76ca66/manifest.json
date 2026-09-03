@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "355f284621f036f70c22f241802fe60ab1dee19d",
+    "draft": false,
+    "headRef": "docs/756-route-implementation-vehicles",
+    "headSha": "b1776fa674888ce6acb37c84c060802bdc76ca66",
+    "number": 757,
+    "title": "docs(runtime): define deployment route implementation vehicles"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "b1776fa674888ce6acb37c84c060802bdc76ca66",
+    "immutable": true,
+    "shortId": "b1776fa67488"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-03T09:45:35.913Z"
+  }
+}

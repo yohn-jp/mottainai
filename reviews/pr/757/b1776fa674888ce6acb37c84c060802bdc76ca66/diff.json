@@ -1,0 +1,26 @@
+{
+  "baseSha": "355f284621f036f70c22f241802fe60ab1dee19d",
+  "files": [
+    {
+      "additions": 92,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 92,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "docs/deployment-route-implementation.md",
+      "status": "added"
+    }
+  ],
+  "headSha": "b1776fa674888ce6acb37c84c060802bdc76ca66",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 92,
+    "deletions": 0,
+    "filesChanged": 1
+  }
+}

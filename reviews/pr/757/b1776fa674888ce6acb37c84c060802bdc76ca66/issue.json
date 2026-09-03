@@ -1,0 +1,35 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Documentation contains one explicit Route → artifact/implementation → execution substrate mapping."
+    },
+    {
+      "checked": false,
+      "text": "Route 3 is not described as a Rust implementation; the canonical NixOS Appliance and Lima provider boundary are explicit."
+    },
+    {
+      "checked": false,
+      "text": "Route 4 identifies Rust `mottainai-init` as the bootstrap implementation vehicle."
+    },
+    {
+      "checked": false,
+      "text": "QEMU provisioning is explicitly distinguished from QEMU lifecycle ownership."
+    },
+    {
+      "checked": false,
+      "text": "ADR-0003 dependency direction and previously accepted Lima ownership boundary remain unchanged."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 756,
+    "state": "open",
+    "title": "docs: define deployment route implementation vehicles",
+    "url": "https://github.com/yohn-jp/mottainai/issues/756"
+  },
+  "linked": {
+    "number": 756
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
