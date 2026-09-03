@@ -38,6 +38,18 @@ Route 2 derivation itself never repacks or rebuilds `dist`.
 
 Route 2 is not merely a disk image. The canonical NixOS Runtime Appliance is the system boundary that can host the Route 2 closure, while the fast-moving managed generation remains independently activatable and rollback-capable as required by ADR-0003.
 
+The Route 2 closure includes the supported Node/native runtime and the
+explicit lower-level executable dependencies required by the supported
+Mottainai surface: `git` and `rg` (`ripgrep`) are pinned through the flake's
+nixpkgs input and joined into the managed generation. Functional readiness is
+therefore evaluated with a generation-only `PATH`, using the exact canonical
+Route 1 payload; a developer or host installation of these tools is not an
+implicit dependency. The focused closure check proves a real search operation,
+packaged MCP stdio startup/protocol exchange, and failure when `rg` is removed:
+`nix build .#checks.x86_64-linux.route2-runtime-closure`. Nix/NixOS and the
+enclosing host/kernel/appliance facilities remain lower-level preconditions;
+Route 3 provisioning is not part of this contract.
+
 ## Route 3 — Lima manages the canonical NixOS Appliance
 
 Route 3 is not a Rust implementation and is not equivalent to "the QEMU route." Its deployment vehicle is the canonical provider-independent NixOS Runtime Appliance operated through the supported Lima provider integration.

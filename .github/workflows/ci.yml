@@ -337,6 +337,7 @@ jobs:
               - 'src/runtime-contract/**'
               - 'src/atomic-file.ts'
               - 'src/boundary.ts'
+              - 'scripts/route2-runtime-smoke.mjs'
               - 'scripts/build-runtime-image-manifest.mjs'
               - 'scripts/build-runtime-appliance-manifest.mjs'
               - 'scripts/build-runtime-appliance-oci-fixture.mjs'
@@ -502,6 +503,10 @@ jobs:
 
       - name: Build the full managed Runtime package catalog end to end (Issue #662)
         run: node --import tsx scripts/verify-managed-generation-catalog.mjs x86_64-linux
+
+      - name: Execute hermetic Route 2 closure and functional readiness smoke (Issue #752)
+        working-directory: nix
+        run: nix build --no-update-lock-file --no-link .#checks.x86_64-linux.route2-runtime-closure
 
       - name: Execute the managed-runtime health projection check (Issue #644)
         working-directory: nix

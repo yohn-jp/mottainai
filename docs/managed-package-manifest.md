@@ -89,6 +89,14 @@ Each entry's identity does not depend on ambient `PATH` state: `version` and
 `source.sourceSha256` fully pin what the entry means, independent of
 whatever happens to be installed or resolvable on a given machine.
 
+The manifest identities above are application packages. Route 2 also owns a
+separate explicit Nix runtime-dependency catalog for the lower-level
+executables required by the supported Mottainai surface; the current entries
+are versioned `git` and `ripgrep` (`rg`). They are joined into the realized
+managed generation and are not resolved from ambient `PATH`. Optional
+configured authority tools remain outside this built-in closure and must be
+declared by the integration that uses them.
+
 ## Runtime compatibility requirements
 
 `compatibility.minimumRuntimeContractSchemaVersion` is checked during
