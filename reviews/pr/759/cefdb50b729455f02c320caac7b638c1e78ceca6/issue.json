@@ -1,0 +1,47 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "A versioned build/release surface produces one canonical Mottainai package tarball and immutable digest/integrity from exact source/lock identity."
+    },
+    {
+      "checked": false,
+      "text": "Existing npm package smoke/E2E tests consume the exact canonical payload rather than a separately repacked copy."
+    },
+    {
+      "checked": false,
+      "text": "`nix/mottainai.nix` consumes that exact payload identity, or a test proves the Nix input payload byte-identical to the npm publication payload before packaging succeeds."
+    },
+    {
+      "checked": false,
+      "text": "A deliberate difference in included files, built `dist`, package metadata, or tarball bytes between Route 1 and Route 2 fails closed in CI."
+    },
+    {
+      "checked": false,
+      "text": "Route 2 still supplies its own pinned Node/native execution environment around the Route 1 payload; this Issue does not move Node into the npm tarball."
+    },
+    {
+      "checked": false,
+      "text": "Tagged/historical managed-generation resolution continues to use the release's own declared package identity rather than HEAD's recipe applied to foreign source."
+    },
+    {
+      "checked": false,
+      "text": "Release workflow can build downstream Nix/runtime artifacts before public npm registry publication without weakening the one-payload invariant."
+    },
+    {
+      "checked": false,
+      "text": "Documentation identifies Route 1 payload identity as the application artifact authority consumed by Route 2."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 751,
+    "state": "open",
+    "title": "feat(runtime): make the Nix package consume the canonical npm application payload",
+    "url": "https://github.com/yohn-jp/mottainai/issues/751"
+  },
+  "linked": {
+    "number": 751
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

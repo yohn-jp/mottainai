@@ -1,0 +1,278 @@
+{
+  "baseSha": "52bedc55c5c867aa320263a0944139edc08016e4",
+  "files": [
+    {
+      "additions": 101,
+      "deletions": 9,
+      "hunks": [
+        {
+          "newLines": 10,
+          "newStart": 184,
+          "oldLines": 2,
+          "oldStart": 184
+        },
+        {
+          "newLines": 1,
+          "newStart": 199,
+          "oldLines": 1,
+          "oldStart": 191
+        },
+        {
+          "newLines": 8,
+          "newStart": 229,
+          "oldLines": 0,
+          "oldStart": 220
+        },
+        {
+          "newLines": 1,
+          "newStart": 238,
+          "oldLines": 1,
+          "oldStart": 222
+        },
+        {
+          "newLines": 8,
+          "newStart": 270,
+          "oldLines": 0,
+          "oldStart": 253
+        },
+        {
+          "newLines": 1,
+          "newStart": 292,
+          "oldLines": 1,
+          "oldStart": 268
+        },
+        {
+          "newLines": 4,
+          "newStart": 300,
+          "oldLines": 4,
+          "oldStart": 276
+        },
+        {
+          "newLines": 6,
+          "newStart": 365,
+          "oldLines": 0,
+          "oldStart": 340
+        },
+        {
+          "newLines": 62,
+          "newStart": 374,
+          "oldLines": 0,
+          "oldStart": 343
+        }
+      ],
+      "path": ".github/workflows/publish.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 14,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 7,
+          "newStart": 22,
+          "oldLines": 0,
+          "oldStart": 21
+        },
+        {
+          "newLines": 6,
+          "newStart": 33,
+          "oldLines": 0,
+          "oldStart": 25
+        },
+        {
+          "newLines": 1,
+          "newStart": 105,
+          "oldLines": 1,
+          "oldStart": 92
+        }
+      ],
+      "path": "docs/deployment-route-implementation.md",
+      "status": "modified"
+    },
+    {
+      "additions": 13,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 11,
+          "newStart": 29,
+          "oldLines": 0,
+          "oldStart": 28
+        },
+        {
+          "newLines": 2,
+          "newStart": 212,
+          "oldLines": 0,
+          "oldStart": 200
+        }
+      ],
+      "path": "nix/flake.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 116,
+      "deletions": 30,
+      "hunks": [
+        {
+          "newLines": 5,
+          "newStart": 1,
+          "oldLines": 1,
+          "oldStart": 1
+        },
+        {
+          "newLines": 65,
+          "newStart": 128,
+          "oldLines": 0,
+          "oldStart": 123
+        },
+        {
+          "newLines": 3,
+          "newStart": 229,
+          "oldLines": 0,
+          "oldStart": 159
+        },
+        {
+          "newLines": 2,
+          "newStart": 234,
+          "oldLines": 0,
+          "oldStart": 161
+        },
+        {
+          "newLines": 31,
+          "newStart": 237,
+          "oldLines": 0,
+          "oldStart": 162
+        },
+        {
+          "newLines": 0,
+          "newStart": 273,
+          "oldLines": 3,
+          "oldStart": 169
+        },
+        {
+          "newLines": 0,
+          "newStart": 276,
+          "oldLines": 4,
+          "oldStart": 175
+        },
+        {
+          "newLines": 0,
+          "newStart": 280,
+          "oldLines": 22,
+          "oldStart": 183
+        },
+        {
+          "newLines": 10,
+          "newStart": 287,
+          "oldLines": 0,
+          "oldStart": 210
+        }
+      ],
+      "path": "nix/mottainai.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 70,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 70,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/canonical-payload.test.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 151,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 151,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/lib/canonical-payload.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 2,
+      "deletions": 19,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 6,
+          "oldLines": 0,
+          "oldStart": 5
+        },
+        {
+          "newLines": 0,
+          "newStart": 7,
+          "oldLines": 1,
+          "oldStart": 7
+        },
+        {
+          "newLines": 1,
+          "newStart": 16,
+          "oldLines": 18,
+          "oldStart": 16
+        }
+      ],
+      "path": "scripts/lib/mcp-blackbox-client.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 17,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 17,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/pack-canonical-payload.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 7,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 7,
+          "newStart": 31,
+          "oldLines": 0,
+          "oldStart": 30
+        }
+      ],
+      "path": "scripts/run-package-suite.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 19,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 19,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/verify-canonical-payload.mjs",
+      "status": "added"
+    }
+  ],
+  "headSha": "cefdb50b729455f02c320caac7b638c1e78ceca6",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 510,
+    "deletions": 59,
+    "filesChanged": 10
+  }
+}

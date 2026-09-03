@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #759 @ cefdb50b7294</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #759: feat(runtime): consume canonical npm payload in Nix (#751)</h1>
+<p>Base <code>main</code> @ <code>52bedc55c5c867aa320263a0944139edc08016e4</code> &rarr;
+Head <code>feat/751-canonical-npm-payload</code> @ <code>cefdb50b729455f02c320caac7b638c1e78ceca6</code></p>
+<p>Revision <code>cefdb50b7294</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/751">#751</a> feat(runtime): make the Nix package consume the canonical npm application payload (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] A versioned build/release surface produces one canonical Mottainai package tarball and immutable digest/integrity from exact source/lock identity.</li>
+<li>[ ] Existing npm package smoke/E2E tests consume the exact canonical payload rather than a separately repacked copy.</li>
+<li>[ ] `nix/mottainai.nix` consumes that exact payload identity, or a test proves the Nix input payload byte-identical to the npm publication payload before packaging succeeds.</li>
+<li>[ ] A deliberate difference in included files, built `dist`, package metadata, or tarball bytes between Route 1 and Route 2 fails closed in CI.</li>
+<li>[ ] Route 2 still supplies its own pinned Node/native execution environment around the Route 1 payload; this Issue does not move Node into the npm tarball.</li>
+<li>[ ] Tagged/historical managed-generation resolution continues to use the release&#39;s own declared package identity rather than HEAD&#39;s recipe applied to foreign source.</li>
+<li>[ ] Release workflow can build downstream Nix/runtime artifacts before public npm registry publication without weakening the one-payload invariant.</li>
+<li>[ ] Documentation identifies Route 1 payload identity as the application artifact authority consumed by Route 2.</li></ul>
+
+
+
+<h2>Changed files (10, +510/-59)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/publish.yml</td><td>modified</td><td>+101</td><td>-9</td></tr>
+<tr><td>docs/deployment-route-implementation.md</td><td>modified</td><td>+14</td><td>-1</td></tr>
+<tr><td>nix/flake.nix</td><td>modified</td><td>+13</td><td>-0</td></tr>
+<tr><td>nix/mottainai.nix</td><td>modified</td><td>+116</td><td>-30</td></tr>
+<tr><td>scripts/canonical-payload.test.mjs</td><td>added</td><td>+70</td><td>-0</td></tr>
+<tr><td>scripts/lib/canonical-payload.mjs</td><td>added</td><td>+151</td><td>-0</td></tr>
+<tr><td>scripts/lib/mcp-blackbox-client.mjs</td><td>modified</td><td>+2</td><td>-19</td></tr>
+<tr><td>scripts/pack-canonical-payload.mjs</td><td>added</td><td>+17</td><td>-0</td></tr>
+<tr><td>scripts/run-package-suite.mjs</td><td>modified</td><td>+7</td><td>-0</td></tr>
+<tr><td>scripts/verify-canonical-payload.mjs</td><td>added</td><td>+19</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

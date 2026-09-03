@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "52bedc55c5c867aa320263a0944139edc08016e4",
+    "draft": false,
+    "headRef": "feat/751-canonical-npm-payload",
+    "headSha": "cefdb50b729455f02c320caac7b638c1e78ceca6",
+    "number": 759,
+    "title": "feat(runtime): consume canonical npm payload in Nix (#751)"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "cefdb50b729455f02c320caac7b638c1e78ceca6",
+    "immutable": true,
+    "shortId": "cefdb50b7294"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-03T11:01:54.521Z"
+  }
+}
