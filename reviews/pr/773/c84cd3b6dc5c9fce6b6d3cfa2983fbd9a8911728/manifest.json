@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "afd46d3f7ccfbe57d805023d894bab4effd7d344",
+    "draft": false,
+    "headRef": "refactor/768-main-appliance-certification",
+    "headSha": "c84cd3b6dc5c9fce6b6d3cfa2983fbd9a8911728",
+    "number": 773,
+    "title": "refactor(ci): move canonical Appliance composition certification to trusted main"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "c84cd3b6dc5c9fce6b6d3cfa2983fbd9a8911728",
+    "immutable": true,
+    "shortId": "c84cd3b6dc5c"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-04T01:23:12.795Z"
+  }
+}

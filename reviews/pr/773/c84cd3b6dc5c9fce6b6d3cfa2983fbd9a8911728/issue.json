@@ -1,0 +1,55 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Normal PRs no longer execute the full real-canonical-Appliance OCI/bootstrap/golden-path composition chain solely because they touch host-bootstrap or another non-Appliance owner."
+    },
+    {
+      "checked": false,
+      "text": "Appliance-defining PRs still build the canonical Appliance and verify its bounded manifest before merge."
+    },
+    {
+      "checked": false,
+      "text": "Host-bootstrap/Route 3/4 PRs retain hermetic/fixed contract composition coverage before merge."
+    },
+    {
+      "checked": false,
+      "text": "A trusted `main` push affecting Runtime/VM/Appliance/bootstrap integration runs the full canonical cross-boundary Appliance composition/golden-path certification."
+    },
+    {
+      "checked": false,
+      "text": "Canonical Runtime Appliance artifact publication occurs only after the relevant trusted `main` certification succeeds."
+    },
+    {
+      "checked": false,
+      "text": "Release publication remains exact-tag/revision bound and does not treat mutable `main` or PR evidence as release artifact identity."
+    },
+    {
+      "checked": false,
+      "text": "A failure in trusted canonical integration is visible and attributable; it cannot silently publish an uncertified canonical artifact."
+    },
+    {
+      "checked": false,
+      "text": "Same-PR stale-run cancellation and independent-main-SHA validation concurrency remain intact; only genuinely stateful publication is serialized if required."
+    },
+    {
+      "checked": false,
+      "text": "Before/after evidence records PR critical-path reduction and trusted-main certification duration."
+    },
+    {
+      "checked": false,
+      "text": "No real-host certification claim is made; #261 remains authoritative for Linux/KVM/Lima/QEMU external evidence."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 768,
+    "state": "open",
+    "title": "ci(runtime): move canonical Appliance composition certification to trusted main",
+    "url": "https://github.com/yohn-jp/mottainai/issues/768"
+  },
+  "linked": {
+    "number": 768
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
