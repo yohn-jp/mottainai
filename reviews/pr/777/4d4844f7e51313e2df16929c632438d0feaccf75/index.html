@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #777 @ 4d4844f7e513</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #777: fix(ci): make pnpm executable acquisition cache-first with bounded retry</h1>
+<p>Base <code>main</code> @ <code>f7221fafe91d2628577de1c65d394468ba15fb2c</code> &rarr;
+Head <code>claude/issue-776-pnpm-cache-6vzo1c</code> @ <code>4d4844f7e51313e2df16929c632438d0feaccf75</code></p>
+<p>Revision <code>4d4844f7e513</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/776">#776</a> fix(ci): make pnpm acquisition cache-first with bounded retry (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Warm-cache jobs do not require npm registry access to obtain the pinned pnpm executable.</li>
+<li>[ ] Cache identity includes OS/architecture and exact pnpm version; incompatible executables cannot be restored.</li>
+<li>[ ] Cold-cache acquisition retries transient download failures a bounded number of times with backoff.</li>
+<li>[ ] A successful cold acquisition populates the cache for later workflow runs.</li>
+<li>[ ] Cache miss/eviction remains a supported path; cache is not a correctness dependency.</li>
+<li>[ ] Integrity/version of the acquired/restored pnpm executable is verified before use.</li>
+<li>[ ] Product proof steps are not retried.</li>
+<li>[ ] Existing PR/main CI contract coverage is unchanged.</li>
+<li>[ ] Normal warm-path setup latency does not materially regress from #775.</li></ul>
+
+
+
+<h2>Changed files (2, +158/-31)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/actions/setup-pnpm-node/action.yml</td><td>added</td><td>+134</td><td>-0</td></tr>
+<tr><td>.github/workflows/ci.yml</td><td>modified</td><td>+24</td><td>-31</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
