@@ -179,6 +179,7 @@ test("SSH adapter invokes argv-safe, bounded, finite process and returns connect
       command: ["printf", "$HOME; rm -rf /"],
     });
     assert.equal(result.stdout, "remote-result");
+    assert.equal(result.runtimeIdentityVerified, false);
     assert.equal(calls.length, 1);
     assert.deepEqual(calls[0]?.args, [
       "-o",

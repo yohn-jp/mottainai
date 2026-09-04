@@ -601,7 +601,7 @@ export class SshCommandAdapter {
       connectionId: target.connectionId,
       hostKeyVerified: true,
       runtimeIdentityVerified:
-        target.runtimeIdentity === undefined || request.observedRuntimeIdentity === target.runtimeIdentity,
+        target.runtimeIdentity !== undefined && request.observedRuntimeIdentity === target.runtimeIdentity,
       stdout: result.stdout,
       stderr: result.stderr,
       exitCode: result.exitCode ?? 0,
