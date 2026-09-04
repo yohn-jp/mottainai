@@ -105,8 +105,16 @@ runs:
           exit 1
         fi
 
+    # Cold cache: multiple parallel jobs can race to acquire and save the same
+    # exact-version key at once. Whichever job's save lands first wins; every
+    # other job hits an "already exists" conflict on the same key, which is
+    # expected and not a correctness problem (the winning save is equally
+    # usable by all of them next run). continue-on-error keeps that race from
+    # ever failing this job — cache population is an optimization only, never
+    # a proof dependency.
     - name: Save pnpm executable cache
       if: steps.acquire.outputs.acquired == 'true'
+      continue-on-error: true
       uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
       with:
         path: ${{ steps.pnpm-exe-location.outputs.prefix }}
@@ -124,8 +132,11 @@ runs:
         set -euo pipefail
         echo "path=$("${{ steps.pnpm-exe-location.outputs.prefix }}/bin/pnpm" store path --silent)" >> "$GITHUB_OUTPUT"
 
+    # Same optimization-only guarantee as the pnpm executable cache above:
+    # a save race between parallel jobs on this key must never fail the job.
     - name: Cache pnpm content-addressable store
       if: inputs.enable-dependency-cache == 'true'
+      continue-on-error: true
       uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
       with:
         path: ${{ steps.pnpm-store.outputs.path }}
