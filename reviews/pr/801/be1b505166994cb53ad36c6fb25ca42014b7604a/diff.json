@@ -1,0 +1,66 @@
+{
+  "baseSha": "4f1ef78f0efddc418ac92435daeb57164ccfb8b4",
+  "files": [
+    {
+      "additions": 2,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 95,
+          "oldLines": 0,
+          "oldStart": 94
+        }
+      ],
+      "path": "README.md",
+      "status": "modified"
+    },
+    {
+      "additions": 27,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 27,
+          "newStart": 75,
+          "oldLines": 0,
+          "oldStart": 74
+        }
+      ],
+      "path": "scripts/mcp-stdio-package.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 24,
+      "deletions": 19,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 5,
+          "oldLines": 0,
+          "oldStart": 4
+        },
+        {
+          "newLines": 23,
+          "newStart": 26,
+          "oldLines": 6,
+          "oldStart": 25
+        },
+        {
+          "newLines": 0,
+          "newStart": 49,
+          "oldLines": 13,
+          "oldStart": 32
+        }
+      ],
+      "path": "src/mcp.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "be1b505166994cb53ad36c6fb25ca42014b7604a",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 53,
+    "deletions": 19,
+    "filesChanged": 3
+  }
+}

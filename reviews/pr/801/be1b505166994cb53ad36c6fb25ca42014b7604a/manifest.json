@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "4f1ef78f0efddc418ac92435daeb57164ccfb8b4",
+    "draft": false,
+    "headRef": "fix/799-packed-bin-smoke",
+    "headSha": "be1b505166994cb53ad36c6fb25ca42014b7604a",
+    "number": 801,
+    "title": "fix(cli): make packed bin smoke pass"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "be1b505166994cb53ad36c6fb25ca42014b7604a",
+    "immutable": true,
+    "shortId": "be1b50516699"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-04T14:36:14.927Z"
+  }
+}
