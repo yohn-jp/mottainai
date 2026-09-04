@@ -30,3 +30,28 @@ test("local publish remains OIDC-only and does not add a long-lived npm credenti
   assert.match(workflowText, /npm install --global npm@11\.5\.1/u);
   assert.match(workflowText, /npm publish "\$\(find \. -maxdepth 1 -type f -name 'mottainai-\*\.tgz'/u);
 });
+
+test("draft release lookup resolves by tag name through gh release view, not the raw REST tag endpoint (#726)", () => {
+  assert.doesNotMatch(workflowText, /releases\/tags\/\$TAG/u);
+  assert.match(
+    workflowText,
+    /if gh release view "\$TAG" --json isDraft,tagName > "\$release_json" 2> "\$release_error"; then/u,
+  );
+  assert.match(workflowText, /grep -Eq 'release not found' "\$release_error"/u);
+  assert.match(
+    workflowText,
+    /gh release view "\$TAG" --json isDraft,tagName > "\$created_release"\n\s+jq -e --arg tag "\$TAG" '\.isDraft == true and \.tagName == \$tag' "\$created_release"/u,
+  );
+});
+
+test("finalize-release only runs once every asset-producing job has succeeded", () => {
+  assert.match(
+    workflowText,
+    /needs: \[prepare-release, publish, runtime-appliance, host-bootstrap-init, deployment-descriptor\]/u,
+  );
+  assert.match(workflowText, /needs\.publish\.result == 'success' &&/u);
+  assert.match(workflowText, /needs\.runtime-appliance\.result == 'success' &&/u);
+  assert.match(workflowText, /needs\.host-bootstrap-init\.result == 'success' &&/u);
+  assert.match(workflowText, /needs\.deployment-descriptor\.result == 'success'/u);
+  assert.match(workflowText, /gh release edit "\$RELEASE_TAG" --draft=false/u);
+});

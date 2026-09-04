@@ -11,6 +11,33 @@ in the Claude and Codex registration examples in `README.md` together.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-04
+
+Workflow-identity and runtime-identity release. See
+[docs/releases/0.9.0.md](docs/releases/0.9.0.md) for the full writeup.
+
+- **Added**: Makami PR lifecycle generation is now persisted (#792); governed
+  task artifacts resolve through gh-inari (#411); deterministic Canon prefix
+  and attachment identities are defined (#409); Manager gains Runtime-scoped
+  identity (#421); verified SSH target identity is persisted (#298); durable
+  repository Unix principals are allocated (#791).
+- **Fixed**: post-rename config durability failures are now distinguished
+  from other write failures (#673); draft-release tag resolution and
+  finalize-release gating are hardened (#726).
+- **CI**: the repository now consumes the shared TypeScript CI foundation
+  (#301) and the shared CodeQL workflow (#440); the local npm publish
+  exception is documented (#303).
+
+## [0.8.3] - 2026-09-04
+
+Draft-first publication lifecycle patch. See
+[docs/releases/0.8.3.md](docs/releases/0.8.3.md) for the full writeup.
+
+- **Distribution**: the release workflow creates and retains a mutable draft
+  GitHub Release while assets are produced, then finalizes it only after all
+  required publication jobs succeed, fixing the prior HTTP 422 failure caused
+  by adding assets to an already-published immutable release.
+
 ## [0.6.0] - 2026-08-29
 
 Native harness-delegation MCP release. See
