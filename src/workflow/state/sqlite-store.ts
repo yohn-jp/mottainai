@@ -31,6 +31,12 @@ import type {
   PullRequestRecord,
   PullRequestRecordId,
   RecordPullRequestInput,
+  ManagedPullRequestState,
+  ManagedPullRequestStateId,
+  ManagedPullRequestDerivedInput,
+  ManagedPullRequestDerivedInputId,
+  RecordManagedPullRequestStateInput,
+  RecordManagedPullRequestDerivedInput,
   BeginNawabariCloseReconciliationInput,
   NawabariCloseReconciliationRecord,
   NawabariCloseReconciliationState,
@@ -133,6 +139,7 @@ function principalRepositoryKey(instanceId: string): boolean {
 function assertPrincipalTimestamp(value: number, field: string): void {
   if (!Number.isSafeInteger(value) || value < 0) throw new Error(`repository principal ${field} is invalid`);
 }
+const MAX_MANAGED_PR_FIELD_LENGTH = 512;
 
 function managerDiagnostic(value: unknown): string | undefined {
   if (value === null || value === undefined) return undefined;
@@ -2508,6 +2515,46 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     };
   }
 
+  private toManagedPullRequestState(row: Record<string, unknown>): ManagedPullRequestState {
+    return {
+      stateId: row.state_id as ManagedPullRequestStateId,
+      taskId: (row.task_id as TaskId | null) ?? undefined,
+      instanceId: (row.instance_id as RepositoryInstanceId | null) ?? undefined,
+      provider: row.provider as string,
+      repositoryId: row.repository_id as string,
+      prNumber: row.pr_number as number,
+      generation: {
+        repository: row.generation_repository as string,
+        prNumber: row.generation_pr_number as number,
+        headSha: row.generation_head_sha as string,
+      },
+      coarseState: row.coarse_state as ManagedPullRequestState["coarseState"],
+      observationSource: row.observation_source as string,
+      observationContract: row.observation_contract as string,
+      observationOperation: row.observation_operation as string,
+      observationRef: row.observation_ref as string,
+      observationDigest: (row.observation_digest as string | null) ?? undefined,
+      createdAt: row.created_at as number,
+      updatedAt: row.updated_at as number,
+    };
+  }
+
+  private toManagedPullRequestDerivedInput(row: Record<string, unknown>): ManagedPullRequestDerivedInput {
+    return {
+      inputId: row.input_id as ManagedPullRequestDerivedInputId,
+      stateId: row.state_id as ManagedPullRequestStateId,
+      kind: row.kind as ManagedPullRequestDerivedInput["kind"],
+      generation: {
+        repository: row.generation_repository as string,
+        prNumber: row.generation_pr_number as number,
+        headSha: row.generation_head_sha as string,
+      },
+      state: row.state as ManagedPullRequestDerivedInput["state"],
+      createdAt: row.created_at as number,
+      updatedAt: row.updated_at as number,
+    };
+  }
+
   recordPullRequest(input: RecordPullRequestInput): PullRequestRecord {
     const db = this.handle();
     const now = input.recordedAt ?? Date.now();
@@ -2670,6 +2717,207 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       .prepare("SELECT * FROM pr_records ORDER BY created_at ASC, record_id ASC")
       .all() as Record<string, unknown>[];
     return rows.map((row) => this.toPullRequestRecord(row));
+  }
+
+  recordManagedPullRequestState(input: RecordManagedPullRequestStateInput): ManagedPullRequestState {
+    if (input.provider.trim().length === 0) throw new Error("managed pull-request provider must not be empty");
+    if (input.repositoryId.trim().length === 0)
+      throw new Error("managed pull-request repository identity must not be empty");
+    if (!Number.isSafeInteger(input.prNumber) || input.prNumber <= 0)
+      throw new Error("managed pull-request number must be a positive integer");
+    if (input.generation.repository !== input.repositoryId || input.generation.prNumber !== input.prNumber)
+      throw new Error("managed pull-request generation identity does not match the PR identity");
+    if (input.generation.headSha.trim().length === 0 || input.generation.headSha !== input.generation.headSha.trim())
+      throw new Error("managed pull-request generation head must not be empty");
+    for (const [field, value] of [
+      ["observationSource", input.observationSource],
+      ["observationContract", input.observationContract],
+      ["observationOperation", input.observationOperation],
+      ["observationRef", input.observationRef],
+      ["observationDigest", input.observationDigest],
+    ] as const) {
+      if (value !== undefined && (value.trim().length === 0 || value.length > MAX_MANAGED_PR_FIELD_LENGTH))
+        throw new Error(`managed pull-request ${field} is invalid or exceeds its bound`);
+    }
+
+    const db = this.handle();
+    const now = input.recordedAt ?? Date.now();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const task =
+        input.taskId === undefined
+          ? undefined
+          : (db.prepare("SELECT instance_id FROM tasks WHERE task_id = ?").get(input.taskId) as
+              | { instance_id: RepositoryInstanceId }
+              | undefined);
+      if (input.taskId !== undefined && task === undefined) throw new Error(`task not found: ${input.taskId}`);
+      if (task !== undefined && input.instanceId !== undefined && input.instanceId !== task.instance_id)
+        throw new Error(`managed pull-request task repository mismatch: ${input.taskId}`);
+      const instanceId = input.instanceId ?? task?.instance_id;
+      const existing = db
+        .prepare("SELECT * FROM managed_pr_states WHERE provider = ? AND repository_id = ? AND pr_number = ?")
+        .get(input.provider, input.repositoryId, input.prNumber) as Record<string, unknown> | undefined;
+
+      if (existing !== undefined) {
+        const current = this.toManagedPullRequestState(existing);
+        if (current.taskId !== input.taskId || current.instanceId !== instanceId)
+          throw new Error("managed pull-request state already exists with different task identity");
+        const rollover = current.generation.headSha !== input.generation.headSha;
+        if (rollover) {
+          db.prepare(
+            "UPDATE managed_pr_derived_inputs SET state = 'stale', updated_at = ? WHERE state_id = ? AND generation_head_sha <> ?",
+          ).run(now, current.stateId, input.generation.headSha);
+        }
+        db.prepare(
+          `UPDATE managed_pr_states SET
+             generation_repository = ?, generation_pr_number = ?, generation_head_sha = ?, coarse_state = ?,
+             observation_source = ?, observation_contract = ?, observation_operation = ?, observation_ref = ?,
+             observation_digest = ?, updated_at = ? WHERE state_id = ?`,
+        ).run(
+          input.generation.repository,
+          input.generation.prNumber,
+          input.generation.headSha,
+          input.coarseState,
+          input.observationSource,
+          input.observationContract,
+          input.observationOperation,
+          input.observationRef,
+          input.observationDigest ?? null,
+          now,
+          current.stateId,
+        );
+        const row = db.prepare("SELECT * FROM managed_pr_states WHERE state_id = ?").get(current.stateId) as Record<
+          string,
+          unknown
+        >;
+        db.exec("COMMIT");
+        return this.toManagedPullRequestState(row);
+      }
+
+      const stateId = crypto.randomUUID() as ManagedPullRequestStateId;
+      db.prepare(
+        `INSERT INTO managed_pr_states
+          (state_id, task_id, instance_id, provider, repository_id, pr_number,
+           generation_repository, generation_pr_number, generation_head_sha, coarse_state,
+           observation_source, observation_contract, observation_operation, observation_ref, observation_digest,
+           created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        stateId,
+        input.taskId ?? null,
+        instanceId ?? null,
+        input.provider,
+        input.repositoryId,
+        input.prNumber,
+        input.generation.repository,
+        input.generation.prNumber,
+        input.generation.headSha,
+        input.coarseState,
+        input.observationSource,
+        input.observationContract,
+        input.observationOperation,
+        input.observationRef,
+        input.observationDigest ?? null,
+        now,
+        now,
+      );
+      const row = db.prepare("SELECT * FROM managed_pr_states WHERE state_id = ?").get(stateId) as Record<
+        string,
+        unknown
+      >;
+      db.exec("COMMIT");
+      return this.toManagedPullRequestState(row);
+    } catch (error) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // 元の state 書き込みエラーを保持する
+      }
+      throw error;
+    }
+  }
+
+  getManagedPullRequestState(
+    provider: string,
+    repositoryId: string,
+    prNumber: number,
+  ): ManagedPullRequestState | undefined {
+    const row = this.handle()
+      .prepare("SELECT * FROM managed_pr_states WHERE provider = ? AND repository_id = ? AND pr_number = ?")
+      .get(provider, repositoryId, prNumber) as Record<string, unknown> | undefined;
+    return row === undefined ? undefined : this.toManagedPullRequestState(row);
+  }
+
+  getManagedPullRequestStateForTask(taskId: TaskId): ManagedPullRequestState | undefined {
+    const row = this.handle()
+      .prepare("SELECT * FROM managed_pr_states WHERE task_id = ? ORDER BY updated_at DESC, state_id DESC LIMIT 1")
+      .get(taskId) as Record<string, unknown> | undefined;
+    return row === undefined ? undefined : this.toManagedPullRequestState(row);
+  }
+
+  listManagedPullRequestStates(instanceId?: RepositoryInstanceId): ManagedPullRequestState[] {
+    const rows = (
+      instanceId === undefined
+        ? this.handle().prepare("SELECT * FROM managed_pr_states ORDER BY created_at ASC, state_id ASC").all()
+        : this.handle()
+            .prepare("SELECT * FROM managed_pr_states WHERE instance_id = ? ORDER BY created_at ASC, state_id ASC")
+            .all(instanceId)
+    ) as Record<string, unknown>[];
+    return rows.map((row) => this.toManagedPullRequestState(row));
+  }
+
+  recordManagedPullRequestDerivedInput(input: RecordManagedPullRequestDerivedInput): ManagedPullRequestDerivedInput {
+    const db = this.handle();
+    const now = input.recordedAt ?? Date.now();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const stateRow = db.prepare("SELECT * FROM managed_pr_states WHERE state_id = ?").get(input.stateId) as
+        | Record<string, unknown>
+        | undefined;
+      if (stateRow === undefined) throw new Error(`managed pull-request state not found: ${input.stateId}`);
+      const state = this.toManagedPullRequestState(stateRow);
+      if (
+        state.generation.repository !== input.generation.repository ||
+        state.generation.prNumber !== input.generation.prNumber ||
+        state.generation.headSha !== input.generation.headSha
+      )
+        throw new Error("managed pull-request derived input belongs to a stale generation");
+      const inputId = crypto.randomUUID() as ManagedPullRequestDerivedInputId;
+      db.prepare(
+        `INSERT INTO managed_pr_derived_inputs
+          (input_id, state_id, kind, generation_repository, generation_pr_number, generation_head_sha, state, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'current', ?, ?)`,
+      ).run(
+        inputId,
+        input.stateId,
+        input.kind,
+        input.generation.repository,
+        input.generation.prNumber,
+        input.generation.headSha,
+        now,
+        now,
+      );
+      const row = db.prepare("SELECT * FROM managed_pr_derived_inputs WHERE input_id = ?").get(inputId) as Record<
+        string,
+        unknown
+      >;
+      db.exec("COMMIT");
+      return this.toManagedPullRequestDerivedInput(row);
+    } catch (error) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // 元の state 書き込みエラーを保持する
+      }
+      throw error;
+    }
+  }
+
+  listManagedPullRequestDerivedInputs(stateId: ManagedPullRequestStateId): ManagedPullRequestDerivedInput[] {
+    const rows = this.handle()
+      .prepare("SELECT * FROM managed_pr_derived_inputs WHERE state_id = ? ORDER BY created_at ASC, input_id ASC")
+      .all(stateId) as Record<string, unknown>[];
+    return rows.map((row) => this.toManagedPullRequestDerivedInput(row));
   }
 
   recordGuardrailDecision(input: RecordGuardrailDecisionInput): GuardrailAuditRecord {

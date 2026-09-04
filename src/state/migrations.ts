@@ -803,6 +803,51 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 24,
+    description: "workflow: persist bounded Makami PR lifecycle projection",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE managed_pr_states (
+          state_id TEXT PRIMARY KEY,
+          task_id TEXT,
+          instance_id TEXT,
+          provider TEXT NOT NULL,
+          repository_id TEXT NOT NULL,
+          pr_number INTEGER NOT NULL CHECK (pr_number > 0),
+          generation_repository TEXT NOT NULL,
+          generation_pr_number INTEGER NOT NULL CHECK (generation_pr_number > 0),
+          generation_head_sha TEXT NOT NULL,
+          coarse_state TEXT NOT NULL CHECK (coarse_state IN ('awaiting', 'remediation-required', 'merge-ready', 'merged')),
+          observation_source TEXT NOT NULL,
+          observation_contract TEXT NOT NULL,
+          observation_operation TEXT NOT NULL,
+          observation_ref TEXT NOT NULL,
+          observation_digest TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE (provider, repository_id, pr_number),
+          FOREIGN KEY (instance_id) REFERENCES repository_instances (instance_id),
+          FOREIGN KEY (task_id, instance_id) REFERENCES tasks (task_id, instance_id) ON DELETE CASCADE
+        );
+        CREATE INDEX idx_managed_pr_states_instance ON managed_pr_states (instance_id, updated_at DESC);
+        CREATE INDEX idx_managed_pr_states_task ON managed_pr_states (task_id);
+
+        CREATE TABLE managed_pr_derived_inputs (
+          input_id TEXT PRIMARY KEY,
+          state_id TEXT NOT NULL REFERENCES managed_pr_states (state_id) ON DELETE CASCADE,
+          kind TEXT NOT NULL CHECK (kind IN ('derived', 'remediation')),
+          generation_repository TEXT NOT NULL,
+          generation_pr_number INTEGER NOT NULL CHECK (generation_pr_number > 0),
+          generation_head_sha TEXT NOT NULL,
+          state TEXT NOT NULL CHECK (state IN ('current', 'stale')),
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX idx_managed_pr_derived_inputs_state ON managed_pr_derived_inputs (state_id, state, created_at ASC);
+      `);
+    },
+  },
 ];
 
 function appliedVersions(db: DatabaseSync): Set<number> {

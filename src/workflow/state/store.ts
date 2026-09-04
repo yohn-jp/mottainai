@@ -111,6 +111,8 @@ export type WorktreeId = string & { readonly __brand: "WorktreeId" };
 /** Opaque reference only; Nawabari owns the referenced session record. */
 export type NawabariSessionId = string & { readonly __brand: "NawabariSessionId" };
 export type PullRequestRecordId = string & { readonly __brand: "PullRequestRecordId" };
+export type ManagedPullRequestStateId = string & { readonly __brand: "ManagedPullRequestStateId" };
+export type ManagedPullRequestDerivedInputId = string & { readonly __brand: "ManagedPullRequestDerivedInputId" };
 
 export const NAWABARI_CLOSE_RECONCILIATION_STATES = ["pending", "closed", "blocked"] as const;
 export type NawabariCloseReconciliationState = (typeof NAWABARI_CLOSE_RECONCILIATION_STATES)[number];
@@ -466,6 +468,79 @@ export interface PullRequestRecord {
   lifecycleState: PullRequestLifecycleState;
   createdAt: number;
   updatedAt: number;
+}
+
+/**
+ * The small orchestration projection of Makami's detailed PR observation.
+ * Makami's snapshot/delta is deliberately not stored here; the observation
+ * fields are bounded provenance references and the exact current generation.
+ */
+export const MANAGED_PULL_REQUEST_COARSE_STATES = [
+  "awaiting",
+  "remediation-required",
+  "merge-ready",
+  "merged",
+] as const;
+export type ManagedPullRequestCoarseState = (typeof MANAGED_PULL_REQUEST_COARSE_STATES)[number];
+
+export interface ManagedPullRequestGeneration {
+  repository: string;
+  prNumber: number;
+  headSha: string;
+}
+
+export interface ManagedPullRequestState {
+  stateId: ManagedPullRequestStateId;
+  taskId: TaskId | undefined;
+  instanceId: RepositoryInstanceId | undefined;
+  provider: string;
+  repositoryId: string;
+  prNumber: number;
+  generation: ManagedPullRequestGeneration;
+  coarseState: ManagedPullRequestCoarseState;
+  observationSource: string;
+  observationContract: string;
+  observationOperation: string;
+  observationRef: string;
+  observationDigest: string | undefined;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type ManagedPullRequestDerivedInputKind = "derived" | "remediation";
+export type ManagedPullRequestDerivedInputState = "current" | "stale";
+
+export interface ManagedPullRequestDerivedInput {
+  inputId: ManagedPullRequestDerivedInputId;
+  stateId: ManagedPullRequestStateId;
+  kind: ManagedPullRequestDerivedInputKind;
+  generation: ManagedPullRequestGeneration;
+  state: ManagedPullRequestDerivedInputState;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface RecordManagedPullRequestStateInput {
+  taskId?: TaskId;
+  instanceId?: RepositoryInstanceId;
+  provider: string;
+  repositoryId: string;
+  prNumber: number;
+  generation: ManagedPullRequestGeneration;
+  coarseState: ManagedPullRequestCoarseState;
+  observationSource: string;
+  observationContract: string;
+  observationOperation: string;
+  observationRef: string;
+  observationDigest?: string;
+  recordedAt?: number;
+}
+
+export interface RecordManagedPullRequestDerivedInput {
+  stateId: ManagedPullRequestStateId;
+  kind: ManagedPullRequestDerivedInputKind;
+  generation: ManagedPullRequestGeneration;
+  recordedAt?: number;
 }
 
 export const GUARDRAIL_AUDIT_DECISIONS = ["allow", "deny", "observe"] as const;
@@ -909,6 +984,19 @@ export interface WorkflowStateStore {
     updatedAt?: number,
   ): PullRequestRecord;
   listPullRequestRecords(): PullRequestRecord[];
+
+  /** Persist only the bounded orchestration projection of a Makami PR observation. */
+  recordManagedPullRequestState(input: RecordManagedPullRequestStateInput): ManagedPullRequestState;
+  getManagedPullRequestState(
+    provider: string,
+    repositoryId: string,
+    prNumber: number,
+  ): ManagedPullRequestState | undefined;
+  getManagedPullRequestStateForTask(taskId: TaskId): ManagedPullRequestState | undefined;
+  listManagedPullRequestStates(instanceId?: RepositoryInstanceId): ManagedPullRequestState[];
+  /** Register a generation-bound derived input; rollover marks older inputs stale. */
+  recordManagedPullRequestDerivedInput(input: RecordManagedPullRequestDerivedInput): ManagedPullRequestDerivedInput;
+  listManagedPullRequestDerivedInputs(stateId: ManagedPullRequestStateId): ManagedPullRequestDerivedInput[];
 
   recordGuardrailDecision(input: RecordGuardrailDecisionInput): GuardrailAuditRecord;
   listGuardrailAuditRecords(options?: ListGuardrailAuditRecordsOptions): GuardrailAuditRecord[];
