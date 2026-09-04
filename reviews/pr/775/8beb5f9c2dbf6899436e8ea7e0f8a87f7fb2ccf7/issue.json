@@ -1,0 +1,31 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "`.github/workflows/ci.yml` uses `pnpm/setup@v2` (SHA-pinned) instead of `pnpm/action-setup` in every job listed under Task"
+    },
+    {
+      "checked": false,
+      "text": "No job runs both `pnpm/setup`'s own install and the existing explicit `pnpm install --frozen-lockfile` step"
+    },
+    {
+      "checked": false,
+      "text": "A real CI run on the implementing PR shows the pnpm setup step dropping from minutes to single-digit seconds, compared against the baseline measurements above"
+    },
+    {
+      "checked": false,
+      "text": "No job `needs`, proof step, or assertion is removed or weakened"
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 774,
+    "state": "open",
+    "title": "chore: replace pnpm/action-setup with standalone pnpm/setup in CI",
+    "url": "https://github.com/yohn-jp/mottainai/issues/774"
+  },
+  "linked": {
+    "number": 774
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

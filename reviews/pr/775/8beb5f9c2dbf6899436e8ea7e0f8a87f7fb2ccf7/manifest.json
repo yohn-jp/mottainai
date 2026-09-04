@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "e0576b2def1b90b2c981f27a78ca5b77337924fd",
+    "draft": false,
+    "headRef": "fix/774-pnpm-standalone-setup",
+    "headSha": "8beb5f9c2dbf6899436e8ea7e0f8a87f7fb2ccf7",
+    "number": 775,
+    "title": "fix(workflow): replace pnpm/action-setup with standalone pnpm/setup"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "8beb5f9c2dbf6899436e8ea7e0f8a87f7fb2ccf7",
+    "immutable": true,
+    "shortId": "8beb5f9c2dbf"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-04T06:36:04.969Z"
+  }
+}
