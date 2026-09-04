@@ -426,12 +426,22 @@ jobs:
     # system closure, managed generation, and Route 2 package catalog. VM and
     # Appliance changes also select this job because they consume its build
     # as a prerequisite (docs/ci-topology.md dependency edges), but a Nix
-    # Runtime-only change never pulls in the VM or Appliance jobs below.
+    # Runtime-only change never pulls in the VM or Appliance jobs below. On
+    # trusted `main` pushes only, a `host_bootstrap` change also selects this
+    # job: trusted `main` owns the cross-boundary composition proof between
+    # standalone `mottainai-init` and the real canonical Appliance (Issue
+    # #768), which needs the Nix prerequisite even when no Runtime/VM/
+    # Appliance path itself changed. A host-bootstrap-only PR must not pull
+    # this in (docs/ci-topology.md PR validation matrix).
     if: >-
       (
         needs.runtime-contract-changes.outputs.runtime_nix == 'true' ||
         needs.runtime-contract-changes.outputs.runtime_vm == 'true' ||
-        needs.runtime-contract-changes.outputs.runtime_appliance == 'true'
+        needs.runtime-contract-changes.outputs.runtime_appliance == 'true' ||
+        (
+          github.event_name != 'pull_request' &&
+          needs.runtime-contract-changes.outputs.host_bootstrap == 'true'
+        )
       ) &&
       (
         github.event_name != 'pull_request' ||
@@ -629,15 +639,15 @@ jobs:
     needs: [runtime-contract-changes, runtime-nix]
     # Path-owned (docs/ci-topology.md `runtime-appliance` / "Appliance proof
     # boundary"): an Appliance-defining PR must prove the canonical Appliance
-    # derivation builds and its bounded manifest matches, before merge. The
-    # full real-canonical-Appliance OCI/bootstrap/golden-path composition
-    # intentionally still runs on the PR here (Issue #767 does not move it to
-    # trusted `main`; that event-boundary change is #768's scope), but now
-    # only when the Appliance contract itself changed rather than on every
-    # Nix/VM-affecting PR. Trusted `main` keeps proving the same composition
-    # for every affected Runtime/VM/Appliance change regardless of which
-    # class invalidated it (docs/ci-topology.md "Trusted main canonical
-    # integration").
+    # derivation builds and its bounded manifest matches, before merge - that
+    # is the full extent of PR-tier proof (Issue #768). The full
+    # real-canonical-Appliance OCI-shaped composition, standalone
+    # `mottainai-init` composition verification, and Runtime Appliance golden
+    # path are cross-boundary integration evidence, not rejection evidence;
+    # they run only on trusted `main` pushes that affect Runtime/VM/
+    # Appliance/bootstrap integration, regardless of which contract class
+    # invalidated it (docs/ci-topology.md "Trusted main canonical
+    # integration"), and gate canonical artifact publication below.
     if: >-
       needs.runtime-nix.result == 'success' &&
       (
@@ -691,15 +701,15 @@ jobs:
       - name: Install Node dependencies for manifest generation
         run: pnpm install --frozen-lockfile
 
-      # Pull requests validate the exact publishable appliance on this existing
-      # Nix runner/store, but do not persist the generated files.
-      - name: Build the canonical, self-bootable Runtime Appliance disk for PR validation
-        if: github.event_name == 'pull_request'
+      # Both an Appliance-defining PR and a trusted `main` integration run
+      # validate the exact publishable appliance on this existing Nix
+      # runner/store, but neither persists the generated files - publication
+      # rebuilds independently below, only after this certification succeeds.
+      - name: Build the canonical, self-bootable Runtime Appliance disk
         working-directory: nix
         run: nix build --no-update-lock-file --no-link .#runtime-appliance-image
 
-      - name: Generate and verify the bounded Runtime Appliance manifest for PR validation
-        if: github.event_name == 'pull_request'
+      - name: Generate and verify the bounded Runtime Appliance manifest
         working-directory: nix
         shell: bash
         run: |
@@ -732,12 +742,18 @@ jobs:
             verifyRuntimeApplianceManifest(manifest, process.env.DISK);
           '
 
+      # Cross-boundary integration evidence (docs/ci-topology.md "Trusted
+      # main canonical integration"): the OCI-shaped composition, standalone
+      # `mottainai-init` composition verification, and Runtime Appliance
+      # golden path run only on trusted `main` pushes, not on the PR (Issue
+      # #768). The Appliance-defining PR proof above (build + bounded
+      # manifest) is unchanged and unweakened.
       - name: Install Rust toolchain for the host-bootstrap Appliance composition proof
-        if: github.event_name == 'pull_request'
+        if: github.event_name != 'pull_request'
         run: rustup toolchain install stable --profile minimal --no-self-update
 
       - name: Build a local OCI-shaped fixture from the real canonical Runtime Appliance (Issue #661)
-        if: github.event_name == 'pull_request'
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -748,8 +764,8 @@ jobs:
             --disk "$RUNNER_TEMP/runtime-appliance/x86_64-linux/mottainai-runtime-appliance.raw" \
             --output "$RUNNER_TEMP/runtime-appliance-oci-fixture"
 
-      - name: Prove mottainai-init resolves/verifies the real canonical Runtime Appliance (Issue #661)
-        if: github.event_name == 'pull_request'
+      - name: Prove mottainai-init resolves/verifies the real canonical Runtime Appliance and run the Runtime Appliance golden path (Issue #630, #661, #768)
+        if: github.event_name != 'pull_request'
         env:
           MOTTAINAI_REAL_APPLIANCE_OCI_MANIFEST: ${{ runner.temp }}/runtime-appliance-oci-fixture/oci-manifest.json
           MOTTAINAI_REAL_APPLIANCE_BLOBS_DIR: ${{ runner.temp }}/runtime-appliance-oci-fixture/blobs
@@ -762,6 +778,10 @@ jobs:
             set -euo pipefail
             sudo git config --global --add safe.directory "$GITHUB_WORKSPACE"
             cd nix
+            # The guest intentionally exercises the production HTTPS source
+            # resolver, so this one derivation runs outside the default Nix
+            # sandbox; every other Runtime build in this workflow stays
+            # sandboxed.
             sudo "$(command -v nix)" build --option sandbox relaxed --no-update-lock-file --no-link .#checks.x86_64-linux.runtime-appliance-golden-path
           ) >"$golden_log" 2>&1 &
           golden_pid=$!
@@ -778,17 +798,6 @@ jobs:
           cat "$golden_log"
           test "$real_status" -eq 0
           test "$golden_status" -eq 0
-
-      - name: Execute the Runtime Appliance golden path (Issue #630, main push)
-        if: github.event_name != 'pull_request'
-        working-directory: nix
-        # The guest intentionally exercises the production HTTPS source
-        # resolver. Run this one explicitly networked test derivation outside
-        # the default Nix sandbox; all other Runtime builds stay sandboxed.
-        run: |
-          set -euo pipefail
-          sudo git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          sudo "$(command -v nix)" build --option sandbox relaxed --no-update-lock-file --no-link .#checks.x86_64-linux.runtime-appliance-golden-path
 
   runtime-contract:
     name: Nix Runtime evaluation / image / VM test
@@ -831,9 +840,11 @@ jobs:
   runtime-appliance-artifact:
     name: Publish canonical Runtime Appliance artifact
     needs: [runtime-contract-changes, runtime-contract]
-    # Persist only the validated artifact from the trusted canonical main push.
-    # Pull requests perform the same appliance proof in runtime-contract above;
-    # this publication job is intentionally skipped for pull_request events.
+    # Persist only the validated artifact from the trusted canonical `main`
+    # push, and only after `runtime-contract` (which now includes the full
+    # cross-boundary OCI/mottainai-init/golden-path certification on `main`,
+    # not just the PR-tier build/manifest proof) has succeeded (Issue #768).
+    # This publication job is intentionally skipped for pull_request events.
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&

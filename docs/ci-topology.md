@@ -204,16 +204,34 @@ The current workflow did select the full Runtime chain because `host-bootstrap/*
 
 ## Current implementation debt
 
-[#766](https://github.com/yohn-jp/mottainai/issues/766) and [#767](https://github.com/yohn-jp/mottainai/issues/767) closed the broad `runtime` ownership filter and the single monolithic `Nix Runtime evaluation / image / VM test` job. Change detection now selects `runtime_nix`/`runtime_vm`/`runtime_appliance`/`host_bootstrap` as explicit overlapping classes, and PR validation runs as independently skippable `runtime-nix`, `runtime-vm`, and `runtime-appliance` jobs behind a stable aggregate `Nix Runtime evaluation / image / VM test` merge gate.
+[#766](https://github.com/yohn-jp/mottainai/issues/766), [#767](https://github.com/yohn-jp/mottainai/issues/767), and [#768](https://github.com/yohn-jp/mottainai/issues/768) closed the broad `runtime` ownership filter, the single monolithic `Nix Runtime evaluation / image / VM test` job, and the PR-tier full canonical Appliance composition run. Change detection selects `runtime_nix`/`runtime_vm`/`runtime_appliance`/`host_bootstrap` as explicit overlapping classes; PR validation runs as independently skippable `runtime-nix`, `runtime-vm`, and `runtime-appliance` jobs behind a stable aggregate `Nix Runtime evaluation / image / VM test` merge gate; and the `runtime-appliance` job itself now selects a different certification tier per event (see "PR/trusted-main tier split within `runtime-appliance`" below).
 
-The remaining known debt: an Appliance-defining PR still performs the full real canonical Appliance OCI/bootstrap composition and golden-path certification directly on the PR (now gated to `runtime_appliance`-affecting PRs only, not every Runtime-affecting PR), while trusted `main` separately owns canonical publication. Moving that full composition/golden-path proof to affected trusted `main` pushes is #768's event-boundary change, not yet made.
+No known event-tier migration debt remains from #764-#768. A future cache/multi-runner optimization Issue may still follow once representative latencies are measured against the SLO table below, but that is out of scope for the topology migration itself.
 
-This is a known migration debt, not an architectural exception.
+### PR/trusted-main tier split within `runtime-appliance`
+
+The `runtime-appliance` job runs the same steps regardless of which event selected it, but individual steps are gated by `github.event_name` so the two tiers stay structurally distinct in one job definition rather than duplicated across two:
+
+| Step | PR (Appliance-defining) | Trusted `main` (affected) |
+| --- | --- | --- |
+| build the canonical Appliance disk | yes | yes |
+| generate/verify the bounded manifest | yes | yes |
+| build the OCI-shaped fixture | no | yes |
+| standalone `mottainai-init` composition verification | no | yes |
+| Runtime Appliance golden path | no | yes |
+
+A trusted `main` push runs this full chain whenever `runtime_nix`, `runtime_vm`, or `runtime_appliance` changed, and also when only `host_bootstrap` changed (the cross-boundary composition proof between standalone `mottainai-init` and the real canonical Appliance is exactly the boundary a host-bootstrap-only change can invalidate, even though it does not warrant the canonical Appliance rebuild on the PR itself). `scripts/ci-runtime-contract-gates.mjs`/`.test.mjs` verify both the job-level event-tier selection and this step-level tier split deterministically, without running GitHub Actions.
+
+### Evidence (Issue #768)
+
+Removed from the PR critical path for an Appliance-defining PR: installing the Rust toolchain, building the local OCI-shaped fixture from the real disk, running the standalone `mottainai-init` real-artifact composition test, and the networked (`--option sandbox relaxed`) Runtime Appliance golden-path check. Those were the most expensive steps in the job (a real disk-backed Rust integration test and a KVM-backed guest boot with outbound HTTPS resolution), run serially after the Nix Runtime and canonical Appliance build/manifest work that remains on the PR. Removing them moves the Appliance-defining PR path toward this document's `<= 8 min` SLO instead of paying full cross-boundary certification latency on every such PR.
+
+Trusted `main` now performs strictly more work per affected push than before: previously only the golden-path check ran on `main`; now the same build, manifest, OCI-shaped fixture, standalone `mottainai-init` composition, and golden path all run together, and canonical artifact publication (`runtime-appliance-artifact`) only starts after that full chain succeeds. The dominant cost is unchanged (the same KVM-backed golden-path guest boot that previously ran alone on `main`), so this remains within the `<= 15 min` trusted-`main` SLO in this document; this is a structural/step-composition analysis, not a measured wall-clock run, since no representative trusted-`main` push exists yet on the branch introducing this change.
 
 ## Migration plan
 
 - [x] [#766](https://github.com/yohn-jp/mottainai/issues/766) — split change detection by contract ownership and remove blanket `host-bootstrap/** -> full runtime` invalidation.
 - [x] [#767](https://github.com/yohn-jp/mottainai/issues/767) — decompose PR Runtime validation into targeted Nix, VM, Appliance, and bootstrap-composition gates.
-- [ ] [#768](https://github.com/yohn-jp/mottainai/issues/768) — move full real-canonical-Appliance composition/golden-path certification to affected trusted `main` pushes and gate canonical publication on it.
+- [x] [#768](https://github.com/yohn-jp/mottainai/issues/768) — move full real-canonical-Appliance composition/golden-path certification to affected trusted `main` pushes and gate canonical publication on it.
 
-After those changes, measure representative Node, host-bootstrap, Nix Runtime, VM, Appliance, and trusted-main critical paths. Create a cache/runner optimization Issue only if the remaining measured latency still justifies one.
+After these changes, measure representative Node, host-bootstrap, Nix Runtime, VM, Appliance, and trusted-main critical paths from real workflow runs. Create a cache/runner optimization Issue only if the remaining measured latency still justifies one.
