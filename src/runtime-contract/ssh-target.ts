@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { replaceFileAtomically } from "../atomic-file.js";
@@ -7,6 +8,8 @@ import { DIRECT_BOUNDARIES } from "../boundary.js";
 import type { BoundaryOperations } from "../boundary.js";
 import { runProgram } from "../subprocess.js";
 import type { RunResult } from "../subprocess.js";
+import { parseRuntimeCapabilityResult } from "./contract.js";
+import type { RuntimeCapabilityResult } from "./contract.js";
 
 /**
  * Durable SSH transport authority for Issue #298.
@@ -16,7 +19,10 @@ import type { RunResult } from "../subprocess.js";
  * Runtime's semantic state. `targetId` is the operator's stable logical
  * target; `connectionId` identifies the currently trusted transport binding.
  * A changed address or host key therefore cannot silently inherit a Runtime
- * identity.
+ * identity. The persisted public host key is cryptographically checked against
+ * its SHA-256 fingerprint and is materialized into an ephemeral known_hosts
+ * file for each real SSH process; caller-supplied fingerprints are only an
+ * optional preflight check, never the process trust authority.
  */
 export const SSH_TARGET_CONTRACT_ID = "mottainai.ssh-target-registry.v1" as const;
 export const SSH_TARGET_SCHEMA_VERSION = 1 as const;
@@ -32,6 +38,7 @@ const MAX_ID_LENGTH = 256 as const;
 const MAX_HOSTNAME_LENGTH = 255 as const;
 const MAX_USER_LENGTH = 128 as const;
 const MAX_FINGERPRINT_LENGTH = 256 as const;
+const MAX_HOST_KEY_MATERIAL_LENGTH = 8_192 as const;
 const MAX_ALGORITHM_LENGTH = 64 as const;
 const MAX_COMMAND_ARGUMENTS = 128 as const;
 const MAX_ARGUMENT_LENGTH = 4_096 as const;
@@ -75,6 +82,14 @@ const algorithmSchema = z
   .max(MAX_ALGORITHM_LENGTH)
   .regex(/^[A-Za-z0-9@._+-]+$/u);
 const timestampSchema = z.string().datetime({ offset: true });
+const hostKeyMaterialSchema = z
+  .string()
+  .min(1)
+  .max(MAX_HOST_KEY_MATERIAL_LENGTH)
+  .refine(
+    (value) => !/[\u0000-\u001f\u007f\t\r\n]/u.test(value) && value.trim() === value,
+    "host-key material must be one compact public-key line",
+  );
 
 const sshTargetRecordSchema = z
   .object({
@@ -85,13 +100,39 @@ const sshTargetRecordSchema = z
     user: userSchema,
     hostKeyFingerprint: fingerprintSchema,
     hostKeyAlgorithm: algorithmSchema,
+    hostKeyMaterial: hostKeyMaterialSchema,
     trustProvenance: z.enum(SSH_TRUST_PROVENANCES),
     trustedAt: timestampSchema,
     runtimeIdentity: z.string().min(1).max(MAX_ID_LENGTH).optional(),
     createdAt: timestampSchema,
     updatedAt: timestampSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((record, context) => {
+    try {
+      const hostKey = inspectHostKeyMaterial(record.hostKeyMaterial);
+      if (hostKey.algorithm !== record.hostKeyAlgorithm) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["hostKeyAlgorithm"],
+          message: "host-key algorithm does not match public-key material",
+        });
+      }
+      if (hostKey.fingerprint !== record.hostKeyFingerprint) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["hostKeyFingerprint"],
+          message: "host-key fingerprint does not match public-key material",
+        });
+      }
+    } catch (error) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["hostKeyMaterial"],
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
 
 export const SshTargetRecordSchema = sshTargetRecordSchema;
 export type SshTargetRecord = z.infer<typeof sshTargetRecordSchema>;
@@ -171,6 +212,8 @@ export interface CreateSshTargetInput {
   readonly user: string;
   /** Supplying this is an explicit operator trust action; no TOFU default exists. */
   readonly hostKeyFingerprint: string;
+  /** OpenSSH public-key material (`algorithm base64`), never a private key. */
+  readonly hostKeyMaterial: string;
   readonly hostKeyAlgorithm?: string;
   readonly trustAction: "explicit";
 }
@@ -181,16 +224,19 @@ export interface RebindSshTargetInput {
   readonly port: number;
   readonly user: string;
   readonly hostKeyFingerprint: string;
+  /** OpenSSH public-key material (`algorithm base64`), never a private key. */
+  readonly hostKeyMaterial: string;
   readonly hostKeyAlgorithm?: string;
   readonly trustAction: "explicit";
-  /** Both values must independently identify the Runtime already bound to targetId. */
-  readonly expectedRuntimeIdentity: string;
-  readonly independentlyVerifiedRuntimeIdentity: string;
+  /** Parsed through RuntimeCapabilityResultSchema before a binding is changed. */
+  readonly runtimeCapability: unknown;
 }
 
 export interface SshConnectionEvidence {
-  readonly observedHostKeyFingerprint: string;
-  readonly observedRuntimeIdentity?: string;
+  readonly observedHostKeyFingerprint?: string;
+  readonly observedHostKeyAlgorithm?: string;
+  /** Parsed by the existing Runtime capability authority; raw identity strings are not accepted. */
+  readonly observedRuntimeCapability?: unknown;
 }
 
 export interface SshTargetStatus {
@@ -223,6 +269,59 @@ function newConnectionId(): string {
   return crypto.randomUUID();
 }
 
+interface HostKeyDetails {
+  readonly algorithm: string;
+  readonly material: string;
+  readonly fingerprint: string;
+}
+
+/**
+ * Decode the OpenSSH public-key blob and derive the standard SHA256:
+ * fingerprint. The first SSH wire field is the algorithm name; checking it
+ * prevents a record from pairing one algorithm label with another key blob.
+ */
+function inspectHostKeyMaterial(material: string): HostKeyDetails {
+  const parts = material.trim().split(/\s+/u);
+  if (parts.length !== 2 || !/^[A-Za-z0-9@._+-]+$/u.test(parts[0] ?? "")) {
+    throw new SshTargetError("state_corrupt", "host-key material must contain exactly algorithm and public-key blob");
+  }
+  const algorithm = parts[0]!;
+  const encoded = parts[1]!;
+  let blob: Buffer;
+  try {
+    blob = Buffer.from(encoded, "base64");
+  } catch {
+    throw new SshTargetError("state_corrupt", "host-key material is not valid base64");
+  }
+  const canonicalInput = encoded.replace(/=+$/u, "");
+  const canonicalBlob = blob.toString("base64").replace(/=+$/u, "");
+  if (blob.length < 4 || canonicalInput !== canonicalBlob) {
+    throw new SshTargetError("state_corrupt", "host-key material has a malformed public-key blob");
+  }
+  const algorithmLength = blob.readUInt32BE(0);
+  const embeddedAlgorithm = blob.subarray(4, 4 + algorithmLength).toString("utf8");
+  if (
+    4 + algorithmLength > blob.length ||
+    embeddedAlgorithm !== algorithm ||
+    !/^[\x20-\x7e]+$/u.test(embeddedAlgorithm)
+  ) {
+    throw new SshTargetError("state_corrupt", "host-key material algorithm does not match its public-key blob");
+  }
+  const fingerprint = `SHA256:${crypto.createHash("sha256").update(blob).digest("base64").replace(/=+$/u, "")}`;
+  return { algorithm, material: `${algorithm} ${canonicalBlob}`, fingerprint };
+}
+
+function validateHostKeyBinding(record: SshTargetRecord): SshTargetRecord {
+  const details = inspectHostKeyMaterial(record.hostKeyMaterial);
+  if (details.algorithm !== record.hostKeyAlgorithm || details.fingerprint !== record.hostKeyFingerprint) {
+    throw new SshTargetError(
+      "state_corrupt",
+      `host-key fingerprint/algorithm does not match persisted public-key material for target ${record.targetId}`,
+    );
+  }
+  return { ...record, hostKeyMaterial: details.material };
+}
+
 function parseState(value: unknown): SshTargetRegistryState {
   const result = SshTargetRegistrySchema.safeParse(value);
   if (!result.success) {
@@ -231,7 +330,12 @@ function parseState(value: unknown): SshTargetRegistryState {
       `SSH target registry is invalid: ${result.error.issues.map((issue) => issue.message).join("; ")}`,
     );
   }
-  return result.data;
+  try {
+    return { ...result.data, targets: result.data.targets.map(validateHostKeyBinding) };
+  } catch (error) {
+    if (error instanceof SshTargetError) throw error;
+    throw new SshTargetError("state_corrupt", `host-key material is invalid: ${String(error)}`);
+  }
 }
 
 function compareText(left: string, right: string): number {
@@ -312,9 +416,17 @@ function findTarget(state: SshTargetRegistryState, targetId: string): SshTargetR
   return target;
 }
 
-function assertRuntimeIdentity(value: string, field: string): void {
-  if (value.length === 0 || value.length > MAX_ID_LENGTH || /[\u0000-\u001f\u007f]/u.test(value)) {
-    throw new SshTargetError("runtime-identity-mismatch", `${field} is invalid`);
+function parseRuntimeIdentityEvidence(
+  evidence: unknown,
+  errorCode: "runtime-identity-mismatch" | "rebind-verification-required",
+): RuntimeCapabilityResult {
+  try {
+    return parseRuntimeCapabilityResult(evidence);
+  } catch (error) {
+    throw new SshTargetError(
+      errorCode,
+      `independent Runtime capability evidence is invalid: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -380,6 +492,16 @@ export class SshTargetRegistry {
     if (this.state.targets.some((target) => target.targetId === input.targetId)) {
       throw new SshTargetError("target_exists", `SSH target is already registered: ${input.targetId}`);
     }
+    const hostKey = inspectHostKeyMaterial(input.hostKeyMaterial);
+    if (
+      hostKey.fingerprint !== input.hostKeyFingerprint ||
+      (input.hostKeyAlgorithm !== undefined && hostKey.algorithm !== input.hostKeyAlgorithm)
+    ) {
+      throw new SshTargetError(
+        "trust_required",
+        "host-key fingerprint and algorithm must match the supplied public-key material",
+      );
+    }
     const now = normalizeDate(this.now);
     const target: SshTargetRecord = {
       targetId: input.targetId,
@@ -388,7 +510,8 @@ export class SshTargetRegistry {
       port: input.port,
       user: input.user,
       hostKeyFingerprint: input.hostKeyFingerprint,
-      hostKeyAlgorithm: input.hostKeyAlgorithm ?? "ssh-ed25519",
+      hostKeyAlgorithm: hostKey.algorithm,
+      hostKeyMaterial: hostKey.material,
       trustProvenance: "operator-explicit",
       trustedAt: now,
       createdAt: now,
@@ -399,15 +522,10 @@ export class SshTargetRegistry {
     return target;
   }
 
-  /** Binds a Runtime only after an independent identity observation. */
-  bindRuntimeIdentity(targetId: string, runtimeIdentity: string, independentlyVerified: boolean): SshTargetRecord {
-    if (!independentlyVerified) {
-      throw new SshTargetError(
-        "rebind-verification-required",
-        "Runtime identity binding requires independent verification evidence",
-      );
-    }
-    assertRuntimeIdentity(runtimeIdentity, "Runtime identity");
+  /** Binds a Runtime only from the existing, structured Runtime capability authority. */
+  bindRuntimeIdentity(targetId: string, evidence: unknown): SshTargetRecord {
+    const capability = parseRuntimeIdentityEvidence(evidence, "rebind-verification-required");
+    const runtimeIdentity = capability.runtimeIdentity;
     const target = findTarget(this.state, targetId);
     if (target.runtimeIdentity !== undefined && target.runtimeIdentity !== runtimeIdentity) {
       throw new SshTargetError("runtime-identity-mismatch", "target is already bound to a different Runtime identity");
@@ -419,17 +537,33 @@ export class SshTargetRegistry {
 
   verifyConnection(targetId: string, evidence: SshConnectionEvidence): SshTargetRecord {
     const target = findTarget(this.state, targetId);
-    if (evidence.observedHostKeyFingerprint !== target.hostKeyFingerprint) {
+    if (
+      evidence.observedHostKeyFingerprint !== undefined &&
+      evidence.observedHostKeyFingerprint !== target.hostKeyFingerprint
+    ) {
       throw new SshTargetError(
         "host-key-mismatch",
         `SSH host key mismatch for target ${targetId}; explicit re-trust and rebind are required`,
       );
     }
+    if (
+      evidence.observedHostKeyAlgorithm !== undefined &&
+      evidence.observedHostKeyAlgorithm !== target.hostKeyAlgorithm
+    ) {
+      throw new SshTargetError(
+        "host-key-mismatch",
+        `SSH host-key algorithm mismatch for target ${targetId}; explicit re-trust and rebind are required`,
+      );
+    }
     if (target.runtimeIdentity !== undefined) {
-      if (
-        evidence.observedRuntimeIdentity === undefined ||
-        evidence.observedRuntimeIdentity !== target.runtimeIdentity
-      ) {
+      if (evidence.observedRuntimeCapability === undefined) {
+        throw new SshTargetError(
+          "runtime-identity-mismatch",
+          `Runtime identity mismatch for target ${targetId}; address reuse cannot prove continuity`,
+        );
+      }
+      const capability = parseRuntimeIdentityEvidence(evidence.observedRuntimeCapability, "runtime-identity-mismatch");
+      if (capability.runtimeIdentity !== target.runtimeIdentity) {
         throw new SshTargetError(
           "runtime-identity-mismatch",
           `Runtime identity mismatch for target ${targetId}; address reuse cannot prove continuity`,
@@ -441,17 +575,22 @@ export class SshTargetRegistry {
 
   rebind(input: RebindSshTargetInput): SshTargetRecord {
     validateTrustAction(input.trustAction);
-    assertRuntimeIdentity(input.expectedRuntimeIdentity, "expected Runtime identity");
-    assertRuntimeIdentity(input.independentlyVerifiedRuntimeIdentity, "independent Runtime identity");
+    const capability = parseRuntimeIdentityEvidence(input.runtimeCapability, "rebind-verification-required");
     const target = findTarget(this.state, input.targetId);
-    if (
-      target.runtimeIdentity === undefined ||
-      target.runtimeIdentity !== input.expectedRuntimeIdentity ||
-      input.independentlyVerifiedRuntimeIdentity !== target.runtimeIdentity
-    ) {
+    if (target.runtimeIdentity === undefined || capability.runtimeIdentity !== target.runtimeIdentity) {
       throw new SshTargetError(
         "runtime-identity-mismatch",
         "transport rebind requires independently verified continuity with the stored Runtime identity",
+      );
+    }
+    const hostKey = inspectHostKeyMaterial(input.hostKeyMaterial);
+    if (
+      hostKey.fingerprint !== input.hostKeyFingerprint ||
+      (input.hostKeyAlgorithm !== undefined && hostKey.algorithm !== input.hostKeyAlgorithm)
+    ) {
+      throw new SshTargetError(
+        "trust_required",
+        "host-key fingerprint and algorithm must match the supplied public-key material",
       );
     }
     const updated: SshTargetRecord = {
@@ -460,8 +599,9 @@ export class SshTargetRegistry {
       hostname: input.hostname,
       port: input.port,
       user: input.user,
-      hostKeyFingerprint: input.hostKeyFingerprint,
-      hostKeyAlgorithm: input.hostKeyAlgorithm ?? target.hostKeyAlgorithm,
+      hostKeyFingerprint: hostKey.fingerprint,
+      hostKeyAlgorithm: hostKey.algorithm,
+      hostKeyMaterial: hostKey.material,
       trustProvenance: "operator-reverified",
       trustedAt: normalizeDate(this.now),
       updatedAt: normalizeDate(this.now),
@@ -485,8 +625,9 @@ export class SshTargetRegistry {
 export interface SshCommandRequest {
   readonly targetId: string;
   readonly command: readonly string[];
-  readonly observedHostKeyFingerprint: string;
-  readonly observedRuntimeIdentity?: string;
+  readonly observedHostKeyFingerprint?: string;
+  readonly observedHostKeyAlgorithm?: string;
+  readonly observedRuntimeCapability?: unknown;
 }
 
 export interface SshCommandResult {
@@ -511,7 +652,6 @@ export interface SshAdapterOptions {
   readonly cwd: string;
   readonly boundaries?: BoundaryOperations;
   readonly binary?: string;
-  readonly knownHostsFile?: string;
   readonly timeoutMs?: number;
   readonly maxOutputBytes?: number;
   readonly run?: SshCommandRunner;
@@ -528,6 +668,36 @@ function validateCommand(command: readonly string[]): void {
     if (argument.length > MAX_ARGUMENT_LENGTH || /\u0000/u.test(argument)) {
       throw new SshTransportError("unsupported-transport-state", "SSH command contains an invalid argument");
     }
+  }
+}
+
+/** A remote command is one argv element because OpenSSH invokes a remote shell. */
+function quoteRemoteArgument(argument: string): string {
+  return `'${argument.replaceAll("'", `'"'"'`)}'`;
+}
+
+function createEphemeralKnownHosts(
+  target: SshTargetRecord,
+  boundaries: BoundaryOperations,
+): { directory: string; filePath: string } {
+  const directory = boundaries.file("ssh.known-hosts.directory.create", () =>
+    fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-ssh-known-hosts-")),
+  );
+  const filePath = path.join(directory, "known_hosts");
+  boundaries.file("ssh.known-hosts.write", () => {
+    fs.writeFileSync(filePath, `${target.hostname} ${target.hostKeyMaterial}\n`, { encoding: "utf8", mode: 0o600 });
+    fs.chmodSync(filePath, 0o600);
+  });
+  return { directory, filePath };
+}
+
+function cleanupEphemeralKnownHosts(directory: string, boundaries: BoundaryOperations): void {
+  try {
+    boundaries.file("ssh.known-hosts.directory.cleanup", () => fs.rmSync(directory, { recursive: true, force: true }));
+  } catch {
+    // The known_hosts file contains only public material; a cleanup failure
+    // must not hide the primary SSH result, while the next invocation uses a
+    // fresh directory and never trusts this path implicitly.
   }
 }
 
@@ -549,7 +719,6 @@ export class SshCommandAdapter {
   private readonly registry: SshTargetRegistry;
   private readonly cwd: string;
   private readonly binary: string;
-  private readonly knownHostsFile: string | undefined;
   private readonly timeoutMs: number;
   private readonly maxOutputBytes: number;
   private readonly run: SshCommandRunner;
@@ -560,7 +729,6 @@ export class SshCommandAdapter {
     this.cwd = options.cwd;
     this.boundaries = options.boundaries ?? DIRECT_BOUNDARIES;
     this.binary = options.binary ?? "ssh";
-    this.knownHostsFile = options.knownHostsFile;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.maxOutputBytes = Math.min(options.maxOutputBytes ?? DEFAULT_OUTPUT_BYTES, MAX_OUTPUT_BYTES);
     if (!Number.isSafeInteger(this.timeoutMs) || this.timeoutMs < 1) {
@@ -579,20 +747,36 @@ export class SshCommandAdapter {
     validateCommand(request.command);
     const target = this.registry.verifyConnection(request.targetId, {
       observedHostKeyFingerprint: request.observedHostKeyFingerprint,
-      ...(request.observedRuntimeIdentity === undefined
+      observedHostKeyAlgorithm: request.observedHostKeyAlgorithm,
+      ...(request.observedRuntimeCapability === undefined
         ? {}
-        : { observedRuntimeIdentity: request.observedRuntimeIdentity }),
+        : { observedRuntimeCapability: request.observedRuntimeCapability }),
     });
     const destination = `${target.user}@${target.hostname}`;
-    const args: string[] = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes"];
-    if (this.knownHostsFile !== undefined) {
-      if (this.knownHostsFile.length === 0 || /\u0000/u.test(this.knownHostsFile)) {
-        throw new SshTransportError("unsupported-transport-state", "known-hosts path is invalid");
-      }
-      args.push("-o", `UserKnownHostsFile=${this.knownHostsFile}`);
+    const knownHosts = createEphemeralKnownHosts(target, this.boundaries);
+    const args: string[] = [
+      "-o",
+      "BatchMode=yes",
+      "-o",
+      "StrictHostKeyChecking=yes",
+      "-o",
+      "GlobalKnownHostsFile=/dev/null",
+      "-o",
+      `UserKnownHostsFile=${knownHosts.filePath}`,
+      "-o",
+      "CheckHostIP=no",
+      "-p",
+      String(target.port),
+      "--",
+      destination,
+      request.command.map(quoteRemoteArgument).join(" "),
+    ];
+    let result: RunResult;
+    try {
+      result = await this.run(args, this.cwd, this.timeoutMs, this.maxOutputBytes);
+    } finally {
+      cleanupEphemeralKnownHosts(knownHosts.directory, this.boundaries);
     }
-    args.push("-p", String(target.port), "--", destination, ...request.command);
-    const result = await this.run(args, this.cwd, this.timeoutMs, this.maxOutputBytes);
     if (result.spawnError !== undefined || result.timedOut || result.outputLimit || result.exitCode !== 0) {
       throw classifyFailure(result);
     }
@@ -600,8 +784,7 @@ export class SshCommandAdapter {
       targetId: target.targetId,
       connectionId: target.connectionId,
       hostKeyVerified: true,
-      runtimeIdentityVerified:
-        target.runtimeIdentity !== undefined && request.observedRuntimeIdentity === target.runtimeIdentity,
+      runtimeIdentityVerified: target.runtimeIdentity !== undefined && request.observedRuntimeCapability !== undefined,
       stdout: result.stdout,
       stderr: result.stderr,
       exitCode: result.exitCode ?? 0,
