@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "196027c5695e862e0cffed27a77e0f682a1a4143",
+    "draft": false,
+    "headRef": "feat/411-governed-task-artifacts",
+    "headSha": "17fe5dc7a5fe473d26278b5129c6ae1701422867",
+    "number": 794,
+    "title": "feat(workflow): resolve governed task artifacts through gh-inari (#411)"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "17fe5dc7a5fe473d26278b5129c6ae1701422867",
+    "immutable": true,
+    "shortId": "17fe5dc7a5fe"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-04T12:31:48.109Z"
+  }
+}

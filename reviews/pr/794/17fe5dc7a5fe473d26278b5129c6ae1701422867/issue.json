@@ -1,0 +1,45 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "One internal gh-inari companion client resolves explicit Issue and PR identities through the supported canonical get contract."
+    },
+    {
+      "checked": false,
+      "text": "Repository identity is explicit and independent of unrelated cwd."
+    },
+    {
+      "checked": false,
+      "text": "Returned typed data includes the minimal governed semantic fields plus validity/classification and artifact/governance provenance required by downstream C2 freshness."
+    },
+    {
+      "checked": false,
+      "text": "Mottainai does not reparse artifact Markdown or duplicate template/governance validation rules."
+    },
+    {
+      "checked": false,
+      "text": "Invalid, ambiguous, wrong-template, missing, incompatible, and malformed companion results fail closed with bounded diagnostics."
+    },
+    {
+      "checked": false,
+      "text": "Packed process tests exercise the real supported gh-inari machine surface."
+    },
+    {
+      "checked": false,
+      "text": "Retrieval is read-only and introduces no direct GitHub mutation fallback."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "enhancement"
+    ],
+    "number": 411,
+    "state": "open",
+    "title": "feat: resolve governed task artifacts through the gh-inari companion",
+    "url": "https://github.com/yohn-jp/mottainai/issues/411"
+  },
+  "linked": {
+    "number": 411
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

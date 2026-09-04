@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #794 @ 17fe5dc7a5fe</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #794: feat(workflow): resolve governed task artifacts through gh-inari (#411)</h1>
+<p>Base <code>main</code> @ <code>196027c5695e862e0cffed27a77e0f682a1a4143</code> &rarr;
+Head <code>feat/411-governed-task-artifacts</code> @ <code>17fe5dc7a5fe473d26278b5129c6ae1701422867</code></p>
+<p>Revision <code>17fe5dc7a5fe</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/411">#411</a> feat: resolve governed task artifacts through the gh-inari companion (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] One internal gh-inari companion client resolves explicit Issue and PR identities through the supported canonical get contract.</li>
+<li>[ ] Repository identity is explicit and independent of unrelated cwd.</li>
+<li>[ ] Returned typed data includes the minimal governed semantic fields plus validity/classification and artifact/governance provenance required by downstream C2 freshness.</li>
+<li>[ ] Mottainai does not reparse artifact Markdown or duplicate template/governance validation rules.</li>
+<li>[ ] Invalid, ambiguous, wrong-template, missing, incompatible, and malformed companion results fail closed with bounded diagnostics.</li>
+<li>[ ] Packed process tests exercise the real supported gh-inari machine surface.</li>
+<li>[ ] Retrieval is read-only and introduces no direct GitHub mutation fallback.</li></ul>
+
+
+
+<h2>Changed files (5, +450/-47)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>scripts/gh-inari-package-smoke.mjs</td><td>modified</td><td>+36</td><td>-3</td></tr>
+<tr><td>src/gh-inari.test.ts</td><td>modified</td><td>+119</td><td>-10</td></tr>
+<tr><td>src/gh-inari.ts</td><td>modified</td><td>+293</td><td>-32</td></tr>
+<tr><td>src/workflow/commands/write-inari.test.ts</td><td>modified</td><td>+1</td><td>-1</td></tr>
+<tr><td>src/workflow/providers/gh-inari.test.ts</td><td>modified</td><td>+1</td><td>-1</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

@@ -1,0 +1,82 @@
+{
+  "baseSha": "196027c5695e862e0cffed27a77e0f682a1a4143",
+  "headSha": "17fe5dc7a5fe473d26278b5129c6ae1701422867",
+  "preview": {
+    "excluded_count": 3,
+    "excluded_files": [
+      {
+        "deletions": 10,
+        "exclude_reason": "default_path",
+        "insertions": 119,
+        "path": "src/gh-inari.test.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "exclude_reason": "default_path",
+        "insertions": 1,
+        "path": "src/workflow/commands/write-inari.test.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "exclude_reason": "default_path",
+        "insertions": 1,
+        "path": "src/workflow/providers/gh-inari.test.ts",
+        "status": "modified"
+      }
+    ],
+    "from": "196027c5695e862e0cffed27a77e0f682a1a4143",
+    "merge_base": "196027c5695e862e0cffed27a77e0f682a1a4143",
+    "mode": "range",
+    "reviewable_count": 2,
+    "reviewable_files": [
+      {
+        "deletions": 3,
+        "insertions": 36,
+        "path": "scripts/gh-inari-package-smoke.mjs",
+        "status": "modified"
+      },
+      {
+        "deletions": 32,
+        "insertions": 293,
+        "path": "src/gh-inari.ts",
+        "status": "modified"
+      }
+    ],
+    "schema_version": "1",
+    "to": "17fe5dc7a5fe473d26278b5129c6ae1701422867",
+    "total_deletions": 47,
+    "total_files": 5,
+    "total_insertions": 450
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.1"
+  },
+  "rule": {
+    "groups": [
+      {
+        "files": [
+          "scripts/gh-inari-package-smoke.mjs"
+        ],
+        "group_id": 1,
+        "pattern": "default",
+        "rule": "#### Correctness\nIs the logic correct? Are there missing boundary conditions?\nAre exceptions handled properly?\nIs it thread-safe in concurrent scenarios?\n\n#### Security\nAre there security vulnerabilities such as SQL injection or XSS?\nIs sensitive information handled correctly?\nIs permission validation complete?\n\n#### Performance\nAre there obvious performance issues (e.g., N+1 queries, unnecessary loops)?\nAre resources properly released?\n\n#### Maintainability\nIs the code clear and easy to understand?\nDo names accurately express intent?\nDoes it follow the project’s existing code style and architecture patterns?\n\n#### Test Coverage\nDo critical logic paths have corresponding test cases?\nDo test cases cover boundary conditions?",
+        "source": "system"
+      },
+      {
+        "files": [
+          "src/gh-inari.ts"
+        ],
+        "group_id": 2,
+        "pattern": "**/*.{ts,js,tsx,jsx}",
+        "rule": "#### Obvious Typos or Spelling Errors\n- Spelling errors in variable names, function names, component names, or Props property names\n- Strings in log or error messages containing spelling errors that affect readability\n\n#### Dead Code\n- Code blocks that will never be executed (e.g., branches where the condition is always false, code after a return statement)\n- Variables that are declared but never read or referenced\n- Large blocks of commented-out code (with no apparent intent to retain)\n\n#### Code Quality Checks\n- **Duplicate Code**: Check for common logic that can be extracted\n- **Code Comments**: Complex business logic should have clear explanatory comments (avoid commenting obvious code)\n- **Hardcoding**: Business-related hardcoded strings are prohibited, especially URL paths and business numbers; simple UI text may be relaxed\n- **Variable Declarations**: Using `var` is strictly prohibited; use `let` or `const`\n- **Equality Comparisons**: Using `==` and `!=` is prohibited; use strict equality `===` and `!==`\n- **TypeScript Types**: Avoid using `any` type; if necessary, provide a comment explaining the reason\n- **Null Checks**: Perform null checks when accessing values or destructuring to avoid null pointer exceptions\n- **Ternary Expressions**: Nested ternary expressions are not allowed\n\n#### React Best Practices\n- **Hooks Usage**: Verify compliance with Hooks rules (only call at the top level, only call in React functions)\n- **State Management**: Ensure state is placed at the appropriate level; avoid unnecessary state lifting\n- **Side Effect Handling**: Verify useEffect correctly handles dependencies and cleanup functions\n- **Performance Optimization**: Verify proper use of React.memo, useMemo, useCallback (based on performance analysis; avoid over-optimization)\n- **Render Side Effects**: Side effects in React component render methods are strictly prohibited (e.g., API calls, DOM manipulation)\n- **Inline Styles**: Avoid using inline `style` attributes, except for dynamic styles\n- **Inner Components**: Declaring new components inside a component is prohibited; use render methods instead (e.g., `renderItem`, not `<Item/>`)\n\n#### Async Handling Standards\n- **Error Handling**: Async functions must include proper error handling with user-friendly error messages\n- **Prefer async/await**: Prefer async/await over Promises; callback hell is prohibited\n- **Async in Loops**: Distinguish between independent async operations (use `Promise.all` for parallelism) and dependent async operations (use sequential execution); prefer `Promise.all` for performance\n\n#### Code Security Checks\n- **XSS Protection**: Verify that user input is properly escaped\n- **innerHTML Safety**: Using innerHTML to directly insert user input is prohibited; use textContent or apply XSS protection\n- **Code Injection Protection**: Using eval(), Function() constructor, and string argument forms of setTimeout/setInterval is strictly prohibited\n- **Dangerous Methods**: Using document.write() is prohibited as it causes page reflow and security issues\n- **Sensitive Information**: Check whether API keys or sensitive data are exposed\n- **Prototype Chain Safety**: Modifying native object prototypes (e.g., Array.prototype, Object.prototype) is prohibited",
+        "source": "system"
+      }
+    ],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}
