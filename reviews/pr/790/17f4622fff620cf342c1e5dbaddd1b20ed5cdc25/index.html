@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #790 @ 17f4622fff62</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #790: feat(runtime): persist verified SSH target identity (#298)</h1>
+<p>Base <code>main</code> @ <code>dd8b92ec50b501d4731809038b9a0e49c8586c41</code> &rarr;
+Head <code>feat/298-ssh-target-identity</code> @ <code>17f4622fff620cf342c1e5dbaddd1b20ed5cdc25</code></p>
+<p>Revision <code>17f4622fff62</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/298">#298</a> feat(runtime): persist verified SSH target identity separately from Runtime identity (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] One versioned machine-readable target/connection model separates mutable SSH coordinates/trust from Runtime identity.</li>
+<li>[ ] Unknown/changed host key requires explicit trust action and cannot be silently accepted on reconnect.</li>
+<li>[ ] Same Runtime can be deliberately rebound to changed transport coordinates only with independent Runtime/trust verification.</li>
+<li>[ ] Reused hostname/IP pointing at an unrelated host fails rather than inheriting stored Runtime identity.</li>
+<li>[ ] SSH process invocation is argv-safe, finite, bounded, and has stable error classification.</li>
+<li>[ ] Persisted connection state contains no raw private key/token/agent secret and bounded status omits sensitive transport material.</li>
+<li>[ ] Restart/reload preserves trusted target records and detects corrupted/ambiguous state fail-closed.</li>
+<li>[ ] Tests cover first trust, repeat connection, host-key change, address change with same Runtime, address reuse by foreign Runtime, timeout/auth failure, and malformed state.</li></ul>
+
+
+
+<h2>Changed files (5, +860/-22)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>docs/releases/0.8.3.md</td><td>removed</td><td>+0</td><td>-21</td></tr>
+<tr><td>docs/ssh-target-identity.md</td><td>added</td><td>+15</td><td>-0</td></tr>
+<tr><td>package.json</td><td>modified</td><td>+1</td><td>-1</td></tr>
+<tr><td>src/runtime-contract/ssh-target.test.ts</td><td>added</td><td>+234</td><td>-0</td></tr>
+<tr><td>src/runtime-contract/ssh-target.ts</td><td>added</td><td>+610</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

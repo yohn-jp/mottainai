@@ -1,0 +1,82 @@
+{
+  "baseSha": "dd8b92ec50b501d4731809038b9a0e49c8586c41",
+  "files": [
+    {
+      "additions": 0,
+      "deletions": 21,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 21,
+          "oldStart": 1
+        }
+      ],
+      "path": "docs/releases/0.8.3.md",
+      "status": "removed"
+    },
+    {
+      "additions": 15,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 15,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "docs/ssh-target-identity.md",
+      "status": "added"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 3,
+          "oldLines": 1,
+          "oldStart": 3
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 234,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 234,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/runtime-contract/ssh-target.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 610,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 610,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/runtime-contract/ssh-target.ts",
+      "status": "added"
+    }
+  ],
+  "headSha": "17f4622fff620cf342c1e5dbaddd1b20ed5cdc25",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 860,
+    "deletions": 22,
+    "filesChanged": 5
+  }
+}
