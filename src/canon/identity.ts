@@ -53,7 +53,8 @@ function jsonValueSchemaAtDepth(depth: number): z.ZodType<CanonJsonValue> {
   ]);
 }
 
-const jsonValueSchema = jsonValueSchemaAtDepth(0);
+let cachedJsonValueSchema: z.ZodType<CanonJsonValue> | undefined;
+const jsonValueSchema: z.ZodType<CanonJsonValue> = z.lazy(() => (cachedJsonValueSchema ??= jsonValueSchemaAtDepth(0)));
 
 const contractReferenceSchema = z
   .object({
