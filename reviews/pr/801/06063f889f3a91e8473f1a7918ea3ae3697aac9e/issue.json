@@ -1,0 +1,41 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Identify exactly which declared bin(s) fail the shared smoke probe and document the intended executable contract for each."
+    },
+    {
+      "checked": false,
+      "text": "Align `mottainai`, `mtnai`, and `mottainai-mcp` with the package-validation contract, or configure/extend the shared CI contract so MCP stdio entrypoints are validated with an appropriate bounded smoke test."
+    },
+    {
+      "checked": false,
+      "text": "Do not start a long-lived MCP stdio server as an accidental consequence of `--help`/`--version` validation."
+    },
+    {
+      "checked": false,
+      "text": "The packed tarball installs successfully in a clean temporary package."
+    },
+    {
+      "checked": false,
+      "text": "`TypeScript foundation / Package validation` passes."
+    },
+    {
+      "checked": false,
+      "text": "Add regression coverage for the declared-bin smoke contract so future bin additions cannot silently break shared CI."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 799,
+    "state": "open",
+    "title": "fix: make packed CLI smoke validation compatible with declared bin entrypoints",
+    "url": "https://github.com/yohn-jp/mottainai/issues/799"
+  },
+  "linked": {
+    "number": 799
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
