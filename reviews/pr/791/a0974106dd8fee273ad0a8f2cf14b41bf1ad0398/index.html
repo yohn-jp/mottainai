@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #791 @ a0974106dd8f</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #791: feat(security): allocate durable repository Unix principals</h1>
+<p>Base <code>main</code> @ <code>1d3694e63b45844747b0d75216a0276daf5dc244</code> &rarr;
+Head <code>feat/295-repository-principals</code> @ <code>a0974106dd8fee273ad0a8f2cf14b41bf1ad0398</code></p>
+<p>Revision <code>a0974106dd8f</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/295">#295</a> feat(security): allocate durable collision-safe repository Unix principal identities (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] One versioned persisted mapping binds canonical repository identity to unique UID/GID/internal username and allocation lifecycle.</li>
+<li>[ ] Two active repositories cannot receive the same UID or GID.</li>
+<li>[ ] Allocation/release/retry survives injected persistence failure without duplicate or half-authoritative assignments.</li>
+<li>[ ] Rename/path/remote spelling changes retain the same principal when repository identity continuity is proven.</li>
+<li>[ ] Different/forked repository identity cannot inherit another principal from similar mutable metadata.</li>
+<li>[ ] Released identity is not reusable until explicit residual-ownership cleanup/proof makes reuse safe.</li>
+<li>[ ] Schema/version migration is fail-closed on ambiguity/corruption and never guesses ownership.</li>
+<li>[ ] Bounded status/debug projection excludes secrets and does not turn usernames into semantic IDs.</li></ul>
+
+
+
+<h2>Changed files (6, +896/-0)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>src/state/migrations.test.ts</td><td>modified</td><td>+6</td><td>-0</td></tr>
+<tr><td>src/state/migrations.ts</td><td>modified</td><td>+33</td><td>-0</td></tr>
+<tr><td>src/workflow/domain/repository-principal.ts</td><td>added</td><td>+76</td><td>-0</td></tr>
+<tr><td>src/workflow/state/repository-principal.test.ts</td><td>added</td><td>+335</td><td>-0</td></tr>
+<tr><td>src/workflow/state/sqlite-store.ts</td><td>modified</td><td>+383</td><td>-0</td></tr>
+<tr><td>src/workflow/state/store.ts</td><td>modified</td><td>+63</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

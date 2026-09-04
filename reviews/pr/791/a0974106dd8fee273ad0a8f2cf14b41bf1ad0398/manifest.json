@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "1d3694e63b45844747b0d75216a0276daf5dc244",
+    "draft": false,
+    "headRef": "feat/295-repository-principals",
+    "headSha": "a0974106dd8fee273ad0a8f2cf14b41bf1ad0398",
+    "number": 791,
+    "title": "feat(security): allocate durable repository Unix principals"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "a0974106dd8fee273ad0a8f2cf14b41bf1ad0398",
+    "immutable": true,
+    "shortId": "a0974106dd8f"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-04T12:38:54.102Z"
+  }
+}

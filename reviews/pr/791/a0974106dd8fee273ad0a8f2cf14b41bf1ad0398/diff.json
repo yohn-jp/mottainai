@@ -1,0 +1,126 @@
+{
+  "baseSha": "1d3694e63b45844747b0d75216a0276daf5dc244",
+  "files": [
+    {
+      "additions": 6,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 6,
+          "newStart": 6,
+          "oldLines": 0,
+          "oldStart": 5
+        }
+      ],
+      "path": "src/state/migrations.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 33,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 33,
+          "newStart": 773,
+          "oldLines": 0,
+          "oldStart": 772
+        }
+      ],
+      "path": "src/state/migrations.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 76,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 76,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/workflow/domain/repository-principal.ts",
+      "status": "added"
+    },
+    {
+      "additions": 335,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 335,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/workflow/state/repository-principal.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 383,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 12,
+          "oldLines": 0,
+          "oldStart": 11
+        },
+        {
+          "newLines": 7,
+          "newStart": 20,
+          "oldLines": 0,
+          "oldStart": 18
+        },
+        {
+          "newLines": 20,
+          "newStart": 116,
+          "oldLines": 0,
+          "oldStart": 107
+        },
+        {
+          "newLines": 105,
+          "newStart": 169,
+          "oldLines": 0,
+          "oldStart": 140
+        },
+        {
+          "newLines": 250,
+          "newStart": 923,
+          "oldLines": 0,
+          "oldStart": 789
+        }
+      ],
+      "path": "src/workflow/state/sqlite-store.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 63,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 54,
+          "newStart": 39,
+          "oldLines": 0,
+          "oldStart": 38
+        },
+        {
+          "newLines": 9,
+          "newStart": 761,
+          "oldLines": 0,
+          "oldStart": 706
+        }
+      ],
+      "path": "src/workflow/state/store.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "a0974106dd8fee273ad0a8f2cf14b41bf1ad0398",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 896,
+    "deletions": 0,
+    "filesChanged": 6
+  }
+}
