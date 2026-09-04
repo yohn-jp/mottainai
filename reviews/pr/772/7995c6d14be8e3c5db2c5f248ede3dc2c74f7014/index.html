@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #772 @ 7995c6d14be8</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #772: refactor(ci): move canonical Appliance composition certification to trusted main</h1>
+<p>Base <code>main</code> @ <code>afd46d3f7ccfbe57d805023d894bab4effd7d344</code> &rarr;
+Head <code>claude/768-main-appliance-cert-g97wdb</code> @ <code>7995c6d14be8e3c5db2c5f248ede3dc2c74f7014</code></p>
+<p>Revision <code>7995c6d14be8</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/768">#768</a> ci(runtime): move canonical Appliance composition certification to trusted main (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Normal PRs no longer execute the full real-canonical-Appliance OCI/bootstrap/golden-path composition chain solely because they touch host-bootstrap or another non-Appliance owner.</li>
+<li>[ ] Appliance-defining PRs still build the canonical Appliance and verify its bounded manifest before merge.</li>
+<li>[ ] Host-bootstrap/Route 3/4 PRs retain hermetic/fixed contract composition coverage before merge.</li>
+<li>[ ] A trusted `main` push affecting Runtime/VM/Appliance/bootstrap integration runs the full canonical cross-boundary Appliance composition/golden-path certification.</li>
+<li>[ ] Canonical Runtime Appliance artifact publication occurs only after the relevant trusted `main` certification succeeds.</li>
+<li>[ ] Release publication remains exact-tag/revision bound and does not treat mutable `main` or PR evidence as release artifact identity.</li>
+<li>[ ] A failure in trusted canonical integration is visible and attributable; it cannot silently publish an uncertified canonical artifact.</li>
+<li>[ ] Same-PR stale-run cancellation and independent-main-SHA validation concurrency remain intact; only genuinely stateful publication is serialized if required.</li>
+<li>[ ] Before/after evidence records PR critical-path reduction and trusted-main certification duration.</li>
+<li>[ ] No real-host certification claim is made; #261 remains authoritative for Linux/KVM/Lima/QEMU external evidence.</li></ul>
+
+
+
+<h2>Changed files (4, +202/-41)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/ci.yml</td><td>modified</td><td>+46</td><td>-35</td></tr>
+<tr><td>docs/ci-topology.md</td><td>modified</td><td>+23</td><td>-5</td></tr>
+<tr><td>scripts/ci-runtime-contract-gates.mjs</td><td>modified</td><td>+85</td><td>-0</td></tr>
+<tr><td>scripts/ci-runtime-contract-gates.test.mjs</td><td>modified</td><td>+48</td><td>-1</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
