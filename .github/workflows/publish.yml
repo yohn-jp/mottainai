@@ -56,6 +56,7 @@ jobs:
       should_release: ${{ steps.detect.outputs.should_release }}
       version: ${{ steps.detect.outputs.version }}
       tag: ${{ steps.detect.outputs.tag }}
+      source_revision: ${{ steps.detect.outputs.source_revision }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -72,6 +73,7 @@ jobs:
         run: |
           set -euo pipefail
           current_version="$(node -p "require('./package.json').version")"
+          echo "source_revision=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
           if git rev-parse --verify --quiet HEAD^ >/dev/null; then
             previous_version="$(git show HEAD^:package.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version" 2>/dev/null || echo "")"
           else
@@ -90,7 +92,7 @@ jobs:
           echo "version=$current_version" >> "$GITHUB_OUTPUT"
           echo "tag=v$current_version" >> "$GITHUB_OUTPUT"
 
-      - name: Create or resume the git tag and draft release
+      - name: Create or resume the exact git tag and draft release
         # Idempotent by design: a run that fails after this step (e.g. in
         # build/publish/runtime-appliance/host-bootstrap-init) must be
         # resumable by re-running the workflow rather than requiring manual
@@ -107,36 +109,107 @@ jobs:
         run: |
           set -euo pipefail
 
-          existing="$(gh release view "$TAG" --json isDraft,targetCommitish 2>/dev/null || true)"
-          if [ -n "$existing" ]; then
-            existing_is_draft="$(jq -r '.isDraft' <<<"$existing")"
-            existing_target="$(jq -r '.targetCommitish' <<<"$existing")"
+          resolve_tag_commit() {
+            local tag_name="$1"
+            local ref_json object_type object_sha tag_json
+            ref_json="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag_name")"
+            object_type="$(jq -er '.object.type' <<<"$ref_json")"
+            object_sha="$(jq -er '.object.sha' <<<"$ref_json")"
+            while [ "$object_type" = "tag" ]; do
+              tag_json="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object_sha")"
+              object_type="$(jq -er '.object.type' <<<"$tag_json")"
+              object_sha="$(jq -er '.object.sha' <<<"$tag_json")"
+            done
+            [ "$object_type" = "commit" ]
+            printf '%s\n' "$object_sha"
+          }
+
+          release_json="$RUNNER_TEMP/release.json"
+          release_error="$RUNNER_TEMP/release.error"
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > "$release_json" 2> "$release_error"; then
+            release_exists=true
+          else
+            if grep -Eq 'HTTP 404|Not Found' "$release_error"; then
+              release_exists=false
+            else
+              cat "$release_error" >&2
+              exit 1
+            fi
+          fi
+
+          if [ "$release_exists" = true ]; then
+            existing_is_draft="$(jq -er '.draft | select(type == "boolean")' "$release_json")"
+            existing_tag="$(jq -er '.tag_name | select(type == "string")' "$release_json")"
             if [ "$existing_is_draft" != "true" ]; then
               echo "release $TAG already exists and is not a draft; refusing to reuse or recreate it" >&2
               exit 1
             fi
-            resolved_target="$(git rev-parse --verify "${existing_target}^{commit}")"
-            if [ "$resolved_target" != "$TARGET_SHA" ]; then
-              echo "release $TAG already exists as a draft but targets $resolved_target, not this run's $TARGET_SHA; refusing to reuse a different commit's draft" >&2
+            if [ "$existing_tag" != "$TAG" ]; then
+              echo "release lookup for $TAG returned a different tag ($existing_tag); refusing to continue" >&2
               exit 1
             fi
-            echo "draft release $TAG already exists for this exact commit; reusing it"
+            if ! existing_tag_commit="$(resolve_tag_commit "$TAG")"; then
+              echo "release $TAG exists but its git tag cannot be resolved; refusing to continue" >&2
+              exit 1
+            fi
+            if [ "$existing_tag_commit" != "$TARGET_SHA" ]; then
+              echo "release $TAG already exists as a draft, but its tag targets $existing_tag_commit, not this run's $TARGET_SHA; refusing to reuse a different commit's draft" >&2
+              exit 1
+            fi
+            echo "draft release $TAG already exists for this exact tag and commit; reusing it"
             exit 0
+          fi
+
+          tag_error="$RUNNER_TEMP/tag.error"
+          if tag_commit="$(resolve_tag_commit "$TAG" 2> "$tag_error")"; then
+            if [ "$tag_commit" != "$TARGET_SHA" ]; then
+              echo "git tag $TAG already targets $tag_commit, not this run's $TARGET_SHA; refusing to create a release for a different commit" >&2
+              exit 1
+            fi
+            echo "git tag $TAG already exists for this exact commit; reusing it"
+          elif grep -Eq 'HTTP 404|Not Found' "$tag_error"; then
+            # gh release create --target only sets the release's
+            # targetCommitish; it does not reliably materialize
+            # refs/tags/$TAG itself (the root cause of #726 recurring: the
+            # tag a draft release names does not yet exist as a real git
+            # ref). Create the lightweight tag ref explicitly first, so the
+            # resolve_tag_commit check right after release creation always
+            # has a real tag to resolve.
+            echo "creating git tag $TAG at $TARGET_SHA"
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" \
+              --method POST \
+              -f "ref=refs/tags/$TAG" \
+              -f "sha=$TARGET_SHA" >/dev/null
+            created_tag_commit="$(resolve_tag_commit "$TAG")"
+            if [ "$created_tag_commit" != "$TARGET_SHA" ]; then
+              echo "created git tag $TAG resolved to $created_tag_commit, not this run's $TARGET_SHA; refusing to continue" >&2
+              exit 1
+            fi
+          else
+            cat "$tag_error" >&2
+            exit 1
           fi
 
           notes_file="docs/releases/$VERSION.md"
           if [ -f "$notes_file" ]; then
             gh release create "$TAG" \
-              --target "$TARGET_SHA" \
               --title "Mottainai $VERSION" \
               --notes-file "$notes_file" \
               --draft
           else
             gh release create "$TAG" \
-              --target "$TARGET_SHA" \
               --title "Mottainai $VERSION" \
               --generate-notes \
               --draft
+          fi
+
+          created_release="$RUNNER_TEMP/created-release.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > "$created_release"
+          jq -e --arg tag "$TAG" '.draft == true and .tag_name == $tag' "$created_release" >/dev/null
+          created_tag_commit="$(resolve_tag_commit "$TAG")"
+          if [ "$created_tag_commit" != "$TARGET_SHA" ]; then
+            echo "created release tag $TAG targets $created_tag_commit, not this run's $TARGET_SHA; refusing to continue" >&2
+            exit 1
           fi
 
   build:
@@ -1077,7 +1150,7 @@ jobs:
       - name: Assemble and validate the release descriptor
         env:
           RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
-          SOURCE_REVISION: ${{ github.sha }}
+          SOURCE_REVISION: ${{ needs.prepare-release.outputs.source_revision }}
           OCI_DIGEST: ${{ needs.runtime-appliance.outputs.oci_digest }}
           RAW_SHA256: ${{ needs.runtime-appliance.outputs.raw_sha256 }}
           RAW_SIZE_BYTES: ${{ needs.runtime-appliance.outputs.raw_size_bytes }}
@@ -1163,7 +1236,13 @@ jobs:
     # any dependency leaves the release as a draft rather than publishing a
     # release with a missing or inconsistent asset.
     needs: [prepare-release, publish, runtime-appliance, host-bootstrap-init, deployment-descriptor]
-    if: needs.prepare-release.outputs.should_release == 'true'
+    if: >-
+      success() &&
+      needs.prepare-release.outputs.should_release == 'true' &&
+      needs.publish.result == 'success' &&
+      needs.runtime-appliance.result == 'success' &&
+      needs.host-bootstrap-init.result == 'success' &&
+      needs.deployment-descriptor.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -1178,3 +1257,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
         run: gh release edit "$RELEASE_TAG" --draft=false
+
+      - name: Verify mottainai-init from the public release URL
+        env:
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          fresh_dir="$RUNNER_TEMP/mottainai-init-public-fetch"
+          mkdir -p "$fresh_dir"
+          download_base="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG"
+          curl --fail --location --retry 3 --retry-all-errors \
+            --output "$fresh_dir/mottainai-init-linux-x86_64.sha256" \
+            "$download_base/mottainai-init-linux-x86_64.sha256"
+          curl --fail --location --retry 3 --retry-all-errors \
+            --output "$fresh_dir/mottainai-init-linux-x86_64" \
+            "$download_base/mottainai-init-linux-x86_64"
+          cd "$fresh_dir"
+          sha256sum --check mottainai-init-linux-x86_64.sha256
+          chmod +x mottainai-init-linux-x86_64
+          ./mottainai-init-linux-x86_64 --version
