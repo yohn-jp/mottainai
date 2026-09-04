@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #789 @ 1229e4fd1a04</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #789: feat(workflow): define deterministic Canon prefix and attachment identities</h1>
+<p>Base <code>main</code> @ <code>dd8b92ec50b501d4731809038b9a0e49c8586c41</code> &rarr;
+Head <code>feat/409-execution-prefix-identity</code> @ <code>1229e4fd1a040ab1f6086ce90d9b35192fc3da38</code></p>
+<p>Revision <code>1229e4fd1a04</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/409">#409</a> feat: define deterministic Canon prefix and execution-attachment identities (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] A versioned schema explicitly separates forkable prefix and execution attachment.</li>
+<li>[ ] Canonical serialization/order is deterministic and stable under incidental collection ordering.</li>
+<li>[ ] Equivalent prefix inputs produce identical `prefix_id` values.</li>
+<li>[ ] Two different execution attachments can share one `prefix_id` while producing distinct `execution_state_id` values.</li>
+<li>[ ] Changing repository/base/task/selected-artifact prefix content changes `prefix_id`; changing only session/worktree identity does not.</li>
+<li>[ ] Volatile fields excluded from identity are explicitly documented/tested.</li>
+<li>[ ] C0 already-supplied provenance and C1 immutable repository/base facts are represented without eager content duplication.</li>
+<li>[ ] Property/unit tests cover ordering, hashing, single-field invalidation, prefix-vs-attachment identity, and schema-version behavior.</li></ul>
+
+
+
+<h2>Changed files (6, +514/-22)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>docs/releases/0.8.3.md</td><td>removed</td><td>+0</td><td>-21</td></tr>
+<tr><td>package.json</td><td>modified</td><td>+1</td><td>-1</td></tr>
+<tr><td>src/canon.ts</td><td>added</td><td>+1</td><td>-0</td></tr>
+<tr><td>src/canon/identity.test.ts</td><td>added</td><td>+179</td><td>-0</td></tr>
+<tr><td>src/canon/identity.ts</td><td>added</td><td>+332</td><td>-0</td></tr>
+<tr><td>src/canon/index.ts</td><td>added</td><td>+1</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
