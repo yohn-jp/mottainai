@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "241f393acbece6b721426a1601b85ac57ec393e8",
+    "draft": false,
+    "headRef": "chore/440-shared-codeql",
+    "headSha": "8db3eaad14edb7cb8ffb41ae3ce11b08e2e2c29c",
+    "number": 784,
+    "title": "chore(ci): consume shared CodeQL workflow (#440)"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "8db3eaad14edb7cb8ffb41ae3ce11b08e2e2c29c",
+    "immutable": true,
+    "shortId": "8db3eaad14ed"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-04T11:45:41.579Z"
+  }
+}

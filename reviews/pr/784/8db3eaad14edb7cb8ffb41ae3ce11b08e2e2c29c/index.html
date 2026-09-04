@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #784 @ 8db3eaad14ed</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #784: chore(ci): consume shared CodeQL workflow (#440)</h1>
+<p>Base <code>main</code> @ <code>241f393acbece6b721426a1601b85ac57ec393e8</code> &rarr;
+Head <code>chore/440-shared-codeql</code> @ <code>8db3eaad14edb7cb8ffb41ae3ce11b08e2e2c29c</code></p>
+<p>Revision <code>8db3eaad14ed</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/440">#440</a> chore: consume shared CodeQL execution where Mottainai semantics remain equivalent (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Current and shared CodeQL contracts are compared on languages, query suites/config, triggers, permissions, checkout/build assumptions, and required-check identity.</li>
+<li>[ ] Shared CodeQL is consumed only from an immutable proven organization revision when equivalent/stronger.</li>
+<li>[ ] Any stronger/incompatible Mottainai CodeQL requirement remains an explicit local exception rather than being weakened.</li>
+<li>[ ] Required-check/ruleset continuity has no enforcement gap during migration.</li>
+<li>[ ] Workflow permissions remain least-privilege.</li>
+<li>[ ] Actual PR/current-main Actions prove the selected CodeQL path end to end.</li>
+<li>[ ] Shared-workflow defects are fixed in `yohn-jp/.github`, not copied into Mottainai.</li></ul>
+
+
+
+<h2>Changed files (2, +59/-0)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/codeql/codeql-config.yml</td><td>added</td><td>+6</td><td>-0</td></tr>
+<tr><td>.github/workflows/codeql.yml</td><td>added</td><td>+53</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

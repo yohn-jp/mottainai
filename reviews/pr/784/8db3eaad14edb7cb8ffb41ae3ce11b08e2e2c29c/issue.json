@@ -1,0 +1,43 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Current and shared CodeQL contracts are compared on languages, query suites/config, triggers, permissions, checkout/build assumptions, and required-check identity."
+    },
+    {
+      "checked": false,
+      "text": "Shared CodeQL is consumed only from an immutable proven organization revision when equivalent/stronger."
+    },
+    {
+      "checked": false,
+      "text": "Any stronger/incompatible Mottainai CodeQL requirement remains an explicit local exception rather than being weakened."
+    },
+    {
+      "checked": false,
+      "text": "Required-check/ruleset continuity has no enforcement gap during migration."
+    },
+    {
+      "checked": false,
+      "text": "Workflow permissions remain least-privilege."
+    },
+    {
+      "checked": false,
+      "text": "Actual PR/current-main Actions prove the selected CodeQL path end to end."
+    },
+    {
+      "checked": false,
+      "text": "Shared-workflow defects are fixed in `yohn-jp/.github`, not copied into Mottainai."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 440,
+    "state": "open",
+    "title": "chore: consume shared CodeQL execution where Mottainai semantics remain equivalent",
+    "url": "https://github.com/yohn-jp/mottainai/issues/440"
+  },
+  "linked": {
+    "number": 440
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

@@ -1,0 +1,40 @@
+{
+  "baseSha": "241f393acbece6b721426a1601b85ac57ec393e8",
+  "files": [
+    {
+      "additions": 6,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 6,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": ".github/codeql/codeql-config.yml",
+      "status": "added"
+    },
+    {
+      "additions": 53,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 53,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": ".github/workflows/codeql.yml",
+      "status": "added"
+    }
+  ],
+  "headSha": "8db3eaad14edb7cb8ffb41ae3ce11b08e2e2c29c",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 59,
+    "deletions": 0,
+    "filesChanged": 2
+  }
+}
