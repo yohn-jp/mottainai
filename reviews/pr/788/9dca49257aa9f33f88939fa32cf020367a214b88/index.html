@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #788 @ 9dca49257aa9</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #788: ci: consume shared TypeScript CI foundation (#301)</h1>
+<p>Base <code>main</code> @ <code>dd8b92ec50b501d4731809038b9a0e49c8586c41</code> &rarr;
+Head <code>chore/301-shared-typescript-ci</code> @ <code>9dca49257aa9f33f88939fa32cf020367a214b88</code></p>
+<p>Revision <code>9dca49257aa9</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/301">#301</a> ci: consume the organization TypeScript CI foundation without losing Mottainai-specific checks (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Mottainai consumes the proven shared TypeScript CI contract at an immutable `.github` commit.</li>
+<li>[ ] Shared workflow checkout/setup/install executes against the correct repositories/revisions and uses no missing consumer-relative action path.</li>
+<li>[ ] Every pre-migration Mottainai-specific required validation class remains present locally or is explicitly proven equivalent in the shared contract.</li>
+<li>[ ] Current branch-protection/ruleset-required checks remain satisfied or an intentional check-name migration is coordinated without a gap.</li>
+<li>[ ] Pull-request and current-main Actions evidence shows the reusable caller succeeds end to end.</li>
+<li>[ ] A focused contract/static check prevents accidental mutable references or unsupported shared/local boundary drift where practical.</li>
+<li>[ ] No unrelated product workflow is moved or refactored.</li></ul>
+
+
+
+<h2>Changed files (6, +91/-62)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/ci.yml</td><td>modified</td><td>+36</td><td>-27</td></tr>
+<tr><td>docs/releases/0.8.3.md</td><td>removed</td><td>+0</td><td>-21</td></tr>
+<tr><td>package.json</td><td>modified</td><td>+1</td><td>-1</td></tr>
+<tr><td>scripts/ci-runtime-contract-gates.mjs</td><td>modified</td><td>+9</td><td>-2</td></tr>
+<tr><td>scripts/validate-actions.mjs</td><td>modified</td><td>+11</td><td>-11</td></tr>
+<tr><td>scripts/validate-actions.test.mjs</td><td>modified</td><td>+34</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
