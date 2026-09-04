@@ -5,6 +5,24 @@ on:
     branches: [main]
     paths: [package.json]
 
+# Issue #303 decision (2026-09-04): retain this repository-local release
+# workflow. The current yohn-jp/.github npm-publish contract was compared at
+# organization main 443f7a5b2283dde9f1e89b2a0a08413704e7b4fc (workflow blob
+# 48a44df33af04819f8cf971bbb5196b7cf2cc749). The contracts are not
+# semantically equivalent: the shared workflow is workflow_call-driven and
+# takes its version from github.event.release.tag_name, while this workflow
+# must detect a package.json version change on a trusted main push, create or
+# resume the matching draft release, and fan out the complete release
+# lifecycle. The shared build packs a generic *.tgz; this workflow additionally
+# creates and verifies Mottainai's canonical tarball plus identity JSON before
+# npm publication and for the dependent release artifacts. Both paths use
+# typecheck/test/build, least-privilege permissions, npm Trusted Publishing via
+# id-token: write, and no long-lived npm token. The local path therefore keeps
+# the stronger exact-artifact and release-lifecycle guarantees, with no shared
+# npm publish caller enabled. This is the deliberate local exception for
+# yohn-jp/mottainai#239 and yohn-jp/.github#10; revisit only after the shared
+# contract can preserve these trigger, version, and identity semantics.
+
 # Serialize the entire release lifecycle. Two overlapping runs would race
 # each other creating the same tag/draft release, or double-publish to
 # npm/GHCR/the release's assets. cancel-in-progress stays false: a
