@@ -8,16 +8,15 @@ const ACTION_ROOTS = Object.freeze([".github/workflows", ".github/actions"]);
 const USES_LINE_PATTERN = /^\s*(?:-\s+)?uses:\s*(.*)$/u;
 const VALUE_PATTERN = /^(\S+)(?:\s+#.*)?$/u;
 const IMMUTABLE_EXTERNAL_ACTION_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*@[0-9a-f]{40}$/u;
-// yohn-jp/.github is code this organization owns and operates, not a
-// third-party supply-chain risk: its own governance docs
-// (docs/governance.md, "@main is a live, mutable authority") deliberately
-// keep reusable-workflow callers on @main so a fix lands for every consumer
-// without a per-repository SHA bump, and each run still resolves and
-// checks out its tooling at the exact commit GitHub records as
-// job.workflow_sha. This repository's SHA-pin requirement targets external
-// code Mottainai does not control; it does not apply to this one org-owned,
-// intentionally-live reference.
-const ORG_GOVERNANCE_LIVE_REF_PATTERN = /^yohn-jp\/\.github\/\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml@main$/u;
+// yohn-jp/.github owns its reusable workflows, so the existing governance
+// callers may remain on its documented live @main reference. The TypeScript
+// CI foundation is deliberately stricter: Issue #301 requires this consumer
+// to bind the exact proven provider revision, so that caller is accepted only
+// at a full commit SHA.
+const ORG_GOVERNANCE_LIVE_REF_PATTERN =
+  /^yohn-jp\/\.github\/\.github\/workflows\/(?!typescript-cli-ci\.ya?ml@main$)[A-Za-z0-9_.-]+\.ya?ml@main$/u;
+const ORG_TYPESCRIPT_CI_IMMUTABLE_REF_PATTERN =
+  /^yohn-jp\/\.github\/\.github\/workflows\/typescript-cli-ci\.ya?ml@[0-9a-f]{40}$/u;
 
 export function validateActionText(source, filePath = "<text>") {
   const references = [];
@@ -46,7 +45,8 @@ export function validateActionText(source, filePath = "<text>") {
     if (
       !local &&
       !IMMUTABLE_EXTERNAL_ACTION_PATTERN.test(reference) &&
-      !ORG_GOVERNANCE_LIVE_REF_PATTERN.test(reference)
+      !ORG_GOVERNANCE_LIVE_REF_PATTERN.test(reference) &&
+      !ORG_TYPESCRIPT_CI_IMMUTABLE_REF_PATTERN.test(reference)
     ) {
       errors.push(
         filePath + ":" + lineNumber + ": external GitHub Action must use a full 40-character commit SHA: " + reference,

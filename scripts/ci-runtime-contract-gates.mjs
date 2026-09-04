@@ -112,7 +112,11 @@ function extractStepIfExpression(ciWorkflowText, jobId, stepNamePrefix) {
 export function loadRuntimeApplianceStepGates(repositoryRoot) {
   const ciWorkflowText = fs.readFileSync(`${repositoryRoot}/${CI_WORKFLOW_RELATIVE_PATH}`, "utf8");
   return {
-    build: extractStepIfExpression(ciWorkflowText, "runtime-appliance", "Build the canonical, self-bootable Runtime Appliance disk"),
+    build: extractStepIfExpression(
+      ciWorkflowText,
+      "runtime-appliance",
+      "Build the canonical, self-bootable Runtime Appliance disk",
+    ),
     manifest: extractStepIfExpression(
       ciWorkflowText,
       "runtime-appliance",
@@ -134,7 +138,10 @@ export function loadRuntimeApplianceStepGates(repositoryRoot) {
 export function evaluateStepSelection(stepIfExpression, eventName) {
   if (stepIfExpression === null) return true;
   const github = { event_name: eventName };
-  const evaluator = new Function("github", `return (${stepIfExpression.replaceAll(/(!=|==)/gu, (op) => (op === "!=" ? "!==" : "==="))});`);
+  const evaluator = new Function(
+    "github",
+    `return (${stepIfExpression.replaceAll(/(!=|==)/gu, (op) => (op === "!=" ? "!==" : "==="))});`,
+  );
   return Boolean(evaluator(github));
 }
 

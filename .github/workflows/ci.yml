@@ -15,6 +15,29 @@ permissions:
   contents: read
 
 jobs:
+  typescript-ci:
+    name: TypeScript foundation
+    needs: runtime-contract-changes
+    if: >-
+      needs.runtime-contract-changes.outputs.node == 'true' &&
+      github.event_name != 'pull_request' ||
+      (
+        needs.runtime-contract-changes.outputs.node == 'true' &&
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      )
+    uses: yohn-jp/.github/.github/workflows/typescript-cli-ci.yml@27f75b402d06174056a6051abb643c5acd819b2e # yohn-jp/.github main at 2026-09-04
+    with:
+      node-version: "24"
+      conformance-script: "architecture:check"
+      test-setup-command: 'sudo install -d -o "$(id -u)" -g "$(id -g)" /var/lib/mottainai-control/managed-runtime'
+      # Mottainai retains its repository-owned governance workflow; #441
+      # owns any future shared metadata/governance migration.
+      run-governance: false
+    permissions:
+      contents: read
+
   host-bootstrap:
     name: host bootstrap (Rust)
     needs: runtime-contract-changes
@@ -98,10 +121,12 @@ jobs:
 
   static-integrity:
     name: static integrity (typecheck / lint / architecture / build)
-    needs: runtime-contract-changes
+    needs: [runtime-contract-changes, typescript-ci]
     # Keep the workflow subscribed so required checks resolve as skipped/success.
     # Only normal pull requests consume the normal PR CI jobs.
     if: >-
+      always() &&
+      (
       needs.runtime-contract-changes.outputs.node == 'true' &&
       github.event_name != 'pull_request' ||
       (
@@ -110,34 +135,19 @@ jobs:
         github.event.pull_request.user.login != 'dependabot[bot]' &&
         !startsWith(github.event.pull_request.head.ref, 'release/')
       )
+      )
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Setup pnpm and Node.js
-        uses: ./.github/actions/setup-pnpm-node
-        with:
-          pnpm-version: 11.18.0
-          node-version: "24"
-          enable-dependency-cache: "true"
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Typecheck
-        run: pnpm run typecheck
-
-      - name: Lint (correctness rules)
-        run: pnpm run lint
-
-      - name: Architecture/static validation
-        run: pnpm run architecture:check
-
-      - name: Build
-        run: pnpm run build
+      - name: Verify shared TypeScript foundation
+        env:
+          FOUNDATION_RESULT: ${{ needs.typescript-ci.result }}
+        run: |
+          set -euo pipefail
+          echo "typescript foundation: $FOUNDATION_RESULT"
+          if [ "$FOUNDATION_RESULT" != "success" ]; then
+            echo "::error::shared TypeScript foundation did not succeed (result: $FOUNDATION_RESULT)" >&2
+            exit 1
+          fi
 
   test-integration:
     name: test:integration (shard ${{ matrix.shard }}/4)
