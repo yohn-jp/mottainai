@@ -27,10 +27,11 @@ jobs:
         github.event.pull_request.user.login != 'dependabot[bot]' &&
         !startsWith(github.event.pull_request.head.ref, 'release/')
       )
-    uses: yohn-jp/.github/.github/workflows/typescript-cli-ci.yml@443f7a5b2283dde9f1e89b2a0a08413704e7b4fc # yohn-jp/.github main at 2026-09-04
+    uses: yohn-jp/.github/.github/workflows/typescript-cli-ci.yml@27f75b402d06174056a6051abb643c5acd819b2e # yohn-jp/.github main at 2026-09-04
     with:
       node-version: "24"
       conformance-script: "architecture:check"
+      test-setup-command: 'sudo install -d -o "$(id -u)" -g "$(id -g)" /var/lib/mottainai-control/managed-runtime'
       # Mottainai retains its repository-owned governance workflow; #441
       # owns any future shared metadata/governance migration.
       run-governance: false
