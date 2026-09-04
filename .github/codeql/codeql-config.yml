@@ -1,6 +1,6 @@
 name: Mottainai CodeQL security baseline
 
-# The organization workflow owns execution; this repository-owned config is
-# intentionally limited to preserving Mottainai's established query suite.
+# This local config is part of the explicit exception from the organization
+# workflow while that workflow's execution semantics are incompatible.
 queries:
   - uses: security-extended

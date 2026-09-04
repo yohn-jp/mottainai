@@ -9,20 +9,45 @@ on:
   schedule:
     - cron: "31 3 * * 1"
 
-# The shared workflow narrows these permissions again at the job boundary:
-# Plan only reads contents, while Analyze additionally uploads SARIF and
-# reads Actions metadata as required by CodeQL's Actions analysis.
-permissions:
-  contents: read
-  security-events: write
-  actions: read
+# Local exception: the current organization workflow uses older checkout and
+# CodeQL action revisions and does not preserve this workflow's credential
+# handling. Keep Mottainai's established security contract local until the
+# shared contract is corrected in yohn-jp/.github.
+permissions: {}
 
 jobs:
   analyze:
-    uses: yohn-jp/.github/.github/workflows/codeql.yml@2bd5698f5071601eeb78e74f2988c8bdeb12a89b
-    with:
-      languages: "javascript-typescript,actions"
-      # The shared default is CodeQL's default suite. Mottainai's established
-      # security baseline is security-extended, so keep that stronger local
-      # requirement explicit through the supported config-file input.
-      config-file: ".github/codeql/codeql-config.yml"
+    name: Analyze (${{ matrix.language }})
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, actions]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
+        with:
+          languages: ${{ matrix.language }}
+          config-file: ./.github/codeql/codeql-config.yml
+          build-mode: none
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
+        with:
+          category: "/language:${{ matrix.language }}"
