@@ -2,10 +2,16 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { evaluateRuntimeContractSelection, loadRuntimeContractGateExpressions } from "./ci-runtime-contract-gates.mjs";
+import {
+  evaluateRuntimeContractSelection,
+  evaluateStepSelection,
+  loadRuntimeApplianceStepGates,
+  loadRuntimeContractGateExpressions,
+} from "./ci-runtime-contract-gates.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const gateExpressions = loadRuntimeContractGateExpressions(repositoryRoot);
+const stepGates = loadRuntimeApplianceStepGates(repositoryRoot);
 
 function baseOutputs(overrides) {
   return {
@@ -84,6 +90,27 @@ test("trusted main push runs the full Appliance composition whenever any Runtime
   assert.deepEqual(selection, { "runtime-nix": true, "runtime-vm": false, "runtime-appliance": true });
 });
 
+// Issue #768: a trusted `main` push affecting only the host-bootstrap
+// contract must still run the cross-boundary Appliance composition
+// certification (standalone `mottainai-init` composes against the real
+// canonical Appliance), even though the same change on a PR selects no
+// Runtime job at all (see "host-bootstrap-only PR" above).
+test("trusted main push affecting only host_bootstrap selects runtime-nix and runtime-appliance", () => {
+  const selection = evaluateRuntimeContractSelection(gateExpressions, {
+    eventName: "push",
+    outputs: baseOutputs({ host_bootstrap: "true" }),
+  });
+  assert.deepEqual(selection, { "runtime-nix": true, "runtime-vm": false, "runtime-appliance": true });
+});
+
+test("a host_bootstrap-only PR still selects no Runtime job even though trusted main would (Issue #768 PR/main split)", () => {
+  const selection = evaluateRuntimeContractSelection(gateExpressions, {
+    eventName: "pull_request",
+    outputs: baseOutputs({ host_bootstrap: "true" }),
+  });
+  assert.deepEqual(selection, { "runtime-nix": false, "runtime-vm": false, "runtime-appliance": false });
+});
+
 test("a dependabot-authored PR gets a deterministic skip across every Runtime job", () => {
   const selection = evaluateRuntimeContractSelection(gateExpressions, {
     eventName: "pull_request",
@@ -100,4 +127,24 @@ test("a release/* head ref PR gets a deterministic skip across every Runtime job
     outputs: baseOutputs({ runtime_nix: "true", runtime_vm: "true", runtime_appliance: "true" }),
   });
   assert.deepEqual(selection, { "runtime-nix": false, "runtime-vm": false, "runtime-appliance": false });
+});
+
+// Issue #768: within the `runtime-appliance` job itself, PR and trusted
+// `main` select different certification tiers. An Appliance-defining PR
+// proves the canonical build and bounded manifest only; the OCI-shaped
+// composition, standalone `mottainai-init` composition verification, and
+// Runtime Appliance golden path are cross-boundary integration evidence
+// reserved for trusted `main`.
+test("an Appliance-defining PR runs canonical build + bounded manifest only, not the full composition chain", () => {
+  assert.equal(evaluateStepSelection(stepGates.build, "pull_request"), true);
+  assert.equal(evaluateStepSelection(stepGates.manifest, "pull_request"), true);
+  assert.equal(evaluateStepSelection(stepGates.ociFixture, "pull_request"), false);
+  assert.equal(evaluateStepSelection(stepGates.mottainaiInitAndGoldenPath, "pull_request"), false);
+});
+
+test("a trusted main push runs the full canonical build + manifest + OCI + mottainai-init + golden-path chain", () => {
+  assert.equal(evaluateStepSelection(stepGates.build, "push"), true);
+  assert.equal(evaluateStepSelection(stepGates.manifest, "push"), true);
+  assert.equal(evaluateStepSelection(stepGates.ociFixture, "push"), true);
+  assert.equal(evaluateStepSelection(stepGates.mottainaiInitAndGoldenPath, "push"), true);
 });
