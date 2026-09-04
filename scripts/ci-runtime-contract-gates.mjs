@@ -53,6 +53,91 @@ export function loadRuntimeContractGateExpressions(repositoryRoot) {
   };
 }
 
+function extractJobBlock(ciWorkflowText, jobId) {
+  const lines = ciWorkflowText.split(/\r?\n/u);
+  const jobHeaderPattern = new RegExp(`^  ${jobId}:\\s*$`, "u");
+  const jobIndex = lines.findIndex((line) => jobHeaderPattern.test(line));
+  if (jobIndex === -1) {
+    throw new Error(`could not find job "${jobId}" in ${CI_WORKFLOW_RELATIVE_PATH}`);
+  }
+
+  let end = lines.length;
+  for (let index = jobIndex + 1; index < lines.length; index += 1) {
+    if (/^  [A-Za-z0-9_-]+:\s*$/u.test(lines[index])) {
+      end = index;
+      break;
+    }
+  }
+
+  return lines.slice(jobIndex, end);
+}
+
+// Finds the step whose `- name:` starts with `stepNamePrefix` inside job
+// `jobId`, and returns its single-line `if:` expression, or `null` when the
+// step has no `if:` at all (meaning it always runs whenever the job runs).
+// PR-vs-`main` step content selection (Issue #768's PR/trusted-main tier
+// split within the `runtime-appliance` job) lives at this step-level `if:`,
+// not the job-level gate `loadRuntimeContractGateExpressions` already covers.
+function extractStepIfExpression(ciWorkflowText, jobId, stepNamePrefix) {
+  const jobLines = extractJobBlock(ciWorkflowText, jobId);
+  const stepIndex = jobLines.findIndex((line) => {
+    const match = line.match(/^\s*-\s*name:\s*(.+)$/u);
+    return match !== null && match[1].startsWith(stepNamePrefix);
+  });
+  if (stepIndex === -1) {
+    throw new Error(`could not find a step named "${stepNamePrefix}" in job "${jobId}"`);
+  }
+
+  const stepIndent = jobLines[stepIndex].match(/^(\s*)-/u)[1].length;
+  for (let index = stepIndex + 1; index < jobLines.length; index += 1) {
+    const line = jobLines[index];
+    if (line.trim().length === 0) continue;
+    const indent = line.match(/^(\s*)/u)[1].length;
+    if (indent <= stepIndent && /^\s*-\s*name:/u.test(line)) break;
+    if (indent <= stepIndent && !/^\s+/u.test(line)) break;
+    const ifMatch = line.match(/^\s*if:\s*(.+)$/u);
+    if (ifMatch !== null) return ifMatch[1].trim();
+  }
+
+  return null;
+}
+
+// Named steps inside the `runtime-appliance` job whose presence/absence
+// implements the PR-vs-trusted-`main` composition-tier split (Issue #768):
+// the canonical build + bounded manifest steps are PR-tier rejection proof
+// and must run whenever the job runs (both an Appliance-defining PR and a
+// trusted `main` integration run); the OCI-shaped composition, standalone
+// `mottainai-init` composition verification, and Runtime Appliance golden
+// path are cross-boundary integration evidence and must be trusted-`main`-only.
+export function loadRuntimeApplianceStepGates(repositoryRoot) {
+  const ciWorkflowText = fs.readFileSync(`${repositoryRoot}/${CI_WORKFLOW_RELATIVE_PATH}`, "utf8");
+  return {
+    build: extractStepIfExpression(ciWorkflowText, "runtime-appliance", "Build the canonical, self-bootable Runtime Appliance disk"),
+    manifest: extractStepIfExpression(
+      ciWorkflowText,
+      "runtime-appliance",
+      "Generate and verify the bounded Runtime Appliance manifest",
+    ),
+    ociFixture: extractStepIfExpression(
+      ciWorkflowText,
+      "runtime-appliance",
+      "Build a local OCI-shaped fixture from the real canonical Runtime Appliance",
+    ),
+    mottainaiInitAndGoldenPath: extractStepIfExpression(
+      ciWorkflowText,
+      "runtime-appliance",
+      "Prove mottainai-init resolves/verifies the real canonical Runtime Appliance",
+    ),
+  };
+}
+
+export function evaluateStepSelection(stepIfExpression, eventName) {
+  if (stepIfExpression === null) return true;
+  const github = { event_name: eventName };
+  const evaluator = new Function("github", `return (${stepIfExpression.replaceAll(/(!=|==)/gu, (op) => (op === "!=" ? "!==" : "==="))});`);
+  return Boolean(evaluator(github));
+}
+
 function startsWith(value, prefix) {
   return typeof value === "string" && value.startsWith(prefix);
 }
