@@ -53,6 +53,12 @@ import type {
   ManagerSessionId,
   ManagerSessionRecord,
   ManagerSessionReceipt,
+  ManagerRuntimeAvailabilityState,
+  ManagerRuntimeId,
+  ManagerRuntimeRecord,
+  ManagerRuntimeTargetKind,
+  RegisterManagerRuntimeInput,
+  UpdateManagerRuntimeInput,
   MarkCleanupLeaseInput,
   NawabariSessionId,
   RecordGuardrailDecisionInput,
@@ -347,6 +353,7 @@ function toManagerSessionRecord(row: Record<string, unknown>): ManagerSessionRec
     typeof row.instruction === "string" && row.instruction.length > 0 ? row.instruction : (launchArgs.at(-1) ?? "");
   return {
     sessionId: row.session_id as ManagerSessionId,
+    runtimeId: (row.runtime_id as ManagerRuntimeId | null) ?? ("local" as ManagerRuntimeId),
     workspaceRoot: row.workspace_root as string,
     idempotencyKey: (row.idempotency_key as string | null) ?? undefined,
     taskId: (row.task_id as TaskId | null) ?? undefined,
@@ -391,6 +398,20 @@ function toManagerSessionRecord(row: Record<string, unknown>): ManagerSessionRec
     exitCode: (row.exit_code as number | null) ?? undefined,
     terminationState: (row.termination_state as ManagerSessionRecord["terminationState"] | null) ?? undefined,
     errorMessage: managerDiagnostic(row.error_message),
+  };
+}
+
+function toManagerRuntimeRecord(row: Record<string, unknown>): ManagerRuntimeRecord {
+  return {
+    runtimeId: row.runtime_id as ManagerRuntimeId,
+    targetKind: row.target_kind as ManagerRuntimeTargetKind,
+    displayName: row.display_name as string,
+    address: row.address as string,
+    configProvenance: (row.config_provenance as string | null) ?? undefined,
+    state: row.state as ManagerRuntimeAvailabilityState,
+    createdAt: row.created_at as number,
+    updatedAt: row.updated_at as number,
+    lastSeenAt: (row.last_seen_at as number | null) ?? undefined,
   };
 }
 
@@ -1482,6 +1503,125 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     return (rows as Record<string, unknown>[]).map(toWorktreeRecord);
   }
 
+  registerManagerRuntime(input: RegisterManagerRuntimeInput): ManagerRuntimeRecord {
+    const db = this.handle();
+    const now = input.registeredAt ?? Date.now();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const existingRow = db.prepare("SELECT * FROM manager_runtimes WHERE runtime_id = ?").get(input.runtimeId) as
+        | Record<string, unknown>
+        | undefined;
+      if (existingRow !== undefined) {
+        const existing = toManagerRuntimeRecord(existingRow);
+        if (existing.targetKind !== input.targetKind) {
+          throw new Error(`manager Runtime identity collision: ${input.runtimeId} has a different target kind`);
+        }
+        if (existing.address !== input.address) {
+          const conflicting = db
+            .prepare("SELECT runtime_id FROM manager_runtimes WHERE address = ? AND runtime_id != ?")
+            .get(input.address, input.runtimeId) as { runtime_id: string } | undefined;
+          if (conflicting !== undefined)
+            throw new Error(
+              `manager Runtime identity collision: ${input.targetKind}/${input.address} is already ${conflicting.runtime_id}`,
+            );
+        }
+        db.prepare(
+          `UPDATE manager_runtimes
+           SET display_name = ?, address = ?, config_provenance = ?, state = ?, updated_at = ?
+           WHERE runtime_id = ?`,
+        ).run(
+          input.displayName,
+          input.address,
+          input.configProvenance ?? existing.configProvenance ?? null,
+          input.state ?? existing.state,
+          now,
+          input.runtimeId,
+        );
+      } else {
+        const conflicting = db
+          .prepare("SELECT runtime_id FROM manager_runtimes WHERE address = ?")
+          .get(input.address) as { runtime_id: string } | undefined;
+        if (conflicting !== undefined) {
+          throw new Error(
+            `manager Runtime identity collision: ${input.targetKind}/${input.address} is already ${conflicting.runtime_id}`,
+          );
+        }
+        db.prepare(
+          `INSERT INTO manager_runtimes
+           (runtime_id, target_kind, display_name, address, config_provenance, state, created_at, updated_at, last_seen_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+        ).run(
+          input.runtimeId,
+          input.targetKind,
+          input.displayName,
+          input.address,
+          input.configProvenance ?? null,
+          input.state ?? "configured",
+          now,
+          now,
+        );
+      }
+      const row = db.prepare("SELECT * FROM manager_runtimes WHERE runtime_id = ?").get(input.runtimeId) as Record<
+        string,
+        unknown
+      >;
+      db.exec("COMMIT");
+      return toManagerRuntimeRecord(row);
+    } catch (error) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // Preserve the identity/collision error.
+      }
+      throw error;
+    }
+  }
+
+  getManagerRuntime(runtimeId: ManagerRuntimeId): ManagerRuntimeRecord | undefined {
+    const row = this.handle().prepare("SELECT * FROM manager_runtimes WHERE runtime_id = ?").get(runtimeId) as
+      | Record<string, unknown>
+      | undefined;
+    return row === undefined ? undefined : toManagerRuntimeRecord(row);
+  }
+
+  listManagerRuntimes(): ManagerRuntimeRecord[] {
+    const rows = this.handle()
+      .prepare("SELECT * FROM manager_runtimes ORDER BY created_at ASC, runtime_id ASC")
+      .all() as Record<string, unknown>[];
+    return rows.map(toManagerRuntimeRecord);
+  }
+
+  updateManagerRuntime(runtimeId: ManagerRuntimeId, input: UpdateManagerRuntimeInput): ManagerRuntimeRecord {
+    const db = this.handle();
+    const current = this.getManagerRuntime(runtimeId);
+    if (current === undefined) throw new Error(`manager Runtime not found: ${runtimeId}`);
+    const address = input.address ?? current.address;
+    if (address !== current.address) {
+      const conflict = db
+        .prepare("SELECT runtime_id FROM manager_runtimes WHERE address = ? AND runtime_id != ?")
+        .get(address, runtimeId) as { runtime_id: string } | undefined;
+      if (conflict !== undefined)
+        throw new Error(
+          `manager Runtime identity collision: ${current.targetKind}/${address} is already ${conflict.runtime_id}`,
+        );
+    }
+    const updatedAt = input.updatedAt ?? Date.now();
+    db.prepare(
+      `UPDATE manager_runtimes
+       SET display_name = ?, address = ?, config_provenance = ?, state = ?, last_seen_at = ?, updated_at = ?
+       WHERE runtime_id = ?`,
+    ).run(
+      input.displayName ?? current.displayName,
+      address,
+      input.configProvenance === undefined ? (current.configProvenance ?? null) : input.configProvenance,
+      input.state ?? current.state,
+      input.lastSeenAt === undefined ? (current.lastSeenAt ?? null) : input.lastSeenAt,
+      updatedAt,
+      runtimeId,
+    );
+    return this.getManagerRuntime(runtimeId)!;
+  }
+
   createManagerSession(input: CreateManagerSessionInput): ManagerSessionRecord {
     const startedAt = input.startedAt ?? Date.now();
     const lifecycleState = input.lifecycleState ?? "starting";
@@ -1494,16 +1634,17 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     this.handle()
       .prepare(
         `INSERT INTO manager_sessions
-          (session_id, workspace_root, idempotency_key, task_id, execution_session_id, execution_mode, worktree_id, worktree_path, branch_name,
+          (session_id, runtime_id, workspace_root, idempotency_key, task_id, execution_session_id, execution_mode, worktree_id, worktree_path, branch_name,
            task_slug, issue_ref, branch_type, agent_kind, launch_profile, instruction, provider, model,
            launch_command, launch_args_json, runtime_name, lifecycle_state, runtime_state,
            semantic_lifecycle_state, attachable, reconciliation_state, reconciliation_message,
            latest_status, latest_receipt_json, started_at, updated_at, finished_at,
            runtime_observed_at, restart_count, termination_state)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34)`,
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35)`,
       )
       .run(
         input.sessionId,
+        input.runtimeId ?? ("local" as ManagerRuntimeId),
         input.workspaceRoot,
         input.idempotencyKey ?? null,
         input.taskId ?? null,
