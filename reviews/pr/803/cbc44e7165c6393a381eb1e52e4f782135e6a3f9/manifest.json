@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "9480f3043064a13e804900ff987da6b7c6ad0589",
+    "draft": false,
+    "headRef": "fix/802-shared-workflows-main",
+    "headSha": "cbc44e7165c6393a381eb1e52e4f782135e6a3f9",
+    "number": 803,
+    "title": "fix(ci): follow org-owned reusable workflows from @main"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "cbc44e7165c6393a381eb1e52e4f782135e6a3f9",
+    "immutable": true,
+    "shortId": "cbc44e7165c6"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-04T14:23:17.558Z"
+  }
+}

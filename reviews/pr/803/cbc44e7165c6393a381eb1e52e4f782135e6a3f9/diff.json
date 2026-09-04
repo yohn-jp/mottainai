@@ -1,0 +1,196 @@
+{
+  "baseSha": "9480f3043064a13e804900ff987da6b7c6ad0589",
+  "files": [
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 30,
+          "oldLines": 1,
+          "oldStart": 30
+        }
+      ],
+      "path": ".github/workflows/ci.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 16,
+      "deletions": 15,
+      "hunks": [
+        {
+          "newLines": 5,
+          "newStart": 11,
+          "oldLines": 9,
+          "oldStart": 11
+        },
+        {
+          "newLines": 11,
+          "newStart": 41,
+          "oldLines": 6,
+          "oldStart": 45
+        }
+      ],
+      "path": "scripts/validate-actions.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 16,
+      "deletions": 13,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 54,
+          "oldLines": 1,
+          "oldStart": 54
+        },
+        {
+          "newLines": 1,
+          "newStart": 56,
+          "oldLines": 1,
+          "oldStart": 56
+        },
+        {
+          "newLines": 1,
+          "newStart": 63,
+          "oldLines": 1,
+          "oldStart": 63
+        },
+        {
+          "newLines": 1,
+          "newStart": 65,
+          "oldLines": 1,
+          "oldStart": 65
+        },
+        {
+          "newLines": 1,
+          "newStart": 70,
+          "oldLines": 1,
+          "oldStart": 70
+        },
+        {
+          "newLines": 1,
+          "newStart": 73,
+          "oldLines": 1,
+          "oldStart": 73
+        },
+        {
+          "newLines": 1,
+          "newStart": 76,
+          "oldLines": 4,
+          "oldStart": 76
+        },
+        {
+          "newLines": 1,
+          "newStart": 84,
+          "oldLines": 1,
+          "oldStart": 87
+        },
+        {
+          "newLines": 1,
+          "newStart": 92,
+          "oldLines": 0,
+          "oldStart": 94
+        },
+        {
+          "newLines": 7,
+          "newStart": 97,
+          "oldLines": 2,
+          "oldStart": 99
+        }
+      ],
+      "path": "scripts/validate-actions.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 25,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 25,
+          "newStart": 36,
+          "oldLines": 0,
+          "oldStart": 35
+        }
+      ],
+      "path": "src/cli.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 66,
+          "oldLines": 1,
+          "oldStart": 66
+        }
+      ],
+      "path": "src/cli.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 9,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 3,
+          "oldLines": 1,
+          "oldStart": 3
+        },
+        {
+          "newLines": 1,
+          "newStart": 10,
+          "oldLines": 0,
+          "oldStart": 9
+        },
+        {
+          "newLines": 7,
+          "newStart": 15,
+          "oldLines": 1,
+          "oldStart": 14
+        }
+      ],
+      "path": "src/index.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 807,
+          "oldLines": 1,
+          "oldStart": 807
+        }
+      ],
+      "path": "src/state/migrations.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 14,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 14,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/version.ts",
+      "status": "added"
+    }
+  ],
+  "headSha": "cbc44e7165c6393a381eb1e52e4f782135e6a3f9",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 83,
+    "deletions": 33,
+    "filesChanged": 8
+  }
+}
