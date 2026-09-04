@@ -3,6 +3,12 @@ import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { applyMigrations, MIGRATIONS } from "./migrations.js";
 
+test("MIGRATIONS keeps globally unique append-only version numbers", () => {
+  const versions = MIGRATIONS.map((migration) => migration.version);
+  assert.equal(new Set(versions).size, versions.length);
+  assert.ok(versions.every((version, index) => index === 0 || version > versions[index - 1]!));
+});
+
 test("applyMigrations discovers and applies one ordered migration per transaction", () => {
   const db = new DatabaseSync(":memory:");
   const applied: number[] = [];
