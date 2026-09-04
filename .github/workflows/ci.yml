@@ -118,12 +118,11 @@ jobs:
           persist-credentials: false
 
       - name: Setup pnpm and Node.js
-        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+        uses: ./.github/actions/setup-pnpm-node
         with:
-          version: 11.18.0
-          runtime: node@24
-          cache: true
-          install: false
+          pnpm-version: 11.18.0
+          node-version: "24"
+          enable-dependency-cache: "true"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -165,12 +164,11 @@ jobs:
           persist-credentials: false
 
       - name: Setup pnpm and Node.js
-        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+        uses: ./.github/actions/setup-pnpm-node
         with:
-          version: 11.18.0
-          runtime: node@24
-          cache: true
-          install: false
+          pnpm-version: 11.18.0
+          node-version: "24"
+          enable-dependency-cache: "true"
 
       - name: Install required system dependencies
         run: |
@@ -226,12 +224,11 @@ jobs:
           persist-credentials: false
 
       - name: Setup pnpm and Node.js
-        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+        uses: ./.github/actions/setup-pnpm-node
         with:
-          version: 11.18.0
-          runtime: node@24
-          cache: true
-          install: false
+          pnpm-version: 11.18.0
+          node-version: "24"
+          enable-dependency-cache: "true"
 
       - name: Install required system dependencies
         run: |
@@ -456,11 +453,10 @@ jobs:
         uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
 
       - name: Setup pnpm and Node.js for managed-generation verification scripts
-        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+        uses: ./.github/actions/setup-pnpm-node
         with:
-          version: 11.18.0
-          runtime: node@24
-          install: false
+          pnpm-version: 11.18.0
+          node-version: "24"
 
       - name: Install Node dependencies for managed-generation verification
         run: pnpm install --frozen-lockfile
@@ -545,11 +541,10 @@ jobs:
           kvm: true
 
       - name: Setup pnpm and Node.js for manifest generation
-        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+        uses: ./.github/actions/setup-pnpm-node
         with:
-          version: 11.18.0
-          runtime: node@24
-          install: false
+          pnpm-version: 11.18.0
+          node-version: "24"
 
       - name: Install Node dependencies for manifest generation
         run: pnpm install --frozen-lockfile
@@ -674,11 +669,10 @@ jobs:
           kvm: true
 
       - name: Setup pnpm and Node.js for manifest generation
-        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+        uses: ./.github/actions/setup-pnpm-node
         with:
-          version: 11.18.0
-          runtime: node@24
-          install: false
+          pnpm-version: 11.18.0
+          node-version: "24"
 
       - name: Install Node dependencies for manifest generation
         run: pnpm install --frozen-lockfile
@@ -850,11 +844,10 @@ jobs:
         uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
 
       - name: Setup pnpm and Node.js for manifest generation
-        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+        uses: ./.github/actions/setup-pnpm-node
         with:
-          version: 11.18.0
-          runtime: node@24
-          install: false
+          pnpm-version: 11.18.0
+          node-version: "24"
 
       - name: Install Node dependencies for manifest verification
         run: pnpm install --frozen-lockfile
