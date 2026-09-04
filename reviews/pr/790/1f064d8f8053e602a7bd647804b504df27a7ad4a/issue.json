@@ -1,0 +1,49 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "One versioned machine-readable target/connection model separates mutable SSH coordinates/trust from Runtime identity."
+    },
+    {
+      "checked": false,
+      "text": "Unknown/changed host key requires explicit trust action and cannot be silently accepted on reconnect."
+    },
+    {
+      "checked": false,
+      "text": "Same Runtime can be deliberately rebound to changed transport coordinates only with independent Runtime/trust verification."
+    },
+    {
+      "checked": false,
+      "text": "Reused hostname/IP pointing at an unrelated host fails rather than inheriting stored Runtime identity."
+    },
+    {
+      "checked": false,
+      "text": "SSH process invocation is argv-safe, finite, bounded, and has stable error classification."
+    },
+    {
+      "checked": false,
+      "text": "Persisted connection state contains no raw private key/token/agent secret and bounded status omits sensitive transport material."
+    },
+    {
+      "checked": false,
+      "text": "Restart/reload preserves trusted target records and detects corrupted/ambiguous state fail-closed."
+    },
+    {
+      "checked": false,
+      "text": "Tests cover first trust, repeat connection, host-key change, address change with same Runtime, address reuse by foreign Runtime, timeout/auth failure, and malformed state."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "enhancement"
+    ],
+    "number": 298,
+    "state": "open",
+    "title": "feat(runtime): persist verified SSH target identity separately from Runtime identity",
+    "url": "https://github.com/yohn-jp/mottainai/issues/298"
+  },
+  "linked": {
+    "number": 298
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

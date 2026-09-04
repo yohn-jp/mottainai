@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "dd8b92ec50b501d4731809038b9a0e49c8586c41",
+    "draft": false,
+    "headRef": "feat/298-ssh-target-identity",
+    "headSha": "1f064d8f8053e602a7bd647804b504df27a7ad4a",
+    "number": 790,
+    "title": "feat(runtime): persist verified SSH target identity (#298)"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "1f064d8f8053e602a7bd647804b504df27a7ad4a",
+    "immutable": true,
+    "shortId": "1f064d8f8053"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-04T11:56:08.294Z"
+  }
+}
