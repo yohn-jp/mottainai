@@ -72,6 +72,33 @@ test("packed artifact contains its declared runtime entry and pack does not rebu
   assert.equal(fs.statSync(path.join(repoRoot, "dist", "index.js")).mtimeMs, distMtimeBeforePack);
 });
 
+test("every declared bin passes the bounded version smoke contract", () => {
+  const packageDirectory = path.dirname(path.dirname(binPath));
+  const packageJson = JSON.parse(fs.readFileSync(path.join(packageDirectory, "package.json"), "utf8"));
+  const binNames = typeof packageJson.bin === "string" ? [packageJson.name] : Object.keys(packageJson.bin ?? {});
+  assert.ok(binNames.length > 0);
+  const workspace = createWorkspace();
+  try {
+    for (const binName of binNames) {
+      const packagedBin = resolvePackagedBin(packageDirectory, binName);
+      const result = spawnSync(packagedBin, ["--version"], {
+        cwd: workspace,
+        env: isolatedEnv(workspace),
+        encoding: "utf8",
+        timeout: BLACKBOX_TIMEOUTS.processStartup,
+      });
+      assert.equal(
+        result.status,
+        0,
+        `${binName} --version failed (signal=${result.signal}, error=${result.error?.message ?? "none"})\n${result.stdout}\n${result.stderr}`,
+      );
+      assert.equal(result.signal, null);
+    }
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 test("packed identity survives consumer cwd, explicit config, environment config, and default config resolution", () => {
   const consumer = createWorkspace();
   const alternateCwd = createWorkspace();
