@@ -27,7 +27,7 @@ jobs:
         github.event.pull_request.user.login != 'dependabot[bot]' &&
         !startsWith(github.event.pull_request.head.ref, 'release/')
       )
-    uses: yohn-jp/.github/.github/workflows/typescript-cli-ci.yml@27f75b402d06174056a6051abb643c5acd819b2e # yohn-jp/.github main at 2026-09-04
+    uses: yohn-jp/.github/.github/workflows/typescript-cli-ci.yml@main
     with:
       node-version: "24"
       conformance-script: "architecture:check"
