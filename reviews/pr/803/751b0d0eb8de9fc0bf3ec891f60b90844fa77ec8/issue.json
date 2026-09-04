@@ -1,0 +1,16 @@
+{
+  "acceptanceCriteria": [],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 802,
+    "state": "open",
+    "title": "fix: follow shared GitHub workflows from @main",
+    "url": "https://github.com/yohn-jp/mottainai/issues/802"
+  },
+  "linked": {
+    "number": 802
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
