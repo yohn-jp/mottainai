@@ -50,7 +50,7 @@ export function resolveGhInariConfig(config: GhInariConfig | undefined): Resolve
 /** Minimum companion release for the versioned machine contract consumed here. */
 export const GH_INARI_MINIMUM_VERSION = "0.7.0" as const;
 export const GH_INARI_SUPPORTED_VERSION = ">=0.7.0" as const;
-export const GH_INARI_SUPPORTED_OPERATIONS = Object.freeze(["pr.create", "pr.get"] as const);
+export const GH_INARI_SUPPORTED_OPERATIONS = Object.freeze(["issue.get", "pr.create", "pr.get"] as const);
 export type GhInariOperation = (typeof GH_INARI_SUPPORTED_OPERATIONS)[number];
 export const GH_INARI_REQUIRED_OPTIONS = Object.freeze(["--from", "--json", "--repository", "--template"] as const);
 export type GhInariOption = (typeof GH_INARI_REQUIRED_OPTIONS)[number];
@@ -83,7 +83,69 @@ export interface GhInariGetPullRequestRequest {
   readonly template?: string;
 }
 
-/** Provider identity needed by Mottainai lifecycle/reconciliation; body is intentionally omitted. */
+export interface GhInariGetIssueRequest {
+  readonly repository: GhInariRepository;
+  readonly number: number;
+  readonly template?: string;
+}
+
+export type GhInariArtifactClassification = "valid" | "semantic" | "wrong-template" | "unparseable" | "ambiguous";
+export type GhInariArtifactProjection = "canonical" | "unavailable";
+
+/** Stable template identity returned by gh-inari's governed read contract. */
+export interface GhInariTemplateIdentity {
+  readonly id: string;
+  readonly name: string;
+  readonly path: string;
+  readonly source: "issue_form" | "pull_request_template";
+}
+
+export interface GhInariIssueReadMetadata {
+  readonly title: string;
+  readonly state: string;
+  readonly labels: readonly string[];
+  readonly assignees: readonly string[];
+}
+
+export interface GhInariPullRequestReadMetadata {
+  readonly title: string;
+  readonly state: string;
+  readonly draft: boolean;
+  readonly head: string;
+  readonly base: string;
+  readonly maintainerCanModify?: boolean;
+}
+
+interface GhInariGovernedReadBase {
+  readonly valid: boolean;
+  readonly projection: GhInariArtifactProjection;
+  readonly classification: GhInariArtifactClassification;
+  /** Normalized request identity; never inferred from the companion cwd. */
+  readonly repository: string;
+  readonly number: number;
+  readonly url: string;
+  readonly template?: GhInariTemplateIdentity;
+  readonly fields?: GhInariJsonObject;
+  readonly dependencies?: GhInariJsonObject;
+  readonly diagnostics: readonly GhInariJsonValue[];
+  readonly violations?: readonly GhInariJsonValue[];
+  readonly attemptedTemplates?: readonly string[];
+  /** Optional future provenance fields are retained only when gh-inari supplies them. */
+  readonly provenance?: GhInariJsonObject;
+}
+
+export interface GhInariIssueReadResult extends GhInariGovernedReadBase {
+  readonly kind: "issue";
+  readonly metadata: GhInariIssueReadMetadata;
+}
+
+export interface GhInariPullRequestReadResult extends GhInariGovernedReadBase {
+  readonly kind: "pull_request";
+  readonly metadata: GhInariPullRequestReadMetadata;
+}
+
+/** Provider identity and canonical semantic projection; native Markdown is never returned. */
+/** @deprecated Use GhInariPullRequestReadResult. */
 export interface GhInariPullRequestResult {
   readonly number: number;
   readonly url: string;
@@ -92,15 +154,6 @@ export interface GhInariPullRequestResult {
   readonly draft?: boolean;
   readonly head?: string;
   readonly base?: string;
-}
-
-export interface GhInariPullRequestReadResult {
-  readonly valid: boolean;
-  readonly number: number;
-  readonly url: string;
-  readonly projection?: "canonical" | "unavailable";
-  readonly fields?: GhInariJsonObject;
-  readonly metadata?: GhInariJsonObject;
 }
 
 export type GhInariErrorCode =
@@ -281,7 +334,7 @@ export class GhInariClient {
   async getPullRequest(request: GhInariGetPullRequestRequest): Promise<GhInariResult<GhInariPullRequestReadResult>> {
     const normalized = normalizeGetRequest(request);
     if (!normalized.ok) return normalized;
-    return this.executeJson(
+    const result = await this.executeJson(
       "pr.get",
       [
         "pr",
@@ -294,7 +347,32 @@ export class GhInariClient {
       ],
       undefined,
       parsePullRequestRead,
+      { acceptValidationResult: true },
     );
+    if (!result.ok) return result;
+    return { ok: true, value: { ...result.value, repository: normalized.value.repository } };
+  }
+
+  async getIssue(request: GhInariGetIssueRequest): Promise<GhInariResult<GhInariIssueReadResult>> {
+    const normalized = normalizeGetRequest(request);
+    if (!normalized.ok) return normalized;
+    const result = await this.executeJson(
+      "issue.get",
+      [
+        "issue",
+        "get",
+        String(normalized.value.number),
+        "--repository",
+        normalized.value.repository,
+        "--json",
+        ...templateArgs(normalized.value.template),
+      ],
+      undefined,
+      parseIssueRead,
+      { acceptValidationResult: true },
+    );
+    if (!result.ok) return result;
+    return { ok: true, value: { ...result.value, repository: normalized.value.repository } };
   }
 
   private async executeJson<Value>(
@@ -302,6 +380,7 @@ export class GhInariClient {
     args: readonly string[],
     input: string | undefined,
     parse: (payload: GhInariJsonObject) => Value | GhInariError,
+    options: { readonly acceptValidationResult?: boolean } = {},
   ): Promise<GhInariResult<Value>> {
     const capabilities = await this.checkCapabilities();
     if (!capabilities.ok) return { ok: false, error: capabilities.error };
@@ -325,6 +404,13 @@ export class GhInariClient {
     if (processError !== undefined) {
       const remote = parseRemoteError(result.stdout);
       if (remote !== undefined) return rejectedError(operation, remote);
+      if (options.acceptValidationResult === true && result.exitCode === 2) {
+        const payload = parsePayload(result.stdout);
+        if (payload !== undefined) {
+          const parsed = parse(payload);
+          if (!isGhInariError(parsed) && isUnavailableReadResult(parsed)) return { ok: true, value: parsed };
+        }
+      }
       if (result.exitCode !== 0 && result.stdout.trim().length === 0 && result.stderr.trim().length === 0) {
         return { ok: false, error: processError };
       }
@@ -454,25 +540,203 @@ function parseCreatedPullRequest(payload: GhInariJsonObject): GhInariPullRequest
   };
 }
 
-function parsePullRequestRead(payload: GhInariJsonObject): GhInariPullRequestReadResult | GhInariError {
-  if (typeof payload.valid !== "boolean") {
-    return malformedError("pr.get", "gh-inari read output is missing valid.", undefined);
+type GhInariIssueReadPayload = Omit<GhInariIssueReadResult, "repository">;
+type GhInariPullRequestReadPayload = Omit<GhInariPullRequestReadResult, "repository">;
+
+function parseIssueRead(payload: GhInariJsonObject): GhInariIssueReadPayload | GhInariError {
+  const common = parseGovernedRead(payload, "issue", "issue.get");
+  if (!common.ok) return common.error;
+  const metadata = parseIssueReadMetadata(payload.metadata);
+  if (metadata === undefined)
+    return malformedError("issue.get", "gh-inari Issue result has invalid metadata.", undefined);
+  return { ...common.value, kind: "issue", metadata };
+}
+
+function parsePullRequestRead(payload: GhInariJsonObject): GhInariPullRequestReadPayload | GhInariError {
+  const common = parseGovernedRead(payload, "pull_request", "pr.get");
+  if (!common.ok) return common.error;
+  const metadata = parsePullRequestReadMetadata(payload.metadata);
+  if (metadata === undefined)
+    return malformedError("pr.get", "gh-inari pull-request result has invalid metadata.", undefined);
+  return { ...common.value, kind: "pull_request", metadata };
+}
+
+function parseGovernedRead(
+  payload: GhInariJsonObject,
+  kind: "issue" | "pull_request",
+  operation: "issue.get" | "pr.get",
+):
+  | {
+      ok: true;
+      value:
+        | Omit<GhInariIssueReadResult, "kind" | "metadata" | "repository">
+        | Omit<GhInariPullRequestReadResult, "kind" | "metadata" | "repository">;
+    }
+  | { ok: false; error: GhInariError } {
+  if (typeof payload.valid !== "boolean")
+    return { ok: false, error: malformedError(operation, "gh-inari read output is missing valid.", undefined) };
+  if (payload.kind !== kind)
+    return { ok: false, error: malformedError(operation, `gh-inari read output is not a ${kind} result.`, undefined) };
+  if (payload.projection !== "canonical" && payload.projection !== "unavailable")
+    return { ok: false, error: malformedError(operation, "gh-inari read output has invalid projection.", undefined) };
+  const classification = artifactClassification(payload.classification);
+  if (classification === undefined)
+    return {
+      ok: false,
+      error: malformedError(operation, "gh-inari read output has invalid classification.", undefined),
+    };
+  if (payload.valid !== (classification === "valid" && payload.projection === "canonical")) {
+    return {
+      ok: false,
+      error: malformedError(operation, "gh-inari read output has inconsistent validity.", undefined),
+    };
   }
   const number = positiveNumber(payload.number);
   const url = stringValue(payload.url);
-  if (number === undefined || url === undefined || (payload.kind !== undefined && payload.kind !== "pull_request")) {
-    return malformedError("pr.get", "gh-inari read output is not a pull-request result.", undefined);
-  }
-  const projection =
-    payload.projection === "canonical" || payload.projection === "unavailable" ? payload.projection : undefined;
+  if (number === undefined || url === undefined)
+    return {
+      ok: false,
+      error: malformedError(operation, "gh-inari read output is missing artifact identity.", undefined),
+    };
+  const template = parseTemplateIdentity(payload.template, kind);
+  if (payload.template !== undefined && template === undefined)
+    return {
+      ok: false,
+      error: malformedError(operation, "gh-inari read output has invalid template identity.", undefined),
+    };
+  if (payload.valid && template === undefined)
+    return {
+      ok: false,
+      error: malformedError(operation, "gh-inari canonical read output is missing template identity.", undefined),
+    };
+  if (!Array.isArray(payload.diagnostics))
+    return { ok: false, error: malformedError(operation, "gh-inari read output is missing diagnostics.", undefined) };
+  const fields =
+    payload.fields === undefined ? undefined : isRecord(payload.fields) ? boundObject(payload.fields) : null;
+  if (fields === null || (payload.valid && fields === undefined))
+    return { ok: false, error: malformedError(operation, "gh-inari read output has invalid fields.", undefined) };
+  const dependencies =
+    payload.dependencies === undefined
+      ? undefined
+      : isRecord(payload.dependencies)
+        ? boundObject(payload.dependencies)
+        : null;
+  if (dependencies === null)
+    return { ok: false, error: malformedError(operation, "gh-inari read output has invalid dependencies.", undefined) };
+  const violations =
+    payload.violations === undefined
+      ? undefined
+      : Array.isArray(payload.violations)
+        ? payload.violations.slice(0, 16).map((value) => boundValue(value))
+        : null;
+  if (violations === null)
+    return { ok: false, error: malformedError(operation, "gh-inari read output has invalid violations.", undefined) };
+  const attemptedTemplates =
+    payload.attemptedTemplates === undefined ? undefined : parseStringArray(payload.attemptedTemplates);
+  if (payload.attemptedTemplates !== undefined && attemptedTemplates === undefined)
+    return {
+      ok: false,
+      error: malformedError(operation, "gh-inari read output has invalid attempted templates.", undefined),
+    };
+  const provenance =
+    payload.provenance === undefined
+      ? undefined
+      : isRecord(payload.provenance)
+        ? boundObject(payload.provenance)
+        : null;
+  if (provenance === null)
+    return { ok: false, error: malformedError(operation, "gh-inari read output has invalid provenance.", undefined) };
   return {
-    valid: payload.valid,
-    number,
-    url: boundText(url),
-    ...(projection === undefined ? {} : { projection }),
-    ...(isRecord(payload.fields) ? { fields: boundObject(payload.fields) } : {}),
-    ...(isRecord(payload.metadata) ? { metadata: boundObject(payload.metadata) } : {}),
+    ok: true,
+    value: {
+      valid: payload.valid,
+      projection: payload.projection,
+      classification,
+      number,
+      url: boundText(url),
+      ...(template === undefined ? {} : { template }),
+      ...(payload.valid && fields !== undefined ? { fields } : {}),
+      ...(payload.valid && dependencies !== undefined ? { dependencies } : {}),
+      diagnostics: payload.diagnostics.slice(0, 16).map((value) => boundValue(value)),
+      ...(violations === undefined ? {} : { violations }),
+      ...(attemptedTemplates === undefined ? {} : { attemptedTemplates }),
+      ...(provenance === undefined ? {} : { provenance }),
+    },
   };
+}
+
+function artifactClassification(value: unknown): GhInariArtifactClassification | undefined {
+  return value === "valid" ||
+    value === "semantic" ||
+    value === "wrong-template" ||
+    value === "unparseable" ||
+    value === "ambiguous"
+    ? value
+    : undefined;
+}
+
+function parseTemplateIdentity(value: unknown, kind: "issue" | "pull_request"): GhInariTemplateIdentity | undefined {
+  if (!isRecord(value)) return undefined;
+  const id = stringValue(value.id);
+  const name = stringValue(value.name);
+  const path = stringValue(value.path);
+  const source = value.source;
+  if (id === undefined || name === undefined || path === undefined) return undefined;
+  if (kind === "issue" && source !== "issue_form") return undefined;
+  if (kind === "pull_request" && source !== "pull_request_template") return undefined;
+  return {
+    id: boundText(id),
+    name: boundText(name),
+    path: boundText(path),
+    source: source as "issue_form" | "pull_request_template",
+  };
+}
+
+function parseIssueReadMetadata(value: unknown): GhInariIssueReadMetadata | undefined {
+  if (!isRecord(value)) return undefined;
+  const title = stringValue(value.title);
+  const state = stringValue(value.state);
+  const labels = parseStringArray(value.labels);
+  const assignees = parseStringArray(value.assignees);
+  if (title === undefined || state === undefined || labels === undefined || assignees === undefined) return undefined;
+  return { title: boundText(title), state: boundText(state), labels, assignees };
+}
+
+function parsePullRequestReadMetadata(value: unknown): GhInariPullRequestReadMetadata | undefined {
+  if (!isRecord(value)) return undefined;
+  const title = stringValue(value.title);
+  const state = stringValue(value.state);
+  const head = stringValue(value.head);
+  const base = stringValue(value.base);
+  if (
+    title === undefined ||
+    state === undefined ||
+    head === undefined ||
+    base === undefined ||
+    typeof value.draft !== "boolean"
+  )
+    return undefined;
+  if (value.maintainerCanModify !== undefined && typeof value.maintainerCanModify !== "boolean") return undefined;
+  return {
+    title: boundText(title),
+    state: boundText(state),
+    draft: value.draft,
+    head: boundText(head),
+    base: boundText(base),
+    ...(value.maintainerCanModify === undefined ? {} : { maintainerCanModify: value.maintainerCanModify }),
+  };
+}
+
+function parseStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || item.trim().length === 0))
+    return undefined;
+  return value.slice(0, 32).map((item) => boundText(item));
+}
+
+function isUnavailableReadResult(
+  value: unknown,
+): value is { readonly valid: false; readonly projection: "unavailable" } {
+  return isRecord(value) && value.valid === false && value.projection === "unavailable";
 }
 
 function processFailure(
