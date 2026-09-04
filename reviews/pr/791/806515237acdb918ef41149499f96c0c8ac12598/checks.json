@@ -1,0 +1,55 @@
+{
+  "available": true,
+  "checkRuns": [
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33869945237/job/101013275490",
+      "name": "detect CI ownership path changes",
+      "status": "queued"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33869945277/job/101013343914",
+      "name": "Generate review package",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33870001329/job/101013456202",
+      "name": "standards-self-check",
+      "status": "queued"
+    },
+    {
+      "conclusion": "cancelled",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33869946066/job/101013430500",
+      "name": "standards-self-check",
+      "status": "completed"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33870001329/job/101013456372",
+      "name": "validate-pr",
+      "status": "queued"
+    },
+    {
+      "conclusion": "cancelled",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33869946066/job/101013430283",
+      "name": "validate-pr",
+      "status": "completed"
+    },
+    {
+      "conclusion": "skipped",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33870001329/job/101013457791",
+      "name": "validate-release",
+      "status": "completed"
+    },
+    {
+      "conclusion": "skipped",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33869946066/job/101013431069",
+      "name": "validate-release",
+      "status": "completed"
+    }
+  ],
+  "headSha": "806515237acdb918ef41149499f96c0c8ac12598",
+  "schemaVersion": "mottainai.review-pages.checks/v1"
+}

@@ -1,0 +1,49 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "One versioned persisted mapping binds canonical repository identity to unique UID/GID/internal username and allocation lifecycle."
+    },
+    {
+      "checked": false,
+      "text": "Two active repositories cannot receive the same UID or GID."
+    },
+    {
+      "checked": false,
+      "text": "Allocation/release/retry survives injected persistence failure without duplicate or half-authoritative assignments."
+    },
+    {
+      "checked": false,
+      "text": "Rename/path/remote spelling changes retain the same principal when repository identity continuity is proven."
+    },
+    {
+      "checked": false,
+      "text": "Different/forked repository identity cannot inherit another principal from similar mutable metadata."
+    },
+    {
+      "checked": false,
+      "text": "Released identity is not reusable until explicit residual-ownership cleanup/proof makes reuse safe."
+    },
+    {
+      "checked": false,
+      "text": "Schema/version migration is fail-closed on ambiguity/corruption and never guesses ownership."
+    },
+    {
+      "checked": false,
+      "text": "Bounded status/debug projection excludes secrets and does not turn usernames into semantic IDs."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "enhancement"
+    ],
+    "number": 295,
+    "state": "open",
+    "title": "feat(security): allocate durable collision-safe repository Unix principal identities",
+    "url": "https://github.com/yohn-jp/mottainai/issues/295"
+  },
+  "linked": {
+    "number": 295
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
