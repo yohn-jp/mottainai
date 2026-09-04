@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #787 @ ec289ae4c658</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #787: chore(ci): document local npm publish exception (#303)</h1>
+<p>Base <code>main</code> @ <code>dd8b92ec50b501d4731809038b9a0e49c8586c41</code> &rarr;
+Head <code>chore/303-shared-npm-publish</code> @ <code>ec289ae4c658ef04bf9655205a35026cd9342697</code></p>
+<p>Revision <code>ec289ae4c658</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/303">#303</a> ci: adopt the shared npm publish workflow only if release semantics are equivalent (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Current Mottainai and shared npm-publish contracts are compared on trigger, version source, package/build checks, artifact identity, provenance, permissions and authentication.</li>
+<li>[ ] The Issue records one explicit decision: adopted because equivalent/stronger, or retained-local because of named incompatibility.</li>
+<li>[ ] If adopted, the caller uses an immutable `.github` revision and Trusted Publishing/OIDC with least-privilege permissions.</li>
+<li>[ ] If adopted, exact packed artifact verification/pre-publish checks remain at least as strong as current Mottainai behavior.</li>
+<li>[ ] If retained local, no partial/duplicate publish path remains enabled and the exception is documented for #239/.github#10.</li>
+<li>[ ] No long-lived npm publishing credential is introduced.</li>
+<li>[ ] Workflow/static tests plus a safe release/dry-run or next governed release evidence validate the selected path without unplanned publication.</li></ul>
+
+
+
+<h2>Changed files (4, +54/-25)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/publish.yml</td><td>modified</td><td>+18</td><td>-0</td></tr>
+<tr><td>docs/releases/0.8.3.md</td><td>removed</td><td>+0</td><td>-21</td></tr>
+<tr><td>package.json</td><td>modified</td><td>+4</td><td>-4</td></tr>
+<tr><td>scripts/npm-publish-contract.test.mjs</td><td>added</td><td>+32</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

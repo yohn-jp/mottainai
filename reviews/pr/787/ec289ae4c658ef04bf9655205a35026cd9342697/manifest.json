@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "dd8b92ec50b501d4731809038b9a0e49c8586c41",
+    "draft": false,
+    "headRef": "chore/303-shared-npm-publish",
+    "headSha": "ec289ae4c658ef04bf9655205a35026cd9342697",
+    "number": 787,
+    "title": "chore(ci): document local npm publish exception (#303)"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "ec289ae4c658ef04bf9655205a35026cd9342697",
+    "immutable": true,
+    "shortId": "ec289ae4c658"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-04T11:52:34.243Z"
+  }
+}

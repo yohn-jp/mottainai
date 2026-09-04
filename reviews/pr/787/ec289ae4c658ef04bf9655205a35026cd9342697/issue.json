@@ -1,0 +1,43 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Current Mottainai and shared npm-publish contracts are compared on trigger, version source, package/build checks, artifact identity, provenance, permissions and authentication."
+    },
+    {
+      "checked": false,
+      "text": "The Issue records one explicit decision: adopted because equivalent/stronger, or retained-local because of named incompatibility."
+    },
+    {
+      "checked": false,
+      "text": "If adopted, the caller uses an immutable `.github` revision and Trusted Publishing/OIDC with least-privilege permissions."
+    },
+    {
+      "checked": false,
+      "text": "If adopted, exact packed artifact verification/pre-publish checks remain at least as strong as current Mottainai behavior."
+    },
+    {
+      "checked": false,
+      "text": "If retained local, no partial/duplicate publish path remains enabled and the exception is documented for #239/.github#10."
+    },
+    {
+      "checked": false,
+      "text": "No long-lived npm publishing credential is introduced."
+    },
+    {
+      "checked": false,
+      "text": "Workflow/static tests plus a safe release/dry-run or next governed release evidence validate the selected path without unplanned publication."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 303,
+    "state": "open",
+    "title": "ci: adopt the shared npm publish workflow only if release semantics are equivalent",
+    "url": "https://github.com/yohn-jp/mottainai/issues/303"
+  },
+  "linked": {
+    "number": 303
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
