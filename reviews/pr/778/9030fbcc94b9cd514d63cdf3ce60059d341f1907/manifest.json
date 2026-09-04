@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "f7221fafe91d2628577de1c65d394468ba15fb2c",
+    "draft": false,
+    "headRef": "fix/776-pnpm-cache-first-acquisition",
+    "headSha": "9030fbcc94b9cd514d63cdf3ce60059d341f1907",
+    "number": 778,
+    "title": "fix(ci): make pnpm executable acquisition cache-first with bounded retry"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "9030fbcc94b9cd514d63cdf3ce60059d341f1907",
+    "immutable": true,
+    "shortId": "9030fbcc94b9"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-04T10:42:35.900Z"
+  }
+}

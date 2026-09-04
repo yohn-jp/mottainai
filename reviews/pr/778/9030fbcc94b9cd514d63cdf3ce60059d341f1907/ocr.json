@@ -1,0 +1,60 @@
+{
+  "baseSha": "f7221fafe91d2628577de1c65d394468ba15fb2c",
+  "headSha": "9030fbcc94b9cd514d63cdf3ce60059d341f1907",
+  "preview": {
+    "excluded_count": 0,
+    "excluded_files": [],
+    "from": "f7221fafe91d2628577de1c65d394468ba15fb2c",
+    "merge_base": "f7221fafe91d2628577de1c65d394468ba15fb2c",
+    "mode": "range",
+    "reviewable_count": 2,
+    "reviewable_files": [
+      {
+        "deletions": 0,
+        "insertions": 145,
+        "path": ".github/actions/setup-pnpm-node/action.yml",
+        "status": "added"
+      },
+      {
+        "deletions": 31,
+        "insertions": 24,
+        "path": ".github/workflows/ci.yml",
+        "status": "modified"
+      }
+    ],
+    "schema_version": "1",
+    "to": "9030fbcc94b9cd514d63cdf3ce60059d341f1907",
+    "total_deletions": 31,
+    "total_files": 2,
+    "total_insertions": 169
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.1"
+  },
+  "rule": {
+    "groups": [
+      {
+        "files": [
+          ".github/actions/setup-pnpm-node/action.yml"
+        ],
+        "group_id": 1,
+        "pattern": ".github/**/*.{yaml,yml}",
+        "rule": "#### Issue Template Validation\n- **Missing required fields**: Issue templates should have `name`, `description`, and `body` fields\n- **Invalid input types**: Verify `type` values in body inputs are valid (dropdown, input, textarea, checkboxes, markdown)\n- **Empty options in dropdowns**: Dropdown type inputs must have non-empty `options` list\n- **Missing `id` on inputs**: Form inputs without `id` cannot be parsed programmatically\n\n#### Release Configuration\n- **Undefined category labels**: Labels referenced in `categories[].labels` should exist in the repository (note: this is a warning, as labels may be created separately)\n- **Missing default category**: A `release.yml` without a catch-all category (using `*`) may omit some PRs from release notes\n\n#### General Structure\n- **YAML syntax correctness**: Indentation consistency, proper quoting of special characters, valid anchors/aliases usage\n- **Spelling errors in YAML keys**: Check for typos in configuration keys that would be silently ignored",
+        "source": "system"
+      },
+      {
+        "files": [
+          ".github/workflows/ci.yml"
+        ],
+        "group_id": 2,
+        "pattern": ".github/workflows/**/*.{yaml,yml}",
+        "rule": "#### Security\n- **pull_request_target misuse**: Using `pull_request_target` with `actions/checkout` referencing PR head code is dangerous — it runs untrusted code with write permissions. Flag if checkout ref points to PR head without isolation\n- **Secrets exposure**: Secrets must not be printed to logs (e.g., `echo ${{ secrets.X }}`). Verify secrets are only passed via `env:` blocks to steps that need them\n- **Excessive permissions**: Check if `permissions` is set to least-privilege. Flag `permissions: write-all` or missing `permissions` key (defaults to broad access). Each job should declare only the permissions it needs\n- **Unpinned action versions**: Third-party actions should be pinned to a full commit SHA (e.g., `uses: actions/checkout@<sha>`), not just a tag. Tags are mutable and can be hijacked. First-party (`actions/*`) pinned to `v4` is acceptable\n- **Script injection**: Expressions like `${{ github.event.issue.title }}` used directly in `run:` blocks enable code injection. These must be passed through environment variables instead\n- **Hardcoded credentials**: Tokens, passwords, or API keys directly in the workflow file (not via secrets)\n\n#### Correctness\n- **Missing `fetch-depth: 0`**: When a workflow needs git history (tags, merge-base, changelog generation), verify `actions/checkout` uses `fetch-depth: 0`\n- **Incorrect condition logic**: Verify `if:` conditions are correct (e.g., `github.event_name == 'pull_request'` vs `'pull_request_target'`); ensure boolean expressions are properly quoted\n- **Matrix strategy gaps**: Check that matrix combinations cover required platforms. Flag if `fail-fast` is true (default) but all matrix legs must succeed\n- **Missing `shell` specification**: When using `run:` with multi-line scripts on self-hosted runners, shell should be explicit (bash vs sh vs pwsh)\n- **Broken job dependencies**: Verify `needs:` references exist as actual job IDs in the same workflow. Check for circular dependencies\n- **Typos in action inputs**: Misspelled input names for actions (e.g., `fetch-detph` instead of `fetch-depth`) are silently ignored\n\n#### Reliability\n- **Missing timeout**: Jobs without `timeout-minutes` can run indefinitely and consume runner resources. Flag jobs that lack timeout (especially on self-hosted runners)\n- **No concurrency control**: Workflows triggered by push/PR without `concurrency` group may create redundant runs. Suggest `concurrency` with `cancel-in-progress` where appropriate\n- **Uncached dependencies**: Build workflows that install dependencies without caching (no `actions/cache` or built-in caching) on every run\n\n#### Best Practices\n- **Deprecated features**: Flag usage of deprecated syntax (`set-output`, `save-state`, `::set-output`, `actions/checkout@v2/v3` when v4 is available)\n- **Missing `continue-on-error` awareness**: If a step failure should not fail the whole job, it needs `continue-on-error: true`; conversely, verify non-critical steps don't silently swallow failures with `|| true` hiding real errors\n- **Container image tags**: Using `latest` tag for container images is unreliable; prefer specific version tags",
+        "source": "system"
+      }
+    ],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}

@@ -1,0 +1,51 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Warm-cache jobs do not require npm registry access to obtain the pinned pnpm executable."
+    },
+    {
+      "checked": false,
+      "text": "Cache identity includes OS/architecture and exact pnpm version; incompatible executables cannot be restored."
+    },
+    {
+      "checked": false,
+      "text": "Cold-cache acquisition retries transient download failures a bounded number of times with backoff."
+    },
+    {
+      "checked": false,
+      "text": "A successful cold acquisition populates the cache for later workflow runs."
+    },
+    {
+      "checked": false,
+      "text": "Cache miss/eviction remains a supported path; cache is not a correctness dependency."
+    },
+    {
+      "checked": false,
+      "text": "Integrity/version of the acquired/restored pnpm executable is verified before use."
+    },
+    {
+      "checked": false,
+      "text": "Product proof steps are not retried."
+    },
+    {
+      "checked": false,
+      "text": "Existing PR/main CI contract coverage is unchanged."
+    },
+    {
+      "checked": false,
+      "text": "Normal warm-path setup latency does not materially regress from #775."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 776,
+    "state": "open",
+    "title": "fix(ci): make pnpm acquisition cache-first with bounded retry",
+    "url": "https://github.com/yohn-jp/mottainai/issues/776"
+  },
+  "linked": {
+    "number": 776
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
