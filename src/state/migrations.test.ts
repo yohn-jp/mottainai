@@ -84,6 +84,20 @@ test("workflow tables including task-start reconciliation are reachable after mi
   }
 });
 
+test("fresh databases apply the managed PR lifecycle schema migration", () => {
+  const db = freshDb();
+  try {
+    assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'managed_pr_states'").get());
+    assert.ok(
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'managed_pr_derived_inputs'")
+        .get(),
+    );
+  } finally {
+    db.close();
+  }
+});
+
 test("manager Pi migration preserves existing Codex session records", () => {
   const db = new DatabaseSync(":memory:");
   try {
