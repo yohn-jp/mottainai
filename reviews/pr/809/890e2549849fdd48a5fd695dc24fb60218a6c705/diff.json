@@ -1,0 +1,64 @@
+{
+  "baseSha": "fbe096a6c0e5384e5af0e9ee6ebab00cd1d699ef",
+  "files": [
+    {
+      "additions": 0,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 2,
+          "oldLines": 2,
+          "oldStart": 3
+        }
+      ],
+      "path": ".github/codeql/codeql-config.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 6,
+      "deletions": 29,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 7,
+          "oldLines": 1,
+          "oldStart": 8
+        },
+        {
+          "newLines": 0,
+          "newStart": 10,
+          "oldLines": 4,
+          "oldStart": 12
+        },
+        {
+          "newLines": 1,
+          "newStart": 15,
+          "oldLines": 1,
+          "oldStart": 20
+        },
+        {
+          "newLines": 4,
+          "newStart": 23,
+          "oldLines": 1,
+          "oldStart": 28
+        },
+        {
+          "newLines": 1,
+          "newStart": 30,
+          "oldLines": 22,
+          "oldStart": 32
+        }
+      ],
+      "path": ".github/workflows/codeql.yml",
+      "status": "modified"
+    }
+  ],
+  "headSha": "890e2549849fdd48a5fd695dc24fb60218a6c705",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 6,
+    "deletions": 31,
+    "filesChanged": 2
+  }
+}

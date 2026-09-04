@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #809 @ 890e2549849f</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #809: security: migrate CodeQL to shared workflow</h1>
+<p>Base <code>main</code> @ <code>fbe096a6c0e5384e5af0e9ee6ebab00cd1d699ef</code> &rarr;
+Head <code>security/808-shared-codeql-migration</code> @ <code>890e2549849fdd48a5fd695dc24fb60218a6c705</code></p>
+<p>Revision <code>890e2549849f</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/808">#808</a> security: replace local CodeQL exception with the shared organization workflow (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Mottainai CodeQL execution consumes the organization-owned shared workflow from `@main`.</li>
+<li>[ ] Both `javascript-typescript` and `actions` analyses remain enabled.</li>
+<li>[ ] Mottainai&#39;s local CodeQL config continues to be consumed.</li>
+<li>[ ] Trigger cadence and intentional PR exclusions remain equivalent to the pre-migration contract.</li>
+<li>[ ] Permissions remain least-privilege and checkout credential hardening is not weakened.</li>
+<li>[ ] No duplicate local/shared CodeQL execution remains.</li>
+<li>[ ] PR Actions prove the reusable CodeQL caller end to end.</li>
+<li>[ ] Current-main Actions prove push/scheduled-compatible behavior after merge.</li></ul>
+
+
+
+<h2>Changed files (2, +6/-31)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/codeql/codeql-config.yml</td><td>modified</td><td>+0</td><td>-2</td></tr>
+<tr><td>.github/workflows/codeql.yml</td><td>modified</td><td>+6</td><td>-29</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

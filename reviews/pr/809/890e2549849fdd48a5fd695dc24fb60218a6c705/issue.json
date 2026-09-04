@@ -1,0 +1,47 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Mottainai CodeQL execution consumes the organization-owned shared workflow from `@main`."
+    },
+    {
+      "checked": false,
+      "text": "Both `javascript-typescript` and `actions` analyses remain enabled."
+    },
+    {
+      "checked": false,
+      "text": "Mottainai's local CodeQL config continues to be consumed."
+    },
+    {
+      "checked": false,
+      "text": "Trigger cadence and intentional PR exclusions remain equivalent to the pre-migration contract."
+    },
+    {
+      "checked": false,
+      "text": "Permissions remain least-privilege and checkout credential hardening is not weakened."
+    },
+    {
+      "checked": false,
+      "text": "No duplicate local/shared CodeQL execution remains."
+    },
+    {
+      "checked": false,
+      "text": "PR Actions prove the reusable CodeQL caller end to end."
+    },
+    {
+      "checked": false,
+      "text": "Current-main Actions prove push/scheduled-compatible behavior after merge."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 808,
+    "state": "open",
+    "title": "security: replace local CodeQL exception with the shared organization workflow",
+    "url": "https://github.com/yohn-jp/mottainai/issues/808"
+  },
+  "linked": {
+    "number": 808
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

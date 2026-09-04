@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "fbe096a6c0e5384e5af0e9ee6ebab00cd1d699ef",
+    "draft": false,
+    "headRef": "security/808-shared-codeql-migration",
+    "headSha": "890e2549849fdd48a5fd695dc24fb60218a6c705",
+    "number": 809,
+    "title": "security: migrate CodeQL to shared workflow"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "890e2549849fdd48a5fd695dc24fb60218a6c705",
+    "immutable": true,
+    "shortId": "890e2549849f"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-04T23:03:38.885Z"
+  }
+}
