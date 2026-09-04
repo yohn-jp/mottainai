@@ -1,0 +1,43 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Mottainai consumes the proven shared TypeScript CI contract at an immutable `.github` commit."
+    },
+    {
+      "checked": false,
+      "text": "Shared workflow checkout/setup/install executes against the correct repositories/revisions and uses no missing consumer-relative action path."
+    },
+    {
+      "checked": false,
+      "text": "Every pre-migration Mottainai-specific required validation class remains present locally or is explicitly proven equivalent in the shared contract."
+    },
+    {
+      "checked": false,
+      "text": "Current branch-protection/ruleset-required checks remain satisfied or an intentional check-name migration is coordinated without a gap."
+    },
+    {
+      "checked": false,
+      "text": "Pull-request and current-main Actions evidence shows the reusable caller succeeds end to end."
+    },
+    {
+      "checked": false,
+      "text": "A focused contract/static check prevents accidental mutable references or unsupported shared/local boundary drift where practical."
+    },
+    {
+      "checked": false,
+      "text": "No unrelated product workflow is moved or refactored."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 301,
+    "state": "open",
+    "title": "ci: consume the organization TypeScript CI foundation without losing Mottainai-specific checks",
+    "url": "https://github.com/yohn-jp/mottainai/issues/301"
+  },
+  "linked": {
+    "number": 301
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
