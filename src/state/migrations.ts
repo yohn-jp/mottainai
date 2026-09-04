@@ -770,6 +770,36 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 24,
+    description: "workflow: durable collision-safe repository Unix principals",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE repository_principals (
+          allocation_id TEXT PRIMARY KEY,
+          instance_id TEXT NOT NULL UNIQUE,
+          uid INTEGER NOT NULL CHECK (uid >= 1000 AND uid <= 65535),
+          gid INTEGER NOT NULL CHECK (gid >= 1000 AND gid <= 65535),
+          internal_username TEXT NOT NULL UNIQUE CHECK (length(internal_username) BETWEEN 1 AND 64),
+          lifecycle_state TEXT NOT NULL CHECK (lifecycle_state IN ('active', 'quarantined', 'available')),
+          schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+          allocated_at INTEGER NOT NULL,
+          released_at INTEGER,
+          cleanup_proven_at INTEGER,
+          CHECK ((lifecycle_state = 'active' AND released_at IS NULL AND cleanup_proven_at IS NULL)
+            OR (lifecycle_state = 'quarantined' AND released_at IS NOT NULL AND cleanup_proven_at IS NULL)
+            OR (lifecycle_state = 'available' AND released_at IS NOT NULL AND cleanup_proven_at IS NOT NULL)),
+          FOREIGN KEY (instance_id) REFERENCES repository_instances (instance_id)
+        );
+        CREATE UNIQUE INDEX idx_repository_principals_active_uid
+          ON repository_principals (uid) WHERE lifecycle_state IN ('active', 'quarantined');
+        CREATE UNIQUE INDEX idx_repository_principals_active_gid
+          ON repository_principals (gid) WHERE lifecycle_state IN ('active', 'quarantined');
+        CREATE INDEX idx_repository_principals_state
+          ON repository_principals (lifecycle_state, uid, gid, instance_id);
+      `);
+    },
+  },
 ];
 
 function appliedVersions(db: DatabaseSync): Set<number> {
