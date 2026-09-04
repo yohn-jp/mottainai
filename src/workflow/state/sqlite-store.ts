@@ -182,23 +182,46 @@ function toRepositoryPrincipalRecord(row: Record<string, unknown>): RepositoryPr
     row.gid < 1000 ||
     row.gid > 65535 ||
     typeof row.internal_username !== "string" ||
-    !/^[a-z_][a-z0-9_-]{0,63}$/u.test(row.internal_username) ||
-    !["active", "quarantined", "available"].includes(String(lifecycleState)) ||
+    !/^[a-z_][a-z0-9_-]{0,31}$/u.test(row.internal_username) ||
+    !["active", "quarantined", "available", "retired"].includes(String(lifecycleState)) ||
     typeof row.allocated_at !== "number" ||
     !Number.isSafeInteger(row.allocated_at) ||
     (row.released_at !== null && (typeof row.released_at !== "number" || !Number.isSafeInteger(row.released_at))) ||
     (row.cleanup_proven_at !== null &&
-      (typeof row.cleanup_proven_at !== "number" || !Number.isSafeInteger(row.cleanup_proven_at)))
+      (typeof row.cleanup_proven_at !== "number" || !Number.isSafeInteger(row.cleanup_proven_at))) ||
+    (row.reassigned_at !== null &&
+      (typeof row.reassigned_at !== "number" || !Number.isSafeInteger(row.reassigned_at))) ||
+    (row.reassigned_to_allocation_id !== null && typeof row.reassigned_to_allocation_id !== "string")
   ) {
     throw new Error("repository principal state is corrupt or uses an unsupported schema version");
   }
   const state = lifecycleState as RepositoryPrincipalLifecycleState;
   const releasedAt = (row.released_at as number | null) ?? undefined;
   const cleanupProvenAt = (row.cleanup_proven_at as number | null) ?? undefined;
+  const reassignedAt = (row.reassigned_at as number | null) ?? undefined;
+  const reassignedToAllocationId = (row.reassigned_to_allocation_id as string | null) ?? undefined;
   const validLifecycle =
-    (state === "active" && releasedAt === undefined && cleanupProvenAt === undefined) ||
-    (state === "quarantined" && releasedAt !== undefined && cleanupProvenAt === undefined) ||
-    (state === "available" && releasedAt !== undefined && cleanupProvenAt !== undefined);
+    (state === "active" &&
+      releasedAt === undefined &&
+      cleanupProvenAt === undefined &&
+      reassignedAt === undefined &&
+      reassignedToAllocationId === undefined) ||
+    (state === "quarantined" &&
+      releasedAt !== undefined &&
+      cleanupProvenAt === undefined &&
+      reassignedAt === undefined &&
+      reassignedToAllocationId === undefined) ||
+    (state === "available" &&
+      releasedAt !== undefined &&
+      cleanupProvenAt !== undefined &&
+      reassignedAt === undefined &&
+      reassignedToAllocationId === undefined) ||
+    (state === "retired" &&
+      releasedAt !== undefined &&
+      cleanupProvenAt !== undefined &&
+      reassignedAt !== undefined &&
+      reassignedToAllocationId !== undefined &&
+      reassignedToAllocationId.length > 0);
   if (!validLifecycle) throw new Error("repository principal lifecycle state is corrupt");
   return {
     allocationId: row.allocation_id,
@@ -211,7 +234,41 @@ function toRepositoryPrincipalRecord(row: Record<string, unknown>): RepositoryPr
     allocatedAt: row.allocated_at,
     releasedAt,
     cleanupProvenAt,
+    reassignedAt,
+    reassignedToAllocationId,
   };
+}
+
+/** A proven reusable row must never coexist with an authoritative row on the same ID. */
+function assertNoRepositoryPrincipalAmbiguity(db: DatabaseSync): void {
+  const activeAvailableCollision = db
+    .prepare(
+      `SELECT 1 FROM repository_principals authoritative
+       JOIN repository_principals available
+         ON (authoritative.uid = available.uid OR authoritative.gid = available.gid)
+       WHERE authoritative.lifecycle_state IN ('active', 'quarantined')
+         AND available.lifecycle_state = 'available'
+       LIMIT 1`,
+    )
+    .get();
+  if (activeAvailableCollision !== undefined) {
+    throw new Error(
+      "repository principal allocation state is ambiguous: reusable identity overlaps an authoritative identity",
+    );
+  }
+  const duplicateReusable = db
+    .prepare(
+      `SELECT 1 FROM repository_principals left_row
+       JOIN repository_principals right_row
+         ON left_row.allocation_id < right_row.allocation_id
+        AND (left_row.uid = right_row.uid OR left_row.gid = right_row.gid)
+       WHERE left_row.lifecycle_state = 'available' AND right_row.lifecycle_state = 'available'
+       LIMIT 1`,
+    )
+    .get();
+  if (duplicateReusable !== undefined) {
+    throw new Error("repository principal allocation state is ambiguous: duplicate reusable identity");
+  }
 }
 
 /**
@@ -913,6 +970,7 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       }
 
       const rows = db.prepare("SELECT * FROM repository_principals").all() as Record<string, unknown>[];
+      assertNoRepositoryPrincipalAmbiguity(db);
       const principals = rows.map(toRepositoryPrincipalRecord);
       const blockedUids = new Set(
         principals.filter((principal) => principal.lifecycleState !== "available").map((principal) => principal.uid),
@@ -956,9 +1014,16 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
         return { ok: false, reason: "no-identities-available", detail: "the requested principal range is exhausted" };
       }
 
-      const internalUsername = `mottainai-repo-${crypto.randomUUID().replaceAll("-", "")}`;
+      const internalUsername = `mottainai-repo-${crypto.randomBytes(8).toString("hex")}`;
       const allocationId = crypto.randomUUID();
       this.boundaries.storage("sqlite.repository-principal.write", () => {
+        if (reusable !== undefined) {
+          db.prepare(
+            `UPDATE repository_principals
+             SET lifecycle_state = 'retired', reassigned_at = ?, reassigned_to_allocation_id = ?
+             WHERE allocation_id = ? AND lifecycle_state = 'available'`,
+          ).run(allocatedAt, allocationId, reusable.allocationId);
+        }
         db.prepare(
           `INSERT INTO repository_principals
            (allocation_id, instance_id, uid, gid, internal_username, lifecycle_state, schema_version, allocated_at, released_at, cleanup_proven_at)
@@ -1072,7 +1137,9 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
   }
 
   getRepositoryPrincipal(instanceId: RepositoryInstanceId): RepositoryPrincipalRecord | undefined {
-    const row = this.handle().prepare("SELECT * FROM repository_principals WHERE instance_id = ?").get(instanceId) as
+    const db = this.handle();
+    assertNoRepositoryPrincipalAmbiguity(db);
+    const row = db.prepare("SELECT * FROM repository_principals WHERE instance_id = ?").get(instanceId) as
       | Record<string, unknown>
       | undefined;
     return row === undefined ? undefined : toRepositoryPrincipalRecord(row);
@@ -1083,7 +1150,10 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
       throw new Error("principal status limit must be between 1 and 100");
     const states = options.lifecycleStates;
-    if (states !== undefined && states.some((state) => !["active", "quarantined", "available"].includes(state)))
+    if (
+      states !== undefined &&
+      states.some((state) => !["active", "quarantined", "available", "retired"].includes(state))
+    )
       throw new Error("repository principal lifecycle filter is invalid");
     const params: (string | number)[] = [];
     let query = "SELECT * FROM repository_principals";
@@ -1093,6 +1163,7 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     }
     query += " ORDER BY uid ASC, gid ASC, instance_id ASC LIMIT ?";
     params.push(limit);
+    assertNoRepositoryPrincipalAmbiguity(this.handle());
     const rows = this.handle()
       .prepare(query)
       .all(...params) as Record<string, unknown>[];

@@ -40,7 +40,7 @@ export interface RepositoryPathRecord {
 export const REPOSITORY_PRINCIPAL_SCHEMA_VERSION = 1 as const;
 
 /** States are intentionally monotonic until an explicit cleanup proof exists. */
-export const REPOSITORY_PRINCIPAL_LIFECYCLE_STATES = ["active", "quarantined", "available"] as const;
+export const REPOSITORY_PRINCIPAL_LIFECYCLE_STATES = ["active", "quarantined", "available", "retired"] as const;
 export type RepositoryPrincipalLifecycleState = (typeof REPOSITORY_PRINCIPAL_LIFECYCLE_STATES)[number];
 
 /**
@@ -59,6 +59,8 @@ export interface RepositoryPrincipalRecord {
   allocatedAt: number;
   releasedAt: number | undefined;
   cleanupProvenAt: number | undefined;
+  reassignedAt: number | undefined;
+  reassignedToAllocationId: string | undefined;
 }
 
 export interface AllocateRepositoryPrincipalInput {

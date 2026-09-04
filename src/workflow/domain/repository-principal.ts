@@ -20,6 +20,8 @@ export interface RepositoryPrincipalStatus {
   allocatedAt: number;
   releasedAt: number | undefined;
   cleanupProvenAt: number | undefined;
+  reassignedAt: number | undefined;
+  reassignedToAllocationId: string | undefined;
 }
 
 export function projectRepositoryPrincipalStatus(record: RepositoryPrincipalRecord): RepositoryPrincipalStatus {
@@ -34,6 +36,8 @@ export function projectRepositoryPrincipalStatus(record: RepositoryPrincipalReco
     allocatedAt: record.allocatedAt,
     releasedAt: record.releasedAt,
     cleanupProvenAt: record.cleanupProvenAt,
+    reassignedAt: record.reassignedAt,
+    reassignedToAllocationId: record.reassignedToAllocationId,
   };
 }
 

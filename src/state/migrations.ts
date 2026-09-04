@@ -780,15 +780,18 @@ export const MIGRATIONS: Migration[] = [
           instance_id TEXT NOT NULL UNIQUE,
           uid INTEGER NOT NULL CHECK (uid >= 1000 AND uid <= 65535),
           gid INTEGER NOT NULL CHECK (gid >= 1000 AND gid <= 65535),
-          internal_username TEXT NOT NULL UNIQUE CHECK (length(internal_username) BETWEEN 1 AND 64),
-          lifecycle_state TEXT NOT NULL CHECK (lifecycle_state IN ('active', 'quarantined', 'available')),
+          internal_username TEXT NOT NULL UNIQUE CHECK (length(internal_username) BETWEEN 1 AND 32),
+          lifecycle_state TEXT NOT NULL CHECK (lifecycle_state IN ('active', 'quarantined', 'available', 'retired')),
           schema_version INTEGER NOT NULL CHECK (schema_version = 1),
           allocated_at INTEGER NOT NULL,
           released_at INTEGER,
           cleanup_proven_at INTEGER,
-          CHECK ((lifecycle_state = 'active' AND released_at IS NULL AND cleanup_proven_at IS NULL)
-            OR (lifecycle_state = 'quarantined' AND released_at IS NOT NULL AND cleanup_proven_at IS NULL)
-            OR (lifecycle_state = 'available' AND released_at IS NOT NULL AND cleanup_proven_at IS NOT NULL)),
+          reassigned_at INTEGER,
+          reassigned_to_allocation_id TEXT,
+          CHECK ((lifecycle_state = 'active' AND released_at IS NULL AND cleanup_proven_at IS NULL AND reassigned_at IS NULL AND reassigned_to_allocation_id IS NULL)
+            OR (lifecycle_state = 'quarantined' AND released_at IS NOT NULL AND cleanup_proven_at IS NULL AND reassigned_at IS NULL AND reassigned_to_allocation_id IS NULL)
+            OR (lifecycle_state = 'available' AND released_at IS NOT NULL AND cleanup_proven_at IS NOT NULL AND reassigned_at IS NULL AND reassigned_to_allocation_id IS NULL)
+            OR (lifecycle_state = 'retired' AND released_at IS NOT NULL AND cleanup_proven_at IS NOT NULL AND reassigned_at IS NOT NULL AND reassigned_to_allocation_id IS NOT NULL)),
           FOREIGN KEY (instance_id) REFERENCES repository_instances (instance_id)
         );
         CREATE UNIQUE INDEX idx_repository_principals_active_uid
