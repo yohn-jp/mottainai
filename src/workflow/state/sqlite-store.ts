@@ -9,6 +9,7 @@ import { applyMigrations } from "../../state/migrations.js";
 import type { Migration } from "../../state/migrations.js";
 import { resolveStateDbPath } from "../../state/paths.js";
 import { sanitizeAuditMetadata } from "../domain/audit.js";
+import { REPOSITORY_PRINCIPAL_SCHEMA_VERSION } from "./store.js";
 import type { RepositoryInstanceId, RootCommitDigest } from "../domain/identity.js";
 import type { LifecycleState } from "../domain/lifecycle.js";
 import type {
@@ -16,6 +17,13 @@ import type {
   HookCheckpointRecord,
   ObserveRepositoryInstanceInput,
   ObserveRepositoryInstanceResult,
+  AllocateRepositoryPrincipalInput,
+  AllocateRepositoryPrincipalResult,
+  ListRepositoryPrincipalsOptions,
+  ProveRepositoryPrincipalCleanupInput,
+  ReleaseRepositoryPrincipalInput,
+  RepositoryPrincipalLifecycleState,
+  RepositoryPrincipalRecord,
   RecordHookCheckpointInput,
   RepositoryInstanceRecord,
   RepositoryPathRecord,
@@ -105,6 +113,26 @@ function readOnlyDatabasePath(dbPath: string): string {
 }
 
 const MAX_MANAGER_DIAGNOSTIC_LENGTH = 512;
+const DEFAULT_REPOSITORY_PRINCIPAL_MIN_ID = 10_000;
+const DEFAULT_REPOSITORY_PRINCIPAL_MAX_ID = 60_000;
+
+function principalAllocationRange(
+  input: AllocateRepositoryPrincipalInput,
+): { minId: number; maxId: number } | undefined {
+  const minId = input.minId ?? DEFAULT_REPOSITORY_PRINCIPAL_MIN_ID;
+  const maxId = input.maxId ?? DEFAULT_REPOSITORY_PRINCIPAL_MAX_ID;
+  if (!Number.isSafeInteger(minId) || !Number.isSafeInteger(maxId) || minId < 1000 || maxId > 65535 || minId > maxId)
+    return undefined;
+  return { minId, maxId };
+}
+
+function principalRepositoryKey(instanceId: string): boolean {
+  return instanceId.length > 0 && instanceId.length <= 256 && !instanceId.includes("\0");
+}
+
+function assertPrincipalTimestamp(value: number, field: string): void {
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`repository principal ${field} is invalid`);
+}
 
 function managerDiagnostic(value: unknown): string | undefined {
   if (value === null || value === undefined) return undefined;
@@ -136,6 +164,111 @@ function toPathRecord(row: Record<string, unknown>): RepositoryPathRecord {
     isCurrent: (row.is_current as number) === 1,
     observedAt: row.observed_at as number,
   };
+}
+
+function toRepositoryPrincipalRecord(row: Record<string, unknown>): RepositoryPrincipalRecord {
+  const lifecycleState = row.lifecycle_state;
+  if (
+    row.schema_version !== REPOSITORY_PRINCIPAL_SCHEMA_VERSION ||
+    typeof row.allocation_id !== "string" ||
+    row.allocation_id.length < 1 ||
+    typeof row.instance_id !== "string" ||
+    typeof row.uid !== "number" ||
+    !Number.isSafeInteger(row.uid) ||
+    row.uid < 1000 ||
+    row.uid > 65535 ||
+    typeof row.gid !== "number" ||
+    !Number.isSafeInteger(row.gid) ||
+    row.gid < 1000 ||
+    row.gid > 65535 ||
+    typeof row.internal_username !== "string" ||
+    !/^[a-z_][a-z0-9_-]{0,31}$/u.test(row.internal_username) ||
+    !["active", "quarantined", "available", "retired"].includes(String(lifecycleState)) ||
+    typeof row.allocated_at !== "number" ||
+    !Number.isSafeInteger(row.allocated_at) ||
+    (row.released_at !== null && (typeof row.released_at !== "number" || !Number.isSafeInteger(row.released_at))) ||
+    (row.cleanup_proven_at !== null &&
+      (typeof row.cleanup_proven_at !== "number" || !Number.isSafeInteger(row.cleanup_proven_at))) ||
+    (row.reassigned_at !== null &&
+      (typeof row.reassigned_at !== "number" || !Number.isSafeInteger(row.reassigned_at))) ||
+    (row.reassigned_to_allocation_id !== null && typeof row.reassigned_to_allocation_id !== "string")
+  ) {
+    throw new Error("repository principal state is corrupt or uses an unsupported schema version");
+  }
+  const state = lifecycleState as RepositoryPrincipalLifecycleState;
+  const releasedAt = (row.released_at as number | null) ?? undefined;
+  const cleanupProvenAt = (row.cleanup_proven_at as number | null) ?? undefined;
+  const reassignedAt = (row.reassigned_at as number | null) ?? undefined;
+  const reassignedToAllocationId = (row.reassigned_to_allocation_id as string | null) ?? undefined;
+  const validLifecycle =
+    (state === "active" &&
+      releasedAt === undefined &&
+      cleanupProvenAt === undefined &&
+      reassignedAt === undefined &&
+      reassignedToAllocationId === undefined) ||
+    (state === "quarantined" &&
+      releasedAt !== undefined &&
+      cleanupProvenAt === undefined &&
+      reassignedAt === undefined &&
+      reassignedToAllocationId === undefined) ||
+    (state === "available" &&
+      releasedAt !== undefined &&
+      cleanupProvenAt !== undefined &&
+      reassignedAt === undefined &&
+      reassignedToAllocationId === undefined) ||
+    (state === "retired" &&
+      releasedAt !== undefined &&
+      cleanupProvenAt !== undefined &&
+      reassignedAt !== undefined &&
+      reassignedToAllocationId !== undefined &&
+      reassignedToAllocationId.length > 0);
+  if (!validLifecycle) throw new Error("repository principal lifecycle state is corrupt");
+  return {
+    allocationId: row.allocation_id,
+    instanceId: row.instance_id as RepositoryPrincipalRecord["instanceId"],
+    uid: row.uid,
+    gid: row.gid,
+    internalUsername: row.internal_username,
+    lifecycleState: state,
+    schemaVersion: REPOSITORY_PRINCIPAL_SCHEMA_VERSION,
+    allocatedAt: row.allocated_at,
+    releasedAt,
+    cleanupProvenAt,
+    reassignedAt,
+    reassignedToAllocationId,
+  };
+}
+
+/** A proven reusable row must never coexist with an authoritative row on the same ID. */
+function assertNoRepositoryPrincipalAmbiguity(db: DatabaseSync): void {
+  const activeAvailableCollision = db
+    .prepare(
+      `SELECT 1 FROM repository_principals authoritative
+       JOIN repository_principals available
+         ON (authoritative.uid = available.uid OR authoritative.gid = available.gid)
+       WHERE authoritative.lifecycle_state IN ('active', 'quarantined')
+         AND available.lifecycle_state = 'available'
+       LIMIT 1`,
+    )
+    .get();
+  if (activeAvailableCollision !== undefined) {
+    throw new Error(
+      "repository principal allocation state is ambiguous: reusable identity overlaps an authoritative identity",
+    );
+  }
+  const duplicateReusable = db
+    .prepare(
+      `SELECT 1 FROM repository_principals left_row
+       JOIN repository_principals right_row
+         ON left_row.allocation_id < right_row.allocation_id
+        AND (left_row.uid = right_row.uid OR left_row.gid = right_row.gid)
+       WHERE left_row.lifecycle_state = 'available' AND right_row.lifecycle_state = 'available'
+       LIMIT 1`,
+    )
+    .get();
+  if (duplicateReusable !== undefined) {
+    throw new Error("repository principal allocation state is ambiguous: duplicate reusable identity");
+  }
 }
 
 /**
@@ -785,6 +918,256 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       .prepare("SELECT * FROM repository_instances ORDER BY created_at ASC, instance_id ASC")
       .all() as Record<string, unknown>[];
     return rows.map(toInstanceRecord);
+  }
+
+  allocateRepositoryPrincipal(input: AllocateRepositoryPrincipalInput): AllocateRepositoryPrincipalResult {
+    if (!principalRepositoryKey(input.instanceId)) {
+      return {
+        ok: false,
+        reason: "repository-not-eligible",
+        detail: "canonical repository identity is missing or invalid",
+      };
+    }
+    const range = principalAllocationRange(input);
+    if (range === undefined) {
+      return {
+        ok: false,
+        reason: "invalid-range",
+        detail: "principal UID/GID range must be an inclusive unprivileged range",
+      };
+    }
+    const db = this.handle();
+    const allocatedAt = input.allocatedAt ?? Date.now();
+    assertPrincipalTimestamp(allocatedAt, "allocation timestamp");
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const identityRow = db
+        .prepare("SELECT instance_id FROM repository_instances WHERE instance_id = ?")
+        .get(input.instanceId) as { instance_id: string } | undefined;
+      if (identityRow === undefined) {
+        db.exec("ROLLBACK");
+        return {
+          ok: false,
+          reason: "repository-not-eligible",
+          detail: "canonical repository identity has not been observed by the repository identity authority",
+        };
+      }
+      const existingRow = db
+        .prepare("SELECT * FROM repository_principals WHERE instance_id = ?")
+        .get(input.instanceId) as Record<string, unknown> | undefined;
+      if (existingRow !== undefined) {
+        const existing = toRepositoryPrincipalRecord(existingRow);
+        if (existing.lifecycleState === "active") {
+          db.exec("COMMIT");
+          return { ok: true, principal: existing };
+        }
+        db.exec("ROLLBACK");
+        return {
+          ok: false,
+          reason: "repository-not-eligible",
+          detail: `repository principal is ${existing.lifecycleState}; explicit cleanup or reconciliation is required`,
+        };
+      }
+
+      const rows = db.prepare("SELECT * FROM repository_principals").all() as Record<string, unknown>[];
+      assertNoRepositoryPrincipalAmbiguity(db);
+      const principals = rows.map(toRepositoryPrincipalRecord);
+      const blockedUids = new Set(
+        principals.filter((principal) => principal.lifecycleState !== "available").map((principal) => principal.uid),
+      );
+      const blockedGids = new Set(
+        principals.filter((principal) => principal.lifecycleState !== "available").map((principal) => principal.gid),
+      );
+      const reusable = principals
+        .filter(
+          (principal) =>
+            principal.lifecycleState === "available" &&
+            !blockedUids.has(principal.uid) &&
+            !blockedGids.has(principal.gid) &&
+            principal.uid >= range.minId &&
+            principal.uid <= range.maxId &&
+            principal.gid >= range.minId &&
+            principal.gid <= range.maxId,
+        )
+        .sort(
+          (left, right) =>
+            left.uid - right.uid || left.gid - right.gid || left.instanceId.localeCompare(right.instanceId),
+        )[0];
+      let uid = reusable?.uid;
+      let gid = reusable?.gid;
+      if (uid === undefined || gid === undefined) {
+        for (let candidate = range.minId; candidate <= range.maxId; candidate += 1) {
+          if (!blockedUids.has(candidate)) {
+            uid = candidate;
+            break;
+          }
+        }
+        for (let candidate = range.minId; candidate <= range.maxId; candidate += 1) {
+          if (!blockedGids.has(candidate)) {
+            gid = candidate;
+            break;
+          }
+        }
+      }
+      if (uid === undefined || gid === undefined) {
+        db.exec("ROLLBACK");
+        return { ok: false, reason: "no-identities-available", detail: "the requested principal range is exhausted" };
+      }
+
+      const internalUsername = `mottainai-repo-${crypto.randomBytes(8).toString("hex")}`;
+      const allocationId = crypto.randomUUID();
+      this.boundaries.storage("sqlite.repository-principal.write", () => {
+        if (reusable !== undefined) {
+          db.prepare(
+            `UPDATE repository_principals
+             SET lifecycle_state = 'retired', reassigned_at = ?, reassigned_to_allocation_id = ?
+             WHERE allocation_id = ? AND lifecycle_state = 'available'`,
+          ).run(allocatedAt, allocationId, reusable.allocationId);
+        }
+        db.prepare(
+          `INSERT INTO repository_principals
+           (allocation_id, instance_id, uid, gid, internal_username, lifecycle_state, schema_version, allocated_at, released_at, cleanup_proven_at)
+           VALUES (?, ?, ?, ?, ?, 'active', ?, ?, NULL, NULL)`,
+        ).run(
+          allocationId,
+          input.instanceId,
+          uid,
+          gid,
+          internalUsername,
+          REPOSITORY_PRINCIPAL_SCHEMA_VERSION,
+          allocatedAt,
+        );
+      });
+      const row = db
+        .prepare("SELECT * FROM repository_principals WHERE instance_id = ?")
+        .get(input.instanceId) as Record<string, unknown>;
+      const principal = toRepositoryPrincipalRecord(row);
+      this.boundaries.storage("sqlite.repository-principal.commit", () => db.exec("COMMIT"));
+      return { ok: true, principal };
+    } catch (error) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // Preserve the allocation/persistence failure; retry remains fail-closed.
+      }
+      throw error;
+    }
+  }
+
+  releaseRepositoryPrincipal(input: ReleaseRepositoryPrincipalInput): RepositoryPrincipalRecord {
+    const db = this.handle();
+    const releasedAt = input.releasedAt ?? Date.now();
+    assertPrincipalTimestamp(releasedAt, "release timestamp");
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const row = db.prepare("SELECT * FROM repository_principals WHERE instance_id = ?").get(input.instanceId) as
+        | Record<string, unknown>
+        | undefined;
+      if (row === undefined) throw new Error("repository principal does not exist");
+      const current = toRepositoryPrincipalRecord(row);
+      if (current.lifecycleState !== "active") {
+        db.exec("COMMIT");
+        return current;
+      }
+      this.boundaries.storage("sqlite.repository-principal.write", () =>
+        db
+          .prepare(
+            "UPDATE repository_principals SET lifecycle_state = 'quarantined', released_at = ?, cleanup_proven_at = NULL WHERE instance_id = ? AND lifecycle_state = 'active'",
+          )
+          .run(releasedAt, input.instanceId),
+      );
+      const updated = toRepositoryPrincipalRecord(
+        db.prepare("SELECT * FROM repository_principals WHERE instance_id = ?").get(input.instanceId) as Record<
+          string,
+          unknown
+        >,
+      );
+      this.boundaries.storage("sqlite.repository-principal.commit", () => db.exec("COMMIT"));
+      return updated;
+    } catch (error) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // Preserve the primary persistence failure.
+      }
+      throw error;
+    }
+  }
+
+  proveRepositoryPrincipalCleanup(input: ProveRepositoryPrincipalCleanupInput): RepositoryPrincipalRecord {
+    const db = this.handle();
+    const provenAt = input.provenAt ?? Date.now();
+    assertPrincipalTimestamp(provenAt, "cleanup proof timestamp");
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const row = db.prepare("SELECT * FROM repository_principals WHERE instance_id = ?").get(input.instanceId) as
+        | Record<string, unknown>
+        | undefined;
+      if (row === undefined) throw new Error("repository principal does not exist");
+      const current = toRepositoryPrincipalRecord(row);
+      if (current.lifecycleState === "active")
+        throw new Error("cannot prove cleanup for an active repository principal");
+      if (current.lifecycleState === "available") {
+        db.exec("COMMIT");
+        return current;
+      }
+      this.boundaries.storage("sqlite.repository-principal.write", () =>
+        db
+          .prepare(
+            "UPDATE repository_principals SET lifecycle_state = 'available', cleanup_proven_at = ? WHERE instance_id = ? AND lifecycle_state = 'quarantined'",
+          )
+          .run(provenAt, input.instanceId),
+      );
+      const updated = toRepositoryPrincipalRecord(
+        db.prepare("SELECT * FROM repository_principals WHERE instance_id = ?").get(input.instanceId) as Record<
+          string,
+          unknown
+        >,
+      );
+      this.boundaries.storage("sqlite.repository-principal.commit", () => db.exec("COMMIT"));
+      return updated;
+    } catch (error) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // Preserve the primary persistence failure.
+      }
+      throw error;
+    }
+  }
+
+  getRepositoryPrincipal(instanceId: RepositoryInstanceId): RepositoryPrincipalRecord | undefined {
+    const db = this.handle();
+    assertNoRepositoryPrincipalAmbiguity(db);
+    const row = db.prepare("SELECT * FROM repository_principals WHERE instance_id = ?").get(instanceId) as
+      | Record<string, unknown>
+      | undefined;
+    return row === undefined ? undefined : toRepositoryPrincipalRecord(row);
+  }
+
+  listRepositoryPrincipals(options: ListRepositoryPrincipalsOptions = {}): RepositoryPrincipalRecord[] {
+    const limit = options.limit ?? 100;
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
+      throw new Error("principal status limit must be between 1 and 100");
+    const states = options.lifecycleStates;
+    if (
+      states !== undefined &&
+      states.some((state) => !["active", "quarantined", "available", "retired"].includes(state))
+    )
+      throw new Error("repository principal lifecycle filter is invalid");
+    const params: (string | number)[] = [];
+    let query = "SELECT * FROM repository_principals";
+    if (states !== undefined && states.length > 0) {
+      query += ` WHERE lifecycle_state IN (${states.map(() => "?").join(", ")})`;
+      params.push(...states);
+    }
+    query += " ORDER BY uid ASC, gid ASC, instance_id ASC LIMIT ?";
+    params.push(limit);
+    assertNoRepositoryPrincipalAmbiguity(this.handle());
+    const rows = this.handle()
+      .prepare(query)
+      .all(...params) as Record<string, unknown>[];
+    return rows.map(toRepositoryPrincipalRecord);
   }
 
   recordHookCheckpoint(input: RecordHookCheckpointInput): HookCheckpointRecord {

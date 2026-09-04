@@ -36,6 +36,60 @@ export interface RepositoryPathRecord {
   observedAt: number;
 }
 
+/** Version of the durable repository-principal allocation schema. */
+export const REPOSITORY_PRINCIPAL_SCHEMA_VERSION = 1 as const;
+
+/** States are intentionally monotonic until an explicit cleanup proof exists. */
+export const REPOSITORY_PRINCIPAL_LIFECYCLE_STATES = ["active", "quarantined", "available", "retired"] as const;
+export type RepositoryPrincipalLifecycleState = (typeof REPOSITORY_PRINCIPAL_LIFECYCLE_STATES)[number];
+
+/**
+ * Durable Unix identity assigned to one canonical repository instance.
+ * `instanceId` is the only semantic key; all Unix fields are implementation
+ * assignments and must not be used as repository authority.
+ */
+export interface RepositoryPrincipalRecord {
+  allocationId: string;
+  instanceId: RepositoryInstanceId;
+  uid: number;
+  gid: number;
+  internalUsername: string;
+  lifecycleState: RepositoryPrincipalLifecycleState;
+  schemaVersion: typeof REPOSITORY_PRINCIPAL_SCHEMA_VERSION;
+  allocatedAt: number;
+  releasedAt: number | undefined;
+  cleanupProvenAt: number | undefined;
+  reassignedAt: number | undefined;
+  reassignedToAllocationId: string | undefined;
+}
+
+export interface AllocateRepositoryPrincipalInput {
+  instanceId: RepositoryInstanceId;
+  /** Inclusive unprivileged UID/GID range. Defaults to 10000..60000. */
+  minId?: number;
+  maxId?: number;
+  allocatedAt?: number;
+}
+
+export type AllocateRepositoryPrincipalResult =
+  | { ok: true; principal: RepositoryPrincipalRecord }
+  | { ok: false; reason: "invalid-range" | "no-identities-available" | "repository-not-eligible"; detail: string };
+
+export interface ReleaseRepositoryPrincipalInput {
+  instanceId: RepositoryInstanceId;
+  releasedAt?: number;
+}
+
+export interface ProveRepositoryPrincipalCleanupInput {
+  instanceId: RepositoryInstanceId;
+  provenAt?: number;
+}
+
+export interface ListRepositoryPrincipalsOptions {
+  limit?: number;
+  lifecycleStates?: readonly RepositoryPrincipalLifecycleState[];
+}
+
 export interface ObserveRepositoryInstanceInput {
   rootCommitDigest: RootCommitDigest;
   instanceId: RepositoryInstanceId;
@@ -703,6 +757,15 @@ export interface WorkflowStateStore {
   listRepositoryPaths(instanceId: RepositoryInstanceId): RepositoryPathRecord[];
   listRepositorySources(): RepositorySourceRecord[];
   listRepositoryInstances(): RepositoryInstanceRecord[];
+
+  /** Allocate/reconcile the stable Unix principal for one canonical repository identity. */
+  allocateRepositoryPrincipal(input: AllocateRepositoryPrincipalInput): AllocateRepositoryPrincipalResult;
+  /** Release an allocation into quarantine; IDs remain unavailable until cleanup is proven. */
+  releaseRepositoryPrincipal(input: ReleaseRepositoryPrincipalInput): RepositoryPrincipalRecord;
+  /** Explicitly prove residual ownership cleanup and make the identity reusable. */
+  proveRepositoryPrincipalCleanup(input: ProveRepositoryPrincipalCleanupInput): RepositoryPrincipalRecord;
+  getRepositoryPrincipal(instanceId: RepositoryInstanceId): RepositoryPrincipalRecord | undefined;
+  listRepositoryPrincipals(options?: ListRepositoryPrincipalsOptions): RepositoryPrincipalRecord[];
 
   /**
    * hook がある branch の commit で policy check を通過したことを記録する
