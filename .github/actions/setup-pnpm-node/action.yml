@@ -1,0 +1,145 @@
+name: Setup pnpm and Node.js
+description: >-
+  Provisions Node.js and an exact-version pnpm executable. The pnpm
+  executable is restored from an exact-version cache when available and
+  verified before use; on cache miss or verification failure it is acquired
+  from upstream with bounded retry and backoff, verified again, and then
+  cached for subsequent runs. The cache is an optimization only: acquisition
+  from upstream is the correctness fallback on every miss or eviction.
+  Product proof steps (tests/build/etc.) are never retried by this action.
+
+inputs:
+  pnpm-version:
+    description: Exact pnpm version to provision (e.g. 11.18.0).
+    required: true
+  node-version:
+    description: Node.js version to provision alongside pnpm.
+    required: true
+  enable-dependency-cache:
+    description: >-
+      Cache the pnpm content-addressable store, keyed by the lockfile, to
+      speed up `pnpm install`. Set to "true" for jobs that install the full
+      dependency graph.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Determine pnpm executable cache location
+      id: pnpm-exe-location
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "prefix=${{ runner.temp }}/pnpm-exe-${{ inputs.pnpm-version }}" >> "$GITHUB_OUTPUT"
+
+    - name: Restore exact-version pnpm executable cache
+      id: restore-pnpm-exe
+      uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      with:
+        path: ${{ steps.pnpm-exe-location.outputs.prefix }}
+        key: pnpm-exe-${{ runner.os }}-${{ runner.arch }}-${{ inputs.pnpm-version }}
+
+    - name: Verify restored pnpm executable
+      id: verify-restored
+      if: steps.restore-pnpm-exe.outputs.cache-hit == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        bin="${{ steps.pnpm-exe-location.outputs.prefix }}/bin/pnpm"
+        if [ -x "$bin" ] && version="$("$bin" --version 2>/dev/null)" && [ "$version" = "${{ inputs.pnpm-version }}" ]; then
+          echo "valid=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "::warning::Restored pnpm executable cache failed version verification (expected ${{ inputs.pnpm-version }}); re-acquiring from upstream."
+          echo "valid=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    # Cache is strictly an optimization: a miss or a failed verification of a
+    # restored (e.g. evicted/corrupted) cache both fall through to the same
+    # upstream acquisition path below, so the job still succeeds without it.
+    - name: Acquire pnpm executable from upstream (bounded retry)
+      id: acquire
+      if: steps.restore-pnpm-exe.outputs.cache-hit != 'true' || steps.verify-restored.outputs.valid != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        prefix="${{ steps.pnpm-exe-location.outputs.prefix }}"
+        rm -rf "$prefix"
+        mkdir -p "$prefix"
+
+        max_attempts=4
+        delay=2
+        attempt=1
+        # This installs the compiled `@pnpm/exe` distribution (the same
+        # upstream artifact pnpm/setup fetches), not the slow pure-JS `pnpm`
+        # package. npm verifies the tarball's registry-published integrity
+        # hash as part of this install; only this acquisition is retried,
+        # never any later proof step.
+        until npm install --global --no-audit --no-fund --prefix "$prefix" "@pnpm/exe@${{ inputs.pnpm-version }}"; do
+          if [ "$attempt" -ge "$max_attempts" ]; then
+            echo "::error::Failed to acquire pnpm ${{ inputs.pnpm-version }} from upstream after $attempt attempts."
+            exit 1
+          fi
+          echo "::warning::pnpm acquisition attempt $attempt failed; retrying in ${delay}s."
+          sleep "$delay"
+          attempt=$((attempt + 1))
+          delay=$((delay * 2))
+        done
+
+        echo "acquired=true" >> "$GITHUB_OUTPUT"
+
+    - name: Verify acquired pnpm executable
+      if: steps.acquire.outputs.acquired == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        prefix="${{ steps.pnpm-exe-location.outputs.prefix }}"
+        version="$("$prefix/bin/pnpm" --version)"
+        if [ "$version" != "${{ inputs.pnpm-version }}" ]; then
+          echo "::error::Acquired pnpm reports version '$version', expected '${{ inputs.pnpm-version }}'."
+          exit 1
+        fi
+
+    # Cold cache: multiple parallel jobs can race to acquire and save the same
+    # exact-version key at once. Whichever job's save lands first wins; every
+    # other job hits an "already exists" conflict on the same key, which is
+    # expected and not a correctness problem (the winning save is equally
+    # usable by all of them next run). continue-on-error keeps that race from
+    # ever failing this job — cache population is an optimization only, never
+    # a proof dependency.
+    - name: Save pnpm executable cache
+      if: steps.acquire.outputs.acquired == 'true'
+      continue-on-error: true
+      uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      with:
+        path: ${{ steps.pnpm-exe-location.outputs.prefix }}
+        key: pnpm-exe-${{ runner.os }}-${{ runner.arch }}-${{ inputs.pnpm-version }}
+
+    - name: Add pnpm to PATH
+      shell: bash
+      run: echo "${{ steps.pnpm-exe-location.outputs.prefix }}/bin" >> "$GITHUB_PATH"
+
+    - name: Resolve pnpm content-addressable store directory
+      id: pnpm-store
+      if: inputs.enable-dependency-cache == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "path=$("${{ steps.pnpm-exe-location.outputs.prefix }}/bin/pnpm" store path --silent)" >> "$GITHUB_OUTPUT"
+
+    # Same optimization-only guarantee as the pnpm executable cache above:
+    # a save race between parallel jobs on this key must never fail the job.
+    - name: Cache pnpm content-addressable store
+      if: inputs.enable-dependency-cache == 'true'
+      continue-on-error: true
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      with:
+        path: ${{ steps.pnpm-store.outputs.path }}
+        key: ${{ runner.os }}-mottainai-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-mottainai-pnpm-store-
