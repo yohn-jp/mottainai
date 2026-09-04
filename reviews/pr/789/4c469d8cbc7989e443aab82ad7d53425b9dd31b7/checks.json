@@ -1,0 +1,37 @@
+{
+  "available": true,
+  "checkRuns": [
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33869467026/job/101011945117",
+      "name": "detect CI ownership path changes",
+      "status": "queued"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33869467021/job/101011763238",
+      "name": "Generate review package",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33869467526/job/101011926753",
+      "name": "standards-self-check",
+      "status": "queued"
+    },
+    {
+      "conclusion": "failure",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33869467526/job/101011926527",
+      "name": "validate-pr",
+      "status": "completed"
+    },
+    {
+      "conclusion": "skipped",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/33869467526/job/101011927394",
+      "name": "validate-release",
+      "status": "completed"
+    }
+  ],
+  "headSha": "4c469d8cbc7989e443aab82ad7d53425b9dd31b7",
+  "schemaVersion": "mottainai.review-pages.checks/v1"
+}
