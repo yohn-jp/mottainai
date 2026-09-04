@@ -1,0 +1,118 @@
+{
+  "baseSha": "dd8b92ec50b501d4731809038b9a0e49c8586c41",
+  "files": [
+    {
+      "additions": 36,
+      "deletions": 27,
+      "hunks": [
+        {
+          "newLines": 22,
+          "newStart": 18,
+          "oldLines": 0,
+          "oldStart": 17
+        },
+        {
+          "newLines": 1,
+          "newStart": 123,
+          "oldLines": 1,
+          "oldStart": 101
+        },
+        {
+          "newLines": 2,
+          "newStart": 127,
+          "oldLines": 0,
+          "oldStart": 104
+        },
+        {
+          "newLines": 1,
+          "newStart": 137,
+          "oldLines": 0,
+          "oldStart": 112
+        },
+        {
+          "newLines": 10,
+          "newStart": 140,
+          "oldLines": 26,
+          "oldStart": 115
+        }
+      ],
+      "path": ".github/workflows/ci.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 0,
+      "deletions": 21,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 21,
+          "oldStart": 1
+        }
+      ],
+      "path": "docs/releases/0.8.3.md",
+      "status": "removed"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 3,
+          "oldLines": 1,
+          "oldStart": 3
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 11,
+      "deletions": 11,
+      "hunks": [
+        {
+          "newLines": 9,
+          "newStart": 11,
+          "oldLines": 10,
+          "oldStart": 11
+        },
+        {
+          "newLines": 2,
+          "newStart": 48,
+          "oldLines": 1,
+          "oldStart": 49
+        }
+      ],
+      "path": "scripts/validate-actions.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 34,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 2,
+          "oldLines": 0,
+          "oldStart": 1
+        },
+        {
+          "newLines": 33,
+          "newStart": 54,
+          "oldLines": 0,
+          "oldStart": 52
+        }
+      ],
+      "path": "scripts/validate-actions.test.mjs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "60f5436409c1f352325eb86b38b92c12a15b70a9",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 82,
+    "deletions": 60,
+    "filesChanged": 5
+  }
+}
