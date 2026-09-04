@@ -1,0 +1,28 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Keep the weekly scan cadence from Mottainai's former local CodeQL setup.
+  schedule:
+    - cron: "31 3 * * 1"
+
+# The shared workflow narrows these permissions again at the job boundary:
+# Plan only reads contents, while Analyze additionally uploads SARIF and
+# reads Actions metadata as required by CodeQL's Actions analysis.
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  analyze:
+    uses: yohn-jp/.github/.github/workflows/codeql.yml@2bd5698f5071601eeb78e74f2988c8bdeb12a89b
+    with:
+      languages: "javascript-typescript,actions"
+      # The shared default is CodeQL's default suite. Mottainai's established
+      # security baseline is security-extended, so keep that stronger local
+      # requirement explicit through the supported config-file input.
+      config-file: ".github/codeql/codeql-config.yml"
