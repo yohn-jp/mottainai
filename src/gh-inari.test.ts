@@ -248,6 +248,41 @@ test("capability failures are stable for incompatible versions and missing opera
   }
 });
 
+test("a companion missing only issue.get keeps PR operations available and fails issue reads closed, scoped to that operation", async () => {
+  const helpMissingIssueGet = "  pr create --from <file.json>\n  pr get <number> --json\n  --from\n  --json\n  --repository\n  --template\n";
+
+  {
+    const { runner } = queuedRunner([runResult("gh-inari 0.7.0\n"), runResult(helpMissingIssueGet)]);
+    const result = await new GhInariClient({ runner }).checkCapabilities();
+    assert.equal(result.ok, true, JSON.stringify(result));
+    if (result.ok) assert.deepEqual(result.value.operations, ["pr.create", "pr.get"]);
+  }
+
+  {
+    const { runner } = queuedRunner([
+      runResult("gh-inari 0.7.0\n"),
+      runResult(helpMissingIssueGet),
+      runResult(JSON.stringify({ ok: true, artifact: { number: 12, url: "https://github.com/acme/repo/pull/12" } })),
+    ]);
+    const result = await new GhInariClient({ runner }).createPullRequest({
+      repository: { owner: "acme", name: "repo" },
+      input: { fields: {}, head: "feature/x", base: "main" },
+    });
+    assert.equal(result.ok, true, JSON.stringify(result));
+  }
+
+  {
+    const { runner } = queuedRunner([runResult("gh-inari 0.7.0\n"), runResult(helpMissingIssueGet)]);
+    const client = new GhInariClient({ runner });
+    const result = await client.getIssue({ repository: { owner: "acme", name: "repo" }, number: 411 });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error.code, "INARI_CAPABILITY_UNAVAILABLE");
+      assert.equal(result.error.details.operation, "issue.get");
+    }
+  }
+});
+
 test("missing, timeout, output-limit, and malformed process states fail closed", async () => {
   const missing = await new GhInariClient({
     command: path.join(os.tmpdir(), "mottainai-no-such-gh-inari"),
