@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "dd8b92ec50b501d4731809038b9a0e49c8586c41",
+    "draft": false,
+    "headRef": "fix/726-draft-release-immutability",
+    "headSha": "b2b2ac28fe4b8497070b4f8e208bdc69f26f2840",
+    "number": 795,
+    "title": "fix(ci): harden draft-release tag resolution and finalize-release gating"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "b2b2ac28fe4b8497070b4f8e208bdc69f26f2840",
+    "immutable": true,
+    "shortId": "b2b2ac28fe4b"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-04T12:01:41.482Z"
+  }
+}

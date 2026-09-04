@@ -1,0 +1,98 @@
+{
+  "baseSha": "dd8b92ec50b501d4731809038b9a0e49c8586c41",
+  "files": [
+    {
+      "additions": 111,
+      "deletions": 13,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 41,
+          "oldLines": 0,
+          "oldStart": 40
+        },
+        {
+          "newLines": 1,
+          "newStart": 58,
+          "oldLines": 0,
+          "oldStart": 56
+        },
+        {
+          "newLines": 1,
+          "newStart": 77,
+          "oldLines": 1,
+          "oldStart": 75
+        },
+        {
+          "newLines": 31,
+          "newStart": 94,
+          "oldLines": 4,
+          "oldStart": 92
+        },
+        {
+          "newLines": 6,
+          "newStart": 129,
+          "oldLines": 3,
+          "oldStart": 100
+        },
+        {
+          "newLines": 5,
+          "newStart": 137,
+          "oldLines": 1,
+          "oldStart": 105
+        },
+        {
+          "newLines": 30,
+          "newStart": 145,
+          "oldLines": 0,
+          "oldStart": 108
+        },
+        {
+          "newLines": 0,
+          "newStart": 177,
+          "oldLines": 1,
+          "oldStart": 112
+        },
+        {
+          "newLines": 0,
+          "newStart": 182,
+          "oldLines": 1,
+          "oldStart": 118
+        },
+        {
+          "newLines": 9,
+          "newStart": 188,
+          "oldLines": 0,
+          "oldStart": 123
+        },
+        {
+          "newLines": 1,
+          "newStart": 1135,
+          "oldLines": 1,
+          "oldStart": 1062
+        },
+        {
+          "newLines": 7,
+          "newStart": 1221,
+          "oldLines": 1,
+          "oldStart": 1148
+        },
+        {
+          "newLines": 19,
+          "newStart": 1242,
+          "oldLines": 0,
+          "oldStart": 1162
+        }
+      ],
+      "path": ".github/workflows/publish.yml",
+      "status": "modified"
+    }
+  ],
+  "headSha": "b2b2ac28fe4b8497070b4f8e208bdc69f26f2840",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 111,
+    "deletions": 13,
+    "filesChanged": 1
+  }
+}
