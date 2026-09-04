@@ -66,6 +66,12 @@ function document(overrides: Partial<CanonDocument> = {}): CanonDocument {
   };
 }
 
+function nestedObject(depth: number): unknown {
+  let value: unknown = "leaf";
+  for (let index = 0; index < depth; index += 1) value = { nested: value };
+  return value;
+}
+
 test("Canon is a versioned document with separate prefix and execution attachment", () => {
   const parsed = parseCanonDocument(document());
   assert.equal(parsed.contractId, CANON_CONTRACT_ID);
@@ -77,6 +83,55 @@ test("Canon is a versioned document with separate prefix and execution attachmen
 test("schema version is fail-closed", () => {
   assert.throws(() => parseCanonDocument({ ...document(), schemaVersion: 2 }), CanonError);
   assert.throws(() => parseCanonDocument({ ...document(), prefix: { ...prefix(), extra: true } }), CanonError);
+});
+
+test("JSON facts reject oversized objects and excessive nesting", () => {
+  const base = document();
+  const oversizedObject = Object.fromEntries(Array.from({ length: 257 }, (_, index) => [`entry-${index}`, index]));
+  assert.throws(
+    () =>
+      parseCanonDocument({
+        ...base,
+        prefix: {
+          ...base.prefix,
+          c1: { ...base.prefix.c1, packageFacts: { payload: oversizedObject } },
+        },
+      }),
+    CanonError,
+  );
+  assert.throws(
+    () =>
+      parseCanonDocument({
+        ...base,
+        prefix: {
+          ...base.prefix,
+          c1: { ...base.prefix.c1, packageFacts: oversizedObject },
+        },
+      }),
+    CanonError,
+  );
+
+  const withinDepth = nestedObject(32);
+  assert.doesNotThrow(() =>
+    parseCanonDocument({
+      ...base,
+      prefix: {
+        ...base.prefix,
+        c1: { ...base.prefix.c1, packageFacts: { payload: withinDepth } },
+      },
+    }),
+  );
+  assert.throws(
+    () =>
+      parseCanonDocument({
+        ...base,
+        prefix: {
+          ...base.prefix,
+          c1: { ...base.prefix.c1, packageFacts: { payload: nestedObject(33) } },
+        },
+      }),
+    CanonError,
+  );
 });
 
 test("canonical order is C0, C1, C2, C3 and ignores incidental object/collection order", () => {

@@ -17,7 +17,9 @@ export const CANON_EXECUTION_STATE_ID_VERSION = 1 as const;
 
 const MAX_ID_LENGTH = 512 as const;
 const MAX_REVISION_LENGTH = 256 as const;
-const MAX_FACT_ENTRIES = 256 as const;
+const MAX_JSON_ARRAY_ENTRIES = 256 as const;
+const MAX_JSON_OBJECT_ENTRIES = 256 as const;
+const MAX_JSON_NESTING_DEPTH = 32 as const;
 const MAX_CONTENT_ENTRIES = 256 as const;
 const MAX_INSTRUCTION_ENTRIES = 64 as const;
 const MAX_INSTRUCTION_BODY_LENGTH = 16_384 as const;
@@ -25,20 +27,33 @@ const MAX_INSTRUCTION_BODY_LENGTH = 16_384 as const;
 const identifierSchema = z.string().min(1).max(MAX_ID_LENGTH);
 const revisionSchema = z.string().min(1).max(MAX_REVISION_LENGTH);
 
-/** JSON values are used for facts/content, but remain bounded at each collection boundary. */
+/** JSON values are used for facts/content and are bounded in both width and depth. */
 type JsonPrimitive = null | boolean | number | string;
 export type CanonJsonValue = JsonPrimitive | CanonJsonValue[] | { [key: string]: CanonJsonValue };
 
-const jsonValueSchema: z.ZodType<CanonJsonValue> = z.lazy(() =>
-  z.union([
-    z.null(),
-    z.boolean(),
-    z.number().finite(),
-    z.string(),
-    z.array(jsonValueSchema).max(MAX_FACT_ENTRIES),
-    z.record(z.string().max(MAX_ID_LENGTH), jsonValueSchema),
-  ]),
-);
+const jsonPrimitiveSchema: z.ZodType<JsonPrimitive> = z.union([z.null(), z.boolean(), z.number().finite(), z.string()]);
+
+function boundedJsonRecordSchema(valueSchema: z.ZodType<CanonJsonValue>) {
+  return z
+    .record(z.string().max(MAX_ID_LENGTH), valueSchema)
+    .refine((value) => Object.keys(value).length <= MAX_JSON_OBJECT_ENTRIES, {
+      message: `JSON object exceeds ${MAX_JSON_OBJECT_ENTRIES} entries`,
+    });
+}
+
+/** At the maximum depth, only primitives remain valid children. */
+function jsonValueSchemaAtDepth(depth: number): z.ZodType<CanonJsonValue> {
+  if (depth >= MAX_JSON_NESTING_DEPTH) return jsonPrimitiveSchema;
+
+  const nestedValueSchema = jsonValueSchemaAtDepth(depth + 1);
+  return z.union([
+    jsonPrimitiveSchema,
+    z.array(nestedValueSchema).max(MAX_JSON_ARRAY_ENTRIES),
+    boundedJsonRecordSchema(nestedValueSchema),
+  ]);
+}
+
+const jsonValueSchema = jsonValueSchemaAtDepth(0);
 
 const contractReferenceSchema = z
   .object({
@@ -99,8 +114,8 @@ const canonC1Schema = z
       })
       .strict(),
     /** Deterministic facts only; no README or full-repository content is implied. */
-    packageFacts: z.record(z.string().max(MAX_ID_LENGTH), jsonValueSchema),
-    workspaceFacts: z.record(z.string().max(MAX_ID_LENGTH), jsonValueSchema),
+    packageFacts: boundedJsonRecordSchema(jsonValueSchema),
+    workspaceFacts: boundedJsonRecordSchema(jsonValueSchema),
   })
   .strict();
 
