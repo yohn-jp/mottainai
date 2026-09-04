@@ -1,0 +1,278 @@
+{
+  "baseSha": "dd8b92ec50b501d4731809038b9a0e49c8586c41",
+  "files": [
+    {
+      "additions": 0,
+      "deletions": 21,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 21,
+          "oldStart": 1
+        }
+      ],
+      "path": "docs/releases/0.8.3.md",
+      "status": "removed"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 3,
+          "oldLines": 1,
+          "oldStart": 3
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 36,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 41,
+          "oldLines": 1,
+          "oldStart": 41
+        },
+        {
+          "newLines": 1,
+          "newStart": 194,
+          "oldLines": 1,
+          "oldStart": 194
+        },
+        {
+          "newLines": 33,
+          "newStart": 197,
+          "oldLines": 0,
+          "oldStart": 196
+        },
+        {
+          "newLines": 1,
+          "newStart": 412,
+          "oldLines": 1,
+          "oldStart": 379
+        }
+      ],
+      "path": "scripts/gh-inari-package-smoke.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 84,
+      "deletions": 10,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 41,
+          "oldLines": 1,
+          "oldStart": 41
+        },
+        {
+          "newLines": 1,
+          "newStart": 77,
+          "oldLines": 1,
+          "oldStart": 77
+        },
+        {
+          "newLines": 74,
+          "newStart": 121,
+          "oldLines": 0,
+          "oldStart": 120
+        },
+        {
+          "newLines": 1,
+          "newStart": 231,
+          "oldLines": 1,
+          "oldStart": 157
+        },
+        {
+          "newLines": 1,
+          "newStart": 259,
+          "oldLines": 1,
+          "oldStart": 185
+        },
+        {
+          "newLines": 1,
+          "newStart": 284,
+          "oldLines": 1,
+          "oldStart": 210
+        },
+        {
+          "newLines": 1,
+          "newStart": 303,
+          "oldLines": 1,
+          "oldStart": 229
+        },
+        {
+          "newLines": 1,
+          "newStart": 306,
+          "oldLines": 1,
+          "oldStart": 232
+        },
+        {
+          "newLines": 1,
+          "newStart": 309,
+          "oldLines": 1,
+          "oldStart": 235
+        },
+        {
+          "newLines": 1,
+          "newStart": 371,
+          "oldLines": 1,
+          "oldStart": 297
+        },
+        {
+          "newLines": 1,
+          "newStart": 380,
+          "oldLines": 1,
+          "oldStart": 306
+        }
+      ],
+      "path": "src/gh-inari.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 293,
+      "deletions": 32,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 53,
+          "oldLines": 1,
+          "oldStart": 53
+        },
+        {
+          "newLines": 63,
+          "newStart": 86,
+          "oldLines": 1,
+          "oldStart": 86
+        },
+        {
+          "newLines": 0,
+          "newStart": 158,
+          "oldLines": 9,
+          "oldStart": 97
+        },
+        {
+          "newLines": 0,
+          "newStart": 282,
+          "oldLines": 1,
+          "oldStart": 230
+        },
+        {
+          "newLines": 1,
+          "newStart": 284,
+          "oldLines": 2,
+          "oldStart": 232
+        },
+        {
+          "newLines": 1,
+          "newStart": 289,
+          "oldLines": 1,
+          "oldStart": 238
+        },
+        {
+          "newLines": 1,
+          "newStart": 292,
+          "oldLines": 2,
+          "oldStart": 241
+        },
+        {
+          "newLines": 1,
+          "newStart": 334,
+          "oldLines": 1,
+          "oldStart": 284
+        },
+        {
+          "newLines": 23,
+          "newStart": 347,
+          "oldLines": 0,
+          "oldStart": 296
+        },
+        {
+          "newLines": 2,
+          "newStart": 371,
+          "oldLines": 0,
+          "oldStart": 297
+        },
+        {
+          "newLines": 1,
+          "newStart": 380,
+          "oldLines": 0,
+          "oldStart": 304
+        },
+        {
+          "newLines": 7,
+          "newStart": 404,
+          "oldLines": 0,
+          "oldStart": 327
+        },
+        {
+          "newLines": 50,
+          "newStart": 540,
+          "oldLines": 3,
+          "oldStart": 457
+        },
+        {
+          "newLines": 53,
+          "newStart": 593,
+          "oldLines": 5,
+          "oldStart": 463
+        },
+        {
+          "newLines": 42,
+          "newStart": 647,
+          "oldLines": 6,
+          "oldStart": 469
+        },
+        {
+          "newLines": 47,
+          "newStart": 692,
+          "oldLines": 0,
+          "oldStart": 477
+        }
+      ],
+      "path": "src/gh-inari.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 38,
+          "oldLines": 1,
+          "oldStart": 38
+        }
+      ],
+      "path": "src/workflow/commands/write-inari.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 35,
+          "oldLines": 1,
+          "oldStart": 35
+        }
+      ],
+      "path": "src/workflow/providers/gh-inari.test.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "7f2b1f016dd1823ff5644b6a022685991d34d7e9",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 416,
+    "deletions": 69,
+    "filesChanged": 7
+  }
+}
