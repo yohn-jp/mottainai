@@ -1,0 +1,41 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Replace Mottainai references to organization-owned reusable workflows under `yohn-jp/.github/.github/workflows/` with `@main`."
+    },
+    {
+      "checked": false,
+      "text": "Check the repository for any additional organization-owned reusable workflow SHA pins and normalize them to `@main` where the shared-workflow authority contract applies."
+    },
+    {
+      "checked": false,
+      "text": "Do not change third-party Action SHA pinning; this issue concerns organization-owned reusable workflows only."
+    },
+    {
+      "checked": false,
+      "text": "Add or update regression/governance coverage so organization-owned reusable workflows cannot silently regress to commit-SHA pins."
+    },
+    {
+      "checked": false,
+      "text": "CI uses the current `yohn-jp/.github/main` shared workflow after the change."
+    },
+    {
+      "checked": false,
+      "text": "No unrelated CI refactoring."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 802,
+    "state": "open",
+    "title": "fix: follow shared GitHub workflows from @main",
+    "url": "https://github.com/yohn-jp/mottainai/issues/802"
+  },
+  "linked": {
+    "number": 802
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
