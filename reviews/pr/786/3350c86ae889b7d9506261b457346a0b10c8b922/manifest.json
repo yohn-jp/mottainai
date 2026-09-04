@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "dd8b92ec50b501d4731809038b9a0e49c8586c41",
+    "draft": false,
+    "headRef": "fix/673-post-rename-state",
+    "headSha": "3350c86ae889b7d9506261b457346a0b10c8b922",
+    "number": 786,
+    "title": "fix(config): distinguish post-rename durability failure (#673)"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "3350c86ae889b7d9506261b457346a0b10c8b922",
+    "immutable": true,
+    "shortId": "3350c86ae889"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-04T11:42:22.223Z"
+  }
+}

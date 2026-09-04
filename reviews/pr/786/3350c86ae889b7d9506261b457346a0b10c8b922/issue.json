@@ -1,0 +1,41 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Parent-directory open/fsync/close failures after successful rename cannot be reported as an ordinary pre-effect replacement failure."
+    },
+    {
+      "checked": false,
+      "text": "The caller can deterministically distinguish pre-effect failure from post-effect durability uncertainty."
+    },
+    {
+      "checked": false,
+      "text": "Documentation/comments state the exact atomicity vs durability guarantees."
+    },
+    {
+      "checked": false,
+      "text": "Fault-injection coverage includes `*.directory.open`, `*.directory.sync`, and `*.directory.close` after rename."
+    },
+    {
+      "checked": false,
+      "text": "Tests assert the actual destination bytes for every post-rename failure point."
+    },
+    {
+      "checked": false,
+      "text": "Existing temp-file cleanup and mode-preservation behavior remains unchanged."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 673,
+    "state": "open",
+    "title": "fix: distinguish post-rename durability failure from pre-effect atomic replacement failure",
+    "url": "https://github.com/yohn-jp/mottainai/issues/673"
+  },
+  "linked": {
+    "number": 673
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
