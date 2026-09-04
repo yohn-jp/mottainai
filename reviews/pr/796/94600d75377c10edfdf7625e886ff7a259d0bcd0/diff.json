@@ -1,0 +1,116 @@
+{
+  "baseSha": "557e93c504afaa4ab14081504c0625b9669a406f",
+  "files": [
+    {
+      "additions": 27,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 27,
+          "newStart": 14,
+          "oldLines": 0,
+          "oldStart": 13
+        }
+      ],
+      "path": "CHANGELOG.md",
+      "status": "modified"
+    },
+    {
+      "additions": 31,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 31,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "docs/releases/0.9.0.md",
+      "status": "added"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 3,
+          "oldLines": 1,
+          "oldStart": 3
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 12,
+      "deletions": 10,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 45,
+          "oldLines": 1,
+          "oldStart": 45
+        },
+        {
+          "newLines": 2,
+          "newStart": 51,
+          "oldLines": 2,
+          "oldStart": 51
+        },
+        {
+          "newLines": 1,
+          "newStart": 58,
+          "oldLines": 1,
+          "oldStart": 58
+        },
+        {
+          "newLines": 2,
+          "newStart": 67,
+          "oldLines": 2,
+          "oldStart": 67
+        },
+        {
+          "newLines": 1,
+          "newStart": 78,
+          "oldLines": 1,
+          "oldStart": 78
+        },
+        {
+          "newLines": 1,
+          "newStart": 84,
+          "oldLines": 1,
+          "oldStart": 84
+        },
+        {
+          "newLines": 1,
+          "newStart": 90,
+          "oldLines": 1,
+          "oldStart": 90
+        },
+        {
+          "newLines": 1,
+          "newStart": 111,
+          "oldLines": 1,
+          "oldStart": 111
+        },
+        {
+          "newLines": 2,
+          "newStart": 258,
+          "oldLines": 0,
+          "oldStart": 257
+        }
+      ],
+      "path": "README.md",
+      "status": "modified"
+    }
+  ],
+  "headSha": "94600d75377c10edfdf7625e886ff7a259d0bcd0",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 71,
+    "deletions": 11,
+    "filesChanged": 4
+  }
+}
