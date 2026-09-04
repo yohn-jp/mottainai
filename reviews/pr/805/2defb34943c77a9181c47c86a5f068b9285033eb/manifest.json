@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "4f1ef78f0efddc418ac92435daeb57164ccfb8b4",
+    "draft": false,
+    "headRef": "chore/804-node24-mise-local",
+    "headSha": "2defb34943c77a9181c47c86a5f068b9285033eb",
+    "number": 805,
+    "title": "chore: pin local Node toolchain to 24 via mise"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "2defb34943c77a9181c47c86a5f068b9285033eb",
+    "immutable": true,
+    "shortId": "2defb34943c7"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-04T14:40:05.840Z"
+  }
+}

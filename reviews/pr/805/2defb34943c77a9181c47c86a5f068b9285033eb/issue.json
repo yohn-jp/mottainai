@@ -1,0 +1,14 @@
+{
+  "acceptanceCriteria": [],
+  "issue": {
+    "labels": [],
+    "number": 804,
+    "state": "closed",
+    "title": "bump local Node engine requirement to 24",
+    "url": "https://github.com/yohn-jp/mottainai/issues/804"
+  },
+  "linked": {
+    "number": 804
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

@@ -1,0 +1,40 @@
+{
+  "baseSha": "4f1ef78f0efddc418ac92435daeb57164ccfb8b4",
+  "files": [
+    {
+      "additions": 2,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 21,
+          "oldLines": 0,
+          "oldStart": 20
+        }
+      ],
+      "path": ".gitignore",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "mise.toml",
+      "status": "added"
+    }
+  ],
+  "headSha": "2defb34943c77a9181c47c86a5f068b9285033eb",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 4,
+    "deletions": 0,
+    "filesChanged": 2
+  }
+}
