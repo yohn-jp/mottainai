@@ -1,0 +1,45 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Manager domain/persistence exposes a stable canonical `runtime_id` (or equivalent) for every configured/managed Runtime."
+    },
+    {
+      "checked": false,
+      "text": "Runtime-scoped API routes/results require and return that identity consistently."
+    },
+    {
+      "checked": false,
+      "text": "Local/remote/existing Runtime targets share one identity/state model."
+    },
+    {
+      "checked": false,
+      "text": "Runtime display name/address changes do not silently create a new authority identity unless the contract requires it."
+    },
+    {
+      "checked": false,
+      "text": "Restart preserves Runtime identity/config state without persisting credential bytes."
+    },
+    {
+      "checked": false,
+      "text": "Missing/ambiguous/stale Runtime references fail closed rather than selecting a default reachable Runtime."
+    },
+    {
+      "checked": false,
+      "text": "Tests cover multiple Runtimes, renamed/display-changed target, restart, missing target, and identity collision/rejection."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "enhancement"
+    ],
+    "number": 421,
+    "state": "open",
+    "title": "feat: add Runtime-scoped identity to the Manager domain and API",
+    "url": "https://github.com/yohn-jp/mottainai/issues/421"
+  },
+  "linked": {
+    "number": 421
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

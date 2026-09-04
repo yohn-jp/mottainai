@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #793 @ 70d841dabb8b</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #793: feat(runtime): add Runtime-scoped identity to Manager</h1>
+<p>Base <code>main</code> @ <code>dd8b92ec50b501d4731809038b9a0e49c8586c41</code> &rarr;
+Head <code>feat/421-runtime-manager-identity</code> @ <code>70d841dabb8b6845e4709c8e2cce19d7205ef726</code></p>
+<p>Revision <code>70d841dabb8b</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/421">#421</a> feat: add Runtime-scoped identity to the Manager domain and API (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Manager domain/persistence exposes a stable canonical `runtime_id` (or equivalent) for every configured/managed Runtime.</li>
+<li>[ ] Runtime-scoped API routes/results require and return that identity consistently.</li>
+<li>[ ] Local/remote/existing Runtime targets share one identity/state model.</li>
+<li>[ ] Runtime display name/address changes do not silently create a new authority identity unless the contract requires it.</li>
+<li>[ ] Restart preserves Runtime identity/config state without persisting credential bytes.</li>
+<li>[ ] Missing/ambiguous/stale Runtime references fail closed rather than selecting a default reachable Runtime.</li>
+<li>[ ] Tests cover multiple Runtimes, renamed/display-changed target, restart, missing target, and identity collision/rejection.</li></ul>
+
+
+
+<h2>Changed files (10, +636/-30)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>docs/releases/0.8.3.md</td><td>removed</td><td>+0</td><td>-21</td></tr>
+<tr><td>package.json</td><td>modified</td><td>+1</td><td>-1</td></tr>
+<tr><td>src/manager/command.ts</td><td>modified</td><td>+3</td><td>-1</td></tr>
+<tr><td>src/manager/http.test.ts</td><td>modified</td><td>+9</td><td>-0</td></tr>
+<tr><td>src/manager/http.ts</td><td>modified</td><td>+28</td><td>-0</td></tr>
+<tr><td>src/manager/runtime-identity.test.ts</td><td>added</td><td>+132</td><td>-0</td></tr>
+<tr><td>src/manager/service.ts</td><td>modified</td><td>+179</td><td>-5</td></tr>
+<tr><td>src/state/migrations.ts</td><td>modified</td><td>+93</td><td>-0</td></tr>
+<tr><td>src/workflow/state/sqlite-store.ts</td><td>modified</td><td>+143</td><td>-2</td></tr>
+<tr><td>src/workflow/state/store.ts</td><td>modified</td><td>+48</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

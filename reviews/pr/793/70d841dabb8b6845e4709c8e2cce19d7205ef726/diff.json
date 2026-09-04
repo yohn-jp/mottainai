@@ -1,0 +1,512 @@
+{
+  "baseSha": "dd8b92ec50b501d4731809038b9a0e49c8586c41",
+  "files": [
+    {
+      "additions": 0,
+      "deletions": 21,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 21,
+          "oldStart": 1
+        }
+      ],
+      "path": "docs/releases/0.8.3.md",
+      "status": "removed"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 3,
+          "oldLines": 1,
+          "oldStart": 3
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 3,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 15,
+          "oldLines": 1,
+          "oldStart": 15
+        },
+        {
+          "newLines": 1,
+          "newStart": 39,
+          "oldLines": 0,
+          "oldStart": 38
+        },
+        {
+          "newLines": 1,
+          "newStart": 121,
+          "oldLines": 0,
+          "oldStart": 119
+        }
+      ],
+      "path": "src/manager/command.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 9,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 8,
+          "newStart": 68,
+          "oldLines": 0,
+          "oldStart": 67
+        },
+        {
+          "newLines": 1,
+          "newStart": 85,
+          "oldLines": 0,
+          "oldStart": 76
+        }
+      ],
+      "path": "src/manager/http.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 28,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 17,
+          "oldLines": 0,
+          "oldStart": 16
+        },
+        {
+          "newLines": 7,
+          "newStart": 87,
+          "oldLines": 0,
+          "oldStart": 85
+        },
+        {
+          "newLines": 3,
+          "newStart": 105,
+          "oldLines": 0,
+          "oldStart": 96
+        },
+        {
+          "newLines": 1,
+          "newStart": 111,
+          "oldLines": 0,
+          "oldStart": 99
+        },
+        {
+          "newLines": 5,
+          "newStart": 172,
+          "oldLines": 0,
+          "oldStart": 159
+        },
+        {
+          "newLines": 1,
+          "newStart": 178,
+          "oldLines": 0,
+          "oldStart": 160
+        },
+        {
+          "newLines": 2,
+          "newStart": 229,
+          "oldLines": 0,
+          "oldStart": 210
+        },
+        {
+          "newLines": 2,
+          "newStart": 253,
+          "oldLines": 0,
+          "oldStart": 232
+        },
+        {
+          "newLines": 6,
+          "newStart": 326,
+          "oldLines": 0,
+          "oldStart": 303
+        }
+      ],
+      "path": "src/manager/http.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 132,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 132,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/manager/runtime-identity.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 179,
+      "deletions": 5,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 23,
+          "oldLines": 0,
+          "oldStart": 22
+        },
+        {
+          "newLines": 5,
+          "newStart": 70,
+          "oldLines": 0,
+          "oldStart": 66
+        },
+        {
+          "newLines": 64,
+          "newStart": 110,
+          "oldLines": 0,
+          "oldStart": 101
+        },
+        {
+          "newLines": 2,
+          "newStart": 178,
+          "oldLines": 0,
+          "oldStart": 105
+        },
+        {
+          "newLines": 1,
+          "newStart": 231,
+          "oldLines": 0,
+          "oldStart": 156
+        },
+        {
+          "newLines": 1,
+          "newStart": 260,
+          "oldLines": 0,
+          "oldStart": 184
+        },
+        {
+          "newLines": 1,
+          "newStart": 290,
+          "oldLines": 0,
+          "oldStart": 213
+        },
+        {
+          "newLines": 1,
+          "newStart": 303,
+          "oldLines": 0,
+          "oldStart": 225
+        },
+        {
+          "newLines": 1,
+          "newStart": 327,
+          "oldLines": 0,
+          "oldStart": 248
+        },
+        {
+          "newLines": 1,
+          "newStart": 384,
+          "oldLines": 0,
+          "oldStart": 304
+        },
+        {
+          "newLines": 1,
+          "newStart": 405,
+          "oldLines": 0,
+          "oldStart": 324
+        },
+        {
+          "newLines": 1,
+          "newStart": 518,
+          "oldLines": 0,
+          "oldStart": 436
+        },
+        {
+          "newLines": 1,
+          "newStart": 674,
+          "oldLines": 0,
+          "oldStart": 591
+        },
+        {
+          "newLines": 1,
+          "newStart": 707,
+          "oldLines": 0,
+          "oldStart": 623
+        },
+        {
+          "newLines": 3,
+          "newStart": 730,
+          "oldLines": 0,
+          "oldStart": 645
+        },
+        {
+          "newLines": 1,
+          "newStart": 786,
+          "oldLines": 0,
+          "oldStart": 698
+        },
+        {
+          "newLines": 1,
+          "newStart": 928,
+          "oldLines": 0,
+          "oldStart": 839
+        },
+        {
+          "newLines": 1,
+          "newStart": 1220,
+          "oldLines": 0,
+          "oldStart": 1130
+        },
+        {
+          "newLines": 2,
+          "newStart": 1302,
+          "oldLines": 0,
+          "oldStart": 1211
+        },
+        {
+          "newLines": 1,
+          "newStart": 1317,
+          "oldLines": 0,
+          "oldStart": 1224
+        },
+        {
+          "newLines": 2,
+          "newStart": 1333,
+          "oldLines": 0,
+          "oldStart": 1239
+        },
+        {
+          "newLines": 1,
+          "newStart": 1337,
+          "oldLines": 0,
+          "oldStart": 1241
+        },
+        {
+          "newLines": 10,
+          "newStart": 1346,
+          "oldLines": 0,
+          "oldStart": 1249
+        },
+        {
+          "newLines": 4,
+          "newStart": 1358,
+          "oldLines": 0,
+          "oldStart": 1251
+        },
+        {
+          "newLines": 9,
+          "newStart": 1365,
+          "oldLines": 0,
+          "oldStart": 1254
+        },
+        {
+          "newLines": 25,
+          "newStart": 1378,
+          "oldLines": 0,
+          "oldStart": 1258
+        },
+        {
+          "newLines": 1,
+          "newStart": 1406,
+          "oldLines": 0,
+          "oldStart": 1261
+        },
+        {
+          "newLines": 1,
+          "newStart": 1417,
+          "oldLines": 0,
+          "oldStart": 1271
+        },
+        {
+          "newLines": 6,
+          "newStart": 1424,
+          "oldLines": 0,
+          "oldStart": 1277
+        },
+        {
+          "newLines": 1,
+          "newStart": 1445,
+          "oldLines": 0,
+          "oldStart": 1292
+        },
+        {
+          "newLines": 1,
+          "newStart": 1492,
+          "oldLines": 1,
+          "oldStart": 1339
+        },
+        {
+          "newLines": 7,
+          "newStart": 1562,
+          "oldLines": 0,
+          "oldStart": 1408
+        },
+        {
+          "newLines": 5,
+          "newStart": 1570,
+          "oldLines": 1,
+          "oldStart": 1410
+        },
+        {
+          "newLines": 1,
+          "newStart": 1587,
+          "oldLines": 1,
+          "oldStart": 1423
+        },
+        {
+          "newLines": 1,
+          "newStart": 1593,
+          "oldLines": 1,
+          "oldStart": 1429
+        },
+        {
+          "newLines": 1,
+          "newStart": 1598,
+          "oldLines": 1,
+          "oldStart": 1434
+        },
+        {
+          "newLines": 1,
+          "newStart": 1639,
+          "oldLines": 0,
+          "oldStart": 1474
+        },
+        {
+          "newLines": 1,
+          "newStart": 1680,
+          "oldLines": 0,
+          "oldStart": 1514
+        },
+        {
+          "newLines": 1,
+          "newStart": 1749,
+          "oldLines": 0,
+          "oldStart": 1582
+        },
+        {
+          "newLines": 1,
+          "newStart": 1781,
+          "oldLines": 0,
+          "oldStart": 1613
+        },
+        {
+          "newLines": 6,
+          "newStart": 2096,
+          "oldLines": 0,
+          "oldStart": 1927
+        }
+      ],
+      "path": "src/manager/service.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 93,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 93,
+          "newStart": 680,
+          "oldLines": 0,
+          "oldStart": 679
+        }
+      ],
+      "path": "src/state/migrations.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 143,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 6,
+          "newStart": 56,
+          "oldLines": 0,
+          "oldStart": 55
+        },
+        {
+          "newLines": 1,
+          "newStart": 356,
+          "oldLines": 0,
+          "oldStart": 349
+        },
+        {
+          "newLines": 14,
+          "newStart": 404,
+          "oldLines": 0,
+          "oldStart": 396
+        },
+        {
+          "newLines": 119,
+          "newStart": 1506,
+          "oldLines": 0,
+          "oldStart": 1484
+        },
+        {
+          "newLines": 1,
+          "newStart": 1637,
+          "oldLines": 1,
+          "oldStart": 1497
+        },
+        {
+          "newLines": 1,
+          "newStart": 1643,
+          "oldLines": 1,
+          "oldStart": 1503
+        },
+        {
+          "newLines": 1,
+          "newStart": 1647,
+          "oldLines": 0,
+          "oldStart": 1506
+        }
+      ],
+      "path": "src/workflow/state/sqlite-store.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 48,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 41,
+          "newStart": 66,
+          "oldLines": 0,
+          "oldStart": 65
+        },
+        {
+          "newLines": 1,
+          "newStart": 133,
+          "oldLines": 0,
+          "oldStart": 91
+        },
+        {
+          "newLines": 1,
+          "newStart": 175,
+          "oldLines": 0,
+          "oldStart": 132
+        },
+        {
+          "newLines": 5,
+          "newStart": 811,
+          "oldLines": 0,
+          "oldStart": 767
+        }
+      ],
+      "path": "src/workflow/state/store.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "70d841dabb8b6845e4709c8e2cce19d7205ef726",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 636,
+    "deletions": 30,
+    "filesChanged": 10
+  }
+}
