@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { loadConfigSnapshot, loadGatewayConfig, loadMottainaiConfig, loadRawConfig, resolveConfigPath, resolveGatewayConfig, saveRawConfig } from "./config.js";
+import { AtomicReplaceError } from "./atomic-file.js";
 import { FaultInjector } from "./test-support/fault-injection.js";
 
 function writeConfig(content: unknown): string {
@@ -557,10 +558,22 @@ test("saveRawConfig reports parent-directory durability failures after replaceme
     const { filePath, raw } = loadRawConfig(configPath);
     const original = fs.readFileSync(filePath, "utf8");
     (raw.mcpServers as Record<string, unknown>).two = { command: "node" };
+    const expected = `${JSON.stringify(raw, null, 2)}\n`;
     const faults = new FaultInjector({ [operation]: { error: new Error(`primary ${operation}`) } });
 
-    assert.throws(() => saveRawConfig(filePath, raw, faults), new RegExp(`primary ${operation}`), operation);
-    assert.notEqual(fs.readFileSync(filePath, "utf8"), original, operation);
+    assert.throws(
+      () => saveRawConfig(filePath, raw, faults),
+      (error: unknown) => {
+        assert.ok(error instanceof AtomicReplaceError);
+        assert.equal(error.kind, "post-effect-durability-uncertain");
+        assert.equal(error.operation, "config");
+        assert.match(error.message, new RegExp(`primary ${operation}`));
+        return true;
+      },
+      operation,
+    );
+    assert.notEqual(expected, original, operation);
+    assert.equal(fs.readFileSync(filePath, "utf8"), expected, operation);
     assert.deepEqual(temporaryArtifacts(filePath), [], operation);
   }
 });
@@ -616,7 +629,16 @@ test("saveRawConfig preserves the previous config byte-for-byte when write, sync
     const original = fs.readFileSync(filePath, "utf8");
     (raw.mcpServers as Record<string, unknown>).two = { command: "node" };
     const faults = new FaultInjector({ [operation]: { error: new Error(`primary ${operation}`) } });
-    assert.throws(() => saveRawConfig(filePath, raw, faults), new RegExp(`primary ${operation}`), operation);
+    assert.throws(
+      () => saveRawConfig(filePath, raw, faults),
+      (error: unknown) => {
+        assert.ok(error instanceof AtomicReplaceError);
+        assert.equal(error.kind, "pre-effect");
+        assert.match(error.message, new RegExp(`primary ${operation}`));
+        return true;
+      },
+      operation,
+    );
     assert.equal(fs.readFileSync(filePath, "utf8"), original, operation);
     assert.deepEqual(temporaryArtifacts(filePath), [], operation);
   }

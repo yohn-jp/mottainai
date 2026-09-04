@@ -10,10 +10,33 @@ export interface AtomicReplaceOptions {
 }
 
 /**
+ * Atomic replacement failure classification. `post-effect-durability-uncertain`
+ * means rename completed and the destination is visibly replaced, but the
+ * parent-directory fsync did not complete successfully.
+ */
+export type AtomicReplaceFailureKind = "pre-effect" | "post-effect-durability-uncertain";
+
+/** A replacement failure with an explicit effect boundary for recovery decisions. */
+export class AtomicReplaceError extends Error {
+  readonly kind: AtomicReplaceFailureKind;
+  readonly operation: string;
+  readonly cause: unknown;
+
+  constructor(operation: string, kind: AtomicReplaceFailureKind, cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = "AtomicReplaceError";
+    this.kind = kind;
+    this.operation = operation;
+    this.cause = cause;
+  }
+}
+
+/**
  * 同一ディレクトリの一時ファイル経由で destination を atomic replace する。
  * complete かつ fsync 済みの一時ファイル作成後にのみ rename し、rename 成功後は親ディレクトリも
- * fsync する。write/close/rename の途中失敗でも destination は byte-for-byte 未変更のまま。成功時は
- * 一時ファイルを残さない。
+ * fsync する。write/close/rename の途中失敗では destination は byte-for-byte 未変更のまま、
+ * 親ディレクトリの open/fsync/close 失敗では rename 済みで destination の置換は可視だが
+ * durability が不確実として `AtomicReplaceError.kind` に記録する。成功時は一時ファイルを残さない。
  * cleanup 失敗は primary error を保持し、bounded secondary evidence だけを付加する。
  *
  * permission: `options.mode` を明示指定しない限り、destination が既存ならその mode を
@@ -36,7 +59,7 @@ export function replaceFileAtomically(
   );
   const temporaryPath = temporaryFile.path;
   let fileDescriptor: number | undefined = temporaryFile.fileDescriptor;
-  let primary: unknown;
+  let renameCompleted = false;
   try {
     boundaries.file(`${operation}.temp.write`, () => fs.writeFileSync(fileDescriptor!, content));
     if (mode !== undefined) {
@@ -49,14 +72,21 @@ export function replaceFileAtomically(
         fileDescriptor = undefined;
       }
     });
-    boundaries.file(`${operation}.rename`, () => fs.renameSync(temporaryPath, filePath));
+    boundaries.file(`${operation}.rename`, () => {
+      fs.renameSync(temporaryPath, filePath);
+      renameCompleted = true;
+    });
     syncParentDirectory(directory, boundaries, operation);
   } catch (error) {
-    primary = error;
+    const classified = new AtomicReplaceError(
+      operation,
+      renameCompleted ? "post-effect-durability-uncertain" : "pre-effect",
+      error,
+    );
     closeFileDescriptor(fileDescriptor);
-    const cleanupError = cleanupTemporaryFile(temporaryPath, boundaries, operation, primary);
+    const cleanupError = cleanupTemporaryFile(temporaryPath, boundaries, operation, classified);
     if (cleanupError !== undefined) throw cleanupError;
-    throw error;
+    throw classified;
   }
   const cleanupError = cleanupTemporaryFile(temporaryPath, boundaries, operation);
   if (cleanupError !== undefined) {
