@@ -38,7 +38,7 @@ function fakeGhInariExecutable({ version = "0.7.0", response } = {}) {
   const source = `const fs = require("node:fs");
 fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)) + "\\n");
 if (process.argv.includes("--version")) process.stdout.write("gh-inari ${version}\\n");
-	else if (process.argv.includes("--help=full")) process.stdout.write("  pr create --from <file.json>\\n  pr get <number> --json\\n  --from <path>\\n  --json\\n  --repository <r>\\n  --template <id>\\n");
+	else if (process.argv.includes("--help=full")) process.stdout.write("  issue get <number> --json\\n  pr create --from <file.json>\\n  pr get <number> --json\\n  --from <path>\\n  --json\\n  --repository <r>\\n  --template <id>\\n");
 	else process.stdout.write(${JSON.stringify(response ?? defaultResponse)});`;
   fs.writeFileSync(executable, `#!/usr/bin/env node\n${source}\n`);
   fs.chmodSync(executable, 0o755);
@@ -191,8 +191,41 @@ function assertNoSupportedDirectCreateEntryPoint() {
 
 async function runPackedManagedWorkflowChecks() {
   assert.equal(GH_INARI_SUPPORTED_VERSION, ">=0.7.0");
-  assert.deepEqual([...GH_INARI_SUPPORTED_OPERATIONS], ["pr.create", "pr.get"]);
+  assert.deepEqual([...GH_INARI_SUPPORTED_OPERATIONS], ["issue.get", "pr.create", "pr.get"]);
   assertNoSupportedDirectCreateEntryPoint();
+
+  {
+    const issue = fakeGhInariExecutable({
+      response: JSON.stringify({
+        valid: true,
+        projection: "canonical",
+        classification: "valid",
+        kind: "issue",
+        number: 411,
+        url: "https://github.com/yohn-jp/mottainai/issues/411",
+        template: { id: "feature", name: "Feature", path: ".github/ISSUE_TEMPLATE/feature.yml", source: "issue_form" },
+        metadata: { title: "Governed task", state: "open", labels: [], assignees: [] },
+        fields: { capability: "packed process" },
+        diagnostics: [],
+      }),
+    });
+    try {
+      const result = await new GhInariClient({ command: issue.executable, cwd: process.cwd() }).getIssue({
+        repository: "yohn-jp/mottainai",
+        number: 411,
+        template: "feature",
+      });
+      assert.equal(result.ok, true, JSON.stringify(result));
+      if (result.ok) assert.equal(result.value.fields?.capability, "packed process");
+      assert.deepEqual(invocationArgs(issue), [
+        ["--version"],
+        ["--help=full"],
+        ["issue", "get", "411", "--repository", "yohn-jp/mottainai", "--json", "--template", "feature"],
+      ]);
+    } finally {
+      fs.rmSync(issue.directory, { recursive: true, force: true });
+    }
+  }
 
   {
     const fixture = createWorkflowFixture();
@@ -376,7 +409,7 @@ try {
   assert.equal(capabilities.ok, true, JSON.stringify(capabilities));
   if (capabilities.ok) {
     assert.equal(capabilities.value.version, "0.7.0");
-    assert.deepEqual(capabilities.value.operations, ["pr.create", "pr.get"]);
+    assert.deepEqual(capabilities.value.operations, ["issue.get", "pr.create", "pr.get"]);
   }
 
   const rejected = await client.createPullRequest({
