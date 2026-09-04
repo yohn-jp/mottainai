@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "dd8b92ec50b501d4731809038b9a0e49c8586c41",
+    "draft": false,
+    "headRef": "feat/409-execution-prefix-identity",
+    "headSha": "f85f32d0c2d9958b3e36473ba56af78b01ba39b5",
+    "number": 789,
+    "title": "feat(workflow): define deterministic Canon prefix and attachment identities (#409)"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "f85f32d0c2d9958b3e36473ba56af78b01ba39b5",
+    "immutable": true,
+    "shortId": "f85f32d0c2d9"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-04T12:24:07.178Z"
+  }
+}
