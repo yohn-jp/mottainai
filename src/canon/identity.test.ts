@@ -4,6 +4,7 @@ import {
   CANON_CONTRACT_ID,
   CANON_SCHEMA_VERSION,
   CanonError,
+  canonicalCanonDocumentText,
   canonicalCanonPrefixText,
   executionStateIdentityOf,
   identitiesOf,
@@ -19,7 +20,7 @@ function prefix(overrides: Record<string, unknown> = {}): CanonDocument["prefix"
       projectContract: { contractId: "mottainai.project.v1", schemaVersion: 1 },
       runtimeInstructions: [
         { instructionId: "runtime-instruction-b", provenance: "already-supplied" },
-        { instructionId: "runtime-instruction-a", provenance: "required" },
+        { instructionId: "runtime-instruction-a", provenance: "required", body: "Apply the runtime contract." },
       ],
     },
     c1: {
@@ -98,6 +99,89 @@ test("canonical order is C0, C1, C2, C3 and ignores incidental object/collection
   assert.equal(prefixIdentityOf(first.prefix), prefixIdentityOf(second.prefix));
 });
 
+test("required instruction body is model-visible prefix content while already-supplied body is forbidden", () => {
+  const base = document();
+  const changed = {
+    ...base.prefix,
+    c0: {
+      ...base.prefix.c0,
+      runtimeInstructions: base.prefix.c0.runtimeInstructions.map((instruction) =>
+        instruction.provenance === "required" ? { ...instruction, body: "A different required body." } : instruction,
+      ),
+    },
+  };
+  assert.notEqual(prefixIdentityOf(base.prefix), prefixIdentityOf(changed));
+  assert.throws(
+    () =>
+      parseCanonDocument({
+        ...base,
+        prefix: {
+          ...base.prefix,
+          c0: {
+            ...base.prefix.c0,
+            runtimeInstructions: [
+              { instructionId: "supplied", provenance: "already-supplied", body: "must not be copied" },
+            ],
+          },
+        },
+      }),
+    CanonError,
+  );
+});
+
+test("complete-entry tie-break keeps duplicate IDs deterministic", () => {
+  const base = document();
+  const duplicateInstructionA = { instructionId: "duplicate", provenance: "required" as const, body: "A" };
+  const duplicateInstructionB = { instructionId: "duplicate", provenance: "required" as const, body: "B" };
+  const duplicateContentA = {
+    contentId: "duplicate",
+    value: { value: "A" },
+    provenance: { source: "source", reference: "a", supplied: false },
+  };
+  const duplicateContentB = {
+    contentId: "duplicate",
+    value: { value: "B" },
+    provenance: { source: "source", reference: "b", supplied: false },
+  };
+  const first = {
+    ...base.prefix,
+    c0: { ...base.prefix.c0, runtimeInstructions: [duplicateInstructionA, duplicateInstructionB] },
+    c2: [duplicateContentA, duplicateContentB],
+  };
+  const second = {
+    ...base.prefix,
+    c0: { ...base.prefix.c0, runtimeInstructions: [duplicateInstructionB, duplicateInstructionA] },
+    c2: [duplicateContentB, duplicateContentA],
+  };
+  assert.equal(canonicalCanonPrefixText(first), canonicalCanonPrefixText(second));
+  assert.equal(prefixIdentityOf(first), prefixIdentityOf(second));
+});
+
+test("canonical document text round-trips through CanonDocumentSchema shape", () => {
+  const current = document();
+  const serialized = canonicalCanonDocumentText(current);
+  const parsed = parseCanonDocument(JSON.parse(serialized));
+  assert.deepEqual(parsed, {
+    ...current,
+    prefix: {
+      ...current.prefix,
+      c0: {
+        ...current.prefix.c0,
+        runtimeInstructions: [...current.prefix.c0.runtimeInstructions].sort((a, b) =>
+          a.instructionId.localeCompare(b.instructionId),
+        ),
+      },
+      c2: [...current.prefix.c2].sort((a, b) => a.contentId.localeCompare(b.contentId)),
+    },
+  });
+  assert.deepEqual(Object.keys((JSON.parse(serialized) as Record<string, unknown>).prefix as Record<string, unknown>), [
+    "c0",
+    "c1",
+    "c2",
+    "c3",
+  ]);
+});
+
 test("prefix identity changes for repository, base, task, and selected-artifact content", () => {
   const base = document();
   const baseId = prefixIdentityOf(base.prefix);
@@ -112,6 +196,13 @@ test("prefix identity changes for repository, base, task, and selected-artifact 
     prefixIdentityOf({
       ...base.prefix,
       c1: { ...base.prefix.c1, repository: { ...base.prefix.c1.repository, baseRevision: "base-commit-2" } },
+    }),
+    baseId,
+  );
+  assert.notEqual(
+    prefixIdentityOf({
+      ...base.prefix,
+      c1: { ...base.prefix.c1, repository: { ...base.prefix.c1.repository, sourceRevision: "source-commit-2" } },
     }),
     baseId,
   );

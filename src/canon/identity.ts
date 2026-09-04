@@ -20,6 +20,7 @@ const MAX_REVISION_LENGTH = 256 as const;
 const MAX_FACT_ENTRIES = 256 as const;
 const MAX_CONTENT_ENTRIES = 256 as const;
 const MAX_INSTRUCTION_ENTRIES = 64 as const;
+const MAX_INSTRUCTION_BODY_LENGTH = 16_384 as const;
 
 const identifierSchema = z.string().min(1).max(MAX_ID_LENGTH);
 const revisionSchema = z.string().min(1).max(MAX_REVISION_LENGTH);
@@ -57,12 +58,26 @@ const provenanceSchema = z
 
 export type CanonProvenance = z.infer<typeof provenanceSchema>;
 
-const runtimeInstructionSchema = z
-  .object({
-    instructionId: identifierSchema,
-    provenance: z.enum(["already-supplied", "required"]),
-  })
-  .strict();
+/**
+ * An already-supplied instruction is represented by provenance only, so its
+ * body is not copied or reinjected. A required instruction must carry its
+ * model-visible body; that body is consequently part of prefix identity.
+ */
+const runtimeInstructionSchema = z.discriminatedUnion("provenance", [
+  z
+    .object({
+      instructionId: identifierSchema,
+      provenance: z.literal("already-supplied"),
+    })
+    .strict(),
+  z
+    .object({
+      instructionId: identifierSchema,
+      provenance: z.literal("required"),
+      body: z.string().min(1).max(MAX_INSTRUCTION_BODY_LENGTH),
+    })
+    .strict(),
+]);
 
 const canonC0Schema = z
   .object({
@@ -228,7 +243,9 @@ function canonicalizeC0(c0: CanonC0): CanonC0 {
   return {
     runtimeContract: c0.runtimeContract,
     projectContract: c0.projectContract,
-    runtimeInstructions: stableSort(c0.runtimeInstructions, (entry) => entry.instructionId),
+    // Sort on the complete entry, not only instructionId: duplicate IDs with
+    // different bodies remain deterministic regardless of insertion order.
+    runtimeInstructions: stableSort(c0.runtimeInstructions, (entry) => entry),
   };
 }
 
@@ -241,7 +258,9 @@ function canonicalizeC1(c1: CanonC1): CanonC1 {
 }
 
 function canonicalizeContent(entries: readonly CanonContentEntry[]): CanonContentEntry[] {
-  return stableSort(entries, (entry) => entry.contentId).map((entry) => ({
+  // The complete entry is the tie-break, so even duplicate contentId values
+  // cannot make identity depend on caller insertion order.
+  return stableSort(entries, (entry) => entry).map((entry) => ({
     contentId: entry.contentId,
     value: canonicalizeJson(entry.value),
     provenance: entry.provenance,
@@ -326,7 +345,9 @@ export function canonicalCanonDocumentText(document: CanonDocument): string {
   return stableStringify({
     contractId: CANON_CONTRACT_ID,
     schemaVersion: CANON_SCHEMA_VERSION,
-    prefix: JSON.parse(canonicalCanonPrefixText(parsed.prefix)) as unknown,
+    // Keep the document wire shape identical to CanonDocumentSchema. The
+    // section-array projection belongs to prefix identity serialization only.
+    prefix: canonicalizeCanonPrefix(parsed.prefix),
     executionAttachment: JSON.parse(canonicalCanonExecutionAttachmentText(parsed.executionAttachment)) as unknown,
   });
 }
