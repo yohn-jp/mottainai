@@ -63,6 +63,47 @@ export type NawabariCloseReconciliationState = (typeof NAWABARI_CLOSE_RECONCILIA
 
 export type ManagerSessionId = string & { readonly __brand: "ManagerSessionId" };
 export type ManagerExecutionMode = "task-bound" | "workspace";
+/** Canonical identity of one isolated Runtime target.  This is deliberately
+ * separate from Zellij's display/session name and from repository metadata. */
+export type ManagerRuntimeId = string & { readonly __brand: "ManagerRuntimeId" };
+export const MANAGER_RUNTIME_TARGET_KINDS = ["local", "remote", "existing"] as const;
+export type ManagerRuntimeTargetKind = (typeof MANAGER_RUNTIME_TARGET_KINDS)[number];
+export const MANAGER_RUNTIME_AVAILABILITY_STATES = ["configured", "available", "unavailable", "stale"] as const;
+export type ManagerRuntimeAvailabilityState = (typeof MANAGER_RUNTIME_AVAILABILITY_STATES)[number];
+
+/** Durable Manager-owned Runtime identity/configuration projection.
+ * Credentials and credential-bearing configuration are intentionally absent. */
+export interface ManagerRuntimeRecord {
+  runtimeId: ManagerRuntimeId;
+  targetKind: ManagerRuntimeTargetKind;
+  displayName: string;
+  address: string;
+  configProvenance: string | undefined;
+  state: ManagerRuntimeAvailabilityState;
+  createdAt: number;
+  updatedAt: number;
+  lastSeenAt: number | undefined;
+}
+
+export interface RegisterManagerRuntimeInput {
+  runtimeId: ManagerRuntimeId;
+  targetKind: ManagerRuntimeTargetKind;
+  displayName: string;
+  address: string;
+  configProvenance?: string;
+  state?: ManagerRuntimeAvailabilityState;
+  registeredAt?: number;
+}
+
+export interface UpdateManagerRuntimeInput {
+  displayName?: string;
+  address?: string;
+  configProvenance?: string | null;
+  state?: ManagerRuntimeAvailabilityState;
+  lastSeenAt?: number | null;
+  updatedAt?: number;
+}
+
 export const MANAGER_AGENT_KINDS = ["codex", "claude", "pi"] as const;
 export type ManagerAgentKind = (typeof MANAGER_AGENT_KINDS)[number];
 export const MANAGER_RUNTIME_STATES = [
@@ -89,6 +130,7 @@ export interface ManagerSessionReceipt {
 
 export interface ManagerSessionRecord {
   sessionId: ManagerSessionId;
+  runtimeId: ManagerRuntimeId;
   workspaceRoot: string;
   /** Stable caller-owned operation key used to retry one managed task run. */
   idempotencyKey: string | undefined;
@@ -130,6 +172,7 @@ export interface ManagerSessionRecord {
 
 export interface CreateManagerSessionInput {
   sessionId: ManagerSessionId;
+  runtimeId?: ManagerRuntimeId;
   workspaceRoot: string;
   idempotencyKey?: string;
   taskId?: TaskId;
@@ -765,6 +808,11 @@ export interface WorkflowStateStore {
   listWorktreesForInstance(instanceId: RepositoryInstanceId): WorktreeRecord[];
   listWorktrees(instanceId?: RepositoryInstanceId): WorktreeRecord[];
   createManagerSession(input: CreateManagerSessionInput): ManagerSessionRecord;
+  /** Register/reconcile one canonical Runtime identity without persisting credentials. */
+  registerManagerRuntime(input: RegisterManagerRuntimeInput): ManagerRuntimeRecord;
+  getManagerRuntime(runtimeId: ManagerRuntimeId): ManagerRuntimeRecord | undefined;
+  listManagerRuntimes(): ManagerRuntimeRecord[];
+  updateManagerRuntime(runtimeId: ManagerRuntimeId, input: UpdateManagerRuntimeInput): ManagerRuntimeRecord;
   getManagerSession(sessionId: ManagerSessionId): ManagerSessionRecord | undefined;
   listManagerSessions(workspaceRoot?: string, options?: ListManagerSessionsOptions): ManagerSessionRecord[];
   updateManagerSession(sessionId: ManagerSessionId, input: UpdateManagerSessionInput): ManagerSessionRecord;

@@ -20,6 +20,9 @@ import type {
   CommitReconciliationState,
   ManagerAgentKind,
   ManagerReconciliationState,
+  ManagerRuntimeId,
+  ManagerRuntimeRecord,
+  ManagerRuntimeTargetKind,
   ManagerRuntimeState,
   ManagerSessionId,
   ManagerSessionRecord,
@@ -64,6 +67,11 @@ const MAX_LIST_LIMIT = 500;
 const MAX_SCOPE_PATHS = 128;
 const MAX_SCOPE_CLAIMS = 128;
 const MAX_SCOPE_RESOURCE_LENGTH = 512;
+const MAX_RUNTIME_ID_LENGTH = 256;
+const MAX_RUNTIME_DISPLAY_LENGTH = 256;
+const MAX_RUNTIME_ADDRESS_LENGTH = 1024;
+const MAX_RUNTIME_PROVENANCE_LENGTH = 256;
+export const LOCAL_MANAGER_RUNTIME_ID = "local" as ManagerRuntimeId;
 export const MANAGER_LAUNCH_SCHEMA_VERSION = 1 as const;
 export const ACTIVE_RUNTIME_STATES = ["starting", "running", "detached"] as const satisfies readonly ManagerRuntimeState[];
 const RECENT_RUNTIME_STATES = [
@@ -99,10 +107,76 @@ function boundedStatus(value: string): string {
   return value.slice(0, MAX_STATUS_LENGTH);
 }
 
+function validateRuntimeIdentity(value: unknown): ManagerRuntimeId {
+  if (typeof value !== "string" || value.trim().length === 0 || value.length > MAX_RUNTIME_ID_LENGTH) {
+    throw invalid("runtimeId is invalid");
+  }
+  if (/[\u0000-\u001f\u007f]/u.test(value)) throw invalid("runtimeId contains an unsupported control character");
+  return value.trim() as ManagerRuntimeId;
+}
+
+function validateRuntimeText(value: unknown, name: string, maxLength: number): string {
+  if (typeof value !== "string" || value.trim().length === 0 || value.length > maxLength) {
+    throw invalid(`${name} is invalid`);
+  }
+  if (/[\u0000-\u001f\u007f]/u.test(value)) throw invalid(`${name} contains an unsupported control character`);
+  return value.trim();
+}
+
+export interface ManagerRuntimeConfiguration {
+  /** Canonical identity from the Runtime contract. */
+  runtimeId?: string;
+  /** Alias matching RuntimeCapabilityResult.runtimeIdentity. */
+  runtimeIdentity?: string;
+  targetKind?: ManagerRuntimeTargetKind;
+  displayName?: string;
+  address?: string;
+  /** Non-secret configuration provenance (for example a config profile name). */
+  configProvenance?: string;
+}
+
+function normalizeRuntimeConfiguration(configuration: ManagerRuntimeConfiguration = {}): {
+  runtimeId: ManagerRuntimeId;
+  targetKind: ManagerRuntimeTargetKind;
+  displayName: string;
+  address: string;
+  configProvenance: string | undefined;
+} {
+  const configuredId =
+    configuration.runtimeId === undefined ? undefined : validateRuntimeIdentity(configuration.runtimeId);
+  const identityAlias =
+    configuration.runtimeIdentity === undefined ? undefined : validateRuntimeIdentity(configuration.runtimeIdentity);
+  if (configuredId !== undefined && identityAlias !== undefined && configuredId !== identityAlias)
+    throw invalid("runtimeId and runtimeIdentity declare conflicting identities");
+  const targetKind = configuration.targetKind ?? "local";
+  if (!(["local", "remote", "existing"] as readonly string[]).includes(targetKind))
+    throw invalid("runtime targetKind is invalid");
+  const runtimeId = configuredId ?? identityAlias ?? LOCAL_MANAGER_RUNTIME_ID;
+  const address =
+    configuration.address === undefined
+      ? targetKind === "local"
+        ? "local"
+        : runtimeId
+      : validateRuntimeText(configuration.address, "runtime address", MAX_RUNTIME_ADDRESS_LENGTH);
+  const displayName =
+    configuration.displayName === undefined
+      ? targetKind === "local"
+        ? "Local Runtime"
+        : `${targetKind[0]!.toUpperCase()}${targetKind.slice(1)} Runtime`
+      : validateRuntimeText(configuration.displayName, "runtime displayName", MAX_RUNTIME_DISPLAY_LENGTH);
+  const configProvenance =
+    configuration.configProvenance === undefined
+      ? undefined
+      : validateRuntimeText(configuration.configProvenance, "runtime configProvenance", MAX_RUNTIME_PROVENANCE_LENGTH);
+  return { runtimeId, targetKind, displayName, address, configProvenance };
+}
+
 export interface NewManagerSessionInput {
   /** Versioned wire shape for Manager launch intent; omitted means v1. */
   schemaVersion?: number;
   instruction: string;
+  /** Explicit Runtime scope; omission binds to this Manager's configured Runtime. */
+  runtimeId?: string;
   agentKind?: string;
   /** Alias accepted by the API for clients that call the profile explicitly. */
   launchProfile?: string;
@@ -154,6 +228,7 @@ export interface ManagerExecutionPreview {
     claimGeneration: ClaimGenerationProvenance;
   };
   identity: {
+    runtimeId?: ManagerRuntimeId;
     repository: {
       name: string;
       root: string;
@@ -182,6 +257,7 @@ export interface ManagerExecutionPreview {
 /** Stable, canonical launch request used by preview and actual start. */
 export interface ManagerLaunchRequest {
   schemaVersion: typeof MANAGER_LAUNCH_SCHEMA_VERSION;
+  runtimeId?: ManagerRuntimeId;
   instruction: string;
   agentKind: ManagerAgentKind;
   launchProfile: ManagerAgentKind;
@@ -211,6 +287,7 @@ export interface ManagerLaunchInvocation {
 }
 
 export interface ManagerSessionFilter {
+  runtimeId?: ManagerRuntimeId;
   runtimeState?: ManagerRuntimeState;
   agentKind?: ManagerAgentKind;
   semanticLifecycleState?: ManagerSessionRecord["semanticLifecycleState"];
@@ -223,6 +300,7 @@ export interface ManagerSessionFilter {
 export interface ManagerHealth {
   manager: "ready";
   workspaceRoot: string;
+  runtime: ManagerRuntimeRecord;
   zellij: { available: true; version: string };
   sessions: { active: number; recent: number };
 }
@@ -246,6 +324,7 @@ export interface ManagerOperationalProjection {
   authorities: readonly { name: string; responsibility: string; status: "current" | "unavailable" }[];
   identities: {
     managerSessionId: string;
+    runtimeId: string;
     taskId: string | null;
     executionSessionId: string | null;
     runtimeName: string;
@@ -302,6 +381,7 @@ function managerErrorStatusCode(code: string): number {
   if (code === "claim_conflict") return 409;
   if (
     code === "runtime_name_collision" ||
+    code === "runtime_identity_collision" ||
     code === "worktree_missing" ||
     code === "session_restart_rejected" ||
     code === "session_continue_rejected" ||
@@ -322,6 +402,7 @@ export class ManagerError extends Error {
       | "zellij_unavailable"
       | "zellij_incompatible"
       | "runtime_name_collision"
+      | "runtime_identity_collision"
       | "task_start_failed"
       | "claim_conflict"
       | "claim_preflight_unavailable"
@@ -434,6 +515,7 @@ function resolveAgentKind(launchProfile: unknown, agentKind: unknown): ManagerAg
 
 interface ValidatedManagerSessionInput {
   schemaVersion: typeof MANAGER_LAUNCH_SCHEMA_VERSION;
+  runtimeId: ManagerRuntimeId | undefined;
   agentKind: ManagerAgentKind;
   instruction: string;
   provider: string | undefined;
@@ -589,6 +671,7 @@ function normalizeManagerSessionInput(input: NewManagerSessionInput): ValidatedM
   if (schemaVersion !== MANAGER_LAUNCH_SCHEMA_VERSION)
     throw invalid(`unsupported Manager launch schema version: ${String(schemaVersion)}`);
   const agentKind = resolveAgentKind(input.launchProfile, input.agentKind);
+  const runtimeId = input.runtimeId === undefined ? undefined : validateRuntimeIdentity(input.runtimeId);
   const instruction = validateInstruction(input.instruction);
   const provider = validateOptionalArg(input.provider, "provider", MAX_PROVIDER_LENGTH);
   const model = validateOptionalArg(input.model, "model", MAX_MODEL_LENGTH);
@@ -621,6 +704,7 @@ function normalizeManagerSessionInput(input: NewManagerSessionInput): ValidatedM
     : createManagerFallbackSemanticExecutionPlan();
   return {
     schemaVersion,
+    runtimeId,
     agentKind,
     instruction,
     provider,
@@ -643,6 +727,9 @@ function normalizeManagerSessionInput(input: NewManagerSessionInput): ValidatedM
 
 function managerError(error: unknown): ManagerError {
   if (error instanceof ManagerError) return error;
+  if (error instanceof Error && /manager Runtime identity collision/u.test(error.message)) {
+    return new ManagerError("runtime_identity_collision", boundedStatus(error.message), 409);
+  }
   if (error instanceof ZellijRuntimeError) {
     const status =
       error.code === "zellij_unavailable" || error.code === "zellij_incompatible"
@@ -696,6 +783,7 @@ async function readGitValue(workspaceRoot: string, args: readonly string[]): Pro
 function canonicalLaunchRequest(input: ValidatedManagerSessionInput): ManagerLaunchRequest {
   return {
     schemaVersion: MANAGER_LAUNCH_SCHEMA_VERSION,
+    ...(input.runtimeId === undefined ? {} : { runtimeId: input.runtimeId }),
     instruction: input.instruction,
     agentKind: input.agentKind,
     launchProfile: input.agentKind,
@@ -837,6 +925,7 @@ async function prepareManagerExecutionPreview(
     },
     scope,
     identity: {
+      runtimeId: input.runtimeId,
       repository: { name: path.basename(repositoryRoot), root: repositoryRoot },
       executionMode: taskBound ? "task-bound" : "workspace",
       task: {
@@ -1128,6 +1217,7 @@ function operationalCoreProjection(
     phaseRail: phaseRailFor(session.semanticLifecycleState, session.runtimeState),
     identities: {
       managerSessionId: session.sessionId,
+      runtimeId: session.runtimeId,
       taskId: session.taskId ?? null,
       executionSessionId: session.executionSessionId ?? null,
       runtimeName: session.runtimeName,
@@ -1209,6 +1299,8 @@ function projectOperationalSession(
 
 export class ManagerSessionService {
   private zellijVersion: string | undefined;
+  private managerRuntime: ManagerRuntimeRecord | undefined;
+  private readonly runtimeConfiguration: ReturnType<typeof normalizeRuntimeConfiguration>;
   private readonly execution: ManagerExecutionAuthority;
   private readonly sessionOperations = new Map<ManagerSessionId, Promise<void>>();
   private readonly options: {
@@ -1222,6 +1314,7 @@ export class ManagerSessionService {
     agentCommands?: Partial<Record<ManagerAgentKind, { command: string; baseArgs?: readonly string[] }>>;
     /** Hermetic test seam; production resolves the packaged Mottainai asset. */
     piGuardPath?: string;
+    runtimeConfig?: ManagerRuntimeConfiguration;
   };
 
   constructor(options: {
@@ -1237,8 +1330,11 @@ export class ManagerSessionService {
     piGuardPath?: string;
     /** Optional injection seam; production defaults to the Nawabari-backed adapter. */
     executionAuthority?: ManagerExecutionAuthority;
+    /** Canonical Runtime identity/configuration; credentials are never accepted or persisted. */
+    runtimeConfig?: ManagerRuntimeConfiguration;
   }) {
     const nawabari = options.nawabari ?? new NawabariExecutionClient();
+    this.runtimeConfiguration = normalizeRuntimeConfiguration(options.runtimeConfig);
     this.options = { ...options, nawabari };
     this.execution =
       options.executionAuthority ??
@@ -1247,18 +1343,67 @@ export class ManagerSessionService {
 
   async initialize(): Promise<ManagerHealth> {
     try {
+      this.managerRuntime = this.options.store.registerManagerRuntime({
+        runtimeId: this.runtimeConfiguration.runtimeId,
+        targetKind: this.runtimeConfiguration.targetKind,
+        displayName: this.runtimeConfiguration.displayName,
+        address: this.runtimeConfiguration.address,
+        ...(this.runtimeConfiguration.configProvenance === undefined
+          ? {}
+          : { configProvenance: this.runtimeConfiguration.configProvenance }),
+        state: "configured",
+      });
       const available = await this.options.runtime.checkAvailability();
       this.zellijVersion = available.version;
+      this.managerRuntime = this.options.store.updateManagerRuntime(this.runtimeConfiguration.runtimeId, {
+        state: "available",
+        lastSeenAt: Date.now(),
+      });
       await this.reconcile();
       return this.health();
     } catch (error) {
+      if (this.managerRuntime !== undefined) {
+        try {
+          this.managerRuntime = this.options.store.updateManagerRuntime(this.managerRuntime.runtimeId, {
+            state: "unavailable",
+          });
+        } catch {
+          // Preserve the original initialization failure.
+        }
+      }
       throw managerError(error);
     }
+  }
+
+  private requireConfiguredRuntime(): ManagerRuntimeRecord {
+    const runtime = this.managerRuntime ?? this.options.store.getManagerRuntime(this.runtimeConfiguration.runtimeId);
+    if (runtime === undefined)
+      throw new ManagerError(
+        "runtime_error",
+        `configured Manager Runtime identity is missing: ${this.runtimeConfiguration.runtimeId}`,
+        503,
+      );
+    if (runtime.runtimeId !== this.runtimeConfiguration.runtimeId)
+      throw new ManagerError("runtime_identity_collision", "configured Manager Runtime identity is ambiguous", 409);
+    return runtime;
+  }
+
+  /** Read-only Runtime identity registry projection. */
+  listRuntimes(): ManagerRuntimeRecord[] {
+    return this.options.store.listManagerRuntimes();
+  }
+
+  getRuntime(runtimeId: ManagerRuntimeId): ManagerRuntimeRecord {
+    const runtime = this.options.store.getManagerRuntime(runtimeId);
+    if (runtime === undefined)
+      throw new ManagerError("session_not_found", `Manager Runtime was not found: ${runtimeId}`, 404);
+    return runtime;
   }
 
   health(): ManagerHealth {
     if (this.zellijVersion === undefined)
       throw new ManagerError("zellij_unavailable", "Zellij availability has not been established", 503);
+    const runtime = this.requireConfiguredRuntime();
     const sessions = this.loadControlPlaneSessions();
     const active = sessions.filter(
       (session) =>
@@ -1269,12 +1414,19 @@ export class ManagerSessionService {
     return {
       manager: "ready",
       workspaceRoot: this.options.workspaceRoot,
+      runtime,
       zellij: { available: true, version: this.zellijVersion },
       sessions: { active, recent: sessions.length },
     };
   }
 
   async list(filter: ManagerSessionFilter = {}): Promise<ManagerSessionRecord[]> {
+    if (filter.runtimeId !== undefined && filter.runtimeId !== this.runtimeConfiguration.runtimeId)
+      throw new ManagerError(
+        "runtime_identity_collision",
+        `requested Runtime identity does not match this Manager: ${filter.runtimeId}`,
+        409,
+      );
     await this.reconcile();
     return this.projectSessions(this.loadControlPlaneSessions(), filter);
   }
@@ -1290,6 +1442,7 @@ export class ManagerSessionService {
 
   private projectSessions(sessions: ManagerSessionRecord[], filter: ManagerSessionFilter): ManagerSessionRecord[] {
     const projected = sessions
+      .filter((session) => filter.runtimeId === undefined || session.runtimeId === filter.runtimeId)
       .filter((session) => filter.runtimeState === undefined || session.runtimeState === filter.runtimeState)
       .filter((session) => filter.agentKind === undefined || session.agentKind === filter.agentKind)
       .filter(
@@ -1336,7 +1489,7 @@ export class ManagerSessionService {
       limit: MAX_LIST_LIMIT,
       runtimeStates: RECENT_RUNTIME_STATES,
     });
-    return [...active, ...recent];
+    return [...active, ...recent].filter((session) => session.runtimeId === this.runtimeConfiguration.runtimeId);
   }
 
   async get(sessionId: ManagerSessionId): Promise<ManagerSessionRecord> {
@@ -1406,8 +1559,19 @@ export class ManagerSessionService {
   private async preparePreviewWithClaimPreflight(
     normalized: ValidatedManagerSessionInput,
   ): Promise<ManagerExecutionPreview> {
+    if (normalized.runtimeId !== undefined && normalized.runtimeId !== this.runtimeConfiguration.runtimeId) {
+      throw new ManagerError(
+        "runtime_identity_collision",
+        `requested Runtime identity does not match this Manager: ${normalized.runtimeId}`,
+        409,
+      );
+    }
     const preview = await prepareManagerExecutionPreview(this.options.workspaceRoot, normalized);
-    if (normalized.taskSlug === undefined) return preview;
+    const scopedPreview = {
+      ...preview,
+      identity: { ...preview.identity, runtimeId: this.runtimeConfiguration.runtimeId },
+    };
+    if (normalized.taskSlug === undefined) return scopedPreview;
     try {
       const evidence = await this.options.nawabari.listClaimEvidence(this.options.workspaceRoot);
       const taskBySession = new Map<string, ManagerClaimTaskIdentity>();
@@ -1420,18 +1584,18 @@ export class ManagerSessionService {
         });
       }
       return {
-        ...preview,
+        ...scopedPreview,
         claimPreflight: createClaimPreflight(normalized.semanticPlan.claims, evidence, undefined, taskBySession),
       };
     } catch (error) {
       if (error instanceof NawabariExecutionError) {
         return {
-          ...preview,
+          ...scopedPreview,
           claimPreflight: failedClaimPreflight(claimPreflightFailureStatus(error), error.message, error.nawabariCode),
         };
       }
       return {
-        ...preview,
+        ...scopedPreview,
         claimPreflight: failedClaimPreflight("unavailable", error instanceof Error ? error.message : String(error)),
       };
     }
@@ -1472,6 +1636,7 @@ export class ManagerSessionService {
     if (idempotencyKey !== undefined) {
       const existing = this.options.store
         .listManagerSessions(this.options.workspaceRoot)
+        .filter((candidate) => candidate.runtimeId === this.runtimeConfiguration.runtimeId)
         .find((candidate) => candidate.idempotencyKey === idempotencyKey);
       if (existing !== undefined) {
         if (
@@ -1512,6 +1677,7 @@ export class ManagerSessionService {
       if (
         this.options.store
           .listManagerSessions(this.options.workspaceRoot)
+          .filter((candidate) => candidate.runtimeId === this.runtimeConfiguration.runtimeId)
           .some((candidate) => candidate.runtimeName === runtimeName)
       )
         throw new ManagerError(
@@ -1580,6 +1746,7 @@ export class ManagerSessionService {
       try {
         this.options.store.createManagerSession({
           sessionId,
+          runtimeId: this.runtimeConfiguration.runtimeId,
           workspaceRoot: this.options.workspaceRoot,
           idempotencyKey,
           taskId: executionContext.taskId,
@@ -1611,6 +1778,7 @@ export class ManagerSessionService {
         if (idempotencyKey !== undefined) {
           const existing = this.options.store
             .listManagerSessions(this.options.workspaceRoot)
+            .filter((candidate) => candidate.runtimeId === this.runtimeConfiguration.runtimeId)
             .find((candidate) => candidate.idempotencyKey === idempotencyKey);
           if (existing !== undefined) return this.resumeIdempotentSession(existing.sessionId);
         }
@@ -1925,6 +2093,12 @@ export class ManagerSessionService {
     const session = this.options.store.getManagerSession(sessionId);
     if (session === undefined || session.workspaceRoot !== this.options.workspaceRoot)
       throw new ManagerError("session_not_found", `manager session not found: ${sessionId}`);
+    if (session.runtimeId !== this.runtimeConfiguration.runtimeId)
+      throw new ManagerError(
+        "runtime_identity_collision",
+        `manager session belongs to another Runtime: ${sessionId}`,
+        409,
+      );
     return session;
   }
 

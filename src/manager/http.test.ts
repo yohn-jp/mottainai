@@ -65,6 +65,14 @@ test("Manager HTTP API exposes session state and selected open/stop actions", as
   assert.equal(wabachi.status, 200);
   assert.match(await wabachi.text(), /Wabachi/u);
   assert.equal((await health.json()).zellij.available, true);
+  const runtimes = await fetch(`${handle.url}api/v1/manager/runtimes`);
+  assert.equal(runtimes.status, 200);
+  const runtimeList = await runtimes.json();
+  assert.equal(runtimeList.runtimes.length, 1);
+  assert.equal(runtimeList.runtimes[0].runtimeId, "local");
+  const runtimeDetail = await fetch(`${handle.url}api/v1/manager/runtimes/local`);
+  assert.equal(runtimeDetail.status, 200);
+  assert.equal((await runtimeDetail.json()).runtime.runtimeId, "local");
 
   const createdResponse = await fetch(`${handle.url}api/v1/manager/sessions`, {
     method: "POST",
@@ -74,6 +82,7 @@ test("Manager HTTP API exposes session state and selected open/stop actions", as
   assert.equal(createdResponse.status, 201);
   const created = (await createdResponse.json()).session;
   assert.equal(created.lifecycleState, "running");
+  assert.equal(created.runtimeId, "local");
 
   const listed = await fetch(`${handle.url}api/v1/manager/sessions`);
   assert.equal(listed.status, 200);

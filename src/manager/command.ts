@@ -12,7 +12,7 @@ import type { ManagerAgentKind, WorkflowStateStore } from "../workflow/state/sto
 import type { ManagerExecutionAuthority } from "../workflow/domain/manager-execution.js";
 import { ManagerHttpApi } from "./http.js";
 import { readManagerAssets, readManagerViewer } from "./assets.js";
-import { ManagerSessionService } from "./service.js";
+import { ManagerSessionService, type ManagerRuntimeConfiguration } from "./service.js";
 import { NawabariExecutionClient } from "../workflow/nawabari.js";
 import { ZellijCliRuntime, type ZellijRuntime } from "./zellij.js";
 import { createManagerTerminalBridge } from "./terminal-bridge.js";
@@ -36,6 +36,7 @@ export interface ManagerStartOptions extends ManagerCommandOptions {
   store?: WorkflowStateStore;
   agentCommands?: Partial<Record<ManagerAgentKind, { command: string; baseArgs?: readonly string[] }>>;
   executionAuthority?: ManagerExecutionAuthority;
+  runtimeConfig?: ManagerRuntimeConfiguration;
 }
 
 let activeManager: DashboardServerHandle | undefined;
@@ -117,6 +118,7 @@ export async function startManager(options: ManagerStartOptions): Promise<Dashbo
     nawabari: new NawabariExecutionClient(),
     agentCommands: options.agentCommands,
     executionAuthority: options.executionAuthority,
+    runtimeConfig: options.runtimeConfig,
   });
   try {
     await service.initialize();

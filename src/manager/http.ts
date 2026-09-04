@@ -14,6 +14,7 @@ import {
   MANAGER_AGENT_KINDS,
   MANAGER_RUNTIME_STATES,
   type ManagerAgentKind,
+  type ManagerRuntimeId,
   type ManagerSessionId,
   type ManagerSessionRecord,
 } from "../workflow/state/store.js";
@@ -83,6 +84,13 @@ function sessionIdFromPath(value: string): ManagerSessionId {
   return decoded as ManagerSessionId;
 }
 
+function runtimeIdFromPath(value: string): ManagerRuntimeId {
+  const decoded = decodedSessionIdFromPath(value);
+  if (decoded.trim().length === 0 || /[\u0000-\u001f\u007f]/u.test(decoded))
+    throw new ManagerError("invalid_request", "invalid runtime id", 400);
+  return decoded.trim() as ManagerRuntimeId;
+}
+
 function nawabariSessionIdFromPath(value: string): string {
   const decoded = decodedSessionIdFromPath(value);
   if (!isCanonicalNawabariSessionId(decoded)) throw new ManagerError("invalid_request", "invalid session id", 400);
@@ -94,9 +102,13 @@ function inputFromBody(value: unknown): NewManagerSessionInput {
     throw new ManagerError("invalid_request", "request body must be an object", 400);
   }
   const body = value as Record<string, unknown>;
+  if (body.runtimeId !== undefined && body.runtime_id !== undefined && body.runtimeId !== body.runtime_id)
+    throw new ManagerError("invalid_request", "runtimeId and runtime_id declare conflicting identities", 400);
+  const runtimeId = body.runtimeId ?? body.runtime_id;
   return {
     ...(body.schemaVersion === undefined ? {} : { schemaVersion: body.schemaVersion as number }),
     instruction: body.instruction as string,
+    ...(runtimeId === undefined ? {} : { runtimeId: runtimeId as string }),
     ...(body.agentKind === undefined ? {} : { agentKind: body.agentKind as string }),
     ...(body.launchProfile === undefined ? {} : { launchProfile: body.launchProfile as string }),
     ...(body.provider === undefined ? {} : { provider: body.provider as string }),
@@ -157,7 +169,13 @@ function filterFromQuery(url: URL): ManagerSessionFilter {
   ) {
     throw new ManagerError("invalid_request", `unknown semantic lifecycle state: ${semanticLifecycleState}`, 400);
   }
+  const runtimeIdParam = url.searchParams.get("runtimeId");
+  const runtimeIdSnakeParam = url.searchParams.get("runtime_id");
+  if (runtimeIdParam !== null && runtimeIdSnakeParam !== null && runtimeIdParam !== runtimeIdSnakeParam)
+    throw new ManagerError("invalid_request", "runtimeId and runtime_id declare conflicting identities", 400);
+  const runtimeId = runtimeIdParam ?? runtimeIdSnakeParam;
   return {
+    ...(runtimeId === null ? {} : { runtimeId: runtimeIdFromPath(runtimeId) }),
     ...(runtimeState === null ? {} : { runtimeState: runtimeState as ManagerSessionFilter["runtimeState"] }),
     ...(agent === null ? {} : { agentKind: normalizeAgentAliasValue(agent) as ManagerAgentKind }),
     ...(semanticLifecycleState === null
@@ -208,6 +226,8 @@ function requireSameOrigin(request: IncomingMessage): void {
 type ManagerRouteMethod = "GET" | "POST";
 type ManagerRouteName =
   | "health"
+  | "runtimes"
+  | "runtime"
   | "sessions"
   | "sessions-preview"
   | "sessions-preflight"
@@ -230,6 +250,8 @@ type ManagerRouteDefinition = {
 // rejected explicitly below so their behavior is stable and local to Manager.
 const MANAGER_ROUTES: readonly ManagerRouteDefinition[] = [
   { name: "health", path: ["health"], methods: ["GET"] },
+  { name: "runtimes", path: ["runtimes"], methods: ["GET"] },
+  { name: "runtime", path: ["runtimes", ":runtimeId"], methods: ["GET"] },
   { name: "sessions", path: ["sessions"], methods: ["GET", "POST"] },
   // Keep static session aliases ahead of the dynamic session detail route.
   { name: "sessions-preview", path: ["sessions", "preview"], methods: ["POST"] },
@@ -300,6 +322,12 @@ export class ManagerHttpApi implements ManagerHttpHandler {
       switch (route.name) {
         case "health":
           sendJson(response, 200, this.service.health());
+          return;
+        case "runtimes":
+          sendJson(response, 200, { runtimes: this.service.listRuntimes() });
+          return;
+        case "runtime":
+          sendJson(response, 200, { runtime: this.service.getRuntime(runtimeIdFromPath(segments[1] ?? "")) });
           return;
         case "sessions":
           if (method === "GET") {

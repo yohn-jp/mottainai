@@ -677,6 +677,99 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 23,
+    description: "manager: canonical Runtime identities and session scope",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE manager_runtimes (
+          runtime_id TEXT PRIMARY KEY,
+          target_kind TEXT NOT NULL CHECK (target_kind IN ('local', 'remote', 'existing')),
+          display_name TEXT NOT NULL,
+          address TEXT NOT NULL,
+          config_provenance TEXT,
+          state TEXT NOT NULL CHECK (state IN ('configured', 'available', 'unavailable', 'stale')),
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          last_seen_at INTEGER
+        );
+        CREATE UNIQUE INDEX idx_manager_runtimes_address
+          ON manager_runtimes (address);
+
+        -- Existing Manager records predate Runtime scope. They all belong to
+        -- the one canonical local Runtime; this preserves restart identity
+        -- without treating a Zellij name or repository path as authority.
+        INSERT INTO manager_runtimes
+          (runtime_id, target_kind, display_name, address, state, created_at, updated_at)
+        VALUES ('local', 'local', 'Local Runtime', 'local', 'configured', 0, 0);
+        CREATE TABLE manager_sessions_v23 (
+          session_id TEXT PRIMARY KEY,
+          runtime_id TEXT NOT NULL REFERENCES manager_runtimes (runtime_id),
+          workspace_root TEXT NOT NULL,
+          idempotency_key TEXT,
+          task_id TEXT,
+          execution_session_id TEXT,
+          execution_mode TEXT NOT NULL CHECK (execution_mode IN ('task-bound', 'workspace')),
+          worktree_id TEXT,
+          worktree_path TEXT NOT NULL,
+          branch_name TEXT,
+          task_slug TEXT,
+          issue_ref TEXT,
+          branch_type TEXT,
+          agent_kind TEXT NOT NULL CHECK (agent_kind IN ('codex', 'claude', 'pi')),
+          launch_profile TEXT NOT NULL CHECK (launch_profile IN ('codex', 'claude', 'pi')),
+          instruction TEXT NOT NULL,
+          provider TEXT,
+          model TEXT,
+          launch_command TEXT NOT NULL,
+          launch_args_json TEXT NOT NULL,
+          runtime_name TEXT NOT NULL UNIQUE,
+          lifecycle_state TEXT NOT NULL CHECK (lifecycle_state IN ('starting', 'running', 'exited', 'stopped', 'failed')),
+          runtime_state TEXT NOT NULL CHECK (runtime_state IN ('starting', 'running', 'detached', 'exited', 'failed', 'stopped', 'stale')),
+          semantic_lifecycle_state TEXT NOT NULL CHECK (semantic_lifecycle_state IN ('unbound', 'planned', 'active', 'committed', 'pushed', 'pull-request-open', 'merged', 'abandoned', 'orphaned', 'cleaned')),
+          attachable INTEGER NOT NULL CHECK (attachable IN (0, 1)),
+          reconciliation_state TEXT NOT NULL CHECK (reconciliation_state IN ('synced', 'drifted', 'unresolved')),
+          reconciliation_message TEXT,
+          latest_status TEXT,
+          latest_receipt_json TEXT,
+          started_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          finished_at INTEGER,
+          runtime_observed_at INTEGER,
+          restart_count INTEGER NOT NULL DEFAULT 0,
+          exit_code INTEGER,
+          termination_state TEXT CHECK (termination_state IS NULL OR termination_state IN ('running', 'exited', 'stopped', 'failed')),
+          error_message TEXT
+        );
+        INSERT INTO manager_sessions_v23 (
+          session_id, runtime_id, workspace_root, idempotency_key, task_id, execution_session_id, execution_mode,
+          worktree_id, worktree_path, branch_name, task_slug, issue_ref, branch_type, agent_kind, launch_profile,
+          instruction, provider, model, launch_command, launch_args_json, runtime_name, lifecycle_state, runtime_state,
+          semantic_lifecycle_state, attachable, reconciliation_state, reconciliation_message, latest_status,
+          latest_receipt_json, started_at, updated_at, finished_at, runtime_observed_at, restart_count, exit_code,
+          termination_state, error_message
+        )
+        SELECT
+          session_id, 'local', workspace_root, idempotency_key, task_id, execution_session_id, execution_mode,
+          worktree_id, worktree_path, branch_name, task_slug, issue_ref, branch_type, agent_kind, launch_profile,
+          instruction, provider, model, launch_command, launch_args_json, runtime_name, lifecycle_state, runtime_state,
+          semantic_lifecycle_state, attachable, reconciliation_state, reconciliation_message, latest_status,
+          latest_receipt_json, started_at, updated_at, finished_at, runtime_observed_at, restart_count, exit_code,
+          termination_state, error_message
+        FROM manager_sessions;
+        DROP TABLE manager_sessions;
+        ALTER TABLE manager_sessions_v23 RENAME TO manager_sessions;
+        CREATE INDEX idx_manager_sessions_workspace ON manager_sessions (workspace_root, started_at DESC, session_id DESC);
+        CREATE INDEX idx_manager_sessions_task ON manager_sessions (task_id);
+        CREATE INDEX idx_manager_sessions_runtime ON manager_sessions (workspace_root, runtime_state, started_at DESC);
+        CREATE INDEX idx_manager_sessions_runtime_id
+          ON manager_sessions (runtime_id, workspace_root, started_at DESC, session_id DESC);
+        CREATE UNIQUE INDEX idx_manager_sessions_idempotency
+          ON manager_sessions (workspace_root, idempotency_key)
+          WHERE idempotency_key IS NOT NULL;
+      `);
+    },
+  },
 ];
 
 function appliedVersions(db: DatabaseSync): Set<number> {
