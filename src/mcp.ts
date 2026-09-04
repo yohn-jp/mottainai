@@ -2,6 +2,7 @@
 import { createRuntimeDiagnostic, formatRuntimeDiagnosticHuman } from "./runtime-diagnostic.js";
 import { resolveConfigPath } from "./config.js";
 import { runHarnessDelegationServer } from "./mcp-server.js";
+import packageMetadata from "../package.json" with { type: "json" };
 
 function configArgument(args: readonly string[]): { configPath?: string; help: boolean } {
   let configPath: string | undefined;
@@ -22,24 +23,28 @@ function configArgument(args: readonly string[]): { configPath?: string; help: b
 
 const startupCwd = process.cwd();
 const startupArgs = process.argv.slice(2);
-let requestedConfigPath: string | undefined;
-try {
-  const parsed = configArgument(startupArgs);
-  requestedConfigPath = parsed.configPath;
-  if (!parsed.help) {
-    await runHarnessDelegationServer(requestedConfigPath, startupCwd, process.env);
+if (startupArgs.length === 1 && startupArgs[0] === "--version") {
+  console.log(`${packageMetadata.name} ${packageMetadata.version}`);
+} else {
+  let requestedConfigPath: string | undefined;
+  try {
+    const parsed = configArgument(startupArgs);
+    requestedConfigPath = parsed.configPath;
+    if (!parsed.help) {
+      await runHarnessDelegationServer(requestedConfigPath, startupCwd, process.env);
+    }
+  } catch (error) {
+    const configPath = resolveConfigPath(requestedConfigPath, startupCwd);
+    console.error(
+      `${error instanceof Error ? error.message : String(error)}\n\nRuntime diagnostic:\n${formatRuntimeDiagnosticHuman(
+        createRuntimeDiagnostic({
+          cwd: startupCwd,
+          configPath,
+          environment: process.env,
+          entryPoint: process.argv[1],
+        }),
+      )}`,
+    );
+    process.exitCode = 1;
   }
-} catch (error) {
-  const configPath = resolveConfigPath(requestedConfigPath, startupCwd);
-  console.error(
-    `${error instanceof Error ? error.message : String(error)}\n\nRuntime diagnostic:\n${formatRuntimeDiagnosticHuman(
-      createRuntimeDiagnostic({
-        cwd: startupCwd,
-        configPath,
-        environment: process.env,
-        entryPoint: process.argv[1],
-      }),
-    )}`,
-  );
-  process.exitCode = 1;
 }
