@@ -5,19 +5,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # Keep the weekly scan cadence from Mottainai's former local CodeQL setup.
   schedule:
     - cron: "31 3 * * 1"
 
-# Local exception: the current organization workflow uses older checkout and
-# CodeQL action revisions and does not preserve this workflow's credential
-# handling. Keep Mottainai's established security contract local until the
-# shared contract is corrected in yohn-jp/.github.
 permissions: {}
 
 jobs:
   analyze:
-    name: Analyze (${{ matrix.language }})
+    name: CodeQL
     if: >-
       github.event_name != 'pull_request' ||
       (
@@ -25,29 +20,11 @@ jobs:
         github.event.pull_request.user.login != 'dependabot[bot]' &&
         !startsWith(github.event.pull_request.head.ref, 'release/')
       )
-    runs-on: ubuntu-latest
+    uses: yohn-jp/.github/.github/workflows/codeql.yml@main
+    with:
+      languages: javascript-typescript,actions
+      config-file: ./.github/codeql/codeql-config.yml
     permissions:
       contents: read
       security-events: write
-    strategy:
-      fail-fast: false
-      matrix:
-        language: [javascript-typescript, actions]
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
-        with:
-          languages: ${{ matrix.language }}
-          config-file: ./.github/codeql/codeql-config.yml
-          build-mode: none
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
-        with:
-          category: "/language:${{ matrix.language }}"
+      actions: read

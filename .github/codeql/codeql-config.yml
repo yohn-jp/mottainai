@@ -1,6 +1,4 @@
 name: Mottainai CodeQL security baseline
 
-# This local config is part of the explicit exception from the organization
-# workflow while that workflow's execution semantics are incompatible.
 queries:
   - uses: security-extended
