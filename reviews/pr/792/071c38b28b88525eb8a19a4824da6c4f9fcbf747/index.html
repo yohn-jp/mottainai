@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #792 @ 071c38b28b88</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #792: feat(workflow): persist Makami PR lifecycle generation</h1>
+<p>Base <code>main</code> @ <code>60f3983f826ee1dfdd5f513e64ea57d6ece91dec</code> &rarr;
+Head <code>feat/416-pr-generation-lifecycle</code> @ <code>071c38b28b88525eb8a19a4824da6c4f9fcbf747</code></p>
+<p>Revision <code>071c38b28b88</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/416">#416</a> feat: persist PR generation and map Makami deltas into coarse workflow lifecycle (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Managed PR state persists explicit repository/PR identity and exact current `PRGeneration`/head SHA.</li>
+<li>[ ] Same-generation CI/review lifecycle changes map deterministically into bounded coarse Mottainai transitions.</li>
+<li>[ ] Head rollover updates current generation and makes older generation-bound derived/remediation inputs stale.</li>
+<li>[ ] Detailed Makami state is referenced/provenanced rather than replicated as a Cartesian Mottainai task-state machine.</li>
+<li>[ ] Awaiting state requires no live LLM/Zellij session.</li>
+<li>[ ] Restart/reconcile recovers current state by re-observing through #415 and never revives a stale implementation/remediation session.</li>
+<li>[ ] Tests cover unchanged wait, same-generation CI delta, review delta, head rollover, merged PR, restart, and stale derived-input invalidation.</li></ul>
+
+
+
+<h2>Changed files (5, +960/-0)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>src/state/migrations.ts</td><td>modified</td><td>+45</td><td>-0</td></tr>
+<tr><td>src/workflow/domain/pr-lifecycle.test.ts</td><td>added</td><td>+306</td><td>-0</td></tr>
+<tr><td>src/workflow/domain/pr-lifecycle.ts</td><td>added</td><td>+273</td><td>-0</td></tr>
+<tr><td>src/workflow/state/sqlite-store.ts</td><td>modified</td><td>+248</td><td>-0</td></tr>
+<tr><td>src/workflow/state/store.ts</td><td>modified</td><td>+88</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
