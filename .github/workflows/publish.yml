@@ -110,26 +110,41 @@ jobs:
           set -euo pipefail
 
           resolve_tag_commit() {
+            # Callers invoke this as an `if`/`elif` condition (e.g.
+            # `if tag_commit="$(resolve_tag_commit "$TAG")"; then`). Bash
+            # disables errexit for every command inside a function that is
+            # itself used as a condition, so a failing `gh api`/`jq` call
+            # here would otherwise be silently swallowed and this function
+            # would fall through to a false-success `printf` of an empty
+            # SHA. Every step below therefore checks its own exit status
+            # explicitly and returns non-zero instead of relying on
+            # set -e/pipefail to stop the function.
             local tag_name="$1"
             local ref_json object_type object_sha tag_json
-            ref_json="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag_name")"
-            object_type="$(jq -er '.object.type' <<<"$ref_json")"
-            object_sha="$(jq -er '.object.sha' <<<"$ref_json")"
+            ref_json="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag_name")" || return 1
+            object_type="$(jq -er '.object.type' <<<"$ref_json")" || return 1
+            object_sha="$(jq -er '.object.sha' <<<"$ref_json")" || return 1
             while [ "$object_type" = "tag" ]; do
-              tag_json="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object_sha")"
-              object_type="$(jq -er '.object.type' <<<"$tag_json")"
-              object_sha="$(jq -er '.object.sha' <<<"$tag_json")"
+              tag_json="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object_sha")" || return 1
+              object_type="$(jq -er '.object.type' <<<"$tag_json")" || return 1
+              object_sha="$(jq -er '.object.sha' <<<"$tag_json")" || return 1
             done
-            [ "$object_type" = "commit" ]
+            [ "$object_type" = "commit" ] || return 1
             printf '%s\n' "$object_sha"
           }
 
           release_json="$RUNNER_TEMP/release.json"
           release_error="$RUNNER_TEMP/release.error"
-          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > "$release_json" 2> "$release_error"; then
+          # gh release view resolves a release by its pending tag name the
+          # same way the GitHub CLI itself does for both draft and published
+          # releases, unlike the plain REST tag lookup this replaces (#726:
+          # that REST lookup was not the actual source of the recurring
+          # failure, but it duplicated resolution logic gh already owns and
+          # is prone to drifting from it).
+          if gh release view "$TAG" --json isDraft,tagName > "$release_json" 2> "$release_error"; then
             release_exists=true
           else
-            if grep -Eq 'HTTP 404|Not Found' "$release_error"; then
+            if grep -Eq 'release not found' "$release_error"; then
               release_exists=false
             else
               cat "$release_error" >&2
@@ -138,8 +153,16 @@ jobs:
           fi
 
           if [ "$release_exists" = true ]; then
-            existing_is_draft="$(jq -er '.draft | select(type == "boolean")' "$release_json")"
-            existing_tag="$(jq -er '.tag_name | select(type == "string")' "$release_json")"
+            # `jq -e` treats a `false`/`null` *output* as failure, not just
+            # a parse error, so piping the raw boolean through
+            # `select(type == "boolean")` made this line itself fail (and,
+            # under set -e, abort the script with no diagnostic) whenever an
+            # existing release's isDraft was false -- the exact published
+            # case this check exists to reject. Assert the type first, then
+            # emit the value as a string so a `false` isDraft still reaches
+            # the explicit check below instead of aborting silently here.
+            existing_is_draft="$(jq -er 'if (.isDraft | type) == "boolean" then (.isDraft | tostring) else empty end' "$release_json")"
+            existing_tag="$(jq -er '.tagName | select(type == "string")' "$release_json")"
             if [ "$existing_is_draft" != "true" ]; then
               echo "release $TAG already exists and is not a draft; refusing to reuse or recreate it" >&2
               exit 1
@@ -204,8 +227,8 @@ jobs:
           fi
 
           created_release="$RUNNER_TEMP/created-release.json"
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > "$created_release"
-          jq -e --arg tag "$TAG" '.draft == true and .tag_name == $tag' "$created_release" >/dev/null
+          gh release view "$TAG" --json isDraft,tagName > "$created_release"
+          jq -e --arg tag "$TAG" '.isDraft == true and .tagName == $tag' "$created_release" >/dev/null
           created_tag_commit="$(resolve_tag_commit "$TAG")"
           if [ "$created_tag_commit" != "$TARGET_SHA" ]; then
             echo "created release tag $TAG targets $created_tag_commit, not this run's $TARGET_SHA; refusing to continue" >&2
