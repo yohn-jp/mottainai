@@ -18,6 +18,8 @@ yarn-error.log*
 .env.*
 !.env.example
 
+mise.local.toml
+
 .vscode/*
 !.vscode/extensions.json
 .idea/
