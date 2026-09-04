@@ -1,0 +1,40 @@
+{
+  "baseSha": "9480f3043064a13e804900ff987da6b7c6ad0589",
+  "files": [
+    {
+      "additions": 14,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 14,
+          "newStart": 87,
+          "oldLines": 0,
+          "oldStart": 86
+        }
+      ],
+      "path": "src/state/migrations.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 807,
+          "oldLines": 1,
+          "oldStart": 807
+        }
+      ],
+      "path": "src/state/migrations.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "321eafbb72a7ddbe70bb3b77264afbfdc79ef5dd",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 15,
+    "deletions": 1,
+    "filesChanged": 2
+  }
+}

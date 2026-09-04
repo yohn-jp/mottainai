@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #800 @ 321eafbb72a7</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #800: fix(workflow): restore managed PR state migration</h1>
+<p>Base <code>main</code> @ <code>9480f3043064a13e804900ff987da6b7c6ad0589</code> &rarr;
+Head <code>fix/798-managed-pr-migration-version</code> @ <code>321eafbb72a7ddbe70bb3b77264afbfdc79ef5dd</code></p>
+<p>Revision <code>321eafbb72a7</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/798">#798</a> fix: restore managed PR state migration after version collision (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Assign the managed PR state schema migration a unique next append-only migration version without rewriting already-released migration history.</li>
+<li>[ ] `src/state/migrations.test.ts` passes and explicitly protects global version uniqueness.</li>
+<li>[ ] A fresh database applies the managed PR state migration and contains `managed_pr_states`.</li>
+<li>[ ] The four currently failing `src/workflow/domain/pr-lifecycle.test.ts` cases pass.</li>
+<li>[ ] Upgrade/restart migration behavior remains idempotent for databases that already contain prior migration versions.</li>
+<li>[ ] Full `test:integration` and repository CI pass.</li></ul>
+
+
+
+<h2>Changed files (2, +15/-1)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>src/state/migrations.test.ts</td><td>modified</td><td>+14</td><td>-0</td></tr>
+<tr><td>src/state/migrations.ts</td><td>modified</td><td>+1</td><td>-1</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
