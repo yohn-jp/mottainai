@@ -1,0 +1,49 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "A versioned schema explicitly separates forkable prefix and execution attachment."
+    },
+    {
+      "checked": false,
+      "text": "Canonical serialization/order is deterministic and stable under incidental collection ordering."
+    },
+    {
+      "checked": false,
+      "text": "Equivalent prefix inputs produce identical `prefix_id` values."
+    },
+    {
+      "checked": false,
+      "text": "Two different execution attachments can share one `prefix_id` while producing distinct `execution_state_id` values."
+    },
+    {
+      "checked": false,
+      "text": "Changing repository/base/task/selected-artifact prefix content changes `prefix_id`; changing only session/worktree identity does not."
+    },
+    {
+      "checked": false,
+      "text": "Volatile fields excluded from identity are explicitly documented/tested."
+    },
+    {
+      "checked": false,
+      "text": "C0 already-supplied provenance and C1 immutable repository/base facts are represented without eager content duplication."
+    },
+    {
+      "checked": false,
+      "text": "Property/unit tests cover ordering, hashing, single-field invalidation, prefix-vs-attachment identity, and schema-version behavior."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "enhancement"
+    ],
+    "number": 409,
+    "state": "open",
+    "title": "feat: define deterministic Canon prefix and execution-attachment identities",
+    "url": "https://github.com/yohn-jp/mottainai/issues/409"
+  },
+  "linked": {
+    "number": 409
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

@@ -1,0 +1,67 @@
+{
+  "baseSha": "dd8b92ec50b501d4731809038b9a0e49c8586c41",
+  "headSha": "61a8e7940822fedaae7284a156b8750141216aef",
+  "preview": {
+    "excluded_count": 1,
+    "excluded_files": [
+      {
+        "deletions": 0,
+        "exclude_reason": "default_path",
+        "insertions": 325,
+        "path": "src/canon/identity.test.ts",
+        "status": "added"
+      }
+    ],
+    "from": "dd8b92ec50b501d4731809038b9a0e49c8586c41",
+    "merge_base": "241f393acbece6b721426a1601b85ac57ec393e8",
+    "mode": "range",
+    "reviewable_count": 3,
+    "reviewable_files": [
+      {
+        "deletions": 0,
+        "insertions": 1,
+        "path": "src/canon.ts",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 368,
+        "path": "src/canon/identity.ts",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 1,
+        "path": "src/canon/index.ts",
+        "status": "added"
+      }
+    ],
+    "schema_version": "1",
+    "to": "61a8e7940822fedaae7284a156b8750141216aef",
+    "total_deletions": 0,
+    "total_files": 4,
+    "total_insertions": 695
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.1"
+  },
+  "rule": {
+    "groups": [
+      {
+        "files": [
+          "src/canon.ts",
+          "src/canon/identity.ts",
+          "src/canon/index.ts"
+        ],
+        "group_id": 1,
+        "pattern": "**/*.{ts,js,tsx,jsx}",
+        "rule": "#### Obvious Typos or Spelling Errors\n- Spelling errors in variable names, function names, component names, or Props property names\n- Strings in log or error messages containing spelling errors that affect readability\n\n#### Dead Code\n- Code blocks that will never be executed (e.g., branches where the condition is always false, code after a return statement)\n- Variables that are declared but never read or referenced\n- Large blocks of commented-out code (with no apparent intent to retain)\n\n#### Code Quality Checks\n- **Duplicate Code**: Check for common logic that can be extracted\n- **Code Comments**: Complex business logic should have clear explanatory comments (avoid commenting obvious code)\n- **Hardcoding**: Business-related hardcoded strings are prohibited, especially URL paths and business numbers; simple UI text may be relaxed\n- **Variable Declarations**: Using `var` is strictly prohibited; use `let` or `const`\n- **Equality Comparisons**: Using `==` and `!=` is prohibited; use strict equality `===` and `!==`\n- **TypeScript Types**: Avoid using `any` type; if necessary, provide a comment explaining the reason\n- **Null Checks**: Perform null checks when accessing values or destructuring to avoid null pointer exceptions\n- **Ternary Expressions**: Nested ternary expressions are not allowed\n\n#### React Best Practices\n- **Hooks Usage**: Verify compliance with Hooks rules (only call at the top level, only call in React functions)\n- **State Management**: Ensure state is placed at the appropriate level; avoid unnecessary state lifting\n- **Side Effect Handling**: Verify useEffect correctly handles dependencies and cleanup functions\n- **Performance Optimization**: Verify proper use of React.memo, useMemo, useCallback (based on performance analysis; avoid over-optimization)\n- **Render Side Effects**: Side effects in React component render methods are strictly prohibited (e.g., API calls, DOM manipulation)\n- **Inline Styles**: Avoid using inline `style` attributes, except for dynamic styles\n- **Inner Components**: Declaring new components inside a component is prohibited; use render methods instead (e.g., `renderItem`, not `<Item/>`)\n\n#### Async Handling Standards\n- **Error Handling**: Async functions must include proper error handling with user-friendly error messages\n- **Prefer async/await**: Prefer async/await over Promises; callback hell is prohibited\n- **Async in Loops**: Distinguish between independent async operations (use `Promise.all` for parallelism) and dependent async operations (use sequential execution); prefer `Promise.all` for performance\n\n#### Code Security Checks\n- **XSS Protection**: Verify that user input is properly escaped\n- **innerHTML Safety**: Using innerHTML to directly insert user input is prohibited; use textContent or apply XSS protection\n- **Code Injection Protection**: Using eval(), Function() constructor, and string argument forms of setTimeout/setInterval is strictly prohibited\n- **Dangerous Methods**: Using document.write() is prohibited as it causes page reflow and security issues\n- **Sensitive Information**: Check whether API keys or sensitive data are exposed\n- **Prototype Chain Safety**: Modifying native object prototypes (e.g., Array.prototype, Object.prototype) is prohibited",
+        "source": "system"
+      }
+    ],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}
