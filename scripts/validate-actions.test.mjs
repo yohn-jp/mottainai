@@ -73,10 +73,7 @@ test("rejects a commit-SHA pin on the shared TypeScript CI workflow (Issue #802 
 test("the CI caller follows the live TypeScript foundation and retains product lanes", () => {
   const ciWorkflow = fs.readFileSync(path.join(repositoryRoot, ".github/workflows/ci.yml"), "utf8");
 
-  assert.match(
-    ciWorkflow,
-    /uses:\s*yohn-jp\/\.github\/\.github\/workflows\/typescript-cli-ci\.yml@main(?:\s+#.*)?$/mu,
-  );
+  assert.match(ciWorkflow, /uses:\s*yohn-jp\/\.github\/\.github\/workflows\/typescript-cli-ci\.yml@main(?:\s+#.*)?$/mu);
   assert.match(ciWorkflow, /conformance-script:\s*["']architecture:check["']/u);
   assert.match(ciWorkflow, /run-governance:\s*false/u);
   for (const localJob of ["test-integration:", "build-and-package-e2e:", "runtime-contract:"]) {
