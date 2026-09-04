@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "dd8b92ec50b501d4731809038b9a0e49c8586c41",
+    "draft": false,
+    "headRef": "feat/416-pr-generation-lifecycle",
+    "headSha": "5e3fe1db37d21b1d31594e96d066bddfb3766eaa",
+    "number": 792,
+    "title": "feat(workflow): persist Makami PR lifecycle generation"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "5e3fe1db37d21b1d31594e96d066bddfb3766eaa",
+    "immutable": true,
+    "shortId": "5e3fe1db37d2"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-04T11:57:57.019Z"
+  }
+}

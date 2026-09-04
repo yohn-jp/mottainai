@@ -1,0 +1,140 @@
+{
+  "baseSha": "dd8b92ec50b501d4731809038b9a0e49c8586c41",
+  "files": [
+    {
+      "additions": 0,
+      "deletions": 21,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 21,
+          "oldStart": 1
+        }
+      ],
+      "path": "docs/releases/0.8.3.md",
+      "status": "removed"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 3,
+          "oldLines": 1,
+          "oldStart": 3
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 45,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 45,
+          "newStart": 680,
+          "oldLines": 0,
+          "oldStart": 679
+        }
+      ],
+      "path": "src/state/migrations.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 306,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 306,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/workflow/domain/pr-lifecycle.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 273,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 273,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/workflow/domain/pr-lifecycle.ts",
+      "status": "added"
+    },
+    {
+      "additions": 248,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 6,
+          "newStart": 26,
+          "oldLines": 0,
+          "oldStart": 25
+        },
+        {
+          "newLines": 1,
+          "newStart": 108,
+          "oldLines": 0,
+          "oldStart": 101
+        },
+        {
+          "newLines": 40,
+          "newStart": 1994,
+          "oldLines": 0,
+          "oldStart": 1986
+        },
+        {
+          "newLines": 201,
+          "newStart": 2198,
+          "oldLines": 0,
+          "oldStart": 2150
+        }
+      ],
+      "path": "src/workflow/state/sqlite-store.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 88,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 60,
+          "oldLines": 0,
+          "oldStart": 59
+        },
+        {
+          "newLines": 73,
+          "newStart": 376,
+          "oldLines": 0,
+          "oldStart": 373
+        },
+        {
+          "newLines": 13,
+          "newStart": 877,
+          "oldLines": 0,
+          "oldStart": 801
+        }
+      ],
+      "path": "src/workflow/state/store.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "5e3fe1db37d21b1d31594e96d066bddfb3766eaa",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 961,
+    "deletions": 22,
+    "filesChanged": 7
+  }
+}

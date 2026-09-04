@@ -1,0 +1,45 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Managed PR state persists explicit repository/PR identity and exact current `PRGeneration`/head SHA."
+    },
+    {
+      "checked": false,
+      "text": "Same-generation CI/review lifecycle changes map deterministically into bounded coarse Mottainai transitions."
+    },
+    {
+      "checked": false,
+      "text": "Head rollover updates current generation and makes older generation-bound derived/remediation inputs stale."
+    },
+    {
+      "checked": false,
+      "text": "Detailed Makami state is referenced/provenanced rather than replicated as a Cartesian Mottainai task-state machine."
+    },
+    {
+      "checked": false,
+      "text": "Awaiting state requires no live LLM/Zellij session."
+    },
+    {
+      "checked": false,
+      "text": "Restart/reconcile recovers current state by re-observing through #415 and never revives a stale implementation/remediation session."
+    },
+    {
+      "checked": false,
+      "text": "Tests cover unchanged wait, same-generation CI delta, review delta, head rollover, merged PR, restart, and stale derived-input invalidation."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "enhancement"
+    ],
+    "number": 416,
+    "state": "open",
+    "title": "feat: persist PR generation and map Makami deltas into coarse workflow lifecycle",
+    "url": "https://github.com/yohn-jp/mottainai/issues/416"
+  },
+  "linked": {
+    "number": 416
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
