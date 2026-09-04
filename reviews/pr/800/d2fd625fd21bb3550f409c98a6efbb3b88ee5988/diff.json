@@ -1,0 +1,26 @@
+{
+  "baseSha": "8042f52ea8b14b04733a6ad561e0b61d10aee316",
+  "files": [
+    {
+      "additions": 14,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 14,
+          "newStart": 87,
+          "oldLines": 0,
+          "oldStart": 86
+        }
+      ],
+      "path": "src/state/migrations.test.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "d2fd625fd21bb3550f409c98a6efbb3b88ee5988",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 14,
+    "deletions": 0,
+    "filesChanged": 1
+  }
+}

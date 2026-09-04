@@ -1,0 +1,41 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Assign the managed PR state schema migration a unique next append-only migration version without rewriting already-released migration history."
+    },
+    {
+      "checked": false,
+      "text": "`src/state/migrations.test.ts` passes and explicitly protects global version uniqueness."
+    },
+    {
+      "checked": false,
+      "text": "A fresh database applies the managed PR state migration and contains `managed_pr_states`."
+    },
+    {
+      "checked": false,
+      "text": "The four currently failing `src/workflow/domain/pr-lifecycle.test.ts` cases pass."
+    },
+    {
+      "checked": false,
+      "text": "Upgrade/restart migration behavior remains idempotent for databases that already contain prior migration versions."
+    },
+    {
+      "checked": false,
+      "text": "Full `test:integration` and repository CI pass."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 798,
+    "state": "open",
+    "title": "fix: restore managed PR state migration after version collision",
+    "url": "https://github.com/yohn-jp/mottainai/issues/798"
+  },
+  "linked": {
+    "number": 798
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

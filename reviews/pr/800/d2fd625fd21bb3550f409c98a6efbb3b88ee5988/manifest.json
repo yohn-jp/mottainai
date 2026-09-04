@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "8042f52ea8b14b04733a6ad561e0b61d10aee316",
+    "draft": false,
+    "headRef": "fix/798-managed-pr-migration-version",
+    "headSha": "d2fd625fd21bb3550f409c98a6efbb3b88ee5988",
+    "number": 800,
+    "title": "fix(workflow): restore managed PR state migration"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "d2fd625fd21bb3550f409c98a6efbb3b88ee5988",
+    "immutable": true,
+    "shortId": "d2fd625fd21b"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-04T14:28:15.509Z"
+  }
+}
