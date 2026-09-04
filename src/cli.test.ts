@@ -33,6 +33,31 @@ test("early public CLI failure includes bounded runtime identity without stdout 
   }
 });
 
+test("--version and -v print the package version and exit 0", () => {
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(path.resolve(path.dirname(entryPoint), ".."), "package.json"), "utf8"),
+  ) as { version: string };
+  for (const flag of ["--version", "-v"]) {
+    const result = spawnSync(process.execPath, ["--import", "tsx", entryPoint, flag], {
+      cwd: path.resolve(path.dirname(entryPoint), ".."),
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+    assert.equal(result.stdout.trim(), packageJson.version);
+  }
+});
+
+test("--help and -h print CLI usage and exit 0", () => {
+  for (const flag of ["--help", "-h"]) {
+    const result = spawnSync(process.execPath, ["--import", "tsx", entryPoint, flag], {
+      cwd: path.resolve(path.dirname(entryPoint), ".."),
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+    assert.match(result.stdout, /^usage:/);
+  }
+});
+
 test("public Runtime commands fail closed before entering the retired artifact path", () => {
   for (const action of ["ensure", "status"]) {
     const workspace = fs.mkdtempSync(path.join(os.tmpdir(), `mottainai-cli-runtime-${action}-`));

@@ -804,7 +804,7 @@ export const MIGRATIONS: Migration[] = [
     },
   },
   {
-    version: 24,
+    version: 25,
     description: "workflow: persist bounded Makami PR lifecycle projection",
     up: (db) => {
       db.exec(`

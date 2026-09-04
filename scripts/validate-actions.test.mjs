@@ -51,32 +51,29 @@ test("accepts yohn-jp/.github's own reusable-workflow reference on @main", () =>
   assert.deepEqual(result.errors, []);
 });
 
-test("accepts the shared TypeScript CI workflow only at an immutable commit", () => {
+test("accepts the shared TypeScript CI workflow on @main like any other org-owned workflow", () => {
   const result = validateActionText(
-    "    uses: yohn-jp/.github/.github/workflows/typescript-cli-ci.yml@" + sha,
+    "    uses: yohn-jp/.github/.github/workflows/typescript-cli-ci.yml@main",
     ".github/workflows/ci.yml",
   );
 
   assert.deepEqual(result.errors, []);
 });
 
-test("rejects a mutable shared TypeScript CI workflow reference", () => {
+test("rejects a commit-SHA pin on the shared TypeScript CI workflow (Issue #802 regression)", () => {
   const result = validateActionText(
-    "    uses: yohn-jp/.github/.github/workflows/typescript-cli-ci.yml@main",
+    "    uses: yohn-jp/.github/.github/workflows/typescript-cli-ci.yml@" + sha,
     ".github/workflows/ci.yml",
   );
 
   assert.equal(result.errors.length, 1);
-  assert.match(result.errors[0], /full 40-character commit SHA/u);
+  assert.match(result.errors[0], /organization-owned reusable workflow must follow @main/u);
 });
 
-test("the CI caller pins the proven TypeScript foundation and retains product lanes", () => {
+test("the CI caller follows the live TypeScript foundation and retains product lanes", () => {
   const ciWorkflow = fs.readFileSync(path.join(repositoryRoot, ".github/workflows/ci.yml"), "utf8");
 
-  assert.match(
-    ciWorkflow,
-    /uses:\s*yohn-jp\/\.github\/\.github\/workflows\/typescript-cli-ci\.yml@[0-9a-f]{40}(?:\s+#.*)?$/mu,
-  );
+  assert.match(ciWorkflow, /uses:\s*yohn-jp\/\.github\/\.github\/workflows\/typescript-cli-ci\.yml@main(?:\s+#.*)?$/mu);
   assert.match(ciWorkflow, /conformance-script:\s*["']architecture:check["']/u);
   assert.match(ciWorkflow, /run-governance:\s*false/u);
   for (const localJob of ["test-integration:", "build-and-package-e2e:", "runtime-contract:"]) {
@@ -84,7 +81,7 @@ test("the CI caller pins the proven TypeScript foundation and retains product la
   }
 });
 
-test("rejects @main for every other external reference, including other yohn-jp/.github paths", () => {
+test("rejects @main for every non-org external reference, and rejects non-@main org-owned workflow refs", () => {
   const result = validateActionText(
     [
       "      uses: actions/checkout@main",
@@ -92,10 +89,16 @@ test("rejects @main for every other external reference, including other yohn-jp/
       "      uses: yohn-jp/.github/.github/actions/example@main",
       "      uses: yohn-jp/other-repo/.github/workflows/pr-governance.yml@main",
       "      uses: yohn-jp/.github/.github/workflows/pr-governance.yml@v1",
+      "      uses: yohn-jp/.github/.github/workflows/pr-governance.yml@" + sha,
     ].join("\n"),
     ".github/workflows/example.yml",
   );
 
-  assert.equal(result.errors.length, 5);
-  for (const error of result.errors) assert.match(error, /full 40-character commit SHA/u);
+  assert.equal(result.errors.length, 6);
+  assert.match(result.errors[0], /full 40-character commit SHA/u);
+  assert.match(result.errors[1], /full 40-character commit SHA/u);
+  assert.match(result.errors[2], /full 40-character commit SHA/u);
+  assert.match(result.errors[3], /full 40-character commit SHA/u);
+  assert.match(result.errors[4], /organization-owned reusable workflow must follow @main/u);
+  assert.match(result.errors[5], /organization-owned reusable workflow must follow @main/u);
 });
