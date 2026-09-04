@@ -1,0 +1,45 @@
+{
+  "baseSha": "9480f3043064a13e804900ff987da6b7c6ad0589",
+  "headSha": "7ad765a94cc81d4a0e65da814eb954b86472e4c2",
+  "preview": {
+    "excluded_count": 0,
+    "excluded_files": [],
+    "from": "9480f3043064a13e804900ff987da6b7c6ad0589",
+    "merge_base": "9480f3043064a13e804900ff987da6b7c6ad0589",
+    "mode": "range",
+    "reviewable_count": 1,
+    "reviewable_files": [
+      {
+        "deletions": 0,
+        "insertions": 13,
+        "path": ".github/dependabot.yml",
+        "status": "modified"
+      }
+    ],
+    "schema_version": "1",
+    "to": "7ad765a94cc81d4a0e65da814eb954b86472e4c2",
+    "total_deletions": 0,
+    "total_files": 1,
+    "total_insertions": 13
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.1"
+  },
+  "rule": {
+    "groups": [
+      {
+        "files": [
+          ".github/dependabot.yml"
+        ],
+        "group_id": 1,
+        "pattern": ".github/**/*.{yaml,yml}",
+        "rule": "#### Issue Template Validation\n- **Missing required fields**: Issue templates should have `name`, `description`, and `body` fields\n- **Invalid input types**: Verify `type` values in body inputs are valid (dropdown, input, textarea, checkboxes, markdown)\n- **Empty options in dropdowns**: Dropdown type inputs must have non-empty `options` list\n- **Missing `id` on inputs**: Form inputs without `id` cannot be parsed programmatically\n\n#### Release Configuration\n- **Undefined category labels**: Labels referenced in `categories[].labels` should exist in the repository (note: this is a warning, as labels may be created separately)\n- **Missing default category**: A `release.yml` without a catch-all category (using `*`) may omit some PRs from release notes\n\n#### General Structure\n- **YAML syntax correctness**: Indentation consistency, proper quoting of special characters, valid anchors/aliases usage\n- **Spelling errors in YAML keys**: Check for typos in configuration keys that would be silently ignored",
+        "source": "system"
+      }
+    ],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}

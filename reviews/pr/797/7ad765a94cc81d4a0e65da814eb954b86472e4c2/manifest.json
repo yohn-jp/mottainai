@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "9480f3043064a13e804900ff987da6b7c6ad0589",
+    "draft": false,
+    "headRef": "chore/dependabot-security-updates",
+    "headSha": "7ad765a94cc81d4a0e65da814eb954b86472e4c2",
+    "number": 797,
+    "title": "chore(security): enable npm Dependabot updates"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "7ad765a94cc81d4a0e65da814eb954b86472e4c2",
+    "immutable": true,
+    "shortId": "7ad765a94cc8"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-04T13:17:06.881Z"
+  }
+}

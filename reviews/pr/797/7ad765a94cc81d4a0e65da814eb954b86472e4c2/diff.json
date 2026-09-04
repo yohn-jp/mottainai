@@ -1,0 +1,32 @@
+{
+  "baseSha": "9480f3043064a13e804900ff987da6b7c6ad0589",
+  "files": [
+    {
+      "additions": 13,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 9,
+          "newStart": 3,
+          "oldLines": 0,
+          "oldStart": 2
+        },
+        {
+          "newLines": 4,
+          "newStart": 16,
+          "oldLines": 0,
+          "oldStart": 6
+        }
+      ],
+      "path": ".github/dependabot.yml",
+      "status": "modified"
+    }
+  ],
+  "headSha": "7ad765a94cc81d4a0e65da814eb954b86472e4c2",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 13,
+    "deletions": 0,
+    "filesChanged": 1
+  }
+}
