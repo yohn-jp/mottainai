@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #810 @ 4c192073c77e</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #810: chore(ci): replace local pnpm setup with shared action</h1>
+<p>Base <code>main</code> @ <code>20d58b1e7900d7d958482a0a75c0d40c018a5987</code> &rarr;
+Head <code>chore/807-shared-pnpm-setup-migration</code> @ <code>4c192073c77ea7a00b2a0957693876d58b83cc75</code></p>
+<p>Revision <code>4c192073c77e</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/807">#807</a> ci: replace local pnpm setup with the shared organization action (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] No Mottainai job performs duplicate `pnpm install` because of the migration.</li>
+<li>[ ] Integration, package/E2E, Runtime/Nix/VM and other product-specific jobs retain their existing proof semantics.</li>
+<li>[ ] Shared pnpm provisioning runs successfully from the organization-owned `@main` authority.</li>
+<li>[ ] Exact pnpm-version behavior and frozen-lockfile installation remain enforced.</li>
+<li>[ ] Cache miss/eviction does not become a correctness failure.</li>
+<li>[ ] The repository-local `.github/actions/setup-pnpm-node` is deleted if all consumers are migrated.</li>
+<li>[ ] PR Actions prove all affected paths.</li>
+<li>[ ] A current-main full Runtime CI run after merge proves no regression and records relevant setup/critical-path timings.</li></ul>
+
+
+
+<h2>Changed files (6, +92/-203)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/actions/setup-pnpm-node/action.yml</td><td>removed</td><td>+0</td><td>-145</td></tr>
+<tr><td>.github/codeql/codeql-config.yml</td><td>modified</td><td>+2</td><td>-0</td></tr>
+<tr><td>.github/workflows/ci.yml</td><td>modified</td><td>+16</td><td>-42</td></tr>
+<tr><td>.github/workflows/codeql.yml</td><td>modified</td><td>+29</td><td>-6</td></tr>
+<tr><td>scripts/validate-actions.mjs</td><td>modified</td><td>+20</td><td>-7</td></tr>
+<tr><td>scripts/validate-actions.test.mjs</td><td>modified</td><td>+25</td><td>-3</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

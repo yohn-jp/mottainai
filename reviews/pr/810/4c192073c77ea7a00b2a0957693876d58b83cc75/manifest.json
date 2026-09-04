@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "20d58b1e7900d7d958482a0a75c0d40c018a5987",
+    "draft": false,
+    "headRef": "chore/807-shared-pnpm-setup-migration",
+    "headSha": "4c192073c77ea7a00b2a0957693876d58b83cc75",
+    "number": 810,
+    "title": "chore(ci): replace local pnpm setup with shared action"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "4c192073c77ea7a00b2a0957693876d58b83cc75",
+    "immutable": true,
+    "shortId": "4c192073c77e"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-04T23:06:12.290Z"
+  }
+}

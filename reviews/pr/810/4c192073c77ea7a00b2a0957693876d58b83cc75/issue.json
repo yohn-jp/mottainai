@@ -1,0 +1,47 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "No Mottainai job performs duplicate `pnpm install` because of the migration."
+    },
+    {
+      "checked": false,
+      "text": "Integration, package/E2E, Runtime/Nix/VM and other product-specific jobs retain their existing proof semantics."
+    },
+    {
+      "checked": false,
+      "text": "Shared pnpm provisioning runs successfully from the organization-owned `@main` authority."
+    },
+    {
+      "checked": false,
+      "text": "Exact pnpm-version behavior and frozen-lockfile installation remain enforced."
+    },
+    {
+      "checked": false,
+      "text": "Cache miss/eviction does not become a correctness failure."
+    },
+    {
+      "checked": false,
+      "text": "The repository-local `.github/actions/setup-pnpm-node` is deleted if all consumers are migrated."
+    },
+    {
+      "checked": false,
+      "text": "PR Actions prove all affected paths."
+    },
+    {
+      "checked": false,
+      "text": "A current-main full Runtime CI run after merge proves no regression and records relevant setup/critical-path timings."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 807,
+    "state": "open",
+    "title": "ci: replace local pnpm setup with the shared organization action",
+    "url": "https://github.com/yohn-jp/mottainai/issues/807"
+  },
+  "linked": {
+    "number": 807
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
