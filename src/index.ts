@@ -1,17 +1,24 @@
 #!/usr/bin/env node
 import fs from "node:fs";
-import { runCli } from "./cli.js";
+import { runCli, USAGE } from "./cli.js";
 import { resolveConfigPath } from "./config.js";
 import { closeDashboard, hasActiveDashboard } from "./dashboard/command.js";
 import { closeManager, hasActiveManager } from "./manager/command.js";
 import { createRuntimeDiagnostic, formatRuntimeDiagnosticHuman } from "./runtime-diagnostic.js";
 import { runServer } from "./server.js";
 import { projectTaskLaunchHelp, resolveSkillCli } from "./skill.js";
+import { readPackageVersion } from "./version.js";
 
 const args = process.argv.slice(2);
 const startupCwd = process.cwd();
 
-if (args.length === 0) {
+if (args[0] === "--version" || args[0] === "-v") {
+  console.log(readPackageVersion());
+  process.exitCode = 0;
+} else if (args[0] === "--help" || args[0] === "-h") {
+  console.log(USAGE);
+  process.exitCode = 0;
+} else if (args.length === 0) {
   const runtimeDiagnostic = createRuntimeDiagnostic({
     cwd: startupCwd,
     environment: process.env,

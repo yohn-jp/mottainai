@@ -63,7 +63,7 @@ import type { CleanupPlan } from "./workflow/domain/cleanup-plan.js";
  * 設定先にするための入口。gateway プロセスを起動しないので、常駐中でも実行できる。
  */
 
-const USAGE = `usage:
+export const USAGE = `usage:
   mottainai                                      start the MCP stdio server
   mottainai init [options]                       initialize a workspace configuration
   mottainai serve                                start the MCP stdio server explicitly
