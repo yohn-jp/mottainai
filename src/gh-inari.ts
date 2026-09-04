@@ -280,19 +280,16 @@ export class GhInariClient {
       hasHelpOperation(helpResult.stdout, operation),
     );
     const options = GH_INARI_REQUIRED_OPTIONS.filter((option) => hasHelpOption(helpResult.stdout, option));
-    const missingOperations = GH_INARI_SUPPORTED_OPERATIONS.filter((operation) => !operations.includes(operation));
     const missingOptions = GH_INARI_REQUIRED_OPTIONS.filter((option) => !options.includes(option));
-    if (missingOperations.length > 0 || missingOptions.length > 0) {
-      const missing = [...missingOperations, ...missingOptions].join(",");
+    if (missingOptions.length > 0) {
       return {
         ok: false,
         error: capabilityError(
           "INARI_CAPABILITY_UNAVAILABLE",
-          "gh-inari does not expose the required machine contract.",
+          "gh-inari does not expose the required machine contract options.",
           {
             detected: version,
-            missing,
-            requiredOperations: GH_INARI_SUPPORTED_OPERATIONS.join(","),
+            missing: missingOptions.join(","),
             requiredOptions: GH_INARI_REQUIRED_OPTIONS.join(","),
           },
         ),
