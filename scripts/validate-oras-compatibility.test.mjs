@@ -51,7 +51,9 @@ test("validateSetupOrasSha rejects revisions that could alter the trusted outbou
     sha.slice(0, 39),
     `${sha}0`,
   ]) {
-    assert.throws(() => validateSetupOrasSha(unsafeRevision), { message: /40-character lowercase hexadecimal commit SHA/u });
+    assert.throws(() => validateSetupOrasSha(unsafeRevision), {
+      message: /40-character lowercase hexadecimal commit SHA/u,
+    });
   }
 });
 
