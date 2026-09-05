@@ -523,6 +523,12 @@ jobs:
           payload="$(find "$RUNNER_TEMP/mottainai-canonical-payload" -maxdepth 1 -type f -name 'mottainai-*.tgz' -print -quit)"
           identity="$payload.identity.json"
           payload_sha256="$(jq -er '.payload.sha256' "$identity")"
+          probe_manifest="$RUNNER_TEMP/managed-package-manifest-probe.json"
+          jq -n \
+            --arg version "$RUNTIME_APPLIANCE_PACKAGE_VERSION" \
+            --arg source "0000000000000000000000000000000000000000000000000000000000000000" \
+            '{contractId:"mottainai.managed-package-manifest.v1",schemaVersion:1,activation:{generation:1},packages:[{packageId:"mottainai",kind:"nix-flake-package",version:$version,source:{flakeRef:"nix#mottainai",sourceSha256:$source}}]}' \
+            > "$probe_manifest"
           package_output="$(nix build --impure --no-update-lock-file --no-link --print-out-paths --expr "
             let
               flake = builtins.getFlake (toString (/. + \"$GITHUB_WORKSPACE/nix\"));
@@ -534,7 +540,9 @@ jobs:
               payloadSha256 = \"$payload_sha256\";
             }
           ")"
-          metadata_output="$(nix build --impure --no-update-lock-file --no-link --print-out-paths --expr "
+          build_metadata() {
+            local manifest_path="$1"
+            nix build --impure --no-update-lock-file --no-link --print-out-paths --expr "
             let
               flake = builtins.getFlake (toString (/. + \"$GITHUB_WORKSPACE/nix\"));
               source = /. + \"$GITHUB_WORKSPACE\";
@@ -544,26 +552,15 @@ jobs:
                 inherit source payload;
                 payloadSha256 = \"$payload_sha256\";
               };
-              manifest = {
-                contractId = \"mottainai.managed-package-manifest.v1\";
-                schemaVersion = 1;
-                activation.generation = 1;
-                packages = [{
-                  packageId = \"mottainai\";
-                  kind = \"nix-flake-package\";
-                  version = \"$RUNTIME_APPLIANCE_PACKAGE_VERSION\";
-                  source = {
-                    flakeRef = \"nix#mottainai\";
-                    sourceSha256 = \"0000000000000000000000000000000000000000000000000000000000000000\";
-                  };
-                }];
-              };
+              manifest = builtins.fromJSON (builtins.readFile (/. + \"$manifest_path\"));
             in (flake.lib.mkManagedGeneration {
               system = \"x86_64-linux\";
               inherit manifest;
               mottainaiPackage = mottainai;
             }).metadataFile
-          ")"
+          "
+          }
+          metadata_output="$(build_metadata "$probe_manifest")"
           source_store_path="$(jq -er '.nixOutput.packages[] | select(.packageId == "mottainai") | .sourceStorePath' "$metadata_output")"
           source_nar_sri="$(nix path-info --json --json-format 2 "$source_store_path" | jq -er '.info | to_entries[0].value.narHash')"
           source_nar_sha256="$(nix eval --raw --expr "builtins.convertHash { hash = \"$source_nar_sri\"; hashAlgo = \"sha256\"; toHashFormat = \"base16\"; }")"
@@ -572,6 +569,22 @@ jobs:
             exit 1
           fi
           echo "source_nar_sha256=$source_nar_sha256" >> "$GITHUB_OUTPUT"
+          manifest="$RUNNER_TEMP/managed-package-manifest.json"
+          jq -n \
+            --arg version "$RUNTIME_APPLIANCE_PACKAGE_VERSION" \
+            --arg source "$source_nar_sha256" \
+            '{contractId:"mottainai.managed-package-manifest.v1",schemaVersion:1,activation:{generation:1},packages:[{packageId:"mottainai",kind:"nix-flake-package",version:$version,source:{flakeRef:"nix#mottainai",sourceSha256:$source}}]}' \
+            > "$manifest"
+          metadata_output="$(build_metadata "$manifest")"
+          corrected_source_store_path="$(jq -er '.nixOutput.packages[] | select(.packageId == "mottainai") | .sourceStorePath' "$metadata_output")"
+          test "$corrected_source_store_path" = "$source_store_path"
+          node --import tsx scripts/create-release-managed-generation.mjs \
+            --manifest "$manifest" \
+            --metadata "$metadata_output" \
+            --payload "$payload" \
+            --flake-lock "$GITHUB_WORKSPACE/nix/flake.lock" \
+            --source-nar-sha256 "$source_nar_sha256" \
+            --output "$RUNNER_TEMP/managed-generation.json"
           generation_output="$(jq -er '.nixOutput.storePath' "$metadata_output")"
           node scripts/route2-runtime-smoke.mjs \
             --generation "$generation_output" \
@@ -579,6 +592,13 @@ jobs:
             --metadata "$metadata_output" \
             --payload-identity "$package_output/share/mottainai/canonical-payload.json" \
             --evidence "$RUNNER_TEMP/route2-runtime-closure-evidence.json"
+
+      - name: Upload the realized managed-generation contract
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mottainai-managed-generation
+          path: ${{ runner.temp }}/managed-generation.json
+          retention-days: 1
 
       - name: Prove Route 2 rejects a changed payload
         shell: bash
@@ -1165,6 +1185,12 @@ jobs:
         with:
           name: mottainai-tarball
 
+      - name: Download the realized managed-generation contract
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: mottainai-managed-generation
+          path: ${{ runner.temp }}/managed-generation
+
       - name: Download the exact Route 4 init artifact
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1187,22 +1213,13 @@ jobs:
           version="${RELEASE_TAG#v}"
           tarball="$(find . -maxdepth 1 -type f -name 'mottainai-*.tgz' -print -quit)"
           node scripts/verify-canonical-payload.mjs --tarball "$tarball" --identity "$tarball.identity.json"
-          lock_sha256="$(sha256sum nix/flake.lock | awk '{print $1}')"
           payload_sha256="$(jq -er '.payload.sha256' "$tarball.identity.json")"
           test "$payload_sha256" = "$(sha256sum "$tarball" | awk '{print $1}')"
           [[ "$SOURCE_NAR_SHA256" =~ ^[0-9a-f]{64}$ ]]
-          managed_identity="$(printf '%s' "$version:$SOURCE_REVISION:$payload_sha256:$lock_sha256" | sha256sum | awk '{print $1}')"
-          # Route 2 keeps the npm payload identity and resolved source-tree NAR
-          # identity separate. The source NAR comes from the same realized
-          # Route 2 package metadata consumed by the closure smoke above.
-          jq -n \
-            --arg identity "$managed_identity" \
-            --arg lock "$lock_sha256" \
-            --arg payload "$payload_sha256" \
+          jq -e \
             --arg source "$SOURCE_NAR_SHA256" \
-            --arg version "$version" \
-            '{identity:$identity, flakeLockSha256:$lock, applicationPayloadSha256:$payload, packages:[{packageId:"mottainai",version:$version,flakeRef:"nix#mottainai",sourceSha256:$source}]}' \
-            > "$RUNNER_TEMP/managed-generation.json"
+            '.manifest.packages | map(select(.packageId == "mottainai" and .source.sourceSha256 == $source)) | length == 1' \
+            "$RUNNER_TEMP/managed-generation/managed-generation.json" >/dev/null
           jq -n \
             --arg digest "$OCI_DIGEST" \
             --arg raw "$RAW_SHA256" \
@@ -1210,14 +1227,15 @@ jobs:
             --arg manifest "$MANIFEST_SHA256" \
             '{digest:$digest,rawSha256:$raw,rawSizeBytes:$size,manifestSha256:$manifest}' \
             > "$RUNNER_TEMP/appliance-metadata.json"
-          node scripts/create-release-deployment-descriptor-input.mjs \
+          node --import tsx scripts/create-release-deployment-descriptor-input.mjs \
             --version "$version" \
             --source-revision "$SOURCE_REVISION" \
             --tarball "$tarball" \
             --init "$RUNNER_TEMP/init/mottainai-init-linux-x86_64" \
             --appliance-metadata "$RUNNER_TEMP/appliance-metadata.json" \
             --provider-profile release/deployment-provider-profile-linux-x86_64.json \
-            --managed-generation "$RUNNER_TEMP/managed-generation.json" \
+            --managed-generation "$RUNNER_TEMP/managed-generation/managed-generation.json" \
+            --flake-lock nix/flake.lock \
             --output "$RUNNER_TEMP/deployment-descriptor-input.json"
           node --import tsx scripts/build-deployment-descriptor.mjs \
             --input "$RUNNER_TEMP/deployment-descriptor-input.json" \

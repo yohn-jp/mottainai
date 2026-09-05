@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
  * Assemble the release fan-in input for build-deployment-descriptor.mjs.
- * The managed-generation file is produced by the Route 2 build; this helper
- * only binds its identity to the exact Route 1 tarball and never fabricates
- * Nix source hashes.
+ * The managed-generation file is the realized Route 2 output; this helper
+ * validates its identity through the runtime contract, then binds it to the
+ * exact Route 1 tarball without fabricating Nix source hashes.
  */
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -37,19 +37,50 @@ const initPath = path.resolve(option("init"));
 const appliancePath = path.resolve(option("appliance-metadata"));
 const providerPath = path.resolve(option("provider-profile"));
 const managedPath = path.resolve(option("managed-generation"));
+const flakeLockPath = path.resolve(option("flake-lock"));
 const outputPath = path.resolve(option("output"));
 const appliance = readJson(appliancePath, "Runtime Appliance metadata");
 const provider = readJson(providerPath, "Route 4 provider profile");
-const managed = readJson(managedPath, "managed-generation identity inputs");
+const managed = readJson(managedPath, "realized managed-generation output");
+
+const { generationIdentityOf, parseManagedGenerationMetadata } = await import(
+  "../src/runtime-contract/managed-generation.ts"
+);
+const { parseManagedPackageManifest } = await import("../src/runtime-contract/managed-package-manifest.ts");
+
+const manifest = parseManagedPackageManifest(managed.manifest);
+const metadata = parseManagedGenerationMetadata(managed.metadata);
+const canonicalManagedIdentity = generationIdentityOf(manifest, metadata);
+if (managed.generationIdentity !== canonicalManagedIdentity) {
+  throw new Error(
+    `managed-generation identity mismatch; realized output declares ${managed.generationIdentity}, canonical runtime contract produces ${canonicalManagedIdentity}`,
+  );
+}
 
 const tarballBytes = fs.readFileSync(tarballPath);
 const payloadSha256 = sha256(tarballPath);
 const payloadIntegrity = `sha512-${crypto.createHash("sha512").update(tarballBytes).digest("base64")}`;
+if (managed.applicationPayloadSha256 !== payloadSha256) {
+  throw new Error(
+    `managed-generation payload identity mismatch; realized output declares ${managed.applicationPayloadSha256}, release payload is ${payloadSha256}`,
+  );
+}
+const flakeLockSha256 = sha256(flakeLockPath);
+if (managed.flakeLockSha256 !== flakeLockSha256) {
+  throw new Error(
+    `managed-generation flake lock identity mismatch; realized output declares ${managed.flakeLockSha256}, release lock is ${flakeLockSha256}`,
+  );
+}
 const managedInputs = {
-  identity: managed.identity,
-  flakeLockSha256: managed.flakeLockSha256,
+  identity: canonicalManagedIdentity,
+  flakeLockSha256,
   applicationPayloadSha256: payloadSha256,
-  packages: managed.packages,
+  packages: manifest.packages.map((entry) => ({
+    packageId: entry.packageId,
+    version: entry.version,
+    flakeRef: entry.source.flakeRef,
+    sourceSha256: entry.source.sourceSha256,
+  })),
 };
 const repository = process.env.GITHUB_REPOSITORY ?? "yohn-jp/mottainai";
 const releaseUrl = `https://github.com/${repository}/releases/download/v${version}`;
@@ -102,7 +133,7 @@ const descriptor = {
       manifestSha256: appliance.manifestSha256,
       locator: `https://ghcr.io/v2/${repository.toLowerCase()}/runtime-appliance`,
     },
-    managedGenerationIdentity: managed.identity,
+    managedGenerationIdentity: canonicalManagedIdentity,
   },
   route4: {
     mottainaiInit: {

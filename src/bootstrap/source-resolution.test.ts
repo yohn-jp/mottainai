@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -9,11 +10,17 @@ import { test } from "node:test";
 import { BootstrapError } from "./errors.js";
 import { BOOTSTRAP_TRUSTED_SOURCE_ORIGIN, defaultFetcher, resolveMottainaiSource } from "./source-resolution.js";
 import type { RawHttpTransport } from "./source-resolution.js";
+import { generationIdentityOf, parseManagedGenerationMetadata } from "../runtime-contract/managed-generation.js";
 import { parseDeploymentDescriptor } from "../runtime-contract/deployment-descriptor.js";
+import { parseManagedPackageManifest } from "../runtime-contract/managed-package-manifest.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const fixtureDirectory = path.join(repoRoot, "nix", "tests", "fixtures", "alt-mottainai-source");
 const fixtureSourceNarSha256 = "e74b0ab3b7dae31df8a4d099d6991cc7988118cf3b4456792eebbc640181ed36";
+
+function sha256(filePath: string): string {
+  return createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+}
 
 /**
  * Packs a fixture directory as a GitHub-tag-archive-shaped tar.gz: a single
@@ -58,6 +65,7 @@ function generatedProductionDescriptor(t: import("node:test").TestContext, sourc
   const appliancePath = path.join(directory, "appliance-metadata.json");
   const managedPath = path.join(directory, "managed-generation.json");
   const outputPath = path.join(directory, "deployment-descriptor-input.json");
+  const flakeLockPath = path.join(repoRoot, "nix", "flake.lock");
 
   fs.writeFileSync(tarballPath, "canonical npm payload bytes");
   fs.writeFileSync(initPath, "canonical init bytes");
@@ -70,19 +78,54 @@ function generatedProductionDescriptor(t: import("node:test").TestContext, sourc
       manifestSha256: "8".repeat(64),
     }),
   );
+  const manifest = {
+    contractId: "mottainai.managed-package-manifest.v1",
+    schemaVersion: 1,
+    activation: { generation: 1 },
+    packages: [
+      {
+        packageId: "mottainai",
+        kind: "nix-flake-package",
+        version,
+        source: { flakeRef: "nix#mottainai", sourceSha256 },
+      },
+    ],
+  };
+  const metadata = {
+    contractId: "mottainai.managed-generation.v1",
+    schemaVersion: 1,
+    compatibilityContractVersion: 1,
+    requestedIdentity: { packages: [{ packageId: "mottainai", version, sourceSha256 }] },
+    resolvedIdentity: { packages: [{ packageId: "mottainai", resolvedVersion: version }] },
+    nixOutput: {
+      storePath: "/nix/store/1111-mottainai-managed-generation",
+      packages: [
+        {
+          packageId: "mottainai",
+          storePath: "/nix/store/2222-mottainai-0.0.1-fixture-alt-source",
+          sourceStorePath: "/nix/store/3333-mottainai-source",
+        },
+      ],
+    },
+  };
+  const parsedManifest = parseManagedPackageManifest(manifest);
+  const parsedMetadata = parseManagedGenerationMetadata(metadata);
   fs.writeFileSync(
     managedPath,
     JSON.stringify({
-      identity: "2".repeat(64),
-      flakeLockSha256: "3".repeat(64),
-      applicationPayloadSha256: "1".repeat(64),
-      packages: [{ packageId: "mottainai", version, flakeRef: "nix#mottainai", sourceSha256 }],
+      manifest,
+      metadata,
+      generationIdentity: generationIdentityOf(parsedManifest, parsedMetadata),
+      flakeLockSha256: sha256(flakeLockPath),
+      applicationPayloadSha256: sha256(tarballPath),
     }),
   );
 
   execFileSync(
     process.execPath,
     [
+      "--import",
+      "tsx",
       "scripts/create-release-deployment-descriptor-input.mjs",
       "--version",
       version,
@@ -98,6 +141,8 @@ function generatedProductionDescriptor(t: import("node:test").TestContext, sourc
       path.join(repoRoot, "release", "deployment-provider-profile-linux-x86_64.json"),
       "--managed-generation",
       managedPath,
+      "--flake-lock",
+      flakeLockPath,
       "--output",
       outputPath,
     ],
