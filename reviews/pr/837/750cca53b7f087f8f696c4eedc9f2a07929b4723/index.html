@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #837 @ 750cca53b7f0</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #837: chore(ci): add deployment artifact roundtrip gate</h1>
+<p>Base <code>main</code> @ <code>98328b8321371f74cb1cb4a12d8f916bbd0b1a40</code> &rarr;
+Head <code>chore/832-deployment-artifact-roundtrip-gate</code> @ <code>750cca53b7f087f8f696c4eedc9f2a07929b4723</code></p>
+<p>Revision <code>750cca53b7f0</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/832">#832</a> chore: add a production deployment artifact round-trip gate (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] CI creates or consumes the same production-shaped deployment descriptor representation used by release publication.</li>
+<li>[ ] The generated descriptor is passed through the real source-resolution contract, not a duplicated parser/validator fixture.</li>
+<li>[ ] The realized managed-generation identity is checked against the same canonical runtime-contract implementation used in production.</li>
+<li>[ ] A fixture/substitution reproducing the former npm-tarball-SHA-as-source-NAR defect causes the gate to fail.</li>
+<li>[ ] A fixture/substitution reproducing the former workflow-specific generation-identity defect causes the gate to fail.</li>
+<li>[ ] The gate is part of the authoritative release/deployment CI path and cannot silently be skipped on a release-triggering change.</li>
+<li>[ ] Expensive real KVM certification remains #261; this gate stays deterministic/hermetic enough for normal CI.</li></ul>
+
+
+
+<h2>Changed files (6, +622/-3)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/publish.yml</td><td>modified</td><td>+18</td><td>-0</td></tr>
+<tr><td>package.json</td><td>modified</td><td>+3</td><td>-3</td></tr>
+<tr><td>scripts/deployment-artifact-roundtrip-gate.test.mjs</td><td>added</td><td>+77</td><td>-0</td></tr>
+<tr><td>scripts/verify-deployment-artifact-roundtrip.mjs</td><td>added</td><td>+120</td><td>-0</td></tr>
+<tr><td>src/runtime-contract/deployment-artifact-roundtrip.test.ts</td><td>added</td><td>+249</td><td>-0</td></tr>
+<tr><td>src/runtime-contract/deployment-artifact-roundtrip.ts</td><td>added</td><td>+155</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

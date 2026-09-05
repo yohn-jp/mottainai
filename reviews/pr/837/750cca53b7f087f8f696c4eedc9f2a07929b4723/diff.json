@@ -1,0 +1,108 @@
+{
+  "baseSha": "98328b8321371f74cb1cb4a12d8f916bbd0b1a40",
+  "files": [
+    {
+      "additions": 18,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 1148,
+          "oldLines": 0,
+          "oldStart": 1147
+        },
+        {
+          "newLines": 15,
+          "newStart": 1217,
+          "oldLines": 0,
+          "oldStart": 1213
+        }
+      ],
+      "path": ".github/workflows/publish.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 3,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 53,
+          "oldLines": 1,
+          "oldStart": 53
+        },
+        {
+          "newLines": 2,
+          "newStart": 55,
+          "oldLines": 2,
+          "oldStart": 55
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 77,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 77,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/deployment-artifact-roundtrip-gate.test.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 120,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 120,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/verify-deployment-artifact-roundtrip.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 249,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 249,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/runtime-contract/deployment-artifact-roundtrip.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 155,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 155,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/runtime-contract/deployment-artifact-roundtrip.ts",
+      "status": "added"
+    }
+  ],
+  "headSha": "750cca53b7f087f8f696c4eedc9f2a07929b4723",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 622,
+    "deletions": 3,
+    "filesChanged": 6
+  }
+}

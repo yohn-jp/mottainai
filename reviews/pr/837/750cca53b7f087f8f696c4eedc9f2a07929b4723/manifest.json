@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "98328b8321371f74cb1cb4a12d8f916bbd0b1a40",
+    "draft": false,
+    "headRef": "chore/832-deployment-artifact-roundtrip-gate",
+    "headSha": "750cca53b7f087f8f696c4eedc9f2a07929b4723",
+    "number": 837,
+    "title": "chore(ci): add deployment artifact roundtrip gate"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "750cca53b7f087f8f696c4eedc9f2a07929b4723",
+    "immutable": true,
+    "shortId": "750cca53b7f0"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-05T06:07:45.806Z"
+  }
+}
