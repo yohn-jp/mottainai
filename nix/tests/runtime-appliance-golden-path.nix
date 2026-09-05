@@ -6,6 +6,9 @@
 # boundary inside that image.
 let
   system = pkgs.stdenv.hostPlatform.system;
+  productionBootstrapDisk = builtins.getEnv "MOTTAINAI_PRODUCTION_BOOTSTRAP_DISK";
+  productionBootstrapPrivateKey =
+    builtins.getEnv "MOTTAINAI_PRODUCTION_BOOTSTRAP_PRIVATE_KEY";
   canonicalDiskImage = "${runtimeApplianceImage}/mottainai-runtime-appliance.raw";
   applianceInputsPath = "${runtimeApplianceImage}/runtime-appliance-inputs.json";
   mottainaiVersionV1 = "1.0.0";
@@ -46,7 +49,15 @@ in
         fsType = "ext4";
       };
       virtualisation.diskSize = 16384;
-      virtualisation.emptyDiskImages = [ 16 ];
+      # Trusted-main integration may provide the actual production Rust
+      # MTNAI_BOOT artifact. The Nix test attaches it through the existing
+      # QEMU test boundary; host-bootstrap does not own this topology.
+      virtualisation.emptyDiskImages = lib.optionals (productionBootstrapDisk == "") [ 16 ];
+      virtualisation.qemu.drives = lib.optional (productionBootstrapDisk != "") {
+        name = "mtnai-production-bootstrap";
+        file = productionBootstrapDisk;
+        driveExtraOpts.format = "raw";
+      };
       virtualisation.memorySize = 2048;
       virtualisation.cores = 2;
       # The appliance gets its address from the standard QEMU user network;
@@ -78,6 +89,8 @@ in
     fixtures_host_dir = ${builtins.toJSON fixturesDir}
     fixture_lib_host_dir = ${builtins.toJSON fixtureLibDir}
     guest_fixture_root = "/var/lib/mottainai-control/issue-703-fixtures"
+    production_bootstrap_disk = ${builtins.toJSON productionBootstrapDisk}
+    production_bootstrap_private_key = ${builtins.toJSON productionBootstrapPrivateKey}
     root_overlay = os.path.join(str(golden.state_dir), "canonical-root-overlay.qcow2")
     bootstrap_raw = os.path.join(str(golden.state_dir), "bootstrap.raw")
     bootstrap_disk = os.path.join(str(golden.state_dir), "empty0.qcow2")
@@ -125,14 +138,20 @@ in
     # The published appliance intentionally has no NixOS test backdoor and no
     # baked-in credential. Supply the production MTNAI_BOOT block device with
     # one ephemeral test key, then use the appliance's real SSH/control path.
-    run_host([ssh_keygen, "-q", "-t", "ed25519", "-N", "", "-f", bootstrap_key])
-    run_host([qemu_img, "create", "-f", "raw", bootstrap_raw, "16M"])
-    run_host([mkfs, "-L", "MTNAI_BOOT", bootstrap_raw])
-    run_host([
-        debugfs, "-w", "-R",
-        "write " + bootstrap_key + ".pub authorized_keys", bootstrap_raw,
-    ])
-    run_host([qemu_img, "convert", "-f", "raw", "-O", "qcow2", bootstrap_raw, bootstrap_disk])
+    if production_bootstrap_disk:
+        assert os.path.isfile(production_bootstrap_disk)
+        assert os.path.isfile(production_bootstrap_private_key)
+        bootstrap_raw = production_bootstrap_disk
+        bootstrap_key = production_bootstrap_private_key
+    else:
+        run_host([ssh_keygen, "-q", "-t", "ed25519", "-N", "", "-f", bootstrap_key])
+        run_host([qemu_img, "create", "-f", "raw", bootstrap_raw, "16M"])
+        run_host([mkfs, "-L", "MTNAI_BOOT", bootstrap_raw])
+        run_host([
+            debugfs, "-w", "-R",
+            "write " + bootstrap_key + ".pub authorized_keys", bootstrap_raw,
+        ])
+        run_host([qemu_img, "convert", "-f", "raw", "-O", "qcow2", bootstrap_raw, bootstrap_disk])
     os.environ["NIX_DISK_IMAGE"] = root_overlay
 
     ssh_command = [

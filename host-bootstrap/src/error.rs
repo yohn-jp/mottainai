@@ -38,6 +38,9 @@ pub enum ErrorCode {
     ManagedGenerationReconcileFailed,
     ManagedRuntimeSmokeFailed,
     DeploymentDescriptorInvalid,
+    BootstrapKeyInvalid,
+    BootstrapKeyUnavailable,
+    BootstrapDiskFailed,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -103,6 +106,9 @@ impl BootstrapError {
             ErrorCode::ManagedGenerationReconcileFailed => "managed_generation_reconcile_failed",
             ErrorCode::ManagedRuntimeSmokeFailed => "managed_runtime_smoke_failed",
             ErrorCode::DeploymentDescriptorInvalid => "deployment_descriptor_invalid",
+            ErrorCode::BootstrapKeyInvalid => "bootstrap_key_invalid",
+            ErrorCode::BootstrapKeyUnavailable => "bootstrap_key_unavailable",
+            ErrorCode::BootstrapDiskFailed => "bootstrap_disk_failed",
         }
     }
 }
