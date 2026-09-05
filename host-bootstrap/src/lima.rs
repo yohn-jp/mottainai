@@ -1240,7 +1240,7 @@ install -m 0600 /dev/null \"$identity_path\" && printf '%s\\n' \"$identity\" > \
 
 /// The exact canonical persisted-manifest path
 /// (`MANAGED_PACKAGE_MANIFEST_RELATIVE_PATH` under `mottainai-control`'s
-/// `stateDir`) `docs/managed-package-manifest.md` defines. Duplicated as a
+/// `stateDir`) `docs/contracts/runtime/managed-package-manifest.md` defines. Duplicated as a
 /// literal rather than imported because this crate has no TypeScript
 /// dependency; `host-bootstrap/tests/reconciliation.rs` and the golden-path
 /// Nix test both exercise the real guest path independently.
@@ -1292,7 +1292,7 @@ const LINUX_RUNTIME_MINIMUM_SCHEMA_VERSION: i64 = 2;
 /// `environment.systemPackages`), the same command the guest's own
 /// `mottainai-runtime-health.service` runs. This is the full
 /// `mottainai.linux-runtime.v1` schema-2 health/capability result
-/// (`docs/linux-runtime-contract.md`) — `contractId`, `schemaVersion`,
+/// (`docs/contracts/runtime/linux-runtime.md`) — `contractId`, `schemaVersion`,
 /// `bootstrapReady`, `managedRuntimeReady`, `readiness`, `reconciliation` —
 /// not a reinterpretation of the lower-level `mottainai-bootstrap
 /// managed-status --json` read this script itself projects from. This

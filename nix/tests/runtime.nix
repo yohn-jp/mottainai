@@ -3,7 +3,7 @@
 # NixOS VM test proving the mottainai.linux-runtime.v1 surface: SSH service,
 # bootstrap-only package/service availability, protected control paths, health
 # response, and restart behavior
-# (docs/linux-runtime-contract.md "Test layer"). Requires a Nix-capable
+# (docs/contracts/runtime/linux-runtime.md "Test layer"). Requires a Nix-capable
 # pipeline (KVM-backed VM test runner); not executed by `pnpm verify`
 # (ADR-0002 consequences).
 

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * mottainai.linux-runtime.v1 — see docs/linux-runtime-contract.md and
+ * mottainai.linux-runtime.v1 — see docs/contracts/runtime/linux-runtime.md and
  * ADR-0002. Mirrors the nawabari.standalone-execution.v1 contract-id /
  * schemaVersion split in src/workflow/nawabari.ts: the id names a
  * compatibility generation, schemaVersion names the wire-shape revision
@@ -34,7 +34,7 @@ export const HEALTHY_RECONCILIATION_STATES = [
  * The health/capability result is reported by an external Runtime, not
  * generated locally — these bounds keep a malformed or hostile Runtime from
  * inflating the parsed result with unbounded companion lists or path
- * strings (docs/linux-runtime-contract.md "Health/capability result").
+ * strings (docs/contracts/runtime/linux-runtime.md "Health/capability result").
  */
 export const MAX_RUNTIME_IDENTITY_LENGTH = 256 as const;
 export const MAX_STATE_PATH_LENGTH = 4096 as const;
@@ -119,7 +119,7 @@ export class RuntimeRollbackError extends Error {
 
 /**
  * Rollback targets the most recent generation whose recorded health result
- * was current/repairable (docs/linux-runtime-contract.md "Update, rollback,
+ * was current/repairable (docs/contracts/runtime/linux-runtime.md "Update, rollback,
  * and rebuild semantics"). A generation that never reported a healthy
  * result is never a rollback target, even if it is the most recent one.
  */

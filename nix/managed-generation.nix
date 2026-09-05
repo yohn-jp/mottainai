@@ -71,7 +71,7 @@
 # derivation's output never references the appliance's disk image or NixOS
 # system closure, so changing only the managed package manifest never
 # forces `runtime-appliance-image` to rebuild (Issue #625 acceptance
-# criterion; see docs/managed-generation.md "Independence from the bootable
+# criterion; see docs/contracts/runtime/managed-generation.md "Independence from the bootable
 # appliance").
 #
 # Issue #662 completes the first supported managed Runtime package catalog

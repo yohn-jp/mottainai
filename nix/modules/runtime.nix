@@ -1,7 +1,7 @@
 { config, lib, pkgs, ... }:
 
 # Canonical Mottainai Linux Runtime module — implements the
-# mottainai.linux-runtime.v1 contract (docs/linux-runtime-contract.md,
+# mottainai.linux-runtime.v1 contract (docs/contracts/runtime/linux-runtime.md,
 # ADR-0002). One module produces both fresh Runtime builds and the
 # description used to reconcile an existing Runtime; do not fork this into a
 # second imperative provisioning path for the same surface.
@@ -14,7 +14,7 @@ let
 
   # System/control-owned vs repository-user-owned persistent state boundary.
   # Reported verbatim in the health/capability result so callers never
-  # hardcode it (docs/linux-runtime-contract.md "Persistent vs disposable
+  # hardcode it (docs/contracts/runtime/linux-runtime.md "Persistent vs disposable
   # filesystem layout"). These paths are base-appliance state, not part of a
   # managed application generation.
   systemStatePaths = [
@@ -328,7 +328,7 @@ in
       description = ''
         Companion executables the health/capability result reports on.
         Nawabari metadata matches the pinned Runtime package version this
-        repository documents (docs/nawabari-execution.md); Mottainai does not
+        repository documents (docs/architecture/integrations/nawabari-execution.md); Mottainai does not
         auto-install it, an operator installs the compatible standalone
         executable explicitly.
       '';

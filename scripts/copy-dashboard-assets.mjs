@@ -16,7 +16,7 @@ const sharedAssets = [
 const retiredViewerPattern = /^semantic-project-viewer-v\d+\.html$/u;
 
 for (const asset of sharedAssets) {
-  const assetSource = path.join(repositoryRoot, "docs", "mockups", asset);
+  const assetSource = path.join(repositoryRoot, "docs", "design", "mockups", asset);
   if (!fs.existsSync(assetSource)) throw new Error(`shared viewer asset is missing: ${assetSource}`);
 }
 
@@ -27,5 +27,5 @@ for (const entry of fs.readdirSync(destinationDirectory)) {
 for (const asset of sharedAssets) {
   const destination = path.join(destinationDirectory, asset);
   fs.mkdirSync(path.dirname(destination), { recursive: true });
-  fs.copyFileSync(path.join(repositoryRoot, "docs", "mockups", asset), destination);
+  fs.copyFileSync(path.join(repositoryRoot, "docs", "design", "mockups", asset), destination);
 }

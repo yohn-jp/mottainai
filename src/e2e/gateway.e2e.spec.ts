@@ -10,7 +10,7 @@ import { startGatewayViaStdio } from "./stdio-client.js";
 /**
  * #22がblack-box suiteを積み上げる接続点なので、ここでは接続確認のsmoke 1本に留める。
  * ファイル名が `.test.ts` でなく `.spec.ts` なのは、既定 `pnpm test` のglobから
- * 意図的に外すため（docs/testing.md参照）。
+ * 意図的に外すため（docs/testing/README.md参照）。
  */
 
 test("gateway starts over stdio and serves local tools with a valid structured envelope", { timeout: 15_000 }, async (t) => {

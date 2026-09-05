@@ -122,7 +122,7 @@ Example client configuration:
 
 The four delegation tools are `mottainai_delegate_work`, `mottainai_inspect_work`, `mottainai_continue_work`, and `mottainai_cancel_work`. `mottainai_harness_capabilities` returns the versioned status/error vocabulary and the same launch/discovery contract. Delegation returns an opaque stable `workId`; later operations use only that ID. Inspect results are bounded and contain lifecycle/evidence/PR metadata, never raw logs, private registry state, credentials, runtime names, or filesystem paths.
 
-Majiwari can optionally launch the installed `mottainai-mcp` entrypoint and publish this surface transparently. It remains a transport/publication layer, is not a runtime dependency, and does not own Mottainai orchestration. See [the native delegation contract](docs/mcp-harness-delegation.md).
+Majiwari can optionally launch the installed `mottainai-mcp` entrypoint and publish this surface transparently. It remains a transport/publication layer, is not a runtime dependency, and does not own Mottainai orchestration. See [the native delegation contract](docs/architecture/mcp/harness-delegation.md).
 
 ## Managed workflow
 
@@ -251,31 +251,31 @@ pnpm run verify
 pnpm run typecheck
 ```
 
-`pnpm run verify` is the authoritative local verification aggregate. Test layering and classification are documented in [docs/testing.md](docs/testing.md).
+`pnpm run verify` is the authoritative local verification aggregate. Test layering and classification are documented in [docs/testing/README.md](docs/testing/README.md). The documentation information architecture and placement policy are indexed in [docs/README.md](docs/README.md).
 
-The bounded agent execution contract lives in [AGENTS.md](AGENTS.md). Contributor workflow is in [CONTRIBUTING.md](CONTRIBUTING.md). The release preparation steps are in [docs/release-process.md](docs/release-process.md).
+The bounded agent execution contract lives in [AGENTS.md](AGENTS.md). Contributor workflow is in [CONTRIBUTING.md](CONTRIBUTING.md). The release preparation steps are in [docs/operations/release/process.md](docs/operations/release/process.md).
 
 ## Documentation
 
-- [0.9.3 release notes](docs/releases/0.9.3.md)
-- [0.9.2 release notes](docs/releases/0.9.2.md)
-- [0.9.1 release notes](docs/releases/0.9.1.md)
-- [0.9.0 release notes](docs/releases/0.9.0.md)
-- [0.8.3 release notes](docs/releases/0.8.3.md)
-- [0.8.2 release notes](docs/releases/0.8.2.md)
-- [0.8.1 release notes](docs/releases/0.8.1.md)
-- [0.8.0 release notes](docs/releases/0.8.0.md)
-- [0.7.1 release notes](docs/releases/0.7.1.md)
-- [0.7.0 release notes](docs/releases/0.7.0.md)
-- [0.6.0 release notes](docs/releases/0.6.0.md)
-- [0.5.0 release notes](docs/releases/0.5.0.md)
-- [0.4.0 release notes](docs/releases/0.4.0.md)
-- [0.3.1 release notes](docs/releases/0.3.1.md)
-- [0.3.0 release notes](docs/releases/0.3.0.md)
-- [Nawabari execution boundary](docs/nawabari-execution.md)
-- [Workflow policy](docs/workflow-policy.md)
-- [Read Governor](docs/read-governor.md)
-- [MCP stdio black-box contract](docs/mcp-stdio-blackbox.md)
+- [0.9.3 release notes](docs/history/releases/0.9.3.md)
+- [0.9.2 release notes](docs/history/releases/0.9.2.md)
+- [0.9.1 release notes](docs/history/releases/0.9.1.md)
+- [0.9.0 release notes](docs/history/releases/0.9.0.md)
+- [0.8.3 release notes](docs/history/releases/0.8.3.md)
+- [0.8.2 release notes](docs/history/releases/0.8.2.md)
+- [0.8.1 release notes](docs/history/releases/0.8.1.md)
+- [0.8.0 release notes](docs/history/releases/0.8.0.md)
+- [0.7.1 release notes](docs/history/releases/0.7.1.md)
+- [0.7.0 release notes](docs/history/releases/0.7.0.md)
+- [0.6.0 release notes](docs/history/releases/0.6.0.md)
+- [0.5.0 release notes](docs/history/releases/0.5.0.md)
+- [0.4.0 release notes](docs/history/releases/0.4.0.md)
+- [0.3.1 release notes](docs/history/releases/0.3.1.md)
+- [0.3.0 release notes](docs/history/releases/0.3.0.md)
+- [Nawabari execution boundary](docs/architecture/integrations/nawabari-execution.md)
+- [Workflow policy](docs/contracts/workflow/git-policy.md)
+- [Read Governor](docs/contracts/runtime/read-governor.md)
+- [MCP stdio black-box contract](docs/testing/mcp/stdio-blackbox.md)
 - [Security model](SECURITY.md)
 
 ## License

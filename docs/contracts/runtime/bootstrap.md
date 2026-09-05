@@ -1,0 +1,449 @@
+# Bootstrap component (`mottainai.bootstrap-state.v1`)
+
+This document is the field-level authority for Issue #626's bootstrap
+component: the minimal executable shipped in the base Runtime Appliance
+that converges a fresh environment — with no full `mottainai` binary on
+`PATH`, no Mottainai repository checkout, and no npm global install — toward
+having a verified managed Mottainai generation. The TypeScript
+implementation lives under [`src/bootstrap/`](../../../src/bootstrap/); the
+standalone Nix packaging lives in
+[`nix/bootstrap.nix`](../../../nix/bootstrap.nix).
+
+This Issue implements bootstrap/build/status/verify only. It does not
+implement activation, switch, or rollback (#628), and it does not implement
+publication (#629). The #627 base-appliance integration consumes this
+component while keeping activation and managed-runtime health in #628.
+
+## Relationship to the other Runtime contracts
+
+| Contract                                | File                                    | Describes                                                                   | Produced by                    | Consumed by                              |
+| ---------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------- | ------------------------------------------- |
+| `mottainai.managed-package-manifest.v1` | `src/runtime-contract/managed-package-manifest.ts` | Desired-state record of managed packages/versions (#624)             | An operator/release process    | #625 projection, #626 bootstrap, #628 reconciliation |
+| `mottainai.managed-generation.v1`       | `src/runtime-contract/managed-generation.ts`       | Bounded result of one Nix generation build (#625)                    | `nix/managed-generation.nix`   | #626 bootstrap, #628 reconciliation      |
+| `mottainai.bootstrap-state.v1`          | `src/bootstrap/state.ts`                | Bounded evidence of the bootstrap component's last attempt/success (#626) | `bootstrap build`/`status`/`verify` | Runtime bootstrap readiness and managed activation |
+
+## What this component does
+
+```text
+managed-package-manifest.v1 (persisted desired state, #624)
+        |
+        v
+src/bootstrap/source-resolution.ts   -- resolves+verifies the exact
+        |                                Mottainai source tree for the
+        |                                manifest's requested version
+        v
+src/runtime-contract/managed-generation-build.ts (#625's build interface,
+        |                                          already-parsed manifest +
+        |                                          already-resolved source)
+        v
+managed-generation-metadata.json + generationIdentity (#625)
+        |
+        v
+src/bootstrap/state.ts -- bootstrap-state.v1 bounded evidence,
+                           persisted atomically under mottainai-control
+```
+
+`src/bootstrap/build.ts`'s `runBootstrapBuild` owns this whole sequence: it
+parses and validates the manifest (#624), classifies unsupported managed
+packages before touching the network or Nix, resolves the manifest's exact
+requested Mottainai source, invokes #625's build interface, and persists the
+outcome — success or failure — as bounded state.
+
+## Source resolution
+
+`src/bootstrap/source-resolution.ts` resolves a manifest's `mottainai`
+package entry to a local, verified source tree, filling the boundary #625
+explicitly refused to own ("manifest + already-resolved exact source ->
+deterministic Nix generation" only — see `docs/contracts/runtime/managed-generation`
+"Source resolution boundary").
+
+- **Origin**: `https://github.com/yohn-jp/mottainai/archive/refs/tags/v<version>.tar.gz`
+  — GitHub's auto-generated tag source archive. Fetches are HTTPS-only and
+  redirect-host-allowlisted (`github.com`, `codeload.github.com`), with a
+  capped redirect count and an absolute download-size ceiling.
+- **Extraction**: tar entries are enumerated and type-checked before
+  extraction (rejecting symlinks/special files and unsafe/absolute/traversal
+  paths), then extracted with `--strip-components=1` to drop GitHub's
+  `<repo>-<tag>/` wrapper directory — the same idiom
+  `nix/mottainai.nix`'s own `installPhase` already uses.
+- **Integrity — tree content hash, not archive bytes**: `sourceSha256` is
+  verified against the NAR hash of the *extracted tree*
+  (`nix hash path --sri --type sha256`, converted to lowercase hex the same
+  way `scripts/build-managed-generation.mjs`'s `narHashOf` already does),
+  not a hash of the downloaded `.tar.gz` file itself. GitHub does not
+  guarantee byte-stability of its auto-generated tag archives across gzip
+  implementation changes — only the resulting tree content is stable — and
+  this also matches how #624/#625 define `sourceSha256`: the identity of
+  the source Nix itself would resolve and build from, not a distribution
+  archive digest.
+- **Version cross-check**: the extracted tree's `package.json` version is
+  compared against the manifest's requested version before source
+  integrity is even checked, failing closed on mismatch.
+- **No fallback**: any fetch, extraction, or verification failure throws;
+  there is no fallback to a local checkout, `PATH` lookup, or npm global
+  install.
+
+## Error taxonomy
+
+Every failure `src/bootstrap/build.ts` can produce is re-thrown as one of
+nine stable `BootstrapError` codes (`src/bootstrap/errors.ts`) before it
+reaches a caller — internal error classes from #624/#625/this module's own
+state validation are wrapped at the point they surface, never leaked
+directly:
+
+| Code                                    | Meaning                                                                  |
+| ----------------------------------------- | --------------------------------------------------------------------------- |
+| `invalid_manifest`                      | The manifest fails #624's schema (unknown contract id/schema version, malformed field, etc.) |
+| `unsupported_managed_package`           | A manifest entry has no #625 recipe for its `(packageId, kind, flakeRef)`  |
+| `source_resolution_failure`             | Fetching or extracting the requested Mottainai source tree failed          |
+| `source_integrity_mismatch`             | The resolved/built source's NAR hash does not match the manifest's declared `sourceSha256` |
+| `requested_resolved_version_mismatch`   | The resolved/built version does not exactly match the manifest's requested version |
+| `unavailable_nix_prerequisite`          | The `nix` binary is missing or unusable                                    |
+| `nix_generation_build_failure`          | `nix build` itself failed                                                  |
+| `malformed_generation_metadata`         | #625's build output metadata fails its own schema                          |
+| `bootstrap_state_corruption`            | Persisted bootstrap state fails to parse                                   |
+
+There is no best-effort fallback to an unmanaged install for any of these.
+
+## State schema and persistence
+
+`BootstrapStateSchema` (`src/bootstrap/state.ts`) deliberately separates two
+fields rather than merging them into one record:
+
+- **`lastAttempt`** — the outcome of the most recent `build` invocation,
+  regardless of how far it got. A first-ever invalid-manifest failure
+  produces a valid `lastAttempt` with `outcome: "failure"` and no
+  `desiredManifestSemanticIdentity` (parsing never succeeded far enough to
+  compute one). Always persisted, on every attempt.
+- **`lastSuccessfulBuild`** — only ever advances on an actual successful
+  build: manifest semantic identity (#624's `semanticIdentityOf`), resolved
+  Mottainai source identity/version, and the resulting managed-generation
+  identity/store path (#625's `generationIdentityOf` and
+  `nixOutput.storePath`). A later failed attempt updates `lastAttempt` alone
+  and leaves this field completely untouched — a failure never erases
+  previously recorded known-good build evidence.
+
+**Persistence location**: the single fixed path
+`CANONICAL_BOOTSTRAP_STATE_FILE_PATH` (`src/bootstrap/paths.ts`) =
+`/var/lib/mottainai-control/bootstrap/state.json` — sibling to #624's
+`managed-packages/manifest.json` under the same Runtime control-state root
+(`mottainai-control`'s `stateDir`, `nix/modules/runtime.nix`), never a new
+state root and never user/workspace state. There is no `--state-file` CLI
+flag and no environment-variable override in production: a single
+invocation must never be able to redirect governed bootstrap state into an
+arbitrary workspace path. Tests override the state path exclusively through
+`BootstrapDependencies.stateFilePath` dependency injection at the module
+level. A deployment-specific `stateDir` remap, if ever needed, is a Nix-level
+concern (e.g. bind-mounting a different path at
+`/var/lib/mottainai-control`), not a bootstrap CLI argument.
+
+Writes go through `replaceFileAtomically` (`src/atomic-file.ts`, reused
+as-is): a same-directory temp file, fsync, atomic rename, parent-directory
+fsync — the destination is byte-for-byte unchanged on any partial failure.
+
+## CLI
+
+`src/bootstrap/cli.ts` dispatches five commands — `build`, `status`,
+`verify`, `reconcile`, `managed-status` — deliberately narrow, with no
+task/session/manager/package-catalog UX. It does not import `src/cli.ts`,
+`src/index.ts`, or any manager/workflow/task-session module: that
+independence is what lets bootstrap work without importing the full
+Mottainai runtime as a hidden dependency.
+
+```text
+mottainai-bootstrap build <manifest-path> --system <system> [--repo-root <path>] [--json]
+mottainai-bootstrap status [--json]
+mottainai-bootstrap verify [--json]
+mottainai-bootstrap reconcile --system <system> [--repo-root <path>] [--json]
+mottainai-bootstrap managed-status [--json]
+```
+
+`status`/`verify` output is bounded and machine-readable:
+
+```jsonc
+// status --json
+{ "contractId": "mottainai.bootstrap-state.v1", "schemaVersion": 1, "present": false }
+// or, once a build has been attempted:
+{ "contractId": "...", "schemaVersion": 1, "present": true, "state": { /* BootstrapState */ } }
+
+// verify --json
+{ "contractId": "mottainai.bootstrap-state.v1", "schemaVersion": 1, "verified": false, "reason": "bootstrap has never been attempted" }
+```
+
+`verify` is lighter than a full rebuild: it re-checks that persisted state
+parses and, if it names a generation store path, that the store path still
+resolves via `nix path-info` — it never re-fetches source or re-runs `nix
+build`.
+
+### `reconcile` (Issue #642)
+
+`reconcile` is the canonical guest-invokable path from a fresh appliance (or
+any subsequent desired-state change) to `MANAGED_READY`
+([`docs/architecture/runtime/lifecycle`](../../architecture/runtime/lifecycle.md)): it composes this
+component's build interface (`buildManagedGeneration`, resolving the
+manifest's exact requested Mottainai source through
+`source-resolution.ts` the same way `build` does) with Issue #628's
+already-implemented `reconcileManagedRuntime` state machine
+(`src/runtime-contract/managed-runtime.ts`) as that state machine's
+`buildGeneration` and `healthCheck` dependencies — no parallel build or
+activation logic is implemented in the CLI itself.
+
+`healthCheck` proves each package a candidate generation declares is
+genuinely executable at its exact resolved store path
+(`<storePath>/bin/<packageId> --version`, real and side-effect-free — the
+same minimal proof `nix/packages/nawabari.nix`'s own `installCheckPhase`
+already treats as sufficient) — never ambient `PATH`, never a stub result.
+A candidate that declares no package identities at all (`packageIds`
+absent or empty — schema-legal, e.g. an empty-`packages` desired manifest)
+fails closed rather than reporting vacuous health: nothing to execute
+means nothing was proven, so it is never silently promoted to known-good
+on that basis alone.
+
+Like `build`/`status`/`verify`, `reconcile` always targets the canonical
+managed-runtime control state
+(`/var/lib/mottainai-control/managed-runtime`, Issue #628's default when no
+override is supplied) — there is no `--state-directory`,
+`--state-file`, `--current-pointer`, or `--manifest-path` flag, and no
+`--mottainai-source` override: unlike `build`'s single-attempt, low-level
+build interface, `reconcile` is the canonical convergence path and always
+resolves the manifest's requested source for real. This boundary is not
+only a CLI/argv-parsing convention: the exported `runReconcile(options)`
+function underneath `reconcile` itself has no `stateDirectory` or
+`manifest` parameter at all, so no caller — production or test — can pass
+either through it; the only test-facing seam is `reconcileAdapters`,
+which builds the `buildGeneration`/`healthCheck` adapter functions and has
+no state/manifest parameter either.
+
+`reconcile` output is `reconcileManagedRuntime`'s own bounded
+`ManagedRuntimeReconcileResult`/`ManagedRuntimeStatusReport` shape
+(`src/runtime-contract/managed-runtime.ts`) — `outcome` is one of
+`initialized`, `noop`, `updated`, `removed`, `recovered`, or `rolled-back`.
+A failure exits non-zero with `{ code, message }`, where `code` is one of
+`ManagedRuntimeErrorCode`'s values (`src/runtime-contract/managed-runtime-state.ts`'s
+`MANAGED_RUNTIME_FAILURE_CODES`, plus `manifest_read_failure` and
+`recovery_required` and `reconcile_busy`) — a separate taxonomy from the `BootstrapErrorCode`
+table above, since `reconcile` composes #628's activation/rollback state
+machine rather than only #626's build pipeline.
+
+### `managed-status` (Issue #644)
+
+`managed-status` is the read-only counterpart to `reconcile`: it reports
+#628's already-persisted managed-runtime state through the exact same
+canonical `readManagedRuntimeStatus`
+(`src/runtime-contract/managed-runtime.ts`, real `ManagedRuntimeStateSchema`
+`.strict()` zod validation) `reconcile` uses internally — never a second,
+hand-rolled re-check of a few fields — and never reconciles, builds,
+switches, or rolls back anything. Like `build`/`status`/`verify`/`reconcile`,
+it always targets the canonical managed-runtime control state; there is no
+state-path override flag.
+
+It always exits `0` — a report of corrupt/inconsistent state is itself a
+complete, successful observation for an automated consumer, never a process
+failure — and prints exactly one of three bounded shapes:
+
+```jsonc
+// no managed-runtime state exists yet (a fresh, bootstrap-only appliance)
+{ "valid": true, "present": false }
+
+// canonical state parsed and validated
+{ "valid": true, "present": true, "activationPhase": "idle", "activeGenerationIdentity": "...", "state": { /* ManagedRuntimeState */ }, /* ... */ }
+
+// persisted state failed canonical validation
+{ "valid": false, "code": "state_corrupt", "message": "..." }
+```
+
+`nix/modules/runtime.nix`'s `mottainai-runtime-health` service pipes
+`managed-status --json`'s output into `nix/managed-runtime-health.nix`'s
+pure projection to compute the `mottainai.linux-runtime.v1` health
+result's `readiness`/`managedRuntimeReady`/`reconciliation` fields — see
+[`docs/contracts/runtime/linux-runtime`](linux-runtime.md)'s
+"Managed-runtime readiness projection" section for the exact rules.
+
+Two production entrypoints share the same dispatcher
+(`src/bootstrap/cli.ts`'s `runBootstrapCli`):
+[`src/bootstrap/main.ts`](../../../src/bootstrap/main.ts) is the compiled
+executable entry `nix/bootstrap.nix` wraps directly as
+`bin/mottainai-bootstrap`; [`scripts/bootstrap.mjs`](../../../scripts/bootstrap.mjs)
+runs the same file uncompiled via `node --import tsx` for local/CI use.
+
+## Nix packaging
+
+`nix/bootstrap.nix` packages `src/bootstrap/**` (plus the
+`src/runtime-contract/**` modules it composes: `managed-package-manifest.ts`,
+`managed-generation.ts`, `managed-generation-build.ts`; plus
+`src/atomic-file.ts`, `src/boundary.ts`) as a standalone Nix derivation,
+exposed as the flake output `packages.<system>.mottainai-bootstrap` and
+proven via `checks.<system>.bootstrap`
+(`nix/tests/bootstrap.nix`).
+
+This is deliberately **not** modeled on `nix/mottainai.nix`'s `pnpm install
+--frozen-lockfile` recipe, which installs every root `dependencies` entry
+(`@modelcontextprotocol/sdk`, `@xterm/*`, `node-pty`, `tree-sitter*`,
+`typescript`, `ws`) regardless of what bootstrap actually imports.
+Bootstrap's entire runtime import graph uses only `zod` and Node built-ins,
+so `nix/bootstrap.nix` is modeled on `nix/packages/nawabari.nix`'s
+single-dependency `fetchurl` pinning pattern instead: `zod` and (as a
+build-time-only type-declaration dependency, never present in the installed
+output) `@types/node` are pinned directly by version + npm tarball
+integrity hash, without `nix/bootstrap.nix` parsing `pnpm-lock.yaml` at
+Nix-eval time — this repository's Nix files never do that. nixpkgs' own
+`typescript` package compiles the TypeScript at build time and is likewise
+absent from the installed closure.
+
+Those two pins are a second, independently maintained authority against
+`pnpm-lock.yaml`'s own resolved entries. `src/bootstrap/nix-dependency-pin.test.ts`
+is the synchronization check: it reads `pnpm-lock.yaml`'s real `zod@` and
+`@types/node@` resolution entries and asserts they match the literal values
+hardcoded in `nix/bootstrap.nix`, failing loudly the moment they diverge.
+
+### Embedded Nix projection — building with no repository checkout
+
+`buildManagedGeneration` (`src/runtime-contract/managed-generation-build.ts`)
+resolves `${repoRoot}/nix` via `builtins.getFlake` to reach #625's
+`lib.mkManagedGeneration`. A deployed `mottainai-bootstrap build` therefore
+needs a `nix/` directory with a resolvable `flake.nix` — but the whole point
+of this component is running with no Mottainai repository checkout on the
+deployed host. `nix/bootstrap.nix`'s `installPhase` resolves this by
+packaging its own minimal copy of #625's Nix projection alongside the
+compiled CLI: `nix/flake.nix`, `nix/flake.lock`, `nix/managed-generation.nix`,
+`nix/mottainai.nix`, `nix/packages/nawabari.nix`, and `nix/bootstrap.nix`
+itself, copied into `nix-projection/nix/` next to `bootstrap/main.js` inside
+the installed package, and committed into a throwaway git working tree
+there (`builtins.getFlake` requires a VCS working tree to resolve a flake).
+`src/bootstrap/cli.ts`'s `repoRootForNixInvocation` looks for this sibling
+directory first, falling back to `process.cwd()` only for the
+`scripts/bootstrap.mjs` dev/CI entrypoint (which runs directly against
+uncompiled `src/`, where no such packaged sibling exists) — `--repo-root`
+remains available to override either default explicitly.
+
+This works because `lib.mkManagedGeneration`'s own dependency graph never
+forces `mkMottainai`'s `source = ../.` binding (`nix/flake.nix`) — that
+binding is only reachable through `packages.<system>.mottainai`, which this
+projection never touches — so Nix's laziness means the embedded `nix/`
+copy never needs a full repository checkout above it to evaluate or build
+correctly. Verified during development against an isolated git-tracked
+directory containing only this exact file list, with no repository root
+above it: `flake.lib.mkManagedGeneration` evaluated and built a real
+generation from it directly.
+
+`checks.<system>.bootstrap` (`nix/tests/bootstrap.nix`) is a real
+`runCommand` build (not pure evaluation) proving three things pure
+evaluation cannot: the packaged `mottainai-bootstrap status` binary actually
+runs, with no full `mottainai` package present in its build environment, and
+reports a bounded `present: false`; the built package's real dependency
+closure (obtained via Nix's `exportReferencesGraph` derivation attribute,
+since a sandboxed build has no access to the host store database to query
+it any other way) genuinely excludes the full `mottainai` derivation and the
+unrelated dependencies named above — not merely that `nix/bootstrap.nix` was
+written with that intent; and the packaged Nix projection's file layout
+(`nix-projection/nix/{flake.nix,flake.lock,managed-generation.nix,
+mottainai.nix,packages/nawabari.nix}` plus a `.git` working tree) is
+actually present in the installed output. That check's own sandbox has no
+Nix daemon access for a *nested* `nix build`, so the full standalone-build
+proof — `mottainai-bootstrap build <manifest> --system <system>` succeeding
+through to a real `nix build` invocation with no checkout anywhere on the
+path — was verified manually against the built package during development
+(a Nawabari-only manifest resolved source, invoked `nix build` against the
+packaged projection, and reached the production control-state write step,
+failing only on a sandboxed test environment's lack of write access to
+`/var/lib/mottainai-control` — not on anything checkout-related).
+
+The package is the application-facing component of the bootstrap-only base
+Runtime Appliance. #627 wires it into `nix/modules/runtime.nix` while keeping
+the full `mottainai`, `nawabari`, Zellij, and coding-agent packages out of the
+base closure. Its presence establishes executable bootstrap capability; it
+does not mean that a managed application generation has been activated.
+
+## Constraints this component deliberately honors
+
+- Does not implement a second activation, switch, or rollback state
+  machine: `reconcile` (#642) composes #628's already-implemented
+  `reconcileManagedRuntime` as its `buildGeneration`/`healthCheck`
+  dependencies rather than reimplementing any part of that transaction
+  logic here.
+- Does not fall back to `PATH`, npm global install, or any unmanaged
+  package source on any failure.
+- Does not mutate user/workspace state; all persisted evidence lives under
+  the Runtime control-state root.
+- Does not build a second package-resolution framework: source resolution
+  is narrowly the "manifest -> exact Mottainai source tree" step, nothing
+  broader.
+- Does not import or execute full Mottainai runtime/task/session/manager
+  code — `src/bootstrap/cli.ts` never imports `src/cli.ts` or `src/index.ts`.
+- Does not expose a state-path override in the production CLI.
+- `src/runtime-contract/managed-generation-build.ts` never re-parses or
+  re-classifies a manifest — that stays `src/bootstrap/build.ts`'s job
+  (and, for the CLI-script path, `scripts/build-managed-generation.mjs`'s).
+- A managed Mottainai version/source change does not require rebuilding
+  `runtime-appliance-image` or `nix/modules/runtime.nix`; a bootstrap
+  executable/contract change does, because #627 embeds this package in the
+  base closure.
+
+## Test layer
+
+`src/bootstrap/*.test.ts` and `src/runtime-contract/managed-generation-build.test.ts`
+run under the existing `node --test` suite (via `node --import tsx`) and
+require no Nix toolchain except where explicitly noted. They prove:
+
+- a fresh environment with no `mottainai` on `PATH` can build a generation
+  containing Mottainai and Nawabari, using injected `resolveSource`/
+  `runManagedGenerationBuild` dependencies (`build.test.ts`)
+- source resolution does not depend on this repository's own checkout,
+  using a packed fixture tree with a version this checkout doesn't have
+  (`source-resolution.test.ts`, `nix/tests/fixtures/alt-mottainai-source`)
+- a requested/resolved version or source-integrity mismatch fails closed
+  with the correct `BootstrapError` code (`source-resolution.test.ts`,
+  `build.test.ts`)
+- an invalid or unsupported manifest fails before `resolveSource`/
+  `runManagedGenerationBuild` are ever called, asserted via call-count spies
+  (`build.test.ts`)
+- a Nix build failure and an unavailable Nix prerequisite produce distinct
+  deterministic error codes (`build.test.ts`)
+- `status`/`verify` output is a bounded, fixed-key JSON envelope, including
+  the "never attempted" case (`cli.test.ts`)
+- persisted evidence round-trips deterministically, including
+  attempt-only and attempt-plus-success shapes (`state.test.ts`)
+- corrupted persisted state fails closed rather than being silently treated
+  as "never attempted" (`state.test.ts`, `cli.test.ts`)
+- a first-ever invalid-manifest failure persists valid bounded state, and a
+  later failed attempt preserves previously recorded successful-build
+  evidence unchanged (`build.test.ts`)
+- bootstrap performs no user/workspace mutation (`build.test.ts`)
+- the production CLI exposes no state-path override surface for `build`,
+  `reconcile`, or `managed-status` (`cli.test.ts`)
+- `reconcile` fails deterministically with `manifest_read_failure` against a
+  fresh control-state root, and rejects a missing `--system` before invoking
+  `reconcileManagedRuntime` (`cli.test.ts`)
+- the real `reconcileBuildGeneration`/`reconcileHealthCheck` composition —
+  exercised by calling `reconcileManagedRuntime` (#628) directly against a
+  temporary `stateDirectory`/`manifest`, with `reconcileAdapters` (the
+  only test-facing seam `cli.ts` exports for reconcile — no
+  state/manifest parameter of any kind) supplying overridden build/health
+  dependencies — converges initialize, noop, and update outcomes, and a
+  post-switch health failure triggers a real rollback to the prior
+  known-good generation, verified against the persisted state and
+  `current` pointer directly (`cli.test.ts`). `runReconcile` itself is
+  canonical-only (`RunReconcileOptions` has no `stateDirectory`/`manifest`
+  field), proven by a structural test scanning its exported type and
+  function body (`cli.test.ts`)
+- `reconcileHealthCheck` proves a real `--version` executable against a
+  real fixture binary and fails closed on a real execution failure, and
+  fails closed (rather than reporting vacuous health) when a candidate
+  declares no package identities (`cli.test.ts`)
+- `managed-status` reports `valid:true, present:false` against a fresh
+  control-state root, and `valid:false` with a bounded `code`/`message`
+  against both malformed JSON and a schema-invalid-but-field-complete
+  state (every field present and well-typed except one `.strict()`-rejected
+  unknown key) — always exiting `0` either way (`cli.test.ts`); the same
+  schema-invalid-but-field-complete case is proven directly against
+  `readManagedRuntimeStatus` in `managed-runtime.test.ts`
+- no code path in `source-resolution.ts`/`build.ts` invokes `npm`, `npx`, or
+  a global install (`source-resolution.test.ts`, `build.test.ts`)
+- `nix/bootstrap.nix`'s pinned `zod`/`@types/node` versions and integrity
+  hashes match `pnpm-lock.yaml`'s real resolved entries
+  (`nix-dependency-pin.test.ts`)
+
+`nix/tests/bootstrap.nix` (run as `nix build .#checks.<system>.bootstrap`)
+is the real-build counterpart: it proves the packaged binary runs standalone
+and that its actual dependency closure excludes the full `mottainai`
+derivation and the unrelated root dependencies, as described above.

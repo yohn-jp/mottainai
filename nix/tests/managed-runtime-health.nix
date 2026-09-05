@@ -22,7 +22,7 @@
 # field-complete coverage) -- this check only proves the readiness
 # projection RULES given an already-validated (or already-rejected)
 # status report, matching the division of responsibility
-# docs/linux-runtime-contract.md's "Managed-runtime readiness projection"
+# docs/contracts/runtime/linux-runtime.md's "Managed-runtime readiness projection"
 # section documents.
 
 let

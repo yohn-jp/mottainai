@@ -136,7 +136,7 @@
       # Canonical Runtime module: the single specification consumed both by
       # fresh Runtime image/VM builds (nixosConfigurations, below) and by
       # in-place reconciliation of an existing compatible Runtime. See
-      # docs/linux-runtime-contract.md and ADR-0002.
+      # docs/contracts/runtime/linux-runtime.md and ADR-0002.
       nixosModules.runtime = import ./modules/runtime.nix;
       nixosModules.default = self.nixosModules.runtime;
 
@@ -198,7 +198,7 @@
       # nix/managed-generation.nix itself). This function only projects
       # "manifest + already-resolved packages" into a deterministic Nix
       # generation, exactly the boundary #625 owns (see
-      # docs/managed-generation.md "Source resolution boundary").
+      # docs/contracts/runtime/managed-generation.md "Source resolution boundary").
       # `nix#mottainai` (`packages.<system>.mottainai`) remains available as
       # a managed-generation recipe and builds from this flake's own
       # checkout; it is not a canonical base-system input.

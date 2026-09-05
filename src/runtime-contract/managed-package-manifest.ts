@@ -13,7 +13,7 @@ import { z } from "zod";
  * projection consumes to build a Nix-managed generation, and that #626/#628
  * reconcile a Runtime against. It intentionally carries no Nix build output,
  * no Lima/Proxmox/QEMU-specific field, and no host-specific state — see
- * docs/managed-package-manifest.md.
+ * docs/contracts/runtime/managed-package-manifest.md.
  */
 export const MANAGED_PACKAGE_MANIFEST_CONTRACT_ID = "mottainai.managed-package-manifest.v1" as const;
 export const MANAGED_PACKAGE_MANIFEST_SCHEMA_VERSION = 1 as const;
@@ -69,7 +69,7 @@ const sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/iu).transform((value) =
  * fetch mechanisms (revised from an earlier "fetched source archive"
  * definition per PR #634 review, which found that definition incompatible
  * with nix#mottainai's recipe, a repository checkout tree rather than a
- * fetched archive). Concretely (see docs/managed-generation.md
+ * fetched archive). Concretely (see docs/contracts/runtime/managed-generation.md
  * "sourceSha256 meaning" for the Issue #625 projection side of this):
  *
  * - For a fetchurl-based recipe (nix/packages/nawabari.nix), this is the
@@ -149,7 +149,7 @@ export type ManagedPackageManifest = z.infer<typeof ManagedPackageManifestSchema
  * src/runtime-contract/contract.ts). It lives under system/control-owned
  * persistent state, not repository-user or disposable state: it survives
  * reconciliation like the rest of that root, and repository principals
- * cannot read or mutate it (docs/linux-runtime-contract.md
+ * cannot read or mutate it (docs/contracts/runtime/linux-runtime.md
  * "`mottainai-control` trusted identity and protected paths"). This constant
  * fixes the relative layout; the absolute path is
  * `${stateOwners.system control root}/${MANAGED_PACKAGE_MANIFEST_RELATIVE_PATH}`.

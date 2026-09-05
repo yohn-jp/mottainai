@@ -14,7 +14,7 @@ in the Claude and Codex registration examples in `README.md` together.
 ## [0.9.3] - 2026-09-05
 
 Release-infrastructure patch release. See
-[docs/releases/0.9.3.md](docs/releases/0.9.3.md) for the full writeup.
+[docs/history/releases/0.9.3.md](docs/history/releases/0.9.3.md) for the full writeup.
 
 - **Fixed**: the ORAS CLI flag mismatch that blocked the 0.9.2 Runtime
   Appliance OCI publish (`--no-tty` on `manifest fetch`/`tag`, which never
@@ -25,7 +25,7 @@ Release-infrastructure patch release. See
 ## [0.9.2] - 2026-09-05
 
 Release-infrastructure patch release. See
-[docs/releases/0.9.2.md](docs/releases/0.9.2.md) for the full writeup.
+[docs/history/releases/0.9.2.md](docs/history/releases/0.9.2.md) for the full writeup.
 
 - **Fixed**: the ORAS setup failure that blocked the 0.9.1 Runtime Appliance
   OCI publish is corrected, and a regression check now catches an
@@ -39,7 +39,7 @@ Release-infrastructure patch release. See
 ## [0.9.1] - 2026-09-05
 
 Runtime-provisioning and CI-convergence patch release. See
-[docs/releases/0.9.1.md](docs/releases/0.9.1.md) for the full writeup.
+[docs/history/releases/0.9.1.md](docs/history/releases/0.9.1.md) for the full writeup.
 
 - **Fixed**: the canonical Runtime Appliance image is now UEFI/GPT bootable
   under Lima (#817); activated QEMU paths are persisted across restarts
@@ -54,7 +54,7 @@ Runtime-provisioning and CI-convergence patch release. See
 ## [0.9.0] - 2026-09-04
 
 Workflow-identity and runtime-identity release. See
-[docs/releases/0.9.0.md](docs/releases/0.9.0.md) for the full writeup.
+[docs/history/releases/0.9.0.md](docs/history/releases/0.9.0.md) for the full writeup.
 
 - **Added**: Makami PR lifecycle generation is now persisted (#792); governed
   task artifacts resolve through gh-inari (#411); deterministic Canon prefix
@@ -71,7 +71,7 @@ Workflow-identity and runtime-identity release. See
 ## [0.8.3] - 2026-09-04
 
 Draft-first publication lifecycle patch. See
-[docs/releases/0.8.3.md](docs/releases/0.8.3.md) for the full writeup.
+[docs/history/releases/0.8.3.md](docs/history/releases/0.8.3.md) for the full writeup.
 
 - **Distribution**: the release workflow creates and retains a mutable draft
   GitHub Release while assets are produced, then finalizes it only after all
@@ -81,7 +81,7 @@ Draft-first publication lifecycle patch. See
 ## [0.6.0] - 2026-08-29
 
 Native harness-delegation MCP release. See
-[docs/releases/0.6.0.md](docs/releases/0.6.0.md) for the full writeup.
+[docs/history/releases/0.6.0.md](docs/history/releases/0.6.0.md) for the full writeup.
 
 - **Added**: packaged `mottainai-mcp` entrypoint exposing native Harness
   delegation, inspection, continuation, cancellation, and capability discovery
@@ -98,7 +98,7 @@ Native harness-delegation MCP release. See
 ## [0.5.0] - 2026-08-27
 
 Managed-workflow and external-discovery release. See
-[docs/releases/0.5.0.md](docs/releases/0.5.0.md) for the full writeup.
+[docs/history/releases/0.5.0.md](docs/history/releases/0.5.0.md) for the full writeup.
 
 - **Added**: read-only cross-workspace task/session discovery with bounded
   `task list` snapshots and fresh `task status --task-id` resolution for
@@ -117,7 +117,7 @@ Managed-workflow and external-discovery release. See
 ## [0.4.0] - 2026-08-23
 
 Wabachi interaction-convergence release. See
-[docs/releases/0.4.0.md](docs/releases/0.4.0.md) for the full writeup.
+[docs/history/releases/0.4.0.md](docs/history/releases/0.4.0.md) for the full writeup.
 
 - **Changed**: `mottainai dashboard` serves the approved Wabachi Semantic
   Investigation Desk and removes the retired Semantic Project Viewer variants.
@@ -130,7 +130,7 @@ Wabachi interaction-convergence release. See
 ## [0.3.1] - 2026-08-22
 
 Dashboard UX correction release. See
-[docs/releases/0.3.1.md](docs/releases/0.3.1.md) for the full writeup.
+[docs/history/releases/0.3.1.md](docs/history/releases/0.3.1.md) for the full writeup.
 
 - **Fixed**: `mottainai dashboard` no longer serves the legacy dark
   `semantic-project-viewer-v2.html`; it now serves the current API-backed
@@ -144,7 +144,7 @@ Dashboard UX correction release. See
 ## [0.3.0] - 2026-08-22
 
 Operational Manager dogfood release. See
-[docs/releases/0.3.0.md](docs/releases/0.3.0.md) for the full writeup.
+[docs/history/releases/0.3.0.md](docs/history/releases/0.3.0.md) for the full writeup.
 
 - **Added**: bounded Manager resource-scope preview, Nawabari claim preflight,
   and the four-file operational console UX for practical multi-agent managed
@@ -162,7 +162,7 @@ Operational Manager dogfood release. See
 ## [0.2.0] - 2026-08-18
 
 Pi-backed managed-development and authority-convergence release. See
-[docs/releases/0.2.0.md](docs/releases/0.2.0.md) for the full writeup.
+[docs/history/releases/0.2.0.md](docs/history/releases/0.2.0.md) for the full writeup.
 
 - **Added**: Pi as a first-class Zellij Manager profile, one-command
   `task run --agent pi` orchestration, a managed Pi mutation guard, and the
@@ -189,7 +189,7 @@ Pi-backed managed-development and authority-convergence release. See
 ## [0.1.4] - 2026-08-09
 
 Semantic workflow and CI-hardening release. See
-[docs/releases/0.1.4.md](docs/releases/0.1.4.md) for the full writeup.
+[docs/history/releases/0.1.4.md](docs/history/releases/0.1.4.md) for the full writeup.
 
 - **Added**: TypeScript semantic fact extractor, Symbol-level effect and
   policy conformance analysis, a semantic mutation API (plan/bind/
@@ -219,7 +219,7 @@ Git workflow governance release. Publishes the workflow-task engine
 decisions, task/worktree lifecycle — Issue #34 family) that accumulated on
 `main` since `0.1.2`, plus the read governor, burst budget, context/result
 response budgets, symbol-first semantic IR, and retirement of native
-Windows support. See [docs/releases/0.1.3.md](docs/releases/0.1.3.md) for the
+Windows support. See [docs/history/releases/0.1.3.md](docs/history/releases/0.1.3.md) for the
 full writeup.
 
 - **Platform support policy**: Linux is Tier 1 / canonical, WSL2 is supported

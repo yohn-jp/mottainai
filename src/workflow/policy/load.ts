@@ -65,7 +65,7 @@ export type ResolveEffectiveWorkflowPolicyResult =
  * `loadWorkflowPolicy` の「ファイルが無ければ呼び出し側が fallback する」を、実際の
  * fallback 先（built-in `standard` preset）まで含めて一箇所に集約したもの。
  * task.start/task.status/CLI 等、素朴に「今使うべき1つの document」だけが欲しい
- * 呼び出し側はこちらを使う（`docs/workflow-policy.md` の既定 fallback と同じ）。
+ * 呼び出し側はこちらを使う（`docs/contracts/workflow/git-policy.md` の既定 fallback と同じ）。
  *
  * JSON 破損・schemaVersion 不一致等（"not-found" 以外の失敗）は fallback せず
  * fail-closed で返す — 壊れた policy ファイルを黙って無視して preset で続行しない。

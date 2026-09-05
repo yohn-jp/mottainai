@@ -7,7 +7,7 @@ Thanks for your interest in contributing. Mottainai is pre-1.0 and evolves quick
 - Create and agree on one concrete Issue before implementation.
 - Include the Issue number in the governed branch name.
 - Do not commit directly to `main`.
-- Read [Issue and Pull Request Governance](docs/governance.md) before opening a pull request.
+- Read [Issue and Pull Request Governance](docs/governance/issues-and-pull-requests.md) before opening a pull request.
 
 ## Development setup
 

@@ -546,7 +546,7 @@ export async function runApplianceBootProbe({
 
   evidence.result.appliance_boot_blocked_diagnostic = startPass
     ? null
-    : "Lima's documented readiness gate (limactl start / Running status) requires guest-side cloud-init-delivered boot.sh to write /run/lima-boot-done and /run/lima-ssh-ready. The canonical runtime-appliance-image has no cloud-init and never runs those scripts, so limactl start cannot converge without changing canonical guest semantics. See docs/lima-appliance-boot-probe.md.";
+    : "Lima's documented readiness gate (limactl start / Running status) requires guest-side cloud-init-delivered boot.sh to write /run/lima-boot-done and /run/lima-ssh-ready. The canonical runtime-appliance-image has no cloud-init and never runs those scripts, so limactl start cannot converge without changing canonical guest semantics. See docs/testing/integration/lima-appliance-boot-probe.md.";
 
   // Overall pass criterion for #655's acceptance is intentionally about
   // actual usability (SSH, nix --version, sentinel survives reboot), not

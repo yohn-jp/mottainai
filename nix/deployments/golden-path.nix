@@ -7,7 +7,7 @@
 # `nix/flake.nix` uses, and only supplies the per-installation values the
 # module leaves unset by design (`runtimeIdentity`, `controlAuthorizedKeys`)
 # so a generic Runtime build stays inaccessible until an operator opts in
-# here. See docs/nix-runtime-golden-path.md for the exact build/boot/SSH
+# here. See docs/operations/runtime/nix-golden-path.md for the exact build/boot/SSH
 # sequence that consumes this file.
 
 let

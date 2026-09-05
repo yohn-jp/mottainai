@@ -11,7 +11,7 @@ revisit the same semantic working set. If active working-set information is
 evicted, the agent may need repeated retrieval and additional model turns to
 reconstruct it.
 
-The [2026-08-08 Headroom/Codex A/B experiment](../experiments/2026-08-08-headroom-codex-ab.md)
+The [2026-08-08 Headroom/Codex A/B experiment](../reports/experiments/2026-08-08-headroom-codex-ab.md)
 observed this pattern in the Issue #72 workload: local context and output
 volumes improved, while wall time, model invocations, cumulative input, and
 retrieval/page-in activity regressed in the CLI + Headroom run.
