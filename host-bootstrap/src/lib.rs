@@ -1,4 +1,5 @@
 pub mod appliance;
+pub mod bootstrap_disk;
 pub mod contract;
 pub mod deployment_descriptor;
 pub(crate) mod download;

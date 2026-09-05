@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::appliance::{ensure_appliance, ApplianceReference};
+use crate::bootstrap_disk::{
+    bootstrap_disk_name, ensure_bootstrap_disk, ensure_lima_public_key, verify_bootstrap_disk,
+};
 use crate::error::{BootstrapError, ErrorCode};
 use crate::lock::BootstrapLock;
 use crate::model::Outcome;
@@ -192,6 +195,10 @@ pub fn render_lima_config(spec: &RuntimeSpec, appliance_raw_path: &Path) -> Stri
                 writable: mount.writable,
             })
             .collect(),
+        additional_disks: [LimaDisk {
+            name: bootstrap_disk_name(&spec.instance_name),
+            format: false,
+        }],
         ssh: LimaSsh {
             load_dot_ssh_pub_keys: false,
         },
@@ -217,6 +224,7 @@ struct LimaConfig<'a> {
     images: [LimaImage<'a>; 1],
     mount_type: &'static str,
     mounts: Vec<LimaMount<'a>>,
+    additional_disks: [LimaDisk; 1],
     ssh: LimaSsh,
     containerd: LimaContainerd,
 }
@@ -233,6 +241,12 @@ struct LimaMount<'a> {
     location: &'a str,
     mount_point: &'a str,
     writable: bool,
+}
+
+#[derive(Serialize)]
+struct LimaDisk {
+    name: String,
+    format: bool,
 }
 
 #[derive(Serialize)]
@@ -718,6 +732,13 @@ pub fn ensure_runtime_locked<C: LimaCli, S: OciSource>(
         }
     };
 
+    let public_key = match ensure_lima_public_key(paths) {
+        Ok(public_key) => public_key,
+        Err(error) => {
+            evidence.fail(&error);
+            return evidence;
+        }
+    };
     let rendered = render_lima_config(spec, &raw_path);
     let desired_identity = config_identity(&rendered);
     let instance_directory = paths.runtime_instance_directory(&spec.instance_name);
@@ -779,6 +800,10 @@ pub fn ensure_runtime_locked<C: LimaCli, S: OciSource>(
             // Lima so an interruption before `start` completes is safely
             // recognized and resumed on the next ensure, without treating
             // this as recreation.
+            if let Err(error) = ensure_bootstrap_disk(paths, &spec.instance_name, &public_key) {
+                evidence.fail(&error);
+                return evidence;
+            }
             let config_path = paths.runtime_config_path(&spec.instance_name);
             if let Err(error) = write_config(&config_path, &rendered) {
                 evidence.fail(&error);
@@ -831,8 +856,24 @@ pub fn ensure_runtime_locked<C: LimaCli, S: OciSource>(
             }
             evidence.lima_status = instance.status.clone();
             match instance.status.as_deref() {
-                Some("Running") => false,
-                Some("Stopped") => true,
+                Some("Running") => {
+                    if let Err(error) =
+                        verify_bootstrap_disk(paths, &spec.instance_name, &public_key)
+                    {
+                        evidence.fail(&error);
+                        return evidence;
+                    }
+                    false
+                }
+                Some("Stopped") => {
+                    if let Err(error) =
+                        ensure_bootstrap_disk(paths, &spec.instance_name, &public_key)
+                    {
+                        evidence.fail(&error);
+                        return evidence;
+                    }
+                    true
+                }
                 other => {
                     let error = BootstrapError::new(
                         ErrorCode::LimaInstanceAmbiguous,
@@ -1273,6 +1314,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    use crate::bootstrap_disk::{bootstrap_disk_name, bootstrap_disk_path};
     use crate::error::ErrorCode;
     use crate::oci::OciSource;
     use crate::paths::ManagedPaths;
@@ -1421,6 +1463,14 @@ mod tests {
                 },
             );
             self
+        }
+
+        fn set_status(&self, name: &str, status: &str) {
+            self.instances
+                .borrow_mut()
+                .get_mut(name)
+                .expect("fixture instance must exist")
+                .status = status.to_owned();
         }
 
         fn with_active_generation(self, identity: &str) -> Self {
@@ -1789,6 +1839,14 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let paths = ManagedPaths::new(temp.path().join("state"));
         crate::paths::ensure_managed_directories(&paths).unwrap();
+        let config_directory = paths.lima_home_directory.join("_config");
+        fs::create_dir_all(&config_directory).unwrap();
+        fs::write(config_directory.join("user"), b"test-private-key").unwrap();
+        fs::write(
+            config_directory.join("user.pub"),
+            b"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItestBootstrapKeyForMottainai840 operator\n",
+        )
+        .unwrap();
         (temp, paths)
     }
 
@@ -2501,6 +2559,15 @@ mod tests {
             Some("/tmp/appliance.raw")
         );
         assert_eq!(parsed["mounts"].as_array().unwrap().len(), 0);
+        assert_eq!(
+            parsed["additionalDisks"][0]["name"].as_str(),
+            Some(bootstrap_disk_name(&spec().instance_name).as_str())
+        );
+        assert_eq!(
+            parsed["additionalDisks"][0]["format"].as_bool(),
+            Some(false)
+        );
+        assert!(parsed["additionalDisks"][0].get("path").is_none());
         // Lima 2.2.0 only accepts reverse-sshfs/9p/virtiofs/wsl2 for
         // mountType and rejects "none" outright (`limactl create` fails
         // closed on the whole config, not just this field) -- with
@@ -2514,6 +2581,97 @@ mod tests {
         // against a real limactl binary.
         assert_eq!(parsed["ssh"]["loadDotSSHPubKeys"].as_bool(), Some(false));
         assert!(parsed["ssh"].get("loadDotSshPubKeys").is_none());
+    }
+
+    #[test]
+    fn runtime_composition_generates_and_attaches_the_managed_key_disk() {
+        let (_temp, paths) = managed_paths();
+        let appliance_path = seed_appliance(&paths, &reference());
+        let cli = FakeLimaCli::new();
+        let quick_config = RuntimeEnsureConfig {
+            health_check_attempts: 1,
+            health_check_interval: Duration::ZERO,
+        };
+
+        let first = ensure_runtime(&paths, &spec(), &cli, &FakeOciSource, &quick_config);
+        assert_eq!(first.result, Outcome::Changed);
+        let rendered =
+            fs::read_to_string(paths.runtime_config_path(&spec().instance_name)).unwrap();
+        let parsed: serde_json::Value = serde_saphyr::from_str(&rendered).unwrap();
+        assert_eq!(
+            parsed["images"][0]["location"].as_str(),
+            Some(appliance_path.to_str().unwrap())
+        );
+        assert_eq!(
+            parsed["additionalDisks"][0]["name"].as_str(),
+            Some(bootstrap_disk_name(&spec().instance_name).as_str())
+        );
+        assert_eq!(
+            parsed["additionalDisks"][0]["format"].as_bool(),
+            Some(false)
+        );
+        let bootstrap_path = bootstrap_disk_path(&paths, &spec().instance_name);
+        assert!(bootstrap_path.starts_with(&paths.root));
+        assert_ne!(bootstrap_path, appliance_path);
+        assert!(bootstrap_path.is_file());
+        let modified = fs::metadata(&bootstrap_path).unwrap().modified().unwrap();
+
+        let second = ensure_runtime(&paths, &spec(), &cli, &FakeOciSource, &quick_config);
+        assert_eq!(second.result, Outcome::NoOp);
+        assert_eq!(
+            modified,
+            fs::metadata(&bootstrap_path).unwrap().modified().unwrap()
+        );
+    }
+
+    #[test]
+    fn changed_key_fails_closed_before_replacing_a_running_disk() {
+        let (_temp, paths) = managed_paths();
+        seed_appliance(&paths, &reference());
+        let cli = FakeLimaCli::new();
+        let quick_config = RuntimeEnsureConfig {
+            health_check_attempts: 1,
+            health_check_interval: Duration::ZERO,
+        };
+        let first = ensure_runtime(&paths, &spec(), &cli, &FakeOciSource, &quick_config);
+        assert_eq!(first.result, Outcome::Changed);
+        let bootstrap_path = bootstrap_disk_path(&paths, &spec().instance_name);
+        let before = fs::read(&bootstrap_path).unwrap();
+        fs::write(
+            paths.lima_home_directory.join("_config/user.pub"),
+            b"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIchangedBootstrapKeyFor840 changed\n",
+        )
+        .unwrap();
+
+        let second = ensure_runtime(&paths, &spec(), &cli, &FakeOciSource, &quick_config);
+        assert_eq!(second.result, Outcome::Blocked);
+        assert_eq!(second.error_code.as_deref(), Some("bootstrap_disk_failed"));
+        assert_eq!(before, fs::read(&bootstrap_path).unwrap());
+    }
+
+    #[test]
+    fn changed_key_regenerates_before_a_stopped_instance_restarts() {
+        let (_temp, paths) = managed_paths();
+        seed_appliance(&paths, &reference());
+        let cli = FakeLimaCli::new();
+        let quick_config = RuntimeEnsureConfig {
+            health_check_attempts: 1,
+            health_check_interval: Duration::ZERO,
+        };
+        let first = ensure_runtime(&paths, &spec(), &cli, &FakeOciSource, &quick_config);
+        assert_eq!(first.result, Outcome::Changed);
+        cli.set_status(&spec().instance_name, "Stopped");
+        let changed_key =
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIchangedBootstrapKeyFor840 changed\n";
+        fs::write(
+            paths.lima_home_directory.join("_config/user.pub"),
+            changed_key,
+        )
+        .unwrap();
+
+        let second = ensure_runtime(&paths, &spec(), &cli, &FakeOciSource, &quick_config);
+        assert_eq!(second.result, Outcome::Changed);
+        verify_bootstrap_disk(&paths, &spec().instance_name, changed_key).unwrap();
     }
 
     #[test]

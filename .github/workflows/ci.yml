@@ -731,6 +731,25 @@ jobs:
             --disk "$RUNNER_TEMP/runtime-appliance/x86_64-linux/mottainai-runtime-appliance.raw" \
             --output "$RUNNER_TEMP/runtime-appliance-oci-fixture"
 
+      - name: Generate production MTNAI_BOOT disk for canonical appliance proof (Issue #840)
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          key_directory="$RUNNER_TEMP/runtime-appliance-production-bootstrap"
+          state_directory="$key_directory/state"
+          mkdir -p "$key_directory"
+          ssh-keygen -q -t ed25519 -N '' -f "$key_directory/user"
+          production_disk="$(
+            cargo run --locked --manifest-path host-bootstrap/Cargo.toml \
+              --example generate-bootstrap-disk -- \
+              --state-directory "$state_directory" \
+              --public-key-file "$key_directory/user.pub"
+          )"
+          test -s "$production_disk"
+          echo "MOTTAINAI_PRODUCTION_BOOTSTRAP_DISK=$production_disk" >> "$GITHUB_ENV"
+          echo "MOTTAINAI_PRODUCTION_BOOTSTRAP_PRIVATE_KEY=$key_directory/user" >> "$GITHUB_ENV"
+
       - name: Prove mottainai-init resolves/verifies the real canonical Runtime Appliance and run the Runtime Appliance golden path (Issue #630, #661, #768)
         if: github.event_name != 'pull_request'
         env:
@@ -749,7 +768,10 @@ jobs:
             # resolver, so this one derivation runs outside the default Nix
             # sandbox; every other Runtime build in this workflow stays
             # sandboxed.
-            sudo "$(command -v nix)" build --option sandbox relaxed --no-update-lock-file --no-link .#checks.x86_64-linux.runtime-appliance-golden-path
+            sudo env \
+              MOTTAINAI_PRODUCTION_BOOTSTRAP_DISK="$MOTTAINAI_PRODUCTION_BOOTSTRAP_DISK" \
+              MOTTAINAI_PRODUCTION_BOOTSTRAP_PRIVATE_KEY="$MOTTAINAI_PRODUCTION_BOOTSTRAP_PRIVATE_KEY" \
+              "$(command -v nix)" build --impure --option sandbox relaxed --no-update-lock-file --no-link .#checks.x86_64-linux.runtime-appliance-golden-path
           ) >"$golden_log" 2>&1 &
           golden_pid=$!
 
