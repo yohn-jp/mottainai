@@ -1,0 +1,61 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "UEFI is encoded as the canonical boot contract for the Runtime Appliance used by Route 3; no `firmware.legacyBIOS=true` workaround is introduced into the Lima spec."
+    },
+    {
+      "checked": false,
+      "text": "`nix/runtime-appliance-image.nix` builds the canonical raw appliance with an EFI-capable GPT layout (`partitionTableType = \"efi\"` or an equally explicit UEFI-only nixpkgs-supported layout), including a FAT32 ESP."
+    },
+    {
+      "checked": false,
+      "text": "The appliance NixOS configuration installs a UEFI-capable bootloader rather than BIOS GRUB to `/dev/vda`; if GRUB is retained, it uses EFI support with `device = \"nodev\"` and a firmware-discoverable removable/fallback installation path suitable for a fresh VM without pre-existing EFI variables."
+    },
+    {
+      "checked": false,
+      "text": "The image remains a self-bootable single-disk appliance and does not require externally supplied kernel/initrd flags."
+    },
+    {
+      "checked": false,
+      "text": "The canonical `nixosModules.runtime` remains the sole guest semantic authority; this change is limited to appliance delivery/bootloader/partition concerns."
+    },
+    {
+      "checked": false,
+      "text": "Route 3 continues to let Lima own QEMU command construction, firmware selection, VM lifecycle, device topology, and provider internals."
+    },
+    {
+      "checked": false,
+      "text": "Route 4's verified edk2/QEMU binding remains the firmware/toolchain identity consumed by Lima; no unrelated ambient firmware/runtime is silently substituted."
+    },
+    {
+      "checked": false,
+      "text": "Regression coverage proves the built appliance uses GPT + ESP and that its bootloader configuration is UEFI-compatible; legacy MBR-only output must fail the test."
+    },
+    {
+      "checked": false,
+      "text": "Existing appliance boundary/golden-path Nix checks continue to pass and are updated where necessary to assert the UEFI image contract."
+    },
+    {
+      "checked": false,
+      "text": "A fresh Route 3 convergence using an unmodified release descriptor reaches guest SSH on real Linux x86_64 KVM hardware and subsequently reaches `managedRuntimeReady=true`."
+    },
+    {
+      "checked": false,
+      "text": "Re-run the #261 Route 3 certification step with the corrected canonical appliance and record the exact appliance identity used."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 815,
+    "state": "open",
+    "title": "fix(runtime): make canonical Runtime Appliance UEFI/GPT bootable under Lima",
+    "url": "https://github.com/yohn-jp/mottainai/issues/815"
+  },
+  "linked": {
+    "number": 815
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

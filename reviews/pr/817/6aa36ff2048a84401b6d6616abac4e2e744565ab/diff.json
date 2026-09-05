@@ -1,0 +1,104 @@
+{
+  "baseSha": "9d88539333167418d692e59acb4b22a22b06cedc",
+  "files": [
+    {
+      "additions": 8,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 100,
+          "oldLines": 1,
+          "oldStart": 100
+        },
+        {
+          "newLines": 7,
+          "newStart": 116,
+          "oldLines": 2,
+          "oldStart": 116
+        }
+      ],
+      "path": "nix/flake.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 25,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 10,
+          "oldLines": 1,
+          "oldStart": 10
+        },
+        {
+          "newLines": 1,
+          "newStart": 22,
+          "oldLines": 0,
+          "oldStart": 21
+        },
+        {
+          "newLines": 5,
+          "newStart": 27,
+          "oldLines": 1,
+          "oldStart": 26
+        },
+        {
+          "newLines": 18,
+          "newStart": 39,
+          "oldLines": 0,
+          "oldStart": 33
+        }
+      ],
+      "path": "nix/runtime-appliance-image.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 38,
+          "oldLines": 1,
+          "oldStart": 38
+        },
+        {
+          "newLines": 1,
+          "newStart": 574,
+          "oldLines": 1,
+          "oldStart": 574
+        }
+      ],
+      "path": "nix/tests/runtime-appliance-golden-path.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 23,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 137,
+          "oldLines": 0,
+          "oldStart": 136
+        },
+        {
+          "newLines": 22,
+          "newStart": 143,
+          "oldLines": 0,
+          "oldStart": 141
+        }
+      ],
+      "path": "nix/tests/runtime-appliance.nix",
+      "status": "modified"
+    }
+  ],
+  "headSha": "6aa36ff2048a84401b6d6616abac4e2e744565ab",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 58,
+    "deletions": 7,
+    "filesChanged": 4
+  }
+}

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #817 @ 6aa36ff2048a</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #817: fix(runtime): make canonical Runtime Appliance UEFI/GPT bootable under Lima</h1>
+<p>Base <code>main</code> @ <code>9d88539333167418d692e59acb4b22a22b06cedc</code> &rarr;
+Head <code>fix/815-runtime-appliance-uefi-gpt</code> @ <code>6aa36ff2048a84401b6d6616abac4e2e744565ab</code></p>
+<p>Revision <code>6aa36ff2048a</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/815">#815</a> fix(runtime): make canonical Runtime Appliance UEFI/GPT bootable under Lima (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] UEFI is encoded as the canonical boot contract for the Runtime Appliance used by Route 3; no `firmware.legacyBIOS=true` workaround is introduced into the Lima spec.</li>
+<li>[ ] `nix/runtime-appliance-image.nix` builds the canonical raw appliance with an EFI-capable GPT layout (`partitionTableType = &quot;efi&quot;` or an equally explicit UEFI-only nixpkgs-supported layout), including a FAT32 ESP.</li>
+<li>[ ] The appliance NixOS configuration installs a UEFI-capable bootloader rather than BIOS GRUB to `/dev/vda`; if GRUB is retained, it uses EFI support with `device = &quot;nodev&quot;` and a firmware-discoverable removable/fallback installation path suitable for a fresh VM without pre-existing EFI variables.</li>
+<li>[ ] The image remains a self-bootable single-disk appliance and does not require externally supplied kernel/initrd flags.</li>
+<li>[ ] The canonical `nixosModules.runtime` remains the sole guest semantic authority; this change is limited to appliance delivery/bootloader/partition concerns.</li>
+<li>[ ] Route 3 continues to let Lima own QEMU command construction, firmware selection, VM lifecycle, device topology, and provider internals.</li>
+<li>[ ] Route 4&#39;s verified edk2/QEMU binding remains the firmware/toolchain identity consumed by Lima; no unrelated ambient firmware/runtime is silently substituted.</li>
+<li>[ ] Regression coverage proves the built appliance uses GPT + ESP and that its bootloader configuration is UEFI-compatible; legacy MBR-only output must fail the test.</li>
+<li>[ ] Existing appliance boundary/golden-path Nix checks continue to pass and are updated where necessary to assert the UEFI image contract.</li>
+<li>[ ] A fresh Route 3 convergence using an unmodified release descriptor reaches guest SSH on real Linux x86_64 KVM hardware and subsequently reaches `managedRuntimeReady=true`.</li>
+<li>[ ] Re-run the #261 Route 3 certification step with the corrected canonical appliance and record the exact appliance identity used.</li></ul>
+
+
+
+<h2>Changed files (4, +58/-7)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>nix/flake.nix</td><td>modified</td><td>+8</td><td>-3</td></tr>
+<tr><td>nix/runtime-appliance-image.nix</td><td>modified</td><td>+25</td><td>-2</td></tr>
+<tr><td>nix/tests/runtime-appliance-golden-path.nix</td><td>modified</td><td>+2</td><td>-2</td></tr>
+<tr><td>nix/tests/runtime-appliance.nix</td><td>modified</td><td>+23</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "9d88539333167418d692e59acb4b22a22b06cedc",
+    "draft": false,
+    "headRef": "fix/815-runtime-appliance-uefi-gpt",
+    "headSha": "6aa36ff2048a84401b6d6616abac4e2e744565ab",
+    "number": 817,
+    "title": "fix(runtime): make canonical Runtime Appliance UEFI/GPT bootable under Lima"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "6aa36ff2048a84401b6d6616abac4e2e744565ab",
+    "immutable": true,
+    "shortId": "6aa36ff2048a"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-05T02:05:40.699Z"
+  }
+}
