@@ -287,6 +287,16 @@ pub struct QemuState {
     pub version: String,
     pub host_os: String,
     pub host_architecture: String,
+    /// The selected Route 4 descriptor QEMU profile identity, when this
+    /// state was materialized from a release-bound provider requirement.
+    /// Legacy/default-mode state remains representable and can be migrated
+    /// only after its complete stored artifact provenance is re-verified.
+    #[serde(default)]
+    pub provider_identity: Option<String>,
+    /// A profile identity kind change is not interchangeable with the
+    /// selected release's attested provider profile.
+    #[serde(default)]
+    pub provider_identity_kind: Option<String>,
     #[serde(default)]
     pub provisioning: Option<QemuProvisioningState>,
 }
@@ -546,6 +556,8 @@ pub fn ensure_qemu(
         version: identity.version.clone(),
         host_os: host_os.to_owned(),
         host_architecture: host_architecture.to_owned(),
+        provider_identity: None,
+        provider_identity_kind: None,
         provisioning: None,
     };
     write_state(&paths.qemu_state_file, &state)
@@ -992,6 +1004,8 @@ fn write_provisioned_state(
         version: identity.version.clone(),
         host_os: host_os.to_owned(),
         host_architecture: host_architecture.to_owned(),
+        provider_identity: None,
+        provider_identity_kind: None,
         provisioning: Some(QemuProvisioningState {
             contract_schema_version: QEMU_CONTRACT_SCHEMA_VERSION.to_owned(),
             system_artifact_id: contract.system.artifact_id.clone(),
@@ -1002,6 +1016,48 @@ fn write_provisioned_state(
             data_artifact_sha256: contract.data.artifact_sha256.clone(),
         }),
     };
+    write_state(&paths.qemu_state_file, &state)
+}
+
+/// Attests the exact descriptor QEMU profile identity after the verified
+/// artifact closure has been materialized. The identity is carried through,
+/// never recomputed from artifact fields.
+pub fn attest_provider_profile(
+    paths: &ManagedPaths,
+    provider_identity: &str,
+    provider_identity_kind: &str,
+) -> Result<(), BootstrapError> {
+    let mut state = read_state(&paths.qemu_state_file)?.ok_or_else(|| {
+        BootstrapError::new(
+            ErrorCode::QemuStateAmbiguous,
+            "cannot attest a QEMU provider profile without managed QEMU state",
+        )
+    })?;
+    match (
+        state.provider_identity.as_deref(),
+        state.provider_identity_kind.as_deref(),
+    ) {
+        (None, None) => {}
+        (Some(identity), Some(identity_kind))
+            if identity == provider_identity && identity_kind == provider_identity_kind =>
+        {
+            return Ok(())
+        }
+        (None, Some(_)) | (Some(_), None) => {
+            return Err(BootstrapError::new(
+                ErrorCode::QemuIncompatible,
+                "managed QEMU provider profile attestation is incomplete",
+            ))
+        }
+        _ => {
+            return Err(BootstrapError::new(
+                ErrorCode::QemuIncompatible,
+                "managed QEMU provider profile attestation cannot be overwritten",
+            ))
+        }
+    }
+    state.provider_identity = Some(provider_identity.to_owned());
+    state.provider_identity_kind = Some(provider_identity_kind.to_owned());
     write_state(&paths.qemu_state_file, &state)
 }
 

@@ -2,6 +2,9 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 use crate::contract::{ProviderContract, BOOTSTRAP_VERSION};
+use crate::deployment_descriptor::{
+    validate_qemu_state_against_requirement, QemuStateMatch, Route4ProviderRequirement,
+};
 use crate::error::{BootstrapError, ErrorCode};
 use crate::evidence::{diagnostic, Evidence};
 use crate::host::{classify_host, host_error, inspect_host_at, HostObservation};
@@ -10,8 +13,8 @@ use crate::model::{Classification, Outcome, StepEvidence};
 use crate::paths::{default_state_directory, ensure_managed_root, ManagedPaths};
 use crate::provider::{ensure_provider, inspect_provider, ArtifactSource, HttpArtifactSource};
 use crate::qemu::{
-    ensure_provisioned_qemu, ensure_qemu, inspect_override, inspect_qemu, requirement,
-    HttpQemuArtifactSource, QemuArtifactSource, QemuContract, QemuOverride,
+    attest_provider_profile, ensure_provisioned_qemu, ensure_qemu, inspect_override, inspect_qemu,
+    requirement, HttpQemuArtifactSource, QemuArtifactSource, QemuContract, QemuOverride,
 };
 
 #[derive(Clone, Debug)]
@@ -88,6 +91,46 @@ impl Bootstrap {
         qemu_source: Q,
         qemu_contract: QemuContract,
     ) -> Evidence {
+        self.reconcile_inner(source, qemu_source, qemu_contract, None)
+    }
+
+    /// Reconciles one already verified Route 4 descriptor projection. The
+    /// descriptor-derived Lima/QEMU contracts are checked against the config
+    /// before any host/provider mutation, and managed QEMU provenance is
+    /// matched against the same descriptor requirement before reuse.
+    pub fn reconcile_with_route4_requirement<S: ArtifactSource, Q: QemuArtifactSource>(
+        &self,
+        source: S,
+        qemu_source: Q,
+        requirement: Route4ProviderRequirement,
+    ) -> Evidence {
+        let provider_contract = match requirement.lima_contract() {
+            Ok(contract) => contract,
+            Err(error) => return failure_for_contract(error, &self.config),
+        };
+        if self.config.contract != provider_contract {
+            return failure_for_contract(
+                BootstrapError::new(
+                    ErrorCode::ContractInvalid,
+                    "explicit provider contract does not match the selected deployment descriptor",
+                ),
+                &self.config,
+            );
+        }
+        let qemu_contract = match requirement.qemu_contract() {
+            Ok(contract) => contract,
+            Err(error) => return failure_for_contract(error, &self.config),
+        };
+        self.reconcile_inner(source, qemu_source, qemu_contract, Some(&requirement))
+    }
+
+    fn reconcile_inner<S: ArtifactSource, Q: QemuArtifactSource>(
+        &self,
+        source: S,
+        qemu_source: Q,
+        qemu_contract: QemuContract,
+        route4_requirement: Option<&Route4ProviderRequirement>,
+    ) -> Evidence {
         let host = self.config.host_override.clone().unwrap_or_else(|| {
             inspect_host_at(
                 &self.config.kvm_path,
@@ -104,7 +147,10 @@ impl Bootstrap {
                 .to_string_lossy()
                 .into_owned(),
         ));
-        let mut evidence = Evidence::new(host.clone(), desired_provider, requirement());
+        let desired_qemu = route4_requirement
+            .map(|value| value.qemu.observation_requirement())
+            .unwrap_or_else(requirement);
+        let mut evidence = Evidence::new(host.clone(), desired_provider, desired_qemu.clone());
         if let Err(error) = self.config.contract.validate() {
             evidence.steps.push(provider_step(
                 "provider",
@@ -121,6 +167,7 @@ impl Bootstrap {
             evidence.steps.push(qemu_step(
                 Classification::Ambiguous,
                 None,
+                desired_qemu.clone(),
                 Some(&error.message),
             ));
             evidence.fail(&error, false);
@@ -169,16 +216,41 @@ impl Bootstrap {
                 evidence.steps.push(qemu_step(
                     Classification::Ambiguous,
                     None,
+                    desired_qemu.clone(),
                     Some(&error.message),
                 ));
                 evidence.fail(&error, false);
                 return evidence;
             }
         };
+        let legacy_qemu_state = if let Some(route4_requirement) = route4_requirement {
+            if let Some(state) = qemu_observation.state.as_ref() {
+                match validate_qemu_state_against_requirement(&route4_requirement.qemu, state) {
+                    Ok(QemuStateMatch::Exact) => false,
+                    Ok(QemuStateMatch::LegacyUnattested) => true,
+                    Err(error) => {
+                        evidence.fail(&error, false);
+                        return evidence;
+                    }
+                }
+            } else if self.config.qemu_path.is_some() || self.config.qemu_override.is_some() {
+                let error = BootstrapError::new(
+                    ErrorCode::QemuIncompatible,
+                    "an explicit QEMU override cannot replace the selected descriptor-managed provenance",
+                );
+                evidence.fail(&error, false);
+                return evidence;
+            } else {
+                false
+            }
+        } else {
+            false
+        };
         evidence.observed_qemu = qemu_observation.observed_identity.clone();
         evidence.steps.push(qemu_step(
             qemu_observation.classification,
             qemu_observation.observed_identity.clone(),
+            desired_qemu,
             qemu_observation.diagnostic.as_deref(),
         ));
         let qemu_requires_provisioning = self.config.qemu_override.is_none()
@@ -197,6 +269,16 @@ impl Bootstrap {
                 &host.architecture,
             ) {
                 Ok(identity) => {
+                    if let Some(route4_requirement) = route4_requirement {
+                        if let Err(error) = attest_provider_profile(
+                            &paths,
+                            &route4_requirement.qemu.identity,
+                            &route4_requirement.qemu.identity_kind,
+                        ) {
+                            evidence.fail(&error, false);
+                            return evidence;
+                        }
+                    }
                     evidence.observed_qemu = Some(identity);
                     evidence.steps[1].changed = true;
                     evidence.steps[1].classification = Classification::Repairable;
@@ -249,6 +331,20 @@ impl Bootstrap {
             evidence.steps[1].changed = true;
             evidence.steps[1].classification = Classification::Repairable;
             evidence.steps[1].observed_qemu = evidence.observed_qemu.clone();
+            evidence.changed = true;
+        }
+
+        if legacy_qemu_state {
+            let route4_requirement = route4_requirement.expect("legacy state requires Route 4");
+            if let Err(error) = attest_provider_profile(
+                &paths,
+                &route4_requirement.qemu.identity,
+                &route4_requirement.qemu.identity_kind,
+            ) {
+                evidence.fail(&error, false);
+                return evidence;
+            }
+            evidence.steps[1].changed = true;
             evidence.changed = true;
         }
 
@@ -398,6 +494,7 @@ fn host_step(name: &str, classification: Classification, message: Option<&str>) 
 fn qemu_step(
     classification: Classification,
     observed_identity: Option<crate::model::QemuIdentity>,
+    desired_qemu: crate::model::QemuRequirement,
     message: Option<&str>,
 ) -> StepEvidence {
     StepEvidence {
@@ -406,7 +503,7 @@ fn qemu_step(
         changed: false,
         desired_identity: None,
         observed_identity: None,
-        desired_qemu: Some(requirement()),
+        desired_qemu: Some(desired_qemu),
         observed_qemu: observed_identity,
         diagnostic: diagnostic(message),
     }

@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use mottainai_host_bootstrap::contract::ProviderContract;
-use mottainai_host_bootstrap::deployment_descriptor::runtime_spec_from_descriptor;
+use mottainai_host_bootstrap::deployment_descriptor::{
+    provider_requirement_from_descriptor, runtime_spec_from_descriptor,
+    validate_qemu_state_against_requirement, QemuStateMatch, Route4ProviderRequirement,
+};
 use mottainai_host_bootstrap::error::{BootstrapError, ErrorCode};
 use mottainai_host_bootstrap::lima::{
     ensure_runtime_locked, RuntimeEnsureConfig, RuntimeSpec, SystemLimaCli,
@@ -13,7 +16,9 @@ use mottainai_host_bootstrap::model::Classification;
 use mottainai_host_bootstrap::oci::HttpOciSource;
 use mottainai_host_bootstrap::paths::ensure_managed_root;
 use mottainai_host_bootstrap::provider::{inspect_provider, FileArtifactSource};
-use mottainai_host_bootstrap::qemu::{inspect_qemu, managed_qemu_system_path};
+use mottainai_host_bootstrap::qemu::{
+    attest_provider_profile, inspect_qemu, managed_qemu_system_path,
+};
 use mottainai_host_bootstrap::reconcile::{failure_for_contract, Bootstrap, BootstrapConfig};
 use mottainai_host_bootstrap::BOOTSTRAP_VERSION;
 
@@ -38,11 +43,21 @@ fn main() {
     }
     let json = arguments.iter().any(|argument| argument == "--json");
     match parse_config(&arguments) {
-        Ok((config, artifact_path)) => {
-            let evidence = if let Some(path) = artifact_path {
-                Bootstrap::new(config).reconcile_with_source(FileArtifactSource { path })
-            } else {
-                Bootstrap::new(config).reconcile()
+        Ok((config, artifact_path, route4_requirement)) => {
+            let bootstrap = Bootstrap::new(config);
+            let evidence = match (route4_requirement, artifact_path) {
+                (Some(requirement), Some(path)) => bootstrap.reconcile_with_route4_requirement(
+                    FileArtifactSource { path },
+                    mottainai_host_bootstrap::qemu::HttpQemuArtifactSource,
+                    requirement,
+                ),
+                (Some(requirement), None) => bootstrap.reconcile_with_route4_requirement(
+                    mottainai_host_bootstrap::provider::HttpArtifactSource,
+                    mottainai_host_bootstrap::qemu::HttpQemuArtifactSource,
+                    requirement,
+                ),
+                (None, Some(path)) => bootstrap.reconcile_with_source(FileArtifactSource { path }),
+                (None, None) => bootstrap.reconcile(),
             };
             if json {
                 println!(
@@ -94,9 +109,19 @@ fn main() {
 
 fn parse_config(
     arguments: &[String],
-) -> Result<(BootstrapConfig, Option<PathBuf>), BootstrapError> {
+) -> Result<
+    (
+        BootstrapConfig,
+        Option<PathBuf>,
+        Option<Route4ProviderRequirement>,
+    ),
+    BootstrapError,
+> {
     let mut config = BootstrapConfig::from_defaults()?;
     let mut artifact_path = None;
+    let mut descriptor_path: Option<PathBuf> = None;
+    let mut sidecar_path: Option<PathBuf> = None;
+    let mut explicit_contract = false;
     let mut index = 0;
     while index < arguments.len() {
         match arguments[index].as_str() {
@@ -118,6 +143,7 @@ fn parse_config(
                 artifact_path = Some(value(arguments, index, "--artifact")?.into());
             }
             "--contract" => {
+                explicit_contract = true;
                 index += 1;
                 let path: PathBuf = value(arguments, index, "--contract")?.into();
                 let contents = std::fs::read_to_string(&path)
@@ -128,6 +154,14 @@ fn parse_config(
                         format!("parse provider contract: {error}"),
                     )
                 })?;
+            }
+            "--descriptor" => {
+                index += 1;
+                descriptor_path = Some(value(arguments, index, "--descriptor")?.into());
+            }
+            "--sidecar" => {
+                index += 1;
+                sidecar_path = Some(value(arguments, index, "--sidecar")?.into());
             }
             argument if argument.starts_with('-') => {
                 return Err(BootstrapError::new(
@@ -144,8 +178,33 @@ fn parse_config(
         }
         index += 1;
     }
+    if descriptor_path.is_none() && sidecar_path.is_some() {
+        return Err(BootstrapError::new(
+            ErrorCode::DeploymentDescriptorInvalid,
+            "--sidecar requires --descriptor",
+        ));
+    }
+    let route4_requirement = descriptor_path
+        .map(|descriptor_path| {
+            let sidecar_path = sidecar_path.unwrap_or_else(|| {
+                let mut path = descriptor_path.clone().into_os_string();
+                path.push(".sha256");
+                path.into()
+            });
+            let requirement = provider_requirement_from_descriptor(&descriptor_path, &sidecar_path)?;
+            let descriptor_contract = requirement.lima_contract()?;
+            if explicit_contract && config.contract != descriptor_contract {
+                return Err(BootstrapError::new(
+                    ErrorCode::ContractInvalid,
+                    "--contract does not exactly match the selected deployment descriptor provider profile",
+                ));
+            }
+            config.contract = descriptor_contract;
+            Ok(requirement)
+        })
+        .transpose()?;
     config.environment_path = env::var_os("PATH");
-    Ok((config, artifact_path))
+    Ok((config, artifact_path, route4_requirement))
 }
 
 fn value(arguments: &[String], index: usize, option: &str) -> Result<String, BootstrapError> {
@@ -165,7 +224,8 @@ fn print_help() {
     println!(
         "mottainai-init {BOOTSTRAP_VERSION}\n\
 Usage: mottainai-init [--json] [--state-directory PATH] [--contract PATH]\n\
-       [--artifact PATH] [--kvm-path PATH] [--qemu-path PATH]\n\
+       [--descriptor PATH [--sidecar PATH]] [--artifact PATH]\n\
+       [--kvm-path PATH] [--qemu-path PATH]\n\
        mottainai-init runtime ensure --spec PATH [--json] [--state-directory PATH]\n\
        mottainai-init runtime ensure --descriptor PATH [--sidecar PATH]\n\
            [--instance-name NAME] [--cpus N] [--memory-mib N] [--json]\n\
@@ -173,6 +233,8 @@ Usage: mottainai-init [--json] [--state-directory PATH] [--contract PATH]\n\
 Reconciles the supported Linux x86_64/KVM Lima provider and its QEMU\n\
 prerequisite into the managed state directory. No privileged mutation,\n\
 package-manager invocation, VM launch, or ambient PATH adoption is performed.\n\n\
+When `--descriptor` is supplied, its verified Route 4 provider profile is the\n\
+sole Lima/QEMU release authority; explicit provider overrides must match it.\n\
 `runtime ensure` converges the local Lima-managed Runtime instance described\n\
 by the given Runtime specification to ready state: it requires the Lima\n\
 provider above to already be bootstrapped. When the specification names a\n\
@@ -310,6 +372,28 @@ fn run_runtime_ensure(
         }
         index += 1;
     }
+    let route4_requirement = match descriptor_path.as_ref() {
+        Some(descriptor_path) => {
+            let sidecar_path = sidecar_path.clone().unwrap_or_else(|| {
+                let mut path = descriptor_path.clone().into_os_string();
+                path.push(".sha256");
+                path.into()
+            });
+            Some(provider_requirement_from_descriptor(
+                descriptor_path,
+                &sidecar_path,
+            )?)
+        }
+        None => {
+            if sidecar_path.is_some() {
+                return Err(BootstrapError::new(
+                    ErrorCode::DeploymentDescriptorInvalid,
+                    "--sidecar requires --descriptor",
+                ));
+            }
+            None
+        }
+    };
     let spec = match (spec_path, descriptor_path) {
         (Some(_), Some(_)) => {
             return Err(BootstrapError::new(
@@ -353,10 +437,13 @@ fn run_runtime_ensure(
     if let Some(state_directory) = state_directory {
         bootstrap_config.state_directory = state_directory;
     }
+    if let Some(route4_requirement) = route4_requirement.as_ref() {
+        bootstrap_config.contract = route4_requirement.lima_contract()?;
+    }
     let paths = bootstrap_config.paths();
     ensure_managed_root(&paths)?;
     let lock = BootstrapLock::acquire(&paths)?;
-    let contract = ProviderContract::default();
+    let contract = bootstrap_config.contract.clone();
     let observation = inspect_provider(
         &paths,
         &contract,
@@ -383,6 +470,18 @@ fn run_runtime_ensure(
             ErrorCode::ProviderNotBootstrapped,
             "the managed QEMU prerequisite is not bootstrapped or no longer verifies",
         ));
+    }
+    if let (Some(route4_requirement), Some(state)) =
+        (route4_requirement.as_ref(), qemu_observation.state.as_ref())
+    {
+        match validate_qemu_state_against_requirement(&route4_requirement.qemu, state)? {
+            QemuStateMatch::Exact => {}
+            QemuStateMatch::LegacyUnattested => attest_provider_profile(
+                &paths,
+                &route4_requirement.qemu.identity,
+                &route4_requirement.qemu.identity_kind,
+            )?,
+        }
     }
     let cli = SystemLimaCli {
         binary_path: limactl_path,
