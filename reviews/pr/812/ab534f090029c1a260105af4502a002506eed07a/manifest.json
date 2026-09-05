@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "20d58b1e7900d7d958482a0a75c0d40c018a5987",
+    "draft": false,
+    "headRef": "chore/811-ci-authority-audit",
+    "headSha": "ab534f090029c1a260105af4502a002506eed07a",
+    "number": 812,
+    "title": "chore(ci): audit and converge CI dependencies"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "ab534f090029c1a260105af4502a002506eed07a",
+    "immutable": true,
+    "shortId": "ab534f090029"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-05T00:42:28.740Z"
+  }
+}

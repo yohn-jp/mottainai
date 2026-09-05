@@ -1,0 +1,644 @@
+{
+  "baseSha": "20d58b1e7900d7d958482a0a75c0d40c018a5987",
+  "files": [
+    {
+      "additions": 0,
+      "deletions": 145,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 145,
+          "oldStart": 1
+        }
+      ],
+      "path": ".github/actions/setup-pnpm-node/action.yml",
+      "status": "removed"
+    },
+    {
+      "additions": 18,
+      "deletions": 44,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 64,
+          "oldLines": 1,
+          "oldStart": 64
+        },
+        {
+          "newLines": 0,
+          "newStart": 175,
+          "oldLines": 7,
+          "oldStart": 176
+        },
+        {
+          "newLines": 4,
+          "newStart": 194,
+          "oldLines": 2,
+          "oldStart": 201
+        },
+        {
+          "newLines": 0,
+          "newStart": 230,
+          "oldLines": 7,
+          "oldStart": 236
+        },
+        {
+          "newLines": 4,
+          "newStart": 249,
+          "oldLines": 2,
+          "oldStart": 261
+        },
+        {
+          "newLines": 2,
+          "newStart": 455,
+          "oldLines": 2,
+          "oldStart": 465
+        },
+        {
+          "newLines": 0,
+          "newStart": 457,
+          "oldLines": 1,
+          "oldStart": 468
+        },
+        {
+          "newLines": 0,
+          "newStart": 459,
+          "oldLines": 3,
+          "oldStart": 471
+        },
+        {
+          "newLines": 2,
+          "newStart": 539,
+          "oldLines": 2,
+          "oldStart": 553
+        },
+        {
+          "newLines": 0,
+          "newStart": 541,
+          "oldLines": 1,
+          "oldStart": 556
+        },
+        {
+          "newLines": 0,
+          "newStart": 543,
+          "oldLines": 3,
+          "oldStart": 559
+        },
+        {
+          "newLines": 1,
+          "newStart": 648,
+          "oldLines": 1,
+          "oldStart": 666
+        },
+        {
+          "newLines": 2,
+          "newStart": 663,
+          "oldLines": 2,
+          "oldStart": 681
+        },
+        {
+          "newLines": 0,
+          "newStart": 665,
+          "oldLines": 1,
+          "oldStart": 684
+        },
+        {
+          "newLines": 0,
+          "newStart": 667,
+          "oldLines": 3,
+          "oldStart": 687
+        },
+        {
+          "newLines": 2,
+          "newStart": 834,
+          "oldLines": 2,
+          "oldStart": 856
+        },
+        {
+          "newLines": 0,
+          "newStart": 836,
+          "oldLines": 1,
+          "oldStart": 859
+        },
+        {
+          "newLines": 0,
+          "newStart": 838,
+          "oldLines": 3,
+          "oldStart": 862
+        }
+      ],
+      "path": ".github/workflows/ci.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 11,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 37,
+          "oldLines": 7,
+          "oldStart": 37
+        },
+        {
+          "newLines": 0,
+          "newStart": 40,
+          "oldLines": 4,
+          "oldStart": 46
+        }
+      ],
+      "path": ".github/workflows/governance.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 28,
+      "deletions": 40,
+      "hunks": [
+        {
+          "newLines": 9,
+          "newStart": 70,
+          "oldLines": 0,
+          "oldStart": 69
+        },
+        {
+          "newLines": 0,
+          "newStart": 258,
+          "oldLines": 11,
+          "oldStart": 250
+        },
+        {
+          "newLines": 4,
+          "newStart": 273,
+          "oldLines": 2,
+          "oldStart": 275
+        },
+        {
+          "newLines": 3,
+          "newStart": 333,
+          "oldLines": 1,
+          "oldStart": 333
+        },
+        {
+          "newLines": 3,
+          "newStart": 372,
+          "oldLines": 1,
+          "oldStart": 370
+        },
+        {
+          "newLines": 1,
+          "newStart": 381,
+          "oldLines": 1,
+          "oldStart": 377
+        },
+        {
+          "newLines": 0,
+          "newStart": 446,
+          "oldLines": 10,
+          "oldStart": 443
+        },
+        {
+          "newLines": 4,
+          "newStart": 482,
+          "oldLines": 2,
+          "oldStart": 488
+        },
+        {
+          "newLines": 1,
+          "newStart": 758,
+          "oldLines": 1,
+          "oldStart": 762
+        },
+        {
+          "newLines": 1,
+          "newStart": 760,
+          "oldLines": 1,
+          "oldStart": 764
+        },
+        {
+          "newLines": 2,
+          "newStart": 1143,
+          "oldLines": 2,
+          "oldStart": 1147
+        },
+        {
+          "newLines": 0,
+          "newStart": 1147,
+          "oldLines": 8,
+          "oldStart": 1152
+        }
+      ],
+      "path": ".github/workflows/publish.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 18,
+      "deletions": 4,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 143,
+          "oldLines": 1,
+          "oldStart": 143
+        },
+        {
+          "newLines": 1,
+          "newStart": 149,
+          "oldLines": 1,
+          "oldStart": 146
+        },
+        {
+          "newLines": 3,
+          "newStart": 167,
+          "oldLines": 1,
+          "oldStart": 164
+        },
+        {
+          "newLines": 10,
+          "newStart": 172,
+          "oldLines": 1,
+          "oldStart": 167
+        }
+      ],
+      "path": ".github/workflows/review-pages.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 14,
+          "oldLines": 1,
+          "oldStart": 14
+        }
+      ],
+      "path": "CONTRIBUTING.md",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 31,
+          "oldLines": 1,
+          "oldStart": 31
+        }
+      ],
+      "path": "nix/mottainai.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 80,
+          "oldLines": 1,
+          "oldStart": 80
+        },
+        {
+          "newLines": 1,
+          "newStart": 93,
+          "oldLines": 1,
+          "oldStart": 93
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 29,
+      "deletions": 29,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 43,
+          "oldLines": 2,
+          "oldStart": 43
+        },
+        {
+          "newLines": 2,
+          "newStart": 72,
+          "oldLines": 2,
+          "oldStart": 72
+        },
+        {
+          "newLines": 2,
+          "newStart": 77,
+          "oldLines": 2,
+          "oldStart": 77
+        },
+        {
+          "newLines": 2,
+          "newStart": 82,
+          "oldLines": 2,
+          "oldStart": 82
+        },
+        {
+          "newLines": 2,
+          "newStart": 87,
+          "oldLines": 2,
+          "oldStart": 87
+        },
+        {
+          "newLines": 2,
+          "newStart": 92,
+          "oldLines": 2,
+          "oldStart": 92
+        },
+        {
+          "newLines": 2,
+          "newStart": 97,
+          "oldLines": 2,
+          "oldStart": 97
+        },
+        {
+          "newLines": 2,
+          "newStart": 102,
+          "oldLines": 2,
+          "oldStart": 102
+        },
+        {
+          "newLines": 1,
+          "newStart": 1152,
+          "oldLines": 1,
+          "oldStart": 1152
+        },
+        {
+          "newLines": 1,
+          "newStart": 1155,
+          "oldLines": 1,
+          "oldStart": 1155
+        },
+        {
+          "newLines": 1,
+          "newStart": 1158,
+          "oldLines": 1,
+          "oldStart": 1158
+        },
+        {
+          "newLines": 1,
+          "newStart": 1161,
+          "oldLines": 1,
+          "oldStart": 1161
+        },
+        {
+          "newLines": 1,
+          "newStart": 1164,
+          "oldLines": 1,
+          "oldStart": 1164
+        },
+        {
+          "newLines": 1,
+          "newStart": 1167,
+          "oldLines": 1,
+          "oldStart": 1167
+        },
+        {
+          "newLines": 1,
+          "newStart": 1170,
+          "oldLines": 1,
+          "oldStart": 1170
+        },
+        {
+          "newLines": 6,
+          "newStart": 1172,
+          "oldLines": 6,
+          "oldStart": 1172
+        }
+      ],
+      "path": "pnpm-lock.yaml",
+      "status": "modified"
+    },
+    {
+      "additions": 7,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 7,
+          "newStart": 24,
+          "oldLines": 0,
+          "oldStart": 23
+        }
+      ],
+      "path": "pnpm-workspace.yaml",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 7,
+          "oldLines": 1,
+          "oldStart": 7
+        }
+      ],
+      "path": "review-pages/package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 29,
+      "deletions": 29,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 12,
+          "oldLines": 2,
+          "oldStart": 12
+        },
+        {
+          "newLines": 2,
+          "newStart": 17,
+          "oldLines": 2,
+          "oldStart": 17
+        },
+        {
+          "newLines": 2,
+          "newStart": 22,
+          "oldLines": 2,
+          "oldStart": 22
+        },
+        {
+          "newLines": 2,
+          "newStart": 27,
+          "oldLines": 2,
+          "oldStart": 27
+        },
+        {
+          "newLines": 2,
+          "newStart": 32,
+          "oldLines": 2,
+          "oldStart": 32
+        },
+        {
+          "newLines": 2,
+          "newStart": 37,
+          "oldLines": 2,
+          "oldStart": 37
+        },
+        {
+          "newLines": 2,
+          "newStart": 42,
+          "oldLines": 2,
+          "oldStart": 42
+        },
+        {
+          "newLines": 2,
+          "newStart": 47,
+          "oldLines": 2,
+          "oldStart": 47
+        },
+        {
+          "newLines": 1,
+          "newStart": 54,
+          "oldLines": 1,
+          "oldStart": 54
+        },
+        {
+          "newLines": 1,
+          "newStart": 57,
+          "oldLines": 1,
+          "oldStart": 57
+        },
+        {
+          "newLines": 1,
+          "newStart": 60,
+          "oldLines": 1,
+          "oldStart": 60
+        },
+        {
+          "newLines": 1,
+          "newStart": 63,
+          "oldLines": 1,
+          "oldStart": 63
+        },
+        {
+          "newLines": 1,
+          "newStart": 66,
+          "oldLines": 1,
+          "oldStart": 66
+        },
+        {
+          "newLines": 1,
+          "newStart": 69,
+          "oldLines": 1,
+          "oldStart": 69
+        },
+        {
+          "newLines": 1,
+          "newStart": 72,
+          "oldLines": 1,
+          "oldStart": 72
+        },
+        {
+          "newLines": 6,
+          "newStart": 74,
+          "oldLines": 6,
+          "oldStart": 74
+        }
+      ],
+      "path": "review-pages/pnpm-lock.yaml",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 59,
+          "oldLines": 1,
+          "oldStart": 59
+        }
+      ],
+      "path": "review-pages/test/review-input.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 30,
+          "oldLines": 1,
+          "oldStart": 30
+        }
+      ],
+      "path": "scripts/npm-publish-contract.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 20,
+      "deletions": 7,
+      "hunks": [
+        {
+          "newLines": 10,
+          "newStart": 11,
+          "oldLines": 5,
+          "oldStart": 11
+        },
+        {
+          "newLines": 2,
+          "newStart": 47,
+          "oldLines": 2,
+          "oldStart": 42
+        },
+        {
+          "newLines": 8,
+          "newStart": 56,
+          "oldLines": 0,
+          "oldStart": 50
+        }
+      ],
+      "path": "scripts/validate-actions.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 24,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 9,
+          "newStart": 63,
+          "oldLines": 0,
+          "oldStart": 62
+        },
+        {
+          "newLines": 13,
+          "newStart": 93,
+          "oldLines": 0,
+          "oldStart": 83
+        },
+        {
+          "newLines": 1,
+          "newStart": 111,
+          "oldLines": 1,
+          "oldStart": 89
+        },
+        {
+          "newLines": 1,
+          "newStart": 122,
+          "oldLines": 1,
+          "oldStart": 100
+        }
+      ],
+      "path": "scripts/validate-actions.test.mjs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "ab534f090029c1a260105af4502a002506eed07a",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 182,
+    "deletions": 318,
+    "filesChanged": 16
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "`yohn-jp/.github#150` is completed and merged before implementation begins."
+    },
+    {
+      "checked": false,
+      "text": "Every third-party `uses:` reference and material Node/pnpm/runtime/tool version in current Mottainai CI is inventoried and classified."
+    },
+    {
+      "checked": false,
+      "text": "All stale external Actions are updated to the current provider-compatible approved revision, with immutable external pins and accurate version comments."
+    },
+    {
+      "checked": false,
+      "text": "Compatible generic Node/pnpm setup/install mechanics consume the refreshed `yohn-jp/.github` authority from `@main`; redundant local implementations/direct setup paths are removed where semantics match."
+    },
+    {
+      "checked": false,
+      "text": "Mottainai-specific integration, package/E2E, Runtime/Nix/VM/Appliance, host-bootstrap, release artifact lifecycle, and Review Pages trust/proof semantics remain local where they are genuinely product-specific."
+    },
+    {
+      "checked": false,
+      "text": "Specialized local exceptions, including any install flags or release semantics not expressible by the shared contract, are retained only when necessary and documented in the PR."
+    },
+    {
+      "checked": false,
+      "text": "CodeQL, governance, TypeScript baseline, publish, Review Pages, integration/package E2E, Runtime/Nix/VM/Appliance, and host-bootstrap paths are all explicitly covered by the audit rather than sampled selectively."
+    },
+    {
+      "checked": false,
+      "text": "No duplicate CI execution or duplicate dependency installation is introduced."
+    },
+    {
+      "checked": false,
+      "text": "Actual PR Actions prove every affected path, followed by a current-main full CI run after merge to prove no regression and record relevant critical-path/setup timings."
+    },
+    {
+      "checked": false,
+      "text": "The PR records the final shared-versus-local authority matrix and the before/after dependency inventory."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 811,
+    "state": "open",
+    "title": "chore: audit and update all CI dependencies after shared provider refresh",
+    "url": "https://github.com/yohn-jp/mottainai/issues/811"
+  },
+  "linked": {
+    "number": 811
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
