@@ -5,9 +5,13 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::appliance::ApplianceReference;
+use crate::contract::{ProviderContract, CONTRACT_SCHEMA_VERSION, SUPPORTED_LIMA_VERSION};
 use crate::error::{BootstrapError, ErrorCode};
 use crate::lima::{ManagedGenerationIntent, RuntimeSpec, RUNTIME_SPEC_SCHEMA_VERSION};
-use crate::qemu::{QemuState, QEMU_CONTRACT_SCHEMA_VERSION, QEMU_SUPPORTED_VERSION};
+use crate::qemu::{
+    QemuArtifact, QemuContract, QemuDataArtifact, QemuState, QEMU_CONTRACT_SCHEMA_VERSION,
+    QEMU_IMAGE_EXECUTABLE, QEMU_SUPPORTED_VERSION, QEMU_SYSTEM_EXECUTABLE,
+};
 
 /// Bounded ceiling for the published deployment descriptor document itself
 /// (distinct from `lima::MAX_MANIFEST_BYTES`, which bounds the smaller
@@ -124,6 +128,8 @@ struct DescriptorQemu {
 
 #[derive(Clone, Debug, Deserialize)]
 struct DescriptorProviderCompatibility {
+    #[serde(rename = "limaMajor")]
+    lima_major: u8,
     #[serde(rename = "qemuMajor")]
     qemu_major: u8,
     #[serde(rename = "requiresKvm")]
@@ -131,7 +137,21 @@ struct DescriptorProviderCompatibility {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+struct DescriptorProviderProvisioning {
+    strategy: String,
+    #[serde(rename = "contractVersion")]
+    contract_version: u8,
+    #[serde(rename = "stateDirectory")]
+    state_directory: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
 struct DescriptorRoute4Provider {
+    #[serde(rename = "profileId")]
+    profile_id: String,
+    architecture: String,
+    provisioning: DescriptorProviderProvisioning,
+    lima: QemuArtifactIdentity,
     qemu: DescriptorQemu,
     compatibility: DescriptorProviderCompatibility,
 }
@@ -161,6 +181,26 @@ struct DeploymentDescriptor {
     route2: DescriptorRoute2,
     route3: DescriptorRoute3,
     route4: DescriptorRoute4,
+}
+
+/// The complete immutable Route 4 provider projection selected by one
+/// verified deployment descriptor. `lima` uses the same bounded provider
+/// artifact vocabulary as the QEMU projection; the alias keeps one artifact
+/// identity schema for the whole provider profile.
+pub type ProviderArtifactIdentity = QemuArtifactIdentity;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Route4ProviderRequirement {
+    pub profile_id: String,
+    pub architecture: String,
+    pub provisioning_strategy: String,
+    pub provisioning_contract_version: u8,
+    pub state_directory: String,
+    pub lima: ProviderArtifactIdentity,
+    pub qemu: QemuProviderRequirement,
+    pub lima_major: u8,
+    pub qemu_major: u8,
+    pub requires_kvm: bool,
 }
 
 fn invalid(message: impl Into<String>) -> BootstrapError {
@@ -384,6 +424,19 @@ impl QemuProviderRequirement {
         }
         Ok(())
     }
+
+    pub fn observation_requirement(&self) -> crate::model::QemuRequirement {
+        crate::model::QemuRequirement {
+            system_executable: QEMU_SYSTEM_EXECUTABLE.to_owned(),
+            image_executable: QEMU_IMAGE_EXECUTABLE.to_owned(),
+            minimum_version: self.minimum_version.clone(),
+            accelerator: if self.requires_kvm {
+                "kvm".to_owned()
+            } else {
+                "".to_owned()
+            },
+        }
+    }
 }
 
 fn qemu_requirement_from_descriptor_value(
@@ -402,6 +455,161 @@ fn qemu_requirement_from_descriptor_value(
         minimum_version: qemu.minimum_version.clone(),
         qemu_major: compatibility.qemu_major,
         requires_kvm: compatibility.requires_kvm,
+    };
+    requirement.validate()?;
+    Ok(requirement)
+}
+
+fn validate_lima_artifact(artifact: &ProviderArtifactIdentity) -> Result<(), BootstrapError> {
+    let valid_filename = !artifact.filename.is_empty()
+        && artifact.filename.len() <= 256
+        && artifact.filename.ends_with(".tar.gz")
+        && artifact
+            .filename
+            .chars()
+            .all(|character| !character.is_control() && !matches!(character, '/' | '\\'));
+    let valid_locator = artifact
+        .locator
+        .starts_with("https://github.com/lima-vm/lima/")
+        && !artifact.locator.contains(['\n', '\r', '"', '\'']);
+    let valid_size = artifact
+        .size_bytes
+        .is_none_or(|size| (1..=256 * 1024 * 1024).contains(&size));
+    if artifact.version != SUPPORTED_LIMA_VERSION
+        || artifact.architecture != "x86_64"
+        || !valid_filename
+        || !valid_sha256(&artifact.sha256)
+        || !valid_locator
+        || !valid_size
+    {
+        return Err(invalid(
+            "Route 4 Lima profile is not the supported immutable x86_64 archive identity",
+        ));
+    }
+    Ok(())
+}
+
+fn artifact_id(filename: &str) -> String {
+    filename
+        .strip_suffix(".tar.gz")
+        .unwrap_or(filename)
+        .to_owned()
+}
+
+fn lima_contract_from_requirement(requirement: &Route4ProviderRequirement) -> ProviderContract {
+    ProviderContract {
+        schema_version: CONTRACT_SCHEMA_VERSION.to_owned(),
+        provider: "lima".to_owned(),
+        version: requirement.lima.version.clone(),
+        artifact_id: artifact_id(&requirement.lima.filename),
+        artifact_url: requirement.lima.locator.clone(),
+        artifact_sha256: requirement.lima.sha256.clone(),
+        max_artifact_bytes: requirement.lima.size_bytes.unwrap_or(256 * 1024 * 1024),
+        download_timeout_seconds: 300,
+        archive_binary_path: "bin/limactl".to_owned(),
+    }
+}
+
+fn qemu_contract_from_requirement(
+    requirement: &Route4ProviderRequirement,
+) -> Result<QemuContract, BootstrapError> {
+    let system =
+        requirement.qemu.system_binary.as_ref().ok_or_else(|| {
+            invalid("pinned Route 4 QEMU profile has no system artifact identity")
+        })?;
+    let image = requirement
+        .qemu
+        .image_binary
+        .as_ref()
+        .ok_or_else(|| invalid("pinned Route 4 QEMU profile has no image artifact identity"))?;
+    let max_qemu_artifact_bytes =
+        |artifact: &ProviderArtifactIdentity| artifact.size_bytes.unwrap_or(64 * 1024 * 1024);
+    let contract = QemuContract {
+        schema_version: QEMU_CONTRACT_SCHEMA_VERSION.to_owned(),
+        version: requirement.qemu.version.clone(),
+        system: QemuArtifact {
+            artifact_id: artifact_id(&system.filename),
+            artifact_url: system.locator.clone(),
+            artifact_sha256: system.sha256.clone(),
+            archive_binary_path: format!("bin/{QEMU_SYSTEM_EXECUTABLE}"),
+            max_artifact_bytes: max_qemu_artifact_bytes(system),
+        },
+        image: QemuArtifact {
+            artifact_id: artifact_id(&image.filename),
+            artifact_url: image.locator.clone(),
+            artifact_sha256: image.sha256.clone(),
+            archive_binary_path: format!("bin/{QEMU_IMAGE_EXECUTABLE}"),
+            max_artifact_bytes: max_qemu_artifact_bytes(image),
+        },
+        data: QemuDataArtifact {
+            artifact_id: artifact_id(&requirement.qemu.data_artifact.filename),
+            artifact_url: requirement.qemu.data_artifact.locator.clone(),
+            artifact_sha256: requirement.qemu.data_artifact.sha256.clone(),
+            max_artifact_bytes: max_qemu_artifact_bytes(&requirement.qemu.data_artifact),
+        },
+    };
+    contract.validate()?;
+    Ok(contract)
+}
+
+impl Route4ProviderRequirement {
+    /// Validates the supported Route 4 provider mode after the descriptor's
+    /// publication schema and shared compatibility boundary have run.
+    pub fn validate(&self) -> Result<(), BootstrapError> {
+        let state_directory_valid = !self.state_directory.is_empty()
+            && self.state_directory.len() <= 4096
+            && self
+                .state_directory
+                .chars()
+                .all(|character| !character.is_control());
+        if self.profile_id != SUPPORTED_DEPLOYMENT_PROFILE
+            || self.architecture != SUPPORTED_DEPLOYMENT_ARCHITECTURE
+            || self.provisioning_contract_version != 1
+            || self.provisioning_strategy != "pinned-verified-archives"
+            || self.qemu.identity_kind != "executable-digest"
+            || !state_directory_valid
+            || self.lima_major != version_major(&self.lima.version).unwrap_or_default()
+            || self.lima_major != version_major(SUPPORTED_LIMA_VERSION).unwrap_or_default()
+            || self.qemu_major != self.qemu.qemu_major
+            || !self.requires_kvm
+        {
+            return Err(invalid(
+                "Route 4 provider profile is not the supported pinned Linux x86_64/KVM mode",
+            ));
+        }
+        validate_lima_artifact(&self.lima)?;
+        self.qemu.validate()?;
+        lima_contract_from_requirement(self).validate()?;
+        qemu_contract_from_requirement(self)?;
+        Ok(())
+    }
+
+    pub fn lima_contract(&self) -> Result<ProviderContract, BootstrapError> {
+        self.validate()?;
+        Ok(lima_contract_from_requirement(self))
+    }
+
+    pub fn qemu_contract(&self) -> Result<QemuContract, BootstrapError> {
+        self.validate()?;
+        qemu_contract_from_requirement(self)
+    }
+}
+
+fn route4_provider_requirement_from_descriptor_value(
+    descriptor: &DeploymentDescriptor,
+) -> Result<Route4ProviderRequirement, BootstrapError> {
+    let provider = &descriptor.route4.provider;
+    let requirement = Route4ProviderRequirement {
+        profile_id: provider.profile_id.clone(),
+        architecture: provider.architecture.clone(),
+        provisioning_strategy: provider.provisioning.strategy.clone(),
+        provisioning_contract_version: provider.provisioning.contract_version,
+        state_directory: provider.provisioning.state_directory.clone(),
+        lima: provider.lima.clone(),
+        qemu: qemu_requirement_from_descriptor_value(descriptor)?,
+        lima_major: provider.compatibility.lima_major,
+        qemu_major: provider.compatibility.qemu_major,
+        requires_kvm: provider.compatibility.requires_kvm,
     };
     requirement.validate()?;
     Ok(requirement)
@@ -435,6 +643,16 @@ pub fn qemu_requirement_from_descriptor(
     qemu_requirement_from_descriptor_value(&descriptor)
 }
 
+/// Reads the selected release descriptor through the same verified and
+/// compatible boundary and returns the complete Route 4 provider profile.
+pub fn provider_requirement_from_descriptor(
+    descriptor_path: &Path,
+    sidecar_path: &Path,
+) -> Result<Route4ProviderRequirement, BootstrapError> {
+    let descriptor = read_verified_compatible_descriptor(descriptor_path, sidecar_path)?;
+    route4_provider_requirement_from_descriptor_value(&descriptor)
+}
+
 /// Verifies that managed QEMU provenance proves every artifact identity in a
 /// selected release requirement. A missing or role-swapped data identity is
 /// an incompatibility and must be rejected before a provider is invoked.
@@ -463,6 +681,8 @@ pub fn validate_qemu_state_against_requirement(
     })?;
     if state.schema_version != QEMU_CONTRACT_SCHEMA_VERSION
         || state.version != requirement.version
+        || state.provider_identity.as_deref() != Some(requirement.identity.as_str())
+        || state.provider_identity_kind.as_deref() != Some(requirement.identity_kind.as_str())
         || provisioning.contract_schema_version != QEMU_CONTRACT_SCHEMA_VERSION
     {
         return Err(BootstrapError::new(
@@ -575,6 +795,13 @@ mod tests {
     }
 
     fn sample_descriptor_json() -> String {
+        let lima_artifact = serde_json::json!({
+            "version": "2.2.0",
+            "architecture": "x86_64",
+            "filename": "lima-2.2.0-Linux-x86_64.tar.gz",
+            "sha256": "5".repeat(64),
+            "locator": "https://github.com/lima-vm/lima/releases/download/v2.2.0/lima-2.2.0-Linux-x86_64.tar.gz",
+        });
         let qemu_artifact = |filename: &str, sha256: &str| {
             serde_json::json!({
                 "version": "11.0.0",
@@ -617,6 +844,14 @@ mod tests {
             },
             "route4": {
                 "provider": {
+                    "profileId": "linux-x86_64",
+                    "architecture": "x86_64-linux",
+                    "provisioning": {
+                        "strategy": "pinned-verified-archives",
+                        "contractVersion": 1,
+                        "stateDirectory": "$XDG_STATE_HOME/mottainai/host-bootstrap",
+                    },
+                    "lima": lima_artifact,
                     "qemu": {
                         "version": "11.0.0",
                         "architecture": "x86_64",
@@ -628,6 +863,7 @@ mod tests {
                         "minimumVersion": "11.0.0",
                     },
                     "compatibility": {
+                        "limaMajor": 2,
                         "qemuMajor": 11,
                         "requiresKvm": true,
                     },
@@ -692,6 +928,33 @@ mod tests {
     }
 
     #[test]
+    fn projects_the_complete_route4_provider_profile_without_compiled_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let (descriptor_path, sidecar_path) =
+            write_descriptor(dir.path(), &sample_descriptor_json());
+        let requirement = provider_requirement_from_descriptor(&descriptor_path, &sidecar_path)
+            .expect("supported descriptor projects to Route 4 provider requirement");
+
+        assert_eq!(requirement.profile_id, "linux-x86_64");
+        assert_eq!(
+            requirement.provisioning_strategy,
+            "pinned-verified-archives"
+        );
+        assert_eq!(requirement.lima.version, "2.2.0");
+        assert_eq!(requirement.lima.sha256, "5".repeat(64));
+        assert_eq!(
+            requirement.lima_contract().unwrap().artifact_sha256,
+            "5".repeat(64)
+        );
+
+        let qemu_contract = requirement.qemu_contract().unwrap();
+        assert_eq!(qemu_contract.system.artifact_sha256, "2".repeat(64));
+        assert_eq!(qemu_contract.image.artifact_sha256, "3".repeat(64));
+        assert_eq!(qemu_contract.data.artifact_sha256, "4".repeat(64));
+        assert_ne!(qemu_contract, crate::qemu::QemuContract::default());
+    }
+
+    #[test]
     fn changing_only_managed_qemu_data_identity_fails_closed() {
         let dir = tempfile::tempdir().unwrap();
         let descriptor_value: serde_json::Value =
@@ -709,6 +972,8 @@ mod tests {
             version: "11.0.0".to_owned(),
             host_os: "linux".to_owned(),
             host_architecture: "x86_64".to_owned(),
+            provider_identity: Some("1".repeat(64)),
+            provider_identity_kind: Some("executable-digest".to_owned()),
             provisioning: Some(QemuProvisioningState {
                 contract_schema_version: QEMU_CONTRACT_SCHEMA_VERSION.to_owned(),
                 system_artifact_id: "qemu-system-bin-linux-amd64-x86_64-softmmu-11.0.0.1"
@@ -726,6 +991,40 @@ mod tests {
         let error = validate_qemu_state_against_requirement(&requirement, &state).unwrap_err();
         assert_eq!(error.code, ErrorCode::QemuIncompatible);
         assert!(error.message.contains("data artifact identity"));
+    }
+
+    #[test]
+    fn changing_only_qemu_profile_identity_fails_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let (descriptor_path, sidecar_path) =
+            write_descriptor(dir.path(), &sample_descriptor_json());
+        let requirement =
+            qemu_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap();
+        let state = QemuState {
+            schema_version: QEMU_CONTRACT_SCHEMA_VERSION.to_owned(),
+            system_path: "/managed/qemu-system-x86_64".to_owned(),
+            system_sha256: "a".repeat(64),
+            image_path: "/managed/qemu-img".to_owned(),
+            image_sha256: "b".repeat(64),
+            version: "11.0.0".to_owned(),
+            host_os: "linux".to_owned(),
+            host_architecture: "x86_64".to_owned(),
+            provider_identity: Some("9".repeat(64)),
+            provider_identity_kind: Some("executable-digest".to_owned()),
+            provisioning: Some(QemuProvisioningState {
+                contract_schema_version: QEMU_CONTRACT_SCHEMA_VERSION.to_owned(),
+                system_artifact_id: "qemu-system-bin-linux-amd64-x86_64-softmmu-11.0.0.1"
+                    .to_owned(),
+                system_artifact_sha256: "2".repeat(64),
+                image_artifact_id: "qemu-img-linux-amd64-11.0.0.1".to_owned(),
+                image_artifact_sha256: "3".repeat(64),
+                data_artifact_id: "qemu-system-data-linux-amd64-11.0.0.1".to_owned(),
+                data_artifact_sha256: "4".repeat(64),
+            }),
+        };
+        let error = validate_qemu_state_against_requirement(&requirement, &state).unwrap_err();
+        assert_eq!(error.code, ErrorCode::QemuIncompatible);
+        assert!(error.message.contains("selected release requirement"));
     }
 
     #[test]

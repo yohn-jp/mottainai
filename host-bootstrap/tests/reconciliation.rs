@@ -12,6 +12,7 @@ use std::thread;
 use flate2::{write::GzEncoder, Compression};
 use mottainai_host_bootstrap::appliance::ApplianceReference;
 use mottainai_host_bootstrap::contract::ProviderContract;
+use mottainai_host_bootstrap::deployment_descriptor::provider_requirement_from_descriptor;
 use mottainai_host_bootstrap::error::{BootstrapError, ErrorCode};
 use mottainai_host_bootstrap::host::{HostObservation, KvmObservation};
 use mottainai_host_bootstrap::lima::{RuntimeSpec, RUNTIME_SPEC_SCHEMA_VERSION};
@@ -372,6 +373,88 @@ fn fixture() -> (TempDir, ProviderContract, FixtureSource, BootstrapConfig) {
     (temporary, contract, source, bootstrap)
 }
 
+fn write_route4_descriptor(
+    directory: &Path,
+    provider_contract: &ProviderContract,
+    qemu_contract: &QemuContract,
+) -> (PathBuf, PathBuf) {
+    let provider_filename = format!("{}.tar.gz", provider_contract.artifact_id);
+    let qemu_artifact = |artifact: &QemuArtifact| {
+        serde_json::json!({
+            "version": qemu_contract.version.clone(),
+            "architecture": "x86_64",
+            "filename": format!("{}.tar.gz", artifact.artifact_id),
+            "sha256": artifact.artifact_sha256.clone(),
+            "locator": artifact.artifact_url.clone(),
+        })
+    };
+    let data_artifact = serde_json::json!({
+        "version": qemu_contract.version.clone(),
+        "architecture": "x86_64",
+        "filename": format!("{}.tar.gz", qemu_contract.data.artifact_id),
+        "sha256": qemu_contract.data.artifact_sha256.clone(),
+        "locator": qemu_contract.data.artifact_url.clone(),
+    });
+    let descriptor = serde_json::json!({
+        "contractId": "mottainai.deployment.v1",
+        "schemaVersion": 1,
+        "profile": "linux-x86_64",
+        "architecture": "x86_64-linux",
+        "route2": { "managedGeneration": { "packages": [] } },
+        "route3": {
+            "appliance": {
+                "registry": "ghcr.io",
+                "repository": "yohn-jp/mottainai/runtime-appliance",
+                "digest": format!("sha256:{}", "c".repeat(64)),
+            },
+            "managedGenerationIdentity": "d".repeat(64),
+        },
+        "route4": {
+            "provider": {
+                "profileId": "linux-x86_64",
+                "architecture": "x86_64-linux",
+                "provisioning": {
+                    "strategy": "pinned-verified-archives",
+                    "contractVersion": 1,
+                    "stateDirectory": "$XDG_STATE_HOME/mottainai/host-bootstrap",
+                },
+                "lima": {
+                    "version": provider_contract.version.clone(),
+                    "architecture": "x86_64",
+                    "filename": provider_filename,
+                    "sha256": provider_contract.artifact_sha256.clone(),
+                    "locator": provider_contract.artifact_url.clone(),
+                },
+                "qemu": {
+                    "version": qemu_contract.version.clone(),
+                    "architecture": "x86_64",
+                    "identity": "e".repeat(64),
+                    "identityKind": "executable-digest",
+                    "systemBinary": qemu_artifact(&qemu_contract.system),
+                    "imageBinary": qemu_artifact(&qemu_contract.image),
+                    "dataArtifact": data_artifact,
+                    "minimumVersion": qemu_contract.version.clone(),
+                },
+                "compatibility": {
+                    "limaMajor": 2,
+                    "qemuMajor": 11,
+                    "requiresKvm": true,
+                },
+            },
+        },
+    });
+    let descriptor_path = directory.join("deployment-descriptor.json");
+    let sidecar_path = directory.join("deployment-descriptor.json.sha256");
+    let bytes = serde_json::to_vec(&descriptor).unwrap();
+    fs::write(&descriptor_path, &bytes).unwrap();
+    fs::write(
+        &sidecar_path,
+        format!("{}  deployment-descriptor.json\n", sha256_hex(&bytes)),
+    )
+    .unwrap();
+    (descriptor_path, sidecar_path)
+}
+
 fn runtime_spec() -> RuntimeSpec {
     RuntimeSpec {
         schema_version: RUNTIME_SPEC_SCHEMA_VERSION.to_owned(),
@@ -387,6 +470,115 @@ fn runtime_spec() -> RuntimeSpec {
         mounts: Vec::new(),
         managed_generation: None,
     }
+}
+
+#[test]
+fn descriptor_route4_identity_reaches_production_reconciliation_state() {
+    let (temporary, provider_contract, provider_source, mut bootstrap_config) = fixture();
+    let (qemu_contract, qemu_source) = qemu_fixture();
+    let (descriptor_path, sidecar_path) =
+        write_route4_descriptor(temporary.path(), &provider_contract, &qemu_contract);
+    let requirement =
+        provider_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap();
+
+    assert_eq!(requirement.lima_contract().unwrap(), provider_contract);
+    bootstrap_config.qemu_override = None;
+    let evidence = Bootstrap::new(bootstrap_config.clone()).reconcile_with_route4_requirement(
+        provider_source.clone(),
+        qemu_source.clone(),
+        requirement.clone(),
+    );
+    assert_eq!(evidence.result, Outcome::Changed);
+    assert_eq!(provider_source.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(qemu_source.calls.load(Ordering::SeqCst), 3);
+
+    let provider_state: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(bootstrap_config.paths().state_file).unwrap())
+            .unwrap();
+    assert_eq!(provider_state["artifact_id"], provider_contract.artifact_id);
+    assert_eq!(
+        provider_state["artifact_sha256"],
+        provider_contract.artifact_sha256
+    );
+
+    let qemu_state: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(bootstrap_config.paths().qemu_state_file).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(qemu_state["provider_identity"], "e".repeat(64));
+    assert_eq!(qemu_state["provider_identity_kind"], "executable-digest");
+    assert_eq!(
+        qemu_state["provisioning"]["system_artifact_sha256"],
+        qemu_contract.system.artifact_sha256
+    );
+    assert_eq!(
+        qemu_state["provisioning"]["image_artifact_sha256"],
+        qemu_contract.image.artifact_sha256
+    );
+    assert_eq!(
+        qemu_state["provisioning"]["data_artifact_sha256"],
+        qemu_contract.data.artifact_sha256
+    );
+
+    let reused = Bootstrap::new(bootstrap_config.clone()).reconcile_with_route4_requirement(
+        provider_source.clone(),
+        qemu_source.clone(),
+        requirement.clone(),
+    );
+    assert_eq!(reused.result, Outcome::NoOp);
+    assert_eq!(provider_source.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(qemu_source.calls.load(Ordering::SeqCst), 3);
+
+    let mut tampered_state = qemu_state;
+    tampered_state["provisioning"]["data_artifact_sha256"] =
+        serde_json::Value::String("f".repeat(64));
+    fs::write(
+        bootstrap_config.paths().qemu_state_file,
+        serde_json::to_vec(&tampered_state).unwrap(),
+    )
+    .unwrap();
+    let mismatch = Bootstrap::new(bootstrap_config).reconcile_with_route4_requirement(
+        provider_source.clone(),
+        qemu_source,
+        requirement,
+    );
+    assert_eq!(mismatch.result, Outcome::Blocked);
+    assert_eq!(mismatch.error_code.as_deref(), Some("qemu_incompatible"));
+    assert_eq!(provider_source.calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn descriptor_rejects_incompatible_provider_and_qemu_overrides_closed() {
+    let (temporary, provider_contract, provider_source, bootstrap_config) = fixture();
+    let (qemu_contract, qemu_source) = qemu_fixture();
+    let (descriptor_path, sidecar_path) =
+        write_route4_descriptor(temporary.path(), &provider_contract, &qemu_contract);
+    let requirement =
+        provider_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap();
+
+    let mut mismatched_contract_config = bootstrap_config.clone();
+    mismatched_contract_config.qemu_override = None;
+    mismatched_contract_config.contract = ProviderContract::default();
+    let contract_evidence = Bootstrap::new(mismatched_contract_config)
+        .reconcile_with_route4_requirement(
+            provider_source.clone(),
+            qemu_source.clone(),
+            requirement.clone(),
+        );
+    assert_eq!(
+        contract_evidence.error_code.as_deref(),
+        Some("contract_invalid")
+    );
+    assert_eq!(provider_source.calls.load(Ordering::SeqCst), 0);
+    assert_eq!(qemu_source.calls.load(Ordering::SeqCst), 0);
+
+    let qemu_override_evidence = Bootstrap::new(bootstrap_config)
+        .reconcile_with_route4_requirement(provider_source.clone(), qemu_source, requirement);
+    assert_eq!(
+        qemu_override_evidence.error_code.as_deref(),
+        Some("qemu_incompatible")
+    );
+    assert_eq!(provider_source.calls.load(Ordering::SeqCst), 0);
 }
 
 #[test]
