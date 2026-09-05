@@ -332,8 +332,10 @@ pub struct LimaInstanceInfo {
 
 /// Only the documented/public `limactl` operations #600's provider contract
 /// allows: `list`, `create`, `start`, and `shell` (guest exec, used both for
-/// recovery and to reach the canonical bootstrap health boundary). No
-/// private state files, sockets, or driver internals are touched.
+/// recovery and to reach the canonical bootstrap health boundary). The
+/// cleanup-only delete operation below is also public and bounded; it is not
+/// part of Runtime reconciliation. No private state files, sockets, or
+/// driver internals are touched.
 pub trait LimaCli {
     fn list_all(&self) -> Result<Vec<LimaInstanceInfo>, BootstrapError>;
     fn create(&self, instance: &str, config_path: &Path) -> Result<(), BootstrapError>;
@@ -624,6 +626,18 @@ impl SystemLimaCli {
                 }
             }
         }
+    }
+
+    /// Removes one instance from the caller-owned isolated Lima home. Runtime
+    /// reconciliation never calls this method: it exists for integration
+    /// harness cleanup after a production composition run, including when the
+    /// create/start path fails part-way through.
+    pub fn delete_for_cleanup(&self, instance: &str) -> Result<(), BootstrapError> {
+        self.run(
+            &["--tty=false", "delete", "--force", instance],
+            CREATE_START_TIMEOUT,
+        )
+        .map(|_| ())
     }
 }
 

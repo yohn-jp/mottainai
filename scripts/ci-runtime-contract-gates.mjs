@@ -132,6 +132,11 @@ export function loadRuntimeApplianceStepGates(repositoryRoot) {
       "runtime-appliance",
       "Prove mottainai-init resolves/verifies the real canonical Runtime Appliance",
     ),
+    productionLimaComposition: extractStepIfExpression(
+      ciWorkflowText,
+      "runtime-appliance",
+      "Exercise production Lima composition through canonical guest health",
+    ),
   };
 }
 
