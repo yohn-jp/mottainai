@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #822 @ 56bcc165b546</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #822: chore(ci): normalize CI and release toolchain dependency ownership</h1>
+<p>Base <code>main</code> @ <code>41b2ab8efda4ad202a4c9b798cde3f66884a6035</code> &rarr;
+Head <code>chore/821-ci-toolchain-dependencies</code> @ <code>56bcc165b546c251f53a58c04057577d10792be5</code></p>
+<p>Revision <code>56bcc165b546</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/821">#821</a> chore(ci): normalize CI and release toolchain dependency ownership (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Inventory all CI/release dependencies in `.github/workflows/**`, `.github/actions/**`, and directly related release scripts, including Action refs and Action-installed tool versions.</li>
+<li>[ ] Update `oras-project/setup-oras` to a current supported stable revision and keep it pinned by immutable commit SHA.</li>
+<li>[ ] Use a current stable ORAS CLI version that is explicitly verified compatible with that pinned `setup-oras` revision.</li>
+<li>[ ] Add a pre-publication validation/smoke path that detects an invalid `setup-oras` × ORAS version combination before the release publication stage.</li>
+<li>[ ] External GitHub Actions are aligned to supported current stable releases while retaining immutable SHA pins.</li>
+<li>[ ] No unintended external `@main`, `@master`, or other floating refs remain.</li>
+<li>[ ] Repository/internal `yohn-jp/.github` floating refs are either replaced by an explicit immutable/versioned contract or documented as deliberate exceptions with a clear authority.</li>
+<li>[ ] Duplicate version literals for the same tool are reduced to a single authority where practical.</li>
+<li>[ ] GitHub Actions dependencies supported by Dependabot remain automatically updateable through the existing `github-actions` configuration.</li>
+<li>[ ] Tool-version values that Dependabot cannot update have an explicit validation/update mechanism rather than being silently left stale.</li>
+<li>[ ] Dependency policy is enforced by a regression check so future stale/floating references fail CI with a clear diagnostic.</li>
+<li>[ ] The failed 0.9.1 release path can proceed through ORAS setup and OCI publication after this change without weakening release identity or supply-chain guarantees.</li></ul>
+
+
+
+<h2>Changed files (5, +259/-5)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/publish.yml</td><td>modified</td><td>+6</td><td>-1</td></tr>
+<tr><td>package.json</td><td>modified</td><td>+5</td><td>-4</td></tr>
+<tr><td>scripts/validate-actions.test.mjs</td><td>modified</td><td>+17</td><td>-0</td></tr>
+<tr><td>scripts/validate-oras-compatibility.mjs</td><td>added</td><td>+111</td><td>-0</td></tr>
+<tr><td>scripts/validate-oras-compatibility.test.mjs</td><td>added</td><td>+120</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

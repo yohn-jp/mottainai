@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "41b2ab8efda4ad202a4c9b798cde3f66884a6035",
+    "draft": false,
+    "headRef": "chore/821-ci-toolchain-dependencies",
+    "headSha": "56bcc165b546c251f53a58c04057577d10792be5",
+    "number": 822,
+    "title": "chore(ci): normalize CI and release toolchain dependency ownership"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "56bcc165b546c251f53a58c04057577d10792be5",
+    "immutable": true,
+    "shortId": "56bcc165b546"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-05T04:06:24.308Z"
+  }
+}
