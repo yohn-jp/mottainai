@@ -7,6 +7,7 @@ import {
   checkOrasCompatibility,
   extractOrasSetupStep,
   fetchSupportedOrasVersions,
+  validateSetupOrasSha,
 } from "./validate-oras-compatibility.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -36,6 +37,24 @@ test("rejects a step missing a with.version input", () => {
   );
 });
 
+test("validateSetupOrasSha accepts exactly a lowercase 40-character hexadecimal commit SHA", () => {
+  assert.equal(validateSetupOrasSha(sha), sha);
+});
+
+test("validateSetupOrasSha rejects revisions that could alter the trusted outbound path", () => {
+  for (const unsafeRevision of [
+    "main",
+    "v2.0.1",
+    "../main",
+    `${sha}/../../main`,
+    sha.toUpperCase(),
+    sha.slice(0, 39),
+    `${sha}0`,
+  ]) {
+    assert.throws(() => validateSetupOrasSha(unsafeRevision), { message: /40-character lowercase hexadecimal commit SHA/u });
+  }
+});
+
 test("checkOrasCompatibility passes when the requested version is in the supported table", () => {
   const result = checkOrasCompatibility("1.3.3", ["1.3.0", "1.3.1", "1.3.2", "1.3.3"]);
   assert.equal(result.compatible, true);
@@ -59,6 +78,19 @@ test("fetchSupportedOrasVersions parses the upstream release table for the pinne
 
   const versions = await fetchSupportedOrasVersions(sha, fixtureFetch);
   assert.deepEqual(versions.sort(), ["1.3.1", "1.3.2", "1.3.3"]);
+});
+
+test("fetchSupportedOrasVersions rejects an unsafe revision before making a network request", async () => {
+  let called = false;
+  const fixtureFetch = async () => {
+    called = true;
+    throw new Error("must not be called");
+  };
+
+  await assert.rejects(fetchSupportedOrasVersions("../main", fixtureFetch), {
+    message: /40-character lowercase hexadecimal commit SHA/u,
+  });
+  assert.equal(called, false);
 });
 
 test("fetchSupportedOrasVersions surfaces a clear diagnostic on a non-OK response", async () => {
