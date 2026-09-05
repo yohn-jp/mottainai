@@ -1,0 +1,16 @@
+{
+  "acceptanceCriteria": [],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 834,
+    "state": "open",
+    "title": "fix: oras manifest fetch/tag pass unsupported --no-tty flag, breaking release OCI publish",
+    "url": "https://github.com/yohn-jp/mottainai/issues/834"
+  },
+  "linked": {
+    "number": 834
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
