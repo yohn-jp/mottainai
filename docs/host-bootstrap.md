@@ -11,6 +11,15 @@ local Lima-managed Runtime instance to ready state using that verified
 provider. Neither owns the #626 guest bootstrap or managed Mottainai
 generation installation, QEMU topology construction, or Proxmox deployment.
 
+For the normative execution order connecting this host-bootstrap surface to
+the selected release, Lima, the canonical Appliance, managed generation, and
+Route 1 payload, see
+[`route4-route1-operation-book.md`](route4-route1-operation-book.md). This file
+remains the Route 4 component contract. Open implementation gaps such as the
+provider-profile consumer, SSH prerequisite/key lifecycle, and QEMU data
+identity are recorded against their exact handoff steps in the operation book
+rather than being normalized here as completed behavior.
+
 ## Contract and execution
 
 The executable is a Rust binary. Its runtime has no dependency on Node,
@@ -220,10 +229,13 @@ experiment; this bootstrap does not start a VM.
 
 ## Manual Linux x86_64/KVM validation
 
-On a fresh supported Linux x86_64 host, ensure only the hardware capability
-(`/dev/kvm`) and network are available. `mottainai-init` provisions the pinned
-Lima/QEMU host toolchain itself. Run the following sequence from the directory
-containing the detached release artifacts:
+On a fresh supported Linux x86_64 host, begin with usable `/dev/kvm`, network
+access, and the external host prerequisites declared by the current Route 4
+profile. The exact OpenSSH client/tooling treatment is currently tracked by
+#846; until that closes, `ssh`/`ssh-keygen` remain a known implicit Lima 2.2.0
+host dependency rather than a certified closed prerequisite. `mottainai-init`
+provisions the pinned Lima/QEMU host toolchain itself. Run the following
+sequence from the directory containing the detached release artifacts:
 
 ~~~bash
 sha256sum --check mottainai-init-linux-x86_64.sha256
