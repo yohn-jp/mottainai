@@ -1,0 +1,40 @@
+{
+  "baseSha": "a4f38246ecaa274adfd1e59f9e044b61675ca4ab",
+  "files": [
+    {
+      "additions": 93,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 93,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "docs/release-process.md",
+      "status": "added"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 256,
+          "oldLines": 1,
+          "oldStart": 256
+        }
+      ],
+      "path": "README.md",
+      "status": "modified"
+    }
+  ],
+  "headSha": "45a991229c1422401f2f4484583e3456a7758213",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 94,
+    "deletions": 1,
+    "filesChanged": 2
+  }
+}

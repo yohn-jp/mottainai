@@ -1,0 +1,14 @@
+{
+  "acceptanceCriteria": [],
+  "issue": {
+    "labels": [],
+    "number": 819,
+    "state": "open",
+    "title": "docs: document the release preparation process",
+    "url": "https://github.com/yohn-jp/mottainai/issues/819"
+  },
+  "linked": {
+    "number": 819
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
