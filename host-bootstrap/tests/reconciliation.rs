@@ -1042,6 +1042,9 @@ fn route4_qemu_promotion_persists_final_identity_and_is_idempotent() {
         qemu_state_json["image_sha256"].as_str().unwrap(),
         sha256_hex(&fs::read(&image_path).unwrap())
     );
+    assert!(qemu_state_json["provisioning"]["data_closure_sha256"]
+        .as_str()
+        .is_some_and(|digest| digest.len() == 64));
     assert!(!paths.qemu_staging_directory.exists());
     assert_eq!(qemu_source.calls.load(Ordering::SeqCst), 3);
     assert_eq!(provider_source.calls.load(Ordering::SeqCst), 1);
@@ -1053,10 +1056,10 @@ fn route4_qemu_promotion_persists_final_identity_and_is_idempotent() {
     fs::write(&activation_marker, b"activated").unwrap();
 
     let identity_before = persisted_qemu_identity(&qemu_state_json);
-    let second = Bootstrap::new(bootstrap_config).reconcile_with_contract_and_sources(
+    let second = Bootstrap::new(bootstrap_config.clone()).reconcile_with_contract_and_sources(
         provider_source.clone(),
         qemu_source.clone(),
-        qemu_contract,
+        qemu_contract.clone(),
     );
     assert_eq!(second.result, Outcome::NoOp);
     assert!(!second.changed);
@@ -1072,6 +1075,42 @@ fn route4_qemu_promotion_persists_final_identity_and_is_idempotent() {
         persisted_qemu_identity(&qemu_state_after_json)
     );
     assert_eq!(qemu_state_before, qemu_state_after);
+
+    let firmware = paths
+        .qemu_directory
+        .join(QEMU_SUPPORTED_VERSION)
+        .join("share/qemu/edk2-x86_64-code.fd");
+    fs::write(&firmware, b"different non-empty firmware").unwrap();
+
+    let drift = Bootstrap::new(bootstrap_config.clone()).reconcile_with_contract_and_sources(
+        provider_source.clone(),
+        qemu_source.clone(),
+        qemu_contract.clone(),
+    );
+    assert_eq!(drift.result, Outcome::Blocked);
+    assert_eq!(drift.error_code.as_deref(), Some("qemu_state_ambiguous"));
+
+    fs::remove_file(&firmware).unwrap();
+    let missing = Bootstrap::new(bootstrap_config.clone()).reconcile_with_contract_and_sources(
+        provider_source.clone(),
+        qemu_source.clone(),
+        qemu_contract.clone(),
+    );
+    assert_eq!(missing.result, Outcome::Blocked);
+    assert_eq!(missing.error_code.as_deref(), Some("qemu_state_ambiguous"));
+
+    fs::create_dir(&firmware).unwrap();
+    let nonregular = Bootstrap::new(bootstrap_config).reconcile_with_contract_and_sources(
+        provider_source.clone(),
+        qemu_source,
+        qemu_contract,
+    );
+    assert_eq!(nonregular.result, Outcome::Blocked);
+    assert_eq!(
+        nonregular.error_code.as_deref(),
+        Some("qemu_state_ambiguous")
+    );
+    assert_eq!(provider_source.calls.load(Ordering::SeqCst), 1);
 }
 
 #[test]
