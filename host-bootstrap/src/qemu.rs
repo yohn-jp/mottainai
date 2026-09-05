@@ -627,7 +627,7 @@ pub fn ensure_provisioned_qemu<S: QemuArtifactSource>(
     let staged_image = paths
         .qemu_staging_directory
         .join(&contract.image.archive_binary_path);
-    let observed = verify_provisioned_binaries(&staged_system, &staged_image, contract)?;
+    verify_provisioned_binaries(&staged_system, &staged_image, contract)?;
 
     if fs::symlink_metadata(&version_directory).is_ok() {
         return Err(BootstrapError::new(
@@ -637,8 +637,11 @@ pub fn ensure_provisioned_qemu<S: QemuArtifactSource>(
     }
     fs::rename(&paths.qemu_staging_directory, &version_directory)
         .map_err(|error| BootstrapError::io("activate verified QEMU toolchain", &error))?;
-    write_provisioned_state(paths, contract, &observed, host_os, host_architecture)?;
-    Ok(observed)
+    let system = version_directory.join(&contract.system.archive_binary_path);
+    let image = version_directory.join(&contract.image.archive_binary_path);
+    let activated = verify_provisioned_binaries(&system, &image, contract)?;
+    write_provisioned_state(paths, contract, &activated, host_os, host_architecture)?;
+    Ok(activated)
 }
 
 fn ensure_qemu_data_archive<S: QemuArtifactSource>(
