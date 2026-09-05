@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "fc271eb67b2422278850e9ceba6bf543dbf7b8ec",
+    "draft": false,
+    "headRef": "fix/846-route4-openssh-contract",
+    "headSha": "db031b0895d54a821e3d446d9e0e7d9a65dd9791",
+    "number": 861,
+    "title": "fix(runtime): close the implicit OpenSSH dependency in the Route 4 fresh-host contract"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "db031b0895d54a821e3d446d9e0e7d9a65dd9791",
+    "immutable": true,
+    "shortId": "db031b0895d5"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-05T12:00:22.221Z"
+  }
+}

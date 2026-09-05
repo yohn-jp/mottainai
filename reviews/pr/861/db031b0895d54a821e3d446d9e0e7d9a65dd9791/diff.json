@@ -1,0 +1,288 @@
+{
+  "baseSha": "fc271eb67b2422278850e9ceba6bf543dbf7b8ec",
+  "files": [
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 77,
+          "oldLines": 1,
+          "oldStart": 77
+        }
+      ],
+      "path": "docs/architecture/deployment/routes.md",
+      "status": "modified"
+    },
+    {
+      "additions": 31,
+      "deletions": 10,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 7,
+          "oldLines": 1,
+          "oldStart": 7
+        },
+        {
+          "newLines": 3,
+          "newStart": 21,
+          "oldLines": 3,
+          "oldStart": 19
+        },
+        {
+          "newLines": 18,
+          "newStart": 69,
+          "oldLines": 0,
+          "oldStart": 66
+        },
+        {
+          "newLines": 5,
+          "newStart": 253,
+          "oldLines": 6,
+          "oldStart": 233
+        },
+        {
+          "newLines": 2,
+          "newStart": 265,
+          "oldLines": 0,
+          "oldStart": 245
+        }
+      ],
+      "path": "docs/contracts/deployment/host-bootstrap.md",
+      "status": "modified"
+    },
+    {
+      "additions": 17,
+      "deletions": 13,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 51,
+          "oldLines": 1,
+          "oldStart": 51
+        },
+        {
+          "newLines": 1,
+          "newStart": 57,
+          "oldLines": 1,
+          "oldStart": 57
+        },
+        {
+          "newLines": 1,
+          "newStart": 64,
+          "oldLines": 1,
+          "oldStart": 64
+        },
+        {
+          "newLines": 1,
+          "newStart": 80,
+          "oldLines": 1,
+          "oldStart": 80
+        },
+        {
+          "newLines": 1,
+          "newStart": 170,
+          "oldLines": 1,
+          "oldStart": 170
+        },
+        {
+          "newLines": 1,
+          "newStart": 186,
+          "oldLines": 1,
+          "oldStart": 186
+        },
+        {
+          "newLines": 5,
+          "newStart": 188,
+          "oldLines": 1,
+          "oldStart": 188
+        },
+        {
+          "newLines": 1,
+          "newStart": 332,
+          "oldLines": 1,
+          "oldStart": 328
+        },
+        {
+          "newLines": 1,
+          "newStart": 347,
+          "oldLines": 0,
+          "oldStart": 342
+        },
+        {
+          "newLines": 1,
+          "newStart": 482,
+          "oldLines": 1,
+          "oldStart": 477
+        },
+        {
+          "newLines": 1,
+          "newStart": 736,
+          "oldLines": 1,
+          "oldStart": 731
+        },
+        {
+          "newLines": 1,
+          "newStart": 788,
+          "oldLines": 1,
+          "oldStart": 783
+        },
+        {
+          "newLines": 1,
+          "newStart": 793,
+          "oldLines": 1,
+          "oldStart": 788
+        },
+        {
+          "newLines": 0,
+          "newStart": 813,
+          "oldLines": 1,
+          "oldStart": 809
+        }
+      ],
+      "path": "docs/operations/deployment/route4-to-route1.md",
+      "status": "modified"
+    },
+    {
+      "additions": 4,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 44,
+          "oldLines": 0,
+          "oldStart": 43
+        },
+        {
+          "newLines": 2,
+          "newStart": 114,
+          "oldLines": 0,
+          "oldStart": 111
+        }
+      ],
+      "path": "host-bootstrap/src/error.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 14,
+          "oldLines": 0,
+          "oldStart": 13
+        }
+      ],
+      "path": "host-bootstrap/src/lib.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 30,
+      "deletions": 15,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 17,
+          "oldLines": 0,
+          "oldStart": 16
+        },
+        {
+          "newLines": 3,
+          "newStart": 48,
+          "oldLines": 0,
+          "oldStart": 46
+        },
+        {
+          "newLines": 1,
+          "newStart": 96,
+          "oldLines": 14,
+          "oldStart": 92
+        },
+        {
+          "newLines": 17,
+          "newStart": 101,
+          "oldLines": 0,
+          "oldStart": 109
+        },
+        {
+          "newLines": 3,
+          "newStart": 243,
+          "oldLines": 1,
+          "oldStart": 235
+        },
+        {
+          "newLines": 5,
+          "newStart": 446,
+          "oldLines": 0,
+          "oldStart": 435
+        }
+      ],
+      "path": "host-bootstrap/src/main.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 162,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 162,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "host-bootstrap/src/openssh.rs",
+      "status": "added"
+    },
+    {
+      "additions": 108,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 108,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "host-bootstrap/tests/openssh.rs",
+      "status": "added"
+    },
+    {
+      "additions": 13,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 8,
+          "newStart": 378,
+          "oldLines": 0,
+          "oldStart": 377
+        },
+        {
+          "newLines": 4,
+          "newStart": 707,
+          "oldLines": 2,
+          "oldStart": 699
+        },
+        {
+          "newLines": 1,
+          "newStart": 725,
+          "oldLines": 1,
+          "oldStart": 715
+        }
+      ],
+      "path": "host-bootstrap/tests/reconciliation.rs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "db031b0895d54a821e3d446d9e0e7d9a65dd9791",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 367,
+    "deletions": 42,
+    "filesChanged": 9
+  }
+}

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #861 @ db031b0895d5</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #861: fix(runtime): close the implicit OpenSSH dependency in the Route 4 fresh-host contract</h1>
+<p>Base <code>main</code> @ <code>fc271eb67b2422278850e9ceba6bf543dbf7b8ec</code> &rarr;
+Head <code>fix/846-route4-openssh-contract</code> @ <code>db031b0895d54a821e3d446d9e0e7d9a65dd9791</code></p>
+<p>Revision <code>db031b0895d5</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/846">#846</a> fix(runtime): close the implicit OpenSSH dependency in the Route 4 fresh-host contract (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Decide and document one authoritative contract for the OpenSSH client tooling required by the selected Lima profile: explicit Route 4 precondition with bounded validation, or managed/provisioned Route 4 dependency.</li>
+<li>[ ] `mottainai-init` checks/establishes that contract before mutating/starting the Route 3 Lima instance.</li>
+<li>[ ] Missing `ssh` and missing `ssh-keygen` fail early with stable bounded actionable diagnostics rather than surfacing as late Lima readiness failures.</li>
+<li>[ ] The selected SSH/key-generation authority composes with #840&#39;s MTNAI_BOOT key delivery and does not adopt ambient `~/.ssh` credentials.</li>
+<li>[ ] Regression coverage exercises a host environment with OpenSSH tools absent from PATH and proves the declared behavior.</li>
+<li>[ ] Route 4 documentation and #261 starting conditions are updated so the certified fresh-host preconditions exactly match the implementation.</li>
+<li>[ ] No shell/package-manager dependency is added implicitly to the standalone Rust bootstrap path.</li></ul>
+
+
+
+<h2>Changed files (9, +367/-42)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>docs/architecture/deployment/routes.md</td><td>modified</td><td>+1</td><td>-1</td></tr>
+<tr><td>docs/contracts/deployment/host-bootstrap.md</td><td>modified</td><td>+31</td><td>-10</td></tr>
+<tr><td>docs/operations/deployment/route4-to-route1.md</td><td>modified</td><td>+17</td><td>-13</td></tr>
+<tr><td>host-bootstrap/src/error.rs</td><td>modified</td><td>+4</td><td>-0</td></tr>
+<tr><td>host-bootstrap/src/lib.rs</td><td>modified</td><td>+1</td><td>-0</td></tr>
+<tr><td>host-bootstrap/src/main.rs</td><td>modified</td><td>+30</td><td>-15</td></tr>
+<tr><td>host-bootstrap/src/openssh.rs</td><td>added</td><td>+162</td><td>-0</td></tr>
+<tr><td>host-bootstrap/tests/openssh.rs</td><td>added</td><td>+108</td><td>-0</td></tr>
+<tr><td>host-bootstrap/tests/reconciliation.rs</td><td>modified</td><td>+13</td><td>-3</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

@@ -1,0 +1,45 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Decide and document one authoritative contract for the OpenSSH client tooling required by the selected Lima profile: explicit Route 4 precondition with bounded validation, or managed/provisioned Route 4 dependency."
+    },
+    {
+      "checked": false,
+      "text": "`mottainai-init` checks/establishes that contract before mutating/starting the Route 3 Lima instance."
+    },
+    {
+      "checked": false,
+      "text": "Missing `ssh` and missing `ssh-keygen` fail early with stable bounded actionable diagnostics rather than surfacing as late Lima readiness failures."
+    },
+    {
+      "checked": false,
+      "text": "The selected SSH/key-generation authority composes with #840's MTNAI_BOOT key delivery and does not adopt ambient `~/.ssh` credentials."
+    },
+    {
+      "checked": false,
+      "text": "Regression coverage exercises a host environment with OpenSSH tools absent from PATH and proves the declared behavior."
+    },
+    {
+      "checked": false,
+      "text": "Route 4 documentation and #261 starting conditions are updated so the certified fresh-host preconditions exactly match the implementation."
+    },
+    {
+      "checked": false,
+      "text": "No shell/package-manager dependency is added implicitly to the standalone Rust bootstrap path."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 846,
+    "state": "open",
+    "title": "fix(runtime): close the implicit OpenSSH dependency in the Route 4 fresh-host contract",
+    "url": "https://github.com/yohn-jp/mottainai/issues/846"
+  },
+  "linked": {
+    "number": 846
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
