@@ -1,0 +1,166 @@
+{
+  "baseSha": "5b8f3fc3b8dc82c7977e70c1379168d63a7cafb4",
+  "files": [
+    {
+      "additions": 7,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 7,
+          "newStart": 8,
+          "oldLines": 0,
+          "oldStart": 7
+        }
+      ],
+      "path": "docs/deployment-descriptor.md",
+      "status": "modified"
+    },
+    {
+      "additions": 18,
+      "deletions": 11,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 5,
+          "oldLines": 0,
+          "oldStart": 4
+        },
+        {
+          "newLines": 10,
+          "newStart": 35,
+          "oldLines": 5,
+          "oldStart": 33
+        },
+        {
+          "newLines": 5,
+          "newStart": 52,
+          "oldLines": 5,
+          "oldStart": 45
+        },
+        {
+          "newLines": 1,
+          "newStart": 77,
+          "oldLines": 1,
+          "oldStart": 70
+        }
+      ],
+      "path": "docs/deployment-route-implementation.md",
+      "status": "modified"
+    },
+    {
+      "additions": 16,
+      "deletions": 4,
+      "hunks": [
+        {
+          "newLines": 9,
+          "newStart": 14,
+          "oldLines": 0,
+          "oldStart": 13
+        },
+        {
+          "newLines": 7,
+          "newStart": 232,
+          "oldLines": 4,
+          "oldStart": 223
+        }
+      ],
+      "path": "docs/host-bootstrap.md",
+      "status": "modified"
+    },
+    {
+      "additions": 45,
+      "deletions": 29,
+      "hunks": [
+        {
+          "newLines": 8,
+          "newStart": 12,
+          "oldLines": 0,
+          "oldStart": 11
+        },
+        {
+          "newLines": 3,
+          "newStart": 60,
+          "oldLines": 2,
+          "oldStart": 52
+        },
+        {
+          "newLines": 3,
+          "newStart": 65,
+          "oldLines": 2,
+          "oldStart": 56
+        },
+        {
+          "newLines": 2,
+          "newStart": 88,
+          "oldLines": 2,
+          "oldStart": 78
+        },
+        {
+          "newLines": 6,
+          "newStart": 92,
+          "oldLines": 3,
+          "oldStart": 82
+        },
+        {
+          "newLines": 4,
+          "newStart": 119,
+          "oldLines": 1,
+          "oldStart": 106
+        },
+        {
+          "newLines": 3,
+          "newStart": 161,
+          "oldLines": 3,
+          "oldStart": 145
+        },
+        {
+          "newLines": 4,
+          "newStart": 181,
+          "oldLines": 2,
+          "oldStart": 165
+        },
+        {
+          "newLines": 1,
+          "newStart": 186,
+          "oldLines": 1,
+          "oldStart": 168
+        },
+        {
+          "newLines": 1,
+          "newStart": 192,
+          "oldLines": 1,
+          "oldStart": 174
+        },
+        {
+          "newLines": 10,
+          "newStart": 196,
+          "oldLines": 12,
+          "oldStart": 178
+        }
+      ],
+      "path": "docs/lima-runtime-orchestration.md",
+      "status": "modified"
+    },
+    {
+      "additions": 824,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 824,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "docs/route4-route1-operation-book.md",
+      "status": "added"
+    }
+  ],
+  "headSha": "fb1a82fe90c963ba871ca895a3142038d9059c6d",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 910,
+    "deletions": 44,
+    "filesChanged": 5
+  }
+}

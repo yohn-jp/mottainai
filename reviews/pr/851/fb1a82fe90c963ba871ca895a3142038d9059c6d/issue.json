@@ -1,0 +1,71 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Add one canonical operation-book document under `docs/` and mark it as the chronological execution authority for the Route 4 -> Route 1 deployment/convergence sequence."
+    },
+    {
+      "checked": false,
+      "text": "Enumerate every operation in strict execution order with stable step IDs; no route may be represented only by a prose summary."
+    },
+    {
+      "checked": false,
+      "text": "Every step records trigger/preconditions, purpose, owner, input authority, exact action, state read/mutation, output/evidence, fail-closed conditions, recovery/idempotency semantics, and next handoff condition."
+    },
+    {
+      "checked": false,
+      "text": "Explicitly distinguish **release identity authority**, **host bootstrap authority**, **provider lifecycle authority (Lima)**, **QEMU external toolchain identity**, **canonical NixOS guest authority**, **managed-generation authority**, and **Route 1 payload authority**; no step may silently create a second authority."
+    },
+    {
+      "checked": false,
+      "text": "Declare every external host prerequisite actually consumed by the selected provider path; ambient PATH/HOME state is either prohibited, explicitly validated, or explicitly part of the supported precondition."
+    },
+    {
+      "checked": false,
+      "text": "Describe all durable state/provenance written under the host-bootstrap state root and identify which later steps consume each record."
+    },
+    {
+      "checked": false,
+      "text": "Describe credential/key lifecycle, including first creation, guest delivery, persistence, host restart, key loss/drift, and existing-instance behavior."
+    },
+    {
+      "checked": false,
+      "text": "Describe all reconciliation branches: missing, satisfied/no-op, stopped-compatible, repairable interrupted state, incompatible, ambiguous, and unsupported."
+    },
+    {
+      "checked": false,
+      "text": "Map each operation/handoff to its current implementation entrypoint(s) and existing proof tier: unit/hermetic PR proof, trusted-main canonical integration, release certification, or #261 external real-host certification."
+    },
+    {
+      "checked": false,
+      "text": "Include an explicit coverage/gap matrix that references at least #826, #840, #841, #842, #843, #844, #845, #846, #847, and #261 at the exact affected operation steps."
+    },
+    {
+      "checked": false,
+      "text": "Any newly discovered missing operation, producer/consumer connection, undeclared dependency, or absent proof is filed as a focused follow-up Issue rather than silently described as implemented."
+    },
+    {
+      "checked": false,
+      "text": "Existing deployment/host-bootstrap/Lima Runtime documentation links to the operation book instead of independently restating a competing end-to-end sequence."
+    },
+    {
+      "checked": false,
+      "text": "The document clearly separates current implemented behavior from target behavior where an open defect still blocks the target chain."
+    },
+    {
+      "checked": false,
+      "text": "The operation book contains a compact end-to-end sequence diagram/table that can be reviewed top-to-bottom without consulting code, while detailed entries retain exact implementation/evidence references."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 848,
+    "state": "open",
+    "title": "chore: define the complete Route 4 to Route 1 operation book",
+    "url": "https://github.com/yohn-jp/mottainai/issues/848"
+  },
+  "linked": {
+    "number": 848
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

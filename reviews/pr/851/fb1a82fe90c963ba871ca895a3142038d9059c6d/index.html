@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #851 @ fb1a82fe90c9</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #851: docs(runtime): define Route 4 to Route 1 operation book</h1>
+<p>Base <code>main</code> @ <code>5b8f3fc3b8dc82c7977e70c1379168d63a7cafb4</code> &rarr;
+Head <code>docs/848-route4-route1-operation-book</code> @ <code>fb1a82fe90c963ba871ca895a3142038d9059c6d</code></p>
+<p>Revision <code>fb1a82fe90c9</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/848">#848</a> chore: define the complete Route 4 to Route 1 operation book (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Add one canonical operation-book document under `docs/` and mark it as the chronological execution authority for the Route 4 -&gt; Route 1 deployment/convergence sequence.</li>
+<li>[ ] Enumerate every operation in strict execution order with stable step IDs; no route may be represented only by a prose summary.</li>
+<li>[ ] Every step records trigger/preconditions, purpose, owner, input authority, exact action, state read/mutation, output/evidence, fail-closed conditions, recovery/idempotency semantics, and next handoff condition.</li>
+<li>[ ] Explicitly distinguish **release identity authority**, **host bootstrap authority**, **provider lifecycle authority (Lima)**, **QEMU external toolchain identity**, **canonical NixOS guest authority**, **managed-generation authority**, and **Route 1 payload authority**; no step may silently create a second authority.</li>
+<li>[ ] Declare every external host prerequisite actually consumed by the selected provider path; ambient PATH/HOME state is either prohibited, explicitly validated, or explicitly part of the supported precondition.</li>
+<li>[ ] Describe all durable state/provenance written under the host-bootstrap state root and identify which later steps consume each record.</li>
+<li>[ ] Describe credential/key lifecycle, including first creation, guest delivery, persistence, host restart, key loss/drift, and existing-instance behavior.</li>
+<li>[ ] Describe all reconciliation branches: missing, satisfied/no-op, stopped-compatible, repairable interrupted state, incompatible, ambiguous, and unsupported.</li>
+<li>[ ] Map each operation/handoff to its current implementation entrypoint(s) and existing proof tier: unit/hermetic PR proof, trusted-main canonical integration, release certification, or #261 external real-host certification.</li>
+<li>[ ] Include an explicit coverage/gap matrix that references at least #826, #840, #841, #842, #843, #844, #845, #846, #847, and #261 at the exact affected operation steps.</li>
+<li>[ ] Any newly discovered missing operation, producer/consumer connection, undeclared dependency, or absent proof is filed as a focused follow-up Issue rather than silently described as implemented.</li>
+<li>[ ] Existing deployment/host-bootstrap/Lima Runtime documentation links to the operation book instead of independently restating a competing end-to-end sequence.</li>
+<li>[ ] The document clearly separates current implemented behavior from target behavior where an open defect still blocks the target chain.</li>
+<li>[ ] The operation book contains a compact end-to-end sequence diagram/table that can be reviewed top-to-bottom without consulting code, while detailed entries retain exact implementation/evidence references.</li></ul>
+
+
+
+<h2>Changed files (5, +910/-44)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>docs/deployment-descriptor.md</td><td>modified</td><td>+7</td><td>-0</td></tr>
+<tr><td>docs/deployment-route-implementation.md</td><td>modified</td><td>+18</td><td>-11</td></tr>
+<tr><td>docs/host-bootstrap.md</td><td>modified</td><td>+16</td><td>-4</td></tr>
+<tr><td>docs/lima-runtime-orchestration.md</td><td>modified</td><td>+45</td><td>-29</td></tr>
+<tr><td>docs/route4-route1-operation-book.md</td><td>added</td><td>+824</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

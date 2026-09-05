@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "5b8f3fc3b8dc82c7977e70c1379168d63a7cafb4",
+    "draft": false,
+    "headRef": "docs/848-route4-route1-operation-book",
+    "headSha": "fb1a82fe90c963ba871ca895a3142038d9059c6d",
+    "number": 851,
+    "title": "docs(runtime): define Route 4 to Route 1 operation book"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "fb1a82fe90c963ba871ca895a3142038d9059c6d",
+    "immutable": true,
+    "shortId": "fb1a82fe90c9"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-05T07:59:05.293Z"
+  }
+}
