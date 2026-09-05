@@ -1,0 +1,1098 @@
+{
+  "baseSha": "f983e1f1c8abb38fbc160169f8d1b6472b95608d",
+  "files": [
+    {
+      "additions": 112,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 10,
+          "oldLines": 1,
+          "oldStart": 10
+        },
+        {
+          "newLines": 2,
+          "newStart": 47,
+          "oldLines": 0,
+          "oldStart": 44
+        },
+        {
+          "newLines": 26,
+          "newStart": 71,
+          "oldLines": 0,
+          "oldStart": 66
+        },
+        {
+          "newLines": 2,
+          "newStart": 211,
+          "oldLines": 0,
+          "oldStart": 180
+        },
+        {
+          "newLines": 60,
+          "newStart": 359,
+          "oldLines": 0,
+          "oldStart": 326
+        },
+        {
+          "newLines": 1,
+          "newStart": 870,
+          "oldLines": 0,
+          "oldStart": 777
+        },
+        {
+          "newLines": 1,
+          "newStart": 890,
+          "oldLines": 0,
+          "oldStart": 796
+        },
+        {
+          "newLines": 5,
+          "newStart": 938,
+          "oldLines": 0,
+          "oldStart": 843
+        },
+        {
+          "newLines": 11,
+          "newStart": 945,
+          "oldLines": 0,
+          "oldStart": 845
+        },
+        {
+          "newLines": 1,
+          "newStart": 958,
+          "oldLines": 0,
+          "oldStart": 847
+        }
+      ],
+      "path": "host-bootstrap/src/deployment_descriptor.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 123,
+      "deletions": 4,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 39,
+          "oldLines": 0,
+          "oldStart": 38
+        },
+        {
+          "newLines": 15,
+          "newStart": 55,
+          "oldLines": 0,
+          "oldStart": 50
+        },
+        {
+          "newLines": 3,
+          "newStart": 86,
+          "oldLines": 0,
+          "oldStart": 66
+        },
+        {
+          "newLines": 29,
+          "newStart": 185,
+          "oldLines": 0,
+          "oldStart": 162
+        },
+        {
+          "newLines": 1,
+          "newStart": 994,
+          "oldLines": 0,
+          "oldStart": 942
+        },
+        {
+          "newLines": 1,
+          "newStart": 1035,
+          "oldLines": 0,
+          "oldStart": 982
+        },
+        {
+          "newLines": 1,
+          "newStart": 1084,
+          "oldLines": 0,
+          "oldStart": 1030
+        },
+        {
+          "newLines": 1,
+          "newStart": 1110,
+          "oldLines": 1,
+          "oldStart": 1056
+        },
+        {
+          "newLines": 28,
+          "newStart": 1113,
+          "oldLines": 1,
+          "oldStart": 1059
+        },
+        {
+          "newLines": 8,
+          "newStart": 1161,
+          "oldLines": 0,
+          "oldStart": 1079
+        },
+        {
+          "newLines": 4,
+          "newStart": 1178,
+          "oldLines": 2,
+          "oldStart": 1089
+        },
+        {
+          "newLines": 4,
+          "newStart": 1191,
+          "oldLines": 0,
+          "oldStart": 1099
+        },
+        {
+          "newLines": 9,
+          "newStart": 1681,
+          "oldLines": 0,
+          "oldStart": 1585
+        },
+        {
+          "newLines": 14,
+          "newStart": 1879,
+          "oldLines": 0,
+          "oldStart": 1774
+        },
+        {
+          "newLines": 1,
+          "newStart": 1913,
+          "oldLines": 0,
+          "oldStart": 1794
+        }
+      ],
+      "path": "host-bootstrap/src/lima.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 20,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 5,
+          "newStart": 403,
+          "oldLines": 0,
+          "oldStart": 402
+        },
+        {
+          "newLines": 15,
+          "newStart": 410,
+          "oldLines": 1,
+          "oldStart": 405
+        }
+      ],
+      "path": "host-bootstrap/tests/reconciliation.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 56,
+          "oldLines": 0,
+          "oldStart": 55
+        },
+        {
+          "newLines": 1,
+          "newStart": 181,
+          "oldLines": 0,
+          "oldStart": 179
+        }
+      ],
+      "path": "nix/bootstrap.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 20,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 17,
+          "newStart": 184,
+          "oldLines": 0,
+          "oldStart": 183
+        },
+        {
+          "newLines": 1,
+          "newStart": 223,
+          "oldLines": 0,
+          "oldStart": 205
+        },
+        {
+          "newLines": 1,
+          "newStart": 232,
+          "oldLines": 0,
+          "oldStart": 213
+        },
+        {
+          "newLines": 1,
+          "newStart": 242,
+          "oldLines": 1,
+          "oldStart": 223
+        }
+      ],
+      "path": "nix/managed-generation.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 6,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 6,
+          "newStart": 326,
+          "oldLines": 0,
+          "oldStart": 325
+        }
+      ],
+      "path": "nix/mottainai.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 25,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 24,
+          "newStart": 47,
+          "oldLines": 0,
+          "oldStart": 46
+        },
+        {
+          "newLines": 1,
+          "newStart": 75,
+          "oldLines": 0,
+          "oldStart": 50
+        }
+      ],
+      "path": "nix/tests/fixtures/managed-mottainai-v1/nix/flake.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 11,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 11,
+          "newStart": 68,
+          "oldLines": 0,
+          "oldStart": 67
+        }
+      ],
+      "path": "scripts/create-release-deployment-descriptor-input.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 12,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 50,
+          "oldLines": 0,
+          "oldStart": 49
+        },
+        {
+          "newLines": 10,
+          "newStart": 57,
+          "oldLines": 0,
+          "oldStart": 55
+        },
+        {
+          "newLines": 1,
+          "newStart": 80,
+          "oldLines": 1,
+          "oldStart": 69
+        }
+      ],
+      "path": "scripts/create-release-managed-generation.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 29,
+      "deletions": 4,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 17,
+          "oldLines": 0,
+          "oldStart": 16
+        },
+        {
+          "newLines": 3,
+          "newStart": 56,
+          "oldLines": 1,
+          "oldStart": 55
+        },
+        {
+          "newLines": 0,
+          "newStart": 68,
+          "oldLines": 1,
+          "oldStart": 66
+        },
+        {
+          "newLines": 12,
+          "newStart": 77,
+          "oldLines": 1,
+          "oldStart": 75
+        },
+        {
+          "newLines": 2,
+          "newStart": 119,
+          "oldLines": 0,
+          "oldStart": 105
+        },
+        {
+          "newLines": 8,
+          "newStart": 195,
+          "oldLines": 0,
+          "oldStart": 179
+        },
+        {
+          "newLines": 2,
+          "newStart": 219,
+          "oldLines": 0,
+          "oldStart": 195
+        },
+        {
+          "newLines": 1,
+          "newStart": 235,
+          "oldLines": 1,
+          "oldStart": 210
+        }
+      ],
+      "path": "scripts/deployment-artifact-roundtrip-production-proof.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 4,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 46,
+          "oldLines": 0,
+          "oldStart": 45
+        },
+        {
+          "newLines": 1,
+          "newStart": 78,
+          "oldLines": 0,
+          "oldStart": 76
+        },
+        {
+          "newLines": 1,
+          "newStart": 104,
+          "oldLines": 0,
+          "oldStart": 101
+        },
+        {
+          "newLines": 1,
+          "newStart": 199,
+          "oldLines": 1,
+          "oldStart": 196
+        }
+      ],
+      "path": "scripts/release-managed-generation.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 88,
+          "oldLines": 0,
+          "oldStart": 87
+        }
+      ],
+      "path": "scripts/verify-deployment-artifact-roundtrip.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 18,
+      "deletions": 4,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 6,
+          "oldLines": 1,
+          "oldStart": 6
+        },
+        {
+          "newLines": 2,
+          "newStart": 106,
+          "oldLines": 0,
+          "oldStart": 102
+        },
+        {
+          "newLines": 3,
+          "newStart": 183,
+          "oldLines": 1,
+          "oldStart": 178
+        },
+        {
+          "newLines": 3,
+          "newStart": 201,
+          "oldLines": 1,
+          "oldStart": 194
+        },
+        {
+          "newLines": 6,
+          "newStart": 327,
+          "oldLines": 1,
+          "oldStart": 318
+        }
+      ],
+      "path": "src/bootstrap/build.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 181,
+      "deletions": 7,
+      "hunks": [
+        {
+          "newLines": 5,
+          "newStart": 9,
+          "oldLines": 1,
+          "oldStart": 9
+        },
+        {
+          "newLines": 5,
+          "newStart": 16,
+          "oldLines": 1,
+          "oldStart": 12
+        },
+        {
+          "newLines": 1,
+          "newStart": 25,
+          "oldLines": 0,
+          "oldStart": 16
+        },
+        {
+          "newLines": 3,
+          "newStart": 91,
+          "oldLines": 1,
+          "oldStart": 82
+        },
+        {
+          "newLines": 166,
+          "newStart": 325,
+          "oldLines": 0,
+          "oldStart": 313
+        },
+        {
+          "newLines": 1,
+          "newStart": 512,
+          "oldLines": 4,
+          "oldStart": 335
+        }
+      ],
+      "path": "src/bootstrap/cli.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 153,
+      "deletions": 31,
+      "hunks": [
+        {
+          "newLines": 9,
+          "newStart": 9,
+          "oldLines": 2,
+          "oldStart": 9
+        },
+        {
+          "newLines": 2,
+          "newStart": 26,
+          "oldLines": 0,
+          "oldStart": 18
+        },
+        {
+          "newLines": 12,
+          "newStart": 30,
+          "oldLines": 3,
+          "oldStart": 21
+        },
+        {
+          "newLines": 4,
+          "newStart": 155,
+          "oldLines": 1,
+          "oldStart": 137
+        },
+        {
+          "newLines": 2,
+          "newStart": 161,
+          "oldLines": 1,
+          "oldStart": 140
+        },
+        {
+          "newLines": 4,
+          "newStart": 174,
+          "oldLines": 1,
+          "oldStart": 152
+        },
+        {
+          "newLines": 2,
+          "newStart": 180,
+          "oldLines": 1,
+          "oldStart": 155
+        },
+        {
+          "newLines": 2,
+          "newStart": 196,
+          "oldLines": 1,
+          "oldStart": 170
+        },
+        {
+          "newLines": 3,
+          "newStart": 273,
+          "oldLines": 0,
+          "oldStart": 245
+        },
+        {
+          "newLines": 32,
+          "newStart": 282,
+          "oldLines": 0,
+          "oldStart": 251
+        },
+        {
+          "newLines": 3,
+          "newStart": 328,
+          "oldLines": 0,
+          "oldStart": 265
+        },
+        {
+          "newLines": 33,
+          "newStart": 336,
+          "oldLines": 6,
+          "oldStart": 271
+        },
+        {
+          "newLines": 14,
+          "newStart": 370,
+          "oldLines": 1,
+          "oldStart": 278
+        },
+        {
+          "newLines": 0,
+          "newStart": 384,
+          "oldLines": 13,
+          "oldStart": 280
+        },
+        {
+          "newLines": 3,
+          "newStart": 421,
+          "oldLines": 0,
+          "oldStart": 328
+        },
+        {
+          "newLines": 4,
+          "newStart": 426,
+          "oldLines": 0,
+          "oldStart": 330
+        },
+        {
+          "newLines": 17,
+          "newStart": 432,
+          "oldLines": 0,
+          "oldStart": 332
+        },
+        {
+          "newLines": 3,
+          "newStart": 456,
+          "oldLines": 0,
+          "oldStart": 339
+        },
+        {
+          "newLines": 1,
+          "newStart": 462,
+          "oldLines": 0,
+          "oldStart": 342
+        },
+        {
+          "newLines": 3,
+          "newStart": 547,
+          "oldLines": 1,
+          "oldStart": 427
+        }
+      ],
+      "path": "src/bootstrap/cli.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 12,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 12,
+          "newStart": 24,
+          "oldLines": 0,
+          "oldStart": 23
+        }
+      ],
+      "path": "src/bootstrap/paths.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 97,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 6,
+          "newStart": 11,
+          "oldLines": 1,
+          "oldStart": 11
+        },
+        {
+          "newLines": 14,
+          "newStart": 30,
+          "oldLines": 0,
+          "oldStart": 24
+        },
+        {
+          "newLines": 5,
+          "newStart": 129,
+          "oldLines": 0,
+          "oldStart": 109
+        },
+        {
+          "newLines": 64,
+          "newStart": 204,
+          "oldLines": 0,
+          "oldStart": 179
+        },
+        {
+          "newLines": 4,
+          "newStart": 448,
+          "oldLines": 1,
+          "oldStart": 360
+        },
+        {
+          "newLines": 4,
+          "newStart": 487,
+          "oldLines": 1,
+          "oldStart": 396
+        }
+      ],
+      "path": "src/bootstrap/source-resolution.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 159,
+      "deletions": 9,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        },
+        {
+          "newLines": 2,
+          "newStart": 8,
+          "oldLines": 0,
+          "oldStart": 6
+        },
+        {
+          "newLines": 6,
+          "newStart": 32,
+          "oldLines": 1,
+          "oldStart": 29
+        },
+        {
+          "newLines": 14,
+          "newStart": 57,
+          "oldLines": 0,
+          "oldStart": 48
+        },
+        {
+          "newLines": 3,
+          "newStart": 103,
+          "oldLines": 1,
+          "oldStart": 81
+        },
+        {
+          "newLines": 5,
+          "newStart": 161,
+          "oldLines": 1,
+          "oldStart": 137
+        },
+        {
+          "newLines": 110,
+          "newStart": 218,
+          "oldLines": 0,
+          "oldStart": 189
+        },
+        {
+          "newLines": 3,
+          "newStart": 332,
+          "oldLines": 1,
+          "oldStart": 194
+        },
+        {
+          "newLines": 4,
+          "newStart": 367,
+          "oldLines": 1,
+          "oldStart": 227
+        },
+        {
+          "newLines": 7,
+          "newStart": 378,
+          "oldLines": 3,
+          "oldStart": 235
+        },
+        {
+          "newLines": 4,
+          "newStart": 414,
+          "oldLines": 1,
+          "oldStart": 267
+        }
+      ],
+      "path": "src/bootstrap/source-resolution.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 6,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 175,
+          "oldLines": 0,
+          "oldStart": 174
+        },
+        {
+          "newLines": 5,
+          "newStart": 201,
+          "oldLines": 1,
+          "oldStart": 200
+        }
+      ],
+      "path": "src/runtime-contract/deployment-artifact-roundtrip.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 9,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 9,
+          "newStart": 100,
+          "oldLines": 0,
+          "oldStart": 99
+        }
+      ],
+      "path": "src/runtime-contract/deployment-artifact-roundtrip.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 6,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 6,
+          "newStart": 150,
+          "oldLines": 0,
+          "oldStart": 149
+        }
+      ],
+      "path": "src/runtime-contract/deployment-descriptor.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 29,
+      "deletions": 16,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 42,
+          "oldLines": 1,
+          "oldStart": 42
+        },
+        {
+          "newLines": 12,
+          "newStart": 45,
+          "oldLines": 15,
+          "oldStart": 44
+        },
+        {
+          "newLines": 4,
+          "newStart": 60,
+          "oldLines": 0,
+          "oldStart": 61
+        },
+        {
+          "newLines": 11,
+          "newStart": 334,
+          "oldLines": 0,
+          "oldStart": 331
+        }
+      ],
+      "path": "src/runtime-contract/deployment-descriptor.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 112,
+      "deletions": 7,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 4,
+          "oldLines": 1,
+          "oldStart": 4
+        },
+        {
+          "newLines": 3,
+          "newStart": 38,
+          "oldLines": 1,
+          "oldStart": 35
+        },
+        {
+          "newLines": 3,
+          "newStart": 66,
+          "oldLines": 1,
+          "oldStart": 61
+        },
+        {
+          "newLines": 6,
+          "newStart": 91,
+          "oldLines": 1,
+          "oldStart": 84
+        },
+        {
+          "newLines": 3,
+          "newStart": 147,
+          "oldLines": 1,
+          "oldStart": 135
+        },
+        {
+          "newLines": 3,
+          "newStart": 162,
+          "oldLines": 1,
+          "oldStart": 148
+        },
+        {
+          "newLines": 6,
+          "newStart": 329,
+          "oldLines": 1,
+          "oldStart": 313
+        },
+        {
+          "newLines": 84,
+          "newStart": 352,
+          "oldLines": 0,
+          "oldStart": 330
+        }
+      ],
+      "path": "src/runtime-contract/managed-generation-build.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 105,
+      "deletions": 17,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        },
+        {
+          "newLines": 1,
+          "newStart": 5,
+          "oldLines": 0,
+          "oldStart": 3
+        },
+        {
+          "newLines": 3,
+          "newStart": 41,
+          "oldLines": 0,
+          "oldStart": 38
+        },
+        {
+          "newLines": 4,
+          "newStart": 76,
+          "oldLines": 2,
+          "oldStart": 71
+        },
+        {
+          "newLines": 6,
+          "newStart": 85,
+          "oldLines": 1,
+          "oldStart": 78
+        },
+        {
+          "newLines": 45,
+          "newStart": 102,
+          "oldLines": 0,
+          "oldStart": 89
+        },
+        {
+          "newLines": 24,
+          "newStart": 185,
+          "oldLines": 0,
+          "oldStart": 127
+        },
+        {
+          "newLines": 1,
+          "newStart": 246,
+          "oldLines": 5,
+          "oldStart": 165
+        },
+        {
+          "newLines": 17,
+          "newStart": 278,
+          "oldLines": 1,
+          "oldStart": 201
+        },
+        {
+          "newLines": 1,
+          "newStart": 296,
+          "oldLines": 0,
+          "oldStart": 202
+        },
+        {
+          "newLines": 1,
+          "newStart": 326,
+          "oldLines": 4,
+          "oldStart": 232
+        },
+        {
+          "newLines": 1,
+          "newStart": 332,
+          "oldLines": 4,
+          "oldStart": 241
+        }
+      ],
+      "path": "src/runtime-contract/managed-generation-build.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 14,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 13,
+          "newStart": 106,
+          "oldLines": 0,
+          "oldStart": 105
+        },
+        {
+          "newLines": 1,
+          "newStart": 141,
+          "oldLines": 0,
+          "oldStart": 127
+        }
+      ],
+      "path": "src/runtime-contract/managed-generation.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 6,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 10,
+          "oldLines": 0,
+          "oldStart": 9
+        },
+        {
+          "newLines": 1,
+          "newStart": 99,
+          "oldLines": 0,
+          "oldStart": 97
+        },
+        {
+          "newLines": 4,
+          "newStart": 246,
+          "oldLines": 1,
+          "oldStart": 244
+        }
+      ],
+      "path": "src/runtime-contract/managed-runtime-state.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 53,
+      "deletions": 8,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 6,
+          "oldLines": 0,
+          "oldStart": 5
+        },
+        {
+          "newLines": 1,
+          "newStart": 9,
+          "oldLines": 1,
+          "oldStart": 8
+        },
+        {
+          "newLines": 2,
+          "newStart": 62,
+          "oldLines": 0,
+          "oldStart": 60
+        },
+        {
+          "newLines": 4,
+          "newStart": 127,
+          "oldLines": 0,
+          "oldStart": 123
+        },
+        {
+          "newLines": 17,
+          "newStart": 353,
+          "oldLines": 0,
+          "oldStart": 345
+        },
+        {
+          "newLines": 1,
+          "newStart": 384,
+          "oldLines": 0,
+          "oldStart": 359
+        },
+        {
+          "newLines": 4,
+          "newStart": 1083,
+          "oldLines": 1,
+          "oldStart": 1058
+        },
+        {
+          "newLines": 6,
+          "newStart": 1263,
+          "oldLines": 4,
+          "oldStart": 1235
+        },
+        {
+          "newLines": 6,
+          "newStart": 1270,
+          "oldLines": 1,
+          "oldStart": 1240
+        },
+        {
+          "newLines": 11,
+          "newStart": 1277,
+          "oldLines": 1,
+          "oldStart": 1242
+        }
+      ],
+      "path": "src/runtime-contract/managed-runtime.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "8f8b289b001ef479a777a0a68b0cf362dfb87605",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 1326,
+    "deletions": 117,
+    "filesChanged": 27
+  }
+}

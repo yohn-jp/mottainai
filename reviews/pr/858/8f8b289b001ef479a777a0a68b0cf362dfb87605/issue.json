@@ -1,0 +1,53 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "`runtime ensure --descriptor` projects the selected release's canonical Route 1 payload identity/locator into the bounded managed-generation reconciliation intent needed by the guest build path."
+    },
+    {
+      "checked": false,
+      "text": "Guest reconciliation obtains and verifies the exact canonical Route 1 payload bytes by the descriptor-bound SHA-256 before they can enter the Mottainai Nix package build."
+    },
+    {
+      "checked": false,
+      "text": "The live managed-generation build uses the same canonical payload-consuming package boundary as release Route 2 (`mkMottainaiFromPayload` or one single equivalent authority), not ordinary source-side tarball regeneration."
+    },
+    {
+      "checked": false,
+      "text": "Route 1 payload SHA-256, Route 2 source NAR SHA-256, and managed-generation identity remain distinct identities with no semantic substitution."
+    },
+    {
+      "checked": false,
+      "text": "A production-shaped round trip proves that the descriptor-produced canonical `managedGenerationIdentity` is reproduced by the guest/live build path when it consumes the same exact Route 1 payload."
+    },
+    {
+      "checked": false,
+      "text": "Substituting a different tarball with the same version/source metadata fails closed on payload identity before activation."
+    },
+    {
+      "checked": false,
+      "text": "Final Route 3 evidence can prove the active Mottainai package is bound to the selected descriptor's canonical Route 1 payload identity, not merely the requested version/source tree."
+    },
+    {
+      "checked": false,
+      "text": "The fix does not require npm registry publication to precede Route 2/3 convergence and does not create a second package/payload identity authority."
+    },
+    {
+      "checked": false,
+      "text": "#261's acceptance criterion requiring evidence of the active canonical Route 1 payload can be satisfied without manual payload injection."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 850,
+    "state": "open",
+    "title": "fix(runtime): consume the release-bound Route 1 payload during guest reconciliation",
+    "url": "https://github.com/yohn-jp/mottainai/issues/850"
+  },
+  "linked": {
+    "number": 850
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

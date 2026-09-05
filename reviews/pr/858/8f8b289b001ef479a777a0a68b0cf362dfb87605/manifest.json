@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "f983e1f1c8abb38fbc160169f8d1b6472b95608d",
+    "draft": false,
+    "headRef": "fix/850-release-bound-route1-payload",
+    "headSha": "8f8b289b001ef479a777a0a68b0cf362dfb87605",
+    "number": 858,
+    "title": "fix(runtime): consume release-bound Route 1 payload"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "8f8b289b001ef479a777a0a68b0cf362dfb87605",
+    "immutable": true,
+    "shortId": "8f8b289b001e"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-05T11:01:05.777Z"
+  }
+}

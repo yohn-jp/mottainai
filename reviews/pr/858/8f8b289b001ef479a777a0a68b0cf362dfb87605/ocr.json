@@ -1,0 +1,244 @@
+{
+  "baseSha": "f983e1f1c8abb38fbc160169f8d1b6472b95608d",
+  "headSha": "8f8b289b001ef479a777a0a68b0cf362dfb87605",
+  "preview": {
+    "excluded_count": 6,
+    "excluded_files": [
+      {
+        "deletions": 0,
+        "exclude_reason": "default_path",
+        "insertions": 25,
+        "path": "nix/tests/fixtures/managed-mottainai-v1/nix/flake.nix",
+        "status": "modified"
+      },
+      {
+        "deletions": 7,
+        "exclude_reason": "default_path",
+        "insertions": 181,
+        "path": "src/bootstrap/cli.test.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 3,
+        "exclude_reason": "default_path",
+        "insertions": 97,
+        "path": "src/bootstrap/source-resolution.test.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "exclude_reason": "default_path",
+        "insertions": 6,
+        "path": "src/runtime-contract/deployment-artifact-roundtrip.test.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "default_path",
+        "insertions": 6,
+        "path": "src/runtime-contract/deployment-descriptor.test.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 7,
+        "exclude_reason": "default_path",
+        "insertions": 112,
+        "path": "src/runtime-contract/managed-generation-build.test.ts",
+        "status": "modified"
+      }
+    ],
+    "from": "f983e1f1c8abb38fbc160169f8d1b6472b95608d",
+    "merge_base": "f983e1f1c8abb38fbc160169f8d1b6472b95608d",
+    "mode": "range",
+    "reviewable_count": 21,
+    "reviewable_files": [
+      {
+        "deletions": 1,
+        "insertions": 112,
+        "path": "host-bootstrap/src/deployment_descriptor.rs",
+        "status": "modified"
+      },
+      {
+        "deletions": 4,
+        "insertions": 123,
+        "path": "host-bootstrap/src/lima.rs",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "insertions": 20,
+        "path": "host-bootstrap/tests/reconciliation.rs",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 2,
+        "path": "nix/bootstrap.nix",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "insertions": 20,
+        "path": "nix/managed-generation.nix",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 6,
+        "path": "nix/mottainai.nix",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 11,
+        "path": "scripts/create-release-deployment-descriptor-input.mjs",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "insertions": 12,
+        "path": "scripts/create-release-managed-generation.mjs",
+        "status": "modified"
+      },
+      {
+        "deletions": 4,
+        "insertions": 29,
+        "path": "scripts/deployment-artifact-roundtrip-production-proof.mjs",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "insertions": 4,
+        "path": "scripts/release-managed-generation.test.mjs",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 2,
+        "path": "scripts/verify-deployment-artifact-roundtrip.mjs",
+        "status": "modified"
+      },
+      {
+        "deletions": 4,
+        "insertions": 18,
+        "path": "src/bootstrap/build.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 31,
+        "insertions": 153,
+        "path": "src/bootstrap/cli.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 12,
+        "path": "src/bootstrap/paths.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 9,
+        "insertions": 159,
+        "path": "src/bootstrap/source-resolution.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 9,
+        "path": "src/runtime-contract/deployment-artifact-roundtrip.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 16,
+        "insertions": 29,
+        "path": "src/runtime-contract/deployment-descriptor.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 17,
+        "insertions": 105,
+        "path": "src/runtime-contract/managed-generation-build.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 14,
+        "path": "src/runtime-contract/managed-generation.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "insertions": 6,
+        "path": "src/runtime-contract/managed-runtime-state.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 8,
+        "insertions": 53,
+        "path": "src/runtime-contract/managed-runtime.ts",
+        "status": "modified"
+      }
+    ],
+    "schema_version": "1",
+    "to": "8f8b289b001ef479a777a0a68b0cf362dfb87605",
+    "total_deletions": 117,
+    "total_files": 27,
+    "total_insertions": 1326
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.4"
+  },
+  "rule": {
+    "groups": [
+      {
+        "files": [
+          "host-bootstrap/src/deployment_descriptor.rs",
+          "host-bootstrap/src/lima.rs",
+          "host-bootstrap/tests/reconciliation.rs"
+        ],
+        "group_id": 1,
+        "pattern": "**/*.rs",
+        "rule": "#### Obvious Typos or Spelling Errors\n- Spelling errors in type names, function names, variable names, enum variants, trait names, or module names at their declaration sites; do not report spelling errors at call sites\n- Strings in log messages, panic messages, error messages, or public diagnostics containing spelling errors that affect readability\n\n#### Ownership and Lifetime Correctness\n- Incorrectly returned references, borrowed values escaping their valid scope, or lifetime relationships that make an API unsound or unusable\n- Excessive or unnecessary `clone()` calls introduced to satisfy borrowing when a borrow, iterator, `Cow`, or ownership transfer would be clearer and cheaper\n- Interior mutability (`RefCell`, `Cell`, `Mutex`) used to work around ownership without a real shared-mutability requirement\n- Reference cycles with `Rc<RefCell<T>>` or `Arc<Mutex<T>>` where `Weak` should be used to break ownership cycles\n\n#### Error Handling and Panics\n- `unwrap()`, `expect()`, `panic!`, `todo!`, or `unimplemented!` in production/library paths where the failure is recoverable or can be propagated with `Result`\n- Errors converted to strings too early or discarded without context; prefer preserving the original error and adding actionable context at boundaries\n- `Result` or `Option` values ignored, swallowed, or mapped to misleading defaults\n- Public APIs that panic on ordinary invalid input instead of returning a typed error, unless the panic documents a clear programming invariant\n\n#### Unsafe Code Boundaries\n- `unsafe` blocks that are broader than necessary or hide multiple unrelated invariants\n- Missing or stale safety rationale for `unsafe` blocks, `unsafe fn`, `unsafe impl Send`, or `unsafe impl Sync`\n- Raw pointer dereferences without clear validity, alignment, initialization, aliasing, and lifetime guarantees\n- FFI boundaries that do not validate null pointers, buffer lengths, ownership transfer, string encoding, or allocator compatibility\n- `static mut`, unchecked `transmute`, `MaybeUninit`, `mem::zeroed`, or manual drop logic used without a documented invariant that makes the operation sound\n\n#### Concurrency and Shared State\n- Holding `Mutex`, `RwLock`, or `RefCell` guards longer than necessary, especially across calls into user code or potentially blocking operations\n- Holding synchronous locks across `.await`, or using blocking I/O, sleeps, or CPU-heavy work directly inside async tasks\n- Check-then-act races around shared state, cache initialization, file creation, or atomics\n- Atomic operations with ordering that is too weak for the data being protected, or overly strong orderings that hide the intended synchronization contract\n- Unsafe `Send` or `Sync` implementations that do not prove all contained state is thread-safe under the documented invariants\n\n#### Async and Cancellation Safety\n- Spawned tasks whose `JoinHandle` is dropped when failures, cancellation, or shutdown still need to be observed\n- Futures that are not cancellation-safe around partial writes, lock acquisition, transactions, or resource cleanup\n- Async functions that use synchronous filesystem, network, or process APIs in request/worker paths where the runtime can be blocked\n- Retry loops without backoff, timeout, cancellation propagation, or bounded attempts\n\n#### Collections, Iterators, and Performance\n- Avoid unnecessary allocations in hot paths, such as repeated `String` construction, `format!`, `collect()`, or `to_vec()` where borrowing or streaming is sufficient\n- Prefer iterator adapters and standard library collection APIs when they make ownership and complexity clearer; avoid dense iterator chains that obscure error handling or side effects\n- Ensure hash maps, vectors, and strings are preallocated when the expected size is known and growth cost is material\n- Avoid O(n^2) lookups from nested loops when a `HashMap`, `HashSet`, sorting, or indexing strategy would clearly reduce complexity\n\n#### Type and API Design\n- Model domain states with enums, newtypes, and typed IDs instead of booleans, strings, or primitive integers when invalid states would otherwise be representable\n- Prefer standard conversion and borrowing traits (`From`, `TryFrom`, `AsRef`, `Borrow`, `IntoIterator`) when designing reusable APIs\n- Public structs, enums, traits, and errors should have useful names, visibility, trait derives, and documentation appropriate to the crate boundary\n- Avoid exposing concrete collection or synchronization types in public APIs when a slice, iterator, trait, or narrower abstraction would preserve flexibility\n\n#### Macros and Metaprogramming\nOnly flag when the diff actually defines a `macro_rules!` or procedural macro; do not report on ordinary macro invocations.\n- An `$x:expr` fragment interpolated more than once in the expansion, so the caller's expression — and any side effects — runs multiple times; bind it to a `let` once inside the expansion\n- Exported or publicly used macros that reference items without `$crate::`, so name resolution breaks or binds the wrong item when the macro is invoked from another crate\n- Token-tree (`$t:tt`) fragments re-emitted without parentheses, where operator precedence can silently change the intended meaning; this applies only to token-level (`tt`) interpolation, since an `:expr` fragment and a whole expansion are each parsed as one complete expression\n- Procedural macros that `unwrap()`, `expect()`, or `panic!` on malformed input instead of emitting a `syn::Error` / `compile_error!` with a useful span\n- Macro-hygiene assumptions that break: generated identifiers relying on names from the call-site scope, or items that collide when the macro is invoked more than once in the same module\n\n#### Security-Sensitive Code\n- Validate path, URL, command, SQL, and serialized input before use; do not build shell commands or SQL with unchecked string concatenation\n- Do not log secrets, tokens, credentials, private keys, or personally identifiable information\n- Check integer conversions, byte slicing, and length arithmetic for overflow, truncation, and UTF-8 boundary errors\n- Cryptographic, random, authentication, and authorization code must use well-reviewed crates and explicit error handling; flag ad hoc implementations",
+        "source": "system"
+      },
+      {
+        "files": [
+          "nix/bootstrap.nix",
+          "nix/managed-generation.nix",
+          "nix/mottainai.nix"
+        ],
+        "group_id": 2,
+        "pattern": "**/*.nix",
+        "rule": "> Favor precision over recall: report only Nix issues that are likely to break evaluation, reproducibility, build isolation, security, or deployment behavior. Do not report formatting that `nixfmt` or project style would handle, and do not require flakes when the repository intentionally uses channels or legacy Nix.\n\n#### Evaluation and Attribute Sets\n- Duplicate attribute definitions in the same attrset, or an attribute override that unintentionally replaces a previously defined value in the changed scope.\n- Referencing `self`, `super`, `pkgs`, `config`, or function arguments that are not in scope for the changed expression.\n- `inherit` statements that reference missing names, or inherit from an attrset that cannot contain the requested attribute.\n- Recursive attrsets (`rec`) where a value depends on itself directly or through an obvious cycle.\n\n#### Reproducibility and Pinning\n- Fetchers such as `fetchTarball`, `fetchGit`, `fetchurl`, `fetchFromGitHub`, or `builtins.fetch*` without a fixed revision and hash when the source affects a package, module, or deployment output.\n- Version strings, source revisions, and hashes that are changed inconsistently, for example a package version bump without the matching source revision/hash update.\n- Imports from `<nixpkgs>` or mutable channels in otherwise pinned flake or lockfile-based code, unless existing neighboring code deliberately follows the same pattern.\n\n#### Build and Packaging Correctness\n- Derivations that use undeclared build tools or runtime dependencies instead of adding them to `nativeBuildInputs`, `buildInputs`, `propagatedBuildInputs`, or wrapper inputs.\n- Phase overrides that drop required default behavior without reintroducing it, such as replacing `installPhase` without installing outputs into `$out`.\n- Hardcoded host paths, user home paths, or `/usr/bin` tools inside derivations that should build in the Nix sandbox.\n- `meta.mainProgram`, `passthru.tests`, or output names that are changed inconsistently with installed binaries or referenced package attributes.\n\n#### NixOS and Home Manager Modules\n- Options used before declaration, options with defaults whose type does not match the declared `types.*`, or renamed options without a compatibility alias or migration path.\n- Systemd service, timer, user, group, port, or file path changes that conflict with existing module options or make activation fail.\n- Secrets or credentials embedded directly in module defaults, environment variables, scripts, or generated config instead of coming from secret management or protected files.\n\n#### Overlays and Flakes\n- Overlay functions with argument order or names swapped (`final`/`prev`, `self`/`super`) causing packages to be pulled from the wrong package set.\n- Flake outputs that reference missing inputs, unsupported systems, or package attributes not defined for every advertised system.\n- Adding a package/app/check/devShell for one system while the surrounding flake helper expects all systems to expose the same attribute.\n\n#### Review Scope\n- Focus on evaluation failures, non-reproducible sources, sandbox escapes, missing dependencies, module activation errors, and secret exposure.\n- Do not flag preference-only style choices, attr ordering, or idioms that are consistent with neighboring Nix files.",
+        "source": "system"
+      },
+      {
+        "files": [
+          "scripts/create-release-deployment-descriptor-input.mjs",
+          "scripts/create-release-managed-generation.mjs",
+          "scripts/deployment-artifact-roundtrip-production-proof.mjs",
+          "scripts/release-managed-generation.test.mjs",
+          "scripts/verify-deployment-artifact-roundtrip.mjs",
+          "src/bootstrap/build.ts",
+          "src/bootstrap/cli.ts",
+          "src/bootstrap/paths.ts",
+          "src/bootstrap/source-resolution.ts",
+          "src/runtime-contract/deployment-artifact-roundtrip.ts",
+          "src/runtime-contract/deployment-descriptor.ts",
+          "src/runtime-contract/managed-generation-build.ts",
+          "src/runtime-contract/managed-generation.ts",
+          "src/runtime-contract/managed-runtime-state.ts",
+          "src/runtime-contract/managed-runtime.ts"
+        ],
+        "group_id": 3,
+        "pattern": "**/*.{ts,js,tsx,jsx,mjs,cjs}",
+        "rule": "#### Obvious Typos or Spelling Errors\n- Spelling errors in variable names, function names, component names, or Props property names\n- Strings in log or error messages containing spelling errors that affect readability\n\n#### Dead Code\n- Code blocks that will never be executed (e.g., branches where the condition is always false, code after a return statement)\n- Variables that are declared but never read or referenced\n- Large blocks of commented-out code (with no apparent intent to retain)\n\n#### Code Quality Checks\n- **Duplicate Code**: Check for common logic that can be extracted\n- **Code Comments**: Complex business logic should have clear explanatory comments (avoid commenting obvious code)\n- **Hardcoding**: Business-related hardcoded strings are prohibited, especially URL paths and business numbers; simple UI text may be relaxed\n- **Variable Declarations**: Using `var` is strictly prohibited; use `let` or `const`\n- **Equality Comparisons**: Using `==` and `!=` is prohibited; use strict equality `===` and `!==`\n- **TypeScript Types**: Avoid using `any` type; if necessary, provide a comment explaining the reason\n- **Null Checks**: Perform null checks when accessing values or destructuring to avoid null pointer exceptions\n- **Ternary Expressions**: Nested ternary expressions are not allowed\n\n#### React Best Practices\n- **Hooks Usage**: Verify compliance with Hooks rules (only call at the top level, only call in React functions)\n- **State Management**: Ensure state is placed at the appropriate level; avoid unnecessary state lifting\n- **Side Effect Handling**: Verify useEffect correctly handles dependencies and cleanup functions\n- **Performance Optimization**: Verify proper use of React.memo, useMemo, useCallback (based on performance analysis; avoid over-optimization)\n- **Render Side Effects**: Side effects in React component render methods are strictly prohibited (e.g., API calls, DOM manipulation)\n- **Inline Styles**: Avoid using inline `style` attributes, except for dynamic styles\n- **Inner Components**: Declaring new components inside a component is prohibited; use render methods instead (e.g., `renderItem`, not `<Item/>`)\n\n#### Async Handling Standards\n- **Error Handling**: Async functions must include proper error handling with user-friendly error messages\n- **Prefer async/await**: Prefer async/await over Promises; callback hell is prohibited\n- **Async in Loops**: Distinguish between independent async operations (use `Promise.all` for parallelism) and dependent async operations (use sequential execution); prefer `Promise.all` for performance\n\n#### Code Security Checks\n- **XSS Protection**: Verify that user input is properly escaped\n- **innerHTML Safety**: Using innerHTML to directly insert user input is prohibited; use textContent or apply XSS protection\n- **Code Injection Protection**: Using eval(), Function() constructor, and string argument forms of setTimeout/setInterval is strictly prohibited\n- **Dangerous Methods**: Using document.write() is prohibited as it causes page reflow and security issues\n- **Sensitive Information**: Check whether API keys or sensitive data are exposed\n- **Prototype Chain Safety**: Modifying native object prototypes (e.g., Array.prototype, Object.prototype) is prohibited",
+        "source": "system"
+      }
+    ],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}

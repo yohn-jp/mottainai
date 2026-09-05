@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #858 @ 8f8b289b001e</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #858: fix(runtime): consume release-bound Route 1 payload</h1>
+<p>Base <code>main</code> @ <code>f983e1f1c8abb38fbc160169f8d1b6472b95608d</code> &rarr;
+Head <code>fix/850-release-bound-route1-payload</code> @ <code>8f8b289b001ef479a777a0a68b0cf362dfb87605</code></p>
+<p>Revision <code>8f8b289b001e</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/850">#850</a> fix(runtime): consume the release-bound Route 1 payload during guest reconciliation (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] `runtime ensure --descriptor` projects the selected release&#39;s canonical Route 1 payload identity/locator into the bounded managed-generation reconciliation intent needed by the guest build path.</li>
+<li>[ ] Guest reconciliation obtains and verifies the exact canonical Route 1 payload bytes by the descriptor-bound SHA-256 before they can enter the Mottainai Nix package build.</li>
+<li>[ ] The live managed-generation build uses the same canonical payload-consuming package boundary as release Route 2 (`mkMottainaiFromPayload` or one single equivalent authority), not ordinary source-side tarball regeneration.</li>
+<li>[ ] Route 1 payload SHA-256, Route 2 source NAR SHA-256, and managed-generation identity remain distinct identities with no semantic substitution.</li>
+<li>[ ] A production-shaped round trip proves that the descriptor-produced canonical `managedGenerationIdentity` is reproduced by the guest/live build path when it consumes the same exact Route 1 payload.</li>
+<li>[ ] Substituting a different tarball with the same version/source metadata fails closed on payload identity before activation.</li>
+<li>[ ] Final Route 3 evidence can prove the active Mottainai package is bound to the selected descriptor&#39;s canonical Route 1 payload identity, not merely the requested version/source tree.</li>
+<li>[ ] The fix does not require npm registry publication to precede Route 2/3 convergence and does not create a second package/payload identity authority.</li>
+<li>[ ] #261&#39;s acceptance criterion requiring evidence of the active canonical Route 1 payload can be satisfied without manual payload injection.</li></ul>
+
+
+
+<h2>Changed files (27, +1326/-117)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>host-bootstrap/src/deployment_descriptor.rs</td><td>modified</td><td>+112</td><td>-1</td></tr>
+<tr><td>host-bootstrap/src/lima.rs</td><td>modified</td><td>+123</td><td>-4</td></tr>
+<tr><td>host-bootstrap/tests/reconciliation.rs</td><td>modified</td><td>+20</td><td>-1</td></tr>
+<tr><td>nix/bootstrap.nix</td><td>modified</td><td>+2</td><td>-0</td></tr>
+<tr><td>nix/managed-generation.nix</td><td>modified</td><td>+20</td><td>-1</td></tr>
+<tr><td>nix/mottainai.nix</td><td>modified</td><td>+6</td><td>-0</td></tr>
+<tr><td>nix/tests/fixtures/managed-mottainai-v1/nix/flake.nix</td><td>modified</td><td>+25</td><td>-0</td></tr>
+<tr><td>scripts/create-release-deployment-descriptor-input.mjs</td><td>modified</td><td>+11</td><td>-0</td></tr>
+<tr><td>scripts/create-release-managed-generation.mjs</td><td>modified</td><td>+12</td><td>-1</td></tr>
+<tr><td>scripts/deployment-artifact-roundtrip-production-proof.mjs</td><td>modified</td><td>+29</td><td>-4</td></tr>
+<tr><td>scripts/release-managed-generation.test.mjs</td><td>modified</td><td>+4</td><td>-1</td></tr>
+<tr><td>scripts/verify-deployment-artifact-roundtrip.mjs</td><td>modified</td><td>+2</td><td>-0</td></tr>
+<tr><td>src/bootstrap/build.ts</td><td>modified</td><td>+18</td><td>-4</td></tr>
+<tr><td>src/bootstrap/cli.test.ts</td><td>modified</td><td>+181</td><td>-7</td></tr>
+<tr><td>src/bootstrap/cli.ts</td><td>modified</td><td>+153</td><td>-31</td></tr>
+<tr><td>src/bootstrap/paths.ts</td><td>modified</td><td>+12</td><td>-0</td></tr>
+<tr><td>src/bootstrap/source-resolution.test.ts</td><td>modified</td><td>+97</td><td>-3</td></tr>
+<tr><td>src/bootstrap/source-resolution.ts</td><td>modified</td><td>+159</td><td>-9</td></tr>
+<tr><td>src/runtime-contract/deployment-artifact-roundtrip.test.ts</td><td>modified</td><td>+6</td><td>-1</td></tr>
+<tr><td>src/runtime-contract/deployment-artifact-roundtrip.ts</td><td>modified</td><td>+9</td><td>-0</td></tr>
+<tr><td>src/runtime-contract/deployment-descriptor.test.ts</td><td>modified</td><td>+6</td><td>-0</td></tr>
+<tr><td>src/runtime-contract/deployment-descriptor.ts</td><td>modified</td><td>+29</td><td>-16</td></tr>
+<tr><td>src/runtime-contract/managed-generation-build.test.ts</td><td>modified</td><td>+112</td><td>-7</td></tr>
+<tr><td>src/runtime-contract/managed-generation-build.ts</td><td>modified</td><td>+105</td><td>-17</td></tr>
+<tr><td>src/runtime-contract/managed-generation.ts</td><td>modified</td><td>+14</td><td>-0</td></tr>
+<tr><td>src/runtime-contract/managed-runtime-state.ts</td><td>modified</td><td>+6</td><td>-1</td></tr>
+<tr><td>src/runtime-contract/managed-runtime.ts</td><td>modified</td><td>+53</td><td>-8</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
