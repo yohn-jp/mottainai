@@ -1175,6 +1175,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Install Nix for the deployment artifact round-trip gate
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
       - name: Setup Node.js and pnpm with frozen-lockfile install for descriptor validation
         uses: yohn-jp/.github/.github/actions/setup-node-pnpm@main
         with:
@@ -1241,6 +1244,21 @@ jobs:
             --input "$RUNNER_TEMP/deployment-descriptor-input.json" \
             --output mottainai-deployment-v1.json \
             --identity-output mottainai-deployment-v1.json.sha256
+
+      # Issue #832: send the exact descriptor producer output back through the
+      # real source resolver and managed-generation build boundary. This step
+      # has no event-specific skip condition; deployment-descriptor is a
+      # prerequisite of finalize-release, so a release cannot publish without
+      # this deterministic round-trip succeeding.
+      - name: Verify the production deployment artifact round-trip (Issue #832)
+        run: |
+          set -euo pipefail
+          tarball="$(find . -maxdepth 1 -type f -name 'mottainai-*.tgz' -print -quit)"
+          test -n "$tarball"
+          node --import tsx scripts/verify-deployment-artifact-roundtrip.mjs \
+            --descriptor mottainai-deployment-v1.json \
+            --tarball "$tarball" \
+            --system x86_64-linux
 
       - name: Publish descriptor assets idempotently
         env:
