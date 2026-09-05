@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #860 @ 042d30a0c033</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #860: fix(runtime): verify activated QEMU data closure during reconciliation</h1>
+<p>Base <code>main</code> @ <code>fc271eb67b2422278850e9ceba6bf543dbf7b8ec</code> &rarr;
+Head <code>fix/826-qemu-data-closure-revalidation</code> @ <code>042d30a0c0336f509ce5566d26d5740975737fa7</code></p>
+<p>Revision <code>042d30a0c033</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/826">#826</a> fix: verify activated QEMU data closure during reconciliation (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Provisioning records a canonical manifest/digest identity for the activated QEMU data closure.</li>
+<li>[ ] Reconciliation verifies the activated required files against that identity, not only file presence/non-empty shape.</li>
+<li>[ ] A modified firmware/data file is detected deterministically and cannot return `Satisfied`.</li>
+<li>[ ] The recovery policy is explicit: fail closed or safely reprovision from the immutable artifact.</li>
+<li>[ ] Regression coverage mutates an activated required data file and proves reconciliation detects the drift.</li>
+<li>[ ] Unchanged reconciliation remains idempotent.</li></ul>
+
+
+
+<h2>Changed files (3, +170/-21)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>host-bootstrap/src/deployment_descriptor.rs</td><td>modified</td><td>+2</td><td>-0</td></tr>
+<tr><td>host-bootstrap/src/qemu.rs</td><td>modified</td><td>+127</td><td>-19</td></tr>
+<tr><td>host-bootstrap/tests/reconciliation.rs</td><td>modified</td><td>+41</td><td>-2</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

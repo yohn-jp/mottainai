@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "fc271eb67b2422278850e9ceba6bf543dbf7b8ec",
+    "draft": false,
+    "headRef": "fix/826-qemu-data-closure-revalidation",
+    "headSha": "042d30a0c0336f509ce5566d26d5740975737fa7",
+    "number": 860,
+    "title": "fix(runtime): verify activated QEMU data closure during reconciliation"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "042d30a0c0336f509ce5566d26d5740975737fa7",
+    "immutable": true,
+    "shortId": "042d30a0c033"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-05T11:50:12.021Z"
+  }
+}

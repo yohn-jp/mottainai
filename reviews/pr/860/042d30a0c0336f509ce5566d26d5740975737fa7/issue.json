@@ -1,0 +1,41 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Provisioning records a canonical manifest/digest identity for the activated QEMU data closure."
+    },
+    {
+      "checked": false,
+      "text": "Reconciliation verifies the activated required files against that identity, not only file presence/non-empty shape."
+    },
+    {
+      "checked": false,
+      "text": "A modified firmware/data file is detected deterministically and cannot return `Satisfied`."
+    },
+    {
+      "checked": false,
+      "text": "The recovery policy is explicit: fail closed or safely reprovision from the immutable artifact."
+    },
+    {
+      "checked": false,
+      "text": "Regression coverage mutates an activated required data file and proves reconciliation detects the drift."
+    },
+    {
+      "checked": false,
+      "text": "Unchanged reconciliation remains idempotent."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 826,
+    "state": "open",
+    "title": "fix: verify activated QEMU data closure during reconciliation",
+    "url": "https://github.com/yohn-jp/mottainai/issues/826"
+  },
+  "linked": {
+    "number": 826
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
