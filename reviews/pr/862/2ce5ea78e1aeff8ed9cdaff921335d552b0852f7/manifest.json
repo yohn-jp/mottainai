@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "ea579ba66a82e806ede1c19ecafb1f06a0a55b7b",
+    "draft": false,
+    "headRef": "fix/844-trusted-main-production-lima-composition",
+    "headSha": "2ce5ea78e1aeff8ed9cdaff921335d552b0852f7",
+    "number": 862,
+    "title": "fix(ci): exercise production Lima composition on trusted main"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "2ce5ea78e1aeff8ed9cdaff921335d552b0852f7",
+    "immutable": true,
+    "shortId": "2ce5ea78e1ae"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-05T12:42:51.439Z"
+  }
+}

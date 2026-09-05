@@ -1,0 +1,152 @@
+{
+  "baseSha": "ea579ba66a82e806ede1c19ecafb1f06a0a55b7b",
+  "files": [
+    {
+      "additions": 60,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 367,
+          "oldLines": 0,
+          "oldStart": 366
+        },
+        {
+          "newLines": 26,
+          "newStart": 754,
+          "oldLines": 0,
+          "oldStart": 752
+        },
+        {
+          "newLines": 33,
+          "newStart": 818,
+          "oldLines": 0,
+          "oldStart": 790
+        }
+      ],
+      "path": ".github/workflows/ci.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 7,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 35,
+          "oldLines": 1,
+          "oldStart": 35
+        },
+        {
+          "newLines": 5,
+          "newStart": 116,
+          "oldLines": 2,
+          "oldStart": 116
+        },
+        {
+          "newLines": 1,
+          "newStart": 224,
+          "oldLines": 0,
+          "oldStart": 220
+        }
+      ],
+      "path": "docs/architecture/ci/topology.md",
+      "status": "modified"
+    },
+    {
+      "additions": 16,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 335,
+          "oldLines": 2,
+          "oldStart": 335
+        },
+        {
+          "newLines": 12,
+          "newStart": 630,
+          "oldLines": 0,
+          "oldStart": 627
+        }
+      ],
+      "path": "host-bootstrap/src/lima.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 252,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 252,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "host-bootstrap/tests/lima_composition_real.rs",
+      "status": "added"
+    },
+    {
+      "additions": 4,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 72,
+          "oldLines": 0,
+          "oldStart": 71
+        }
+      ],
+      "path": "scripts/ci-contract-ownership.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 5,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 5,
+          "newStart": 135,
+          "oldLines": 0,
+          "oldStart": 134
+        }
+      ],
+      "path": "scripts/ci-runtime-contract-gates.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 4,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 136,
+          "oldLines": 2,
+          "oldStart": 136
+        },
+        {
+          "newLines": 1,
+          "newStart": 143,
+          "oldLines": 0,
+          "oldStart": 142
+        },
+        {
+          "newLines": 1,
+          "newStart": 151,
+          "oldLines": 0,
+          "oldStart": 149
+        }
+      ],
+      "path": "scripts/ci-runtime-contract-gates.test.mjs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "2ce5ea78e1aeff8ed9cdaff921335d552b0852f7",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 348,
+    "deletions": 7,
+    "filesChanged": 7
+  }
+}

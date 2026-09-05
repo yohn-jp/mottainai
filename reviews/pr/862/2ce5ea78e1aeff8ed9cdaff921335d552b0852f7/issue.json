@@ -1,0 +1,49 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Trusted-main canonical integration exercises the production `SystemLimaCli` / production Lima configuration path for affected host-bootstrap/Runtime composition changes."
+    },
+    {
+      "checked": false,
+      "text": "The proof consumes the real canonical Runtime Appliance artifact/identity, not a surrogate guest."
+    },
+    {
+      "checked": false,
+      "text": "The proof verifies at least production create/start composition, bounded SSH reachability, and handoff to the canonical guest-health boundary using the same product configuration path as `runtime ensure`."
+    },
+    {
+      "checked": false,
+      "text": "A regression substitution equivalent to #840 (missing `MTNAI_BOOT` delivery) fails the production composition gate."
+    },
+    {
+      "checked": false,
+      "text": "A regression substitution equivalent to #841 (normal Lima cloud-init readiness instead of canonical plain-mode behavior) fails the gate."
+    },
+    {
+      "checked": false,
+      "text": "The proof does not claim real-host KVM/provider support certification; #261 remains the final external real-host authority."
+    },
+    {
+      "checked": false,
+      "text": "PR-tier CI remains rejection-oriented and does not automatically inherit the full trusted-main cost for host-bootstrap-only changes."
+    },
+    {
+      "checked": false,
+      "text": "CI ownership/selection contract tests prove the new trusted-main production-Lima proof is selected whenever a change can invalidate that boundary."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 844,
+    "state": "open",
+    "title": "fix: exercise the production Lima composition path on trusted main",
+    "url": "https://github.com/yohn-jp/mottainai/issues/844"
+  },
+  "linked": {
+    "number": 844
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

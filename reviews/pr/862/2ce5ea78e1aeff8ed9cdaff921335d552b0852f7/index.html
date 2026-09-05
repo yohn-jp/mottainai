@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #862 @ 2ce5ea78e1ae</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #862: fix(ci): exercise production Lima composition on trusted main</h1>
+<p>Base <code>main</code> @ <code>ea579ba66a82e806ede1c19ecafb1f06a0a55b7b</code> &rarr;
+Head <code>fix/844-trusted-main-production-lima-composition</code> @ <code>2ce5ea78e1aeff8ed9cdaff921335d552b0852f7</code></p>
+<p>Revision <code>2ce5ea78e1ae</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/844">#844</a> fix: exercise the production Lima composition path on trusted main (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Trusted-main canonical integration exercises the production `SystemLimaCli` / production Lima configuration path for affected host-bootstrap/Runtime composition changes.</li>
+<li>[ ] The proof consumes the real canonical Runtime Appliance artifact/identity, not a surrogate guest.</li>
+<li>[ ] The proof verifies at least production create/start composition, bounded SSH reachability, and handoff to the canonical guest-health boundary using the same product configuration path as `runtime ensure`.</li>
+<li>[ ] A regression substitution equivalent to #840 (missing `MTNAI_BOOT` delivery) fails the production composition gate.</li>
+<li>[ ] A regression substitution equivalent to #841 (normal Lima cloud-init readiness instead of canonical plain-mode behavior) fails the gate.</li>
+<li>[ ] The proof does not claim real-host KVM/provider support certification; #261 remains the final external real-host authority.</li>
+<li>[ ] PR-tier CI remains rejection-oriented and does not automatically inherit the full trusted-main cost for host-bootstrap-only changes.</li>
+<li>[ ] CI ownership/selection contract tests prove the new trusted-main production-Lima proof is selected whenever a change can invalidate that boundary.</li></ul>
+
+
+
+<h2>Changed files (7, +348/-7)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/ci.yml</td><td>modified</td><td>+60</td><td>-0</td></tr>
+<tr><td>docs/architecture/ci/topology.md</td><td>modified</td><td>+7</td><td>-3</td></tr>
+<tr><td>host-bootstrap/src/lima.rs</td><td>modified</td><td>+16</td><td>-2</td></tr>
+<tr><td>host-bootstrap/tests/lima_composition_real.rs</td><td>added</td><td>+252</td><td>-0</td></tr>
+<tr><td>scripts/ci-contract-ownership.test.mjs</td><td>modified</td><td>+4</td><td>-0</td></tr>
+<tr><td>scripts/ci-runtime-contract-gates.mjs</td><td>modified</td><td>+5</td><td>-0</td></tr>
+<tr><td>scripts/ci-runtime-contract-gates.test.mjs</td><td>modified</td><td>+4</td><td>-2</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
