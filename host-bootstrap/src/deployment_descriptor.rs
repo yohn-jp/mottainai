@@ -924,6 +924,121 @@ mod tests {
     }
 
     #[test]
+    fn route4_projection_succeeds_on_supported_current_descriptor() {
+        let dir = tempfile::tempdir().unwrap();
+        let (descriptor_path, sidecar_path) =
+            write_descriptor(dir.path(), &sample_descriptor_json());
+
+        let requirement =
+            qemu_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap();
+        assert_eq!(requirement.data_artifact.sha256, "4".repeat(64));
+    }
+
+    #[test]
+    fn route4_projection_fails_closed_on_unsupported_contract_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let descriptor_json = descriptor_with_compatibility_value(
+            "contractId",
+            Value::String("mottainai.deployment.v2".to_owned()),
+        );
+        let (descriptor_path, sidecar_path) = write_descriptor(dir.path(), &descriptor_json);
+
+        let error = qemu_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap_err();
+        assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
+        assert_eq!(
+            error.message,
+            "unsupported deployment descriptor contractId"
+        );
+    }
+
+    #[test]
+    fn route4_projection_fails_closed_on_unsupported_schema_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let descriptor_json = descriptor_with_compatibility_value("schemaVersion", Value::from(2));
+        let (descriptor_path, sidecar_path) = write_descriptor(dir.path(), &descriptor_json);
+
+        let error = qemu_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap_err();
+        assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
+        assert_eq!(
+            error.message,
+            "unsupported deployment descriptor schemaVersion"
+        );
+    }
+
+    #[test]
+    fn route4_projection_fails_closed_on_unsupported_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let descriptor_json = descriptor_with_compatibility_value(
+            "profile",
+            Value::String("linux-aarch64".to_owned()),
+        );
+        let (descriptor_path, sidecar_path) = write_descriptor(dir.path(), &descriptor_json);
+
+        let error = qemu_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap_err();
+        assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
+        assert_eq!(error.message, "unsupported deployment descriptor profile");
+    }
+
+    #[test]
+    fn route4_projection_fails_closed_on_unsupported_architecture() {
+        let dir = tempfile::tempdir().unwrap();
+        let descriptor_json = descriptor_with_compatibility_value(
+            "architecture",
+            Value::String("aarch64-linux".to_owned()),
+        );
+        let (descriptor_path, sidecar_path) = write_descriptor(dir.path(), &descriptor_json);
+
+        let error = qemu_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap_err();
+        assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
+        assert_eq!(
+            error.message,
+            "unsupported deployment descriptor architecture"
+        );
+    }
+
+    #[test]
+    fn route4_projection_fails_closed_on_descriptor_byte_mismatch() {
+        let dir = tempfile::tempdir().unwrap();
+        let (descriptor_path, sidecar_path) =
+            write_descriptor(dir.path(), &sample_descriptor_json());
+        std::fs::write(
+            &sidecar_path,
+            format!("{}  deployment-descriptor.json\n", "0".repeat(64)),
+        )
+        .unwrap();
+
+        let error = qemu_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap_err();
+        assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
+        assert!(error.message.contains("identity mismatch"));
+    }
+
+    #[test]
+    fn route4_projection_fails_closed_on_missing_data_artifact() {
+        let mut value: serde_json::Value = serde_json::from_str(&sample_descriptor_json()).unwrap();
+        value["route4"]["provider"]["qemu"]
+            .as_object_mut()
+            .unwrap()
+            .remove("dataArtifact");
+        let dir = tempfile::tempdir().unwrap();
+        let (descriptor_path, sidecar_path) = write_descriptor(dir.path(), &value.to_string());
+
+        let error = qemu_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap_err();
+        assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
+    }
+
+    #[test]
+    fn route4_projection_fails_closed_on_system_image_data_role_swap() {
+        let mut value: serde_json::Value = serde_json::from_str(&sample_descriptor_json()).unwrap();
+        let system = value["route4"]["provider"]["qemu"]["systemBinary"].clone();
+        value["route4"]["provider"]["qemu"]["dataArtifact"] = system;
+        let dir = tempfile::tempdir().unwrap();
+        let (descriptor_path, sidecar_path) = write_descriptor(dir.path(), &value.to_string());
+
+        let error = qemu_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap_err();
+        assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
+    }
+
+    #[test]
     fn fails_closed_on_missing_required_field() {
         let dir = tempfile::tempdir().unwrap();
         let (descriptor_path, sidecar_path) = write_descriptor(dir.path(), r#"{"route2":{}}"#);
