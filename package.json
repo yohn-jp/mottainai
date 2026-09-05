@@ -1,6 +1,6 @@
 {
   "name": "mottainai",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "Coding-agent orchestration and MCP context runtime with governed repository execution, bounded tool results, and multi-agent session management.",
   "type": "module",
   "bin": {
