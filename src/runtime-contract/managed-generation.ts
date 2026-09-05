@@ -103,6 +103,19 @@ const nixOutputPackageSchema = packageIdentitySchema
 
 const MAX_METADATA_PACKAGE_ENTRIES = 64 as const;
 
+/** Evidence emitted only when Route 2 consumed an exact Route 1 payload. */
+export const ManagedGenerationApplicationPayloadSchema = z
+  .object({
+    packageName: z.literal("mottainai"),
+    packageVersion: z.string().min(1).max(128),
+    sha256: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/iu)
+      .transform((value) => value.toLowerCase()),
+  })
+  .strict();
+export type ManagedGenerationApplicationPayload = z.infer<typeof ManagedGenerationApplicationPayloadSchema>;
+
 /**
  * Schema for the metadata JSON nix/managed-generation.nix's metadataFile
  * derivation emits. Bounded (array-length caps mirror #624's
@@ -125,6 +138,7 @@ export const ManagedGenerationMetadataSchema = z
         packages: z.array(nixOutputPackageSchema).max(MAX_METADATA_PACKAGE_ENTRIES),
       })
       .strict(),
+    applicationPayload: ManagedGenerationApplicationPayloadSchema.optional(),
   })
   .strict();
 

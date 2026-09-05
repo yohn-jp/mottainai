@@ -7,7 +7,9 @@ use sha2::{Digest, Sha256};
 use crate::appliance::ApplianceReference;
 use crate::contract::{ProviderContract, CONTRACT_SCHEMA_VERSION, SUPPORTED_LIMA_VERSION};
 use crate::error::{BootstrapError, ErrorCode};
-use crate::lima::{ManagedGenerationIntent, RuntimeSpec, RUNTIME_SPEC_SCHEMA_VERSION};
+use crate::lima::{
+    ManagedGenerationIntent, Route1PayloadIntent, RuntimeSpec, RUNTIME_SPEC_SCHEMA_VERSION,
+};
 use crate::qemu::{
     QemuArtifact, QemuContract, QemuDataArtifact, QemuState, QEMU_CONTRACT_SCHEMA_VERSION,
     QEMU_IMAGE_EXECUTABLE, QEMU_SUPPORTED_VERSION, QEMU_SYSTEM_EXECUTABLE,
@@ -42,6 +44,8 @@ struct DescriptorManagedPackage {
 #[derive(Clone, Debug, Deserialize)]
 struct DescriptorRoute2ManagedGeneration {
     packages: Vec<DescriptorManagedPackage>,
+    #[serde(rename = "applicationPayloadSha256")]
+    application_payload_sha256: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -62,6 +66,32 @@ struct DescriptorRoute3 {
     appliance: DescriptorApplianceRef,
     #[serde(rename = "managedGenerationIdentity")]
     managed_generation_identity: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct DescriptorRelease {
+    version: String,
+    tag: String,
+    #[serde(rename = "sourceRevision")]
+    source_revision: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct DescriptorRoute1Payload {
+    #[serde(rename = "packageName")]
+    package_name: String,
+    version: String,
+    #[serde(rename = "sourceRevision")]
+    source_revision: String,
+    filename: String,
+    sha256: String,
+    integrity: String,
+    locator: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct DescriptorRoute1 {
+    payload: DescriptorRoute1Payload,
 }
 
 /// The small compatibility envelope owned by this standalone consumer. The
@@ -178,6 +208,8 @@ struct DescriptorRoute4 {
 /// consumer-owned compatibility contract.
 #[derive(Clone, Debug, Deserialize)]
 struct DeploymentDescriptor {
+    release: DescriptorRelease,
+    route1: DescriptorRoute1,
     route2: DescriptorRoute2,
     route3: DescriptorRoute3,
     route4: DescriptorRoute4,
@@ -322,6 +354,66 @@ fn valid_sha256(value: &str) -> bool {
     value.len() == 64
         && value.chars().all(|character| character.is_ascii_hexdigit())
         && value == value.to_ascii_lowercase()
+}
+
+fn valid_git_sha(value: &str) -> bool {
+    value.len() == 40
+        && value.chars().all(|character| character.is_ascii_hexdigit())
+        && value == value.to_ascii_lowercase()
+}
+
+fn route1_payload_intent_from_descriptor_value(
+    descriptor: &DeploymentDescriptor,
+) -> Result<Route1PayloadIntent, BootstrapError> {
+    let payload = &descriptor.route1.payload;
+    let expected_filename = format!("mottainai-{}.tgz", payload.version);
+    let mottainai_package = descriptor
+        .route2
+        .managed_generation
+        .packages
+        .iter()
+        .find(|entry| entry.package_id == "mottainai")
+        .ok_or_else(|| invalid("deployment descriptor Route 2 has no mottainai package"))?;
+    let release_consistent = descriptor.release.tag == format!("v{}", descriptor.release.version)
+        && payload.package_name == "mottainai"
+        && payload.version == descriptor.release.version
+        && payload.source_revision == descriptor.release.source_revision
+        && mottainai_package.version == payload.version
+        && descriptor
+            .route2
+            .managed_generation
+            .application_payload_sha256
+            == payload.sha256;
+    let locator_consistent = payload.locator.starts_with("https://github.com/")
+        && payload.locator.ends_with(&format!(
+            "/releases/download/v{}/{}",
+            payload.version, expected_filename
+        ))
+        && !payload.locator.contains(['?', '#', '\n', '\r', '"', '\''])
+        && !payload.locator.contains("/latest/");
+    let integrity_consistent = (payload.integrity.starts_with("sha256-")
+        || payload.integrity.starts_with("sha512-"))
+        && payload.integrity.len() <= 256;
+    if !release_consistent
+        || payload.filename != expected_filename
+        || !valid_sha256(&payload.sha256)
+        || !valid_git_sha(&payload.source_revision)
+        || !integrity_consistent
+        || !locator_consistent
+    {
+        return Err(invalid(
+            "deployment descriptor Route 1 payload identity is not bound to the selected release and Route 2 package",
+        ));
+    }
+    Ok(Route1PayloadIntent {
+        package_name: payload.package_name.clone(),
+        version: payload.version.clone(),
+        source_revision: payload.source_revision.clone(),
+        filename: payload.filename.clone(),
+        sha256: payload.sha256.clone(),
+        integrity: payload.integrity.clone(),
+        locator: payload.locator.clone(),
+    })
 }
 
 fn version_major(value: &str) -> Option<u8> {
@@ -775,6 +867,7 @@ pub fn runtime_spec_from_descriptor(
     qemu_requirement_from_descriptor_value(&descriptor)?;
 
     let manifest = canonical_manifest(&descriptor.route2.managed_generation.packages);
+    let route1_payload = route1_payload_intent_from_descriptor_value(&descriptor)?;
 
     Ok(RuntimeSpec {
         schema_version: RUNTIME_SPEC_SCHEMA_VERSION.to_owned(),
@@ -794,6 +887,7 @@ pub fn runtime_spec_from_descriptor(
                 .managed_generation_identity
                 .to_ascii_lowercase(),
             manifest,
+            route1_payload,
         }),
     })
 }
@@ -841,10 +935,27 @@ mod tests {
         serde_json::json!({
             "contractId": SUPPORTED_DEPLOYMENT_CONTRACT_ID,
             "schemaVersion": SUPPORTED_DEPLOYMENT_SCHEMA_VERSION,
+            "release": {
+                "version": "1.2.3",
+                "tag": "v1.2.3",
+                "sourceRevision": "a".repeat(40),
+            },
             "profile": SUPPORTED_DEPLOYMENT_PROFILE,
             "architecture": SUPPORTED_DEPLOYMENT_ARCHITECTURE,
+            "route1": {
+                "payload": {
+                    "packageName": "mottainai",
+                    "version": "1.2.3",
+                    "sourceRevision": "a".repeat(40),
+                    "filename": "mottainai-1.2.3.tgz",
+                    "sha256": "e".repeat(64),
+                    "integrity": format!("sha512-{}", "A".repeat(86)),
+                    "locator": "https://github.com/yohn-jp/mottainai/releases/download/v1.2.3/mottainai-1.2.3.tgz",
+                }
+            },
             "route2": {
                 "managedGeneration": {
+                    "applicationPayloadSha256": "e".repeat(64),
                     "packages": [
                         {
                             "packageId": "zellij",

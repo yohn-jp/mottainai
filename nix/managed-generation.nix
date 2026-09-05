@@ -181,6 +181,23 @@ rec {
     resolvedVersion = r.drv.version;
   }) resolved;
 
+  # Only the payload-consuming Mottainai boundary emits this evidence. A
+  # source-based derivation has no canonical Route 1 identity and therefore
+  # cannot accidentally claim to have consumed one.
+  applicationPayload =
+    let
+      mottainaiEntries = builtins.filter (entry: entry.packageId == "mottainai") manifest.packages;
+    in
+    if mottainaiEntries != [ ]
+      && mottainaiPackage ? canonicalPayloadSha256
+      && mottainaiPackage.canonicalPayloadSha256 != null
+    then {
+      packageName = "mottainai";
+      packageVersion = mottainaiPackage.version;
+      sha256 = mottainaiPackage.canonicalPayloadSha256;
+    }
+    else null;
+
   # A runCommand (not writeText) so `generation` and every resolved package
   # derivation are real build inputs of this output — referencing
   # `${generation}` / `${r.drv}` below adds them to this derivation's
@@ -203,6 +220,7 @@ rec {
         nativeBuildInputs = [ pkgs.jq ];
         requestedIdentityJson = builtins.toJSON requestedIdentity;
         resolvedIdentityJson = builtins.toJSON resolvedIdentity;
+        applicationPayloadJson = builtins.toJSON applicationPayload;
         generationStorePath = "${generation}";
       }
       ''
@@ -211,6 +229,7 @@ rec {
           --argjson schemaVersion ${lib.escapeShellArg (builtins.toJSON compatibilityContractVersion)} \
           --argjson requestedIdentity "$requestedIdentityJson" \
           --argjson resolvedIdentity "$resolvedIdentityJson" \
+          --argjson applicationPayload "$applicationPayloadJson" \
           --arg generationStorePath "$generationStorePath" \
           --argjson packages '[${packageStorePathEntries}]' \
           '{
@@ -220,6 +239,6 @@ rec {
             requestedIdentity: $requestedIdentity,
             resolvedIdentity: $resolvedIdentity,
             nixOutput: { storePath: $generationStorePath, packages: $packages }
-          }' > "$out"
+          } + (if $applicationPayload == null then {} else { applicationPayload: $applicationPayload } end)' > "$out"
       '';
 }

@@ -21,3 +21,15 @@ export const CONTROL_STATE_ROOT = "/var/lib/mottainai-control" as const;
  * somewhere else.
  */
 export const CANONICAL_BOOTSTRAP_STATE_FILE_PATH = path.join(CONTROL_STATE_ROOT, BOOTSTRAP_STATE_RELATIVE_PATH);
+
+/** Descriptor-projected Route 1 payload identity consumed by guest reconcile. */
+export const CANONICAL_ROUTE1_PAYLOAD_IDENTITY_FILE_PATH = path.join(
+  CONTROL_STATE_ROOT,
+  "managed-packages/route1-payload.json",
+);
+
+/** Descriptor-projected managed-generation identity checked before activation. */
+export const CANONICAL_MANAGED_GENERATION_IDENTITY_FILE_PATH = path.join(
+  CONTROL_STATE_ROOT,
+  "managed-packages/generation-identity",
+);

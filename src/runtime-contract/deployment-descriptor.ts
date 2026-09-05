@@ -39,25 +39,27 @@ const releaseSchema = z
   })
   .strict();
 
-const route1Schema = z
+/** Exact Route 1 payload identity projected to every live consumer. */
+export const Route1PayloadIdentitySchema = z
   .object({
-    payload: z
-      .object({
-        packageName: z.literal("mottainai"),
-        version,
-        sourceRevision,
-        filename: z.string().min(1).max(256),
-        sha256,
-        /** npm's canonical integrity string for the packed tarball. */
-        integrity: z
-          .string()
-          .regex(/^sha(?:256|512)-[A-Za-z0-9+/=]+$/u)
-          .max(256),
-        locator: boundedUrl.optional(),
-      })
-      .strict(),
+    packageName: z.literal("mottainai"),
+    version,
+    sourceRevision,
+    filename: z.string().min(1).max(256),
+    sha256,
+    /** npm's canonical integrity string for the packed tarball. */
+    integrity: z
+      .string()
+      .regex(/^sha(?:256|512)-[A-Za-z0-9+/=]+$/u)
+      .max(256),
+    /** Required immutable release asset locator; registry/latest URLs are not valid. */
+    locator: boundedUrl,
   })
   .strict();
+
+export type Route1PayloadIdentity = z.infer<typeof Route1PayloadIdentitySchema>;
+
+const route1Schema = z.object({ payload: Route1PayloadIdentitySchema }).strict();
 
 const managedPackageSchema = z
   .object({
@@ -324,6 +326,17 @@ export function parseDeploymentDescriptor(value: unknown): DeploymentDescriptor 
   if (!result.success) {
     throw new DeploymentDescriptorError(
       `deployment descriptor is invalid: ${result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`,
+    );
+  }
+  return result.data;
+}
+
+/** Parse the descriptor-owned Route 1 identity without creating a second schema. */
+export function parseRoute1PayloadIdentity(value: unknown): Route1PayloadIdentity {
+  const result = Route1PayloadIdentitySchema.safeParse(value);
+  if (!result.success) {
+    throw new DeploymentDescriptorError(
+      `Route 1 payload identity is invalid: ${result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`,
     );
   }
   return result.data;

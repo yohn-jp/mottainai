@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { packCanonicalPayload } from "./lib/canonical-payload.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sourceFixture = path.join(repositoryRoot, "nix/tests/fixtures/managed-mottainai-v1");
@@ -52,7 +53,9 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-const { narHashOfTree, resolveMottainaiSource } = await import("../src/bootstrap/source-resolution.ts");
+const { narHashOfTree, resolveCanonicalPayload, resolveMottainaiSource } = await import(
+  "../src/bootstrap/source-resolution.ts"
+);
 const { buildManagedGeneration } = await import("../src/runtime-contract/managed-generation-build.ts");
 const { readDeploymentDescriptor } = await import("../src/runtime-contract/deployment-descriptor.ts");
 const { generationIdentityOf } = await import("../src/runtime-contract/managed-generation.ts");
@@ -63,7 +66,6 @@ const { parseManagedPackageManifest } = await import("../src/runtime-contract/ma
 
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-deployment-roundtrip-proof-"));
 try {
-  const tarballPath = path.join(temporaryRoot, `mottainai-${version}.tgz`);
   const initPath = path.join(temporaryRoot, "mottainai-init-linux-x86_64");
   const applianceMetadataPath = path.join(temporaryRoot, "appliance-metadata.json");
   const manifestPath = path.join(temporaryRoot, "managed-package-manifest.json");
@@ -72,7 +74,18 @@ try {
   const descriptorInputPath = path.join(temporaryRoot, "deployment-descriptor-input.json");
   const descriptorPath = path.join(temporaryRoot, "mottainai-deployment-v1.json");
 
-  fs.writeFileSync(tarballPath, "corrected production-shaped Route 1 payload fixture\n");
+  const payloadSource = path.join(temporaryRoot, "payload-source");
+  fs.cpSync(sourceFixture, payloadSource, { recursive: true });
+  const payloadPackagePath = path.join(payloadSource, "package.json");
+  const payloadPackage = JSON.parse(fs.readFileSync(payloadPackagePath, "utf8"));
+  payloadPackage.bin = { mottainai: "dist/index.js", mtnai: "dist/index.js", "mottainai-mcp": "dist/mcp.js" };
+  fs.writeFileSync(payloadPackagePath, `${JSON.stringify(payloadPackage)}\n`);
+  fs.mkdirSync(path.join(payloadSource, "dist"), { recursive: true });
+  fs.writeFileSync(path.join(payloadSource, "dist/index.js"), "#!/usr/bin/env node\n");
+  fs.writeFileSync(path.join(payloadSource, "dist/mcp.js"), "#!/usr/bin/env node\n");
+  fs.writeFileSync(path.join(payloadSource, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+  const packedPayload = packCanonicalPayload(payloadSource, path.join(temporaryRoot, "payload"));
+  const tarballPath = packedPayload.tarballPath;
   fs.writeFileSync(initPath, "corrected production-shaped Route 4 init fixture\n");
   writeJson(applianceMetadataPath, {
     digest: `sha256:${"6".repeat(64)}`,
@@ -103,6 +116,8 @@ try {
     manifest,
     system: "x86_64-linux",
     mottainaiSourcePath: sourceFixture,
+    canonicalPayloadPath: tarballPath,
+    canonicalPayloadSha256: sha256(tarballPath),
     env: { ...process.env, CI: "true" },
   });
   writeJson(manifestPath, manifest);
@@ -177,6 +192,14 @@ try {
   // the same order as the release verifier.
   const descriptor = readDeploymentDescriptor(descriptorPath);
   const projectedManifest = managedManifestFromDeploymentDescriptor(descriptor);
+  const resolvedPayload = await resolveCanonicalPayload({
+    identity: descriptor.route1.payload,
+    destinationDirectory: path.join(temporaryRoot, "resolved-payload"),
+    fetcher: async (url) => {
+      assert.equal(url, descriptor.route1.payload.locator);
+      return streamOf(fs.readFileSync(tarballPath));
+    },
+  });
   const sourceDestination = path.join(temporaryRoot, "resolved-source");
   const resolvedSource = await resolveMottainaiSource({
     requestedVersion: projectedManifest.packages.find((entry) => entry.packageId === "mottainai").version,
@@ -193,6 +216,8 @@ try {
     manifest: projectedManifest,
     system: "x86_64-linux",
     mottainaiSourcePath: resolvedSource.sourcePath,
+    canonicalPayloadPath: resolvedPayload.payloadPath,
+    canonicalPayloadSha256: resolvedPayload.sha256,
     env: { ...process.env, CI: "true" },
   });
 
@@ -207,7 +232,7 @@ try {
     manifest: projectedManifest,
     metadata: rebuilt.metadata,
     resolvedSource,
-    payloadSha256: sha256(tarballPath),
+    payloadSha256: resolvedPayload.sha256,
     payloadSourceRevision: sourceRevision,
     flakeLockSha256: sha256(flakeLock),
   });

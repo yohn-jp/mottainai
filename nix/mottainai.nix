@@ -323,6 +323,12 @@ NODE
     runHook postInstallCheck
   '';
 
+  # Expose the Route 1 identity only for the payload-consuming boundary. The
+  # ordinary source recipe deliberately carries no payload evidence.
+  passthru = {
+    canonicalPayloadSha256 = if canonicalPayload == null then null else canonicalPayloadSha256;
+  };
+
   meta = {
     description = "Coding-agent orchestration and MCP context runtime";
     homepage = "https://github.com/yohn-jp/mottainai";

@@ -65,6 +65,17 @@ if (managed.applicationPayloadSha256 !== payloadSha256) {
     `managed-generation payload identity mismatch; realized output declares ${managed.applicationPayloadSha256}, release payload is ${payloadSha256}`,
   );
 }
+if (
+  metadata.applicationPayload === undefined ||
+  metadata.applicationPayload.packageName !== "mottainai" ||
+  metadata.applicationPayload.packageVersion !==
+    manifest.packages.find((entry) => entry.packageId === "mottainai")?.version ||
+  metadata.applicationPayload.sha256 !== payloadSha256
+) {
+  throw new Error(
+    `managed-generation metadata does not prove the exact Route 1 payload was consumed: expected ${payloadSha256}`,
+  );
+}
 const flakeLockSha256 = sha256(flakeLockPath);
 if (managed.flakeLockSha256 !== flakeLockSha256) {
   throw new Error(

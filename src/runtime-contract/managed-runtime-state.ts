@@ -7,6 +7,7 @@ import { z } from "zod";
 import { replaceFileAtomically } from "../atomic-file.js";
 import type { BoundaryOperations } from "../boundary.js";
 import { DIRECT_BOUNDARIES } from "../boundary.js";
+import { ManagedGenerationApplicationPayloadSchema } from "./managed-generation.js";
 
 /**
  * Durable activation/recovery authority for Issue #628.
@@ -95,6 +96,7 @@ export const ManagedRuntimeCandidateSchema = z
       .max(MAX_PACKAGE_IDS)
       .refine((ids) => new Set(ids).size === ids.length, "duplicate packageId in managed generation candidate")
       .optional(),
+    applicationPayload: ManagedGenerationApplicationPayloadSchema.optional(),
   })
   .strict();
 export type ManagedRuntimeCandidate = z.infer<typeof ManagedRuntimeCandidateSchema>;
@@ -241,7 +243,10 @@ function requireNodeSqlite(): typeof import("node:sqlite") {
 
 function isSqliteBusy(error: unknown): boolean {
   const code = (error as { code?: unknown }).code;
-  return code === "ERR_SQLITE_BUSY" || (code === "ERR_SQLITE_ERROR" && lockErrorMessage(error).includes("database is locked"));
+  return (
+    code === "ERR_SQLITE_BUSY" ||
+    (code === "ERR_SQLITE_ERROR" && lockErrorMessage(error).includes("database is locked"))
+  );
 }
 
 /**

@@ -172,6 +172,7 @@ function metadataFor(sourceSha256: string): ManagedGenerationMetadata {
         },
       ],
     },
+    applicationPayload: { packageName: "mottainai", packageVersion: "1.2.3", sha256: digest("1") },
   };
 }
 
@@ -197,7 +198,11 @@ function roundtripInput(sourceSha256 = digest("4")) {
 }
 
 test("accepts a production-shaped descriptor through the canonical round-trip", () => {
-  assert.doesNotThrow(() => assertDeploymentArtifactRoundtrip(roundtripInput()));
+  const input = roundtripInput();
+  assert.doesNotThrow(() => assertDeploymentArtifactRoundtrip(input));
+  assert.notEqual(input.payloadSha256, input.resolvedSource.narHashSha256);
+  assert.notEqual(input.payloadSha256, input.descriptor.route2.managedGeneration.identity);
+  assert.notEqual(input.resolvedSource.narHashSha256, input.descriptor.route2.managedGeneration.identity);
 });
 
 test("rejects the former npm payload SHA substituted for the source NAR identity", () => {

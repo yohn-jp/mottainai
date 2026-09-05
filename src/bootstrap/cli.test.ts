@@ -6,14 +6,23 @@ import path from "node:path";
 import { test } from "node:test";
 import { reconcileAdapters, reconcileHealthCheck, runBootstrapCli } from "./cli.js";
 import { CANONICAL_BOOTSTRAP_STATE_FILE_PATH } from "./paths.js";
-import { MANAGED_RUNTIME_CONTROL_STATE_ROOT, ManagedRuntimeError, reconcileManagedRuntime } from "../runtime-contract/managed-runtime.js";
+import {
+  MANAGED_RUNTIME_CONTROL_STATE_ROOT,
+  ManagedRuntimeError,
+  reconcileManagedRuntime,
+} from "../runtime-contract/managed-runtime.js";
 import { readManagedRuntimePointer, readManagedRuntimeState } from "../runtime-contract/managed-runtime-state.js";
 import { generationIdentityOf } from "../runtime-contract/managed-generation.js";
-import type { BuildManagedGenerationOptions, BuiltManagedGeneration } from "../runtime-contract/managed-generation-build.js";
+import { parseManagedGenerationMetadata } from "../runtime-contract/managed-generation.js";
+import type {
+  BuildManagedGenerationOptions,
+  BuiltManagedGeneration,
+} from "../runtime-contract/managed-generation-build.js";
 import {
   MANAGED_PACKAGE_MANIFEST_CONTRACT_ID,
   MANAGED_PACKAGE_MANIFEST_SCHEMA_VERSION,
 } from "../runtime-contract/managed-package-manifest.js";
+import { parseManagedPackageManifest } from "../runtime-contract/managed-package-manifest.js";
 
 function captureStdout(): { restore: () => string } {
   const original = process.stdout.write.bind(process.stdout);
@@ -79,7 +88,9 @@ test("build has no --state-file flag: no code path reads one as a state-path ove
 
 test("the CLI's production dispatch always uses CANONICAL_BOOTSTRAP_STATE_FILE_PATH, never a caller-supplied path", async () => {
   const source = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "cli.ts"), "utf8");
-  const stateFilePathUsages = [...source.matchAll(/stateFilePath:\s*(\S+)/gu)].map((match) => match[1].replace(/,$/u, ""));
+  const stateFilePathUsages = [...source.matchAll(/stateFilePath:\s*(\S+)/gu)].map((match) =>
+    match[1].replace(/,$/u, ""),
+  );
   assert.ok(stateFilePathUsages.length > 0, "expected at least one stateFilePath: usage in cli.ts");
   for (const usage of stateFilePathUsages) {
     assert.equal(usage, "CANONICAL_BOOTSTRAP_STATE_FILE_PATH");
@@ -311,6 +322,172 @@ test("reconcileAdapters composes the real production build/health logic with rec
   assert.equal(readManagedRuntimePointer(currentPointer), "/nix/store/generation-2");
 });
 
+test("reconcileAdapters hands the selected Route 1 payload to the canonical build and skips it on an idempotent rerun", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-reconcile-route1-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const manifest = parseManagedPackageManifest({
+    contractId: MANAGED_PACKAGE_MANIFEST_CONTRACT_ID,
+    schemaVersion: MANAGED_PACKAGE_MANIFEST_SCHEMA_VERSION,
+    activation: { generation: 1 },
+    packages: [
+      {
+        packageId: "mottainai",
+        kind: "nix-flake-package",
+        version: "1.2.3",
+        source: { flakeRef: "nix#mottainai", sourceSha256: "a".repeat(64) },
+      },
+    ],
+  });
+  const payload = {
+    packageName: "mottainai" as const,
+    version: "1.2.3",
+    sourceRevision: "b".repeat(40),
+    filename: "mottainai-1.2.3.tgz",
+    sha256: "c".repeat(64),
+    integrity: `sha512-${"A".repeat(86)}`,
+    locator: "https://github.com/yohn-jp/mottainai/releases/download/v1.2.3/mottainai-1.2.3.tgz",
+  };
+  const metadata = parseManagedGenerationMetadata({
+    contractId: "mottainai.managed-generation.v1",
+    schemaVersion: 1,
+    compatibilityContractVersion: 1,
+    requestedIdentity: { packages: [{ packageId: "mottainai", version: "1.2.3", sourceSha256: "a".repeat(64) }] },
+    resolvedIdentity: { packages: [{ packageId: "mottainai", resolvedVersion: "1.2.3" }] },
+    nixOutput: {
+      storePath: "/nix/store/route1-generation",
+      packages: [
+        {
+          packageId: "mottainai",
+          storePath: "/nix/store/route1-mottainai",
+          sourceStorePath: "/nix/store/route1-source",
+        },
+      ],
+    },
+    applicationPayload: { packageName: "mottainai", packageVersion: "1.2.3", sha256: payload.sha256 },
+  });
+  const expectedIdentity = generationIdentityOf(manifest, metadata);
+  let identityReads = 0;
+  let payloadResolutions = 0;
+  let sourceResolutions = 0;
+  let builds = 0;
+  const dependencies = reconcileAdapters({
+    system: "x86_64-linux",
+    repoRoot: "/unused",
+    env: {},
+    overrides: {
+      readRoute1PayloadIdentity: () => {
+        identityReads += 1;
+        return payload;
+      },
+      readManagedGenerationIdentity: () => expectedIdentity,
+      resolvePayload: async (options) => {
+        payloadResolutions += 1;
+        assert.equal(options.identity.sha256, payload.sha256);
+        return {
+          payloadPath: "/tmp/route1-selected.tgz",
+          sha256: payload.sha256,
+          packageName: "mottainai",
+          version: payload.version,
+          sourceRevision: payload.sourceRevision,
+        };
+      },
+      resolveSource: async () => {
+        sourceResolutions += 1;
+        return { sourcePath: "/tmp/route2-source", resolvedTag: "v1.2.3", narHashSha256: "a".repeat(64) };
+      },
+      runManagedGenerationBuild: async (options) => {
+        builds += 1;
+        assert.equal(options.canonicalPayloadPath, "/tmp/route1-selected.tgz");
+        assert.equal(options.canonicalPayloadSha256, payload.sha256);
+        return { generationIdentity: expectedIdentity, metadata };
+      },
+      healthCheck: (candidate) => ({
+        healthy: true,
+        generationIdentity: candidate.generationIdentity,
+        storePath: candidate.storePath,
+      }),
+    },
+  });
+  const first = await reconcileManagedRuntime({ stateDirectory: root, manifest, dependencies });
+  const second = await reconcileManagedRuntime({ stateDirectory: root, manifest, dependencies });
+  assert.equal(first.outcome, "initialized");
+  assert.equal(second.outcome, "noop");
+  assert.equal(identityReads, 2);
+  assert.equal(payloadResolutions, 1);
+  assert.equal(sourceResolutions, 1);
+  assert.equal(builds, 1);
+  assert.equal(second.active?.applicationPayload?.sha256, payload.sha256);
+});
+
+test("reconcile fails before activation when the descriptor generation identity differs", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-reconcile-generation-mismatch-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const manifest = parseManagedPackageManifest({
+    contractId: MANAGED_PACKAGE_MANIFEST_CONTRACT_ID,
+    schemaVersion: MANAGED_PACKAGE_MANIFEST_SCHEMA_VERSION,
+    activation: { generation: 1 },
+    packages: [
+      {
+        packageId: "mottainai",
+        kind: "nix-flake-package",
+        version: "1.2.3",
+        source: { flakeRef: "nix#mottainai", sourceSha256: "a".repeat(64) },
+      },
+    ],
+  });
+  const metadata = parseManagedGenerationMetadata({
+    contractId: "mottainai.managed-generation.v1",
+    schemaVersion: 1,
+    compatibilityContractVersion: 1,
+    requestedIdentity: { packages: [{ packageId: "mottainai", version: "1.2.3", sourceSha256: "a".repeat(64) }] },
+    resolvedIdentity: { packages: [{ packageId: "mottainai", resolvedVersion: "1.2.3" }] },
+    nixOutput: {
+      storePath: "/nix/store/mismatch-generation",
+      packages: [
+        {
+          packageId: "mottainai",
+          storePath: "/nix/store/mismatch-package",
+          sourceStorePath: "/nix/store/mismatch-source",
+        },
+      ],
+    },
+    applicationPayload: { packageName: "mottainai", packageVersion: "1.2.3", sha256: "c".repeat(64) },
+  });
+  const builtIdentity = generationIdentityOf(manifest, metadata);
+  const dependencies = reconcileAdapters({
+    system: "x86_64-linux",
+    repoRoot: "/unused",
+    env: {},
+    overrides: {
+      readRoute1PayloadIdentity: () => ({
+        packageName: "mottainai",
+        version: "1.2.3",
+        sourceRevision: "b".repeat(40),
+        filename: "mottainai-1.2.3.tgz",
+        sha256: "c".repeat(64),
+        integrity: `sha512-${"A".repeat(86)}`,
+        locator: "https://github.com/yohn-jp/mottainai/releases/download/v1.2.3/mottainai-1.2.3.tgz",
+      }),
+      readManagedGenerationIdentity: () => "e".repeat(64),
+      resolvePayload: async () => ({
+        payloadPath: "/tmp/mismatch.tgz",
+        sha256: "c".repeat(64),
+        packageName: "mottainai",
+        version: "1.2.3",
+        sourceRevision: "b".repeat(40),
+      }),
+      resolveSource: async () => ({ sourcePath: "/tmp/source", resolvedTag: "v1.2.3", narHashSha256: "a".repeat(64) }),
+      runManagedGenerationBuild: async () => ({ generationIdentity: builtIdentity, metadata }),
+      healthCheck: () => ({ healthy: true }),
+    },
+  });
+  await assert.rejects(
+    reconcileManagedRuntime({ stateDirectory: root, manifest, dependencies }),
+    (error: unknown) => error instanceof ManagedRuntimeError && error.code === "generation_verification_failure",
+  );
+  assert.equal(fs.existsSync(path.join(root, "managed-runtime", "current")), false);
+});
+
 // Review response (PR #646): reconcileHealthCheck used to loop
 // `generation.packageIds ?? []`, so a candidate with no package identities
 // received zero executable checks and reported `healthy: true` without
@@ -332,10 +509,7 @@ test("reconcileHealthCheck fails closed when a candidate declares no package ide
     packageIds: [],
   });
   assert.equal(typeof result === "object" && result !== null ? result.healthy : result, false);
-  assert.match(
-    typeof result === "object" && result !== null ? (result.reason ?? "") : "",
-    /no package identities/u,
-  );
+  assert.match(typeof result === "object" && result !== null ? (result.reason ?? "") : "", /no package identities/u);
 });
 
 test("reconcileHealthCheck proves a real executable and fails closed on a real execution failure", (t) => {

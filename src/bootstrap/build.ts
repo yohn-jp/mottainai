@@ -3,7 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import type { BoundaryOperations } from "../boundary.js";
 import { buildManagedGeneration, ManagedGenerationBuildError } from "../runtime-contract/managed-generation-build.js";
-import type { BuildManagedGenerationOptions, BuiltManagedGeneration } from "../runtime-contract/managed-generation-build.js";
+import type {
+  BuildManagedGenerationOptions,
+  BuiltManagedGeneration,
+} from "../runtime-contract/managed-generation-build.js";
 import { assertManifestProjectable, ManagedGenerationError } from "../runtime-contract/managed-generation.js";
 import {
   ManagedPackageManifestError,
@@ -100,6 +103,8 @@ function toBootstrapError(error: unknown, fallbackCode: BootstrapError["code"]):
     switch (error.phase) {
       case "metadata":
         return new BootstrapError("malformed_generation_metadata", message);
+      case "payload_integrity":
+        return new BootstrapError("source_integrity_mismatch", message);
       case "source_integrity":
         return new BootstrapError("source_integrity_mismatch", message);
       case "resolved_version":
@@ -175,7 +180,9 @@ export async function runBootstrapBuild(manifestValue: unknown, deps: BootstrapD
       contractId: "mottainai.bootstrap-state.v1",
       schemaVersion: 1,
       lastAttempt: failureAttempt(error, desiredManifestSemanticIdentity, completedAt),
-      ...(previousState?.lastSuccessfulBuild === undefined ? {} : { lastSuccessfulBuild: previousState.lastSuccessfulBuild }),
+      ...(previousState?.lastSuccessfulBuild === undefined
+        ? {}
+        : { lastSuccessfulBuild: previousState.lastSuccessfulBuild }),
     };
     try {
       writeBootstrapState(deps.stateFilePath, state, deps.boundaries);
@@ -191,7 +198,9 @@ export async function runBootstrapBuild(manifestValue: unknown, deps: BootstrapD
   };
 
   if (manifestValue instanceof UnreadableManifest) {
-    return persistFailure(new BootstrapError("invalid_manifest", `manifest file cannot be read: ${manifestValue.reason}`));
+    return persistFailure(
+      new BootstrapError("invalid_manifest", `manifest file cannot be read: ${manifestValue.reason}`),
+    );
   }
 
   let manifest: ManagedPackageManifest;
@@ -315,7 +324,12 @@ export async function verifyBootstrap(
     throw toBootstrapError(error, "bootstrap_state_corruption");
   }
   if (state === undefined) {
-    return { contractId: "mottainai.bootstrap-state.v1", schemaVersion: 1, verified: false, reason: "bootstrap has never been attempted" };
+    return {
+      contractId: "mottainai.bootstrap-state.v1",
+      schemaVersion: 1,
+      verified: false,
+      reason: "bootstrap has never been attempted",
+    };
   }
   if (state.lastSuccessfulBuild === undefined) {
     return {

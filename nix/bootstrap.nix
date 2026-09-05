@@ -53,6 +53,7 @@ let
     "src/runtime-contract/managed-generation.ts"
     "src/runtime-contract/contract.ts"
     "src/runtime-contract/managed-package-manifest.ts"
+    "src/runtime-contract/deployment-descriptor.ts"
     "src/runtime-contract/managed-runtime.ts"
     "src/runtime-contract/managed-runtime-state.ts"
     "src/atomic-file.ts"
@@ -177,6 +178,7 @@ stdenvNoCC.mkDerivation {
       src/runtime-contract/managed-generation.ts \
       src/runtime-contract/contract.ts \
       src/runtime-contract/managed-package-manifest.ts \
+      src/runtime-contract/deployment-descriptor.ts \
       src/runtime-contract/managed-runtime.ts \
       src/runtime-contract/managed-runtime-state.ts \
       src/atomic-file.ts \

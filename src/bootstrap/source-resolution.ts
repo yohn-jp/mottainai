@@ -1,9 +1,12 @@
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Readable, Transform } from "node:stream";
 import { BootstrapError } from "./errors.js";
+import { parseRoute1PayloadIdentity } from "../runtime-contract/deployment-descriptor.js";
+import type { Route1PayloadIdentity } from "../runtime-contract/deployment-descriptor.js";
 
 /**
  * Resolves and verifies the exact Mottainai source tree a
@@ -26,7 +29,12 @@ import { BootstrapError } from "./errors.js";
  */
 
 export const BOOTSTRAP_TRUSTED_SOURCE_ORIGIN = "https://github.com/yohn-jp/mottainai/archive/refs/tags/" as const;
-export const BOOTSTRAP_TRUSTED_REDIRECT_HOSTS = ["github.com", "codeload.github.com"] as const;
+export const BOOTSTRAP_TRUSTED_REDIRECT_HOSTS = [
+  "github.com",
+  "codeload.github.com",
+  "release-assets.githubusercontent.com",
+  "objects.githubusercontent.com",
+] as const;
 
 const MAX_SOURCE_ARCHIVE_BYTES = 64 * 1024 * 1024;
 const MAX_REDIRECTS = 5;
@@ -44,6 +52,20 @@ export interface ResolvedMottainaiSource {
   readonly sourcePath: string;
   readonly resolvedTag: string;
   readonly narHashSha256: string;
+}
+
+export interface ResolveCanonicalPayloadOptions {
+  readonly identity: Route1PayloadIdentity;
+  readonly destinationDirectory: string;
+  readonly fetcher?: (url: string) => Promise<ReadableStream<Uint8Array>>;
+}
+
+export interface ResolvedCanonicalPayload {
+  readonly payloadPath: string;
+  readonly sha256: string;
+  readonly packageName: "mottainai";
+  readonly version: string;
+  readonly sourceRevision: string;
 }
 
 export function narHashOfTree(treePath: string): string {
@@ -78,7 +100,9 @@ async function fetchWithRedirects(
   if (parsedUrl.protocol !== "https:") {
     throw new BootstrapError("source_resolution_failure", `non-HTTPS redirect not allowed: ${url}`);
   }
-  if (!BOOTSTRAP_TRUSTED_REDIRECT_HOSTS.includes(parsedUrl.hostname as (typeof BOOTSTRAP_TRUSTED_REDIRECT_HOSTS)[number])) {
+  if (
+    !BOOTSTRAP_TRUSTED_REDIRECT_HOSTS.includes(parsedUrl.hostname as (typeof BOOTSTRAP_TRUSTED_REDIRECT_HOSTS)[number])
+  ) {
     throw new BootstrapError("source_resolution_failure", `redirect to untrusted host: ${parsedUrl.hostname}`);
   }
   try {
@@ -134,7 +158,11 @@ export async function defaultFetcher(
     if (parsedUrl.protocol !== "https:") {
       throw new Error(`non-HTTPS redirect not allowed: ${currentUrl}`);
     }
-    if (!BOOTSTRAP_TRUSTED_REDIRECT_HOSTS.includes(parsedUrl.hostname as (typeof BOOTSTRAP_TRUSTED_REDIRECT_HOSTS)[number])) {
+    if (
+      !BOOTSTRAP_TRUSTED_REDIRECT_HOSTS.includes(
+        parsedUrl.hostname as (typeof BOOTSTRAP_TRUSTED_REDIRECT_HOSTS)[number],
+      )
+    ) {
       throw new Error(`redirect to untrusted host: ${parsedUrl.hostname}`);
     }
     const response = await transport(currentUrl);
@@ -187,11 +215,123 @@ async function downloadToFile(
   }
 }
 
+function verifyPayloadFile(payloadPath: string, identity: Route1PayloadIdentity): string {
+  let bytes: Buffer;
+  try {
+    const stat = fs.statSync(payloadPath);
+    if (!stat.isFile() || stat.size <= 0 || stat.size > MAX_SOURCE_ARCHIVE_BYTES) {
+      throw new Error(`payload size is outside 1..${MAX_SOURCE_ARCHIVE_BYTES} bytes`);
+    }
+    bytes = fs.readFileSync(payloadPath);
+  } catch (error) {
+    throw new BootstrapError(
+      "source_resolution_failure",
+      `canonical Route 1 payload cannot be read: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  if (sha256 !== identity.sha256) {
+    throw new BootstrapError(
+      "source_integrity_mismatch",
+      `canonical Route 1 payload sha256 mismatch: expected ${identity.sha256}, got ${sha256}`,
+      { expected: identity.sha256, actual: sha256 },
+    );
+  }
+  const integrityMatch = /^(sha256|sha512)-([A-Za-z0-9+/=]+)$/u.exec(identity.integrity);
+  if (integrityMatch === null) {
+    throw new BootstrapError(
+      "source_resolution_failure",
+      "canonical Route 1 payload integrity algorithm is unsupported",
+    );
+  }
+  const [algorithm, encoded] = integrityMatch.slice(1);
+  const actualIntegrity = createHash(algorithm).update(bytes).digest("base64");
+  if (actualIntegrity !== encoded) {
+    throw new BootstrapError(
+      "source_integrity_mismatch",
+      "canonical Route 1 payload npm integrity does not match the descriptor",
+    );
+  }
+  return sha256;
+}
+
+/**
+ * Acquires the exact release-bound Route 1 npm payload from the descriptor.
+ * This boundary has no registry/latest fallback: the descriptor locator and
+ * both content identities must verify before a build can receive the path.
+ */
+export async function resolveCanonicalPayload(
+  options: ResolveCanonicalPayloadOptions,
+): Promise<ResolvedCanonicalPayload> {
+  let identity: Route1PayloadIdentity;
+  try {
+    identity = parseRoute1PayloadIdentity(options.identity);
+  } catch (error) {
+    throw new BootstrapError("source_resolution_failure", error instanceof Error ? error.message : String(error));
+  }
+  const expectedFilename = `mottainai-${identity.version}.tgz`;
+  let locator: URL;
+  try {
+    locator = new URL(identity.locator);
+  } catch (error) {
+    throw new BootstrapError("source_resolution_failure", `canonical Route 1 locator is invalid: ${String(error)}`);
+  }
+  if (
+    locator.protocol !== "https:" ||
+    locator.hostname !== "github.com" ||
+    locator.search !== "" ||
+    locator.hash !== "" ||
+    !locator.pathname.endsWith(`/releases/download/v${identity.version}/${expectedFilename}`) ||
+    identity.filename !== expectedFilename
+  ) {
+    throw new BootstrapError(
+      "source_resolution_failure",
+      "canonical Route 1 payload locator is not an immutable GitHub release asset for the selected version",
+    );
+  }
+
+  fs.mkdirSync(options.destinationDirectory, { recursive: true, mode: 0o700 });
+  const payloadPath = path.join(options.destinationDirectory, identity.filename);
+  if (path.basename(payloadPath) !== identity.filename) {
+    throw new BootstrapError("source_resolution_failure", "canonical Route 1 payload filename is unsafe");
+  }
+  if (fs.existsSync(payloadPath)) {
+    const sha256 = verifyPayloadFile(payloadPath, identity);
+    return {
+      payloadPath,
+      sha256,
+      packageName: identity.packageName,
+      version: identity.version,
+      sourceRevision: identity.sourceRevision,
+    };
+  }
+
+  try {
+    await downloadToFile(locator.href, payloadPath, options.fetcher ?? defaultFetcher);
+    const sha256 = verifyPayloadFile(payloadPath, identity);
+    return {
+      payloadPath,
+      sha256,
+      packageName: identity.packageName,
+      version: identity.version,
+      sourceRevision: identity.sourceRevision,
+    };
+  } catch (error) {
+    if (error instanceof BootstrapError) throw error;
+    throw new BootstrapError(
+      "source_resolution_failure",
+      `canonical Route 1 payload acquisition failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 function isSafeArchiveEntry(entry: string): boolean {
   if (entry.length === 0 || entry.length > 512) return false;
   if (!/^[A-Za-z0-9._+/-]+$/u.test(entry)) return false;
   const normalized = path.posix.normalize(entry);
-  return normalized === entry && !path.posix.isAbsolute(normalized) && normalized !== ".." && !normalized.startsWith("../");
+  return (
+    normalized === entry && !path.posix.isAbsolute(normalized) && normalized !== ".." && !normalized.startsWith("../")
+  );
 }
 
 /**
@@ -224,7 +364,10 @@ function extractSourceArchive(archive: string, destination: string): void {
     if (mode !== "-" && mode !== "d") {
       throw new BootstrapError("source_resolution_failure", "Mottainai source archive contains a link or special file");
     }
-    const entry = rawEntry.replace(/\r$/u, "").replace(/^\.\/+/, "").replace(/\/+$/u, "");
+    const entry = rawEntry
+      .replace(/\r$/u, "")
+      .replace(/^\.\/+/, "")
+      .replace(/\/+$/u, "");
     if (entry.length === 0) continue;
     if (!isSafeArchiveEntry(entry)) {
       throw new BootstrapError("source_resolution_failure", "Mottainai source archive contains an unsafe path");
@@ -232,9 +375,13 @@ function extractSourceArchive(archive: string, destination: string): void {
   }
   fs.mkdirSync(destination, { recursive: true, mode: 0o700 });
   try {
-    execFileSync("tar", ["-xzf", archive, "-C", destination, "--strip-components=1", "--no-same-owner", "--no-same-permissions"], {
-      stdio: "pipe",
-    });
+    execFileSync(
+      "tar",
+      ["-xzf", archive, "-C", destination, "--strip-components=1", "--no-same-owner", "--no-same-permissions"],
+      {
+        stdio: "pipe",
+      },
+    );
   } catch (error) {
     throw new BootstrapError(
       "source_resolution_failure",
@@ -264,7 +411,10 @@ function readPackageVersion(sourceTreePath: string): string {
   }
   const version = (parsed as { version?: unknown }).version;
   if (typeof version !== "string" || version.length === 0) {
-    throw new BootstrapError("source_resolution_failure", "resolved Mottainai source package.json has no version field");
+    throw new BootstrapError(
+      "source_resolution_failure",
+      "resolved Mottainai source package.json has no version field",
+    );
   }
   return version;
 }

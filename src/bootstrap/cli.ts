@@ -6,8 +6,15 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { DIRECT_BOUNDARIES } from "../boundary.js";
 import { buildManagedGeneration } from "../runtime-contract/managed-generation-build.js";
-import type { BuildManagedGenerationOptions, BuiltManagedGeneration } from "../runtime-contract/managed-generation-build.js";
-import { ManagedRuntimeError, reconcileManagedRuntime, readManagedRuntimeStatus } from "../runtime-contract/managed-runtime.js";
+import type {
+  BuildManagedGenerationOptions,
+  BuiltManagedGeneration,
+} from "../runtime-contract/managed-generation-build.js";
+import {
+  ManagedRuntimeError,
+  reconcileManagedRuntime,
+  readManagedRuntimeStatus,
+} from "../runtime-contract/managed-runtime.js";
 import type {
   ManagedRuntimeBuiltGeneration,
   ManagedRuntimeCandidate,
@@ -16,11 +23,22 @@ import type {
   ManagedRuntimeReconcileResult,
 } from "../runtime-contract/managed-runtime.js";
 import type { ManagedPackageManifest } from "../runtime-contract/managed-package-manifest.js";
+import { parseRoute1PayloadIdentity } from "../runtime-contract/deployment-descriptor.js";
+import type { Route1PayloadIdentity } from "../runtime-contract/deployment-descriptor.js";
 import { defaultBootstrapDependencies, readBootstrapStatus, runBootstrapBuild, verifyBootstrap } from "./build.js";
 import { BootstrapError } from "./errors.js";
-import { CANONICAL_BOOTSTRAP_STATE_FILE_PATH } from "./paths.js";
-import { resolveMottainaiSource } from "./source-resolution.js";
-import type { ResolveMottainaiSourceOptions, ResolvedMottainaiSource } from "./source-resolution.js";
+import {
+  CANONICAL_BOOTSTRAP_STATE_FILE_PATH,
+  CANONICAL_MANAGED_GENERATION_IDENTITY_FILE_PATH,
+  CANONICAL_ROUTE1_PAYLOAD_IDENTITY_FILE_PATH,
+} from "./paths.js";
+import { resolveCanonicalPayload, resolveMottainaiSource } from "./source-resolution.js";
+import type {
+  ResolveCanonicalPayloadOptions,
+  ResolveMottainaiSourceOptions,
+  ResolvedCanonicalPayload,
+  ResolvedMottainaiSource,
+} from "./source-resolution.js";
 import { UnreadableManifest } from "./unreadable-manifest.js";
 
 /**
@@ -134,10 +152,14 @@ async function runBuildCommand(argv: readonly string[]): Promise<number> {
   try {
     const state = await runBootstrapBuild(manifestValue, deps);
     if (json) printJson(state);
-    else process.stdout.write(`bootstrap build succeeded: generationIdentity=${state.lastSuccessfulBuild?.generationIdentity}\n`);
+    else
+      process.stdout.write(
+        `bootstrap build succeeded: generationIdentity=${state.lastSuccessfulBuild?.generationIdentity}\n`,
+      );
     return 0;
   } catch (error) {
-    const bootstrapError = error instanceof BootstrapError ? error : new BootstrapError("nix_generation_build_failure", String(error));
+    const bootstrapError =
+      error instanceof BootstrapError ? error : new BootstrapError("nix_generation_build_failure", String(error));
     if (json) printJson({ code: bootstrapError.code, message: bootstrapError.message });
     else process.stderr.write(`${bootstrapError.code}: ${bootstrapError.message}\n`);
     return 1;
@@ -149,10 +171,14 @@ function runStatusCommand(argv: readonly string[]): number {
   try {
     const report = readBootstrapStatus({ stateFilePath: CANONICAL_BOOTSTRAP_STATE_FILE_PATH });
     if (json) printJson(report);
-    else process.stdout.write(report.present ? `present: last attempt outcome=${report.state?.lastAttempt.outcome}\n` : "present: false\n");
+    else
+      process.stdout.write(
+        report.present ? `present: last attempt outcome=${report.state?.lastAttempt.outcome}\n` : "present: false\n",
+      );
     return 0;
   } catch (error) {
-    const bootstrapError = error instanceof BootstrapError ? error : new BootstrapError("bootstrap_state_corruption", String(error));
+    const bootstrapError =
+      error instanceof BootstrapError ? error : new BootstrapError("bootstrap_state_corruption", String(error));
     if (json) printJson({ code: bootstrapError.code, message: bootstrapError.message });
     else process.stderr.write(`${bootstrapError.code}: ${bootstrapError.message}\n`);
     return 1;
@@ -167,7 +193,8 @@ async function runVerifyCommand(argv: readonly string[]): Promise<number> {
     else process.stdout.write(`verified: ${report.verified}${report.reason ? ` (${report.reason})` : ""}\n`);
     return report.verified ? 0 : 1;
   } catch (error) {
-    const bootstrapError = error instanceof BootstrapError ? error : new BootstrapError("bootstrap_state_corruption", String(error));
+    const bootstrapError =
+      error instanceof BootstrapError ? error : new BootstrapError("bootstrap_state_corruption", String(error));
     if (json) printJson({ code: bootstrapError.code, message: bootstrapError.message });
     else process.stderr.write(`${bootstrapError.code}: ${bootstrapError.message}\n`);
     return 1;
@@ -243,10 +270,45 @@ export function reconcileHealthCheck(
  */
 export interface ReconcileCommandDependencies {
   readonly resolveSource?: (options: ResolveMottainaiSourceOptions) => Promise<ResolvedMottainaiSource>;
+  readonly resolvePayload?: (options: ResolveCanonicalPayloadOptions) => Promise<ResolvedCanonicalPayload>;
+  readonly readRoute1PayloadIdentity?: () => Route1PayloadIdentity;
+  readonly readManagedGenerationIdentity?: () => string;
   readonly runManagedGenerationBuild?: (options: BuildManagedGenerationOptions) => Promise<BuiltManagedGeneration>;
   readonly healthCheck?: (
     generation: ManagedRuntimeCandidate | ManagedRuntimeGenerationRecord,
   ) => Promise<ManagedRuntimeHealthCheckResult> | ManagedRuntimeHealthCheckResult;
+}
+
+function readCanonicalRoute1PayloadIdentity(): Route1PayloadIdentity {
+  try {
+    const stat = fs.statSync(CANONICAL_ROUTE1_PAYLOAD_IDENTITY_FILE_PATH);
+    if (!stat.isFile() || stat.size <= 64 * 1024) {
+      return parseRoute1PayloadIdentity(
+        JSON.parse(fs.readFileSync(CANONICAL_ROUTE1_PAYLOAD_IDENTITY_FILE_PATH, "utf8")),
+      );
+    }
+    throw new Error("identity file exceeds 64 KiB");
+  } catch (error) {
+    throw new ManagedRuntimeError(
+      "build_failure",
+      `canonical Route 1 payload identity cannot be read: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function readCanonicalManagedGenerationIdentity(): string {
+  try {
+    const stat = fs.statSync(CANONICAL_MANAGED_GENERATION_IDENTITY_FILE_PATH);
+    if (!stat.isFile() || stat.size > 128) throw new Error("identity file is not a bounded regular file");
+    const identity = fs.readFileSync(CANONICAL_MANAGED_GENERATION_IDENTITY_FILE_PATH, "utf8").trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/u.test(identity)) throw new Error("identity is not a 64-character SHA-256");
+    return identity;
+  } catch (error) {
+    throw new ManagedRuntimeError(
+      "build_failure",
+      `canonical managed-generation identity cannot be read: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 /**
@@ -263,33 +325,63 @@ async function reconcileBuildGeneration(
     readonly repoRoot: string;
     readonly env: NodeJS.ProcessEnv;
     readonly resolveSource: (options: ResolveMottainaiSourceOptions) => Promise<ResolvedMottainaiSource>;
+    readonly resolvePayload: (options: ResolveCanonicalPayloadOptions) => Promise<ResolvedCanonicalPayload>;
+    readonly readRoute1PayloadIdentity: () => Route1PayloadIdentity;
+    readonly readManagedGenerationIdentity: () => string;
     readonly runManagedGenerationBuild: (options: BuildManagedGenerationOptions) => Promise<BuiltManagedGeneration>;
   },
 ): Promise<ManagedRuntimeBuiltGeneration> {
   const mottainaiEntry = manifest.packages.find((entry) => entry.packageId === "mottainai");
   let mottainaiSourcePath = options.repoRoot;
-  if (mottainaiEntry !== undefined) {
-    const destinationDirectory = path.join(os.tmpdir(), `mottainai-reconcile-source-${process.pid}`);
-    const resolved = await options.resolveSource({
-      requestedVersion: mottainaiEntry.version,
-      expectedSourceSha256: mottainaiEntry.source.sourceSha256,
-      destinationDirectory,
+  let canonicalPayload: ResolvedCanonicalPayload | undefined;
+  let expectedGenerationIdentity: string | undefined;
+  const resolutionRoot = path.join(os.tmpdir(), `mottainai-reconcile-${process.pid}`);
+  try {
+    if (mottainaiEntry !== undefined) {
+      expectedGenerationIdentity = options.readManagedGenerationIdentity();
+      const identity = options.readRoute1PayloadIdentity();
+      if (identity.version !== mottainaiEntry.version) {
+        throw new ManagedRuntimeError(
+          "build_failure",
+          `Route 1 payload version ${identity.version} does not match manifest version ${mottainaiEntry.version}`,
+        );
+      }
+      canonicalPayload = await options.resolvePayload({
+        identity,
+        destinationDirectory: path.join(resolutionRoot, "payload"),
+      });
+      const resolved = await options.resolveSource({
+        requestedVersion: mottainaiEntry.version,
+        expectedSourceSha256: mottainaiEntry.source.sourceSha256,
+        destinationDirectory: path.join(resolutionRoot, "source"),
+      });
+      mottainaiSourcePath = resolved.sourcePath;
+    }
+    const built = await options.runManagedGenerationBuild({
+      repoRoot: options.repoRoot,
+      manifest,
+      system: options.system,
+      mottainaiSourcePath,
+      ...(canonicalPayload === undefined
+        ? {}
+        : { canonicalPayloadPath: canonicalPayload.payloadPath, canonicalPayloadSha256: canonicalPayload.sha256 }),
+      env: options.env,
     });
-    mottainaiSourcePath = resolved.sourcePath;
+    if (expectedGenerationIdentity !== undefined && built.generationIdentity !== expectedGenerationIdentity) {
+      throw new ManagedRuntimeError(
+        "generation_verification_failure",
+        `managed generation identity mismatch: descriptor=${expectedGenerationIdentity}, built=${built.generationIdentity}`,
+      );
+    }
+    return {
+      generationIdentity: built.generationIdentity,
+      storePath: built.metadata.nixOutput.storePath,
+      metadata: built.metadata,
+      compatibilityContractVersion: built.metadata.compatibilityContractVersion,
+    };
+  } finally {
+    if (mottainaiEntry !== undefined) fs.rmSync(resolutionRoot, { recursive: true, force: true });
   }
-  const built = await options.runManagedGenerationBuild({
-    repoRoot: options.repoRoot,
-    manifest,
-    system: options.system,
-    mottainaiSourcePath,
-    env: options.env,
-  });
-  return {
-    generationIdentity: built.generationIdentity,
-    storePath: built.metadata.nixOutput.storePath,
-    metadata: built.metadata,
-    compatibilityContractVersion: built.metadata.compatibilityContractVersion,
-  };
 }
 
 export interface RunReconcileOptions {
@@ -326,10 +418,34 @@ export function reconcileAdapters(options: {
   readonly healthCheck: (
     generation: ManagedRuntimeCandidate | ManagedRuntimeGenerationRecord,
   ) => Promise<ManagedRuntimeHealthCheckResult> | ManagedRuntimeHealthCheckResult;
+  readonly generationIsCurrent: (
+    generation: ManagedRuntimeCandidate | ManagedRuntimeGenerationRecord,
+  ) => Promise<boolean>;
 } {
   const resolveSource = options.overrides?.resolveSource ?? resolveMottainaiSource;
+  const resolvePayload = options.overrides?.resolvePayload ?? resolveCanonicalPayload;
+  const readRoute1PayloadIdentity = options.overrides?.readRoute1PayloadIdentity ?? readCanonicalRoute1PayloadIdentity;
+  const readManagedGenerationIdentity =
+    options.overrides?.readManagedGenerationIdentity ?? readCanonicalManagedGenerationIdentity;
   const runManagedGenerationBuild = options.overrides?.runManagedGenerationBuild ?? buildManagedGeneration;
   const healthCheck = options.overrides?.healthCheck ?? reconcileHealthCheck;
+  const generationIsCurrent = async (
+    generation: ManagedRuntimeCandidate | ManagedRuntimeGenerationRecord,
+  ): Promise<boolean> => {
+    if (!generation.packageIds?.includes("mottainai")) return true;
+    try {
+      const expectedIdentity = readManagedGenerationIdentity();
+      const expectedPayload = readRoute1PayloadIdentity();
+      return (
+        generation.generationIdentity === expectedIdentity &&
+        generation.applicationPayload?.packageName === expectedPayload.packageName &&
+        generation.applicationPayload.packageVersion === expectedPayload.version &&
+        generation.applicationPayload.sha256 === expectedPayload.sha256
+      );
+    } catch {
+      return false;
+    }
+  };
   return {
     buildGeneration: (manifest) =>
       reconcileBuildGeneration(manifest, {
@@ -337,9 +453,13 @@ export function reconcileAdapters(options: {
         repoRoot: options.repoRoot,
         env: options.env,
         resolveSource,
+        resolvePayload,
+        readRoute1PayloadIdentity,
+        readManagedGenerationIdentity,
         runManagedGenerationBuild,
       }),
     healthCheck,
+    generationIsCurrent,
   };
 }
 
@@ -424,7 +544,9 @@ async function runReconcileCommand(argv: readonly string[]): Promise<number> {
  */
 function runManagedStatusCommand(argv: readonly string[]): number {
   const json = hasFlag(argv, "json");
-  let result: { readonly valid: true; readonly present: boolean } | { readonly valid: false; readonly code: string; readonly message: string };
+  let result:
+    | { readonly valid: true; readonly present: boolean }
+    | { readonly valid: false; readonly code: string; readonly message: string };
   try {
     const report = readManagedRuntimeStatus();
     result = { valid: true, ...report };

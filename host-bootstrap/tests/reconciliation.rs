@@ -400,9 +400,28 @@ fn write_route4_descriptor(
     let descriptor = serde_json::json!({
         "contractId": "mottainai.deployment.v1",
         "schemaVersion": 1,
+        "release": {
+            "version": "1.2.3",
+            "tag": "v1.2.3",
+            "sourceRevision": "a".repeat(40),
+        },
         "profile": "linux-x86_64",
         "architecture": "x86_64-linux",
-        "route2": { "managedGeneration": { "packages": [] } },
+        "route1": { "payload": {
+            "packageName": "mottainai",
+            "version": "1.2.3",
+            "sourceRevision": "a".repeat(40),
+            "filename": "mottainai-1.2.3.tgz",
+            "sha256": "f".repeat(64),
+            "integrity": format!("sha512-{}", "A".repeat(86)),
+            "locator": "https://github.com/yohn-jp/mottainai/releases/download/v1.2.3/mottainai-1.2.3.tgz",
+        } },
+        "route2": { "managedGeneration": { "applicationPayloadSha256": "f".repeat(64), "packages": [{
+            "packageId": "mottainai",
+            "version": "1.2.3",
+            "flakeRef": "nix#mottainai",
+            "sourceSha256": "a".repeat(64),
+        }] } },
         "route3": {
             "appliance": {
                 "registry": "ghcr.io",
