@@ -1,0 +1,86 @@
+{
+  "baseSha": "48077ae5b878bd7352ec5f93ef9e08b6a45efb7b",
+  "files": [
+    {
+      "additions": 44,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 751,
+          "oldLines": 0,
+          "oldStart": 750
+        },
+        {
+          "newLines": 40,
+          "newStart": 758,
+          "oldLines": 0,
+          "oldStart": 753
+        }
+      ],
+      "path": ".github/workflows/ci.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 17,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 17,
+          "newStart": 534,
+          "oldLines": 0,
+          "oldStart": 533
+        }
+      ],
+      "path": "host-bootstrap/src/bootstrap_disk.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 8,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 110,
+          "oldLines": 2,
+          "oldStart": 110
+        },
+        {
+          "newLines": 5,
+          "newStart": 126,
+          "oldLines": 0,
+          "oldStart": 124
+        }
+      ],
+      "path": "scripts/ci-runtime-contract-gates.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 143,
+          "oldLines": 0,
+          "oldStart": 142
+        },
+        {
+          "newLines": 1,
+          "newStart": 152,
+          "oldLines": 0,
+          "oldStart": 150
+        }
+      ],
+      "path": "scripts/ci-runtime-contract-gates.test.mjs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "1bf322d0ed0e9021d17f1ab70465e2b0bd63c93b",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 71,
+    "deletions": 2,
+    "filesChanged": 4
+  }
+}

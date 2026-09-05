@@ -1,0 +1,82 @@
+{
+  "baseSha": "48077ae5b878bd7352ec5f93ef9e08b6a45efb7b",
+  "headSha": "1bf322d0ed0e9021d17f1ab70465e2b0bd63c93b",
+  "preview": {
+    "excluded_count": 0,
+    "excluded_files": [],
+    "from": "48077ae5b878bd7352ec5f93ef9e08b6a45efb7b",
+    "merge_base": "48077ae5b878bd7352ec5f93ef9e08b6a45efb7b",
+    "mode": "range",
+    "reviewable_count": 4,
+    "reviewable_files": [
+      {
+        "deletions": 0,
+        "insertions": 44,
+        "path": ".github/workflows/ci.yml",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 17,
+        "path": "host-bootstrap/src/bootstrap_disk.rs",
+        "status": "modified"
+      },
+      {
+        "deletions": 2,
+        "insertions": 8,
+        "path": "scripts/ci-runtime-contract-gates.mjs",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 2,
+        "path": "scripts/ci-runtime-contract-gates.test.mjs",
+        "status": "modified"
+      }
+    ],
+    "schema_version": "1",
+    "to": "1bf322d0ed0e9021d17f1ab70465e2b0bd63c93b",
+    "total_deletions": 2,
+    "total_files": 4,
+    "total_insertions": 71
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.4"
+  },
+  "rule": {
+    "groups": [
+      {
+        "files": [
+          ".github/workflows/ci.yml"
+        ],
+        "group_id": 1,
+        "pattern": ".github/workflows/**/*.{yaml,yml}",
+        "rule": "#### Security\n- **pull_request_target misuse**: Using `pull_request_target` with `actions/checkout` referencing PR head code is dangerous — it runs untrusted code with write permissions. Flag if checkout ref points to PR head without isolation\n- **Secrets exposure**: Secrets must not be printed to logs (e.g., `echo ${{ secrets.X }}`). Verify secrets are only passed via `env:` blocks to steps that need them\n- **Excessive permissions**: Check if `permissions` is set to least-privilege. Flag `permissions: write-all` or missing `permissions` key (defaults to broad access). Each job should declare only the permissions it needs\n- **Unpinned action versions**: Third-party actions should be pinned to a full commit SHA (e.g., `uses: actions/checkout@<sha>`), not just a tag. Tags are mutable and can be hijacked. First-party (`actions/*`) pinned to `v4` is acceptable\n- **Script injection**: Expressions like `${{ github.event.issue.title }}` used directly in `run:` blocks enable code injection. These must be passed through environment variables instead\n- **Hardcoded credentials**: Tokens, passwords, or API keys directly in the workflow file (not via secrets)\n\n#### Correctness\n- **Missing `fetch-depth: 0`**: When a workflow needs git history (tags, merge-base, changelog generation), verify `actions/checkout` uses `fetch-depth: 0`\n- **Incorrect condition logic**: Verify `if:` conditions are correct (e.g., `github.event_name == 'pull_request'` vs `'pull_request_target'`); ensure boolean expressions are properly quoted\n- **Matrix strategy gaps**: Check that matrix combinations cover required platforms. Flag if `fail-fast` is true (default) but all matrix legs must succeed\n- **Missing `shell` specification**: When using `run:` with multi-line scripts on self-hosted runners, shell should be explicit (bash vs sh vs pwsh)\n- **Broken job dependencies**: Verify `needs:` references exist as actual job IDs in the same workflow. Check for circular dependencies\n- **Typos in action inputs**: Misspelled input names for actions (e.g., `fetch-detph` instead of `fetch-depth`) are silently ignored\n\n#### Reliability\n- **Missing timeout**: Jobs without `timeout-minutes` can run indefinitely and consume runner resources. Flag jobs that lack timeout (especially on self-hosted runners)\n- **No concurrency control**: Workflows triggered by push/PR without `concurrency` group may create redundant runs. Suggest `concurrency` with `cancel-in-progress` where appropriate\n- **Uncached dependencies**: Build workflows that install dependencies without caching (no `actions/cache` or built-in caching) on every run\n\n#### Best Practices\n- **Deprecated features**: Flag usage of deprecated syntax (`set-output`, `save-state`, `::set-output`, `actions/checkout@v2/v3` when v4 is available)\n- **Missing `continue-on-error` awareness**: If a step failure should not fail the whole job, it needs `continue-on-error: true`; conversely, verify non-critical steps don't silently swallow failures with `|| true` hiding real errors\n- **Container image tags**: Using `latest` tag for container images is unreliable; prefer specific version tags",
+        "source": "system"
+      },
+      {
+        "files": [
+          "host-bootstrap/src/bootstrap_disk.rs"
+        ],
+        "group_id": 2,
+        "pattern": "**/*.rs",
+        "rule": "#### Obvious Typos or Spelling Errors\n- Spelling errors in type names, function names, variable names, enum variants, trait names, or module names at their declaration sites; do not report spelling errors at call sites\n- Strings in log messages, panic messages, error messages, or public diagnostics containing spelling errors that affect readability\n\n#### Ownership and Lifetime Correctness\n- Incorrectly returned references, borrowed values escaping their valid scope, or lifetime relationships that make an API unsound or unusable\n- Excessive or unnecessary `clone()` calls introduced to satisfy borrowing when a borrow, iterator, `Cow`, or ownership transfer would be clearer and cheaper\n- Interior mutability (`RefCell`, `Cell`, `Mutex`) used to work around ownership without a real shared-mutability requirement\n- Reference cycles with `Rc<RefCell<T>>` or `Arc<Mutex<T>>` where `Weak` should be used to break ownership cycles\n\n#### Error Handling and Panics\n- `unwrap()`, `expect()`, `panic!`, `todo!`, or `unimplemented!` in production/library paths where the failure is recoverable or can be propagated with `Result`\n- Errors converted to strings too early or discarded without context; prefer preserving the original error and adding actionable context at boundaries\n- `Result` or `Option` values ignored, swallowed, or mapped to misleading defaults\n- Public APIs that panic on ordinary invalid input instead of returning a typed error, unless the panic documents a clear programming invariant\n\n#### Unsafe Code Boundaries\n- `unsafe` blocks that are broader than necessary or hide multiple unrelated invariants\n- Missing or stale safety rationale for `unsafe` blocks, `unsafe fn`, `unsafe impl Send`, or `unsafe impl Sync`\n- Raw pointer dereferences without clear validity, alignment, initialization, aliasing, and lifetime guarantees\n- FFI boundaries that do not validate null pointers, buffer lengths, ownership transfer, string encoding, or allocator compatibility\n- `static mut`, unchecked `transmute`, `MaybeUninit`, `mem::zeroed`, or manual drop logic used without a documented invariant that makes the operation sound\n\n#### Concurrency and Shared State\n- Holding `Mutex`, `RwLock`, or `RefCell` guards longer than necessary, especially across calls into user code or potentially blocking operations\n- Holding synchronous locks across `.await`, or using blocking I/O, sleeps, or CPU-heavy work directly inside async tasks\n- Check-then-act races around shared state, cache initialization, file creation, or atomics\n- Atomic operations with ordering that is too weak for the data being protected, or overly strong orderings that hide the intended synchronization contract\n- Unsafe `Send` or `Sync` implementations that do not prove all contained state is thread-safe under the documented invariants\n\n#### Async and Cancellation Safety\n- Spawned tasks whose `JoinHandle` is dropped when failures, cancellation, or shutdown still need to be observed\n- Futures that are not cancellation-safe around partial writes, lock acquisition, transactions, or resource cleanup\n- Async functions that use synchronous filesystem, network, or process APIs in request/worker paths where the runtime can be blocked\n- Retry loops without backoff, timeout, cancellation propagation, or bounded attempts\n\n#### Collections, Iterators, and Performance\n- Avoid unnecessary allocations in hot paths, such as repeated `String` construction, `format!`, `collect()`, or `to_vec()` where borrowing or streaming is sufficient\n- Prefer iterator adapters and standard library collection APIs when they make ownership and complexity clearer; avoid dense iterator chains that obscure error handling or side effects\n- Ensure hash maps, vectors, and strings are preallocated when the expected size is known and growth cost is material\n- Avoid O(n^2) lookups from nested loops when a `HashMap`, `HashSet`, sorting, or indexing strategy would clearly reduce complexity\n\n#### Type and API Design\n- Model domain states with enums, newtypes, and typed IDs instead of booleans, strings, or primitive integers when invalid states would otherwise be representable\n- Prefer standard conversion and borrowing traits (`From`, `TryFrom`, `AsRef`, `Borrow`, `IntoIterator`) when designing reusable APIs\n- Public structs, enums, traits, and errors should have useful names, visibility, trait derives, and documentation appropriate to the crate boundary\n- Avoid exposing concrete collection or synchronization types in public APIs when a slice, iterator, trait, or narrower abstraction would preserve flexibility\n\n#### Macros and Metaprogramming\nOnly flag when the diff actually defines a `macro_rules!` or procedural macro; do not report on ordinary macro invocations.\n- An `$x:expr` fragment interpolated more than once in the expansion, so the caller's expression — and any side effects — runs multiple times; bind it to a `let` once inside the expansion\n- Exported or publicly used macros that reference items without `$crate::`, so name resolution breaks or binds the wrong item when the macro is invoked from another crate\n- Token-tree (`$t:tt`) fragments re-emitted without parentheses, where operator precedence can silently change the intended meaning; this applies only to token-level (`tt`) interpolation, since an `:expr` fragment and a whole expansion are each parsed as one complete expression\n- Procedural macros that `unwrap()`, `expect()`, or `panic!` on malformed input instead of emitting a `syn::Error` / `compile_error!` with a useful span\n- Macro-hygiene assumptions that break: generated identifiers relying on names from the call-site scope, or items that collide when the macro is invoked more than once in the same module\n\n#### Security-Sensitive Code\n- Validate path, URL, command, SQL, and serialized input before use; do not build shell commands or SQL with unchecked string concatenation\n- Do not log secrets, tokens, credentials, private keys, or personally identifiable information\n- Check integer conversions, byte slicing, and length arithmetic for overflow, truncation, and UTF-8 boundary errors\n- Cryptographic, random, authentication, and authorization code must use well-reviewed crates and explicit error handling; flag ad hoc implementations",
+        "source": "system"
+      },
+      {
+        "files": [
+          "scripts/ci-runtime-contract-gates.mjs",
+          "scripts/ci-runtime-contract-gates.test.mjs"
+        ],
+        "group_id": 3,
+        "pattern": "**/*.{ts,js,tsx,jsx,mjs,cjs}",
+        "rule": "#### Obvious Typos or Spelling Errors\n- Spelling errors in variable names, function names, component names, or Props property names\n- Strings in log or error messages containing spelling errors that affect readability\n\n#### Dead Code\n- Code blocks that will never be executed (e.g., branches where the condition is always false, code after a return statement)\n- Variables that are declared but never read or referenced\n- Large blocks of commented-out code (with no apparent intent to retain)\n\n#### Code Quality Checks\n- **Duplicate Code**: Check for common logic that can be extracted\n- **Code Comments**: Complex business logic should have clear explanatory comments (avoid commenting obvious code)\n- **Hardcoding**: Business-related hardcoded strings are prohibited, especially URL paths and business numbers; simple UI text may be relaxed\n- **Variable Declarations**: Using `var` is strictly prohibited; use `let` or `const`\n- **Equality Comparisons**: Using `==` and `!=` is prohibited; use strict equality `===` and `!==`\n- **TypeScript Types**: Avoid using `any` type; if necessary, provide a comment explaining the reason\n- **Null Checks**: Perform null checks when accessing values or destructuring to avoid null pointer exceptions\n- **Ternary Expressions**: Nested ternary expressions are not allowed\n\n#### React Best Practices\n- **Hooks Usage**: Verify compliance with Hooks rules (only call at the top level, only call in React functions)\n- **State Management**: Ensure state is placed at the appropriate level; avoid unnecessary state lifting\n- **Side Effect Handling**: Verify useEffect correctly handles dependencies and cleanup functions\n- **Performance Optimization**: Verify proper use of React.memo, useMemo, useCallback (based on performance analysis; avoid over-optimization)\n- **Render Side Effects**: Side effects in React component render methods are strictly prohibited (e.g., API calls, DOM manipulation)\n- **Inline Styles**: Avoid using inline `style` attributes, except for dynamic styles\n- **Inner Components**: Declaring new components inside a component is prohibited; use render methods instead (e.g., `renderItem`, not `<Item/>`)\n\n#### Async Handling Standards\n- **Error Handling**: Async functions must include proper error handling with user-friendly error messages\n- **Prefer async/await**: Prefer async/await over Promises; callback hell is prohibited\n- **Async in Loops**: Distinguish between independent async operations (use `Promise.all` for parallelism) and dependent async operations (use sequential execution); prefer `Promise.all` for performance\n\n#### Code Security Checks\n- **XSS Protection**: Verify that user input is properly escaped\n- **innerHTML Safety**: Using innerHTML to directly insert user input is prohibited; use textContent or apply XSS protection\n- **Code Injection Protection**: Using eval(), Function() constructor, and string argument forms of setTimeout/setInterval is strictly prohibited\n- **Dangerous Methods**: Using document.write() is prohibited as it causes page reflow and security issues\n- **Sensitive Information**: Check whether API keys or sensitive data are exposed\n- **Prototype Chain Safety**: Modifying native object prototypes (e.g., Array.prototype, Object.prototype) is prohibited",
+        "source": "system"
+      }
+    ],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}

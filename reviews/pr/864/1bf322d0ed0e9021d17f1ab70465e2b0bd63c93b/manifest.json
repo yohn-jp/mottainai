@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "48077ae5b878bd7352ec5f93ef9e08b6a45efb7b",
+    "draft": false,
+    "headRef": "fix/863-preserve-private-mtnai-boot-handoff",
+    "headSha": "1bf322d0ed0e9021d17f1ab70465e2b0bd63c93b",
+    "number": 864,
+    "title": "fix(ci): preserve private MTNAI_BOOT handoff across the Nix build-user boundary"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "1bf322d0ed0e9021d17f1ab70465e2b0bd63c93b",
+    "immutable": true,
+    "shortId": "1bf322d0ed0e"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-05T14:11:50.527Z"
+  }
+}

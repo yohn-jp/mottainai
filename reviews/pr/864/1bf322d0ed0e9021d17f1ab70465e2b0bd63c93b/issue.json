@@ -1,0 +1,33 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Root cause (permission boundary between the `runner`-owned 0700 MTNAI_BOOT disk directory and the nix-daemon build user under `__noChroot = true`) is confirmed or refuted with direct evidence (e.g. a CI run with added diagnostic `ls -la`/`stat`/`id` output at the point of failure)."
+    },
+    {
+      "checked": false,
+      "text": "Fix applied so the golden-path build can read the generated production bootstrap disk and private key regardless of which user executes the Nix build (e.g. relax directory permissions to at least allow read+execute for the build user, or run the generation step so the resulting tree is owned/readable appropriately)."
+    },
+    {
+      "checked": false,
+      "text": "`Runtime Appliance: canonical image / bounded manifest` job passes on a real push to main (not just a PR simulation), confirmed via a green CI run on main."
+    },
+    {
+      "checked": false,
+      "text": "No weakening of the production MTNAI_BOOT/SSH boundary this test is meant to prove (Issue #630/#661/#768/#840) — the fix must not skip, mock, or bypass the real production bootstrap path."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 863,
+    "state": "open",
+    "title": "fix(ci): Runtime Appliance golden-path build fails on main since PR #849 (MTNAI_BOOT disk permission mismatch)",
+    "url": "https://github.com/yohn-jp/mottainai/issues/863"
+  },
+  "linked": {
+    "number": 863
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
