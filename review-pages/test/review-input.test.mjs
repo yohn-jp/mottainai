@@ -56,7 +56,7 @@ function completePackage() {
       },
       "ocr.json": {
         schemaVersion: "mottainai.review-pages.ocr/v1",
-        provider: { package: "@alibaba-group/open-code-review", version: "1.11.1", cli: "ocr delegate" },
+        provider: { package: "@alibaba-group/open-code-review", version: "1.11.4", cli: "ocr delegate" },
         baseSha: BASE_SHA,
         headSha: HEAD_SHA,
         preview: {

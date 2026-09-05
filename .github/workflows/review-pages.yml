@@ -140,10 +140,13 @@ jobs:
           REVIEW_PAGES_LATENCY_JOB: generate
         run: node review-pages/src/lib/latency.mjs start setup
 
-      - name: Setup pnpm
+      # Intentional local exception: shared setup-node-pnpm performs a root
+      # install, while Review Pages must install only its dedicated manifest
+      # with its untrusted-generation flags below.
+      - name: Setup pnpm for the dedicated Review Pages manifest
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
-          version: 11.18.0
+          version: 11.25.0
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -161,10 +164,21 @@ jobs:
 
       # Review Pages is an extractable boundary. Its dedicated manifest and
       # lockfile contain only the pinned OCR delegate dependency; do not pay
-      # the repository runtime/devDependency installation cost here.
+      # the repository runtime/devDependency installation cost here. Because
+      # --ignore-workspace excludes the root pnpm-workspace.yaml policy, the
+      # seven exact lockfile entries are explicitly exempted on this command.
       - name: Install Review Pages dependencies
         working-directory: review-pages
-        run: pnpm install --ignore-workspace --frozen-lockfile --prod --ignore-scripts
+        run: >-
+          pnpm install --ignore-workspace --frozen-lockfile --prod
+          --ignore-scripts
+          --config.minimum-release-age-exclude='@alibaba-group/open-code-review@1.11.4'
+          --config.minimum-release-age-exclude='@alibaba-group/ocr-darwin-arm64@1.11.4'
+          --config.minimum-release-age-exclude='@alibaba-group/ocr-darwin-x64@1.11.4'
+          --config.minimum-release-age-exclude='@alibaba-group/ocr-linux-arm64@1.11.4'
+          --config.minimum-release-age-exclude='@alibaba-group/ocr-linux-x64@1.11.4'
+          --config.minimum-release-age-exclude='@alibaba-group/ocr-win32-arm64@1.11.4'
+          --config.minimum-release-age-exclude='@alibaba-group/ocr-win32-x64@1.11.4'
 
       - name: Complete install and start generation timing
         env:

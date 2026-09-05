@@ -9,71 +9,71 @@ importers:
   .:
     dependencies:
       '@alibaba-group/open-code-review':
-        specifier: 1.11.1
-        version: 1.11.1
+        specifier: 1.11.4
+        version: 1.11.4
 
 packages:
 
-  '@alibaba-group/ocr-darwin-arm64@1.11.1':
-    resolution: {integrity: sha512-YTsaO5wshsZMLaZAK+wffruPbPuDkmAZMMDSe5dXxekeUnHB67+/UM3RggmVmUvjwI8H6jhMEQTIkL7w5ugMAg==}
+  '@alibaba-group/ocr-darwin-arm64@1.11.4':
+    resolution: {integrity: sha512-+tRa6qy1+yPQJJWJOZMXPs1AZtnwQy2qx3z4EmY3r2y4TF2vm/gsWHKw0nyxf+H10TVcVtoWQvVMPDCQ1cSVhw==}
     cpu: [arm64]
     os: [darwin]
 
-  '@alibaba-group/ocr-darwin-x64@1.11.1':
-    resolution: {integrity: sha512-/fxA4vqGPOvxIKlVw6GAybh+2HkPe958BIBYdB8qyCWcw65XDQJPh2hy705ahmUdePTzPD445wDQ0l8bh6ZFPA==}
+  '@alibaba-group/ocr-darwin-x64@1.11.4':
+    resolution: {integrity: sha512-sWjsHC3IIRq5ShT8zO1WaNXJcptlwJZ2myuvu2xYJS4zjLfYH4xmkCI7A3XbnPVAu14XyZOjjlb7cDtXLnu5ow==}
     cpu: [x64]
     os: [darwin]
 
-  '@alibaba-group/ocr-linux-arm64@1.11.1':
-    resolution: {integrity: sha512-ALr4vSzAGWvLYlK/0IuEa1fvuBLN/yImXMz7E3j4omiA/I2SIj/BFjahdjCLFud59uzlsUpCPZp5cuFUCLtFTg==}
+  '@alibaba-group/ocr-linux-arm64@1.11.4':
+    resolution: {integrity: sha512-3nRdIICxCMRdSYxSKViijT8a9nWfdb7Uj31o1rEQi0/FTXcz7QOMpRrt7DIhntT2gVz/r/qj1PU7jdKWFNHraQ==}
     cpu: [arm64]
     os: [linux]
 
-  '@alibaba-group/ocr-linux-x64@1.11.1':
-    resolution: {integrity: sha512-zB9jgruDJILyAOjMszGh0qtul98f0DopP2apxxcd/7Oo+7quziojvSiUrpNQmKfkJQuoA1cUNNIVC3tFtmdYpw==}
+  '@alibaba-group/ocr-linux-x64@1.11.4':
+    resolution: {integrity: sha512-4OJS+r2YalmkLOiREdD0IcRt8Q++A/4gH05JkUkVw7q0dCkANMnzAggr3ixm5juQTPq+fyAPoe1IwMn6mJS6VA==}
     cpu: [x64]
     os: [linux]
 
-  '@alibaba-group/ocr-win32-arm64@1.11.1':
-    resolution: {integrity: sha512-JVjbjfdOgUSGR45MPlHgTiEEXc6G0xJwL3wVY8S8Hu35xWLo4br0hapYIBztLUMipW6SvETIcQePMYx0DFzhNQ==}
+  '@alibaba-group/ocr-win32-arm64@1.11.4':
+    resolution: {integrity: sha512-XKfOYvtC08vAbcsaIC5piQ+6T91AnjIUdwrVhthuy+I5W1iC4bYfnpwtCBj6RvyDtziYbycJwLGsyEH9TIqyDQ==}
     cpu: [arm64]
     os: [win32]
 
-  '@alibaba-group/ocr-win32-x64@1.11.1':
-    resolution: {integrity: sha512-QrIU986ICMltAt18WM9GRpm7tkCBrkj1MqSc9j2BcoZmcz4VU1I9BeDG9b0Ui/gbOwDHwuj+dV6K7CJSNSXhfA==}
+  '@alibaba-group/ocr-win32-x64@1.11.4':
+    resolution: {integrity: sha512-cqIidCd9QOjaK7/ZHtRViRJnnGvxtxJf+0vK4j1PEIwmGD+moE+nRED9UziTvIypiy8lKPAYrztFYvr0lTH6TA==}
     cpu: [x64]
     os: [win32]
 
-  '@alibaba-group/open-code-review@1.11.1':
-    resolution: {integrity: sha512-zjtUBSAfC6tCzGcgr30/33QvGKzEYiH/qMS0Nw2adztM3Q+E5cXpAEa+4PjqHWUrlxu0LugAxld3nAfrEM5TXw==}
+  '@alibaba-group/open-code-review@1.11.4':
+    resolution: {integrity: sha512-C1K7X0AsijBiwixCE/d/C2870Hbc+LjsbtocXVFQZKOcvH04Afm2vdw0A/L9uNpKIhP9OsaScGhmFfRZcZMXTw==}
     engines: {node: '>=14'}
     hasBin: true
 
 snapshots:
 
-  '@alibaba-group/ocr-darwin-arm64@1.11.1':
+  '@alibaba-group/ocr-darwin-arm64@1.11.4':
     optional: true
 
-  '@alibaba-group/ocr-darwin-x64@1.11.1':
+  '@alibaba-group/ocr-darwin-x64@1.11.4':
     optional: true
 
-  '@alibaba-group/ocr-linux-arm64@1.11.1':
+  '@alibaba-group/ocr-linux-arm64@1.11.4':
     optional: true
 
-  '@alibaba-group/ocr-linux-x64@1.11.1':
+  '@alibaba-group/ocr-linux-x64@1.11.4':
     optional: true
 
-  '@alibaba-group/ocr-win32-arm64@1.11.1':
+  '@alibaba-group/ocr-win32-arm64@1.11.4':
     optional: true
 
-  '@alibaba-group/ocr-win32-x64@1.11.1':
+  '@alibaba-group/ocr-win32-x64@1.11.4':
     optional: true
 
-  '@alibaba-group/open-code-review@1.11.1':
+  '@alibaba-group/open-code-review@1.11.4':
     optionalDependencies:
-      '@alibaba-group/ocr-darwin-arm64': 1.11.1
-      '@alibaba-group/ocr-darwin-x64': 1.11.1
-      '@alibaba-group/ocr-linux-arm64': 1.11.1
-      '@alibaba-group/ocr-linux-x64': 1.11.1
-      '@alibaba-group/ocr-win32-arm64': 1.11.1
-      '@alibaba-group/ocr-win32-x64': 1.11.1
+      '@alibaba-group/ocr-darwin-arm64': 1.11.4
+      '@alibaba-group/ocr-darwin-x64': 1.11.4
+      '@alibaba-group/ocr-linux-arm64': 1.11.4
+      '@alibaba-group/ocr-linux-x64': 1.11.4
+      '@alibaba-group/ocr-win32-arm64': 1.11.4
+      '@alibaba-group/ocr-win32-x64': 1.11.4

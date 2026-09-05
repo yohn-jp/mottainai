@@ -90,7 +90,7 @@ test("the CI caller follows the live TypeScript foundation and retains product l
   }
 });
 
-test("CI delegates repository dependency installation to the shared Node.js and pnpm action", () => {
+test("CI delegates ordinary dependency installation to the shared Node.js and pnpm action", () => {
   const ciWorkflow = fs.readFileSync(path.join(repositoryRoot, ".github/workflows/ci.yml"), "utf8");
   const sharedSetupAction = "yohn-jp/.github/.github/actions/setup-node-pnpm@main";
 
@@ -99,11 +99,11 @@ test("CI delegates repository dependency installation to the shared Node.js and 
   assert.doesNotMatch(ciWorkflow, /run:\s*pnpm install --frozen-lockfile/u);
   assert.match(
     fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8"),
-    /"packageManager":\s*"pnpm@11\.18\.0"/u,
+    /"packageManager":\s*"pnpm@11\.25\.0"/u,
   );
 });
 
-test("rejects @main for every non-org external reference, and rejects non-@main org-owned refs", () => {
+test("rejects @main for every non-org external reference, and rejects non-@main org-owned workflow refs", () => {
   const result = validateActionText(
     [
       "      uses: actions/checkout@main",

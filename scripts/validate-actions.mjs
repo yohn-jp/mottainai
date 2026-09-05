@@ -10,7 +10,7 @@ const VALUE_PATTERN = /^(\S+)(?:\s+#.*)?$/u;
 const IMMUTABLE_EXTERNAL_ACTION_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*@[0-9a-f]{40}$/u;
 // yohn-jp/.github centrally governs its reusable workflows and composite
 // actions: consumers must follow the live @main revision so merged provider
-// fixes take effect without per-repository pin churn (Issue #802 and #807).
+// fixes take effect without per-repository pin churn (Issues #802 and #811).
 // A commit-SHA pin on an org-owned resource is therefore rejected, not
 // accepted.
 const ORG_GOVERNANCE_WORKFLOW_REF_PATTERN = /^yohn-jp\/\.github\/\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml@/u;
