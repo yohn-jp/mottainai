@@ -1,0 +1,45 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "`runtime ensure --descriptor` consumes the descriptor's Route 4 provider profile required for the selected release rather than discarding it."
+    },
+    {
+      "checked": false,
+      "text": "Supported Lima/QEMU/provider identities used to inspect or reconcile managed state are derived from or explicitly matched against the selected descriptor profile."
+    },
+    {
+      "checked": false,
+      "text": "A descriptor whose supported Route 4 provider identity differs from the active/managed provider fails closed before Route 3 mutation."
+    },
+    {
+      "checked": false,
+      "text": "Existing explicit adoption/provisioning state is accepted only when it proves the exact selected release profile; ambient PATH remains non-authoritative."
+    },
+    {
+      "checked": false,
+      "text": "Compiled code retains only the compatibility/validation policy needed to interpret supported descriptor profiles and does not become a second release-identity authority."
+    },
+    {
+      "checked": false,
+      "text": "Regression coverage proves that changing the descriptor provider identity changes or rejects the consumed Route 4 requirement instead of silently continuing with defaults."
+    },
+    {
+      "checked": false,
+      "text": "The fix composes with #826's activated QEMU data-closure verification and does not reintroduce Mottainai-owned QEMU lifecycle/device topology."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 842,
+    "state": "open",
+    "title": "fix(runtime): consume the Route 4 provider profile from the deployment descriptor",
+    "url": "https://github.com/yohn-jp/mottainai/issues/842"
+  },
+  "linked": {
+    "number": 842
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

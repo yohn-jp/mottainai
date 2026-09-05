@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #855 @ 7fc330fe4ae8</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #855: fix(runtime): consume Route 4 provider profile from descriptor</h1>
+<p>Base <code>main</code> @ <code>b52032c1c714453f91d26260d1c696b2fedff903</code> &rarr;
+Head <code>fix/842-route4-provider-profile-consumer</code> @ <code>7fc330fe4ae81868562e011d8de7ea7d59648eba</code></p>
+<p>Revision <code>7fc330fe4ae8</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/842">#842</a> fix(runtime): consume the Route 4 provider profile from the deployment descriptor (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] `runtime ensure --descriptor` consumes the descriptor&#39;s Route 4 provider profile required for the selected release rather than discarding it.</li>
+<li>[ ] Supported Lima/QEMU/provider identities used to inspect or reconcile managed state are derived from or explicitly matched against the selected descriptor profile.</li>
+<li>[ ] A descriptor whose supported Route 4 provider identity differs from the active/managed provider fails closed before Route 3 mutation.</li>
+<li>[ ] Existing explicit adoption/provisioning state is accepted only when it proves the exact selected release profile; ambient PATH remains non-authoritative.</li>
+<li>[ ] Compiled code retains only the compatibility/validation policy needed to interpret supported descriptor profiles and does not become a second release-identity authority.</li>
+<li>[ ] Regression coverage proves that changing the descriptor provider identity changes or rejects the consumed Route 4 requirement instead of silently continuing with defaults.</li>
+<li>[ ] The fix composes with #826&#39;s activated QEMU data-closure verification and does not reintroduce Mottainai-owned QEMU lifecycle/device topology.</li></ul>
+
+
+
+<h2>Changed files (5, +1051/-22)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>host-bootstrap/src/deployment_descriptor.rs</td><td>modified</td><td>+333</td><td>-7</td></tr>
+<tr><td>host-bootstrap/src/main.rs</td><td>modified</td><td>+110</td><td>-11</td></tr>
+<tr><td>host-bootstrap/src/qemu.rs</td><td>modified</td><td>+56</td><td>-0</td></tr>
+<tr><td>host-bootstrap/src/reconcile.rs</td><td>modified</td><td>+101</td><td>-4</td></tr>
+<tr><td>host-bootstrap/tests/reconciliation.rs</td><td>modified</td><td>+451</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

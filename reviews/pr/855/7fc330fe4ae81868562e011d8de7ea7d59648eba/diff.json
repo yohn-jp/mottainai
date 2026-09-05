@@ -1,0 +1,376 @@
+{
+  "baseSha": "b52032c1c714453f91d26260d1c696b2fedff903",
+  "files": [
+    {
+      "additions": 333,
+      "deletions": 7,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 8,
+          "oldLines": 0,
+          "oldStart": 7
+        },
+        {
+          "newLines": 4,
+          "newStart": 11,
+          "oldLines": 1,
+          "oldStart": 10
+        },
+        {
+          "newLines": 2,
+          "newStart": 131,
+          "oldLines": 0,
+          "oldStart": 126
+        },
+        {
+          "newLines": 9,
+          "newStart": 139,
+          "oldLines": 0,
+          "oldStart": 132
+        },
+        {
+          "newLines": 5,
+          "newStart": 150,
+          "oldLines": 0,
+          "oldStart": 134
+        },
+        {
+          "newLines": 20,
+          "newStart": 186,
+          "oldLines": 0,
+          "oldStart": 165
+        },
+        {
+          "newLines": 13,
+          "newStart": 427,
+          "oldLines": 0,
+          "oldStart": 386
+        },
+        {
+          "newLines": 155,
+          "newStart": 463,
+          "oldLines": 0,
+          "oldStart": 409
+        },
+        {
+          "newLines": 20,
+          "newStart": 646,
+          "oldLines": 0,
+          "oldStart": 437
+        },
+        {
+          "newLines": 2,
+          "newStart": 668,
+          "oldLines": 1,
+          "oldStart": 440
+        },
+        {
+          "newLines": 1,
+          "newStart": 673,
+          "oldLines": 1,
+          "oldStart": 444
+        },
+        {
+          "newLines": 2,
+          "newStart": 695,
+          "oldLines": 0,
+          "oldStart": 465
+        },
+        {
+          "newLines": 1,
+          "newStart": 730,
+          "oldLines": 3,
+          "oldStart": 499
+        },
+        {
+          "newLines": 19,
+          "newStart": 737,
+          "oldLines": 1,
+          "oldStart": 508
+        },
+        {
+          "newLines": 7,
+          "newStart": 825,
+          "oldLines": 0,
+          "oldStart": 577
+        },
+        {
+          "newLines": 8,
+          "newStart": 874,
+          "oldLines": 0,
+          "oldStart": 619
+        },
+        {
+          "newLines": 1,
+          "newStart": 893,
+          "oldLines": 0,
+          "oldStart": 630
+        },
+        {
+          "newLines": 27,
+          "newStart": 957,
+          "oldLines": 0,
+          "oldStart": 693
+        },
+        {
+          "newLines": 2,
+          "newStart": 1002,
+          "oldLines": 0,
+          "oldStart": 711
+        },
+        {
+          "newLines": 34,
+          "newStart": 1023,
+          "oldLines": 0,
+          "oldStart": 730
+        }
+      ],
+      "path": "host-bootstrap/src/deployment_descriptor.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 110,
+      "deletions": 11,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 6,
+          "oldLines": 1,
+          "oldStart": 6
+        },
+        {
+          "newLines": 3,
+          "newStart": 19,
+          "oldLines": 1,
+          "oldStart": 16
+        },
+        {
+          "newLines": 15,
+          "newStart": 46,
+          "oldLines": 5,
+          "oldStart": 41
+        },
+        {
+          "newLines": 8,
+          "newStart": 112,
+          "oldLines": 1,
+          "oldStart": 97
+        },
+        {
+          "newLines": 3,
+          "newStart": 122,
+          "oldLines": 0,
+          "oldStart": 99
+        },
+        {
+          "newLines": 1,
+          "newStart": 146,
+          "oldLines": 0,
+          "oldStart": 120
+        },
+        {
+          "newLines": 8,
+          "newStart": 158,
+          "oldLines": 0,
+          "oldStart": 131
+        },
+        {
+          "newLines": 25,
+          "newStart": 181,
+          "oldLines": 0,
+          "oldStart": 146
+        },
+        {
+          "newLines": 1,
+          "newStart": 207,
+          "oldLines": 1,
+          "oldStart": 148
+        },
+        {
+          "newLines": 2,
+          "newStart": 227,
+          "oldLines": 1,
+          "oldStart": 168
+        },
+        {
+          "newLines": 2,
+          "newStart": 236,
+          "oldLines": 0,
+          "oldStart": 175
+        },
+        {
+          "newLines": 22,
+          "newStart": 375,
+          "oldLines": 0,
+          "oldStart": 312
+        },
+        {
+          "newLines": 3,
+          "newStart": 440,
+          "oldLines": 0,
+          "oldStart": 355
+        },
+        {
+          "newLines": 1,
+          "newStart": 446,
+          "oldLines": 1,
+          "oldStart": 359
+        },
+        {
+          "newLines": 12,
+          "newStart": 474,
+          "oldLines": 0,
+          "oldStart": 386
+        }
+      ],
+      "path": "host-bootstrap/src/main.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 56,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 10,
+          "newStart": 290,
+          "oldLines": 0,
+          "oldStart": 289
+        },
+        {
+          "newLines": 2,
+          "newStart": 559,
+          "oldLines": 0,
+          "oldStart": 548
+        },
+        {
+          "newLines": 2,
+          "newStart": 1007,
+          "oldLines": 0,
+          "oldStart": 994
+        },
+        {
+          "newLines": 42,
+          "newStart": 1022,
+          "oldLines": 0,
+          "oldStart": 1007
+        }
+      ],
+      "path": "host-bootstrap/src/qemu.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 101,
+      "deletions": 4,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 5,
+          "oldLines": 0,
+          "oldStart": 4
+        },
+        {
+          "newLines": 2,
+          "newStart": 16,
+          "oldLines": 2,
+          "oldStart": 13
+        },
+        {
+          "newLines": 40,
+          "newStart": 93,
+          "oldLines": 0,
+          "oldStart": 89
+        },
+        {
+          "newLines": 4,
+          "newStart": 150,
+          "oldLines": 1,
+          "oldStart": 107
+        },
+        {
+          "newLines": 1,
+          "newStart": 170,
+          "oldLines": 0,
+          "oldStart": 123
+        },
+        {
+          "newLines": 1,
+          "newStart": 219,
+          "oldLines": 0,
+          "oldStart": 171
+        },
+        {
+          "newLines": 23,
+          "newStart": 226,
+          "oldLines": 0,
+          "oldStart": 177
+        },
+        {
+          "newLines": 1,
+          "newStart": 253,
+          "oldLines": 0,
+          "oldStart": 181
+        },
+        {
+          "newLines": 10,
+          "newStart": 272,
+          "oldLines": 0,
+          "oldStart": 199
+        },
+        {
+          "newLines": 14,
+          "newStart": 337,
+          "oldLines": 0,
+          "oldStart": 254
+        },
+        {
+          "newLines": 1,
+          "newStart": 497,
+          "oldLines": 0,
+          "oldStart": 400
+        },
+        {
+          "newLines": 1,
+          "newStart": 506,
+          "oldLines": 1,
+          "oldStart": 409
+        }
+      ],
+      "path": "host-bootstrap/src/reconcile.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 451,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 15,
+          "oldLines": 0,
+          "oldStart": 14
+        },
+        {
+          "newLines": 127,
+          "newStart": 378,
+          "oldLines": 0,
+          "oldStart": 374
+        },
+        {
+          "newLines": 321,
+          "newStart": 522,
+          "oldLines": 0,
+          "oldStart": 391
+        }
+      ],
+      "path": "host-bootstrap/tests/reconciliation.rs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "7fc330fe4ae81868562e011d8de7ea7d59648eba",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 1051,
+    "deletions": 22,
+    "filesChanged": 5
+  }
+}

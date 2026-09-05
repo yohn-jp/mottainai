@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "b52032c1c714453f91d26260d1c696b2fedff903",
+    "draft": false,
+    "headRef": "fix/842-route4-provider-profile-consumer",
+    "headSha": "7fc330fe4ae81868562e011d8de7ea7d59648eba",
+    "number": 855,
+    "title": "fix(runtime): consume Route 4 provider profile from descriptor"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "7fc330fe4ae81868562e011d8de7ea7d59648eba",
+    "immutable": true,
+    "shortId": "7fc330fe4ae8"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-05T09:51:19.233Z"
+  }
+}
