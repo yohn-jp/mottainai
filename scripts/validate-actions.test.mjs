@@ -103,6 +103,23 @@ test("CI delegates ordinary dependency installation to the shared Node.js and pn
   );
 });
 
+test("Review Pages' standalone pnpm/action-setup version matches the root packageManager authority (Issue #821)", () => {
+  const packageManager = JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8")).packageManager;
+  const pinnedPnpmVersion = packageManager.replace(/^pnpm@/u, "");
+
+  const reviewPagesWorkflow = fs.readFileSync(path.join(repositoryRoot, ".github/workflows/review-pages.yml"), "utf8");
+  const versionMatch = reviewPagesWorkflow.match(
+    /uses:\s*pnpm\/action-setup@[0-9a-f]{40}[^\n]*\n\s*with:\s*\n\s*version:\s*([^\s#]+)/u,
+  );
+
+  assert.ok(versionMatch, "expected a pnpm/action-setup step with a version input in review-pages.yml");
+  assert.equal(
+    versionMatch[1],
+    pinnedPnpmVersion,
+    `review-pages.yml pins pnpm/action-setup to ${versionMatch[1]}, which has drifted from package.json's packageManager (${pinnedPnpmVersion}); update review-pages.yml to match`,
+  );
+});
+
 test("rejects @main for every non-org external reference, and rejects non-@main org-owned workflow refs", () => {
   const result = validateActionText(
     [
