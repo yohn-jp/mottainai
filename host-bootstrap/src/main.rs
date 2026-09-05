@@ -14,6 +14,7 @@ use mottainai_host_bootstrap::lima::{
 use mottainai_host_bootstrap::lock::BootstrapLock;
 use mottainai_host_bootstrap::model::Classification;
 use mottainai_host_bootstrap::oci::HttpOciSource;
+use mottainai_host_bootstrap::openssh::validate_path as validate_openssh_path;
 use mottainai_host_bootstrap::paths::ensure_managed_root;
 use mottainai_host_bootstrap::provider::{inspect_provider, FileArtifactSource};
 use mottainai_host_bootstrap::qemu::{
@@ -44,6 +45,9 @@ fn main() {
     let json = arguments.iter().any(|argument| argument == "--json");
     match parse_config(&arguments) {
         Ok((config, artifact_path, route4_requirement)) => {
+            if let Err(error) = validate_openssh_path(config.environment_path.as_deref()) {
+                exit_with_bootstrap_failure(error, &config, json);
+            }
             let bootstrap = Bootstrap::new(config);
             let evidence = match (route4_requirement, artifact_path) {
                 (Some(requirement), Some(path)) => bootstrap.reconcile_with_route4_requirement(
@@ -89,22 +93,26 @@ fn main() {
                 host_override: None,
                 qemu_override: None,
             });
-            let evidence = failure_for_contract(error, &config);
-            if json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&evidence).expect("evidence is serializable")
-                );
-            } else {
-                eprintln!(
-                    "{}: {}",
-                    evidence.error_code.as_deref().unwrap_or("bootstrap_error"),
-                    evidence.diagnostic.as_deref().unwrap_or("bootstrap failed")
-                );
-            }
-            std::process::exit(2);
+            exit_with_bootstrap_failure(error, &config, json);
         }
     }
+}
+
+fn exit_with_bootstrap_failure(error: BootstrapError, config: &BootstrapConfig, json: bool) -> ! {
+    let evidence = failure_for_contract(error, config);
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&evidence).expect("evidence is serializable")
+        );
+    } else {
+        eprintln!(
+            "{}: {}",
+            evidence.error_code.as_deref().unwrap_or("bootstrap_error"),
+            evidence.diagnostic.as_deref().unwrap_or("bootstrap failed")
+        );
+    }
+    std::process::exit(2);
 }
 
 fn parse_config(
@@ -232,7 +240,9 @@ Usage: mottainai-init [--json] [--state-directory PATH] [--contract PATH]\n\
            [--state-directory PATH]\n\n\
 Reconciles the supported Linux x86_64/KVM Lima provider and its QEMU\n\
 prerequisite into the managed state directory. No privileged mutation,\n\
-package-manager invocation, VM launch, or ambient PATH adoption is performed.\n\n\
+package-manager invocation, VM launch, or ambient PATH adoption is performed.\n\
+The selected Lima profile requires executable `ssh` and `ssh-keygen` commands\n\
+on PATH; both are validated before managed state or provider mutation.\n\n\
 When `--descriptor` is supplied, its verified Route 4 provider profile is the\n\
 sole Lima/QEMU release authority; explicit provider overrides must match it.\n\
 `runtime ensure` converges the local Lima-managed Runtime instance described\n\
@@ -432,6 +442,11 @@ fn run_runtime_ensure(
             ));
         }
     };
+
+    // The selected Lima profile resolves both of these host tools from the
+    // child PATH. Validate them before creating managed state or invoking any
+    // provider/QEMU/Appliance operation.
+    validate_openssh_path(env::var_os("PATH").as_deref())?;
 
     let mut bootstrap_config = BootstrapConfig::from_defaults()?;
     if let Some(state_directory) = state_directory {

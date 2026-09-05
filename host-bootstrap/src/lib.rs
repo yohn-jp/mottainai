@@ -11,6 +11,7 @@ pub mod lock;
 pub(crate) mod materialize;
 pub mod model;
 pub mod oci;
+pub mod openssh;
 pub mod paths;
 pub mod provider;
 pub mod qemu;

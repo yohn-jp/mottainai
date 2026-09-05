@@ -74,7 +74,7 @@ This allows the outer layer to absorb host/provider differences while the guest 
 
 Route 4 is entered through a compiled standalone `mottainai-init` executable implemented in Rust and published as a host-native release artifact. The user must not need a Rust toolchain to run it.
 
-The bootstrap must be able to start before Node.js, npm, Python, Nix, Lima, QEMU, or a distribution package manager is available. Its job is to converge a supported fresh host into the Route 3 preconditions and then delegate to Route 3. The complete external-host prerequisite set consumed by the selected provider profile is an explicit operation-book concern; the current implicit Lima/OpenSSH dependency is tracked by #846 rather than treated here as an accepted hidden precondition.
+The bootstrap must be able to start before Node.js, npm, Python, Nix, Lima, QEMU, or a distribution package manager is available. Its job is to converge a supported fresh host into the Route 3 preconditions and then delegate to Route 3. The selected Lima profile's external host prerequisites are explicit: Route 4 validates executable `ssh` and `ssh-keygen` commands from `PATH` independently before provider, QEMU, Appliance, or Lima instance mutation. No shell/package-manager installation or ambient `~/.ssh` credential adoption is part of the standalone bootstrap contract.
 
 Conceptually:
 

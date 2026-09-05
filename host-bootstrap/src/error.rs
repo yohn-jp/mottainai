@@ -41,6 +41,8 @@ pub enum ErrorCode {
     BootstrapKeyInvalid,
     BootstrapKeyUnavailable,
     BootstrapDiskFailed,
+    OpenSshClientMissing,
+    OpenSshKeygenMissing,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -109,6 +111,8 @@ impl BootstrapError {
             ErrorCode::BootstrapKeyInvalid => "bootstrap_key_invalid",
             ErrorCode::BootstrapKeyUnavailable => "bootstrap_key_unavailable",
             ErrorCode::BootstrapDiskFailed => "bootstrap_disk_failed",
+            ErrorCode::OpenSshClientMissing => "openssh_client_missing",
+            ErrorCode::OpenSshKeygenMissing => "openssh_keygen_missing",
         }
     }
 }
