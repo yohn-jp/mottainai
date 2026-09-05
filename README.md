@@ -253,7 +253,7 @@ pnpm run typecheck
 
 `pnpm run verify` is the authoritative local verification aggregate. Test layering and classification are documented in [docs/testing.md](docs/testing.md).
 
-The bounded agent execution contract lives in [AGENTS.md](AGENTS.md). Contributor workflow is in [CONTRIBUTING.md](CONTRIBUTING.md).
+The bounded agent execution contract lives in [AGENTS.md](AGENTS.md). Contributor workflow is in [CONTRIBUTING.md](CONTRIBUTING.md). The release preparation steps are in [docs/release-process.md](docs/release-process.md).
 
 ## Documentation
 
