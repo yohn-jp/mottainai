@@ -134,11 +134,34 @@ pkgs.runCommand "mottainai-runtime-appliance-boundary"
     # Both scenarios must materialize the canonical appliance. Since their
     # exact drvPaths are equal, Nix builds one shared base derivation here;
     # the equality assertion above is what proves that sharing is valid.
+    nativeBuildInputs = [ pkgs.parted pkgs.util-linux ];
     buildInputs = [ runtimeApplianceImage baseApplianceA baseApplianceB ];
     exportReferencesGraph = [ "appliance-closure" baseApplianceA ];
     bootstrapStorePath = bootstrapPackage;
   }
   ''
+    # The canonical disk must be the supported UEFI layout: GPT with one
+    # FAT32 EFI System Partition and one ext4 root partition. This is also the
+    # regression guard that rejects a return to legacy MBR-only output.
+    disk_image=${runtimeApplianceImage}/mottainai-runtime-appliance.raw
+    partition_table="$(parted --script --machine "$disk_image" unit B print)"
+    printf '%s\n' "$partition_table" | grep -q ':gpt:'
+    partition_count="$(printf '%s\n' "$partition_table" | awk -F: '$1 ~ /^[0-9]+$/ { count++ } END { print count + 0 }')"
+    test "$partition_count" -eq 2
+
+    esp_line="$(printf '%s\n' "$partition_table" | awk -F: '$1 == "1" { print; exit }')"
+    root_line="$(printf '%s\n' "$partition_table" | awk -F: '$1 == "2" { print; exit }')"
+    test -n "$esp_line"
+    test -n "$root_line"
+    test "$(printf '%s' "$esp_line" | cut -d: -f5)" = "fat32"
+    test "$(printf '%s' "$esp_line" | cut -d: -f6)" = "ESP"
+    printf '%s' "$esp_line" | cut -d: -f7 | grep -Eq '(^|,)[[:space:]]*(boot|esp)(,|$)'
+    test "$(printf '%s' "$root_line" | cut -d: -f5)" = "ext4"
+
+    esp_start_bytes="$(printf '%s' "$esp_line" | cut -d: -f2 | tr -d B)"
+    test "$(blkid -p -o value -s TYPE -O "$esp_start_bytes" "$disk_image")" = "vfat"
+    test "$(blkid -p -o value -s VERSION -O "$esp_start_bytes" "$disk_image")" = "FAT32"
+
     # The bootstrap package is a real base-system input.
     grep -qF "$bootstrapStorePath" appliance-closure \
       || { echo "FAIL: appliance closure does not contain the #626 bootstrap package" >&2; exit 1; }
