@@ -9,9 +9,11 @@ import { test } from "node:test";
 import { BootstrapError } from "./errors.js";
 import { BOOTSTRAP_TRUSTED_SOURCE_ORIGIN, defaultFetcher, resolveMottainaiSource } from "./source-resolution.js";
 import type { RawHttpTransport } from "./source-resolution.js";
+import { parseDeploymentDescriptor } from "../runtime-contract/deployment-descriptor.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const fixtureDirectory = path.join(repoRoot, "nix", "tests", "fixtures", "alt-mottainai-source");
+const fixtureSourceNarSha256 = "e74b0ab3b7dae31df8a4d099d6991cc7988118cf3b4456792eebbc640181ed36";
 
 /**
  * Packs a fixture directory as a GitHub-tag-archive-shaped tar.gz: a single
@@ -47,24 +49,84 @@ function tempDestination(t: import("node:test").TestContext): string {
   return dir;
 }
 
-test("resolves the fixture's alternate source tree, independent of this repository's own checkout", async (t) => {
+function generatedProductionDescriptor(t: import("node:test").TestContext, sourceSha256: string) {
+  const version = "0.0.1-fixture-alt-source";
+  const sourceRevision = "a".repeat(40);
+  const directory = tempDestination(t);
+  const tarballPath = path.join(directory, `mottainai-${version}.tgz`);
+  const initPath = path.join(directory, "mottainai-init-linux-x86_64");
+  const appliancePath = path.join(directory, "appliance-metadata.json");
+  const managedPath = path.join(directory, "managed-generation.json");
+  const outputPath = path.join(directory, "deployment-descriptor-input.json");
+
+  fs.writeFileSync(tarballPath, "canonical npm payload bytes");
+  fs.writeFileSync(initPath, "canonical init bytes");
+  fs.writeFileSync(
+    appliancePath,
+    JSON.stringify({
+      digest: `sha256:${"6".repeat(64)}`,
+      rawSha256: "7".repeat(64),
+      rawSizeBytes: 2048,
+      manifestSha256: "8".repeat(64),
+    }),
+  );
+  fs.writeFileSync(
+    managedPath,
+    JSON.stringify({
+      identity: "2".repeat(64),
+      flakeLockSha256: "3".repeat(64),
+      applicationPayloadSha256: "1".repeat(64),
+      packages: [{ packageId: "mottainai", version, flakeRef: "nix#mottainai", sourceSha256 }],
+    }),
+  );
+
+  execFileSync(
+    process.execPath,
+    [
+      "scripts/create-release-deployment-descriptor-input.mjs",
+      "--version",
+      version,
+      "--source-revision",
+      sourceRevision,
+      "--tarball",
+      tarballPath,
+      "--init",
+      initPath,
+      "--appliance-metadata",
+      appliancePath,
+      "--provider-profile",
+      path.join(repoRoot, "release", "deployment-provider-profile-linux-x86_64.json"),
+      "--managed-generation",
+      managedPath,
+      "--output",
+      outputPath,
+    ],
+    { cwd: repoRoot, stdio: "pipe" },
+  );
+  return parseDeploymentDescriptor(JSON.parse(fs.readFileSync(outputPath, "utf8")));
+}
+
+test("production-shaped descriptor sourceSha256 passes the real source-resolution boundary", async (t) => {
   const destination = tempDestination(t);
   const archive = packFixtureAsTagArchive(fixtureDirectory, "v0.0.1-fixture-alt-source");
-  const expectedHash = "e".repeat(64);
+  const descriptor = generatedProductionDescriptor(t, fixtureSourceNarSha256);
+  const sourceSha256 = descriptor.route2.managedGeneration.packages[0].sourceSha256;
+  assert.equal(descriptor.route2.managedGeneration.applicationPayloadSha256, descriptor.route1.payload.sha256);
+  assert.notEqual(sourceSha256, descriptor.route1.payload.sha256);
 
   const result = await resolveMottainaiSource({
     requestedVersion: "0.0.1-fixture-alt-source",
-    expectedSourceSha256: expectedHash,
+    expectedSourceSha256: sourceSha256,
     destinationDirectory: destination,
     fetcher: async (url) => {
       assert.ok(url.startsWith(BOOTSTRAP_TRUSTED_SOURCE_ORIGIN));
       return streamOf(archive);
     },
-    narHashOfTree: () => expectedHash,
+    narHashOfTree: () => sourceSha256,
   });
 
   assert.equal(result.resolvedTag, "v0.0.1-fixture-alt-source");
-  assert.equal(result.narHashSha256, expectedHash);
+  assert.equal(result.narHashSha256, sourceSha256);
   const packageJson = JSON.parse(fs.readFileSync(path.join(result.sourcePath, "package.json"), "utf8"));
   assert.equal(packageJson.version, "0.0.1-fixture-alt-source");
   assert.equal(packageJson.name, "mottainai");
@@ -77,13 +139,13 @@ test("fetcher is called against the pinned GitHub tag-archive origin only, never
 
   await resolveMottainaiSource({
     requestedVersion: "0.0.1-fixture-alt-source",
-    expectedSourceSha256: "e".repeat(64),
+    expectedSourceSha256: fixtureSourceNarSha256,
     destinationDirectory: destination,
     fetcher: async (url) => {
       calledUrl = url;
       return streamOf(archive);
     },
-    narHashOfTree: () => "e".repeat(64),
+    narHashOfTree: () => fixtureSourceNarSha256,
   });
 
   assert.equal(calledUrl, `${BOOTSTRAP_TRUSTED_SOURCE_ORIGIN}v0.0.1-fixture-alt-source.tar.gz`);
@@ -92,16 +154,21 @@ test("fetcher is called against the pinned GitHub tag-archive origin only, never
 test("tree-hash mismatch fails closed with source_integrity_mismatch", async (t) => {
   const destination = tempDestination(t);
   const archive = packFixtureAsTagArchive(fixtureDirectory, "v0.0.1-fixture-alt-source");
+  const descriptor = generatedProductionDescriptor(t, "f".repeat(64));
+  const actualHash = fixtureSourceNarSha256;
 
   await assert.rejects(
     resolveMottainaiSource({
       requestedVersion: "0.0.1-fixture-alt-source",
-      expectedSourceSha256: "f".repeat(64),
+      expectedSourceSha256: descriptor.route2.managedGeneration.packages[0].sourceSha256,
       destinationDirectory: destination,
       fetcher: async () => streamOf(archive),
-      narHashOfTree: () => "0".repeat(64),
+      narHashOfTree: () => actualHash,
     }),
-    (error: unknown) => error instanceof BootstrapError && error.code === "source_integrity_mismatch",
+    (error: unknown) =>
+      error instanceof BootstrapError &&
+      error.code === "source_integrity_mismatch" &&
+      error.message.includes(`sourceSha256=${descriptor.route2.managedGeneration.packages[0].sourceSha256}`),
   );
 });
 
@@ -113,10 +180,10 @@ test("requested version not matching the resolved tree's package.json fails clos
   await assert.rejects(
     resolveMottainaiSource({
       requestedVersion: "9.9.9",
-      expectedSourceSha256: "e".repeat(64),
+      expectedSourceSha256: fixtureSourceNarSha256,
       destinationDirectory: destination,
       fetcher: async () => streamOf(archive),
-      narHashOfTree: () => "e".repeat(64),
+      narHashOfTree: () => fixtureSourceNarSha256,
     }),
     (error: unknown) => error instanceof BootstrapError && error.code === "requested_resolved_version_mismatch",
   );

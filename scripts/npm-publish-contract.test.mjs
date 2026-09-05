@@ -31,6 +31,15 @@ test("local publish remains OIDC-only and does not add a long-lived npm credenti
   assert.match(workflowText, /npm publish "\$\(find \. -maxdepth 1 -type f -name 'mottainai-\*\.tgz'/u);
 });
 
+test("release descriptor keeps Route 1 payload bytes separate from Route 2 source NAR identity", () => {
+  assert.match(workflowText, /source_nar_sha256: \$\{\{ steps\.route2_closure_smoke\.outputs\.source_nar_sha256 \}\}/u);
+  assert.match(workflowText, /sourceStorePath/u);
+  assert.match(workflowText, /nix path-info --json --json-format 2/u);
+  assert.match(workflowText, /--arg source "\$SOURCE_NAR_SHA256"/u);
+  assert.match(workflowText, /sourceSha256:\$source/u);
+  assert.doesNotMatch(workflowText, /sourceSha256:\$payload/u);
+});
+
 test("draft release lookup resolves by tag name through gh release view, not the raw REST tag endpoint (#726)", () => {
   assert.doesNotMatch(workflowText, /releases\/tags\/\$TAG/u);
   assert.match(

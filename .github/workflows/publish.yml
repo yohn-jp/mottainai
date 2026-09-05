@@ -435,6 +435,7 @@ jobs:
       raw_sha256: ${{ steps.publish_oci.outputs.raw_sha256 }}
       raw_size_bytes: ${{ steps.publish_oci.outputs.raw_size_bytes }}
       manifest_sha256: ${{ steps.publish_oci.outputs.manifest_sha256 }}
+      source_nar_sha256: ${{ steps.route2_closure_smoke.outputs.source_nar_sha256 }}
 
     steps:
       - name: Checkout exact release tag
@@ -515,6 +516,7 @@ jobs:
           echo "Route 2 consumed canonical Route 1 payload $payload_sha256 for $RELEASE_TAG"
 
       - name: Execute Route 2 closure smoke from the exact canonical payload (Issue #752)
+        id: route2_closure_smoke
         shell: bash
         run: |
           set -euo pipefail
@@ -562,6 +564,14 @@ jobs:
               mottainaiPackage = mottainai;
             }).metadataFile
           ")"
+          source_store_path="$(jq -er '.nixOutput.packages[] | select(.packageId == "mottainai") | .sourceStorePath' "$metadata_output")"
+          source_nar_sri="$(nix path-info --json --json-format 2 "$source_store_path" | jq -er '.info | to_entries[0].value.narHash')"
+          source_nar_sha256="$(nix eval --raw --expr "builtins.convertHash { hash = \"$source_nar_sri\"; hashAlgo = \"sha256\"; toHashFormat = \"base16\"; }")"
+          if [[ ! "$source_nar_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Route 2 source NAR identity is not lowercase hex SHA-256: $source_nar_sha256" >&2
+            exit 1
+          fi
+          echo "source_nar_sha256=$source_nar_sha256" >> "$GITHUB_OUTPUT"
           generation_output="$(jq -er '.nixOutput.storePath' "$metadata_output")"
           node scripts/route2-runtime-smoke.mjs \
             --generation "$generation_output" \
@@ -1171,6 +1181,7 @@ jobs:
           RAW_SHA256: ${{ needs.runtime-appliance.outputs.raw_sha256 }}
           RAW_SIZE_BYTES: ${{ needs.runtime-appliance.outputs.raw_size_bytes }}
           MANIFEST_SHA256: ${{ needs.runtime-appliance.outputs.manifest_sha256 }}
+          SOURCE_NAR_SHA256: ${{ needs.runtime-appliance.outputs.source_nar_sha256 }}
         run: |
           set -euo pipefail
           version="${RELEASE_TAG#v}"
@@ -1179,16 +1190,18 @@ jobs:
           lock_sha256="$(sha256sum nix/flake.lock | awk '{print $1}')"
           payload_sha256="$(jq -er '.payload.sha256' "$tarball.identity.json")"
           test "$payload_sha256" = "$(sha256sum "$tarball" | awk '{print $1}')"
+          [[ "$SOURCE_NAR_SHA256" =~ ^[0-9a-f]{64}$ ]]
           managed_identity="$(printf '%s' "$version:$SOURCE_REVISION:$payload_sha256:$lock_sha256" | sha256sum | awk '{print $1}')"
-          # Route 2 identity inputs are release-bound and payload-bound; the
-          # owning Nix build may replace this fan-in file with its realized
-          # NAR identities, but no descriptor is accepted without one.
+          # Route 2 keeps the npm payload identity and resolved source-tree NAR
+          # identity separate. The source NAR comes from the same realized
+          # Route 2 package metadata consumed by the closure smoke above.
           jq -n \
             --arg identity "$managed_identity" \
             --arg lock "$lock_sha256" \
             --arg payload "$payload_sha256" \
+            --arg source "$SOURCE_NAR_SHA256" \
             --arg version "$version" \
-            '{identity:$identity, flakeLockSha256:$lock, applicationPayloadSha256:$payload, packages:[{packageId:"mottainai",version:$version,flakeRef:"nix#mottainai",sourceSha256:$payload}]}' \
+            '{identity:$identity, flakeLockSha256:$lock, applicationPayloadSha256:$payload, packages:[{packageId:"mottainai",version:$version,flakeRef:"nix#mottainai",sourceSha256:$source}]}' \
             > "$RUNNER_TEMP/managed-generation.json"
           jq -n \
             --arg digest "$OCI_DIGEST" \
