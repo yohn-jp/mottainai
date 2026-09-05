@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #812 @ b2cc978beb55</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #812: chore(ci): audit and converge CI dependencies</h1>
+<p>Base <code>main</code> @ <code>f1a5ff64914fc16fc1e2dd7f2705ad05afe72760</code> &rarr;
+Head <code>chore/811-ci-authority-audit</code> @ <code>b2cc978beb55acf4abf0e340961ec9418ea44e53</code></p>
+<p>Revision <code>b2cc978beb55</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/811">#811</a> chore: audit and update all CI dependencies after shared provider refresh (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] `yohn-jp/.github#150` is completed and merged before implementation begins.</li>
+<li>[ ] Every third-party `uses:` reference and material Node/pnpm/runtime/tool version in current Mottainai CI is inventoried and classified.</li>
+<li>[ ] All stale external Actions are updated to the current provider-compatible approved revision, with immutable external pins and accurate version comments.</li>
+<li>[ ] Compatible generic Node/pnpm setup/install mechanics consume the refreshed `yohn-jp/.github` authority from `@main`; redundant local implementations/direct setup paths are removed where semantics match.</li>
+<li>[ ] Mottainai-specific integration, package/E2E, Runtime/Nix/VM/Appliance, host-bootstrap, release artifact lifecycle, and Review Pages trust/proof semantics remain local where they are genuinely product-specific.</li>
+<li>[ ] Specialized local exceptions, including any install flags or release semantics not expressible by the shared contract, are retained only when necessary and documented in the PR.</li>
+<li>[ ] CodeQL, governance, TypeScript baseline, publish, Review Pages, integration/package E2E, Runtime/Nix/VM/Appliance, and host-bootstrap paths are all explicitly covered by the audit rather than sampled selectively.</li>
+<li>[ ] No duplicate CI execution or duplicate dependency installation is introduced.</li>
+<li>[ ] Actual PR Actions prove every affected path, followed by a current-main full CI run after merge to prove no regression and record relevant critical-path/setup timings.</li>
+<li>[ ] The PR records the final shared-versus-local authority matrix and the before/after dependency inventory.</li></ul>
+
+
+
+<h2>Changed files (15, +126/-126)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/ci.yml</td><td>modified</td><td>+2</td><td>-2</td></tr>
+<tr><td>.github/workflows/governance.yml</td><td>modified</td><td>+2</td><td>-11</td></tr>
+<tr><td>.github/workflows/publish.yml</td><td>modified</td><td>+28</td><td>-40</td></tr>
+<tr><td>.github/workflows/review-pages.yml</td><td>modified</td><td>+18</td><td>-4</td></tr>
+<tr><td>CONTRIBUTING.md</td><td>modified</td><td>+1</td><td>-1</td></tr>
+<tr><td>nix/mottainai.nix</td><td>modified</td><td>+1</td><td>-1</td></tr>
+<tr><td>package.json</td><td>modified</td><td>+2</td><td>-2</td></tr>
+<tr><td>pnpm-lock.yaml</td><td>modified</td><td>+29</td><td>-29</td></tr>
+<tr><td>pnpm-workspace.yaml</td><td>modified</td><td>+7</td><td>-0</td></tr>
+<tr><td>review-pages/package.json</td><td>modified</td><td>+1</td><td>-1</td></tr>
+<tr><td>review-pages/pnpm-lock.yaml</td><td>modified</td><td>+29</td><td>-29</td></tr>
+<tr><td>review-pages/test/review-input.test.mjs</td><td>modified</td><td>+1</td><td>-1</td></tr>
+<tr><td>scripts/npm-publish-contract.test.mjs</td><td>modified</td><td>+1</td><td>-1</td></tr>
+<tr><td>scripts/validate-actions.mjs</td><td>modified</td><td>+1</td><td>-1</td></tr>
+<tr><td>scripts/validate-actions.test.mjs</td><td>modified</td><td>+3</td><td>-3</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
