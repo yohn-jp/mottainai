@@ -1,0 +1,80 @@
+{
+  "baseSha": "fc271eb67b2422278850e9ceba6bf543dbf7b8ec",
+  "files": [
+    {
+      "additions": 104,
+      "deletions": 12,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 15,
+          "oldLines": 1,
+          "oldStart": 15
+        },
+        {
+          "newLines": 33,
+          "newStart": 415,
+          "oldLines": 0,
+          "oldStart": 414
+        },
+        {
+          "newLines": 13,
+          "newStart": 601,
+          "oldLines": 6,
+          "oldStart": 568
+        },
+        {
+          "newLines": 1,
+          "newStart": 622,
+          "oldLines": 2,
+          "oldStart": 582
+        },
+        {
+          "newLines": 18,
+          "newStart": 1506,
+          "oldLines": 0,
+          "oldStart": 1466
+        },
+        {
+          "newLines": 1,
+          "newStart": 1540,
+          "oldLines": 1,
+          "oldStart": 1483
+        },
+        {
+          "newLines": 1,
+          "newStart": 1555,
+          "oldLines": 0,
+          "oldStart": 1497
+        },
+        {
+          "newLines": 1,
+          "newStart": 1562,
+          "oldLines": 1,
+          "oldStart": 1504
+        },
+        {
+          "newLines": 1,
+          "newStart": 1567,
+          "oldLines": 1,
+          "oldStart": 1509
+        },
+        {
+          "newLines": 34,
+          "newStart": 1571,
+          "oldLines": 0,
+          "oldStart": 1512
+        }
+      ],
+      "path": "host-bootstrap/src/lima.rs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "1fe485aed90d59718dfbd623b5fad54b6ea0ebcb",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 104,
+    "deletions": 12,
+    "filesChanged": 1
+  }
+}

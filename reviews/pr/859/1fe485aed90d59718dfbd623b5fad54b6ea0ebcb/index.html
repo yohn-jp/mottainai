@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #859 @ 1fe485aed90d</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #859: fix(runtime): preserve bounded limactl diagnostics on timeout</h1>
+<p>Base <code>main</code> @ <code>fc271eb67b2422278850e9ceba6bf543dbf7b8ec</code> &rarr;
+Head <code>fix/845-bounded-limactl-timeout-diagnostics</code> @ <code>1fe485aed90d59718dfbd623b5fad54b6ea0ebcb</code></p>
+<p>Revision <code>1fe485aed90d</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/845">#845</a> fix(runtime): preserve bounded limactl diagnostics on timeout (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] The timeout path preserves a bounded sanitized excerpt of captured `limactl` stderr/stdout in the returned diagnostic.</li>
+<li>[ ] The stable timeout/error classification remains deterministic and callers can still distinguish timeout from immediate command failure.</li>
+<li>[ ] Output remains strictly bounded by the existing command-output/evidence limits; no unbounded logs or secrets are persisted.</li>
+<li>[ ] Regression coverage proves a timed-out fake `limactl` process with diagnostic stderr returns both the timeout context and the bounded provider error.</li>
+<li>[ ] Empty-output timeouts retain a concise deterministic fallback diagnostic.</li>
+<li>[ ] Child termination/reaping and stdout/stderr reader cleanup remain race-safe and leak-free.</li></ul>
+
+
+
+<h2>Changed files (1, +104/-12)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>host-bootstrap/src/lima.rs</td><td>modified</td><td>+104</td><td>-12</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

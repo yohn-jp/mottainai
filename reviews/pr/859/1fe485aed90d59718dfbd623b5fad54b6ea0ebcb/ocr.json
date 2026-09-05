@@ -1,0 +1,45 @@
+{
+  "baseSha": "fc271eb67b2422278850e9ceba6bf543dbf7b8ec",
+  "headSha": "1fe485aed90d59718dfbd623b5fad54b6ea0ebcb",
+  "preview": {
+    "excluded_count": 0,
+    "excluded_files": [],
+    "from": "fc271eb67b2422278850e9ceba6bf543dbf7b8ec",
+    "merge_base": "fc271eb67b2422278850e9ceba6bf543dbf7b8ec",
+    "mode": "range",
+    "reviewable_count": 1,
+    "reviewable_files": [
+      {
+        "deletions": 12,
+        "insertions": 104,
+        "path": "host-bootstrap/src/lima.rs",
+        "status": "modified"
+      }
+    ],
+    "schema_version": "1",
+    "to": "1fe485aed90d59718dfbd623b5fad54b6ea0ebcb",
+    "total_deletions": 12,
+    "total_files": 1,
+    "total_insertions": 104
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.4"
+  },
+  "rule": {
+    "groups": [
+      {
+        "files": [
+          "host-bootstrap/src/lima.rs"
+        ],
+        "group_id": 1,
+        "pattern": "**/*.rs",
+        "rule": "#### Obvious Typos or Spelling Errors\n- Spelling errors in type names, function names, variable names, enum variants, trait names, or module names at their declaration sites; do not report spelling errors at call sites\n- Strings in log messages, panic messages, error messages, or public diagnostics containing spelling errors that affect readability\n\n#### Ownership and Lifetime Correctness\n- Incorrectly returned references, borrowed values escaping their valid scope, or lifetime relationships that make an API unsound or unusable\n- Excessive or unnecessary `clone()` calls introduced to satisfy borrowing when a borrow, iterator, `Cow`, or ownership transfer would be clearer and cheaper\n- Interior mutability (`RefCell`, `Cell`, `Mutex`) used to work around ownership without a real shared-mutability requirement\n- Reference cycles with `Rc<RefCell<T>>` or `Arc<Mutex<T>>` where `Weak` should be used to break ownership cycles\n\n#### Error Handling and Panics\n- `unwrap()`, `expect()`, `panic!`, `todo!`, or `unimplemented!` in production/library paths where the failure is recoverable or can be propagated with `Result`\n- Errors converted to strings too early or discarded without context; prefer preserving the original error and adding actionable context at boundaries\n- `Result` or `Option` values ignored, swallowed, or mapped to misleading defaults\n- Public APIs that panic on ordinary invalid input instead of returning a typed error, unless the panic documents a clear programming invariant\n\n#### Unsafe Code Boundaries\n- `unsafe` blocks that are broader than necessary or hide multiple unrelated invariants\n- Missing or stale safety rationale for `unsafe` blocks, `unsafe fn`, `unsafe impl Send`, or `unsafe impl Sync`\n- Raw pointer dereferences without clear validity, alignment, initialization, aliasing, and lifetime guarantees\n- FFI boundaries that do not validate null pointers, buffer lengths, ownership transfer, string encoding, or allocator compatibility\n- `static mut`, unchecked `transmute`, `MaybeUninit`, `mem::zeroed`, or manual drop logic used without a documented invariant that makes the operation sound\n\n#### Concurrency and Shared State\n- Holding `Mutex`, `RwLock`, or `RefCell` guards longer than necessary, especially across calls into user code or potentially blocking operations\n- Holding synchronous locks across `.await`, or using blocking I/O, sleeps, or CPU-heavy work directly inside async tasks\n- Check-then-act races around shared state, cache initialization, file creation, or atomics\n- Atomic operations with ordering that is too weak for the data being protected, or overly strong orderings that hide the intended synchronization contract\n- Unsafe `Send` or `Sync` implementations that do not prove all contained state is thread-safe under the documented invariants\n\n#### Async and Cancellation Safety\n- Spawned tasks whose `JoinHandle` is dropped when failures, cancellation, or shutdown still need to be observed\n- Futures that are not cancellation-safe around partial writes, lock acquisition, transactions, or resource cleanup\n- Async functions that use synchronous filesystem, network, or process APIs in request/worker paths where the runtime can be blocked\n- Retry loops without backoff, timeout, cancellation propagation, or bounded attempts\n\n#### Collections, Iterators, and Performance\n- Avoid unnecessary allocations in hot paths, such as repeated `String` construction, `format!`, `collect()`, or `to_vec()` where borrowing or streaming is sufficient\n- Prefer iterator adapters and standard library collection APIs when they make ownership and complexity clearer; avoid dense iterator chains that obscure error handling or side effects\n- Ensure hash maps, vectors, and strings are preallocated when the expected size is known and growth cost is material\n- Avoid O(n^2) lookups from nested loops when a `HashMap`, `HashSet`, sorting, or indexing strategy would clearly reduce complexity\n\n#### Type and API Design\n- Model domain states with enums, newtypes, and typed IDs instead of booleans, strings, or primitive integers when invalid states would otherwise be representable\n- Prefer standard conversion and borrowing traits (`From`, `TryFrom`, `AsRef`, `Borrow`, `IntoIterator`) when designing reusable APIs\n- Public structs, enums, traits, and errors should have useful names, visibility, trait derives, and documentation appropriate to the crate boundary\n- Avoid exposing concrete collection or synchronization types in public APIs when a slice, iterator, trait, or narrower abstraction would preserve flexibility\n\n#### Macros and Metaprogramming\nOnly flag when the diff actually defines a `macro_rules!` or procedural macro; do not report on ordinary macro invocations.\n- An `$x:expr` fragment interpolated more than once in the expansion, so the caller's expression — and any side effects — runs multiple times; bind it to a `let` once inside the expansion\n- Exported or publicly used macros that reference items without `$crate::`, so name resolution breaks or binds the wrong item when the macro is invoked from another crate\n- Token-tree (`$t:tt`) fragments re-emitted without parentheses, where operator precedence can silently change the intended meaning; this applies only to token-level (`tt`) interpolation, since an `:expr` fragment and a whole expansion are each parsed as one complete expression\n- Procedural macros that `unwrap()`, `expect()`, or `panic!` on malformed input instead of emitting a `syn::Error` / `compile_error!` with a useful span\n- Macro-hygiene assumptions that break: generated identifiers relying on names from the call-site scope, or items that collide when the macro is invoked more than once in the same module\n\n#### Security-Sensitive Code\n- Validate path, URL, command, SQL, and serialized input before use; do not build shell commands or SQL with unchecked string concatenation\n- Do not log secrets, tokens, credentials, private keys, or personally identifiable information\n- Check integer conversions, byte slicing, and length arithmetic for overflow, truncation, and UTF-8 boundary errors\n- Cryptographic, random, authentication, and authorization code must use well-reviewed crates and explicit error handling; flag ad hoc implementations",
+        "source": "system"
+      }
+    ],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}

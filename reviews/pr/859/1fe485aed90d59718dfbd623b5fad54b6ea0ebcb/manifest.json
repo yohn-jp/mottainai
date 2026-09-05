@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "fc271eb67b2422278850e9ceba6bf543dbf7b8ec",
+    "draft": false,
+    "headRef": "fix/845-bounded-limactl-timeout-diagnostics",
+    "headSha": "1fe485aed90d59718dfbd623b5fad54b6ea0ebcb",
+    "number": 859,
+    "title": "fix(runtime): preserve bounded limactl diagnostics on timeout"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "1fe485aed90d59718dfbd623b5fad54b6ea0ebcb",
+    "immutable": true,
+    "shortId": "1fe485aed90d"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-05T11:49:08.354Z"
+  }
+}

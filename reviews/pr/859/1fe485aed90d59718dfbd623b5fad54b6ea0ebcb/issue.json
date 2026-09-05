@@ -1,0 +1,41 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "The timeout path preserves a bounded sanitized excerpt of captured `limactl` stderr/stdout in the returned diagnostic."
+    },
+    {
+      "checked": false,
+      "text": "The stable timeout/error classification remains deterministic and callers can still distinguish timeout from immediate command failure."
+    },
+    {
+      "checked": false,
+      "text": "Output remains strictly bounded by the existing command-output/evidence limits; no unbounded logs or secrets are persisted."
+    },
+    {
+      "checked": false,
+      "text": "Regression coverage proves a timed-out fake `limactl` process with diagnostic stderr returns both the timeout context and the bounded provider error."
+    },
+    {
+      "checked": false,
+      "text": "Empty-output timeouts retain a concise deterministic fallback diagnostic."
+    },
+    {
+      "checked": false,
+      "text": "Child termination/reaping and stdout/stderr reader cleanup remain race-safe and leak-free."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 845,
+    "state": "open",
+    "title": "fix(runtime): preserve bounded limactl diagnostics on timeout",
+    "url": "https://github.com/yohn-jp/mottainai/issues/845"
+  },
+  "linked": {
+    "number": 845
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
