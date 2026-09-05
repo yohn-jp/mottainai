@@ -5,7 +5,7 @@ use std::time::Duration;
 use mottainai_host_bootstrap::contract::ProviderContract;
 use mottainai_host_bootstrap::deployment_descriptor::{
     provider_requirement_from_descriptor, runtime_spec_from_descriptor,
-    validate_qemu_state_against_requirement, Route4ProviderRequirement,
+    validate_qemu_state_against_requirement, QemuStateMatch, Route4ProviderRequirement,
 };
 use mottainai_host_bootstrap::error::{BootstrapError, ErrorCode};
 use mottainai_host_bootstrap::lima::{
@@ -16,7 +16,9 @@ use mottainai_host_bootstrap::model::Classification;
 use mottainai_host_bootstrap::oci::HttpOciSource;
 use mottainai_host_bootstrap::paths::ensure_managed_root;
 use mottainai_host_bootstrap::provider::{inspect_provider, FileArtifactSource};
-use mottainai_host_bootstrap::qemu::{inspect_qemu, managed_qemu_system_path};
+use mottainai_host_bootstrap::qemu::{
+    attest_provider_profile, inspect_qemu, managed_qemu_system_path,
+};
 use mottainai_host_bootstrap::reconcile::{failure_for_contract, Bootstrap, BootstrapConfig};
 use mottainai_host_bootstrap::BOOTSTRAP_VERSION;
 
@@ -463,16 +465,23 @@ fn run_runtime_ensure(
         env::consts::OS,
         env::consts::ARCH,
     )?;
-    if let (Some(route4_requirement), Some(state)) =
-        (route4_requirement.as_ref(), qemu_observation.state.as_ref())
-    {
-        validate_qemu_state_against_requirement(&route4_requirement.qemu, state)?;
-    }
     if qemu_observation.classification != Classification::Satisfied {
         return Err(BootstrapError::new(
             ErrorCode::ProviderNotBootstrapped,
             "the managed QEMU prerequisite is not bootstrapped or no longer verifies",
         ));
+    }
+    if let (Some(route4_requirement), Some(state)) =
+        (route4_requirement.as_ref(), qemu_observation.state.as_ref())
+    {
+        match validate_qemu_state_against_requirement(&route4_requirement.qemu, state)? {
+            QemuStateMatch::Exact => {}
+            QemuStateMatch::LegacyUnattested => attest_provider_profile(
+                &paths,
+                &route4_requirement.qemu.identity,
+                &route4_requirement.qemu.identity_kind,
+            )?,
+        }
     }
     let cli = SystemLimaCli {
         binary_path: limactl_path,

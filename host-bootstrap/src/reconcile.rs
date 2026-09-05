@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use crate::contract::{ProviderContract, BOOTSTRAP_VERSION};
 use crate::deployment_descriptor::{
-    validate_qemu_state_against_requirement, Route4ProviderRequirement,
+    validate_qemu_state_against_requirement, QemuStateMatch, Route4ProviderRequirement,
 };
 use crate::error::{BootstrapError, ErrorCode};
 use crate::evidence::{diagnostic, Evidence};
@@ -223,13 +223,15 @@ impl Bootstrap {
                 return evidence;
             }
         };
-        if let Some(route4_requirement) = route4_requirement {
+        let legacy_qemu_state = if let Some(route4_requirement) = route4_requirement {
             if let Some(state) = qemu_observation.state.as_ref() {
-                if let Err(error) =
-                    validate_qemu_state_against_requirement(&route4_requirement.qemu, state)
-                {
-                    evidence.fail(&error, false);
-                    return evidence;
+                match validate_qemu_state_against_requirement(&route4_requirement.qemu, state) {
+                    Ok(QemuStateMatch::Exact) => false,
+                    Ok(QemuStateMatch::LegacyUnattested) => true,
+                    Err(error) => {
+                        evidence.fail(&error, false);
+                        return evidence;
+                    }
                 }
             } else if self.config.qemu_path.is_some() || self.config.qemu_override.is_some() {
                 let error = BootstrapError::new(
@@ -238,8 +240,12 @@ impl Bootstrap {
                 );
                 evidence.fail(&error, false);
                 return evidence;
+            } else {
+                false
             }
-        }
+        } else {
+            false
+        };
         evidence.observed_qemu = qemu_observation.observed_identity.clone();
         evidence.steps.push(qemu_step(
             qemu_observation.classification,
@@ -325,6 +331,20 @@ impl Bootstrap {
             evidence.steps[1].changed = true;
             evidence.steps[1].classification = Classification::Repairable;
             evidence.steps[1].observed_qemu = evidence.observed_qemu.clone();
+            evidence.changed = true;
+        }
+
+        if legacy_qemu_state {
+            let route4_requirement = route4_requirement.expect("legacy state requires Route 4");
+            if let Err(error) = attest_provider_profile(
+                &paths,
+                &route4_requirement.qemu.identity,
+                &route4_requirement.qemu.identity_kind,
+            ) {
+                evidence.fail(&error, false);
+                return evidence;
+            }
+            evidence.steps[1].changed = true;
             evidence.changed = true;
         }
 

@@ -289,8 +289,8 @@ pub struct QemuState {
     pub host_architecture: String,
     /// The selected Route 4 descriptor QEMU profile identity, when this
     /// state was materialized from a release-bound provider requirement.
-    /// Legacy/default-mode state remains representable but cannot satisfy a
-    /// descriptor-bound requirement without this attestation.
+    /// Legacy/default-mode state remains representable and can be migrated
+    /// only after its complete stored artifact provenance is re-verified.
     #[serde(default)]
     pub provider_identity: Option<String>,
     /// A profile identity kind change is not interchangeable with the
@@ -1033,6 +1033,29 @@ pub fn attest_provider_profile(
             "cannot attest a QEMU provider profile without managed QEMU state",
         )
     })?;
+    match (
+        state.provider_identity.as_deref(),
+        state.provider_identity_kind.as_deref(),
+    ) {
+        (None, None) => {}
+        (Some(identity), Some(identity_kind))
+            if identity == provider_identity && identity_kind == provider_identity_kind =>
+        {
+            return Ok(())
+        }
+        (None, Some(_)) | (Some(_), None) => {
+            return Err(BootstrapError::new(
+                ErrorCode::QemuIncompatible,
+                "managed QEMU provider profile attestation is incomplete",
+            ))
+        }
+        _ => {
+            return Err(BootstrapError::new(
+                ErrorCode::QemuIncompatible,
+                "managed QEMU provider profile attestation cannot be overwritten",
+            ))
+        }
+    }
     state.provider_identity = Some(provider_identity.to_owned());
     state.provider_identity_kind = Some(provider_identity_kind.to_owned());
     write_state(&paths.qemu_state_file, &state)

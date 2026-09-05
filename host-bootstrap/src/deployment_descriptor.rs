@@ -653,13 +653,24 @@ pub fn provider_requirement_from_descriptor(
     route4_provider_requirement_from_descriptor_value(&descriptor)
 }
 
+/// The result of matching managed QEMU state to a descriptor-selected release.
+/// `LegacyUnattested` is returned only after the complete existing artifact
+/// provenance has been verified; it is not an authorization to trust unknown
+/// state.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum QemuStateMatch {
+    Exact,
+    LegacyUnattested,
+}
+
 /// Verifies that managed QEMU provenance proves every artifact identity in a
 /// selected release requirement. A missing or role-swapped data identity is
-/// an incompatibility and must be rejected before a provider is invoked.
+/// an incompatibility and must be rejected before provider-profile attestation
+/// is considered.
 pub fn validate_qemu_state_against_requirement(
     requirement: &QemuProviderRequirement,
     state: &QemuState,
-) -> Result<(), BootstrapError> {
+) -> Result<QemuStateMatch, BootstrapError> {
     requirement.validate()?;
     let provisioning = state.provisioning.as_ref().ok_or_else(|| {
         BootstrapError::new(
@@ -681,8 +692,8 @@ pub fn validate_qemu_state_against_requirement(
     })?;
     if state.schema_version != QEMU_CONTRACT_SCHEMA_VERSION
         || state.version != requirement.version
-        || state.provider_identity.as_deref() != Some(requirement.identity.as_str())
-        || state.provider_identity_kind.as_deref() != Some(requirement.identity_kind.as_str())
+        || state.host_os != "linux"
+        || state.host_architecture != "x86_64"
         || provisioning.contract_schema_version != QEMU_CONTRACT_SCHEMA_VERSION
     {
         return Err(BootstrapError::new(
@@ -716,16 +727,32 @@ pub fn validate_qemu_state_against_requirement(
             .filename
             .strip_suffix(".tar.gz")
             .unwrap_or(artifact.filename.as_str());
-        if (actual_id != expected_id && actual_id != &artifact.filename)
-            || actual_sha256 != &artifact.sha256
-        {
+        if actual_id != expected_id || actual_sha256 != &artifact.sha256 {
             return Err(BootstrapError::new(
                 ErrorCode::QemuIncompatible,
                 format!("managed QEMU {role} artifact identity differs from the selected release"),
             ));
         }
     }
-    Ok(())
+    match (
+        state.provider_identity.as_deref(),
+        state.provider_identity_kind.as_deref(),
+    ) {
+        (None, None) => Ok(QemuStateMatch::LegacyUnattested),
+        (Some(identity), Some(identity_kind))
+            if identity == requirement.identity && identity_kind == requirement.identity_kind =>
+        {
+            Ok(QemuStateMatch::Exact)
+        }
+        (None, Some(_)) | (Some(_), None) => Err(BootstrapError::new(
+            ErrorCode::QemuIncompatible,
+            "managed QEMU state has incomplete provider profile attestation",
+        )),
+        _ => Err(BootstrapError::new(
+            ErrorCode::QemuIncompatible,
+            "managed QEMU state does not match the selected release requirement",
+        )),
+    }
 }
 
 /// Derives one Route 3 `RuntimeSpec` — Appliance identity plus the desired
