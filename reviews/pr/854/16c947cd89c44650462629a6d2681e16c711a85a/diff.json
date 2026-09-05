@@ -1,0 +1,88 @@
+{
+  "baseSha": "53dbd9cfb92a150c97bdd93cc67b546fbb0e6232",
+  "files": [
+    {
+      "additions": 191,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 5,
+          "newStart": 16,
+          "oldLines": 0,
+          "oldStart": 15
+        },
+        {
+          "newLines": 14,
+          "newStart": 62,
+          "oldLines": 0,
+          "oldStart": 56
+        },
+        {
+          "newLines": 4,
+          "newStart": 86,
+          "oldLines": 3,
+          "oldStart": 67
+        },
+        {
+          "newLines": 20,
+          "newStart": 110,
+          "oldLines": 0,
+          "oldStart": 89
+        },
+        {
+          "newLines": 1,
+          "newStart": 224,
+          "oldLines": 0,
+          "oldStart": 183
+        },
+        {
+          "newLines": 4,
+          "newStart": 276,
+          "oldLines": 0,
+          "oldStart": 234
+        },
+        {
+          "newLines": 9,
+          "newStart": 310,
+          "oldLines": 0,
+          "oldStart": 264
+        },
+        {
+          "newLines": 134,
+          "newStart": 375,
+          "oldLines": 0,
+          "oldStart": 320
+        }
+      ],
+      "path": "host-bootstrap/src/deployment_descriptor.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 0,
+      "deletions": 139,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 569,
+          "oldLines": 4,
+          "oldStart": 570
+        },
+        {
+          "newLines": 0,
+          "newStart": 2807,
+          "oldLines": 135,
+          "oldStart": 2812
+        }
+      ],
+      "path": "host-bootstrap/src/lima.rs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "16c947cd89c44650462629a6d2681e16c711a85a",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 191,
+    "deletions": 142,
+    "filesChanged": 2
+  }
+}

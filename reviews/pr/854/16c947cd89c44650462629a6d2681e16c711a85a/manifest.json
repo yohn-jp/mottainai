@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "53dbd9cfb92a150c97bdd93cc67b546fbb0e6232",
+    "draft": false,
+    "headRef": "fix/843-descriptor-compatibility",
+    "headSha": "16c947cd89c44650462629a6d2681e16c711a85a",
+    "number": 854,
+    "title": "fix(runtime): reject unsupported deployment descriptor compatibility before projection"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "16c947cd89c44650462629a6d2681e16c711a85a",
+    "immutable": true,
+    "shortId": "16c947cd89c4"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-05T08:43:21.615Z"
+  }
+}

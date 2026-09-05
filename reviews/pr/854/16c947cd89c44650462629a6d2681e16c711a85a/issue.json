@@ -1,0 +1,45 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "The Rust consumer requires and validates the supported deployment `contractId` and `schemaVersion` before projecting Route 2/3/4 intent."
+    },
+    {
+      "checked": false,
+      "text": "The consumer validates the selected deployment profile and architecture against the supported host/runtime profile before mutation."
+    },
+    {
+      "checked": false,
+      "text": "Unsupported or unknown contract versions/profiles fail closed with a stable bounded error."
+    },
+    {
+      "checked": false,
+      "text": "Byte identity remains verified first; compatibility checks do not replace the detached SHA-256 trust boundary."
+    },
+    {
+      "checked": false,
+      "text": "The implementation does not duplicate the complete TypeScript descriptor schema; it owns only the minimal compatibility envelope and fields it consumes."
+    },
+    {
+      "checked": false,
+      "text": "Regression tests cover authentic-but-unsupported schema version, contract ID, profile, and architecture values."
+    },
+    {
+      "checked": false,
+      "text": "The compatible current `mottainai.deployment.v1` descriptor continues to project deterministically."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 843,
+    "state": "open",
+    "title": "fix(runtime): fail closed on unsupported deployment descriptor compatibility",
+    "url": "https://github.com/yohn-jp/mottainai/issues/843"
+  },
+  "linked": {
+    "number": 843
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

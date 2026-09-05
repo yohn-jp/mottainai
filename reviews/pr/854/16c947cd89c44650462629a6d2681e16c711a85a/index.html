@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #854 @ 16c947cd89c4</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #854: fix(runtime): reject unsupported deployment descriptor compatibility before projection</h1>
+<p>Base <code>main</code> @ <code>53dbd9cfb92a150c97bdd93cc67b546fbb0e6232</code> &rarr;
+Head <code>fix/843-descriptor-compatibility</code> @ <code>16c947cd89c44650462629a6d2681e16c711a85a</code></p>
+<p>Revision <code>16c947cd89c4</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/843">#843</a> fix(runtime): fail closed on unsupported deployment descriptor compatibility (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] The Rust consumer requires and validates the supported deployment `contractId` and `schemaVersion` before projecting Route 2/3/4 intent.</li>
+<li>[ ] The consumer validates the selected deployment profile and architecture against the supported host/runtime profile before mutation.</li>
+<li>[ ] Unsupported or unknown contract versions/profiles fail closed with a stable bounded error.</li>
+<li>[ ] Byte identity remains verified first; compatibility checks do not replace the detached SHA-256 trust boundary.</li>
+<li>[ ] The implementation does not duplicate the complete TypeScript descriptor schema; it owns only the minimal compatibility envelope and fields it consumes.</li>
+<li>[ ] Regression tests cover authentic-but-unsupported schema version, contract ID, profile, and architecture values.</li>
+<li>[ ] The compatible current `mottainai.deployment.v1` descriptor continues to project deterministically.</li></ul>
+
+
+
+<h2>Changed files (2, +191/-142)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>host-bootstrap/src/deployment_descriptor.rs</td><td>modified</td><td>+191</td><td>-3</td></tr>
+<tr><td>host-bootstrap/src/lima.rs</td><td>modified</td><td>+0</td><td>-139</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
