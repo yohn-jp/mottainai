@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "d213a09524482542a93fb118a3707775e7b164a1",
+    "draft": false,
+    "headRef": "fix/841-lima-plain-mode",
+    "headSha": "2c74f5cac71e043bb27d3e11e17c2b38c7f0be2f",
+    "number": 852,
+    "title": "fix(runtime): create canonical NixOS Lima instances in plain mode"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "2c74f5cac71e043bb27d3e11e17c2b38c7f0be2f",
+    "immutable": true,
+    "shortId": "2c74f5cac71e"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-05T08:25:49.397Z"
+  }
+}

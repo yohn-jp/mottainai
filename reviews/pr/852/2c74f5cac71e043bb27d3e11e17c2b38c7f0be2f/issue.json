@@ -1,0 +1,41 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Production creation of the canonical Runtime Appliance uses Lima plain mode through the documented/public `limactl` interface."
+    },
+    {
+      "checked": false,
+      "text": "Regression coverage verifies the exact production create arguments include the required plain-mode behavior."
+    },
+    {
+      "checked": false,
+      "text": "The fix does not add cloud-init, Lima cidata boot scripts, or another Lima-specific semantic fork to the canonical NixOS Appliance."
+    },
+    {
+      "checked": false,
+      "text": "Once SSH is reachable, Route 3 proceeds to Mottainai's canonical `mottainai-runtime-health` readiness boundary instead of waiting for `/run/lima-ssh-ready`."
+    },
+    {
+      "checked": false,
+      "text": "The behavior remains compatible with bounded mounts, QEMU/KVM binding, restart/reconcile, and managed-generation convergence."
+    },
+    {
+      "checked": false,
+      "text": "#840 plus this fix is sufficient for a real Lima-created canonical Appliance to advance past provider SSH/readiness into Mottainai guest-health evaluation."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 841,
+    "state": "open",
+    "title": "fix(runtime): create canonical NixOS Lima instances in plain mode",
+    "url": "https://github.com/yohn-jp/mottainai/issues/841"
+  },
+  "linked": {
+    "number": 841
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
