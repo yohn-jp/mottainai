@@ -11,6 +11,21 @@ in the Claude and Codex registration examples in `README.md` together.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-09-05
+
+Runtime-provisioning and CI-convergence patch release. See
+[docs/releases/0.9.1.md](docs/releases/0.9.1.md) for the full writeup.
+
+- **Fixed**: the canonical Runtime Appliance image is now UEFI/GPT bootable
+  under Lima (#817); activated QEMU paths are persisted across restarts
+  (#813, #814); managed PR state migration is restored (#800); the packed
+  bin smoke test is fixed (#801).
+- **CI**: CI dependencies are audited and converged (#812); the local pnpm
+  setup is replaced with the shared pnpm action (#810); CodeQL scanning is
+  migrated to the shared org workflow (#809); the local Node toolchain is
+  pinned to 24 via mise (#805); org-owned reusable workflows are followed
+  from `@main` (#803).
+
 ## [0.9.0] - 2026-09-04
 
 Workflow-identity and runtime-identity release. See

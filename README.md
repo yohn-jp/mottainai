@@ -42,20 +42,20 @@ Requires Node.js >= 24.0.0 and `rg` (ripgrep) on `PATH`.
 Initialize a workspace:
 
 ```bash
-npx -y mottainai@0.9.0 init
+npx -y mottainai@0.9.1 init
 ```
 
 Check the runtime, configuration, repository state, and managed companions:
 
 ```bash
-npx -y mottainai@0.9.0 doctor
-npx -y mottainai@0.9.0 doctor --json
+npx -y mottainai@0.9.1 doctor
+npx -y mottainai@0.9.1 doctor --json
 ```
 
 For governed development, start work through the task boundary rather than creating an ad-hoc branch/worktree:
 
 ```bash
-npx -y mottainai@0.9.0 task run my-fix \
+npx -y mottainai@0.9.1 task run my-fix \
   --type fix \
   --issue 123 \
   --agent pi
@@ -64,8 +64,8 @@ npx -y mottainai@0.9.0 task run my-fix \
 Or launch the local Manager UI for durable parallel sessions:
 
 ```bash
-npx -y mottainai@0.9.0 manager
-npx -y mottainai@0.9.0 manager --no-open --port 4318
+npx -y mottainai@0.9.1 manager
+npx -y mottainai@0.9.1 manager --no-open --port 4318
 ```
 
 The Manager previews bounded resource scope, performs Nawabari claim preflight, and keeps UI state non-authoritative. Nawabari remains the owner of the physical worktree, branch, and claims.
@@ -75,19 +75,19 @@ The Manager previews bounded resource scope, performs Nawabari claim preflight, 
 The bare command is the MCP stdio entry point:
 
 ```bash
-npx -y mottainai@0.9.0
+npx -y mottainai@0.9.1
 ```
 
 Claude Code:
 
 ```bash
-claude mcp add -s user mottainai -- npx -y mottainai@0.9.0 serve --config /absolute/path/to/mottainai.config.json
+claude mcp add -s user mottainai -- npx -y mottainai@0.9.1 serve --config /absolute/path/to/mottainai.config.json
 ```
 
 Codex:
 
 ```bash
-codex mcp add mottainai -- npx -y mottainai@0.9.0 serve --config /absolute/path/to/mottainai.config.json
+codex mcp add mottainai -- npx -y mottainai@0.9.1 serve --config /absolute/path/to/mottainai.config.json
 ```
 
 `mottainai init` can generate the registration command for the detected client. Use `--latest` only when intentionally following the newest npm release rather than a pinned version.
@@ -110,7 +110,7 @@ Example client configuration:
       "args": [
         "-y",
         "-p",
-        "mottainai@0.9.0",
+        "mottainai@0.9.1",
         "mottainai-mcp",
         "--config",
         "/absolute/path/to/mottainai.config.json"
@@ -257,6 +257,7 @@ The bounded agent execution contract lives in [AGENTS.md](AGENTS.md). Contributo
 
 ## Documentation
 
+- [0.9.1 release notes](docs/releases/0.9.1.md)
 - [0.9.0 release notes](docs/releases/0.9.0.md)
 - [0.8.3 release notes](docs/releases/0.8.3.md)
 - [0.8.2 release notes](docs/releases/0.8.2.md)
