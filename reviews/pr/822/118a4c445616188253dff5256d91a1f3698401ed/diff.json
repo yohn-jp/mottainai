@@ -1,0 +1,106 @@
+{
+  "baseSha": "41b2ab8efda4ad202a4c9b798cde3f66884a6035",
+  "files": [
+    {
+      "additions": 6,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 5,
+          "newStart": 757,
+          "oldLines": 0,
+          "oldStart": 756
+        },
+        {
+          "newLines": 1,
+          "newStart": 765,
+          "oldLines": 1,
+          "oldStart": 760
+        }
+      ],
+      "path": ".github/workflows/publish.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 5,
+      "deletions": 4,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 31,
+          "oldLines": 1,
+          "oldStart": 31
+        },
+        {
+          "newLines": 1,
+          "newStart": 45,
+          "oldLines": 0,
+          "oldStart": 44
+        },
+        {
+          "newLines": 1,
+          "newStart": 53,
+          "oldLines": 1,
+          "oldStart": 52
+        },
+        {
+          "newLines": 2,
+          "newStart": 55,
+          "oldLines": 2,
+          "oldStart": 54
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 17,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 17,
+          "newStart": 106,
+          "oldLines": 0,
+          "oldStart": 105
+        }
+      ],
+      "path": "scripts/validate-actions.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 111,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 111,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/validate-oras-compatibility.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 118,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 118,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/validate-oras-compatibility.test.mjs",
+      "status": "added"
+    }
+  ],
+  "headSha": "118a4c445616188253dff5256d91a1f3698401ed",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 257,
+    "deletions": 5,
+    "filesChanged": 5
+  }
+}

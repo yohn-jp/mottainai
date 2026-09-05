@@ -1,0 +1,63 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Inventory all CI/release dependencies in `.github/workflows/**`, `.github/actions/**`, and directly related release scripts, including Action refs and Action-installed tool versions."
+    },
+    {
+      "checked": false,
+      "text": "Update `oras-project/setup-oras` to a current supported stable revision and keep it pinned by immutable commit SHA."
+    },
+    {
+      "checked": false,
+      "text": "Use a current stable ORAS CLI version that is explicitly verified compatible with that pinned `setup-oras` revision."
+    },
+    {
+      "checked": false,
+      "text": "Add a pre-publication validation/smoke path that detects an invalid `setup-oras` × ORAS version combination before the release publication stage."
+    },
+    {
+      "checked": false,
+      "text": "External GitHub Actions are aligned to supported current stable releases while retaining immutable SHA pins."
+    },
+    {
+      "checked": false,
+      "text": "No unintended external `@main`, `@master`, or other floating refs remain."
+    },
+    {
+      "checked": false,
+      "text": "Repository/internal `yohn-jp/.github` floating refs are either replaced by an explicit immutable/versioned contract or documented as deliberate exceptions with a clear authority."
+    },
+    {
+      "checked": false,
+      "text": "Duplicate version literals for the same tool are reduced to a single authority where practical."
+    },
+    {
+      "checked": false,
+      "text": "GitHub Actions dependencies supported by Dependabot remain automatically updateable through the existing `github-actions` configuration."
+    },
+    {
+      "checked": false,
+      "text": "Tool-version values that Dependabot cannot update have an explicit validation/update mechanism rather than being silently left stale."
+    },
+    {
+      "checked": false,
+      "text": "Dependency policy is enforced by a regression check so future stale/floating references fail CI with a clear diagnostic."
+    },
+    {
+      "checked": false,
+      "text": "The failed 0.9.1 release path can proceed through ORAS setup and OCI publication after this change without weakening release identity or supply-chain guarantees."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 821,
+    "state": "open",
+    "title": "chore(ci): normalize CI and release toolchain dependency ownership",
+    "url": "https://github.com/yohn-jp/mottainai/issues/821"
+  },
+  "linked": {
+    "number": 821
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
