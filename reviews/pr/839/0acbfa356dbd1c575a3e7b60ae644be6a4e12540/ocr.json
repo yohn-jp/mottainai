@@ -1,0 +1,97 @@
+{
+  "baseSha": "98328b8321371f74cb1cb4a12d8f916bbd0b1a40",
+  "headSha": "0acbfa356dbd1c575a3e7b60ae644be6a4e12540",
+  "preview": {
+    "excluded_count": 1,
+    "excluded_files": [
+      {
+        "deletions": 12,
+        "exclude_reason": "default_path",
+        "insertions": 79,
+        "path": "src/bootstrap/source-resolution.test.ts",
+        "status": "modified"
+      }
+    ],
+    "from": "98328b8321371f74cb1cb4a12d8f916bbd0b1a40",
+    "merge_base": "98328b8321371f74cb1cb4a12d8f916bbd0b1a40",
+    "mode": "range",
+    "reviewable_count": 5,
+    "reviewable_files": [
+      {
+        "deletions": 4,
+        "insertions": 17,
+        "path": ".github/workflows/publish.yml",
+        "status": "modified"
+      },
+      {
+        "deletions": 20,
+        "insertions": 6,
+        "path": "nix/tests/lib/managed-mottainai-fixture-resolver.mjs",
+        "status": "modified"
+      },
+      {
+        "deletions": 6,
+        "insertions": 6,
+        "path": "nix/tests/runtime-appliance-golden-path.nix",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 9,
+        "path": "scripts/npm-publish-contract.test.mjs",
+        "status": "modified"
+      },
+      {
+        "deletions": 3,
+        "insertions": 3,
+        "path": "src/bootstrap/source-resolution.ts",
+        "status": "modified"
+      }
+    ],
+    "schema_version": "1",
+    "to": "0acbfa356dbd1c575a3e7b60ae644be6a4e12540",
+    "total_deletions": 45,
+    "total_files": 6,
+    "total_insertions": 120
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.4"
+  },
+  "rule": {
+    "groups": [
+      {
+        "files": [
+          ".github/workflows/publish.yml"
+        ],
+        "group_id": 1,
+        "pattern": ".github/workflows/**/*.{yaml,yml}",
+        "rule": "#### Security\n- **pull_request_target misuse**: Using `pull_request_target` with `actions/checkout` referencing PR head code is dangerous — it runs untrusted code with write permissions. Flag if checkout ref points to PR head without isolation\n- **Secrets exposure**: Secrets must not be printed to logs (e.g., `echo ${{ secrets.X }}`). Verify secrets are only passed via `env:` blocks to steps that need them\n- **Excessive permissions**: Check if `permissions` is set to least-privilege. Flag `permissions: write-all` or missing `permissions` key (defaults to broad access). Each job should declare only the permissions it needs\n- **Unpinned action versions**: Third-party actions should be pinned to a full commit SHA (e.g., `uses: actions/checkout@<sha>`), not just a tag. Tags are mutable and can be hijacked. First-party (`actions/*`) pinned to `v4` is acceptable\n- **Script injection**: Expressions like `${{ github.event.issue.title }}` used directly in `run:` blocks enable code injection. These must be passed through environment variables instead\n- **Hardcoded credentials**: Tokens, passwords, or API keys directly in the workflow file (not via secrets)\n\n#### Correctness\n- **Missing `fetch-depth: 0`**: When a workflow needs git history (tags, merge-base, changelog generation), verify `actions/checkout` uses `fetch-depth: 0`\n- **Incorrect condition logic**: Verify `if:` conditions are correct (e.g., `github.event_name == 'pull_request'` vs `'pull_request_target'`); ensure boolean expressions are properly quoted\n- **Matrix strategy gaps**: Check that matrix combinations cover required platforms. Flag if `fail-fast` is true (default) but all matrix legs must succeed\n- **Missing `shell` specification**: When using `run:` with multi-line scripts on self-hosted runners, shell should be explicit (bash vs sh vs pwsh)\n- **Broken job dependencies**: Verify `needs:` references exist as actual job IDs in the same workflow. Check for circular dependencies\n- **Typos in action inputs**: Misspelled input names for actions (e.g., `fetch-detph` instead of `fetch-depth`) are silently ignored\n\n#### Reliability\n- **Missing timeout**: Jobs without `timeout-minutes` can run indefinitely and consume runner resources. Flag jobs that lack timeout (especially on self-hosted runners)\n- **No concurrency control**: Workflows triggered by push/PR without `concurrency` group may create redundant runs. Suggest `concurrency` with `cancel-in-progress` where appropriate\n- **Uncached dependencies**: Build workflows that install dependencies without caching (no `actions/cache` or built-in caching) on every run\n\n#### Best Practices\n- **Deprecated features**: Flag usage of deprecated syntax (`set-output`, `save-state`, `::set-output`, `actions/checkout@v2/v3` when v4 is available)\n- **Missing `continue-on-error` awareness**: If a step failure should not fail the whole job, it needs `continue-on-error: true`; conversely, verify non-critical steps don't silently swallow failures with `|| true` hiding real errors\n- **Container image tags**: Using `latest` tag for container images is unreliable; prefer specific version tags",
+        "source": "system"
+      },
+      {
+        "files": [
+          "nix/tests/lib/managed-mottainai-fixture-resolver.mjs",
+          "scripts/npm-publish-contract.test.mjs",
+          "src/bootstrap/source-resolution.ts"
+        ],
+        "group_id": 2,
+        "pattern": "**/*.{ts,js,tsx,jsx,mjs,cjs}",
+        "rule": "#### Obvious Typos or Spelling Errors\n- Spelling errors in variable names, function names, component names, or Props property names\n- Strings in log or error messages containing spelling errors that affect readability\n\n#### Dead Code\n- Code blocks that will never be executed (e.g., branches where the condition is always false, code after a return statement)\n- Variables that are declared but never read or referenced\n- Large blocks of commented-out code (with no apparent intent to retain)\n\n#### Code Quality Checks\n- **Duplicate Code**: Check for common logic that can be extracted\n- **Code Comments**: Complex business logic should have clear explanatory comments (avoid commenting obvious code)\n- **Hardcoding**: Business-related hardcoded strings are prohibited, especially URL paths and business numbers; simple UI text may be relaxed\n- **Variable Declarations**: Using `var` is strictly prohibited; use `let` or `const`\n- **Equality Comparisons**: Using `==` and `!=` is prohibited; use strict equality `===` and `!==`\n- **TypeScript Types**: Avoid using `any` type; if necessary, provide a comment explaining the reason\n- **Null Checks**: Perform null checks when accessing values or destructuring to avoid null pointer exceptions\n- **Ternary Expressions**: Nested ternary expressions are not allowed\n\n#### React Best Practices\n- **Hooks Usage**: Verify compliance with Hooks rules (only call at the top level, only call in React functions)\n- **State Management**: Ensure state is placed at the appropriate level; avoid unnecessary state lifting\n- **Side Effect Handling**: Verify useEffect correctly handles dependencies and cleanup functions\n- **Performance Optimization**: Verify proper use of React.memo, useMemo, useCallback (based on performance analysis; avoid over-optimization)\n- **Render Side Effects**: Side effects in React component render methods are strictly prohibited (e.g., API calls, DOM manipulation)\n- **Inline Styles**: Avoid using inline `style` attributes, except for dynamic styles\n- **Inner Components**: Declaring new components inside a component is prohibited; use render methods instead (e.g., `renderItem`, not `<Item/>`)\n\n#### Async Handling Standards\n- **Error Handling**: Async functions must include proper error handling with user-friendly error messages\n- **Prefer async/await**: Prefer async/await over Promises; callback hell is prohibited\n- **Async in Loops**: Distinguish between independent async operations (use `Promise.all` for parallelism) and dependent async operations (use sequential execution); prefer `Promise.all` for performance\n\n#### Code Security Checks\n- **XSS Protection**: Verify that user input is properly escaped\n- **innerHTML Safety**: Using innerHTML to directly insert user input is prohibited; use textContent or apply XSS protection\n- **Code Injection Protection**: Using eval(), Function() constructor, and string argument forms of setTimeout/setInterval is strictly prohibited\n- **Dangerous Methods**: Using document.write() is prohibited as it causes page reflow and security issues\n- **Sensitive Information**: Check whether API keys or sensitive data are exposed\n- **Prototype Chain Safety**: Modifying native object prototypes (e.g., Array.prototype, Object.prototype) is prohibited",
+        "source": "system"
+      },
+      {
+        "files": [
+          "nix/tests/runtime-appliance-golden-path.nix"
+        ],
+        "group_id": 3,
+        "pattern": "**/*.nix",
+        "rule": "> Favor precision over recall: report only Nix issues that are likely to break evaluation, reproducibility, build isolation, security, or deployment behavior. Do not report formatting that `nixfmt` or project style would handle, and do not require flakes when the repository intentionally uses channels or legacy Nix.\n\n#### Evaluation and Attribute Sets\n- Duplicate attribute definitions in the same attrset, or an attribute override that unintentionally replaces a previously defined value in the changed scope.\n- Referencing `self`, `super`, `pkgs`, `config`, or function arguments that are not in scope for the changed expression.\n- `inherit` statements that reference missing names, or inherit from an attrset that cannot contain the requested attribute.\n- Recursive attrsets (`rec`) where a value depends on itself directly or through an obvious cycle.\n\n#### Reproducibility and Pinning\n- Fetchers such as `fetchTarball`, `fetchGit`, `fetchurl`, `fetchFromGitHub`, or `builtins.fetch*` without a fixed revision and hash when the source affects a package, module, or deployment output.\n- Version strings, source revisions, and hashes that are changed inconsistently, for example a package version bump without the matching source revision/hash update.\n- Imports from `<nixpkgs>` or mutable channels in otherwise pinned flake or lockfile-based code, unless existing neighboring code deliberately follows the same pattern.\n\n#### Build and Packaging Correctness\n- Derivations that use undeclared build tools or runtime dependencies instead of adding them to `nativeBuildInputs`, `buildInputs`, `propagatedBuildInputs`, or wrapper inputs.\n- Phase overrides that drop required default behavior without reintroducing it, such as replacing `installPhase` without installing outputs into `$out`.\n- Hardcoded host paths, user home paths, or `/usr/bin` tools inside derivations that should build in the Nix sandbox.\n- `meta.mainProgram`, `passthru.tests`, or output names that are changed inconsistently with installed binaries or referenced package attributes.\n\n#### NixOS and Home Manager Modules\n- Options used before declaration, options with defaults whose type does not match the declared `types.*`, or renamed options without a compatibility alias or migration path.\n- Systemd service, timer, user, group, port, or file path changes that conflict with existing module options or make activation fail.\n- Secrets or credentials embedded directly in module defaults, environment variables, scripts, or generated config instead of coming from secret management or protected files.\n\n#### Overlays and Flakes\n- Overlay functions with argument order or names swapped (`final`/`prev`, `self`/`super`) causing packages to be pulled from the wrong package set.\n- Flake outputs that reference missing inputs, unsupported systems, or package attributes not defined for every advertised system.\n- Adding a package/app/check/devShell for one system while the surrounding flake helper expects all systems to expose the same attribute.\n\n#### Review Scope\n- Focus on evaluation failures, non-reproducible sources, sandbox escapes, missing dependencies, module activation errors, and secret exposure.\n- Do not flag preference-only style choices, attr ordering, or idioms that are consistent with neighboring Nix files.",
+        "source": "system"
+      }
+    ],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}

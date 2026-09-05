@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #839 @ 0acbfa356dbd</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #839: fix(release): publish canonical source NAR hash</h1>
+<p>Base <code>main</code> @ <code>98328b8321371f74cb1cb4a12d8f916bbd0b1a40</code> &rarr;
+Head <code>fix/823-canonical-source-nar-hash</code> @ <code>0acbfa356dbd1c575a3e7b60ae644be6a4e12540</code></p>
+<p>Revision <code>0acbfa356dbd</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/823">#823</a> fix: publish the canonical source NAR hash in deployment descriptors (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] `sourceSha256` is produced from the exact resolved Route 2 build source using the same NAR-hash semantics consumed by bootstrap/runtime verification.</li>
+<li>[ ] The npm tarball digest remains represented separately and is never substituted for source NAR identity.</li>
+<li>[ ] A regression test feeds a production-shaped generated descriptor into the real source-resolution boundary and proves the source integrity check passes for the intended release.</li>
+<li>[ ] A deliberately mismatched source NAR hash fails closed with the existing bounded integrity diagnostic.</li>
+<li>[ ] Existing descriptor schema/identity validation remains green.</li></ul>
+
+
+
+<h2>Changed files (6, +120/-45)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/publish.yml</td><td>modified</td><td>+17</td><td>-4</td></tr>
+<tr><td>nix/tests/lib/managed-mottainai-fixture-resolver.mjs</td><td>modified</td><td>+6</td><td>-20</td></tr>
+<tr><td>nix/tests/runtime-appliance-golden-path.nix</td><td>modified</td><td>+6</td><td>-6</td></tr>
+<tr><td>scripts/npm-publish-contract.test.mjs</td><td>modified</td><td>+9</td><td>-0</td></tr>
+<tr><td>src/bootstrap/source-resolution.test.ts</td><td>modified</td><td>+79</td><td>-12</td></tr>
+<tr><td>src/bootstrap/source-resolution.ts</td><td>modified</td><td>+3</td><td>-3</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

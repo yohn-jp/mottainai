@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "98328b8321371f74cb1cb4a12d8f916bbd0b1a40",
+    "draft": false,
+    "headRef": "fix/823-canonical-source-nar-hash",
+    "headSha": "0acbfa356dbd1c575a3e7b60ae644be6a4e12540",
+    "number": 839,
+    "title": "fix(release): publish canonical source NAR hash"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "0acbfa356dbd1c575a3e7b60ae644be6a4e12540",
+    "immutable": true,
+    "shortId": "0acbfa356dbd"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-05T06:09:09.744Z"
+  }
+}

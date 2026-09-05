@@ -1,0 +1,270 @@
+{
+  "baseSha": "98328b8321371f74cb1cb4a12d8f916bbd0b1a40",
+  "files": [
+    {
+      "additions": 17,
+      "deletions": 4,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 438,
+          "oldLines": 0,
+          "oldStart": 437
+        },
+        {
+          "newLines": 1,
+          "newStart": 519,
+          "oldLines": 0,
+          "oldStart": 517
+        },
+        {
+          "newLines": 8,
+          "newStart": 567,
+          "oldLines": 0,
+          "oldStart": 564
+        },
+        {
+          "newLines": 1,
+          "newStart": 1184,
+          "oldLines": 0,
+          "oldStart": 1173
+        },
+        {
+          "newLines": 1,
+          "newStart": 1193,
+          "oldLines": 0,
+          "oldStart": 1181
+        },
+        {
+          "newLines": 3,
+          "newStart": 1195,
+          "oldLines": 3,
+          "oldStart": 1183
+        },
+        {
+          "newLines": 1,
+          "newStart": 1202,
+          "oldLines": 0,
+          "oldStart": 1189
+        },
+        {
+          "newLines": 1,
+          "newStart": 1204,
+          "oldLines": 1,
+          "oldStart": 1191
+        }
+      ],
+      "path": ".github/workflows/publish.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 6,
+      "deletions": 20,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 1,
+          "oldStart": 1
+        },
+        {
+          "newLines": 4,
+          "newStart": 8,
+          "oldLines": 4,
+          "oldStart": 9
+        },
+        {
+          "newLines": 0,
+          "newStart": 18,
+          "oldLines": 13,
+          "oldStart": 20
+        },
+        {
+          "newLines": 1,
+          "newStart": 20,
+          "oldLines": 1,
+          "oldStart": 34
+        },
+        {
+          "newLines": 1,
+          "newStart": 34,
+          "oldLines": 1,
+          "oldStart": 48
+        }
+      ],
+      "path": "nix/tests/lib/managed-mottainai-fixture-resolver.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 6,
+      "deletions": 6,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 14,
+          "oldLines": 5,
+          "oldStart": 14
+        },
+        {
+          "newLines": 1,
+          "newStart": 308,
+          "oldLines": 0,
+          "oldStart": 308
+        },
+        {
+          "newLines": 1,
+          "newStart": 321,
+          "oldLines": 1,
+          "oldStart": 321
+        }
+      ],
+      "path": "nix/tests/runtime-appliance-golden-path.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 9,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 9,
+          "newStart": 34,
+          "oldLines": 0,
+          "oldStart": 33
+        }
+      ],
+      "path": "scripts/npm-publish-contract.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 79,
+      "deletions": 12,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 12,
+          "oldLines": 0,
+          "oldStart": 11
+        },
+        {
+          "newLines": 1,
+          "newStart": 16,
+          "oldLines": 0,
+          "oldStart": 14
+        },
+        {
+          "newLines": 58,
+          "newStart": 52,
+          "oldLines": 1,
+          "oldStart": 50
+        },
+        {
+          "newLines": 4,
+          "newStart": 112,
+          "oldLines": 1,
+          "oldStart": 53
+        },
+        {
+          "newLines": 1,
+          "newStart": 119,
+          "oldLines": 1,
+          "oldStart": 57
+        },
+        {
+          "newLines": 1,
+          "newStart": 125,
+          "oldLines": 1,
+          "oldStart": 63
+        },
+        {
+          "newLines": 1,
+          "newStart": 129,
+          "oldLines": 1,
+          "oldStart": 67
+        },
+        {
+          "newLines": 1,
+          "newStart": 142,
+          "oldLines": 1,
+          "oldStart": 80
+        },
+        {
+          "newLines": 1,
+          "newStart": 148,
+          "oldLines": 1,
+          "oldStart": 86
+        },
+        {
+          "newLines": 2,
+          "newStart": 157,
+          "oldLines": 0,
+          "oldStart": 94
+        },
+        {
+          "newLines": 1,
+          "newStart": 163,
+          "oldLines": 1,
+          "oldStart": 99
+        },
+        {
+          "newLines": 1,
+          "newStart": 166,
+          "oldLines": 1,
+          "oldStart": 102
+        },
+        {
+          "newLines": 4,
+          "newStart": 168,
+          "oldLines": 1,
+          "oldStart": 104
+        },
+        {
+          "newLines": 1,
+          "newStart": 183,
+          "oldLines": 1,
+          "oldStart": 116
+        },
+        {
+          "newLines": 1,
+          "newStart": 186,
+          "oldLines": 1,
+          "oldStart": 119
+        }
+      ],
+      "path": "src/bootstrap/source-resolution.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 3,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 49,
+          "oldLines": 1,
+          "oldStart": 49
+        },
+        {
+          "newLines": 1,
+          "newStart": 292,
+          "oldLines": 1,
+          "oldStart": 292
+        },
+        {
+          "newLines": 1,
+          "newStart": 311,
+          "oldLines": 1,
+          "oldStart": 311
+        }
+      ],
+      "path": "src/bootstrap/source-resolution.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "0acbfa356dbd1c575a3e7b60ae644be6a4e12540",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 120,
+    "deletions": 45,
+    "filesChanged": 6
+  }
+}

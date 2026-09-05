@@ -1,0 +1,37 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "`sourceSha256` is produced from the exact resolved Route 2 build source using the same NAR-hash semantics consumed by bootstrap/runtime verification."
+    },
+    {
+      "checked": false,
+      "text": "The npm tarball digest remains represented separately and is never substituted for source NAR identity."
+    },
+    {
+      "checked": false,
+      "text": "A regression test feeds a production-shaped generated descriptor into the real source-resolution boundary and proves the source integrity check passes for the intended release."
+    },
+    {
+      "checked": false,
+      "text": "A deliberately mismatched source NAR hash fails closed with the existing bounded integrity diagnostic."
+    },
+    {
+      "checked": false,
+      "text": "Existing descriptor schema/identity validation remains green."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 823,
+    "state": "open",
+    "title": "fix: publish the canonical source NAR hash in deployment descriptors",
+    "url": "https://github.com/yohn-jp/mottainai/issues/823"
+  },
+  "linked": {
+    "number": 823
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
