@@ -11,6 +11,20 @@ in the Claude and Codex registration examples in `README.md` together.
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-09-05
+
+Release-infrastructure patch release. See
+[docs/releases/0.9.2.md](docs/releases/0.9.2.md) for the full writeup.
+
+- **Fixed**: the ORAS setup failure that blocked the 0.9.1 Runtime Appliance
+  OCI publish is corrected, and a regression check now catches an
+  incompatible pinned-Action/tool-version pair before release publication
+  (#821, #822).
+- **CI**: CI and release toolchain dependency ownership is normalized, and a
+  duplicate pnpm-version literal in the Review Pages workflow is now
+  regression-tested against `package.json`'s `packageManager` field (#821,
+  #822).
+
 ## [0.9.1] - 2026-09-05
 
 Runtime-provisioning and CI-convergence patch release. See
