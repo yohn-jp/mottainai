@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "98328b8321371f74cb1cb4a12d8f916bbd0b1a40",
+    "draft": false,
+    "headRef": "fix/824-canonical-generation-identity",
+    "headSha": "4de2706bca1b0dbdfc82c881e9ad1fb79f00ee01",
+    "number": 838,
+    "title": "fix(release): consume canonical managed generation identity"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "4de2706bca1b0dbdfc82c881e9ad1fb79f00ee01",
+    "immutable": true,
+    "shortId": "4de2706bca1b"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-05T06:07:54.493Z"
+  }
+}
