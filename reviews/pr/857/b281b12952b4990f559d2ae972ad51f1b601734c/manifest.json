@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "f983e1f1c8abb38fbc160169f8d1b6472b95608d",
+    "draft": false,
+    "headRef": "docs/856-information-architecture",
+    "headSha": "b281b12952b4990f559d2ae972ad51f1b601734c",
+    "number": 857,
+    "title": "docs(docs): reorganize documentation information architecture"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "b281b12952b4990f559d2ae972ad51f1b601734c",
+    "immutable": true,
+    "shortId": "b281b12952b4"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-05T10:44:55.592Z"
+  }
+}

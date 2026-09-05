@@ -1,0 +1,79 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Every existing file and directory under `docs/` is classified as keep, move, rename, merge, archive/history, delete-candidate, or move-out-of-docs, with a reason."
+    },
+    {
+      "checked": false,
+      "text": "The responsibility-oriented top-level structure is implemented, or any deviation from the proposed structure is explicitly justified in the PR."
+    },
+    {
+      "checked": false,
+      "text": "`docs/README.md` is the only ordinary Markdown file directly under `docs/` and serves as the documentation entry point."
+    },
+    {
+      "checked": false,
+      "text": "Each top-level documentation category has an explicit responsibility and placement rule."
+    },
+    {
+      "checked": false,
+      "text": "All files listed in the migration map are moved/renamed according to the agreed information architecture, unless the PR documents a stronger content-based reason for a different destination."
+    },
+    {
+      "checked": false,
+      "text": "Existing ADRs remain under `docs/decisions/` with their numbering and history preserved."
+    },
+    {
+      "checked": false,
+      "text": "Point-in-time dogfood, experiment, and benchmark evidence is separated from current normative documentation."
+    },
+    {
+      "checked": false,
+      "text": "Historical release documentation is separated from current release operations."
+    },
+    {
+      "checked": false,
+      "text": "Non-document fixtures under `docs/` are moved out where practical, or their continued presence is explicitly justified."
+    },
+    {
+      "checked": false,
+      "text": "All Japanese prose in documentation touched by this issue is translated to English."
+    },
+    {
+      "checked": false,
+      "text": "The repository documents an English-only/default-English policy for documentation and governance prose."
+    },
+    {
+      "checked": false,
+      "text": "Repository-internal links, README references, scripts, package metadata, CI references, and other path consumers are updated for moved files."
+    },
+    {
+      "checked": false,
+      "text": "No broken documentation links remain after the migration."
+    },
+    {
+      "checked": false,
+      "text": "A mechanical check rejects new unclassified files directly under `docs/`, with `docs/README.md` as the intended root-level exception."
+    },
+    {
+      "checked": false,
+      "text": "The mechanical rule is integrated into the repository's existing governance/CI validation path rather than implemented as an unrelated duplicate authority."
+    },
+    {
+      "checked": false,
+      "text": "Documentation placement and language rules are discoverable from `docs/README.md` and the repository governance documentation."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 856,
+    "state": "open",
+    "title": "Reorganize docs information architecture and enforce English-only documentation",
+    "url": "https://github.com/yohn-jp/mottainai/issues/856"
+  },
+  "linked": {
+    "number": 856
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
