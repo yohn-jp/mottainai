@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #853 @ 4b58608240dc</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #853: fix(runtime): bind QEMU data identity into Route 4 deployment descriptor (#847)</h1>
+<p>Base <code>main</code> @ <code>38fd9c200939947340b1c09b37a0aec5a8ed8a32</code> &rarr;
+Head <code>fix/847-qemu-data-deployment-identity</code> @ <code>4b58608240dc5259702acac552c178a674d80fb8</code></p>
+<p>Revision <code>4b58608240dc</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/847">#847</a> fix(runtime): bind the QEMU data closure into the Route 4 deployment identity (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] The Route 4 provider profile/schema binds the exact immutable QEMU firmware/data artifact required by the supported QEMU closure.</li>
+<li>[ ] Deployment descriptor production carries that identity from the authoritative release provider profile without recomputing or dropping it.</li>
+<li>[ ] The standalone Route 4 consumer can derive/verify the complete QEMU system + image + data requirement from the selected release profile.</li>
+<li>[ ] A descriptor whose data-artifact identity differs from managed QEMU state fails closed before provider use.</li>
+<li>[ ] Regression coverage proves changing only the QEMU data-artifact identity changes/rejects the complete provider identity.</li>
+<li>[ ] The design composes with #826: this Issue binds the release-level data artifact identity; #826 proves the activated/extracted data closure still matches the accepted identity during reconciliation.</li>
+<li>[ ] The QEMU identity remains one coherent provider/toolchain contract rather than adding another independent identity formula.</li></ul>
+
+
+
+<h2>Changed files (10, +649/-37)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>docs/deployment-descriptor.md</td><td>modified</td><td>+4</td><td>-4</td></tr>
+<tr><td>docs/host-bootstrap.md</td><td>modified</td><td>+2</td><td>-2</td></tr>
+<tr><td>docs/lima-runtime-orchestration.md</td><td>modified</td><td>+1</td><td>-1</td></tr>
+<tr><td>docs/route4-route1-operation-book.md</td><td>modified</td><td>+7</td><td>-9</td></tr>
+<tr><td>host-bootstrap/src/deployment_descriptor.rs</td><td>modified</td><td>+522</td><td>-8</td></tr>
+<tr><td>release/deployment-provider-profile-linux-x86_64.json</td><td>modified</td><td>+7</td><td>-0</td></tr>
+<tr><td>scripts/release-managed-generation.test.mjs</td><td>modified</td><td>+38</td><td>-2</td></tr>
+<tr><td>src/runtime-contract/deployment-artifact-roundtrip.test.ts</td><td>modified</td><td>+5</td><td>-4</td></tr>
+<tr><td>src/runtime-contract/deployment-descriptor.test.ts</td><td>modified</td><td>+31</td><td>-4</td></tr>
+<tr><td>src/runtime-contract/deployment-descriptor.ts</td><td>modified</td><td>+32</td><td>-3</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

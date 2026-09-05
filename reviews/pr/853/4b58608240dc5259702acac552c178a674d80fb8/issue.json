@@ -1,0 +1,45 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "The Route 4 provider profile/schema binds the exact immutable QEMU firmware/data artifact required by the supported QEMU closure."
+    },
+    {
+      "checked": false,
+      "text": "Deployment descriptor production carries that identity from the authoritative release provider profile without recomputing or dropping it."
+    },
+    {
+      "checked": false,
+      "text": "The standalone Route 4 consumer can derive/verify the complete QEMU system + image + data requirement from the selected release profile."
+    },
+    {
+      "checked": false,
+      "text": "A descriptor whose data-artifact identity differs from managed QEMU state fails closed before provider use."
+    },
+    {
+      "checked": false,
+      "text": "Regression coverage proves changing only the QEMU data-artifact identity changes/rejects the complete provider identity."
+    },
+    {
+      "checked": false,
+      "text": "The design composes with #826: this Issue binds the release-level data artifact identity; #826 proves the activated/extracted data closure still matches the accepted identity during reconciliation."
+    },
+    {
+      "checked": false,
+      "text": "The QEMU identity remains one coherent provider/toolchain contract rather than adding another independent identity formula."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 847,
+    "state": "open",
+    "title": "fix(runtime): bind the QEMU data closure into the Route 4 deployment identity",
+    "url": "https://github.com/yohn-jp/mottainai/issues/847"
+  },
+  "linked": {
+    "number": 847
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

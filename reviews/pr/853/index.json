@@ -1,9 +1,9 @@
 {
   "latest": {
-    "generatedAt": "2026-09-05T08:34:56.381Z",
-    "headSha": "0f6dbc0daa03445f5e4d2fcb38c859e5663ca373",
-    "path": "853/0f6dbc0daa03445f5e4d2fcb38c859e5663ca373/manifest.json",
-    "shortId": "0f6dbc0daa03"
+    "generatedAt": "2026-09-05T08:55:18.759Z",
+    "headSha": "4b58608240dc5259702acac552c178a674d80fb8",
+    "path": "853/4b58608240dc5259702acac552c178a674d80fb8/manifest.json",
+    "shortId": "4b58608240dc"
   },
   "number": 853,
   "schemaVersion": "mottainai.review-pages.pr-index/v1"
