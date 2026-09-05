@@ -131,6 +131,7 @@ const providerArtifactSchema = z
     locator: boundedUrl,
   })
   .strict();
+type ProviderArtifact = z.infer<typeof providerArtifactSchema>;
 
 const route4Schema = z
   .object({
@@ -163,14 +164,16 @@ const route4Schema = z
             /**
              * Identity of the reviewed external QEMU compatibility profile.
              * When the profile distributes an archive, the optional binary
-             * entries add the acquired bytes' digests; explicit adoption
-             * profiles still require the consumer to attest those binaries
-             * before use.
+             * entries add the acquired bytes' digests and dataArtifact binds
+             * the required firmware/data closure; explicit adoption profiles
+             * still require the consumer to attest those binaries before use.
              */
             identity: sha256,
             identityKind: z.enum(["compatibility-profile", "executable-digest"]),
             systemBinary: providerArtifactSchema.optional(),
             imageBinary: providerArtifactSchema.optional(),
+            /** Immutable archive containing the firmware/data closure under share/qemu. */
+            dataArtifact: providerArtifactSchema,
             minimumVersion: version,
           })
           .strict(),
@@ -263,6 +266,32 @@ export const DeploymentDescriptorSchema = z
       (qemu.systemBinary === undefined || qemu.imageBinary === undefined)
     ) {
       fail(["route4", "provider", "qemu"], "executable-digest QEMU profiles must bind both executable artifacts");
+    }
+    const qemuArtifacts: Array<readonly [string, ProviderArtifact | undefined]> = [
+      ["systemBinary", qemu.systemBinary],
+      ["imageBinary", qemu.imageBinary],
+      ["dataArtifact", qemu.dataArtifact],
+    ];
+    for (const [name, artifact] of qemuArtifacts) {
+      if (artifact !== undefined && artifact.version !== qemu.version) {
+        fail(
+          ["route4", "provider", "qemu", name, "version"],
+          "QEMU artifact version must match the selected QEMU version",
+        );
+      }
+    }
+    const qemuArtifactIdentities: Array<readonly [string, ProviderArtifact]> = [];
+    for (const [name, artifact] of qemuArtifacts) {
+      if (artifact !== undefined) qemuArtifactIdentities.push([name, artifact]);
+    }
+    for (let left = 0; left < qemuArtifactIdentities.length; left += 1) {
+      for (let right = left + 1; right < qemuArtifactIdentities.length; right += 1) {
+        const [leftName, leftArtifact] = qemuArtifactIdentities[left];
+        const [rightName, rightArtifact] = qemuArtifactIdentities[right];
+        if (leftArtifact.sha256 === rightArtifact.sha256 || leftArtifact.filename === rightArtifact.filename) {
+          fail(["route4", "provider", "qemu"], `QEMU ${leftName} and ${rightName} must identify distinct artifacts`);
+        }
+      }
     }
     if (qemu.minimumVersion.split(".")[0] !== qemu.version.split(".")[0]) {
       fail(

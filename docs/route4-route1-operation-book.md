@@ -49,10 +49,10 @@ Open defects are not normalized into the documentation as accepted behavior. The
 | R4-01 | Select release descriptor + sidecar | Operator/release consumer | Exact descriptor bytes identified | Implemented |
 | R4-02 | Verify descriptor bytes and compatibility envelope | `mottainai-init` | SHA-256 + supported contract/profile | Partial — #843 |
 | R4-03 | Inspect host OS/arch/KVM and declared host prerequisites | `mottainai-init` | Supported host capability evidence | Partial — #846 |
-| R4-04 | Derive exact Route 4 provider requirement from descriptor | `mottainai-init` | Selected provider profile | Target — #842/#847 |
+| R4-04 | Derive exact Route 4 provider requirement from descriptor | `mottainai-init` | Selected provider profile | Target — #842 |
 | R4-05 | Acquire writer authority over managed host state | `mottainai-init` | `bootstrap.lock` held | Implemented |
 | R4-06 | Acquire/verify/materialize Lima | host-bootstrap | Managed Lima identity | Implemented |
-| R4-07 | Acquire/verify/materialize QEMU system/image/data closure | host-bootstrap | Complete verified QEMU closure | Partial — #826/#847 |
+| R4-07 | Acquire/verify/materialize QEMU system/image/data closure | host-bootstrap | Complete verified QEMU closure | Partial — #826 |
 | R4-08 | Bind Lima subprocesses to the verified QEMU closure | host-bootstrap → Lima | Controlled env/path binding | Implemented |
 | R4-09 | Establish isolated Lima home and SSH/key authority | Lima + host-bootstrap | Stable provider credential authority | Partial — #840/#846 |
 | R3-01 | Resolve canonical Appliance by immutable OCI identity | host-bootstrap | OCI manifest/layer contract verified | Implemented |
@@ -201,7 +201,7 @@ Unsupported OS/architecture, inaccessible/missing KVM, undeclared missing provid
 
 ## R4-04 — Project the exact Route 4 provider profile
 
-**Status: Target — #842/#847**
+**Status: Target — #842**
 
 **Purpose**
 
@@ -223,7 +223,7 @@ Rust descriptor consumer + host-bootstrap compatibility validator.
 - QEMU firmware/data artifact;
 - compatibility requirements (`x86_64`, KVM, supported major versions/provisioning strategy).
 
-Current production drops Route 4 entirely and later uses compiled defaults. #842 fixes consumption. The published provider profile currently omits the QEMU data artifact identity; #847 closes that release graph.
+Current production drops Route 4 entirely and later uses compiled defaults. #842 fixes consumption. The provider profile and descriptor now carry the complete QEMU system/image/data identity; #842 remains responsible for making that selected profile the runtime authority.
 
 **Next handoff**
 
@@ -279,7 +279,7 @@ An already verified exact managed provider is reused without re-download.
 
 ## R4-07 — Acquire and verify the complete QEMU closure
 
-**Status: Partial — #826/#847**
+**Status: Partial — #826**
 
 **Owner**
 
@@ -297,7 +297,6 @@ Acquire bounded immutable archives, verify digests, extract only reviewed files 
 
 **Current gaps**
 
-- #847: release descriptor does not yet bind the data artifact identity.
 - #826: reconciliation does not yet cryptographically re-prove the activated expanded data closure; non-empty substituted firmware can pass structural checks.
 
 **Handoff condition**
@@ -782,9 +781,9 @@ The same step can have multiple proof tiers. A higher tier does not excuse an ab
 | --- | --- | --- | --- | --- | --- |
 | R4-01/R4-02 descriptor bytes | Rust unit + descriptor tests | production artifact consumers | #832 round-trip | yes | #843 compatibility |
 | R4-03 host/KVM prerequisites | Rust host-probe tests | limited hosted observations | standalone artifact smoke | yes | #846 OpenSSH contract |
-| R4-04 provider profile | descriptor producer tests | none for live consumer authority | descriptor publication | yes | #842/#847 |
+| R4-04 provider profile | descriptor producer tests | none for live consumer authority | descriptor publication | yes | #842 |
 | R4-06 Lima materialization | host-bootstrap tests | artifact/provider CI | standalone release smoke | yes | — |
-| R4-07 QEMU closure | host-bootstrap tests | QEMU/runtime checks | standalone release smoke | yes | #826/#847 |
+| R4-07 QEMU closure | host-bootstrap tests | QEMU/runtime checks | standalone release smoke | yes | #826 |
 | R4-08 Lima→QEMU binding | Rust contract tests | partial | — | yes | final real proof #261 |
 | R4-09/R3-03 credential bridge | mocked components insufficient | production Lima proof required | — | yes | #840/#846 |
 | R3-01/R3-02 Appliance OCI/raw | Rust real-artifact byte proof | canonical Appliance build/OCI proof | OCI publication | yes | — |
@@ -808,7 +807,6 @@ The same step can have multiple proof tiers. A higher tier does not excuse an ab
 | #844 | proof-tier matrix / R3-03–R3-08 | trusted-main canonical integration skips production Lima composition |
 | #845 | R3-06, E2E-01 | timeout path discards bounded actionable Lima output |
 | #846 | R4-03, R4-09, R3-07, E2E-03 | host OpenSSH dependency is implicit rather than declared/managed |
-| #847 | R4-04, R4-07 | release provider graph omits required QEMU firmware/data artifact identity |
 | #850 | R3-09, R1-01, R2-02, R2-04, R1-02, E2E-01 | live guest build drops selected exact Route 1 payload and regenerates it from source |
 | #261 | all | final external real Linux/KVM production-chain certification |
 

@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 use crate::appliance::ApplianceReference;
 use crate::error::{BootstrapError, ErrorCode};
 use crate::lima::{ManagedGenerationIntent, RuntimeSpec, RUNTIME_SPEC_SCHEMA_VERSION};
+use crate::qemu::{QemuState, QEMU_CONTRACT_SCHEMA_VERSION, QEMU_SUPPORTED_VERSION};
 
 /// Bounded ceiling for the published deployment descriptor document itself
 /// (distinct from `lima::MAX_MANIFEST_BYTES`, which bounds the smaller
@@ -62,7 +63,7 @@ struct DescriptorRoute3 {
 /// The small compatibility envelope owned by this standalone consumer. The
 /// publication schema remains authoritative for the complete descriptor; the
 /// consumer only needs these fields to prove that it understands the document
-/// before projecting the Route 2/3 subset below.
+/// before projecting the Route 2/3/4 subsets below.
 #[derive(Clone, Debug, Deserialize)]
 struct DeploymentDescriptorCompatibility {
     #[serde(rename = "contractId")]
@@ -73,9 +74,77 @@ struct DeploymentDescriptorCompatibility {
     architecture: String,
 }
 
-/// Only the fields Route 3 (#753) needs to derive a `RuntimeSpec` from the
-/// exact published deployment descriptor (#755/ADR-0003). Deliberately not a
-/// full mirror of `DeploymentDescriptorSchema`
+/// One immutable artifact identity carried by the selected Route 4 provider
+/// profile. This is intentionally the profile's identity vocabulary rather
+/// than a second artifact schema invented by the Rust consumer.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+pub struct QemuArtifactIdentity {
+    pub version: String,
+    pub architecture: String,
+    pub filename: String,
+    pub sha256: String,
+    #[serde(rename = "sizeBytes")]
+    pub size_bytes: Option<u64>,
+    pub locator: String,
+}
+
+/// The complete QEMU identity selected by a Route 4 release descriptor.
+/// `data_artifact` is required for every profile; executable identities are
+/// additionally required to carry the system and image archive identities.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QemuProviderRequirement {
+    pub version: String,
+    pub architecture: String,
+    pub identity: String,
+    pub identity_kind: String,
+    pub system_binary: Option<QemuArtifactIdentity>,
+    pub image_binary: Option<QemuArtifactIdentity>,
+    pub data_artifact: QemuArtifactIdentity,
+    pub minimum_version: String,
+    pub qemu_major: u8,
+    pub requires_kvm: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct DescriptorQemu {
+    version: String,
+    architecture: String,
+    identity: String,
+    #[serde(rename = "identityKind")]
+    identity_kind: String,
+    #[serde(rename = "systemBinary")]
+    system_binary: Option<QemuArtifactIdentity>,
+    #[serde(rename = "imageBinary")]
+    image_binary: Option<QemuArtifactIdentity>,
+    #[serde(rename = "dataArtifact")]
+    data_artifact: QemuArtifactIdentity,
+    #[serde(rename = "minimumVersion")]
+    minimum_version: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct DescriptorProviderCompatibility {
+    #[serde(rename = "qemuMajor")]
+    qemu_major: u8,
+    #[serde(rename = "requiresKvm")]
+    requires_kvm: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct DescriptorRoute4Provider {
+    qemu: DescriptorQemu,
+    compatibility: DescriptorProviderCompatibility,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct DescriptorRoute4 {
+    provider: DescriptorRoute4Provider,
+}
+
+/// Only the fields the standalone consumer needs to derive Route 3 (#753) and
+/// the complete Route 4 QEMU requirement from the exact published deployment
+/// descriptor (#755/ADR-0003). Deliberately not a full mirror of
+/// `DeploymentDescriptorSchema`
 /// (`src/runtime-contract/deployment-descriptor.ts`): that schema's own
 /// `.strict()` validation already ran once, at publish time
 /// (`scripts/build-deployment-descriptor.mjs`), and produced the exact,
@@ -91,6 +160,7 @@ struct DeploymentDescriptorCompatibility {
 struct DeploymentDescriptor {
     route2: DescriptorRoute2,
     route3: DescriptorRoute3,
+    route4: DescriptorRoute4,
 }
 
 fn invalid(message: impl Into<String>) -> BootstrapError {
@@ -208,6 +278,236 @@ fn canonical_manifest(packages: &[DescriptorManagedPackage]) -> Value {
     })
 }
 
+fn valid_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value.chars().all(|character| character.is_ascii_hexdigit())
+        && value == value.to_ascii_lowercase()
+}
+
+fn version_major(value: &str) -> Option<u8> {
+    value.split('.').next()?.parse().ok()
+}
+
+fn validate_qemu_artifact(
+    artifact: &QemuArtifactIdentity,
+    qemu_version: &str,
+    role: &str,
+) -> Result<(), BootstrapError> {
+    let valid_filename = !artifact.filename.is_empty()
+        && artifact.filename.len() <= 256
+        && artifact.filename.ends_with(".tar.gz")
+        && artifact
+            .filename
+            .chars()
+            .all(|character| !character.is_control() && !matches!(character, '/' | '\\'));
+    let valid_locator = artifact
+        .locator
+        .starts_with("https://github.com/hermeticbuild/qemu-prebuilt/")
+        && !artifact.locator.contains(['\n', '\r', '"', '\'']);
+    let valid_size = artifact
+        .size_bytes
+        .is_none_or(|size| (1..=2 * 1024 * 1024 * 1024).contains(&size));
+    if artifact.version != qemu_version
+        || artifact.architecture != "x86_64"
+        || !valid_filename
+        || !valid_sha256(&artifact.sha256)
+        || !valid_locator
+        || !valid_size
+    {
+        return Err(invalid(format!(
+            "Route 4 QEMU {role} artifact is not a bounded immutable x86_64 archive identity"
+        )));
+    }
+    Ok(())
+}
+
+impl QemuProviderRequirement {
+    /// Validates the minimal supported QEMU profile policy after the
+    /// publication schema has validated the complete descriptor. The profile
+    /// remains the identity authority; this method does not derive a second
+    /// digest or replace any artifact identity.
+    pub fn validate(&self) -> Result<(), BootstrapError> {
+        if self.version != QEMU_SUPPORTED_VERSION
+            || self.architecture != "x86_64"
+            || !valid_sha256(&self.identity)
+            || !matches!(
+                self.identity_kind.as_str(),
+                "compatibility-profile" | "executable-digest"
+            )
+            || version_major(&self.minimum_version) != version_major(&self.version)
+        {
+            return Err(invalid(
+                "Route 4 QEMU profile is not the supported immutable x86_64 contract",
+            ));
+        }
+        if self.identity_kind == "executable-digest"
+            && (self.system_binary.is_none() || self.image_binary.is_none())
+        {
+            return Err(invalid(
+                "executable-digest QEMU profile must bind system and image artifacts",
+            ));
+        }
+        if let Some(system) = &self.system_binary {
+            validate_qemu_artifact(system, &self.version, "system")?;
+        }
+        if let Some(image) = &self.image_binary {
+            validate_qemu_artifact(image, &self.version, "image")?;
+        }
+        validate_qemu_artifact(&self.data_artifact, &self.version, "data")?;
+
+        let artifacts = [
+            ("system", self.system_binary.as_ref()),
+            ("image", self.image_binary.as_ref()),
+            ("data", Some(&self.data_artifact)),
+        ];
+        for left in 0..artifacts.len() {
+            for right in (left + 1)..artifacts.len() {
+                if let (Some(left_artifact), Some(right_artifact)) =
+                    (artifacts[left].1, artifacts[right].1)
+                {
+                    if left_artifact.sha256 == right_artifact.sha256
+                        || left_artifact.filename == right_artifact.filename
+                    {
+                        return Err(invalid(format!(
+                            "Route 4 QEMU {} and {} must identify distinct artifacts",
+                            artifacts[left].0, artifacts[right].0
+                        )));
+                    }
+                }
+            }
+        }
+        if self.qemu_major != version_major(&self.version).unwrap_or_default() || !self.requires_kvm
+        {
+            return Err(invalid(
+                "Route 4 QEMU compatibility does not match the supported version/KVM profile",
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn qemu_requirement_from_descriptor_value(
+    descriptor: &DeploymentDescriptor,
+) -> Result<QemuProviderRequirement, BootstrapError> {
+    let qemu = &descriptor.route4.provider.qemu;
+    let compatibility = &descriptor.route4.provider.compatibility;
+    let requirement = QemuProviderRequirement {
+        version: qemu.version.clone(),
+        architecture: qemu.architecture.clone(),
+        identity: qemu.identity.clone(),
+        identity_kind: qemu.identity_kind.clone(),
+        system_binary: qemu.system_binary.clone(),
+        image_binary: qemu.image_binary.clone(),
+        data_artifact: qemu.data_artifact.clone(),
+        minimum_version: qemu.minimum_version.clone(),
+        qemu_major: compatibility.qemu_major,
+        requires_kvm: compatibility.requires_kvm,
+    };
+    requirement.validate()?;
+    Ok(requirement)
+}
+
+/// The single trust boundary every descriptor consumer routes through:
+/// bounded read, detached sha256 exact-byte verification, minimal
+/// compatibility validation, then parse into the typed projection subset.
+/// Route 2/3 (`runtime_spec_from_descriptor`) and Route 4
+/// (`qemu_requirement_from_descriptor`) both branch off this shared value
+/// rather than each re-implementing authenticity/compatibility semantics.
+fn read_verified_compatible_descriptor(
+    descriptor_path: &Path,
+    sidecar_path: &Path,
+) -> Result<DeploymentDescriptor, BootstrapError> {
+    let bytes = read_verified_descriptor_bytes(descriptor_path, sidecar_path)?;
+    validate_compatibility(&bytes)?;
+    serde_json::from_slice(&bytes)
+        .map_err(|error| invalid(format!("parse deployment descriptor: {error}")))
+}
+
+/// Reads the selected release descriptor and returns its complete Route 4
+/// QEMU system/image/data requirement. The detached sidecar plus the minimal
+/// compatibility envelope remain the trust boundary; this function only
+/// projects the already-verified, already-supported profile.
+pub fn qemu_requirement_from_descriptor(
+    descriptor_path: &Path,
+    sidecar_path: &Path,
+) -> Result<QemuProviderRequirement, BootstrapError> {
+    let descriptor = read_verified_compatible_descriptor(descriptor_path, sidecar_path)?;
+    qemu_requirement_from_descriptor_value(&descriptor)
+}
+
+/// Verifies that managed QEMU provenance proves every artifact identity in a
+/// selected release requirement. A missing or role-swapped data identity is
+/// an incompatibility and must be rejected before a provider is invoked.
+pub fn validate_qemu_state_against_requirement(
+    requirement: &QemuProviderRequirement,
+    state: &QemuState,
+) -> Result<(), BootstrapError> {
+    requirement.validate()?;
+    let provisioning = state.provisioning.as_ref().ok_or_else(|| {
+        BootstrapError::new(
+            ErrorCode::QemuIncompatible,
+            "managed QEMU state has no complete release artifact provenance",
+        )
+    })?;
+    let system = requirement.system_binary.as_ref().ok_or_else(|| {
+        BootstrapError::new(
+            ErrorCode::QemuIncompatible,
+            "selected QEMU requirement has no system artifact identity",
+        )
+    })?;
+    let image = requirement.image_binary.as_ref().ok_or_else(|| {
+        BootstrapError::new(
+            ErrorCode::QemuIncompatible,
+            "selected QEMU requirement has no image artifact identity",
+        )
+    })?;
+    if state.schema_version != QEMU_CONTRACT_SCHEMA_VERSION
+        || state.version != requirement.version
+        || provisioning.contract_schema_version != QEMU_CONTRACT_SCHEMA_VERSION
+    {
+        return Err(BootstrapError::new(
+            ErrorCode::QemuIncompatible,
+            "managed QEMU state does not match the selected release requirement",
+        ));
+    }
+
+    let expected = [
+        (
+            "system",
+            system,
+            &provisioning.system_artifact_id,
+            &provisioning.system_artifact_sha256,
+        ),
+        (
+            "image",
+            image,
+            &provisioning.image_artifact_id,
+            &provisioning.image_artifact_sha256,
+        ),
+        (
+            "data",
+            &requirement.data_artifact,
+            &provisioning.data_artifact_id,
+            &provisioning.data_artifact_sha256,
+        ),
+    ];
+    for (role, artifact, actual_id, actual_sha256) in expected {
+        let expected_id = artifact
+            .filename
+            .strip_suffix(".tar.gz")
+            .unwrap_or(artifact.filename.as_str());
+        if (actual_id != expected_id && actual_id != &artifact.filename)
+            || actual_sha256 != &artifact.sha256
+        {
+            return Err(BootstrapError::new(
+                ErrorCode::QemuIncompatible,
+                format!("managed QEMU {role} artifact identity differs from the selected release"),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Derives one Route 3 `RuntimeSpec` — Appliance identity plus the desired
 /// managed-generation intent — directly from an exact, byte-verified
 /// deployment descriptor. The zero-manual composition boundary ADR-0003
@@ -220,10 +520,12 @@ pub fn runtime_spec_from_descriptor(
     cpus: u32,
     memory_mib: u64,
 ) -> Result<RuntimeSpec, BootstrapError> {
-    let bytes = read_verified_descriptor_bytes(descriptor_path, sidecar_path)?;
-    validate_compatibility(&bytes)?;
-    let descriptor: DeploymentDescriptor = serde_json::from_slice(&bytes)
-        .map_err(|error| invalid(format!("parse deployment descriptor: {error}")))?;
+    let descriptor = read_verified_compatible_descriptor(descriptor_path, sidecar_path)?;
+
+    // Route 4 is validated at the descriptor boundary even though runtime
+    // provider selection remains owned by #842. This prevents a descriptor
+    // with an incomplete QEMU closure from being projected into Route 3.
+    qemu_requirement_from_descriptor_value(&descriptor)?;
 
     let manifest = canonical_manifest(&descriptor.route2.managed_generation.packages);
 
@@ -252,6 +554,7 @@ pub fn runtime_spec_from_descriptor(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::qemu::QemuProvisioningState;
     use std::io::Write;
 
     fn write_descriptor(
@@ -272,6 +575,15 @@ mod tests {
     }
 
     fn sample_descriptor_json() -> String {
+        let qemu_artifact = |filename: &str, sha256: &str| {
+            serde_json::json!({
+                "version": "11.0.0",
+                "architecture": "x86_64",
+                "filename": filename,
+                "sha256": sha256,
+                "locator": format!("https://github.com/hermeticbuild/qemu-prebuilt/{filename}"),
+            })
+        };
         serde_json::json!({
             "contractId": SUPPORTED_DEPLOYMENT_CONTRACT_ID,
             "schemaVersion": SUPPORTED_DEPLOYMENT_SCHEMA_VERSION,
@@ -302,6 +614,24 @@ mod tests {
                     "digest": "SHA256:".to_ascii_lowercase() + &"c".repeat(64),
                 },
                 "managedGenerationIdentity": "D".repeat(64),
+            },
+            "route4": {
+                "provider": {
+                    "qemu": {
+                        "version": "11.0.0",
+                        "architecture": "x86_64",
+                        "identity": "1".repeat(64),
+                        "identityKind": "executable-digest",
+                        "systemBinary": qemu_artifact("qemu-system-bin-linux-amd64-x86_64-softmmu-11.0.0.1.tar.gz", &"2".repeat(64)),
+                        "imageBinary": qemu_artifact("qemu-img-linux-amd64-11.0.0.1.tar.gz", &"3".repeat(64)),
+                        "dataArtifact": qemu_artifact("qemu-system-data-linux-amd64-11.0.0.1.tar.gz", &"4".repeat(64)),
+                        "minimumVersion": "11.0.0",
+                    },
+                    "compatibility": {
+                        "qemuMajor": 11,
+                        "requiresKvm": true,
+                    },
+                },
             }
         })
         .to_string()
@@ -347,6 +677,75 @@ mod tests {
         assert_eq!(packages[0]["source"]["sourceSha256"], "a".repeat(64));
         assert_eq!(packages[1]["packageId"], "zellij");
         assert_eq!(managed_generation.manifest["activation"]["generation"], 1);
+
+        let requirement =
+            qemu_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap();
+        assert_eq!(
+            requirement.system_binary.as_ref().unwrap().sha256,
+            "2".repeat(64)
+        );
+        assert_eq!(
+            requirement.image_binary.as_ref().unwrap().sha256,
+            "3".repeat(64)
+        );
+        assert_eq!(requirement.data_artifact.sha256, "4".repeat(64));
+    }
+
+    #[test]
+    fn changing_only_managed_qemu_data_identity_fails_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let descriptor_value: serde_json::Value =
+            serde_json::from_str(&sample_descriptor_json()).unwrap();
+        let (descriptor_path, sidecar_path) =
+            write_descriptor(dir.path(), &descriptor_value.to_string());
+        let requirement =
+            qemu_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap();
+        let mut state = QemuState {
+            schema_version: QEMU_CONTRACT_SCHEMA_VERSION.to_owned(),
+            system_path: "/managed/qemu-system-x86_64".to_owned(),
+            system_sha256: "a".repeat(64),
+            image_path: "/managed/qemu-img".to_owned(),
+            image_sha256: "b".repeat(64),
+            version: "11.0.0".to_owned(),
+            host_os: "linux".to_owned(),
+            host_architecture: "x86_64".to_owned(),
+            provisioning: Some(QemuProvisioningState {
+                contract_schema_version: QEMU_CONTRACT_SCHEMA_VERSION.to_owned(),
+                system_artifact_id: "qemu-system-bin-linux-amd64-x86_64-softmmu-11.0.0.1"
+                    .to_owned(),
+                system_artifact_sha256: "2".repeat(64),
+                image_artifact_id: "qemu-img-linux-amd64-11.0.0.1".to_owned(),
+                image_artifact_sha256: "3".repeat(64),
+                data_artifact_id: "qemu-system-data-linux-amd64-11.0.0.1".to_owned(),
+                data_artifact_sha256: "4".repeat(64),
+            }),
+        };
+        validate_qemu_state_against_requirement(&requirement, &state).unwrap();
+
+        state.provisioning.as_mut().unwrap().data_artifact_sha256 = "5".repeat(64);
+        let error = validate_qemu_state_against_requirement(&requirement, &state).unwrap_err();
+        assert_eq!(error.code, ErrorCode::QemuIncompatible);
+        assert!(error.message.contains("data artifact identity"));
+    }
+
+    #[test]
+    fn missing_or_role_swapped_qemu_data_identity_fails_closed() {
+        let mut value: serde_json::Value = serde_json::from_str(&sample_descriptor_json()).unwrap();
+        value["route4"]["provider"]["qemu"]
+            .as_object_mut()
+            .unwrap()
+            .remove("dataArtifact");
+        let dir = tempfile::tempdir().unwrap();
+        let (descriptor_path, sidecar_path) = write_descriptor(dir.path(), &value.to_string());
+        let error = qemu_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap_err();
+        assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
+
+        let mut value: serde_json::Value = serde_json::from_str(&sample_descriptor_json()).unwrap();
+        let system = value["route4"]["provider"]["qemu"]["systemBinary"].clone();
+        value["route4"]["provider"]["qemu"]["dataArtifact"] = system;
+        let (descriptor_path, sidecar_path) = write_descriptor(dir.path(), &value.to_string());
+        let error = qemu_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap_err();
+        assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
     }
 
     #[test]
@@ -521,6 +920,121 @@ mod tests {
             4096,
         )
         .unwrap_err();
+        assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
+    }
+
+    #[test]
+    fn route4_projection_succeeds_on_supported_current_descriptor() {
+        let dir = tempfile::tempdir().unwrap();
+        let (descriptor_path, sidecar_path) =
+            write_descriptor(dir.path(), &sample_descriptor_json());
+
+        let requirement =
+            qemu_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap();
+        assert_eq!(requirement.data_artifact.sha256, "4".repeat(64));
+    }
+
+    #[test]
+    fn route4_projection_fails_closed_on_unsupported_contract_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let descriptor_json = descriptor_with_compatibility_value(
+            "contractId",
+            Value::String("mottainai.deployment.v2".to_owned()),
+        );
+        let (descriptor_path, sidecar_path) = write_descriptor(dir.path(), &descriptor_json);
+
+        let error = qemu_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap_err();
+        assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
+        assert_eq!(
+            error.message,
+            "unsupported deployment descriptor contractId"
+        );
+    }
+
+    #[test]
+    fn route4_projection_fails_closed_on_unsupported_schema_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let descriptor_json = descriptor_with_compatibility_value("schemaVersion", Value::from(2));
+        let (descriptor_path, sidecar_path) = write_descriptor(dir.path(), &descriptor_json);
+
+        let error = qemu_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap_err();
+        assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
+        assert_eq!(
+            error.message,
+            "unsupported deployment descriptor schemaVersion"
+        );
+    }
+
+    #[test]
+    fn route4_projection_fails_closed_on_unsupported_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let descriptor_json = descriptor_with_compatibility_value(
+            "profile",
+            Value::String("linux-aarch64".to_owned()),
+        );
+        let (descriptor_path, sidecar_path) = write_descriptor(dir.path(), &descriptor_json);
+
+        let error = qemu_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap_err();
+        assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
+        assert_eq!(error.message, "unsupported deployment descriptor profile");
+    }
+
+    #[test]
+    fn route4_projection_fails_closed_on_unsupported_architecture() {
+        let dir = tempfile::tempdir().unwrap();
+        let descriptor_json = descriptor_with_compatibility_value(
+            "architecture",
+            Value::String("aarch64-linux".to_owned()),
+        );
+        let (descriptor_path, sidecar_path) = write_descriptor(dir.path(), &descriptor_json);
+
+        let error = qemu_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap_err();
+        assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
+        assert_eq!(
+            error.message,
+            "unsupported deployment descriptor architecture"
+        );
+    }
+
+    #[test]
+    fn route4_projection_fails_closed_on_descriptor_byte_mismatch() {
+        let dir = tempfile::tempdir().unwrap();
+        let (descriptor_path, sidecar_path) =
+            write_descriptor(dir.path(), &sample_descriptor_json());
+        std::fs::write(
+            &sidecar_path,
+            format!("{}  deployment-descriptor.json\n", "0".repeat(64)),
+        )
+        .unwrap();
+
+        let error = qemu_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap_err();
+        assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
+        assert!(error.message.contains("identity mismatch"));
+    }
+
+    #[test]
+    fn route4_projection_fails_closed_on_missing_data_artifact() {
+        let mut value: serde_json::Value = serde_json::from_str(&sample_descriptor_json()).unwrap();
+        value["route4"]["provider"]["qemu"]
+            .as_object_mut()
+            .unwrap()
+            .remove("dataArtifact");
+        let dir = tempfile::tempdir().unwrap();
+        let (descriptor_path, sidecar_path) = write_descriptor(dir.path(), &value.to_string());
+
+        let error = qemu_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap_err();
+        assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
+    }
+
+    #[test]
+    fn route4_projection_fails_closed_on_system_image_data_role_swap() {
+        let mut value: serde_json::Value = serde_json::from_str(&sample_descriptor_json()).unwrap();
+        let system = value["route4"]["provider"]["qemu"]["systemBinary"].clone();
+        value["route4"]["provider"]["qemu"]["dataArtifact"] = system;
+        let dir = tempfile::tempdir().unwrap();
+        let (descriptor_path, sidecar_path) = write_descriptor(dir.path(), &value.to_string());
+
+        let error = qemu_requirement_from_descriptor(&descriptor_path, &sidecar_path).unwrap_err();
         assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
     }
 

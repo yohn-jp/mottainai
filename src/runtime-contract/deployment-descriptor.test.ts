@@ -33,11 +33,11 @@ function validDescriptor(): Record<string, unknown> {
     applicationPayloadSha256: digest("1"),
     packages: [{ packageId: "mottainai", version: "1.2.3", flakeRef: "nix#mottainai", sourceSha256: digest("4") }],
   };
-  const providerArtifact = (name: string, providerVersion: string) => ({
+  const providerArtifact = (name: string, providerVersion: string, digestCharacter = "5") => ({
     version: providerVersion,
     architecture: "x86_64",
     filename: name,
-    sha256: digest("5"),
+    sha256: digest(digestCharacter),
     sizeBytes: 1024,
     locator: `https://example.invalid/${name}`,
   });
@@ -92,8 +92,9 @@ function validDescriptor(): Record<string, unknown> {
           architecture: "x86_64",
           identity: digest("a"),
           identityKind: "executable-digest",
-          systemBinary: providerArtifact("qemu-system-x86_64", "9.2.0"),
-          imageBinary: providerArtifact("qemu-img", "9.2.0"),
+          systemBinary: providerArtifact("qemu-system-x86_64", "9.2.0", "6"),
+          imageBinary: providerArtifact("qemu-img", "9.2.0", "7"),
+          dataArtifact: providerArtifact("qemu-data.tar.gz", "9.2.0", "8"),
           minimumVersion: "9.2.0",
         },
         compatibility: { limaMajor: 2, qemuMajor: 9, requiresKvm: true },
@@ -166,11 +167,37 @@ test("the release Route 4 provider profile matches the canonical pinned-verified
   assert.equal(profile.qemu.identityKind, "executable-digest");
   assert.ok(profile.qemu.systemBinary, "pinned-verified-archives QEMU profile must bind systemBinary");
   assert.ok(profile.qemu.imageBinary, "pinned-verified-archives QEMU profile must bind imageBinary");
+  assert.ok(profile.qemu.dataArtifact, "every QEMU profile must bind the firmware/data artifact");
   assert.equal(profile.qemu.version, "11.0.0");
   assert.equal(profile.compatibility.qemuMajor, 11);
+  assert.notEqual(profile.qemu.dataArtifact.sha256, profile.qemu.systemBinary.sha256);
+  assert.notEqual(profile.qemu.dataArtifact.sha256, profile.qemu.imageBinary.sha256);
 
   const withReleaseProfile = validDescriptor();
   (withReleaseProfile.route4 as { provider: unknown }).provider = profile;
   const descriptor = parseDeploymentDescriptor(withReleaseProfile);
   assert.equal(descriptor.route4.provider.provisioning.strategy, "pinned-verified-archives");
+});
+
+test("requires a distinct QEMU firmware/data identity", () => {
+  const descriptor = validDescriptor();
+  const qemu = (descriptor.route4 as { provider: { qemu: Record<string, unknown> } }).provider.qemu;
+  qemu.dataArtifact = qemu.systemBinary;
+  assert.throws(() => parseDeploymentDescriptor(descriptor), /distinct artifacts/u);
+});
+
+test("changing only QEMU data identity changes the descriptor identity", () => {
+  const first = parseDeploymentDescriptor(validDescriptor());
+  const secondValue = validDescriptor();
+  const qemu = (secondValue.route4 as { provider: { qemu: { dataArtifact: { sha256: string } } } }).provider.qemu;
+  qemu.dataArtifact.sha256 = digest("b");
+  const second = parseDeploymentDescriptor(secondValue);
+  assert.notEqual(deploymentDescriptorIdentityOf(first), deploymentDescriptorIdentityOf(second));
+});
+
+test("fails closed when the QEMU firmware/data identity is missing", () => {
+  const descriptor = validDescriptor();
+  const qemu = (descriptor.route4 as { provider: { qemu: Record<string, unknown> } }).provider.qemu;
+  delete qemu.dataArtifact;
+  assert.throws(() => parseDeploymentDescriptor(descriptor), DeploymentDescriptorError);
 });

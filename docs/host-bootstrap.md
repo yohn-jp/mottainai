@@ -17,8 +17,8 @@ Route 1 payload, see
 [`route4-route1-operation-book.md`](route4-route1-operation-book.md). This file
 remains the Route 4 component contract. Open implementation gaps such as the
 provider-profile consumer, SSH prerequisite/key lifecycle, and QEMU data
-identity are recorded against their exact handoff steps in the operation book
-rather than being normalized here as completed behavior.
+closure revalidation are recorded against their exact handoff steps in the
+operation book rather than being normalized here as completed behavior.
 
 ## Contract and execution
 

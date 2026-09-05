@@ -126,7 +126,7 @@ function buildManagedGenerationFixture(fixture) {
   );
 }
 
-function buildDescriptorInput(fixture) {
+function buildDescriptorInput(fixture, providerProfilePath = providerProfile) {
   execFileSync(
     process.execPath,
     [
@@ -144,7 +144,7 @@ function buildDescriptorInput(fixture) {
       "--appliance-metadata",
       fixture.appliancePath,
       "--provider-profile",
-      providerProfile,
+      providerProfilePath,
       "--managed-generation",
       fixture.managedPath,
       "--flake-lock",
@@ -201,6 +201,42 @@ test("production-shaped descriptor consumes the canonical realized generation id
     assert.equal(descriptor.route2.managedGeneration.identity, expected);
     assert.equal(descriptor.route3.managedGenerationIdentity, expected);
     assert.equal(managed.generationIdentity, expected);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("production provider profile transports the QEMU data identity and binds it into descriptor identity", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "release-qemu-data-identity-"));
+  try {
+    const fixture = writeProductionFixture(directory);
+    buildManagedGenerationFixture(fixture);
+    buildDescriptorInput(fixture);
+    execFileSync(
+      process.execPath,
+      ["--import", "tsx", buildDescriptor, "--input", fixture.descriptorInputPath, "--output", fixture.descriptorPath],
+      { cwd: repositoryRoot, stdio: "pipe" },
+    );
+
+    const profile = JSON.parse(fs.readFileSync(providerProfile, "utf8"));
+    const descriptor = JSON.parse(fs.readFileSync(fixture.descriptorPath, "utf8"));
+    assert.deepEqual(descriptor.route4.provider.qemu.dataArtifact, profile.qemu.dataArtifact);
+    const firstIdentity = fs.readFileSync(`${fixture.descriptorPath}.sha256`, "utf8").split(/\s+/u)[0];
+
+    const changedProfile = structuredClone(profile);
+    changedProfile.qemu.dataArtifact.sha256 = digest("e");
+    const changedProfilePath = path.join(directory, "changed-provider-profile.json");
+    const changedInputPath = path.join(directory, "changed-descriptor-input.json");
+    const changedDescriptorPath = path.join(directory, "changed-descriptor.json");
+    fs.writeFileSync(changedProfilePath, JSON.stringify(changedProfile));
+    buildDescriptorInput({ ...fixture, descriptorInputPath: changedInputPath }, changedProfilePath);
+    execFileSync(
+      process.execPath,
+      ["--import", "tsx", buildDescriptor, "--input", changedInputPath, "--output", changedDescriptorPath],
+      { cwd: repositoryRoot, stdio: "pipe" },
+    );
+    const changedIdentity = fs.readFileSync(`${changedDescriptorPath}.sha256`, "utf8").split(/\s+/u)[0];
+    assert.notEqual(changedIdentity, firstIdentity);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
