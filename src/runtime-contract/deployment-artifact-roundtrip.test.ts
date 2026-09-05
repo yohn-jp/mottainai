@@ -49,12 +49,12 @@ function streamOf(buffer: Buffer): ReadableStream<Uint8Array> {
   });
 }
 
-function providerArtifact(name: string, version: string) {
+function providerArtifact(name: string, version: string, digestCharacter = "5") {
   return {
     version,
     architecture: "x86_64",
     filename: name,
-    sha256: digest("5"),
+    sha256: digest(digestCharacter),
     sizeBytes: 1024,
     locator: `https://example.invalid/${name}`,
   };
@@ -140,8 +140,9 @@ function descriptorValue({ identity = digest("2"), sourceSha256 = digest("4") } 
           architecture: "x86_64",
           identity: digest("a"),
           identityKind: "executable-digest",
-          systemBinary: providerArtifact("qemu-system-x86_64", "9.2.0"),
-          imageBinary: providerArtifact("qemu-img", "9.2.0"),
+          systemBinary: providerArtifact("qemu-system-x86_64", "9.2.0", "6"),
+          imageBinary: providerArtifact("qemu-img", "9.2.0", "7"),
+          dataArtifact: providerArtifact("qemu-data.tar.gz", "9.2.0", "8"),
           minimumVersion: "9.2.0",
         },
         compatibility: { limaMajor: 2, qemuMajor: 9, requiresKvm: true },

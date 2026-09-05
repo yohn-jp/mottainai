@@ -29,10 +29,10 @@ and verification, while Lima retains VM lifecycle and QEMU topology
 ownership. The canonical Route 4 golden path is the `pinned-verified-archives`
 provisioning strategy: QEMU's descriptor identity is an `executable-digest`
 carrying the reviewed `qemu-system-x86_64`/`qemu-img` archive digests
-(`systemBinary`/`imageBinary`) that Route 4 materializes and attests before
-Lima is launched. An `explicit-adoption` profile remains available only for an
-operator-supplied external installation; it is not the canonical fresh-host
-path.
+(`systemBinary`/`imageBinary`) and the firmware/data archive digest
+(`dataArtifact`) that Route 4 materializes and attests before Lima is launched.
+An `explicit-adoption` profile remains available only for an operator-supplied
+external installation; it is not the canonical fresh-host path.
 
 Unknown schema versions, missing identities, mutable-only locators,
 cross-release revisions, mismatched managed-generation identities, and

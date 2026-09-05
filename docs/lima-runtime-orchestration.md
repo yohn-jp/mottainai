@@ -179,7 +179,7 @@ closed with `provider_not_bootstrapped` otherwise. This keeps the whole
 resolve — inside the same verified-artifact boundary
 [`host-bootstrap.md`](host-bootstrap.md) already establishes for Route 4.
 The selected deployment descriptor becoming the live provider identity
-authority, including the QEMU data artifact, is tracked by #842/#847. Lima
+authority, including the QEMU data artifact, is tracked by #842. Lima
 remains the sole VM/QEMU lifecycle authority; `runtime ensure` only passes the
 verified binding into that provider.
 
