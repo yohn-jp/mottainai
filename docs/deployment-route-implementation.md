@@ -2,6 +2,8 @@
 
 This document supplements [ADR-0003](decisions/0003-layered-declarative-deployment.md) by fixing the implementation and execution vehicle used at each cumulative deployment entry boundary. It does not create new routes or change the dependency direction defined by ADR-0003.
 
+For the normative **chronological** execution order connecting these route vehicles—what runs when, which identity authority feeds each operation, what state may change, and what proves each handoff—see [`route4-route1-operation-book.md`](route4-route1-operation-book.md). This file remains the route/vehicle ownership map and must not become a competing end-to-end sequence. Open implementation gaps are recorded against stable operation IDs in the operation book.
+
 ## Canonical mapping
 
 | Route | Canonical entry artifact / implementation | Execution substrate | Responsibility added by the route |
@@ -30,11 +32,16 @@ tarball. The sidecar and tarball are verified before either consumer proceeds.
 
 Route 2 is expressed as the Nix Runtime/application closure and managed Runtime generation. Its purpose is to turn the Route 1 application payload plus all declared runtime dependencies into a deterministic Nix-managed execution environment.
 
-`nix/mottainai.nix` consumes the release-local tarball through its
-`canonicalPayload`/`canonicalPayloadSha256` boundary and verifies the raw
-payload digest before adding pinned Node/native dependencies. A local Nix build
-may produce the release-local payload once when no tarball is supplied; the
-Route 2 derivation itself never repacks or rebuilds `dist`.
+The release-time Route 2 producer uses `nix/mottainai.nix` through its
+`canonicalPayload`/`canonicalPayloadSha256` boundary and verifies the exact
+release-local tarball digest before adding pinned Node/native dependencies.
+The **live guest reconciliation path does not yet consume that exact
+release-bound payload**: ordinary `packages.<system>.mottainai` can regenerate
+the canonical tarball from source when `canonicalPayload` is absent. Issue
+#850 owns closing this Route 2 -> Route 1 consumer gap. Until #850 closes, the
+release producer proves the intended one-payload contract, but the live
+Route 3 -> Route 2 reconciliation path must not be described as consuming the
+same exact Route 1 artifact.
 
 Route 2 is not merely a disk image. The canonical NixOS Runtime Appliance is the system boundary that can host the Route 2 closure, while the fast-moving managed generation remains independently activatable and rollback-capable as required by ADR-0003.
 
@@ -42,11 +49,11 @@ The Route 2 closure includes the supported Node/native runtime and the
 explicit lower-level executable dependencies required by the supported
 Mottainai surface: `git` and `rg` (`ripgrep`) are pinned through the flake's
 nixpkgs input and joined into the managed generation. Functional readiness is
-therefore evaluated with a generation-only `PATH`, using the exact canonical
-Route 1 payload; a developer or host installation of these tools is not an
-implicit dependency. The focused closure check proves a real search operation,
-packaged MCP stdio startup/protocol exchange, and failure when `rg` is removed:
-`nix build .#checks.x86_64-linux.route2-runtime-closure`. Nix/NixOS and the
+therefore evaluated with a generation-only `PATH`. The focused closure check
+proves a real search operation, packaged MCP stdio startup/protocol exchange,
+and failure when `rg` is removed:
+`nix build .#checks.x86_64-linux.route2-runtime-closure`. Exact live consumption
+of the descriptor-bound Route 1 payload remains #850. Nix/NixOS and the
 enclosing host/kernel/appliance facilities remain lower-level preconditions;
 Route 3 provisioning is not part of this contract.
 
@@ -67,7 +74,7 @@ This allows the outer layer to absorb host/provider differences while the guest 
 
 Route 4 is entered through a compiled standalone `mottainai-init` executable implemented in Rust and published as a host-native release artifact. The user must not need a Rust toolchain to run it.
 
-The bootstrap must be able to start before Node.js, npm, Python, Nix, Lima, QEMU, or a distribution package manager is available. Its job is to converge a supported fresh host into the Route 3 preconditions and then delegate to Route 3.
+The bootstrap must be able to start before Node.js, npm, Python, Nix, Lima, QEMU, or a distribution package manager is available. Its job is to converge a supported fresh host into the Route 3 preconditions and then delegate to Route 3. The complete external-host prerequisite set consumed by the selected provider profile is an explicit operation-book concern; the current implicit Lima/OpenSSH dependency is tracked by #846 rather than treated here as an accepted hidden precondition.
 
 Conceptually:
 
