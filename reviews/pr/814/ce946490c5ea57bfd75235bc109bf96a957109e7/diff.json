@@ -1,0 +1,64 @@
+{
+  "baseSha": "0f4351b8f8f0bebc93e8a149590cb5c553e8f9b2",
+  "files": [
+    {
+      "additions": 6,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 630,
+          "oldLines": 1,
+          "oldStart": 630
+        },
+        {
+          "newLines": 5,
+          "newStart": 640,
+          "oldLines": 2,
+          "oldStart": 640
+        }
+      ],
+      "path": "host-bootstrap/src/qemu.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 288,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 5,
+          "newStart": 22,
+          "oldLines": 1,
+          "oldStart": 22
+        },
+        {
+          "newLines": 59,
+          "newStart": 56,
+          "oldLines": 0,
+          "oldStart": 51
+        },
+        {
+          "newLines": 153,
+          "newStart": 166,
+          "oldLines": 0,
+          "oldStart": 102
+        },
+        {
+          "newLines": 71,
+          "newStart": 536,
+          "oldLines": 0,
+          "oldStart": 319
+        }
+      ],
+      "path": "host-bootstrap/tests/reconciliation.rs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "ce946490c5ea57bfd75235bc109bf96a957109e7",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 294,
+    "deletions": 4,
+    "filesChanged": 2
+  }
+}

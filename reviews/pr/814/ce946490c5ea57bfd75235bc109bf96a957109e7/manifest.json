@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "0f4351b8f8f0bebc93e8a149590cb5c553e8f9b2",
+    "draft": false,
+    "headRef": "fix/813-route4-qemu-metadata-idempotency",
+    "headSha": "ce946490c5ea57bfd75235bc109bf96a957109e7",
+    "number": 814,
+    "title": "fix(runtime): persist activated QEMU paths (#813)"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "ce946490c5ea57bfd75235bc109bf96a957109e7",
+    "immutable": true,
+    "shortId": "ce946490c5ea"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-05T01:25:10.632Z"
+  }
+}

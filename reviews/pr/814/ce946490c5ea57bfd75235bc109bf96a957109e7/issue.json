@@ -1,0 +1,16 @@
+{
+  "acceptanceCriteria": [],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 813,
+    "state": "open",
+    "title": "fix(runtime): Route 4 qemu.json persists staging path, breaks second-run idempotency",
+    "url": "https://github.com/yohn-jp/mottainai/issues/813"
+  },
+  "linked": {
+    "number": 813
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
