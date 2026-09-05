@@ -567,6 +567,10 @@ impl LimaCli for SystemLimaCli {
                 "create",
                 "--name",
                 instance,
+                // The canonical Runtime Appliance has no Lima cloud-init
+                // readiness sentinel; plain mode leaves readiness to the
+                // guest health contract after Lima provides VM/SSH transport.
+                "--plain",
                 &config_path.to_string_lossy(),
             ],
             CREATE_START_TIMEOUT,
@@ -2804,5 +2808,140 @@ mod tests {
         assert!(selected.contains(verified.to_str().unwrap()));
         assert!(selected.contains("QEMU-A"));
         assert!(!selected.contains("QEMU-B"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn production_lima_handoff_uses_plain_create_and_runtime_health_after_boot_disk_attachment() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temporary = TempDir::new().unwrap();
+        let create_args_path = temporary.path().join("create-args");
+        let shell_args_path = temporary.path().join("shell-args");
+        let created_path = temporary.path().join("created");
+        let started_path = temporary.path().join("started");
+        let limactl = temporary.path().join("limactl");
+        fs::write(
+            &limactl,
+            format!(
+                r#"#!/bin/sh
+case "$2" in
+  list)
+    if test -f "{}"; then
+      if test -f "{}"; then status=Running; else status=Stopped; fi
+      printf '{{"name":"mottainai-runtime","status":"%s","vmType":"qemu"}}\n' "$status"
+    fi
+    ;;
+  create)
+    test -f "$6"
+    grep -q 'additionalDisks:' "$6"
+    grep -q 'mtnai-boot-' "$6"
+    printf '%s\n' "$@" > "{}"
+    touch "{}"
+    ;;
+  start)
+    test -f "{}"
+    touch "{}"
+    ;;
+  shell)
+    test -f "{}"
+    printf '%s\n' "$@" > "{}"
+    test "$5" = mottainai-runtime-health
+    printf '%s\n' '{{"contractId":"mottainai.linux-runtime.v1","schemaVersion":2,"bootstrapReady":true}}'
+    ;;
+  *) exit 64 ;;
+esac
+"#,
+                created_path.display(),
+                started_path.display(),
+                create_args_path.display(),
+                created_path.display(),
+                created_path.display(),
+                started_path.display(),
+                started_path.display(),
+                shell_args_path.display(),
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&limactl, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (_state_temp, paths) = managed_paths();
+        seed_appliance(&paths, &reference());
+        let cli = SystemLimaCli {
+            binary_path: limactl,
+            lima_home: paths.lima_home_directory.clone(),
+            qemu_system_path: None,
+        };
+        let evidence = ensure_runtime(
+            &paths,
+            &spec(),
+            &cli,
+            &FakeOciSource,
+            &RuntimeEnsureConfig {
+                health_check_attempts: 1,
+                health_check_interval: Duration::ZERO,
+            },
+        );
+
+        assert_eq!(evidence.result, Outcome::Changed);
+        assert!(evidence.guest_reachable);
+        assert_eq!(
+            evidence.guest_status.as_ref().unwrap()["bootstrapReady"],
+            true
+        );
+
+        let config_path = paths.runtime_config_path(&spec().instance_name);
+        let create_args = fs::read_to_string(create_args_path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            create_args,
+            vec![
+                "--tty=false",
+                "create",
+                "--name",
+                "mottainai-runtime",
+                "--plain",
+                config_path.to_str().unwrap(),
+            ]
+        );
+
+        let rendered = fs::read_to_string(config_path).unwrap();
+        let parsed: serde_json::Value = serde_saphyr::from_str(&rendered).unwrap();
+        assert_eq!(
+            parsed["additionalDisks"][0]["name"].as_str(),
+            Some(bootstrap_disk_name("mottainai-runtime").as_str())
+        );
+        assert_eq!(
+            parsed["additionalDisks"][0]["format"].as_bool(),
+            Some(false)
+        );
+        verify_bootstrap_disk(
+            &paths,
+            "mottainai-runtime",
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItestBootstrapKeyForMottainai840 operator\n",
+        )
+        .unwrap();
+
+        let shell_args = fs::read_to_string(shell_args_path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            shell_args,
+            vec![
+                "--tty=false",
+                "shell",
+                "mottainai-runtime",
+                "--",
+                "mottainai-runtime-health",
+            ]
+        );
+        assert!(!shell_args
+            .iter()
+            .any(|argument| argument.contains("lima-ssh-ready")));
     }
 }
