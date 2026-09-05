@@ -2,7 +2,7 @@
 
 This document supplements [ADR-0003](decisions/0003-layered-declarative-deployment.md) by fixing the implementation and execution vehicle used at each cumulative deployment entry boundary. It does not create new routes or change the dependency direction defined by ADR-0003.
 
-For the normative **chronological** execution order connecting these route vehicles—what runs when, which identity authority feeds each operation, what state may change, and what proves each handoff—see [`route4-route1-operation-book.md`](route4-route1-operation-book.md). This file remains the route/vehicle ownership map and must not become a competing end-to-end sequence. Open implementation gaps are recorded against stable operation IDs in the operation book.
+For the normative **chronological** execution order connecting these route vehicles—what runs when, which identity authority feeds each operation, what state may change, and what proves each handoff—see [`route4-route1-operation-book.md`](route4-route1-operation-book.md), established by Issue #848. This file remains the route/vehicle ownership map and must not become a competing end-to-end sequence. Open implementation gaps are recorded against stable operation IDs in the operation book.
 
 ## Canonical mapping
 
