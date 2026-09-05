@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use reqwest::blocking::Client;
 use reqwest::redirect::Policy;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::download::digest_file;
 use crate::error::{bound_text, BootstrapError, ErrorCode};
@@ -31,6 +32,9 @@ const QEMU_RELEASE_BASE: &str =
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_COMMAND_OUTPUT: usize = 16 * 1024;
+const QEMU_DATA_CLOSURE_MANIFEST_VERSION: &[u8] =
+    b"mottainai.host-bootstrap.qemu-data-closure.v1\n";
+const QEMU_REQUIRED_DATA_FILES: &[&str] = &["share/qemu/edk2-x86_64-code.fd"];
 
 /// Immutable relocatable QEMU artifacts selected for the supported profile.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -310,6 +314,11 @@ pub struct QemuProvisioningState {
     pub image_artifact_sha256: String,
     pub data_artifact_id: String,
     pub data_artifact_sha256: String,
+    /// Digest of the canonical manifest for the required activated data
+    /// files. `None` is retained only so older state remains readable; such
+    /// state is not reusable and fails closed during inspection.
+    #[serde(default)]
+    pub data_closure_sha256: Option<String>,
 }
 
 impl QemuState {
@@ -339,6 +348,28 @@ pub enum QemuOverride {
     Identity(QemuIdentity),
     Incompatible(String),
     Ambiguous(String),
+}
+
+fn valid_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value.chars().all(|character| character.is_ascii_hexdigit())
+        && value == value.to_ascii_lowercase()
+}
+
+fn qemu_data_closure_matches(
+    paths: &ManagedPaths,
+    state: &QemuState,
+    provenance: &QemuProvisioningState,
+) -> bool {
+    let Some(version_directory) = Path::new(&state.system_path)
+        .parent()
+        .and_then(Path::parent)
+    else {
+        return false;
+    };
+    is_managed_qemu_path(paths, version_directory)
+        && verify_qemu_data_directory(version_directory)
+            .is_ok_and(|observed| Some(observed) == provenance.data_closure_sha256)
 }
 
 pub fn requirement() -> QemuRequirement {
@@ -452,8 +483,13 @@ pub fn inspect_qemu(
                 && provenance.system_artifact_sha256.len() == 64
                 && provenance.image_artifact_sha256.len() == 64
                 && provenance.data_artifact_sha256.len() == 64
+                && provenance
+                    .data_closure_sha256
+                    .as_deref()
+                    .is_some_and(valid_sha256)
                 && is_managed_qemu_path(paths, Path::new(&value.system_path))
                 && is_managed_qemu_path(paths, Path::new(&value.image_path))
+                && qemu_data_closure_matches(paths, value, provenance)
         })
     });
     let matches_state = state.as_ref().is_some_and(|value| {
@@ -510,6 +546,13 @@ pub fn inspect_override(
                     && value.host_os == host_os
                     && value.host_architecture == host_architecture
                     && value.identity() == *identity
+                    && value.provisioning.as_ref().is_none_or(|provenance| {
+                        provenance
+                            .data_closure_sha256
+                            .as_deref()
+                            .is_some_and(valid_sha256)
+                            && qemu_data_closure_matches(paths, value, provenance)
+                    })
             });
             let classification = if state.is_none() {
                 Classification::Repairable
@@ -611,9 +654,16 @@ pub fn ensure_provisioned_qemu<S: QemuArtifactSource>(
     if version_directory_exists {
         let system = version_directory.join(&contract.system.archive_binary_path);
         let image = version_directory.join(&contract.image.archive_binary_path);
-        verify_qemu_data_directory(&version_directory)?;
+        let data_closure_sha256 = verify_qemu_data_directory(&version_directory)?;
         let observed = verify_provisioned_binaries(&system, &image, contract)?;
-        write_provisioned_state(paths, contract, &observed, host_os, host_architecture)?;
+        write_provisioned_state(
+            paths,
+            contract,
+            &observed,
+            &data_closure_sha256,
+            host_os,
+            host_architecture,
+        )?;
         return Ok(observed);
     }
 
@@ -629,7 +679,7 @@ pub fn ensure_provisioned_qemu<S: QemuArtifactSource>(
         &paths.qemu_staging_directory,
         &contract.image,
     )?;
-    extract_qemu_data_archive(
+    let staged_data_closure_sha256 = extract_qemu_data_archive(
         &paths.qemu_archive_path(&contract.data.artifact_id),
         &paths.qemu_staging_directory,
     )?;
@@ -651,8 +701,22 @@ pub fn ensure_provisioned_qemu<S: QemuArtifactSource>(
         .map_err(|error| BootstrapError::io("activate verified QEMU toolchain", &error))?;
     let system = version_directory.join(&contract.system.archive_binary_path);
     let image = version_directory.join(&contract.image.archive_binary_path);
+    let activated_data_closure_sha256 = verify_qemu_data_directory(&version_directory)?;
+    if activated_data_closure_sha256 != staged_data_closure_sha256 {
+        return Err(BootstrapError::new(
+            ErrorCode::QemuIncompatible,
+            "activated QEMU data closure differs from the verified staged closure",
+        ));
+    }
     let activated = verify_provisioned_binaries(&system, &image, contract)?;
-    write_provisioned_state(paths, contract, &activated, host_os, host_architecture)?;
+    write_provisioned_state(
+        paths,
+        contract,
+        &activated,
+        &activated_data_closure_sha256,
+        host_os,
+        host_architecture,
+    )?;
     Ok(activated)
 }
 
@@ -867,7 +931,7 @@ fn extract_qemu_archive(
 fn extract_qemu_data_archive(
     archive_path: &Path,
     destination: &Path,
-) -> Result<(), BootstrapError> {
+) -> Result<String, BootstrapError> {
     const MAX_EXTRACTED_BYTES: u64 = 512 * 1024 * 1024;
     let file = File::open(archive_path)
         .map_err(|error| BootstrapError::io("open verified QEMU data archive", &error))?;
@@ -941,21 +1005,63 @@ fn extract_qemu_data_archive(
     verify_qemu_data_directory(destination)
 }
 
-fn verify_qemu_data_directory(directory: &Path) -> Result<(), BootstrapError> {
-    let firmware = directory.join("share/qemu/edk2-x86_64-code.fd");
-    let metadata = fs::symlink_metadata(&firmware).map_err(|error| {
-        BootstrapError::new(
-            ErrorCode::QemuIncompatible,
-            format!("managed QEMU firmware is unavailable: {error}"),
-        )
-    })?;
-    if !metadata.file_type().is_file() || metadata.len() == 0 {
-        return Err(BootstrapError::new(
-            ErrorCode::QemuIncompatible,
-            "managed QEMU firmware is not a regular non-empty file",
-        ));
+fn verify_qemu_data_directory(directory: &Path) -> Result<String, BootstrapError> {
+    let mut required_files = QEMU_REQUIRED_DATA_FILES.to_vec();
+    required_files.sort_unstable();
+
+    let mut manifest = Sha256::new();
+    manifest.update(QEMU_DATA_CLOSURE_MANIFEST_VERSION);
+    for relative in required_files {
+        let path = directory.join(relative);
+        let metadata = fs::symlink_metadata(&path).map_err(|error| {
+            BootstrapError::new(
+                ErrorCode::QemuIncompatible,
+                format!("managed QEMU data file {relative} is unavailable: {error}"),
+            )
+        })?;
+        if !metadata.file_type().is_file() || metadata.len() == 0 {
+            return Err(BootstrapError::new(
+                ErrorCode::QemuIncompatible,
+                format!("managed QEMU data file {relative} is not a regular non-empty file"),
+            ));
+        }
+        let canonical_directory = fs::canonicalize(directory).map_err(|error| {
+            BootstrapError::new(
+                ErrorCode::QemuIncompatible,
+                format!("managed QEMU data directory is unavailable: {error}"),
+            )
+        })?;
+        let canonical_path = fs::canonicalize(&path).map_err(|error| {
+            BootstrapError::new(
+                ErrorCode::QemuIncompatible,
+                format!("managed QEMU data file {relative} is unavailable: {error}"),
+            )
+        })?;
+        if !canonical_path.starts_with(&canonical_directory) {
+            return Err(BootstrapError::new(
+                ErrorCode::QemuIncompatible,
+                format!("managed QEMU data file {relative} escapes its activated closure"),
+            ));
+        }
+        let digest = digest_file(&path).map_err(|error| {
+            BootstrapError::new(
+                ErrorCode::QemuIncompatible,
+                format!("could not digest managed QEMU data file {relative}: {error}"),
+            )
+        })?;
+        manifest.update(relative.as_bytes());
+        manifest.update([0]);
+        manifest.update(metadata.len().to_string().as_bytes());
+        manifest.update([0]);
+        manifest.update(digest.as_bytes());
+        manifest.update(b"\n");
     }
-    Ok(())
+
+    Ok(manifest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
 }
 
 fn verify_provisioned_binaries(
@@ -992,6 +1098,7 @@ fn write_provisioned_state(
     paths: &ManagedPaths,
     contract: &QemuContract,
     identity: &QemuIdentity,
+    data_closure_sha256: &str,
     host_os: &str,
     host_architecture: &str,
 ) -> Result<(), BootstrapError> {
@@ -1014,6 +1121,7 @@ fn write_provisioned_state(
             image_artifact_sha256: contract.image.artifact_sha256.clone(),
             data_artifact_id: contract.data.artifact_id.clone(),
             data_artifact_sha256: contract.data.artifact_sha256.clone(),
+            data_closure_sha256: Some(data_closure_sha256.to_owned()),
         }),
     };
     write_state(&paths.qemu_state_file, &state)

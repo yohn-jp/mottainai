@@ -1121,6 +1121,7 @@ mod tests {
                 image_artifact_sha256: "3".repeat(64),
                 data_artifact_id: "qemu-system-data-linux-amd64-11.0.0.1".to_owned(),
                 data_artifact_sha256: "4".repeat(64),
+                data_closure_sha256: None,
             }),
         };
         validate_qemu_state_against_requirement(&requirement, &state).unwrap();
@@ -1158,6 +1159,7 @@ mod tests {
                 image_artifact_sha256: "3".repeat(64),
                 data_artifact_id: "qemu-system-data-linux-amd64-11.0.0.1".to_owned(),
                 data_artifact_sha256: "4".repeat(64),
+                data_closure_sha256: None,
             }),
         };
         let error = validate_qemu_state_against_requirement(&requirement, &state).unwrap_err();
