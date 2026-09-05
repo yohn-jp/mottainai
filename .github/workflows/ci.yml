@@ -173,13 +173,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup pnpm and Node.js
-        uses: ./.github/actions/setup-pnpm-node
-        with:
-          pnpm-version: 11.18.0
-          node-version: "24"
-          enable-dependency-cache: "true"
-
       - name: Install required system dependencies
         run: |
           sudo apt-get update
@@ -198,8 +191,10 @@ jobs:
           sudo chmod +x /usr/local/bin/zellij
           rm /tmp/zellij.tar.gz
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Setup Node.js and pnpm with frozen-lockfile install
+        uses: yohn-jp/.github/.github/actions/setup-node-pnpm@main
+        with:
+          node-version: "24"
 
       - name: Verify required test tools
         run: |
@@ -233,13 +228,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup pnpm and Node.js
-        uses: ./.github/actions/setup-pnpm-node
-        with:
-          pnpm-version: 11.18.0
-          node-version: "24"
-          enable-dependency-cache: "true"
-
       - name: Install required system dependencies
         run: |
           sudo apt-get update
@@ -258,8 +246,10 @@ jobs:
           sudo chmod +x /usr/local/bin/zellij
           rm /tmp/zellij.tar.gz
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Setup Node.js and pnpm with frozen-lockfile install
+        uses: yohn-jp/.github/.github/actions/setup-node-pnpm@main
+        with:
+          node-version: "24"
 
       - name: Verify required test tools
         run: |
@@ -462,14 +452,10 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
 
-      - name: Setup pnpm and Node.js for managed-generation verification scripts
-        uses: ./.github/actions/setup-pnpm-node
+      - name: Setup Node.js and pnpm with frozen-lockfile install for managed-generation verification scripts
+        uses: yohn-jp/.github/.github/actions/setup-node-pnpm@main
         with:
-          pnpm-version: 11.18.0
           node-version: "24"
-
-      - name: Install Node dependencies for managed-generation verification
-        run: pnpm install --frozen-lockfile
 
       - name: Evaluate locked flake outputs
         working-directory: nix
@@ -550,14 +536,10 @@ jobs:
         with:
           kvm: true
 
-      - name: Setup pnpm and Node.js for manifest generation
-        uses: ./.github/actions/setup-pnpm-node
+      - name: Setup Node.js and pnpm with frozen-lockfile install for manifest generation
+        uses: yohn-jp/.github/.github/actions/setup-node-pnpm@main
         with:
-          pnpm-version: 11.18.0
           node-version: "24"
-
-      - name: Install Node dependencies for manifest generation
-        run: pnpm install --frozen-lockfile
 
       - name: Build the Runtime VM and relocatable image projection
         working-directory: nix
@@ -678,14 +660,10 @@ jobs:
         with:
           kvm: true
 
-      - name: Setup pnpm and Node.js for manifest generation
-        uses: ./.github/actions/setup-pnpm-node
+      - name: Setup Node.js and pnpm with frozen-lockfile install for manifest generation
+        uses: yohn-jp/.github/.github/actions/setup-node-pnpm@main
         with:
-          pnpm-version: 11.18.0
           node-version: "24"
-
-      - name: Install Node dependencies for manifest generation
-        run: pnpm install --frozen-lockfile
 
       # Both an Appliance-defining PR and a trusted `main` integration run
       # validate the exact publishable appliance on this existing Nix
@@ -853,14 +831,10 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
 
-      - name: Setup pnpm and Node.js for manifest generation
-        uses: ./.github/actions/setup-pnpm-node
+      - name: Setup Node.js and pnpm with frozen-lockfile install for manifest generation
+        uses: yohn-jp/.github/.github/actions/setup-node-pnpm@main
         with:
-          pnpm-version: 11.18.0
           node-version: "24"
-
-      - name: Install Node dependencies for manifest verification
-        run: pnpm install --frozen-lockfile
 
       - name: Build the canonical, self-bootable Runtime Appliance disk
         working-directory: nix

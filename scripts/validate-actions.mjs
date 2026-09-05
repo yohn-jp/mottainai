@@ -8,11 +8,16 @@ const ACTION_ROOTS = Object.freeze([".github/workflows", ".github/actions"]);
 const USES_LINE_PATTERN = /^\s*(?:-\s+)?uses:\s*(.*)$/u;
 const VALUE_PATTERN = /^(\S+)(?:\s+#.*)?$/u;
 const IMMUTABLE_EXTERNAL_ACTION_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*@[0-9a-f]{40}$/u;
-// yohn-jp/.github centrally governs its reusable workflows: consumers must
-// follow the live @main revision so merged provider fixes take effect
-// without per-repository pin churn (Issue #802). A commit-SHA pin on an
-// org-owned reusable workflow is therefore rejected, not accepted.
-const ORG_GOVERNANCE_LIVE_REF_PATTERN = /^yohn-jp\/\.github\/\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml@main$/u;
+// yohn-jp/.github centrally governs its reusable workflows and composite
+// actions: consumers must follow the live @main revision so merged provider
+// fixes take effect without per-repository pin churn (Issue #802 and #807).
+// A commit-SHA pin on an org-owned resource is therefore rejected, not
+// accepted.
+const ORG_GOVERNANCE_WORKFLOW_REF_PATTERN = /^yohn-jp\/\.github\/\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml@/u;
+const ORG_GOVERNANCE_ACTION_REF_PATTERN =
+  /^yohn-jp\/\.github\/\.github\/actions\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*@/u;
+const ORG_GOVERNANCE_LIVE_REF_PATTERN =
+  /^yohn-jp\/\.github\/\.github\/(?:workflows\/[A-Za-z0-9_.-]+\.ya?ml|actions\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*)@main$/u;
 
 export function validateActionText(source, filePath = "<text>") {
   const references = [];
@@ -39,13 +44,21 @@ export function validateActionText(source, filePath = "<text>") {
     const local = reference.startsWith("./");
     references.push({ file: filePath, line: lineNumber, reference, local });
     if (!local && ORG_GOVERNANCE_LIVE_REF_PATTERN.test(reference)) {
-      // org-owned reusable workflow on @main: accepted, no further checks.
-    } else if (!local && /^yohn-jp\/\.github\/\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml@/u.test(reference)) {
+      // org-owned resource on @main: accepted, no further checks.
+    } else if (!local && ORG_GOVERNANCE_WORKFLOW_REF_PATTERN.test(reference)) {
       errors.push(
         filePath +
           ":" +
           lineNumber +
           ": organization-owned reusable workflow must follow @main, not a commit SHA or other ref: " +
+          reference,
+      );
+    } else if (!local && ORG_GOVERNANCE_ACTION_REF_PATTERN.test(reference)) {
+      errors.push(
+        filePath +
+          ":" +
+          lineNumber +
+          ": organization-owned composite action must follow @main, not a commit SHA or other ref: " +
           reference,
       );
     } else if (!local && !IMMUTABLE_EXTERNAL_ACTION_PATTERN.test(reference)) {

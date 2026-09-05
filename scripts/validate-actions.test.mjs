@@ -60,6 +60,15 @@ test("accepts the shared TypeScript CI workflow on @main like any other org-owne
   assert.deepEqual(result.errors, []);
 });
 
+test("accepts the shared Node.js and pnpm composite action on @main", () => {
+  const result = validateActionText(
+    "    uses: yohn-jp/.github/.github/actions/setup-node-pnpm@main",
+    ".github/workflows/ci.yml",
+  );
+
+  assert.deepEqual(result.errors, []);
+});
+
 test("rejects a commit-SHA pin on the shared TypeScript CI workflow (Issue #802 regression)", () => {
   const result = validateActionText(
     "    uses: yohn-jp/.github/.github/workflows/typescript-cli-ci.yml@" + sha,
@@ -81,12 +90,25 @@ test("the CI caller follows the live TypeScript foundation and retains product l
   }
 });
 
-test("rejects @main for every non-org external reference, and rejects non-@main org-owned workflow refs", () => {
+test("CI delegates repository dependency installation to the shared Node.js and pnpm action", () => {
+  const ciWorkflow = fs.readFileSync(path.join(repositoryRoot, ".github/workflows/ci.yml"), "utf8");
+  const sharedSetupAction = "yohn-jp/.github/.github/actions/setup-node-pnpm@main";
+
+  assert.equal((ciWorkflow.match(new RegExp(sharedSetupAction, "gu")) ?? []).length, 6);
+  assert.doesNotMatch(ciWorkflow, /uses:\s*\.\/\.github\/actions\/setup-pnpm-node/u);
+  assert.doesNotMatch(ciWorkflow, /run:\s*pnpm install --frozen-lockfile/u);
+  assert.match(
+    fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8"),
+    /"packageManager":\s*"pnpm@11\.18\.0"/u,
+  );
+});
+
+test("rejects @main for every non-org external reference, and rejects non-@main org-owned refs", () => {
   const result = validateActionText(
     [
       "      uses: actions/checkout@main",
       "      uses: yohn-jp/.github@main",
-      "      uses: yohn-jp/.github/.github/actions/example@main",
+      "      uses: yohn-jp/.github/.github/actions/example@v1",
       "      uses: yohn-jp/other-repo/.github/workflows/pr-governance.yml@main",
       "      uses: yohn-jp/.github/.github/workflows/pr-governance.yml@v1",
       "      uses: yohn-jp/.github/.github/workflows/pr-governance.yml@" + sha,
@@ -97,7 +119,7 @@ test("rejects @main for every non-org external reference, and rejects non-@main 
   assert.equal(result.errors.length, 6);
   assert.match(result.errors[0], /full 40-character commit SHA/u);
   assert.match(result.errors[1], /full 40-character commit SHA/u);
-  assert.match(result.errors[2], /full 40-character commit SHA/u);
+  assert.match(result.errors[2], /organization-owned composite action must follow @main/u);
   assert.match(result.errors[3], /full 40-character commit SHA/u);
   assert.match(result.errors[4], /organization-owned reusable workflow must follow @main/u);
   assert.match(result.errors[5], /organization-owned reusable workflow must follow @main/u);
