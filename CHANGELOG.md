@@ -11,6 +11,17 @@ in the Claude and Codex registration examples in `README.md` together.
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-09-05
+
+Release-infrastructure patch release. See
+[docs/releases/0.9.3.md](docs/releases/0.9.3.md) for the full writeup.
+
+- **Fixed**: the ORAS CLI flag mismatch that blocked the 0.9.2 Runtime
+  Appliance OCI publish (`--no-tty` on `manifest fetch`/`tag`, which never
+  supported it) is corrected, and a regression check now verifies every
+  `oras` invocation in the release workflow against the pinned CLI's real
+  supported flags before release publication (#834, #835).
+
 ## [0.9.2] - 2026-09-05
 
 Release-infrastructure patch release. See
