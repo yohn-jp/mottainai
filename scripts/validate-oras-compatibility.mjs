@@ -13,6 +13,7 @@ const PUBLISH_WORKFLOW_RELATIVE_PATH = ".github/workflows/publish.yml";
 const SETUP_ORAS_STEP_NAME = "Setup ORAS CLI";
 const USES_PATTERN = /^\s*uses:\s*oras-project\/setup-oras@([0-9a-f]{40})/u;
 const VERSION_PATTERN = /^\s*version:\s*["']?([^"'\s#]+)["']?/u;
+const COMMIT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const RELEASES_JSON_TIMEOUT_MS = 10_000;
 
 export function extractOrasSetupStep(publishWorkflowText) {
@@ -42,8 +43,16 @@ export function extractOrasSetupStep(publishWorkflowText) {
   return { sha, version };
 }
 
+export function validateSetupOrasSha(sha) {
+  if (!COMMIT_SHA_PATTERN.test(sha)) {
+    throw new Error("setup-oras revision must be exactly a 40-character lowercase hexadecimal commit SHA");
+  }
+  return sha;
+}
+
 export async function fetchSupportedOrasVersions(sha, fetchImpl = fetch) {
-  const url = `https://raw.githubusercontent.com/oras-project/setup-oras/${sha}/src/lib/data/releases.json`;
+  const validatedSha = validateSetupOrasSha(sha);
+  const url = `https://raw.githubusercontent.com/oras-project/setup-oras/${validatedSha}/src/lib/data/releases.json`;
   const response = await fetchImpl(url, { signal: AbortSignal.timeout(RELEASES_JSON_TIMEOUT_MS) });
   if (!response.ok) {
     throw new Error(`could not fetch setup-oras release table at ${url}: HTTP ${response.status}`);
