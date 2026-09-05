@@ -12,7 +12,7 @@ use crate::appliance::{ensure_appliance, ApplianceReference};
 use crate::bootstrap_disk::{
     bootstrap_disk_name, ensure_bootstrap_disk, ensure_lima_public_key, verify_bootstrap_disk,
 };
-use crate::error::{BootstrapError, ErrorCode};
+use crate::error::{bound_text, BootstrapError, ErrorCode};
 use crate::lock::BootstrapLock;
 use crate::model::Outcome;
 use crate::oci::OciSource;
@@ -412,6 +412,39 @@ fn join_output_readers(
     }
 }
 
+/// Converts captured child output into a short, stable diagnostic. The
+/// readers retain at most `MAX_COMMAND_OUTPUT` bytes per stream, and this
+/// helper keeps the same bound in place while removing control characters
+/// before the text reaches the public error/evidence boundary.
+fn timeout_output_diagnostic(stdout: &[u8], stderr: &[u8]) -> Option<String> {
+    let mut diagnostic = String::new();
+    for (stream, output) in [("stderr", stderr), ("stdout", stdout)] {
+        let bounded = &output[..output.len().min(MAX_COMMAND_OUTPUT)];
+        let text = String::from_utf8_lossy(bounded)
+            .chars()
+            .map(|character| {
+                if character.is_control() {
+                    ' '
+                } else {
+                    character
+                }
+            })
+            .collect::<String>();
+        let text = text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        if !diagnostic.is_empty() {
+            diagnostic.push_str("; ");
+        }
+        diagnostic.push_str(stream);
+        diagnostic.push_str(": ");
+        diagnostic.push_str(text);
+    }
+
+    (!diagnostic.is_empty()).then(|| bound_text(&diagnostic))
+}
+
 fn terminate_and_wait(child: &mut Child) -> Result<(), BootstrapError> {
     let kill_result = child.kill();
     let wait_result = child.wait();
@@ -565,12 +598,19 @@ impl SystemLimaCli {
                 Ok(None) => {
                     let cleanup = terminate_and_wait(&mut child);
                     let output = join_output_readers(stdout_reader, stderr_reader);
-                    cleanup?;
-                    output?;
-                    return Err(BootstrapError::new(
-                        ErrorCode::LimaCommandFailed,
-                        "limactl command timed out",
-                    ));
+                    return match (cleanup, output) {
+                        (Err(cleanup_error), _) => Err(cleanup_error),
+                        (_, Err(output_error)) => Err(output_error),
+                        (Ok(()), Ok((stdout, stderr))) => {
+                            let message = match timeout_output_diagnostic(&stdout, &stderr) {
+                                Some(diagnostic) => {
+                                    format!("limactl command timed out: {diagnostic}")
+                                }
+                                None => "limactl command timed out".to_owned(),
+                            };
+                            Err(BootstrapError::new(ErrorCode::LimaCommandFailed, message))
+                        }
+                    };
                 }
                 Err(error) => {
                     let wait_error = BootstrapError::new(
@@ -579,8 +619,7 @@ impl SystemLimaCli {
                     );
                     let cleanup = terminate_and_wait(&mut child);
                     let output = join_output_readers(stdout_reader, stderr_reader);
-                    cleanup?;
-                    output?;
+                    cleanup.and(output.map(|_| ()))?;
                     return Err(wait_error);
                 }
             }
@@ -1465,6 +1504,24 @@ mod tests {
     }
 
     #[test]
+    fn limactl_timeout_diagnostic_fixture() {
+        if !running_as_fixture("limactl_timeout_diagnostic_fixture") {
+            return;
+        }
+        let mut stdout = io::stdout().lock();
+        stdout.write_all(b"stdout-timeout-diagnostic").unwrap();
+        stdout.flush().unwrap();
+        drop(stdout);
+
+        let mut stderr = io::stderr().lock();
+        stderr
+            .write_all(b"stderr-timeout-diagnostic\nPermission denied (publickey)")
+            .unwrap();
+        stderr.flush().unwrap();
+        thread::sleep(Duration::from_secs(30));
+    }
+
+    #[test]
     fn limactl_timeout_fixture() {
         if !running_as_fixture("limactl_timeout_fixture") {
             return;
@@ -1480,7 +1537,7 @@ mod tests {
                 Duration::from_secs(10),
             )
             .unwrap();
-        assert!(output.len() <= MAX_COMMAND_OUTPUT);
+        assert_eq!(output.len(), MAX_COMMAND_OUTPUT);
     }
 
     #[test]
@@ -1495,19 +1552,54 @@ mod tests {
         assert!(error.message.contains("stdout-diagnostic"));
         assert!(error.message.contains("stderr-diagnostic"));
         assert!(error.message.chars().count() <= 512);
+        assert!(!error.message.starts_with("limactl command timed out"));
     }
 
     #[test]
     fn timeout_reaps_child_and_returns_stable_bounded_error() {
         let error = output_fixture_cli()
             .run(
-                &["limactl_timeout_fixture", "--nocapture"],
+                &["limactl_timeout_fixture", "--quiet"],
                 Duration::from_millis(100),
             )
             .unwrap_err();
         assert_eq!(error.code, ErrorCode::LimaCommandFailed);
-        assert_eq!(error.message, "limactl command timed out");
+        assert!(error.message.starts_with("limactl command timed out"));
         assert!(error.message.chars().count() <= 512);
+    }
+
+    #[test]
+    fn timeout_preserves_bounded_stdout_and_stderr_diagnostics() {
+        let error = output_fixture_cli()
+            .run(
+                &["limactl_timeout_diagnostic_fixture", "--nocapture"],
+                Duration::from_millis(100),
+            )
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::LimaCommandFailed);
+        assert!(error.message.starts_with("limactl command timed out:"));
+        assert!(error.message.contains("stderr-timeout-diagnostic"));
+        assert!(error.message.contains("Permission denied (publickey)"));
+        assert!(error.message.contains("stdout-timeout-diagnostic"));
+        assert!(error.message.chars().count() <= 512);
+        assert!(!error
+            .message
+            .chars()
+            .any(|character| character.is_control()));
+    }
+
+    #[test]
+    fn timeout_diagnostic_truncation_is_bounded_from_capture() {
+        let output = vec![b'x'; MAX_COMMAND_OUTPUT * 2];
+        let diagnostic = timeout_output_diagnostic(&output, b"ssh\nfailed").unwrap();
+        assert!(diagnostic.starts_with("stderr: ssh failed; stdout: "));
+        assert!(diagnostic.chars().count() <= 513);
+        assert!(!diagnostic.chars().any(|character| character.is_control()));
+    }
+
+    #[test]
+    fn empty_timeout_output_uses_stable_fallback() {
+        assert_eq!(timeout_output_diagnostic(&[], &[]), None);
     }
 
     #[derive(Clone, Debug)]
