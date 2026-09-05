@@ -12,6 +12,7 @@ import {
   extractOrasSetupStep,
   fetchOrasSubcommandFlags,
   fetchSupportedOrasVersions,
+  validateOrasVersion,
   validateSetupOrasSha,
 } from "./validate-oras-compatibility.mjs";
 
@@ -60,6 +61,31 @@ test("validateSetupOrasSha rejects revisions that could alter the trusted outbou
       message: /40-character lowercase hexadecimal commit SHA/u,
     });
   }
+});
+
+test("validateOrasVersion accepts exactly a bare MAJOR.MINOR.PATCH semver", () => {
+  assert.equal(validateOrasVersion("1.3.3"), "1.3.3");
+});
+
+test("validateOrasVersion rejects values that could alter the trusted download URL", () => {
+  for (const unsafeVersion of ["1.3", "1.3.3-rc.1", "../1.3.3", "1.3.3/../../evil", "v1.3.3", "1.3.3 && rm -rf ."]) {
+    assert.throws(() => validateOrasVersion(unsafeVersion), {
+      message: /bare MAJOR\.MINOR\.PATCH semver/u,
+    });
+  }
+});
+
+test("downloadOrasBinary rejects an unsafe version before making a network request", async () => {
+  let called = false;
+  const fixtureFetch = async () => {
+    called = true;
+    throw new Error("must not be called");
+  };
+
+  await assert.rejects(downloadOrasBinary("../evil", "/tmp", fixtureFetch), {
+    message: /bare MAJOR\.MINOR\.PATCH semver/u,
+  });
+  assert.equal(called, false);
 });
 
 test("checkOrasCompatibility passes when the requested version is in the supported table", () => {

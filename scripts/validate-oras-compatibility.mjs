@@ -27,6 +27,7 @@ const SETUP_ORAS_STEP_NAME = "Setup ORAS CLI";
 const USES_PATTERN = /^\s*uses:\s*oras-project\/setup-oras@([0-9a-f]{40})/u;
 const VERSION_PATTERN = /^\s*version:\s*["']?([^"'\s#]+)["']?/u;
 const COMMIT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
+const ORAS_VERSION_PATTERN = /^\d+\.\d+\.\d+$/u;
 const RELEASES_JSON_TIMEOUT_MS = 10_000;
 const BINARY_DOWNLOAD_TIMEOUT_MS = 30_000;
 // Two-word subcommands must be listed before their one-word prefix would
@@ -77,6 +78,18 @@ export function validateSetupOrasSha(sha) {
   return sha;
 }
 
+// Constrains the extracted `with.version` before it can reach a download
+// URL, the same way validateSetupOrasSha constrains the extracted Action
+// SHA: publish.yml is trusted content, but a value pulled out of it by
+// regex should still be shaped like the bare semver ORAS actually
+// publishes before it is allowed to influence an outbound request.
+export function validateOrasVersion(version) {
+  if (!ORAS_VERSION_PATTERN.test(version)) {
+    throw new Error("ORAS CLI version must be exactly a bare MAJOR.MINOR.PATCH semver");
+  }
+  return version;
+}
+
 export async function fetchSupportedOrasVersions(sha, fetchImpl = fetch) {
   const validatedSha = validateSetupOrasSha(sha);
   const url = `https://raw.githubusercontent.com/oras-project/setup-oras/${validatedSha}/src/lib/data/releases.json`;
@@ -111,8 +124,9 @@ export function extractOrasInvocations(publishWorkflowText) {
 }
 
 export async function downloadOrasBinary(version, destinationDirectory, fetchImpl = fetch) {
-  const archiveName = `oras_${version}_linux_amd64.tar.gz`;
-  const url = `https://github.com/oras-project/oras/releases/download/v${version}/${archiveName}`;
+  const validatedVersion = validateOrasVersion(version);
+  const archiveName = `oras_${validatedVersion}_linux_amd64.tar.gz`;
+  const url = `https://github.com/oras-project/oras/releases/download/v${validatedVersion}/${archiveName}`;
   const response = await fetchImpl(url, { signal: AbortSignal.timeout(BINARY_DOWNLOAD_TIMEOUT_MS) });
   if (!response.ok) {
     throw new Error(`could not download ORAS CLI release at ${url}: HTTP ${response.status}`);
