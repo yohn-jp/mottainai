@@ -1,0 +1,976 @@
+{
+  "baseSha": "f983e1f1c8abb38fbc160169f8d1b6472b95608d",
+  "headSha": "4eda46a29ccb8791316489b5f896445fd58bd5dc",
+  "preview": {
+    "excluded_count": 88,
+    "excluded_files": [
+      {
+        "deletions": 13,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 13,
+        "path": "CHANGELOG.md",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 1,
+        "path": "CONTRIBUTING.md",
+        "status": "modified"
+      },
+      {
+        "deletions": 22,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 22,
+        "path": "README.md",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 1,
+        "path": "SECURITY.md",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 59,
+        "path": "docs/README.md",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 19,
+        "path": "docs/architecture/README.md",
+        "status": "added"
+      },
+      {
+        "deletions": 1,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 1,
+        "path": "docs/architecture/ci/topology.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 2,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 2,
+        "path": "docs/architecture/deployment/routes.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 1,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 1,
+        "path": "docs/architecture/integrations/managed-hooks.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/architecture/integrations/nawabari-execution.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/architecture/mcp/harness-delegation.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 216,
+        "path": "docs/architecture/repository/semantic-model.md",
+        "status": "added"
+      },
+      {
+        "deletions": 11,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 11,
+        "path": "docs/architecture/runtime/README.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/architecture/runtime/appliance-oci.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 3,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 3,
+        "path": "docs/architecture/runtime/lifecycle.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 8,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 8,
+        "path": "docs/architecture/runtime/lima-orchestration.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 4,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 4,
+        "path": "docs/architecture/runtime/providers/proxmox.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 115,
+        "path": "docs/architecture/validation/governor.md",
+        "status": "added"
+      },
+      {
+        "deletions": 60,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/benchmark-artifact-bounding.md",
+        "status": "deleted"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 22,
+        "path": "docs/contracts/README.md",
+        "status": "added"
+      },
+      {
+        "deletions": 1,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 1,
+        "path": "docs/contracts/deployment/descriptor.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 3,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 3,
+        "path": "docs/contracts/deployment/host-bootstrap.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 9,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 9,
+        "path": "docs/contracts/quality/evidence-providers.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 7,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 7,
+        "path": "docs/contracts/runtime/bootstrap.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 10,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 10,
+        "path": "docs/contracts/runtime/linux-runtime.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 6,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 6,
+        "path": "docs/contracts/runtime/managed-generation.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 9,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 9,
+        "path": "docs/contracts/runtime/managed-package-manifest.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 83,
+        "path": "docs/contracts/runtime/read-governor.md",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 23,
+        "path": "docs/contracts/runtime/ssh-target-identity.md",
+        "status": "added"
+      },
+      {
+        "deletions": 3,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 3,
+        "path": "docs/contracts/runtime/state.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 1,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 1,
+        "path": "docs/contracts/workflow/git-policy.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 1,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 1,
+        "path": "docs/decisions/0001-optimize-working-set-not-compression-ratio.md",
+        "status": "modified"
+      },
+      {
+        "deletions": 3,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 3,
+        "path": "docs/decisions/0002-linux-runtime-contract.md",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 1,
+        "path": "docs/decisions/0003-layered-declarative-deployment.md",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 9,
+        "path": "docs/decisions/README.md",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 11,
+        "path": "docs/design/README.md",
+        "status": "added"
+      },
+      {
+        "deletions": 30,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/fault-injection.md",
+        "status": "deleted"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 20,
+        "path": "docs/governance/README.md",
+        "status": "added"
+      },
+      {
+        "deletions": 5,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 6,
+        "path": "docs/governance/coding-standards.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 91,
+        "path": "docs/governance/documentation-migration.md",
+        "status": "added"
+      },
+      {
+        "deletions": 1,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 1,
+        "path": "docs/governance/issues-and-pull-requests.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 11,
+        "path": "docs/history/README.md",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/history/releases/0.1.1.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/history/releases/0.1.2.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/history/releases/0.1.3.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/history/releases/0.1.4.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/history/releases/0.2.0.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/history/releases/0.3.0.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/history/releases/0.3.1.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/history/releases/0.4.0.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/history/releases/0.5.0.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/history/releases/0.6.0.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/history/releases/0.7.0.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 1,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 1,
+        "path": "docs/history/releases/0.7.1.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/history/releases/0.8.0.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/history/releases/0.8.1.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/history/releases/0.8.2.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/history/releases/0.8.3.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/history/releases/0.9.0.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/history/releases/0.9.1.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/history/releases/0.9.2.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/history/releases/0.9.3.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 124,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/mcp-stdio-blackbox.md",
+        "status": "deleted"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 16,
+        "path": "docs/operations/README.md",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/operations/deployment/route4-to-route1.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 6,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 6,
+        "path": "docs/operations/release/process.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/operations/runtime/context-runtime-rollout.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 5,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 5,
+        "path": "docs/operations/runtime/local-runtime.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 4,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 4,
+        "path": "docs/operations/runtime/nix-golden-path.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 64,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/read-governor.md",
+        "status": "deleted"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 14,
+        "path": "docs/reports/README.md",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 80,
+        "path": "docs/reports/benchmarks/artifact-bounding.md",
+        "status": "added"
+      },
+      {
+        "deletions": 17,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 45,
+        "path": "docs/reports/dogfood/context-runtime.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 5,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 5,
+        "path": "docs/reports/dogfood/managed-hooks.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/reports/experiments/2026-08-08-headroom-codex-ab.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 113,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/repository-semantics.md",
+        "status": "deleted"
+      },
+      {
+        "deletions": 20,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/ssh-target-identity.md",
+        "status": "deleted"
+      },
+      {
+        "deletions": 157,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/testing.md",
+        "status": "deleted"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 206,
+        "path": "docs/testing/README.md",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 41,
+        "path": "docs/testing/architecture/fault-injection.md",
+        "status": "added"
+      },
+      {
+        "deletions": 1,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 1,
+        "path": "docs/testing/integration/lima-appliance-boot-probe.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/testing/integration/lima-validation-probe.md",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 166,
+        "path": "docs/testing/mcp/stdio-blackbox.md",
+        "status": "added"
+      },
+      {
+        "deletions": 69,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 0,
+        "path": "docs/validation-governor.md",
+        "status": "deleted"
+      },
+      {
+        "deletions": 3,
+        "exclude_reason": "default_path",
+        "insertions": 3,
+        "path": "scripts/fixtures/governance/quality-gates.json",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "default_path",
+        "insertions": 0,
+        "path": "scripts/fixtures/quality-evidence-providers/v1/dependency-cruiser.no-circular.json",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "default_path",
+        "insertions": 0,
+        "path": "scripts/fixtures/quality-evidence-providers/v1/semgrep.custom-rules.yml",
+        "status": "renamed"
+      },
+      {
+        "deletions": 1,
+        "exclude_reason": "default_path",
+        "insertions": 1,
+        "path": "src/e2e/gateway.e2e.spec.ts",
+        "status": "modified"
+      }
+    ],
+    "from": "f983e1f1c8abb38fbc160169f8d1b6472b95608d",
+    "merge_base": "f983e1f1c8abb38fbc160169f8d1b6472b95608d",
+    "mode": "range",
+    "reviewable_count": 39,
+    "reviewable_files": [
+      {
+        "deletions": 1,
+        "insertions": 1,
+        "path": ".github/CODEOWNERS",
+        "status": "modified"
+      },
+      {
+        "deletions": 9,
+        "insertions": 9,
+        "path": ".github/workflows/ci.yml",
+        "status": "modified"
+      },
+      {
+        "deletions": 5,
+        "insertions": 8,
+        "path": "docs/design/mockups/index.html",
+        "status": "renamed"
+      },
+      {
+        "deletions": 3,
+        "insertions": 5,
+        "path": "docs/design/mockups/mottainai.html",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "insertions": 0,
+        "path": "docs/design/mockups/styles.css",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "insertions": 0,
+        "path": "docs/design/mockups/vendor/addon-fit.js",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "insertions": 0,
+        "path": "docs/design/mockups/vendor/xterm.css",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "insertions": 0,
+        "path": "docs/design/mockups/vendor/xterm.js",
+        "status": "renamed"
+      },
+      {
+        "deletions": 1,
+        "insertions": 1,
+        "path": "docs/design/mockups/wabachi.html",
+        "status": "renamed"
+      },
+      {
+        "deletions": 0,
+        "insertions": 0,
+        "path": "docs/design/models/repository-semantic-model-v1.ts",
+        "status": "renamed"
+      },
+      {
+        "deletions": 1,
+        "insertions": 1,
+        "path": "docs/testing/mutation/baseline.json",
+        "status": "renamed"
+      },
+      {
+        "deletions": 2,
+        "insertions": 2,
+        "path": "host-bootstrap/src/appliance.rs",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "insertions": 1,
+        "path": "host-bootstrap/src/deployment_descriptor.rs",
+        "status": "modified"
+      },
+      {
+        "deletions": 2,
+        "insertions": 2,
+        "path": "host-bootstrap/src/lima.rs",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "insertions": 1,
+        "path": "nix/deployments/golden-path.nix",
+        "status": "modified"
+      },
+      {
+        "deletions": 2,
+        "insertions": 2,
+        "path": "nix/flake.nix",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "insertions": 1,
+        "path": "nix/managed-generation.nix",
+        "status": "modified"
+      },
+      {
+        "deletions": 3,
+        "insertions": 3,
+        "path": "nix/modules/runtime.nix",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "insertions": 1,
+        "path": "nix/tests/managed-runtime-health.nix",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "insertions": 1,
+        "path": "nix/tests/runtime.nix",
+        "status": "modified"
+      },
+      {
+        "deletions": 3,
+        "insertions": 5,
+        "path": "package.json",
+        "status": "modified"
+      },
+      {
+        "deletions": 2,
+        "insertions": 2,
+        "path": "scripts/architecture-check.mjs",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "insertions": 1,
+        "path": "scripts/build-runtime-appliance-oci-fixture.mjs",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "insertions": 1,
+        "path": "scripts/ci-contract-ownership.mjs",
+        "status": "modified"
+      },
+      {
+        "deletions": 2,
+        "insertions": 2,
+        "path": "scripts/ci-contract-ownership.test.mjs",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "insertions": 1,
+        "path": "scripts/ci-runtime-contract-gates.mjs",
+        "status": "modified"
+      },
+      {
+        "deletions": 2,
+        "insertions": 2,
+        "path": "scripts/copy-dashboard-assets.mjs",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 206,
+        "path": "scripts/documentation-check.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 91,
+        "path": "scripts/documentation-check.test.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 1,
+        "insertions": 1,
+        "path": "scripts/effectiveness-regressions.test.mjs",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "insertions": 1,
+        "path": "scripts/lima-appliance-boot-probe.mjs",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "insertions": 1,
+        "path": "scripts/mutation-catalog.mjs",
+        "status": "modified"
+      },
+      {
+        "deletions": 2,
+        "insertions": 2,
+        "path": "src/bootstrap/cli.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "insertions": 1,
+        "path": "src/dashboard/assets.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "insertions": 1,
+        "path": "src/manager/assets.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 3,
+        "insertions": 3,
+        "path": "src/runtime-contract/contract.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 3,
+        "insertions": 3,
+        "path": "src/runtime-contract/managed-package-manifest.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "insertions": 1,
+        "path": "src/workflow/policy/load.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "insertions": 1,
+        "path": "src/workflow/validation/governor.ts",
+        "status": "modified"
+      }
+    ],
+    "schema_version": "1",
+    "to": "4eda46a29ccb8791316489b5f896445fd58bd5dc",
+    "total_deletions": 868,
+    "total_files": 127,
+    "total_insertions": 1766
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.4"
+  },
+  "rule": {
+    "groups": [
+      {
+        "files": [
+          ".github/CODEOWNERS",
+          "docs/design/mockups/index.html",
+          "docs/design/mockups/mottainai.html",
+          "docs/design/mockups/styles.css",
+          "docs/design/mockups/vendor/xterm.css",
+          "docs/design/mockups/wabachi.html"
+        ],
+        "group_id": 1,
+        "pattern": "default",
+        "rule": "#### Correctness\nIs the logic correct? Are there missing boundary conditions?\nAre exceptions handled properly?\nIs it thread-safe in concurrent scenarios?\n\n#### Security\nAre there security vulnerabilities such as SQL injection or XSS?\nIs sensitive information handled correctly?\nIs permission validation complete?\n\n#### Performance\nAre there obvious performance issues (e.g., N+1 queries, unnecessary loops)?\nAre resources properly released?\n\n#### Maintainability\nIs the code clear and easy to understand?\nDo names accurately express intent?\nDoes it follow the project’s existing code style and architecture patterns?\n\n#### Test Coverage\nDo critical logic paths have corresponding test cases?\nDo test cases cover boundary conditions?",
+        "source": "system"
+      },
+      {
+        "files": [
+          ".github/workflows/ci.yml"
+        ],
+        "group_id": 2,
+        "pattern": ".github/workflows/**/*.{yaml,yml}",
+        "rule": "#### Security\n- **pull_request_target misuse**: Using `pull_request_target` with `actions/checkout` referencing PR head code is dangerous — it runs untrusted code with write permissions. Flag if checkout ref points to PR head without isolation\n- **Secrets exposure**: Secrets must not be printed to logs (e.g., `echo ${{ secrets.X }}`). Verify secrets are only passed via `env:` blocks to steps that need them\n- **Excessive permissions**: Check if `permissions` is set to least-privilege. Flag `permissions: write-all` or missing `permissions` key (defaults to broad access). Each job should declare only the permissions it needs\n- **Unpinned action versions**: Third-party actions should be pinned to a full commit SHA (e.g., `uses: actions/checkout@<sha>`), not just a tag. Tags are mutable and can be hijacked. First-party (`actions/*`) pinned to `v4` is acceptable\n- **Script injection**: Expressions like `${{ github.event.issue.title }}` used directly in `run:` blocks enable code injection. These must be passed through environment variables instead\n- **Hardcoded credentials**: Tokens, passwords, or API keys directly in the workflow file (not via secrets)\n\n#### Correctness\n- **Missing `fetch-depth: 0`**: When a workflow needs git history (tags, merge-base, changelog generation), verify `actions/checkout` uses `fetch-depth: 0`\n- **Incorrect condition logic**: Verify `if:` conditions are correct (e.g., `github.event_name == 'pull_request'` vs `'pull_request_target'`); ensure boolean expressions are properly quoted\n- **Matrix strategy gaps**: Check that matrix combinations cover required platforms. Flag if `fail-fast` is true (default) but all matrix legs must succeed\n- **Missing `shell` specification**: When using `run:` with multi-line scripts on self-hosted runners, shell should be explicit (bash vs sh vs pwsh)\n- **Broken job dependencies**: Verify `needs:` references exist as actual job IDs in the same workflow. Check for circular dependencies\n- **Typos in action inputs**: Misspelled input names for actions (e.g., `fetch-detph` instead of `fetch-depth`) are silently ignored\n\n#### Reliability\n- **Missing timeout**: Jobs without `timeout-minutes` can run indefinitely and consume runner resources. Flag jobs that lack timeout (especially on self-hosted runners)\n- **No concurrency control**: Workflows triggered by push/PR without `concurrency` group may create redundant runs. Suggest `concurrency` with `cancel-in-progress` where appropriate\n- **Uncached dependencies**: Build workflows that install dependencies without caching (no `actions/cache` or built-in caching) on every run\n\n#### Best Practices\n- **Deprecated features**: Flag usage of deprecated syntax (`set-output`, `save-state`, `::set-output`, `actions/checkout@v2/v3` when v4 is available)\n- **Missing `continue-on-error` awareness**: If a step failure should not fail the whole job, it needs `continue-on-error: true`; conversely, verify non-critical steps don't silently swallow failures with `|| true` hiding real errors\n- **Container image tags**: Using `latest` tag for container images is unreliable; prefer specific version tags",
+        "source": "system"
+      },
+      {
+        "files": [
+          "docs/design/mockups/vendor/addon-fit.js",
+          "docs/design/mockups/vendor/xterm.js",
+          "docs/design/models/repository-semantic-model-v1.ts",
+          "scripts/architecture-check.mjs",
+          "scripts/build-runtime-appliance-oci-fixture.mjs",
+          "scripts/ci-contract-ownership.mjs",
+          "scripts/ci-contract-ownership.test.mjs",
+          "scripts/ci-runtime-contract-gates.mjs",
+          "scripts/copy-dashboard-assets.mjs",
+          "scripts/documentation-check.mjs",
+          "scripts/documentation-check.test.mjs",
+          "scripts/effectiveness-regressions.test.mjs",
+          "scripts/lima-appliance-boot-probe.mjs",
+          "scripts/mutation-catalog.mjs",
+          "src/bootstrap/cli.ts",
+          "src/dashboard/assets.ts",
+          "src/manager/assets.ts",
+          "src/runtime-contract/contract.ts",
+          "src/runtime-contract/managed-package-manifest.ts",
+          "src/workflow/policy/load.ts",
+          "src/workflow/validation/governor.ts"
+        ],
+        "group_id": 3,
+        "pattern": "**/*.{ts,js,tsx,jsx,mjs,cjs}",
+        "rule": "#### Obvious Typos or Spelling Errors\n- Spelling errors in variable names, function names, component names, or Props property names\n- Strings in log or error messages containing spelling errors that affect readability\n\n#### Dead Code\n- Code blocks that will never be executed (e.g., branches where the condition is always false, code after a return statement)\n- Variables that are declared but never read or referenced\n- Large blocks of commented-out code (with no apparent intent to retain)\n\n#### Code Quality Checks\n- **Duplicate Code**: Check for common logic that can be extracted\n- **Code Comments**: Complex business logic should have clear explanatory comments (avoid commenting obvious code)\n- **Hardcoding**: Business-related hardcoded strings are prohibited, especially URL paths and business numbers; simple UI text may be relaxed\n- **Variable Declarations**: Using `var` is strictly prohibited; use `let` or `const`\n- **Equality Comparisons**: Using `==` and `!=` is prohibited; use strict equality `===` and `!==`\n- **TypeScript Types**: Avoid using `any` type; if necessary, provide a comment explaining the reason\n- **Null Checks**: Perform null checks when accessing values or destructuring to avoid null pointer exceptions\n- **Ternary Expressions**: Nested ternary expressions are not allowed\n\n#### React Best Practices\n- **Hooks Usage**: Verify compliance with Hooks rules (only call at the top level, only call in React functions)\n- **State Management**: Ensure state is placed at the appropriate level; avoid unnecessary state lifting\n- **Side Effect Handling**: Verify useEffect correctly handles dependencies and cleanup functions\n- **Performance Optimization**: Verify proper use of React.memo, useMemo, useCallback (based on performance analysis; avoid over-optimization)\n- **Render Side Effects**: Side effects in React component render methods are strictly prohibited (e.g., API calls, DOM manipulation)\n- **Inline Styles**: Avoid using inline `style` attributes, except for dynamic styles\n- **Inner Components**: Declaring new components inside a component is prohibited; use render methods instead (e.g., `renderItem`, not `<Item/>`)\n\n#### Async Handling Standards\n- **Error Handling**: Async functions must include proper error handling with user-friendly error messages\n- **Prefer async/await**: Prefer async/await over Promises; callback hell is prohibited\n- **Async in Loops**: Distinguish between independent async operations (use `Promise.all` for parallelism) and dependent async operations (use sequential execution); prefer `Promise.all` for performance\n\n#### Code Security Checks\n- **XSS Protection**: Verify that user input is properly escaped\n- **innerHTML Safety**: Using innerHTML to directly insert user input is prohibited; use textContent or apply XSS protection\n- **Code Injection Protection**: Using eval(), Function() constructor, and string argument forms of setTimeout/setInterval is strictly prohibited\n- **Dangerous Methods**: Using document.write() is prohibited as it causes page reflow and security issues\n- **Sensitive Information**: Check whether API keys or sensitive data are exposed\n- **Prototype Chain Safety**: Modifying native object prototypes (e.g., Array.prototype, Object.prototype) is prohibited",
+        "source": "system"
+      },
+      {
+        "files": [
+          "docs/testing/mutation/baseline.json"
+        ],
+        "group_id": 4,
+        "pattern": "**/*.{json,json5}",
+        "rule": "Check JSON files for spelling errors in json-keys; ignore the content of json-values.",
+        "source": "system"
+      },
+      {
+        "files": [
+          "host-bootstrap/src/appliance.rs",
+          "host-bootstrap/src/deployment_descriptor.rs",
+          "host-bootstrap/src/lima.rs"
+        ],
+        "group_id": 5,
+        "pattern": "**/*.rs",
+        "rule": "#### Obvious Typos or Spelling Errors\n- Spelling errors in type names, function names, variable names, enum variants, trait names, or module names at their declaration sites; do not report spelling errors at call sites\n- Strings in log messages, panic messages, error messages, or public diagnostics containing spelling errors that affect readability\n\n#### Ownership and Lifetime Correctness\n- Incorrectly returned references, borrowed values escaping their valid scope, or lifetime relationships that make an API unsound or unusable\n- Excessive or unnecessary `clone()` calls introduced to satisfy borrowing when a borrow, iterator, `Cow`, or ownership transfer would be clearer and cheaper\n- Interior mutability (`RefCell`, `Cell`, `Mutex`) used to work around ownership without a real shared-mutability requirement\n- Reference cycles with `Rc<RefCell<T>>` or `Arc<Mutex<T>>` where `Weak` should be used to break ownership cycles\n\n#### Error Handling and Panics\n- `unwrap()`, `expect()`, `panic!`, `todo!`, or `unimplemented!` in production/library paths where the failure is recoverable or can be propagated with `Result`\n- Errors converted to strings too early or discarded without context; prefer preserving the original error and adding actionable context at boundaries\n- `Result` or `Option` values ignored, swallowed, or mapped to misleading defaults\n- Public APIs that panic on ordinary invalid input instead of returning a typed error, unless the panic documents a clear programming invariant\n\n#### Unsafe Code Boundaries\n- `unsafe` blocks that are broader than necessary or hide multiple unrelated invariants\n- Missing or stale safety rationale for `unsafe` blocks, `unsafe fn`, `unsafe impl Send`, or `unsafe impl Sync`\n- Raw pointer dereferences without clear validity, alignment, initialization, aliasing, and lifetime guarantees\n- FFI boundaries that do not validate null pointers, buffer lengths, ownership transfer, string encoding, or allocator compatibility\n- `static mut`, unchecked `transmute`, `MaybeUninit`, `mem::zeroed`, or manual drop logic used without a documented invariant that makes the operation sound\n\n#### Concurrency and Shared State\n- Holding `Mutex`, `RwLock`, or `RefCell` guards longer than necessary, especially across calls into user code or potentially blocking operations\n- Holding synchronous locks across `.await`, or using blocking I/O, sleeps, or CPU-heavy work directly inside async tasks\n- Check-then-act races around shared state, cache initialization, file creation, or atomics\n- Atomic operations with ordering that is too weak for the data being protected, or overly strong orderings that hide the intended synchronization contract\n- Unsafe `Send` or `Sync` implementations that do not prove all contained state is thread-safe under the documented invariants\n\n#### Async and Cancellation Safety\n- Spawned tasks whose `JoinHandle` is dropped when failures, cancellation, or shutdown still need to be observed\n- Futures that are not cancellation-safe around partial writes, lock acquisition, transactions, or resource cleanup\n- Async functions that use synchronous filesystem, network, or process APIs in request/worker paths where the runtime can be blocked\n- Retry loops without backoff, timeout, cancellation propagation, or bounded attempts\n\n#### Collections, Iterators, and Performance\n- Avoid unnecessary allocations in hot paths, such as repeated `String` construction, `format!`, `collect()`, or `to_vec()` where borrowing or streaming is sufficient\n- Prefer iterator adapters and standard library collection APIs when they make ownership and complexity clearer; avoid dense iterator chains that obscure error handling or side effects\n- Ensure hash maps, vectors, and strings are preallocated when the expected size is known and growth cost is material\n- Avoid O(n^2) lookups from nested loops when a `HashMap`, `HashSet`, sorting, or indexing strategy would clearly reduce complexity\n\n#### Type and API Design\n- Model domain states with enums, newtypes, and typed IDs instead of booleans, strings, or primitive integers when invalid states would otherwise be representable\n- Prefer standard conversion and borrowing traits (`From`, `TryFrom`, `AsRef`, `Borrow`, `IntoIterator`) when designing reusable APIs\n- Public structs, enums, traits, and errors should have useful names, visibility, trait derives, and documentation appropriate to the crate boundary\n- Avoid exposing concrete collection or synchronization types in public APIs when a slice, iterator, trait, or narrower abstraction would preserve flexibility\n\n#### Macros and Metaprogramming\nOnly flag when the diff actually defines a `macro_rules!` or procedural macro; do not report on ordinary macro invocations.\n- An `$x:expr` fragment interpolated more than once in the expansion, so the caller's expression — and any side effects — runs multiple times; bind it to a `let` once inside the expansion\n- Exported or publicly used macros that reference items without `$crate::`, so name resolution breaks or binds the wrong item when the macro is invoked from another crate\n- Token-tree (`$t:tt`) fragments re-emitted without parentheses, where operator precedence can silently change the intended meaning; this applies only to token-level (`tt`) interpolation, since an `:expr` fragment and a whole expansion are each parsed as one complete expression\n- Procedural macros that `unwrap()`, `expect()`, or `panic!` on malformed input instead of emitting a `syn::Error` / `compile_error!` with a useful span\n- Macro-hygiene assumptions that break: generated identifiers relying on names from the call-site scope, or items that collide when the macro is invoked more than once in the same module\n\n#### Security-Sensitive Code\n- Validate path, URL, command, SQL, and serialized input before use; do not build shell commands or SQL with unchecked string concatenation\n- Do not log secrets, tokens, credentials, private keys, or personally identifiable information\n- Check integer conversions, byte slicing, and length arithmetic for overflow, truncation, and UTF-8 boundary errors\n- Cryptographic, random, authentication, and authorization code must use well-reviewed crates and explicit error handling; flag ad hoc implementations",
+        "source": "system"
+      },
+      {
+        "files": [
+          "nix/deployments/golden-path.nix",
+          "nix/flake.nix",
+          "nix/managed-generation.nix",
+          "nix/modules/runtime.nix",
+          "nix/tests/managed-runtime-health.nix",
+          "nix/tests/runtime.nix"
+        ],
+        "group_id": 6,
+        "pattern": "**/*.nix",
+        "rule": "> Favor precision over recall: report only Nix issues that are likely to break evaluation, reproducibility, build isolation, security, or deployment behavior. Do not report formatting that `nixfmt` or project style would handle, and do not require flakes when the repository intentionally uses channels or legacy Nix.\n\n#### Evaluation and Attribute Sets\n- Duplicate attribute definitions in the same attrset, or an attribute override that unintentionally replaces a previously defined value in the changed scope.\n- Referencing `self`, `super`, `pkgs`, `config`, or function arguments that are not in scope for the changed expression.\n- `inherit` statements that reference missing names, or inherit from an attrset that cannot contain the requested attribute.\n- Recursive attrsets (`rec`) where a value depends on itself directly or through an obvious cycle.\n\n#### Reproducibility and Pinning\n- Fetchers such as `fetchTarball`, `fetchGit`, `fetchurl`, `fetchFromGitHub`, or `builtins.fetch*` without a fixed revision and hash when the source affects a package, module, or deployment output.\n- Version strings, source revisions, and hashes that are changed inconsistently, for example a package version bump without the matching source revision/hash update.\n- Imports from `<nixpkgs>` or mutable channels in otherwise pinned flake or lockfile-based code, unless existing neighboring code deliberately follows the same pattern.\n\n#### Build and Packaging Correctness\n- Derivations that use undeclared build tools or runtime dependencies instead of adding them to `nativeBuildInputs`, `buildInputs`, `propagatedBuildInputs`, or wrapper inputs.\n- Phase overrides that drop required default behavior without reintroducing it, such as replacing `installPhase` without installing outputs into `$out`.\n- Hardcoded host paths, user home paths, or `/usr/bin` tools inside derivations that should build in the Nix sandbox.\n- `meta.mainProgram`, `passthru.tests`, or output names that are changed inconsistently with installed binaries or referenced package attributes.\n\n#### NixOS and Home Manager Modules\n- Options used before declaration, options with defaults whose type does not match the declared `types.*`, or renamed options without a compatibility alias or migration path.\n- Systemd service, timer, user, group, port, or file path changes that conflict with existing module options or make activation fail.\n- Secrets or credentials embedded directly in module defaults, environment variables, scripts, or generated config instead of coming from secret management or protected files.\n\n#### Overlays and Flakes\n- Overlay functions with argument order or names swapped (`final`/`prev`, `self`/`super`) causing packages to be pulled from the wrong package set.\n- Flake outputs that reference missing inputs, unsupported systems, or package attributes not defined for every advertised system.\n- Adding a package/app/check/devShell for one system while the surrounding flake helper expects all systems to expose the same attribute.\n\n#### Review Scope\n- Focus on evaluation failures, non-reproducible sources, sandbox escapes, missing dependencies, module activation errors, and secret exposure.\n- Do not flag preference-only style choices, attr ordering, or idioms that are consistent with neighboring Nix files.",
+        "source": "system"
+      },
+      {
+        "files": [
+          "package.json"
+        ],
+        "group_id": 7,
+        "pattern": "**/package.json",
+        "rule": "- Avoid introducing dependencies with a version of `latest` or `*`; use specific version numbers instead. Note: ignore this rule when the version number is not on a newly added line of code\n- Dependency conflicts or duplicate declarations: the same dependency exists in both `dependencies` and `devDependencies`\n- Required tool dependencies not declared: tool names such as eslint, jest, or prettier appear in `scripts` but are not listed in `devDependencies`",
+        "source": "system"
+      }
+    ],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}
