@@ -133,13 +133,14 @@ test("a release/* head ref PR gets a deterministic skip across every Runtime job
 // `main` select different certification tiers. An Appliance-defining PR
 // proves the canonical build and bounded manifest only; the OCI-shaped
 // composition, standalone `mottainai-init` composition verification, and
-// Runtime Appliance golden path are cross-boundary integration evidence
-// reserved for trusted `main`.
+// production Lima composition, and Runtime Appliance golden path are
+// cross-boundary integration evidence reserved for trusted `main`.
 test("an Appliance-defining PR runs canonical build + bounded manifest only, not the full composition chain", () => {
   assert.equal(evaluateStepSelection(stepGates.build, "pull_request"), true);
   assert.equal(evaluateStepSelection(stepGates.manifest, "pull_request"), true);
   assert.equal(evaluateStepSelection(stepGates.ociFixture, "pull_request"), false);
   assert.equal(evaluateStepSelection(stepGates.mottainaiInitAndGoldenPath, "pull_request"), false);
+  assert.equal(evaluateStepSelection(stepGates.productionLimaComposition, "pull_request"), false);
 });
 
 test("a trusted main push runs the full canonical build + manifest + OCI + mottainai-init + golden-path chain", () => {
@@ -147,4 +148,5 @@ test("a trusted main push runs the full canonical build + manifest + OCI + motta
   assert.equal(evaluateStepSelection(stepGates.manifest, "push"), true);
   assert.equal(evaluateStepSelection(stepGates.ociFixture, "push"), true);
   assert.equal(evaluateStepSelection(stepGates.mottainaiInitAndGoldenPath, "push"), true);
+  assert.equal(evaluateStepSelection(stepGates.productionLimaComposition, "push"), true);
 });

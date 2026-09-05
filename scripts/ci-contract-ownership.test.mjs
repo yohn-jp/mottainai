@@ -69,6 +69,10 @@ test("Appliance manifest scripts select only runtime_appliance", () => {
 test("shared Appliance contract consumed by host-bootstrap selects both true dependent classes", () => {
   assertSelection(["host-bootstrap/src/appliance.rs"], { host_bootstrap: true, runtime_appliance: true });
   assertSelection(["host-bootstrap/tests/appliance_real.rs"], { host_bootstrap: true, runtime_appliance: true });
+  assertSelection(["host-bootstrap/tests/lima_composition_real.rs"], {
+    host_bootstrap: true,
+    runtime_appliance: true,
+  });
 });
 
 test("shared Appliance manifest contract change on the TypeScript side also gates the Rust consumer (host_bootstrap)", () => {

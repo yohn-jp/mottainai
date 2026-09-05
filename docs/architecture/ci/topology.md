@@ -32,7 +32,7 @@ Green does **not** mean that every deployable artifact in the repository has bee
 | Tier | Trigger / trust boundary | Purpose | Typical evidence |
 | --- | --- | --- | --- |
 | PR merge integrity | `pull_request` | Reject a proposed change before merge using the smallest sufficient fail-closed proof set | governance, static/build, focused product/package tests, host-bootstrap tests, Nix evaluation/build, targeted VM test, targeted Appliance build/manifest |
-| Canonical integration | trusted `push` to `main` | Prove that affected canonical components compose after merge | real canonical Runtime Appliance composition, OCI-shaped consumption, standalone bootstrap composition, Appliance golden path, canonical artifact eligibility |
+| Canonical integration | trusted `push` to `main` | Prove that affected canonical components compose after merge | real canonical Runtime Appliance composition, OCI-shaped consumption, standalone bootstrap composition, production Lima composition through guest health, Appliance golden path, canonical artifact eligibility |
 | Release certification / publication | exact governed release/tag | Prove and publish immutable release artifacts from exact release identity | canonical npm payload verification, exact tagged Appliance rebuild/verification, release metadata/digests, immutable publication |
 | External support certification | bounded manual/trusted real-host evidence | Prove the deployment chain across real host/provider boundaries | #261 Linux x86_64 + KVM + Lima + QEMU + Route 4 -> 1 evidence |
 
@@ -113,8 +113,11 @@ For affected Runtime/VM/Appliance/bootstrap integration changes, trusted `main` 
 2. generate and verify its bounded manifest;
 3. construct/consume the OCI-shaped representation used by the production resolution boundary;
 4. prove standalone `mottainai-init` resolves and verifies the real canonical artifact;
-5. run the complete Runtime Appliance golden path against the merged canonical components;
-6. permit canonical artifact publication only after the relevant integration proof succeeds.
+5. run the production Lima composition path through `limactl create --plain`, the
+   production MTNAI_BOOT attachment, Lima SSH, and canonical
+   `mottainai-runtime-health`;
+6. run the complete Runtime Appliance golden path against the merged canonical components;
+7. permit canonical artifact publication only after the relevant integration proof succeeds.
 
 A failed `main` integration run is a product integration failure that must be repaired immediately. It is not evidence that every earlier PR should have run the entire canonical composition chain. The PR should have run every rejection proof owned by its changed contracts; `main` owns the cross-contract composition proof.
 
@@ -218,6 +221,7 @@ The `runtime-appliance` job runs the same steps regardless of which event select
 | generate/verify the bounded manifest | yes | yes |
 | build the OCI-shaped fixture | no | yes |
 | standalone `mottainai-init` composition verification | no | yes |
+| production Lima composition through canonical guest health | no | yes |
 | Runtime Appliance golden path | no | yes |
 
 A trusted `main` push runs this full chain whenever `runtime_nix`, `runtime_vm`, or `runtime_appliance` changed, and also when only `host_bootstrap` changed (the cross-boundary composition proof between standalone `mottainai-init` and the real canonical Appliance is exactly the boundary a host-bootstrap-only change can invalidate, even though it does not warrant the canonical Appliance rebuild on the PR itself). `scripts/ci-runtime-contract-gates.mjs`/`.test.mjs` verify both the job-level event-tier selection and this step-level tier split deterministically, without running GitHub Actions.

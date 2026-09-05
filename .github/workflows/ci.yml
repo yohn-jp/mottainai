@@ -364,6 +364,7 @@ jobs:
               - 'host-bootstrap/src/oci.rs'
               - 'host-bootstrap/tests/appliance.rs'
               - 'host-bootstrap/tests/appliance_real.rs'
+              - 'host-bootstrap/tests/lima_composition_real.rs'
               - '.github/workflows/ci.yml'
             node:
               - 'src/**'
@@ -750,6 +751,32 @@ jobs:
           echo "MOTTAINAI_PRODUCTION_BOOTSTRAP_DISK=$production_disk" >> "$GITHUB_ENV"
           echo "MOTTAINAI_PRODUCTION_BOOTSTRAP_PRIVATE_KEY=$key_directory/user" >> "$GITHUB_ENV"
 
+      # The production composition proof intentionally starts from a fresh,
+      # CI-owned Route 4 state root. This makes the real SystemLimaCli resolve
+      # only the verified Lima/QEMU binaries selected by mottainai-init and
+      # keeps provider state separate from the direct-QEMU golden path.
+      - name: Bootstrap an isolated managed Lima/QEMU provider for production composition (Issue #844)
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          state_directory="$RUNNER_TEMP/runtime-appliance-lima-state"
+          home_directory="$RUNNER_TEMP/runtime-appliance-lima-home"
+          cache_directory="$RUNNER_TEMP/runtime-appliance-lima-cache"
+          cargo build --locked --manifest-path host-bootstrap/Cargo.toml --bin mottainai-init
+          production_binary="$GITHUB_WORKSPACE/host-bootstrap/target/debug/mottainai-init"
+          test -x "$production_binary"
+          mkdir -p "$home_directory" "$cache_directory"
+          export HOME="$home_directory"
+          export XDG_CACHE_HOME="$cache_directory"
+          bootstrap_log="$RUNNER_TEMP/runtime-appliance-lima-bootstrap.log"
+          "$production_binary" \
+            --json --state-directory "$state_directory" >"$bootstrap_log" 2>&1
+          cat "$bootstrap_log"
+          test -x "$state_directory/active/bin/limactl"
+          test -s "$state_directory/qemu.json"
+          echo "MOTTAINAI_PRODUCTION_LIMA_STATE_DIRECTORY=$state_directory" >> "$GITHUB_ENV"
+
       - name: Prove mottainai-init resolves/verifies the real canonical Runtime Appliance and run the Runtime Appliance golden path (Issue #630, #661, #768)
         if: github.event_name != 'pull_request'
         env:
@@ -787,6 +814,39 @@ jobs:
           cat "$golden_log"
           test "$real_status" -eq 0
           test "$golden_status" -eq 0
+
+      - name: Exercise production Lima composition through canonical guest health (Issue #844)
+        if: github.event_name != 'pull_request'
+        env:
+          MOTTAINAI_REAL_APPLIANCE_OCI_MANIFEST: ${{ runner.temp }}/runtime-appliance-oci-fixture/oci-manifest.json
+          MOTTAINAI_REAL_APPLIANCE_BLOBS_DIR: ${{ runner.temp }}/runtime-appliance-oci-fixture/blobs
+          MOTTAINAI_REAL_APPLIANCE_MANIFEST: ${{ runner.temp }}/runtime-appliance/x86_64-linux/runtime-appliance-manifest.json
+          MOTTAINAI_REAL_APPLIANCE_RAW_DISK: ${{ runner.temp }}/runtime-appliance/x86_64-linux/mottainai-runtime-appliance.raw
+          MOTTAINAI_REAL_LIMA_INSTANCE: mottainai-runtime-844
+          MOTTAINAI_PRODUCTION_LIMA_STATE_DIRECTORY: ${{ runner.temp }}/runtime-appliance-lima-state
+        shell: bash
+        run: |
+          set -euo pipefail
+          export HOME="$RUNNER_TEMP/runtime-appliance-lima-home"
+          export XDG_CACHE_HOME="$RUNNER_TEMP/runtime-appliance-lima-cache"
+          state_directory="$MOTTAINAI_PRODUCTION_LIMA_STATE_DIRECTORY"
+          limactl="$state_directory/active/bin/limactl"
+          cleanup() {
+            if test -x "$limactl"; then
+              if timeout_bin="$(command -v timeout)"; then
+                "$timeout_bin" --kill-after=5s 30s env \
+                  LIMA_HOME="$state_directory/lima-home" \
+                  "$limactl" --tty=false delete --force mottainai-runtime-844 >/dev/null 2>&1 || true
+              else
+                echo "cleanup skipped: coreutils timeout is unavailable; preserving isolated state for runner teardown" >&2
+                return
+              fi
+            fi
+            rm -rf "$state_directory"
+          }
+          trap cleanup EXIT
+          cargo test --locked --manifest-path host-bootstrap/Cargo.toml \
+            --test lima_composition_real -- --ignored --test-threads=1 --nocapture
 
   runtime-contract:
     name: Nix Runtime evaluation / image / VM test
