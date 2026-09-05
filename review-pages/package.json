@@ -4,6 +4,6 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@alibaba-group/open-code-review": "1.11.1"
+    "@alibaba-group/open-code-review": "1.11.4"
   }
 }

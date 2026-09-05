@@ -11,7 +11,7 @@ Thanks for your interest in contributing. Mottainai is pre-1.0 and evolves quick
 
 ## Development setup
 
-Requires Node.js >= 24.0.0, pnpm 11.18.0, and `rg` (ripgrep) on `PATH`.
+Requires Node.js >= 24.0.0, pnpm 11.25.0, and `rg` (ripgrep) on `PATH`.
 
 ```bash
 pnpm install

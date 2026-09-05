@@ -21,3 +21,10 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - nawabari@0.5.0 || 0.6.1
   - suzukuri@0.1.0
+  - '@alibaba-group/ocr-darwin-arm64@1.11.4'
+  - '@alibaba-group/ocr-darwin-x64@1.11.4'
+  - '@alibaba-group/ocr-linux-arm64@1.11.4'
+  - '@alibaba-group/ocr-linux-x64@1.11.4'
+  - '@alibaba-group/ocr-win32-arm64@1.11.4'
+  - '@alibaba-group/ocr-win32-x64@1.11.4'
+  - '@alibaba-group/open-code-review@1.11.4'

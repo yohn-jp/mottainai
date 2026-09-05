@@ -27,7 +27,7 @@ test("local release workflow preserves its release trigger and canonical artifac
 test("local publish remains OIDC-only and does not add a long-lived npm credential", () => {
   assert.match(workflowText, /id-token: write/u);
   assert.doesNotMatch(workflowText, /NPM_TOKEN|NODE_AUTH_TOKEN|secrets\.NPM/u);
-  assert.match(workflowText, /npm install --global npm@11\.5\.1/u);
+  assert.match(workflowText, /npm install --global npm@12\.0\.2/u);
   assert.match(workflowText, /npm publish "\$\(find \. -maxdepth 1 -type f -name 'mottainai-\*\.tgz'/u);
 });
 

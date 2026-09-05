@@ -140,10 +140,13 @@ jobs:
           REVIEW_PAGES_LATENCY_JOB: generate
         run: node review-pages/src/lib/latency.mjs start setup
 
-      - name: Setup pnpm
+      # Intentional local exception: shared setup-node-pnpm performs a root
+      # install, while Review Pages must install only its dedicated manifest
+      # with its untrusted-generation flags below.
+      - name: Setup pnpm for the dedicated Review Pages manifest
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
-          version: 11.18.0
+          version: 11.25.0
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
