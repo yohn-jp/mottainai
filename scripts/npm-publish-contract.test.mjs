@@ -35,8 +35,9 @@ test("release descriptor keeps Route 1 payload bytes separate from Route 2 sourc
   assert.match(workflowText, /source_nar_sha256: \$\{\{ steps\.route2_closure_smoke\.outputs\.source_nar_sha256 \}\}/u);
   assert.match(workflowText, /sourceStorePath/u);
   assert.match(workflowText, /nix path-info --json --json-format 2/u);
-  assert.match(workflowText, /--arg source "\$SOURCE_NAR_SHA256"/u);
+  assert.match(workflowText, /--arg source "\$source_nar_sha256"/u);
   assert.match(workflowText, /sourceSha256:\$source/u);
+  assert.match(workflowText, /\.source\.sourceSha256 == \$source/u);
   assert.doesNotMatch(workflowText, /sourceSha256:\$payload/u);
 });
 
