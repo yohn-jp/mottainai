@@ -310,7 +310,7 @@ fn canonical_manifest(packages: &[DescriptorManagedPackage]) -> Value {
         "schemaVersion": 1,
         // A fresh materialization always starts at generation 1; the
         // guest's own reconcileManagedRuntime state machine owns generation
-        // progression from here on (docs/managed-package-manifest.md:
+        // progression from here on (docs/contracts/runtime/managed-package-manifest.md:
         // activation.generation is reconciliation-ordering bookkeeping,
         // excluded from semantic identity).
         "activation": { "generation": 1 },

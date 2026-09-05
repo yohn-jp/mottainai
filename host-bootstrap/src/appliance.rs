@@ -12,7 +12,7 @@ use crate::oci::{validate_digest, OciSource};
 use crate::paths::ManagedPaths;
 
 /// The published non-container OCI Artifact contract for the canonical
-/// Runtime Appliance, documented in `docs/runtime-appliance-oci.md`. These
+/// Runtime Appliance, documented in `docs/architecture/runtime/appliance-oci.md`. These
 /// constants mirror that document's table exactly; they are the immutable
 /// distribution contract, not a Lima- or provider-specific detail.
 pub const APPLIANCE_ARTIFACT_TYPE: &str = "application/vnd.mottainai.runtime.appliance.v1";
@@ -39,7 +39,7 @@ const MAX_APPLIANCE_RAW_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 /// Pins the canonical Runtime Appliance by its immutable OCI digest. A tag
 /// is never accepted here: resolving a mutable locator to a digest is an
 /// operator-time decision that happens before a Runtime specification is
-/// produced, per `docs/runtime-appliance-oci.md` ("record the descriptor
+/// produced, per `docs/architecture/runtime/appliance-oci.md` ("record the descriptor
 /// digest ... use for every pull").
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ApplianceReference {

@@ -94,7 +94,7 @@ test("host-bootstrap change that does not touch a shared Appliance/VM file never
 test("Node/source-only change selects node/integration/package but no host-bootstrap or runtime class", () => {
   const selected = classifyChangedFiles(classes, ["src/atomic-file.ts"]);
   assert.equal(selected.host_bootstrap, false);
-  // src/atomic-file.ts is a Route 2 bootstrap dependency (docs/ci-topology.md),
+  // src/atomic-file.ts is a Route 2 bootstrap dependency (docs/architecture/ci/topology.md),
   // so it is a true shared runtime_nix consumer in addition to node/integration/package.
   assert.equal(selected.runtime_nix, true);
   assert.equal(selected.runtime_vm, false);
@@ -103,7 +103,7 @@ test("Node/source-only change selects node/integration/package but no host-boots
 });
 
 test("docs-only change selects no governed executable contract class", () => {
-  assertSelection(["docs/ci-topology.md"], {});
+  assertSelection(["docs/architecture/ci/topology.md"], {});
 });
 
 test("workflow/config change conservatively invalidates every class its selection logic can change", () => {

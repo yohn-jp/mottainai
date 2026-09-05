@@ -200,7 +200,7 @@ function verifyManagedBinaryExecutes(storePath: string, packageId: string): stri
  * through its own store path, never ambient PATH. A candidate that declares
  * NO package identities (`packageIds` absent or empty — schema-legal, e.g.
  * an empty-`packages` desired manifest) fails closed rather than reporting
- * vacuous health: docs/runtime-lifecycle.md's "Managed health" requires
+ * vacuous health: docs/architecture/runtime/lifecycle.md's "Managed health" requires
  * this check to "prove the application generation is executable", and a
  * generation with nothing to execute cannot be proven anything, so it must
  * never be silently promoted to known-good on that basis (review response:
@@ -348,7 +348,7 @@ export function reconcileAdapters(options: {
  * `reconcileManagedRuntime` state machine (src/runtime-contract/managed-runtime.ts)
  * into the one guest-invokable command that converges the managed Runtime
  * toward its canonical desired manifest — the orchestration
- * docs/runtime-lifecycle.md's "Command responsibility" section anticipates
+ * docs/architecture/runtime/lifecycle.md's "Command responsibility" section anticipates
  * ("a future full Mottainai command may name that orchestration init or
  * reconcile"). This performs real activation: build/verify, atomic switch,
  * managed-runtime health, and rollback on a post-switch health failure —

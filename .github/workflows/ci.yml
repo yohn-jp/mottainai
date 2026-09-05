@@ -316,7 +316,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # Contract-ownership classes, not directory buckets (docs/ci-topology.md).
+      # Contract-ownership classes, not directory buckets (docs/architecture/ci/topology.md).
       # `host-bootstrap/**` alone must never imply the Nix Runtime/VM/Appliance
       # classes (Issue #766) - only files that truly define or consume a
       # shared Runtime/VM/Appliance contract get overlapping ownership, and
@@ -410,17 +410,17 @@ jobs:
   runtime-nix:
     name: "Nix Runtime: evaluation / managed packages / Route 2"
     needs: runtime-contract-changes
-    # Path-owned (docs/ci-topology.md `runtime-nix`): proves the Nix Runtime
+    # Path-owned (docs/architecture/ci/topology.md `runtime-nix`): proves the Nix Runtime
     # system closure, managed generation, and Route 2 package catalog. VM and
     # Appliance changes also select this job because they consume its build
-    # as a prerequisite (docs/ci-topology.md dependency edges), but a Nix
+    # as a prerequisite (docs/architecture/ci/topology.md dependency edges), but a Nix
     # Runtime-only change never pulls in the VM or Appliance jobs below. On
     # trusted `main` pushes only, a `host_bootstrap` change also selects this
     # job: trusted `main` owns the cross-boundary composition proof between
     # standalone `mottainai-init` and the real canonical Appliance (Issue
     # #768), which needs the Nix prerequisite even when no Runtime/VM/
     # Appliance path itself changed. A host-bootstrap-only PR must not pull
-    # this in (docs/ci-topology.md PR validation matrix).
+    # this in (docs/architecture/ci/topology.md PR validation matrix).
     if: >-
       (
         needs.runtime-contract-changes.outputs.runtime_nix == 'true' ||
@@ -509,7 +509,7 @@ jobs:
   runtime-vm:
     name: "Runtime VM: guest boot"
     needs: [runtime-contract-changes, runtime-nix]
-    # Path-owned (docs/ci-topology.md `runtime-vm`): only a change that can
+    # Path-owned (docs/architecture/ci/topology.md `runtime-vm`): only a change that can
     # invalidate NixOS guest boot/runtime semantics pays for the VM
     # derivation build and bounded VM boot test. Requires the Nix Runtime
     # prerequisite (runtime-nix) to have actually succeeded first.
@@ -612,7 +612,7 @@ jobs:
   runtime-appliance:
     name: "Runtime Appliance: canonical image / bounded manifest"
     needs: [runtime-contract-changes, runtime-nix]
-    # Path-owned (docs/ci-topology.md `runtime-appliance` / "Appliance proof
+    # Path-owned (docs/architecture/ci/topology.md `runtime-appliance` / "Appliance proof
     # boundary"): an Appliance-defining PR must prove the canonical Appliance
     # derivation builds and its bounded manifest matches, before merge - that
     # is the full extent of PR-tier proof (Issue #768). The full
@@ -621,7 +621,7 @@ jobs:
     # path are cross-boundary integration evidence, not rejection evidence;
     # they run only on trusted `main` pushes that affect Runtime/VM/
     # Appliance/bootstrap integration, regardless of which contract class
-    # invalidated it (docs/ci-topology.md "Trusted main canonical
+    # invalidated it (docs/architecture/ci/topology.md "Trusted main canonical
     # integration"), and gate canonical artifact publication below.
     if: >-
       needs.runtime-nix.result == 'success' &&
@@ -709,7 +709,7 @@ jobs:
             verifyRuntimeApplianceManifest(manifest, process.env.DISK);
           '
 
-      # Cross-boundary integration evidence (docs/ci-topology.md "Trusted
+      # Cross-boundary integration evidence (docs/architecture/ci/topology.md "Trusted
       # main canonical integration"): the OCI-shaped composition, standalone
       # `mottainai-init` composition verification, and Runtime Appliance
       # golden path run only on trusted `main` pushes, not on the PR (Issue
@@ -791,7 +791,7 @@ jobs:
   runtime-contract:
     name: Nix Runtime evaluation / image / VM test
     needs: [runtime-contract-changes, runtime-nix, runtime-vm, runtime-appliance]
-    # Stable aggregate merge gate (docs/ci-topology.md "Required-check
+    # Stable aggregate merge gate (docs/architecture/ci/topology.md "Required-check
     # semantics"): branch protection keeps requiring this exact check name
     # even though the Nix/VM/Appliance proofs are now decomposed into
     # independently skippable jobs with per-contract failure attribution.

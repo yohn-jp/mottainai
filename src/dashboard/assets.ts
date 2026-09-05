@@ -14,7 +14,7 @@ function dashboardAssetPath(name: string, moduleUrl: string): string {
   const moduleDirectory = path.dirname(fileURLToPath(moduleUrl));
   const candidates = [
     path.join(moduleDirectory, name),
-    path.resolve(moduleDirectory, "../../docs/mockups", name),
+    path.resolve(moduleDirectory, "../../docs/design/mockups", name),
   ];
   const candidate = candidates.find((filePath) => fs.existsSync(filePath));
   if (candidate === undefined) throw new Error(`dashboard viewer asset is missing: ${name}`);

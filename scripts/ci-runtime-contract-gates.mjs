@@ -2,7 +2,7 @@
 // (runtime-nix, runtime-vm, runtime-appliance) out of
 // .github/workflows/ci.yml and evaluates them against representative
 // contract-ownership-changes outputs, so the PR-level job selection
-// semantics from docs/ci-topology.md (Issue #767) can be exercised without
+// semantics from docs/architecture/ci/topology.md (Issue #767) can be exercised without
 // running GitHub Actions.
 
 import fs from "node:fs";

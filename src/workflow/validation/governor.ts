@@ -14,7 +14,7 @@ import { DEFAULT_MAX_OUTPUT_BYTES, DEFAULT_TIMEOUT_MS, type ManagedCheckDefiniti
  * Validation governor core (issue #184 Phase 1). The invariant this module exists to
  * enforce: a prior PASS is reused only when the check identity (command/config) and the
  * repository state fingerprint both match exactly, and any uncertainty about that state
- * falls back to real execution. See docs/validation-governor.md.
+ * falls back to real execution. See docs/architecture/validation/governor.md.
  */
 
 export type CheckReceiptState = "executed-pass" | "executed-fail" | "reused-pass" | "stale" | "not-required";

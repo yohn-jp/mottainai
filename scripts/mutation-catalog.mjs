@@ -12,7 +12,7 @@ export const MUTATION_POLICY = Object.freeze({
   generatedCode: "ignored by scope because only the listed hand-written source files are mutated",
   timeout: "fail closed; a timed-out mutant is not killed and fails the command",
   scoreRegression: Object.freeze({
-    baselinePath: "docs/mutation-baseline.json",
+    baselinePath: "docs/testing/mutation/baseline.json",
     comparison: "current score must be at least the committed baseline score",
   }),
 });

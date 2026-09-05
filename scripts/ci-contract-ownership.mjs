@@ -1,6 +1,6 @@
 // Parses the `runtime-contract-changes` job's dorny/paths-filter block out
 // of .github/workflows/ci.yml and re-implements its glob semantics so the
-// contract-ownership selection defined in docs/ci-topology.md can be
+// contract-ownership selection defined in docs/architecture/ci/topology.md can be
 // exercised against representative path fixtures without running GitHub
 // Actions (Issue #766).
 

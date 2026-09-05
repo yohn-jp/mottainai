@@ -29,7 +29,7 @@ function managerAssetPath(name: ManagerAssetName, moduleUrl: string): string {
   const candidates = [
     path.join(moduleDirectory, name),
     path.join(moduleDirectory, "../dashboard", name),
-    path.resolve(moduleDirectory, "../../docs/mockups", name),
+    path.resolve(moduleDirectory, "../../docs/design/mockups", name),
   ];
   const candidate = candidates.find((filePath) => fs.existsSync(filePath));
   if (candidate === undefined) throw new Error(`Manager viewer asset is missing: ${name}`);

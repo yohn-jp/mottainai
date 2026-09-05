@@ -243,7 +243,7 @@ This ADR deliberately preserves:
 The following statements are superseded for the final Route 4 contract:
 
 - #600/#654/previous #232 wording that categorically excludes Mottainai from distributing or materializing QEMU;
-- `docs/host-bootstrap.md` guidance that requires the administrator to install QEMU before the canonical strongest host-bootstrap flow; and
+- `docs/contracts/deployment/host-bootstrap` guidance that requires the administrator to install QEMU before the canonical strongest host-bootstrap flow; and
 - the previous #261 starting condition that assumes QEMU is already installed.
 
 The supersession changes **who establishes the QEMU artifact prerequisite**, not **who operates QEMU as a VM manager**. Lima retains that operational authority.

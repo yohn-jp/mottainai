@@ -1,5 +1,5 @@
 // Builds a local, content-addressed layout of the published Runtime
-// Appliance GHCR OCI Artifact contract (docs/runtime-appliance-oci.md) from
+// Appliance GHCR OCI Artifact contract (docs/architecture/runtime/appliance-oci.md) from
 // the real, already-built canonical Runtime Appliance disk and its bounded
 // manifest (scripts/build-runtime-appliance-manifest.mjs's output).
 //

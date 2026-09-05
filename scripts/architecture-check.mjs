@@ -112,9 +112,9 @@ const environmentBoundaryFiles = new Set([
   "src/manager/command.ts",
   // Issue #626's bootstrap CLI boundary: constructs the nix build subprocess environment (host env + CI=true) and injects it into BootstrapDependencies rather than letting runtime-contract/managed-generation-build.ts read process.env itself.
   "src/bootstrap/cli.ts",
-  // テスト間でHOME/TZ/LANG等を一時的に差し替え、実行後に必ず復元する隔離境界（docs/testing.md）。
+  // テスト間でHOME/TZ/LANG等を一時的に差し替え、実行後に必ず復元する隔離境界（docs/testing/README.md）。
   "src/test-support/env.ts",
-  // developer machineのglobal/system git設定から隔離したenvを組み立てるための境界（docs/testing.md）。
+  // developer machineのglobal/system git設定から隔離したenvを組み立てるための境界（docs/testing/README.md）。
   "src/test-support/tmp-git-repo.ts",
 ]);
 

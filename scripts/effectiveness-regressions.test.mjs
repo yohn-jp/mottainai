@@ -123,7 +123,7 @@ test("equivalent mutation descriptors require rationale and are excluded from th
 });
 
 test("mutation baseline is canonical and enforces catalog parity and score floors", () => {
-  const baseline = JSON.parse(fs.readFileSync(path.join(root, "docs/mutation-baseline.json"), "utf8"));
+  const baseline = JSON.parse(fs.readFileSync(path.join(root, "docs/testing/mutation/baseline.json"), "utf8"));
   assert.doesNotThrow(() => validateMutationCatalog());
   assert.doesNotThrow(() => validateMutationBaseline(baseline));
   assert.deepEqual(

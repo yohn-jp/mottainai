@@ -1,0 +1,228 @@
+{
+  "schemaVersion": 1,
+  "seed": 240824,
+  "propertyRuns": 48,
+  "mutationTimeoutMs": 15000,
+  "policy": {
+    "schemaVersion": 1,
+    "seed": 240824,
+    "propertyRuns": 48,
+    "timeoutMs": 15000,
+    "minimumScore": 1,
+    "equivalentMutants": {
+      "exclusion": "requires descriptor equivalence.status=equivalent and a non-empty rationale"
+    },
+    "generatedCode": "ignored by scope because only the listed hand-written source files are mutated",
+    "timeout": "fail closed; a timed-out mutant is not killed and fails the command",
+    "scoreRegression": {
+      "baselinePath": "docs/testing/mutation/baseline.json",
+      "comparison": "current score must be at least the committed baseline score"
+    }
+  },
+  "scope": [
+    "src/config.ts",
+    "src/local-tools.ts",
+    "src/compress/budget.ts",
+    "src/compress/json.ts",
+    "src/compress/lines.ts",
+    "src/envelope.ts",
+    "src/execution.ts",
+    "src/retrieve.ts",
+    "src/init.ts"
+  ],
+  "totals": {
+    "selected": 23,
+    "killed": 23,
+    "survived": 0,
+    "equivalent": 0
+  },
+  "score": 1,
+  "mutations": [
+    {
+      "id": "config-default-path-nullish",
+      "file": "src/config.ts",
+      "operator": "nullish-to-or",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    },
+    {
+      "id": "config-http-url-protocol",
+      "file": "src/config.ts",
+      "operator": "protocol-or-to-and",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    },
+    {
+      "id": "config-version-normalization",
+      "file": "src/config.ts",
+      "operator": "version-branch-swap",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    },
+    {
+      "id": "path-lexical-containment",
+      "file": "src/local-tools.ts",
+      "operator": "containment-negation",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    },
+    {
+      "id": "path-realpath-containment",
+      "file": "src/local-tools.ts",
+      "operator": "realpath-containment-negation",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    },
+    {
+      "id": "search-order-sort",
+      "file": "src/local-tools.ts",
+      "operator": "stable-order-to-sort",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    },
+    {
+      "id": "compression-token-budget-sign",
+      "file": "src/compress/budget.ts",
+      "operator": "budget-subtraction-to-addition",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    },
+    {
+      "id": "compression-exact-budget-boundary",
+      "file": "src/compress/budget.ts",
+      "operator": "inclusive-to-exclusive-boundary",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    },
+    {
+      "id": "compression-head-ratio",
+      "file": "src/compress/budget.ts",
+      "operator": "floor-to-ceil",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    },
+    {
+      "id": "json-array-boundary",
+      "file": "src/compress/json.ts",
+      "operator": "inclusive-to-exclusive-array-boundary",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    },
+    {
+      "id": "json-tail-cap",
+      "file": "src/compress/json.ts",
+      "operator": "tail-cap-off-by-one",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    },
+    {
+      "id": "json-depth-boundary",
+      "file": "src/compress/json.ts",
+      "operator": "depth-inclusive-to-exclusive",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    },
+    {
+      "id": "lines-exact-limit",
+      "file": "src/compress/lines.ts",
+      "operator": "inclusive-to-exclusive-line-boundary",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    },
+    {
+      "id": "envelope-facts-type-guard",
+      "file": "src/envelope.ts",
+      "operator": "array-guard-removal",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    },
+    {
+      "id": "envelope-reserved-field-filter",
+      "file": "src/envelope.ts",
+      "operator": "reserved-field-filter-inversion",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    },
+    {
+      "id": "execution-budget-inclusive",
+      "file": "src/execution.ts",
+      "operator": "inclusive-to-exclusive-byte-boundary",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    },
+    {
+      "id": "execution-token-byte-conversion",
+      "file": "src/execution.ts",
+      "operator": "token-byte-multiplier",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    },
+    {
+      "id": "retention-ttl-boundary",
+      "file": "src/retrieve.ts",
+      "operator": "ttl-inclusive-to-exclusive",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    },
+    {
+      "id": "retention-lru-cap",
+      "file": "src/retrieve.ts",
+      "operator": "lru-cap-exclusive",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    },
+    {
+      "id": "sanitizer-protocol-guard",
+      "file": "src/init.ts",
+      "operator": "protocol-or-to-and",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    },
+    {
+      "id": "sanitizer-fragment-guard",
+      "file": "src/init.ts",
+      "operator": "fragment-comparison-inversion",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    },
+    {
+      "id": "sanitizer-any-secret",
+      "file": "src/init.ts",
+      "operator": "some-to-every",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    },
+    {
+      "id": "sanitizer-secret-or-chain",
+      "file": "src/init.ts",
+      "operator": "secret-or-to-and",
+      "expected": "non-equivalent",
+      "outcome": "killed",
+      "exitCode": 1
+    }
+  ],
+  "survivingMutants": [],
+  "passed": true
+}

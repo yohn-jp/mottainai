@@ -12,7 +12,7 @@ security fixes land on `main` and the latest `0.x` release only.
 ## Reporting a Vulnerability
 
 Please report suspected vulnerabilities privately via
-[GitHub Security Advisories](../../security/advisories/new) on this
+[GitHub Security Advisories](https://github.com/yohn-jp/mottainai/security/advisories/new) on this
 repository rather than opening a public issue. If that path is unavailable to
 you, open an issue with minimal detail and ask a maintainer to follow up
 through a private channel.

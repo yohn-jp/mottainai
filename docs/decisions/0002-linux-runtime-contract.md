@@ -23,7 +23,7 @@ choose a host VM launcher (#230 next child), SSH target discovery/tunneling
 
 Mottainai defines one versioned **Linux Runtime contract**
 (`mottainai.linux-runtime.v1`, documented in
-[`docs/linux-runtime-contract.md`](../linux-runtime-contract.md)) and adopts
+[`docs/contracts/runtime/linux-runtime`](../contracts/runtime/linux-runtime.md)) and adopts
 one pinned NixOS configuration as the canonical specification for the
 Mottainai-owned Linux system layer:
 
@@ -48,7 +48,7 @@ used to reconcile an existing Runtime; imperative post-boot shell
 provisioning is not a parallel path to the same result.
 
 The contract explicitly separates three state domains (detailed in
-`docs/linux-runtime-contract.md` "Persistent vs disposable filesystem
+`docs/contracts/runtime/linux-runtime` "Persistent vs disposable filesystem
 layout"), not two — persistence and ownership are independent axes:
 
 - **System-owned disposable state** — the stable substrate, bootstrap
@@ -83,7 +83,7 @@ versus managed readiness so callers cannot treat one phase as the other.
 
 ## Consequences
 
-- `docs/linux-runtime-contract.md` is the authority for Runtime contract
+- `docs/contracts/runtime/linux-runtime` is the authority for Runtime contract
   version, required system surface, and the state-ownership boundary; this
   ADR records why it exists and does not duplicate its field-level detail.
 - `nix/flake.nix` and `nix/modules/runtime.nix` are the canonical

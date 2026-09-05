@@ -3,5 +3,5 @@
 /scripts/governance-* @yohnark
 /scripts/validate-*.mjs @yohnark
 /package.json @yohnark
-/docs/governance.md @yohnark
+/docs/governance/issues-and-pull-requests.md @yohnark
 /AGENTS.md @yohnark
