@@ -48,20 +48,20 @@ Open defects are not normalized into the documentation as accepted behavior. The
 | --- | --- | --- | --- | --- |
 | R4-01 | Select release descriptor + sidecar | Operator/release consumer | Exact descriptor bytes identified | Implemented |
 | R4-02 | Verify descriptor bytes and compatibility envelope | `mottainai-init` | SHA-256 + supported contract/profile | Partial — #843 |
-| R4-03 | Inspect host OS/arch/KVM and declared host prerequisites | `mottainai-init` | Supported host capability evidence | Partial — #846 |
+| R4-03 | Inspect host OS/arch/KVM and declared host prerequisites | `mottainai-init` | Supported host capability evidence | Implemented |
 | R4-04 | Derive exact Route 4 provider requirement from descriptor | `mottainai-init` | Selected provider profile | Target — #842 |
 | R4-05 | Acquire writer authority over managed host state | `mottainai-init` | `bootstrap.lock` held | Implemented |
 | R4-06 | Acquire/verify/materialize Lima | host-bootstrap | Managed Lima identity | Implemented |
 | R4-07 | Acquire/verify/materialize QEMU system/image/data closure | host-bootstrap | Complete verified QEMU closure | Partial — #826 |
 | R4-08 | Bind Lima subprocesses to the verified QEMU closure | host-bootstrap → Lima | Controlled env/path binding | Implemented |
-| R4-09 | Establish isolated Lima home and SSH/key authority | Lima + host-bootstrap | Stable provider credential authority | Partial — #840/#846 |
+| R4-09 | Establish isolated Lima home and SSH/key authority | Lima + host-bootstrap | Stable provider credential authority | Partial — #840 |
 | R3-01 | Resolve canonical Appliance by immutable OCI identity | host-bootstrap | OCI manifest/layer contract verified | Implemented |
 | R3-02 | Materialize and verify canonical raw Appliance disk | host-bootstrap | Raw SHA/size/provenance verified | Implemented |
 | R3-03 | Create/import/attach `MTNAI_BOOT` credential carrier | host-bootstrap → Lima | Guest-consumable validated key disk | Target — #840 |
 | R3-04 | Render canonical Lima configuration | host-bootstrap | Exact YAML/config identity | Partial — #841 |
 | R3-05 | Classify existing Lima instance/provenance | host-bootstrap | missing/satisfied/stopped/incompatible/ambiguous | Implemented; credential identity extends under #840 |
 | R3-06 | Create/start/reconcile instance through public Lima API | Lima | Instance reaches provider transport boundary | Partial — #840/#841 |
-| R3-07 | Establish SSH transport to `mottainai-control` | Lima | bounded command transport succeeds | Target — #840/#841/#846 |
+| R3-07 | Establish SSH transport to `mottainai-control` | Lima | bounded command transport succeeds | Target — #840/#841 |
 | R3-08 | Read canonical bootstrap health | guest Runtime | `bootstrapReady=true` in supported Runtime contract | Implemented once transport exists |
 | R3-09 | Project desired managed manifest/generation from selected release | host-bootstrap | Exact desired generation intent | Partial — #850 |
 | R3-10 | Deliver desired state and invoke guest reconcile | host-bootstrap → guest | canonical manifest accepted | Implemented |
@@ -77,7 +77,7 @@ Open defects are not normalized into the documentation as accepted behavior. The
 | R1-04 | Execute packaged MCP protocol smoke | host-bootstrap via guest | bounded MCP `initialize` succeeds | Implemented |
 | E2E-01 | Emit complete convergence evidence | `mottainai-init` | selected/observed identities + readiness | Partial — linked gaps |
 | E2E-02 | Re-run unchanged desired state | all owners | no mutation apart from verification | Implemented component-wise; #261 certifies complete chain |
-| E2E-03 | Restart/reconnect continuity | all owners | same provider/runtime/generation/credential identities | Partial until #840/#846/#261 |
+| E2E-03 | Restart/reconnect continuity | all owners | same provider/runtime/generation/credential identities | Partial until #840/#261 |
 | E2E-04 | Real Linux/KVM certification | #261 | complete external evidence | Pending #261 |
 
 ---
@@ -167,7 +167,7 @@ A semantically supported selected release may enter host/provider inspection.
 
 ## R4-03 — Inspect the supported host and all provider prerequisites
 
-**Status: Partial — #846**
+**Status: Implemented**
 
 **Purpose**
 
@@ -183,9 +183,13 @@ Reject unsupported or unsafe host state before provider/runtime mutation.
 - `x86_64` architecture for the supported local profile;
 - `/dev/kvm` exists, is a character device, and is read/write accessible to the current user;
 - no TCG fallback is accepted;
-- every external host facility actually required by the selected Lima profile is declared and validated.
+- executable `ssh` and `ssh-keygen` commands are independently resolvable from `PATH` for the selected Lima profile.
 
-The last point is currently incomplete: Lima 2.2.0 consumes host `ssh` and `ssh-keygen`, while the strongest Route 4 contract does not yet close or explicitly validate that dependency. #846 owns the decision and implementation.
+OpenSSH is an explicit validated precondition, not a managed package. The
+standalone Rust bootstrap does not invoke a shell or package manager to
+establish it, and it never adopts ambient `~/.ssh` credentials. Each missing
+executable fails closed with a stable bounded diagnostic naming that
+executable before provider, QEMU, Appliance, or Lima instance mutation.
 
 **State mutation**
 
@@ -325,7 +329,7 @@ Mottainai never constructs QEMU VM arguments, device topology, or QMP lifecycle.
 
 ## R4-09 — Establish isolated Lima home and provider SSH authority
 
-**Status: Partial — #840/#846**
+**Status: Partial — #840**
 
 **Purpose**
 
@@ -340,6 +344,7 @@ Lima owns its isolated `$LIMA_HOME/_config/user` keypair and SSH transport. Host
 - `ssh.loadDotSSHPubKeys: false` remains authoritative;
 - `~/.ssh/*.pub` is not adopted;
 - provider key generation/availability is established before guest lifecycle mutation;
+- the host `ssh` and `ssh-keygen` precondition has already passed at R4-03;
 - the public key delivered through R3-03 corresponds to the private identity Lima will actually use;
 - existing instance + lost/changed host private key is not silently treated as compatible.
 
@@ -474,7 +479,7 @@ Timeout/failure output must remain bounded but actionable; #845 fixes the curren
 
 ## R3-07 — Establish bounded SSH transport
 
-**Status: Target — #840/#841/#846**
+**Status: Target — #840/#841**
 
 **Purpose**
 
@@ -728,7 +733,7 @@ After host/client restart or a compatible stopped-instance restart:
 - active generation and Route 1 payload identity remain the selected release's identity;
 - stopped-compatible instance is started/rechecked rather than recreated.
 
-Credential loss/drift must fail closed; it is not an excuse to silently rotate a key against an existing guest. #840/#846 establish this lifecycle.
+Credential loss/drift must fail closed; it is not an excuse to silently rotate a key against an existing guest. #840 establishes this lifecycle.
 
 ## E2E-04 — Final real Linux/KVM certification
 
@@ -780,12 +785,12 @@ The same step can have multiple proof tiers. A higher tier does not excuse an ab
 | Step / boundary | PR/unit/hermetic | Trusted main canonical integration | Release gate | Real-host #261 | Gap |
 | --- | --- | --- | --- | --- | --- |
 | R4-01/R4-02 descriptor bytes | Rust unit + descriptor tests | production artifact consumers | #832 round-trip | yes | #843 compatibility |
-| R4-03 host/KVM prerequisites | Rust host-probe tests | limited hosted observations | standalone artifact smoke | yes | #846 OpenSSH contract |
+| R4-03 host/KVM/OpenSSH prerequisites | Rust host-probe and OpenSSH tests | limited hosted observations | standalone artifact smoke | yes | — |
 | R4-04 provider profile | descriptor producer tests | none for live consumer authority | descriptor publication | yes | #842 |
 | R4-06 Lima materialization | host-bootstrap tests | artifact/provider CI | standalone release smoke | yes | — |
 | R4-07 QEMU closure | host-bootstrap tests | QEMU/runtime checks | standalone release smoke | yes | #826 |
 | R4-08 Lima→QEMU binding | Rust contract tests | partial | — | yes | final real proof #261 |
-| R4-09/R3-03 credential bridge | mocked components insufficient | production Lima proof required | — | yes | #840/#846 |
+| R4-09/R3-03 credential bridge | mocked components insufficient | production Lima proof required | — | yes | #840 |
 | R3-01/R3-02 Appliance OCI/raw | Rust real-artifact byte proof | canonical Appliance build/OCI proof | OCI publication | yes | — |
 | R3-04–R3-08 production Lima→guest | unit config/reconcile tests | **required but currently absent** | — | yes | #841/#844 (+ #840) |
 | R3-09–R2-04 desired/live generation | TypeScript/Nix contract tests | golden-path/runtime tests | release Route 2 realization | yes | #850 live Route 1 handoff |
@@ -806,7 +811,6 @@ The same step can have multiple proof tiers. A higher tier does not excuse an ab
 | #843 | R4-02 | authentic but unsupported descriptor schema/profile can be consumed as an older subset |
 | #844 | proof-tier matrix / R3-03–R3-08 | trusted-main canonical integration skips production Lima composition |
 | #845 | R3-06, E2E-01 | timeout path discards bounded actionable Lima output |
-| #846 | R4-03, R4-09, R3-07, E2E-03 | host OpenSSH dependency is implicit rather than declared/managed |
 | #850 | R3-09, R1-01, R2-02, R2-04, R1-02, E2E-01 | live guest build drops selected exact Route 1 payload and regenerates it from source |
 | #261 | all | final external real Linux/KVM production-chain certification |
 

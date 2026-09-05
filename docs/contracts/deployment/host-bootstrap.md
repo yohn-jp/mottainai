@@ -4,7 +4,9 @@ mottainai-init is the host-side bootstrap for the initial local provider
 profile: Linux x86_64, KVM, and the Lima/QEMU provider boundary. Its default
 invocation (no subcommand) prepares the machine that launches a Runtime
 Appliance: the verified Lima provider binary and a pinned, verified QEMU/KVM
-host toolchain.
+host toolchain. The selected Lima profile also requires the host OpenSSH
+client tools `ssh` and `ssh-keygen`; Route 4 validates both independently
+from `PATH` before any provider or Runtime state mutation.
 Its `runtime ensure` subcommand (#661, see
 [`lima-runtime-orchestration.md`](../../architecture/runtime/lima-orchestration.md)) converges a
 local Lima-managed Runtime instance to ready state using that verified
@@ -16,9 +18,9 @@ the selected release, Lima, the canonical Appliance, managed generation, and
 Route 1 payload, see
 [`route4-route1-operation-book.md`](../../operations/deployment/route4-to-route1.md). This file
 remains the Route 4 component contract. Open implementation gaps such as the
-provider-profile consumer, SSH prerequisite/key lifecycle, and QEMU data
-closure revalidation are recorded against their exact handoff steps in the
-operation book rather than being normalized here as completed behavior.
+provider-profile consumer, SSH key lifecycle, and QEMU data closure
+revalidation are recorded against their exact handoff steps in the operation
+book rather than being normalized here as completed behavior.
 
 ## Contract and execution
 
@@ -63,6 +65,24 @@ The release sidecar is the trust boundary for the bootstrap executable itself.
 The --json result also reports the running executable version and digest.
 The binary does not invoke sudo, a shell, apt, dnf, pacman, or any other
 package manager.
+
+## OpenSSH host prerequisite
+
+The supported Lima 2.2.0 profile resolves the host `ssh` client and
+`ssh-keygen` independently from the process `PATH`. Route 4 treats those
+executables as an explicit validated host precondition: `mottainai-init`
+checks that each is a regular executable before acquiring managed state,
+materializing Lima/QEMU/Appliance artifacts, or invoking any Lima operation.
+Missing tools fail closed with a bounded diagnostic naming the missing
+executable and the required remediation. The standalone Rust bootstrap never
+invokes a shell or package manager to install them.
+
+This host-tooling check is separate from the provider credential authority.
+Lima continues to use the isolated managed `$LIMA_HOME/_config/user(.pub)`
+identity with `ssh.loadDotSSHPubKeys: false`; Route 4 never adopts ambient
+`~/.ssh` credentials. The validated host `ssh` client transports that managed
+identity, while `ssh-keygen` supports its creation when the isolated identity
+does not yet exist.
 
 ## Fetching the published release artifact
 
@@ -230,12 +250,11 @@ experiment; this bootstrap does not start a VM.
 ## Manual Linux x86_64/KVM validation
 
 On a fresh supported Linux x86_64 host, begin with usable `/dev/kvm`, network
-access, and the external host prerequisites declared by the current Route 4
-profile. The exact OpenSSH client/tooling treatment is currently tracked by
-#846; until that closes, `ssh`/`ssh-keygen` remain a known implicit Lima 2.2.0
-host dependency rather than a certified closed prerequisite. `mottainai-init`
-provisions the pinned Lima/QEMU host toolchain itself. Run the following
-sequence from the directory containing the detached release artifacts:
+access, and the explicit host prerequisites declared by the current Route 4
+profile: executable `ssh` and `ssh-keygen` commands on `PATH`. `mottainai-init`
+provisions the pinned Lima/QEMU host toolchain itself and validates OpenSSH
+before it mutates managed state. Run the following sequence from the
+directory containing the detached release artifacts:
 
 ~~~bash
 sha256sum --check mottainai-init-linux-x86_64.sha256
@@ -243,6 +262,8 @@ test "$(uname -s)" = Linux
 test "$(uname -m)" = x86_64
 test -c /dev/kvm
 test -r /dev/kvm && test -w /dev/kvm
+command -v ssh
+command -v ssh-keygen
 ./mottainai-init-linux-x86_64 --json --state-directory "$HOME/.local/state/mottainai/host-bootstrap"
 ./mottainai-init-linux-x86_64 --json --state-directory "$HOME/.local/state/mottainai/host-bootstrap"
 ~~~

@@ -375,6 +375,14 @@ fn fixture() -> (TempDir, ProviderContract, FixtureSource, BootstrapConfig) {
     (temporary, contract, source, bootstrap)
 }
 
+#[cfg(unix)]
+fn write_executable(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::write(path, b"#!/bin/sh\nexit 0\n").unwrap();
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+}
+
 fn write_route4_descriptor(
     directory: &Path,
     provider_contract: &ProviderContract,
@@ -696,8 +704,10 @@ fn runtime_ensure_migrates_exact_legacy_qemu_state_before_route3() {
     )
     .unwrap();
 
-    let empty_path = temporary.path().join("empty-path");
-    fs::create_dir(&empty_path).unwrap();
+    let path_directory = temporary.path().join("path");
+    fs::create_dir(&path_directory).unwrap();
+    write_executable(&path_directory.join("ssh"));
+    write_executable(&path_directory.join("ssh-keygen"));
     let output = Command::new(env!("CARGO_BIN_EXE_mottainai-init"))
         .args([
             "runtime",
@@ -712,7 +722,7 @@ fn runtime_ensure_migrates_exact_legacy_qemu_state_before_route3() {
             paths.root.to_str().unwrap(),
             "--json",
         ])
-        .env("PATH", &empty_path)
+        .env("PATH", &path_directory)
         .output()
         .expect("production runtime ensure should launch");
     assert_eq!(output.status.code(), Some(1));
