@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "5b8f3fc3b8dc82c7977e70c1379168d63a7cafb4",
+    "draft": false,
+    "headRef": "fix/840-mtnai-boot-ssh-key-disk",
+    "headSha": "03fed4b0c04a1f783b3c3f1265cb495d0010bb7e",
+    "number": 849,
+    "title": "fix(runtime): provision MTNAI_BOOT disk for Lima SSH readiness"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "03fed4b0c04a1f783b3c3f1265cb495d0010bb7e",
+    "immutable": true,
+    "shortId": "03fed4b0c04a"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-05T07:50:12.938Z"
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "The key source is the isolated managed Lima SSH authority under the managed `LIMA_HOME`; no ambient `~/.ssh` key is adopted and `ssh.loadDotSSHPubKeys` remains `false`."
+    },
+    {
+      "checked": false,
+      "text": "`mottainai-init` creates a bounded credential-only raw filesystem labeled exactly `MTNAI_BOOT` containing one validated `authorized_keys` file whose public key corresponds to Lima's managed private key."
+    },
+    {
+      "checked": false,
+      "text": "The carrier is persisted under managed Runtime/provider state with an explicit identity/fingerprint suitable for idempotency and key-drift detection."
+    },
+    {
+      "checked": false,
+      "text": "The raw carrier is imported through Lima's documented/public disk-management surface (`limactl disk import <name> <raw>`) and the Lima YAML references the resulting disk **by name** through `additionalDisks`; an arbitrary host file path is not treated as an `additionalDisks` locator."
+    },
+    {
+      "checked": false,
+      "text": "The imported additional disk is attached without reformatting (`format: false` or the equivalent public Lima behavior), so the pre-created `MTNAI_BOOT` filesystem label and `authorized_keys` content survive unchanged."
+    },
+    {
+      "checked": false,
+      "text": "Import success is independently verified before instance creation; do not rely only on the Lima 2.2.0 `disk import` exit status because its upstream implementation can return success when the internal file copy fails."
+    },
+    {
+      "checked": false,
+      "text": "Existing instance + missing/changed managed Lima key is classified fail-closed with an explicit recovery path; the implementation must not silently generate a new host key that the guest will never accept after first-boot key persistence."
+    },
+    {
+      "checked": false,
+      "text": "Repeated unchanged ensure reuses the same key/carrier/disk identity and is a no-op apart from verification."
+    },
+    {
+      "checked": false,
+      "text": "Real-guest or equivalent canonical integration evidence demonstrates provider SSH reachability using the exact production key/carrier path; mocked `LimaCli` tests alone are insufficient."
+    },
+    {
+      "checked": false,
+      "text": "The fix composes with #841: after SSH authentication succeeds, canonical Appliance creation/readiness must not depend on Lima cloud-init sentinels."
+    },
+    {
+      "checked": false,
+      "text": "Issue #261 can proceed past Route 3 guest reachability on real Linux x86_64/KVM using an unmodified published release produced after the fix."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 840,
+    "state": "open",
+    "title": "fix(runtime): attach MTNAI_BOOT SSH key disk in render_lima_config",
+    "url": "https://github.com/yohn-jp/mottainai/issues/840"
+  },
+  "linked": {
+    "number": 840
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

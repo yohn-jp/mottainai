@@ -1,0 +1,103 @@
+{
+  "baseSha": "5b8f3fc3b8dc82c7977e70c1379168d63a7cafb4",
+  "headSha": "03fed4b0c04a1f783b3c3f1265cb495d0010bb7e",
+  "preview": {
+    "excluded_count": 0,
+    "excluded_files": [],
+    "from": "5b8f3fc3b8dc82c7977e70c1379168d63a7cafb4",
+    "merge_base": "5b8f3fc3b8dc82c7977e70c1379168d63a7cafb4",
+    "mode": "range",
+    "reviewable_count": 7,
+    "reviewable_files": [
+      {
+        "deletions": 1,
+        "insertions": 23,
+        "path": ".github/workflows/ci.yml",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 59,
+        "path": "host-bootstrap/examples/generate-bootstrap-disk.rs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 633,
+        "path": "host-bootstrap/src/bootstrap_disk.rs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 6,
+        "path": "host-bootstrap/src/error.rs",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 1,
+        "path": "host-bootstrap/src/lib.rs",
+        "status": "modified"
+      },
+      {
+        "deletions": 2,
+        "insertions": 160,
+        "path": "host-bootstrap/src/lima.rs",
+        "status": "modified"
+      },
+      {
+        "deletions": 9,
+        "insertions": 28,
+        "path": "nix/tests/runtime-appliance-golden-path.nix",
+        "status": "modified"
+      }
+    ],
+    "schema_version": "1",
+    "to": "03fed4b0c04a1f783b3c3f1265cb495d0010bb7e",
+    "total_deletions": 12,
+    "total_files": 7,
+    "total_insertions": 910
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.4"
+  },
+  "rule": {
+    "groups": [
+      {
+        "files": [
+          ".github/workflows/ci.yml"
+        ],
+        "group_id": 1,
+        "pattern": ".github/workflows/**/*.{yaml,yml}",
+        "rule": "#### Security\n- **pull_request_target misuse**: Using `pull_request_target` with `actions/checkout` referencing PR head code is dangerous — it runs untrusted code with write permissions. Flag if checkout ref points to PR head without isolation\n- **Secrets exposure**: Secrets must not be printed to logs (e.g., `echo ${{ secrets.X }}`). Verify secrets are only passed via `env:` blocks to steps that need them\n- **Excessive permissions**: Check if `permissions` is set to least-privilege. Flag `permissions: write-all` or missing `permissions` key (defaults to broad access). Each job should declare only the permissions it needs\n- **Unpinned action versions**: Third-party actions should be pinned to a full commit SHA (e.g., `uses: actions/checkout@<sha>`), not just a tag. Tags are mutable and can be hijacked. First-party (`actions/*`) pinned to `v4` is acceptable\n- **Script injection**: Expressions like `${{ github.event.issue.title }}` used directly in `run:` blocks enable code injection. These must be passed through environment variables instead\n- **Hardcoded credentials**: Tokens, passwords, or API keys directly in the workflow file (not via secrets)\n\n#### Correctness\n- **Missing `fetch-depth: 0`**: When a workflow needs git history (tags, merge-base, changelog generation), verify `actions/checkout` uses `fetch-depth: 0`\n- **Incorrect condition logic**: Verify `if:` conditions are correct (e.g., `github.event_name == 'pull_request'` vs `'pull_request_target'`); ensure boolean expressions are properly quoted\n- **Matrix strategy gaps**: Check that matrix combinations cover required platforms. Flag if `fail-fast` is true (default) but all matrix legs must succeed\n- **Missing `shell` specification**: When using `run:` with multi-line scripts on self-hosted runners, shell should be explicit (bash vs sh vs pwsh)\n- **Broken job dependencies**: Verify `needs:` references exist as actual job IDs in the same workflow. Check for circular dependencies\n- **Typos in action inputs**: Misspelled input names for actions (e.g., `fetch-detph` instead of `fetch-depth`) are silently ignored\n\n#### Reliability\n- **Missing timeout**: Jobs without `timeout-minutes` can run indefinitely and consume runner resources. Flag jobs that lack timeout (especially on self-hosted runners)\n- **No concurrency control**: Workflows triggered by push/PR without `concurrency` group may create redundant runs. Suggest `concurrency` with `cancel-in-progress` where appropriate\n- **Uncached dependencies**: Build workflows that install dependencies without caching (no `actions/cache` or built-in caching) on every run\n\n#### Best Practices\n- **Deprecated features**: Flag usage of deprecated syntax (`set-output`, `save-state`, `::set-output`, `actions/checkout@v2/v3` when v4 is available)\n- **Missing `continue-on-error` awareness**: If a step failure should not fail the whole job, it needs `continue-on-error: true`; conversely, verify non-critical steps don't silently swallow failures with `|| true` hiding real errors\n- **Container image tags**: Using `latest` tag for container images is unreliable; prefer specific version tags",
+        "source": "system"
+      },
+      {
+        "files": [
+          "host-bootstrap/examples/generate-bootstrap-disk.rs",
+          "host-bootstrap/src/bootstrap_disk.rs",
+          "host-bootstrap/src/error.rs",
+          "host-bootstrap/src/lib.rs",
+          "host-bootstrap/src/lima.rs"
+        ],
+        "group_id": 2,
+        "pattern": "**/*.rs",
+        "rule": "#### Obvious Typos or Spelling Errors\n- Spelling errors in type names, function names, variable names, enum variants, trait names, or module names at their declaration sites; do not report spelling errors at call sites\n- Strings in log messages, panic messages, error messages, or public diagnostics containing spelling errors that affect readability\n\n#### Ownership and Lifetime Correctness\n- Incorrectly returned references, borrowed values escaping their valid scope, or lifetime relationships that make an API unsound or unusable\n- Excessive or unnecessary `clone()` calls introduced to satisfy borrowing when a borrow, iterator, `Cow`, or ownership transfer would be clearer and cheaper\n- Interior mutability (`RefCell`, `Cell`, `Mutex`) used to work around ownership without a real shared-mutability requirement\n- Reference cycles with `Rc<RefCell<T>>` or `Arc<Mutex<T>>` where `Weak` should be used to break ownership cycles\n\n#### Error Handling and Panics\n- `unwrap()`, `expect()`, `panic!`, `todo!`, or `unimplemented!` in production/library paths where the failure is recoverable or can be propagated with `Result`\n- Errors converted to strings too early or discarded without context; prefer preserving the original error and adding actionable context at boundaries\n- `Result` or `Option` values ignored, swallowed, or mapped to misleading defaults\n- Public APIs that panic on ordinary invalid input instead of returning a typed error, unless the panic documents a clear programming invariant\n\n#### Unsafe Code Boundaries\n- `unsafe` blocks that are broader than necessary or hide multiple unrelated invariants\n- Missing or stale safety rationale for `unsafe` blocks, `unsafe fn`, `unsafe impl Send`, or `unsafe impl Sync`\n- Raw pointer dereferences without clear validity, alignment, initialization, aliasing, and lifetime guarantees\n- FFI boundaries that do not validate null pointers, buffer lengths, ownership transfer, string encoding, or allocator compatibility\n- `static mut`, unchecked `transmute`, `MaybeUninit`, `mem::zeroed`, or manual drop logic used without a documented invariant that makes the operation sound\n\n#### Concurrency and Shared State\n- Holding `Mutex`, `RwLock`, or `RefCell` guards longer than necessary, especially across calls into user code or potentially blocking operations\n- Holding synchronous locks across `.await`, or using blocking I/O, sleeps, or CPU-heavy work directly inside async tasks\n- Check-then-act races around shared state, cache initialization, file creation, or atomics\n- Atomic operations with ordering that is too weak for the data being protected, or overly strong orderings that hide the intended synchronization contract\n- Unsafe `Send` or `Sync` implementations that do not prove all contained state is thread-safe under the documented invariants\n\n#### Async and Cancellation Safety\n- Spawned tasks whose `JoinHandle` is dropped when failures, cancellation, or shutdown still need to be observed\n- Futures that are not cancellation-safe around partial writes, lock acquisition, transactions, or resource cleanup\n- Async functions that use synchronous filesystem, network, or process APIs in request/worker paths where the runtime can be blocked\n- Retry loops without backoff, timeout, cancellation propagation, or bounded attempts\n\n#### Collections, Iterators, and Performance\n- Avoid unnecessary allocations in hot paths, such as repeated `String` construction, `format!`, `collect()`, or `to_vec()` where borrowing or streaming is sufficient\n- Prefer iterator adapters and standard library collection APIs when they make ownership and complexity clearer; avoid dense iterator chains that obscure error handling or side effects\n- Ensure hash maps, vectors, and strings are preallocated when the expected size is known and growth cost is material\n- Avoid O(n^2) lookups from nested loops when a `HashMap`, `HashSet`, sorting, or indexing strategy would clearly reduce complexity\n\n#### Type and API Design\n- Model domain states with enums, newtypes, and typed IDs instead of booleans, strings, or primitive integers when invalid states would otherwise be representable\n- Prefer standard conversion and borrowing traits (`From`, `TryFrom`, `AsRef`, `Borrow`, `IntoIterator`) when designing reusable APIs\n- Public structs, enums, traits, and errors should have useful names, visibility, trait derives, and documentation appropriate to the crate boundary\n- Avoid exposing concrete collection or synchronization types in public APIs when a slice, iterator, trait, or narrower abstraction would preserve flexibility\n\n#### Macros and Metaprogramming\nOnly flag when the diff actually defines a `macro_rules!` or procedural macro; do not report on ordinary macro invocations.\n- An `$x:expr` fragment interpolated more than once in the expansion, so the caller's expression — and any side effects — runs multiple times; bind it to a `let` once inside the expansion\n- Exported or publicly used macros that reference items without `$crate::`, so name resolution breaks or binds the wrong item when the macro is invoked from another crate\n- Token-tree (`$t:tt`) fragments re-emitted without parentheses, where operator precedence can silently change the intended meaning; this applies only to token-level (`tt`) interpolation, since an `:expr` fragment and a whole expansion are each parsed as one complete expression\n- Procedural macros that `unwrap()`, `expect()`, or `panic!` on malformed input instead of emitting a `syn::Error` / `compile_error!` with a useful span\n- Macro-hygiene assumptions that break: generated identifiers relying on names from the call-site scope, or items that collide when the macro is invoked more than once in the same module\n\n#### Security-Sensitive Code\n- Validate path, URL, command, SQL, and serialized input before use; do not build shell commands or SQL with unchecked string concatenation\n- Do not log secrets, tokens, credentials, private keys, or personally identifiable information\n- Check integer conversions, byte slicing, and length arithmetic for overflow, truncation, and UTF-8 boundary errors\n- Cryptographic, random, authentication, and authorization code must use well-reviewed crates and explicit error handling; flag ad hoc implementations",
+        "source": "system"
+      },
+      {
+        "files": [
+          "nix/tests/runtime-appliance-golden-path.nix"
+        ],
+        "group_id": 3,
+        "pattern": "**/*.nix",
+        "rule": "> Favor precision over recall: report only Nix issues that are likely to break evaluation, reproducibility, build isolation, security, or deployment behavior. Do not report formatting that `nixfmt` or project style would handle, and do not require flakes when the repository intentionally uses channels or legacy Nix.\n\n#### Evaluation and Attribute Sets\n- Duplicate attribute definitions in the same attrset, or an attribute override that unintentionally replaces a previously defined value in the changed scope.\n- Referencing `self`, `super`, `pkgs`, `config`, or function arguments that are not in scope for the changed expression.\n- `inherit` statements that reference missing names, or inherit from an attrset that cannot contain the requested attribute.\n- Recursive attrsets (`rec`) where a value depends on itself directly or through an obvious cycle.\n\n#### Reproducibility and Pinning\n- Fetchers such as `fetchTarball`, `fetchGit`, `fetchurl`, `fetchFromGitHub`, or `builtins.fetch*` without a fixed revision and hash when the source affects a package, module, or deployment output.\n- Version strings, source revisions, and hashes that are changed inconsistently, for example a package version bump without the matching source revision/hash update.\n- Imports from `<nixpkgs>` or mutable channels in otherwise pinned flake or lockfile-based code, unless existing neighboring code deliberately follows the same pattern.\n\n#### Build and Packaging Correctness\n- Derivations that use undeclared build tools or runtime dependencies instead of adding them to `nativeBuildInputs`, `buildInputs`, `propagatedBuildInputs`, or wrapper inputs.\n- Phase overrides that drop required default behavior without reintroducing it, such as replacing `installPhase` without installing outputs into `$out`.\n- Hardcoded host paths, user home paths, or `/usr/bin` tools inside derivations that should build in the Nix sandbox.\n- `meta.mainProgram`, `passthru.tests`, or output names that are changed inconsistently with installed binaries or referenced package attributes.\n\n#### NixOS and Home Manager Modules\n- Options used before declaration, options with defaults whose type does not match the declared `types.*`, or renamed options without a compatibility alias or migration path.\n- Systemd service, timer, user, group, port, or file path changes that conflict with existing module options or make activation fail.\n- Secrets or credentials embedded directly in module defaults, environment variables, scripts, or generated config instead of coming from secret management or protected files.\n\n#### Overlays and Flakes\n- Overlay functions with argument order or names swapped (`final`/`prev`, `self`/`super`) causing packages to be pulled from the wrong package set.\n- Flake outputs that reference missing inputs, unsupported systems, or package attributes not defined for every advertised system.\n- Adding a package/app/check/devShell for one system while the surrounding flake helper expects all systems to expose the same attribute.\n\n#### Review Scope\n- Focus on evaluation failures, non-reproducible sources, sandbox escapes, missing dependencies, module activation errors, and secret exposure.\n- Do not flag preference-only style choices, attr ordering, or idioms that are consistent with neighboring Nix files.",
+        "source": "system"
+      }
+    ],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}

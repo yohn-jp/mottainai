@@ -1,0 +1,206 @@
+{
+  "baseSha": "5b8f3fc3b8dc82c7977e70c1379168d63a7cafb4",
+  "files": [
+    {
+      "additions": 23,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 19,
+          "newStart": 734,
+          "oldLines": 0,
+          "oldStart": 733
+        },
+        {
+          "newLines": 4,
+          "newStart": 771,
+          "oldLines": 1,
+          "oldStart": 752
+        }
+      ],
+      "path": ".github/workflows/ci.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 59,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 59,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "host-bootstrap/examples/generate-bootstrap-disk.rs",
+      "status": "added"
+    },
+    {
+      "additions": 633,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 633,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "host-bootstrap/src/bootstrap_disk.rs",
+      "status": "added"
+    },
+    {
+      "additions": 6,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 41,
+          "oldLines": 0,
+          "oldStart": 40
+        },
+        {
+          "newLines": 3,
+          "newStart": 109,
+          "oldLines": 0,
+          "oldStart": 105
+        }
+      ],
+      "path": "host-bootstrap/src/error.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 2,
+          "oldLines": 0,
+          "oldStart": 1
+        }
+      ],
+      "path": "host-bootstrap/src/lib.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 160,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 12,
+          "oldLines": 0,
+          "oldStart": 11
+        },
+        {
+          "newLines": 4,
+          "newStart": 198,
+          "oldLines": 0,
+          "oldStart": 194
+        },
+        {
+          "newLines": 1,
+          "newStart": 227,
+          "oldLines": 0,
+          "oldStart": 219
+        },
+        {
+          "newLines": 6,
+          "newStart": 246,
+          "oldLines": 0,
+          "oldStart": 237
+        },
+        {
+          "newLines": 7,
+          "newStart": 735,
+          "oldLines": 0,
+          "oldStart": 720
+        },
+        {
+          "newLines": 4,
+          "newStart": 803,
+          "oldLines": 0,
+          "oldStart": 781
+        },
+        {
+          "newLines": 18,
+          "newStart": 859,
+          "oldLines": 2,
+          "oldStart": 834
+        },
+        {
+          "newLines": 1,
+          "newStart": 1317,
+          "oldLines": 0,
+          "oldStart": 1275
+        },
+        {
+          "newLines": 8,
+          "newStart": 1468,
+          "oldLines": 0,
+          "oldStart": 1425
+        },
+        {
+          "newLines": 8,
+          "newStart": 1842,
+          "oldLines": 0,
+          "oldStart": 1791
+        },
+        {
+          "newLines": 9,
+          "newStart": 2562,
+          "oldLines": 0,
+          "oldStart": 2503
+        },
+        {
+          "newLines": 91,
+          "newStart": 2586,
+          "oldLines": 0,
+          "oldStart": 2518
+        }
+      ],
+      "path": "host-bootstrap/src/lima.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 28,
+      "deletions": 9,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 9,
+          "oldLines": 0,
+          "oldStart": 8
+        },
+        {
+          "newLines": 9,
+          "newStart": 52,
+          "oldLines": 1,
+          "oldStart": 49
+        },
+        {
+          "newLines": 2,
+          "newStart": 92,
+          "oldLines": 0,
+          "oldStart": 80
+        },
+        {
+          "newLines": 14,
+          "newStart": 141,
+          "oldLines": 8,
+          "oldStart": 128
+        }
+      ],
+      "path": "nix/tests/runtime-appliance-golden-path.nix",
+      "status": "modified"
+    }
+  ],
+  "headSha": "03fed4b0c04a1f783b3c3f1265cb495d0010bb7e",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 910,
+    "deletions": 12,
+    "filesChanged": 7
+  }
+}
