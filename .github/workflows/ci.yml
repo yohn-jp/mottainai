@@ -457,6 +457,9 @@ jobs:
         with:
           node-version: "24"
 
+      - name: Verify corrected production deployment artifact round-trip (Issue #832)
+        run: pnpm run test:deployment-roundtrip
+
       - name: Evaluate locked flake outputs
         working-directory: nix
         run: nix flake check --no-update-lock-file --no-build --all-systems
