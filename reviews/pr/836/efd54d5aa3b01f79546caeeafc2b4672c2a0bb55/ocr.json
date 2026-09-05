@@ -1,0 +1,67 @@
+{
+  "baseSha": "6d9077f4526fead198ff939fdefbe47a68ac887d",
+  "headSha": "efd54d5aa3b01f79546caeeafc2b4672c2a0bb55",
+  "preview": {
+    "excluded_count": 3,
+    "excluded_files": [
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 11,
+        "path": "CHANGELOG.md",
+        "status": "modified"
+      },
+      {
+        "deletions": 10,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 11,
+        "path": "README.md",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 34,
+        "path": "docs/releases/0.9.3.md",
+        "status": "added"
+      }
+    ],
+    "from": "6d9077f4526fead198ff939fdefbe47a68ac887d",
+    "merge_base": "6d9077f4526fead198ff939fdefbe47a68ac887d",
+    "mode": "range",
+    "reviewable_count": 1,
+    "reviewable_files": [
+      {
+        "deletions": 1,
+        "insertions": 1,
+        "path": "package.json",
+        "status": "modified"
+      }
+    ],
+    "schema_version": "1",
+    "to": "efd54d5aa3b01f79546caeeafc2b4672c2a0bb55",
+    "total_deletions": 11,
+    "total_files": 4,
+    "total_insertions": 57
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.4"
+  },
+  "rule": {
+    "groups": [
+      {
+        "files": [
+          "package.json"
+        ],
+        "group_id": 1,
+        "pattern": "**/package.json",
+        "rule": "- Avoid introducing dependencies with a version of `latest` or `*`; use specific version numbers instead. Note: ignore this rule when the version number is not on a newly added line of code\n- Dependency conflicts or duplicate declarations: the same dependency exists in both `dependencies` and `devDependencies`\n- Required tool dependencies not declared: tool names such as eslint, jest, or prettier appear in `scripts` but are not listed in `devDependencies`",
+        "source": "system"
+      }
+    ],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}
