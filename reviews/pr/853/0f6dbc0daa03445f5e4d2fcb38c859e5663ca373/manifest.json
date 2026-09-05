@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "53dbd9cfb92a150c97bdd93cc67b546fbb0e6232",
+    "draft": false,
+    "headRef": "fix/847-qemu-data-deployment-identity",
+    "headSha": "0f6dbc0daa03445f5e4d2fcb38c859e5663ca373",
+    "number": 853,
+    "title": "fix(runtime): bind QEMU data identity into Route 4 deployment descriptor (#847)"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "0f6dbc0daa03445f5e4d2fcb38c859e5663ca373",
+    "immutable": true,
+    "shortId": "0f6dbc0daa03"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-05T08:34:56.381Z"
+  }
+}

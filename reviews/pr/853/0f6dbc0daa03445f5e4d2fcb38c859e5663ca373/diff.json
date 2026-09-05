@@ -1,0 +1,340 @@
+{
+  "baseSha": "53dbd9cfb92a150c97bdd93cc67b546fbb0e6232",
+  "files": [
+    {
+      "additions": 4,
+      "deletions": 4,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 32,
+          "oldLines": 4,
+          "oldStart": 32
+        }
+      ],
+      "path": "docs/deployment-descriptor.md",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 20,
+          "oldLines": 2,
+          "oldStart": 20
+        }
+      ],
+      "path": "docs/host-bootstrap.md",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 182,
+          "oldLines": 1,
+          "oldStart": 182
+        }
+      ],
+      "path": "docs/lima-runtime-orchestration.md",
+      "status": "modified"
+    },
+    {
+      "additions": 7,
+      "deletions": 9,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 52,
+          "oldLines": 1,
+          "oldStart": 52
+        },
+        {
+          "newLines": 1,
+          "newStart": 55,
+          "oldLines": 1,
+          "oldStart": 55
+        },
+        {
+          "newLines": 1,
+          "newStart": 204,
+          "oldLines": 1,
+          "oldStart": 204
+        },
+        {
+          "newLines": 1,
+          "newStart": 226,
+          "oldLines": 1,
+          "oldStart": 226
+        },
+        {
+          "newLines": 1,
+          "newStart": 282,
+          "oldLines": 1,
+          "oldStart": 282
+        },
+        {
+          "newLines": 0,
+          "newStart": 299,
+          "oldLines": 1,
+          "oldStart": 300
+        },
+        {
+          "newLines": 1,
+          "newStart": 784,
+          "oldLines": 1,
+          "oldStart": 785
+        },
+        {
+          "newLines": 1,
+          "newStart": 786,
+          "oldLines": 1,
+          "oldStart": 787
+        },
+        {
+          "newLines": 0,
+          "newStart": 809,
+          "oldLines": 1,
+          "oldStart": 811
+        }
+      ],
+      "path": "docs/route4-route1-operation-book.md",
+      "status": "modified"
+    },
+    {
+      "additions": 390,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 10,
+          "oldLines": 0,
+          "oldStart": 9
+        },
+        {
+          "newLines": 71,
+          "newStart": 58,
+          "oldLines": 3,
+          "oldStart": 57
+        },
+        {
+          "newLines": 1,
+          "newStart": 143,
+          "oldLines": 0,
+          "oldStart": 73
+        },
+        {
+          "newLines": 215,
+          "newStart": 241,
+          "oldLines": 0,
+          "oldStart": 170
+        },
+        {
+          "newLines": 5,
+          "newStart": 472,
+          "oldLines": 0,
+          "oldStart": 186
+        },
+        {
+          "newLines": 1,
+          "newStart": 504,
+          "oldLines": 0,
+          "oldStart": 213
+        },
+        {
+          "newLines": 9,
+          "newStart": 525,
+          "oldLines": 0,
+          "oldStart": 233
+        },
+        {
+          "newLines": 18,
+          "newStart": 560,
+          "oldLines": 0,
+          "oldStart": 259
+        },
+        {
+          "newLines": 69,
+          "newStart": 614,
+          "oldLines": 0,
+          "oldStart": 295
+        }
+      ],
+      "path": "host-bootstrap/src/deployment_descriptor.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 0,
+      "deletions": 139,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 569,
+          "oldLines": 4,
+          "oldStart": 570
+        },
+        {
+          "newLines": 0,
+          "newStart": 2807,
+          "oldLines": 135,
+          "oldStart": 2812
+        }
+      ],
+      "path": "host-bootstrap/src/lima.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 7,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 7,
+          "newStart": 35,
+          "oldLines": 0,
+          "oldStart": 34
+        }
+      ],
+      "path": "release/deployment-provider-profile-linux-x86_64.json",
+      "status": "modified"
+    },
+    {
+      "additions": 38,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 129,
+          "oldLines": 1,
+          "oldStart": 129
+        },
+        {
+          "newLines": 1,
+          "newStart": 147,
+          "oldLines": 1,
+          "oldStart": 147
+        },
+        {
+          "newLines": 36,
+          "newStart": 209,
+          "oldLines": 0,
+          "oldStart": 208
+        }
+      ],
+      "path": "scripts/release-managed-generation.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 5,
+      "deletions": 4,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 52,
+          "oldLines": 1,
+          "oldStart": 52
+        },
+        {
+          "newLines": 1,
+          "newStart": 57,
+          "oldLines": 1,
+          "oldStart": 57
+        },
+        {
+          "newLines": 3,
+          "newStart": 143,
+          "oldLines": 2,
+          "oldStart": 143
+        }
+      ],
+      "path": "src/runtime-contract/deployment-artifact-roundtrip.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 31,
+      "deletions": 4,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 36,
+          "oldLines": 1,
+          "oldStart": 36
+        },
+        {
+          "newLines": 1,
+          "newStart": 40,
+          "oldLines": 1,
+          "oldStart": 40
+        },
+        {
+          "newLines": 3,
+          "newStart": 95,
+          "oldLines": 2,
+          "oldStart": 95
+        },
+        {
+          "newLines": 1,
+          "newStart": 170,
+          "oldLines": 0,
+          "oldStart": 168
+        },
+        {
+          "newLines": 2,
+          "newStart": 173,
+          "oldLines": 0,
+          "oldStart": 170
+        },
+        {
+          "newLines": 23,
+          "newStart": 181,
+          "oldLines": 0,
+          "oldStart": 176
+        }
+      ],
+      "path": "src/runtime-contract/deployment-descriptor.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 32,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 134,
+          "oldLines": 0,
+          "oldStart": 133
+        },
+        {
+          "newLines": 3,
+          "newStart": 167,
+          "oldLines": 3,
+          "oldStart": 166
+        },
+        {
+          "newLines": 2,
+          "newStart": 175,
+          "oldLines": 0,
+          "oldStart": 173
+        },
+        {
+          "newLines": 26,
+          "newStart": 270,
+          "oldLines": 0,
+          "oldStart": 266
+        }
+      ],
+      "path": "src/runtime-contract/deployment-descriptor.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "0f6dbc0daa03445f5e4d2fcb38c859e5663ca373",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 517,
+    "deletions": 171,
+    "filesChanged": 11
+  }
+}
