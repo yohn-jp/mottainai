@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #838 @ ee3296eec319</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #838: fix(release): consume canonical managed generation identity</h1>
+<p>Base <code>main</code> @ <code>5bad7b827b77dba1c678a8610ac57984b5f7bb6a</code> &rarr;
+Head <code>fix/824-canonical-generation-identity</code> @ <code>ee3296eec319685ed51862f0eeb6f547ac10b7ec</code></p>
+<p>Revision <code>ee3296eec319</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/824">#824</a> fix: derive release managed-generation identity from the canonical runtime contract (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] The release workflow no longer reimplements managed-generation identity in shell.</li>
+<li>[ ] The descriptor consumes a canonical identity produced from the realized managed-generation contract.</li>
+<li>[ ] The descriptor identity exactly matches `generationIdentityOf()` for the same manifest and realized Nix outputs.</li>
+<li>[ ] Regression coverage proves a production-shaped descriptor survives exact generation-identity verification.</li>
+<li>[ ] A deliberately inconsistent generation identity fails closed.</li></ul>
+
+
+
+<h2>Changed files (7, +500/-45)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/publish.yml</td><td>modified</td><td>+48</td><td>-30</td></tr>
+<tr><td>package.json</td><td>modified</td><td>+2</td><td>-2</td></tr>
+<tr><td>scripts/create-release-deployment-descriptor-input.mjs</td><td>modified</td><td>+39</td><td>-8</td></tr>
+<tr><td>scripts/create-release-managed-generation.mjs</td><td>added</td><td>+74</td><td>-0</td></tr>
+<tr><td>scripts/npm-publish-contract.test.mjs</td><td>modified</td><td>+2</td><td>-1</td></tr>
+<tr><td>scripts/release-managed-generation.test.mjs</td><td>added</td><td>+286</td><td>-0</td></tr>
+<tr><td>src/bootstrap/source-resolution.test.ts</td><td>modified</td><td>+49</td><td>-4</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

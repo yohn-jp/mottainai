@@ -1,0 +1,266 @@
+{
+  "baseSha": "5bad7b827b77dba1c678a8610ac57984b5f7bb6a",
+  "files": [
+    {
+      "additions": 48,
+      "deletions": 30,
+      "hunks": [
+        {
+          "newLines": 6,
+          "newStart": 526,
+          "oldLines": 0,
+          "oldStart": 525
+        },
+        {
+          "newLines": 3,
+          "newStart": 543,
+          "oldLines": 1,
+          "oldStart": 537
+        },
+        {
+          "newLines": 1,
+          "newStart": 555,
+          "oldLines": 14,
+          "oldStart": 547
+        },
+        {
+          "newLines": 3,
+          "newStart": 561,
+          "oldLines": 1,
+          "oldStart": 566
+        },
+        {
+          "newLines": 16,
+          "newStart": 572,
+          "oldLines": 0,
+          "oldStart": 574
+        },
+        {
+          "newLines": 7,
+          "newStart": 596,
+          "oldLines": 0,
+          "oldStart": 582
+        },
+        {
+          "newLines": 6,
+          "newStart": 1188,
+          "oldLines": 0,
+          "oldStart": 1167
+        },
+        {
+          "newLines": 0,
+          "newStart": 1215,
+          "oldLines": 1,
+          "oldStart": 1190
+        },
+        {
+          "newLines": 1,
+          "newStart": 1219,
+          "oldLines": 8,
+          "oldStart": 1194
+        },
+        {
+          "newLines": 2,
+          "newStart": 1221,
+          "oldLines": 3,
+          "oldStart": 1203
+        },
+        {
+          "newLines": 1,
+          "newStart": 1230,
+          "oldLines": 1,
+          "oldStart": 1213
+        },
+        {
+          "newLines": 2,
+          "newStart": 1237,
+          "oldLines": 1,
+          "oldStart": 1220
+        }
+      ],
+      "path": ".github/workflows/publish.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 55,
+          "oldLines": 2,
+          "oldStart": 55
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 39,
+      "deletions": 8,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 4,
+          "oldLines": 3,
+          "oldStart": 4
+        },
+        {
+          "newLines": 1,
+          "newStart": 40,
+          "oldLines": 0,
+          "oldStart": 39
+        },
+        {
+          "newLines": 15,
+          "newStart": 44,
+          "oldLines": 1,
+          "oldStart": 43
+        },
+        {
+          "newLines": 11,
+          "newStart": 63,
+          "oldLines": 0,
+          "oldStart": 47
+        },
+        {
+          "newLines": 2,
+          "newStart": 75,
+          "oldLines": 2,
+          "oldStart": 49
+        },
+        {
+          "newLines": 6,
+          "newStart": 78,
+          "oldLines": 1,
+          "oldStart": 52
+        },
+        {
+          "newLines": 1,
+          "newStart": 136,
+          "oldLines": 1,
+          "oldStart": 105
+        }
+      ],
+      "path": "scripts/create-release-deployment-descriptor-input.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 74,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 74,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/create-release-managed-generation.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 2,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 38,
+          "oldLines": 1,
+          "oldStart": 38
+        },
+        {
+          "newLines": 1,
+          "newStart": 40,
+          "oldLines": 0,
+          "oldStart": 39
+        }
+      ],
+      "path": "scripts/npm-publish-contract.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 286,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 286,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/release-managed-generation.test.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 49,
+      "deletions": 4,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 3,
+          "oldLines": 0,
+          "oldStart": 2
+        },
+        {
+          "newLines": 1,
+          "newStart": 13,
+          "oldLines": 0,
+          "oldStart": 11
+        },
+        {
+          "newLines": 1,
+          "newStart": 15,
+          "oldLines": 0,
+          "oldStart": 12
+        },
+        {
+          "newLines": 4,
+          "newStart": 21,
+          "oldLines": 0,
+          "oldStart": 17
+        },
+        {
+          "newLines": 1,
+          "newStart": 68,
+          "oldLines": 0,
+          "oldStart": 60
+        },
+        {
+          "newLines": 32,
+          "newStart": 81,
+          "oldLines": 0,
+          "oldStart": 72
+        },
+        {
+          "newLines": 5,
+          "newStart": 116,
+          "oldLines": 4,
+          "oldStart": 76
+        },
+        {
+          "newLines": 2,
+          "newStart": 127,
+          "oldLines": 0,
+          "oldStart": 85
+        },
+        {
+          "newLines": 2,
+          "newStart": 144,
+          "oldLines": 0,
+          "oldStart": 100
+        }
+      ],
+      "path": "src/bootstrap/source-resolution.test.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "ee3296eec319685ed51862f0eeb6f547ac10b7ec",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 500,
+    "deletions": 45,
+    "filesChanged": 7
+  }
+}

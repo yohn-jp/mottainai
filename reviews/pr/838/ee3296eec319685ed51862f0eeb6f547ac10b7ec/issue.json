@@ -1,0 +1,37 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "The release workflow no longer reimplements managed-generation identity in shell."
+    },
+    {
+      "checked": false,
+      "text": "The descriptor consumes a canonical identity produced from the realized managed-generation contract."
+    },
+    {
+      "checked": false,
+      "text": "The descriptor identity exactly matches `generationIdentityOf()` for the same manifest and realized Nix outputs."
+    },
+    {
+      "checked": false,
+      "text": "Regression coverage proves a production-shaped descriptor survives exact generation-identity verification."
+    },
+    {
+      "checked": false,
+      "text": "A deliberately inconsistent generation identity fails closed."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 824,
+    "state": "open",
+    "title": "fix: derive release managed-generation identity from the canonical runtime contract",
+    "url": "https://github.com/yohn-jp/mottainai/issues/824"
+  },
+  "linked": {
+    "number": 824
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
