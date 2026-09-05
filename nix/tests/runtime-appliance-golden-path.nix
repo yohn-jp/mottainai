@@ -11,11 +11,10 @@ let
   mottainaiVersionV1 = "1.0.0";
   mottainaiVersionV2 = "2.0.0";
   # NAR SHA-256 of nix/tests/fixtures/managed-mottainai-v{1,2} (Issue #703),
-  # computed via `nix hash path --sri --type sha256 <path>` and converted to
-  # lowercase base16 the same way src/bootstrap/source-resolution.ts's
-  # defaultNarHashOfTree does. Verified, not bypassed: the test-only fixture
-  # resolver (nix/tests/lib/managed-mottainai-fixture-resolver.mjs)
-  # recomputes this hash at runtime and fails closed on mismatch.
+  # computed via the production source-resolution hash authority and recorded
+  # as lowercase base16. Verified, not bypassed: the test-only fixture
+  # resolver (nix/tests/lib/managed-mottainai-fixture-resolver.mjs) uses that
+  # same authority at runtime and fails closed on mismatch.
   mottainaiSourceSha256V1 = "09932f6282e0023c6a099ac08e5eca311e8910a85fee24a849ea183ed68b29fc";
   mottainaiSourceSha256V2 = "801fcda193feb8773eb74119aff4fdcca74efa40dcbc22df9b5803ca6f7fd48b";
   # Copied to the guest (below) alongside the fixture resolver so its
@@ -306,6 +305,7 @@ in
         driver_source = "\n".join([
             "import { reconcileAdapters } from " + json.dumps(package_root + "/bootstrap/cli.js") + ";",
             "import { reconcileManagedRuntime } from " + json.dumps(package_root + "/runtime-contract/managed-runtime.js") + ";",
+            "import { narHashOfTree } from " + json.dumps(package_root + "/bootstrap/source-resolution.js") + ";",
             "import { resolveManagedMottainaiFixtureSource } from " + json.dumps(guest_fixture_root + "/lib/managed-mottainai-fixture-resolver.mjs") + ";",
             "",
             "const [system] = process.argv.slice(2);",
@@ -318,7 +318,7 @@ in
             "      system,",
             "      repoRoot,",
             "      env,",
-            "      overrides: { resolveSource: resolveManagedMottainaiFixtureSource },",
+            "      overrides: { resolveSource: (options) => resolveManagedMottainaiFixtureSource({ ...options, narHashOfTree }) },",
             "    }),",
             "  });",
             "  process.stdout.write(JSON.stringify(result));",

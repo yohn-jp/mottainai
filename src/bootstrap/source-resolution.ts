@@ -46,7 +46,7 @@ export interface ResolvedMottainaiSource {
   readonly narHashSha256: string;
 }
 
-function defaultNarHashOfTree(treePath: string): string {
+export function narHashOfTree(treePath: string): string {
   const sri = execFileSync("nix", ["hash", "path", "--sri", "--type", "sha256", treePath], { encoding: "utf8" }).trim();
   return execFileSync("nix", [
     "eval",
@@ -289,7 +289,7 @@ export async function resolveMottainaiSource(options: ResolveMottainaiSourceOpti
   const tag = `v${options.requestedVersion}`;
   const url = `${BOOTSTRAP_TRUSTED_SOURCE_ORIGIN}${tag}.tar.gz`;
   const fetcher = options.fetcher ?? defaultFetcher;
-  const narHashOfTree = options.narHashOfTree ?? defaultNarHashOfTree;
+  const hashTree = options.narHashOfTree ?? narHashOfTree;
 
   fs.mkdirSync(options.destinationDirectory, { recursive: true, mode: 0o700 });
   const archivePath = path.join(options.destinationDirectory, `.mottainai-source-${process.pid}.tar.gz`);
@@ -308,7 +308,7 @@ export async function resolveMottainaiSource(options: ResolveMottainaiSourceOpti
       );
     }
 
-    const narHashSha256 = narHashOfTree(extractedPath).toLowerCase();
+    const narHashSha256 = hashTree(extractedPath).toLowerCase();
     if (narHashSha256 !== options.expectedSourceSha256.toLowerCase()) {
       throw new BootstrapError(
         "source_integrity_mismatch",
