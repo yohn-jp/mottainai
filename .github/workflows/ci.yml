@@ -748,8 +748,52 @@ jobs:
               --public-key-file "$key_directory/user.pub"
           )"
           test -s "$production_disk"
+          test "$(stat -c '%a' "$state_directory")" = 700
+          test "$(stat -c '%a' "$(dirname "$production_disk")")" = 700
+          test "$(stat -c '%a' "$production_disk")" = 600
+          test "$(stat -c '%a' "$key_directory/user")" = 600
           echo "MOTTAINAI_PRODUCTION_BOOTSTRAP_DISK=$production_disk" >> "$GITHUB_ENV"
           echo "MOTTAINAI_PRODUCTION_BOOTSTRAP_PRIVATE_KEY=$key_directory/user" >> "$GITHUB_ENV"
+
+      # The production bootstrap tree is intentionally private to the runner.
+      # The golden-path Nix test is evaluated by a nixbld* user, so hand off
+      # only the exact disk and SSH key it consumes through a directory that
+      # is traversable by the nixbld group. The private key remains non-world
+      # readable; production host-bootstrap ownership/modes are unchanged.
+      - name: Stage production MTNAI_BOOT artifacts for the Nix build-user handoff (Issue #863)
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_disk="$MOTTAINAI_PRODUCTION_BOOTSTRAP_DISK"
+          source_private_key="$MOTTAINAI_PRODUCTION_BOOTSTRAP_PRIVATE_KEY"
+          handoff_directory="$RUNNER_TEMP/runtime-appliance-production-bootstrap-handoff"
+          handoff_disk="$handoff_directory/mottainai-production-bootstrap.raw"
+          handoff_private_key="$handoff_directory/user"
+          runner_uid="$(id -u)"
+          nix_build_group=nixbld
+          getent group "$nix_build_group" >/dev/null
+          sudo install -d -m 0750 -o "$runner_uid" -g "$nix_build_group" "$handoff_directory"
+          sudo install -m 0640 -o "$runner_uid" -g "$nix_build_group" \
+            "$source_disk" "$handoff_disk"
+          sudo install -m 0640 -o "$runner_uid" -g "$nix_build_group" \
+            "$source_private_key" "$handoff_private_key"
+
+          # The handoff is a copy of the production artifacts, never a
+          # replacement disk/key or a synthetic test credential.
+          cmp -- "$source_disk" "$handoff_disk"
+          cmp -- "$source_private_key" "$handoff_private_key"
+          test "$(stat -c '%a' "$handoff_directory")" = 750
+          test "$(stat -c '%a' "$handoff_disk")" = 640
+          test "$(stat -c '%a' "$handoff_private_key")" = 640
+          test "$(stat -c '%a' "$handoff_private_key" | cut -c 3)" = 0
+          nix_build_user="$(getent passwd nixbld1 | cut -d: -f1)"
+          test -n "$nix_build_user"
+          sudo -u "$nix_build_user" -- test -r "$handoff_disk"
+          sudo -u "$nix_build_user" -- test -r "$handoff_private_key"
+
+          echo "MOTTAINAI_PRODUCTION_BOOTSTRAP_DISK=$handoff_disk" >> "$GITHUB_ENV"
+          echo "MOTTAINAI_PRODUCTION_BOOTSTRAP_PRIVATE_KEY=$handoff_private_key" >> "$GITHUB_ENV"
 
       # The production composition proof intentionally starts from a fresh,
       # CI-owned Route 4 state root. This makes the real SystemLimaCli resolve

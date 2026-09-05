@@ -531,6 +531,23 @@ mod tests {
         assert!(image
             .windows(b"-----BEGIN".len())
             .all(|window| window != b"-----BEGIN"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            assert_eq!(
+                fs::metadata(disk.path.parent().unwrap())
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o700
+            );
+            assert_eq!(
+                fs::metadata(&disk.path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
         let root_start = (RESERVED_SECTORS + FAT_COUNT * SECTORS_PER_FAT) * BYTES_PER_SECTOR;
         let mut file_name = Vec::new();
         assert_eq!(&image[root_start..root_start + 11], b"MTNAI_BOOT ");

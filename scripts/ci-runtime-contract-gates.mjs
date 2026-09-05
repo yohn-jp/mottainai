@@ -107,8 +107,9 @@ function extractStepIfExpression(ciWorkflowText, jobId, stepNamePrefix) {
 // the canonical build + bounded manifest steps are PR-tier rejection proof
 // and must run whenever the job runs (both an Appliance-defining PR and a
 // trusted `main` integration run); the OCI-shaped composition, standalone
-// `mottainai-init` composition verification, and Runtime Appliance golden
-// path are cross-boundary integration evidence and must be trusted-`main`-only.
+// `mottainai-init` composition verification, production MTNAI_BOOT handoff,
+// and Runtime Appliance golden path are cross-boundary integration evidence
+// and must be trusted-`main`-only.
 export function loadRuntimeApplianceStepGates(repositoryRoot) {
   const ciWorkflowText = fs.readFileSync(`${repositoryRoot}/${CI_WORKFLOW_RELATIVE_PATH}`, "utf8");
   return {
@@ -121,6 +122,11 @@ export function loadRuntimeApplianceStepGates(repositoryRoot) {
       ciWorkflowText,
       "runtime-appliance",
       "Generate and verify the bounded Runtime Appliance manifest",
+    ),
+    productionBootstrapHandoff: extractStepIfExpression(
+      ciWorkflowText,
+      "runtime-appliance",
+      "Stage production MTNAI_BOOT artifacts for the Nix build-user handoff",
     ),
     ociFixture: extractStepIfExpression(
       ciWorkflowText,
