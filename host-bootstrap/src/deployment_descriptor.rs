@@ -13,6 +13,11 @@ use crate::lima::{ManagedGenerationIntent, RuntimeSpec, RUNTIME_SPEC_SCHEMA_VERS
 /// projected manifest this module derives from it).
 const MAX_DESCRIPTOR_BYTES: usize = 1024 * 1024;
 
+const SUPPORTED_DEPLOYMENT_CONTRACT_ID: &str = "mottainai.deployment.v1";
+const SUPPORTED_DEPLOYMENT_SCHEMA_VERSION: u64 = 1;
+const SUPPORTED_DEPLOYMENT_PROFILE: &str = "linux-x86_64";
+const SUPPORTED_DEPLOYMENT_ARCHITECTURE: &str = "x86_64-linux";
+
 /// A published `mottainai.managed-generation.v1` package entry, read
 /// directly off `route2.managedGeneration.packages` — the exact shape
 /// `src/runtime-contract/deployment-descriptor.ts`'s `managedPackageSchema`
@@ -54,6 +59,20 @@ struct DescriptorRoute3 {
     managed_generation_identity: String,
 }
 
+/// The small compatibility envelope owned by this standalone consumer. The
+/// publication schema remains authoritative for the complete descriptor; the
+/// consumer only needs these fields to prove that it understands the document
+/// before projecting the Route 2/3 subset below.
+#[derive(Clone, Debug, Deserialize)]
+struct DeploymentDescriptorCompatibility {
+    #[serde(rename = "contractId")]
+    contract_id: String,
+    #[serde(rename = "schemaVersion")]
+    schema_version: u64,
+    profile: String,
+    architecture: String,
+}
+
 /// Only the fields Route 3 (#753) needs to derive a `RuntimeSpec` from the
 /// exact published deployment descriptor (#755/ADR-0003). Deliberately not a
 /// full mirror of `DeploymentDescriptorSchema`
@@ -64,9 +83,10 @@ struct DescriptorRoute3 {
 /// validation here would be a second, driftable copy of the same authority;
 /// instead this module trusts the descriptor's *contents* only after
 /// `read_deployment_descriptor` has byte-verified the file against its
-/// published sha256 sidecar, and then reads out a bounded subset of fields
-/// with ordinary `serde` field presence/type checks (a missing or
-/// wrong-typed field still fails closed, via `serde_json`'s own error).
+/// published sha256 sidecar, validated the minimal compatibility envelope,
+/// and then read out a bounded projection subset with ordinary `serde` field
+/// presence/type checks. Unknown unrelated fields remain outside this
+/// consumer-owned compatibility contract.
 #[derive(Clone, Debug, Deserialize)]
 struct DeploymentDescriptor {
     route2: DescriptorRoute2,
@@ -85,6 +105,26 @@ fn sha256_hex(bytes: &[u8]) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+fn validate_compatibility(bytes: &[u8]) -> Result<(), BootstrapError> {
+    let compatibility: DeploymentDescriptorCompatibility = serde_json::from_slice(bytes)
+        .map_err(|_| invalid("deployment descriptor compatibility envelope is malformed"))?;
+
+    if compatibility.contract_id != SUPPORTED_DEPLOYMENT_CONTRACT_ID {
+        return Err(invalid("unsupported deployment descriptor contractId"));
+    }
+    if compatibility.schema_version != SUPPORTED_DEPLOYMENT_SCHEMA_VERSION {
+        return Err(invalid("unsupported deployment descriptor schemaVersion"));
+    }
+    if compatibility.profile != SUPPORTED_DEPLOYMENT_PROFILE {
+        return Err(invalid("unsupported deployment descriptor profile"));
+    }
+    if compatibility.architecture != SUPPORTED_DEPLOYMENT_ARCHITECTURE {
+        return Err(invalid("unsupported deployment descriptor architecture"));
+    }
+
+    Ok(())
 }
 
 /// Reads a published deployment descriptor's exact bytes and verifies them
@@ -181,6 +221,7 @@ pub fn runtime_spec_from_descriptor(
     memory_mib: u64,
 ) -> Result<RuntimeSpec, BootstrapError> {
     let bytes = read_verified_descriptor_bytes(descriptor_path, sidecar_path)?;
+    validate_compatibility(&bytes)?;
     let descriptor: DeploymentDescriptor = serde_json::from_slice(&bytes)
         .map_err(|error| invalid(format!("parse deployment descriptor: {error}")))?;
 
@@ -232,6 +273,10 @@ mod tests {
 
     fn sample_descriptor_json() -> String {
         serde_json::json!({
+            "contractId": SUPPORTED_DEPLOYMENT_CONTRACT_ID,
+            "schemaVersion": SUPPORTED_DEPLOYMENT_SCHEMA_VERSION,
+            "profile": SUPPORTED_DEPLOYMENT_PROFILE,
+            "architecture": SUPPORTED_DEPLOYMENT_ARCHITECTURE,
             "route2": {
                 "managedGeneration": {
                     "packages": [
@@ -260,6 +305,15 @@ mod tests {
             }
         })
         .to_string()
+    }
+
+    fn descriptor_with_compatibility_value(field: &str, value: Value) -> String {
+        let mut descriptor: Value = serde_json::from_str(&sample_descriptor_json()).unwrap();
+        descriptor
+            .as_object_mut()
+            .unwrap()
+            .insert(field.to_owned(), value);
+        serde_json::to_string(&descriptor).unwrap()
     }
 
     #[test]
@@ -316,6 +370,140 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
         assert!(error.message.contains("identity mismatch"));
+    }
+
+    #[test]
+    fn fails_closed_on_unsupported_contract_id_after_byte_verification() {
+        let dir = tempfile::tempdir().unwrap();
+        let descriptor_json = descriptor_with_compatibility_value(
+            "contractId",
+            Value::String("mottainai.deployment.v2".to_owned()),
+        );
+        let (descriptor_path, sidecar_path) = write_descriptor(dir.path(), &descriptor_json);
+
+        let error = runtime_spec_from_descriptor(
+            &descriptor_path,
+            &sidecar_path,
+            "mottainai-runtime",
+            2,
+            4096,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
+        assert_eq!(
+            error.message,
+            "unsupported deployment descriptor contractId"
+        );
+    }
+
+    #[test]
+    fn fails_closed_on_unsupported_schema_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let descriptor_json = descriptor_with_compatibility_value("schemaVersion", Value::from(2));
+        let (descriptor_path, sidecar_path) = write_descriptor(dir.path(), &descriptor_json);
+
+        let error = runtime_spec_from_descriptor(
+            &descriptor_path,
+            &sidecar_path,
+            "mottainai-runtime",
+            2,
+            4096,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
+        assert_eq!(
+            error.message,
+            "unsupported deployment descriptor schemaVersion"
+        );
+    }
+
+    #[test]
+    fn fails_closed_on_unsupported_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let descriptor_json = descriptor_with_compatibility_value(
+            "profile",
+            Value::String("linux-aarch64".to_owned()),
+        );
+        let (descriptor_path, sidecar_path) = write_descriptor(dir.path(), &descriptor_json);
+
+        let error = runtime_spec_from_descriptor(
+            &descriptor_path,
+            &sidecar_path,
+            "mottainai-runtime",
+            2,
+            4096,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
+        assert_eq!(error.message, "unsupported deployment descriptor profile");
+    }
+
+    #[test]
+    fn fails_closed_on_unsupported_architecture() {
+        let dir = tempfile::tempdir().unwrap();
+        let descriptor_json = descriptor_with_compatibility_value(
+            "architecture",
+            Value::String("aarch64-linux".to_owned()),
+        );
+        let (descriptor_path, sidecar_path) = write_descriptor(dir.path(), &descriptor_json);
+
+        let error = runtime_spec_from_descriptor(
+            &descriptor_path,
+            &sidecar_path,
+            "mottainai-runtime",
+            2,
+            4096,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
+        assert_eq!(
+            error.message,
+            "unsupported deployment descriptor architecture"
+        );
+    }
+
+    #[test]
+    fn byte_mismatch_is_rejected_before_compatibility_parsing() {
+        let dir = tempfile::tempdir().unwrap();
+        let descriptor_json = descriptor_with_compatibility_value(
+            "contractId",
+            Value::String("mottainai.deployment.v2".to_owned()),
+        );
+        let (descriptor_path, sidecar_path) = write_descriptor(dir.path(), &descriptor_json);
+        std::fs::write(
+            &sidecar_path,
+            format!("{}  deployment-descriptor.json\n", "0".repeat(64)),
+        )
+        .unwrap();
+
+        let error = runtime_spec_from_descriptor(
+            &descriptor_path,
+            &sidecar_path,
+            "mottainai-runtime",
+            2,
+            4096,
+        )
+        .unwrap_err();
+        assert!(error.message.contains("identity mismatch"));
+    }
+
+    #[test]
+    fn unknown_unrelated_fields_do_not_change_compatibility() {
+        let dir = tempfile::tempdir().unwrap();
+        let descriptor_json = descriptor_with_compatibility_value(
+            "futureField",
+            serde_json::json!({ "schemaVersion": 99, "meaning": "future" }),
+        );
+        let (descriptor_path, sidecar_path) = write_descriptor(dir.path(), &descriptor_json);
+
+        runtime_spec_from_descriptor(
+            &descriptor_path,
+            &sidecar_path,
+            "mottainai-runtime",
+            2,
+            4096,
+        )
+        .expect("unrelated fields are outside the consumer compatibility envelope");
     }
 
     #[test]
