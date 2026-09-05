@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "2a77c567b3f94bc8c7a7341fcabf7d551590eaff",
+    "draft": false,
+    "headRef": "fix/834-oras-no-tty-flag",
+    "headSha": "446cc18306d2f0e852b4102fbbb77f3e2b5786c3",
+    "number": 835,
+    "title": "fix(ci): remove unsupported --no-tty from oras manifest fetch/tag"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "446cc18306d2f0e852b4102fbbb77f3e2b5786c3",
+    "immutable": true,
+    "shortId": "446cc18306d2"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-05T04:45:31.827Z"
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "baseSha": "2a77c567b3f94bc8c7a7341fcabf7d551590eaff",
+  "files": [
+    {
+      "additions": 4,
+      "deletions": 4,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 929,
+          "oldLines": 1,
+          "oldStart": 929
+        },
+        {
+          "newLines": 1,
+          "newStart": 937,
+          "oldLines": 1,
+          "oldStart": 937
+        },
+        {
+          "newLines": 1,
+          "newStart": 939,
+          "oldLines": 1,
+          "oldStart": 939
+        },
+        {
+          "newLines": 1,
+          "newStart": 943,
+          "oldLines": 1,
+          "oldStart": 943
+        }
+      ],
+      "path": ".github/workflows/publish.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 111,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 9,
+          "newStart": 8,
+          "oldLines": 0,
+          "oldStart": 7
+        },
+        {
+          "newLines": 1,
+          "newStart": 18,
+          "oldLines": 0,
+          "oldStart": 8
+        },
+        {
+          "newLines": 1,
+          "newStart": 20,
+          "oldLines": 0,
+          "oldStart": 9
+        },
+        {
+          "newLines": 2,
+          "newStart": 22,
+          "oldLines": 0,
+          "oldStart": 10
+        },
+        {
+          "newLines": 14,
+          "newStart": 31,
+          "oldLines": 0,
+          "oldStart": 17
+        },
+        {
+          "newLines": 60,
+          "newStart": 103,
+          "oldLines": 0,
+          "oldStart": 75
+        },
+        {
+          "newLines": 24,
+          "newStart": 194,
+          "oldLines": 0,
+          "oldStart": 106
+        }
+      ],
+      "path": "scripts/validate-oras-compatibility.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 98,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 3,
+          "oldLines": 0,
+          "oldStart": 2
+        },
+        {
+          "newLines": 3,
+          "newStart": 9,
+          "oldLines": 0,
+          "oldStart": 7
+        },
+        {
+          "newLines": 1,
+          "newStart": 13,
+          "oldLines": 0,
+          "oldStart": 8
+        },
+        {
+          "newLines": 65,
+          "newStart": 108,
+          "oldLines": 0,
+          "oldStart": 102
+        },
+        {
+          "newLines": 28,
+          "newStart": 191,
+          "oldLines": 0,
+          "oldStart": 120
+        }
+      ],
+      "path": "scripts/validate-oras-compatibility.test.mjs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "446cc18306d2f0e852b4102fbbb77f3e2b5786c3",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 213,
+    "deletions": 4,
+    "filesChanged": 3
+  }
+}
