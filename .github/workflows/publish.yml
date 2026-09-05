@@ -926,7 +926,7 @@ jobs:
             "$compressed_digest"
 
           descriptor="$RUNNER_TEMP/runtime-appliance-oci-descriptor.json"
-          oras manifest fetch --no-tty --descriptor "$oci_repository:$oci_version_tag" > "$descriptor"
+          oras manifest fetch --descriptor "$oci_repository:$oci_version_tag" > "$descriptor"
           oci_digest="$(jq -er '.digest | select(type == "string" and test("^sha256:[0-9a-f]{64}$"))' "$descriptor")"
           oci_digest_ref="$oci_repository@$oci_digest"
           test -n "$oci_digest"
@@ -934,13 +934,13 @@ jobs:
           # The slower-changing contract locator is deliberately only an alias
           # to the already-resolved digest. Operators must use the digest ref
           # below for identity and verification.
-          oras tag --no-tty "$oci_digest_ref" "$oci_contract_tag"
+          oras tag "$oci_digest_ref" "$oci_contract_tag"
           contract_descriptor="$RUNNER_TEMP/runtime-appliance-oci-contract-descriptor.json"
-          oras manifest fetch --no-tty --descriptor "$oci_repository:$oci_contract_tag" > "$contract_descriptor"
+          oras manifest fetch --descriptor "$oci_repository:$oci_contract_tag" > "$contract_descriptor"
           test "$(jq -er '.digest' "$contract_descriptor")" = "$oci_digest"
 
           remote_oci_manifest="$RUNNER_TEMP/runtime-appliance-oci-remote-manifest.json"
-          oras manifest fetch --no-tty --pretty "$oci_digest_ref" > "$remote_oci_manifest"
+          oras manifest fetch --pretty "$oci_digest_ref" > "$remote_oci_manifest"
           validate_oci_manifest "$remote_oci_manifest"
           remote_raw_descriptor="$(jq -er \
             --arg raw_media_type "$oci_raw_media_type" \
