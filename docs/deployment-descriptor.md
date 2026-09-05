@@ -5,6 +5,13 @@ ADR-0003 and Issue #755. It is one small JSON document, published as a
 versioned release asset together with a SHA-256 sidecar. It is not a package
 manager or a mutable `latest` catalog.
 
+For the normative **chronological** Route 4 → Route 1 consumer sequence—what
+reads this descriptor, which identity is consumed at each handoff, what state
+may change, and what proves the next transition—see
+[`route4-route1-operation-book.md`](route4-route1-operation-book.md). This file
+remains the descriptor field/identity contract; it is not a competing
+end-to-end execution sequence.
+
 ## Contract
 
 The descriptor has one `release` authority (`version`, `tag`, and the exact
