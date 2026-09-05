@@ -1,0 +1,111 @@
+{
+  "baseSha": "100e066697601a5550325d806b400700a77bd6f8",
+  "headSha": "277f92417c6c974559e7cdd2011c1e6f1eaad12e",
+  "preview": {
+    "excluded_count": 1,
+    "excluded_files": [
+      {
+        "deletions": 0,
+        "exclude_reason": "default_path",
+        "insertions": 249,
+        "path": "src/runtime-contract/deployment-artifact-roundtrip.test.ts",
+        "status": "added"
+      }
+    ],
+    "from": "100e066697601a5550325d806b400700a77bd6f8",
+    "merge_base": "100e066697601a5550325d806b400700a77bd6f8",
+    "mode": "range",
+    "reviewable_count": 7,
+    "reviewable_files": [
+      {
+        "deletions": 0,
+        "insertions": 3,
+        "path": ".github/workflows/ci.yml",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 18,
+        "path": ".github/workflows/publish.yml",
+        "status": "modified"
+      },
+      {
+        "deletions": 3,
+        "insertions": 4,
+        "path": "package.json",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 93,
+        "path": "scripts/deployment-artifact-roundtrip-gate.test.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 231,
+        "path": "scripts/deployment-artifact-roundtrip-production-proof.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 120,
+        "path": "scripts/verify-deployment-artifact-roundtrip.mjs",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 155,
+        "path": "src/runtime-contract/deployment-artifact-roundtrip.ts",
+        "status": "added"
+      }
+    ],
+    "schema_version": "1",
+    "to": "277f92417c6c974559e7cdd2011c1e6f1eaad12e",
+    "total_deletions": 3,
+    "total_files": 8,
+    "total_insertions": 873
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.4"
+  },
+  "rule": {
+    "groups": [
+      {
+        "files": [
+          ".github/workflows/ci.yml",
+          ".github/workflows/publish.yml"
+        ],
+        "group_id": 1,
+        "pattern": ".github/workflows/**/*.{yaml,yml}",
+        "rule": "#### Security\n- **pull_request_target misuse**: Using `pull_request_target` with `actions/checkout` referencing PR head code is dangerous — it runs untrusted code with write permissions. Flag if checkout ref points to PR head without isolation\n- **Secrets exposure**: Secrets must not be printed to logs (e.g., `echo ${{ secrets.X }}`). Verify secrets are only passed via `env:` blocks to steps that need them\n- **Excessive permissions**: Check if `permissions` is set to least-privilege. Flag `permissions: write-all` or missing `permissions` key (defaults to broad access). Each job should declare only the permissions it needs\n- **Unpinned action versions**: Third-party actions should be pinned to a full commit SHA (e.g., `uses: actions/checkout@<sha>`), not just a tag. Tags are mutable and can be hijacked. First-party (`actions/*`) pinned to `v4` is acceptable\n- **Script injection**: Expressions like `${{ github.event.issue.title }}` used directly in `run:` blocks enable code injection. These must be passed through environment variables instead\n- **Hardcoded credentials**: Tokens, passwords, or API keys directly in the workflow file (not via secrets)\n\n#### Correctness\n- **Missing `fetch-depth: 0`**: When a workflow needs git history (tags, merge-base, changelog generation), verify `actions/checkout` uses `fetch-depth: 0`\n- **Incorrect condition logic**: Verify `if:` conditions are correct (e.g., `github.event_name == 'pull_request'` vs `'pull_request_target'`); ensure boolean expressions are properly quoted\n- **Matrix strategy gaps**: Check that matrix combinations cover required platforms. Flag if `fail-fast` is true (default) but all matrix legs must succeed\n- **Missing `shell` specification**: When using `run:` with multi-line scripts on self-hosted runners, shell should be explicit (bash vs sh vs pwsh)\n- **Broken job dependencies**: Verify `needs:` references exist as actual job IDs in the same workflow. Check for circular dependencies\n- **Typos in action inputs**: Misspelled input names for actions (e.g., `fetch-detph` instead of `fetch-depth`) are silently ignored\n\n#### Reliability\n- **Missing timeout**: Jobs without `timeout-minutes` can run indefinitely and consume runner resources. Flag jobs that lack timeout (especially on self-hosted runners)\n- **No concurrency control**: Workflows triggered by push/PR without `concurrency` group may create redundant runs. Suggest `concurrency` with `cancel-in-progress` where appropriate\n- **Uncached dependencies**: Build workflows that install dependencies without caching (no `actions/cache` or built-in caching) on every run\n\n#### Best Practices\n- **Deprecated features**: Flag usage of deprecated syntax (`set-output`, `save-state`, `::set-output`, `actions/checkout@v2/v3` when v4 is available)\n- **Missing `continue-on-error` awareness**: If a step failure should not fail the whole job, it needs `continue-on-error: true`; conversely, verify non-critical steps don't silently swallow failures with `|| true` hiding real errors\n- **Container image tags**: Using `latest` tag for container images is unreliable; prefer specific version tags",
+        "source": "system"
+      },
+      {
+        "files": [
+          "package.json"
+        ],
+        "group_id": 2,
+        "pattern": "**/package.json",
+        "rule": "- Avoid introducing dependencies with a version of `latest` or `*`; use specific version numbers instead. Note: ignore this rule when the version number is not on a newly added line of code\n- Dependency conflicts or duplicate declarations: the same dependency exists in both `dependencies` and `devDependencies`\n- Required tool dependencies not declared: tool names such as eslint, jest, or prettier appear in `scripts` but are not listed in `devDependencies`",
+        "source": "system"
+      },
+      {
+        "files": [
+          "scripts/deployment-artifact-roundtrip-gate.test.mjs",
+          "scripts/deployment-artifact-roundtrip-production-proof.mjs",
+          "scripts/verify-deployment-artifact-roundtrip.mjs",
+          "src/runtime-contract/deployment-artifact-roundtrip.ts"
+        ],
+        "group_id": 3,
+        "pattern": "**/*.{ts,js,tsx,jsx,mjs,cjs}",
+        "rule": "#### Obvious Typos or Spelling Errors\n- Spelling errors in variable names, function names, component names, or Props property names\n- Strings in log or error messages containing spelling errors that affect readability\n\n#### Dead Code\n- Code blocks that will never be executed (e.g., branches where the condition is always false, code after a return statement)\n- Variables that are declared but never read or referenced\n- Large blocks of commented-out code (with no apparent intent to retain)\n\n#### Code Quality Checks\n- **Duplicate Code**: Check for common logic that can be extracted\n- **Code Comments**: Complex business logic should have clear explanatory comments (avoid commenting obvious code)\n- **Hardcoding**: Business-related hardcoded strings are prohibited, especially URL paths and business numbers; simple UI text may be relaxed\n- **Variable Declarations**: Using `var` is strictly prohibited; use `let` or `const`\n- **Equality Comparisons**: Using `==` and `!=` is prohibited; use strict equality `===` and `!==`\n- **TypeScript Types**: Avoid using `any` type; if necessary, provide a comment explaining the reason\n- **Null Checks**: Perform null checks when accessing values or destructuring to avoid null pointer exceptions\n- **Ternary Expressions**: Nested ternary expressions are not allowed\n\n#### React Best Practices\n- **Hooks Usage**: Verify compliance with Hooks rules (only call at the top level, only call in React functions)\n- **State Management**: Ensure state is placed at the appropriate level; avoid unnecessary state lifting\n- **Side Effect Handling**: Verify useEffect correctly handles dependencies and cleanup functions\n- **Performance Optimization**: Verify proper use of React.memo, useMemo, useCallback (based on performance analysis; avoid over-optimization)\n- **Render Side Effects**: Side effects in React component render methods are strictly prohibited (e.g., API calls, DOM manipulation)\n- **Inline Styles**: Avoid using inline `style` attributes, except for dynamic styles\n- **Inner Components**: Declaring new components inside a component is prohibited; use render methods instead (e.g., `renderItem`, not `<Item/>`)\n\n#### Async Handling Standards\n- **Error Handling**: Async functions must include proper error handling with user-friendly error messages\n- **Prefer async/await**: Prefer async/await over Promises; callback hell is prohibited\n- **Async in Loops**: Distinguish between independent async operations (use `Promise.all` for parallelism) and dependent async operations (use sequential execution); prefer `Promise.all` for performance\n\n#### Code Security Checks\n- **XSS Protection**: Verify that user input is properly escaped\n- **innerHTML Safety**: Using innerHTML to directly insert user input is prohibited; use textContent or apply XSS protection\n- **Code Injection Protection**: Using eval(), Function() constructor, and string argument forms of setTimeout/setInterval is strictly prohibited\n- **Dangerous Methods**: Using document.write() is prohibited as it causes page reflow and security issues\n- **Sensitive Information**: Check whether API keys or sensitive data are exposed\n- **Prototype Chain Safety**: Modifying native object prototypes (e.g., Array.prototype, Object.prototype) is prohibited",
+        "source": "system"
+      }
+    ],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}

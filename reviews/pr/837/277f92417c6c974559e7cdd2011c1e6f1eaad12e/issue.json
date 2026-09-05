@@ -1,0 +1,43 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "CI creates or consumes the same production-shaped deployment descriptor representation used by release publication."
+    },
+    {
+      "checked": false,
+      "text": "The generated descriptor is passed through the real source-resolution contract, not a duplicated parser/validator fixture."
+    },
+    {
+      "checked": false,
+      "text": "The realized managed-generation identity is checked against the same canonical runtime-contract implementation used in production."
+    },
+    {
+      "checked": false,
+      "text": "A fixture/substitution reproducing the former npm-tarball-SHA-as-source-NAR defect causes the gate to fail."
+    },
+    {
+      "checked": false,
+      "text": "A fixture/substitution reproducing the former workflow-specific generation-identity defect causes the gate to fail."
+    },
+    {
+      "checked": false,
+      "text": "The gate is part of the authoritative release/deployment CI path and cannot silently be skipped on a release-triggering change."
+    },
+    {
+      "checked": false,
+      "text": "Expensive real KVM certification remains #261; this gate stays deterministic/hermetic enough for normal CI."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 832,
+    "state": "open",
+    "title": "chore: add a production deployment artifact round-trip gate",
+    "url": "https://github.com/yohn-jp/mottainai/issues/832"
+  },
+  "linked": {
+    "number": 832
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
