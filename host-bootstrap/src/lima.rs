@@ -36,6 +36,10 @@ const MAX_MANIFEST_BYTES: usize = 64 * 1024;
 /// longer than the bounded `COMMAND_TIMEOUT` used for inspection-only
 /// `limactl shell` calls.
 const MANAGED_GENERATION_COMMAND_TIMEOUT: Duration = Duration::from_secs(1800);
+const MANAGED_ROUTE1_PAYLOAD_GUEST_PATH: &str =
+    "/var/lib/mottainai-control/managed-packages/route1-payload.json";
+const MANAGED_GENERATION_IDENTITY_GUEST_PATH: &str =
+    "/var/lib/mottainai-control/managed-packages/generation-identity";
 
 /// An explicit, bounded workspace mount. Never defaulted or inferred: the
 /// canonical Runtime Appliance boundary (#600) requires bounded, intentional
@@ -46,6 +50,21 @@ pub struct MountSpec {
     pub guest_path: String,
     #[serde(default)]
     pub writable: bool,
+}
+
+/// Descriptor-owned Route 1 identity transported into the guest. This is an
+/// intent projection, not a second payload identity authority.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Route1PayloadIntent {
+    #[serde(rename = "packageName")]
+    pub package_name: String,
+    pub version: String,
+    #[serde(rename = "sourceRevision")]
+    pub source_revision: String,
+    pub filename: String,
+    pub sha256: String,
+    pub integrity: String,
+    pub locator: String,
 }
 
 /// The exact desired managed-generation intent for Route 3 (#753): the
@@ -64,6 +83,9 @@ pub struct ManagedGenerationIntent {
     /// The canonical manifest document, forwarded byte-for-byte to the
     /// guest's persisted `managed-packages/manifest.json`.
     pub manifest: serde_json::Value,
+    /// Exact Route 1 payload identity selected by the verified descriptor.
+    #[serde(rename = "route1Payload")]
+    pub route1_payload: Route1PayloadIntent,
 }
 
 /// Product-level intent only: no QEMU flags or Lima internals. Mirrors the
@@ -159,6 +181,35 @@ impl RuntimeSpec {
                 .unwrap_or(usize::MAX);
             if serialized_len > MAX_MANIFEST_BYTES {
                 return invalid("managed generation manifest exceeds the bounded document size");
+            }
+            let payload = &managed_generation.route1_payload;
+            let expected_filename = format!("mottainai-{}.tgz", payload.version);
+            let payload_identity_ok = payload.package_name == "mottainai"
+                && !payload.version.is_empty()
+                && payload.version.len() <= 128
+                && payload.filename == expected_filename
+                && payload.sha256.len() == 64
+                && payload
+                    .sha256
+                    .chars()
+                    .all(|character| character.is_ascii_hexdigit())
+                && payload.source_revision.len() == 40
+                && payload
+                    .source_revision
+                    .chars()
+                    .all(|character| character.is_ascii_hexdigit())
+                && (payload.integrity.starts_with("sha256-")
+                    || payload.integrity.starts_with("sha512-"))
+                && payload.integrity.len() <= 256
+                && payload.locator.starts_with("https://github.com/")
+                && payload.locator.ends_with(&format!(
+                    "/releases/download/v{}/{}",
+                    payload.version, expected_filename
+                ))
+                && !payload.locator.contains(['?', '#', '\n', '\r', '"', '\''])
+                && !payload.locator.contains("/latest/");
+            if !payload_identity_ok {
+                return invalid("managed generation Route 1 payload identity is not a bounded immutable release asset");
             }
         }
         self.appliance.validate()
@@ -940,6 +991,7 @@ pub fn ensure_runtime_locked<C: LimaCli, S: OciSource>(
             cli,
             &spec.instance_name,
             &managed_generation.identity,
+            &managed_generation.route1_payload,
         ) {
             Ok(active) => active,
             Err(error) => {
@@ -980,6 +1032,7 @@ pub fn ensure_runtime_locked<C: LimaCli, S: OciSource>(
             cli,
             &spec.instance_name,
             &managed_generation.identity,
+            &managed_generation.route1_payload,
         ) {
             Ok(active) => active,
             Err(error) => {
@@ -1028,6 +1081,7 @@ fn intended_generation_active<C: LimaCli>(
     cli: &C,
     instance: &str,
     intended_identity: &str,
+    intended_payload: &Route1PayloadIntent,
 ) -> Result<bool, BootstrapError> {
     let health = check_guest_health(cli, instance)?;
     if health
@@ -1053,10 +1107,37 @@ fn intended_generation_active<C: LimaCli>(
     {
         return Ok(false);
     }
-    Ok(status
+    let identity_matches = status
         .get("activeGenerationIdentity")
         .and_then(serde_json::Value::as_str)
-        == Some(intended_identity))
+        == Some(intended_identity);
+    let payload_matches = status
+        .get("state")
+        .and_then(|state| state.get("active"))
+        .and_then(|active| active.get("applicationPayload"))
+        .and_then(|payload| {
+            payload
+                .get("packageName")
+                .and_then(serde_json::Value::as_str)
+                .zip(
+                    payload
+                        .get("packageVersion")
+                        .and_then(serde_json::Value::as_str),
+                )
+        })
+        .zip(
+            status
+                .get("state")
+                .and_then(|state| state.get("active"))
+                .and_then(|active| active.get("applicationPayload"))
+                .and_then(|payload| payload.get("sha256").and_then(serde_json::Value::as_str)),
+        )
+        .is_some_and(|((package_name, package_version), sha256)| {
+            package_name == intended_payload.package_name
+                && package_version == intended_payload.version
+                && sha256 == intended_payload.sha256
+        });
+    Ok(identity_matches && payload_matches)
 }
 
 /// Materializes the desired manifest on the guest's canonical control state
@@ -1077,6 +1158,14 @@ fn converge_managed_generation<C: LimaCli>(
             format!("serialize managed generation manifest: {error}"),
         )
     })?;
+    let payload_text =
+        serde_json::to_string(&managed_generation.route1_payload).map_err(|error| {
+            BootstrapError::new(
+                ErrorCode::RuntimeSpecInvalid,
+                format!("serialize Route 1 payload identity: {error}"),
+            )
+        })?;
+    let identity_text = managed_generation.identity.clone();
     // `mottainai-bootstrap reconcile` (src/bootstrap/cli.ts) always resolves
     // its own canonical manifest path
     // (/var/lib/mottainai-control/managed-packages/manifest.json) — there is
@@ -1086,8 +1175,10 @@ fn converge_managed_generation<C: LimaCli>(
     // "manual guest file injection" Route 3 performs, and it happens through
     // the same bounded `limactl shell` transport already used for health,
     // never a second SSH/credential channel.
-    let write_script = "set -eu; manifest_path=\"$1\"; shift; \
-install -m 0600 /dev/null \"$manifest_path\" && printf '%s' \"$1\" > \"$manifest_path\"";
+    let write_script = "set -eu; manifest_path=\"$1\"; manifest_json=\"$2\"; payload_path=\"$3\"; payload_json=\"$4\"; identity_path=\"$5\"; identity=\"$6\"; \
+install -m 0600 /dev/null \"$manifest_path\" && printf '%s' \"$manifest_json\" > \"$manifest_path\"; \
+install -m 0600 /dev/null \"$payload_path\" && printf '%s' \"$payload_json\" > \"$payload_path\"; \
+install -m 0600 /dev/null \"$identity_path\" && printf '%s\\n' \"$identity\" > \"$identity_path\"";
     cli.shell_with_timeout(
         instance,
         &[
@@ -1097,6 +1188,10 @@ install -m 0600 /dev/null \"$manifest_path\" && printf '%s' \"$1\" > \"$manifest
             "write-managed-package-manifest",
             MANAGED_PACKAGE_MANIFEST_GUEST_PATH,
             &manifest_text,
+            MANAGED_ROUTE1_PAYLOAD_GUEST_PATH,
+            &payload_text,
+            MANAGED_GENERATION_IDENTITY_GUEST_PATH,
+            &identity_text,
         ],
         COMMAND_TIMEOUT,
     )?;
@@ -1583,6 +1678,15 @@ mod tests {
                             "activationPhase": "idle",
                             "activeGenerationIdentity": identity,
                             "observedGenerationIdentity": identity,
+                            "state": {
+                                "active": {
+                                    "applicationPayload": {
+                                        "packageName": "mottainai",
+                                        "packageVersion": "0.9.0",
+                                        "sha256": "d".repeat(64),
+                                    }
+                                }
+                            },
                         })
                         .to_string(),
                         None => serde_json::json!({ "valid": true, "present": false }).to_string(),
@@ -1772,6 +1876,20 @@ mod tests {
         "b".repeat(64)
     }
 
+    fn route1_payload() -> Route1PayloadIntent {
+        Route1PayloadIntent {
+            package_name: "mottainai".to_owned(),
+            version: "0.9.0".to_owned(),
+            source_revision: "a".repeat(40),
+            filename: "mottainai-0.9.0.tgz".to_owned(),
+            sha256: "d".repeat(64),
+            integrity: format!("sha512-{}", "A".repeat(86)),
+            locator:
+                "https://github.com/yohn-jp/mottainai/releases/download/v0.9.0/mottainai-0.9.0.tgz"
+                    .to_owned(),
+        }
+    }
+
     fn spec_with_managed_generation() -> RuntimeSpec {
         RuntimeSpec {
             managed_generation: Some(ManagedGenerationIntent {
@@ -1792,6 +1910,7 @@ mod tests {
                         },
                     ],
                 }),
+                route1_payload: route1_payload(),
             }),
             ..spec()
         }

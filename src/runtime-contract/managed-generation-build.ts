@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import {
   assertResolvedVersionsMatch,
   generationIdentityOf,
@@ -36,6 +38,9 @@ export interface BuildManagedGenerationOptions {
   readonly system: string;
   /** Already-resolved exact Mottainai source tree — never fetched by this module. */
   readonly mottainaiSourcePath: string;
+  /** Exact descriptor-selected Route 1 payload; both fields are required together. */
+  readonly canonicalPayloadPath?: string;
+  readonly canonicalPayloadSha256?: string;
   /** Injectable, mirrors verifySourceIntegrity's narHashOf injection — keeps this module's callers subprocess-free in tests. */
   readonly execFile?: typeof execFileSync;
   /**
@@ -68,14 +73,21 @@ export interface BuiltManagedGeneration {
  * file read/JSON.parse AND parseManagedGenerationMetadata's schema
  * validation: the build succeeded per exit code but the metadata it
  * produced is unreadable or schema-invalid, which is "the build produced
- * bad metadata" either way — deliberately not split further. `"source_integrity"`
- * is verifySourceIntegrity's post-build NAR-hash mismatch.
+ * bad metadata" either way — deliberately not split further. `"payload_integrity"`
+ * is the pre-build exact Route 1 payload check or the post-build metadata
+ * evidence check. `"source_integrity"` is verifySourceIntegrity's post-build
+ * NAR-hash mismatch.
  * `"resolved_version"` is assertResolvedVersionsMatch's post-build version
  * mismatch. Defaults to `"nix_build"` so existing construction sites and
  * scripts/build-managed-generation.mjs (which only lets errors propagate/
  * print, never inspects `phase`) keep working unchanged.
  */
-export type ManagedGenerationBuildErrorPhase = "nix_build" | "metadata" | "source_integrity" | "resolved_version";
+export type ManagedGenerationBuildErrorPhase =
+  | "nix_build"
+  | "metadata"
+  | "payload_integrity"
+  | "source_integrity"
+  | "resolved_version";
 
 export class ManagedGenerationBuildError extends Error {
   readonly phase: ManagedGenerationBuildErrorPhase;
@@ -85,6 +97,51 @@ export class ManagedGenerationBuildError extends Error {
     this.name = "ManagedGenerationBuildError";
     this.phase = phase;
   }
+}
+
+const MAX_CANONICAL_PAYLOAD_BYTES = 64 * 1024 * 1024;
+const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
+
+function verifyCanonicalPayloadInput(options: BuildManagedGenerationOptions): string | undefined {
+  const payloadPath = options.canonicalPayloadPath;
+  const payloadSha256 = options.canonicalPayloadSha256;
+  if ((payloadPath === undefined) !== (payloadSha256 === undefined)) {
+    throw new ManagedGenerationBuildError(
+      "canonical Route 1 payload path and sha256 must be supplied together",
+      "payload_integrity",
+    );
+  }
+  if (payloadPath === undefined || payloadSha256 === undefined) return undefined;
+  const expected = payloadSha256.toLowerCase();
+  if (!SHA256_PATTERN.test(expected) || !path.isAbsolute(payloadPath)) {
+    throw new ManagedGenerationBuildError(
+      "canonical Route 1 payload identity is not an absolute path plus lowercase SHA-256",
+      "payload_integrity",
+    );
+  }
+  let stat: fs.Stats;
+  let bytes: Buffer;
+  try {
+    stat = fs.statSync(payloadPath);
+    if (!stat.isFile() || stat.size <= 0 || stat.size > MAX_CANONICAL_PAYLOAD_BYTES) {
+      throw new Error(`payload size is outside 1..${MAX_CANONICAL_PAYLOAD_BYTES} bytes`);
+    }
+    bytes = fs.readFileSync(payloadPath);
+  } catch (error) {
+    if (error instanceof ManagedGenerationBuildError) throw error;
+    throw new ManagedGenerationBuildError(
+      `canonical Route 1 payload cannot be read: ${error instanceof Error ? error.message : String(error)}`,
+      "payload_integrity",
+    );
+  }
+  const actual = createHash("sha256").update(bytes).digest("hex");
+  if (actual !== expected) {
+    throw new ManagedGenerationBuildError(
+      `canonical Route 1 payload sha256 mismatch: expected ${expected}, got ${actual}`,
+      "payload_integrity",
+    );
+  }
+  return expected;
 }
 
 function narHashOfFactory(execFile: typeof execFileSync): (storePath: string) => string {
@@ -125,6 +182,30 @@ export async function buildManagedGenerationMetadata(
 ): Promise<ManagedGenerationMetadata> {
   const execFile = options.execFile ?? execFileSync;
   const manifestJson = JSON.stringify(options.manifest);
+  const canonicalPayloadSha256 = verifyCanonicalPayloadInput(options);
+  const exactPayloadExpression =
+    canonicalPayloadSha256 === undefined
+      ? `
+  mottainaiPackage =
+    if !(mottainaiPackagesForSystem ? mottainai) then
+      throw ("managed generation build: mottainai source at " + toString mottainaiSource + " flake exposes no packages." + system + ".mottainai output")
+    else
+      mottainaiPackagesForSystem.mottainai;
+`
+      : `
+  canonicalPayload = /. + ${JSON.stringify(options.canonicalPayloadPath)};
+  canonicalPayloadSha256 = ${JSON.stringify(canonicalPayloadSha256)};
+  mottainaiPackage =
+    if !(mottainaiSourceFlake ? lib) || !(mottainaiSourceFlake.lib ? mkMottainaiFromPayload) then
+      throw ("managed generation build: selected Mottainai release does not expose lib.mkMottainaiFromPayload")
+    else
+      mottainaiSourceFlake.lib.mkMottainaiFromPayload {
+        inherit system;
+        source = mottainaiSource;
+        payload = canonicalPayload;
+        payloadSha256 = canonicalPayloadSha256;
+      };
+`;
 
   // mottainaiSource must arrive as a Nix path, not a Nix string: assigning a
   // JSON-string-embedded path directly to a derivation's `src` skips Nix's
@@ -162,11 +243,7 @@ let
       throw ("managed generation build: mottainai source at " + toString mottainaiSource + " flake exposes no packages." + system + " output")
     else
       builtins.getAttr system mottainaiSourceFlake.packages;
-  mottainaiPackage =
-    if !(mottainaiPackagesForSystem ? mottainai) then
-      throw ("managed generation build: mottainai source at " + toString mottainaiSource + " flake exposes no packages." + system + ".mottainai output")
-    else
-      mottainaiPackagesForSystem.mottainai;
+${exactPayloadExpression}
 in
 (flake.lib.mkManagedGeneration { inherit system manifest mottainaiPackage; }).metadataFile
 `;
@@ -198,8 +275,25 @@ in
   // schema validation, are both "the build produced bad metadata" — grouped
   // under phase "metadata" (see ManagedGenerationBuildErrorPhase doc above).
   try {
-    return parseManagedGenerationMetadata(JSON.parse(fs.readFileSync(metadataStorePath, "utf8")));
+    const metadata = parseManagedGenerationMetadata(JSON.parse(fs.readFileSync(metadataStorePath, "utf8")));
+    if (canonicalPayloadSha256 !== undefined) {
+      const evidence = metadata.applicationPayload;
+      if (
+        evidence === undefined ||
+        evidence.packageName !== "mottainai" ||
+        evidence.packageVersion !==
+          options.manifest.packages.find((entry) => entry.packageId === "mottainai")?.version ||
+        evidence.sha256 !== canonicalPayloadSha256
+      ) {
+        throw new ManagedGenerationBuildError(
+          "managed generation metadata does not prove consumption of the selected Route 1 payload",
+          "payload_integrity",
+        );
+      }
+    }
+    return metadata;
   } catch (error) {
+    if (error instanceof ManagedGenerationBuildError) throw error;
     throw new ManagedGenerationBuildError(
       `managed generation metadata is malformed: ${error instanceof Error ? error.message : String(error)}`,
       "metadata",
@@ -229,19 +323,13 @@ export async function buildManagedGeneration(options: BuildManagedGenerationOpti
   try {
     verifySourceIntegrity(options.manifest, metadata, narHashOfFactory(execFile));
   } catch (error) {
-    throw new ManagedGenerationBuildError(
-      error instanceof Error ? error.message : String(error),
-      "source_integrity",
-    );
+    throw new ManagedGenerationBuildError(error instanceof Error ? error.message : String(error), "source_integrity");
   }
 
   try {
     assertResolvedVersionsMatch(options.manifest, metadata);
   } catch (error) {
-    throw new ManagedGenerationBuildError(
-      error instanceof Error ? error.message : String(error),
-      "resolved_version",
-    );
+    throw new ManagedGenerationBuildError(error instanceof Error ? error.message : String(error), "resolved_version");
   }
 
   return { metadata, generationIdentity: generationIdentityOf(options.manifest, metadata) };

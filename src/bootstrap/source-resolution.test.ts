@@ -8,7 +8,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { BootstrapError } from "./errors.js";
-import { BOOTSTRAP_TRUSTED_SOURCE_ORIGIN, defaultFetcher, resolveMottainaiSource } from "./source-resolution.js";
+import {
+  BOOTSTRAP_TRUSTED_SOURCE_ORIGIN,
+  defaultFetcher,
+  resolveCanonicalPayload,
+  resolveMottainaiSource,
+} from "./source-resolution.js";
 import type { RawHttpTransport } from "./source-resolution.js";
 import { generationIdentityOf, parseManagedGenerationMetadata } from "../runtime-contract/managed-generation.js";
 import { parseDeploymentDescriptor } from "../runtime-contract/deployment-descriptor.js";
@@ -20,6 +25,20 @@ const fixtureSourceNarSha256 = "e74b0ab3b7dae31df8a4d099d6991cc7988118cf3b445679
 
 function sha256(filePath: string): string {
   return createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+}
+
+function canonicalPayloadIdentity(bytes: Buffer, filename = "mottainai-1.2.3.tgz") {
+  const payloadSha256 = createHash("sha256").update(bytes).digest("hex");
+  const version = "1.2.3";
+  return {
+    packageName: "mottainai" as const,
+    version,
+    sourceRevision: "a".repeat(40),
+    filename,
+    sha256: payloadSha256,
+    integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}`,
+    locator: `https://github.com/yohn-jp/mottainai/releases/download/v${version}/${filename}`,
+  };
 }
 
 /**
@@ -107,6 +126,11 @@ function generatedProductionDescriptor(t: import("node:test").TestContext, sourc
         },
       ],
     },
+    applicationPayload: {
+      packageName: "mottainai",
+      packageVersion: version,
+      sha256: sha256(tarballPath),
+    },
   };
   const parsedManifest = parseManagedPackageManifest(manifest);
   const parsedMetadata = parseManagedGenerationMetadata(metadata);
@@ -175,6 +199,70 @@ test("production-shaped descriptor sourceSha256 passes the real source-resolutio
   const packageJson = JSON.parse(fs.readFileSync(path.join(result.sourcePath, "package.json"), "utf8"));
   assert.equal(packageJson.version, "0.0.1-fixture-alt-source");
   assert.equal(packageJson.name, "mottainai");
+});
+
+test("exact Route 1 payload acquisition verifies bytes and is idempotent", async (t) => {
+  const destination = tempDestination(t);
+  const bytes = Buffer.from("canonical route 1 payload bytes");
+  const identity = canonicalPayloadIdentity(bytes);
+  let fetchCalls = 0;
+  const fetcher = async (url: string) => {
+    fetchCalls += 1;
+    assert.equal(url, identity.locator);
+    return streamOf(bytes);
+  };
+
+  const first = await resolveCanonicalPayload({ identity, destinationDirectory: destination, fetcher });
+  const second = await resolveCanonicalPayload({ identity, destinationDirectory: destination, fetcher });
+  assert.equal(first.sha256, identity.sha256);
+  assert.equal(second.payloadPath, first.payloadPath);
+  assert.equal(fetchCalls, 1);
+});
+
+test("wrong Route 1 payload bytes fail closed before any build", async (t) => {
+  const destination = tempDestination(t);
+  const identity = canonicalPayloadIdentity(Buffer.from("expected payload"));
+
+  await assert.rejects(
+    resolveCanonicalPayload({
+      identity,
+      destinationDirectory: destination,
+      fetcher: async () => streamOf(Buffer.from("wrong payload")),
+    }),
+    (error: unknown) => error instanceof BootstrapError && error.code === "source_integrity_mismatch",
+  );
+});
+
+test("a plausible same-version substituted filename is rejected as non-canonical", async (t) => {
+  const destination = tempDestination(t);
+  const bytes = Buffer.from("canonical route 1 payload bytes");
+  const identity = canonicalPayloadIdentity(bytes, "mottainai-1.2.3-substituted.tgz");
+  let fetchCalls = 0;
+
+  await assert.rejects(
+    resolveCanonicalPayload({
+      identity,
+      destinationDirectory: destination,
+      fetcher: async () => {
+        fetchCalls += 1;
+        return streamOf(bytes);
+      },
+    }),
+    (error: unknown) => error instanceof BootstrapError && error.code === "source_resolution_failure",
+  );
+  assert.equal(fetchCalls, 0);
+});
+
+test("missing Route 1 payload identity fails closed without acquisition", async (t) => {
+  const destination = tempDestination(t);
+  await assert.rejects(
+    resolveCanonicalPayload({
+      identity: { packageName: "mottainai", version: "1.2.3" } as never,
+      destinationDirectory: destination,
+      fetcher: async () => streamOf(Buffer.from("must not be fetched")),
+    }),
+    (error: unknown) => error instanceof BootstrapError && error.code === "source_resolution_failure",
+  );
 });
 
 test("fetcher is called against the pinned GitHub tag-archive origin only, never a local checkout path", async (t) => {
@@ -357,7 +445,10 @@ test("defaultFetcher rejects a real HTTP redirect hop that resolves to a host ou
   t.after(() => server.close());
 
   await assert.rejects(
-    defaultFetcher(`${BOOTSTRAP_TRUSTED_SOURCE_ORIGIN}v0.0.1-fixture-alt-source.tar.gz`, httpTransportFor(baseUrl, server)),
+    defaultFetcher(
+      `${BOOTSTRAP_TRUSTED_SOURCE_ORIGIN}v0.0.1-fixture-alt-source.tar.gz`,
+      httpTransportFor(baseUrl, server),
+    ),
     /redirect to untrusted host: evil\.example\.com/u,
   );
 });
@@ -393,7 +484,10 @@ test("defaultFetcher follows a redirect hop that resolves to a trusted allowlist
 });
 
 test("no fallback: source-resolution.ts never invokes npm/npx or a global install", () => {
-  const source = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "source-resolution.ts"), "utf8");
+  const source = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "source-resolution.ts"),
+    "utf8",
+  );
   assert.doesNotMatch(source, /["'`]npm["'`]/u);
   assert.doesNotMatch(source, /["'`]npx["'`]/u);
   assert.doesNotMatch(source, /npm install -g/u);

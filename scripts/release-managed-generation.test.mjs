@@ -43,6 +43,7 @@ function writeProductionFixture(directory) {
   const appliancePath = path.join(directory, "appliance-metadata.json");
 
   fs.writeFileSync(payloadPath, "canonical release payload\n");
+  const payloadSha256 = crypto.createHash("sha256").update(fs.readFileSync(payloadPath)).digest("hex");
   fs.writeFileSync(initPath, "canonical init artifact\n");
 
   const manifest = {
@@ -74,6 +75,7 @@ function writeProductionFixture(directory) {
         },
       ],
     },
+    applicationPayload: { packageName: "mottainai", packageVersion: "1.2.3", sha256: payloadSha256 },
   };
   fs.writeFileSync(manifestPath, JSON.stringify(manifest));
   fs.writeFileSync(metadataPath, JSON.stringify(metadata));
@@ -99,6 +101,7 @@ function writeProductionFixture(directory) {
     sourceNarSha256: digest("a"),
     manifest,
     metadata,
+    payloadSha256,
   };
 }
 
@@ -193,7 +196,7 @@ test("production-shaped descriptor consumes the canonical realized generation id
 
     const descriptor = JSON.parse(fs.readFileSync(fixture.descriptorPath, "utf8"));
     const managed = JSON.parse(fs.readFileSync(fixture.managedPath, "utf8"));
-    const payloadSha256 = crypto.createHash("sha256").update(fs.readFileSync(fixture.payloadPath)).digest("hex");
+    const payloadSha256 = fixture.payloadSha256;
     assert.equal(managed.manifest.packages[0].source.sourceSha256, fixture.sourceNarSha256);
     assert.equal(managed.metadata.requestedIdentity.packages[0].sourceSha256, fixture.sourceNarSha256);
     assert.notEqual(managed.manifest.packages[0].source.sourceSha256, payloadSha256);

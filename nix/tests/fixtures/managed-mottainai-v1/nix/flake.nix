@@ -44,9 +44,34 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in
         pkgs.runCommandNoCC "mottainai-${version}" { inherit version; } script // { src = ../.; };
+      mkMottainaiFromPayload =
+        { system, source, payload, payloadSha256 }:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        pkgs.runCommandNoCC "mottainai-${version}-payload" {
+          inherit version payloadSha256;
+          payloadPath = payload;
+        } ''
+          actual="$(sha256sum "$payloadPath" | awk '{print $1}')"
+          test "$actual" = "$payloadSha256"
+          mkdir -p "$out/bin" "$out/share/mottainai"
+          printf '%s\n' "${version}" > "$out/bin/mottainai-version"
+          cat > "$out/bin/mottainai" <<'MOTTAINAI_PAYLOAD_FIXTURE_EOF'
+          #!/bin/sh
+          if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then
+            cat "$(dirname "$0")/mottainai-version"
+            exit 0
+          fi
+          exit 1
+          MOTTAINAI_PAYLOAD_FIXTURE_EOF
+          chmod +x "$out/bin/mottainai"
+          printf '{"packageName":"mottainai","packageVersion":"%s","sha256":"%s"}\n' "$version" "$actual" > "$out/share/mottainai/canonical-payload.json"
+        '' // { src = source; canonicalPayloadSha256 = payloadSha256; };
     in
     {
       packages.x86_64-linux.mottainai = mkMottainai "x86_64-linux";
       packages.aarch64-linux.mottainai = mkMottainai "aarch64-linux";
+      lib.mkMottainaiFromPayload = mkMottainaiFromPayload;
     };
 }

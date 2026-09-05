@@ -147,6 +147,12 @@ test("rejects an identity graph whose Route 3 generation differs from Route 2", 
   assert.throws(() => parseDeploymentDescriptor(descriptor), /exact managed-generation identity/u);
 });
 
+test("rejects a Route 1 payload without an immutable locator", () => {
+  const descriptor = validDescriptor();
+  delete (descriptor.route1 as { payload: Record<string, unknown> }).payload.locator;
+  assert.throws(() => parseDeploymentDescriptor(descriptor), DeploymentDescriptorError);
+});
+
 test("rejects an incompatible provider profile", () => {
   const descriptor = validDescriptor();
   const provider = (descriptor.route4 as { provider: { compatibility: Record<string, unknown> } }).provider;

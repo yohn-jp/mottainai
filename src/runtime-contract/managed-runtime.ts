@@ -3,9 +3,10 @@ import path from "node:path";
 import {
   assertManifestProjectable,
   generationIdentityOf,
+  ManagedGenerationApplicationPayloadSchema,
   parseManagedGenerationMetadata,
 } from "./managed-generation.js";
-import type { ManagedGenerationMetadata } from "./managed-generation.js";
+import type { ManagedGenerationMetadata, ManagedGenerationApplicationPayload } from "./managed-generation.js";
 import { parseManagedPackageManifest, semanticIdentityOf } from "./managed-package-manifest.js";
 import type { ManagedPackageManifest } from "./managed-package-manifest.js";
 import {
@@ -58,6 +59,8 @@ export interface ManagedRuntimeBuiltGeneration {
   readonly metadata?: ManagedGenerationMetadata;
   /** Compatibility version echoed by a build adapter that does not expose metadata. */
   readonly compatibilityContractVersion?: number;
+  /** Provenance evidence for the exact Route 1 payload used by this generation. */
+  readonly applicationPayload?: ManagedGenerationApplicationPayload;
 }
 
 export interface ManagedRuntimeVerificationInput {
@@ -121,6 +124,10 @@ export interface ManagedRuntimeDependencies {
   readonly health?: (
     generation: ManagedRuntimeCandidate | ManagedRuntimeGenerationRecord,
   ) => Promise<ManagedRuntimeHealthCheckResult> | ManagedRuntimeHealthCheckResult;
+  /** Optional descriptor-bound freshness check before taking the no-op path. */
+  readonly generationIsCurrent?: (
+    generation: ManagedRuntimeCandidate | ManagedRuntimeGenerationRecord,
+  ) => Promise<boolean> | boolean;
 }
 
 export interface ManagedRuntimeReconcileOptions {
@@ -343,6 +350,23 @@ function asCandidate(
       throw new ManagedRuntimeError("generation_verification_failure", errorMessage(error));
     }
   }
+  let applicationPayload: ManagedGenerationApplicationPayload | undefined = metadata?.applicationPayload;
+  if (generation.applicationPayload !== undefined) {
+    const parsedPayload = ManagedGenerationApplicationPayloadSchema.safeParse(generation.applicationPayload);
+    if (!parsedPayload.success) {
+      throw new ManagedRuntimeError(
+        "generation_verification_failure",
+        "managed generation payload evidence is invalid",
+      );
+    }
+    if (applicationPayload !== undefined && JSON.stringify(applicationPayload) !== JSON.stringify(parsedPayload.data)) {
+      throw new ManagedRuntimeError(
+        "generation_verification_failure",
+        "managed generation payload evidence fields disagree",
+      );
+    }
+    applicationPayload = parsedPayload.data;
+  }
   const compatibilityContractVersion =
     generation.compatibilityContractVersion ?? metadata?.compatibilityContractVersion ?? supportedCompatibilityVersion;
   if (compatibilityContractVersion !== supportedCompatibilityVersion) {
@@ -357,6 +381,7 @@ function asCandidate(
     desiredManifestSemanticIdentity: semanticIdentityOf(manifest),
     compatibilityContractVersion,
     packageIds: candidatePackageIds(manifest),
+    ...(applicationPayload === undefined ? {} : { applicationPayload }),
   };
 }
 
@@ -1055,7 +1080,10 @@ function statusFromState(state: ManagedRuntimeState, pointer: string | undefined
   };
 }
 
-async function acquireWriterLock(paths: ManagedRuntimePaths, boundaries: BoundaryOperations): Promise<ManagedRuntimeWriterLock> {
+async function acquireWriterLock(
+  paths: ManagedRuntimePaths,
+  boundaries: BoundaryOperations,
+): Promise<ManagedRuntimeWriterLock> {
   try {
     return acquireManagedRuntimeWriterLock(paths.lockFile, boundaries);
   } catch (error) {
@@ -1232,14 +1260,31 @@ async function reconcileManagedRuntimeLocked(
     }
   }
 
-  // A matching active generation is a no-op only after compatibility and exact
-  // managed-runtime health pass. It never invokes build or switches current.
-  if (
-    state.active !== undefined &&
+  // A matching active generation is a no-op only after compatibility, the
+  // optional descriptor-bound freshness check, and exact managed-runtime
+  // health pass. It never invokes build or switches current.
+  const activeGeneration = state.active;
+  const activeMatchesDesired =
+    activeGeneration !== undefined &&
     state.desiredManifestSemanticIdentity === desiredIdentity &&
-    state.active.desiredManifestSemanticIdentity === desiredIdentity
+    activeGeneration.desiredManifestSemanticIdentity === desiredIdentity;
+  let activeIsCurrent = activeMatchesDesired;
+  if (
+    activeMatchesDesired &&
+    activeGeneration !== undefined &&
+    options.dependencies.generationIsCurrent !== undefined
   ) {
-    const active = state.active;
+    try {
+      activeIsCurrent = await options.dependencies.generationIsCurrent(activeGeneration);
+    } catch {
+      // A descriptor-bound freshness read that cannot complete must not
+      // authorize a no-op. Falling through to the build path makes the
+      // canonical build adapter report the bounded failure and persist it.
+      activeIsCurrent = false;
+    }
+  }
+  if (activeMatchesDesired && activeIsCurrent) {
+    const active = activeGeneration;
     const supportedCompatibility = supportedGenerationCompatibilityVersion(options);
     if (active.compatibilityContractVersion !== supportedCompatibility) {
       const timestamp = nowIso(now);

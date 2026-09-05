@@ -97,6 +97,15 @@ export function assertDeploymentArtifactRoundtrip(input: DeploymentArtifactRound
       `Route 1 payload identity mismatch: descriptor declares ${descriptor.route1.payload.sha256}, actual payload is ${input.payloadSha256}`,
     );
   }
+  const payloadEvidence = metadata.applicationPayload;
+  if (
+    payloadEvidence === undefined ||
+    payloadEvidence.packageName !== "mottainai" ||
+    payloadEvidence.packageVersion !== descriptor.route1.payload.version ||
+    payloadEvidence.sha256 !== payloadSha256
+  ) {
+    fail("managed-generation metadata does not prove the exact Route 1 payload was consumed");
+  }
   if (input.payloadSourceRevision !== undefined) {
     const payloadSourceRevision = input.payloadSourceRevision.toLowerCase();
     if (descriptor.release.sourceRevision !== payloadSourceRevision) {

@@ -47,10 +47,21 @@ const { parseManagedPackageManifest } = await import("../src/runtime-contract/ma
 
 const manifest = parseManagedPackageManifest(readJson(manifestPath, "managed-package-manifest"));
 const metadata = parseManagedGenerationMetadata(readJson(metadataPath, "managed-generation metadata"));
+const payloadSha256 = sha256(payloadPath);
 const manifestPackage = manifest.packages.find((entry) => entry.packageId === "mottainai");
 if (manifestPackage === undefined || manifestPackage.source.sourceSha256 !== sourceNarSha256) {
   throw new Error(
     `managed-generation manifest source identity mismatch; canonical Route 2 source NAR is ${sourceNarSha256}`,
+  );
+}
+if (
+  metadata.applicationPayload === undefined ||
+  metadata.applicationPayload.packageName !== "mottainai" ||
+  metadata.applicationPayload.packageVersion !== manifestPackage.version ||
+  metadata.applicationPayload.sha256 !== payloadSha256
+) {
+  throw new Error(
+    `managed-generation metadata does not prove the exact Route 1 payload was consumed: expected ${payloadSha256}`,
   );
 }
 const requestedPackage = metadata.requestedIdentity.packages.find((entry) => entry.packageId === "mottainai");
@@ -66,7 +77,7 @@ const result = {
   metadata,
   generationIdentity,
   flakeLockSha256: sha256(flakeLockPath),
-  applicationPayloadSha256: sha256(payloadPath),
+  applicationPayloadSha256: payloadSha256,
 };
 
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });

@@ -85,6 +85,8 @@ try {
     manifest,
     system,
     mottainaiSourcePath: resolvedSource.sourcePath,
+    canonicalPayloadPath: tarballPath,
+    canonicalPayloadSha256: payloadIdentity.payload.sha256,
     env: { ...process.env, CI: "true" },
   });
 
