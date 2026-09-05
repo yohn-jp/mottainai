@@ -35,7 +35,7 @@ in
       virtualisation.diskImage = canonicalDiskImage;
       virtualisation.directBoot.enable = false;
       virtualisation.useBootLoader = true;
-      virtualisation.useBIOSBoot = true;
+      virtualisation.useEFIBoot = true;
       virtualisation.installBootLoader = false;
       virtualisation.mountHostNixStore = false;
       virtualisation.writableStore = false;

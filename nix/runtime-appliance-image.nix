@@ -7,7 +7,7 @@
 # -initrd), the local Runtime adapter's and golden path's projection.
 #
 # A manual QEMU/KVM host such as Proxmox instead boots a single imported disk
-# through firmware (BIOS/UEFI) with no external -kernel/-initrd flags
+# through UEFI firmware with no external -kernel/-initrd flags
 # available, so it needs a disk that can boot itself. This file adds only
 # that bootloader/partition-table delivery concern on top of the same
 # `appliance` NixOS system evaluation (nix/flake.nix `applianceConfigurations`,
@@ -19,11 +19,16 @@
 let
   system = pkgs.stdenv.hostPlatform.system;
   config = appliance.config;
+  partitionTableType = "efi";
   diskImage = import (nixpkgs + "/nixos/lib/make-disk-image.nix") {
     inherit config lib pkgs;
     name = "mottainai-runtime-appliance-disk-${system}";
     format = "raw";
-    partitionTableType = "legacy";
+    inherit partitionTableType;
+    # The current nixpkgs builder invokes mkfs.vfat without -F 32; its default
+    # 256M ESP is therefore auto-detected as FAT16. Keep the supported EFI
+    # layout while making the ESP unambiguously FAT32.
+    bootSize = "600M";
     installBootLoader = true;
     diskSize = "auto";
     additionalSpace = "256M";
@@ -31,6 +36,24 @@ let
     deterministic = true;
   };
 in
+assert lib.assertMsg (partitionTableType == "efi") ''
+  The canonical Runtime Appliance must use the nixpkgs EFI image layout; legacy MBR images are unsupported.
+'';
+assert lib.assertMsg config.boot.loader.grub.enable ''
+  The canonical Runtime Appliance must enable GRUB for UEFI boot.
+'';
+assert lib.assertMsg config.boot.loader.grub.efiSupport ''
+  The canonical Runtime Appliance must build GRUB with EFI support.
+'';
+assert lib.assertMsg (config.boot.loader.grub.device == "nodev") ''
+  The canonical Runtime Appliance must not install BIOS GRUB to a disk device.
+'';
+assert lib.assertMsg config.boot.loader.grub.efiInstallAsRemovable ''
+  The canonical Runtime Appliance must install the UEFI removable/fallback boot path.
+'';
+assert lib.assertMsg (!config.boot.loader.efi.canTouchEfiVariables) ''
+  The canonical Runtime Appliance must not depend on EFI variables for boot discovery.
+'';
 pkgs.runCommand "mottainai-runtime-appliance-image-${system}" {
   nativeBuildInputs = [ pkgs.coreutils ];
   preferLocalBuild = true;

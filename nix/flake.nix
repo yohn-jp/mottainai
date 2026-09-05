@@ -97,7 +97,7 @@
     {
       # Self-bootable delivery projection of the same canonical Runtime
       # module, for manual QEMU/KVM hosts (Proxmox) that import one disk
-      # through firmware rather than consuming runtime-vm/runtime-image's
+      # through UEFI firmware rather than consuming runtime-vm/runtime-image's
       # direct -kernel/-initrd boot. Only the bootloader/partition/QEMU-guest
       # delivery concerns differ from runtimeConfigurations above; the guest
       # module and its overlay are identical, so this is not a second guest
@@ -113,8 +113,13 @@
             {
               mottainai.runtime.enable = true;
 
-              boot.loader.grub.enable = true;
-              boot.loader.grub.device = "/dev/vda";
+              boot.loader.grub = {
+                enable = true;
+                efiSupport = true;
+                device = "nodev";
+                efiInstallAsRemovable = true;
+              };
+              boot.loader.efi.canTouchEfiVariables = false;
               boot.loader.timeout = 0;
               boot.growPartition = true;
               fileSystems."/" = {
