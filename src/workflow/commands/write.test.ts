@@ -130,6 +130,20 @@ class FaultingCommitStore extends WorkflowSqliteStateStore {
     }
     return super.updateTaskLifecycleState(...args);
   }
+
+  // `transitionTask` (Issue #867) now writes through the CAS-guarded
+  // `updateTaskLifecycleStateIfCurrent` rather than the unguarded
+  // `updateTaskLifecycleState`; the "lifecycle-transition" fault must inject on
+  // whichever path the commit workflow actually exercises.
+  override updateTaskLifecycleStateIfCurrent(
+    ...args: Parameters<WorkflowSqliteStateStore["updateTaskLifecycleStateIfCurrent"]>
+  ) {
+    if (this.fault === "lifecycle-transition") {
+      this.fault = undefined;
+      throw new Error("injected lifecycle transition failure");
+    }
+    return super.updateTaskLifecycleStateIfCurrent(...args);
+  }
 }
 
 function commitBoundaryNawabari(
@@ -1364,15 +1378,18 @@ test("push receipt recovers a successful external push after lifecycle persisten
   });
   assert.equal(committed.ok, true, JSON.stringify(committed));
 
-  const originalUpdate = store.updateTaskLifecycleState.bind(store);
+  // `transitionTask` (Issue #867) now writes through the CAS-guarded
+  // `updateTaskLifecycleStateIfCurrent` rather than the unguarded
+  // `updateTaskLifecycleState`; fault-inject on whichever path is actually exercised.
+  const originalUpdate = store.updateTaskLifecycleStateIfCurrent.bind(store);
   let failLifecycle = true;
-  store.updateTaskLifecycleState = ((taskId, next, updatedAt) => {
-    if (failLifecycle && next === "pushed") {
+  store.updateTaskLifecycleStateIfCurrent = ((input) => {
+    if (failLifecycle && input.next === "pushed") {
       failLifecycle = false;
       throw new Error("injected lifecycle persistence failure");
     }
-    return originalUpdate(taskId, next, updatedAt);
-  }) as typeof store.updateTaskLifecycleState;
+    return originalUpdate(input);
+  }) as typeof store.updateTaskLifecycleStateIfCurrent;
 
   const first = await pushWorkflowTask({
     workspaceRoot: root,
@@ -1462,11 +1479,14 @@ test("push receipt fails closed when the remote advances before restart recovery
     nawabari,
   });
   assert.equal(committed.ok, true, JSON.stringify(committed));
-  const originalUpdate = store.updateTaskLifecycleState.bind(store);
-  store.updateTaskLifecycleState = ((taskId, next, updatedAt) => {
-    if (next === "pushed") throw new Error("injected lifecycle persistence failure");
-    return originalUpdate(taskId, next, updatedAt);
-  }) as typeof store.updateTaskLifecycleState;
+  // `transitionTask` (Issue #867) now writes through the CAS-guarded
+  // `updateTaskLifecycleStateIfCurrent` rather than the unguarded
+  // `updateTaskLifecycleState`; fault-inject on whichever path is actually exercised.
+  const originalUpdate = store.updateTaskLifecycleStateIfCurrent.bind(store);
+  store.updateTaskLifecycleStateIfCurrent = ((input) => {
+    if (input.next === "pushed") throw new Error("injected lifecycle persistence failure");
+    return originalUpdate(input);
+  }) as typeof store.updateTaskLifecycleStateIfCurrent;
   const first = await pushWorkflowTask({
     workspaceRoot: root,
     store,

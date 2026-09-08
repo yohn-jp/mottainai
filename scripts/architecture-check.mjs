@@ -63,6 +63,7 @@ const stdoutBoundaryFiles = new Set([
   "src/mcp.ts",
   "src/workflow/domain/identity-resolve-worker.mjs",
   "src/workflow/domain/task-start-worker.mjs",
+  "src/workflow/domain/task-lifecycle-transition-worker.mjs",
   // Issue #626's own narrow CLI boundary, deliberately independent of
   // src/cli.ts so bootstrap works without importing the full runtime.
   "src/bootstrap/cli.ts",
@@ -85,6 +86,7 @@ const argvBoundaryFiles = new Set([
   "src/mcp.ts",
   "src/workflow/domain/identity-resolve-worker.mjs",
   "src/workflow/domain/task-start-worker.mjs",
+  "src/workflow/domain/task-lifecycle-transition-worker.mjs",
   "src/bootstrap/main.ts",
 ]);
 
@@ -419,6 +421,7 @@ function checkTopLevelExecution(sourceFile, root, diagnostics) {
     file === "src/mcp.ts" ||
     file === "src/workflow/domain/identity-resolve-worker.mjs" ||
     file === "src/workflow/domain/task-start-worker.mjs" ||
+    file === "src/workflow/domain/task-lifecycle-transition-worker.mjs" ||
     // Issue #626's compiled executable entrypoint (nix/bootstrap.nix wraps
     // this file directly), independent of src/index.ts's boundary.
     file === "src/bootstrap/main.ts";

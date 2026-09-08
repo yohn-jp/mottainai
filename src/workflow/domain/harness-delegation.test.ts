@@ -6,7 +6,7 @@ import { createWorkflowStore } from "../../test-support/workflow-store.js";
 import { ManagerSessionService } from "../../manager/service.js";
 import type { ZellijObservedState, ZellijRuntime } from "../../manager/zellij.js";
 import { resolveRepositoryIdentity } from "./identity.js";
-import { transitionTask } from "./task-lifecycle.js";
+import { transitionFailureDetail, transitionTask } from "./task-lifecycle.js";
 import type { ManagerExecutionAuthority } from "./manager-execution.js";
 import { HarnessDelegationService } from "./harness-delegation.js";
 import type { ManagerSessionId, TaskId, WorkflowStateStore } from "../state/store.js";
@@ -90,7 +90,7 @@ function buildHarness(t: TestContext): {
       });
       if (!reserved.ok) throw new Error(`task already reserved: ${reserved.existingTask.taskId}`);
       const active = transitionTask(store, reserved.task.taskId, "active");
-      if (!active.ok) throw new Error(active.blocked.blockingRule);
+      if (!active.ok) throw new Error(transitionFailureDetail(active));
       return {
         context: {
           taskId: reserved.task.taskId,

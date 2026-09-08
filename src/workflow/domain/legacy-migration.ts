@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { NawabariExecutionClient, NawabariSession } from "../nawabari.js";
 import { runGitCommand } from "../git/context.js";
-import { transitionTask } from "./task-lifecycle.js";
+import { transitionFailureDetail, transitionTask } from "./task-lifecycle.js";
 import { resolveRepositoryIdentity, type RepositoryInstanceId } from "./identity.js";
 import type {
   CleanupLeaseRecord,
@@ -275,12 +275,12 @@ async function migrateComplete(input: LegacyMigrationInput, state: LegacyState):
   if (activeOrphan) {
     const transitioned = transitionTask(input.store, state.task.taskId, "abandoned");
     if (!transitioned.ok)
-      return failure(input.mode, "lifecycle-transition-blocked", transitioned.blocked.blockingRule, proof);
+      return failure(input.mode, "lifecycle-transition-blocked", transitionFailureDetail(transitioned), proof);
     return { ok: true, authority: LEGACY_PHYSICAL_AUTHORITY, mode: input.mode, task: transitioned.task, proof };
   }
   const transitioned = transitionTask(input.store, state.task.taskId, "cleaned");
   if (!transitioned.ok)
-    return failure(input.mode, "lifecycle-transition-blocked", transitioned.blocked.blockingRule, proof);
+    return failure(input.mode, "lifecycle-transition-blocked", transitionFailureDetail(transitioned), proof);
   return { ok: true, authority: LEGACY_PHYSICAL_AUTHORITY, mode: input.mode, task: transitioned.task, proof };
 }
 
@@ -351,7 +351,7 @@ async function migrateAdopt(input: LegacyMigrationInput, state: LegacyState): Pr
   if (task.lifecycleState === "planned" || task.lifecycleState === "orphaned") {
     const transitioned = transitionTask(input.store, task.taskId, "active");
     if (!transitioned.ok)
-      return failure(input.mode, "lifecycle-transition-blocked", transitioned.blocked.blockingRule, proof);
+      return failure(input.mode, "lifecycle-transition-blocked", transitionFailureDetail(transitioned), proof);
     task = transitioned.task;
   }
   return { ok: true, authority: LEGACY_PHYSICAL_AUTHORITY, mode: input.mode, task, proof, session };

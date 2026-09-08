@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { RepositoryInstanceId } from "./identity.js";
-import { transitionTask } from "./task-lifecycle.js";
+import { transitionFailureDetail, transitionTask } from "./task-lifecycle.js";
 import { createPullRequestObserver, type PullRequestObserver } from "../providers/reconciliation.js";
 import type {
   NawabariCloseReconciliationRecord,
@@ -394,7 +394,7 @@ export async function reconcileNawabariClosures(input: {
           providerRecord = input.store.updatePullRequestLifecycleState(providerRecord.recordId, "merged");
         const transitioned = transitionTask(input.store, task.taskId, "merged");
         if (!transitioned.ok) {
-          const detail = transitioned.blocked.blockingRule;
+          const detail = transitionFailureDetail(transitioned);
           result.blocked.push({ taskId: task.taskId, detail });
           recordTask(task.taskId, "not-reconciled", "lifecycle-transition-blocked", detail);
           continue;

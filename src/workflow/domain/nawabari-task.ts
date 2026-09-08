@@ -18,7 +18,7 @@ import {
   getTaskStatusForWorkspace,
   type StartTaskWarning,
 } from "./task.js";
-import { transitionTask } from "./task-lifecycle.js";
+import { transitionFailureDetail, transitionTask } from "./task-lifecycle.js";
 import { reconcileNawabariClosures } from "./nawabari-close.js";
 import type { RepositoryInstanceId } from "./identity.js";
 import type {
@@ -884,7 +884,7 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
             ? attached
             : (() => {
                 const transitioned = transitionTask(input.store, task.taskId, "active");
-                if (!transitioned.ok) throw new Error(transitioned.blocked.blockingRule);
+                if (!transitioned.ok) throw new Error(transitionFailureDetail(transitioned));
                 return transitioned.task;
               })();
         bestEffortReconciliationState(input.store, task.taskId, "active");
@@ -1076,7 +1076,7 @@ export async function startNawabariTask(input: NawabariTaskStartInput): Promise<
         ? attached
         : (() => {
             const transitioned = transitionTask(input.store, attached.taskId, "active");
-            if (!transitioned.ok) throw new Error(transitioned.blocked.blockingRule);
+            if (!transitioned.ok) throw new Error(transitionFailureDetail(transitioned));
             return transitioned.task;
           })();
     bestEffortReconciliationState(input.store, active.taskId, "active");
