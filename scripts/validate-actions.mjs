@@ -7,15 +7,13 @@ import { fileURLToPath } from "node:url";
 const ACTION_ROOTS = Object.freeze([".github/workflows", ".github/actions"]);
 const USES_LINE_PATTERN = /^\s*(?:-\s+)?uses:\s*(.*)$/u;
 const VALUE_PATTERN = /^(\S+)(?:\s+#.*)?$/u;
-const IMMUTABLE_EXTERNAL_ACTION_PATTERN =
-  /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*@[0-9a-f]{40}$/u;
+const IMMUTABLE_EXTERNAL_ACTION_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*@[0-9a-f]{40}$/u;
 // yohn-jp/.github centrally governs its reusable workflows and composite
 // actions: consumers must follow the live @main revision so merged provider
 // fixes take effect without per-repository pin churn (Issues #802 and #811).
 // A commit-SHA pin on an org-owned resource is therefore rejected, not
 // accepted.
-const ORG_GOVERNANCE_WORKFLOW_REF_PATTERN =
-  /^yohn-jp\/\.github\/\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml@/u;
+const ORG_GOVERNANCE_WORKFLOW_REF_PATTERN = /^yohn-jp\/\.github\/\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml@/u;
 const ORG_GOVERNANCE_ACTION_REF_PATTERN =
   /^yohn-jp\/\.github\/\.github\/actions\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*@/u;
 const ORG_GOVERNANCE_LIVE_REF_PATTERN =
@@ -32,23 +30,13 @@ export function validateActionText(source, filePath = "<text>") {
     const lineNumber = index + 1;
     const rawValue = usesMatch[1].trim();
     if (rawValue.length === 0) {
-      errors.push(
-        filePath +
-          ":" +
-          lineNumber +
-          ": uses reference must be on the same line",
-      );
+      errors.push(filePath + ":" + lineNumber + ": uses reference must be on the same line");
       return;
     }
 
     const valueMatch = rawValue.match(VALUE_PATTERN);
     if (valueMatch === null) {
-      errors.push(
-        filePath +
-          ":" +
-          lineNumber +
-          ": uses reference is not a single YAML value",
-      );
+      errors.push(filePath + ":" + lineNumber + ": uses reference is not a single YAML value");
       return;
     }
 
@@ -75,11 +63,7 @@ export function validateActionText(source, filePath = "<text>") {
       );
     } else if (!local && !IMMUTABLE_EXTERNAL_ACTION_PATTERN.test(reference)) {
       errors.push(
-        filePath +
-          ":" +
-          lineNumber +
-          ": external GitHub Action must use a full 40-character commit SHA: " +
-          reference,
+        filePath + ":" + lineNumber + ": external GitHub Action must use a full 40-character commit SHA: " + reference,
       );
     }
   });
@@ -90,23 +74,19 @@ export function validateActionText(source, filePath = "<text>") {
 // An elevated job in a pull_request-family workflow can inherit write
 // permissions from the workflow-level permissions block. The validator must
 // reason about effective permissions, not only job-local declarations.
-const PULL_REQUEST_TRIGGER_PATTERN =
-  /^on:\r?\n(?:.*\r?\n)*?[ \t]{2}pull_request(?:_target)?:/mu;
+const PULL_REQUEST_TRIGGER_PATTERN = /^on:\r?\n(?:.*\r?\n)*?[ \t]{2}pull_request(?:_target)?:/mu;
 const JOB_HEADER_PATTERN = /^ {2}([A-Za-z0-9_.-]+):\s*$/u;
 const WORKFLOW_PERMISSIONS_PATTERN = /^permissions:\s*(\S.*)?$/u;
 const JOB_PERMISSIONS_PATTERN = /^ {4}permissions:\s*(\S.*)?$/u;
-const ELEVATED_PERMISSION_VALUE_PATTERN =
-  /(?:^|[\s,{:])(write|write-all)(?:$|[\s,}])/u;
+const ELEVATED_PERMISSION_VALUE_PATTERN = /(?:^|[\s,{:])(write|write-all)(?:$|[\s,}])/u;
 const CHECKOUT_USES_PATTERN = /^(\s*)(?:-\s+)?uses:\s*actions\/checkout@/u;
 const REF_INPUT_PATTERN = /^\s*ref:\s*(\S.*)$/u;
 // Lexical shape is not provenance. In a privileged PR-triggered job, only the
 // repository default branch expression is accepted here; arbitrary branch
 // names and literal SHAs must be tied to trusted event/repository authority by
 // a stronger, explicit mechanism before they can be treated as trusted.
-const TRUSTED_ELEVATED_CHECKOUT_REF_PATTERN =
-  /^\$\{\{\s*github\.event\.repository\.default_branch\s*\}\}$/u;
-const UNTRUSTED_ELEVATED_CHECKOUT_REF_PATTERN =
-  /pull_request|github\.sha\b|head_ref|head\.sha|head\.ref/u;
+const TRUSTED_ELEVATED_CHECKOUT_REF_PATTERN = /^\$\{\{\s*github\.event\.repository\.default_branch\s*\}\}$/u;
+const UNTRUSTED_ELEVATED_CHECKOUT_REF_PATTERN = /pull_request|github\.sha\b|head_ref|head\.sha|head\.ref/u;
 
 function indentOf(line) {
   return line.match(/^(\s*)/u)[1].length;
@@ -127,8 +107,7 @@ function permissionDeclaration(lines, headerPattern, headerIndent) {
     const line = lines[index];
     if (line.trim().length === 0) continue;
     if (indentOf(line) <= headerIndent) break;
-    if (ELEVATED_PERMISSION_VALUE_PATTERN.test(line.trim()))
-      return { declared: true, elevated: true };
+    if (ELEVATED_PERMISSION_VALUE_PATTERN.test(line.trim())) return { declared: true, elevated: true };
   }
   return { declared: true, elevated: false };
 }
@@ -194,10 +173,7 @@ export function validateElevatedCheckoutRefs(source, filePath = "<text>") {
 
   for (let jobIndex = 0; jobIndex < jobHeaders.length; jobIndex += 1) {
     const { name, index } = jobHeaders[jobIndex];
-    const end =
-      jobIndex + 1 < jobHeaders.length
-        ? jobHeaders[jobIndex + 1].index
-        : lines.length;
+    const end = jobIndex + 1 < jobHeaders.length ? jobHeaders[jobIndex + 1].index : lines.length;
     const jobLines = lines.slice(index, end);
     if (!jobIsElevated(jobLines, workflowElevated)) continue;
 
@@ -244,9 +220,7 @@ export function repositoryActionFiles(root) {
   return output.split(/\r?\n/u).filter(Boolean);
 }
 
-export function validateRepositoryActions(
-  root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."),
-) {
+export function validateRepositoryActions(root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")) {
   const resolvedRoot = path.resolve(root);
   const files = repositoryActionFiles(resolvedRoot);
   const references = [];
@@ -274,12 +248,8 @@ function runAsCommand() {
     return;
   }
 
-  const externalCount = result.references.filter(
-    (reference) => !reference.local,
-  ).length;
-  const localCount = result.references.filter(
-    (reference) => reference.local,
-  ).length;
+  const externalCount = result.references.filter((reference) => !reference.local).length;
+  const localCount = result.references.filter((reference) => reference.local).length;
   console.log(
     "GitHub Action pin validation passed: " +
       externalCount +
@@ -289,9 +259,6 @@ function runAsCommand() {
   );
 }
 
-if (
-  process.argv[1] &&
-  path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))
-) {
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
   runAsCommand();
 }
