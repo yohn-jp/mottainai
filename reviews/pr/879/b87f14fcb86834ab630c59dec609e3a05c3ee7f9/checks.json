@@ -1,0 +1,43 @@
+{
+  "available": true,
+  "checkRuns": [
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291008933/job/102277310091",
+      "name": "CodeQL / Plan",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291009083/job/102277451729",
+      "name": "detect CI ownership path changes",
+      "status": "queued"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291008301/job/102277308065",
+      "name": "Generate review package",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": "failure",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291008652/job/102277309523",
+      "name": "standards-self-check",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291008652/job/102277309502",
+      "name": "validate-pr",
+      "status": "completed"
+    },
+    {
+      "conclusion": "skipped",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291008652/job/102277310476",
+      "name": "validate-release",
+      "status": "completed"
+    }
+  ],
+  "headSha": "b87f14fcb86834ab630c59dec609e3a05c3ee7f9",
+  "schemaVersion": "mottainai.review-pages.checks/v1"
+}
