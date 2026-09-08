@@ -1,0 +1,82 @@
+{
+  "baseSha": "e8a601d86077feece08f47fd1f9bbe13a0845220",
+  "files": [
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 54,
+          "oldLines": 0,
+          "oldStart": 53
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 105,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 105,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/semantic-cache-gc.ts",
+      "status": "added"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 4,
+          "oldLines": 0,
+          "oldStart": 3
+        }
+      ],
+      "path": "src/semantics/cache/index.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 325,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 325,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/semantics/cache/retention.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 332,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 332,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/semantics/cache/retention.ts",
+      "status": "added"
+    }
+  ],
+  "headSha": "1bfddc6e2bd57e9c2fd92e82fb8730c95914bdd4",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 764,
+    "deletions": 0,
+    "filesChanged": 5
+  }
+}

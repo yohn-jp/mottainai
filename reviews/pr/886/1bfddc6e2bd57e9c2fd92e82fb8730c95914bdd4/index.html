@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #886 @ 1bfddc6e2bd5</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #886: feat(runtime): add retention and garbage collection to the semantic fact cache</h1>
+<p>Base <code>main</code> @ <code>e8a601d86077feece08f47fd1f9bbe13a0845220</code> &rarr;
+Head <code>feat/874-semantic-cache-retention-gc</code> @ <code>1bfddc6e2bd57e9c2fd92e82fb8730c95914bdd4</code></p>
+<p>Revision <code>1bfddc6e2bd5</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/874">#874</a> feat: add retention and garbage collection to the semantic fact cache (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] A bounded size/count/age retention policy is implemented and protects currently-active/reachable entries.</li>
+<li>[ ] Index/manifest updates during eviction are atomic and crash-safe (following the existing `writeExclusiveAtomically` pattern already used for cache writes in this file).</li>
+<li>[ ] A concurrent-GC test proves eviction running alongside a normal reader/writer does not corrupt the cache or evict an entry a concurrent reader is actively using.</li>
+<li>[ ] A manual inspect/GC command is exposed (CLI or script) for operators to reclaim space on demand.</li></ul>
+
+
+
+<h2>Changed files (5, +764/-0)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>package.json</td><td>modified</td><td>+1</td><td>-0</td></tr>
+<tr><td>scripts/semantic-cache-gc.ts</td><td>added</td><td>+105</td><td>-0</td></tr>
+<tr><td>src/semantics/cache/index.ts</td><td>modified</td><td>+1</td><td>-0</td></tr>
+<tr><td>src/semantics/cache/retention.test.ts</td><td>added</td><td>+325</td><td>-0</td></tr>
+<tr><td>src/semantics/cache/retention.ts</td><td>added</td><td>+332</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

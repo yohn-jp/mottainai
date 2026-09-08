@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "e8a601d86077feece08f47fd1f9bbe13a0845220",
+    "draft": false,
+    "headRef": "feat/874-semantic-cache-retention-gc",
+    "headSha": "1bfddc6e2bd57e9c2fd92e82fb8730c95914bdd4",
+    "number": 886,
+    "title": "feat(runtime): add retention and garbage collection to the semantic fact cache"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "1bfddc6e2bd57e9c2fd92e82fb8730c95914bdd4",
+    "immutable": true,
+    "shortId": "1bfddc6e2bd5"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-08T23:22:25.748Z"
+  }
+}
