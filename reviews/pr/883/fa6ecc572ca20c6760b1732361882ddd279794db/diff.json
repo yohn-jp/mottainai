@@ -1,0 +1,186 @@
+{
+  "baseSha": "d8a4a7c6e50a459370f4ada788f30eee273ac296",
+  "files": [
+    {
+      "additions": 4,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 66,
+          "oldLines": 0,
+          "oldStart": 65
+        },
+        {
+          "newLines": 1,
+          "newStart": 89,
+          "oldLines": 0,
+          "oldStart": 87
+        },
+        {
+          "newLines": 1,
+          "newStart": 127,
+          "oldLines": 0,
+          "oldStart": 124
+        },
+        {
+          "newLines": 1,
+          "newStart": 425,
+          "oldLines": 0,
+          "oldStart": 421
+        }
+      ],
+      "path": "scripts/architecture-check.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 35,
+      "deletions": 9,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 14,
+          "oldLines": 1,
+          "oldStart": 14
+        },
+        {
+          "newLines": 18,
+          "newStart": 568,
+          "oldLines": 1,
+          "oldStart": 568
+        },
+        {
+          "newLines": 16,
+          "newStart": 590,
+          "oldLines": 7,
+          "oldStart": 573
+        }
+      ],
+      "path": "src/semantics/enforcement/service.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 8,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 8,
+          "newStart": 11,
+          "oldLines": 1,
+          "oldStart": 11
+        }
+      ],
+      "path": "src/semantics/source/index.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 48,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 48,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/semantics/source/store-persist-worker.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 215,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 215,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/semantics/source/store.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 326,
+      "deletions": 15,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 1,
+          "oldLines": 1,
+          "oldStart": 1
+        },
+        {
+          "newLines": 1,
+          "newStart": 14,
+          "oldLines": 1,
+          "oldStart": 13
+        },
+        {
+          "newLines": 78,
+          "newStart": 17,
+          "oldLines": 0,
+          "oldStart": 15
+        },
+        {
+          "newLines": 20,
+          "newStart": 111,
+          "oldLines": 1,
+          "oldStart": 32
+        },
+        {
+          "newLines": 21,
+          "newStart": 133,
+          "oldLines": 0,
+          "oldStart": 34
+        },
+        {
+          "newLines": 1,
+          "newStart": 166,
+          "oldLines": 0,
+          "oldStart": 46
+        },
+        {
+          "newLines": 6,
+          "newStart": 169,
+          "oldLines": 1,
+          "oldStart": 49
+        },
+        {
+          "newLines": 146,
+          "newStart": 187,
+          "oldLines": 1,
+          "oldStart": 62
+        },
+        {
+          "newLines": 16,
+          "newStart": 371,
+          "oldLines": 6,
+          "oldStart": 101
+        },
+        {
+          "newLines": 0,
+          "newStart": 387,
+          "oldLines": 1,
+          "oldStart": 108
+        },
+        {
+          "newLines": 35,
+          "newStart": 389,
+          "oldLines": 3,
+          "oldStart": 110
+        }
+      ],
+      "path": "src/semantics/source/store.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "fa6ecc572ca20c6760b1732361882ddd279794db",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 636,
+    "deletions": 25,
+    "filesChanged": 6
+  }
+}
