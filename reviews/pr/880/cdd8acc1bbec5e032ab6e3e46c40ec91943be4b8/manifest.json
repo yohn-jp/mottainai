@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "d8a4a7c6e50a459370f4ada788f30eee273ac296",
+    "draft": false,
+    "headRef": "fix/873-nawabari-exit-classification",
+    "headSha": "cdd8acc1bbec5e032ab6e3e46c40ec91943be4b8",
+    "number": 880,
+    "title": "fix(workflow): classify nawabari nonzero exit before parsing response envelope"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "cdd8acc1bbec5e032ab6e3e46c40ec91943be4b8",
+    "immutable": true,
+    "shortId": "cdd8acc1bbec"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-08T15:02:15.187Z"
+  }
+}

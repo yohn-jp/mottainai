@@ -1,0 +1,29 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Exit code (and spawn/timeout) is checked and used as the primary failure classification before any stdout JSON parsing/shape validation is attempted."
+    },
+    {
+      "checked": false,
+      "text": "On a nonzero exit, bounded stdout/stderr diagnostics are still retained on the resulting error/result object (not lost)."
+    },
+    {
+      "checked": false,
+      "text": "New tests cover the matrix: nonzero exit + malformed stdout → command-failed; signal termination + partial stdout → command-failed; zero exit + malformed stdout → contract-invalid (unchanged)."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 873,
+    "state": "open",
+    "title": "fix: classify Nawabari nonzero exit before parsing its response envelope",
+    "url": "https://github.com/yohn-jp/mottainai/issues/873"
+  },
+  "linked": {
+    "number": 873
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

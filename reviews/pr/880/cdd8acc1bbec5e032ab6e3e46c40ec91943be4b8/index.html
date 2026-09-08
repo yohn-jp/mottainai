@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #880 @ cdd8acc1bbec</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #880: fix(workflow): classify nawabari nonzero exit before parsing response envelope</h1>
+<p>Base <code>main</code> @ <code>d8a4a7c6e50a459370f4ada788f30eee273ac296</code> &rarr;
+Head <code>fix/873-nawabari-exit-classification</code> @ <code>cdd8acc1bbec5e032ab6e3e46c40ec91943be4b8</code></p>
+<p>Revision <code>cdd8acc1bbec</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/873">#873</a> fix: classify Nawabari nonzero exit before parsing its response envelope (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Exit code (and spawn/timeout) is checked and used as the primary failure classification before any stdout JSON parsing/shape validation is attempted.</li>
+<li>[ ] On a nonzero exit, bounded stdout/stderr diagnostics are still retained on the resulting error/result object (not lost).</li>
+<li>[ ] New tests cover the matrix: nonzero exit + malformed stdout → command-failed; signal termination + partial stdout → command-failed; zero exit + malformed stdout → contract-invalid (unchanged).</li></ul>
+
+
+
+<h2>Changed files (2, +114/-10)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>src/workflow/nawabari.test.ts</td><td>modified</td><td>+73</td><td>-0</td></tr>
+<tr><td>src/workflow/nawabari.ts</td><td>modified</td><td>+41</td><td>-10</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

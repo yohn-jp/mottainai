@@ -1,0 +1,52 @@
+{
+  "baseSha": "d8a4a7c6e50a459370f4ada788f30eee273ac296",
+  "files": [
+    {
+      "additions": 73,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 73,
+          "newStart": 1319,
+          "oldLines": 0,
+          "oldStart": 1318
+        }
+      ],
+      "path": "src/workflow/nawabari.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 41,
+      "deletions": 10,
+      "hunks": [
+        {
+          "newLines": 25,
+          "newStart": 1006,
+          "oldLines": 0,
+          "oldStart": 1005
+        },
+        {
+          "newLines": 8,
+          "newStart": 1035,
+          "oldLines": 5,
+          "oldStart": 1010
+        },
+        {
+          "newLines": 8,
+          "newStart": 1047,
+          "oldLines": 5,
+          "oldStart": 1019
+        }
+      ],
+      "path": "src/workflow/nawabari.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "cdd8acc1bbec5e032ab6e3e46c40ec91943be4b8",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 114,
+    "deletions": 10,
+    "filesChanged": 2
+  }
+}
