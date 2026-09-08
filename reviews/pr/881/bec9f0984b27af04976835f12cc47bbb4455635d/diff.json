@@ -1,0 +1,52 @@
+{
+  "baseSha": "d8a4a7c6e50a459370f4ada788f30eee273ac296",
+  "files": [
+    {
+      "additions": 120,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 2,
+          "oldLines": 0,
+          "oldStart": 1
+        },
+        {
+          "newLines": 1,
+          "newStart": 6,
+          "oldLines": 1,
+          "oldStart": 5
+        },
+        {
+          "newLines": 118,
+          "newStart": 194,
+          "oldLines": 0,
+          "oldStart": 192
+        }
+      ],
+      "path": "src/semantics/diff/engine.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 6,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 1171,
+          "oldLines": 6,
+          "oldStart": 1171
+        }
+      ],
+      "path": "src/semantics/diff/engine.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "bec9f0984b27af04976835f12cc47bbb4455635d",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 122,
+    "deletions": 7,
+    "filesChanged": 2
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "d8a4a7c6e50a459370f4ada788f30eee273ac296",
+    "draft": false,
+    "headRef": "fix/871-hoist-semantic-fact-index",
+    "headSha": "bec9f0984b27af04976835f12cc47bbb4455635d",
+    "number": 881,
+    "title": "fix(runtime): reuse hoisted fact index in semantic diff loop"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "bec9f0984b27af04976835f12cc47bbb4455635d",
+    "immutable": true,
+    "shortId": "bec9f0984b27"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-08T15:05:33.015Z"
+  }
+}
