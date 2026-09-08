@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #879 @ 1829f30eb5f0</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #879: fix(ci): pin review pages checkout and add review-pages ci filters</h1>
+<p>Base <code>main</code> @ <code>e8a601d86077feece08f47fd1f9bbe13a0845220</code> &rarr;
+Head <code>fix/865-870-pin-review-pages-checkout-and-ci-filters</code> @ <code>1829f30eb5f0a54fc16384832c7353eafa05c108</code></p>
+<p>Revision <code>1829f30eb5f0</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/865">#865</a> fix: pin Review Pages publish job checkout to a trusted ref (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] `publish` job&#39;s checkout step pins an explicit trusted ref (e.g. `${{ github.event.repository.default_branch }}` or a fixed base SHA), independent of the triggering event&#39;s `github.sha`.</li>
+<li>[ ] A structural workflow test (extending `scripts/validate-actions.mjs` or equivalent) asserts that every job carrying a `contents: write` (or other elevated) permission checks out a trusted ref rather than the event-default ref.</li>
+<li>[ ] `review-pages/src/publish-to-pages.mjs`&#39;s handling of the downloaded artifact continues to treat it as inert data (no new code-execution path introduced for artifact content).</li></ul>
+
+
+
+<h2>Changed files (5, +299/-2)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/ci.yml</td><td>modified</td><td>+2</td><td>-0</td></tr>
+<tr><td>.github/workflows/review-pages.yml</td><td>modified</td><td>+6</td><td>-0</td></tr>
+<tr><td>scripts/ci-contract-ownership.test.mjs</td><td>modified</td><td>+24</td><td>-0</td></tr>
+<tr><td>scripts/validate-actions.mjs</td><td>modified</td><td>+143</td><td>-1</td></tr>
+<tr><td>scripts/validate-actions.test.mjs</td><td>modified</td><td>+124</td><td>-1</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
