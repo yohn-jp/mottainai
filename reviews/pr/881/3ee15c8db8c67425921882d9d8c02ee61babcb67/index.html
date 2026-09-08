@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #881 @ 3ee15c8db8c6</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #881: fix(runtime): reuse hoisted fact index in semantic diff loop</h1>
+<p>Base <code>main</code> @ <code>e8a601d86077feece08f47fd1f9bbe13a0845220</code> &rarr;
+Head <code>fix/871-hoist-semantic-fact-index</code> @ <code>3ee15c8db8c67425921882d9d8c02ee61babcb67</code></p>
+<p>Revision <code>3ee15c8db8c6</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/871">#871</a> fix: hoist per-symbol fact-index reconstruction out of the semantic diff loop (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Lines 1171/1174 are changed to use the already-hoisted `baseFacts`/`headFacts` instead of calling `factsBySubject(...)` again.</li>
+<li>[ ] A scaling test/benchmark asserts near-linear (not quadratic) growth as S and F are doubled together, and asserts byte-identical diff output before/after the change.</li></ul>
+
+
+
+<h2>Changed files (2, +122/-7)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>src/semantics/diff/engine.test.ts</td><td>modified</td><td>+120</td><td>-1</td></tr>
+<tr><td>src/semantics/diff/engine.ts</td><td>modified</td><td>+2</td><td>-6</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

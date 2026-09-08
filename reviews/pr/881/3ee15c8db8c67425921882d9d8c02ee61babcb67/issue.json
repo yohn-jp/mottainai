@@ -1,0 +1,25 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Lines 1171/1174 are changed to use the already-hoisted `baseFacts`/`headFacts` instead of calling `factsBySubject(...)` again."
+    },
+    {
+      "checked": false,
+      "text": "A scaling test/benchmark asserts near-linear (not quadratic) growth as S and F are doubled together, and asserts byte-identical diff output before/after the change."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 871,
+    "state": "open",
+    "title": "fix: hoist per-symbol fact-index reconstruction out of the semantic diff loop",
+    "url": "https://github.com/yohn-jp/mottainai/issues/871"
+  },
+  "linked": {
+    "number": 871
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
