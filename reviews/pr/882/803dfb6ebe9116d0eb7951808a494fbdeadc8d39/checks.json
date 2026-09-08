@@ -1,0 +1,121 @@
+{
+  "available": true,
+  "checkRuns": [
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291579614/job/102279120773",
+      "name": "build / packed artifact e2e / package",
+      "status": "queued"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291579446/job/102279095146",
+      "name": "CodeQL / Analyze (actions)",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291579446/job/102279095159",
+      "name": "CodeQL / Analyze (javascript-typescript)",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": "success",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291579446/job/102279066522",
+      "name": "CodeQL / Plan",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291579614/job/102279067469",
+      "name": "detect CI ownership path changes",
+      "status": "completed"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291578946/job/102279065307",
+      "name": "Generate review package",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": "skipped",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291579614/job/102279121822",
+      "name": "host bootstrap (Rust)",
+      "status": "completed"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291579614/job/102279121637",
+      "name": "Nix Runtime evaluation / image / VM test",
+      "status": "queued"
+    },
+    {
+      "conclusion": "skipped",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291579614/job/102279121629",
+      "name": "Nix Runtime: evaluation / managed packages / Route 2",
+      "status": "completed"
+    },
+    {
+      "conclusion": "skipped",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291579614/job/102279122142",
+      "name": "Runtime Appliance: canonical image / bounded manifest",
+      "status": "completed"
+    },
+    {
+      "conclusion": "skipped",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291579614/job/102279122226",
+      "name": "Runtime VM: guest boot",
+      "status": "completed"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291579403/job/102279066441",
+      "name": "standards-self-check",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291579614/job/102279120784",
+      "name": "test:integration (shard 1/4)",
+      "status": "queued"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291579614/job/102279120803",
+      "name": "test:integration (shard 2/4)",
+      "status": "queued"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291579614/job/102279120788",
+      "name": "test:integration (shard 3/4)",
+      "status": "queued"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291579614/job/102279120915",
+      "name": "test:integration (shard 4/4)",
+      "status": "queued"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291579614/job/102279120831",
+      "name": "TypeScript foundation / Plan",
+      "status": "queued"
+    },
+    {
+      "conclusion": "success",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291579403/job/102279066661",
+      "name": "validate-pr",
+      "status": "completed"
+    },
+    {
+      "conclusion": "skipped",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34291579403/job/102279067380",
+      "name": "validate-release",
+      "status": "completed"
+    }
+  ],
+  "headSha": "803dfb6ebe9116d0eb7951808a494fbdeadc8d39",
+  "schemaVersion": "mottainai.review-pages.checks/v1"
+}

@@ -1,0 +1,434 @@
+{
+  "baseSha": "4f2d829587a5a154b2a4cd2af16583206c9e82c1",
+  "files": [
+    {
+      "additions": 3,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 66,
+          "oldLines": 0,
+          "oldStart": 65
+        },
+        {
+          "newLines": 1,
+          "newStart": 89,
+          "oldLines": 0,
+          "oldStart": 87
+        },
+        {
+          "newLines": 1,
+          "newStart": 424,
+          "oldLines": 0,
+          "oldStart": 421
+        }
+      ],
+      "path": "scripts/architecture-check.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 30,
+      "deletions": 10,
+      "hunks": [
+        {
+          "newLines": 14,
+          "newStart": 133,
+          "oldLines": 0,
+          "oldStart": 132
+        },
+        {
+          "newLines": 4,
+          "newStart": 1381,
+          "oldLines": 1,
+          "oldStart": 1367
+        },
+        {
+          "newLines": 2,
+          "newStart": 1386,
+          "oldLines": 2,
+          "oldStart": 1369
+        },
+        {
+          "newLines": 2,
+          "newStart": 1391,
+          "oldLines": 2,
+          "oldStart": 1374
+        },
+        {
+          "newLines": 8,
+          "newStart": 1482,
+          "oldLines": 5,
+          "oldStart": 1465
+        }
+      ],
+      "path": "src/workflow/commands/write.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 9,
+          "oldLines": 1,
+          "oldStart": 9
+        },
+        {
+          "newLines": 1,
+          "newStart": 93,
+          "oldLines": 1,
+          "oldStart": 93
+        }
+      ],
+      "path": "src/workflow/domain/harness-delegation.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 12,
+          "oldLines": 1,
+          "oldStart": 12
+        },
+        {
+          "newLines": 1,
+          "newStart": 481,
+          "oldLines": 1,
+          "oldStart": 481
+        }
+      ],
+      "path": "src/workflow/domain/harness-delegation.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 3,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 9,
+          "oldLines": 0,
+          "oldStart": 8
+        },
+        {
+          "newLines": 1,
+          "newStart": 39,
+          "oldLines": 1,
+          "oldStart": 38
+        },
+        {
+          "newLines": 1,
+          "newStart": 41,
+          "oldLines": 1,
+          "oldStart": 40
+        }
+      ],
+      "path": "src/workflow/domain/legacy-migration.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 4,
+      "deletions": 4,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 5,
+          "oldLines": 1,
+          "oldStart": 5
+        },
+        {
+          "newLines": 1,
+          "newStart": 278,
+          "oldLines": 1,
+          "oldStart": 278
+        },
+        {
+          "newLines": 1,
+          "newStart": 283,
+          "oldLines": 1,
+          "oldStart": 283
+        },
+        {
+          "newLines": 1,
+          "newStart": 354,
+          "oldLines": 1,
+          "oldStart": 354
+        }
+      ],
+      "path": "src/workflow/domain/legacy-migration.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 4,
+          "oldLines": 1,
+          "oldStart": 4
+        },
+        {
+          "newLines": 1,
+          "newStart": 397,
+          "oldLines": 1,
+          "oldStart": 397
+        }
+      ],
+      "path": "src/workflow/domain/nawabari-close.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 3,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 21,
+          "oldLines": 1,
+          "oldStart": 21
+        },
+        {
+          "newLines": 1,
+          "newStart": 887,
+          "oldLines": 1,
+          "oldStart": 887
+        },
+        {
+          "newLines": 1,
+          "newStart": 1079,
+          "oldLines": 1,
+          "oldStart": 1079
+        }
+      ],
+      "path": "src/workflow/domain/nawabari-task.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 47,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 47,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/workflow/domain/task-lifecycle-transition-worker.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 151,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 151,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/workflow/domain/task-lifecycle.concurrency.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 91,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 91,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/workflow/domain/task-lifecycle.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 74,
+      "deletions": 5,
+      "hunks": [
+        {
+          "newLines": 37,
+          "newStart": 5,
+          "oldLines": 1,
+          "oldStart": 5
+        },
+        {
+          "newLines": 15,
+          "newStart": 43,
+          "oldLines": 2,
+          "oldStart": 7
+        },
+        {
+          "newLines": 22,
+          "newStart": 61,
+          "oldLines": 2,
+          "oldStart": 12
+        }
+      ],
+      "path": "src/workflow/domain/task-lifecycle.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 481,
+          "oldLines": 0,
+          "oldStart": 480
+        }
+      ],
+      "path": "src/workflow/domain/task.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 24,
+      "deletions": 9,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 33,
+          "oldLines": 1,
+          "oldStart": 33
+        },
+        {
+          "newLines": 1,
+          "newStart": 38,
+          "oldLines": 1,
+          "oldStart": 37
+        },
+        {
+          "newLines": 8,
+          "newStart": 609,
+          "oldLines": 1,
+          "oldStart": 608
+        },
+        {
+          "newLines": 13,
+          "newStart": 808,
+          "oldLines": 6,
+          "oldStart": 800
+        }
+      ],
+      "path": "src/workflow/domain/task.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 7,
+      "deletions": 4,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 393,
+          "oldLines": 1,
+          "oldStart": 393
+        },
+        {
+          "newLines": 1,
+          "newStart": 398,
+          "oldLines": 1,
+          "oldStart": 395
+        },
+        {
+          "newLines": 2,
+          "newStart": 403,
+          "oldLines": 2,
+          "oldStart": 400
+        }
+      ],
+      "path": "src/workflow/providers/github.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 5,
+          "oldLines": 1,
+          "oldStart": 5
+        },
+        {
+          "newLines": 1,
+          "newStart": 886,
+          "oldLines": 1,
+          "oldStart": 886
+        }
+      ],
+      "path": "src/workflow/providers/github.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 65,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 65,
+          "newStart": 639,
+          "oldLines": 0,
+          "oldStart": 638
+        }
+      ],
+      "path": "src/workflow/state/sqlite-store.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 21,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 86,
+          "oldLines": 0,
+          "oldStart": 85
+        },
+        {
+          "newLines": 19,
+          "newStart": 1827,
+          "oldLines": 0,
+          "oldStart": 1824
+        }
+      ],
+      "path": "src/workflow/state/sqlite-store.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 23,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 13,
+          "newStart": 798,
+          "oldLines": 0,
+          "oldStart": 797
+        },
+        {
+          "newLines": 10,
+          "newStart": 952,
+          "oldLines": 0,
+          "oldStart": 938
+        }
+      ],
+      "path": "src/workflow/state/store.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "803dfb6ebe9116d0eb7951808a494fbdeadc8d39",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 556,
+    "deletions": 45,
+    "filesChanged": 19
+  }
+}
