@@ -1,0 +1,31 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "A census mechanism enumerates all tracked files and fails CI when a non-exempt file matches zero ownership classes."
+    },
+    {
+      "checked": false,
+      "text": "The exemption list is explicit, documented, and reviewed (not a wildcard)."
+    },
+    {
+      "checked": false,
+      "text": "A mutation test proves introducing an unowned executable/config file fails the new check."
+    },
+    {
+      "checked": false,
+      "text": "`review-pages/**` (and any other currently-unowned paths discovered by the census) are backfilled into the ownership model."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 875,
+    "state": "open",
+    "title": "refactor: prove CI path-ownership completeness instead of asserting representative fixtures",
+    "url": "https://github.com/yohn-jp/mottainai/issues/875"
+  },
+  "linked": {
+    "number": 875
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
