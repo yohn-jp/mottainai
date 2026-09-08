@@ -1,0 +1,33 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "`updateTaskLifecycleState` (or a new CAS-guarded variant used by `transitionTask`) requires the expected prior `lifecycle_state`/`task_version` in its `WHERE` clause and returns/throws a structured conflict when `changes === 0`, mirroring the existing `commitCleanup`/`markCleanupLease` pattern."
+    },
+    {
+      "checked": false,
+      "text": "`transitionTask` propagates that conflict as a typed result (not a generic thrown error) so callers can distinguish \"illegal transition\" from \"lost a race against a concurrent transition.\""
+    },
+    {
+      "checked": false,
+      "text": "A new two-OS-process test (following `task.concurrency.test.ts`'s child-process pattern) proves that two concurrent legal transitions from the same prior state result in exactly one success and one structured conflict, never two silent successes."
+    },
+    {
+      "checked": false,
+      "text": "Every durable adjacent `(from, to)` state pair recorded via this path remains a legal edge in the transition graph under concurrent load."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 867,
+    "state": "open",
+    "title": "fix: guard task lifecycle transitions with expected-state/version CAS",
+    "url": "https://github.com/yohn-jp/mottainai/issues/867"
+  },
+  "linked": {
+    "number": 867
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "e8a601d86077feece08f47fd1f9bbe13a0845220",
+    "draft": false,
+    "headRef": "fix/867-guard-task-lifecycle-cas",
+    "headSha": "8d62b8d8f9e7b4c061f61f2580e897e24602ebbf",
+    "number": 882,
+    "title": "fix(workflow): guard task lifecycle transitions with expected-state/version CAS"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "8d62b8d8f9e7b4c061f61f2580e897e24602ebbf",
+    "immutable": true,
+    "shortId": "8d62b8d8f9e7"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-08T23:20:47.918Z"
+  }
+}
