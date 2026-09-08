@@ -1,0 +1,33 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Each semantic-source write is durable via a same-directory temp-file + atomic rename (+ fsync) per file, or an equivalent all-or-nothing multi-file commit mechanism."
+    },
+    {
+      "checked": false,
+      "text": "A concurrent-writer test (two real processes, following the existing pattern in `src/workflow/domain/task.concurrency.test.ts`) proves that two transactions loading the same on-disk generation cannot both commit silently — one must be rejected with a structured conflict, or the second must be rebased against the first's result."
+    },
+    {
+      "checked": false,
+      "text": "A crash-injection test (kill mid-write-sequence) proves the source directory recovers to either the pre-transaction or fully-post-transaction state, never a torn mix."
+    },
+    {
+      "checked": false,
+      "text": "No change to the external `applySemanticTransaction`/mutation API surface beyond the addition of a structured conflict/retry outcome where none currently exists."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 866,
+    "state": "open",
+    "title": "fix: make semantic source persistence atomic with disk-state verification",
+    "url": "https://github.com/yohn-jp/mottainai/issues/866"
+  },
+  "linked": {
+    "number": 866
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

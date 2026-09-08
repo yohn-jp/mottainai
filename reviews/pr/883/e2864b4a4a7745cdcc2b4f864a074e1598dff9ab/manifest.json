@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "d8a4a7c6e50a459370f4ada788f30eee273ac296",
+    "draft": false,
+    "headRef": "fix/866-atomic-semantic-persistence",
+    "headSha": "e2864b4a4a7745cdcc2b4f864a074e1598dff9ab",
+    "number": 883,
+    "title": "fix: make semantic source persistence atomic with disk-state verification"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "e2864b4a4a7745cdcc2b4f864a074e1598dff9ab",
+    "immutable": true,
+    "shortId": "e2864b4a4a77"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-08T15:20:53.414Z"
+  }
+}
