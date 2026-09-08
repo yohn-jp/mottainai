@@ -1,0 +1,120 @@
+{
+  "baseSha": "b7dc15cb7325fe622b018dd195744cd0dd85917d",
+  "files": [
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 68,
+          "oldLines": 0,
+          "oldStart": 67
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 302,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 302,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/benchmark-dashboard-reconciliation.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 101,
+      "deletions": 6,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 34,
+          "oldLines": 0,
+          "oldStart": 33
+        },
+        {
+          "newLines": 8,
+          "newStart": 75,
+          "oldLines": 0,
+          "oldStart": 73
+        },
+        {
+          "newLines": 51,
+          "newStart": 964,
+          "oldLines": 0,
+          "oldStart": 954
+        },
+        {
+          "newLines": 5,
+          "newStart": 1366,
+          "oldLines": 0,
+          "oldStart": 1305
+        },
+        {
+          "newLines": 1,
+          "newStart": 2218,
+          "oldLines": 1,
+          "oldStart": 2153
+        },
+        {
+          "newLines": 1,
+          "newStart": 2238,
+          "oldLines": 1,
+          "oldStart": 2173
+        },
+        {
+          "newLines": 1,
+          "newStart": 2259,
+          "oldLines": 1,
+          "oldStart": 2194
+        },
+        {
+          "newLines": 1,
+          "newStart": 2294,
+          "oldLines": 1,
+          "oldStart": 2229
+        },
+        {
+          "newLines": 8,
+          "newStart": 2317,
+          "oldLines": 0,
+          "oldStart": 2251
+        },
+        {
+          "newLines": 9,
+          "newStart": 2326,
+          "oldLines": 0,
+          "oldStart": 2252
+        },
+        {
+          "newLines": 1,
+          "newStart": 2336,
+          "oldLines": 1,
+          "oldStart": 2254
+        },
+        {
+          "newLines": 14,
+          "newStart": 2340,
+          "oldLines": 1,
+          "oldStart": 2258
+        }
+      ],
+      "path": "src/manager/service.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "85a8e94d3030002caff0d3a687542d63a7b10481",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 404,
+    "deletions": 6,
+    "filesChanged": 3
+  }
+}

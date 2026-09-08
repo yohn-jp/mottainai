@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "b7dc15cb7325fe622b018dd195744cd0dd85917d",
+    "draft": false,
+    "headRef": "fix/872-decouple-dashboard-reconciliation",
+    "headSha": "85a8e94d3030002caff0d3a687542d63a7b10481",
+    "number": 884,
+    "title": "fix(runtime): decouple dashboard reconciliation from GET /sessions"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "85a8e94d3030002caff0d3a687542d63a7b10481",
+    "immutable": true,
+    "shortId": "85a8e94d3030"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-08T23:31:57.557Z"
+  }
+}
