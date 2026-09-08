@@ -1,0 +1,29 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "`publish` job's checkout step pins an explicit trusted ref (e.g. `${{ github.event.repository.default_branch }}` or a fixed base SHA), independent of the triggering event's `github.sha`."
+    },
+    {
+      "checked": false,
+      "text": "A structural workflow test (extending `scripts/validate-actions.mjs` or equivalent) asserts that every job carrying a `contents: write` (or other elevated) permission checks out a trusted ref rather than the event-default ref."
+    },
+    {
+      "checked": false,
+      "text": "`review-pages/src/publish-to-pages.mjs`'s handling of the downloaded artifact continues to treat it as inert data (no new code-execution path introduced for artifact content)."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 865,
+    "state": "open",
+    "title": "fix: pin Review Pages publish job checkout to a trusted ref",
+    "url": "https://github.com/yohn-jp/mottainai/issues/865"
+  },
+  "linked": {
+    "number": 865
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
