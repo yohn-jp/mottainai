@@ -51,6 +51,7 @@
     "governance:branch": "node scripts/validate-branch-name.mjs",
     "semantic:validate": "tsx scripts/semantic-governance.ts",
     "semantic:dogfood": "node --import tsx --test src/semantics/enforcement.test.ts",
+    "cache:gc": "tsx scripts/semantic-cache-gc.ts",
     "governance:test": "node --test scripts/governance.test.mjs",
     "test:actions": "node --test scripts/validate-actions.test.mjs scripts/npm-publish-contract.test.mjs scripts/publish-release-lookup.test.mjs scripts/deployment-artifact-roundtrip-gate.test.mjs scripts/validate-oras-compatibility.test.mjs",
     "test:deployment-roundtrip": "node --import tsx scripts/deployment-artifact-roundtrip-production-proof.mjs",
