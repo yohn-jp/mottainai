@@ -1,0 +1,154 @@
+{
+  "baseSha": "3d324e9d9e586dfbef87da40b7978c14168d37b9",
+  "files": [
+    {
+      "additions": 2,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 375,
+          "oldLines": 0,
+          "oldStart": 374
+        },
+        {
+          "newLines": 1,
+          "newStart": 390,
+          "oldLines": 0,
+          "oldStart": 388
+        }
+      ],
+      "path": ".github/workflows/ci.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 6,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 6,
+          "newStart": 303,
+          "oldLines": 0,
+          "oldStart": 302
+        }
+      ],
+      "path": ".github/workflows/review-pages.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 24,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 24,
+          "newStart": 109,
+          "oldLines": 0,
+          "oldStart": 108
+        }
+      ],
+      "path": "scripts/ci-contract-ownership.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 188,
+      "deletions": 10,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 10,
+          "oldLines": 1,
+          "oldStart": 10
+        },
+        {
+          "newLines": 2,
+          "newStart": 17,
+          "oldLines": 1,
+          "oldStart": 16
+        },
+        {
+          "newLines": 6,
+          "newStart": 35,
+          "oldLines": 1,
+          "oldStart": 33
+        },
+        {
+          "newLines": 6,
+          "newStart": 46,
+          "oldLines": 1,
+          "oldStart": 39
+        },
+        {
+          "newLines": 5,
+          "newStart": 78,
+          "oldLines": 1,
+          "oldStart": 66
+        },
+        {
+          "newLines": 149,
+          "newStart": 90,
+          "oldLines": 0,
+          "oldStart": 73
+        },
+        {
+          "newLines": 3,
+          "newStart": 247,
+          "oldLines": 1,
+          "oldStart": 82
+        },
+        {
+          "newLines": 2,
+          "newStart": 256,
+          "oldLines": 1,
+          "oldStart": 89
+        },
+        {
+          "newLines": 3,
+          "newStart": 260,
+          "oldLines": 0,
+          "oldStart": 91
+        },
+        {
+          "newLines": 6,
+          "newStart": 277,
+          "oldLines": 2,
+          "oldStart": 106
+        },
+        {
+          "newLines": 4,
+          "newStart": 292,
+          "oldLines": 1,
+          "oldStart": 117
+        }
+      ],
+      "path": "scripts/validate-actions.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 183,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 6,
+          "oldLines": 1,
+          "oldStart": 6
+        },
+        {
+          "newLines": 182,
+          "newStart": 123,
+          "oldLines": 0,
+          "oldStart": 122
+        }
+      ],
+      "path": "scripts/validate-actions.test.mjs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "07b38b07e9d0054934ccb4560dcd1cd3c591055a",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 403,
+    "deletions": 11,
+    "filesChanged": 5
+  }
+}
