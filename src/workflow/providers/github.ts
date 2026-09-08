@@ -2,7 +2,7 @@ import { runProgram as defaultRunProgram } from "../../subprocess.js";
 import type { RunResult } from "../../subprocess.js";
 import type { GhInariError } from "../../gh-inari.js";
 import type { PullRequestBodyDraft } from "../domain/pr-intent.js";
-import { transitionTask } from "../domain/task-lifecycle.js";
+import { transitionFailureDetail, transitionTask } from "../domain/task-lifecycle.js";
 import { validateTransition } from "../domain/lifecycle.js";
 import type {
   Issue,
@@ -883,7 +883,7 @@ export async function openWorkflowPullRequest(input: OpenWorkflowPullRequestInpu
     return {
       ok: false,
       reason: "local-state-write-failed",
-      detail: transitioned.blocked.blockingRule,
+      detail: transitionFailureDetail(transitioned),
       providerCreated: true,
     };
   }

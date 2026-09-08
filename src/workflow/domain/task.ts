@@ -30,11 +30,12 @@ import type { LifecycleState, TransitionBlockedInfo } from "./lifecycle.js";
 import { verifyWorkflowContext } from "../git/context.js";
 import type { WorkflowContextInput, VerifiedWorkflowContext } from "../git/context.js";
 import type { PullRequest } from "../providers/model.js";
-import { transitionTask } from "./task-lifecycle.js";
+import { transitionFailureDetail, transitionTask } from "./task-lifecycle.js";
+import type { TransitionConflictInfo } from "./task-lifecycle.js";
 import type { NawabariExecutionClient } from "../nawabari.js";
 
 export { transitionTask } from "./task-lifecycle.js";
-export type { TransitionTaskResult } from "./task-lifecycle.js";
+export type { TransitionConflictInfo, TransitionTaskResult } from "./task-lifecycle.js";
 
 const GIT_TIMEOUT_MS = 5_000;
 const GIT_MAX_OUTPUT_BYTES = 64 * 1024;
@@ -605,7 +606,14 @@ export type WorkflowPullRequestObserver = (record: PullRequestRecord) => Promise
 
 export type WorkspaceTaskTransitionResult =
   | { ok: true; task: TaskRecord; context: VerifiedWorkflowContext }
-  | { ok: false; reason: string; detail: string; blocked?: TransitionBlockedInfo };
+  | {
+      ok: false;
+      reason: string;
+      detail: string;
+      blocked?: TransitionBlockedInfo;
+      /** Set when `reason === "lifecycle-conflict"`: lost a race against a concurrent transition. */
+      conflict?: TransitionConflictInfo;
+    };
 
 type MergedPullRequestVerification =
   | { ok: true; record: PullRequestRecord; pullRequest: PullRequest }
@@ -797,12 +805,19 @@ export async function transitionTaskForWorkspace(
 
   const transitioned = transitionTask(input.store, input.taskId, input.to);
   if (!transitioned.ok) {
-    return {
-      ok: false,
-      reason: "lifecycle-blocked",
-      detail: transitioned.blocked.blockingRule,
-      blocked: transitioned.blocked,
-    };
+    return transitioned.kind === "blocked"
+      ? {
+          ok: false,
+          reason: "lifecycle-blocked",
+          detail: transitionFailureDetail(transitioned),
+          blocked: transitioned.blocked,
+        }
+      : {
+          ok: false,
+          reason: "lifecycle-conflict",
+          detail: transitionFailureDetail(transitioned),
+          conflict: transitioned.conflict,
+        };
   }
   return { ok: true, task: transitioned.task, context };
 }

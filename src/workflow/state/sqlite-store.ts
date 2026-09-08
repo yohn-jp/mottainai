@@ -83,6 +83,8 @@ import type {
   TaskStartReconciliationRecord,
   TaskStartReconciliationState,
   UpdateManagerSessionInput,
+  UpdateTaskLifecycleStateExpectedInput,
+  UpdateTaskLifecycleStateExpectedResult,
   ValidationEvidenceRecord,
   WorkflowStateStore,
   WorktreeId,
@@ -1820,6 +1822,25 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     const row = db.prepare("SELECT * FROM tasks WHERE task_id = ?").get(taskId) as Record<string, unknown> | undefined;
     if (row === undefined) throw new Error(`task not found: ${taskId}`);
     return toTaskRecord(row);
+  }
+
+  updateTaskLifecycleStateIfCurrent(input: UpdateTaskLifecycleStateExpectedInput): UpdateTaskLifecycleStateExpectedResult {
+    const db = this.handle();
+    const now = input.updatedAt ?? Date.now();
+    // activateWorktree/attachNawabariSession と同じ単一 UPDATE...WHERE の CAS idiom。
+    // lifecycle_state/task_version を両方 WHERE に含めることで、同じ prior state を
+    // 観測した 2 並行 caller のうち後勝ちの上書きを防ぐ（changes === 0 で敗者を検出）。
+    const result = db
+      .prepare(
+        "UPDATE tasks SET lifecycle_state = ?, task_version = task_version + 1, updated_at = ? WHERE task_id = ? AND task_version = ? AND lifecycle_state = ?",
+      )
+      .run(input.next, now, input.taskId, input.expectedVersion, input.expectedLifecycle);
+    if (result.changes === 0) {
+      const current = this.getTask(input.taskId);
+      if (current === undefined) throw new Error(`task not found: ${input.taskId}`);
+      return { ok: false, reason: "lifecycle-conflict", current };
+    }
+    return { ok: true, task: this.getTask(input.taskId)! };
   }
 
   attachNawabariSession(

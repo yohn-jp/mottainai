@@ -795,6 +795,19 @@ export interface CommitCleanupResult {
   lease: CleanupLeaseRecord;
 }
 
+export interface UpdateTaskLifecycleStateExpectedInput {
+  taskId: TaskId;
+  /** 楽観ガード。ストア内の lifecycle_state/task_version と一致しない更新は拒否される。 */
+  expectedLifecycle: LifecycleState;
+  expectedVersion: number;
+  next: LifecycleState;
+  updatedAt?: number;
+}
+
+export type UpdateTaskLifecycleStateExpectedResult =
+  | { ok: true; task: TaskRecord }
+  | { ok: false; reason: "lifecycle-conflict"; current: TaskRecord };
+
 /**
  * Physical ownership operations from the pre-Nawabari workflow. They remain
  * available only to migration/reference fixtures and the retired legacy
@@ -936,6 +949,16 @@ export interface WorkflowStateStore {
   deleteReservedTask(taskId: TaskId): void;
 
   updateTaskLifecycleState(taskId: TaskId, next: LifecycleState, updatedAt?: number): TaskRecord;
+  /**
+   * CAS-guarded lifecycle transition used by `transitionTask` (task-lifecycle.ts) to close
+   * the race where two concurrent callers observe the same prior (lifecycleState, version)
+   * and would otherwise both blindly overwrite each other's transition. Mirrors the
+   * `commitCleanup`/`markCleanupLease`/`activateWorktree` optimistic-concurrency idiom: the
+   * UPDATE's WHERE clause pins both expected fields, and `ok: false` means another writer
+   * already advanced the task past the expected prior state (`changes === 0`), never a
+   * silent overwrite.
+   */
+  updateTaskLifecycleStateIfCurrent(input: UpdateTaskLifecycleStateExpectedInput): UpdateTaskLifecycleStateExpectedResult;
   /** Attach exactly one external execution session; never stores its ownership fields locally. */
   attachNawabariSession(taskId: TaskId, sessionId: NawabariSessionId, updatedAt?: number): TaskRecord;
   getTask(taskId: TaskId): TaskRecord | undefined;

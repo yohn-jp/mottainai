@@ -638,6 +638,71 @@ test("updateTaskLifecycleState updates and returns the task", () => {
   assert.equal(store.getTask(task.taskId)?.lifecycleState, "active");
 });
 
+// Issue #867: updateTaskLifecycleState has no expected-state/version guard, so two
+// concurrent transitions observing the same prior state can both blindly overwrite each
+// other. updateTaskLifecycleStateIfCurrent closes that gap with the same
+// commitCleanup/markCleanupLease/activateWorktree CAS idiom used elsewhere in this file.
+test("updateTaskLifecycleStateIfCurrent applies the write only when lifecycle_state/task_version both match", () => {
+  const store = openStoreWithInstance();
+  const task = reserveTask(store, "task-a");
+  const active = store.updateTaskLifecycleState(task.taskId, "active");
+
+  const result = store.updateTaskLifecycleStateIfCurrent({
+    taskId: active.taskId,
+    expectedLifecycle: "active",
+    expectedVersion: active.version,
+    next: "committed",
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.task.lifecycleState, "committed");
+  assert.equal(result.task.version, active.version + 1);
+});
+
+test("updateTaskLifecycleStateIfCurrent reports a structured conflict (changes === 0) instead of silently overwriting, on a stale version", () => {
+  const store = openStoreWithInstance();
+  const task = reserveTask(store, "task-a");
+  const active = store.updateTaskLifecycleState(task.taskId, "active");
+  const committed = store.updateTaskLifecycleState(active.taskId, "committed");
+
+  // A caller that still believes the task is `active`@v(active.version) — exactly the stale
+  // view a concurrent transition would have — must be rejected, never silently reapplied.
+  const result = store.updateTaskLifecycleStateIfCurrent({
+    taskId: active.taskId,
+    expectedLifecycle: "active",
+    expectedVersion: active.version,
+    next: "abandoned",
+  });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.reason, "lifecycle-conflict");
+  assert.equal(result.current.lifecycleState, "committed");
+  assert.equal(result.current.version, committed.version);
+
+  // The real state must be untouched by the rejected write.
+  assert.equal(store.getTask(active.taskId)?.lifecycleState, "committed");
+  assert.equal(store.getTask(active.taskId)?.version, committed.version);
+});
+
+test("updateTaskLifecycleStateIfCurrent reports a structured conflict when only lifecycle_state is stale (version happens to match)", () => {
+  const store = openStoreWithInstance();
+  const task = reserveTask(store, "task-a");
+  const active = store.updateTaskLifecycleState(task.taskId, "active");
+
+  const result = store.updateTaskLifecycleStateIfCurrent({
+    taskId: active.taskId,
+    // Real state is "active", not "committed" — the WHERE clause must pin both fields.
+    expectedLifecycle: "committed",
+    expectedVersion: active.version,
+    next: "abandoned",
+  });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.reason, "lifecycle-conflict");
+  assert.equal(result.current.lifecycleState, "active");
+  assert.equal(store.getTask(active.taskId)?.lifecycleState, "active");
+});
+
 test("getActiveTaskByIssueRef returns undefined once the task is cleaned/abandoned", () => {
   const store = openStoreWithInstance();
   const result = store.reserveTask({

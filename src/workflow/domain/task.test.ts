@@ -478,6 +478,8 @@ test("transitionTask applies a valid transition and rejects an invalid one with 
   const invalid = transitionTask(store, started.task.taskId, "merged");
   assert.equal(invalid.ok, false);
   if (invalid.ok) return;
+  assert.equal(invalid.kind, "blocked");
+  if (invalid.kind !== "blocked") return;
   assert.equal(invalid.blocked.currentState, "committed");
   assert.equal(invalid.blocked.requestedTransition, "merged");
   assert.ok(invalid.blocked.allowedNextTransitions.includes("pushed"));

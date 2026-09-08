@@ -390,15 +390,18 @@ test("retry after PR-row persistence succeeds but lifecycle persistence fails re
       [runResult("[]"), runResult("https://github.com/org/repository/pull/36")],
       calls,
     );
-    const updateTaskLifecycleState = store.updateTaskLifecycleState.bind(store);
+    // `transitionTask` (Issue #867) now writes through the CAS-guarded
+    // `updateTaskLifecycleStateIfCurrent` rather than the unguarded
+    // `updateTaskLifecycleState`; fault-inject on whichever path is actually exercised.
+    const updateTaskLifecycleStateIfCurrent = store.updateTaskLifecycleStateIfCurrent.bind(store);
     let failLifecyclePersistence = true;
-    store.updateTaskLifecycleState = ((id, state) => {
+    store.updateTaskLifecycleStateIfCurrent = ((input) => {
       if (failLifecyclePersistence) {
         failLifecyclePersistence = false;
         throw new Error("simulated lifecycle persistence failure");
       }
-      return updateTaskLifecycleState(id, state);
-    }) as typeof store.updateTaskLifecycleState;
+      return updateTaskLifecycleStateIfCurrent(input);
+    }) as typeof store.updateTaskLifecycleStateIfCurrent;
 
     const first = await openWorkflowPullRequest(workflowInput(store, taskId, adapter));
     assert.equal(first.ok, false);

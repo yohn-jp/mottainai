@@ -6,6 +6,7 @@ import { createTempGitRepo, runGit } from "../../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../../test-support/workflow-store.js";
 import { resolveRepositoryIdentity } from "./identity.js";
 import { migrateLegacyWorkflowTask } from "./legacy-migration.js";
+import { transitionFailureDetail } from "./task-lifecycle.js";
 import { transitionTask } from "./task.js";
 import type { TaskRecord } from "../state/store.js";
 
@@ -35,9 +36,9 @@ function legacyTask(testContext: Parameters<typeof createTempGitRepo>[0], slug: 
 
 function terminalTask(store: ReturnType<typeof createWorkflowStore>, task: TaskRecord): TaskRecord {
   const active = transitionTask(store, task.taskId, "active");
-  if (!active.ok) throw new Error(active.blocked.blockingRule);
+  if (!active.ok) throw new Error(transitionFailureDetail(active));
   const abandoned = transitionTask(store, task.taskId, "abandoned");
-  if (!abandoned.ok) throw new Error(abandoned.blocked.blockingRule);
+  if (!abandoned.ok) throw new Error(transitionFailureDetail(abandoned));
   return abandoned.task;
 }
 

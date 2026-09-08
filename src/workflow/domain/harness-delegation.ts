@@ -9,7 +9,7 @@ import {
 } from "../../manager/service.js";
 import { allowedNextTransitions, isContinuableLifecycleState, validateTransition } from "./lifecycle.js";
 import type { LifecycleState } from "./lifecycle.js";
-import { transitionTask } from "./task-lifecycle.js";
+import { transitionFailureDetail, transitionTask } from "./task-lifecycle.js";
 import type { RepositoryInstanceId } from "./identity.js";
 import type {
   ManagerRuntimeState,
@@ -478,7 +478,7 @@ export class HarnessDelegationService {
         const work = snapshotFor(found.store, task, stopped);
         return failure(
           work.status,
-          errorProjection("lifecycle_conflict", "cancel_not_allowed", transitioned.blocked.blockingRule),
+          errorProjection("lifecycle_conflict", "cancel_not_allowed", transitionFailureDetail(transitioned)),
           work,
         );
       }
