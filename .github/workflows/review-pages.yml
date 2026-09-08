@@ -300,6 +300,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # This job holds contents: write and runs the publisher scripts
+          # from the checked-out tree. It must never resolve to the
+          # triggering event's github.sha (the PR merge commit, which can
+          # carry PR-controlled changes to those scripts); pin the trusted
+          # default branch instead, independent of the event.
+          ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
 
       - name: Initialize and complete checkout timing

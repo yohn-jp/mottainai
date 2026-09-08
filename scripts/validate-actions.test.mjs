@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { validateActionText, validateRepositoryActions } from "./validate-actions.mjs";
+import { validateActionText, validateElevatedCheckoutRefs, validateRepositoryActions } from "./validate-actions.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sha = "a".repeat(40);
@@ -118,6 +118,188 @@ test("Review Pages' standalone pnpm/action-setup version matches the root packag
     pinnedPnpmVersion,
     `review-pages.yml pins pnpm/action-setup to ${versionMatch[1]}, which has drifted from package.json's packageManager (${pinnedPnpmVersion}); update review-pages.yml to match`,
   );
+});
+
+function pullRequestWorkflow(jobBody) {
+  return [
+    "on:",
+    "  pull_request:",
+    "    types: [opened]",
+    "",
+    "permissions:",
+    "  contents: read",
+    "",
+    "jobs:",
+    jobBody,
+  ].join("\n");
+}
+
+test("flags an elevated (write) job whose checkout carries no ref on a pull_request-triggered workflow (Issue #865)", () => {
+  const workflow = pullRequestWorkflow(
+    [
+      "  publish:",
+      "    permissions:",
+      "      contents: write",
+      "    steps:",
+      "      - name: Checkout",
+      "        uses: actions/checkout@" + sha,
+      "        with:",
+      "          persist-credentials: false",
+    ].join("\n"),
+  );
+
+  const errors = validateElevatedCheckoutRefs(workflow, ".github/workflows/example.yml");
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /checkout has no ref/u);
+});
+
+test("flags an elevated job pinned to the untrusted PR head SHA", () => {
+  const workflow = pullRequestWorkflow(
+    [
+      "  publish:",
+      "    permissions:",
+      "      contents: write",
+      "    steps:",
+      "      - name: Checkout",
+      "        uses: actions/checkout@" + sha,
+      "        with:",
+      "          ref: ${{ github.event.pull_request.head.sha }}",
+      "          persist-credentials: false",
+    ].join("\n"),
+  );
+
+  const errors = validateElevatedCheckoutRefs(workflow, ".github/workflows/example.yml");
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /lacks trusted repository provenance/u);
+});
+
+test("flags workflow-level write permissions inherited by a job", () => {
+  const workflow = [
+    "on:",
+    "  pull_request:",
+    "permissions:",
+    "  contents: write",
+    "jobs:",
+    "  publish:",
+    "    steps:",
+    "      - name: Checkout",
+    "        uses: actions/checkout@" + sha,
+  ].join("\n");
+
+  const errors = validateElevatedCheckoutRefs(workflow, ".github/workflows/example.yml");
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /checkout has no ref/u);
+});
+
+test("flags every checkout in an elevated job, including an unsafe second checkout", () => {
+  const workflow = pullRequestWorkflow(
+    [
+      "  publish:",
+      "    permissions:",
+      "      contents: write",
+      "    steps:",
+      "      - name: Trusted checkout",
+      "        uses: actions/checkout@" + sha,
+      "        with:",
+      "          ref: ${{ github.event.repository.default_branch }}",
+      "      - name: Second checkout",
+      "        uses: actions/checkout@" + sha,
+      "        with:",
+      "          ref: ${{ github.event.pull_request.head.sha }}",
+    ].join("\n"),
+  );
+
+  const errors = validateElevatedCheckoutRefs(workflow, ".github/workflows/example.yml");
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /lacks trusted repository provenance/u);
+});
+
+test("rejects arbitrary branch refs and literal SHAs as unproven elevated checkout refs", () => {
+  const workflow = pullRequestWorkflow(
+    [
+      "  publish:",
+      "    permissions:",
+      "      contents: write",
+      "    steps:",
+      "      - name: Checkout",
+      "        uses: actions/checkout@" + sha,
+      "        with:",
+      "          ref: refs/heads/main",
+    ].join("\n"),
+  );
+
+  const errors = validateElevatedCheckoutRefs(workflow, ".github/workflows/example.yml");
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /lacks trusted repository provenance/u);
+});
+test("accepts an elevated job pinned to the repository default branch", () => {
+  const workflow = pullRequestWorkflow(
+    [
+      "  publish:",
+      "    permissions:",
+      "      contents: write",
+      "    steps:",
+      "      - name: Checkout",
+      "        uses: actions/checkout@" + sha,
+      "        with:",
+      "          ref: ${{ github.event.repository.default_branch }}",
+      "          persist-credentials: false",
+    ].join("\n"),
+  );
+
+  assert.deepEqual(validateElevatedCheckoutRefs(workflow, ".github/workflows/example.yml"), []);
+});
+
+test("does not flag a read-only job on a pull_request-triggered workflow", () => {
+  const workflow = pullRequestWorkflow(
+    [
+      "  generate:",
+      "    permissions:",
+      "      contents: read",
+      "    steps:",
+      "      - name: Checkout",
+      "        uses: actions/checkout@" + sha,
+      "        with:",
+      "          ref: ${{ github.event.pull_request.head.sha }}",
+    ].join("\n"),
+  );
+
+  assert.deepEqual(validateElevatedCheckoutRefs(workflow, ".github/workflows/example.yml"), []);
+});
+
+test("does not flag an elevated job on a push-only workflow (its default ref is already a trusted branch commit)", () => {
+  const workflow = [
+    "on:",
+    "  push:",
+    "    branches: [main]",
+    "",
+    "jobs:",
+    "  publish:",
+    "    permissions:",
+    "      contents: write",
+    "    steps:",
+    "      - name: Checkout",
+    "        uses: actions/checkout@" + sha,
+  ].join("\n");
+
+  assert.deepEqual(validateElevatedCheckoutRefs(workflow, ".github/workflows/example.yml"), []);
+});
+
+test("every elevated job across the repository's real pull_request-triggered workflows checks out a trusted ref (Issue #865)", () => {
+  const result = validateRepositoryActions(repositoryRoot);
+
+  assert.deepEqual(
+    result.errors.filter((error) => /carries an elevated \(write\) permission/u.test(error)),
+    [],
+  );
+});
+
+test("the Review Pages publish job pins its checkout to the repository default branch, not the event-default ref", () => {
+  const reviewPagesWorkflow = fs.readFileSync(path.join(repositoryRoot, ".github/workflows/review-pages.yml"), "utf8");
+  const errors = validateElevatedCheckoutRefs(reviewPagesWorkflow, ".github/workflows/review-pages.yml");
+
+  assert.deepEqual(errors, []);
+  assert.match(reviewPagesWorkflow, /ref:\s*\$\{\{\s*github\.event\.repository\.default_branch\s*\}\}/u);
 });
 
 test("rejects @main for every non-org external reference, and rejects non-@main org-owned workflow refs", () => {
