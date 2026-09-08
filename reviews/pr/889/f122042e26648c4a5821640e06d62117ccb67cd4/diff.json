@@ -1,0 +1,118 @@
+{
+  "baseSha": "d8a4a7c6e50a459370f4ada788f30eee273ac296",
+  "files": [
+    {
+      "additions": 33,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 20,
+          "newStart": 80,
+          "oldLines": 1,
+          "oldStart": 80
+        },
+        {
+          "newLines": 1,
+          "newStart": 117,
+          "oldLines": 0,
+          "oldStart": 97
+        },
+        {
+          "newLines": 11,
+          "newStart": 132,
+          "oldLines": 0,
+          "oldStart": 111
+        },
+        {
+          "newLines": 1,
+          "newStart": 149,
+          "oldLines": 1,
+          "oldStart": 118
+        }
+      ],
+      "path": "src/context-runtime/read-adapter.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 89,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 14,
+          "oldLines": 0,
+          "oldStart": 13
+        },
+        {
+          "newLines": 1,
+          "newStart": 18,
+          "oldLines": 0,
+          "oldStart": 16
+        },
+        {
+          "newLines": 87,
+          "newStart": 2192,
+          "oldLines": 0,
+          "oldStart": 2189
+        }
+      ],
+      "path": "src/local-tools.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 40,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 37,
+          "newStart": 407,
+          "oldLines": 0,
+          "oldStart": 406
+        },
+        {
+          "newLines": 3,
+          "newStart": 1044,
+          "oldLines": 0,
+          "oldStart": 1006
+        }
+      ],
+      "path": "src/local-tools.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 0,
+      "deletions": 217,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 217,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/read-governor/authorize.test.ts",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 123,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 123,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/read-governor/authorize.ts",
+      "status": "removed"
+    }
+  ],
+  "headSha": "f122042e26648c4a5821640e06d62117ccb67cd4",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 162,
+    "deletions": 342,
+    "filesChanged": 5
+  }
+}
