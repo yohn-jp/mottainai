@@ -1003,24 +1003,55 @@ export class NawabariExecutionClient {
         "nawabari-command-failed",
         "Nawabari command exceeded its bounded execution contract",
       );
+    // A crashing/signal-killed Nawabari process (nonzero or null exit code)
+    // can emit partial or malformed stdout. When stdout fails to parse, or
+    // parses but doesn't match the v1 envelope shape, that must be
+    // classified as nawabari-command-failed (a process failure) rather than
+    // nawabari-contract-invalid (a schema/contract violation) whenever the
+    // exit itself was non-clean — the process failure is the primary cause,
+    // not a contract mismatch. Bounded stdout/stderr (and any best-effort
+    // parse) are still attached so recovery keeps useful diagnostic detail.
+    // A clean exit (0) that still fails to parse/validate is unchanged: that
+    // is a genuine contract violation.
+    const commandFailedOnNonCleanExit = (parsed: unknown): NawabariExecutionError | undefined => {
+      if (run.exitCode === 0) return undefined;
+      return new NawabariExecutionError(
+        "nawabari-command-failed",
+        `Nawabari returned exit code ${String(run.exitCode)}${run.signal !== null ? ` (signal ${run.signal})` : ""}`,
+        undefined,
+        {
+          exitCode: run.exitCode,
+          signal: run.signal,
+          stdout: run.stdout.slice(0, 512),
+          stderr: run.stderr.slice(0, 512),
+          parsed,
+        },
+      );
+    };
     let parsed: unknown;
     try {
       parsed = JSON.parse(run.stdout.trim());
     } catch {
-      throw new NawabariExecutionError(
-        "nawabari-contract-invalid",
-        "Nawabari did not return one JSON document",
-        undefined,
-        run.stderr.slice(0, 512),
+      throw (
+        commandFailedOnNonCleanExit(undefined) ??
+        new NawabariExecutionError(
+          "nawabari-contract-invalid",
+          "Nawabari did not return one JSON document",
+          undefined,
+          run.stderr.slice(0, 512),
+        )
       );
     }
     const result = object(parsed) as NawabariCommandResult | undefined;
     if (result === undefined || typeof result.ok !== "boolean" || typeof result.command !== "string")
-      throw new NawabariExecutionError(
-        "nawabari-contract-invalid",
-        "Nawabari JSON result does not match the v1 envelope",
-        undefined,
-        parsed,
+      throw (
+        commandFailedOnNonCleanExit(parsed) ??
+        new NawabariExecutionError(
+          "nawabari-contract-invalid",
+          "Nawabari JSON result does not match the v1 envelope",
+          undefined,
+          parsed,
+        )
       );
     if (!result.ok && returnRejected) return result;
     if (!result.ok)
