@@ -1168,12 +1168,8 @@ export function compareSemanticSnapshots(
         );
     }
     const predicates = new Set([
-      ...(factsBySubject(baseSnapshot)
-        .get(before?.id ?? id)
-        ?.keys() ?? []),
-      ...(factsBySubject(headSnapshot)
-        .get(after?.id ?? id)
-        ?.keys() ?? []),
+      ...(baseFacts.get(before?.id ?? id)?.keys() ?? []),
+      ...(headFacts.get(after?.id ?? id)?.keys() ?? []),
     ]);
     if (before !== undefined && after !== undefined && before.id !== after.id) {
       const beforePredicates = baseFacts.get(before.id);
