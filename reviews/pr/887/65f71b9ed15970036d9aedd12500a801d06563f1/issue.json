@@ -1,0 +1,33 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "`createWorktree`'s own failure path (verification failure after successful `git worktree add`) performs compensating `git worktree remove`/branch deletion, or persists a durable ambiguous-state record that a reconciliation pass can act on."
+    },
+    {
+      "checked": false,
+      "text": "`startTask`'s post-`createWorktree`-success block (DB activation/lifecycle update) is wrapped so that an exception there also triggers compensating physical cleanup (or the same durable ambiguous-state record)."
+    },
+    {
+      "checked": false,
+      "text": "A fault-injection test forces failure immediately after physical worktree creation (both at `createWorktree`'s own verification step and at the later DB-finalization step) and proves no orphaned physical worktree/branch remains, or that it is recorded for reconciliation."
+    },
+    {
+      "checked": false,
+      "text": "Given this path is `@deprecated`, evaluate as an alternative to fixing it in place: removing the legacy mutator entirely now that Nawabari is the physical worktree authority, if no remaining caller requires it."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 877,
+    "state": "open",
+    "title": "fix: compensate physical worktree/branch creation when legacy task start fails",
+    "url": "https://github.com/yohn-jp/mottainai/issues/877"
+  },
+  "linked": {
+    "number": 877
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "d8a4a7c6e50a459370f4ada788f30eee273ac296",
+    "draft": false,
+    "headRef": "fix/877-compensate-legacy-worktree-failure",
+    "headSha": "65f71b9ed15970036d9aedd12500a801d06563f1",
+    "number": 887,
+    "title": "fix(workflow): compensate physical worktree/branch on legacy task-start failure"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "65f71b9ed15970036d9aedd12500a801d06563f1",
+    "immutable": true,
+    "shortId": "65f71b9ed159"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-08T22:17:16.590Z"
+  }
+}

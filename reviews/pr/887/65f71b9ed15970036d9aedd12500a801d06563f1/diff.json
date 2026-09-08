@@ -1,0 +1,170 @@
+{
+  "baseSha": "d8a4a7c6e50a459370f4ada788f30eee273ac296",
+  "files": [
+    {
+      "additions": 107,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 23,
+          "oldLines": 0,
+          "oldStart": 22
+        },
+        {
+          "newLines": 106,
+          "newStart": 697,
+          "oldLines": 0,
+          "oldStart": 695
+        }
+      ],
+      "path": "src/workflow/domain/task.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 60,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 15,
+          "oldLines": 0,
+          "oldStart": 14
+        },
+        {
+          "newLines": 2,
+          "newStart": 138,
+          "oldLines": 1,
+          "oldStart": 137
+        },
+        {
+          "newLines": 57,
+          "newStart": 555,
+          "oldLines": 2,
+          "oldStart": 553
+        }
+      ],
+      "path": "src/workflow/domain/task.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 85,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 10,
+          "oldLines": 0,
+          "oldStart": 9
+        },
+        {
+          "newLines": 1,
+          "newStart": 14,
+          "oldLines": 0,
+          "oldStart": 11
+        },
+        {
+          "newLines": 1,
+          "newStart": 19,
+          "oldLines": 0,
+          "oldStart": 15
+        },
+        {
+          "newLines": 1,
+          "newStart": 22,
+          "oldLines": 0,
+          "oldStart": 17
+        },
+        {
+          "newLines": 8,
+          "newStart": 25,
+          "oldLines": 0,
+          "oldStart": 19
+        },
+        {
+          "newLines": 72,
+          "newStart": 121,
+          "oldLines": 0,
+          "oldStart": 107
+        }
+      ],
+      "path": "src/workflow/git/worktree.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 97,
+      "deletions": 5,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 5,
+          "oldLines": 0,
+          "oldStart": 4
+        },
+        {
+          "newLines": 13,
+          "newStart": 10,
+          "oldLines": 0,
+          "oldStart": 8
+        },
+        {
+          "newLines": 2,
+          "newStart": 140,
+          "oldLines": 0,
+          "oldStart": 125
+        },
+        {
+          "newLines": 54,
+          "newStart": 148,
+          "oldLines": 0,
+          "oldStart": 131
+        },
+        {
+          "newLines": 6,
+          "newStart": 205,
+          "oldLines": 1,
+          "oldStart": 135
+        },
+        {
+          "newLines": 1,
+          "newStart": 213,
+          "oldLines": 0,
+          "oldStart": 137
+        },
+        {
+          "newLines": 1,
+          "newStart": 217,
+          "oldLines": 1,
+          "oldStart": 141
+        },
+        {
+          "newLines": 9,
+          "newStart": 233,
+          "oldLines": 1,
+          "oldStart": 157
+        },
+        {
+          "newLines": 1,
+          "newStart": 244,
+          "oldLines": 1,
+          "oldStart": 160
+        },
+        {
+          "newLines": 9,
+          "newStart": 246,
+          "oldLines": 1,
+          "oldStart": 162
+        }
+      ],
+      "path": "src/workflow/git/worktree.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "65f71b9ed15970036d9aedd12500a801d06563f1",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 349,
+    "deletions": 8,
+    "filesChanged": 4
+  }
+}
