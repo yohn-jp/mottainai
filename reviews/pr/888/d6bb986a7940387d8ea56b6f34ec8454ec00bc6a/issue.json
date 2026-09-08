@@ -1,0 +1,31 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "`architecture-check.mjs` assigns explicit, reviewed layers to `src/workflow/`'s subtrees, `src/semantics/`, `src/context-runtime/`, and the remainder of `src/manager/` (no unexplained shared-layer fallback for load-bearing modules)."
+    },
+    {
+      "checked": false,
+      "text": "`coverage-policy.json`'s `criticalModules` includes, at minimum, `subprocess.ts`, `manager/service.ts`, `semantics/enforcement/*`, `nawabari.ts`, `process-registry.ts`, and `claim-preflight.ts`, with the baseline date/revision updated."
+    },
+    {
+      "checked": false,
+      "text": "A test fails when a deliberately-introduced forbidden dependency edge is added."
+    },
+    {
+      "checked": false,
+      "text": "A test fails when a critical-module test is removed without an accompanying policy update."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 876,
+    "state": "open",
+    "title": "refactor: align architecture-layer taxonomy and coverage-policy critical list with current module boundaries",
+    "url": "https://github.com/yohn-jp/mottainai/issues/876"
+  },
+  "linked": {
+    "number": 876
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

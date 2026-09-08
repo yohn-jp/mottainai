@@ -1,0 +1,220 @@
+{
+  "baseSha": "d8a4a7c6e50a459370f4ada788f30eee273ac296",
+  "files": [
+    {
+      "additions": 220,
+      "deletions": 9,
+      "hunks": [
+        {
+          "newLines": 17,
+          "newStart": 38,
+          "oldLines": 0,
+          "oldStart": 37
+        },
+        {
+          "newLines": 128,
+          "newStart": 56,
+          "oldLines": 4,
+          "oldStart": 39
+        },
+        {
+          "newLines": 2,
+          "newStart": 185,
+          "oldLines": 1,
+          "oldStart": 44
+        },
+        {
+          "newLines": 11,
+          "newStart": 194,
+          "oldLines": 0,
+          "oldStart": 51
+        },
+        {
+          "newLines": 15,
+          "newStart": 211,
+          "oldLines": 1,
+          "oldStart": 58
+        },
+        {
+          "newLines": 4,
+          "newStart": 428,
+          "oldLines": 1,
+          "oldStart": 261
+        },
+        {
+          "newLines": 6,
+          "newStart": 433,
+          "oldLines": 0,
+          "oldStart": 262
+        },
+        {
+          "newLines": 37,
+          "newStart": 462,
+          "oldLines": 2,
+          "oldStart": 286
+        }
+      ],
+      "path": "scripts/architecture-check.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 38,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 112,
+          "oldLines": 1,
+          "oldStart": 112
+        },
+        {
+          "newLines": 1,
+          "newStart": 123,
+          "oldLines": 1,
+          "oldStart": 123
+        },
+        {
+          "newLines": 36,
+          "newStart": 173,
+          "oldLines": 0,
+          "oldStart": 172
+        }
+      ],
+      "path": "scripts/architecture-check.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 56,
+      "deletions": 11,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 4,
+          "oldLines": 2,
+          "oldStart": 4
+        },
+        {
+          "newLines": 2,
+          "newStart": 22,
+          "oldLines": 1,
+          "oldStart": 22
+        },
+        {
+          "newLines": 2,
+          "newStart": 28,
+          "oldLines": 1,
+          "oldStart": 27
+        },
+        {
+          "newLines": 2,
+          "newStart": 34,
+          "oldLines": 1,
+          "oldStart": 32
+        },
+        {
+          "newLines": 2,
+          "newStart": 40,
+          "oldLines": 1,
+          "oldStart": 37
+        },
+        {
+          "newLines": 2,
+          "newStart": 46,
+          "oldLines": 1,
+          "oldStart": 42
+        },
+        {
+          "newLines": 2,
+          "newStart": 52,
+          "oldLines": 1,
+          "oldStart": 47
+        },
+        {
+          "newLines": 2,
+          "newStart": 58,
+          "oldLines": 1,
+          "oldStart": 52
+        },
+        {
+          "newLines": 2,
+          "newStart": 64,
+          "oldLines": 1,
+          "oldStart": 57
+        },
+        {
+          "newLines": 38,
+          "newStart": 70,
+          "oldLines": 1,
+          "oldStart": 62
+        }
+      ],
+      "path": "scripts/coverage-policy.json",
+      "status": "modified"
+    },
+    {
+      "additions": 90,
+      "deletions": 7,
+      "hunks": [
+        {
+          "newLines": 8,
+          "newStart": 531,
+          "oldLines": 0,
+          "oldStart": 530
+        },
+        {
+          "newLines": 47,
+          "newStart": 549,
+          "oldLines": 0,
+          "oldStart": 540
+        },
+        {
+          "newLines": 27,
+          "newStart": 601,
+          "oldLines": 0,
+          "oldStart": 545
+        },
+        {
+          "newLines": 4,
+          "newStart": 639,
+          "oldLines": 6,
+          "oldStart": 557
+        },
+        {
+          "newLines": 4,
+          "newStart": 659,
+          "oldLines": 1,
+          "oldStart": 579
+        }
+      ],
+      "path": "scripts/coverage.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 106,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 8,
+          "oldLines": 0,
+          "oldStart": 7
+        },
+        {
+          "newLines": 104,
+          "newStart": 85,
+          "oldLines": 0,
+          "oldStart": 82
+        }
+      ],
+      "path": "scripts/coverage.test.mjs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "d6bb986a7940387d8ea56b6f34ec8454ec00bc6a",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 510,
+    "deletions": 29,
+    "filesChanged": 5
+  }
+}
