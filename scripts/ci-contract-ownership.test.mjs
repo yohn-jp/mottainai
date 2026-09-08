@@ -106,6 +106,30 @@ test("Node/source-only change selects node/integration/package but no host-boots
   assert.equal(selected.node, true);
 });
 
+test("review-pages-only change selects node and integration, not host-bootstrap or runtime classes (Issue #870)", () => {
+  const selected = classifyChangedFiles(classes, [
+    "review-pages/src/publish-to-pages.mjs",
+    "review-pages/test/publish-to-pages.test.mjs",
+    "review-pages/schema/manifest.schema.json",
+    "review-pages/package.json",
+    "review-pages/pnpm-lock.yaml",
+  ]);
+  assert.equal(selected.node, true);
+  assert.equal(selected.integration, true);
+  assert.equal(selected.host_bootstrap, false);
+  for (const runtimeClass of RUNTIME_CLASSES) {
+    assert.equal(selected[runtimeClass], false, `review-pages-only change unexpectedly selected ${runtimeClass}`);
+  }
+});
+
+test("review-pages-only diff no longer yields false for every filter class (Issue #870 regression)", () => {
+  const selected = classifyChangedFiles(classes, ["review-pages/src/generate-review-package.mjs"]);
+  assert.ok(
+    Object.values(selected).some(Boolean),
+    "expected at least one filter class to select on a review-pages-only diff",
+  );
+});
+
 test("docs-only change selects no governed executable contract class", () => {
   assertSelection(["docs/architecture/ci/topology.md"], {});
 });
