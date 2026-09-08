@@ -1,0 +1,29 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Reconciliation is decoupled from the GET request path (background refresh and/or a freshness TTL exposed to clients) or performed with bounded concurrency instead of strictly sequential awaits."
+    },
+    {
+      "checked": false,
+      "text": "`updateManagerSession` (or its caller) writes a session's projection only when the observed state actually differs from the stored one."
+    },
+    {
+      "checked": false,
+      "text": "A benchmark exercising 10/100/500 sessions and concurrent dashboard clients measures external-call count, write count, and response latency before/after."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 872,
+    "state": "open",
+    "title": "fix: decouple dashboard session listing from synchronous unconditional reconciliation",
+    "url": "https://github.com/yohn-jp/mottainai/issues/872"
+  },
+  "linked": {
+    "number": 872
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
