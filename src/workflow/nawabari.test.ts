@@ -1316,3 +1316,76 @@ test("listClaimEvidence still fails closed when a claim owner genuinely closes b
       error.nawabariCode === "STALE_REGISTRY",
   );
 });
+
+test("nonzero exit with malformed stdout classifies as command-failed, not contract-invalid", async () => {
+  const client = new NawabariExecutionClient({
+    runner: {
+      async run(): Promise<RunResult> {
+        return {
+          stdout: "{not valid json, truncated by a cras",
+          stderr: "nawabari: panic: capability discovery aborted\n",
+          exitCode: 1,
+          signal: null,
+          timedOut: false,
+          outputLimit: false,
+        };
+      },
+    },
+  });
+  await assert.rejects(client.capabilities("/repo"), (error: unknown) => {
+    assert.ok(error instanceof NawabariExecutionError);
+    assert.equal(error.code, "nawabari-command-failed");
+    const details = error.details as { exitCode: number | null; stderr: string; stdout: string };
+    assert.equal(details.exitCode, 1);
+    assert.match(details.stderr, /panic: capability discovery aborted/);
+    assert.match(details.stdout, /truncated by a cras/);
+    return true;
+  });
+});
+
+test("signal termination with partial stdout classifies as command-failed", async () => {
+  const client = new NawabariExecutionClient({
+    runner: {
+      async run(): Promise<RunResult> {
+        return {
+          stdout: '{"ok":true,"command":"capabilities","schema_ver',
+          stderr: "",
+          exitCode: null,
+          signal: "SIGSEGV",
+          timedOut: false,
+          outputLimit: false,
+        };
+      },
+    },
+  });
+  await assert.rejects(client.capabilities("/repo"), (error: unknown) => {
+    assert.ok(error instanceof NawabariExecutionError);
+    assert.equal(error.code, "nawabari-command-failed");
+    assert.match(error.message, /SIGSEGV/);
+    const details = error.details as { exitCode: number | null; signal: string | null };
+    assert.equal(details.exitCode, null);
+    assert.equal(details.signal, "SIGSEGV");
+    return true;
+  });
+});
+
+test("zero exit with malformed stdout still classifies as contract-invalid (unchanged)", async () => {
+  const client = new NawabariExecutionClient({
+    runner: {
+      async run(): Promise<RunResult> {
+        return {
+          stdout: "not json at all",
+          stderr: "",
+          exitCode: 0,
+          signal: null,
+          timedOut: false,
+          outputLimit: false,
+        };
+      },
+    },
+  });
+  await assert.rejects(
+    client.capabilities("/repo"),
+    (error: unknown) => error instanceof NawabariExecutionError && error.code === "nawabari-contract-invalid",
+  );
+});
