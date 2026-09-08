@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "05cedf434dd8be0586589ed9391ff3bfa4b06f3f",
+    "draft": false,
+    "headRef": "refactor/875-ci-ownership-completeness-census",
+    "headSha": "786b1ad351b9682f82633b805945c8e01cfaf3bb",
+    "number": 885,
+    "title": "refactor(ci): prove CI path-ownership completeness instead of asserting representative fixtures"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "786b1ad351b9682f82633b805945c8e01cfaf3bb",
+    "immutable": true,
+    "shortId": "786b1ad351b9"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-08T23:58:55.323Z"
+  }
+}
