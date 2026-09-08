@@ -1,0 +1,33 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "A bounded size/count/age retention policy is implemented and protects currently-active/reachable entries."
+    },
+    {
+      "checked": false,
+      "text": "Index/manifest updates during eviction are atomic and crash-safe (following the existing `writeExclusiveAtomically` pattern already used for cache writes in this file)."
+    },
+    {
+      "checked": false,
+      "text": "A concurrent-GC test proves eviction running alongside a normal reader/writer does not corrupt the cache or evict an entry a concurrent reader is actively using."
+    },
+    {
+      "checked": false,
+      "text": "A manual inspect/GC command is exposed (CLI or script) for operators to reclaim space on demand."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "enhancement"
+    ],
+    "number": 874,
+    "state": "open",
+    "title": "feat: add retention and garbage collection to the semantic fact cache",
+    "url": "https://github.com/yohn-jp/mottainai/issues/874"
+  },
+  "linked": {
+    "number": 874
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
