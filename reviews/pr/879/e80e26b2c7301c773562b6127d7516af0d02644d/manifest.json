@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "4f2d829587a5a154b2a4cd2af16583206c9e82c1",
+    "draft": false,
+    "headRef": "fix/865-870-pin-review-pages-checkout-and-ci-filters",
+    "headSha": "e80e26b2c7301c773562b6127d7516af0d02644d",
+    "number": 879,
+    "title": "fix(ci): pin review pages checkout and add review-pages ci filters"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "e80e26b2c7301c773562b6127d7516af0d02644d",
+    "immutable": true,
+    "shortId": "e80e26b2c730"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-08T23:39:42.807Z"
+  }
+}
