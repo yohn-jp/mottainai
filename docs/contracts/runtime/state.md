@@ -35,6 +35,20 @@ Canonical records include:
    └─ state.json                # #628 activation/recovery authority
 ```
 
+The immutable outputs named by the managed-runtime lifecycle are additionally
+retained by explicit Nix GC roots owned by that lifecycle:
+
+```text
+/nix/var/nix/gcroots/mottainai-managed-runtime/
+├─ active                         # realized active generation
+├─ previous                       # current rollback target, when any
+└─ candidate                      # staged/recovery target, when any
+```
+
+These roots are updated transactionally with activation evidence. They are not
+the NixOS/system profile and never establish semantic active identity; the
+persisted managed-runtime state and `current` pointer retain that authority.
+
 The final field schema for `managed-runtime/state.json` is implemented by #628,
 but its ownership and semantics are fixed below. Writes to canonical control
 records MUST be atomic. Corrupt canonical state fails closed; it is never
@@ -261,6 +275,12 @@ The persisted shape is bounded and machine-readable. In abbreviated form:
 same-directory rename. It is accepted as active only when it matches the
 persisted record and transaction phase; a store listing, PATH, or provider
 metadata can never establish active identity.
+
+The `active`, `previous`, and `candidate` GC-root slots are installed before
+the corresponding state/pointer transition and obsolete slots are removed only
+after all required replacement roots exist. An interrupted transition may
+leave an extra root, but cannot leave the only active or recoverable output
+unrooted.
 
 The durable activation phase MUST distinguish at least:
 

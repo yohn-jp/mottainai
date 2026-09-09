@@ -217,16 +217,22 @@ NixOS appliance is outside this transaction.
 For candidate generation `C` and prior healthy active generation `P`:
 
 1. Verify `C` and its compatibility again at the activation boundary.
-2. Persist transaction evidence naming `C`, `P` (if any), and phase `prepared`.
-3. Atomically replace `current` so it points to `C`.
-4. Persist phase `switched-health-pending`.
-5. Run managed health against executables/services resolved from `C` exactly.
-6. If healthy, persist `C` as active/known-good, move `P` to previous, clear
+2. Install the lifecycle-owned durable GC root for `C` while retaining `P` and
+   any existing recovery roots.
+3. Persist transaction evidence naming `C`, `P` (if any), and phase `prepared`.
+4. Atomically replace `current` so it points to `C`.
+5. Persist phase `switched-health-pending`.
+6. Run managed health against executables/services resolved from `C` exactly.
+7. If healthy, persist `C` as active/known-good, move `P` to previous, clear
    transaction state, and report `MANAGED_READY`.
-7. If unhealthy, persist failure/rollback intent and restore `current` to `P`
+8. If unhealthy, persist failure/rollback intent and restore `current` to `P`
    atomically when `P` exists.
-8. Verify the restored `P` selection/health, persist rollback completion, and
+9. Verify the restored `P` selection/health, persist rollback completion, and
    retain bounded failure evidence for `C`.
+
+The `active`, `previous`, and `candidate` roots are updated as a conservative
+superset first; obsolete slots are removed only after replacement roots exist.
+This retention boundary is independent of the NixOS/system profile.
 
 The implementation may use different enum spelling, but these durable phases
 and ordering guarantees are mandatory.

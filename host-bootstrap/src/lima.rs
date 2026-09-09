@@ -734,6 +734,14 @@ pub struct RuntimeEvidence {
     /// identity (#753). `None` when `RuntimeSpec.managed_generation` was not
     /// requested — a bootstrap-only convergence never claims this field.
     pub managed_runtime_ready: Option<bool>,
+    /// The exact managed generation selected by the canonical guest state
+    /// when the functional smoke ran.  This is intentionally separate from
+    /// the base-appliance identity: Route 2 owns this executable authority.
+    pub active_generation_identity: Option<String>,
+    /// Absolute executable paths used by the bounded Route 3 smoke.  Bare
+    /// command lookup is never evidence of the selected managed generation.
+    pub cli_executable_path: Option<String>,
+    pub mcp_executable_path: Option<String>,
     /// True only after the bounded packaged CLI/MCP functional smoke
     /// (#753's acceptance criterion) has run and succeeded against the
     /// active managed generation.
@@ -756,6 +764,9 @@ impl RuntimeEvidence {
             guest_reachable: false,
             guest_status: None,
             managed_runtime_ready: None,
+            active_generation_identity: None,
+            cli_executable_path: None,
+            mcp_executable_path: None,
             functional_smoke_verified: None,
             error_code: None,
             diagnostic: None,
@@ -1061,7 +1072,7 @@ pub fn ensure_runtime_locked<C: LimaCli, S: OciSource>(
             &managed_generation.identity,
             &managed_generation.route1_payload,
         ) {
-            Ok(active) => active,
+            Ok(active) => active.is_some(),
             Err(error) => {
                 evidence.fail(&error);
                 return evidence;
@@ -1096,7 +1107,7 @@ pub fn ensure_runtime_locked<C: LimaCli, S: OciSource>(
             }
         }
 
-        let intended_active = match intended_generation_active(
+        let active_generation = match intended_generation_active(
             cli,
             &spec.instance_name,
             &managed_generation.identity,
@@ -1108,17 +1119,25 @@ pub fn ensure_runtime_locked<C: LimaCli, S: OciSource>(
                 return evidence;
             }
         };
-        if !intended_active {
+        let Some(active_generation) = active_generation else {
             let error = BootstrapError::new(
                 ErrorCode::RuntimeNotReady,
                 "guest did not report managedRuntimeReady for the intended generation identity after reconciliation",
             );
             evidence.fail(&error);
             return evidence;
-        }
+        };
+        evidence.active_generation_identity = Some(active_generation.identity.clone());
+        evidence.cli_executable_path = Some(active_generation.cli_path.display().to_string());
+        evidence.mcp_executable_path = Some(active_generation.mcp_path.display().to_string());
         evidence.managed_runtime_ready = Some(true);
 
-        if let Err(error) = run_functional_smoke(cli, &spec.instance_name) {
+        if let Err(error) = run_functional_smoke(
+            cli,
+            &spec.instance_name,
+            &active_generation.cli_path,
+            &active_generation.mcp_path,
+        ) {
             evidence.managed_runtime_ready = Some(true);
             evidence.functional_smoke_verified = Some(false);
             evidence.fail(&error);
@@ -1145,19 +1164,30 @@ pub fn ensure_runtime_locked<C: LimaCli, S: OciSource>(
 /// boolean), so identity is confirmed through the same canonical, read-only
 /// `mottainai-bootstrap managed-status --json` the health projection itself
 /// consumes (Issue #644) — never a second, hand-rolled status re-check.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ActiveManagedGeneration {
+    identity: String,
+    store_path: PathBuf,
+    cli_path: PathBuf,
+    mcp_path: PathBuf,
+}
+
+/// Resolves the exact active managed generation from the canonical status
+/// report.  The returned paths are derived from that generation's immutable
+/// Nix store path; no PATH lookup participates in Route 3 certification.
 fn intended_generation_active<C: LimaCli>(
     cli: &C,
     instance: &str,
     intended_identity: &str,
     intended_payload: &Route1PayloadIntent,
-) -> Result<bool, BootstrapError> {
+) -> Result<Option<ActiveManagedGeneration>, BootstrapError> {
     let health = check_guest_health(cli, instance)?;
     if health
         .get("managedRuntimeReady")
         .and_then(serde_json::Value::as_bool)
         != Some(true)
     {
-        return Ok(false);
+        return Ok(None);
     }
     let status_output = cli.shell(
         instance,
@@ -1173,10 +1203,14 @@ fn intended_generation_active<C: LimaCli>(
     if status.get("valid").and_then(serde_json::Value::as_bool) != Some(true)
         || status.get("present").and_then(serde_json::Value::as_bool) != Some(true)
     {
-        return Ok(false);
+        return Ok(None);
     }
     let identity_matches = status
         .get("activeGenerationIdentity")
+        .and_then(serde_json::Value::as_str)
+        == Some(intended_identity);
+    let observed_identity_matches = status
+        .get("observedGenerationIdentity")
         .and_then(serde_json::Value::as_str)
         == Some(intended_identity);
     let payload_matches = status
@@ -1205,7 +1239,59 @@ fn intended_generation_active<C: LimaCli>(
                 && package_version == intended_payload.version
                 && sha256 == intended_payload.sha256
         });
-    Ok(identity_matches && payload_matches)
+    if !identity_matches || !observed_identity_matches || !payload_matches {
+        return Ok(None);
+    }
+
+    let active_store_path = status
+        .get("activeStorePath")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            BootstrapError::new(
+                ErrorCode::RuntimeNotReady,
+                "guest managed-status omitted the active managed generation store path",
+            )
+        })?;
+    let store_path = validate_managed_generation_store_path(active_store_path)?;
+    let observed_store_matches = status
+        .get("observedStorePath")
+        .and_then(serde_json::Value::as_str)
+        == Some(active_store_path);
+    if !observed_store_matches {
+        return Ok(None);
+    }
+    let cli_path = store_path.join("bin/mottainai");
+    let mcp_path = store_path.join("bin/mottainai-mcp");
+    Ok(Some(ActiveManagedGeneration {
+        identity: intended_identity.to_owned(),
+        store_path,
+        cli_path,
+        mcp_path,
+    }))
+}
+
+/// The TypeScript managed-runtime contract validates this boundary before it
+/// persists a generation.  Route 3 validates the same bounded shape before
+/// turning guest-provided status into shell arguments, so a malformed status
+/// cannot redirect the smoke outside `/nix/store`.
+fn validate_managed_generation_store_path(value: &str) -> Result<PathBuf, BootstrapError> {
+    let valid = !value.is_empty()
+        && value.len() <= MAX_PATH_LENGTH
+        && value.starts_with("/nix/store/")
+        && !value.chars().any(char::is_control)
+        && !value["/nix/store/".len()..].contains('/')
+        && !value.ends_with('/')
+        && !value.ends_with("/.")
+        && !value.ends_with("/..")
+        && !value.contains("/../")
+        && !value.contains("/./");
+    if !valid {
+        return Err(BootstrapError::new(
+            ErrorCode::RuntimeNotReady,
+            "guest managed-status reported an invalid active managed generation store path",
+        ));
+    }
+    Ok(PathBuf::from(value))
 }
 
 /// Materializes the desired manifest on the guest's canonical control state
@@ -1322,11 +1408,22 @@ const MANAGED_PACKAGE_MANIFEST_GUEST_PATH: &str =
 /// ran, inside reconcile, before activation). This proves the two supported
 /// entrypoints application operators actually invoke: the `mottainai` CLI
 /// and one MCP stdio JSON-RPC `initialize` exchange with `mottainai-mcp`.
-fn run_functional_smoke<C: LimaCli>(cli: &C, instance: &str) -> Result<(), BootstrapError> {
+fn run_functional_smoke<C: LimaCli>(
+    cli: &C,
+    instance: &str,
+    cli_path: &Path,
+    mcp_path: &Path,
+) -> Result<(), BootstrapError> {
     let script = r#"set -eu
-mottainai --version >/dev/null
+cli_path="$1"
+mcp_path="$2"
+test -f "$cli_path"
+test -x "$cli_path"
+test -f "$mcp_path"
+test -x "$mcp_path"
+"$cli_path" --version >/dev/null
 request='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"mottainai-init-route3-smoke","version":"1"}}}'
-response="$(printf '%s\n' "$request" | timeout 30 mottainai-mcp 2>/dev/null | head -n 1)"
+response="$(printf '%s\n' "$request" | /run/current-system/sw/bin/timeout 30 "$mcp_path" 2>/dev/null | /run/current-system/sw/bin/head -n 1)"
 case "$response" in
   *'"result"'*) ;;
   *) echo "mcp initialize did not return a result: $response" >&2; exit 1 ;;
@@ -1334,7 +1431,24 @@ esac
 "#;
     cli.shell_with_timeout(
         instance,
-        &["sh", "-c", script],
+        &[
+            "sh",
+            "-c",
+            script,
+            "mottainai-route3-functional-smoke",
+            cli_path.to_str().ok_or_else(|| {
+                BootstrapError::new(
+                    ErrorCode::ManagedRuntimeSmokeFailed,
+                    "active managed generation CLI path is not valid UTF-8",
+                )
+            })?,
+            mcp_path.to_str().ok_or_else(|| {
+                BootstrapError::new(
+                    ErrorCode::ManagedRuntimeSmokeFailed,
+                    "active managed generation MCP path is not valid UTF-8",
+                )
+            })?,
+        ],
         MANAGED_GENERATION_COMMAND_TIMEOUT,
     )
     .map(|_| ())
@@ -1647,12 +1761,15 @@ mod tests {
     #[derive(Clone, Debug, Default)]
     struct ManagedGenerationFixture {
         active_identity: RefCell<Option<String>>,
+        active_store_path: RefCell<Option<String>>,
         reconcile_activates: Option<String>,
         reconcile_error: Option<String>,
         smoke_error: Option<String>,
         manifest_writes: RefCell<u32>,
         reconcile_calls: RefCell<u32>,
         smoke_calls: RefCell<u32>,
+        smoke_cli_path: RefCell<Option<String>>,
+        smoke_mcp_path: RefCell<Option<String>>,
     }
 
     struct FakeLimaCli {
@@ -1695,6 +1812,11 @@ mod tests {
 
         fn with_active_generation(self, identity: &str) -> Self {
             *self.managed_generation.active_identity.borrow_mut() = Some(identity.to_owned());
+            self
+        }
+
+        fn with_active_store_path(self, store_path: &str) -> Self {
+            *self.managed_generation.active_store_path.borrow_mut() = Some(store_path.to_owned());
             self
         }
 
@@ -1768,6 +1890,10 @@ mod tests {
                 }
                 Some("sh") => {
                     *self.managed_generation.smoke_calls.borrow_mut() += 1;
+                    *self.managed_generation.smoke_cli_path.borrow_mut() =
+                        command.get(4).map(|path| (*path).to_owned());
+                    *self.managed_generation.smoke_mcp_path.borrow_mut() =
+                        command.get(5).map(|path| (*path).to_owned());
                     match &self.managed_generation.smoke_error {
                         Some(message) => Err(BootstrapError::new(
                             ErrorCode::LimaCommandFailed,
@@ -1793,11 +1919,22 @@ mod tests {
                 Some("mottainai-bootstrap") if command.get(1) == Some(&"managed-status") => {
                     let active = self.managed_generation.active_identity.borrow().clone();
                     Ok(match active {
-                        Some(identity) => serde_json::json!({
+                        Some(identity) => {
+                            let store_path = self
+                                .managed_generation
+                                .active_store_path
+                                .borrow()
+                                .clone()
+                                .unwrap_or_else(|| {
+                                    format!("/nix/store/{identity}-managed-generation")
+                                });
+                            serde_json::json!({
                             "valid": true,
                             "present": true,
                             "activationPhase": "idle",
                             "activeGenerationIdentity": identity,
+                            "activeStorePath": store_path.clone(),
+                            "observedStorePath": store_path,
                             "observedGenerationIdentity": identity,
                             "state": {
                                 "active": {
@@ -1808,7 +1945,8 @@ mod tests {
                                     }
                                 }
                             },
-                        })
+                            })
+                        }
                         .to_string(),
                         None => serde_json::json!({ "valid": true, "present": false }).to_string(),
                     })
@@ -2271,6 +2409,26 @@ mod tests {
         assert_eq!(evidence.result, Outcome::Changed);
         assert_eq!(evidence.managed_runtime_ready, Some(true));
         assert_eq!(evidence.functional_smoke_verified, Some(true));
+        assert_eq!(
+            evidence.active_generation_identity.as_deref(),
+            Some(identity.as_str())
+        );
+        assert_eq!(
+            evidence.cli_executable_path.as_deref(),
+            Some(format!("/nix/store/{identity}-managed-generation/bin/mottainai").as_str())
+        );
+        assert_eq!(
+            evidence.mcp_executable_path.as_deref(),
+            Some(format!("/nix/store/{identity}-managed-generation/bin/mottainai-mcp").as_str())
+        );
+        assert_eq!(
+            cli.managed_generation.smoke_cli_path.borrow().as_deref(),
+            Some(format!("/nix/store/{identity}-managed-generation/bin/mottainai").as_str())
+        );
+        assert_eq!(
+            cli.managed_generation.smoke_mcp_path.borrow().as_deref(),
+            Some(format!("/nix/store/{identity}-managed-generation/bin/mottainai-mcp").as_str())
+        );
         assert_eq!(*cli.managed_generation.manifest_writes.borrow(), 1);
         assert_eq!(*cli.managed_generation.reconcile_calls.borrow(), 1);
         assert_eq!(*cli.managed_generation.smoke_calls.borrow(), 1);
@@ -2447,6 +2605,51 @@ mod tests {
             "activation itself succeeded; only the smoke proof failed"
         );
         assert_eq!(evidence.functional_smoke_verified, Some(false));
+    }
+
+    #[test]
+    fn active_generation_store_path_is_required_and_must_be_a_single_nix_store_entry() {
+        for invalid in [
+            "",
+            "/tmp/ambient-generation",
+            "/nix/store/",
+            "/nix/store/one/two",
+            "/nix/store/../ambient",
+            "/nix/store/./ambient",
+        ] {
+            assert!(
+                validate_managed_generation_store_path(invalid).is_err(),
+                "path should be rejected: {invalid}"
+            );
+        }
+        assert_eq!(
+            validate_managed_generation_store_path("/nix/store/abc-managed-generation").unwrap(),
+            PathBuf::from("/nix/store/abc-managed-generation")
+        );
+    }
+
+    #[test]
+    fn malformed_active_store_path_prevents_runtime_certification() {
+        let (_temp, paths) = managed_paths();
+        seed_appliance(&paths, &reference());
+        let identity = managed_generation_identity();
+        let cli = FakeLimaCli::new()
+            .with_active_generation(&identity)
+            .with_active_store_path("/usr/bin/mottainai");
+        let evidence = ensure_runtime(
+            &paths,
+            &spec_with_managed_generation(),
+            &cli,
+            &FakeOciSource,
+            &RuntimeEnsureConfig {
+                health_check_attempts: 1,
+                health_check_interval: Duration::from_millis(0),
+            },
+        );
+        assert_eq!(evidence.result, Outcome::Blocked);
+        assert_eq!(evidence.error_code.as_deref(), Some("runtime_not_ready"));
+        assert_ne!(evidence.managed_runtime_ready, Some(true));
+        assert_eq!(evidence.functional_smoke_verified, None);
     }
 
     #[test]

@@ -7,18 +7,62 @@ const READ_SCAN_CHUNK_BYTES = 64 * 1024;
 
 export interface InspectedReadFile extends ReadFileMetadata {
   lineByteLengths: number[];
+  lineContentHashes: string[];
   contentHash: string;
+}
+
+export interface AuthorizedReadContent {
+  text: string;
+  contentHash: string;
+  rangeFingerprint?: string;
+}
+
+const RANGE_FINGERPRINT_PREFIX = "mottainai-read-range-v1\0";
+
+function contentHash(content: Uint8Array): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+function rangeFingerprint(lineContentHashes: readonly string[]): string {
+  const hasher = createHash("sha256");
+  hasher.update(RANGE_FINGERPRINT_PREFIX);
+  for (const [index, lineContentHash] of lineContentHashes.entries()) {
+    if (index > 0) hasher.update("\n");
+    hasher.update(lineContentHash);
+    hasher.update("\0");
+  }
+  return hasher.digest("hex");
+}
+
+function rangeFingerprintFromBytes(content: Buffer): string {
+  const lineContentHashes: string[] = [];
+  let lineStart = 0;
+  for (let index = 0; index < content.length; index += 1) {
+    if (content[index] !== 0x0a) continue;
+    lineContentHashes.push(contentHash(content.subarray(lineStart, index)));
+    lineStart = index + 1;
+  }
+  if (
+    lineContentHashes.length === 0 ||
+    lineStart < content.length ||
+    (content.length > 0 && content[content.length - 1] === 0x0a)
+  ) {
+    lineContentHashes.push(contentHash(content.subarray(lineStart)));
+  }
+  return rangeFingerprint(lineContentHashes);
 }
 
 /** 本文を保持せず、指定 file の SHA-256 と line metadata をストリーミングで計算する。 */
 async function scanFile(
   filePath: string,
   authorizedRoot?: string,
-): Promise<{ contentHash: string; lineByteLengths: number[]; byteSize: number }> {
+): Promise<{ contentHash: string; lineByteLengths: number[]; lineContentHashes: string[]; byteSize: number }> {
   const handle = await openReadDescriptor(filePath, authorizedRoot);
   const buffer = Buffer.alloc(READ_SCAN_CHUNK_BYTES);
   const lineByteLengths: number[] = [];
+  const lineContentHashes: string[] = [];
   const contentHasher = createHash("sha256");
+  let lineHasher = createHash("sha256");
   let currentLineBytes = 0;
   let byteSize = 0;
   let lastByte = -1;
@@ -28,22 +72,31 @@ async function scanFile(
       if (bytesRead === 0) break;
       contentHasher.update(buffer.subarray(0, bytesRead));
       byteSize += bytesRead;
+      let lineStart = 0;
       for (let index = 0; index < bytesRead; index += 1) {
         const byte = buffer[index];
         lastByte = byte;
         if (byte === 0x0a) {
+          if (index > lineStart) lineHasher.update(buffer.subarray(lineStart, index));
+          lineContentHashes.push(lineHasher.digest("hex"));
+          lineHasher = createHash("sha256");
           lineByteLengths.push(currentLineBytes);
           currentLineBytes = 0;
+          lineStart = index + 1;
         } else {
           currentLineBytes += 1;
         }
       }
+      if (lineStart < bytesRead) lineHasher.update(buffer.subarray(lineStart, bytesRead));
     }
   } finally {
     await handle.close();
   }
-  if (lineByteLengths.length === 0 || lastByte !== 0x0a) lineByteLengths.push(currentLineBytes);
-  return { contentHash: contentHasher.digest("hex"), lineByteLengths, byteSize };
+  if (lineByteLengths.length === 0 || lastByte !== 0x0a) {
+    lineByteLengths.push(currentLineBytes);
+    lineContentHashes.push(lineHasher.digest("hex"));
+  }
+  return { contentHash: contentHasher.digest("hex"), lineByteLengths, lineContentHashes, byteSize };
 }
 
 /** 本文を保持せず、policy判定に必要なbyte/line metadataだけ収集する。 */
@@ -53,8 +106,14 @@ export async function inspectReadFile(filePath: string, authorizedRoot?: string)
     lineCount: scanned.lineByteLengths.length,
     byteSize: scanned.byteSize,
     lineByteLengths: scanned.lineByteLengths,
+    lineContentHashes: scanned.lineContentHashes,
     contentHash: scanned.contentHash,
   };
+}
+
+/** inspection 時点の bounded range の内容を、返却 bytes と比較できる fingerprint にする。 */
+export function inspectedRangeFingerprint(metadata: InspectedReadFile, startLine: number, endLine: number): string {
+  return rangeFingerprint(metadata.lineContentHashes.slice(startLine - 1, endLine));
 }
 
 /**
@@ -149,12 +208,26 @@ async function readAuthorizedRange(
   startLine: number,
   endLine: number,
   authorizedRoot?: string,
-): Promise<string> {
-  if (startLine > metadata.lineCount) return "";
+): Promise<AuthorizedReadContent> {
+  if (startLine > metadata.lineCount) {
+    const empty = Buffer.alloc(0);
+    return {
+      text: "",
+      contentHash: contentHash(empty),
+      rangeFingerprint: rangeFingerprintFromBytes(empty),
+    };
+  }
   const startByte = lineStartByte(metadata, startLine);
   const endByte = lineStartByte(metadata, endLine) + metadata.lineByteLengths[endLine - 1];
   const length = Math.max(0, endByte - startByte);
-  if (length === 0) return "";
+  if (length === 0) {
+    const empty = Buffer.alloc(0);
+    return {
+      text: "",
+      contentHash: contentHash(empty),
+      rangeFingerprint: rangeFingerprintFromBytes(empty),
+    };
+  }
 
   const handle = await openReadDescriptor(filePath, authorizedRoot);
   const chunks: Buffer[] = [];
@@ -173,38 +246,61 @@ async function readAuthorizedRange(
   } finally {
     await handle.close();
   }
-  return Buffer.concat(chunks).toString("utf8");
+  const content = Buffer.concat(chunks);
+  return {
+    text: content.toString("utf8"),
+    contentHash: contentHash(content),
+    rangeFingerprint: rangeFingerprintFromBytes(content),
+  };
 }
 
 /** 明示範囲なしの全文読み取り。open した fd に fstat し、同じ fd から読む（別 open で再解決しない）。 */
-async function readWholeFileByDescriptor(filePath: string, authorizedRoot?: string): Promise<string> {
+async function readWholeFileByDescriptor(filePath: string, authorizedRoot?: string): Promise<AuthorizedReadContent> {
   const handle = await openReadDescriptor(filePath, authorizedRoot);
   try {
-    return await handle.readFile("utf8");
+    const content = await handle.readFile();
+    return { text: content.toString("utf8"), contentHash: contentHash(content) };
   } finally {
     await handle.close();
   }
 }
 
 /** normalized requestだけを実行。明示範囲ではファイル全体をmaterializeしない。 */
+export async function readAuthorizedContent(
+  filePath: string,
+  metadata: InspectedReadFile,
+  request: NormalizedReadRequest,
+  authorizedRoot?: string,
+): Promise<AuthorizedReadContent> {
+  if (request.startLine === undefined || request.endLine === undefined)
+    return readWholeFileByDescriptor(filePath, authorizedRoot);
+  return readAuthorizedRange(filePath, metadata, request.startLine, request.endLine, authorizedRoot);
+}
+
 export async function readAuthorizedFile(
   filePath: string,
   metadata: InspectedReadFile,
   request: NormalizedReadRequest,
   authorizedRoot?: string,
 ): Promise<string> {
-  if (request.startLine === undefined || request.endLine === undefined)
-    return readWholeFileByDescriptor(filePath, authorizedRoot);
-  return readAuthorizedRange(filePath, metadata, request.startLine, request.endLine, authorizedRoot);
+  return (await readAuthorizedContent(filePath, metadata, request, authorizedRoot)).text;
 }
 
 /** policy判定後のsemantic projectionだけが使う内部抽出用全体read。公開結果には直接返さない。 */
+export async function readSemanticInspectionSourceContent(
+  filePath: string,
+  request: NormalizedReadRequest,
+  authorizedRoot?: string,
+): Promise<AuthorizedReadContent> {
+  if (request.mode !== "outline" && request.mode !== "symbols")
+    throw new Error("semantic inspection requires a semantic mode");
+  return readWholeFileByDescriptor(filePath, authorizedRoot);
+}
+
 export async function readSemanticInspectionSource(
   filePath: string,
   request: NormalizedReadRequest,
   authorizedRoot?: string,
 ): Promise<string> {
-  if (request.mode !== "outline" && request.mode !== "symbols")
-    throw new Error("semantic inspection requires a semantic mode");
-  return readWholeFileByDescriptor(filePath, authorizedRoot);
+  return (await readSemanticInspectionSourceContent(filePath, request, authorizedRoot)).text;
 }
