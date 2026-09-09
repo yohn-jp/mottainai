@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #889 @ c6a91d987ec2</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #889: fix(security): bind read-tool content to a verified fd, retire dead confinement code</h1>
+<p>Base <code>main</code> @ <code>7c7c64b2a75146ca32aebf713f6bc3f083f8cc13</code> &rarr;
+Head <code>fix/868-descriptor-bound-read-mitigation</code> @ <code>c6a91d987ec2d06091e015037022469da6331826</code></p>
+<p>Revision <code>c6a91d987ec2</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/868">#868</a> fix: bind workspace-read confinement to a verified descriptor instead of a re-checked pathname (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] File read/stat operations following a confinement check operate on a descriptor obtained during or immediately after that check, not a re-resolved pathname (Linux: `openat2` with `RESOLVE_BENEATH|NO_SYMLINKS` or an equivalent native helper; document fallback behavior on platforms without it).</li>
+<li>[ ] A new test replaces a checked ancestor directory with a symlink *after* authorization succeeds but *before* the read completes, and proves the operation either rejects or reads only the originally-confined object.</li>
+<li>[ ] `src/read-governor/authorize.ts`&#39;s `detectSymlinkEscape`/`authorizeRead` — currently unreferenced by any live call site outside its own test — is either wired into an actual MCP read dispatch path with this same descriptor-bound fix, or removed if not intended for use; dead confinement code should not remain in a security-relevant module.</li></ul>
+
+
+
+<h2>Changed files (6, +240/-374)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>src/context-runtime/read-adapter.test.ts</td><td>modified</td><td>+12</td><td>-7</td></tr>
+<tr><td>src/context-runtime/read-adapter.ts</td><td>modified</td><td>+95</td><td>-12</td></tr>
+<tr><td>src/local-tools.test.ts</td><td>modified</td><td>+104</td><td>-4</td></tr>
+<tr><td>src/local-tools.ts</td><td>modified</td><td>+29</td><td>-11</td></tr>
+<tr><td>src/read-governor/authorize.test.ts</td><td>removed</td><td>+0</td><td>-217</td></tr>
+<tr><td>src/read-governor/authorize.ts</td><td>removed</td><td>+0</td><td>-123</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

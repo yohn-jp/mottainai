@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "7c7c64b2a75146ca32aebf713f6bc3f083f8cc13",
+    "draft": false,
+    "headRef": "fix/868-descriptor-bound-read-mitigation",
+    "headSha": "c6a91d987ec2d06091e015037022469da6331826",
+    "number": 889,
+    "title": "fix(security): bind read-tool content to a verified fd, retire dead confinement code"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "c6a91d987ec2d06091e015037022469da6331826",
+    "immutable": true,
+    "shortId": "c6a91d987ec2"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-09T12:05:13.213Z"
+  }
+}

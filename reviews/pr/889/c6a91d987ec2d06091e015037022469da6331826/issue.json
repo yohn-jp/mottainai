@@ -1,0 +1,29 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "File read/stat operations following a confinement check operate on a descriptor obtained during or immediately after that check, not a re-resolved pathname (Linux: `openat2` with `RESOLVE_BENEATH|NO_SYMLINKS` or an equivalent native helper; document fallback behavior on platforms without it)."
+    },
+    {
+      "checked": false,
+      "text": "A new test replaces a checked ancestor directory with a symlink *after* authorization succeeds but *before* the read completes, and proves the operation either rejects or reads only the originally-confined object."
+    },
+    {
+      "checked": false,
+      "text": "`src/read-governor/authorize.ts`'s `detectSymlinkEscape`/`authorizeRead` — currently unreferenced by any live call site outside its own test — is either wired into an actual MCP read dispatch path with this same descriptor-bound fix, or removed if not intended for use; dead confinement code should not remain in a security-relevant module."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 868,
+    "state": "open",
+    "title": "fix: bind workspace-read confinement to a verified descriptor instead of a re-checked pathname",
+    "url": "https://github.com/yohn-jp/mottainai/issues/868"
+  },
+  "linked": {
+    "number": 868
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
