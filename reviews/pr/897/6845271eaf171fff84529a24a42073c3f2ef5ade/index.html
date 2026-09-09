@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #897 @ 6845271eaf17</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #897: fix(runtime): retain managed generations as durable GC roots</h1>
+<p>Base <code>main</code> @ <code>2434a7ad730656fd0405a59ba9d7092d2820580a</code> &rarr;
+Head <code>fix/891-managed-generation-gc-roots</code> @ <code>6845271eaf171fff84529a24a42073c3f2ef5ade</code></p>
+<p>Revision <code>6845271eaf17</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/891">#891</a> fix(runtime): retain managed generations as durable GC roots and reject dangling readiness (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Active managed generation is retained by an explicit durable GC-root/profile mechanism owned by the managed Runtime lifecycle.</li>
+<li>[ ] Previous and candidate generations required for rollback/recovery are retained for exactly the documented lifecycle window.</li>
+<li>[ ] Activation/replacement updates retention transactionally so interruption cannot silently collect the only recoverable generation.</li>
+<li>[ ] Health rejects a missing/dangling active generation target.</li>
+<li>[ ] Health verifies the required active Mottainai CLI/MCP executable paths exist in the realized generation before reporting `managedRuntimeReady=true`.</li>
+<li>[ ] No-op reconciliation preserves the same active generation identity and retention roots.</li>
+<li>[ ] Update/rollback/recovery tests cover GC between lifecycle transitions and prove the active/recoverable generations remain usable.</li>
+<li>[ ] A focused regression test proves a dangling persisted pointer cannot satisfy readiness.</li>
+<li>[ ] Existing fail-closed and rollback semantics remain intact.</li></ul>
+
+
+
+<h2>Changed files (9, +351/-9)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>docs/architecture/runtime/lifecycle.md</td><td>modified</td><td>+13</td><td>-7</td></tr>
+<tr><td>docs/contracts/runtime/state.md</td><td>modified</td><td>+20</td><td>-0</td></tr>
+<tr><td>nix/managed-runtime-health.nix</td><td>modified</td><td>+7</td><td>-2</td></tr>
+<tr><td>nix/tests/managed-runtime-health.nix</td><td>modified</td><td>+14</td><td>-0</td></tr>
+<tr><td>src/bootstrap/cli.test.ts</td><td>modified</td><td>+28</td><td>-0</td></tr>
+<tr><td>src/bootstrap/cli.ts</td><td>modified</td><td>+13</td><td>-0</td></tr>
+<tr><td>src/runtime-contract/managed-runtime-state.ts</td><td>modified</td><td>+128</td><td>-0</td></tr>
+<tr><td>src/runtime-contract/managed-runtime.test.ts</td><td>modified</td><td>+20</td><td>-0</td></tr>
+<tr><td>src/runtime-contract/managed-runtime.ts</td><td>modified</td><td>+108</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
