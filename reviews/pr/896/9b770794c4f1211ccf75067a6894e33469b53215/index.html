@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #896 @ 9b770794c4f1</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #896: fix(runtime): verify materialized Route 3 appliance identity against the deployment descriptor</h1>
+<p>Base <code>main</code> @ <code>2434a7ad730656fd0405a59ba9d7092d2820580a</code> &rarr;
+Head <code>fix/892-route3-appliance-identity</code> @ <code>9b770794c4f1211ccf75067a6894e33469b53215</code></p>
+<p>Revision <code>9b770794c4f1</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/892">#892</a> fix(runtime): verify materialized Route 3 appliance identity against the deployment descriptor (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] The Route 3 consumer retains the descriptor-bound expected appliance manifest/raw identities needed for verification.</li>
+<li>[ ] OCI resolution/materialization verifies the immutable locator/digest and cross-checks the materialized manifest/raw artifact against descriptor expectations.</li>
+<li>[ ] Raw size and digest mismatches fail closed before VM boot or managed reconciliation.</li>
+<li>[ ] Verification does not infer semantic Runtime identity from raw/OCI/qcow2 byte identity; artifact identity and semantic identity remain distinct concepts.</li>
+<li>[ ] Existing v1 deployment descriptors remain readable where compatibility is intentionally supported, but missing evidence cannot be silently upgraded into stronger certification claims.</li>
+<li>[ ] Regression tests cover wrong manifest digest, wrong raw digest/size, stale cached materialization, and successful exact-match reuse.</li>
+<li>[ ] Bounded diagnostics identify which identity boundary failed without dumping unbounded artifact content.</li>
+<li>[ ] The verified identity evidence is available to Route 3/provider certification and final #261 evidence capture.</li></ul>
+
+
+
+<h2>Changed files (8, +325/-4)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>host-bootstrap/src/appliance.rs</td><td>modified</td><td>+116</td><td>-1</td></tr>
+<tr><td>host-bootstrap/src/deployment_descriptor.rs</td><td>modified</td><td>+95</td><td>-1</td></tr>
+<tr><td>host-bootstrap/src/lima.rs</td><td>modified</td><td>+17</td><td>-1</td></tr>
+<tr><td>host-bootstrap/tests/appliance_real.rs</td><td>modified</td><td>+1</td><td>-0</td></tr>
+<tr><td>host-bootstrap/tests/appliance.rs</td><td>modified</td><td>+93</td><td>-1</td></tr>
+<tr><td>host-bootstrap/tests/lima_composition_real.rs</td><td>modified</td><td>+1</td><td>-0</td></tr>
+<tr><td>host-bootstrap/tests/openssh.rs</td><td>modified</td><td>+1</td><td>-0</td></tr>
+<tr><td>host-bootstrap/tests/reconciliation.rs</td><td>modified</td><td>+1</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

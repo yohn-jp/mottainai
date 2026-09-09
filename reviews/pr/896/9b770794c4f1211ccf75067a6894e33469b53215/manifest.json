@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "2434a7ad730656fd0405a59ba9d7092d2820580a",
+    "draft": false,
+    "headRef": "fix/892-route3-appliance-identity",
+    "headSha": "9b770794c4f1211ccf75067a6894e33469b53215",
+    "number": 896,
+    "title": "fix(runtime): verify materialized Route 3 appliance identity against the deployment descriptor"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "9b770794c4f1211ccf75067a6894e33469b53215",
+    "immutable": true,
+    "shortId": "9b770794c4f1"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-09T13:35:30.759Z"
+  }
+}

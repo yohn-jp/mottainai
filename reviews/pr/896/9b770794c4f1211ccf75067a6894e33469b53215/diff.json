@@ -1,0 +1,274 @@
+{
+  "baseSha": "2434a7ad730656fd0405a59ba9d7092d2820580a",
+  "files": [
+    {
+      "additions": 116,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 26,
+          "newStart": 44,
+          "oldLines": 0,
+          "oldStart": 43
+        },
+        {
+          "newLines": 5,
+          "newStart": 75,
+          "oldLines": 0,
+          "oldStart": 48
+        },
+        {
+          "newLines": 5,
+          "newStart": 102,
+          "oldLines": 1,
+          "oldStart": 71
+        },
+        {
+          "newLines": 7,
+          "newStart": 118,
+          "oldLines": 0,
+          "oldStart": 82
+        },
+        {
+          "newLines": 6,
+          "newStart": 215,
+          "oldLines": 0,
+          "oldStart": 172
+        },
+        {
+          "newLines": 6,
+          "newStart": 238,
+          "oldLines": 0,
+          "oldStart": 189
+        },
+        {
+          "newLines": 15,
+          "newStart": 274,
+          "oldLines": 0,
+          "oldStart": 219
+        },
+        {
+          "newLines": 7,
+          "newStart": 341,
+          "oldLines": 0,
+          "oldStart": 271
+        },
+        {
+          "newLines": 20,
+          "newStart": 392,
+          "oldLines": 0,
+          "oldStart": 315
+        },
+        {
+          "newLines": 19,
+          "newStart": 445,
+          "oldLines": 0,
+          "oldStart": 348
+        }
+      ],
+      "path": "host-bootstrap/src/appliance.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 95,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 7,
+          "oldLines": 1,
+          "oldStart": 7
+        },
+        {
+          "newLines": 6,
+          "newStart": 62,
+          "oldLines": 0,
+          "oldStart": 61
+        },
+        {
+          "newLines": 30,
+          "newStart": 365,
+          "oldLines": 0,
+          "oldStart": 358
+        },
+        {
+          "newLines": 1,
+          "newStart": 907,
+          "oldLines": 0,
+          "oldStart": 870
+        },
+        {
+          "newLines": 1,
+          "newStart": 919,
+          "oldLines": 0,
+          "oldStart": 881
+        },
+        {
+          "newLines": 3,
+          "newStart": 1018,
+          "oldLines": 0,
+          "oldStart": 979
+        },
+        {
+          "newLines": 8,
+          "newStart": 1082,
+          "oldLines": 0,
+          "oldStart": 1040
+        },
+        {
+          "newLines": 45,
+          "newStart": 1117,
+          "oldLines": 0,
+          "oldStart": 1067
+        }
+      ],
+      "path": "host-bootstrap/src/deployment_descriptor.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 17,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 11,
+          "oldLines": 1,
+          "oldStart": 11
+        },
+        {
+          "newLines": 8,
+          "newStart": 719,
+          "oldLines": 0,
+          "oldStart": 718
+        },
+        {
+          "newLines": 2,
+          "newStart": 751,
+          "oldLines": 0,
+          "oldStart": 742
+        },
+        {
+          "newLines": 2,
+          "newStart": 806,
+          "oldLines": 0,
+          "oldStart": 795
+        },
+        {
+          "newLines": 2,
+          "newStart": 846,
+          "oldLines": 0,
+          "oldStart": 833
+        },
+        {
+          "newLines": 1,
+          "newStart": 856,
+          "oldLines": 0,
+          "oldStart": 841
+        },
+        {
+          "newLines": 1,
+          "newStart": 1980,
+          "oldLines": 0,
+          "oldStart": 1964
+        }
+      ],
+      "path": "host-bootstrap/src/lima.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 102,
+          "oldLines": 0,
+          "oldStart": 101
+        }
+      ],
+      "path": "host-bootstrap/tests/appliance_real.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 93,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 7,
+          "oldLines": 1,
+          "oldStart": 7
+        },
+        {
+          "newLines": 1,
+          "newStart": 153,
+          "oldLines": 0,
+          "oldStart": 152
+        },
+        {
+          "newLines": 23,
+          "newStart": 271,
+          "oldLines": 0,
+          "oldStart": 269
+        },
+        {
+          "newLines": 68,
+          "newStart": 619,
+          "oldLines": 0,
+          "oldStart": 594
+        }
+      ],
+      "path": "host-bootstrap/tests/appliance.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 182,
+          "oldLines": 0,
+          "oldStart": 181
+        }
+      ],
+      "path": "host-bootstrap/tests/lima_composition_real.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 27,
+          "oldLines": 0,
+          "oldStart": 26
+        }
+      ],
+      "path": "host-bootstrap/tests/openssh.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 543,
+          "oldLines": 0,
+          "oldStart": 542
+        }
+      ],
+      "path": "host-bootstrap/tests/reconciliation.rs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "9b770794c4f1211ccf75067a6894e33469b53215",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 325,
+    "deletions": 4,
+    "filesChanged": 8
+  }
+}
