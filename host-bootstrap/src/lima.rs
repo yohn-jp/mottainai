@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::appliance::{ensure_appliance, ApplianceReference};
+use crate::appliance::{ensure_appliance, ApplianceArtifactIdentity, ApplianceReference};
 use crate::bootstrap_disk::{
     bootstrap_disk_name, ensure_bootstrap_disk, ensure_lima_public_key, verify_bootstrap_disk,
 };
@@ -716,6 +716,14 @@ pub struct RuntimeEvidence {
     pub schema_version: String,
     pub instance_name: String,
     pub appliance_digest: Option<String>,
+    /// Descriptor-bound manifest/raw artifact evidence, when supplied by the
+    /// selected descriptor. This is artifact evidence only; Runtime semantic
+    /// identity remains the managed-generation identity and guest contract.
+    pub appliance_identity: Option<ApplianceArtifactIdentity>,
+    /// True only after `ensure_appliance` proved the descriptor-bound tuple
+    /// against the fetched or exact cached artifact. Legacy references report
+    /// false and therefore cannot claim descriptor-level certification.
+    pub appliance_identity_verified: Option<bool>,
     pub lima_status: Option<String>,
     pub changed: bool,
     pub result: Outcome,
@@ -740,6 +748,8 @@ impl RuntimeEvidence {
             schema_version: RUNTIME_SPEC_SCHEMA_VERSION.to_owned(),
             instance_name: instance_name.to_owned(),
             appliance_digest: None,
+            appliance_identity: None,
+            appliance_identity_verified: None,
             lima_status: None,
             changed: false,
             result: Outcome::Blocked,
@@ -793,6 +803,8 @@ pub fn ensure_runtime<C: LimaCli, S: OciSource>(
         return evidence;
     }
     evidence.appliance_digest = Some(spec.appliance.digest.clone());
+    evidence.appliance_identity = spec.appliance.expected_identity.clone();
+    evidence.appliance_identity_verified = Some(false);
 
     if let Err(error) = ensure_managed_root(paths) {
         evidence.fail(&error);
@@ -831,6 +843,8 @@ pub fn ensure_runtime_locked<C: LimaCli, S: OciSource>(
         return evidence;
     }
     evidence.appliance_digest = Some(spec.appliance.digest.clone());
+    evidence.appliance_identity = spec.appliance.expected_identity.clone();
+    evidence.appliance_identity_verified = Some(false);
 
     let raw_path = match ensure_appliance(paths, &spec.appliance, oci) {
         Ok(path) => path,
@@ -839,6 +853,7 @@ pub fn ensure_runtime_locked<C: LimaCli, S: OciSource>(
             return evidence;
         }
     };
+    evidence.appliance_identity_verified = Some(spec.appliance.expected_identity.is_some());
 
     let public_key = match ensure_lima_public_key(paths) {
         Ok(public_key) => public_key,
@@ -1962,6 +1977,7 @@ mod tests {
             registry: "ghcr.io".to_owned(),
             repository: "yohn-jp/mottainai/runtime-appliance".to_owned(),
             digest: format!("sha256:{}", "a".repeat(64)),
+            expected_identity: None,
         }
     }
 
