@@ -19,9 +19,9 @@ import {
 import type { NormalizedReadRequest, ReadDecision } from "./context-runtime/read-policy.js";
 import {
   inspectReadFile,
-  readAuthorizedFile,
-  readSemanticInspectionSource,
-  verifyFileContentUnchanged,
+  inspectedRangeFingerprint,
+  readAuthorizedContent,
+  readSemanticInspectionSourceContent,
 } from "./context-runtime/read-adapter.js";
 import {
   createIdentityHint,
@@ -1016,21 +1016,24 @@ async function readTool(
 
   // 実バイト列は fd-bound open+fstat+read を行い、open 後の fd 実体が
   // workspaceRoot 外なら fail-closed する。
-  const selected = await readAuthorizedFile(filePath, metadata, normalized, config.workspaceRoot);
-  const semanticSource =
+  const selectedContent = await readAuthorizedContent(filePath, metadata, normalized, config.workspaceRoot);
+  const semanticSourceContent =
     isSemanticMode(normalized.mode) && normalized.bounded
-      ? await readSemanticInspectionSource(filePath, normalized, config.workspaceRoot)
-      : selected;
-  // hash 計算 bytes と実際に返す bytes を束縛する TOCTOU 窓を閉じる: read 後に
-  // content hash を再計算し、一致しなければ identity が古い hash に新しい bytes を
-  // 紐付けてしまうので fail-closed に identity を破棄する（読み取り結果自体は
-  // 正常に返す）。mtime/size/inode は same-size 上書き + mtime 巻き戻しですり抜け
-  // 得るため使わない — content hash の再計算のみを correctness authority とする。
-  const contentStillValid = await verifyFileContentUnchanged(
-    filePath,
-    { contentHash: metadata.contentHash },
-    config.workspaceRoot,
-  );
+      ? await readSemanticInspectionSourceContent(filePath, normalized, config.workspaceRoot)
+      : undefined;
+  const selected = selectedContent.text;
+  const semanticSource = semanticSourceContent?.text ?? selected;
+  // identity は path の stat や後続の再 open では検証しない。verified fd から実際に
+  // 返す bytes を hash/fingerprint し、inspection 時の content と直接比較する。
+  // bounded range は line-content fingerprint を使うため、全ファイルの再読み取りを
+  // 追加せず、same-size + mtime 復元の上書きも fail-closed になる。
+  const contentStillValid =
+    semanticSourceContent !== undefined
+      ? semanticSourceContent.contentHash === metadata.contentHash
+      : normalized.startLine === undefined || normalized.endLine === undefined
+        ? selectedContent.contentHash === metadata.contentHash
+        : selectedContent.rangeFingerprint ===
+          inspectedRangeFingerprint(metadata, normalized.startLine, normalized.endLine);
   const verifiedArtifactIdentity = contentStillValid ? artifactIdentity : undefined;
   const rawLines =
     normalized.startLine === undefined || normalized.endLine === undefined
