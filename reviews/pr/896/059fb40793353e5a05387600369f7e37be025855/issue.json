@@ -1,0 +1,47 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "The Route 3 consumer retains the descriptor-bound expected appliance manifest/raw identities needed for verification."
+    },
+    {
+      "checked": false,
+      "text": "OCI resolution/materialization verifies the immutable locator/digest and cross-checks the materialized manifest/raw artifact against descriptor expectations."
+    },
+    {
+      "checked": false,
+      "text": "Raw size and digest mismatches fail closed before VM boot or managed reconciliation."
+    },
+    {
+      "checked": false,
+      "text": "Verification does not infer semantic Runtime identity from raw/OCI/qcow2 byte identity; artifact identity and semantic identity remain distinct concepts."
+    },
+    {
+      "checked": false,
+      "text": "Existing v1 deployment descriptors remain readable where compatibility is intentionally supported, but missing evidence cannot be silently upgraded into stronger certification claims."
+    },
+    {
+      "checked": false,
+      "text": "Regression tests cover wrong manifest digest, wrong raw digest/size, stale cached materialization, and successful exact-match reuse."
+    },
+    {
+      "checked": false,
+      "text": "Bounded diagnostics identify which identity boundary failed without dumping unbounded artifact content."
+    },
+    {
+      "checked": false,
+      "text": "The verified identity evidence is available to Route 3/provider certification and final #261 evidence capture."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 892,
+    "state": "open",
+    "title": "fix(runtime): verify materialized Route 3 appliance identity against the deployment descriptor",
+    "url": "https://github.com/yohn-jp/mottainai/issues/892"
+  },
+  "linked": {
+    "number": 892
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
