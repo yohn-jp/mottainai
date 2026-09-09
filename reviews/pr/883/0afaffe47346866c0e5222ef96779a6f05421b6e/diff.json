@@ -1,0 +1,206 @@
+{
+  "baseSha": "f25d2df382a583c8bf8a861097a9ea2aa063cf09",
+  "files": [
+    {
+      "additions": 8,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 67,
+          "oldLines": 0,
+          "oldStart": 66
+        },
+        {
+          "newLines": 1,
+          "newStart": 79,
+          "oldLines": 0,
+          "oldStart": 76
+        },
+        {
+          "newLines": 2,
+          "newStart": 93,
+          "oldLines": 0,
+          "oldStart": 89
+        },
+        {
+          "newLines": 1,
+          "newStart": 132,
+          "oldLines": 0,
+          "oldStart": 126
+        },
+        {
+          "newLines": 2,
+          "newStart": 431,
+          "oldLines": 0,
+          "oldStart": 424
+        }
+      ],
+      "path": "scripts/architecture-check.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 35,
+      "deletions": 9,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 14,
+          "oldLines": 1,
+          "oldStart": 14
+        },
+        {
+          "newLines": 18,
+          "newStart": 568,
+          "oldLines": 1,
+          "oldStart": 568
+        },
+        {
+          "newLines": 16,
+          "newStart": 590,
+          "oldLines": 7,
+          "oldStart": 573
+        }
+      ],
+      "path": "src/semantics/enforcement/service.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 8,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 8,
+          "newStart": 11,
+          "oldLines": 1,
+          "oldStart": 11
+        }
+      ],
+      "path": "src/semantics/source/index.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 78,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 78,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/semantics/source/store-lock-worker.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 48,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 48,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/semantics/source/store-persist-worker.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 460,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 460,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/semantics/source/store.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 508,
+      "deletions": 15,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 1,
+          "oldLines": 1,
+          "oldStart": 1
+        },
+        {
+          "newLines": 1,
+          "newStart": 14,
+          "oldLines": 1,
+          "oldStart": 13
+        },
+        {
+          "newLines": 91,
+          "newStart": 17,
+          "oldLines": 0,
+          "oldStart": 15
+        },
+        {
+          "newLines": 20,
+          "newStart": 124,
+          "oldLines": 1,
+          "oldStart": 32
+        },
+        {
+          "newLines": 21,
+          "newStart": 146,
+          "oldLines": 0,
+          "oldStart": 34
+        },
+        {
+          "newLines": 1,
+          "newStart": 179,
+          "oldLines": 0,
+          "oldStart": 46
+        },
+        {
+          "newLines": 6,
+          "newStart": 182,
+          "oldLines": 1,
+          "oldStart": 49
+        },
+        {
+          "newLines": 315,
+          "newStart": 200,
+          "oldLines": 1,
+          "oldStart": 62
+        },
+        {
+          "newLines": 16,
+          "newStart": 553,
+          "oldLines": 6,
+          "oldStart": 101
+        },
+        {
+          "newLines": 0,
+          "newStart": 569,
+          "oldLines": 1,
+          "oldStart": 108
+        },
+        {
+          "newLines": 35,
+          "newStart": 571,
+          "oldLines": 3,
+          "oldStart": 110
+        }
+      ],
+      "path": "src/semantics/source/store.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "0afaffe47346866c0e5222ef96779a6f05421b6e",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 1145,
+    "deletions": 25,
+    "filesChanged": 7
+  }
+}
