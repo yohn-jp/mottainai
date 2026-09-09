@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "0bca989877471c0ad9f09686c5453694672b7834",
+    "draft": false,
+    "headRef": "refactor/876-architecture-coverage-taxonomy",
+    "headSha": "485507b5504cb84ca9fa06486fa01862762f1136",
+    "number": 888,
+    "title": "refactor(workflow): align architecture layers and coverage critical modules"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "485507b5504cb84ca9fa06486fa01862762f1136",
+    "immutable": true,
+    "shortId": "485507b5504c"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-09T11:50:22.224Z"
+  }
+}

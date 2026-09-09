@@ -1,0 +1,256 @@
+{
+  "baseSha": "0bca989877471c0ad9f09686c5453694672b7834",
+  "files": [
+    {
+      "additions": 229,
+      "deletions": 9,
+      "hunks": [
+        {
+          "newLines": 17,
+          "newStart": 38,
+          "oldLines": 0,
+          "oldStart": 37
+        },
+        {
+          "newLines": 128,
+          "newStart": 56,
+          "oldLines": 4,
+          "oldStart": 39
+        },
+        {
+          "newLines": 2,
+          "newStart": 185,
+          "oldLines": 1,
+          "oldStart": 44
+        },
+        {
+          "newLines": 11,
+          "newStart": 194,
+          "oldLines": 0,
+          "oldStart": 51
+        },
+        {
+          "newLines": 15,
+          "newStart": 211,
+          "oldLines": 1,
+          "oldStart": 58
+        },
+        {
+          "newLines": 9,
+          "newStart": 430,
+          "oldLines": 0,
+          "oldStart": 262
+        },
+        {
+          "newLines": 4,
+          "newStart": 445,
+          "oldLines": 1,
+          "oldStart": 269
+        },
+        {
+          "newLines": 6,
+          "newStart": 450,
+          "oldLines": 0,
+          "oldStart": 270
+        },
+        {
+          "newLines": 37,
+          "newStart": 479,
+          "oldLines": 2,
+          "oldStart": 294
+        }
+      ],
+      "path": "scripts/architecture-check.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 38,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 112,
+          "oldLines": 1,
+          "oldStart": 112
+        },
+        {
+          "newLines": 1,
+          "newStart": 123,
+          "oldLines": 1,
+          "oldStart": 123
+        },
+        {
+          "newLines": 36,
+          "newStart": 173,
+          "oldLines": 0,
+          "oldStart": 172
+        }
+      ],
+      "path": "scripts/architecture-check.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 59,
+      "deletions": 9,
+      "hunks": [
+        {
+          "newLines": 5,
+          "newStart": 18,
+          "oldLines": 0,
+          "oldStart": 17
+        },
+        {
+          "newLines": 2,
+          "newStart": 27,
+          "oldLines": 1,
+          "oldStart": 22
+        },
+        {
+          "newLines": 2,
+          "newStart": 33,
+          "oldLines": 1,
+          "oldStart": 27
+        },
+        {
+          "newLines": 2,
+          "newStart": 39,
+          "oldLines": 1,
+          "oldStart": 32
+        },
+        {
+          "newLines": 2,
+          "newStart": 45,
+          "oldLines": 1,
+          "oldStart": 37
+        },
+        {
+          "newLines": 2,
+          "newStart": 51,
+          "oldLines": 1,
+          "oldStart": 42
+        },
+        {
+          "newLines": 2,
+          "newStart": 57,
+          "oldLines": 1,
+          "oldStart": 47
+        },
+        {
+          "newLines": 2,
+          "newStart": 63,
+          "oldLines": 1,
+          "oldStart": 52
+        },
+        {
+          "newLines": 2,
+          "newStart": 69,
+          "oldLines": 1,
+          "oldStart": 57
+        },
+        {
+          "newLines": 38,
+          "newStart": 75,
+          "oldLines": 1,
+          "oldStart": 62
+        }
+      ],
+      "path": "scripts/coverage-policy.json",
+      "status": "modified"
+    },
+    {
+      "additions": 111,
+      "deletions": 7,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 511,
+          "oldLines": 0,
+          "oldStart": 510
+        },
+        {
+          "newLines": 8,
+          "newStart": 535,
+          "oldLines": 0,
+          "oldStart": 530
+        },
+        {
+          "newLines": 64,
+          "newStart": 553,
+          "oldLines": 0,
+          "oldStart": 540
+        },
+        {
+          "newLines": 27,
+          "newStart": 622,
+          "oldLines": 0,
+          "oldStart": 545
+        },
+        {
+          "newLines": 4,
+          "newStart": 660,
+          "oldLines": 6,
+          "oldStart": 557
+        },
+        {
+          "newLines": 4,
+          "newStart": 680,
+          "oldLines": 1,
+          "oldStart": 579
+        }
+      ],
+      "path": "scripts/coverage.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 123,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 8,
+          "oldLines": 0,
+          "oldStart": 7
+        },
+        {
+          "newLines": 1,
+          "newStart": 16,
+          "oldLines": 0,
+          "oldStart": 13
+        },
+        {
+          "newLines": 1,
+          "newStart": 23,
+          "oldLines": 0,
+          "oldStart": 19
+        },
+        {
+          "newLines": 4,
+          "newStart": 27,
+          "oldLines": 0,
+          "oldStart": 22
+        },
+        {
+          "newLines": 11,
+          "newStart": 79,
+          "oldLines": 0,
+          "oldStart": 70
+        },
+        {
+          "newLines": 104,
+          "newStart": 102,
+          "oldLines": 0,
+          "oldStart": 82
+        }
+      ],
+      "path": "scripts/coverage.test.mjs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "485507b5504cb84ca9fa06486fa01862762f1136",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 560,
+    "deletions": 27,
+    "filesChanged": 5
+  }
+}

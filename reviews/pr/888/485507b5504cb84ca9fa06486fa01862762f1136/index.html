@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #888 @ 485507b5504c</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #888: refactor(workflow): align architecture layers and coverage critical modules</h1>
+<p>Base <code>main</code> @ <code>0bca989877471c0ad9f09686c5453694672b7834</code> &rarr;
+Head <code>refactor/876-architecture-coverage-taxonomy</code> @ <code>485507b5504cb84ca9fa06486fa01862762f1136</code></p>
+<p>Revision <code>485507b5504c</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/876">#876</a> refactor: align architecture-layer taxonomy and coverage-policy critical list with current module boundaries (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] `architecture-check.mjs` assigns explicit, reviewed layers to `src/workflow/`&#39;s subtrees, `src/semantics/`, `src/context-runtime/`, and the remainder of `src/manager/` (no unexplained shared-layer fallback for load-bearing modules).</li>
+<li>[ ] `coverage-policy.json`&#39;s `criticalModules` includes, at minimum, `subprocess.ts`, `manager/service.ts`, `semantics/enforcement/*`, `nawabari.ts`, `process-registry.ts`, and `claim-preflight.ts`, with the baseline date/revision updated.</li>
+<li>[ ] A test fails when a deliberately-introduced forbidden dependency edge is added.</li>
+<li>[ ] A test fails when a critical-module test is removed without an accompanying policy update.</li></ul>
+
+
+
+<h2>Changed files (5, +560/-27)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>scripts/architecture-check.mjs</td><td>modified</td><td>+229</td><td>-9</td></tr>
+<tr><td>scripts/architecture-check.test.mjs</td><td>modified</td><td>+38</td><td>-2</td></tr>
+<tr><td>scripts/coverage-policy.json</td><td>modified</td><td>+59</td><td>-9</td></tr>
+<tr><td>scripts/coverage.mjs</td><td>modified</td><td>+111</td><td>-7</td></tr>
+<tr><td>scripts/coverage.test.mjs</td><td>modified</td><td>+123</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
