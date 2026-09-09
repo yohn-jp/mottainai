@@ -15,51 +15,101 @@
       "branches": 65
     }
   },
+  "policyReview": {
+    "reviewedAt": "2026-09-09",
+    "policyReviewedRevision": "0bca989877471c0ad9f09686c5453694672b7834",
+    "note": "Issue #876 taxonomy and critical-module policy review; numeric baseline provenance above is intentionally unchanged because the declared measurement was not rerun successfully."
+  },
   "criticalModules": [
     {
       "path": "src/config.ts",
       "reason": "設定解決は起動と全upstream接続の共通境界。",
-      "thresholds": { "lines": 95, "functions": 95, "branches": 80 }
+      "thresholds": { "lines": 95, "functions": 95, "branches": 80 },
+      "testFiles": ["src/config.test.ts"]
     },
     {
       "path": "src/init.ts",
       "reason": "CLI/initは設定生成、client登録、credential除去を外部へ公開する境界。",
-      "thresholds": { "lines": 82, "functions": 82, "branches": 68 }
+      "thresholds": { "lines": 82, "functions": 82, "branches": 68 },
+      "testFiles": ["src/init.test.ts"]
     },
     {
       "path": "src/proxy.ts",
       "reason": "MCP tool list/callの公開proxy境界。",
-      "thresholds": { "lines": 95, "functions": 90, "branches": 75 }
+      "thresholds": { "lines": 95, "functions": 90, "branches": 75 },
+      "testFiles": ["src/proxy.test.ts"]
     },
     {
       "path": "src/auth.ts",
       "reason": "credential headerとOAuth broker処理はsecret漏洩防止の境界。",
-      "thresholds": { "lines": 92, "functions": 95, "branches": 70 }
+      "thresholds": { "lines": 92, "functions": 95, "branches": 70 },
+      "testFiles": ["src/auth.test.ts"]
     },
     {
       "path": "src/retrieve.ts",
       "reason": "圧縮前artifact retentionのTTLと取得保証。",
-      "thresholds": { "lines": 92, "functions": 90, "branches": 85 }
+      "thresholds": { "lines": 92, "functions": 90, "branches": 85 },
+      "testFiles": ["src/retrieve.test.ts"]
     },
     {
       "path": "src/state/migrations.ts",
       "reason": "永続state schema migrationは既存利用者のデータ互換性を決める。",
-      "thresholds": { "lines": 95, "functions": 95, "branches": 95 }
+      "thresholds": { "lines": 95, "functions": 95, "branches": 95 },
+      "testFiles": ["src/state/migrations.test.ts"]
     },
     {
       "path": "src/state/sqlite-store.ts",
       "reason": "SQLite state storeはsession/read evidenceの永続化境界。",
-      "thresholds": { "lines": 95, "functions": 95, "branches": 85 }
+      "thresholds": { "lines": 95, "functions": 95, "branches": 85 },
+      "testFiles": ["src/state/sqlite-store.test.ts"]
     },
     {
       "path": "src/workflow/state/sqlite-store.ts",
       "reason": "workflow lifecycle stateの保存と競合制御を担う。",
-      "thresholds": { "lines": 95, "functions": 95, "branches": 82 }
+      "thresholds": { "lines": 95, "functions": 95, "branches": 82 },
+      "testFiles": ["src/workflow/state/sqlite-store.test.ts"]
     },
     {
       "path": "src/workflow/domain/lifecycle.ts",
       "reason": "workflow lifecycle遷移の不変条件を保つ重要境界。",
-      "thresholds": { "lines": 95, "functions": 95, "branches": 88 }
+      "thresholds": { "lines": 95, "functions": 95, "branches": 88 },
+      "testFiles": ["src/workflow/domain/lifecycle.test.ts"]
+    },
+    {
+      "path": "src/subprocess.ts",
+      "reason": "外部プロセス起動/kill/timeout境界。ManagedProcessはnawabari/gh-inari等すべての外部コマンド実行の単一の信頼境界であり、破損時は任意コマンド実行やゾンビプロセスに直結する。専用テストファイルが存在せず（fault-injection.test.ts等から間接的にのみ検証）、リポジトリ全体の閾値のみを最低ラインとして課す。",
+      "thresholds": { "lines": 80, "functions": 80, "branches": 65 },
+      "testFiles": []
+    },
+    {
+      "path": "src/manager/service.ts",
+      "reason": "ManagerSessionServiceはセッション起動・claim・harness delegationの中心的な調停者で、workflow domain kernelと双方向に結合する（本PRでarchitecture layerもworkflowDomainへ再分類）。",
+      "thresholds": { "lines": 90, "functions": 90, "branches": 75 },
+      "testFiles": ["src/manager/service.test.ts"]
+    },
+    {
+      "path": "src/semantics/enforcement/*",
+      "reason": "semantic mutationの受理/拒否を最終的に決めるenforcement policy/service/integrity層。誤って緩い判定をすると意味論的に不正な変更が承認されてしまう。ディレクトリ内に専用テストファイルが現時点で存在しないため、リポジトリ全体の閾値のみを最低ラインとして課す。",
+      "thresholds": { "lines": 80, "functions": 80, "branches": 65 },
+      "testFiles": []
+    },
+    {
+      "path": "src/workflow/nawabari.ts",
+      "reason": "nawabari CLIとのexecution clientはtask/branch claimの権威的な evidence 源で、claim-preflightやmanager/serviceが信頼する唯一の入力。",
+      "thresholds": { "lines": 90, "functions": 90, "branches": 75 },
+      "testFiles": ["src/workflow/nawabari.test.ts"]
+    },
+    {
+      "path": "src/context-runtime/process-registry.ts",
+      "reason": "起動済み外部プロセスのハンドル台帳。leak/多重kill/取り違えを防ぐ唯一の境界。",
+      "thresholds": { "lines": 90, "functions": 90, "branches": 75 },
+      "testFiles": ["src/context-runtime/process-registry.test.ts"]
+    },
+    {
+      "path": "src/manager/claim-preflight.ts",
+      "reason": "session起動前にnawabari claim状態を検証するゲート。ここが緩むと二重claimしたまま起動できてしまう。",
+      "thresholds": { "lines": 90, "functions": 90, "branches": 75 },
+      "testFiles": ["src/manager/claim-preflight.test.ts", "src/manager/claim-preflight.parity.test.ts"]
     }
   ]
 }

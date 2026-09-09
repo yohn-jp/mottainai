@@ -35,13 +35,155 @@ const envelopeFields = new Set([
 // src/test-support/ と src/e2e/ はテスト専用の横断ユーティリティ。全レイヤの
 // production コードを fixture として組み立てる必要がある一方、production 側から
 // 依存されることはない（entry と同じ「最上位」扱い）。
+//
+// workflow/semantics/context-runtime/manager の内訳レイヤは、実際の import 方向を
+// scripts/architecture-check.mjs の外で静的解析して derive した（Issue #876）。
+// 特に以下は実測で mutually-recursive な単一 SCC と判明したため、無理に分割せず
+// 1レイヤへ統合している:
+//   - workflowDomain: workflow/{domain,git,policy,providers,state}, workflow直下の
+//     nawabari.ts/hook-provider.ts, および manager/service.ts。
+//     manager/service.ts は ManagerSessionService/ManagerError を介して
+//     workflow/domain と双方向に結合しており、実体としてこのドメインカーネルの
+//     一部（セッション/プロセスオーケストレーション側の反実）である。
+//   - semanticsCore: semantics直下(index/query/execution-plan)、model/projections/
+//     enforcement/fixtures。root(query.ts等)が hub となり model・projections と
+//     相互参照し、root→enforcement→model→root で閉路になるため enforcement も含む。
+// 一方で ir は他のどの semantics サブツリーにも依存しない純粋な基盤層、
+// cache/extractors・mutations/source はそれぞれ ir にのみ依存する独立クラスタ、
+// diff/effects/impact/verification は ir と cache/extractors にのみ依存する
+// クラスタと判明したため、それぞれ独立したレイヤとして分離した。
 const layerRules = Object.freeze({
-  entry: new Set(["entry", "upstream", "adaptive", "compression", "persistence", "shared", "utility"]),
-  upstream: new Set(["upstream", "adaptive", "compression", "persistence", "shared", "utility"]),
-  adaptive: new Set(["adaptive", "compression", "persistence", "shared", "utility"]),
-  compression: new Set(["compression", "persistence", "shared", "utility"]),
+  entry: new Set([
+    "entry",
+    "upstream",
+    "adaptive",
+    "compression",
+    "workflowCommands",
+    "workflowValidation",
+    "workflowDomain",
+    "workflowGovernance",
+    "semanticsCore",
+    "semanticsSupport",
+    "semanticsMutations",
+    "semanticsPrimitives",
+    "semanticsIr",
+    "contextRuntime",
+    "managerCore",
+    "persistence",
+    "shared",
+    "utility",
+  ]),
+  upstream: new Set([
+    "upstream",
+    "adaptive",
+    "compression",
+    "workflowCommands",
+    "workflowValidation",
+    "workflowDomain",
+    "workflowGovernance",
+    "semanticsCore",
+    "semanticsSupport",
+    "semanticsMutations",
+    "semanticsPrimitives",
+    "semanticsIr",
+    "contextRuntime",
+    "managerCore",
+    "persistence",
+    "shared",
+    "utility",
+  ]),
+  adaptive: new Set([
+    "adaptive",
+    "compression",
+    "workflowCommands",
+    "workflowValidation",
+    "workflowDomain",
+    "workflowGovernance",
+    "semanticsCore",
+    "semanticsSupport",
+    "semanticsMutations",
+    "semanticsPrimitives",
+    "semanticsIr",
+    "contextRuntime",
+    "managerCore",
+    "persistence",
+    "shared",
+    "utility",
+  ]),
+  compression: new Set([
+    "compression",
+    "workflowCommands",
+    "workflowValidation",
+    "workflowDomain",
+    "workflowGovernance",
+    "semanticsCore",
+    "semanticsSupport",
+    "semanticsMutations",
+    "semanticsPrimitives",
+    "semanticsIr",
+    "contextRuntime",
+    "managerCore",
+    "persistence",
+    "shared",
+    "utility",
+  ]),
+  // workflow/commands: workflowサブコマンドのオーケストレーション境界。
+  // validation/domain/governance/semanticsCoreへ降りるが、逆方向は無い。
+  workflowCommands: new Set([
+    "workflowCommands",
+    "workflowValidation",
+    "workflowDomain",
+    "workflowGovernance",
+    "semanticsCore",
+    "persistence",
+    "shared",
+    "utility",
+  ]),
+  // workflow/validation: policy/scope/fingerprintのゲート層。domainを読むが
+  // domain側からは参照されない。
+  workflowValidation: new Set(["workflowValidation", "workflowDomain", "utility"]),
+  // workflow/domain kernel（上のコメント参照）。governance/semanticsCore/
+  // managerCore/persistenceへ降りる。
+  workflowDomain: new Set([
+    "workflowDomain",
+    "workflowGovernance",
+    "semanticsCore",
+    "managerCore",
+    "persistence",
+    "shared",
+    "utility",
+  ]),
+  // workflow/governance: 相対importを一切持たない純粋な基盤層（ブランチ命名規則等）。
+  workflowGovernance: new Set(["workflowGovernance", "utility"]),
+  // semantics/core（上のコメント参照）。ir系のサブレイヤとcontext-runtime、
+  // 共有の出力契約(envelope.ts等)へ降りる。
+  semanticsCore: new Set([
+    "semanticsCore",
+    "semanticsSupport",
+    "semanticsMutations",
+    "semanticsPrimitives",
+    "semanticsIr",
+    "contextRuntime",
+    "shared",
+    "utility",
+  ]),
+  // semantics/{diff,effects,impact,verification}: irとcache/extractorsのみに依存。
+  semanticsSupport: new Set(["semanticsSupport", "semanticsPrimitives", "semanticsIr"]),
+  // semantics/{mutations,source}: irのみに依存する独立クラスタ。
+  semanticsMutations: new Set(["semanticsMutations", "semanticsIr"]),
+  // semantics/{cache,extractors}: 相互参照する2ファイルクラスタ。irのみに依存。
+  semanticsPrimitives: new Set(["semanticsPrimitives", "semanticsIr"]),
+  // semantics/ir: 他のsemanticsサブツリーに一切依存しない基盤スキーマ層。
+  semanticsIr: new Set(["semanticsIr"]),
+  // context-runtime: read/poll/burst-budget等のランタイム基盤。subprocess.ts
+  // (utility)以外のproduction相互依存を持たない（config.ts等への参照は型のみ）。
+  contextRuntime: new Set(["contextRuntime", "utility"]),
+  // manager/{claim-preflight,assets,pi-guard}: manager/service.tsから使われる
+  // 下位ヘルパー群。他ファミリへの実行時依存を持たない。
+  managerCore: new Set(["managerCore"]),
   persistence: new Set(["persistence", "shared", "utility"]),
-  shared: new Set(["shared", "utility"]),
+  // shared: config.ts が context-runtime を実行時に必要とするため降りる。
+  shared: new Set(["shared", "contextRuntime", "utility"]),
   utility: new Set(["utility"]),
   testInfrastructure: new Set([
     "testInfrastructure",
@@ -49,13 +191,38 @@ const layerRules = Object.freeze({
     "upstream",
     "adaptive",
     "compression",
+    "workflowCommands",
+    "workflowValidation",
+    "workflowDomain",
+    "workflowGovernance",
+    "semanticsCore",
+    "semanticsSupport",
+    "semanticsMutations",
+    "semanticsPrimitives",
+    "semanticsIr",
+    "contextRuntime",
+    "managerCore",
     "persistence",
     "shared",
     "utility",
   ]),
 });
 
-const allowedSpecialEdges = new Set(["shared->adaptive:src/adaptive/metadata.ts"]);
+const allowedSpecialEdges = new Set([
+  "shared->adaptive:src/adaptive/metadata.ts",
+  // src/dashboard/**（本Issueの分類対象外。shared fallbackのまま）が semantics の
+  // 公開読み取りAPIを直接呼ぶ既存経路。sharedへ包括的にsemanticsCoreを許可する
+  // 代わりに、実際に使われている4ファイルだけをファイル単位で許可する。
+  "shared->semanticsCore:src/semantics/query.ts",
+  "shared->semanticsCore:src/semantics/projections/index.ts",
+  "shared->semanticsCore:src/semantics/fixtures/dashboard-fixture.ts",
+  "shared->semanticsCore:src/semantics/model/index.ts",
+  // manager/service.ts（workflowDomain）がidentifier形式の検証関数2つを
+  // workflow/commands/validate.tsから再利用している。この2関数をworkflowDomain側へ
+  // 移すのはsource reorganizationでありIssue #876のscope外（分類変更のみ）のため、
+  // 個別のnarrow exceptionとして許可する。
+  "workflowDomain->workflowCommands:src/workflow/commands/validate.ts",
+]);
 
 const stdoutBoundaryFiles = new Set([
   "src/cli.ts",
@@ -260,14 +427,32 @@ function resolveRelativeImport(sourceFile, specifier, root, resolutionCache) {
 
 function layerForFile(relative) {
   if (relative.startsWith("src/test-support/") || relative.startsWith("src/e2e/")) return "testInfrastructure";
+  // These semantic workers are spawned only by store.test.ts to exercise real
+  // multi-process locking/persistence. They are test infrastructure even though
+  // they live beside the production source they exercise, so their imports must
+  // not distort the production semantics layer graph.
+  if (
+    relative === "src/semantics/source/store-persist-worker.mjs" ||
+    relative === "src/semantics/source/store-lock-worker.mjs"
+  )
+    return "testInfrastructure";
   if (
     relative === "src/manager/command.ts" ||
     relative === "src/manager/http.ts" ||
     relative === "src/manager/terminal-bridge.ts"
   )
     return "entry";
-  if (relative === "src/manager/service.ts") return "persistence";
+  // manager/service.ts is mutually coupled with the workflow domain kernel
+  // (ManagerSessionService/ManagerError round-trip through
+  // workflow/domain/{harness-delegation,managed-task-run}.ts) — see layerRules comment.
+  if (relative === "src/manager/service.ts") return "workflowDomain";
   if (relative === "src/manager/zellij.ts") return "utility";
+  if (
+    relative === "src/manager/claim-preflight.ts" ||
+    relative === "src/manager/assets.ts" ||
+    relative === "src/manager/pi-guard.ts"
+  )
+    return "managerCore";
   if (
     relative === "src/index.ts" ||
     relative === "src/cli.ts" ||
@@ -291,8 +476,43 @@ function layerForFile(relative) {
     return "upstream";
   if (relative.startsWith("src/adaptive/") || relative.startsWith("src/read-governor/")) return "adaptive";
   if (relative.startsWith("src/compress/")) return "compression";
-  if (relative.startsWith("src/state/") || relative.startsWith("src/workflow/") || relative === "src/retrieve.ts")
-    return "persistence";
+  // src/workflow/ の内訳（Issue #876; layerRulesのコメントに derivation の要約あり）。
+  if (relative.startsWith("src/workflow/commands/")) return "workflowCommands";
+  if (relative.startsWith("src/workflow/validation/")) return "workflowValidation";
+  if (relative.startsWith("src/workflow/governance/")) return "workflowGovernance";
+  if (
+    relative.startsWith("src/workflow/domain/") ||
+    relative.startsWith("src/workflow/git/") ||
+    relative.startsWith("src/workflow/policy/") ||
+    relative.startsWith("src/workflow/providers/") ||
+    relative.startsWith("src/workflow/state/") ||
+    relative === "src/workflow/nawabari.ts" ||
+    relative === "src/workflow/hook-provider.ts"
+  )
+    return "workflowDomain";
+  // src/semantics/ の内訳（同上）。
+  if (relative.startsWith("src/semantics/ir/")) return "semanticsIr";
+  if (relative.startsWith("src/semantics/cache/") || relative.startsWith("src/semantics/extractors/"))
+    return "semanticsPrimitives";
+  if (relative.startsWith("src/semantics/mutations/") || relative.startsWith("src/semantics/source/"))
+    return "semanticsMutations";
+  if (
+    relative.startsWith("src/semantics/diff/") ||
+    relative.startsWith("src/semantics/effects/") ||
+    relative.startsWith("src/semantics/impact/") ||
+    relative.startsWith("src/semantics/verification/")
+  )
+    return "semanticsSupport";
+  if (
+    relative.startsWith("src/semantics/model/") ||
+    relative.startsWith("src/semantics/projections/") ||
+    relative.startsWith("src/semantics/enforcement/") ||
+    relative.startsWith("src/semantics/fixtures/") ||
+    (relative.startsWith("src/semantics/") && relative.split("/").length === 3)
+  )
+    return "semanticsCore";
+  if (relative.startsWith("src/context-runtime/")) return "contextRuntime";
+  if (relative.startsWith("src/state/") || relative === "src/retrieve.ts") return "persistence";
   if (
     relative === "src/config.ts" ||
     relative === "src/envelope.ts" ||
