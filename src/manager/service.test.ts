@@ -57,6 +57,66 @@ class FakeRuntime implements ZellijRuntime {
   }
 }
 
+type TestWorkflowStore = ReturnType<typeof createWorkflowStore>;
+
+function seedRunningManagerSession(store: TestWorkflowStore, root: string, suffix: string): ManagerSessionRecord {
+  return store.createManagerSession({
+    sessionId: `00000000-0000-4000-8000-${suffix}` as ManagerSessionId,
+    workspaceRoot: root,
+    executionMode: "workspace",
+    worktreePath: root,
+    agentKind: "codex",
+    launchProfile: "codex",
+    instruction: "reconciliation freshness test",
+    launchCommand: "codex",
+    launchArgs: ["--", "reconciliation freshness test"],
+    runtimeName: `mottainai-test-runtime-${suffix}`,
+    lifecycleState: "running",
+    runtimeState: "running",
+    semanticLifecycleState: "active",
+    attachable: true,
+    reconciliationState: "synced",
+    latestStatus: "steady",
+    latestReceipt: {
+      code: "runtime_running",
+      message: "steady",
+      source: "zellij",
+      recordedAt: 1,
+    },
+    startedAt: 1,
+  });
+}
+
+function countManagerSessionWrites(store: TestWorkflowStore): { fullWrites: number; freshnessWrites: number } {
+  const counts = { fullWrites: 0, freshnessWrites: 0 };
+  const updateManagerSession = store.updateManagerSession.bind(store);
+  const checkpointManagerSessionRuntimeObservedAt = store.checkpointManagerSessionRuntimeObservedAt.bind(store);
+  store.updateManagerSession = (sessionId, input) => {
+    counts.fullWrites += 1;
+    return updateManagerSession(sessionId, input);
+  };
+  store.checkpointManagerSessionRuntimeObservedAt = (sessionId, observedAt) => {
+    counts.freshnessWrites += 1;
+    return checkpointManagerSessionRuntimeObservedAt(sessionId, observedAt);
+  };
+  return counts;
+}
+
+function steadyExecutionAuthority(onObserve?: () => Promise<void>): ManagerExecutionAuthority {
+  return {
+    async start() {
+      throw new Error("not used by reconciliation test");
+    },
+    async validate() {
+      return { ok: true };
+    },
+    async observe(context) {
+      await onObserve?.();
+      return { semanticLifecycleState: context.semanticLifecycleState, status: "steady", receipt: undefined };
+    },
+  };
+}
+
 test("Manager service rejects malformed session IDs before runtime lookup", async (t) => {
   const root = createTempGitRepo(t);
   const runtime = new FakeRuntime();
@@ -1066,6 +1126,154 @@ test("Manager reconciles a deleted managed worktree as failed and terminates its
   const reconciled = await service.list();
   assert.equal(reconciled[0]?.lifecycleState, "failed");
   assert.deepEqual(runtime.terminated, [session.runtimeName]);
+});
+
+test("Manager checkpoints successful runtime observations without full steady-state writes", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const runtime = new FakeRuntime();
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store,
+    runtime,
+    executionAuthority: steadyExecutionAuthority(),
+  });
+  await service.initialize();
+  const session = seedRunningManagerSession(store, root, "000000000501");
+  runtime.sessions.add(session.runtimeName);
+  const oldObservedAt = Date.now() - 10_000;
+  store.updateManagerSession(session.sessionId, { runtimeObservedAt: oldObservedAt });
+  const counts = countManagerSessionWrites(store);
+
+  const first = (await service.list())[0]!;
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const second = (await service.list())[0]!;
+
+  assert.equal(counts.fullWrites, 0, "steady-state reconciliation must not rewrite the full Manager row");
+  assert.ok(counts.freshnessWrites >= 1, "a successful runtime observation must checkpoint freshness");
+  assert.ok((first.runtimeObservedAt ?? 0) > oldObservedAt);
+  assert.ok((second.runtimeObservedAt ?? 0) >= (first.runtimeObservedAt ?? 0));
+  assert.equal(store.getManagerSession(session.sessionId)?.latestReceipt?.recordedAt, 1);
+});
+
+test("Manager does not advance runtime freshness after an unresolved runtime observation", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const runtime = new FakeRuntime();
+  runtime.inspect = async () => "unresolved";
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store,
+    runtime,
+    executionAuthority: steadyExecutionAuthority(),
+  });
+  await service.initialize();
+  const session = seedRunningManagerSession(store, root, "000000000502");
+  const oldObservedAt = Date.now() - 10_000;
+  store.updateManagerSession(session.sessionId, { runtimeObservedAt: oldObservedAt });
+  const counts = countManagerSessionWrites(store);
+
+  const [reconciled] = await service.list();
+
+  assert.equal(reconciled?.runtimeState, "stale");
+  assert.equal(reconciled?.reconciliationState, "unresolved");
+  assert.equal(reconciled?.runtimeObservedAt, oldObservedAt);
+  assert.equal(counts.freshnessWrites, 0, "unresolved identity is not a successful runtime observation");
+  assert.equal(counts.fullWrites, 1, "the stale classification still persists its durable state change");
+});
+
+test("Manager coalesces concurrent reconciliation callers into one observation pass", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const runtime = new FakeRuntime();
+  let observeCalls = 0;
+  let signalObserve!: () => void;
+  const observeEntered = new Promise<void>((resolve) => {
+    signalObserve = resolve;
+  });
+  let releaseObserve!: () => void;
+  const observeGate = new Promise<void>((resolve) => {
+    releaseObserve = resolve;
+  });
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store,
+    runtime,
+    executionAuthority: steadyExecutionAuthority(async () => {
+      observeCalls += 1;
+      signalObserve();
+      await observeGate;
+    }),
+  });
+  await service.initialize();
+  const session = seedRunningManagerSession(store, root, "000000000503");
+  runtime.sessions.add(session.runtimeName);
+  const counts = countManagerSessionWrites(store);
+
+  const first = service.list();
+  await observeEntered;
+  const second = service.list();
+  assert.equal(observeCalls, 1);
+  assert.deepEqual(runtime.inspected, []);
+  releaseObserve();
+  const [firstResult, secondResult] = await Promise.all([first, second]);
+
+  assert.equal(observeCalls, 1);
+  assert.equal(runtime.inspected.length, 1);
+  assert.equal(counts.fullWrites, 0);
+  assert.equal(counts.freshnessWrites, 1);
+  assert.deepEqual(
+    firstResult.map((item) => item.sessionId),
+    [session.sessionId],
+  );
+  assert.deepEqual(
+    secondResult.map((item) => item.sessionId),
+    [session.sessionId],
+  );
+});
+
+test("Manager serializes reconciliation with a concurrent stop for one session", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const runtime = new FakeRuntime();
+  let observeCalls = 0;
+  let signalObserve!: () => void;
+  const observeEntered = new Promise<void>((resolve) => {
+    signalObserve = resolve;
+  });
+  let releaseObserve!: () => void;
+  const observeGate = new Promise<void>((resolve) => {
+    releaseObserve = resolve;
+  });
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store,
+    runtime,
+    executionAuthority: steadyExecutionAuthority(async () => {
+      observeCalls += 1;
+      if (observeCalls === 1) {
+        signalObserve();
+        await observeGate;
+      }
+    }),
+  });
+  await service.initialize();
+  const session = seedRunningManagerSession(store, root, "000000000504");
+  runtime.sessions.add(session.runtimeName);
+
+  const getPromise = service.get(session.sessionId);
+  await observeEntered;
+  const stopPromise = service.stop(session.sessionId);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(runtime.terminated, [], "stop must wait for the in-flight per-session reconciliation");
+  releaseObserve();
+
+  const reconciled = await getPromise;
+  const stopped = await stopPromise;
+  assert.equal(reconciled.runtimeState, "running");
+  assert.equal(stopped.runtimeState, "stopped");
+  assert.deepEqual(runtime.terminated, [session.runtimeName]);
+  assert.equal(observeCalls, 2);
 });
 
 test("launch profiles construct deterministic argv without shell interpolation", () => {

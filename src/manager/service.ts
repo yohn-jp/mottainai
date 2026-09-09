@@ -31,6 +31,7 @@ import type {
   PushReconciliationRecord,
   PushReconciliationState,
   TaskId,
+  UpdateManagerSessionInput,
   WorkflowStateStore,
 } from "../workflow/state/store.js";
 import type { PullRequestLifecycleState } from "../workflow/providers/model.js";
@@ -71,6 +72,14 @@ const MAX_RUNTIME_ID_LENGTH = 256;
 const MAX_RUNTIME_DISPLAY_LENGTH = 256;
 const MAX_RUNTIME_ADDRESS_LENGTH = 1024;
 const MAX_RUNTIME_PROVENANCE_LENGTH = 256;
+/**
+ * Upper bound on simultaneously in-flight per-session reconciliations. `reconcile()` can be
+ * asked to sweep up to 1000 control-plane records in one dashboard GET (issue #872); a plain
+ * sequential `for` loop over that many sessions, each doing real `execution.observe` /
+ * `execution.validate` / `runtime.inspect` I/O, serializes latency that bounded concurrency
+ * instead overlaps.
+ */
+const RECONCILE_CONCURRENCY = 8;
 export const LOCAL_MANAGER_RUNTIME_ID = "local" as ManagerRuntimeId;
 export const MANAGER_LAUNCH_SCHEMA_VERSION = 1 as const;
 export const ACTIVE_RUNTIME_STATES = ["starting", "running", "detached"] as const satisfies readonly ManagerRuntimeState[];
@@ -952,6 +961,58 @@ function receipt(code: string, message: string, source: ManagerSessionReceipt["s
   return { code, message: message.slice(0, MAX_STATUS_LENGTH), source, recordedAt: Date.now() };
 }
 
+/** Nullable update-input fields collapse to `undefined` for comparison against the stored record. */
+function normalizeNullablePatchValue<T>(value: T | null | undefined): T | undefined {
+  return value === null ? undefined : value;
+}
+
+/** Receipts are compared on their observable content; `recordedAt` is a timestamp, not state. */
+function receiptsAreEquivalent(
+  left: ManagerSessionReceipt | undefined,
+  right: ManagerSessionReceipt | undefined,
+): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  return left.code === right.code && left.message === right.message && left.source === right.source;
+}
+
+/**
+ * True when every durable state field a reconciliation pass is proposing to write already
+ * matches the currently stored session. `runtimeObservedAt` is deliberately excluded: it is
+ * freshness metadata and has a narrow checkpoint path, so an otherwise-unchanged projection
+ * must not force a full session-row write.
+ */
+function reconciliationPatchIsNoop(current: ManagerSessionRecord, patch: UpdateManagerSessionInput): boolean {
+  return (
+    (patch.lifecycleState === undefined || patch.lifecycleState === current.lifecycleState) &&
+    (patch.runtimeState === undefined || patch.runtimeState === current.runtimeState) &&
+    (patch.semanticLifecycleState === undefined || patch.semanticLifecycleState === current.semanticLifecycleState) &&
+    (patch.attachable === undefined || patch.attachable === current.attachable) &&
+    (patch.reconciliationState === undefined || patch.reconciliationState === current.reconciliationState) &&
+    (patch.reconciliationMessage === undefined ||
+      normalizeNullablePatchValue(patch.reconciliationMessage) === current.reconciliationMessage) &&
+    (patch.latestStatus === undefined || normalizeNullablePatchValue(patch.latestStatus) === current.latestStatus) &&
+    (patch.latestReceipt === undefined || receiptsAreEquivalent(patch.latestReceipt, current.latestReceipt)) &&
+    (patch.finishedAt === undefined || normalizeNullablePatchValue(patch.finishedAt) === current.finishedAt) &&
+    (patch.terminationState === undefined || patch.terminationState === current.terminationState) &&
+    (patch.errorMessage === undefined || normalizeNullablePatchValue(patch.errorMessage) === current.errorMessage)
+  );
+}
+
+/** Bounded-concurrency map: runs `fn` over `items` with at most `limit` in flight at once. */
+async function mapWithConcurrency<T>(items: readonly T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let cursor = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  const workers = Array.from({ length: workerCount }, async () => {
+    for (;;) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= items.length) return;
+      await fn(items[index]!);
+    }
+  });
+  await Promise.all(workers);
+}
+
 /**
  * Deterministic profile construction. Every user-controlled value remains an
  * argv element; no shell string is built or evaluated.
@@ -1303,6 +1364,11 @@ export class ManagerSessionService {
   private readonly runtimeConfiguration: ReturnType<typeof normalizeRuntimeConfiguration>;
   private readonly execution: ManagerExecutionAuthority;
   private readonly sessionOperations = new Map<ManagerSessionId, Promise<void>>();
+  /**
+   * Concurrent `list()`/`reconcileNow()` callers (e.g. several dashboard tabs polling at once)
+   * share one in-flight reconciliation pass instead of each driving their own full sweep.
+   */
+  private reconcileInFlight: Promise<void> | undefined;
   private readonly options: {
     workspaceRoot: string;
     store: WorkflowStateStore;
@@ -1797,7 +1863,6 @@ export class ManagerSessionService {
           terminationState: "failed",
           errorMessage: detail,
           finishedAt: Date.now(),
-          runtimeObservedAt: Date.now(),
         });
         throw new ManagerError("worktree_missing", detail, 409);
       }
@@ -1831,7 +1896,6 @@ export class ManagerSessionService {
           terminationState: "failed",
           errorMessage: failure.message,
           finishedAt: Date.now(),
-          runtimeObservedAt: Date.now(),
         });
         throw failure;
       }
@@ -1904,7 +1968,6 @@ export class ManagerSessionService {
             `refusing to stop selected runtime because its identity is ${observed}`,
             "zellij",
           ),
-          runtimeObservedAt: Date.now(),
         });
       }
       await this.options.runtime.terminate(session.runtimeName, session.worktreePath);
@@ -2043,7 +2106,6 @@ export class ManagerSessionService {
       errorMessage: null,
       finishedAt: null,
       exitCode: null,
-      runtimeObservedAt: Date.now(),
     });
     try {
       if (current.runtimeState === "exited")
@@ -2078,7 +2140,6 @@ export class ManagerSessionService {
         terminationState: "failed",
         errorMessage: failure.message,
         finishedAt: Date.now(),
-        runtimeObservedAt: Date.now(),
       });
       throw failure;
     }
@@ -2150,11 +2211,10 @@ export class ManagerSessionService {
     // Runtime-terminal records still observe workflow semantics so restart
     // decisions cannot use a stale pre-completion task lifecycle.
     if (session.lifecycleState === "failed" || session.lifecycleState === "stopped") {
-      return this.options.store.updateManagerSession(session.sessionId, {
+      return this.applyReconciliationPatch(session, {
         semanticLifecycleState: semantic,
         latestStatus: status,
         ...(semanticReceipt === undefined ? {} : { latestReceipt: semanticReceipt }),
-        runtimeObservedAt: Date.now(),
       });
     }
 
@@ -2170,7 +2230,7 @@ export class ManagerSessionService {
       if (observed === "running" || observed === "detached") {
         await this.options.runtime.terminate(session.runtimeName, session.worktreePath).catch(() => undefined);
       }
-      return this.options.store.updateManagerSession(session.sessionId, {
+      return this.applyReconciliationPatch(session, {
         lifecycleState: "failed",
         runtimeState: "stale",
         semanticLifecycleState: semantic,
@@ -2180,7 +2240,7 @@ export class ManagerSessionService {
         latestStatus: detail,
         latestReceipt: receipt("execution_unresolved", detail, "workflow"),
         finishedAt: session.finishedAt ?? now,
-        runtimeObservedAt: now,
+        ...(observed === "unresolved" ? {} : { runtimeObservedAt: now }),
         terminationState: "failed",
         errorMessage: session.errorMessage ?? detail,
       });
@@ -2191,7 +2251,7 @@ export class ManagerSessionService {
       observed = await this.options.runtime.inspect(session.runtimeName, session.worktreePath);
     } catch (error) {
       const detail = boundedStatus(error instanceof Error ? error.message : String(error));
-      return this.options.store.updateManagerSession(session.sessionId, {
+      return this.applyReconciliationPatch(session, {
         runtimeState: "stale",
         semanticLifecycleState: semantic,
         attachable: false,
@@ -2199,7 +2259,6 @@ export class ManagerSessionService {
         reconciliationMessage: detail,
         latestStatus: detail,
         latestReceipt: receipt("runtime_inspection_failed", detail, "zellij"),
-        runtimeObservedAt: Date.now(),
       });
     }
     const runtimeState =
@@ -2226,7 +2285,7 @@ export class ManagerSessionService {
             "zellij",
           )
         : semanticReceipt;
-    return this.options.store.updateManagerSession(session.sessionId, {
+    return this.applyReconciliationPatch(session, {
       lifecycleState: nextLifecycle,
       runtimeState,
       semanticLifecycleState: semantic,
@@ -2236,7 +2295,7 @@ export class ManagerSessionService {
       latestStatus: status ?? detail,
       latestReceipt: nextReceipt,
       finishedAt: runtimeState === "exited" || runtimeState === "stale" ? (session.finishedAt ?? now) : null,
-      runtimeObservedAt: now,
+      ...(observed === "unresolved" ? {} : { runtimeObservedAt: now }),
       terminationState:
         runtimeState === "running" || runtimeState === "detached"
           ? "running"
@@ -2249,13 +2308,50 @@ export class ManagerSessionService {
     });
   }
 
+  /**
+   * Reconciles every control-plane session with bounded concurrency instead of one strictly
+   * sequential `await` per session (issue #872): up to {@link RECONCILE_CONCURRENCY} sessions'
+   * `execution.observe` / `execution.validate` / `runtime.inspect` I/O run in flight together,
+   * while `withSessionOperation` still serializes each individual session against its own
+   * concurrent start/stop/restart calls. Concurrent callers (dashboard clients polling `list()`
+   * around the same time) share a single in-flight pass rather than each starting their own.
+   */
   private async reconcile(): Promise<void> {
+    if (this.reconcileInFlight !== undefined) return this.reconcileInFlight;
+    const pass = this.runReconciliationPass().finally(() => {
+      this.reconcileInFlight = undefined;
+    });
+    this.reconcileInFlight = pass;
+    return pass;
+  }
+
+  private async runReconciliationPass(): Promise<void> {
     const sessions = this.loadControlPlaneSessions();
-    for (const session of sessions) {
+    await mapWithConcurrency(sessions, RECONCILE_CONCURRENCY, async (session) => {
       await this.withSessionOperation(session.sessionId, () =>
         this.reconcileOneUnlocked(this.requireSession(session.sessionId)),
       );
-    }
+    });
+  }
+
+  /**
+   * Writes a reconciliation outcome only when it actually differs from the stored session
+   * (issue #872): every branch of `reconcileOneUnlocked` used to call `updateManagerSession`
+   * unconditionally, issuing a write on every poll even when nothing observed changed.
+   */
+  private applyReconciliationPatch(
+    session: ManagerSessionRecord,
+    patch: UpdateManagerSessionInput,
+  ): ManagerSessionRecord {
+    if (!reconciliationPatchIsNoop(session, patch))
+      return this.options.store.updateManagerSession(session.sessionId, patch);
+    if (
+      patch.runtimeObservedAt !== undefined &&
+      patch.runtimeObservedAt !== null &&
+      (session.runtimeObservedAt === undefined || patch.runtimeObservedAt > session.runtimeObservedAt)
+    )
+      return this.options.store.checkpointManagerSessionRuntimeObservedAt(session.sessionId, patch.runtimeObservedAt);
+    return session;
   }
 
   private async withSessionOperation<T>(sessionId: ManagerSessionId, operation: () => Promise<T>): Promise<T> {
