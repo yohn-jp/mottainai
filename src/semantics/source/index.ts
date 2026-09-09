@@ -8,4 +8,11 @@ export {
   SEMANTIC_TRANSACTION_SOURCE_ROOT,
   type SemanticSourceWrite,
 } from "./serialization.js";
-export { loadSemanticSource, persistSemanticMutation } from "./store.js";
+export {
+  computeSemanticSourceFingerprint,
+  loadSemanticSource,
+  loadSemanticSourceWithFingerprint,
+  persistSemanticMutation,
+  type PersistSemanticMutationOptions,
+  type SemanticPersistOutcome,
+} from "./store.js";
