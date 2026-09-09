@@ -1,0 +1,47 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Functional CLI smoke resolves and executes `mottainai` from the exact active managed generation/store path."
+    },
+    {
+      "checked": false,
+      "text": "MCP protocol smoke resolves and executes `mottainai-mcp` from the same exact active managed generation/store path."
+    },
+    {
+      "checked": false,
+      "text": "The smoke path is derived from canonical managed-generation state/metadata rather than ambient `PATH`."
+    },
+    {
+      "checked": false,
+      "text": "A deliberately conflicting ambient `mottainai`/`mottainai-mcp` cannot satisfy the smoke."
+    },
+    {
+      "checked": false,
+      "text": "Missing or non-executable binaries in the active generation fail closed and prevent `managedRuntimeReady` certification."
+    },
+    {
+      "checked": false,
+      "text": "Evidence records the active generation identity and executable paths used for the CLI/MCP smoke."
+    },
+    {
+      "checked": false,
+      "text": "Regression coverage proves direct Route 3 -> 2 -> 1 and Lima/provider smoke use the same semantic executable authority."
+    },
+    {
+      "checked": false,
+      "text": "Existing bounded MCP protocol timeout/diagnostics remain intact."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 893,
+    "state": "open",
+    "title": "fix(runtime): bind CLI and MCP functional smoke to the active managed generation",
+    "url": "https://github.com/yohn-jp/mottainai/issues/893"
+  },
+  "linked": {
+    "number": 893
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

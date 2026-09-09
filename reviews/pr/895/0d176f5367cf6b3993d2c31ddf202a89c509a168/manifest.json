@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "2434a7ad730656fd0405a59ba9d7092d2820580a",
+    "draft": false,
+    "headRef": "fix/893-active-generation-smoke",
+    "headSha": "0d176f5367cf6b3993d2c31ddf202a89c509a168",
+    "number": 895,
+    "title": "fix(runtime): bind Lima smoke to active managed generation"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "0d176f5367cf6b3993d2c31ddf202a89c509a168",
+    "immutable": true,
+    "shortId": "0d176f5367cf"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-09T13:33:25.445Z"
+  }
+}
