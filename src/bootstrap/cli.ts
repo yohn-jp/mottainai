@@ -12,6 +12,7 @@ import type {
 } from "../runtime-contract/managed-generation-build.js";
 import {
   ManagedRuntimeError,
+  inspectManagedRuntimeGeneration,
   reconcileManagedRuntime,
   readManagedRuntimeStatus,
 } from "../runtime-contract/managed-runtime.js";
@@ -244,6 +245,18 @@ export function reconcileHealthCheck(
       generationIdentity: generation.generationIdentity,
       storePath: generation.storePath,
       reason: "managed generation declares no package identities to verify",
+    };
+  }
+  const realization = inspectManagedRuntimeGeneration(generation);
+  if (!realization.realized || !realization.requiredExecutablesPresent) {
+    const missing = realization.missingExecutablePaths.join(", ");
+    return {
+      healthy: false,
+      generationIdentity: generation.generationIdentity,
+      storePath: generation.storePath,
+      reason: !realization.realized
+        ? `managed generation store output is not realized: ${generation.storePath}`
+        : `managed generation required executable is missing or not executable: ${missing}`,
     };
   }
   for (const packageId of packageIds) {

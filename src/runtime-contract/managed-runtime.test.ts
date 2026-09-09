@@ -21,7 +21,9 @@ import {
   acquireManagedRuntimeWriterLock,
   ManagedRuntimeLockError,
   readManagedRuntimePointer,
+  readManagedRuntimeRetentionRoots,
   readManagedRuntimeState,
+  resolveManagedRuntimePaths,
   writeManagedRuntimeState,
 } from "./managed-runtime-state.js";
 import { RUNTIME_CONTRACT_ID, RUNTIME_CONTRACT_SCHEMA_VERSION } from "./contract.js";
@@ -237,6 +239,9 @@ test("fresh init builds, stages, atomically activates, health-checks, and persis
       readManagedRuntimePointer(path.join(value.root, "managed-runtime", "current")),
       "/nix/store/generation-1",
     );
+    assert.deepEqual(readManagedRuntimeRetentionRoots(resolveManagedRuntimePaths(value.root)), {
+      active: "/nix/store/generation-1",
+    });
     assert.equal(value.buildCalls, 1);
     assert.equal(value.healthCalls, 1);
   } finally {
@@ -271,6 +276,9 @@ test("reconcile is a no-op when desired and active identities match and health r
       readManagedRuntimePointer(path.join(value.root, "managed-runtime", "current")),
       "/nix/store/generation-1",
     );
+    assert.deepEqual(readManagedRuntimeRetentionRoots(resolveManagedRuntimePaths(value.root)), {
+      active: "/nix/store/generation-1",
+    });
   } finally {
     value.cleanup();
   }
@@ -288,6 +296,10 @@ test("update verifies and switches a new generation atomically while retaining t
       readManagedRuntimePointer(path.join(value.root, "managed-runtime", "current")),
       "/nix/store/generation-2",
     );
+    assert.deepEqual(readManagedRuntimeRetentionRoots(resolveManagedRuntimePaths(value.root)), {
+      active: "/nix/store/generation-2",
+      previous: "/nix/store/generation-1",
+    });
     assert.equal(value.buildCalls, 2);
   } finally {
     value.cleanup();
@@ -455,6 +467,11 @@ test(
       const statusWhileWriterIsHeld = readManagedRuntimeStatus({ stateDirectory: value.root });
       assert.equal(statusWhileWriterIsHeld.activationPhase, "switched-health-pending");
       assert.equal(statusWhileWriterIsHeld.observedStorePath, "/nix/store/generation-concurrent-a");
+      assert.deepEqual(readManagedRuntimeRetentionRoots(resolveManagedRuntimePaths(value.root)), {
+        active: "/nix/store/generation-1",
+        previous: "/nix/store/generation-1",
+        candidate: "/nix/store/generation-concurrent-a",
+      });
 
       let secondBuildCalls = 0;
       await assert.rejects(
@@ -486,6 +503,9 @@ test(
       assert.equal(finalState?.activation.phase, "idle");
       assert.equal(finalState?.active?.generationIdentity, "generation-1");
       assert.equal(finalState?.failure?.generationIdentity, "generation-concurrent-a");
+      assert.deepEqual(readManagedRuntimeRetentionRoots(resolveManagedRuntimePaths(value.root)), {
+        active: "/nix/store/generation-1",
+      });
       assert.equal(
         readManagedRuntimePointer(path.join(value.root, "managed-runtime", "current")),
         "/nix/store/generation-1",
