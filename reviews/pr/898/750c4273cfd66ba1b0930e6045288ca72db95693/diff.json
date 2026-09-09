@@ -1,0 +1,372 @@
+{
+  "baseSha": "4d4485ee65e2a01e4c1af15ecc27e0076b4a1321",
+  "files": [
+    {
+      "additions": 75,
+      "deletions": 43,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 361,
+          "oldLines": 0,
+          "oldStart": 360
+        },
+        {
+          "newLines": 2,
+          "newStart": 733,
+          "oldLines": 2,
+          "oldStart": 729
+        },
+        {
+          "newLines": 46,
+          "newStart": 954,
+          "oldLines": 0,
+          "oldStart": 949
+        },
+        {
+          "newLines": 2,
+          "newStart": 1045,
+          "oldLines": 0,
+          "oldStart": 994
+        },
+        {
+          "newLines": 1,
+          "newStart": 1058,
+          "oldLines": 1,
+          "oldStart": 1006
+        },
+        {
+          "newLines": 1,
+          "newStart": 1067,
+          "oldLines": 4,
+          "oldStart": 1015
+        },
+        {
+          "newLines": 5,
+          "newStart": 1072,
+          "oldLines": 3,
+          "oldStart": 1023
+        },
+        {
+          "newLines": 1,
+          "newStart": 1078,
+          "oldLines": 1,
+          "oldStart": 1027
+        },
+        {
+          "newLines": 2,
+          "newStart": 1081,
+          "oldLines": 0,
+          "oldStart": 1029
+        },
+        {
+          "newLines": 9,
+          "newStart": 1085,
+          "oldLines": 28,
+          "oldStart": 1032
+        },
+        {
+          "newLines": 1,
+          "newStart": 1095,
+          "oldLines": 1,
+          "oldStart": 1061
+        },
+        {
+          "newLines": 1,
+          "newStart": 1099,
+          "oldLines": 3,
+          "oldStart": 1065
+        }
+      ],
+      "path": ".github/workflows/ci.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 188,
+      "deletions": 138,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 536,
+          "oldLines": 0,
+          "oldStart": 535
+        },
+        {
+          "newLines": 6,
+          "newStart": 741,
+          "oldLines": 2,
+          "oldStart": 740
+        },
+        {
+          "newLines": 3,
+          "newStart": 748,
+          "oldLines": 0,
+          "oldStart": 742
+        },
+        {
+          "newLines": 31,
+          "newStart": 753,
+          "oldLines": 10,
+          "oldStart": 745
+        },
+        {
+          "newLines": 2,
+          "newStart": 785,
+          "oldLines": 0,
+          "oldStart": 755
+        },
+        {
+          "newLines": 9,
+          "newStart": 789,
+          "oldLines": 37,
+          "oldStart": 758
+        },
+        {
+          "newLines": 1,
+          "newStart": 799,
+          "oldLines": 81,
+          "oldStart": 796
+        },
+        {
+          "newLines": 0,
+          "newStart": 802,
+          "oldLines": 1,
+          "oldStart": 880
+        },
+        {
+          "newLines": 2,
+          "newStart": 804,
+          "oldLines": 2,
+          "oldStart": 882
+        },
+        {
+          "newLines": 3,
+          "newStart": 807,
+          "oldLines": 1,
+          "oldStart": 885
+        },
+        {
+          "newLines": 1,
+          "newStart": 838,
+          "oldLines": 0,
+          "oldStart": 913
+        },
+        {
+          "newLines": 13,
+          "newStart": 842,
+          "oldLines": 0,
+          "oldStart": 916
+        },
+        {
+          "newLines": 1,
+          "newStart": 907,
+          "oldLines": 1,
+          "oldStart": 969
+        },
+        {
+          "newLines": 1,
+          "newStart": 1006,
+          "oldLines": 0,
+          "oldStart": 1067
+        },
+        {
+          "newLines": 55,
+          "newStart": 1064,
+          "oldLines": 0,
+          "oldStart": 1124
+        },
+        {
+          "newLines": 8,
+          "newStart": 1134,
+          "oldLines": 0,
+          "oldStart": 1139
+        },
+        {
+          "newLines": 6,
+          "newStart": 1304,
+          "oldLines": 0,
+          "oldStart": 1301
+        },
+        {
+          "newLines": 25,
+          "newStart": 1339,
+          "oldLines": 0,
+          "oldStart": 1330
+        },
+        {
+          "newLines": 8,
+          "newStart": 1409,
+          "oldLines": 1,
+          "oldStart": 1376
+        },
+        {
+          "newLines": 2,
+          "newStart": 1419,
+          "oldLines": 0,
+          "oldStart": 1378
+        },
+        {
+          "newLines": 4,
+          "newStart": 1422,
+          "oldLines": 1,
+          "oldStart": 1380
+        },
+        {
+          "newLines": 1,
+          "newStart": 1432,
+          "oldLines": 0,
+          "oldStart": 1386
+        },
+        {
+          "newLines": 4,
+          "newStart": 1442,
+          "oldLines": 1,
+          "oldStart": 1396
+        },
+        {
+          "newLines": 1,
+          "newStart": 1448,
+          "oldLines": 0,
+          "oldStart": 1398
+        }
+      ],
+      "path": ".github/workflows/publish.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 59,
+          "oldLines": 2,
+          "oldStart": 59
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 43,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 19,
+          "newStart": 59,
+          "oldLines": 1,
+          "oldStart": 59
+        },
+        {
+          "newLines": 3,
+          "newStart": 83,
+          "oldLines": 0,
+          "oldStart": 64
+        },
+        {
+          "newLines": 6,
+          "newStart": 102,
+          "oldLines": 1,
+          "oldStart": 81
+        },
+        {
+          "newLines": 6,
+          "newStart": 120,
+          "oldLines": 0,
+          "oldStart": 93
+        },
+        {
+          "newLines": 5,
+          "newStart": 127,
+          "oldLines": 0,
+          "oldStart": 94
+        },
+        {
+          "newLines": 4,
+          "newStart": 134,
+          "oldLines": 1,
+          "oldStart": 97
+        }
+      ],
+      "path": "scripts/build-runtime-appliance-oci-fixture.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 26,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 26,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/create-runtime-appliance-certificate.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 39,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 39,
+          "newStart": 94,
+          "oldLines": 0,
+          "oldStart": 93
+        }
+      ],
+      "path": "scripts/deployment-artifact-roundtrip-gate.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 215,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 215,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/lib/runtime-appliance-certificate.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 143,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 143,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/runtime-appliance-certificate.test.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 26,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 26,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/verify-runtime-appliance-certificate.mjs",
+      "status": "added"
+    }
+  ],
+  "headSha": "750c4273cfd66ba1b0930e6045288ca72db95693",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 757,
+    "deletions": 186,
+    "filesChanged": 9
+  }
+}

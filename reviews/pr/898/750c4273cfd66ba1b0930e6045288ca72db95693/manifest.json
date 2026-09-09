@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "4d4485ee65e2a01e4c1af15ecc27e0076b4a1321",
+    "draft": false,
+    "headRef": "fix/894-certified-appliance-publication",
+    "headSha": "750c4273cfd66ba1b0930e6045288ca72db95693",
+    "number": 898,
+    "title": "fix(release): preserve certified Runtime Appliance identity through publication (#894)"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "750c4273cfd66ba1b0930e6045288ca72db95693",
+    "immutable": true,
+    "shortId": "750c4273cfd6"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-09T22:23:58.488Z"
+  }
+}
