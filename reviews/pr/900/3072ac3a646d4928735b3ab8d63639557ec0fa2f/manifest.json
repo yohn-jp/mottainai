@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "2434a7ad730656fd0405a59ba9d7092d2820580a",
+    "draft": false,
+    "headRef": "fix/899-dedupe-read-identity",
+    "headSha": "3072ac3a646d4928735b3ab8d63639557ec0fa2f",
+    "number": 900,
+    "title": "fix(context): bind read identity to authorized content"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "3072ac3a646d4928735b3ab8d63639557ec0fa2f",
+    "immutable": true,
+    "shortId": "3072ac3a646d"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-09T14:27:46.157Z"
+  }
+}

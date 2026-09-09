@@ -1,0 +1,228 @@
+{
+  "baseSha": "2434a7ad730656fd0405a59ba9d7092d2820580a",
+  "files": [
+    {
+      "additions": 55,
+      "deletions": 19,
+      "hunks": [
+        {
+          "newLines": 13,
+          "newStart": 262,
+          "oldLines": 13,
+          "oldStart": 262
+        },
+        {
+          "newLines": 1,
+          "newStart": 278,
+          "oldLines": 1,
+          "oldStart": 278
+        },
+        {
+          "newLines": 2,
+          "newStart": 290,
+          "oldLines": 3,
+          "oldStart": 290
+        },
+        {
+          "newLines": 1,
+          "newStart": 293,
+          "oldLines": 1,
+          "oldStart": 294
+        },
+        {
+          "newLines": 1,
+          "newStart": 321,
+          "oldLines": 1,
+          "oldStart": 322
+        },
+        {
+          "newLines": 37,
+          "newStart": 336,
+          "oldLines": 0,
+          "oldStart": 336
+        }
+      ],
+      "path": "src/context-runtime/dedupe.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 109,
+      "deletions": 13,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 10,
+          "oldLines": 0,
+          "oldStart": 9
+        },
+        {
+          "newLines": 41,
+          "newStart": 14,
+          "oldLines": 0,
+          "oldStart": 12
+        },
+        {
+          "newLines": 1,
+          "newStart": 59,
+          "oldLines": 1,
+          "oldStart": 17
+        },
+        {
+          "newLines": 1,
+          "newStart": 63,
+          "oldLines": 0,
+          "oldStart": 20
+        },
+        {
+          "newLines": 1,
+          "newStart": 65,
+          "oldLines": 0,
+          "oldStart": 21
+        },
+        {
+          "newLines": 1,
+          "newStart": 75,
+          "oldLines": 0,
+          "oldStart": 30
+        },
+        {
+          "newLines": 3,
+          "newStart": 80,
+          "oldLines": 0,
+          "oldStart": 34
+        },
+        {
+          "newLines": 1,
+          "newStart": 85,
+          "oldLines": 0,
+          "oldStart": 36
+        },
+        {
+          "newLines": 1,
+          "newStart": 90,
+          "oldLines": 0,
+          "oldStart": 40
+        },
+        {
+          "newLines": 5,
+          "newStart": 95,
+          "oldLines": 2,
+          "oldStart": 45
+        },
+        {
+          "newLines": 1,
+          "newStart": 109,
+          "oldLines": 0,
+          "oldStart": 55
+        },
+        {
+          "newLines": 5,
+          "newStart": 114,
+          "oldLines": 0,
+          "oldStart": 59
+        },
+        {
+          "newLines": 9,
+          "newStart": 211,
+          "oldLines": 2,
+          "oldStart": 152
+        },
+        {
+          "newLines": 8,
+          "newStart": 223,
+          "oldLines": 1,
+          "oldStart": 157
+        },
+        {
+          "newLines": 6,
+          "newStart": 249,
+          "oldLines": 1,
+          "oldStart": 176
+        },
+        {
+          "newLines": 1,
+          "newStart": 258,
+          "oldLines": 1,
+          "oldStart": 180
+        },
+        {
+          "newLines": 2,
+          "newStart": 261,
+          "oldLines": 1,
+          "oldStart": 183
+        },
+        {
+          "newLines": 1,
+          "newStart": 269,
+          "oldLines": 1,
+          "oldStart": 190
+        },
+        {
+          "newLines": 1,
+          "newStart": 274,
+          "oldLines": 1,
+          "oldStart": 195
+        },
+        {
+          "newLines": 1,
+          "newStart": 280,
+          "oldLines": 2,
+          "oldStart": 201
+        },
+        {
+          "newLines": 1,
+          "newStart": 282,
+          "oldLines": 0,
+          "oldStart": 203
+        },
+        {
+          "newLines": 9,
+          "newStart": 286,
+          "oldLines": 0,
+          "oldStart": 206
+        },
+        {
+          "newLines": 8,
+          "newStart": 299,
+          "oldLines": 0,
+          "oldStart": 210
+        }
+      ],
+      "path": "src/context-runtime/read-adapter.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 20,
+      "deletions": 17,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 22,
+          "oldLines": 3,
+          "oldStart": 22
+        },
+        {
+          "newLines": 2,
+          "newStart": 1019,
+          "oldLines": 2,
+          "oldStart": 1019
+        },
+        {
+          "newLines": 15,
+          "newStart": 1022,
+          "oldLines": 12,
+          "oldStart": 1022
+        }
+      ],
+      "path": "src/local-tools.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "3072ac3a646d4928735b3ab8d63639557ec0fa2f",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 184,
+    "deletions": 49,
+    "filesChanged": 3
+  }
+}

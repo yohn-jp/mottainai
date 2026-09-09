@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #900 @ 3072ac3a646d</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #900: fix(context): bind read identity to authorized content</h1>
+<p>Base <code>main</code> @ <code>2434a7ad730656fd0405a59ba9d7092d2820580a</code> &rarr;
+Head <code>fix/899-dedupe-read-identity</code> @ <code>3072ac3a646d4928735b3ab8d63639557ec0fa2f</code></p>
+<p>Revision <code>3072ac3a646d</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/899">#899</a> fix(context): drop dedupe identity when authorized read content changes after inspection (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] `readTool` returns no dedupe/content identity when the content used for inspection differs from the bytes actually authorized/read.</li>
+<li>[ ] The same-size + restored-mtime rewrite case fails closed; stat metadata must not substitute for content verification.</li>
+<li>[ ] The implementation preserves #889&#39;s descriptor-bound path confinement and does not reintroduce separate path-based read authority.</li>
+<li>[ ] Identity remains present for an unchanged file and is derived from the exact content actually returned/projected.</li>
+<li>[ ] The two existing `dedupe.test.ts` regressions pass without weakening their assertions.</li>
+<li>[ ] Focused tests cover in-place rewrite, same-size/mtime-restored rewrite, unchanged content, and any relevant bounded-range path.</li>
+<li>[ ] `pnpm test` passes on the resulting branch.</li></ul>
+
+
+
+<h2>Changed files (3, +184/-49)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>src/context-runtime/dedupe.test.ts</td><td>modified</td><td>+55</td><td>-19</td></tr>
+<tr><td>src/context-runtime/read-adapter.ts</td><td>modified</td><td>+109</td><td>-13</td></tr>
+<tr><td>src/local-tools.ts</td><td>modified</td><td>+20</td><td>-17</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

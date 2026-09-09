@@ -1,0 +1,43 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "`readTool` returns no dedupe/content identity when the content used for inspection differs from the bytes actually authorized/read."
+    },
+    {
+      "checked": false,
+      "text": "The same-size + restored-mtime rewrite case fails closed; stat metadata must not substitute for content verification."
+    },
+    {
+      "checked": false,
+      "text": "The implementation preserves #889's descriptor-bound path confinement and does not reintroduce separate path-based read authority."
+    },
+    {
+      "checked": false,
+      "text": "Identity remains present for an unchanged file and is derived from the exact content actually returned/projected."
+    },
+    {
+      "checked": false,
+      "text": "The two existing `dedupe.test.ts` regressions pass without weakening their assertions."
+    },
+    {
+      "checked": false,
+      "text": "Focused tests cover in-place rewrite, same-size/mtime-restored rewrite, unchanged content, and any relevant bounded-range path."
+    },
+    {
+      "checked": false,
+      "text": "`pnpm test` passes on the resulting branch."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 899,
+    "state": "open",
+    "title": "fix(context): drop dedupe identity when authorized read content changes after inspection",
+    "url": "https://github.com/yohn-jp/mottainai/issues/899"
+  },
+  "linked": {
+    "number": 899
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
