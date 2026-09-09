@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #895 @ 4488a8ee1a50</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #895: fix(runtime): bind Lima smoke to active managed generation</h1>
+<p>Base <code>main</code> @ <code>6c3e43099c4ce10b02d57e4a89ad4a30df4fe673</code> &rarr;
+Head <code>fix/893-active-generation-smoke</code> @ <code>4488a8ee1a50f630f1c6b7b80cd7c3b3f8f01d83</code></p>
+<p>Revision <code>4488a8ee1a50</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/893">#893</a> fix(runtime): bind CLI and MCP functional smoke to the active managed generation (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Functional CLI smoke resolves and executes `mottainai` from the exact active managed generation/store path.</li>
+<li>[ ] MCP protocol smoke resolves and executes `mottainai-mcp` from the same exact active managed generation/store path.</li>
+<li>[ ] The smoke path is derived from canonical managed-generation state/metadata rather than ambient `PATH`.</li>
+<li>[ ] A deliberately conflicting ambient `mottainai`/`mottainai-mcp` cannot satisfy the smoke.</li>
+<li>[ ] Missing or non-executable binaries in the active generation fail closed and prevent `managedRuntimeReady` certification.</li>
+<li>[ ] Evidence records the active generation identity and executable paths used for the CLI/MCP smoke.</li>
+<li>[ ] Regression coverage proves direct Route 3 -&gt; 2 -&gt; 1 and Lima/provider smoke use the same semantic executable authority.</li>
+<li>[ ] Existing bounded MCP protocol timeout/diagnostics remain intact.</li></ul>
+
+
+
+<h2>Changed files (1, +218/-15)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>host-bootstrap/src/lima.rs</td><td>modified</td><td>+218</td><td>-15</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
