@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
+import path from "node:path";
 import type { NormalizedReadRequest, ReadFileMetadata } from "./read-policy.js";
 
 const READ_SCAN_CHUNK_BYTES = 64 * 1024;
@@ -10,8 +11,11 @@ export interface InspectedReadFile extends ReadFileMetadata {
 }
 
 /** 本文を保持せず、指定 file の SHA-256 と line metadata をストリーミングで計算する。 */
-async function scanFile(filePath: string): Promise<{ contentHash: string; lineByteLengths: number[]; byteSize: number }> {
-  const handle = await fs.open(filePath, "r");
+async function scanFile(
+  filePath: string,
+  authorizedRoot?: string,
+): Promise<{ contentHash: string; lineByteLengths: number[]; byteSize: number }> {
+  const handle = await openReadDescriptor(filePath, authorizedRoot);
   const buffer = Buffer.alloc(READ_SCAN_CHUNK_BYTES);
   const lineByteLengths: number[] = [];
   const contentHasher = createHash("sha256");
@@ -43,8 +47,8 @@ async function scanFile(filePath: string): Promise<{ contentHash: string; lineBy
 }
 
 /** 本文を保持せず、policy判定に必要なbyte/line metadataだけ収集する。 */
-export async function inspectReadFile(filePath: string): Promise<InspectedReadFile> {
-  const scanned = await scanFile(filePath);
+export async function inspectReadFile(filePath: string, authorizedRoot?: string): Promise<InspectedReadFile> {
+  const scanned = await scanFile(filePath, authorizedRoot);
   return {
     lineCount: scanned.lineByteLengths.length,
     byteSize: scanned.byteSize,
@@ -62,9 +66,13 @@ export async function inspectReadFile(filePath: string): Promise<InspectedReadFi
  * 束縛されている保証がないということなので、呼び出し側は fail-closed に identity
  * を破棄する。
  */
-export async function verifyFileContentUnchanged(filePath: string, expected: { contentHash: string }): Promise<boolean> {
+export async function verifyFileContentUnchanged(
+  filePath: string,
+  expected: { contentHash: string },
+  authorizedRoot?: string,
+): Promise<boolean> {
   try {
-    const rescanned = await scanFile(filePath);
+    const rescanned = await scanFile(filePath, authorizedRoot);
     return rescanned.contentHash === expected.contentHash;
   } catch {
     return false;
@@ -77,12 +85,70 @@ function lineStartByte(metadata: InspectedReadFile, line: number): number {
   return offset;
 }
 
-/** policy通過済みの明示範囲だけbyte offsetで再読する。 */
+/**
+ * fd を開いた直後に、その同一 fd へ fstat する共通ガード。
+ *
+ * readTool は authorizedRoot を渡して open 後の fd 実体も root 境界で検証する。
+ * resolveInside の realpath 検査から
+ * この open() 自体はパス文字列で行われるため、検査から open までの間に祖先ディレクトリが
+ * symlink に置き換えられても、外部へ解決された fd は fail-closed で破棄する。
+ * ここで保証しているのは、一度 open
+ * できた fd に対して fstat と実際の読み取りを両方バインドすることで、
+ * 「fstat で見た種別・inode」と「実際に読んだ bytes」が同一スナップショットから
+ * 来ることは保証する（stat(path) → 別の open(path) → read という別々パス解決を
+ * 挟まない）。procfs が利用できない環境では fd/path の identity も比較する。
+ */
+async function assertRegularFile(handle: fs.FileHandle): Promise<void> {
+  const stats = await handle.stat();
+  if (!stats.isFile()) throw new Error("path must be a file");
+}
+
+/**
+ * 開いた fd の実体が認可済み root の内側にあることを確認する。
+ * resolveInside() は fd を保持しないため、検査後に祖先を差し替えられると
+ * open(path) が別の実体を選ぶ可能性がある。open 後に procfs の fd 実体を
+ * realpath して再度 root 境界を確認し、外部へ解決された場合は bytes を返さず
+ * fail-closed にする。procfs がない環境では path の再解決と fd/path の stat
+ * identity 比較にフォールバックする。
+ */
+async function assertDescriptorInsideRoot(
+  handle: fs.FileHandle,
+  filePath: string,
+  authorizedRoot: string,
+): Promise<void> {
+  const rootReal = await fs.realpath(authorizedRoot);
+  let resolvedDescriptor: string;
+  try {
+    resolvedDescriptor = await fs.realpath(`/proc/self/fd/${handle.fd}`);
+  } catch {
+    resolvedDescriptor = await fs.realpath(filePath);
+    const [descriptorStats, pathStats] = await Promise.all([handle.stat(), fs.stat(filePath)]);
+    if (descriptorStats.dev !== pathStats.dev || descriptorStats.ino !== pathStats.ino)
+      throw new Error("path changed while opening");
+  }
+  if (resolvedDescriptor !== rootReal && !resolvedDescriptor.startsWith(`${rootReal}${path.sep}`))
+    throw new Error("path resolves outside workspaceRoot");
+}
+
+async function openReadDescriptor(filePath: string, authorizedRoot?: string): Promise<fs.FileHandle> {
+  const handle = await fs.open(filePath, "r");
+  try {
+    await assertRegularFile(handle);
+    if (authorizedRoot !== undefined) await assertDescriptorInsideRoot(handle, filePath, authorizedRoot);
+    return handle;
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    throw error;
+  }
+}
+
+/** policy通過済みの明示範囲だけbyte offsetで再読する。fstat と読み取りは同一 fd に束縛。 */
 async function readAuthorizedRange(
   filePath: string,
   metadata: InspectedReadFile,
   startLine: number,
   endLine: number,
+  authorizedRoot?: string,
 ): Promise<string> {
   if (startLine > metadata.lineCount) return "";
   const startByte = lineStartByte(metadata, startLine);
@@ -90,11 +156,12 @@ async function readAuthorizedRange(
   const length = Math.max(0, endByte - startByte);
   if (length === 0) return "";
 
-  const handle = await fs.open(filePath, "r");
+  const handle = await openReadDescriptor(filePath, authorizedRoot);
   const chunks: Buffer[] = [];
   let position = startByte;
   let remaining = length;
   try {
+    await assertRegularFile(handle);
     while (remaining > 0) {
       const chunk = Buffer.alloc(Math.min(READ_SCAN_CHUNK_BYTES, remaining));
       const { bytesRead } = await handle.read(chunk, 0, chunk.length, position);
@@ -109,19 +176,35 @@ async function readAuthorizedRange(
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/** 明示範囲なしの全文読み取り。open した fd に fstat し、同じ fd から読む（別 open で再解決しない）。 */
+async function readWholeFileByDescriptor(filePath: string, authorizedRoot?: string): Promise<string> {
+  const handle = await openReadDescriptor(filePath, authorizedRoot);
+  try {
+    return await handle.readFile("utf8");
+  } finally {
+    await handle.close();
+  }
+}
+
 /** normalized requestだけを実行。明示範囲ではファイル全体をmaterializeしない。 */
 export async function readAuthorizedFile(
   filePath: string,
   metadata: InspectedReadFile,
   request: NormalizedReadRequest,
+  authorizedRoot?: string,
 ): Promise<string> {
-  if (request.startLine === undefined || request.endLine === undefined) return fs.readFile(filePath, "utf8");
-  return readAuthorizedRange(filePath, metadata, request.startLine, request.endLine);
+  if (request.startLine === undefined || request.endLine === undefined)
+    return readWholeFileByDescriptor(filePath, authorizedRoot);
+  return readAuthorizedRange(filePath, metadata, request.startLine, request.endLine, authorizedRoot);
 }
 
 /** policy判定後のsemantic projectionだけが使う内部抽出用全体read。公開結果には直接返さない。 */
-export async function readSemanticInspectionSource(filePath: string, request: NormalizedReadRequest): Promise<string> {
+export async function readSemanticInspectionSource(
+  filePath: string,
+  request: NormalizedReadRequest,
+  authorizedRoot?: string,
+): Promise<string> {
   if (request.mode !== "outline" && request.mode !== "symbols")
     throw new Error("semantic inspection requires a semantic mode");
-  return fs.readFile(filePath, "utf8");
+  return readWholeFileByDescriptor(filePath, authorizedRoot);
 }
