@@ -259,23 +259,23 @@ test("result_get on two different read ranges of the same unchanged file never c
   }
 });
 
-// `fs.readFile` は read-adapter.ts が `import fs from "node:fs/promises"` で束縛
-// するのと同一のモジュール namespace object を指す。default export のプロパティ
-// は書き換え可能なため、readTool の実経路上で inspectReadFile が hash を確定
-// させた後・readAuthorizedFile がその bytes を実際に materialize する直前に
-// mutation を注入する race hook として使える（raw mode かつ範囲未指定の read は
-// readAuthorizedFile 内部で fs.readFile を呼ぶ）。
-async function withReadFileHook<T>(hook: () => Promise<void>, run: () => Promise<T>): Promise<T> {
-  const originalReadFile = fs.readFile;
-  (fs as { readFile: typeof fs.readFile }).readFile = (async (...args: Parameters<typeof fs.readFile>) => {
-    await hook();
-    (fs as { readFile: typeof fs.readFile }).readFile = originalReadFile;
-    return originalReadFile(...args);
-  }) as typeof fs.readFile;
+// readTool の実経路では inspectReadFile の fd が閉じた後に authorized read の fd が
+// 開かれる。fs.open を一度だけ wrap し、authorized fd が開かれた直後・その fd の
+// materialize 前に mutation を注入することで、#889 の fd-bound read を維持したまま
+// inspection/read 間の race を再現する。
+async function withAuthorizedReadHook<T>(hook: () => Promise<void>, run: () => Promise<T>): Promise<T> {
+  const originalOpen = fs.open;
+  let openCount = 0;
+  (fs as { open: typeof fs.open }).open = (async (...args: Parameters<typeof fs.open>) => {
+    const handle = await originalOpen(...args);
+    openCount += 1;
+    if (openCount === 2) await hook();
+    return handle;
+  }) as typeof fs.open;
   try {
     return await run();
   } finally {
-    (fs as { readFile: typeof fs.readFile }).readFile = originalReadFile;
+    (fs as { open: typeof fs.open }).open = originalOpen;
   }
 }
 
@@ -287,11 +287,10 @@ test("a file rewritten between hash inspection and authorized read never carries
     const config = resolveGatewayConfig({ workspaceRoot: root });
     const store = new InMemoryArtifactStore();
 
-    // inspectReadFile has already hashed the original content by the time
-    // readAuthorizedFile calls fs.readFile; rewrite right there, before the bytes
-    // are materialized.
+    // inspectReadFile has already hashed the original content by the time the
+    // authorized fd is opened; rewrite right there, before the bytes are materialized.
     const result = structured(
-      await withReadFileHook(
+      await withAuthorizedReadHook(
         () => fs.writeFile(filePath, "rewritten by a concurrent process\n".repeat(50)),
         () => callLocalTool("mottainai_read", { path: "sample.txt", mode: "raw" }, config, store),
       ),
@@ -319,7 +318,7 @@ test("a same-size rewrite with mtime restored to the original value still fails 
     assert.equal(Buffer.byteLength(rewritten, "utf8"), Buffer.byteLength(original, "utf8"));
 
     const result = structured(
-      await withReadFileHook(
+      await withAuthorizedReadHook(
         async () => {
           await fs.writeFile(filePath, rewritten);
           await fs.utimes(filePath, originalStat.atime, originalStat.mtime);
@@ -329,6 +328,43 @@ test("a same-size rewrite with mtime restored to the original value still fails 
     );
     assert.equal(result.identity, undefined, "identity must be dropped even when size/mtime were restored");
     assert.match(String(result.text), /line CONTENT here/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a bounded range rewrite drops identity while preserving the bounded returned range", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-dedupe-range-toctou-"));
+  try {
+    const filePath = path.join(root, "sample.txt");
+    const original =
+      Array.from({ length: 40 }, (_, index) => `line-${String(index + 1).padStart(2, "0")}`).join("\n") + "\n";
+    const rewrittenLines = original.trimEnd().split("\n");
+    rewrittenLines[9] = "LINE-10";
+    const rewritten = `${rewrittenLines.join("\n")}\n`;
+    assert.equal(Buffer.byteLength(rewritten, "utf8"), Buffer.byteLength(original, "utf8"));
+    await fs.writeFile(filePath, original);
+    const originalStat = await fs.stat(filePath);
+    const config = resolveGatewayConfig({ workspaceRoot: root });
+    const store = new InMemoryArtifactStore();
+
+    const result = structured(
+      await withAuthorizedReadHook(
+        async () => {
+          await fs.writeFile(filePath, rewritten);
+          await fs.utimes(filePath, originalStat.atime, originalStat.mtime);
+        },
+        () =>
+          callLocalTool(
+            "mottainai_read",
+            { path: "sample.txt", mode: "raw", startLine: 10, endLine: 10 },
+            config,
+            store,
+          ),
+      ),
+    );
+    assert.equal(result.identity, undefined, "identity must be dropped when a bounded range changes mid-read");
+    assert.equal(result.text, "LINE-10");
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
