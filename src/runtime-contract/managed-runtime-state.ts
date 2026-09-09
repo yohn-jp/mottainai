@@ -23,7 +23,14 @@ export const MANAGED_RUNTIME_STATE_RELATIVE_PATH = "managed-runtime/state.json" 
 export const MANAGED_RUNTIME_CURRENT_RELATIVE_PATH = "managed-runtime/current" as const;
 export const MANAGED_RUNTIME_MANIFEST_RELATIVE_PATH = "managed-packages/manifest.json" as const;
 export const MANAGED_RUNTIME_LOCK_RELATIVE_PATH = "managed-runtime/reconcile.lock" as const;
+/**
+ * Managed-generation roots are deliberately separate from the NixOS/system
+ * profile.  Nix treats symlinks below `gcroots` as durable roots, while the
+ * slot names below remain owned by the Route 2 managed-runtime lifecycle.
+ */
+export const MANAGED_RUNTIME_GC_ROOTS_RELATIVE_PATH = "managed-runtime/gc-roots" as const;
 export const MANAGED_RUNTIME_CONTROL_STATE_ROOT = "/var/lib/mottainai-control" as const;
+export const MANAGED_RUNTIME_GC_ROOTS_PATH = "/nix/var/nix/gcroots/mottainai-managed-runtime" as const;
 export const MANAGED_RUNTIME_STATE_FILE_PATH = path.join(
   MANAGED_RUNTIME_CONTROL_STATE_ROOT,
   MANAGED_RUNTIME_STATE_RELATIVE_PATH,
@@ -40,6 +47,9 @@ export const MANAGED_RUNTIME_LOCK_PATH = path.join(
   MANAGED_RUNTIME_CONTROL_STATE_ROOT,
   MANAGED_RUNTIME_LOCK_RELATIVE_PATH,
 );
+
+export const MANAGED_RUNTIME_RETENTION_SLOTS = ["active", "previous", "candidate"] as const;
+export type ManagedRuntimeRetentionSlot = (typeof MANAGED_RUNTIME_RETENTION_SLOTS)[number];
 
 export const MANAGED_RUNTIME_ACTIVATION_PHASES = [
   "idle",
@@ -64,6 +74,7 @@ export const MANAGED_RUNTIME_FAILURE_CODES = [
   "ambiguous_activation",
   "state_corrupt",
   "pointer_corrupt",
+  "retention_failure",
 ] as const;
 export type ManagedRuntimeFailureCode = (typeof MANAGED_RUNTIME_FAILURE_CODES)[number];
 
@@ -200,6 +211,7 @@ export interface ManagedRuntimePaths {
   readonly currentPointer: string;
   readonly manifestFile: string;
   readonly lockFile: string;
+  readonly gcRootsDirectory: string;
 }
 
 /** Compatibility aliases for consumers that call the pointer an activation path. */
@@ -222,6 +234,13 @@ export function resolveManagedRuntimePaths(
     currentPointer: path.join(root, MANAGED_RUNTIME_CURRENT_RELATIVE_PATH),
     manifestFile: path.join(root, MANAGED_RUNTIME_MANIFEST_RELATIVE_PATH),
     lockFile: path.join(root, MANAGED_RUNTIME_LOCK_RELATIVE_PATH),
+    // A non-production root is useful for isolated lifecycle tests.  The
+    // canonical appliance uses the Nix gcroots tree, not a state symlink that
+    // Nix would ignore during collection.
+    gcRootsDirectory:
+      root === MANAGED_RUNTIME_CONTROL_STATE_ROOT
+        ? MANAGED_RUNTIME_GC_ROOTS_PATH
+        : path.join(root, MANAGED_RUNTIME_GC_ROOTS_RELATIVE_PATH),
   };
 }
 
@@ -460,6 +479,115 @@ export function readManagedRuntimePointer(currentPointer: string): string | unde
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw new ManagedRuntimeStateError(
       `managed Runtime current pointer cannot be read: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+export interface ManagedRuntimeRetentionRoots {
+  readonly active?: string;
+  readonly previous?: string;
+  readonly candidate?: string;
+}
+
+function retentionRootPath(paths: ManagedRuntimePaths, slot: ManagedRuntimeRetentionSlot): string {
+  return path.join(paths.gcRootsDirectory, slot);
+}
+
+/**
+ * Read the lifecycle-owned Nix GC roots.  Missing roots are represented as
+ * absent slots; malformed/non-symlink roots fail closed rather than being
+ * treated as retention evidence.
+ */
+export function readManagedRuntimeRetentionRoots(paths: ManagedRuntimePaths): ManagedRuntimeRetentionRoots {
+  const roots: Partial<Record<ManagedRuntimeRetentionSlot, string>> = {};
+  for (const slot of MANAGED_RUNTIME_RETENTION_SLOTS) {
+    const root = retentionRootPath(paths, slot);
+    try {
+      const stat = fs.lstatSync(root);
+      if (!stat.isSymbolicLink()) {
+        throw new ManagedRuntimeStateError(`managed Runtime ${slot} retention root is not a symlink`);
+      }
+      const target = fs.readlinkSync(root);
+      const resolved = path.isAbsolute(target) ? target : path.resolve(path.dirname(root), target);
+      roots[slot] = assertManagedStorePath(resolved);
+    } catch (error) {
+      if (error instanceof ManagedRuntimeStateError) throw error;
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw new ManagedRuntimeStateError(
+        `managed Runtime ${slot} retention root cannot be read: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  return roots;
+}
+
+/**
+ * Update all lifecycle retention slots with a monotonic safety property:
+ * desired roots are installed before obsolete roots are removed.  Thus an
+ * interruption can leave a conservative superset of roots, never a gap that
+ * allows the only active/recovery output to be collected.  Each replacement
+ * is itself a same-directory atomic rename.
+ */
+export function updateManagedRuntimeRetentionRoots(
+  paths: ManagedRuntimePaths,
+  roots: ManagedRuntimeRetentionRoots,
+  boundaries: BoundaryOperations = DIRECT_BOUNDARIES,
+): void {
+  boundaries.file("managed-runtime-gc-roots.directory.create", () =>
+    fs.mkdirSync(paths.gcRootsDirectory, { recursive: true, mode: 0o700 }),
+  );
+  const normalized: Partial<Record<ManagedRuntimeRetentionSlot, string>> = {};
+  for (const slot of MANAGED_RUNTIME_RETENTION_SLOTS) {
+    const target = roots[slot];
+    if (target !== undefined) normalized[slot] = assertManagedStorePath(target);
+  }
+  const temporary: string[] = [];
+  try {
+    for (const slot of MANAGED_RUNTIME_RETENTION_SLOTS) {
+      const target = normalized[slot];
+      if (target === undefined) continue;
+      const root = retentionRootPath(paths, slot);
+      try {
+        const existing = fs.lstatSync(root);
+        if (!existing.isSymbolicLink()) {
+          throw new ManagedRuntimeStateError(`managed Runtime ${slot} retention root is not a symlink`);
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      const temp = `${root}.tmp-${randomUUID()}`;
+      temporary.push(temp);
+      boundaries.file("managed-runtime-gc-root.temp.create", () => fs.symlinkSync(target, temp));
+      boundaries.file("managed-runtime-gc-root.rename", () => fs.renameSync(temp, root));
+      temporary.splice(temporary.indexOf(temp), 1);
+    }
+    // Deletion is deliberately last.  An extra root after interruption is
+    // safe and can be reconciled on the next lifecycle transition.
+    for (const slot of MANAGED_RUNTIME_RETENTION_SLOTS) {
+      if (normalized[slot] !== undefined) continue;
+      const root = retentionRootPath(paths, slot);
+      try {
+        const stat = fs.lstatSync(root);
+        if (!stat.isSymbolicLink()) {
+          throw new ManagedRuntimeStateError(`managed Runtime ${slot} retention root is not a symlink`);
+        }
+        boundaries.file("managed-runtime-gc-root.remove", () => fs.unlinkSync(root));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
+    syncDirectory(paths.gcRootsDirectory, boundaries, "managed-runtime-gc-roots");
+  } catch (error) {
+    for (const temp of temporary) {
+      try {
+        fs.unlinkSync(temp);
+      } catch {
+        // Best effort cleanup; an already-renamed root remains a valid root.
+      }
+    }
+    if (error instanceof ManagedRuntimeStateError) throw error;
+    throw new ManagedRuntimeStateError(
+      `managed Runtime retention root update failed: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }

@@ -512,6 +512,34 @@ test("reconcileHealthCheck fails closed when a candidate declares no package ide
   assert.match(typeof result === "object" && result !== null ? (result.reason ?? "") : "", /no package identities/u);
 });
 
+test("reconcileHealthCheck rejects a dangling store target and an incomplete Mottainai CLI/MCP generation", (t) => {
+  const dangling = reconcileHealthCheck({
+    generationIdentity: "dangling-generation",
+    storePath: "/nix/store/dangling-generation",
+    desiredManifestSemanticIdentity: "a".repeat(64),
+    compatibilityContractVersion: 1,
+    packageIds: ["nawabari"],
+  });
+  assert.equal(typeof dangling === "object" && dangling !== null ? dangling.healthy : dangling, false);
+  assert.match(typeof dangling === "object" && dangling !== null ? (dangling.reason ?? "") : "", /not realized/u);
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-reconcile-incomplete-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(dir, "bin"), { recursive: true });
+  const cli = path.join(dir, "bin", "mottainai");
+  fs.writeFileSync(cli, "#!/bin/sh\necho 0.9.3\n");
+  fs.chmodSync(cli, 0o755);
+  const incomplete = reconcileHealthCheck({
+    generationIdentity: "incomplete-generation",
+    storePath: dir,
+    desiredManifestSemanticIdentity: "a".repeat(64),
+    compatibilityContractVersion: 1,
+    packageIds: ["mottainai"],
+  });
+  assert.equal(typeof incomplete === "object" && incomplete !== null ? incomplete.healthy : incomplete, false);
+  assert.match(typeof incomplete === "object" && incomplete !== null ? (incomplete.reason ?? "") : "", /mcp/u);
+});
+
 test("reconcileHealthCheck proves a real executable and fails closed on a real execution failure", (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-reconcile-health-check-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

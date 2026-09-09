@@ -54,6 +54,8 @@ let
     activationPhase = "idle";
     activeGenerationIdentity = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     activeStorePath = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-mottainai-managed-generation";
+    activeGenerationRealized = true;
+    activeRequiredExecutablesPresent = true;
     observedGenerationIdentity = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     observedStorePath = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-mottainai-managed-generation";
     state = {
@@ -145,6 +147,18 @@ pkgs.runCommand "mottainai-managed-runtime-health-smoke"
     ${assertResult "no-pointer" (healthyStatus {
       observedGenerationIdentity = null;
       observedStorePath = null;
+    }) {
+      expectedReadiness = "bootstrap-ready";
+      expectedManagedRuntimeReady = "false";
+      expectedReconciliation = "current";
+    }}
+
+    # 4e. The persisted pointer and identities can agree while the store
+    # output has disappeared or its required CLI/MCP entrypoints are absent;
+    # realization evidence is therefore independently required.
+    ${assertResult "dangling-generation" (healthyStatus {
+      activeGenerationRealized = false;
+      activeRequiredExecutablesPresent = false;
     }) {
       expectedReadiness = "bootstrap-ready";
       expectedManagedRuntimeReady = "false";
