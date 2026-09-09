@@ -1,0 +1,336 @@
+{
+  "baseSha": "11bba9ad7c20e04fe00b5b09a338b8625206a44d",
+  "files": [
+    {
+      "additions": 13,
+      "deletions": 7,
+      "hunks": [
+        {
+          "newLines": 7,
+          "newStart": 220,
+          "oldLines": 5,
+          "oldStart": 220
+        },
+        {
+          "newLines": 1,
+          "newStart": 228,
+          "oldLines": 1,
+          "oldStart": 226
+        },
+        {
+          "newLines": 1,
+          "newStart": 230,
+          "oldLines": 1,
+          "oldStart": 228
+        },
+        {
+          "newLines": 4,
+          "newStart": 233,
+          "oldLines": 0,
+          "oldStart": 230
+        }
+      ],
+      "path": "docs/architecture/runtime/lifecycle.md",
+      "status": "modified"
+    },
+    {
+      "additions": 20,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 14,
+          "newStart": 38,
+          "oldLines": 0,
+          "oldStart": 37
+        },
+        {
+          "newLines": 6,
+          "newStart": 279,
+          "oldLines": 0,
+          "oldStart": 264
+        }
+      ],
+      "path": "docs/contracts/runtime/state.md",
+      "status": "modified"
+    },
+    {
+      "additions": 7,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 36,
+          "oldLines": 1,
+          "oldStart": 36
+        },
+        {
+          "newLines": 2,
+          "newStart": 61,
+          "oldLines": 0,
+          "oldStart": 59
+        },
+        {
+          "newLines": 3,
+          "newStart": 74,
+          "oldLines": 1,
+          "oldStart": 71
+        }
+      ],
+      "path": "nix/managed-runtime-health.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 14,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 57,
+          "oldLines": 0,
+          "oldStart": 56
+        },
+        {
+          "newLines": 12,
+          "newStart": 156,
+          "oldLines": 0,
+          "oldStart": 153
+        }
+      ],
+      "path": "nix/tests/managed-runtime-health.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 28,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 28,
+          "newStart": 515,
+          "oldLines": 0,
+          "oldStart": 514
+        }
+      ],
+      "path": "src/bootstrap/cli.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 13,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 15,
+          "oldLines": 0,
+          "oldStart": 14
+        },
+        {
+          "newLines": 12,
+          "newStart": 250,
+          "oldLines": 0,
+          "oldStart": 248
+        }
+      ],
+      "path": "src/bootstrap/cli.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 128,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 6,
+          "newStart": 26,
+          "oldLines": 0,
+          "oldStart": 25
+        },
+        {
+          "newLines": 1,
+          "newStart": 33,
+          "oldLines": 0,
+          "oldStart": 26
+        },
+        {
+          "newLines": 3,
+          "newStart": 51,
+          "oldLines": 0,
+          "oldStart": 43
+        },
+        {
+          "newLines": 1,
+          "newStart": 77,
+          "oldLines": 0,
+          "oldStart": 66
+        },
+        {
+          "newLines": 1,
+          "newStart": 214,
+          "oldLines": 0,
+          "oldStart": 202
+        },
+        {
+          "newLines": 7,
+          "newStart": 237,
+          "oldLines": 0,
+          "oldStart": 224
+        },
+        {
+          "newLines": 109,
+          "newStart": 486,
+          "oldLines": 0,
+          "oldStart": 466
+        }
+      ],
+      "path": "src/runtime-contract/managed-runtime-state.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 20,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 24,
+          "oldLines": 0,
+          "oldStart": 23
+        },
+        {
+          "newLines": 1,
+          "newStart": 26,
+          "oldLines": 0,
+          "oldStart": 24
+        },
+        {
+          "newLines": 3,
+          "newStart": 242,
+          "oldLines": 0,
+          "oldStart": 239
+        },
+        {
+          "newLines": 3,
+          "newStart": 279,
+          "oldLines": 0,
+          "oldStart": 273
+        },
+        {
+          "newLines": 4,
+          "newStart": 299,
+          "oldLines": 0,
+          "oldStart": 290
+        },
+        {
+          "newLines": 5,
+          "newStart": 470,
+          "oldLines": 0,
+          "oldStart": 457
+        },
+        {
+          "newLines": 3,
+          "newStart": 506,
+          "oldLines": 0,
+          "oldStart": 488
+        }
+      ],
+      "path": "src/runtime-contract/managed-runtime.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 108,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 22,
+          "oldLines": 0,
+          "oldStart": 21
+        },
+        {
+          "newLines": 4,
+          "newStart": 168,
+          "oldLines": 0,
+          "oldStart": 166
+        },
+        {
+          "newLines": 45,
+          "newStart": 176,
+          "oldLines": 0,
+          "oldStart": 170
+        },
+        {
+          "newLines": 28,
+          "newStart": 748,
+          "oldLines": 0,
+          "oldStart": 697
+        },
+        {
+          "newLines": 5,
+          "newStart": 910,
+          "oldLines": 0,
+          "oldStart": 831
+        },
+        {
+          "newLines": 1,
+          "newStart": 953,
+          "oldLines": 0,
+          "oldStart": 869
+        },
+        {
+          "newLines": 1,
+          "newStart": 999,
+          "oldLines": 0,
+          "oldStart": 914
+        },
+        {
+          "newLines": 1,
+          "newStart": 1049,
+          "oldLines": 0,
+          "oldStart": 963
+        },
+        {
+          "newLines": 1,
+          "newStart": 1150,
+          "oldLines": 0,
+          "oldStart": 1063
+        },
+        {
+          "newLines": 9,
+          "newStart": 1165,
+          "oldLines": 0,
+          "oldStart": 1077
+        },
+        {
+          "newLines": 3,
+          "newStart": 1384,
+          "oldLines": 0,
+          "oldStart": 1287
+        },
+        {
+          "newLines": 4,
+          "newStart": 1488,
+          "oldLines": 0,
+          "oldStart": 1388
+        },
+        {
+          "newLines": 1,
+          "newStart": 1543,
+          "oldLines": 0,
+          "oldStart": 1439
+        },
+        {
+          "newLines": 4,
+          "newStart": 1621,
+          "oldLines": 0,
+          "oldStart": 1516
+        }
+      ],
+      "path": "src/runtime-contract/managed-runtime.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "cac53e41c86e14b6ab41beda428fc90774a8e2b1",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 351,
+    "deletions": 9,
+    "filesChanged": 9
+  }
+}

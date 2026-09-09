@@ -1,0 +1,51 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Active managed generation is retained by an explicit durable GC-root/profile mechanism owned by the managed Runtime lifecycle."
+    },
+    {
+      "checked": false,
+      "text": "Previous and candidate generations required for rollback/recovery are retained for exactly the documented lifecycle window."
+    },
+    {
+      "checked": false,
+      "text": "Activation/replacement updates retention transactionally so interruption cannot silently collect the only recoverable generation."
+    },
+    {
+      "checked": false,
+      "text": "Health rejects a missing/dangling active generation target."
+    },
+    {
+      "checked": false,
+      "text": "Health verifies the required active Mottainai CLI/MCP executable paths exist in the realized generation before reporting `managedRuntimeReady=true`."
+    },
+    {
+      "checked": false,
+      "text": "No-op reconciliation preserves the same active generation identity and retention roots."
+    },
+    {
+      "checked": false,
+      "text": "Update/rollback/recovery tests cover GC between lifecycle transitions and prove the active/recoverable generations remain usable."
+    },
+    {
+      "checked": false,
+      "text": "A focused regression test proves a dangling persisted pointer cannot satisfy readiness."
+    },
+    {
+      "checked": false,
+      "text": "Existing fail-closed and rollback semantics remain intact."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 891,
+    "state": "open",
+    "title": "fix(runtime): retain managed generations as durable GC roots and reject dangling readiness",
+    "url": "https://github.com/yohn-jp/mottainai/issues/891"
+  },
+  "linked": {
+    "number": 891
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

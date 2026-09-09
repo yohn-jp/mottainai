@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "11bba9ad7c20e04fe00b5b09a338b8625206a44d",
+    "draft": false,
+    "headRef": "fix/891-managed-generation-gc-roots",
+    "headSha": "cac53e41c86e14b6ab41beda428fc90774a8e2b1",
+    "number": 897,
+    "title": "fix(runtime): retain managed generations as durable GC roots"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "cac53e41c86e14b6ab41beda428fc90774a8e2b1",
+    "immutable": true,
+    "shortId": "cac53e41c86e"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-09T21:39:38.788Z"
+  }
+}
