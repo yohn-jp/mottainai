@@ -508,6 +508,10 @@ export function validateCoveragePolicy(policy) {
   if (typeof policy.baseline.measuredAt !== "string" || policy.baseline.measuredAt.length === 0) {
     throw new Error("coverage policy baseline measuredAt is required");
   }
+  if (typeof policy.baseline.sourceRevision !== "string" || policy.baseline.sourceRevision.length === 0) {
+    throw new Error("coverage policy baseline sourceRevision is required");
+  }
+  validatePolicyReviewMetadata(policy);
   for (const metricName of metricNames) {
     assertPercent(policy.baseline.metrics?.[metricName], `baseline.metrics.${metricName}`);
     assertPercent(policy.baseline.thresholds?.[metricName], `baseline.thresholds.${metricName}`);
@@ -528,6 +532,14 @@ export function validateCoveragePolicy(policy) {
     if (typeof modulePolicy.reason !== "string" || modulePolicy.reason.length === 0) {
       throw new Error(`critical module reason is required: ${modulePolicy.path}`);
     }
+    if (modulePolicy.testFiles !== undefined) {
+      if (
+        !Array.isArray(modulePolicy.testFiles) ||
+        modulePolicy.testFiles.some((testFile) => typeof testFile !== "string" || testFile.length === 0)
+      ) {
+        throw new Error(`critical module testFiles must be an array of non-empty strings: ${modulePolicy.path}`);
+      }
+    }
     for (const metricName of metricNames) {
       assertPercent(modulePolicy.thresholds?.[metricName], `${modulePolicy.path}.${metricName}`);
       if (modulePolicy.thresholds[metricName] < policy.baseline.thresholds[metricName]) {
@@ -538,9 +550,100 @@ export function validateCoveragePolicy(policy) {
   return policy;
 }
 
+// Numeric coverage provenance and policy-review provenance are deliberately separate. A
+// taxonomy review may happen without a successful measurement; it must not make an old
+// measuredAt/sourceRevision pair look like a fresh coverage attestation.
+export function validatePolicyReviewMetadata(policy) {
+  const review = policy?.policyReview;
+  if (review === null || typeof review !== "object") {
+    throw new Error("coverage policy policyReview is required");
+  }
+  if (typeof review.reviewedAt !== "string" || review.reviewedAt.length === 0) {
+    throw new Error("coverage policy policyReview.reviewedAt is required");
+  }
+  if (Number.isNaN(new Date(review.reviewedAt).getTime())) {
+    throw new Error(`coverage policy policyReview.reviewedAt is not a valid date: ${review.reviewedAt}`);
+  }
+  if (typeof review.policyReviewedRevision !== "string" || !/^[0-9a-f]{40}$/u.test(review.policyReviewedRevision)) {
+    throw new Error("coverage policy policyReview.policyReviewedRevision must be a full commit SHA");
+  }
+}
+
+// The baseline records when the numeric coverage metrics were actually measured. Without a
+// freshness check that measurement silently rots while the source tree changes. A policy
+// review that does not rerun measurement belongs in policyReview, not in these fields.
+export const COVERAGE_BASELINE_MAX_AGE_DAYS = 120;
+
+export function assertBaselineNotStale(policy, options = {}) {
+  const now = options.now ?? new Date();
+  const maxAgeDays = options.maxAgeDays ?? COVERAGE_BASELINE_MAX_AGE_DAYS;
+  if (typeof policy.baseline.sourceRevision !== "string" || policy.baseline.sourceRevision.length === 0) {
+    throw new Error("coverage policy baseline.sourceRevision is required");
+  }
+  const measuredAt = new Date(policy.baseline.measuredAt);
+  if (Number.isNaN(measuredAt.getTime())) {
+    throw new Error(`coverage policy baseline.measuredAt is not a valid date: ${policy.baseline.measuredAt}`);
+  }
+  const ageDays = (now.getTime() - measuredAt.getTime()) / (24 * 60 * 60 * 1000);
+  if (ageDays > maxAgeDays) {
+    throw new Error(
+      `coverage policy baseline is stale: measuredAt ${policy.baseline.measuredAt} is ${Math.floor(ageDays)} day(s) old (max ${maxAgeDays}); re-review criticalModules against the current tree and update baseline.measuredAt/sourceRevision`,
+    );
+  }
+  if (ageDays < 0) {
+    throw new Error(`coverage policy baseline.measuredAt ${policy.baseline.measuredAt} is in the future`);
+  }
+}
+
+// A criticalModules entry may record the dedicated test file(s) it relied on when the
+// entry's thresholds were set (see coverage-policy.json). If one of those files disappears
+// without the policy being updated to match, that is exactly the silent-regression scenario
+// criticalModules exists to prevent — so treat it as a hard failure rather than only
+// noticing later via a coverage percentage drop.
+export function assertCriticalModuleTestsPresent(policy, root = process.cwd()) {
+  const missing = [];
+  for (const modulePolicy of policy.criticalModules) {
+    for (const testFile of modulePolicy.testFiles ?? []) {
+      if (!fs.existsSync(path.resolve(root, testFile))) missing.push(`${modulePolicy.path} -> ${testFile}`);
+    }
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `critical module test file(s) are missing (removed without an accompanying coverage-policy.json update?): ${missing.join(", ")}`,
+    );
+  }
+}
+
 function findRecord(records, file) {
   const normalizedFile = normalizePath(file);
   return records.find((record) => record.file === normalizedFile || record.file.endsWith(`/${normalizedFile}`));
+}
+
+// A criticalModules path ending in "/*" names an entire directory (e.g. a module that is
+// several small files with no single dominant entry point, such as semantics/enforcement).
+// Its coverage is the aggregate of every record under that directory rather than one file.
+function isDirectoryModulePath(modulePath) {
+  return modulePath.endsWith("/*");
+}
+
+function findRecordsForModule(records, modulePath) {
+  if (!isDirectoryModulePath(modulePath)) {
+    const record = findRecord(records, modulePath);
+    return record ? [record] : [];
+  }
+  const prefix = normalizePath(modulePath.slice(0, -2));
+  return records.filter((record) => record.file === prefix || record.file.startsWith(`${prefix}/`));
+}
+
+function aggregateMetrics(matchedRecords) {
+  return Object.fromEntries(
+    metricNames.map((metricName) => {
+      const values = matchedRecords.map((record) => metricFromRecord(record, metricName));
+      const covered = values.reduce((sum, value) => sum + value.covered, 0);
+      const total = values.reduce((sum, value) => sum + value.total, 0);
+      return [metricName, { covered, total, percent: percentage(covered, total) }];
+    }),
+  );
 }
 
 export function evaluateCoverage(records, policy) {
@@ -554,12 +657,10 @@ export function evaluateCoverage(records, policy) {
   }
 
   const critical = policy.criticalModules.map((modulePolicy) => {
-    const record = findRecord(records, modulePolicy.path);
-    const metrics = record
-      ? Object.fromEntries(metricNames.map((metricName) => [metricName, metricFromRecord(record, metricName)]))
-      : undefined;
-    if (!record) failures.push(`critical module missing from coverage: ${modulePolicy.path}`);
-    if (record) {
+    const matchedRecords = findRecordsForModule(records, modulePolicy.path);
+    const metrics = matchedRecords.length > 0 ? aggregateMetrics(matchedRecords) : undefined;
+    if (matchedRecords.length === 0) failures.push(`critical module missing from coverage: ${modulePolicy.path}`);
+    if (matchedRecords.length > 0) {
       for (const metricName of metricNames) {
         const actual = metrics[metricName].percent;
         const threshold = modulePolicy.thresholds[metricName];
@@ -576,7 +677,10 @@ export function evaluateCoverage(records, policy) {
 function readPolicy(root) {
   const policyPath = path.join(root, "scripts", "coverage-policy.json");
   if (!fs.existsSync(policyPath)) throw new Error(`${policyPath} is missing; measure a baseline first`);
-  return JSON.parse(fs.readFileSync(policyPath, "utf8"));
+  const policy = JSON.parse(fs.readFileSync(policyPath, "utf8"));
+  assertBaselineNotStale(policy);
+  assertCriticalModuleTestsPresent(policy, root);
+  return policy;
 }
 
 function parseArguments(argumentsFromCommandLine) {

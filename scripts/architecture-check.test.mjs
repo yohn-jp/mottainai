@@ -109,7 +109,7 @@ test("dependency direction accepts downward edges and rejects upward edges", () 
 });
 
 test("test-support and e2e helpers may depend on any production layer, but nothing depends back", () => {
-  assert.equal(isDependencyAllowed("testInfrastructure", "persistence", "src/workflow/state/sqlite-store.ts"), true);
+  assert.equal(isDependencyAllowed("testInfrastructure", "workflowDomain", "src/workflow/state/sqlite-store.ts"), true);
   assert.equal(isDependencyAllowed("testInfrastructure", "entry", "src/index.ts"), true);
   assert.equal(isDependencyAllowed("shared", "testInfrastructure", "src/test-support/env.ts"), false);
   assert.equal(isDependencyAllowed("persistence", "testInfrastructure", "src/e2e/mcp-stdio.e2e.spec.ts"), false);
@@ -120,7 +120,7 @@ test("test-support and e2e helpers may depend on any production layer, but nothi
 // validateSourceText call never resolves into another file, so it can't exercise a
 // cross-file dependency-direction edge — these two cases use validateSourceTexts with a
 // stub second entry so the edge is actually checked, not skipped.
-test("testInfrastructure depending on persistence (test-support -> workflow state store) is accepted", () => {
+test("testInfrastructure depending on workflowDomain (test-support -> workflow state store) is accepted", () => {
   const diagnostics = validateSourceTexts([
     {
       fileName: "src/test-support/workflow-store.ts",
@@ -168,6 +168,42 @@ test("import-time-side-effect marker does not suppress unrelated top-level state
   const effects = diagnostics.filter((diagnostic) => diagnostic.ruleId === RULE_IDS.importTimeSideEffect);
   assert.equal(effects.length, 1);
   assert.equal(effects[0].line, 4);
+});
+
+// Mutation guard for Issue #876's re-derived workflow/semantics/context-runtime/manager
+// taxonomy: workflow/governance is a foundational leaf (no relative imports of its own,
+// depended on by workflowDomain and workflowCommands) and must never reach *up* into the
+// workflowDomain kernel it sits below. If a future edit to layerRules or layerForFile ever
+// widened workflowGovernance's allowed targets (or reclassified governance into the
+// domain kernel) enough to let this edge through, this test would start failing.
+test("a deliberately forbidden edge introduced across the new workflow taxonomy is rejected", () => {
+  const diagnostics = validateSourceTexts([
+    {
+      fileName: "src/workflow/governance/new-rule.ts",
+      sourceText: 'import { resolveRepoState } from "../domain/repo-state.js";\nexport { resolveRepoState };\n',
+    },
+    { fileName: "src/workflow/domain/repo-state.ts", sourceText: "export function resolveRepoState() {}\n" },
+  ]);
+  const violation = diagnostics.find((diagnostic) => diagnostic.ruleId === RULE_IDS.dependencyDirection);
+  assert.ok(violation, "expected a dependency-direction violation for workflowGovernance -> workflowDomain");
+  assert.match(violation.message, /workflowGovernance -> workflowDomain/u);
+});
+
+// Companion mutation guard for the same taxonomy in the other new subsystem: semantics/ir
+// is the foundational schema layer (Issue #876 found it has zero outgoing relative imports)
+// and must never reach up into semanticsCore.
+test("a deliberately forbidden edge from semantics/ir upward into semanticsCore is rejected", () => {
+  const diagnostics = validateSourceTexts([
+    {
+      fileName: "src/semantics/ir/new-schema.ts",
+      sourceText:
+        'import { createSemanticExecutionPlan } from "../execution-plan.js";\nexport { createSemanticExecutionPlan };\n',
+    },
+    { fileName: "src/semantics/execution-plan.ts", sourceText: "export function createSemanticExecutionPlan() {}\n" },
+  ]);
+  const violation = diagnostics.find((diagnostic) => diagnostic.ruleId === RULE_IDS.dependencyDirection);
+  assert.ok(violation, "expected a dependency-direction violation for semanticsIr -> semanticsCore");
+  assert.match(violation.message, /semanticsIr -> semanticsCore/u);
 });
 
 test("process termination is restricted to the entry boundary", () => {

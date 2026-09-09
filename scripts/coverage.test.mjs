@@ -5,20 +5,28 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import {
+  assertBaselineNotStale,
+  assertCriticalModuleTestsPresent,
   evaluateCoverage,
   mergeLcov,
   parseLcov,
   partitionTestFiles,
   summarizeCoverage,
   validateCoveragePolicy,
+  validatePolicyReviewMetadata,
 } from "./coverage.mjs";
 
 const validPolicy = {
   schemaVersion: 1,
   baseline: {
     measuredAt: "2026-08-08",
+    sourceRevision: "4c40896 (historical measurement)",
     metrics: { lines: 80, functions: 80, branches: 80 },
     thresholds: { lines: 70, functions: 70, branches: 70 },
+  },
+  policyReview: {
+    reviewedAt: "2026-09-09",
+    policyReviewedRevision: "0bca989877471c0ad9f09686c5453694672b7834",
   },
   criticalModules: [
     {
@@ -68,6 +76,17 @@ test("coverage policy rejects unsafe or ambiguous thresholds", () => {
   );
 });
 
+test("coverage measurement provenance stays separate from policy-review provenance", () => {
+  assert.doesNotThrow(() => validatePolicyReviewMetadata(validPolicy));
+  assert.equal(validPolicy.baseline.measuredAt, "2026-08-08");
+  assert.equal(validPolicy.policyReview.reviewedAt, "2026-09-09");
+  assert.throws(
+    () => validatePolicyReviewMetadata({ ...validPolicy, policyReview: { reviewedAt: "2026-09-09" } }),
+    /policyReviewedRevision must be a full commit SHA/u,
+  );
+  assert.throws(() => validateCoveragePolicy({ ...validPolicy, policyReview: undefined }), /policyReview is required/u);
+});
+
 test("coverage gate checks repository and critical-module thresholds", () => {
   const passing = evaluateCoverage(parseLcov(sampleLcov), validPolicy);
   assert.equal(passing.passed, true);
@@ -78,6 +97,110 @@ test("coverage gate checks repository and critical-module thresholds", () => {
   assert.equal(failing.passed, false);
   assert.ok(failing.failures.some((failure) => failure.includes("repository lines")));
   assert.ok(failing.failures.some((failure) => failure.includes("src/config.ts functions")));
+});
+
+test("a critical-module directory pattern aggregates every record under that directory", () => {
+  const directoryPolicy = {
+    ...validPolicy,
+    criticalModules: [
+      {
+        path: "src/semantics/enforcement/*",
+        reason: "enforcement policy is the final accept/reject boundary for semantic mutations",
+        thresholds: { lines: 70, functions: 70, branches: 70 },
+      },
+    ],
+  };
+  const lcov = [
+    "TN:",
+    "SF:src/semantics/enforcement/policy.ts",
+    "FNF:1",
+    "FNH:1",
+    "BRF:2",
+    "BRH:2",
+    "DA:1,1",
+    "LF:1",
+    "LH:1",
+    "end_of_record",
+    "TN:",
+    "SF:src/semantics/enforcement/service.ts",
+    "FNF:1",
+    "FNH:0",
+    "BRF:2",
+    "BRH:0",
+    "DA:1,0",
+    "LF:1",
+    "LH:0",
+    "end_of_record",
+  ].join("\n");
+  const result = evaluateCoverage(parseLcov(lcov), directoryPolicy);
+  assert.equal(result.critical[0].metrics.lines.covered, 1);
+  assert.equal(result.critical[0].metrics.lines.total, 2);
+  assert.equal(result.passed, false);
+  assert.ok(result.failures.some((failure) => failure.startsWith("src/semantics/enforcement/* lines")));
+
+  const missingPolicy = {
+    ...directoryPolicy,
+    criticalModules: [{ ...directoryPolicy.criticalModules[0], path: "src/semantics/missing-dir/*" }],
+  };
+  const missingResult = evaluateCoverage(parseLcov(lcov), missingPolicy);
+  assert.ok(missingResult.failures.some((failure) => failure.includes("critical module missing from coverage")));
+});
+
+// Mutation guard (Issue #876): the baseline attests "reviewed and accurate as of this
+// date/revision". A baseline that is never re-checked can silently drift from reality, so
+// assertBaselineNotStale must reject one that has aged past the configured threshold.
+test("a stale coverage baseline is rejected", () => {
+  const staleDate = "2020-01-01";
+  assert.throws(
+    () =>
+      assertBaselineNotStale(
+        { baseline: { measuredAt: staleDate, sourceRevision: "deadbeef" } },
+        { now: new Date("2020-06-01T00:00:00Z"), maxAgeDays: 120 },
+      ),
+    /stale/,
+  );
+  assert.doesNotThrow(() =>
+    assertBaselineNotStale(
+      { baseline: { measuredAt: staleDate, sourceRevision: "deadbeef" } },
+      { now: new Date("2020-02-01T00:00:00Z"), maxAgeDays: 120 },
+    ),
+  );
+  assert.throws(
+    () => assertBaselineNotStale({ baseline: { measuredAt: "not-a-date", sourceRevision: "deadbeef" } }),
+    /valid date/,
+  );
+  assert.throws(
+    () => assertBaselineNotStale({ baseline: { measuredAt: staleDate, sourceRevision: "" } }),
+    /sourceRevision is required/,
+  );
+});
+
+// Mutation guard (Issue #876): removing a critical module's dedicated test file without
+// also updating coverage-policy.json (dropping or replacing that testFiles entry) must fail
+// loudly here rather than being noticed only later as an unexplained coverage percentage
+// drop — this is the "test fails when a critical-module test is removed without an
+// accompanying policy update" acceptance criterion.
+test("removing a critical module's recorded test file without updating the policy fails the check", () => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-critical-test-"));
+  try {
+    const testFileRelative = "src/example.test.ts";
+    const testFileAbsolute = path.join(temporaryRoot, testFileRelative);
+    fs.mkdirSync(path.dirname(testFileAbsolute), { recursive: true });
+    fs.writeFileSync(testFileAbsolute, "// fixture\n");
+    const policy = {
+      ...validPolicy,
+      criticalModules: [{ ...validPolicy.criticalModules[0], testFiles: [testFileRelative] }],
+    };
+    assert.doesNotThrow(() => assertCriticalModuleTestsPresent(policy, temporaryRoot));
+
+    fs.rmSync(testFileAbsolute);
+    assert.throws(
+      () => assertCriticalModuleTestsPresent(policy, temporaryRoot),
+      /src\/config\.ts -> src\/example\.test\.ts/u,
+    );
+  } finally {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
 });
 
 test("coverage test files are partitioned exactly once across shards", () => {
