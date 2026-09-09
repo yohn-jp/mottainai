@@ -64,6 +64,8 @@ const stdoutBoundaryFiles = new Set([
   "src/workflow/domain/identity-resolve-worker.mjs",
   "src/workflow/domain/task-start-worker.mjs",
   "src/workflow/domain/task-lifecycle-transition-worker.mjs",
+  "src/semantics/source/store-persist-worker.mjs",
+  "src/semantics/source/store-lock-worker.mjs",
   // Issue #626's own narrow CLI boundary, deliberately independent of
   // src/cli.ts so bootstrap works without importing the full runtime.
   "src/bootstrap/cli.ts",
@@ -74,6 +76,7 @@ const processExitBoundaryFiles = new Set([
   "src/index.ts",
   "src/mcp.ts",
   "src/workflow/domain/identity-resolve-worker.mjs",
+  "src/semantics/source/store-lock-worker.mjs",
   // Issue #626's compiled executable entrypoint (see checkTopLevelExecution's boundary list above).
   "src/bootstrap/main.ts",
 ]);
@@ -87,6 +90,8 @@ const argvBoundaryFiles = new Set([
   "src/workflow/domain/identity-resolve-worker.mjs",
   "src/workflow/domain/task-start-worker.mjs",
   "src/workflow/domain/task-lifecycle-transition-worker.mjs",
+  "src/semantics/source/store-persist-worker.mjs",
+  "src/semantics/source/store-lock-worker.mjs",
   "src/bootstrap/main.ts",
 ]);
 
@@ -124,6 +129,7 @@ const pureTopLevelConstructors = new Set(["Date", "Map", "RegExp", "Set", "TextE
 const pureTopLevelCalls = new Set([
   "Array.from",
   "buildCapabilityIndex",
+  "diagnostic",
   "Math.round",
   "Object.create",
   "Object.entries",
@@ -422,6 +428,8 @@ function checkTopLevelExecution(sourceFile, root, diagnostics) {
     file === "src/workflow/domain/identity-resolve-worker.mjs" ||
     file === "src/workflow/domain/task-start-worker.mjs" ||
     file === "src/workflow/domain/task-lifecycle-transition-worker.mjs" ||
+    file === "src/semantics/source/store-persist-worker.mjs" ||
+    file === "src/semantics/source/store-lock-worker.mjs" ||
     // Issue #626's compiled executable entrypoint (nix/bootstrap.nix wraps
     // this file directly), independent of src/index.ts's boundary.
     file === "src/bootstrap/main.ts";

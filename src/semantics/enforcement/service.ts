@@ -11,7 +11,7 @@ import type {
 } from "../ir/types.js";
 import type { LogicalId } from "../ir/ids.js";
 import { compileRepositoryModel } from "../model/compiler.js";
-import { loadSemanticSource, persistSemanticMutation } from "../source/index.js";
+import { loadSemanticSourceWithFingerprint, persistSemanticMutation } from "../source/index.js";
 import { createSemanticMutationService } from "../mutations/index.js";
 import type { SemanticMutationRequest, SemanticMutationResult } from "../mutations/types.js";
 import { planMinimumSufficientVerification, type VerificationPlan } from "../verification/planner.js";
@@ -565,16 +565,42 @@ export async function evaluateSemanticEnforcement(
   };
 }
 
-/** The only supported programmatic declaration write path exposed to CLI/governance. */
+/** Bounds the load-apply-persist retry loop below: each attempt re-reads disk and rebases the
+ *  same request on top of whatever a concurrent writer just committed, so this is a ceiling on
+ *  contention, not a correctness parameter. */
+const APPLY_SEMANTIC_TRANSACTION_MAX_ATTEMPTS = 5;
+
+/**
+ * The only supported programmatic declaration write path exposed to CLI/governance.
+ *
+ * Persistence is compare-and-swapped against the actual on-disk state at commit time (see
+ * `persistSemanticMutation`): loading the source once and applying in-memory is not, by itself,
+ * proof nothing else has committed since, because a second, independently loaded instance of
+ * this same function cannot observe the first one's in-memory state. When persistence reports a
+ * conflict, this rebases by reloading the (now newer) disk state and reapplying the identical
+ * request on top of it — the existing in-memory apply()/digest logic already does the rebase
+ * math; only the source of the "current" base changes, from an in-process variable to disk.
+ * A request that pins `expectedSnapshotDigest` will fail the rebase deterministically instead of
+ * silently applying against a base the caller did not sign up for.
+ */
 export async function applySemanticTransaction(
   rootDir: string,
   request: SemanticMutationRequest,
 ): Promise<SemanticMutationResult> {
-  const loaded = await loadSemanticSource(rootDir);
-  if (!loaded.ok) return { ok: false, diagnostics: loaded.diagnostics };
-  const service = createSemanticMutationService(loaded.snapshot);
-  const plan = service.plan(request);
-  const result = service.apply(plan);
-  if (result.ok) await persistSemanticMutation(rootDir, result);
-  return result;
+  let lastConflict: readonly SemanticDiagnostic[] = [
+    { code: "semantic_persist_conflict", severity: "error", message: "semantic source persistence did not converge" },
+  ];
+  for (let attempt = 0; attempt < APPLY_SEMANTIC_TRANSACTION_MAX_ATTEMPTS; attempt += 1) {
+    const loaded = await loadSemanticSourceWithFingerprint(rootDir);
+    if (!loaded.ok) return { ok: false, diagnostics: loaded.diagnostics };
+    const baseFingerprint = loaded.fingerprint;
+    const service = createSemanticMutationService(loaded.snapshot);
+    const plan = service.plan(request);
+    const result = service.apply(plan);
+    if (!result.ok) return result;
+    const persisted = await persistSemanticMutation(rootDir, result, { expectedBaseFingerprint: baseFingerprint });
+    if (persisted.ok) return result;
+    lastConflict = persisted.diagnostics;
+  }
+  return { ok: false, diagnostics: lastConflict };
 }
