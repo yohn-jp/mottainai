@@ -358,6 +358,10 @@ jobs:
               - 'nix/tests/runtime-appliance-golden-path.nix'
               - 'scripts/build-runtime-appliance-manifest.mjs'
               - 'scripts/build-runtime-appliance-oci-fixture.mjs'
+              - 'scripts/create-runtime-appliance-certificate.mjs'
+              - 'scripts/lib/runtime-appliance-certificate.mjs'
+              - 'scripts/runtime-appliance-certificate.test.mjs'
+              - 'scripts/verify-runtime-appliance-certificate.mjs'
               - 'src/runtime-contract/appliance-manifest.ts'
               - 'src/runtime-contract/appliance-manifest.test.ts'
               - 'host-bootstrap/src/appliance.rs'
@@ -726,8 +730,8 @@ jobs:
 
       # Both an Appliance-defining PR and a trusted `main` integration run
       # validate the exact publishable appliance on this existing Nix
-      # runner/store, but neither persists the generated files - publication
-      # rebuilds independently below, only after this certification succeeds.
+      # runner/store. Trusted-main certification below persists the exact
+      # bytes and identity that publication is allowed to consume.
       - name: Build the canonical, self-bootable Runtime Appliance disk
         working-directory: nix
         run: nix build --no-update-lock-file --no-link .#runtime-appliance-image
@@ -947,6 +951,52 @@ jobs:
           cargo test --locked --manifest-path host-bootstrap/Cargo.toml \
             --test lima_composition_real -- --ignored --test-threads=1 --nocapture
 
+      # The trusted-main composition proof is the certification boundary for
+      # publication. Materialize one bounded certificate containing every
+      # byte identity that a later release job is allowed to publish. The
+      # release workflow consumes this artifact; it must never rebuild the
+      # Appliance independently from the same source inputs.
+      - name: Create the certified Runtime Appliance identity evidence (Issue #894)
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          SOURCE_REVISION: ${{ github.sha }}
+          CERTIFICATION_RUN_ID: ${{ github.run_id }}
+          CERTIFICATION_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          source_directory="$RUNNER_TEMP/runtime-appliance/x86_64-linux"
+          fixture_directory="$RUNNER_TEMP/runtime-appliance-oci-fixture"
+          certificate_directory="$RUNNER_TEMP/certified-runtime-appliance"
+          mkdir -p "$certificate_directory"
+          cp -- "$source_directory/mottainai-runtime-appliance.raw" "$certificate_directory/"
+          cp -- "$source_directory/runtime-appliance-manifest.json" "$certificate_directory/"
+          cp -- "$fixture_directory/mottainai-runtime-appliance.raw.zst" "$certificate_directory/"
+          cp -- "$fixture_directory/runtime-appliance-release-metadata.json" "$certificate_directory/"
+          cp -- "$fixture_directory/oci-manifest.json" "$certificate_directory/"
+          node scripts/create-runtime-appliance-certificate.mjs \
+            --directory "$certificate_directory" \
+            --source-revision "$SOURCE_REVISION" \
+            --workflow ci.yml \
+            --job runtime-appliance \
+            --run-id "$CERTIFICATION_RUN_ID" \
+            --run-attempt "$CERTIFICATION_RUN_ATTEMPT" \
+            --output "$certificate_directory/runtime-appliance-certification.json"
+          node scripts/verify-runtime-appliance-certificate.mjs \
+            --directory "$certificate_directory" \
+            --certificate "$certificate_directory/runtime-appliance-certification.json" \
+            --source-revision "$SOURCE_REVISION"
+          echo "CERTIFIED_RUNTIME_APPLIANCE_DIRECTORY=$certificate_directory" >> "$GITHUB_ENV"
+
+      - name: Upload the trusted-main certified Runtime Appliance (Issue #894)
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mottainai-runtime-appliance-certified-x86_64-linux
+          path: ${{ env.CERTIFIED_RUNTIME_APPLIANCE_DIRECTORY }}/*
+          if-no-files-found: error
+          retention-days: 14
+
   runtime-contract:
     name: Nix Runtime evaluation / image / VM test
     needs: [runtime-contract-changes, runtime-nix, runtime-vm, runtime-appliance]
@@ -992,6 +1042,8 @@ jobs:
     # push, and only after `runtime-contract` (which now includes the full
     # cross-boundary OCI/mottainai-init/golden-path certification on `main`,
     # not just the PR-tier build/manifest proof) has succeeded (Issue #768).
+    # This job forwards the exact certified bytes from runtime-appliance;
+    # rebuilding the Appliance here would reopen the #894 certification gap.
     # This publication job is intentionally skipped for pull_request events.
     if: >-
       github.event_name == 'push' &&
@@ -1003,7 +1055,7 @@ jobs:
       ) &&
       needs.runtime-contract.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -1012,58 +1064,38 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-
-      - name: Setup Node.js and pnpm with frozen-lockfile install for manifest generation
+      - name: Setup Node.js for certified artifact verification
         uses: yohn-jp/.github/.github/actions/setup-node-pnpm@main
         with:
           node-version: "24"
 
-      - name: Build the canonical, self-bootable Runtime Appliance disk
-        working-directory: nix
-        run: nix build --no-update-lock-file --no-link .#runtime-appliance-image
+      - name: Download the exact trusted-main certified Runtime Appliance
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: mottainai-runtime-appliance-certified-x86_64-linux
+          path: ${{ runner.temp }}/certified-runtime-appliance
 
-      - name: Generate and verify the bounded Runtime Appliance manifest
+      - name: Verify and forward the certified Runtime Appliance without rebuilding
         working-directory: nix
         shell: bash
+        env:
+          SOURCE_REVISION: ${{ github.sha }}
         run: |
           set -euo pipefail
-          image_output="$(nix build --no-update-lock-file --no-link --print-out-paths .#runtime-appliance-image)"
-          mottainai_version="$(nix eval --no-update-lock-file --raw .#packages.x86_64-linux.mottainai.version)"
-          nawabari_version="$(nix eval --no-update-lock-file --raw .#packages.x86_64-linux.nawabari.version)"
-          node ../scripts/build-runtime-appliance-manifest.mjs \
-            --architecture x86_64-linux \
-            --image-output "$image_output" \
-            --source-revision "${{ github.sha }}" \
-            --mottainai-version "$mottainai_version" \
-            --nawabari-version "$nawabari_version" \
-            --output "$RUNNER_TEMP/runtime-appliance"
-          manifest="$RUNNER_TEMP/runtime-appliance/x86_64-linux/runtime-appliance-manifest.json"
-          disk="$RUNNER_TEMP/runtime-appliance/x86_64-linux/mottainai-runtime-appliance.raw"
-          test -s "$manifest"
-          jq -e '
-            .contractId == "mottainai.linux-runtime-appliance.v1" and
-            .schemaVersion == 1 and
-            .architecture == "x86_64-linux" and
-            (.sourceRevision | test("^[0-9a-f]{40}$")) and
-            (.nixSystemClosure | startswith("/nix/store/")) and
-            .image.format == "raw" and
-            (.image.sha256 | test("^[0-9a-f]{64}$"))
-          ' "$manifest"
-          MANIFEST="$manifest" DISK="$disk" node --import tsx --input-type=module -e '
-            import { readRuntimeApplianceManifest, verifyRuntimeApplianceManifest } from "../src/runtime-contract/appliance-manifest.ts";
-            const manifest = readRuntimeApplianceManifest(process.env.MANIFEST);
-            verifyRuntimeApplianceManifest(manifest, process.env.DISK);
-          '
-          echo "RUNTIME_APPLIANCE_DIRECTORY=$RUNNER_TEMP/runtime-appliance/x86_64-linux" >> "$GITHUB_ENV"
+          certificate_directory="$RUNNER_TEMP/certified-runtime-appliance"
+          node ../scripts/verify-runtime-appliance-certificate.mjs \
+            --directory "$certificate_directory" \
+            --certificate "$certificate_directory/runtime-appliance-certification.json" \
+            --source-revision "$SOURCE_REVISION"
 
-      - name: Upload the Runtime Appliance disk and manifest as Actions artifacts
+          mkdir -p "$RUNNER_TEMP/runtime-appliance-forwarded"
+          cp -- "$certificate_directory"/* "$RUNNER_TEMP/runtime-appliance-forwarded/"
+          echo "RUNTIME_APPLIANCE_DIRECTORY=$RUNNER_TEMP/runtime-appliance-forwarded" >> "$GITHUB_ENV"
+
+      - name: Upload the certified Runtime Appliance as the canonical artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mottainai-runtime-appliance-x86_64-linux
-          path: |
-            ${{ env.RUNTIME_APPLIANCE_DIRECTORY }}/mottainai-runtime-appliance.raw
-            ${{ env.RUNTIME_APPLIANCE_DIRECTORY }}/runtime-appliance-manifest.json
+          path: ${{ env.RUNTIME_APPLIANCE_DIRECTORY }}/*
           if-no-files-found: error
           retention-days: 14
