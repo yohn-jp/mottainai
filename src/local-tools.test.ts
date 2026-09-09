@@ -11,9 +11,11 @@ import {
   localToolsFor,
   parseIssueViewOutput,
   parseRgJson,
+  resolveInside,
 } from "./local-tools.js";
 import type { ResolvedGatewayConfig } from "./config.js";
 import { DEFAULT_BURST_BUDGET_POLICY } from "./context-runtime/burst-budget.js";
+import { inspectReadFile, readAuthorizedFile } from "./context-runtime/read-adapter.js";
 import { ProcessRegistry } from "./context-runtime/process-registry.js";
 import { DEFAULT_AWAIT_POLICY } from "./context-runtime/poll-policy.js";
 import { InMemoryArtifactStore } from "./retrieve.js";
@@ -354,11 +356,13 @@ test("list rejects fractional limits through schema-derived runtime validation",
   const { root, config } = await workspace();
   try {
     await assert.rejects(
-      () => callLocalTool("mottainai_list", { path: ".", depth: 0, maxEntries: 1.5 }, config, new InMemoryArtifactStore()),
+      () =>
+        callLocalTool("mottainai_list", { path: ".", depth: 0, maxEntries: 1.5 }, config, new InMemoryArtifactStore()),
       /arguments\.maxEntries.*type/,
     );
     await assert.rejects(
-      () => callLocalTool("mottainai_list", { path: ".", depth: 0, maxBytes: 1.5 }, config, new InMemoryArtifactStore()),
+      () =>
+        callLocalTool("mottainai_list", { path: ".", depth: 0, maxBytes: 1.5 }, config, new InMemoryArtifactStore()),
       /arguments\.maxBytes.*type/,
     );
   } finally {
@@ -412,7 +416,12 @@ test("search uses a per-file sentinel to distinguish complete and truncated resu
     await fs.writeFile(path.join(root, "multi-b.txt"), "multi-overflow\n".repeat(2));
     const store = new InMemoryArtifactStore();
     const exact = structured(
-      await callLocalTool("mottainai_search", { query: "exact", path: "exact.txt", maxResults: 3 }, { ...config, maxOutputBytes: 64 * 1024 }, store),
+      await callLocalTool(
+        "mottainai_search",
+        { query: "exact", path: "exact.txt", maxResults: 3 },
+        { ...config, maxOutputBytes: 64 * 1024 },
+        store,
+      ),
     );
     assert.equal(exact.truncated, false);
     assert.equal((exact.metrics as Record<string, number>).observed_matches, 3);
@@ -441,7 +450,10 @@ test("search uses a per-file sentinel to distinguish complete and truncated resu
     const multipleGroups = multipleOverflow.groups as Array<{ matches: unknown[] }>;
     assert.equal(multipleOverflow.truncated, true);
     assert.equal((multipleOverflow.metrics as Record<string, number>).observed_matches, 4);
-    assert.equal(multipleGroups.reduce((count, group) => count + group.matches.length, 0), 3);
+    assert.equal(
+      multipleGroups.reduce((count, group) => count + group.matches.length, 0),
+      3,
+    );
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -2180,6 +2192,94 @@ test("read rejects a symlink that resolves outside workspaceRoot", async (t) => 
     const store = new InMemoryArtifactStore({ createId: () => "symlink" });
     await assert.rejects(
       () => callLocalTool("mottainai_read", { path: "src/outside.ts", mode: "raw" }, config, store),
+      /path resolves outside workspaceRoot/,
+    );
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(outside, { recursive: true, force: true });
+  }
+});
+
+// --- Issue #868: descriptor-bound read hardening ---------------------------------------------
+//
+// resolveInside() 検証は「パス文字列」を返すだけで fd は保持しない。実際に内容を返す
+// readAuthorizedFile()（context-runtime/read-adapter.ts）は、fd を open した直後に
+// 同一 fd へ fstat してから、同じ fd から読む: 「fstat で見た種別/inode」と
+// 「実際に返す bytes」は必ず同一スナップショットに束縛される。
+//
+// open() 自体は path 解決を行うが、open 後に fd の実体が workspaceRoot 内かを
+// 再確認する。祖先差し替えで外部を開いた場合は、外部 bytes を返さず拒否する。
+
+test("descriptor-bound mitigation: a fd opened for the confined file keeps returning its own inode's bytes even after the same path is replaced", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-local-tools-fdbind-"));
+  const target = path.join(root, "confined.txt");
+  await fs.writeFile(target, "original-confined-content\n");
+  try {
+    // readAuthorizedFile の全文読み取り経路（readWholeFileByDescriptor）が内部で行うのと
+    // 同じ手順: open → fstat → 同じ fd から read。ここでは open と read の間に実際に
+    // 差し替えを挟み、「一度掴んだ fd は元の inode を読み続ける」という、mitigation が
+    // 依拠している保証そのものを検証する。
+    const handle = await fs.open(target, "r");
+    try {
+      // open 完了後、同じパスを別 inode へ原子的に差し替える。
+      const replacement = path.join(root, "replacement.txt");
+      await fs.writeFile(replacement, "replaced-attacker-content\n");
+      await fs.rename(replacement, target);
+
+      const stats = await handle.stat();
+      assert.ok(stats.isFile());
+      const content = await handle.readFile("utf8");
+      // 差し替え後の内容ではなく、open した時点の inode の内容が返る。
+      assert.equal(content, "original-confined-content\n");
+    } finally {
+      await handle.close();
+    }
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("descriptor-bound read rejects an ancestor replacement that resolves outside workspaceRoot", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-local-tools-fdbind-gap-"));
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), "mottainai-local-tools-fdbind-outside-"));
+  const ancestor = path.join(root, "swap-target");
+  try {
+    await fs.mkdir(ancestor);
+    await fs.writeFile(path.join(ancestor, "file.txt"), "legit-content\n");
+    await fs.writeFile(path.join(outside, "file.txt"), "attacker-content\n");
+
+    // 1. 検証: resolveInside はこの時点で root 配下にあることを確認し、成功する。
+    const filePath = await resolveInside(root, "swap-target/file.txt");
+    const metadata = await inspectReadFile(filePath, root);
+
+    // 2. 検証「成功後」、readAuthorizedFile の open()「前」に、祖先ディレクトリを
+    //    workspace 外を指す symlink へ差し替える。
+    await fs.rm(ancestor, { recursive: true, force: true });
+    try {
+      await fs.symlink(outside, ancestor);
+    } catch (error: unknown) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EPERM" || code === "EACCES") {
+        t.skip("symlink creation unavailable");
+        return;
+      }
+      throw error;
+    }
+
+    // 3. resolveInside が返したパス文字列を再利用しても、open 後の fd 実体が
+    // workspace 外なら外部 bytes を返さず拒否する。
+    await assert.rejects(
+      () =>
+        readAuthorizedFile(
+          filePath,
+          metadata,
+          {
+            path: "swap-target/file.txt",
+            mode: "raw",
+            bounded: false,
+          },
+          root,
+        ),
       /path resolves outside workspaceRoot/,
     );
   } finally {

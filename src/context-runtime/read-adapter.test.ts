@@ -28,13 +28,18 @@ test("authorized bounded reads use UTF-8 byte boundaries", async () => {
   await fs.writeFile(filePath, "one\nあいう\n最後\n");
   try {
     const inspected = await inspectReadFile(filePath);
-    const result = await readAuthorizedFile(filePath, inspected, {
-      path: "multibyte.txt",
-      mode: "raw",
-      startLine: 2,
-      endLine: 2,
-      bounded: true,
-    });
+    const result = await readAuthorizedFile(
+      filePath,
+      inspected,
+      {
+        path: "multibyte.txt",
+        mode: "raw",
+        startLine: 2,
+        endLine: 2,
+        bounded: true,
+      },
+      root,
+    );
     assert.equal(result, "あいう");
     assert.equal(Buffer.byteLength(result, "utf8"), 9);
     assert.doesNotMatch(result, /最後/);

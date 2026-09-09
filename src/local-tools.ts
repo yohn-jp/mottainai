@@ -215,7 +215,10 @@ export const localTools: Tool[] = [
     description: "Search compact metadata and raw text from results in this MCP session.",
     inputSchema: {
       type: "object",
-      properties: { query: { type: "string", minLength: 1 }, maxResults: { type: "integer", minimum: 1, maximum: 100 } },
+      properties: {
+        query: { type: "string", minLength: 1 },
+        maxResults: { type: "integer", minimum: 1, maximum: 100 },
+      },
       required: ["query"],
       additionalProperties: false,
     },
@@ -404,6 +407,11 @@ function numberArg(args: Args, key: string): number | undefined {
   return candidate;
 }
 
+/**
+ * Resolve a requested path for callers that need a canonical path. This returns a
+ * path string rather than an fd, so readTool must still use the read adapter's
+ * descriptor-bound root check before returning file bytes.
+ */
 export async function resolveInside(root: string, requested?: string): Promise<string> {
   const rootReal = await fs.realpath(root);
   const candidate = path.resolve(rootReal, requested ?? ".");
@@ -461,7 +469,9 @@ async function execStartTool(
     return output(
       "exec_start",
       "failed",
-      capacity ? "FAIL resource: managed process active capacity exhausted" : "FAIL resource: managed process registry disposed",
+      capacity
+        ? "FAIL resource: managed process active capacity exhausted"
+        : "FAIL resource: managed process registry disposed",
       "",
       {
         error_code: error.code,
@@ -952,7 +962,7 @@ async function readTool(
     ...(numberArg(args, "startLine") === undefined ? {} : { startLine: numberArg(args, "startLine") }),
     ...(numberArg(args, "endLine") === undefined ? {} : { endLine: numberArg(args, "endLine") }),
   };
-  const metadata = await inspectReadFile(filePath);
+  const metadata = await inspectReadFile(filePath, config.workspaceRoot);
   const readGovernor = resolveReadGovernorPolicy(config.readGovernor ?? DEFAULT_READ_GOVERNOR_POLICY);
   const decision = decideRead(request, metadata, readGovernor);
   const relativePath = request.path || ".";
@@ -1004,17 +1014,23 @@ async function readTool(
     });
   }
 
-  const selected = await readAuthorizedFile(filePath, metadata, normalized);
+  // 実バイト列は fd-bound open+fstat+read を行い、open 後の fd 実体が
+  // workspaceRoot 外なら fail-closed する。
+  const selected = await readAuthorizedFile(filePath, metadata, normalized, config.workspaceRoot);
   const semanticSource =
     isSemanticMode(normalized.mode) && normalized.bounded
-      ? await readSemanticInspectionSource(filePath, normalized)
+      ? await readSemanticInspectionSource(filePath, normalized, config.workspaceRoot)
       : selected;
   // hash 計算 bytes と実際に返す bytes を束縛する TOCTOU 窓を閉じる: read 後に
   // content hash を再計算し、一致しなければ identity が古い hash に新しい bytes を
   // 紐付けてしまうので fail-closed に identity を破棄する（読み取り結果自体は
   // 正常に返す）。mtime/size/inode は same-size 上書き + mtime 巻き戻しですり抜け
   // 得るため使わない — content hash の再計算のみを correctness authority とする。
-  const contentStillValid = await verifyFileContentUnchanged(filePath, { contentHash: metadata.contentHash });
+  const contentStillValid = await verifyFileContentUnchanged(
+    filePath,
+    { contentHash: metadata.contentHash },
+    config.workspaceRoot,
+  );
   const verifiedArtifactIdentity = contentStillValid ? artifactIdentity : undefined;
   const rawLines =
     normalized.startLine === undefined || normalized.endLine === undefined
@@ -1196,11 +1212,13 @@ async function searchTool(args: Args, config: ResolvedGatewayConfig, store: Arti
   const observedMatchCount = parsed.groups.reduce((count, group) => count + group.matches.length, 0);
   const matchLimitTruncated = observedMatchCount > maxResults;
   const outputLimitDiagnostic = run.outputLimit
-    ? [{
-        severity: "warning" as const,
-        code: "RG_OUTPUT_LIMIT",
-        message: "rg output exceeded the bounded capture limit; search results may be incomplete",
-      }]
+    ? [
+        {
+          severity: "warning" as const,
+          code: "RG_OUTPUT_LIMIT",
+          message: "rg output exceeded the bounded capture limit; search results may be incomplete",
+        },
+      ]
     : [];
   let truncationReason: string | undefined;
   if (run.outputLimit) {
