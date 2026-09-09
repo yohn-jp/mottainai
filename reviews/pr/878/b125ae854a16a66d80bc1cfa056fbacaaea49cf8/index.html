@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #878 @ b125ae854a16</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #878: fix(release): gate npm publish on exact-SHA integration/e2e certification</h1>
+<p>Base <code>main</code> @ <code>eb2d623271e5696bc1f50e03426517c5bd05db6c</code> &rarr;
+Head <code>fix/869-gate-publish-on-certification</code> @ <code>b125ae854a16a66d80bc1cfa056fbacaaea49cf8</code></p>
+<p>Revision <code>b125ae854a16</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/869">#869</a> fix: gate npm publish on exact-SHA integration/e2e certification (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] `publish.yml`&#39;s `publish` job (or a job it `needs:`) either runs `test:integration` and `test:e2e` directly against the exact revision being published, or consumes a verified, non-stale required-check result for that exact SHA from `ci.yml`.</li>
+<li>[ ] A deliberately-injected regression that passes fast/smoke but fails integration or e2e is proven, by test or dry-run, to block npm publication.</li>
+<li>[ ] The `environment: npm` protection rule&#39;s actual configuration (required reviewers, wait timer) is documented in this Issue&#39;s resolution once inspected in repository settings, since it cannot be verified from workflow source alone.</li></ul>
+
+
+
+<h2>Changed files (2, +174/-1)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/publish.yml</td><td>modified</td><td>+106</td><td>-1</td></tr>
+<tr><td>scripts/npm-publish-contract.test.mjs</td><td>modified</td><td>+68</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
