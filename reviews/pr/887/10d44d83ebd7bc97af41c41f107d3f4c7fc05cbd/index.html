@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #887 @ 10d44d83ebd7</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #887: fix(workflow): compensate physical worktree/branch on legacy task-start failure</h1>
+<p>Base <code>main</code> @ <code>39f90efba6c6415a69afbda3dc540085148d92d8</code> &rarr;
+Head <code>fix/877-compensate-legacy-worktree-failure</code> @ <code>10d44d83ebd7bc97af41c41f107d3f4c7fc05cbd</code></p>
+<p>Revision <code>10d44d83ebd7</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/877">#877</a> fix: compensate physical worktree/branch creation when legacy task start fails (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] `createWorktree`&#39;s own failure path (verification failure after successful `git worktree add`) performs compensating `git worktree remove`/branch deletion, or persists a durable ambiguous-state record that a reconciliation pass can act on.</li>
+<li>[ ] `startTask`&#39;s post-`createWorktree`-success block (DB activation/lifecycle update) is wrapped so that an exception there also triggers compensating physical cleanup (or the same durable ambiguous-state record).</li>
+<li>[ ] A fault-injection test forces failure immediately after physical worktree creation (both at `createWorktree`&#39;s own verification step and at the later DB-finalization step) and proves no orphaned physical worktree/branch remains, or that it is recorded for reconciliation.</li>
+<li>[ ] Given this path is `@deprecated`, evaluate as an alternative to fixing it in place: removing the legacy mutator entirely now that Nawabari is the physical worktree authority, if no remaining caller requires it.</li></ul>
+
+
+
+<h2>Changed files (4, +819/-11)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>src/workflow/domain/task.test.ts</td><td>modified</td><td>+137</td><td>-0</td></tr>
+<tr><td>src/workflow/domain/task.ts</td><td>modified</td><td>+78</td><td>-3</td></tr>
+<tr><td>src/workflow/git/worktree.test.ts</td><td>modified</td><td>+257</td><td>-2</td></tr>
+<tr><td>src/workflow/git/worktree.ts</td><td>modified</td><td>+347</td><td>-6</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

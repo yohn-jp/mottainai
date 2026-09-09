@@ -1,0 +1,200 @@
+{
+  "baseSha": "39f90efba6c6415a69afbda3dc540085148d92d8",
+  "files": [
+    {
+      "additions": 137,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 13,
+          "oldLines": 0,
+          "oldStart": 12
+        },
+        {
+          "newLines": 1,
+          "newStart": 25,
+          "oldLines": 0,
+          "oldStart": 22
+        },
+        {
+          "newLines": 134,
+          "newStart": 701,
+          "oldLines": 0,
+          "oldStart": 697
+        }
+      ],
+      "path": "src/workflow/domain/task.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 78,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 15,
+          "oldLines": 0,
+          "oldStart": 14
+        },
+        {
+          "newLines": 2,
+          "newStart": 139,
+          "oldLines": 1,
+          "oldStart": 138
+        },
+        {
+          "newLines": 1,
+          "newStart": 549,
+          "oldLines": 0,
+          "oldStart": 546
+        },
+        {
+          "newLines": 7,
+          "newStart": 552,
+          "oldLines": 0,
+          "oldStart": 548
+        },
+        {
+          "newLines": 67,
+          "newStart": 564,
+          "oldLines": 2,
+          "oldStart": 554
+        }
+      ],
+      "path": "src/workflow/domain/task.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 257,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 10,
+          "oldLines": 0,
+          "oldStart": 9
+        },
+        {
+          "newLines": 1,
+          "newStart": 14,
+          "oldLines": 0,
+          "oldStart": 11
+        },
+        {
+          "newLines": 1,
+          "newStart": 19,
+          "oldLines": 0,
+          "oldStart": 15
+        },
+        {
+          "newLines": 1,
+          "newStart": 22,
+          "oldLines": 0,
+          "oldStart": 17
+        },
+        {
+          "newLines": 25,
+          "newStart": 25,
+          "oldLines": 0,
+          "oldStart": 19
+        },
+        {
+          "newLines": 2,
+          "newStart": 119,
+          "oldLines": 1,
+          "oldStart": 89
+        },
+        {
+          "newLines": 6,
+          "newStart": 132,
+          "oldLines": 1,
+          "oldStart": 101
+        },
+        {
+          "newLines": 219,
+          "newStart": 144,
+          "oldLines": 0,
+          "oldStart": 107
+        }
+      ],
+      "path": "src/workflow/git/worktree.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 347,
+      "deletions": 6,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 5,
+          "oldLines": 0,
+          "oldStart": 4
+        },
+        {
+          "newLines": 13,
+          "newStart": 10,
+          "oldLines": 0,
+          "oldStart": 8
+        },
+        {
+          "newLines": 4,
+          "newStart": 140,
+          "oldLines": 0,
+          "oldStart": 125
+        },
+        {
+          "newLines": 282,
+          "newStart": 148,
+          "oldLines": 1,
+          "oldStart": 130
+        },
+        {
+          "newLines": 6,
+          "newStart": 434,
+          "oldLines": 1,
+          "oldStart": 135
+        },
+        {
+          "newLines": 1,
+          "newStart": 442,
+          "oldLines": 0,
+          "oldStart": 137
+        },
+        {
+          "newLines": 1,
+          "newStart": 446,
+          "oldLines": 1,
+          "oldStart": 141
+        },
+        {
+          "newLines": 19,
+          "newStart": 462,
+          "oldLines": 1,
+          "oldStart": 157
+        },
+        {
+          "newLines": 1,
+          "newStart": 483,
+          "oldLines": 1,
+          "oldStart": 160
+        },
+        {
+          "newLines": 19,
+          "newStart": 485,
+          "oldLines": 1,
+          "oldStart": 162
+        }
+      ],
+      "path": "src/workflow/git/worktree.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "10d44d83ebd7bc97af41c41f107d3f4c7fc05cbd",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 819,
+    "deletions": 11,
+    "filesChanged": 4
+  }
+}
