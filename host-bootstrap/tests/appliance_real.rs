@@ -99,6 +99,7 @@ fn real_canonical_appliance_resolves_verifies_and_matches_the_built_disk() {
         registry: "local-fixture".to_owned(),
         repository: "mottainai/runtime-appliance".to_owned(),
         digest,
+        expected_identity: None,
     };
     let source = FileOciSource {
         manifest_path: oci_manifest_path,

@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::appliance::ApplianceReference;
+use crate::appliance::{ApplianceArtifactIdentity, ApplianceReference};
 use crate::contract::{ProviderContract, CONTRACT_SCHEMA_VERSION, SUPPORTED_LIMA_VERSION};
 use crate::error::{BootstrapError, ErrorCode};
 use crate::lima::{
@@ -59,6 +59,12 @@ struct DescriptorApplianceRef {
     registry: String,
     repository: String,
     digest: String,
+    #[serde(rename = "rawSha256")]
+    raw_sha256: Option<String>,
+    #[serde(rename = "rawSizeBytes")]
+    raw_size_bytes: Option<u64>,
+    #[serde(rename = "manifestSha256")]
+    manifest_sha256: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -354,6 +360,36 @@ fn valid_sha256(value: &str) -> bool {
     value.len() == 64
         && value.chars().all(|character| character.is_ascii_hexdigit())
         && value == value.to_ascii_lowercase()
+}
+
+/// Projects the descriptor's Route 3 artifact evidence without making raw
+/// bytes the Runtime semantic identity. Older v1 descriptors that predate
+/// these three fields remain readable as an explicitly unattested reference;
+/// partial evidence is rejected rather than silently strengthened.
+fn appliance_identity_from_descriptor(
+    appliance: &DescriptorApplianceRef,
+) -> Result<Option<ApplianceArtifactIdentity>, BootstrapError> {
+    match (
+        appliance.manifest_sha256.as_deref(),
+        appliance.raw_sha256.as_deref(),
+        appliance.raw_size_bytes,
+    ) {
+        (None, None, None) => Ok(None),
+        (Some(manifest_sha256), Some(raw_sha256), Some(raw_size_bytes)) => {
+            let identity = ApplianceArtifactIdentity {
+                manifest_sha256: manifest_sha256.to_ascii_lowercase(),
+                raw_sha256: raw_sha256.to_ascii_lowercase(),
+                raw_size_bytes,
+            };
+            identity.validate().map_err(|_| {
+                invalid("deployment descriptor Route 3 appliance artifact evidence is invalid")
+            })?;
+            Ok(Some(identity))
+        }
+        _ => Err(invalid(
+            "deployment descriptor Route 3 appliance artifact evidence is incomplete",
+        )),
+    }
 }
 
 fn valid_git_sha(value: &str) -> bool {
@@ -868,6 +904,7 @@ pub fn runtime_spec_from_descriptor(
 
     let manifest = canonical_manifest(&descriptor.route2.managed_generation.packages);
     let route1_payload = route1_payload_intent_from_descriptor_value(&descriptor)?;
+    let appliance_identity = appliance_identity_from_descriptor(&descriptor.route3.appliance)?;
 
     Ok(RuntimeSpec {
         schema_version: RUNTIME_SPEC_SCHEMA_VERSION.to_owned(),
@@ -879,6 +916,7 @@ pub fn runtime_spec_from_descriptor(
             registry: descriptor.route3.appliance.registry,
             repository: descriptor.route3.appliance.repository,
             digest: descriptor.route3.appliance.digest.to_ascii_lowercase(),
+            expected_identity: appliance_identity,
         },
         mounts: Vec::new(),
         managed_generation: Some(ManagedGenerationIntent {
@@ -977,6 +1015,9 @@ mod tests {
                     "registry": "ghcr.io",
                     "repository": "yohn-jp/mottainai/runtime-appliance",
                     "digest": "SHA256:".to_ascii_lowercase() + &"c".repeat(64),
+                    "rawSha256": "d".repeat(64),
+                    "rawSizeBytes": 2048,
+                    "manifestSha256": "e".repeat(64),
                 },
                 "managedGenerationIdentity": "D".repeat(64),
             },
@@ -1038,6 +1079,14 @@ mod tests {
         assert_eq!(spec.schema_version, RUNTIME_SPEC_SCHEMA_VERSION);
         assert_eq!(spec.appliance.registry, "ghcr.io");
         assert_eq!(spec.appliance.digest, format!("sha256:{}", "c".repeat(64)));
+        assert_eq!(
+            spec.appliance.expected_identity,
+            Some(ApplianceArtifactIdentity {
+                manifest_sha256: "e".repeat(64),
+                raw_sha256: "d".repeat(64),
+                raw_size_bytes: 2048,
+            })
+        );
         assert!(spec.mounts.is_empty());
         spec.validate()
             .expect("derived spec passes RuntimeSpec::validate");
@@ -1063,6 +1112,51 @@ mod tests {
             "3".repeat(64)
         );
         assert_eq!(requirement.data_artifact.sha256, "4".repeat(64));
+    }
+
+    #[test]
+    fn legacy_descriptor_without_route3_artifact_evidence_remains_readable_without_attestation() {
+        let mut descriptor: Value = serde_json::from_str(&sample_descriptor_json()).unwrap();
+        let appliance = descriptor["route3"]["appliance"].as_object_mut().unwrap();
+        appliance.remove("rawSha256");
+        appliance.remove("rawSizeBytes");
+        appliance.remove("manifestSha256");
+        let dir = tempfile::tempdir().unwrap();
+        let (descriptor_path, sidecar_path) =
+            write_descriptor(dir.path(), &serde_json::to_string(&descriptor).unwrap());
+
+        let spec = runtime_spec_from_descriptor(
+            &descriptor_path,
+            &sidecar_path,
+            "mottainai-runtime",
+            2,
+            4096,
+        )
+        .expect("legacy descriptor remains readable");
+        assert!(spec.appliance.expected_identity.is_none());
+    }
+
+    #[test]
+    fn partial_route3_artifact_evidence_is_rejected_instead_of_upgraded() {
+        let mut descriptor: Value = serde_json::from_str(&sample_descriptor_json()).unwrap();
+        descriptor["route3"]["appliance"]
+            .as_object_mut()
+            .unwrap()
+            .remove("rawSizeBytes");
+        let dir = tempfile::tempdir().unwrap();
+        let (descriptor_path, sidecar_path) =
+            write_descriptor(dir.path(), &serde_json::to_string(&descriptor).unwrap());
+
+        let error = runtime_spec_from_descriptor(
+            &descriptor_path,
+            &sidecar_path,
+            "mottainai-runtime",
+            2,
+            4096,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, ErrorCode::DeploymentDescriptorInvalid);
+        assert!(error.message.contains("artifact evidence is incomplete"));
     }
 
     #[test]

@@ -179,6 +179,7 @@ fn canonical_appliance_crosses_production_lima_to_guest_health() {
             registry: "local-fixture".to_owned(),
             repository: "mottainai/runtime-appliance".to_owned(),
             digest: appliance_digest.clone(),
+            expected_identity: None,
         },
         mounts: Vec::new(),
         managed_generation: None,

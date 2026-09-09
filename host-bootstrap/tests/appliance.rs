@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use mottainai_host_bootstrap::appliance::{
-    ensure_appliance, inspect_appliance, ApplianceReference,
+    ensure_appliance, inspect_appliance, ApplianceArtifactIdentity, ApplianceReference,
 };
 use mottainai_host_bootstrap::error::{BootstrapError, ErrorCode};
 use mottainai_host_bootstrap::model::Classification;
@@ -150,6 +150,7 @@ fn build_fixture() -> Fixture {
         registry: "ghcr.io".to_owned(),
         repository: "yohn-jp/mottainai/runtime-appliance".to_owned(),
         digest: oci_manifest_digest,
+        expected_identity: None,
     };
     Fixture {
         oci,
@@ -265,6 +266,29 @@ fn managed_paths() -> (TempDir, ManagedPaths) {
     let paths = ManagedPaths::new(temporary.path().join("state"));
     ensure_managed_directories(&paths).unwrap();
     (temporary, paths)
+}
+
+fn descriptor_identity(fixture: &Fixture) -> ApplianceArtifactIdentity {
+    let (_, manifest_bytes) = fixture.oci.manifest.as_ref().expect("fixture manifest");
+    let manifest: serde_json::Value = serde_json::from_slice(manifest_bytes).unwrap();
+    let manifest_sha256 = manifest["layers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|layer| {
+            layer["mediaType"].as_str()
+                == Some("application/vnd.mottainai.runtime.appliance.manifest.v1+json")
+        })
+        .unwrap()["digest"]
+        .as_str()
+        .unwrap()
+        .trim_start_matches("sha256:")
+        .to_owned();
+    ApplianceArtifactIdentity {
+        manifest_sha256,
+        raw_sha256: format!("{:x}", Sha256::digest(&fixture.raw_bytes)),
+        raw_size_bytes: fixture.raw_bytes.len() as u64,
+    }
 }
 
 fn rewrite_appliance_state_field(
@@ -591,4 +615,72 @@ fn non_digest_reference_is_rejected() {
     mutable_reference.digest = "contract-v1".to_owned();
     let error = ensure_appliance(&paths, &mutable_reference, &fixture.oci).unwrap_err();
     assert_eq!(error.code, ErrorCode::ApplianceReferenceInvalid);
+}
+
+#[test]
+fn descriptor_bound_manifest_digest_mismatch_fails_closed_before_raw_fetch() {
+    let fixture = build_fixture();
+    let mut reference = fixture.reference.clone();
+    reference.expected_identity = Some(ApplianceArtifactIdentity {
+        manifest_sha256: "0".repeat(64),
+        ..descriptor_identity(&fixture)
+    });
+    let (_temp, paths) = managed_paths();
+
+    let error = ensure_appliance(&paths, &reference, &fixture.oci).unwrap_err();
+    assert_eq!(error.code, ErrorCode::ApplianceDigestMismatch);
+    assert_eq!(fixture.oci.fetch_blob_calls.load(Ordering::SeqCst), 2);
+    assert!(!paths.appliance_raw_path(&reference.digest).exists());
+}
+
+#[test]
+fn descriptor_bound_raw_digest_and_size_mismatches_fail_closed() {
+    for (raw_sha256, raw_size_bytes) in [
+        (
+            "0".repeat(64),
+            descriptor_identity(&build_fixture()).raw_size_bytes,
+        ),
+        (
+            descriptor_identity(&build_fixture()).raw_sha256,
+            descriptor_identity(&build_fixture()).raw_size_bytes + 1,
+        ),
+    ] {
+        let fixture = build_fixture();
+        let mut reference = fixture.reference.clone();
+        reference.expected_identity = Some(ApplianceArtifactIdentity {
+            raw_sha256,
+            raw_size_bytes,
+            ..descriptor_identity(&fixture)
+        });
+        let (_temp, paths) = managed_paths();
+        let error = ensure_appliance(&paths, &reference, &fixture.oci).unwrap_err();
+        assert_eq!(error.code, ErrorCode::ApplianceDigestMismatch);
+        assert!(!paths.appliance_raw_path(&reference.digest).exists());
+    }
+}
+
+#[test]
+fn descriptor_bound_identity_is_cached_and_reused_only_on_exact_match() {
+    let fixture = build_fixture();
+    let mut reference = fixture.reference.clone();
+    reference.expected_identity = Some(descriptor_identity(&fixture));
+    let (_temp, paths) = managed_paths();
+
+    ensure_appliance(&paths, &reference, &fixture.oci).unwrap();
+    fixture.oci.fetch_manifest_calls.store(0, Ordering::SeqCst);
+    let observation = inspect_appliance(&paths, &reference).unwrap();
+    assert_eq!(observation.classification, Classification::Satisfied);
+    ensure_appliance(&paths, &reference, &fixture.oci).unwrap();
+    assert_eq!(fixture.oci.fetch_manifest_calls.load(Ordering::SeqCst), 0);
+
+    let mut stale_reference = reference.clone();
+    stale_reference.expected_identity = Some(ApplianceArtifactIdentity {
+        raw_sha256: "f".repeat(64),
+        ..reference.expected_identity.clone().unwrap()
+    });
+    let stale = inspect_appliance(&paths, &stale_reference).unwrap();
+    assert_eq!(stale.classification, Classification::Incompatible);
+    let error = ensure_appliance(&paths, &stale_reference, &fixture.oci).unwrap_err();
+    assert_eq!(error.code, ErrorCode::ApplianceStateIncompatible);
+    assert_eq!(fixture.oci.fetch_manifest_calls.load(Ordering::SeqCst), 0);
 }
