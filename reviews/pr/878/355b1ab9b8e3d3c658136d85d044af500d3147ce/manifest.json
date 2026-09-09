@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "eb2d623271e5696bc1f50e03426517c5bd05db6c",
+    "draft": false,
+    "headRef": "fix/869-gate-publish-on-certification",
+    "headSha": "355b1ab9b8e3d3c658136d85d044af500d3147ce",
+    "number": 878,
+    "title": "fix(release): gate npm publish on exact-SHA integration/e2e certification"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "355b1ab9b8e3d3c658136d85d044af500d3147ce",
+    "immutable": true,
+    "shortId": "355b1ab9b8e3"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-09T09:59:03.958Z"
+  }
+}

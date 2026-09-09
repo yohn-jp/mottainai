@@ -1,0 +1,46 @@
+{
+  "baseSha": "eb2d623271e5696bc1f50e03426517c5bd05db6c",
+  "files": [
+    {
+      "additions": 106,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 105,
+          "newStart": 357,
+          "oldLines": 0,
+          "oldStart": 356
+        },
+        {
+          "newLines": 1,
+          "newStart": 463,
+          "oldLines": 1,
+          "oldStart": 358
+        }
+      ],
+      "path": ".github/workflows/publish.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 73,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 73,
+          "newStart": 57,
+          "oldLines": 0,
+          "oldStart": 56
+        }
+      ],
+      "path": "scripts/npm-publish-contract.test.mjs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "355b1ab9b8e3d3c658136d85d044af500d3147ce",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 179,
+    "deletions": 1,
+    "filesChanged": 2
+  }
+}

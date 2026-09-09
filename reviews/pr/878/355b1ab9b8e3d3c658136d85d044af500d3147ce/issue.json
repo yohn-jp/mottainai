@@ -1,0 +1,29 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "`publish.yml`'s `publish` job (or a job it `needs:`) either runs `test:integration` and `test:e2e` directly against the exact revision being published, or consumes a verified, non-stale required-check result for that exact SHA from `ci.yml`."
+    },
+    {
+      "checked": false,
+      "text": "A deliberately-injected regression that passes fast/smoke but fails integration or e2e is proven, by test or dry-run, to block npm publication."
+    },
+    {
+      "checked": false,
+      "text": "The `environment: npm` protection rule's actual configuration (required reviewers, wait timer) is documented in this Issue's resolution once inspected in repository settings, since it cannot be verified from workflow source alone."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 869,
+    "state": "open",
+    "title": "fix: gate npm publish on exact-SHA integration/e2e certification",
+    "url": "https://github.com/yohn-jp/mottainai/issues/869"
+  },
+  "linked": {
+    "number": 869
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
