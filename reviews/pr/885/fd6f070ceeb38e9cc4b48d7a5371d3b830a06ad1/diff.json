@@ -1,0 +1,92 @@
+{
+  "baseSha": "05cedf434dd8be0586589ed9391ff3bfa4b06f3f",
+  "files": [
+    {
+      "additions": 52,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 48,
+          "newStart": 375,
+          "oldLines": 0,
+          "oldStart": 374
+        },
+        {
+          "newLines": 1,
+          "newStart": 424,
+          "oldLines": 0,
+          "oldStart": 375
+        },
+        {
+          "newLines": 1,
+          "newStart": 440,
+          "oldLines": 0,
+          "oldStart": 390
+        },
+        {
+          "newLines": 1,
+          "newStart": 452,
+          "oldLines": 0,
+          "oldStart": 401
+        },
+        {
+          "newLines": 1,
+          "newStart": 463,
+          "oldLines": 0,
+          "oldStart": 411
+        }
+      ],
+      "path": ".github/workflows/ci.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 29,
+          "oldLines": 1,
+          "oldStart": 29
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 176,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 176,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/ci-contract-ownership-census.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 93,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 93,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/ci-contract-ownership-census.test.mjs",
+      "status": "added"
+    }
+  ],
+  "headSha": "fd6f070ceeb38e9cc4b48d7a5371d3b830a06ad1",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 322,
+    "deletions": 1,
+    "filesChanged": 4
+  }
+}
