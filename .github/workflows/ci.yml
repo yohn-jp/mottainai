@@ -372,6 +372,7 @@ jobs:
               - 'scripts/copy-dashboard-assets.mjs'
               - 'scripts/generate-build-metadata.mjs'
               - 'scripts/**/*.ts'
+              - 'scripts/semantic-cache-gc.ts'
               - 'scripts/architecture-check.test.mjs'
               - 'scripts/benchmark-artifact-bounding.mjs'
               - 'scripts/benchmark-semantic-fact-cache.mjs'
