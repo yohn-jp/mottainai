@@ -10,6 +10,8 @@ import { BUILTIN_PRESETS } from "../policy/presets.js";
 import type { WorkflowPolicyDocument } from "../policy/schema.js";
 import { WorkflowSqliteStateStore } from "../state/sqlite-store.js";
 import { validateBranchNameAgainstGovernance } from "../governance/branch.js";
+import { reconcileWorkflow } from "../commands/reconcile.js";
+import type { GitReconciliationSnapshot } from "../commands/reconcile.js";
 import { resolveRepositoryIdentity } from "./identity.js";
 import {
   checkStaleBaseBranch,
@@ -20,6 +22,7 @@ import {
   startTask,
   transitionTask,
 } from "./task.js";
+import type { StartTaskInput } from "./task.js";
 
 function standardPolicy(overrides: Partial<WorkflowPolicyDocument["worktree"]> = {}): WorkflowPolicyDocument {
   return { ...BUILTIN_PRESETS.standard, worktree: { ...BUILTIN_PRESETS.standard.worktree, ...overrides } };
@@ -694,4 +697,138 @@ test("discovery-snapshot contract: a task present in listTaskDiscoverySnapshot c
   assert.equal(result.ok, false);
   if (result.ok) return;
   assert.equal(result.reason, "session-unavailable");
+});
+
+// Issue #877: `createWorktree`'s `git worktree add` physically creates the worktree and
+// branch on disk. If DB finalization afterward (activateWorktree / updateTaskLifecycleState)
+// throws, that physical creation must not survive as an orphan. These fault-injection tests
+// force a failure exactly at each of those two finalization steps.
+type LegacyFinalizationFaultPoint = "activate-worktree" | "update-lifecycle";
+
+class FaultingLegacyFinalizationStore extends WorkflowSqliteStateStore {
+  private fault: LegacyFinalizationFaultPoint | undefined;
+
+  armFault(point: LegacyFinalizationFaultPoint): void {
+    this.fault = point;
+  }
+
+  override activateWorktree(...args: Parameters<WorkflowSqliteStateStore["activateWorktree"]>) {
+    if (this.fault === "activate-worktree") {
+      this.fault = undefined;
+      throw new Error("injected worktree activation failure");
+    }
+    return super.activateWorktree(...args);
+  }
+
+  override updateTaskLifecycleState(...args: Parameters<WorkflowSqliteStateStore["updateTaskLifecycleState"]>) {
+    if (this.fault === "update-lifecycle") {
+      this.fault = undefined;
+      throw new Error("injected task lifecycle activation failure");
+    }
+    return super.updateTaskLifecycleState(...args);
+  }
+}
+
+test("startTask compensates the physical worktree/branch when activateWorktree throws right after physical creation (Issue #877)", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = new FaultingLegacyFinalizationStore({ dbPath: ":memory:" });
+  store.init();
+  t.after(() => store.close());
+  store.armFault("activate-worktree");
+
+  const input: StartTaskInput = {
+    workspaceRoot: root,
+    store,
+    policy: standardPolicy(),
+    taskSlug: "activation-fault",
+    branchType: "fix",
+    issueRef: "877",
+  };
+  const result = await startTask(input);
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.reason, "worktree-finalization-failed");
+  assert.match(result.detail, /worktree activation failed after physical creation/);
+  assert.match(result.detail, /orphaned worktree\/branch removed/);
+
+  // No orphaned physical worktree/branch survives.
+  const worktreePath = path.join(root, ".mottainai", "worktrees", "fix-877-activation-fault");
+  assert.equal(fs.existsSync(worktreePath), false);
+  assert.equal(runGit(["branch", "--list", "fix/877-activation-fault"], root), "");
+
+  // The worktree row was still 'reserved' when activateWorktree threw, so the existing
+  // compensating rollback (same as the git-worktree-add-failed path) fully applies —
+  // no reservation rows survive either.
+  assert.equal(store.listTasks().length, 0);
+  assert.equal(store.listWorktrees().length, 0);
+});
+
+test("startTask compensates the physical worktree/branch when updateTaskLifecycleState throws after worktree activation, leaving a reconcile-detectable DB divergence (Issue #877)", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = new FaultingLegacyFinalizationStore({ dbPath: ":memory:" });
+  store.init();
+  t.after(() => store.close());
+  store.armFault("update-lifecycle");
+
+  const input: StartTaskInput = {
+    workspaceRoot: root,
+    store,
+    policy: standardPolicy(),
+    taskSlug: "lifecycle-fault",
+    branchType: "fix",
+    issueRef: "878",
+  };
+  const result = await startTask(input);
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.reason, "worktree-finalization-failed");
+  assert.match(result.detail, /task lifecycle activation failed after worktree activation/);
+  assert.match(result.detail, /orphaned worktree\/branch removed/);
+  assert.match(result.detail, /reconcile/);
+
+  // No orphaned physical worktree/branch survives.
+  const worktreePath = path.join(root, ".mottainai", "worktrees", "fix-878-lifecycle-fault");
+  assert.equal(fs.existsSync(worktreePath), false);
+  assert.equal(runGit(["branch", "--list", "fix/878-lifecycle-fault"], root), "");
+
+  // By this point the worktree row had already transitioned to 'active' (irreversible via
+  // the existing reserved-only delete primitives without risking an FK-dangling task row),
+  // so the DB rows are deliberately left as-is instead of force-deleted. That leaves exactly
+  // the shape `src/workflow/commands/reconcile.ts`'s "missing-managed-worktree" divergence
+  // already detects: an active worktree row whose canonicalPath no longer exists on disk.
+  const worktrees = store.listWorktrees();
+  assert.equal(worktrees.length, 1);
+  assert.equal(worktrees[0]?.status, "active");
+  assert.equal(fs.existsSync(worktrees[0]?.canonicalPath ?? ""), false);
+  const tasks = store.listTasks();
+  assert.equal(tasks.length, 1);
+  assert.equal(tasks[0]?.lifecycleState, "planned");
+
+  // Exercise the actual reconciliation handoff promised by the failure detail: the
+  // surviving active row is reported as the existing missing-managed-worktree divergence
+  // and receives the existing mark-worktree-removed repair plan.
+  const identity = resolveRepositoryIdentity(root);
+  assert.equal(identity.ok, true);
+  if (!identity.ok) return;
+  const currentHead = runGit(["rev-parse", "HEAD"], root);
+  const snapshot: GitReconciliationSnapshot = {
+    repositoryRoot: identity.identity.canonicalRepositoryRoot,
+    gitCommonDir: identity.identity.gitCommonDir,
+    branch: "main",
+    head: currentHead,
+    worktrees: [{ path: identity.identity.canonicalRepositoryRoot, branch: "main", head: currentHead, detached: false, prunable: false }],
+  };
+  const report = await reconcileWorkflow({
+    workspaceRoot: identity.identity.canonicalRepositoryRoot,
+    store,
+    dependencies: {
+      now: () => Date.now(),
+      pathExists: (targetPath) => fs.existsSync(targetPath),
+      gitSnapshot: async () => ({ ok: true, snapshot }),
+      pullRequestObserver: async (record) => ({ ok: true, lifecycleState: record.lifecycleState, headSha: record.headSha }),
+    },
+  });
+  assert.deepEqual(report.divergences.map((divergence) => divergence.kind), ["missing-managed-worktree"]);
+  assert.equal(report.repairPlan[0]?.kind, "mark-worktree-removed");
+  assert.equal(report.repairPlan[0]?.targetId, worktrees[0]?.worktreeId);
 });
