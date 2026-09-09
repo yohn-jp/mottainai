@@ -33,7 +33,8 @@
 # `valid: false` (schema-invalid/corrupt canonical state), `present:
 # false` (a fresh, bootstrap-only appliance), a non-idle activation phase,
 # an unhealthy/absent active record, or an observed pointer that doesn't
-# match the active generation — fails closed to the same bounded result a
+# match the active generation, a missing realized store output, or missing
+# active CLI/MCP entrypoints — fails closed to the same bounded result a
 # fresh appliance reports: bootstrap-ready / managedRuntimeReady:false /
 # reconciliation:"current".
 pkgs.writeShellApplication {
@@ -57,6 +58,8 @@ pkgs.writeShellApplication {
       active_store_path="$(jq -r '.activeStorePath // empty' <<<"$status_json")"
       desired_identity="$(jq -r '.state.desiredManifestSemanticIdentity // empty' <<<"$status_json")"
       active_desired_identity="$(jq -r '.state.active.desiredManifestSemanticIdentity // empty' <<<"$status_json")"
+      active_generation_realized="$(jq -r '.activeGenerationRealized // false' <<<"$status_json")"
+      active_required_executables_present="$(jq -r '.activeRequiredExecutablesPresent // false' <<<"$status_json")"
 
       # #628's own invariant, already applied by statusFromState when it
       # computed observedGenerationIdentity/observedStorePath: the current
@@ -68,7 +71,9 @@ pkgs.writeShellApplication {
         && [ -n "$observed_generation_identity" ] \
         && [ "$observed_generation_identity" = "$active_generation_identity" ] \
         && [ -n "$observed_store_path" ] \
-        && [ "$observed_store_path" = "$active_store_path" ]; then
+        && [ "$observed_store_path" = "$active_store_path" ] \
+        && [ "$active_generation_realized" = "true" ] \
+        && [ "$active_required_executables_present" = "true" ]; then
         readiness="managed-runtime-ready"
         managed_runtime_ready=true
         # The active generation is healthy and selected either way (a
