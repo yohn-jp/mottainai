@@ -26,7 +26,7 @@
     "test:e2e": "node scripts/run-test-suite.mjs e2e",
     "test:all": "pnpm run test && pnpm run test:integration && pnpm run test:e2e",
     "test:classification": "node scripts/test-suites.mjs && node --test scripts/test-suites.test.mjs",
-    "test:ci-ownership": "node --test scripts/ci-contract-ownership.test.mjs",
+    "test:ci-ownership": "node --test scripts/ci-contract-ownership.test.mjs scripts/ci-contract-ownership-census.test.mjs",
     "test:ci-runtime-gates": "node --test scripts/ci-runtime-contract-gates.test.mjs",
     "documentation:check": "node scripts/documentation-check.mjs",
     "documentation:test": "node --test scripts/documentation-check.test.mjs",
