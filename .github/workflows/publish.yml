@@ -354,8 +354,113 @@ jobs:
         run: node scripts/smoke-test.mjs --tarball "$(find . -maxdepth 1 -type f -name 'mottainai-*.tgz' -print -quit)"
         shell: bash
 
+  test-integration:
+    name: "test:integration (release SHA, shard ${{ matrix.shard }}/4)"
+    # Issue #869: prepare-release/build/smoke-test alone certified only the
+    # fast unit suite and a packed-tarball smoke test before this workflow
+    # could reach `publish`. ci.yml's own test:integration job proves the
+    # same commit independently, but nothing in this workflow's `needs:`
+    # graph ever depended on that result, so the two workflows raced instead
+    # of publish waiting on integration certification. Run test:integration
+    # directly in this DAG, against the exact tag prepare-release just
+    # created (the same ref build/smoke-test already check out), so a
+    # regression that only integration coverage catches blocks `publish`
+    # rather than racing it. Mirrors ci.yml's test-integration job exactly
+    # (system deps, sharding, invocation).
+    needs: prepare-release
+    if: needs.prepare-release.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare-release.outputs.tag }}
+          persist-credentials: false
+
+      - name: Install required system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+
+      # The packed Pi issue-to-PR golden path (#334) launches Pi through a
+      # real Zellij session, not a stub, so the gate cannot silently pass by
+      # skipping for a missing companion. Pinned to the version that ships
+      # `zellij action list-panes --json` (see src/manager/zellij.ts).
+      - name: Install Zellij
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/zellij.tar.gz "https://github.com/zellij-org/zellij/releases/download/v0.44.3/zellij-x86_64-unknown-linux-musl.tar.gz"
+          echo "0f7c346788627f506c0a28296517768633cff24fc822a739f8264b640ecad751  /tmp/zellij.tar.gz" | sha256sum -c -
+          sudo tar -xzf /tmp/zellij.tar.gz -C /usr/local/bin
+          sudo chmod +x /usr/local/bin/zellij
+          rm /tmp/zellij.tar.gz
+
+      - name: Setup Node.js and pnpm with frozen-lockfile install
+        uses: yohn-jp/.github/.github/actions/setup-node-pnpm@main
+        with:
+          node-version: "24"
+
+      - name: Verify required test tools
+        run: |
+          rg --version
+          zellij --version
+
+      - name: Test (managed workflow lifecycle contract, shard ${{ matrix.shard }}/4)
+        run: pnpm run test:integration -- --shard=${{ matrix.shard }}/4
+
+  test-e2e:
+    name: "test:e2e (release SHA)"
+    # Issue #869: same rationale as test-integration above, for the e2e
+    # suite. Mirrors ci.yml's build-and-package-e2e job's build + test:e2e
+    # invocation against the exact tag being published.
+    needs: prepare-release
+    if: needs.prepare-release.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare-release.outputs.tag }}
+          persist-credentials: false
+
+      - name: Install required system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+
+      - name: Install Zellij
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/zellij.tar.gz "https://github.com/zellij-org/zellij/releases/download/v0.44.3/zellij-x86_64-unknown-linux-musl.tar.gz"
+          echo "0f7c346788627f506c0a28296517768633cff24fc822a739f8264b640ecad751  /tmp/zellij.tar.gz" | sha256sum -c -
+          sudo tar -xzf /tmp/zellij.tar.gz -C /usr/local/bin
+          sudo chmod +x /usr/local/bin/zellij
+          rm /tmp/zellij.tar.gz
+
+      - name: Setup Node.js and pnpm with frozen-lockfile install
+        uses: yohn-jp/.github/.github/actions/setup-node-pnpm@main
+        with:
+          node-version: "24"
+
+      - name: Verify required test tools
+        run: |
+          rg --version
+          zellij --version
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Test built dist e2e
+        run: pnpm run test:e2e
+
   publish:
-    needs: [prepare-release, smoke-test]
+    needs: [prepare-release, smoke-test, test-integration, test-e2e]
     runs-on: ubuntu-latest
     environment: npm
     permissions:
