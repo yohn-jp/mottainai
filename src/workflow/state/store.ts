@@ -977,6 +977,8 @@ export interface WorkflowStateStore {
   getManagerSession(sessionId: ManagerSessionId): ManagerSessionRecord | undefined;
   listManagerSessions(workspaceRoot?: string, options?: ListManagerSessionsOptions): ManagerSessionRecord[];
   updateManagerSession(sessionId: ManagerSessionId, input: UpdateManagerSessionInput): ManagerSessionRecord;
+  /** Persist only runtime observation freshness; reconciliation state remains untouched. */
+  checkpointManagerSessionRuntimeObservedAt(sessionId: ManagerSessionId, observedAt: number): ManagerSessionRecord;
   /** `reserved`/`mutating`/`verifying` の期限切れを reconciliation が検出するための全件参照。 */
   listCleanupLeases(instanceId?: RepositoryInstanceId): CleanupLeaseRecord[];
   getCleanupLease(operationId: string): CleanupLeaseRecord | undefined;

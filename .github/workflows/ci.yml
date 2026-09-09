@@ -375,6 +375,7 @@ jobs:
               - 'scripts/semantic-cache-gc.ts'
               - 'scripts/architecture-check.test.mjs'
               - 'scripts/benchmark-artifact-bounding.mjs'
+              - 'scripts/benchmark-dashboard-reconciliation.mjs'
               - 'scripts/benchmark-semantic-fact-cache.mjs'
               - 'scripts/benchmark-validation-governor.mjs'
               - 'scripts/bootstrap.mjs'

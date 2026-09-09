@@ -2200,6 +2200,21 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     }
   }
 
+  checkpointManagerSessionRuntimeObservedAt(sessionId: ManagerSessionId, observedAt: number): ManagerSessionRecord {
+    const result = this.handle()
+      .prepare(
+        `UPDATE manager_sessions
+         SET runtime_observed_at = CASE
+           WHEN runtime_observed_at IS NULL OR runtime_observed_at < ? THEN ?
+           ELSE runtime_observed_at
+         END
+         WHERE session_id = ?`,
+      )
+      .run(observedAt, observedAt, sessionId);
+    if (result.changes === 0) throw new Error(`manager session not found: ${sessionId}`);
+    return this.getManagerSession(sessionId)!;
+  }
+
   listCleanupLeases(instanceId?: RepositoryInstanceId): CleanupLeaseRecord[] {
     const rows =
       instanceId === undefined
