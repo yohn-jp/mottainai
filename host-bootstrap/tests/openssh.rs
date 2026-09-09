@@ -24,6 +24,7 @@ fn runtime_spec() -> RuntimeSpec {
             registry: "ghcr.io".to_owned(),
             repository: "yohn-jp/mottainai/runtime-appliance".to_owned(),
             digest: format!("sha256:{}", "a".repeat(64)),
+            expected_identity: None,
         },
         mounts: Vec::new(),
         managed_generation: None,

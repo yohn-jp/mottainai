@@ -19,6 +19,7 @@ import {
   assertManagedStorePath,
   clearManagedRuntimePointer,
   readManagedRuntimePointer,
+  updateManagedRuntimeRetentionRoots,
   readManagedRuntimeState,
   resolveManagedRuntimePaths,
   writeManagedRuntimeState,
@@ -164,8 +165,57 @@ export interface ManagedRuntimeStatusReport {
   readonly observedGenerationIdentity?: string;
   readonly observedStorePath?: string;
   readonly activationPhase?: ManagedRuntimeActivationPhase;
+  /** Read-only realization proof used by the readiness projection. */
+  readonly activeGenerationRealized?: boolean;
+  readonly activeRequiredExecutablesPresent?: boolean;
+  readonly activeMissingExecutablePaths?: readonly string[];
   readonly failure?: ManagedRuntimeFailureEvidence;
   readonly state?: ManagedRuntimeState;
+}
+
+export interface ManagedRuntimeRealizationReport {
+  readonly realized: boolean;
+  readonly requiredExecutablesPresent: boolean;
+  readonly missingExecutablePaths: readonly string[];
+}
+
+const MAX_MISSING_EXECUTABLE_PATHS = 8 as const;
+
+/**
+ * Verify the immutable output named by a persisted generation without using
+ * PATH.  Mottainai's CLI and MCP entrypoints are both required because a
+ * generation that only contains one surface cannot satisfy managed readiness.
+ */
+export function inspectManagedRuntimeGeneration(
+  generation: ManagedRuntimeCandidate | ManagedRuntimeGenerationRecord,
+): ManagedRuntimeRealizationReport {
+  const missing: string[] = [];
+  let realized = false;
+  try {
+    realized = fs.statSync(generation.storePath).isDirectory();
+  } catch {
+    realized = false;
+  }
+  const packageIds = generation.packageIds ?? [];
+  const executablePaths = packageIds.map((packageId) => path.join(generation.storePath, "bin", packageId));
+  if (packageIds.includes("mottainai")) {
+    executablePaths.push(path.join(generation.storePath, "bin", "mottainai-mcp"));
+  }
+  if (executablePaths.length === 0) {
+    missing.push(path.join(generation.storePath, "bin", "mottainai"));
+  }
+  for (const executablePath of executablePaths) {
+    try {
+      fs.accessSync(executablePath, fs.constants.X_OK);
+    } catch {
+      if (missing.length < MAX_MISSING_EXECUTABLE_PATHS) missing.push(executablePath);
+    }
+  }
+  return {
+    realized,
+    requiredExecutablesPresent: realized && missing.length === 0,
+    missingExecutablePaths: missing,
+  };
 }
 
 export type ManagedRuntimeReconcileOutcome =
@@ -695,6 +745,34 @@ function persist(filePath: string, state: ManagedRuntimeState, boundaries: Bound
   }
 }
 
+function retainStateGenerations(
+  paths: ManagedRuntimePaths,
+  state: ManagedRuntimeState,
+  candidate?: ManagedRuntimeCandidate,
+  boundaries: BoundaryOperations = DIRECT_BOUNDARIES,
+): void {
+  try {
+    updateManagedRuntimeRetentionRoots(
+      paths,
+      {
+        active: state.active?.storePath,
+        // During an in-flight update the transaction's rollback target is
+        // `activation.previous` (the former active), before it is promoted
+        // to the top-level `previous` record on commit.
+        previous: state.activation.previous?.storePath ?? state.previous?.storePath,
+        candidate: candidate?.storePath ?? state.activation.candidate?.storePath,
+      },
+      boundaries,
+    );
+  } catch (error) {
+    throw new ManagedRuntimeError(
+      "retention_failure",
+      `managed Runtime generation retention update failed: ${errorMessage(error)}`,
+      state.activation.phase,
+    );
+  }
+}
+
 function loadStateAndPointer(paths: ManagedRuntimePaths): {
   state: ManagedRuntimeState | undefined;
   pointer: string | undefined;
@@ -829,6 +907,11 @@ async function recoverTransaction(
       phase,
     );
   }
+  // Re-establish every root named by the interrupted transaction before any
+  // health probe or pointer repair.  A crash may have left a conservative
+  // root superset; it must never leave the candidate/rollback target exposed
+  // to collection during recovery.
+  retainStateGenerations(paths, state, candidate, boundaries);
   const timestamp = nowIso(now);
   const expectedPreviousPath = previous?.storePath;
 
@@ -867,6 +950,7 @@ async function recoverTransaction(
         updatedAt: nowIso(now),
       };
       persist(paths.stateFile, next, boundaries);
+      retainStateGenerations(paths, next, undefined, boundaries);
       return { state: next, pointer: undefined, recovered: true, rolledBack: true };
     }
     let selected = currentPointer;
@@ -912,6 +996,7 @@ async function recoverTransaction(
       failure: pending.failure,
     };
     persist(paths.stateFile, committed, boundaries);
+    retainStateGenerations(paths, committed, undefined, boundaries);
     return { state: committed, pointer: selected, recovered: true, rolledBack: true };
   };
 
@@ -961,6 +1046,7 @@ async function recoverTransaction(
       updatedAt: nowIso(now),
     };
     persist(paths.stateFile, committed, boundaries);
+    retainStateGenerations(paths, committed, undefined, boundaries);
     return { state: committed, pointer: currentPointer, recovered: true, rolledBack: false };
   };
 
@@ -1061,6 +1147,7 @@ function statusFromState(state: ManagedRuntimeState, pointer: string | undefined
   else if (pointerMatches(pointer, state.activation.candidate?.storePath))
     observedGenerationIdentity = state.activation.candidate?.generationIdentity;
   if (pointer === undefined) observedStorePath = state.observed?.currentStorePath;
+  const realization = state.active === undefined ? undefined : inspectManagedRuntimeGeneration(state.active);
   return {
     contractId: MANAGED_RUNTIME_STATE_CONTRACT_ID,
     schemaVersion: MANAGED_RUNTIME_STATE_SCHEMA_VERSION,
@@ -1075,6 +1162,15 @@ function statusFromState(state: ManagedRuntimeState, pointer: string | undefined
     ...(observedGenerationIdentity === undefined ? {} : { observedGenerationIdentity }),
     ...(observedStorePath === undefined ? {} : { observedStorePath }),
     activationPhase: state.activation.phase,
+    ...(realization === undefined
+      ? {}
+      : {
+          activeGenerationRealized: realization.realized,
+          activeRequiredExecutablesPresent: realization.requiredExecutablesPresent,
+          ...(realization.missingExecutablePaths.length === 0
+            ? {}
+            : { activeMissingExecutablePaths: realization.missingExecutablePaths }),
+        }),
     ...(state.failure === undefined ? {} : { failure: state.failure }),
     state,
   };
@@ -1285,6 +1381,9 @@ async function reconcileManagedRuntimeLocked(
   }
   if (activeMatchesDesired && activeIsCurrent) {
     const active = activeGeneration;
+    // A no-op is still a lifecycle transition boundary: restore any missing
+    // explicit roots before declaring the realized generation healthy.
+    retainStateGenerations(paths, state, undefined, boundaries);
     const supportedCompatibility = supportedGenerationCompatibilityVersion(options);
     if (active.compatibilityContractVersion !== supportedCompatibility) {
       const timestamp = nowIso(now);
@@ -1386,6 +1485,10 @@ async function reconcileManagedRuntimeLocked(
 
   // Persist candidate and rollback identity before touching `current`.
   try {
+    // Candidate retention is installed before durable prepared evidence and
+    // before the active pointer can change.  Existing active/previous roots
+    // remain in place until the candidate is proven healthy.
+    retainStateGenerations(paths, prepared, candidate, boundaries);
     persist(paths.stateFile, prepared, boundaries);
   } catch (error) {
     const managedError =
@@ -1437,6 +1540,7 @@ async function reconcileManagedRuntimeLocked(
       const failed = stateWithFailure(state, desiredIdentity, evidence, nowIso(now), pointer);
       try {
         persist(paths.stateFile, failed, boundaries);
+        retainStateGenerations(paths, failed, undefined, boundaries);
       } catch {
         // Keep the primary activation/pre-switch error.
       }
@@ -1514,6 +1618,10 @@ async function reconcileManagedRuntimeLocked(
     failure: undefined,
     updatedAt: healthTimestamp,
   };
+  // Install final active/previous roots before retiring the candidate root;
+  // the update routine removes obsolete roots only after all required roots
+  // have been atomically replaced.
+  retainStateGenerations(paths, committed, undefined, boundaries);
   persist(paths.stateFile, committed, boundaries);
   const outcome: ManagedRuntimeReconcileOutcome =
     previous === undefined ? "initialized" : isRemoval(previous, manifest) ? "removed" : "updated";

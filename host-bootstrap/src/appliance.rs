@@ -42,10 +42,41 @@ const MAX_APPLIANCE_RAW_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 /// produced, per `docs/architecture/runtime/appliance-oci.md` ("record the descriptor
 /// digest ... use for every pull").
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplianceArtifactIdentity {
+    /// Digest of the canonical `runtime-appliance-manifest.json` layer.
+    pub manifest_sha256: String,
+    /// Digest of the decompressed, canonical raw appliance disk.
+    pub raw_sha256: String,
+    /// Size of the decompressed, canonical raw appliance disk.
+    pub raw_size_bytes: u64,
+}
+
+impl ApplianceArtifactIdentity {
+    pub fn validate(&self) -> Result<(), BootstrapError> {
+        if !is_lowercase_sha256_hex(&self.manifest_sha256)
+            || !is_lowercase_sha256_hex(&self.raw_sha256)
+            || !(1..=MAX_APPLIANCE_RAW_BYTES).contains(&self.raw_size_bytes)
+        {
+            return Err(BootstrapError::new(
+                ErrorCode::ApplianceReferenceInvalid,
+                "descriptor-bound appliance manifest/raw identity is not a bounded sha256/size tuple",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ApplianceReference {
     pub registry: String,
     pub repository: String,
     pub digest: String,
+    /// Optional descriptor-bound artifact evidence. None is retained for
+    /// intentionally supported legacy RuntimeSpec callers; it must never be
+    /// upgraded into a descriptor-level exact-match claim.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_identity: Option<ApplianceArtifactIdentity>,
 }
 
 impl ApplianceReference {
@@ -68,7 +99,11 @@ impl ApplianceReference {
                 "appliance registry/repository is not a bounded well-formed reference",
             ));
         }
-        validate_digest(&self.digest)
+        validate_digest(&self.digest)?;
+        if let Some(identity) = &self.expected_identity {
+            identity.validate()?;
+        }
+        Ok(())
     }
 }
 
@@ -80,6 +115,13 @@ struct ApplianceState {
     digest: String,
     raw_sha256: String,
     raw_size_bytes: u64,
+    /// The manifest layer identity is optional only for state written before
+    /// descriptor-bound evidence existed. Such state cannot satisfy a newer
+    /// descriptor-bound reference (see inspect_appliance).
+    #[serde(default)]
+    manifest_sha256: Option<String>,
+    #[serde(default)]
+    expected_identity: Option<ApplianceArtifactIdentity>,
 }
 
 const APPLIANCE_STATE_SCHEMA_VERSION: &str = "mottainai.host-bootstrap.appliance.v1";
@@ -170,6 +212,12 @@ pub fn ensure_appliance<S: OciSource>(
         &staging.join("runtime-appliance-manifest.json"),
         MAX_LAYER_JSON_BYTES,
     )?;
+    verify_staged_blob(
+        &staging.join("runtime-appliance-manifest.json"),
+        &manifest_layer.digest,
+        manifest_layer.size,
+        "appliance manifest layer",
+    )?;
     let appliance_manifest: serde_json::Value = serde_json::from_slice(
         &fs::read(staging.join("runtime-appliance-manifest.json"))
             .map_err(|error| BootstrapError::io("read appliance manifest layer", &error))?,
@@ -186,6 +234,12 @@ pub fn ensure_appliance<S: OciSource>(
         &metadata_layer.digest,
         &staging.join("runtime-appliance-release-metadata.json"),
         MAX_LAYER_JSON_BYTES,
+    )?;
+    verify_staged_blob(
+        &staging.join("runtime-appliance-release-metadata.json"),
+        &metadata_layer.digest,
+        metadata_layer.size,
+        "appliance release metadata layer",
     )?;
     let release_metadata: serde_json::Value = serde_json::from_slice(
         &fs::read(staging.join("runtime-appliance-release-metadata.json"))
@@ -215,6 +269,21 @@ pub fn ensure_appliance<S: OciSource>(
             ErrorCode::ApplianceManifestInvalid,
             "compressed appliance layer exceeds the bounded appliance size",
         ));
+    }
+
+    if let Some(expected) = &reference.expected_identity {
+        if expected.manifest_sha256 != manifest_layer.digest.trim_start_matches("sha256:") {
+            return Err(BootstrapError::new(
+                ErrorCode::ApplianceDigestMismatch,
+                "descriptor-bound appliance manifest layer digest differs from the fetched OCI artifact",
+            ));
+        }
+        if expected.raw_sha256 != image || expected.raw_size_bytes != image_size {
+            return Err(BootstrapError::new(
+                ErrorCode::ApplianceDigestMismatch,
+                "descriptor-bound appliance raw identity differs from the fetched manifest",
+            ));
+        }
     }
 
     let compressed_path = staging.join("mottainai-runtime-appliance.raw.zst");
@@ -269,6 +338,13 @@ pub fn ensure_appliance<S: OciSource>(
         digest: reference.digest.clone(),
         raw_sha256,
         raw_size_bytes: raw_size,
+        manifest_sha256: Some(
+            manifest_layer
+                .digest
+                .trim_start_matches("sha256:")
+                .to_owned(),
+        ),
+        expected_identity: reference.expected_identity.clone(),
     };
     write_state(&paths.appliance_state_path(&reference.digest), &state)?;
     timing.mark("atomic-promotion-and-state");
@@ -313,6 +389,26 @@ pub fn inspect_appliance(
             ),
         });
     }
+    if let Some(expected) = &reference.expected_identity {
+        let state_matches_expected = state
+            .expected_identity
+            .as_ref()
+            .is_some_and(|actual| actual == expected)
+            && state
+                .manifest_sha256
+                .as_deref()
+                .is_some_and(|actual| actual == expected.manifest_sha256);
+        if !state_matches_expected {
+            return Ok(ApplianceObservation {
+                classification: Classification::Incompatible,
+                raw_path: None,
+                diagnostic: Some(
+                    "cached appliance lacks matching descriptor-bound manifest/raw identity evidence"
+                        .to_owned(),
+                ),
+            });
+        }
+    }
     if !raw_is_file {
         return Ok(ApplianceObservation {
             classification: Classification::Repairable,
@@ -344,6 +440,25 @@ pub fn inspect_appliance(
 struct LayerDescriptor {
     digest: String,
     size: u64,
+}
+
+fn verify_staged_blob(
+    path: &std::path::Path,
+    expected_digest: &str,
+    expected_size: u64,
+    label: &str,
+) -> Result<(), BootstrapError> {
+    let metadata = fs::metadata(path)
+        .map_err(|error| BootstrapError::io("inspect staged appliance layer", &error))?;
+    let actual_digest = digest_file(path)?;
+    let expected_hex = expected_digest.trim_start_matches("sha256:");
+    if metadata.len() != expected_size || actual_digest != expected_hex {
+        return Err(BootstrapError::new(
+            ErrorCode::ApplianceDigestMismatch,
+            format!("{label} bytes do not match their OCI descriptor digest/size"),
+        ));
+    }
+    Ok(())
 }
 
 fn require_manifest_shape(
