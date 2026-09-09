@@ -12,6 +12,7 @@ import type {
 } from "../state/store.js";
 import {
   buildWorktreeNaming,
+  compensatePhysicalWorktree,
   createWorktree,
   decideBootstrap,
   ensureCanonicalManagedWorktreeRoot,
@@ -135,7 +136,8 @@ export type StartTaskFailureReason =
   | "branch-collision"
   | "path-collision"
   | "active-task-in-workspace"
-  | "git-worktree-add-failed";
+  | "git-worktree-add-failed"
+  | "worktree-finalization-failed";
 
 export interface StartTaskWarning {
   code: "stale-base-branch" | "stale-base-branch-check-unavailable";
@@ -544,15 +546,88 @@ export async function startTask(input: StartTaskInput): Promise<StartTaskResult>
     canonicalRepositoryRoot: identityResult.identity.canonicalRepositoryRoot,
     naming,
     baseCommit,
+    expectedGitCommonDir: identityResult.identity.gitCommonDir,
   });
   if (!createResult.ok) {
+    if (createResult.compensation?.compensated === false) {
+      return {
+        ok: false,
+        reason: "git-worktree-add-failed",
+        detail: `${createResult.detail}; reservation metadata retained for reconciliation`,
+      };
+    }
     store.deleteReservedWorktree(reservedWorktree.worktreeId);
     store.deleteReservedTask(task.taskId);
     return { ok: false, reason: "git-worktree-add-failed", detail: createResult.detail };
   }
 
-  const activeWorktree = store.activateWorktree(reservedWorktree.worktreeId);
-  const activeTask = store.updateTaskLifecycleState(task.taskId, "active");
+  // `createWorktree` はここまでで物理的に worktree/branch を作成済み。以降の DB
+  // finalization（activate/lifecycle 遷移）が例外を投げても、その物理実体を孤児のまま
+  // 残してはならない（Issue #877）。二段階に分けて try/catch するのは、どちらの段階で
+  // 例外が起きたかによって安全に取れる DB ロールバックの範囲が異なるため。
+  let activeWorktree: WorktreeRecord;
+  try {
+    activeWorktree = store.activateWorktree(reservedWorktree.worktreeId);
+  } catch (error) {
+    // activateWorktree の UPDATE は 0 行 match で throw する実装であり、部分適用は
+    // 起きない — worktree 行はまだ 'reserved' のまま。git-worktree-add-failed 経路と
+    // 同じ DB ロールバックが安全に行える。
+    const compensation = await compensatePhysicalWorktree(
+      {
+        canonicalRepositoryRoot: identityResult.identity.canonicalRepositoryRoot,
+        expectedGitCommonDir: identityResult.identity.gitCommonDir,
+        worktreePath: createResult.canonicalPath,
+        branchName: naming.branchName,
+        expectedHead: createResult.baseCommit,
+      },
+    );
+    if (compensation.compensated) {
+      store.deleteReservedWorktree(reservedWorktree.worktreeId);
+      store.deleteReservedTask(task.taskId);
+    }
+    return {
+      ok: false,
+      reason: "worktree-finalization-failed",
+      detail: `worktree activation failed after physical creation: ${(error as Error).message}${
+        compensation.compensated
+          ? " (orphaned worktree/branch removed)"
+          : `; COMPENSATION FAILED, manual cleanup required for worktree=${createResult.canonicalPath} branch=${naming.branchName} (${compensation.detail})`
+      }`,
+    };
+  }
+
+  let activeTask: TaskRecord;
+  try {
+    activeTask = store.updateTaskLifecycleState(task.taskId, "active");
+  } catch (error) {
+    // ここでは worktree 行は既に 'active' に遷移済み — deleteReservedWorktree は
+    // no-op になり、deleteReservedTask を呼ぶと (まだ 'planned' の) task 行だけ消えて
+    // active worktree 行が参照先を失った孤児になる。どちらの既存プリミティブも
+    // 安全に使えないため、DB 行はそのまま残す。物理的な worktree/branch だけ補償で
+    // 取り除けば、「active な worktree 行に対応する物理 path が存在しない」状態になり、
+    // これは reconcile（src/workflow/commands/reconcile.ts の
+    // "missing-managed-worktree" divergence / "mark-worktree-removed" repair）が
+    // 既に検出・修復対象としている形そのもの — 新しい ambiguous-state schema を
+    // 増やさずに reconciliation pass に委譲できる。
+    const compensation = await compensatePhysicalWorktree(
+      {
+        canonicalRepositoryRoot: identityResult.identity.canonicalRepositoryRoot,
+        expectedGitCommonDir: identityResult.identity.gitCommonDir,
+        worktreePath: createResult.canonicalPath,
+        branchName: naming.branchName,
+        expectedHead: createResult.baseCommit,
+      },
+    );
+    return {
+      ok: false,
+      reason: "worktree-finalization-failed",
+      detail: `task lifecycle activation failed after worktree activation: ${(error as Error).message}${
+        compensation.compensated
+          ? " (orphaned worktree/branch removed; run reconcile to clear the now-divergent worktree/task rows)"
+          : `; COMPENSATION FAILED, manual cleanup required for worktree=${createResult.canonicalPath} branch=${naming.branchName} (${compensation.detail})`
+      }`,
+    };
+  }
 
   const bootstrap = decideBootstrap(
     policy.worktree.bootstrapMode,

@@ -7,15 +7,45 @@ import { createTempDir } from "../../test-support/tmp-dir.js";
 import { createTempGitRepo, runGit } from "../../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../../test-support/workflow-store.js";
 import type { RepositoryInstanceId } from "../domain/identity.js";
+import type { RunResult } from "../../subprocess.js";
+import { runProgram } from "../../subprocess.js";
 import {
   buildWorktreeNaming,
+  compensatePhysicalWorktree,
   createWorktree,
   decideBootstrap,
   detectWorktreeCollisions,
   ensureCanonicalManagedWorktreeRoot,
+  resolveCanonicalWorktreePath,
   runBootstrap,
   WorktreeNamingError,
+  type GitRunner,
 } from "./worktree.js";
+
+function failResult(stderr: string): RunResult {
+  return { stdout: "", stderr, exitCode: 1, signal: null, timedOut: false, outputLimit: false };
+}
+
+function isHeadRevParse(args: string[]): boolean {
+  return args.includes("rev-parse") && args.includes("HEAD") && args[0] === "-C";
+}
+
+function gitCommonDir(root: string): string {
+  return runGit(["rev-parse", "--path-format=absolute", "--git-common-dir"], root);
+}
+
+function removeTestWorktree(root: string, worktreePath: string, branchName: string): void {
+  try {
+    runGit(["worktree", "remove", "--force", worktreePath], root);
+  } catch {
+    // Best-effort cleanup keeps later assertions focused on the compensation under test.
+  }
+  try {
+    runGit(["branch", "-D", "--", branchName], root);
+  } catch {
+    // The branch may already have been removed by the code under test.
+  }
+}
 
 test("ensureCanonicalManagedWorktreeRoot rejects a symlink escape at the .mottainai segment before creating anything outside the root", (t) => {
   const root = createTempDir(t, "mottainai-managed-root-test-");
@@ -86,7 +116,8 @@ test("createWorktree succeeds against a real repository and records the base com
   const root = createTempGitRepo(t);
   const naming = buildWorktreeNaming({ branchType: "fix", issueRef: "33", taskSlug: "my-task" });
   const baseCommit = runGit(["rev-parse", "HEAD"], root);
-  const result = await createWorktree({ canonicalRepositoryRoot: root, naming, baseCommit });
+  const expectedGitCommonDir = runGit(["rev-parse", "--path-format=absolute", "--git-common-dir"], root);
+  const result = await createWorktree({ canonicalRepositoryRoot: root, naming, baseCommit, expectedGitCommonDir });
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.ok(fs.existsSync(result.canonicalPath));
@@ -98,11 +129,235 @@ test("createWorktree returns a structured failure when the branch already exists
   const root = createTempGitRepo(t);
   runGit(["branch", "fix/33-dup"], root);
   const naming = buildWorktreeNaming({ branchType: "fix", issueRef: "33", taskSlug: "dup" });
-  const result = await createWorktree({ canonicalRepositoryRoot: root, naming, baseCommit: runGit(["rev-parse", "HEAD"], root) });
+  const result = await createWorktree({
+    canonicalRepositoryRoot: root,
+    naming,
+    baseCommit: runGit(["rev-parse", "HEAD"], root),
+    expectedGitCommonDir: runGit(["rev-parse", "--path-format=absolute", "--git-common-dir"], root),
+  });
   assert.equal(result.ok, false);
   if (result.ok) return;
   assert.equal(result.reason, "git-worktree-add-failed");
   assert.ok(result.detail.length > 0);
+});
+
+test("createWorktree compensates a physical worktree/branch when HEAD verification fails after `git worktree add` succeeds (Issue #877)", async (t) => {
+  const root = createTempGitRepo(t);
+  const naming = buildWorktreeNaming({ branchType: "fix", issueRef: "877", taskSlug: "head-verify-fault" });
+  const baseCommit = runGit(["rev-parse", "HEAD"], root);
+  const expectedGitCommonDir = runGit(["rev-parse", "--path-format=absolute", "--git-common-dir"], root);
+  let injectedHeadFailure = true;
+
+  const faultyRun: GitRunner = async (program, args, cwd, timeoutMs, maxOutputBytes, env) => {
+    if (isHeadRevParse(args) && injectedHeadFailure) {
+      injectedHeadFailure = false;
+      return failResult("injected HEAD resolution failure");
+    }
+    return runProgram(program, args, cwd, timeoutMs, maxOutputBytes, env);
+  };
+
+  const result = await createWorktree({
+    canonicalRepositoryRoot: root,
+    naming,
+    baseCommit,
+    expectedGitCommonDir,
+    runProgram: faultyRun,
+  });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.reason, "git-worktree-add-failed");
+  assert.match(result.detail, /HEAD could not be resolved/);
+  assert.match(result.detail, /orphaned worktree\/branch removed/);
+
+  // The physical side effect `git worktree add` already committed to disk must not survive.
+  const worktreePath = resolveCanonicalWorktreePath(root, naming);
+  assert.equal(fs.existsSync(worktreePath), false);
+  const remainingBranches = runGit(["branch", "--list", naming.branchName], root);
+  assert.equal(remainingBranches, "");
+  const worktreeList = runGit(["worktree", "list", "--porcelain"], root);
+  assert.equal(worktreeList.includes(naming.branchName), false);
+});
+
+test("createWorktree surfaces a manual-cleanup diagnostic when compensation itself cannot remove the orphan", async (t) => {
+  const root = createTempGitRepo(t);
+  const naming = buildWorktreeNaming({ branchType: "fix", issueRef: "877", taskSlug: "compensation-fault" });
+  const baseCommit = runGit(["rev-parse", "HEAD"], root);
+  const expectedGitCommonDir = runGit(["rev-parse", "--path-format=absolute", "--git-common-dir"], root);
+  let injectedHeadFailure = true;
+
+  const faultyRun: GitRunner = async (program, args, cwd, timeoutMs, maxOutputBytes, env) => {
+    if (isHeadRevParse(args) && injectedHeadFailure) {
+      injectedHeadFailure = false;
+      return failResult("injected HEAD resolution failure");
+    }
+    if (args[0] === "worktree" && args[1] === "remove") return failResult("injected worktree remove failure");
+    return runProgram(program, args, cwd, timeoutMs, maxOutputBytes, env);
+  };
+
+  const result = await createWorktree({
+    canonicalRepositoryRoot: root,
+    naming,
+    baseCommit,
+    expectedGitCommonDir,
+    runProgram: faultyRun,
+  });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.match(result.detail, /COMPENSATION FAILED/);
+  assert.match(result.detail, /manual cleanup required/);
+  assert.match(result.detail, /injected worktree remove failure/);
+
+  // The physical worktree genuinely survives here — the diagnostic is the durable
+  // record a human/reconciliation pass needs to find and clear it.
+  const worktreePath = resolveCanonicalWorktreePath(root, naming);
+  assert.equal(fs.existsSync(worktreePath), true);
+  assert.equal(runGit(["branch", "--list", naming.branchName], root).includes(naming.branchName), true);
+  t.after(() => {
+    try {
+      runGit(["worktree", "remove", "--force", worktreePath], root);
+    } catch {
+      /* best-effort test cleanup */
+    }
+  });
+});
+
+test("compensatePhysicalWorktree removes a worktree and its branch created by a prior git worktree add", async (t) => {
+  const root = createTempGitRepo(t);
+  const naming = buildWorktreeNaming({ branchType: "fix", issueRef: "877", taskSlug: "direct-compensation" });
+  const baseCommit = runGit(["rev-parse", "HEAD"], root);
+  const worktreePath = resolveCanonicalWorktreePath(root, naming);
+  fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
+  runGit(["worktree", "add", "-b", naming.branchName, worktreePath, baseCommit], root);
+  assert.ok(fs.existsSync(worktreePath));
+
+  const result = await compensatePhysicalWorktree({
+    canonicalRepositoryRoot: root,
+    expectedGitCommonDir: runGit(["rev-parse", "--path-format=absolute", "--git-common-dir"], root),
+    worktreePath,
+    branchName: naming.branchName,
+    expectedHead: baseCommit,
+  });
+  assert.equal(result.compensated, true);
+  assert.equal(fs.existsSync(worktreePath), false);
+  assert.equal(runGit(["branch", "--list", naming.branchName], root), "");
+});
+
+test("compensation refuses a canonical path that has been reused by a different registered branch", async (t) => {
+  const root = createTempGitRepo(t);
+  const naming = buildWorktreeNaming({ branchType: "fix", issueRef: "877", taskSlug: "path-reused" });
+  const foreignBranch = "fix/877-foreign-path";
+  const baseCommit = runGit(["rev-parse", "HEAD"], root);
+  const worktreePath = resolveCanonicalWorktreePath(root, naming);
+  fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
+  runGit(["worktree", "add", "-b", naming.branchName, worktreePath, baseCommit], root);
+  runGit(["worktree", "remove", "--force", worktreePath], root);
+  runGit(["branch", "-D", "--", naming.branchName], root);
+  runGit(["worktree", "add", "-b", foreignBranch, worktreePath, baseCommit], root);
+  t.after(() => removeTestWorktree(root, worktreePath, foreignBranch));
+
+  let removeCalls = 0;
+  const observingRun: GitRunner = async (program, args, cwd, timeoutMs, maxOutputBytes, env) => {
+    if (program === "git" && args[0] === "worktree" && args[1] === "remove") removeCalls += 1;
+    return runProgram(program, args, cwd, timeoutMs, maxOutputBytes, env);
+  };
+  const result = await compensatePhysicalWorktree(
+    {
+      canonicalRepositoryRoot: root,
+      expectedGitCommonDir: gitCommonDir(root),
+      worktreePath,
+      branchName: naming.branchName,
+      expectedHead: baseCommit,
+    },
+    observingRun,
+  );
+  assert.equal(result.compensated, false);
+  assert.match(result.detail ?? "", /registered branch/);
+  assert.equal(removeCalls, 0);
+  assert.equal(fs.existsSync(worktreePath), true);
+  assert.equal(runGit(["-C", worktreePath, "branch", "--show-current"], root), foreignBranch);
+});
+
+test("compensation refuses when the expected branch was recreated at a different registered path", async (t) => {
+  const root = createTempGitRepo(t);
+  const naming = buildWorktreeNaming({ branchType: "fix", issueRef: "877", taskSlug: "branch-reused" });
+  const baseCommit = runGit(["rev-parse", "HEAD"], root);
+  const expectedPath = resolveCanonicalWorktreePath(root, naming);
+  const foreignPath = path.join(root, "foreign-worktree");
+  fs.mkdirSync(path.dirname(expectedPath), { recursive: true });
+  runGit(["worktree", "add", "-b", naming.branchName, expectedPath, baseCommit], root);
+  runGit(["worktree", "remove", "--force", expectedPath], root);
+  runGit(["worktree", "add", foreignPath, naming.branchName], root);
+  t.after(() => removeTestWorktree(root, foreignPath, naming.branchName));
+
+  const result = await compensatePhysicalWorktree({
+    canonicalRepositoryRoot: root,
+    expectedGitCommonDir: gitCommonDir(root),
+    worktreePath: expectedPath,
+    branchName: naming.branchName,
+    expectedHead: baseCommit,
+  });
+  assert.equal(result.compensated, false);
+  assert.match(result.detail ?? "", /refusing compensation/);
+  assert.equal(fs.existsSync(foreignPath), true);
+  assert.equal(runGit(["-C", foreignPath, "branch", "--show-current"], root), naming.branchName);
+  assert.equal(runGit(["branch", "--list", naming.branchName], root).includes(naming.branchName), true);
+});
+
+test("compensation refuses a registered worktree whose HEAD no longer matches the failed operation", async (t) => {
+  const root = createTempGitRepo(t);
+  const naming = buildWorktreeNaming({ branchType: "fix", issueRef: "877", taskSlug: "head-reused" });
+  const baseCommit = runGit(["rev-parse", "HEAD"], root);
+  const worktreePath = resolveCanonicalWorktreePath(root, naming);
+  fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
+  runGit(["worktree", "add", "-b", naming.branchName, worktreePath, baseCommit], root);
+  fs.writeFileSync(path.join(worktreePath, "file.txt"), "changed by a later owner\n");
+  runGit(["add", "file.txt"], worktreePath);
+  runGit(["commit", "--quiet", "-m", "later owner change"], worktreePath);
+  t.after(() => removeTestWorktree(root, worktreePath, naming.branchName));
+
+  let removeCalls = 0;
+  const observingRun: GitRunner = async (program, args, cwd, timeoutMs, maxOutputBytes, env) => {
+    if (program === "git" && args[0] === "worktree" && args[1] === "remove") removeCalls += 1;
+    return runProgram(program, args, cwd, timeoutMs, maxOutputBytes, env);
+  };
+  const result = await compensatePhysicalWorktree(
+    {
+      canonicalRepositoryRoot: root,
+      expectedGitCommonDir: gitCommonDir(root),
+      worktreePath,
+      branchName: naming.branchName,
+      expectedHead: baseCommit,
+    },
+    observingRun,
+  );
+  assert.equal(result.compensated, false);
+  assert.match(result.detail ?? "", /registered HEAD/);
+  assert.equal(removeCalls, 0);
+  assert.equal(fs.existsSync(worktreePath), true);
+  assert.notEqual(runGit(["rev-parse", "HEAD"], worktreePath), baseCommit);
+});
+
+test("compensation refuses a target whose Git common-dir is not the original repository", async (t) => {
+  const root = createTempGitRepo(t);
+  const otherRepository = createTempGitRepo(t);
+  const naming = buildWorktreeNaming({ branchType: "fix", issueRef: "877", taskSlug: "repository-reused" });
+  const baseCommit = runGit(["rev-parse", "HEAD"], root);
+  const worktreePath = resolveCanonicalWorktreePath(root, naming);
+  fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
+  runGit(["worktree", "add", "-b", naming.branchName, worktreePath, baseCommit], root);
+  t.after(() => removeTestWorktree(root, worktreePath, naming.branchName));
+
+  const result = await compensatePhysicalWorktree({
+    canonicalRepositoryRoot: root,
+    expectedGitCommonDir: gitCommonDir(otherRepository),
+    worktreePath,
+    branchName: naming.branchName,
+    expectedHead: baseCommit,
+  });
+  assert.equal(result.compensated, false);
+  assert.match(result.detail ?? "", /repository common-dir changed/);
+  assert.equal(fs.existsSync(worktreePath), true);
+  assert.equal(runGit(["branch", "--list", naming.branchName], root).includes(naming.branchName), true);
 });
 
 test("decideBootstrap: off never executes even if a lockfile is present", (t) => {
