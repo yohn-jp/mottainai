@@ -1,0 +1,222 @@
+{
+  "baseSha": "a3f55dc431814747bf929feaf10b7167fb0a076a",
+  "files": [
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 69,
+          "oldLines": 0,
+          "oldStart": 68
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 323,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 323,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/benchmark-dashboard-reconciliation.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 208,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 60,
+          "newStart": 60,
+          "oldLines": 0,
+          "oldStart": 59
+        },
+        {
+          "newLines": 148,
+          "newStart": 1131,
+          "oldLines": 0,
+          "oldStart": 1070
+        }
+      ],
+      "path": "src/manager/service.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 111,
+      "deletions": 15,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 34,
+          "oldLines": 0,
+          "oldStart": 33
+        },
+        {
+          "newLines": 8,
+          "newStart": 75,
+          "oldLines": 0,
+          "oldStart": 73
+        },
+        {
+          "newLines": 52,
+          "newStart": 964,
+          "oldLines": 0,
+          "oldStart": 954
+        },
+        {
+          "newLines": 5,
+          "newStart": 1367,
+          "oldLines": 0,
+          "oldStart": 1305
+        },
+        {
+          "newLines": 0,
+          "newStart": 1865,
+          "oldLines": 1,
+          "oldStart": 1800
+        },
+        {
+          "newLines": 0,
+          "newStart": 1898,
+          "oldLines": 1,
+          "oldStart": 1834
+        },
+        {
+          "newLines": 0,
+          "newStart": 1970,
+          "oldLines": 1,
+          "oldStart": 1907
+        },
+        {
+          "newLines": 0,
+          "newStart": 2108,
+          "oldLines": 1,
+          "oldStart": 2046
+        },
+        {
+          "newLines": 0,
+          "newStart": 2142,
+          "oldLines": 1,
+          "oldStart": 2081
+        },
+        {
+          "newLines": 1,
+          "newStart": 2214,
+          "oldLines": 1,
+          "oldStart": 2153
+        },
+        {
+          "newLines": 0,
+          "newStart": 2217,
+          "oldLines": 1,
+          "oldStart": 2157
+        },
+        {
+          "newLines": 1,
+          "newStart": 2233,
+          "oldLines": 1,
+          "oldStart": 2173
+        },
+        {
+          "newLines": 1,
+          "newStart": 2243,
+          "oldLines": 1,
+          "oldStart": 2183
+        },
+        {
+          "newLines": 1,
+          "newStart": 2254,
+          "oldLines": 1,
+          "oldStart": 2194
+        },
+        {
+          "newLines": 0,
+          "newStart": 2261,
+          "oldLines": 1,
+          "oldStart": 2202
+        },
+        {
+          "newLines": 1,
+          "newStart": 2288,
+          "oldLines": 1,
+          "oldStart": 2229
+        },
+        {
+          "newLines": 1,
+          "newStart": 2298,
+          "oldLines": 1,
+          "oldStart": 2239
+        },
+        {
+          "newLines": 8,
+          "newStart": 2311,
+          "oldLines": 0,
+          "oldStart": 2251
+        },
+        {
+          "newLines": 9,
+          "newStart": 2320,
+          "oldLines": 0,
+          "oldStart": 2252
+        },
+        {
+          "newLines": 1,
+          "newStart": 2330,
+          "oldLines": 1,
+          "oldStart": 2254
+        },
+        {
+          "newLines": 21,
+          "newStart": 2334,
+          "oldLines": 1,
+          "oldStart": 2258
+        }
+      ],
+      "path": "src/manager/service.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 15,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 15,
+          "newStart": 2203,
+          "oldLines": 0,
+          "oldStart": 2202
+        }
+      ],
+      "path": "src/workflow/state/sqlite-store.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 980,
+          "oldLines": 0,
+          "oldStart": 979
+        }
+      ],
+      "path": "src/workflow/state/store.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "32a3d0fbaddf97801cceda3b43f31529bd99219f",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 660,
+    "deletions": 15,
+    "filesChanged": 6
+  }
+}
