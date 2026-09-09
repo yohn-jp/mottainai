@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #884 @ ad166d715027</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #884: fix(runtime): decouple dashboard reconciliation from GET /sessions</h1>
+<p>Base <code>main</code> @ <code>a3f55dc431814747bf929feaf10b7167fb0a076a</code> &rarr;
+Head <code>fix/872-decouple-dashboard-reconciliation</code> @ <code>ad166d7150274b0b82a50d4a1c7626460f8245f3</code></p>
+<p>Revision <code>ad166d715027</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/872">#872</a> fix: decouple dashboard session listing from synchronous unconditional reconciliation (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Reconciliation is decoupled from the GET request path (background refresh and/or a freshness TTL exposed to clients) or performed with bounded concurrency instead of strictly sequential awaits.</li>
+<li>[ ] `updateManagerSession` (or its caller) writes a session&#39;s projection only when the observed state actually differs from the stored one.</li>
+<li>[ ] A benchmark exercising 10/100/500 sessions and concurrent dashboard clients measures external-call count, write count, and response latency before/after.</li></ul>
+
+
+
+<h2>Changed files (7, +661/-15)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/ci.yml</td><td>modified</td><td>+1</td><td>-0</td></tr>
+<tr><td>package.json</td><td>modified</td><td>+1</td><td>-0</td></tr>
+<tr><td>scripts/benchmark-dashboard-reconciliation.mjs</td><td>added</td><td>+323</td><td>-0</td></tr>
+<tr><td>src/manager/service.test.ts</td><td>modified</td><td>+208</td><td>-0</td></tr>
+<tr><td>src/manager/service.ts</td><td>modified</td><td>+111</td><td>-15</td></tr>
+<tr><td>src/workflow/state/sqlite-store.ts</td><td>modified</td><td>+15</td><td>-0</td></tr>
+<tr><td>src/workflow/state/store.ts</td><td>modified</td><td>+2</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
