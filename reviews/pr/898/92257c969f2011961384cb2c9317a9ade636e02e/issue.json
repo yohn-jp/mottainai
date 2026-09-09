@@ -1,0 +1,47 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "The Runtime Appliance artifact certified by the Route 3/Golden Path job is either passed unchanged into publication or publication proves exact digest/size equality with the certified artifact before release."
+    },
+    {
+      "checked": false,
+      "text": "Certification evidence records the canonical raw identity and immutable OCI identity that publication must preserve."
+    },
+    {
+      "checked": false,
+      "text": "Release publication fails closed if the artifact selected for publication differs from the certified identity."
+    },
+    {
+      "checked": false,
+      "text": "Deployment descriptor generation/binding uses the exact published-and-certified Route 3 artifact identity."
+    },
+    {
+      "checked": false,
+      "text": "Release evidence makes the chain `certified artifact -> published artifact -> descriptor reference` mechanically auditable."
+    },
+    {
+      "checked": false,
+      "text": "Rebuilds, retries, and separate workflow jobs cannot silently replace the certified Runtime Appliance with semantically assumed-equivalent bytes."
+    },
+    {
+      "checked": false,
+      "text": "Regression/workflow tests cover mismatch rejection and successful exact-identity handoff."
+    },
+    {
+      "checked": false,
+      "text": "The same principle applies to any future projection artifact only when that artifact is claimed as certified; projection formats must not replace the canonical Runtime semantic authority."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 894,
+    "state": "open",
+    "title": "fix(release): preserve certified Runtime Appliance identity through publication",
+    "url": "https://github.com/yohn-jp/mottainai/issues/894"
+  },
+  "linked": {
+    "number": 894
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

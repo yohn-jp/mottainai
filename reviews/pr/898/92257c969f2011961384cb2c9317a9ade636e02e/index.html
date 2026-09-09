@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #898 @ 92257c969f20</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #898: fix(release): preserve certified Runtime Appliance identity through publication (#894)</h1>
+<p>Base <code>main</code> @ <code>2434a7ad730656fd0405a59ba9d7092d2820580a</code> &rarr;
+Head <code>fix/894-certified-appliance-publication</code> @ <code>92257c969f2011961384cb2c9317a9ade636e02e</code></p>
+<p>Revision <code>92257c969f20</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/894">#894</a> fix(release): preserve certified Runtime Appliance identity through publication (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] The Runtime Appliance artifact certified by the Route 3/Golden Path job is either passed unchanged into publication or publication proves exact digest/size equality with the certified artifact before release.</li>
+<li>[ ] Certification evidence records the canonical raw identity and immutable OCI identity that publication must preserve.</li>
+<li>[ ] Release publication fails closed if the artifact selected for publication differs from the certified identity.</li>
+<li>[ ] Deployment descriptor generation/binding uses the exact published-and-certified Route 3 artifact identity.</li>
+<li>[ ] Release evidence makes the chain `certified artifact -&gt; published artifact -&gt; descriptor reference` mechanically auditable.</li>
+<li>[ ] Rebuilds, retries, and separate workflow jobs cannot silently replace the certified Runtime Appliance with semantically assumed-equivalent bytes.</li>
+<li>[ ] Regression/workflow tests cover mismatch rejection and successful exact-identity handoff.</li>
+<li>[ ] The same principle applies to any future projection artifact only when that artifact is claimed as certified; projection formats must not replace the canonical Runtime semantic authority.</li></ul>
+
+
+
+<h2>Changed files (9, +757/-186)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/ci.yml</td><td>modified</td><td>+75</td><td>-43</td></tr>
+<tr><td>.github/workflows/publish.yml</td><td>modified</td><td>+188</td><td>-138</td></tr>
+<tr><td>package.json</td><td>modified</td><td>+2</td><td>-2</td></tr>
+<tr><td>scripts/build-runtime-appliance-oci-fixture.mjs</td><td>modified</td><td>+43</td><td>-3</td></tr>
+<tr><td>scripts/create-runtime-appliance-certificate.mjs</td><td>added</td><td>+26</td><td>-0</td></tr>
+<tr><td>scripts/deployment-artifact-roundtrip-gate.test.mjs</td><td>modified</td><td>+39</td><td>-0</td></tr>
+<tr><td>scripts/lib/runtime-appliance-certificate.mjs</td><td>added</td><td>+215</td><td>-0</td></tr>
+<tr><td>scripts/runtime-appliance-certificate.test.mjs</td><td>added</td><td>+143</td><td>-0</td></tr>
+<tr><td>scripts/verify-runtime-appliance-certificate.mjs</td><td>added</td><td>+26</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
