@@ -98,7 +98,12 @@ test("publish depends on integration and e2e certification for the exact release
       continue;
     }
     const raw = needsMatch[1].trim();
-    const list = raw.startsWith("[") ? raw.slice(1, -1).split(",").map((entry) => entry.trim()) : [raw];
+    const list = raw.startsWith("[")
+      ? raw
+          .slice(1, -1)
+          .split(",")
+          .map((entry) => entry.trim())
+      : [raw];
     needsOf.set(jobName, list);
   }
   assert.ok(needsOf.has("publish"), "expected to parse a publish job from the workflow");
