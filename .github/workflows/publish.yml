@@ -533,6 +533,7 @@ jobs:
     # Release.
     permissions:
       contents: read
+      actions: read
       packages: write
     outputs:
       oci_digest: ${{ steps.publish_oci.outputs.digest }}
@@ -737,152 +738,75 @@ jobs:
           fi
           grep -q 'canonical Route 1 payload sha256 mismatch' /tmp/mottainai-route2-tamper.log
 
-      - name: Build canonical Runtime Appliance from the tagged source
-        working-directory: nix
+      # Route 3 certification is owned by the trusted-main CI run. Resolve
+      # that exact successful run by commit and download its forwarded
+      # artifact. No source rebuild is permitted in this release job: a
+      # same-source rebuild is not certified-byte identity (#894).
+      - name: Resolve the exact trusted-main Runtime Appliance certification run (Issue #894)
+        id: certification_run
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REVISION: ${{ env.RUNTIME_APPLIANCE_SOURCE_REVISION }}
         run: |
           set -euo pipefail
-          nix flake check --no-update-lock-file --no-build --all-systems
-          # #627's final contract: managed application inputs must not enter
-          # the published bootstrap-only base appliance closure.
-          nix build --no-update-lock-file --no-link .#checks.x86_64-linux.appliance-boundary
-          image_output="$(nix build --no-update-lock-file --no-link --print-out-paths .#runtime-appliance-image)"
-          test -d "$image_output"
-          echo "RUNTIME_APPLIANCE_IMAGE_OUTPUT=$image_output" >> "$GITHUB_ENV"
+          run_id=""
+          for attempt in $(seq 1 60); do
+            run_id="$(gh api \
+              --method GET \
+              "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+              -f "head_sha=$SOURCE_REVISION" \
+              -f "event=push" \
+              -f "branch=main" \
+              -f "status=completed" \
+              -f "per_page=100" \
+              --jq '[.workflow_runs[] | select(.head_sha == "'$SOURCE_REVISION'" and .event == "push" and .head_branch == "main" and .status == "completed" and .conclusion == "success")] | sort_by(.created_at) | last | .id // empty' )"
+            if [[ "$run_id" =~ ^[0-9]+$ ]]; then break; fi
+            echo "waiting for trusted-main CI certification for $SOURCE_REVISION (attempt $attempt/60)"
+            sleep 30
+          done
+          if [[ ! "$run_id" =~ ^[0-9]+$ ]]; then
+            echo "no successful trusted-main CI certification run exists for $SOURCE_REVISION" >&2
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
 
-      - name: Generate and verify the canonical raw manifest and compressed envelope
-        working-directory: nix
+      - name: Download the exact certified Runtime Appliance bytes (Issue #894)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: mottainai-runtime-appliance-x86_64-linux
+          path: ${{ runner.temp }}/certified-runtime-appliance
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.certification_run.outputs.run_id }}
+
+      - name: Verify the certified Runtime Appliance handoff without rebuilding (Issue #894)
         shell: bash
+        env:
+          SOURCE_REVISION: ${{ env.RUNTIME_APPLIANCE_SOURCE_REVISION }}
         run: |
           set -euo pipefail
-          mottainai_version="$(nix eval --no-update-lock-file --raw .#packages.x86_64-linux.mottainai.version)"
-          nawabari_version="$(nix eval --no-update-lock-file --raw .#packages.x86_64-linux.nawabari.version)"
-          test "$mottainai_version" = "$RUNTIME_APPLIANCE_PACKAGE_VERSION"
-          test -n "$nawabari_version"
-
-          node ../scripts/build-runtime-appliance-manifest.mjs \
-            --architecture x86_64-linux \
-            --image-output "$RUNTIME_APPLIANCE_IMAGE_OUTPUT" \
-            --source-revision "$RUNTIME_APPLIANCE_SOURCE_REVISION" \
-            --mottainai-version "$mottainai_version" \
-            --nawabari-version "$nawabari_version" \
-            --output "$RUNNER_TEMP/runtime-appliance"
-
-          directory="$RUNNER_TEMP/runtime-appliance/x86_64-linux"
-          manifest="$directory/runtime-appliance-manifest.json"
-          disk="$directory/mottainai-runtime-appliance.raw"
-          test -s "$manifest"
-          test -s "$disk"
-          jq -e \
-            --arg source_revision "$RUNTIME_APPLIANCE_SOURCE_REVISION" \
-            --arg package_version "$RUNTIME_APPLIANCE_PACKAGE_VERSION" \
-            '
-              .contractId == "mottainai.linux-runtime-appliance.v1" and
-              .schemaVersion == 1 and
-              .architecture == "x86_64-linux" and
-              .sourceRevision == $source_revision and
-              .mottainaiVersion == $package_version and
-              (.sourceRevision | test("^[0-9a-f]{40}$")) and
-              (.nixSystemClosure | startswith("/nix/store/")) and
-              .canonicalSource.flake == "nix/flake.nix" and
-              .canonicalSource.output == "applianceConfigurations.x86_64-linux.config.system.build.toplevel" and
-              .image.filename == "mottainai-runtime-appliance.raw" and
-              .image.format == "raw" and
-              ((.image.sizeBytes | type) == "number") and
-              (.image.sizeBytes > 0) and
-              (.image.sha256 | test("^[0-9a-f]{64}$"))
-            ' "$manifest"
+          certificate_directory="$RUNNER_TEMP/certified-runtime-appliance"
+          certificate="$certificate_directory/runtime-appliance-certification.json"
+          test -s "$certificate"
+          node scripts/verify-runtime-appliance-certificate.mjs \
+            --directory "$certificate_directory" \
+            --certificate "$certificate" \
+            --source-revision "$SOURCE_REVISION"
+          manifest="$certificate_directory/runtime-appliance-manifest.json"
+          disk="$certificate_directory/mottainai-runtime-appliance.raw"
           MANIFEST="$manifest" DISK="$disk" node --import tsx --input-type=module -e '
-            import { readRuntimeApplianceManifest, verifyRuntimeApplianceManifest } from "../src/runtime-contract/appliance-manifest.ts";
+            import { readRuntimeApplianceManifest, verifyRuntimeApplianceManifest } from "./src/runtime-contract/appliance-manifest.ts";
             const manifest = readRuntimeApplianceManifest(process.env.MANIFEST);
             verifyRuntimeApplianceManifest(manifest, process.env.DISK);
           '
-
-          compressed="$directory/mottainai-runtime-appliance.raw.zst"
-          metadata="$directory/runtime-appliance-release-metadata.json"
-          # Keep the canonical raw identity unchanged. This is a fixed
-          # distribution-only transport envelope: zstd 19, single-threaded,
-          # with an explicit zstd frame checksum.
-          zstd --compress --ultra -19 --threads=1 --check --no-progress --force --keep \
-            -o "$compressed" "$disk"
-          compressed_size="$(stat -c '%s' "$compressed")"
-          compressed_sha256="$(sha256sum "$compressed" | awk '{print $1}')"
-          test -s "$compressed"
-          test "$compressed_size" -lt 2147483648
-          test "$(stat -c '%s' "$compressed")" = "$compressed_size"
-          test "$(sha256sum "$compressed" | awk '{print $1}')" = "$compressed_sha256"
-
-          jq -n \
-            --arg source_revision "$RUNTIME_APPLIANCE_SOURCE_REVISION" \
-            --arg manifest_filename "$(basename "$manifest")" \
-            --arg asset_filename "$(basename "$compressed")" \
-            --arg asset_sha256 "$compressed_sha256" \
-            --argjson asset_size_bytes "$compressed_size" \
-            '{
-              contractId: "mottainai.linux-runtime-appliance-release.v1",
-              schemaVersion: 1,
-              architecture: "x86_64-linux",
-              sourceRevision: $source_revision,
-              canonicalManifest: $manifest_filename,
-              compressedAsset: {
-                filename: $asset_filename,
-                format: "zstd",
-                sizeBytes: $asset_size_bytes,
-                sha256: $asset_sha256
-              }
-            }' > "$metadata"
-          validate_release_metadata_bytes() {
-            local metadata_file="$1"
-            local manifest_filename="$2"
-            local asset_filename="$3"
-            local asset_size_bytes="$4"
-            local asset_sha256="$5"
-            jq -e \
-              --arg source_revision "$RUNTIME_APPLIANCE_SOURCE_REVISION" \
-              --arg manifest_filename "$manifest_filename" \
-              --arg asset_filename "$asset_filename" \
-              --arg asset_sha256 "$asset_sha256" \
-              --argjson asset_size_bytes "$asset_size_bytes" \
-              '
-                .contractId == "mottainai.linux-runtime-appliance-release.v1" and
-                .schemaVersion == 1 and
-                .architecture == "x86_64-linux" and
-                .sourceRevision == $source_revision and
-                (.sourceRevision | test("^[0-9a-f]{40}$")) and
-                .canonicalManifest == $manifest_filename and
-                .compressedAsset.filename == $asset_filename and
-                .compressedAsset.format == "zstd" and
-                ((.compressedAsset.sizeBytes | type) == "number") and
-                .compressedAsset.sizeBytes == $asset_size_bytes and
-                (.compressedAsset.sha256 | test("^[0-9a-f]{64}$")) and
-                .compressedAsset.sha256 == $asset_sha256
-              ' "$metadata_file"
-          }
-          validate_release_metadata_bytes \
-            "$metadata" \
-            "$(basename "$manifest")" \
-            "$(basename "$compressed")" \
-            "$compressed_size" \
-            "$compressed_sha256"
-          test "$(jq -r '.sourceRevision' "$metadata")" = "$(jq -r '.sourceRevision' "$manifest")"
-
-          roundtrip_directory="$RUNNER_TEMP/runtime-appliance-roundtrip"
-          mkdir -p "$roundtrip_directory"
-          roundtrip_disk="$roundtrip_directory/mottainai-runtime-appliance.raw"
-          zstd --decompress --no-progress --force \
-            -o "$roundtrip_disk" "$compressed"
-          cmp -- "$disk" "$roundtrip_disk"
-          MANIFEST="$manifest" DISK="$roundtrip_disk" node --import tsx --input-type=module -e '
-            import { readRuntimeApplianceManifest, verifyRuntimeApplianceManifest } from "../src/runtime-contract/appliance-manifest.ts";
-            const manifest = readRuntimeApplianceManifest(process.env.MANIFEST);
-            verifyRuntimeApplianceManifest(manifest, process.env.DISK);
-          '
-
           {
-            echo "RUNTIME_APPLIANCE_DIRECTORY=$directory"
-            echo "RUNTIME_APPLIANCE_COMPRESSED_ASSET=$compressed"
+            echo "RUNTIME_APPLIANCE_DIRECTORY=$certificate_directory"
+            echo "RUNTIME_APPLIANCE_COMPRESSED_ASSET=$certificate_directory/mottainai-runtime-appliance.raw.zst"
             echo "RUNTIME_APPLIANCE_MANIFEST=$manifest"
-            echo "RUNTIME_APPLIANCE_RELEASE_METADATA=$metadata"
+            echo "RUNTIME_APPLIANCE_RELEASE_METADATA=$certificate_directory/runtime-appliance-release-metadata.json"
+            echo "RUNTIME_APPLIANCE_OCI_CERTIFICATE=$certificate"
+            echo "RUNTIME_APPLIANCE_CERTIFICATION_RUN_ID=${{ steps.certification_run.outputs.run_id }}"
           } >> "$GITHUB_ENV"
 
       # ORAS is used for arbitrary OCI artifact files. This intentionally stays
@@ -911,9 +835,23 @@ jobs:
           compressed="$RUNTIME_APPLIANCE_COMPRESSED_ASSET"
           manifest="$RUNTIME_APPLIANCE_MANIFEST"
           metadata="$RUNTIME_APPLIANCE_RELEASE_METADATA"
+          certificate="$RUNTIME_APPLIANCE_OCI_CERTIFICATE"
           test -s "$compressed"
           test -s "$manifest"
           test -s "$metadata"
+          test -s "$certificate"
+          certified_raw_sha256="$(jq -er '.canonical.raw.sha256' "$certificate")"
+          certified_raw_size="$(jq -er '.canonical.raw.sizeBytes' "$certificate")"
+          certified_manifest_sha256="$(jq -er '.canonical.manifest.sha256' "$certificate")"
+          certified_manifest_size="$(jq -er '.canonical.manifest.sizeBytes' "$certificate")"
+          certified_compressed_sha256="$(jq -er '.canonical.compressed.sha256' "$certificate")"
+          certified_compressed_size="$(jq -er '.canonical.compressed.sizeBytes' "$certificate")"
+          test "$certified_raw_sha256" = "$(jq -er '.image.sha256' "$manifest")"
+          test "$certified_raw_size" = "$(jq -er '.image.sizeBytes' "$manifest")"
+          test "$certified_manifest_sha256" = "$(sha256sum "$manifest" | awk '{print $1}')"
+          test "$certified_manifest_size" = "$(stat -c '%s' "$manifest")"
+          test "$certified_compressed_sha256" = "$(sha256sum "$compressed" | awk '{print $1}')"
+          test "$certified_compressed_size" = "$(stat -c '%s' "$compressed")"
 
           # Current release tags are vMAJOR.MINOR.PATCH (optionally with a
           # prerelease suffix). They remain a compatibility locator in this
@@ -966,7 +904,7 @@ jobs:
             oras push --no-tty \
               --image-spec v1.1 \
               --artifact-type "$oci_artifact_type" \
-              --annotation "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+              --annotation "org.opencontainers.image.created=1970-01-01T00:00:00Z" \
               --annotation "org.opencontainers.image.revision=$RUNTIME_APPLIANCE_SOURCE_REVISION" \
               --annotation "org.opencontainers.image.version=$RUNTIME_APPLIANCE_PACKAGE_VERSION" \
               --export-manifest "$pushed_manifest" \
@@ -1065,6 +1003,7 @@ jobs:
           oci_digest="$(jq -er '.digest | select(type == "string" and test("^sha256:[0-9a-f]{64}$"))' "$descriptor")"
           oci_digest_ref="$oci_repository@$oci_digest"
           test -n "$oci_digest"
+          test "$oci_digest" = "$(jq -er '.oci.digest' "$certificate")"
 
           # The slower-changing contract locator is deliberately only an alias
           # to the already-resolved digest. Operators must use the digest ref
@@ -1122,6 +1061,61 @@ jobs:
             verifyRuntimeApplianceManifest(manifest, process.env.DISK);
           '
 
+          publication_evidence="$RUNNER_TEMP/runtime-appliance-publication-evidence.json"
+          published_manifest_sha256="$(sha256sum "$remote_oci_manifest" | awk '{print $1}')"
+          jq -n \
+            --arg source_revision "$RUNTIME_APPLIANCE_SOURCE_REVISION" \
+            --arg certification_run_id "$RUNTIME_APPLIANCE_CERTIFICATION_RUN_ID" \
+            --arg certificate_oci_digest "$(jq -er '.oci.digest' "$certificate")" \
+            --arg certificate_raw_sha256 "$(jq -er '.canonical.raw.sha256' "$certificate")" \
+            --argjson certificate_raw_size_bytes "$(jq -er '.canonical.raw.sizeBytes' "$certificate")" \
+            --arg certificate_manifest_sha256 "$(jq -er '.canonical.manifest.sha256' "$certificate")" \
+            --argjson certificate_manifest_size_bytes "$(jq -er '.canonical.manifest.sizeBytes' "$certificate")" \
+            --arg published_oci_digest "$oci_digest" \
+            --arg published_manifest_sha256 "$published_manifest_sha256" \
+            --arg raw_sha256 "$(jq -er '.image.sha256' "$remote_manifest")" \
+            --argjson raw_size_bytes "$(jq -er '.image.sizeBytes' "$remote_manifest")" \
+            --arg manifest_sha256 "$(sha256sum "$remote_manifest" | awk '{print $1}')" \
+            --argjson manifest_size_bytes "$(stat -c '%s' "$remote_manifest")" \
+            '{
+              contractId: "mottainai.runtime-appliance-publication-evidence.v1",
+              schemaVersion: 1,
+              sourceRevision: $source_revision,
+              certificationRunId: $certification_run_id,
+              certified: {
+                ociManifestDigest: $certificate_oci_digest,
+                rawSha256: $certificate_raw_sha256,
+                rawSizeBytes: $certificate_raw_size_bytes,
+                manifestSha256: $certificate_manifest_sha256,
+                manifestSizeBytes: $certificate_manifest_size_bytes
+              },
+              published: {
+                ociDigest: $published_oci_digest,
+                ociManifestSha256: $published_manifest_sha256,
+                rawSha256: $raw_sha256,
+                rawSizeBytes: $raw_size_bytes,
+                manifestSha256: $manifest_sha256,
+                manifestSizeBytes: $manifest_size_bytes
+              }
+            }' > "$publication_evidence"
+          jq -e \
+            --arg source_revision "$RUNTIME_APPLIANCE_SOURCE_REVISION" \
+            --arg certification_run_id "$RUNTIME_APPLIANCE_CERTIFICATION_RUN_ID" \
+            '.contractId == "mottainai.runtime-appliance-publication-evidence.v1" and
+             .schemaVersion == 1 and
+             .sourceRevision == $source_revision and
+             .certificationRunId == $certification_run_id and
+             .certified.ociManifestDigest == .published.ociDigest and
+             (.certified.rawSha256 | test("^[0-9a-f]{64}$")) and
+             (.certified.rawSizeBytes > 0) and
+             (.certified.manifestSha256 | test("^[0-9a-f]{64}$")) and
+             (.certified.manifestSizeBytes > 0) and
+             (.published.ociDigest | test("^sha256:[0-9a-f]{64}$")) and
+             (.published.rawSha256 | test("^[0-9a-f]{64}$")) and
+             (.published.rawSizeBytes > 0) and
+             (.published.manifestSha256 | test("^[0-9a-f]{64}$"))' "$publication_evidence"
+          echo "RUNTIME_APPLIANCE_PUBLICATION_EVIDENCE=$publication_evidence" >> "$GITHUB_ENV"
+
           echo "digest=$oci_digest" >> "$GITHUB_OUTPUT"
           echo "ref=$oci_digest_ref" >> "$GITHUB_OUTPUT"
           echo "raw_sha256=$(jq -er '.image.sha256' "$remote_manifest")" >> "$GITHUB_OUTPUT"
@@ -1136,6 +1130,14 @@ jobs:
             echo "- convenience tags: \`$oci_version_tag\`, \`$oci_contract_tag\`"
             echo "- artifact type: \`$oci_artifact_type\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload mechanically auditable Runtime Appliance publication evidence (Issue #894)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mottainai-runtime-appliance-publication-evidence
+          path: ${{ env.RUNTIME_APPLIANCE_PUBLICATION_EVIDENCE }}
+          if-no-files-found: error
+          retention-days: 14
 
   host-bootstrap-init:
     name: Publish mottainai-init release artifact
@@ -1299,6 +1301,12 @@ jobs:
           name: mottainai-managed-generation
           path: ${{ runner.temp }}/managed-generation
 
+      - name: Download the exact Runtime Appliance publication evidence (Issue #894)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: mottainai-runtime-appliance-publication-evidence
+          path: ${{ runner.temp }}/runtime-appliance-publication-evidence
+
       - name: Download the exact Route 4 init artifact
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1328,6 +1336,31 @@ jobs:
             --arg source "$SOURCE_NAR_SHA256" \
             '.manifest.packages | map(select(.packageId == "mottainai" and .source.sourceSha256 == $source)) | length == 1' \
             "$RUNNER_TEMP/managed-generation/managed-generation.json" >/dev/null
+          publication_evidence="$RUNNER_TEMP/runtime-appliance-publication-evidence/runtime-appliance-publication-evidence.json"
+          test -s "$publication_evidence"
+          jq -e \
+            --arg source_revision "$SOURCE_REVISION" \
+            --arg oci_digest "$OCI_DIGEST" \
+            --arg raw "$RAW_SHA256" \
+            --argjson size "$RAW_SIZE_BYTES" \
+            --arg manifest "$MANIFEST_SHA256" \
+            '.contractId == "mottainai.runtime-appliance-publication-evidence.v1" and
+             .schemaVersion == 1 and
+             .sourceRevision == $source_revision and
+             .certified.ociManifestDigest == .published.ociDigest and
+             .certified.rawSha256 == .published.rawSha256 and
+             .certified.rawSizeBytes == .published.rawSizeBytes and
+             .certified.manifestSha256 == .published.manifestSha256 and
+             .certified.manifestSizeBytes == .published.manifestSizeBytes and
+             .certified.manifestSizeBytes > 0 and
+             .published.ociDigest == $oci_digest and
+             .published.rawSha256 == $raw and
+             .published.rawSizeBytes == $size and
+             .published.manifestSha256 == $manifest and
+             (.certified.ociManifestDigest | test("^sha256:[0-9a-f]{64}$"))' \
+            "$publication_evidence" >/dev/null
+          cp -- "$publication_evidence" mottainai-runtime-appliance-publication-evidence.json
+          sha256sum mottainai-runtime-appliance-publication-evidence.json > mottainai-runtime-appliance-publication-evidence.json.sha256
           jq -n \
             --arg digest "$OCI_DIGEST" \
             --arg raw "$RAW_SHA256" \
@@ -1373,17 +1406,30 @@ jobs:
           set -euo pipefail
           assets="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"
           if grep -qx 'mottainai-deployment-v1.json.sha256' <<<"$assets"; then
-            gh release download "$RELEASE_TAG" --pattern 'mottainai-deployment-v1.json*' --dir "$RUNNER_TEMP/existing-descriptor" --clobber
+            if ! grep -qx 'mottainai-runtime-appliance-publication-evidence.json.sha256' <<<"$assets"; then
+              echo "descriptor exists without certified Runtime Appliance publication evidence; refusing partial release state" >&2
+              exit 1
+            fi
+            gh release download "$RELEASE_TAG" \
+              --pattern 'mottainai-deployment-v1.json*' \
+              --pattern 'mottainai-runtime-appliance-publication-evidence.json*' \
+              --dir "$RUNNER_TEMP/existing-descriptor" --clobber
             cmp -- mottainai-deployment-v1.json.sha256 "$RUNNER_TEMP/existing-descriptor/mottainai-deployment-v1.json.sha256"
             cmp -- mottainai-deployment-v1.json "$RUNNER_TEMP/existing-descriptor/mottainai-deployment-v1.json"
+            cmp -- mottainai-runtime-appliance-publication-evidence.json.sha256 "$RUNNER_TEMP/existing-descriptor/mottainai-runtime-appliance-publication-evidence.json.sha256"
+            cmp -- mottainai-runtime-appliance-publication-evidence.json "$RUNNER_TEMP/existing-descriptor/mottainai-runtime-appliance-publication-evidence.json"
           else
-            gh release upload "$RELEASE_TAG" mottainai-deployment-v1.json mottainai-deployment-v1.json.sha256
+            gh release upload "$RELEASE_TAG" \
+              mottainai-deployment-v1.json mottainai-deployment-v1.json.sha256 \
+              mottainai-runtime-appliance-publication-evidence.json \
+              mottainai-runtime-appliance-publication-evidence.json.sha256
           fi
           {
             echo "### Deployment descriptor"
             echo "- release: \`$RELEASE_TAG\`"
             echo "- identity: \`$(awk '{print $1}' mottainai-deployment-v1.json.sha256)\`"
             echo "- asset: \`mottainai-deployment-v1.json\`"
+            echo "- Runtime Appliance evidence: \`mottainai-runtime-appliance-publication-evidence.json\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Retrieve and verify descriptor from the draft release
@@ -1393,9 +1439,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/descriptor-fresh"
-          gh release download "$RELEASE_TAG" --pattern 'mottainai-deployment-v1.json*' --dir "$RUNNER_TEMP/descriptor-fresh" --clobber
+          gh release download "$RELEASE_TAG" \
+            --pattern 'mottainai-deployment-v1.json*' \
+            --pattern 'mottainai-runtime-appliance-publication-evidence.json*' \
+            --dir "$RUNNER_TEMP/descriptor-fresh" --clobber
           cd "$RUNNER_TEMP/descriptor-fresh"
           sha256sum --check mottainai-deployment-v1.json.sha256
+          sha256sum --check mottainai-runtime-appliance-publication-evidence.json.sha256
 
   finalize-release:
     name: Publish the GitHub Release

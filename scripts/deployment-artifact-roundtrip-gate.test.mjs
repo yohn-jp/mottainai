@@ -91,3 +91,42 @@ test("PR runtime-nix CI runs the real production-shaped positive round-trip proo
   );
   assert.notEqual(nixIndex, -1, "the positive proof must use the existing runtime-nix toolchain");
 });
+
+test("trusted-main certification forwards exact Runtime Appliance bytes to publication (#894)", () => {
+  const { lines: ciLines, start: ciStart, end: ciEnd } = jobBlock(ciWorkflowText, "runtime-appliance");
+  const ciBlock = ciLines.slice(ciStart, ciEnd).join("\n");
+  assert.match(ciBlock, /Create the certified Runtime Appliance identity evidence \(Issue #894\)/u);
+  assert.match(ciBlock, /create-runtime-appliance-certificate\.mjs/u);
+  assert.match(ciBlock, /Upload the trusted-main certified Runtime Appliance \(Issue #894\)/u);
+  assert.match(ciBlock, /mottainai-runtime-appliance-certified-x86_64-linux/u);
+
+  const artifact = jobBlock(ciWorkflowText, "runtime-appliance-artifact");
+  const artifactBlock = artifact.lines.slice(artifact.start, artifact.end).join("\n");
+  assert.match(artifactBlock, /Download the exact trusted-main certified Runtime Appliance/u);
+  assert.match(artifactBlock, /Verify and forward the certified Runtime Appliance without rebuilding/u);
+  assert.doesNotMatch(artifactBlock, /nix build .*runtime-appliance-image/u);
+  assert.match(artifactBlock, /mottainai-runtime-appliance-x86_64-linux/u);
+});
+
+test("release publication consumes the exact successful CI certificate and emits chain evidence (#894)", () => {
+  const runtime = jobBlock(workflowText, "runtime-appliance");
+  const runtimeBlock = runtime.lines.slice(runtime.start, runtime.end).join("\n");
+  assert.match(runtimeBlock, /actions:\s*read/u);
+  assert.match(runtimeBlock, /Resolve the exact trusted-main Runtime Appliance certification run \(Issue #894\)/u);
+  assert.match(runtimeBlock, /head_sha=\$SOURCE_REVISION/u);
+  assert.match(runtimeBlock, /Download the exact certified Runtime Appliance bytes \(Issue #894\)/u);
+  assert.match(runtimeBlock, /run-id:\s*\$\{\{ steps\.certification_run\.outputs\.run_id \}\}/u);
+  assert.match(runtimeBlock, /verify-runtime-appliance-certificate\.mjs/u);
+  assert.match(runtimeBlock, /test "\$oci_digest" = "\$\(jq -er '\.oci\.digest' "\$certificate"\)"/u);
+  assert.doesNotMatch(runtimeBlock, /Build canonical Runtime Appliance from the tagged source/u);
+  assert.doesNotMatch(runtimeBlock, /build-runtime-appliance-manifest\.mjs/u);
+  assert.match(runtimeBlock, /Upload mechanically auditable Runtime Appliance publication evidence \(Issue #894\)/u);
+
+  const descriptor = jobBlock(workflowText, "deployment-descriptor");
+  const descriptorBlock = descriptor.lines.slice(descriptor.start, descriptor.end).join("\n");
+  assert.match(descriptorBlock, /Download the exact Runtime Appliance publication evidence \(Issue #894\)/u);
+  assert.match(descriptorBlock, /\.certified\.ociManifestDigest == \.published\.ociDigest/u);
+  assert.match(descriptorBlock, /\.certified\.manifestSizeBytes == \.published\.manifestSizeBytes/u);
+  assert.match(descriptorBlock, /published\.ociDigest == \$oci_digest/u);
+  assert.match(descriptorBlock, /mottainai-runtime-appliance-publication-evidence\.json/u);
+});

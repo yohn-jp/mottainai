@@ -56,12 +56,33 @@ const blobsDirectory = path.join(output, "blobs");
 fs.mkdirSync(blobsDirectory, { recursive: true });
 
 const compressedPath = path.join(output, "mottainai-runtime-appliance.raw.zst");
-const zstd = spawnSync("zstd", ["-q", "-f", "-o", compressedPath, diskPath], { stdio: "inherit" });
+// The trusted-main certification artifact is also the release publication
+// input. Keep this transport envelope deterministic so a later job never has
+// to rebuild or reinterpret the certified bytes.
+const zstd = spawnSync(
+  "zstd",
+  [
+    "--compress",
+    "--ultra",
+    "-19",
+    "--threads=1",
+    "--check",
+    "--no-progress",
+    "--force",
+    "-o",
+    compressedPath,
+    diskPath,
+  ],
+  { stdio: "inherit" },
+);
 if (zstd.status !== 0) {
   throw new Error(`zstd compression of the canonical Runtime Appliance disk failed (exit ${zstd.status})`);
 }
 
 const releaseMetadata = {
+  contractId: "mottainai.linux-runtime-appliance-release.v1",
+  schemaVersion: 1,
+  architecture: manifest.architecture,
   sourceRevision: manifest.sourceRevision,
   canonicalManifest: "runtime-appliance-manifest.json",
   compressedAsset: {
@@ -78,7 +99,12 @@ function blob(sourcePath, mediaType) {
   const bytes = fs.readFileSync(sourcePath);
   const hexDigest = createHash("sha256").update(bytes).digest("hex");
   fs.copyFileSync(sourcePath, path.join(blobsDirectory, hexDigest));
-  return { mediaType, digest: `sha256:${hexDigest}`, size: bytes.length };
+  return {
+    mediaType,
+    digest: `sha256:${hexDigest}`,
+    size: bytes.length,
+    annotations: { "org.opencontainers.image.title": path.basename(sourcePath) },
+  };
 }
 
 const layers = [
@@ -91,10 +117,24 @@ const ociManifest = {
   schemaVersion: 2,
   mediaType: "application/vnd.oci.image.manifest.v1+json",
   artifactType: "application/vnd.mottainai.runtime.appliance.v1",
+  config: {
+    mediaType: "application/vnd.oci.empty.v1+json",
+    digest: "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    size: 2,
+    data: "e30=",
+  },
   layers,
+  annotations: {
+    "org.opencontainers.image.created": "1970-01-01T00:00:00Z",
+    "org.opencontainers.image.revision": manifest.sourceRevision,
+    "org.opencontainers.image.version": manifest.mottainaiVersion,
+  },
 };
 const ociManifestPath = path.join(output, "oci-manifest.json");
-fs.writeFileSync(ociManifestPath, `${JSON.stringify(ociManifest, null, 2)}\n`, { mode: 0o644 });
+// Keep the fixture bytes equal to the OCI descriptor serialization used by
+// ORAS. The Route 3 FileOciSource hashes this file verbatim, so pretty-printing
+// here would certify a different OCI identity from the one GHCR publishes.
+fs.writeFileSync(ociManifestPath, JSON.stringify(ociManifest), { mode: 0o644 });
 
 console.log(
   JSON.stringify(
