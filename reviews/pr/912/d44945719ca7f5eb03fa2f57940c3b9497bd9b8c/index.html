@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #912 @ d44945719ca7</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #912: test(runtime): certify production Route 3 to Route 1 path (#904)</h1>
+<p>Base <code>epic/890-runtime-certification</code> @ <code>fe4368377a5b6a1342df84edc4c40326b4d10e00</code> &rarr;
+Head <code>test/904-production-runtime-certification</code> @ <code>d44945719ca7f5eb03fa2f57940c3b9497bd9b8c</code></p>
+<p>Revision <code>d44945719ca7</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/904">#904</a> test(runtime): certify Route 3 to Route 1 on the production runtime contract (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] A trusted-main certification job exercises Route 3 → Route 2 → Route 1 using the production runtime contract.</li>
+<li>[ ] The job uses the descriptor-bound/release-bound Route 1 payload rather than only a fixture payload.</li>
+<li>[ ] Exact Route 3 appliance identity is verified before Runtime reconciliation.</li>
+<li>[ ] `managedRuntimeReady=true` requires the exact active generation and required executable paths.</li>
+<li>[ ] CLI and MCP smoke execute from the exact active managed generation.</li>
+<li>[ ] Real Nix GC durability is demonstrated.</li>
+<li>[ ] NoOp and rollback/recovery behavior is demonstrated.</li>
+<li>[ ] Certification evidence is machine-readable and suitable for downstream provider/release certification.</li>
+<li>[ ] Lima provider certification remains a separate layer and cannot claim Runtime correctness merely from `bootstrapReady`.</li>
+<li>[ ] Required repository validation passes.</li></ul>
+
+
+
+<h2>Changed files (11, +671/-100)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/ci.yml</td><td>modified</td><td>+108</td><td>-4</td></tr>
+<tr><td>docs/architecture/ci/topology.md</td><td>modified</td><td>+12</td><td>-2</td></tr>
+<tr><td>docs/operations/deployment/route4-to-route1.md</td><td>modified</td><td>+18</td><td>-7</td></tr>
+<tr><td>nix/bootstrap.nix</td><td>modified</td><td>+2</td><td>-0</td></tr>
+<tr><td>nix/tests/runtime-appliance-golden-path.nix</td><td>modified</td><td>+235</td><td>-83</td></tr>
+<tr><td>package.json</td><td>modified</td><td>+2</td><td>-2</td></tr>
+<tr><td>scripts/ci-runtime-contract-gates.mjs</td><td>modified</td><td>+7</td><td>-1</td></tr>
+<tr><td>scripts/ci-runtime-contract-gates.test.mjs</td><td>modified</td><td>+2</td><td>-0</td></tr>
+<tr><td>scripts/create-trusted-main-runtime-certification-input.mjs</td><td>added</td><td>+241</td><td>-0</td></tr>
+<tr><td>scripts/deployment-artifact-roundtrip-gate.test.mjs</td><td>modified</td><td>+40</td><td>-0</td></tr>
+<tr><td>scripts/lib/canonical-payload.mjs</td><td>modified</td><td>+4</td><td>-1</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

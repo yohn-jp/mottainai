@@ -1,0 +1,97 @@
+{
+  "available": true,
+  "checkRuns": [
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34486486840/job/102902046273",
+      "name": "build / packed artifact e2e / package",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": "success",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34486486840/job/102901979460",
+      "name": "detect CI ownership path changes",
+      "status": "completed"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34486484354/job/102901968171",
+      "name": "Generate review package",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34486485852/job/102901975327",
+      "name": "governance / Validate branch name",
+      "status": "queued"
+    },
+    {
+      "conclusion": "success",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34486485852/job/102901975289",
+      "name": "governance / Validate PR contract (Inari snapshot)",
+      "status": "completed"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34486486840/job/102902046251",
+      "name": "host bootstrap (Rust)",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": "success",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34486485852/job/102901975145",
+      "name": "linked-issue-check",
+      "status": "completed"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34486486840/job/102902046256",
+      "name": "Nix Runtime: evaluation / managed packages / Route 2",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": "failure",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34486485852/job/102901975058",
+      "name": "product-checks",
+      "status": "completed"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34486485852/job/102901974871",
+      "name": "standards-self-check",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34486486840/job/102902046274",
+      "name": "test:integration (shard 1/4)",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34486486840/job/102902046456",
+      "name": "test:integration (shard 2/4)",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34486486840/job/102902046317",
+      "name": "test:integration (shard 3/4)",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34486486840/job/102902046326",
+      "name": "test:integration (shard 4/4)",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/34486486840/job/102902046501",
+      "name": "TypeScript foundation / Plan",
+      "status": "in_progress"
+    }
+  ],
+  "headSha": "d44945719ca7f5eb03fa2f57940c3b9497bd9b8c",
+  "schemaVersion": "mottainai.review-pages.checks/v1"
+}

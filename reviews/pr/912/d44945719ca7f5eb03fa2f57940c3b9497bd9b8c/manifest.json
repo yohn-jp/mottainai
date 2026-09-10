@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "epic/890-runtime-certification",
+    "baseSha": "fe4368377a5b6a1342df84edc4c40326b4d10e00",
+    "draft": false,
+    "headRef": "test/904-production-runtime-certification",
+    "headSha": "d44945719ca7f5eb03fa2f57940c3b9497bd9b8c",
+    "number": 912,
+    "title": "test(runtime): certify production Route 3 to Route 1 path (#904)"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "d44945719ca7f5eb03fa2f57940c3b9497bd9b8c",
+    "immutable": true,
+    "shortId": "d44945719ca7"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-10T14:03:15.195Z"
+  }
+}

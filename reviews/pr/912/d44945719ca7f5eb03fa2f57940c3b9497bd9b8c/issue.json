@@ -1,0 +1,55 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "A trusted-main certification job exercises Route 3 → Route 2 → Route 1 using the production runtime contract."
+    },
+    {
+      "checked": false,
+      "text": "The job uses the descriptor-bound/release-bound Route 1 payload rather than only a fixture payload."
+    },
+    {
+      "checked": false,
+      "text": "Exact Route 3 appliance identity is verified before Runtime reconciliation."
+    },
+    {
+      "checked": false,
+      "text": "`managedRuntimeReady=true` requires the exact active generation and required executable paths."
+    },
+    {
+      "checked": false,
+      "text": "CLI and MCP smoke execute from the exact active managed generation."
+    },
+    {
+      "checked": false,
+      "text": "Real Nix GC durability is demonstrated."
+    },
+    {
+      "checked": false,
+      "text": "NoOp and rollback/recovery behavior is demonstrated."
+    },
+    {
+      "checked": false,
+      "text": "Certification evidence is machine-readable and suitable for downstream provider/release certification."
+    },
+    {
+      "checked": false,
+      "text": "Lima provider certification remains a separate layer and cannot claim Runtime correctness merely from `bootstrapReady`."
+    },
+    {
+      "checked": false,
+      "text": "Required repository validation passes."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 904,
+    "state": "open",
+    "title": "test(runtime): certify Route 3 to Route 1 on the production runtime contract",
+    "url": "https://github.com/yohn-jp/mottainai/issues/904"
+  },
+  "linked": {
+    "number": 904
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
