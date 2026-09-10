@@ -7,6 +7,10 @@ import { fileURLToPath } from "node:url";
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workflowText = fs.readFileSync(path.join(repositoryRoot, ".github/workflows/publish.yml"), "utf8");
 const ciWorkflowText = fs.readFileSync(path.join(repositoryRoot, ".github/workflows/ci.yml"), "utf8");
+const goldenPathText = fs.readFileSync(
+  path.join(repositoryRoot, "nix/tests/runtime-appliance-golden-path.nix"),
+  "utf8",
+);
 
 function jobBlock(workflow, jobId) {
   const lines = workflow.split(/\r?\n/u);
@@ -106,6 +110,60 @@ test("trusted-main certification forwards exact Runtime Appliance bytes to publi
   assert.match(artifactBlock, /Verify and forward the certified Runtime Appliance without rebuilding/u);
   assert.doesNotMatch(artifactBlock, /nix build .*runtime-appliance-image/u);
   assert.match(artifactBlock, /mottainai-runtime-appliance-x86_64-linux/u);
+});
+
+test("trusted-main production certification binds Route 3, Route 2, and Route 1 independently of Lima (#904)", () => {
+  const { lines, start, end } = jobBlock(ciWorkflowText, "runtime-appliance");
+  const preparation = stepBlock(
+    lines,
+    start,
+    end,
+    "Prepare descriptor-bound production Runtime certification inputs (Issue #904)",
+  );
+  assert.match(preparation, /pack-canonical-payload\.mjs/u);
+  assert.match(preparation, /verify-canonical-payload\.mjs/u);
+  assert.match(preparation, /node --import tsx scripts\/create-trusted-main-runtime-certification-input\.mjs/u);
+  assert.match(preparation, /runtime-certification-input\.json/u);
+  assert.match(preparation, /route3\.appliance\.rawSha256 == \$raw_sha256/u);
+  assert.match(preparation, /route3\.appliance\.digest == \$oci_digest/u);
+  assert.match(preparation, /manifest_layer_digest/u);
+
+  const golden = stepBlock(
+    lines,
+    start,
+    end,
+    "Prove mottainai-init resolves/verifies the real canonical Runtime Appliance and run the Runtime Appliance golden path (Issue #630, #661, #768)",
+  );
+  assert.match(golden, /MOTTAINAI_PRODUCTION_DESCRIPTOR/u);
+  assert.match(golden, /MOTTAINAI_PRODUCTION_PAYLOAD/u);
+  assert.match(golden, /MOTTAINAI_PRODUCTION_SOURCE_ARCHIVE/u);
+  assert.match(golden, /productionCertification != null/u);
+  assert.match(golden, /managedRuntimeReady == true/u);
+  assert.match(golden, /secondEnsure == "noop"/u);
+  assert.match(golden, /garbageCollection\.activeGenerationExecutableAfterGc == true/u);
+  assert.match(golden, /rebootIdentityPersistence\.verified == true/u);
+  assert.match(golden, /rollbackRecovery\.unhealthyNextGenerationAttempted == true/u);
+  assert.match(golden, /rollbackRecovery\.failureCode == "health_failure"/u);
+  assert.match(golden, /rollbackRecovery\.rollbackCompleted == true/u);
+  assert.match(golden, /rollbackRecovery\.recoveryManagedRuntimeReady == true/u);
+  assert.match(golden, /runtime-certification-evidence\.json/u);
+
+  const lima = stepBlock(
+    lines,
+    start,
+    end,
+    "Exercise production Lima composition through canonical guest health (Issue #844)",
+  );
+  assert.match(lima, /MOTTAINAI_PRODUCTION_LIMA_STATE_DIRECTORY/u);
+  assert.doesNotMatch(lima, /runtime-certification-evidence/u);
+});
+
+test("production evidence does not claim fixture-only previous-generation checks (#904)", () => {
+  assert.match(goldenPathText, /"previousGenerationChecks":\s*\{[\s\S]*?"executed": False/u);
+  assert.match(goldenPathText, /"rollbackRecovery": production_recovery_evidence/u);
+  assert.match(goldenPathText, /write_manifest\(manifest_v1\)[\s\S]*?recovery_result = reconcile\(\)/u);
+  assert.match(goldenPathText, /"activeAndPreviousExecutableAfterGc": True/u);
+  assert.match(goldenPathText, /"missingPreviousRootFailsClosed": True/u);
 });
 
 test("release publication consumes the exact successful CI certificate and emits chain evidence (#894)", () => {

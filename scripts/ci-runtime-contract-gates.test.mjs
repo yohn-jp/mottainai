@@ -143,6 +143,7 @@ test("an Appliance-defining PR runs canonical build + bounded manifest only, not
   assert.equal(evaluateStepSelection(stepGates.ociFixture, "pull_request"), false);
   assert.equal(evaluateStepSelection(stepGates.mottainaiInitAndGoldenPath, "pull_request"), false);
   assert.equal(evaluateStepSelection(stepGates.productionBootstrapHandoff, "pull_request"), false);
+  assert.equal(evaluateStepSelection(stepGates.productionRuntimeCertification, "pull_request"), false);
   assert.equal(evaluateStepSelection(stepGates.productionLimaComposition, "pull_request"), false);
 });
 
@@ -152,6 +153,7 @@ test("a trusted main push runs the full canonical build + manifest + OCI + motta
   assert.equal(evaluateStepSelection(stepGates.ociFixture, "push"), true);
   assert.equal(evaluateStepSelection(stepGates.mottainaiInitAndGoldenPath, "push"), true);
   assert.equal(evaluateStepSelection(stepGates.productionBootstrapHandoff, "push"), true);
+  assert.equal(evaluateStepSelection(stepGates.productionRuntimeCertification, "push"), true);
   assert.equal(evaluateStepSelection(stepGates.productionLimaComposition, "push"), true);
 });
 
