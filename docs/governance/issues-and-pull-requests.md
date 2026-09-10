@@ -1,28 +1,25 @@
 # Issue and Pull Request Governance
 
-Mottainai treats Issues and pull requests as machine-verifiable contracts. The
-important rule is that each concern has one authority: Inari owns the PR body
-shape and fixed Validation checklist, Mottainai governance owns shared PR
-metadata and conditional product-specific gates, and CI owns executable
-verification results.
+Mottainai treats Issues and pull requests as machine-verifiable contracts. Each
+concern has exactly one authority: Inari owns the PR body shape and fixed
+Validation checklist, the canonical `yohn-jp/.github` reusable governance
+workflow owns organization-level branch-name and PR-title/body contract
+enforcement, Mottainai owns only its own conditional product-specific gates,
+and CI owns executable verification results. Mottainai does not locally
+reimplement, fork, or wrap the organization-level branch-name or PR-title/
+contract semantics (Issue #905).
 
 ## Issue contract
 
 Blank Issues are disabled. A normal implementation task starts from one Issue
-whose body contains meaningful content for:
-
-- Summary
-- Problem
-- Goal
-- Non-goals
-- Acceptance criteria, including at least one checklist item
-- Affected areas
-- Risks / compatibility
-- Dependencies
-- Implementation notes
-
-The linked Issue is validated at the PR merge boundary. An Issue carrying
-`status:invalid` or `needs:specification` cannot satisfy that gate.
+whose body contains meaningful content for the sections its Inari issue
+template (`.github/inari/issues/*.json`) declares required — for example
+Summary, Problem/Goal, Non-goals, Acceptance criteria (including at least one
+checklist item), and Context/Risks. Mottainai does not run an automated
+Issue-body governance check of its own; organization-level Issue-content
+governance, where adopted, is the canonical `yohn-jp/.github`
+`issue-governance.yml` reusable workflow's concern, not a local
+reimplementation here.
 
 ## Pull request body authority
 
@@ -36,10 +33,9 @@ contract renders exactly these sections:
 - Validation
 - Review focus
 
-Do not add a second mandatory section vocabulary in `governance-rules.json`,
-workflow code, or documentation. The local validator does not copy or enforce
-these headings, fields, or fixed checklist items. Inari synchronization and
-drift checks validate the canonical snapshot separately.
+Do not add a second mandatory section vocabulary in workflow code or
+documentation. Inari synchronization and drift checks validate the canonical
+`.github/inari/**` snapshot separately.
 
 A normal managed PR therefore needs no manual `Scope`, `Implementation`,
 `Behavioral changes`, `Test contract`, `Regression proof`, `Validation
@@ -48,25 +44,43 @@ evidence`, `Release impact`, `Risks`, `Breaking changes`,
 appear in a specialized template when that template declares them, but the
 repository must not require undeclared fields from the default contract.
 
+## Canonical organization PR governance
+
+Branch-name format, PR-title format, PR-body contract compliance (including
+exactly one linked closing Issue), and branch classification for the
+`release/<semver>` and `epic/<issue-number>-<slug>` classes are all enforced
+by the canonical `yohn-jp/.github/.github/workflows/pr-governance.yml`
+reusable workflow, called directly from the `governance` job in
+`.github/workflows/governance.yml`. Ordinary, Epic, and release PRs all go
+through this single canonical path — Mottainai does not maintain a separate
+local validator, a separate release-only path, or a partial reimplementation
+of any of this for any branch class.
+
 ## Independent repository checks
 
-The PR body shape is not the whole governance policy. Mottainai continues to
-enforce independent checks that do not redefine the Inari body contract:
+The PR body shape and the canonical contract above are not the whole
+governance policy. Mottainai continues to enforce independent,
+Mottainai-specific conditional gates that do not redefine or duplicate either
+authority, run as the separate `product-checks` job:
 
-- shared metadata: title format, branch format, minimum PR body length, and
-  exactly one closing Issue reference;
-- Mottainai-specific conditional gates: `Package check` for
-  distribution-impacting paths, compression test/preservation evidence, and
-  CLI README or CLI-test evidence.
+- `Package check` for distribution-impacting paths (`package.json`,
+  `pnpm-lock.yaml`, `tsconfig.build.json`, `src/index.ts`, `src/server.ts`,
+  `src/cli.ts`, `.github/workflows/publish.yml`);
+- compression test/preservation evidence for `src/compress/**` changes;
+- CLI README or CLI-test evidence for CLI entry-point changes.
 
 Inari owns the required `Summary`, `Linked issue`, `Changes`, and `Validation`
-fields plus completion of its fixed `Typecheck`, `Tests`, and `Build` checklist.
-The conditional `Package check` is a separate Mottainai gate, not an Inari
-checklist item or a new PR-template section.
+fields plus completion of its fixed `Typecheck`, `Tests`, and `Build`
+checklist. The conditional `Package check` is a separate Mottainai gate, not
+an Inari checklist item or a new PR-template section.
 
-Branch-name policy remains in `scripts/governance-rules.json`. Mottainai's
-workflow code derives governed branch types from that same `branchPattern`, so
-reducing the PR body contract does not weaken physical branch governance.
+Branch-name format is additionally read at runtime by
+`src/workflow/governance/branch.ts`, Mottainai's own product feature for
+governing execution against repositories it manages: `scripts/governance-lib.mjs`
+and `scripts/governance-rules.json` remain in this repository as that
+feature's bundled fallback authority, independent of the CI PR-governance path
+above, which delegates branch-name enforcement for Mottainai's own PRs to the
+canonical workflow instead.
 
 ## Validation and evidence
 
@@ -78,7 +92,8 @@ The normal validation chain is:
 ```text
 Issue contract
   -> Inari-compiled PR body
-  -> repository branch/title/completion checks
+  -> canonical organization branch/title/body governance
+  -> Mottainai product-specific conditional gates
   -> CI static integrity and product contract
   -> merge
 ```
@@ -109,14 +124,23 @@ The exact commands and classification live in `package.json`,
 
 ## Workflow trust boundary
 
-For normal PRs, `.github/workflows/governance.yml` checks out the PR head only
-for candidate changed-file information while executing the trusted validator
-from the PR base revision. The linked-Issue fetch receives only the numeric
-Issue number extracted by the validator. Governance changes therefore apply to
-subsequent PRs after merge; a PR cannot self-authorize a new body contract.
+`.github/workflows/governance.yml` composes three jobs with independent trust
+models:
 
-Release branches use the dedicated organization release-PR contract and remain
-separate from the normal default Inari PR body.
+- `standards-self-check` runs entirely from the PR head; it self-verifies this
+  branch's own governance/actions/semantics machinery and gates nothing else.
+- `governance` calls the canonical `yohn-jp/.github` reusable workflow, which
+  trusts only that repository's own reusable-workflow revision and the PR
+  base's synchronized `.github/inari/**` snapshot — never PR-head code.
+- `product-checks` checks out and trusts only the base SHA's
+  `scripts/product-pr-checks*.mjs` validator, taking from the PR head only
+  candidate changed-file information. A PR cannot self-authorize a new
+  product-check contract; governance changes apply to subsequent PRs after
+  merge.
+
+Release branches use the canonical organization release-PR contract
+(auto-selected by the `governance` job from the `release/<semver>` head
+branch) and remain separate from the normal default Inari PR body.
 
 ## Local validation
 
@@ -125,21 +149,16 @@ Useful local checks are:
 ```bash
 pnpm run governance:test
 pnpm run governance:branch -- --branch fix/123-example
-pnpm run governance:pr:local -- \
-  --title 'fix(workflow): example correction' \
-  --body-file /path/to/pr-body.md \
-  --files /path/to/changed-files.txt \
-  --branch fix/123-example
+pnpm run governance:product-checks:test
 pnpm run verify:standards
 pnpm run typecheck
 pnpm test
 pnpm run build
 ```
 
-The local PR validator deliberately leaves default body headings, fields, and
-fixed checklist semantics to Inari. It validates shared metadata and the
-conditional Mottainai gates; gh-inari remains the renderer/semantic validator
-for repository PR mutation.
+Branch-name and PR-title/body contract validation for Mottainai's own PRs runs
+only in CI, via the canonical `governance` job; there is no local equivalent,
+because that authority belongs to `yohn-jp/.github`, not this repository.
 
 ## GitHub Ruleset
 
@@ -161,3 +180,5 @@ verified in GitHub rather than inferred from this document.
 - Make Review focus concrete.
 - Treat CI/job output as executable evidence rather than copying it into a
   second PR-body authority.
+- Do not reimplement, fork, or locally wrap the canonical
+  `yohn-jp/.github` branch-name or PR-title/body governance semantics.

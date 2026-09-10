@@ -463,6 +463,8 @@ jobs:
               - '.github/workflows/governance.yml'
               - 'scripts/governance-*.mjs'
               - 'scripts/validate-*.mjs'
+              - 'scripts/product-pr-checks*.mjs'
+              - 'scripts/product-pr-checks-rules.json'
               - 'scripts/semantic-governance.ts'
               - 'scripts/coverage-policy.json'
               - 'scripts/governance-rules.json'

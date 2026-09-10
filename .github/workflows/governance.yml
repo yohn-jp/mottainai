@@ -10,16 +10,17 @@ concurrency:
 
 permissions:
   contents: read
-  issues: read
 
 jobs:
   standards-self-check:
     name: standards-self-check
     # Self-verification of the governance/actions/semantics machinery in this
-    # branch's own worktree. validate-pr does not depend on this job: it
-    # checks out and trusts only the base SHA's governance validator (see
-    # validate-pr's "Verify trusted governance revision" step), so this job's
-    # completion is not a precondition for validate-pr's trust model.
+    # branch's own worktree. Neither the canonical `governance` job below nor
+    # `product-checks` depends on this job: `governance` trusts only
+    # yohn-jp/.github's own reusable-workflow revision, and `product-checks`
+    # checks out and trusts only the base SHA's validator (see its "Verify
+    # trusted governance revision" step) — so this job's completion is not a
+    # precondition for either.
     if: >-
       github.event_name != 'pull_request' ||
       (
@@ -48,12 +49,30 @@ jobs:
       - name: Repository Semantics managed dogfood (enforce)
         run: pnpm run semantic:dogfood
 
-  validate-pr:
-    name: validate-pr
-    # Job-level filtering keeps required validate-pr checks from remaining
-    # pending while excluding Dependabot and release PRs from normal governance.
-    # Inari owns PR headings, fields, and the fixed Validation checklist;
-    # validate-pr owns shared metadata and conditional Mottainai quality gates.
+  governance:
+    name: governance
+    # Ordinary, epic/<issue>-<slug>, and release/<semver> PRs all use the
+    # canonical organization branch-name and PR-contract governance directly;
+    # Mottainai does not locally reimplement or wrap that authority (Issue
+    # #905). Only Dependabot PRs, which use their own non-conventional branch
+    # naming, are excluded.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]'
+      )
+    uses: yohn-jp/.github/.github/workflows/pr-governance.yml@main
+    permissions:
+      contents: read
+
+  product-checks:
+    name: product-checks
+    # Mottainai-specific conditional quality gates (package, compression, CLI
+    # evidence) that are independent of the canonical PR-title/branch/body
+    # contract enforced by the `governance` job above. release/* PRs are
+    # issue-less operational packaging and are exempt, matching the
+    # canonical release-PR contract.
     if: >-
       github.event_name != 'pull_request' ||
       (
@@ -96,54 +115,15 @@ jobs:
           git fetch --no-tags --depth=1 origin "$BASE_SHA"
           git diff --no-ext-diff --name-only "$BASE_SHA" "$HEAD_SHA" > "$CHANGED_FILES"
 
-      - name: Validate branch name
+      - name: Validate product-specific PR checks
         working-directory: governance
-        env:
-          HEAD_REF: ${{ github.head_ref }}
-        run: node scripts/validate-branch-name.mjs --branch "$HEAD_REF"
+        run: node scripts/product-pr-checks.mjs --event "$GITHUB_EVENT_PATH" --files "$RUNNER_TEMP/changed-files.txt" --report "$RUNNER_TEMP/product-checks-report.md"
 
-      - name: Validate PR contract
-        working-directory: governance
-        run: node scripts/validate-pr.mjs --event "$GITHUB_EVENT_PATH" --files "$RUNNER_TEMP/changed-files.txt" --issue-number-file "$RUNNER_TEMP/issue-number.txt" --report "$RUNNER_TEMP/governance-report.md"
-
-      - name: Publish governance observations
+      - name: Publish product-checks observations
         if: always()
         env:
-          GOVERNANCE_REPORT: ${{ runner.temp }}/governance-report.md
+          PRODUCT_CHECKS_REPORT: ${{ runner.temp }}/product-checks-report.md
         run: |
-          if test -f "$GOVERNANCE_REPORT"; then
-            cat "$GOVERNANCE_REPORT" >> "$GITHUB_STEP_SUMMARY"
+          if test -f "$PRODUCT_CHECKS_REPORT"; then
+            cat "$PRODUCT_CHECKS_REPORT" >> "$GITHUB_STEP_SUMMARY"
           fi
-
-      - name: Fetch linked Issue
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          ISSUE_NUMBER_FILE: ${{ runner.temp }}/issue-number.txt
-        run: |
-          issue_number="$(tr -d '\n' < "$ISSUE_NUMBER_FILE")"
-          if ! [[ "$issue_number" =~ ^[0-9]+$ ]]; then
-            echo "linked Issue number must be numeric" >&2
-            exit 1
-          fi
-          gh issue view "$issue_number" --json body,labels > "$RUNNER_TEMP/linked-issue.json"
-
-      - name: Validate linked Issue contract
-        working-directory: governance
-        run: |
-          node scripts/validate-issue.mjs --body "$RUNNER_TEMP/linked-issue.json"
-          if jq -e '.labels | map(.name) | any(. == "status:invalid" or . == "needs:specification")' "$RUNNER_TEMP/linked-issue.json" >/dev/null; then
-            echo "linked Issue has an invalid governance label" >&2
-            exit 1
-          fi
-
-  validate-release:
-    name: validate-release
-    # release/<semver> PRs are issue-less operational packaging and use the
-    # canonical organization release-PR contract instead of normal PR checks.
-    if: >-
-      github.event_name == 'pull_request' &&
-      startsWith(github.event.pull_request.head.ref, 'release/')
-    uses: yohn-jp/.github/.github/workflows/pr-governance.yml@main
-    permissions:
-      contents: read

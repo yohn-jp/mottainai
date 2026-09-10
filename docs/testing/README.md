@@ -97,11 +97,16 @@ test-layer list.
 The responsibilities are:
 
 - Inari: PR body shape and rendering/semantic validation.
-- `scripts/governance-rules.json`: title, branch, minimum body length,
-  Validation completion, conditional Package check, and compression/CLI
-  changed-file rules.
-- `scripts/governance-lib.mjs`: repository-local independent checks and Inari
-  heading synchronization.
+- Canonical `yohn-jp/.github` `pr-governance.yml`: PR title format, branch
+  format, branch classification (ordinary/epic/release), and PR-body contract
+  compliance, including exactly one linked closing Issue.
+- `scripts/governance-rules.json` / `scripts/governance-lib.mjs`: only
+  branch-name format, kept locally because it also backs Mottainai's own
+  repository-governance product feature
+  (`src/workflow/governance/branch.ts`), not because it duplicates the
+  canonical workflow above.
+- `scripts/product-pr-checks-lib.mjs`: Mottainai-specific conditional gates
+  (Package check, compression, CLI evidence).
 - CI: evidence that test, build, and package commands actually ran.
 
 The former `Validation evidence` class and PR-body `Regression proof` are not

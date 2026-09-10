@@ -117,7 +117,12 @@ export function findUnconsumedOwnershipClasses(repositoryRoot, { classes, ciWork
       const governancePath = repositoryRoot + "/" + GOVERNANCE_WORKFLOW_RELATIVE_PATH;
       const governanceText = fs.readFileSync(governancePath, "utf8");
       const jobs = jobBlocks(governanceText);
-      if (hasPullRequestTrigger(governanceText) && jobs.has("standards-self-check") && jobs.has("validate-pr")) {
+      if (
+        hasPullRequestTrigger(governanceText) &&
+        jobs.has("standards-self-check") &&
+        jobs.has("governance") &&
+        jobs.has("product-checks")
+      ) {
         continue;
       }
     }

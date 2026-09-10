@@ -1,25 +1,5 @@
 {
   "pullRequest": {
-    "titlePattern": "^(feat|fix|docs|refactor|test|chore|build)\\((cli|proxy|config|compression|routing|upstream|security|release|docs|ci|workflow|runtime)\\): [a-z0-9].{4,}$",
-    "branchPattern": "^(feat|fix|docs|refactor|test|chore)/[0-9]+-[a-z0-9]+(?:-[a-z0-9]+)*$",
-    "minimumBodyLength": 300,
-    "packageCheckPaths": [
-      "^package\\.json$",
-      "^pnpm-lock\\.yaml$",
-      "^tsconfig\\.build\\.json$",
-      "^src/index\\.ts$",
-      "^src/server\\.ts$",
-      "^src/cli\\.ts$",
-      "^\\.github/workflows/publish\\.yml$"
-    ],
-    "changedFileRules": {
-      "compressionPaths": ["^src/compress/"],
-      "compressionTestPaths": ["^src/compress/.*\\.test\\.ts$"],
-      "cliPaths": ["^src/index\\.ts$", "^src/cli\\.ts$", "^scripts/mcp\\.ts$"],
-      "cliEvidencePaths": ["^README\\.md$", "(?:^|/)cli.*\\.test\\.ts$", "(?:^|/)index.*\\.test\\.ts$"]
-    }
-  },
-  "issue": {
-    "minimumBodyLength": 200
+    "branchPattern": "^(feat|fix|docs|refactor|test|chore)/[0-9]+-[a-z0-9]+(?:-[a-z0-9]+)*$"
   }
 }
