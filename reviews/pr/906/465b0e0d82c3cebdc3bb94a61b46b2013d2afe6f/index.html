@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #906 @ 465b0e0d82c3</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #906: refactor(ci): consume canonical organization PR governance</h1>
+<p>Base <code>main</code> @ <code>004eba06435ff442dc7c8ec9921ee7cb042e869d</code> &rarr;
+Head <code>refactor/905-canonical-governance</code> @ <code>465b0e0d82c3cebdc3bb94a61b46b2013d2afe6f</code></p>
+<p>Revision <code>465b0e0d82c3</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/905">#905</a> refactor(governance): consume canonical organization PR governance (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Ordinary, release, and `epic/&lt;issue-number&gt;-&lt;slug&gt;` PRs use canonical organization governance semantics.</li>
+<li>[ ] Mottainai no longer independently defines organization-level branch-name or PR-title semantics.</li>
+<li>[ ] Mottainai-specific validation remains enforced as separate product checks/jobs.</li>
+<li>[ ] Existing trusted-base/fail-closed behavior is preserved.</li>
+<li>[ ] Relevant governance and product-specific tests pass.</li>
+<li>[ ] An Epic branch such as `epic/890-runtime-certification` is accepted through the canonical governance path.</li></ul>
+
+
+
+<h2>Changed files (21, +300/-658)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/ci.yml</td><td>modified</td><td>+2</td><td>-0</td></tr>
+<tr><td>.github/workflows/governance.yml</td><td>modified</td><td>+36</td><td>-56</td></tr>
+<tr><td>docs/contracts/quality/evidence-providers.md</td><td>modified</td><td>+1</td><td>-1</td></tr>
+<tr><td>docs/governance/issues-and-pull-requests.md</td><td>modified</td><td>+75</td><td>-54</td></tr>
+<tr><td>docs/testing/README.md</td><td>modified</td><td>+10</td><td>-5</td></tr>
+<tr><td>package.json</td><td>modified</td><td>+3</td><td>-5</td></tr>
+<tr><td>review-pages/README.md</td><td>modified</td><td>+1</td><td>-1</td></tr>
+<tr><td>scripts/ci-contract-ownership-census.mjs</td><td>modified</td><td>+6</td><td>-1</td></tr>
+<tr><td>scripts/governance-check-issue-local.mjs</td><td>removed</td><td>+0</td><td>-13</td></tr>
+<tr><td>scripts/governance-check-issue-local.test.mjs</td><td>removed</td><td>+0</td><td>-56</td></tr>
+<tr><td>scripts/governance-check-local.mjs</td><td>removed</td><td>+0</td><td>-51</td></tr>
+<tr><td>scripts/governance-check-local.test.mjs</td><td>removed</td><td>+0</td><td>-54</td></tr>
+<tr><td>scripts/governance-lib.mjs</td><td>modified</td><td>+9</td><td>-164</td></tr>
+<tr><td>scripts/governance-rules.json</td><td>modified</td><td>+1</td><td>-21</td></tr>
+<tr><td>scripts/governance.test.mjs</td><td>modified</td><td>+10</td><td>-142</td></tr>
+<tr><td>scripts/product-pr-checks-lib.mjs</td><td>added</td><td>+50</td><td>-0</td></tr>
+<tr><td>scripts/product-pr-checks-rules.json</td><td>added</td><td>+15</td><td>-0</td></tr>
+<tr><td>scripts/product-pr-checks.mjs</td><td>added</td><td>+15</td><td>-0</td></tr>
+<tr><td>scripts/product-pr-checks.test.mjs</td><td>added</td><td>+66</td><td>-0</td></tr>
+<tr><td>scripts/validate-issue.mjs</td><td>removed</td><td>+0</td><td>-9</td></tr>
+<tr><td>scripts/validate-pr.mjs</td><td>removed</td><td>+0</td><td>-25</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
