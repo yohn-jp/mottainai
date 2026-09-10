@@ -1,0 +1,39 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "`.github/agent-governance/**` is owned by the `governance` CI class."
+    },
+    {
+      "checked": false,
+      "text": "The ownership census reports no existing unowned paths."
+    },
+    {
+      "checked": false,
+      "text": "A representative agent-governance change deterministically selects `governance`."
+    },
+    {
+      "checked": false,
+      "text": "`pnpm run test:ci-ownership` passes."
+    },
+    {
+      "checked": false,
+      "text": "`pnpm run test:standards` passes."
+    },
+    {
+      "checked": false,
+      "text": "No exemption or unrelated CI ownership broadening is introduced."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 913,
+    "state": "open",
+    "title": "fix(ci): classify agent-governance files under governance ownership",
+    "url": "https://github.com/yohn-jp/mottainai/issues/913"
+  },
+  "linked": {
+    "number": 913
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

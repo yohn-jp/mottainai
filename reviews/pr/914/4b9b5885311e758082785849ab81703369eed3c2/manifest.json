@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "epic/890-runtime-certification",
+    "baseSha": "2b3642443c9e1b95aff2b0ce4d1f4cb1672fc32a",
+    "draft": false,
+    "headRef": "fix/913-agent-governance-ci-ownership",
+    "headSha": "4b9b5885311e758082785849ab81703369eed3c2",
+    "number": 914,
+    "title": "fix(ci): classify agent-governance files under governance ownership"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "4b9b5885311e758082785849ab81703369eed3c2",
+    "immutable": true,
+    "shortId": "4b9b5885311e"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-10T14:43:06.860Z"
+  }
+}

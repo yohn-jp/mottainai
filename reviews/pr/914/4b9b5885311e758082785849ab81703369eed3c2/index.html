@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #914 @ 4b9b5885311e</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #914: fix(ci): classify agent-governance files under governance ownership</h1>
+<p>Base <code>epic/890-runtime-certification</code> @ <code>2b3642443c9e1b95aff2b0ce4d1f4cb1672fc32a</code> &rarr;
+Head <code>fix/913-agent-governance-ci-ownership</code> @ <code>4b9b5885311e758082785849ab81703369eed3c2</code></p>
+<p>Revision <code>4b9b5885311e</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/913">#913</a> fix(ci): classify agent-governance files under governance ownership (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] `.github/agent-governance/**` is owned by the `governance` CI class.</li>
+<li>[ ] The ownership census reports no existing unowned paths.</li>
+<li>[ ] A representative agent-governance change deterministically selects `governance`.</li>
+<li>[ ] `pnpm run test:ci-ownership` passes.</li>
+<li>[ ] `pnpm run test:standards` passes.</li>
+<li>[ ] No exemption or unrelated CI ownership broadening is introduced.</li></ul>
+
+
+
+<h2>Changed files (8, +664/-10)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/agent-governance/change-workflow.md</td><td>added</td><td>+226</td><td>-0</td></tr>
+<tr><td>.github/agent-governance/runtime-profiles.json</td><td>added</td><td>+100</td><td>-0</td></tr>
+<tr><td>.github/agent-governance/runtime-profiles.md</td><td>added</td><td>+199</td><td>-0</td></tr>
+<tr><td>.github/agent-governance/runtime-profiles.schema.json</td><td>added</td><td>+70</td><td>-0</td></tr>
+<tr><td>.github/workflows/ci.yml</td><td>modified</td><td>+1</td><td>-0</td></tr>
+<tr><td>AGENTS.md</td><td>modified</td><td>+51</td><td>-10</td></tr>
+<tr><td>CLAUDE.md</td><td>modified</td><td>+2</td><td>-0</td></tr>
+<tr><td>scripts/ci-contract-ownership-census.test.mjs</td><td>modified</td><td>+15</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

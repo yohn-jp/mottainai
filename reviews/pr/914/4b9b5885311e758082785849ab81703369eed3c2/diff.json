@@ -1,0 +1,226 @@
+{
+  "baseSha": "2b3642443c9e1b95aff2b0ce4d1f4cb1672fc32a",
+  "files": [
+    {
+      "additions": 226,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 226,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": ".github/agent-governance/change-workflow.md",
+      "status": "added"
+    },
+    {
+      "additions": 100,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 100,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": ".github/agent-governance/runtime-profiles.json",
+      "status": "added"
+    },
+    {
+      "additions": 199,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 199,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": ".github/agent-governance/runtime-profiles.md",
+      "status": "added"
+    },
+    {
+      "additions": 70,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 70,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": ".github/agent-governance/runtime-profiles.schema.json",
+      "status": "added"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 463,
+          "oldLines": 0,
+          "oldStart": 462
+        }
+      ],
+      "path": ".github/workflows/ci.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 51,
+      "deletions": 10,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 6,
+          "oldLines": 0,
+          "oldStart": 5
+        },
+        {
+          "newLines": 1,
+          "newStart": 10,
+          "oldLines": 1,
+          "oldStart": 8
+        },
+        {
+          "newLines": 1,
+          "newStart": 12,
+          "oldLines": 0,
+          "oldStart": 9
+        },
+        {
+          "newLines": 1,
+          "newStart": 14,
+          "oldLines": 0,
+          "oldStart": 10
+        },
+        {
+          "newLines": 1,
+          "newStart": 17,
+          "oldLines": 0,
+          "oldStart": 12
+        },
+        {
+          "newLines": 2,
+          "newStart": 27,
+          "oldLines": 0,
+          "oldStart": 21
+        },
+        {
+          "newLines": 1,
+          "newStart": 54,
+          "oldLines": 0,
+          "oldStart": 46
+        },
+        {
+          "newLines": 2,
+          "newStart": 63,
+          "oldLines": 0,
+          "oldStart": 54
+        },
+        {
+          "newLines": 1,
+          "newStart": 66,
+          "oldLines": 1,
+          "oldStart": 56
+        },
+        {
+          "newLines": 1,
+          "newStart": 72,
+          "oldLines": 1,
+          "oldStart": 62
+        },
+        {
+          "newLines": 3,
+          "newStart": 74,
+          "oldLines": 0,
+          "oldStart": 63
+        },
+        {
+          "newLines": 1,
+          "newStart": 78,
+          "oldLines": 1,
+          "oldStart": 65
+        },
+        {
+          "newLines": 1,
+          "newStart": 80,
+          "oldLines": 1,
+          "oldStart": 67
+        },
+        {
+          "newLines": 4,
+          "newStart": 95,
+          "oldLines": 2,
+          "oldStart": 82
+        },
+        {
+          "newLines": 1,
+          "newStart": 106,
+          "oldLines": 0,
+          "oldStart": 90
+        },
+        {
+          "newLines": 2,
+          "newStart": 115,
+          "oldLines": 0,
+          "oldStart": 98
+        },
+        {
+          "newLines": 5,
+          "newStart": 120,
+          "oldLines": 3,
+          "oldStart": 102
+        },
+        {
+          "newLines": 21,
+          "newStart": 127,
+          "oldLines": 0,
+          "oldStart": 106
+        }
+      ],
+      "path": "AGENTS.md",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 7,
+          "oldLines": 0,
+          "oldStart": 6
+        }
+      ],
+      "path": "CLAUDE.md",
+      "status": "modified"
+    },
+    {
+      "additions": 15,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 15,
+          "newStart": 53,
+          "oldLines": 0,
+          "oldStart": 52
+        }
+      ],
+      "path": "scripts/ci-contract-ownership-census.test.mjs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "4b9b5885311e758082785849ab81703369eed3c2",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 664,
+    "deletions": 10,
+    "filesChanged": 8
+  }
+}
