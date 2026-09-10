@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "004eba06435ff442dc7c8ec9921ee7cb042e869d",
+    "draft": false,
+    "headRef": "refactor/905-canonical-governance",
+    "headSha": "287b697e06ec3450ed6130afea7734370a86e448",
+    "number": 906,
+    "title": "refactor(ci): consume canonical organization PR governance"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "287b697e06ec3450ed6130afea7734370a86e448",
+    "immutable": true,
+    "shortId": "287b697e06ec"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-10T12:40:25.544Z"
+  }
+}

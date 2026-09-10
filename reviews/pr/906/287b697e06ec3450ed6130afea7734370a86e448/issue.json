@@ -1,0 +1,39 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Ordinary, release, and `epic/<issue-number>-<slug>` PRs use canonical organization governance semantics."
+    },
+    {
+      "checked": false,
+      "text": "Mottainai no longer independently defines organization-level branch-name or PR-title semantics."
+    },
+    {
+      "checked": false,
+      "text": "Mottainai-specific validation remains enforced as separate product checks/jobs."
+    },
+    {
+      "checked": false,
+      "text": "Existing trusted-base/fail-closed behavior is preserved."
+    },
+    {
+      "checked": false,
+      "text": "Relevant governance and product-specific tests pass."
+    },
+    {
+      "checked": false,
+      "text": "An Epic branch such as `epic/890-runtime-certification` is accepted through the canonical governance path."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 905,
+    "state": "open",
+    "title": "refactor(governance): consume canonical organization PR governance",
+    "url": "https://github.com/yohn-jp/mottainai/issues/905"
+  },
+  "linked": {
+    "number": 905
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
