@@ -15,11 +15,18 @@ Blank Issues are disabled. A normal implementation task starts from one Issue
 whose body contains meaningful content for the sections its Inari issue
 template (`.github/inari/issues/*.json`) declares required — for example
 Summary, Problem/Goal, Non-goals, Acceptance criteria (including at least one
-checklist item), and Context/Risks. Mottainai does not run an automated
-Issue-body governance check of its own; organization-level Issue-content
-governance, where adopted, is the canonical `yohn-jp/.github`
-`issue-governance.yml` reusable workflow's concern, not a local
-reimplementation here.
+checklist item), and Context/Risks. Issue-body content governance is the
+canonical `yohn-jp/.github` `issue-governance.yml` reusable workflow's
+concern (`.github/workflows/issue-governance.yml`), not a local
+reimplementation here: it validates a new/edited Issue against the
+synchronized `.github/inari/issues/*.json` snapshot and applies a
+`status:invalid` label on violation.
+
+The linked Issue is validated at the PR merge boundary by the
+`linked-issue-check` job in `.github/workflows/governance.yml`: an Issue
+carrying `status:invalid` or `needs:specification` cannot satisfy that gate.
+This job only reads the label state `issue-governance.yml` applies — it does
+not re-validate Issue body content.
 
 ## Pull request body authority
 
@@ -69,6 +76,11 @@ authority, run as the separate `product-checks` job:
 - compression test/preservation evidence for `src/compress/**` changes;
 - CLI README or CLI-test evidence for CLI entry-point changes.
 
+The merge-boundary linked-Issue label check (`linked-issue-check` job) is a
+distinct, separately-run gate: it reads the canonical `issue-governance.yml`
+workflow's `status:invalid` / `needs:specification` labels on the closing
+Issue rather than reimplementing Issue-body validation.
+
 Inari owns the required `Summary`, `Linked issue`, `Changes`, and `Validation`
 fields plus completion of its fixed `Typecheck`, `Tests`, and `Build`
 checklist. The conditional `Package check` is a separate Mottainai gate, not
@@ -90,9 +102,10 @@ into another mandatory body schema.
 The normal validation chain is:
 
 ```text
-Issue contract
+Issue contract (canonical issue-governance.yml)
   -> Inari-compiled PR body
   -> canonical organization branch/title/body governance
+  -> merge-boundary linked-Issue label check
   -> Mottainai product-specific conditional gates
   -> CI static integrity and product contract
   -> merge
@@ -124,7 +137,7 @@ The exact commands and classification live in `package.json`,
 
 ## Workflow trust boundary
 
-`.github/workflows/governance.yml` composes three jobs with independent trust
+`.github/workflows/governance.yml` composes four jobs with independent trust
 models:
 
 - `standards-self-check` runs entirely from the PR head; it self-verifies this
@@ -132,10 +145,14 @@ models:
 - `governance` calls the canonical `yohn-jp/.github` reusable workflow, which
   trusts only that repository's own reusable-workflow revision and the PR
   base's synchronized `.github/inari/**` snapshot — never PR-head code.
+- `linked-issue-check` checks out and trusts only the base SHA's
+  `scripts/governance-lib.mjs` to resolve which Issue the PR body closes, so
+  a PR cannot forge which Issue it appears to close; it then reads that
+  Issue's label state via the GitHub API.
 - `product-checks` runs entirely from the PR head, like
   `standards-self-check`: it is a Mottainai-internal conditional quality
   gate, not an organization-level authority a PR could self-authorize
-  around, so it does not need the base-trusted checkout `governance` uses.
+  around, so it does not need a base-trusted checkout.
 
 Release branches use the canonical organization release-PR contract
 (auto-selected by the `governance` job from the `release/<semver>` head

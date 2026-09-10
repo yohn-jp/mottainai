@@ -121,6 +121,7 @@ export function findUnconsumedOwnershipClasses(repositoryRoot, { classes, ciWork
         hasPullRequestTrigger(governanceText) &&
         jobs.has("standards-self-check") &&
         jobs.has("governance") &&
+        jobs.has("linked-issue-check") &&
         jobs.has("product-checks")
       ) {
         continue;

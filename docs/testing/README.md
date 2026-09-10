@@ -100,11 +100,13 @@ The responsibilities are:
 - Canonical `yohn-jp/.github` `pr-governance.yml`: PR title format, branch
   format, branch classification (ordinary/epic/release), and PR-body contract
   compliance, including exactly one linked closing Issue.
-- `scripts/governance-rules.json` / `scripts/governance-lib.mjs`: only
-  branch-name format, kept locally because it also backs Mottainai's own
-  repository-governance product feature
-  (`src/workflow/governance/branch.ts`), not because it duplicates the
-  canonical workflow above.
+- `scripts/governance-rules.json` / `scripts/governance-lib.mjs`: branch-name
+  format (kept locally because it also backs Mottainai's own
+  repository-governance product feature, `src/workflow/governance/branch.ts`,
+  not because it duplicates the canonical workflow above) and closing-Issue
+  text extraction for the merge-boundary `linked-issue-check` job.
+- Canonical `yohn-jp/.github` `issue-governance.yml`: Issue-body content
+  validation and the `status:invalid` label `linked-issue-check` reads.
 - `scripts/product-pr-checks-lib.mjs`: Mottainai-specific conditional gates
   (Package check, compression, CLI evidence).
 - CI: evidence that test, build, and package commands actually ran.

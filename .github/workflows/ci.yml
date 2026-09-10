@@ -461,6 +461,7 @@ jobs:
             governance:
               - '.github/inari/**'
               - '.github/workflows/governance.yml'
+              - '.github/workflows/issue-governance.yml'
               - 'scripts/governance-*.mjs'
               - 'scripts/validate-*.mjs'
               - 'scripts/product-pr-checks*.mjs'

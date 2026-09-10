@@ -16,6 +16,22 @@ export function validateBranchName(branch) {
   return new RegExp(rules.pullRequest.branchPattern).test(branch) ? [] : ["branch name format is invalid"];
 }
 
+/**
+ * Extracts the Issue numbers a PR body closes via GitHub's own closing
+ * keywords. This is plain text extraction, not a PR-title/body contract
+ * rule (the canonical workflow's `linkedIssue` PR-policy setting owns
+ * validating that exactly one exists) — it exists so the merge-boundary
+ * linked-Issue governance check (.github/workflows/governance.yml) can
+ * resolve which Issue to look up.
+ */
+export function extractClosingIssues(body) {
+  return [
+    ...new Set(
+      [...body.matchAll(/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b/gi)].map((match) => Number(match[1])),
+    ),
+  ];
+}
+
 export function parseArgs(argv) {
   const args = {};
   for (let index = 2; index < argv.length; index += 1) {
