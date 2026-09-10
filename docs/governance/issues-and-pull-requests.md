@@ -76,6 +76,13 @@ authority, run as the separate `product-checks` job:
 - compression test/preservation evidence for `src/compress/**` changes;
 - CLI README or CLI-test evidence for CLI entry-point changes.
 
+The `Package check` checkbox must appear outside the Inari-owned `Validation`
+section (for example under `Review focus`): gh-inari's canonical `default`
+contract only recognizes `Typecheck`, `Tests`, and `Build` there, and rejects
+any other checklist item as `EXISTING_UNKNOWN_CHECKLIST_ITEM`.
+`scripts/product-pr-checks-lib.mjs`'s `hasCompletedCheckbox` scans the whole
+PR body, not just `Validation`, so this does not weaken the check.
+
 The merge-boundary linked-Issue label check (`linked-issue-check` job) is a
 distinct, separately-run gate: it reads the canonical `issue-governance.yml`
 workflow's `status:invalid` / `needs:specification` labels on the closing
