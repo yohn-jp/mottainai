@@ -1,0 +1,43 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Document the distinction between Deployment Golden Path (`R4 -> R3 -> R2 -> R1`) and Runtime correctness boundary (`R3 -> R2 -> R1`)."
+    },
+    {
+      "checked": false,
+      "text": "Preserve Route 4 as the mandatory fresh-host entry point for the current supported deployment profile."
+    },
+    {
+      "checked": false,
+      "text": "Define the seven-layer certification ladder and what each layer proves or intentionally does not prove."
+    },
+    {
+      "checked": false,
+      "text": "Define Route 3 as the provider-independent convergence boundary consumed by Lima/QEMU and future providers."
+    },
+    {
+      "checked": false,
+      "text": "Link the Wave 0 correctness blockers required before another #261 run."
+    },
+    {
+      "checked": false,
+      "text": "Add/adjust repository architecture documentation so #232, ADR-0003, and #261 use consistent terminology."
+    },
+    {
+      "checked": false,
+      "text": "Require Route 3 -> 2 -> 1 certification and Lima provider certification to pass before the next #261 real-host run."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 890,
+    "state": "open",
+    "title": "refactor(runtime): split runtime correctness from deployment certification",
+    "url": "https://github.com/yohn-jp/mottainai/issues/890"
+  },
+  "linked": {
+    "number": 890
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "epic/890-runtime-certification",
+    "baseSha": "6ead21bf8cd5ad2e72447f4928647688353c95bd",
+    "draft": false,
+    "headRef": "docs/890-runtime-certification-architecture",
+    "headSha": "08901751c43086253c7a938cf99912e994389617",
+    "number": 911,
+    "title": "docs(architecture): define Runtime certification boundaries"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "08901751c43086253c7a938cf99912e994389617",
+    "immutable": true,
+    "shortId": "08901751c430"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-10T13:35:53.190Z"
+  }
+}

@@ -1,0 +1,232 @@
+{
+  "baseSha": "6ead21bf8cd5ad2e72447f4928647688353c95bd",
+  "files": [
+    {
+      "additions": 1,
+      "deletions": 6,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 832,
+          "oldLines": 6,
+          "oldStart": 832
+        }
+      ],
+      "path": ".github/workflows/ci.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 5,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 5,
+          "newStart": 7,
+          "oldLines": 0,
+          "oldStart": 6
+        }
+      ],
+      "path": "docs/architecture/ci/topology.md",
+      "status": "modified"
+    },
+    {
+      "additions": 123,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 123,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "docs/architecture/deployment/certification.md",
+      "status": "added"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 15,
+          "oldLines": 0,
+          "oldStart": 14
+        }
+      ],
+      "path": "docs/architecture/README.md",
+      "status": "modified"
+    },
+    {
+      "additions": 8,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 7,
+          "newStart": 58,
+          "oldLines": 0,
+          "oldStart": 57
+        },
+        {
+          "newLines": 1,
+          "newStart": 334,
+          "oldLines": 1,
+          "oldStart": 327
+        }
+      ],
+      "path": "docs/decisions/0003-layered-declarative-deployment.md",
+      "status": "modified"
+    },
+    {
+      "additions": 0,
+      "deletions": 4,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 354,
+          "oldLines": 4,
+          "oldStart": 355
+        }
+      ],
+      "path": "nix/modules/runtime.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 0,
+      "deletions": 53,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 103,
+          "oldLines": 1,
+          "oldStart": 104
+        },
+        {
+          "newLines": 0,
+          "newStart": 374,
+          "oldLines": 15,
+          "oldStart": 376
+        },
+        {
+          "newLines": 0,
+          "newStart": 438,
+          "oldLines": 10,
+          "oldStart": 455
+        },
+        {
+          "newLines": 0,
+          "newStart": 456,
+          "oldLines": 22,
+          "oldStart": 483
+        },
+        {
+          "newLines": 0,
+          "newStart": 555,
+          "oldLines": 5,
+          "oldStart": 604
+        }
+      ],
+      "path": "nix/tests/runtime-appliance-golden-path.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 0,
+      "deletions": 14,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 67,
+          "oldLines": 14,
+          "oldStart": 68
+        }
+      ],
+      "path": "nix/tests/runtime.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 0,
+      "deletions": 16,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 1,
+          "oldLines": 1,
+          "oldStart": 2
+        },
+        {
+          "newLines": 0,
+          "newStart": 14,
+          "oldLines": 1,
+          "oldStart": 16
+        },
+        {
+          "newLines": 0,
+          "newStart": 154,
+          "oldLines": 14,
+          "oldStart": 157
+        }
+      ],
+      "path": "scripts/ci-runtime-contract-gates.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 0,
+      "deletions": 32,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 970,
+          "oldLines": 32,
+          "oldStart": 971
+        }
+      ],
+      "path": "src/runtime-contract/managed-runtime.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 3,
+      "deletions": 62,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 13,
+          "oldLines": 1,
+          "oldStart": 14
+        },
+        {
+          "newLines": 0,
+          "newStart": 21,
+          "oldLines": 1,
+          "oldStart": 23
+        },
+        {
+          "newLines": 1,
+          "newStart": 1137,
+          "oldLines": 1,
+          "oldStart": 1139
+        },
+        {
+          "newLines": 1,
+          "newStart": 1141,
+          "oldLines": 58,
+          "oldStart": 1143
+        },
+        {
+          "newLines": 1,
+          "newStart": 1244,
+          "oldLines": 1,
+          "oldStart": 1303
+        }
+      ],
+      "path": "src/runtime-contract/managed-runtime.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "08901751c43086253c7a938cf99912e994389617",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 141,
+    "deletions": 188,
+    "filesChanged": 11
+  }
+}

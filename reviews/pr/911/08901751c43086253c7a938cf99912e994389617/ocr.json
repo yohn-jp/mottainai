@@ -1,0 +1,57 @@
+{
+  "baseSha": "6ead21bf8cd5ad2e72447f4928647688353c95bd",
+  "headSha": "08901751c43086253c7a938cf99912e994389617",
+  "preview": {
+    "excluded_count": 4,
+    "excluded_files": [
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 1,
+        "path": "docs/architecture/README.md",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 5,
+        "path": "docs/architecture/ci/topology.md",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 123,
+        "path": "docs/architecture/deployment/certification.md",
+        "status": "added"
+      },
+      {
+        "deletions": 1,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 8,
+        "path": "docs/decisions/0003-layered-declarative-deployment.md",
+        "status": "modified"
+      }
+    ],
+    "from": "6ead21bf8cd5ad2e72447f4928647688353c95bd",
+    "merge_base": "2d2f70419584a54396363545af771a8fc98df6d1",
+    "mode": "range",
+    "reviewable_count": 0,
+    "reviewable_files": [],
+    "schema_version": "1",
+    "to": "08901751c43086253c7a938cf99912e994389617",
+    "total_deletions": 1,
+    "total_files": 4,
+    "total_insertions": 137
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.4"
+  },
+  "rule": {
+    "groups": [],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}
