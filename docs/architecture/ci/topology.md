@@ -4,6 +4,11 @@ Architecture authority: [#764](https://github.com/yohn-jp/mottainai/issues/764).
 
 The workflow YAML is an implementation of this document. Where current workflow behavior differs from this document, the workflow is migration debt rather than an alternate architecture.
 
+The distinction between the cumulative Deployment Golden Path and the
+independent Runtime correctness boundary, including the seven certification
+layers and the pre-#261 gate, is defined in
+[Deployment and Runtime certification boundaries](../deployment/certification.md).
+
 ## Design rule
 
 CI validates **contracts that a change can invalidate**, at the **least expensive certification tier sufficient to reject or certify that change**.

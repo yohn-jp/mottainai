@@ -55,6 +55,13 @@ functional Mottainai
 
 The arrows are normative dependency direction. Route 4 consumes Route 3, Route 3 consumes Route 2, and Route 2 consumes Route 1. A higher route may add guarantees, isolation, reconciliation, or dependencies, but it must not introduce a second semantic implementation of a lower route.
 
+This cumulative route model is the user-facing **Deployment Golden Path**, not
+a claim that one certification job must carry every diagnostic responsibility.
+The independent Runtime correctness certificate covers Route 3 -> Route 2 ->
+Route 1; the seven-layer evidence model and the mandatory Lima provider /
+Runtime gate before the final published fresh-host run are defined in
+[Deployment and Runtime certification boundaries](../architecture/deployment/certification.md).
+
 ### Relationship to the artifact-completion model (#659)
 
 The word **route** in this ADR does not reverse #659's decision to track Runtime product artifacts independently. #659 correctly rejected treating Lima, direct QEMU, Proxmox, or other provider variants as separate product artifacts or duplicated end-to-end implementations.

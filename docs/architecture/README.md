@@ -12,6 +12,7 @@ runbooks here; use `contracts/`, `testing/`, `reports/`, or `operations/`.
 - [Runtime lifecycle](runtime/lifecycle.md)
 - [Lima/provider orchestration](runtime/lima-orchestration.md)
 - [Deployment routes](deployment/routes.md)
+- [Deployment and Runtime certification boundaries](deployment/certification.md)
 - [CI topology](ci/topology.md)
 - [MCP harness delegation](mcp/harness-delegation.md)
 - [Integration architecture](integrations/managed-hooks.md)
