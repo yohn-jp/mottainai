@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "epic/890-runtime-certification",
+    "baseSha": "a7d4ff46cc5c593edbe698c8b4c8c9ef5d20d8b5",
+    "draft": false,
+    "headRef": "fix/901-runtime-appliance-staging",
+    "headSha": "1c3955ac078dddfef350d92b21470c50511cc6e7",
+    "number": 908,
+    "title": "fix(ci): restore Runtime Appliance staging on trusted main"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "1c3955ac078dddfef350d92b21470c50511cc6e7",
+    "immutable": true,
+    "shortId": "1c3955ac078d"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-10T13:20:38.960Z"
+  }
+}

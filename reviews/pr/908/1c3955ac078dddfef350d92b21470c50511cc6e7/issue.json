@@ -1,0 +1,43 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "The Runtime Appliance job on trusted `main` passes the MTNAI_BOOT staging step."
+    },
+    {
+      "checked": false,
+      "text": "The direct Runtime Appliance Golden Path step executes rather than being skipped because of staging failure."
+    },
+    {
+      "checked": false,
+      "text": "Production Lima composition executes rather than being skipped because of staging failure."
+    },
+    {
+      "checked": false,
+      "text": "Runtime Appliance certification evidence is produced on successful trusted-main execution."
+    },
+    {
+      "checked": false,
+      "text": "Certified Runtime Appliance artifact upload executes from the certified bytes."
+    },
+    {
+      "checked": false,
+      "text": "Failure modes remain fail-closed and emit bounded diagnostics."
+    },
+    {
+      "checked": false,
+      "text": "Required repository validation passes."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 901,
+    "state": "open",
+    "title": "fix(ci): restore Runtime Appliance certification staging on main",
+    "url": "https://github.com/yohn-jp/mottainai/issues/901"
+  },
+  "linked": {
+    "number": 901
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #908 @ 1c3955ac078d</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #908: fix(ci): restore Runtime Appliance staging on trusted main</h1>
+<p>Base <code>epic/890-runtime-certification</code> @ <code>a7d4ff46cc5c593edbe698c8b4c8c9ef5d20d8b5</code> &rarr;
+Head <code>fix/901-runtime-appliance-staging</code> @ <code>1c3955ac078dddfef350d92b21470c50511cc6e7</code></p>
+<p>Revision <code>1c3955ac078d</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/901">#901</a> fix(ci): restore Runtime Appliance certification staging on main (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] The Runtime Appliance job on trusted `main` passes the MTNAI_BOOT staging step.</li>
+<li>[ ] The direct Runtime Appliance Golden Path step executes rather than being skipped because of staging failure.</li>
+<li>[ ] Production Lima composition executes rather than being skipped because of staging failure.</li>
+<li>[ ] Runtime Appliance certification evidence is produced on successful trusted-main execution.</li>
+<li>[ ] Certified Runtime Appliance artifact upload executes from the certified bytes.</li>
+<li>[ ] Failure modes remain fail-closed and emit bounded diagnostics.</li>
+<li>[ ] Required repository validation passes.</li></ul>
+
+
+
+<h2>Changed files (2, +22/-1)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/ci.yml</td><td>modified</td><td>+6</td><td>-1</td></tr>
+<tr><td>scripts/ci-runtime-contract-gates.test.mjs</td><td>modified</td><td>+16</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
