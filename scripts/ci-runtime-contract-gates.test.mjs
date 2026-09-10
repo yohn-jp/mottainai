@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -12,6 +13,7 @@ import {
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const gateExpressions = loadRuntimeContractGateExpressions(repositoryRoot);
 const stepGates = loadRuntimeApplianceStepGates(repositoryRoot);
+const ciWorkflow = fs.readFileSync(path.join(repositoryRoot, ".github/workflows/ci.yml"), "utf8");
 
 function baseOutputs(overrides) {
   return {
@@ -151,4 +153,18 @@ test("a trusted main push runs the full canonical build + manifest + OCI + motta
   assert.equal(evaluateStepSelection(stepGates.mottainaiInitAndGoldenPath, "push"), true);
   assert.equal(evaluateStepSelection(stepGates.productionBootstrapHandoff, "push"), true);
   assert.equal(evaluateStepSelection(stepGates.productionLimaComposition, "push"), true);
+});
+
+test("the production bootstrap handoff has a traversable, narrowly scoped parent", () => {
+  const stepStart = ciWorkflow.indexOf(
+    'handoff_directory="$(mktemp -d /tmp/mottainai-runtime-appliance-production-bootstrap.XXXXXX)"',
+  );
+  assert.notEqual(stepStart, -1, "handoff must use a fresh /tmp directory");
+  const stepEnd = ciWorkflow.indexOf("\n      # The production composition proof", stepStart);
+  assert.notEqual(stepEnd, -1, "handoff step boundary must remain recognizable");
+  const handoffScript = ciWorkflow.slice(stepStart, stepEnd);
+  assert.doesNotMatch(handoffScript, /handoff_directory=.*\$RUNNER_TEMP/u);
+  assert.match(handoffScript, /sudo install -d -m 0750 -o "\$runner_uid" -g "\$nix_build_group"/u);
+  assert.match(handoffScript, /sudo install -m 0640 -o "\$runner_uid" -g "\$nix_build_group"/u);
+  assert.match(handoffScript, /sudo -u "\$nix_build_user" -- test -r "\$handoff_private_key"/u);
 });
