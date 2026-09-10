@@ -1,0 +1,364 @@
+{
+  "baseSha": "fe4368377a5b6a1342df84edc4c40326b4d10e00",
+  "files": [
+    {
+      "additions": 121,
+      "deletions": 4,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 362,
+          "oldLines": 0,
+          "oldStart": 361
+        },
+        {
+          "newLines": 80,
+          "newStart": 892,
+          "oldLines": 0,
+          "oldStart": 890
+        },
+        {
+          "newLines": 4,
+          "newStart": 986,
+          "oldLines": 4,
+          "oldStart": 905
+        },
+        {
+          "newLines": 3,
+          "newStart": 993,
+          "oldLines": 0,
+          "oldStart": 911
+        },
+        {
+          "newLines": 33,
+          "newStart": 1013,
+          "oldLines": 0,
+          "oldStart": 928
+        }
+      ],
+      "path": ".github/workflows/ci.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 12,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 230,
+          "oldLines": 1,
+          "oldStart": 230
+        },
+        {
+          "newLines": 10,
+          "newStart": 239,
+          "oldLines": 1,
+          "oldStart": 238
+        }
+      ],
+      "path": "docs/architecture/ci/topology.md",
+      "status": "modified"
+    },
+    {
+      "additions": 18,
+      "deletions": 7,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 518,
+          "oldLines": 1,
+          "oldStart": 518
+        },
+        {
+          "newLines": 3,
+          "newStart": 530,
+          "oldLines": 1,
+          "oldStart": 530
+        },
+        {
+          "newLines": 1,
+          "newStart": 570,
+          "oldLines": 1,
+          "oldStart": 568
+        },
+        {
+          "newLines": 1,
+          "newStart": 586,
+          "oldLines": 1,
+          "oldStart": 584
+        },
+        {
+          "newLines": 1,
+          "newStart": 663,
+          "oldLines": 1,
+          "oldStart": 661
+        },
+        {
+          "newLines": 1,
+          "newStart": 681,
+          "oldLines": 1,
+          "oldStart": 679
+        },
+        {
+          "newLines": 1,
+          "newStart": 703,
+          "oldLines": 1,
+          "oldStart": 701
+        },
+        {
+          "newLines": 9,
+          "newStart": 722,
+          "oldLines": 0,
+          "oldStart": 719
+        }
+      ],
+      "path": "docs/operations/deployment/route4-to-route1.md",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 57,
+          "oldLines": 0,
+          "oldStart": 56
+        },
+        {
+          "newLines": 1,
+          "newStart": 183,
+          "oldLines": 0,
+          "oldStart": 181
+        }
+      ],
+      "path": "nix/bootstrap.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 289,
+      "deletions": 88,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 27,
+          "oldLines": 0,
+          "oldStart": 26
+        },
+        {
+          "newLines": 3,
+          "newStart": 94,
+          "oldLines": 0,
+          "oldStart": 90
+        },
+        {
+          "newLines": 13,
+          "newStart": 302,
+          "oldLines": 0,
+          "oldStart": 295
+        },
+        {
+          "newLines": 30,
+          "newStart": 327,
+          "oldLines": 0,
+          "oldStart": 307
+        },
+        {
+          "newLines": 9,
+          "newStart": 360,
+          "oldLines": 2,
+          "oldStart": 311
+        },
+        {
+          "newLines": 68,
+          "newStart": 381,
+          "oldLines": 28,
+          "oldStart": 325
+        },
+        {
+          "newLines": 5,
+          "newStart": 505,
+          "oldLines": 3,
+          "oldStart": 409
+        },
+        {
+          "newLines": 18,
+          "newStart": 528,
+          "oldLines": 6,
+          "oldStart": 430
+        },
+        {
+          "newLines": 1,
+          "newStart": 548,
+          "oldLines": 0,
+          "oldStart": 437
+        },
+        {
+          "newLines": 13,
+          "newStart": 560,
+          "oldLines": 1,
+          "oldStart": 449
+        },
+        {
+          "newLines": 51,
+          "newStart": 588,
+          "oldLines": 39,
+          "oldStart": 465
+        },
+        {
+          "newLines": 1,
+          "newStart": 653,
+          "oldLines": 1,
+          "oldStart": 518
+        },
+        {
+          "newLines": 1,
+          "newStart": 689,
+          "oldLines": 1,
+          "oldStart": 554
+        },
+        {
+          "newLines": 23,
+          "newStart": 693,
+          "oldLines": 0,
+          "oldStart": 557
+        },
+        {
+          "newLines": 32,
+          "newStart": 739,
+          "oldLines": 0,
+          "oldStart": 580
+        },
+        {
+          "newLines": 1,
+          "newStart": 782,
+          "oldLines": 1,
+          "oldStart": 592
+        },
+        {
+          "newLines": 1,
+          "newStart": 791,
+          "oldLines": 1,
+          "oldStart": 601
+        },
+        {
+          "newLines": 16,
+          "newStart": 794,
+          "oldLines": 5,
+          "oldStart": 604
+        }
+      ],
+      "path": "nix/tests/runtime-appliance-golden-path.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 57,
+          "oldLines": 2,
+          "oldStart": 57
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 7,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 111,
+          "oldLines": 1,
+          "oldStart": 111
+        },
+        {
+          "newLines": 5,
+          "newStart": 142,
+          "oldLines": 0,
+          "oldStart": 140
+        }
+      ],
+      "path": "scripts/ci-runtime-contract-gates.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 146,
+          "oldLines": 0,
+          "oldStart": 145
+        },
+        {
+          "newLines": 1,
+          "newStart": 156,
+          "oldLines": 0,
+          "oldStart": 154
+        }
+      ],
+      "path": "scripts/ci-runtime-contract-gates.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 241,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 241,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/create-trusted-main-runtime-certification-input.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 58,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 10,
+          "oldLines": 0,
+          "oldStart": 9
+        },
+        {
+          "newLines": 54,
+          "newStart": 115,
+          "oldLines": 0,
+          "oldStart": 110
+        }
+      ],
+      "path": "scripts/deployment-artifact-roundtrip-gate.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 4,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 92,
+          "oldLines": 1,
+          "oldStart": 92
+        }
+      ],
+      "path": "scripts/lib/canonical-payload.mjs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "5acec19f37356fa7ddaf7e7c715cb20bec03a7d1",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 756,
+    "deletions": 105,
+    "filesChanged": 11
+  }
+}
