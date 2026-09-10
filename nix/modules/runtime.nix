@@ -352,6 +352,10 @@ in
       "d ${cfg.stateDir}/managed-packages 0700 ${cfg.controlUser} ${cfg.controlUser} -"
       "d ${cfg.stateDir}/bootstrap 0700 ${cfg.controlUser} ${cfg.controlUser} -"
       "d ${cfg.stateDir}/managed-runtime 0700 ${cfg.controlUser} ${cfg.controlUser} -"
+      # Route 2's managed-generation roots are the only Nix-owned paths the
+      # control identity may mutate.  Keep the parent Nix store/gcroots tree
+      # root-owned; this child is the narrowly scoped lifecycle authority.
+      "d /nix/var/nix/gcroots/mottainai-managed-runtime 0700 ${cfg.controlUser} ${cfg.controlUser} -"
       "d ${cfg.repositoryStateDir} 0755 root root -"
     ];
 

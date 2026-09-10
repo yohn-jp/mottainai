@@ -65,6 +65,20 @@ pkgs.testers.nixosTest {
         runtime.succeed("test -d /var/lib/mottainai-control/managed-packages")
         runtime.succeed("test -d /var/lib/mottainai-control/bootstrap")
         runtime.succeed("test -d /var/lib/mottainai-control/managed-runtime")
+        runtime.succeed("test -d /nix/var/nix/gcroots/mottainai-managed-runtime")
+        gc_root_owner = runtime.succeed("stat -c '%U' /nix/var/nix/gcroots/mottainai-managed-runtime").strip()
+        assert gc_root_owner == "mottainai-control", f"unexpected managed GC-root owner: {gc_root_owner}"
+        gc_root_mode = runtime.succeed("stat -c '%a' /nix/var/nix/gcroots/mottainai-managed-runtime").strip()
+        assert gc_root_mode == "700", f"managed GC-root directory must be 0700, got {gc_root_mode}"
+        runtime.succeed(
+            "su -s /bin/sh mottainai-control -c "
+            "'install -m 0600 /dev/null /nix/var/nix/gcroots/mottainai-managed-runtime/authority-probe'"
+        )
+        runtime.succeed("rm -f /nix/var/nix/gcroots/mottainai-managed-runtime/authority-probe")
+        runtime.fail(
+            "su -s /bin/sh nobody -c "
+            "'ls /nix/var/nix/gcroots/mottainai-managed-runtime'"
+        )
         runtime.succeed("mottainai-bootstrap status --json | grep -q '\"present\": false'")
 
     with subtest("managed application packages are absent from the base PATH"):

@@ -101,6 +101,7 @@ in
     ssh_keygen = "${pkgs.openssh}/bin/ssh-keygen"
 
     manifest_path = "/var/lib/mottainai-control/managed-packages/manifest.json"
+    managed_gc_roots = "/nix/var/nix/gcroots/mottainai-managed-runtime"
     persistent_sentinel = "/var/lib/mottainai-control/unmanaged/UNMANAGED_MARKER"
     ephemeral_sentinel = "/tmp/issue-630-ephemeral-sentinel"
 
@@ -372,6 +373,21 @@ in
     def runtime_health():
         return guest_json("mottainai-runtime-health")
 
+    def assert_gc_root(slot, expected_store_path):
+        root = managed_gc_roots + "/" + slot
+        observed = control("test -L " + shlex.quote(root) + " && test -e " + shlex.quote(root) +
+                           " && readlink -f " + shlex.quote(root)).strip()
+        assert observed == expected_store_path, (
+            "managed GC root " + slot + " does not retain the expected target: " + observed
+        )
+
+    def collect_garbage():
+        # This is the real Nix collector, executed through the appliance's
+        # mottainai-control SSH identity. The module grants that identity
+        # write access only to managed_gc_roots; no global GC disable or root
+        # shell is involved.
+        control("nix-store --gc >/dev/null", 900)
+
     def assert_managed_ready(health, status, expected_desired, expected_active):
         assert health["readiness"] == "managed-runtime-ready"
         assert health["managedRuntimeReady"] is True
@@ -436,6 +452,16 @@ in
         assert_managed_ready(health_v1, status_v1, desired_v1, active_v1)
         assert health_v1["buildIdentity"] == base_appliance_identity
 
+        with subtest("generation A remains executable after a real Nix GC"):
+            assert_gc_root("active", store_v1)
+            control("test -x " + shlex.quote(store_v1 + "/bin/mottainai"))
+            collect_garbage()
+            control("test -x " + shlex.quote(store_v1 + "/bin/mottainai"))
+            assert_gc_root("active", store_v1)
+            status_after_gc_v1 = managed_status()
+            health_after_gc_v1 = runtime_health()
+            assert_managed_ready(health_after_gc_v1, status_after_gc_v1, desired_v1, active_v1)
+
     with subtest("only Mottainai version changes and activates a new managed generation"):
         write_manifest(manifest_v2)
         reconcile_v2 = reconcile()
@@ -453,6 +479,28 @@ in
         health_v2 = runtime_health()
         assert_managed_ready(health_v2, status_v2, desired_v2, active_v2)
         assert health_v2["buildIdentity"] == base_appliance_identity
+
+        with subtest("active and previous generations survive a real Nix GC"):
+            assert_gc_root("active", store_v2)
+            assert_gc_root("previous", store_v1)
+            collect_garbage()
+            control("test -x " + shlex.quote(store_v1 + "/bin/mottainai"))
+            control("test -x " + shlex.quote(store_v2 + "/bin/mottainai"))
+            assert_gc_root("active", store_v2)
+            assert_gc_root("previous", store_v1)
+            status_after_gc_v2 = managed_status()
+            health_after_gc_v2 = runtime_health()
+            assert_managed_ready(health_after_gc_v2, status_after_gc_v2, desired_v2, active_v2)
+
+        with subtest("missing retained root fails closed and reconcile restores it"):
+            control("rm -f " + shlex.quote(managed_gc_roots + "/previous"))
+            missing_root_status = managed_status()
+            assert missing_root_status["valid"] is False
+            missing_root_health = runtime_health()
+            assert missing_root_health["managedRuntimeReady"] is False
+            restored = reconcile()
+            assert restored["outcome"] == "noop"
+            assert_gc_root("previous", store_v1)
 
     with subtest("persistent-unmanaged and ephemeral sentinel semantics are recorded"):
         control("install -d -m 0755 " + shlex.quote(os.path.dirname(persistent_sentinel)))
@@ -552,6 +600,11 @@ in
                 "packages": {
                     "mottainai": {"version": "${mottainaiVersionV2}", "sourceSha256": "${mottainaiSourceSha256V2}"},
                 },
+            },
+            "garbageCollection": {
+                "generationAExecutableAfterGc": True,
+                "activeAndPreviousExecutableAfterGc": True,
+                "missingPreviousRootFailsClosed": True,
             },
             "rollback": {
                 "activeGenerationIdentity": rollback_status["activeGenerationIdentity"],
