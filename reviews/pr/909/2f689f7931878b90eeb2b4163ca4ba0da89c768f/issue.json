@@ -1,0 +1,35 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "The test deterministically distinguishes the indexed implementation from the pre-#871 repeated-scan behavior."
+    },
+    {
+      "checked": false,
+      "text": "Repeated CI execution is not sensitive to ordinary scheduler/timing noise at the current tens-of-milliseconds scale."
+    },
+    {
+      "checked": false,
+      "text": "A deliberate reintroduction of repeated full-fact scans causes the regression test to fail."
+    },
+    {
+      "checked": false,
+      "text": "Semantic diff correctness tests remain unchanged in authority."
+    },
+    {
+      "checked": false,
+      "text": "Required repository validation passes."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 903,
+    "state": "open",
+    "title": "test(semantics): replace flaky wall-clock diff scaling gate with deterministic complexity evidence",
+    "url": "https://github.com/yohn-jp/mottainai/issues/903"
+  },
+  "linked": {
+    "number": 903
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

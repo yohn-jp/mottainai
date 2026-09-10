@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #909 @ 2f689f793187</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #909: test(semantics): replace flaky wall-clock scaling gate with deterministic complexity evidence</h1>
+<p>Base <code>epic/890-runtime-certification</code> @ <code>a7d4ff46cc5c593edbe698c8b4c8c9ef5d20d8b5</code> &rarr;
+Head <code>test/903-deterministic-semantic-diff-complexity</code> @ <code>2f689f7931878b90eeb2b4163ca4ba0da89c768f</code></p>
+<p>Revision <code>2f689f793187</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/903">#903</a> test(semantics): replace flaky wall-clock diff scaling gate with deterministic complexity evidence (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] The test deterministically distinguishes the indexed implementation from the pre-#871 repeated-scan behavior.</li>
+<li>[ ] Repeated CI execution is not sensitive to ordinary scheduler/timing noise at the current tens-of-milliseconds scale.</li>
+<li>[ ] A deliberate reintroduction of repeated full-fact scans causes the regression test to fail.</li>
+<li>[ ] Semantic diff correctness tests remain unchanged in authority.</li>
+<li>[ ] Required repository validation passes.</li></ul>
+
+
+
+<h2>Changed files (1, +63/-30)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>src/semantics/diff/engine.test.ts</td><td>modified</td><td>+63</td><td>-30</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

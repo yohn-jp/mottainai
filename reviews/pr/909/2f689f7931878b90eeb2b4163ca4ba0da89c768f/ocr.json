@@ -1,0 +1,36 @@
+{
+  "baseSha": "a7d4ff46cc5c593edbe698c8b4c8c9ef5d20d8b5",
+  "headSha": "2f689f7931878b90eeb2b4163ca4ba0da89c768f",
+  "preview": {
+    "excluded_count": 1,
+    "excluded_files": [
+      {
+        "deletions": 30,
+        "exclude_reason": "default_path",
+        "insertions": 63,
+        "path": "src/semantics/diff/engine.test.ts",
+        "status": "modified"
+      }
+    ],
+    "from": "a7d4ff46cc5c593edbe698c8b4c8c9ef5d20d8b5",
+    "merge_base": "a7d4ff46cc5c593edbe698c8b4c8c9ef5d20d8b5",
+    "mode": "range",
+    "reviewable_count": 0,
+    "reviewable_files": [],
+    "schema_version": "1",
+    "to": "2f689f7931878b90eeb2b4163ca4ba0da89c768f",
+    "total_deletions": 30,
+    "total_files": 1,
+    "total_insertions": 63
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.4"
+  },
+  "rule": {
+    "groups": [],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}

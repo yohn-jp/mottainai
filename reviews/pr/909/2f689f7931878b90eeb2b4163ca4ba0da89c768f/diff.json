@@ -1,0 +1,80 @@
+{
+  "baseSha": "a7d4ff46cc5c593edbe698c8b4c8c9ef5d20d8b5",
+  "files": [
+    {
+      "additions": 63,
+      "deletions": 30,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 1,
+          "oldLines": 1,
+          "oldStart": 2
+        },
+        {
+          "newLines": 3,
+          "newStart": 244,
+          "oldLines": 4,
+          "oldStart": 245
+        },
+        {
+          "newLines": 27,
+          "newStart": 249,
+          "oldLines": 4,
+          "oldStart": 251
+        },
+        {
+          "newLines": 1,
+          "newStart": 280,
+          "oldLines": 3,
+          "oldStart": 259
+        },
+        {
+          "newLines": 7,
+          "newStart": 282,
+          "oldLines": 2,
+          "oldStart": 263
+        },
+        {
+          "newLines": 6,
+          "newStart": 290,
+          "oldLines": 3,
+          "oldStart": 266
+        },
+        {
+          "newLines": 6,
+          "newStart": 297,
+          "oldLines": 3,
+          "oldStart": 270
+        },
+        {
+          "newLines": 3,
+          "newStart": 304,
+          "oldLines": 4,
+          "oldStart": 274
+        },
+        {
+          "newLines": 3,
+          "newStart": 308,
+          "oldLines": 3,
+          "oldStart": 279
+        },
+        {
+          "newLines": 7,
+          "newStart": 313,
+          "oldLines": 3,
+          "oldStart": 284
+        }
+      ],
+      "path": "src/semantics/diff/engine.test.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "2f689f7931878b90eeb2b4163ca4ba0da89c768f",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 63,
+    "deletions": 30,
+    "filesChanged": 1
+  }
+}

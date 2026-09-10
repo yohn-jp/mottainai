@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "epic/890-runtime-certification",
+    "baseSha": "a7d4ff46cc5c593edbe698c8b4c8c9ef5d20d8b5",
+    "draft": false,
+    "headRef": "test/903-deterministic-semantic-diff-complexity",
+    "headSha": "2f689f7931878b90eeb2b4163ca4ba0da89c768f",
+    "number": 909,
+    "title": "test(semantics): replace flaky wall-clock scaling gate with deterministic complexity evidence"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "2f689f7931878b90eeb2b4163ca4ba0da89c768f",
+    "immutable": true,
+    "shortId": "2f689f793187"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-10T13:22:39.129Z"
+  }
+}
