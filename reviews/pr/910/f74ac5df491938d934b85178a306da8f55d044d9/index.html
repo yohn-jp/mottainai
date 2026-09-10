@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #910 @ f74ac5df4919</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #910: fix(runtime): provision managed-generation GC-root authority</h1>
+<p>Base <code>epic/890-runtime-certification</code> @ <code>2d2f70419584a54396363545af771a8fc98df6d1</code> &rarr;
+Head <code>fix/902-managed-runtime-gc-authority</code> @ <code>f74ac5df491938d934b85178a306da8f55d044d9</code></p>
+<p>Revision <code>f74ac5df4919</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/902">#902</a> fix(runtime): provision managed-generation GC-root authority in the canonical appliance (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Canonical Runtime Appliance reconciliation can create/update/remove only the managed-runtime GC roots required by its lifecycle.</li>
+<li>[ ] Generation A remains realized and executable after activation followed by real Nix GC.</li>
+<li>[ ] After activating generation B, retained active/previous generations survive real Nix GC according to lifecycle policy.</li>
+<li>[ ] Rollback/recovery to the retained previous generation succeeds after GC.</li>
+<li>[ ] `managedRuntimeReady` rejects dangling or missing retained targets and missing required executables.</li>
+<li>[ ] Tests run under the canonical appliance/service-user authority rather than only a host filesystem fixture.</li>
+<li>[ ] Required repository validation passes.</li></ul>
+
+
+
+<h2>Changed files (6, +195/-66)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>nix/modules/runtime.nix</td><td>modified</td><td>+4</td><td>-0</td></tr>
+<tr><td>nix/tests/runtime-appliance-golden-path.nix</td><td>modified</td><td>+53</td><td>-0</td></tr>
+<tr><td>nix/tests/runtime.nix</td><td>modified</td><td>+14</td><td>-0</td></tr>
+<tr><td>src/runtime-contract/managed-runtime.test.ts</td><td>modified</td><td>+32</td><td>-0</td></tr>
+<tr><td>src/runtime-contract/managed-runtime.ts</td><td>modified</td><td>+62</td><td>-3</td></tr>
+<tr><td>src/semantics/diff/engine.test.ts</td><td>modified</td><td>+30</td><td>-63</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

@@ -1,0 +1,43 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Canonical Runtime Appliance reconciliation can create/update/remove only the managed-runtime GC roots required by its lifecycle."
+    },
+    {
+      "checked": false,
+      "text": "Generation A remains realized and executable after activation followed by real Nix GC."
+    },
+    {
+      "checked": false,
+      "text": "After activating generation B, retained active/previous generations survive real Nix GC according to lifecycle policy."
+    },
+    {
+      "checked": false,
+      "text": "Rollback/recovery to the retained previous generation succeeds after GC."
+    },
+    {
+      "checked": false,
+      "text": "`managedRuntimeReady` rejects dangling or missing retained targets and missing required executables."
+    },
+    {
+      "checked": false,
+      "text": "Tests run under the canonical appliance/service-user authority rather than only a host filesystem fixture."
+    },
+    {
+      "checked": false,
+      "text": "Required repository validation passes."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 902,
+    "state": "open",
+    "title": "fix(runtime): provision managed-generation GC-root authority in the canonical appliance",
+    "url": "https://github.com/yohn-jp/mottainai/issues/902"
+  },
+  "linked": {
+    "number": 902
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

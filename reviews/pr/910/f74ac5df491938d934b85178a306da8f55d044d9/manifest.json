@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "epic/890-runtime-certification",
+    "baseSha": "2d2f70419584a54396363545af771a8fc98df6d1",
+    "draft": false,
+    "headRef": "fix/902-managed-runtime-gc-authority",
+    "headSha": "f74ac5df491938d934b85178a306da8f55d044d9",
+    "number": 910,
+    "title": "fix(runtime): provision managed-generation GC-root authority"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "f74ac5df491938d934b85178a306da8f55d044d9",
+    "immutable": true,
+    "shortId": "f74ac5df4919"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-10T13:26:58.788Z"
+  }
+}

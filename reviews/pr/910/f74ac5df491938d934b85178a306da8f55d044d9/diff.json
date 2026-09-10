@@ -1,0 +1,198 @@
+{
+  "baseSha": "2d2f70419584a54396363545af771a8fc98df6d1",
+  "files": [
+    {
+      "additions": 4,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 355,
+          "oldLines": 0,
+          "oldStart": 354
+        }
+      ],
+      "path": "nix/modules/runtime.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 53,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 104,
+          "oldLines": 0,
+          "oldStart": 103
+        },
+        {
+          "newLines": 15,
+          "newStart": 376,
+          "oldLines": 0,
+          "oldStart": 374
+        },
+        {
+          "newLines": 10,
+          "newStart": 455,
+          "oldLines": 0,
+          "oldStart": 438
+        },
+        {
+          "newLines": 22,
+          "newStart": 483,
+          "oldLines": 0,
+          "oldStart": 456
+        },
+        {
+          "newLines": 5,
+          "newStart": 604,
+          "oldLines": 0,
+          "oldStart": 555
+        }
+      ],
+      "path": "nix/tests/runtime-appliance-golden-path.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 14,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 14,
+          "newStart": 68,
+          "oldLines": 0,
+          "oldStart": 67
+        }
+      ],
+      "path": "nix/tests/runtime.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 32,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 32,
+          "newStart": 971,
+          "oldLines": 0,
+          "oldStart": 970
+        }
+      ],
+      "path": "src/runtime-contract/managed-runtime.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 62,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 14,
+          "oldLines": 0,
+          "oldStart": 13
+        },
+        {
+          "newLines": 1,
+          "newStart": 23,
+          "oldLines": 0,
+          "oldStart": 21
+        },
+        {
+          "newLines": 1,
+          "newStart": 1139,
+          "oldLines": 1,
+          "oldStart": 1137
+        },
+        {
+          "newLines": 58,
+          "newStart": 1143,
+          "oldLines": 1,
+          "oldStart": 1141
+        },
+        {
+          "newLines": 1,
+          "newStart": 1303,
+          "oldLines": 1,
+          "oldStart": 1244
+        }
+      ],
+      "path": "src/runtime-contract/managed-runtime.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 30,
+      "deletions": 63,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 2,
+          "oldLines": 0,
+          "oldStart": 1
+        },
+        {
+          "newLines": 4,
+          "newStart": 245,
+          "oldLines": 3,
+          "oldStart": 244
+        },
+        {
+          "newLines": 4,
+          "newStart": 251,
+          "oldLines": 27,
+          "oldStart": 249
+        },
+        {
+          "newLines": 3,
+          "newStart": 259,
+          "oldLines": 1,
+          "oldStart": 280
+        },
+        {
+          "newLines": 2,
+          "newStart": 263,
+          "oldLines": 7,
+          "oldStart": 282
+        },
+        {
+          "newLines": 3,
+          "newStart": 266,
+          "oldLines": 6,
+          "oldStart": 290
+        },
+        {
+          "newLines": 3,
+          "newStart": 270,
+          "oldLines": 6,
+          "oldStart": 297
+        },
+        {
+          "newLines": 4,
+          "newStart": 274,
+          "oldLines": 3,
+          "oldStart": 304
+        },
+        {
+          "newLines": 3,
+          "newStart": 279,
+          "oldLines": 3,
+          "oldStart": 308
+        },
+        {
+          "newLines": 3,
+          "newStart": 284,
+          "oldLines": 7,
+          "oldStart": 313
+        }
+      ],
+      "path": "src/semantics/diff/engine.test.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "f74ac5df491938d934b85178a306da8f55d044d9",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 195,
+    "deletions": 66,
+    "filesChanged": 6
+  }
+}
