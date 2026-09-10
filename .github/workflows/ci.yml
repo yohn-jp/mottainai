@@ -829,7 +829,12 @@ jobs:
           set -euo pipefail
           source_disk="$MOTTAINAI_PRODUCTION_BOOTSTRAP_DISK"
           source_private_key="$MOTTAINAI_PRODUCTION_BOOTSTRAP_PRIVATE_KEY"
-          handoff_directory="$RUNNER_TEMP/runtime-appliance-production-bootstrap-handoff"
+          # RUNNER_TEMP is intentionally private to the runner user, including
+          # its parent directory. A nix-daemon build user cannot traverse it
+          # even when the handoff directory itself is group-readable. Use a
+          # fresh, private directory directly under /tmp so only this exact
+          # handoff is traversable by the nixbld group.
+          handoff_directory="$(mktemp -d /tmp/mottainai-runtime-appliance-production-bootstrap.XXXXXX)"
           handoff_disk="$handoff_directory/mottainai-production-bootstrap.raw"
           handoff_private_key="$handoff_directory/user"
           runner_uid="$(id -u)"
