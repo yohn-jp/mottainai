@@ -89,7 +89,10 @@ export function packCanonicalPayload(repoRoot, destinationDir) {
     stdio: ["ignore", "pipe", "pipe"],
     shell: false,
   });
-  const [info] = JSON.parse(stdout);
+  // npm 10 returns an array here; npm 11/12 returns a package-name keyed
+  // object. Both are the same npm pack metadata authority.
+  const parsed = JSON.parse(stdout);
+  const info = Array.isArray(parsed) ? parsed[0] : Object.values(parsed ?? {})[0];
   if (!info?.filename || !Array.isArray(info.files)) throw new Error("npm pack did not return package metadata");
 
   const tarballPath = path.resolve(destinationDir, info.filename);

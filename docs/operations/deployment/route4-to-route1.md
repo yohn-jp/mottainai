@@ -515,7 +515,7 @@ Malformed/unsupported health contract, inaccessible command, incompatible Runtim
 
 ## R3-09 — Project desired managed generation from the selected release
 
-**Status: Partial — #850**
+**Status: Implemented — #850**
 
 **Owner**
 
@@ -527,7 +527,9 @@ Standalone descriptor consumer projects release intent; guest managed-runtime au
 - selected expected `managedGenerationIdentity`;
 - canonical Route 1 payload locator/identity needed to reproduce the release-bound Mottainai package realization.
 
-Current Rust projection supplies the manifest + expected generation identity but drops Route 1 entirely. #850 closes this live consumer gap.
+The Rust projection supplies the manifest, expected generation identity, and
+descriptor-bound Route 1 payload identity. The guest resolver verifies the
+same payload bytes before the canonical Nix payload-consuming package boundary.
 
 ## R3-10 — Deliver desired state and invoke guest reconciliation
 
@@ -565,7 +567,7 @@ Unsupported package/kind/flakeRef, source integrity mismatch, unavailable releas
 
 ## R1-01 — Obtain the exact canonical Route 1 payload
 
-**Status: Target in live guest path — #850**
+**Status: Implemented — #850; trusted-main certification in #904**
 
 **Release behavior already implemented**
 
@@ -581,7 +583,7 @@ The guest build currently resolves ordinary `packages.<system>.mottainai`, which
 
 ## R2-02 — Build the complete managed generation closure
 
-**Status: Partial — #850 for the Mottainai application artifact handoff**
+**Status: Implemented — #850; trusted-main closure proof in #904**
 
 **Owner**
 
@@ -658,7 +660,7 @@ Non-idle/interrupted activation state is explicit durable state; observed state 
 
 ## R3-12 — Verify exact active managed generation
 
-**Status: Implemented once preceding gaps are closed**
+**Status: Implemented — trusted-main production proof in #904**
 
 **Action**
 
@@ -676,7 +678,7 @@ A healthy *different* generation does not satisfy the selected release.
 
 ## R1-02 — Prove active package payload identity
 
-**Status: Target — #850**
+**Status: Implemented — #850; trusted-main evidence in #904**
 
 Final convergence evidence must prove that the active Mottainai package is bound to the exact canonical Route 1 payload SHA from the selected descriptor, not only to the same package version or source tree.
 
@@ -698,7 +700,7 @@ Run the packaged `mottainai-mcp` from the active generation over stdio and compl
 
 ## E2E-01 — Emit complete bounded evidence
 
-**Status: Partial until all linked defects close**
+**Status: Implemented for the Route 3 → Route 2 → Route 1 boundary — #904**
 
 Final evidence must connect the selected release to the observed active state and include, at minimum:
 
@@ -716,6 +718,15 @@ Final evidence must connect the selected release to the observed active state an
 - CLI/MCP functional readiness results.
 
 Diagnostics are bounded and must preserve actionable provider failures. #845 covers the current timeout-loss defect.
+
+The trusted-main provider-independent certificate is emitted by the
+`runtime-appliance` job as two machine-readable artifacts:
+`runtime-certification-input.json` (descriptor-bound Route 1/2/3 identities)
+and `runtime-certification-evidence.json` (active store paths, exact CLI/MCP
+entrypoints, `managedRuntimeReady`, real Nix GC, NoOp, reboot, and rollback
+observations). It is intentionally produced before and independently of the
+separate Lima provider composition step. `bootstrapReady=true` alone never
+creates this certificate.
 
 ## E2E-02 — Unchanged re-run/no-op
 

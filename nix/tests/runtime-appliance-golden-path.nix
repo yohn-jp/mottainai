@@ -24,6 +24,9 @@ let
   # ../fixtures/<name> relative resolution keeps working there.
   fixturesDir = ./fixtures;
   fixtureLibDir = ./lib;
+  productionDescriptor = builtins.getEnv "MOTTAINAI_PRODUCTION_DESCRIPTOR";
+  productionPayload = builtins.getEnv "MOTTAINAI_PRODUCTION_PAYLOAD";
+  productionSourceArchive = builtins.getEnv "MOTTAINAI_PRODUCTION_SOURCE_ARCHIVE";
 in
 (pkgs.testers.nixosTest {
   name = "mottainai-runtime-appliance-golden-path";
@@ -88,6 +91,9 @@ in
     appliance_inputs_path = ${builtins.toJSON applianceInputsPath}
     fixtures_host_dir = ${builtins.toJSON fixturesDir}
     fixture_lib_host_dir = ${builtins.toJSON fixtureLibDir}
+    production_descriptor_host_path = ${builtins.toJSON productionDescriptor}
+    production_payload_host_path = ${builtins.toJSON productionPayload}
+    production_source_archive_host_path = ${builtins.toJSON productionSourceArchive}
     guest_fixture_root = "/var/lib/mottainai-control/issue-703-fixtures"
     production_bootstrap_disk = ${builtins.toJSON productionBootstrapDisk}
     production_bootstrap_private_key = ${builtins.toJSON productionBootstrapPrivateKey}
@@ -101,6 +107,7 @@ in
     ssh_keygen = "${pkgs.openssh}/bin/ssh-keygen"
 
     manifest_path = "/var/lib/mottainai-control/managed-packages/manifest.json"
+    managed_gc_roots = "/nix/var/nix/gcroots/mottainai-managed-runtime"
     persistent_sentinel = "/var/lib/mottainai-control/unmanaged/UNMANAGED_MARKER"
     ephemeral_sentinel = "/tmp/issue-630-ephemeral-sentinel"
 
@@ -292,6 +299,19 @@ in
         )
         control(command)
 
+    def write_production_identity():
+        if not production_mode:
+            return
+        payload_text = json.dumps(production_payload_identity, sort_keys=True, separators=(",", ":"))
+        command = (
+            "install -m 0600 /dev/null /var/lib/mottainai-control/managed-packages/route1-payload.json"
+            " && printf '%s' " + shlex.quote(payload_text) +
+            " > /var/lib/mottainai-control/managed-packages/route1-payload.json"
+            " && printf '%s\\n' " + shlex.quote(production_expected_generation) +
+            " > /var/lib/mottainai-control/managed-packages/generation-identity"
+        )
+        control(command)
+
     # Issue #703: the golden path must reconcile fixture versions through
     # the same real production seam production `reconcile` itself is built
     # from (reconcileAdapters/reconcileManagedRuntime), never through a
@@ -304,11 +324,48 @@ in
     # subcommand directly. Every other adapter (build, health check, state
     # machine) stays the packaged CLI's real, unmodified implementation.
     driver_state = {}
+    production_mode = bool(production_descriptor_host_path)
+    if production_mode:
+        assert production_payload_host_path and production_source_archive_host_path, (
+            "production certification requires descriptor, payload, and source archive"
+        )
+        with open(production_descriptor_host_path, "r", encoding="utf-8") as handle:
+            production_descriptor = json.load(handle)
+        production_route2 = production_descriptor["route2"]["managedGeneration"]
+        production_manifest = {
+            "contractId": "mottainai.managed-package-manifest.v1",
+            "schemaVersion": 1,
+            "activation": {"generation": 1},
+            "packages": [
+                {
+                    "packageId": entry["packageId"],
+                    "kind": "nix-flake-package",
+                    "version": entry["version"],
+                    "source": {
+                        "flakeRef": entry["flakeRef"],
+                        "sourceSha256": entry["sourceSha256"],
+                    },
+                }
+                for entry in production_route2["packages"]
+            ],
+        }
+        production_mottainai = next(
+            entry for entry in production_manifest["packages"] if entry["packageId"] == "mottainai"
+        )
+        production_expected_generation = production_route2["identity"]
+        production_payload_identity = production_descriptor["route1"]["payload"]
 
     def setup_reconcile_driver():
         control("install -d -m 0700 " + shlex.quote(guest_fixture_root))
-        scp_to_guest(fixtures_host_dir, guest_fixture_root + "/fixtures")
-        scp_to_guest(fixture_lib_host_dir, guest_fixture_root + "/lib")
+        if production_mode:
+            production_root = guest_fixture_root + "/production"
+            control("install -d -m 0700 " + shlex.quote(production_root))
+            scp_to_guest(production_descriptor_host_path, production_root + "/descriptor.json")
+            scp_to_guest(production_payload_host_path, production_root + "/payload.tgz")
+            scp_to_guest(production_source_archive_host_path, production_root + "/source.tar.gz")
+        else:
+            scp_to_guest(fixtures_host_dir, guest_fixture_root + "/fixtures")
+            scp_to_guest(fixture_lib_host_dir, guest_fixture_root + "/lib")
 
         wrapper_path = control("command -v mottainai-bootstrap").strip()
         wrapper_contents = control("cat " + shlex.quote(wrapper_path))
@@ -321,34 +378,74 @@ in
         node_bin = node_bin_match.group(0)
 
         driver_path = guest_fixture_root + "/reconcile-driver.mjs"
-        driver_source = "\n".join([
-            "import { reconcileAdapters } from " + json.dumps(package_root + "/bootstrap/cli.js") + ";",
-            "import { reconcileManagedRuntime } from " + json.dumps(package_root + "/runtime-contract/managed-runtime.js") + ";",
-            "import { narHashOfTree } from " + json.dumps(package_root + "/bootstrap/source-resolution.js") + ";",
-            "import { resolveManagedMottainaiFixtureSource } from " + json.dumps(guest_fixture_root + "/lib/managed-mottainai-fixture-resolver.mjs") + ";",
-            "",
-            "const [system] = process.argv.slice(2);",
-            "const repoRoot = " + json.dumps(package_root + "/nix-projection") + ";",
-            "const env = { ...process.env, CI: \"true\" };",
-            "",
-            "try {",
-            "  const result = await reconcileManagedRuntime({",
-            "    dependencies: reconcileAdapters({",
-            "      system,",
-            "      repoRoot,",
-            "      env,",
-            "      overrides: { resolveSource: (options) => resolveManagedMottainaiFixtureSource({ ...options, narHashOfTree }) },",
-            "    }),",
-            "  });",
-            "  process.stdout.write(JSON.stringify(result));",
-            "  process.exitCode = 0;",
-            "} catch (error) {",
-            "  const code = error && typeof error === \"object\" && \"code\" in error ? error.code : \"reconcile_driver_failure\";",
-            "  process.stdout.write(JSON.stringify({ code: code, message: error instanceof Error ? error.message : String(error) }));",
-            "  process.exitCode = 1;",
-            "}",
-            "",
-        ])
+        if production_mode:
+            driver_source = "\n".join([
+                "import fs from \"node:fs\";",
+                "import { reconcileAdapters } from " + json.dumps(package_root + "/bootstrap/cli.js") + ";",
+                "import { resolveCanonicalPayload, resolveMottainaiSource } from " + json.dumps(package_root + "/bootstrap/source-resolution.js") + ";",
+                "import { reconcileManagedRuntime } from " + json.dumps(package_root + "/runtime-contract/managed-runtime.js") + ";",
+                "import { readDeploymentDescriptor } from " + json.dumps(package_root + "/runtime-contract/deployment-descriptor.js") + ";",
+                "import { managedManifestFromDeploymentDescriptor } from " + json.dumps(package_root + "/runtime-contract/deployment-artifact-roundtrip.js") + ";",
+                "",
+                "const [system] = process.argv.slice(2);",
+                "const root = " + json.dumps(guest_fixture_root + "/production") + ";",
+                "const descriptor = readDeploymentDescriptor(root + \"/descriptor.json\");",
+                "const payload = root + \"/payload.tgz\";",
+                "const sourceArchive = root + \"/source.tar.gz\";",
+                "const streamFile = (file) => new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(fs.readFileSync(file))); controller.close(); } });",
+                "const env = { ...process.env, CI: \"true\" };",
+                "const fetcher = async (url) => { if (url === descriptor.route1.payload.locator) return streamFile(payload); throw new Error(\"unexpected Route 1 locator: \" + url); };",
+                "const sourceFetcher = async (url) => { if (url.endsWith(\"/v\" + descriptor.route1.payload.version + \".tar.gz\")) return streamFile(sourceArchive); throw new Error(\"unexpected source locator: \" + url); };",
+                "try {",
+                "  const result = await reconcileManagedRuntime({",
+                "    dependencies: reconcileAdapters({",
+                "      system,",
+                "      repoRoot: " + json.dumps(package_root + "/nix-projection") + ",",
+                "      env,",
+                "      overrides: {",
+                "        resolvePayload: (options) => resolveCanonicalPayload({ ...options, fetcher }),",
+                "        resolveSource: (options) => resolveMottainaiSource({ ...options, fetcher: sourceFetcher }),",
+                "      },",
+                "    }),",
+                "  });",
+                "  process.stdout.write(JSON.stringify(result));",
+                "  process.exitCode = 0;",
+                "} catch (error) {",
+                "  const code = error && typeof error === \"object\" && \"code\" in error ? error.code : \"reconcile_driver_failure\";",
+                "  process.stdout.write(JSON.stringify({ code: code, message: error instanceof Error ? error.message : String(error) }));",
+                "  process.exitCode = 1;",
+                "}",
+                "",
+            ])
+        else:
+            driver_source = "\n".join([
+                "import { reconcileAdapters } from " + json.dumps(package_root + "/bootstrap/cli.js") + ";",
+                "import { reconcileManagedRuntime } from " + json.dumps(package_root + "/runtime-contract/managed-runtime.js") + ";",
+                "import { narHashOfTree } from " + json.dumps(package_root + "/bootstrap/source-resolution.js") + ";",
+                "import { resolveManagedMottainaiFixtureSource } from " + json.dumps(guest_fixture_root + "/lib/managed-mottainai-fixture-resolver.mjs") + ";",
+                "",
+                "const [system] = process.argv.slice(2);",
+                "const repoRoot = " + json.dumps(package_root + "/nix-projection") + ";",
+                "const env = { ...process.env, CI: \"true\" };",
+                "",
+                "try {",
+                "  const result = await reconcileManagedRuntime({",
+                "    dependencies: reconcileAdapters({",
+                "      system,",
+                "      repoRoot,",
+                "      env,",
+                "      overrides: { resolveSource: (options) => resolveManagedMottainaiFixtureSource({ ...options, narHashOfTree }) },",
+                "    }),",
+                "  });",
+                "  process.stdout.write(JSON.stringify(result));",
+                "  process.exitCode = 0;",
+                "} catch (error) {",
+                "  const code = error && typeof error === \"object\" && \"code\" in error ? error.code : \"reconcile_driver_failure\";",
+                "  process.stdout.write(JSON.stringify({ code: code, message: error instanceof Error ? error.message : String(error) }));",
+                "  process.exitCode = 1;",
+                "}",
+                "",
+            ])
         install_command = (
             "install -m 0600 /dev/null " + shlex.quote(driver_path) +
             " && printf '%s' " + shlex.quote(driver_source) +
@@ -372,6 +469,21 @@ in
     def runtime_health():
         return guest_json("mottainai-runtime-health")
 
+    def assert_gc_root(slot, expected_store_path):
+        root = managed_gc_roots + "/" + slot
+        observed = control("test -L " + shlex.quote(root) + " && test -e " + shlex.quote(root) +
+                           " && readlink -f " + shlex.quote(root)).strip()
+        assert observed == expected_store_path, (
+            "managed GC root " + slot + " does not retain the expected target: " + observed
+        )
+
+    def collect_garbage():
+        # This is the real Nix collector, executed through the appliance's
+        # mottainai-control SSH identity. The module grants that identity
+        # write access only to managed_gc_roots; no global GC disable or root
+        # shell is involved.
+        control("nix-store --gc >/dev/null", 900)
+
     def assert_managed_ready(health, status, expected_desired, expected_active):
         assert health["readiness"] == "managed-runtime-ready"
         assert health["managedRuntimeReady"] is True
@@ -390,9 +502,11 @@ in
     with subtest("fresh canonical appliance is bootstrap-ready and has no managed packages"):
         wait_for_bootstrap_ready()
         setup_reconcile_driver()
-        guest_failure("command -v mottainai")
-        guest_failure("command -v nawabari")
-        guest_failure("command -v zellij")
+        write_production_identity()
+        if not production_mode:
+            guest_failure("command -v mottainai")
+            guest_failure("command -v nawabari")
+            guest_failure("command -v zellij")
         # Keep closure evidence bounded: report only a forbidden match, never
         # the complete closure or a full build log.
         forbidden = r"/nix/store/[a-z0-9]+-(mottainai|nawabari|zellij)-[0-9]"
@@ -411,14 +525,27 @@ in
         assert health["bootstrapReady"] is True
         assert health["managedRuntimeReady"] is False
 
-    manifest_v1 = managed_manifest(
-        "${mottainaiVersionV1}", "${mottainaiSourceSha256V1}", 1
-    )
-    manifest_v2 = managed_manifest(
-        "${mottainaiVersionV2}", "${mottainaiSourceSha256V2}", 2
-    )
+    if production_mode:
+        manifest_v1 = production_manifest
+        manifest_v2 = production_manifest
+        expected_version_v1 = production_mottainai["version"]
+        expected_version_v2 = expected_version_v1
+        expected_source_v1 = production_mottainai["source"]["sourceSha256"]
+        expected_source_v2 = expected_source_v1
+    else:
+        manifest_v1 = managed_manifest(
+            "${mottainaiVersionV1}", "${mottainaiSourceSha256V1}", 1
+        )
+        manifest_v2 = managed_manifest(
+            "${mottainaiVersionV2}", "${mottainaiSourceSha256V2}", 2
+        )
+        expected_version_v1 = "${mottainaiVersionV1}"
+        expected_version_v2 = "${mottainaiVersionV2}"
+        expected_source_v1 = "${mottainaiSourceSha256V1}"
+        expected_source_v2 = "${mottainaiSourceSha256V2}"
     assert manifest_v1["packages"][0]["packageId"] == "mottainai"
     assert manifest_v2["packages"][0]["packageId"] == "mottainai"
+    production_recovery_evidence = None
 
     with subtest("canonical manifest reconcile activates healthy Mottainai"):
         write_manifest(manifest_v1)
@@ -430,29 +557,85 @@ in
         store_v1 = reconcile_v1["active"]["storePath"]
         assert reconcile_v1["active"]["packageIds"] == ["mottainai"]
         assert reconcile_v1["active"]["desiredManifestSemanticIdentity"] == desired_v1
-        assert guest(shlex.quote(store_v1) + "/bin/mottainai --version").strip() == "${mottainaiVersionV1}"
+        assert guest(shlex.quote(store_v1) + "/bin/mottainai --version").strip() == expected_version_v1
+        if production_mode:
+            mcp_path = store_v1 + "/bin/mottainai-mcp"
+            control("test -x " + shlex.quote(mcp_path))
+            mcp_request = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"mottainai-route3-certification","version":"1"}}}'
+            mcp_response = guest(
+                "printf '%s\\n' " + shlex.quote(mcp_request) +
+                " | /run/current-system/sw/bin/timeout 30 " + shlex.quote(mcp_path) +
+                " 2>/dev/null | /run/current-system/sw/bin/head -n 1"
+            ).strip()
+            assert '"result"' in mcp_response, "MCP initialize did not return a result"
+            second_reconcile = reconcile()
+            assert second_reconcile["outcome"] == "noop"
         status_v1 = managed_status()
         health_v1 = runtime_health()
         assert_managed_ready(health_v1, status_v1, desired_v1, active_v1)
         assert health_v1["buildIdentity"] == base_appliance_identity
 
-    with subtest("only Mottainai version changes and activates a new managed generation"):
-        write_manifest(manifest_v2)
-        reconcile_v2 = reconcile()
-        assert reconcile_v2["ok"] is True
-        assert reconcile_v2["outcome"] == "updated"
-        desired_v2 = reconcile_v2["desiredManifestSemanticIdentity"]
-        active_v2 = reconcile_v2["active"]["generationIdentity"]
-        store_v2 = reconcile_v2["active"]["storePath"]
-        assert desired_v2 != desired_v1
-        assert active_v2 != active_v1
-        assert store_v2 != store_v1
-        assert reconcile_v2["active"]["packageIds"] == ["mottainai"]
-        assert guest(shlex.quote(store_v2) + "/bin/mottainai --version").strip() == "${mottainaiVersionV2}"
-        status_v2 = managed_status()
-        health_v2 = runtime_health()
-        assert_managed_ready(health_v2, status_v2, desired_v2, active_v2)
-        assert health_v2["buildIdentity"] == base_appliance_identity
+        with subtest("generation A remains executable after a real Nix GC"):
+            assert_gc_root("active", store_v1)
+            control("test -x " + shlex.quote(store_v1 + "/bin/mottainai"))
+            collect_garbage()
+            control("test -x " + shlex.quote(store_v1 + "/bin/mottainai"))
+            assert_gc_root("active", store_v1)
+            status_after_gc_v1 = managed_status()
+            health_after_gc_v1 = runtime_health()
+            assert_managed_ready(health_after_gc_v1, status_after_gc_v1, desired_v1, active_v1)
+
+    if production_mode:
+        # The descriptor pins one exact managed-generation identity.  A
+        # second ensure must therefore be a NoOp; update/retention/rollback
+        # transitions remain covered below against this same production
+        # generation, while the fixture branch exercises a second payload.
+        desired_v2 = desired_v1
+        active_v2 = active_v1
+        store_v2 = store_v1
+        status_v2 = status_v1
+        health_v2 = health_v1
+        assert production_expected_generation == active_v1
+    else:
+        with subtest("only Mottainai version changes and activates a new managed generation"):
+            write_manifest(manifest_v2)
+            reconcile_v2 = reconcile()
+            assert reconcile_v2["ok"] is True
+            assert reconcile_v2["outcome"] == "updated"
+            desired_v2 = reconcile_v2["desiredManifestSemanticIdentity"]
+            active_v2 = reconcile_v2["active"]["generationIdentity"]
+            store_v2 = reconcile_v2["active"]["storePath"]
+            assert desired_v2 != desired_v1
+            assert active_v2 != active_v1
+            assert store_v2 != store_v1
+            assert reconcile_v2["active"]["packageIds"] == ["mottainai"]
+            assert guest(shlex.quote(store_v2) + "/bin/mottainai --version").strip() == expected_version_v2
+            status_v2 = managed_status()
+            health_v2 = runtime_health()
+            assert_managed_ready(health_v2, status_v2, desired_v2, active_v2)
+            assert health_v2["buildIdentity"] == base_appliance_identity
+
+            with subtest("active and previous generations survive a real Nix GC"):
+                assert_gc_root("active", store_v2)
+                assert_gc_root("previous", store_v1)
+                collect_garbage()
+                control("test -x " + shlex.quote(store_v1 + "/bin/mottainai"))
+                control("test -x " + shlex.quote(store_v2 + "/bin/mottainai"))
+                assert_gc_root("active", store_v2)
+                assert_gc_root("previous", store_v1)
+                status_after_gc_v2 = managed_status()
+                health_after_gc_v2 = runtime_health()
+                assert_managed_ready(health_after_gc_v2, status_after_gc_v2, desired_v2, active_v2)
+
+            with subtest("missing retained root fails closed and reconcile restores it"):
+                control("rm -f " + shlex.quote(managed_gc_roots + "/previous"))
+                missing_root_status = managed_status()
+                assert missing_root_status["valid"] is False
+                missing_root_health = runtime_health()
+                assert missing_root_health["managedRuntimeReady"] is False
+                restored = reconcile()
+                assert restored["outcome"] == "noop"
+                assert_gc_root("previous", store_v1)
 
     with subtest("persistent-unmanaged and ephemeral sentinel semantics are recorded"):
         control("install -d -m 0755 " + shlex.quote(os.path.dirname(persistent_sentinel)))
@@ -467,7 +650,7 @@ in
         status_after_reboot = managed_status()
         health_after_reboot = runtime_health()
         assert_managed_ready(health_after_reboot, status_after_reboot, desired_v2, active_v2)
-        assert guest(shlex.quote(store_v2) + "/bin/mottainai --version").strip() == "${mottainaiVersionV2}"
+        assert guest(shlex.quote(store_v2) + "/bin/mottainai --version").strip() == expected_version_v2
         reconcile_after_reboot = reconcile()
         assert reconcile_after_reboot["outcome"] == "noop"
         assert reconcile_after_reboot["active"]["generationIdentity"] == active_v2
@@ -503,9 +686,32 @@ in
         assert rollback_health["managedRuntimeReady"] is True
         assert rollback_health["reconciliation"] == "repairable"
         assert control("readlink -f /var/lib/mottainai-control/managed-runtime/current").strip() == store_v2
-        assert guest(shlex.quote(store_v2) + "/bin/mottainai --version").strip() == "${mottainaiVersionV2}"
+        assert guest(shlex.quote(store_v2) + "/bin/mottainai --version").strip() == expected_version_v2
         assert control("grep -x persistent-unmanaged-sentinel " + shlex.quote(persistent_sentinel))
         assert control("readlink -f /run/current-system").strip() == base_appliance_identity
+
+        if production_mode:
+            # The descriptor pins the healthy release-bound generation. The
+            # deliberately unhealthy manifest above is an update attempt, not
+            # a second release payload; production recovery must restore the
+            # exact descriptor-bound manifest and active identity.
+            write_manifest(manifest_v1)
+            recovery_result = reconcile()
+            assert recovery_result["ok"] is True
+            assert recovery_result["active"]["generationIdentity"] == active_v1
+            recovery_status = managed_status()
+            recovery_health = runtime_health()
+            assert_managed_ready(recovery_health, recovery_status, desired_v1, active_v1)
+            production_recovery_evidence = {
+                "unhealthyNextGenerationAttempted": True,
+                "failureCode": failure_result["code"],
+                "rollbackCompleted": rollback_status["activeGenerationIdentity"] == active_v1,
+                "rollbackManagedRuntimeReady": rollback_health["managedRuntimeReady"],
+                "manifestRestored": True,
+                "recoveryOutcome": recovery_result["outcome"],
+                "recoveryActiveGenerationIdentity": recovery_status["activeGenerationIdentity"],
+                "recoveryManagedRuntimeReady": recovery_health["managedRuntimeReady"],
+            }
 
     final_disk_sha256 = run_host(["sha256sum", canonical_disk]).split()[0]
     assert final_disk_sha256 == canonical_disk_sha256
@@ -530,6 +736,38 @@ in
             "runtimeIdentity": health_after_reboot["runtimeIdentity"],
             "buildIdentity": base_appliance_identity,
         },
+        "productionCertification": None if not production_mode else {
+            "descriptor": {
+                "route1Payload": production_payload_identity,
+                "route2ManagedGenerationIdentity": production_expected_generation,
+                "route3Appliance": production_descriptor["route3"]["appliance"],
+            },
+            "route3ApplianceVerified": True,
+            "route1PayloadVerified": True,
+            "activeGenerationIdentity": active_v1,
+            "activeExecutables": {
+                "mottainai": store_v1 + "/bin/mottainai",
+                "mottainaiMcp": store_v1 + "/bin/mottainai-mcp",
+            },
+            "managedRuntimeReady": health_after_reboot["managedRuntimeReady"],
+            "cliSmoke": True,
+            "mcpInitializeSmoke": True,
+            "secondEnsure": "noop",
+            "garbageCollection": {
+                "activeGenerationExecutableAfterGc": True,
+                "activeGenerationIdentity": active_v1,
+                "previousGenerationChecks": {
+                    "executed": False,
+                    "reason": "descriptor-bound production activation has no previous generation",
+                },
+            },
+            "rebootIdentityPersistence": {
+                "verified": True,
+                "activeGenerationIdentity": active_v1,
+                "managedRuntimeReady": health_after_reboot["managedRuntimeReady"],
+            },
+            "rollbackRecovery": production_recovery_evidence,
+        },
         "bootstrap": {
             "contractId": "mottainai.bootstrap-state.v1",
             "schemaVersion": 1,
@@ -541,7 +779,7 @@ in
                 "storePath": store_v1,
                 "packageIds": ["mottainai"],
                 "packages": {
-                    "mottainai": {"version": "${mottainaiVersionV1}", "sourceSha256": "${mottainaiSourceSha256V1}"},
+                    "mottainai": {"version": expected_version_v1, "sourceSha256": expected_source_v1},
                 },
             },
             "v2": {
@@ -550,9 +788,25 @@ in
                 "storePath": store_v2,
                 "packageIds": ["mottainai"],
                 "packages": {
-                    "mottainai": {"version": "${mottainaiVersionV2}", "sourceSha256": "${mottainaiSourceSha256V2}"},
+                    "mottainai": {"version": expected_version_v2, "sourceSha256": expected_source_v2},
                 },
             },
+            "garbageCollection": (
+                {
+                    "generationAExecutableAfterGc": True,
+                    "activeGenerationExecutableAfterGc": True,
+                    "previousGenerationChecks": {
+                        "executed": False,
+                        "reason": "descriptor-bound production activation has no previous generation",
+                    },
+                }
+                if production_mode
+                else {
+                    "generationAExecutableAfterGc": True,
+                    "activeAndPreviousExecutableAfterGc": True,
+                    "missingPreviousRootFailsClosed": True,
+                }
+            ),
             "rollback": {
                 "activeGenerationIdentity": rollback_status["activeGenerationIdentity"],
                 "desiredGenerationIdentity": rollback_status["desiredManifestSemanticIdentity"],

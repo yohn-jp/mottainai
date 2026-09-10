@@ -359,6 +359,7 @@ jobs:
               - 'scripts/build-runtime-appliance-manifest.mjs'
               - 'scripts/build-runtime-appliance-oci-fixture.mjs'
               - 'scripts/create-runtime-appliance-certificate.mjs'
+              - 'scripts/create-trusted-main-runtime-certification-input.mjs'
               - 'scripts/lib/runtime-appliance-certificate.mjs'
               - 'scripts/runtime-appliance-certificate.test.mjs'
               - 'scripts/verify-runtime-appliance-certificate.mjs'
@@ -459,6 +460,7 @@ jobs:
               - 'pnpm-lock.yaml'
               - '.github/workflows/ci.yml'
             governance:
+              - '.github/agent-governance/**'
               - '.github/inari/**'
               - '.github/workflows/governance.yml'
               - '.github/workflows/issue-governance.yml'
@@ -829,7 +831,12 @@ jobs:
           set -euo pipefail
           source_disk="$MOTTAINAI_PRODUCTION_BOOTSTRAP_DISK"
           source_private_key="$MOTTAINAI_PRODUCTION_BOOTSTRAP_PRIVATE_KEY"
-          handoff_directory="$RUNNER_TEMP/runtime-appliance-production-bootstrap-handoff"
+          # RUNNER_TEMP is intentionally private to the runner user, including
+          # its parent directory. A nix-daemon build user cannot traverse it
+          # even when the handoff directory itself is group-readable. Use a
+          # fresh, private directory directly under /tmp so only this exact
+          # handoff is traversable by the nixbld group.
+          handoff_directory="$(mktemp -d /tmp/mottainai-runtime-appliance-production-bootstrap.XXXXXX)"
           handoff_disk="$handoff_directory/mottainai-production-bootstrap.raw"
           handoff_private_key="$handoff_directory/user"
           runner_uid="$(id -u)"
@@ -883,6 +890,86 @@ jobs:
           test -s "$state_directory/qemu.json"
           echo "MOTTAINAI_PRODUCTION_LIMA_STATE_DIRECTORY=$state_directory" >> "$GITHUB_ENV"
 
+      # Issue #904: assemble one descriptor-bound Route 1/2/3 handoff for the
+      # provider-independent certification below. The payload is the exact
+      # canonical npm pack output from this revision; no managed-generation
+      # fixture or version-only substitution is accepted.
+      - name: Prepare descriptor-bound production Runtime certification inputs (Issue #904)
+        if: github.event_name != 'pull_request'
+        env:
+          SOURCE_REVISION: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm run build
+          payload_directory="$RUNNER_TEMP/runtime-certification-payload"
+          mkdir -p "$payload_directory"
+          node scripts/pack-canonical-payload.mjs --output-dir "$payload_directory" >/dev/null
+          payload="$(find "$payload_directory" -maxdepth 1 -type f -name 'mottainai-*.tgz' -print -quit)"
+          identity="$payload.identity.json"
+          node scripts/verify-canonical-payload.mjs --tarball "$payload" --identity "$identity"
+          version="$(node -p "require('./package.json').version")"
+          source_archive="$payload_directory/mottainai-$version-source.tar.gz"
+          git archive --format=tar.gz --prefix="mottainai-$version/" --output="$source_archive" HEAD
+          node --import tsx scripts/create-trusted-main-runtime-certification-input.mjs \
+            --payload "$payload" \
+            --payload-identity "$identity" \
+            --appliance-manifest "$RUNNER_TEMP/runtime-appliance/x86_64-linux/runtime-appliance-manifest.json" \
+            --oci-manifest "$RUNNER_TEMP/runtime-appliance-oci-fixture/oci-manifest.json" \
+            --init "$GITHUB_WORKSPACE/host-bootstrap/target/debug/mottainai-init" \
+            --provider-profile release/deployment-provider-profile-linux-x86_64.json \
+            --flake-lock "$GITHUB_WORKSPACE/nix/flake.lock" \
+            --source-archive "$source_archive" \
+            --source-revision "$SOURCE_REVISION" \
+            --output-directory "$payload_directory"
+
+          # Bind the descriptor's Route 3 identity to the exact canonical
+          # manifest and OCI serialization consumed by the following QEMU
+          # test, before any managed-runtime reconciliation is attempted.
+          appliance_manifest="$RUNNER_TEMP/runtime-appliance/x86_64-linux/runtime-appliance-manifest.json"
+          oci_manifest="$RUNNER_TEMP/runtime-appliance-oci-fixture/oci-manifest.json"
+          raw_sha256="$(jq -er '.image.sha256' "$appliance_manifest")"
+          raw_size_bytes="$(jq -er '.image.sizeBytes' "$appliance_manifest")"
+          appliance_manifest_sha256="$(sha256sum "$appliance_manifest" | cut -d' ' -f1)"
+          oci_digest="sha256:$(sha256sum "$oci_manifest" | cut -d' ' -f1)"
+          jq -e \
+            --arg source_revision "$SOURCE_REVISION" \
+            --arg raw_sha256 "$raw_sha256" \
+            --arg raw_size_bytes "$raw_size_bytes" \
+            --arg manifest_sha256 "$appliance_manifest_sha256" \
+            --arg oci_digest "$oci_digest" \
+            '.release.sourceRevision == $source_revision
+              and .route3.appliance.sourceRevision == $source_revision
+              and .route3.appliance.rawSha256 == $raw_sha256
+              and (.route3.appliance.rawSizeBytes|tostring) == $raw_size_bytes
+              and .route3.appliance.manifestSha256 == $manifest_sha256
+              and .route3.appliance.digest == $oci_digest' \
+            "$payload_directory/mottainai-deployment-v1.json" >/dev/null
+          manifest_layer_digest="$(jq -er '.layers[] | select(.annotations["org.opencontainers.image.title"] == "runtime-appliance-manifest.json") | .digest' "$oci_manifest")"
+          test "$manifest_layer_digest" = "sha256:$appliance_manifest_sha256"
+          test -s "$RUNNER_TEMP/runtime-appliance-oci-fixture/blobs/${manifest_layer_digest#sha256:}"
+
+          # Nix's build user must be able to traverse only this exact input
+          # tree. Keep the source/payload/descriptor handoff separate from
+          # private RUNNER_TEMP; permissions never expose a private key here.
+          handoff_directory="$(mktemp -d /tmp/mottainai-runtime-certification-inputs.XXXXXX)"
+          runner_uid="$(id -u)"
+          sudo install -d -m 0750 -o "$runner_uid" -g nixbld "$handoff_directory"
+          for input in \
+            "$payload" "$identity" "$source_archive" \
+            "$payload_directory/mottainai-deployment-v1.json" \
+            "$payload_directory/mottainai-deployment-v1.json.sha256" \
+            "$payload_directory/runtime-certification-input.json"; do
+            sudo install -m 0640 -o "$runner_uid" -g nixbld "$input" "$handoff_directory/"
+          done
+          for input in "$handoff_directory"/*; do test -r "$input"; done
+          nix_build_user="$(getent passwd nixbld1 | cut -d: -f1)"
+          sudo -u "$nix_build_user" -- test -r "$handoff_directory/mottainai-deployment-v1.json"
+          echo "MOTTAINAI_PRODUCTION_DESCRIPTOR=$handoff_directory/mottainai-deployment-v1.json" >> "$GITHUB_ENV"
+          echo "MOTTAINAI_PRODUCTION_PAYLOAD=$handoff_directory/$(basename "$payload")" >> "$GITHUB_ENV"
+          echo "MOTTAINAI_PRODUCTION_SOURCE_ARCHIVE=$handoff_directory/$(basename "$source_archive")" >> "$GITHUB_ENV"
+          echo "MOTTAINAI_PRODUCTION_CERTIFICATION_INPUT=$handoff_directory/runtime-certification-input.json" >> "$GITHUB_ENV"
+
       - name: Prove mottainai-init resolves/verifies the real canonical Runtime Appliance and run the Runtime Appliance golden path (Issue #630, #661, #768)
         if: github.event_name != 'pull_request'
         env:
@@ -897,13 +984,16 @@ jobs:
             set -euo pipefail
             sudo git config --global --add safe.directory "$GITHUB_WORKSPACE"
             cd nix
-            # The guest intentionally exercises the production HTTPS source
-            # resolver, so this one derivation runs outside the default Nix
-            # sandbox; every other Runtime build in this workflow stays
-            # sandboxed.
+            # The guest executes the production source/payload verification
+            # and nested managed-generation build against the exact handoff
+            # bytes, so this derivation runs outside the default Nix sandbox;
+            # every other Runtime build in this workflow stays sandboxed.
             sudo env \
               MOTTAINAI_PRODUCTION_BOOTSTRAP_DISK="$MOTTAINAI_PRODUCTION_BOOTSTRAP_DISK" \
               MOTTAINAI_PRODUCTION_BOOTSTRAP_PRIVATE_KEY="$MOTTAINAI_PRODUCTION_BOOTSTRAP_PRIVATE_KEY" \
+              MOTTAINAI_PRODUCTION_DESCRIPTOR="$MOTTAINAI_PRODUCTION_DESCRIPTOR" \
+              MOTTAINAI_PRODUCTION_PAYLOAD="$MOTTAINAI_PRODUCTION_PAYLOAD" \
+              MOTTAINAI_PRODUCTION_SOURCE_ARCHIVE="$MOTTAINAI_PRODUCTION_SOURCE_ARCHIVE" \
               "$(command -v nix)" build --impure --option sandbox relaxed --no-update-lock-file --no-link .#checks.x86_64-linux.runtime-appliance-golden-path
           ) >"$golden_log" 2>&1 &
           golden_pid=$!
@@ -920,6 +1010,39 @@ jobs:
           cat "$golden_log"
           test "$real_status" -eq 0
           test "$golden_status" -eq 0
+
+          # Preserve the bounded machine-readable Route 3 -> Route 2 ->
+          # Route 1 evidence independently of the provider (Lima) proof.
+          evidence="$RUNNER_TEMP/runtime-certification-evidence.json"
+          grep -F 'ISSUE_630_GOLDEN_PATH_EVIDENCE ' "$golden_log" | tail -n 1 | sed 's/^.*ISSUE_630_GOLDEN_PATH_EVIDENCE //' > "$evidence"
+          jq -e '
+            .productionCertification != null and
+            .productionCertification.managedRuntimeReady == true and
+            .productionCertification.secondEnsure == "noop" and
+            .productionCertification.garbageCollection.activeGenerationExecutableAfterGc == true and
+            .productionCertification.rebootIdentityPersistence.verified == true and
+            .productionCertification.rollbackRecovery.unhealthyNextGenerationAttempted == true and
+            .productionCertification.rollbackRecovery.failureCode == "health_failure" and
+            .productionCertification.rollbackRecovery.rollbackCompleted == true and
+            .productionCertification.rollbackRecovery.rollbackManagedRuntimeReady == true and
+            .productionCertification.rollbackRecovery.manifestRestored == true and
+            .productionCertification.rollbackRecovery.recoveryManagedRuntimeReady == true and
+            .productionCertification.rollbackRecovery.recoveryActiveGenerationIdentity == .productionCertification.activeGenerationIdentity
+          ' "$evidence" >/dev/null
+          cp -- "$MOTTAINAI_PRODUCTION_CERTIFICATION_INPUT" "$RUNNER_TEMP/runtime-certification-input.json"
+          jq -e '.contractId == "mottainai.runtime-certification-input.v1" and .route1Payload.sha256 and .route2.generationIdentity and .route3.applianceDigest' "$RUNNER_TEMP/runtime-certification-input.json" >/dev/null
+          echo "RUNTIME_CERTIFICATION_EVIDENCE=$evidence" >> "$GITHUB_ENV"
+
+      - name: Upload provider-independent Runtime certification evidence (Issue #904)
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mottainai-runtime-certification-x86_64-linux
+          path: |
+            ${{ runner.temp }}/runtime-certification-evidence.json
+            ${{ runner.temp }}/runtime-certification-input.json
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Exercise production Lima composition through canonical guest health (Issue #844)
         if: github.event_name != 'pull_request'

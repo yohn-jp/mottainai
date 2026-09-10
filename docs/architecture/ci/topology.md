@@ -4,6 +4,11 @@ Architecture authority: [#764](https://github.com/yohn-jp/mottainai/issues/764).
 
 The workflow YAML is an implementation of this document. Where current workflow behavior differs from this document, the workflow is migration debt rather than an alternate architecture.
 
+The distinction between the cumulative Deployment Golden Path and the
+independent Runtime correctness boundary, including the seven certification
+layers and the pre-#261 gate, is defined in
+[Deployment and Runtime certification boundaries](../deployment/certification.md).
+
 ## Design rule
 
 CI validates **contracts that a change can invalidate**, at the **least expensive certification tier sufficient to reject or certify that change**.
@@ -222,7 +227,8 @@ The `runtime-appliance` job runs the same steps regardless of which event select
 | build the OCI-shaped fixture | no | yes |
 | standalone `mottainai-init` composition verification | no | yes |
 | production Lima composition through canonical guest health | no | yes |
-| Runtime Appliance golden path | no | yes |
+| provider-independent Route 3 → Route 2 → Route 1 production certification (Issue #904) | no | yes |
+| separate Runtime Appliance golden path / Lima provider composition | no | yes |
 
 A trusted `main` push runs this full chain whenever `runtime_nix`, `runtime_vm`, or `runtime_appliance` changed, and also when only `host_bootstrap` changed (the cross-boundary composition proof between standalone `mottainai-init` and the real canonical Appliance is exactly the boundary a host-bootstrap-only change can invalidate, even though it does not warrant the canonical Appliance rebuild on the PR itself). `scripts/ci-runtime-contract-gates.mjs`/`.test.mjs` verify both the job-level event-tier selection and this step-level tier split deterministically, without running GitHub Actions.
 
@@ -230,7 +236,16 @@ A trusted `main` push runs this full chain whenever `runtime_nix`, `runtime_vm`,
 
 Removed from the PR critical path for an Appliance-defining PR: installing the Rust toolchain, building the local OCI-shaped fixture from the real disk, running the standalone `mottainai-init` real-artifact composition test, and the networked (`--option sandbox relaxed`) Runtime Appliance golden-path check. Those were the most expensive steps in the job (a real disk-backed Rust integration test and a KVM-backed guest boot with outbound HTTPS resolution), run serially after the Nix Runtime and canonical Appliance build/manifest work that remains on the PR. Removing them moves the Appliance-defining PR path toward this document's `<= 8 min` SLO instead of paying full cross-boundary certification latency on every such PR.
 
-Trusted `main` now performs strictly more work per affected push than before: previously only the golden-path check ran on `main`; now the same build, manifest, OCI-shaped fixture, standalone `mottainai-init` composition, and golden path all run together, and canonical artifact publication (`runtime-appliance-artifact`) only starts after that full chain succeeds. The dominant cost is unchanged (the same KVM-backed golden-path guest boot that previously ran alone on `main`), so this remains within the `<= 15 min` trusted-`main` SLO in this document; this is a structural/step-composition analysis, not a measured wall-clock run, since no representative trusted-`main` push exists yet on the branch introducing this change.
+Trusted `main` now performs strictly more work per affected push than before: the
+canonical build/manifest, OCI-shaped fixture, standalone `mottainai-init`
+composition, provider-independent Route 3 → Route 2 → Route 1 certificate,
+and separate Lima composition all run together. The production certificate
+consumes the descriptor-bound canonical payload and emits machine-readable
+evidence; it cannot be satisfied by `bootstrapReady`. Canonical artifact
+publication (`runtime-appliance-artifact`) only starts after the full chain
+succeeds. The dominant cost remains the KVM-backed guest boot, so this stays
+within the `<= 15 min` trusted-`main` SLO target; this is a structural
+analysis, not a measured wall-clock run.
 
 ## Migration plan
 

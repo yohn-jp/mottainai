@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { performance } from "node:perf_hooks";
 import { test } from "node:test";
 import { createFactId, createSymbolId } from "../ir/ids.js";
 import type { EffectAnalysisDelta, EffectViolation } from "../effects/types.js";
@@ -242,48 +241,82 @@ function buildScaledSnapshot(symbolCount: number, factsPerSymbol: number): Repos
   return base;
 }
 
-function timeDiff(snapshot: RepositorySemanticSnapshot): number {
-  const start = performance.now();
-  compareSemanticSnapshots(snapshot, snapshot);
-  return performance.now() - start;
+interface FactIndexWork {
+  indexBuilds: number;
+  factEntriesVisited: number;
 }
 
-function bestOf(snapshot: RepositorySemanticSnapshot, trials: number): number {
-  let best = Infinity;
-  for (let i = 0; i < trials; i += 1) best = Math.min(best, timeDiff(snapshot));
-  return best;
+interface InstrumentedSnapshot {
+  snapshot: RepositorySemanticSnapshot;
+  work: FactIndexWork;
+}
+
+/**
+ * Counts the deterministic work performed while factsBySubject() consumes a snapshot.
+ * A Proxy keeps the production API unchanged while making an accidental full-fact scan
+ * observable in this regression test.
+ */
+function instrumentFactIndex(snapshot: RepositorySemanticSnapshot): InstrumentedSnapshot {
+  const work: FactIndexWork = { indexBuilds: 0, factEntriesVisited: 0 };
+  const facts = snapshot.derived.facts;
+  const countedFacts = new Proxy(facts, {
+    get(target, property, receiver) {
+      if (property !== Symbol.iterator) return Reflect.get(target, property, receiver);
+      return function* (): IterableIterator<SemanticFact> {
+        work.indexBuilds += 1;
+        for (const fact of target) {
+          work.factEntriesVisited += 1;
+          yield fact;
+        }
+      };
+    },
+  });
+  snapshot.derived = { ...snapshot.derived, facts: countedFacts };
+  return { snapshot, work };
 }
 
 test("#871 per-symbol fact lookups reuse the hoisted index instead of rebuilding it per symbol", () => {
   // Hold facts-per-symbol constant so doubling the symbol count also doubles the total fact
-  // count F (S and F grow together, as the acceptance criteria specify) without also inflating
-  // the inherent per-symbol predicate-scan cost, which would confound the O(S*F) signal we're
-  // guarding against.
+  // count F (S and F grow together) while keeping the workload shape identical.
   const factsPerSymbol = 30;
-  const small = buildScaledSnapshot(300, factsPerSymbol);
-  const large = buildScaledSnapshot(600, factsPerSymbol);
+  const smallBase = instrumentFactIndex(buildScaledSnapshot(300, factsPerSymbol));
+  const smallHead = instrumentFactIndex(buildScaledSnapshot(300, factsPerSymbol));
+  const largeBase = instrumentFactIndex(buildScaledSnapshot(600, factsPerSymbol));
+  const largeHead = instrumentFactIndex(buildScaledSnapshot(600, factsPerSymbol));
 
-  // Warm up the JIT on both shapes before measuring, so the timed runs reflect steady-state cost.
-  timeDiff(small);
-  timeDiff(large);
+  const smallResult = compareSemanticSnapshots(smallBase.snapshot, smallHead.snapshot);
+  const largeResult = compareSemanticSnapshots(largeBase.snapshot, largeHead.snapshot);
 
-  const smallTime = Math.max(bestOf(small, 5), 0.01);
-  const largeTime = Math.max(bestOf(large, 5), 0.01);
-  const growth = largeTime / smallTime;
+  // One index is required for each side of a diff. Rebuilding either full index from inside
+  // the symbol loop would increase this count by S and fail independently of machine speed.
+  assert.equal(smallBase.work.indexBuilds, 1);
+  assert.equal(smallHead.work.indexBuilds, 1);
+  assert.equal(largeBase.work.indexBuilds, 1);
+  assert.equal(largeHead.work.indexBuilds, 1);
 
-  // Doubling both symbol count and fact count: a linear (or near-linear) implementation grows
-  // roughly 2x; the pre-fix O(symbols * facts) rebuild-per-iteration behavior grows roughly
-  // 4x-8x (quadratic in the shared scale factor). A generous bound catches a quadratic
-  // regression while tolerating CI timing noise.
+  const smallFactCount = smallBase.snapshot.derived.facts.length + smallHead.snapshot.derived.facts.length;
+  const largeFactCount = largeBase.snapshot.derived.facts.length + largeHead.snapshot.derived.facts.length;
+  const smallWork = smallBase.work.factEntriesVisited + smallHead.work.factEntriesVisited;
+  const largeWork = largeBase.work.factEntriesVisited + largeHead.work.factEntriesVisited;
+  assert.equal(smallWork, smallFactCount);
+  assert.equal(largeWork, largeFactCount);
+
+  // Doubling both symbol count and fact count should at most roughly double indexed work. The
+  // pre-fix O(S*F) behavior grows roughly 4x and is rejected without scheduler/timing noise.
+  const growth = largeWork / smallWork;
   assert.ok(
-    growth < 3.2,
-    `expected near-linear growth when doubling symbols/facts together, got ${growth.toFixed(2)}x ` +
-      `(small=${smallTime.toFixed(2)}ms, large=${largeTime.toFixed(2)}ms)`,
+    growth < 3,
+    `expected near-linear fact-index work when doubling symbols/facts together, got ${growth.toFixed(2)}x ` +
+      `(small=${smallWork}, large=${largeWork})`,
   );
 
-  // Correctness must be preserved by the hoisting: the result is deterministic and identical
-  // across repeated runs on the same inputs (a golden/self-consistency check, since both
-  // symbols are unchanged between base and head here).
+  // Correctness remains authoritative: identical snapshots produce a stable L0 result with no
+  // semantic deltas, independent of the complexity observation above.
+  assert.equal(smallResult.reviewLevel, "L0");
+  assert.equal(smallResult.semanticDeltas.length, 0);
+  assert.equal(largeResult.reviewLevel, "L0");
+  assert.equal(largeResult.semanticDeltas.length, 0);
+  const small = buildScaledSnapshot(300, factsPerSymbol);
   const first = compareSemanticSnapshots(small, small);
   const second = compareSemanticSnapshots(small, small);
   assert.deepEqual(first, second);
