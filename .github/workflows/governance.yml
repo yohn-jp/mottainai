@@ -10,16 +10,18 @@ concurrency:
 
 permissions:
   contents: read
-  issues: read
 
 jobs:
   standards-self-check:
     name: standards-self-check
     # Self-verification of the governance/actions/semantics machinery in this
-    # branch's own worktree. validate-pr does not depend on this job: it
-    # checks out and trusts only the base SHA's governance validator (see
-    # validate-pr's "Verify trusted governance revision" step), so this job's
-    # completion is not a precondition for validate-pr's trust model.
+    # branch's own worktree. None of `governance`, `linked-issue-check`, or
+    # `product-checks` below depends on this job: `governance` trusts only
+    # yohn-jp/.github's own reusable-workflow revision, `linked-issue-check`
+    # checks out and trusts only the base SHA's validator, and
+    # `product-checks` is a PR-head-run Mottainai-internal quality gate, not
+    # an organization-level authority — so this job's completion is not a
+    # precondition for any of them.
     if: >-
       github.event_name != 'pull_request' ||
       (
@@ -48,12 +50,34 @@ jobs:
       - name: Repository Semantics managed dogfood (enforce)
         run: pnpm run semantic:dogfood
 
-  validate-pr:
-    name: validate-pr
-    # Job-level filtering keeps required validate-pr checks from remaining
-    # pending while excluding Dependabot and release PRs from normal governance.
-    # Inari owns PR headings, fields, and the fixed Validation checklist;
-    # validate-pr owns shared metadata and conditional Mottainai quality gates.
+  governance:
+    name: governance
+    # Ordinary, epic/<issue>-<slug>, and release/<semver> PRs all use the
+    # canonical organization branch-name and PR-contract governance directly;
+    # Mottainai does not locally reimplement or wrap that authority (Issue
+    # #905). Only Dependabot PRs, which use their own non-conventional branch
+    # naming, are excluded.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]'
+      )
+    uses: yohn-jp/.github/.github/workflows/pr-governance.yml@main
+    permissions:
+      contents: read
+
+  linked-issue-check:
+    name: linked-issue-check
+    # Mottainai's merge-boundary linked-Issue gate: an Issue carrying
+    # status:invalid or needs:specification cannot satisfy this check. Issue
+    # *content* (body/section) governance itself is owned by the canonical
+    # yohn-jp/.github issue-governance.yml workflow
+    # (.github/workflows/issue-governance.yml), which applies those labels
+    # when an Issue is opened/edited — this job only reads that label state.
+    # Base-trusted like `governance`: closing-Issue resolution runs from the
+    # PR base's own scripts/governance-lib.mjs, not PR-head code, so a PR
+    # cannot forge which Issue it appears to close.
     if: >-
       github.event_name != 'pull_request' ||
       (
@@ -62,15 +86,10 @@ jobs:
         !startsWith(github.event.pull_request.head.ref, 'release/')
       )
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
     steps:
-      - name: Checkout PR head
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          path: pr
-          fetch-depth: 0
-          persist-credentials: false
-
       - name: Checkout base governance validator
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -85,35 +104,19 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: test "$(git rev-parse HEAD)" = "$BASE_SHA"
 
-      - name: Collect changed files
-        working-directory: pr
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          CHANGED_FILES: ${{ runner.temp }}/changed-files.txt
-        run: |
-          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
-          git diff --no-ext-diff --name-only "$BASE_SHA" "$HEAD_SHA" > "$CHANGED_FILES"
-
-      - name: Validate branch name
+      - name: Resolve linked Issue number
         working-directory: governance
         env:
-          HEAD_REF: ${{ github.head_ref }}
-        run: node scripts/validate-branch-name.mjs --branch "$HEAD_REF"
-
-      - name: Validate PR contract
-        working-directory: governance
-        run: node scripts/validate-pr.mjs --event "$GITHUB_EVENT_PATH" --files "$RUNNER_TEMP/changed-files.txt" --issue-number-file "$RUNNER_TEMP/issue-number.txt" --report "$RUNNER_TEMP/governance-report.md"
-
-      - name: Publish governance observations
-        if: always()
-        env:
-          GOVERNANCE_REPORT: ${{ runner.temp }}/governance-report.md
+          ISSUE_NUMBER_FILE: ${{ runner.temp }}/issue-number.txt
         run: |
-          if test -f "$GOVERNANCE_REPORT"; then
-            cat "$GOVERNANCE_REPORT" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            import { extractClosingIssues, finish, writeValue } from "./scripts/governance-lib.mjs";
+            const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
+            const issues = extractClosingIssues(event.pull_request?.body ?? "");
+            writeValue(process.env.ISSUE_NUMBER_FILE, issues[0] ?? "");
+            finish(issues.length === 1 ? [] : ["exactly one closing Issue is required"]);
+          '
 
       - name: Fetch linked Issue
         env:
@@ -126,24 +129,59 @@ jobs:
             echo "linked Issue number must be numeric" >&2
             exit 1
           fi
-          gh issue view "$issue_number" --json body,labels > "$RUNNER_TEMP/linked-issue.json"
+          gh issue view "$issue_number" --json labels > "$RUNNER_TEMP/linked-issue.json"
 
-      - name: Validate linked Issue contract
-        working-directory: governance
+      - name: Validate linked Issue is not marked invalid
         run: |
-          node scripts/validate-issue.mjs --body "$RUNNER_TEMP/linked-issue.json"
           if jq -e '.labels | map(.name) | any(. == "status:invalid" or . == "needs:specification")' "$RUNNER_TEMP/linked-issue.json" >/dev/null; then
             echo "linked Issue has an invalid governance label" >&2
             exit 1
           fi
 
-  validate-release:
-    name: validate-release
-    # release/<semver> PRs are issue-less operational packaging and use the
-    # canonical organization release-PR contract instead of normal PR checks.
+  product-checks:
+    name: product-checks
+    # Mottainai-specific conditional quality gates (package, compression, CLI
+    # evidence) that are independent of the canonical PR-title/branch/body
+    # contract enforced by the `governance` job above. Unlike that job, this
+    # one is not a trusted-base gate: it is a Mottainai-internal quality
+    # check, not an organization-level authority a PR could self-authorize
+    # around, so it runs directly from the PR head. release/* PRs are
+    # issue-less operational packaging and are exempt, matching the
+    # canonical release-PR contract.
     if: >-
-      github.event_name == 'pull_request' &&
-      startsWith(github.event.pull_request.head.ref, 'release/')
-    uses: yohn-jp/.github/.github/workflows/pr-governance.yml@main
-    permissions:
-      contents: read
+      github.event_name != 'pull_request' ||
+      (
+        github.actor != 'dependabot[bot]' &&
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !startsWith(github.event.pull_request.head.ref, 'release/')
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Collect changed files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CHANGED_FILES: ${{ runner.temp }}/changed-files.txt
+        run: |
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git diff --no-ext-diff --name-only "$BASE_SHA" "$HEAD_SHA" > "$CHANGED_FILES"
+
+      - name: Validate product-specific PR checks
+        run: node scripts/product-pr-checks.mjs --event "$GITHUB_EVENT_PATH" --files "$RUNNER_TEMP/changed-files.txt" --report "$RUNNER_TEMP/product-checks-report.md"
+
+      - name: Publish product-checks observations
+        if: always()
+        env:
+          PRODUCT_CHECKS_REPORT: ${{ runner.temp }}/product-checks-report.md
+        run: |
+          if test -f "$PRODUCT_CHECKS_REPORT"; then
+            cat "$PRODUCT_CHECKS_REPORT" >> "$GITHUB_STEP_SUMMARY"
+          fi

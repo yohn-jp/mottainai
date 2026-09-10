@@ -1,0 +1,21 @@
+name: Issue governance
+
+# Canonical Issue-content governance: gh-inari validates a new/edited Issue
+# body against the synchronized .github/inari/issues/*.json snapshot and
+# labels/comments on violation. This is the organization-level authority for
+# Issue *content*; the merge-boundary `linked-issue-check` job in
+# .github/workflows/governance.yml only reads the status:invalid /
+# needs:specification label state this workflow applies, and does not
+# reimplement Issue-body contract validation itself.
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  governance:
+    uses: yohn-jp/.github/.github/workflows/issue-governance.yml@main

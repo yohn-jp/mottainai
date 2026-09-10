@@ -27,7 +27,7 @@ as a build artifact.
 | --------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | Deterministic review-oriented preparation semantics | Open Code Review (`@alibaba-group/open-code-review`, `ocr delegate`) — see below   |
 | PR identity, diff metadata, Issue intent, checks    | `review-pages/src/*` (this directory)                                              |
-| Governance/policy evaluation                        | `scripts/governance-lib.mjs` and related governance tooling — surfaced, not redone |
+| Governance/policy evaluation                        | canonical `yohn-jp/.github` PR governance and `scripts/product-pr-checks-lib.mjs` — surfaced, not redone |
 | Publication to GitHub Pages                         | `review-pages/src/publish-to-pages.mjs`, invoked by the workflow                   |
 | Latency measurement                                 | `review-pages/src/lib/latency.mjs` and `src/measure-pages-visibility.mjs`          |
 | Triggering, checkout, credentials                   | `.github/workflows/review-pages.yml`                                               |

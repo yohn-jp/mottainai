@@ -1,0 +1,15 @@
+{
+  "packageCheckPaths": [
+    "^package\\.json$",
+    "^pnpm-lock\\.yaml$",
+    "^tsconfig\\.build\\.json$",
+    "^src/index\\.ts$",
+    "^src/server\\.ts$",
+    "^src/cli\\.ts$",
+    "^\\.github/workflows/publish\\.yml$"
+  ],
+  "compressionPaths": ["^src/compress/"],
+  "compressionTestPaths": ["^src/compress/.*\\.test\\.ts$"],
+  "cliPaths": ["^src/index\\.ts$", "^src/cli\\.ts$", "^scripts/mcp\\.ts$"],
+  "cliEvidencePaths": ["^README\\.md$", "(?:^|/)cli.*\\.test\\.ts$", "(?:^|/)index.*\\.test\\.ts$"]
+}
