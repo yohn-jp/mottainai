@@ -501,6 +501,23 @@ in
 
     with subtest("fresh canonical appliance is bootstrap-ready and has no managed packages"):
         wait_for_bootstrap_ready()
+        if production_mode:
+            # bootstrapReady only proves the guest OS activated a systemd
+            # unit; it says nothing about which disk bytes it booted from.
+            # Verify the descriptor-bound Route 3 appliance identity against
+            # the actual canonical disk bytes backing this VM before letting
+            # reconcile run against them. Fail closed on any mismatch.
+            expected_appliance = production_descriptor["route3"]["appliance"]
+            assert canonical_disk_sha256 == expected_appliance["rawSha256"], (
+                "Route 3 appliance identity mismatch: descriptor declares " +
+                expected_appliance["rawSha256"] + ", canonical disk is " +
+                canonical_disk_sha256
+            )
+            assert canonical_disk_size == expected_appliance["rawSizeBytes"], (
+                "Route 3 appliance size mismatch: descriptor declares " +
+                str(expected_appliance["rawSizeBytes"]) + " bytes, canonical disk is " +
+                str(canonical_disk_size) + " bytes"
+            )
         setup_reconcile_driver()
         write_production_identity()
         if not production_mode:
@@ -742,7 +759,10 @@ in
                 "route2ManagedGenerationIdentity": production_expected_generation,
                 "route3Appliance": production_descriptor["route3"]["appliance"],
             },
-            "route3ApplianceVerified": True,
+            "route3ApplianceVerified": (
+                canonical_disk_sha256 == production_descriptor["route3"]["appliance"]["rawSha256"] and
+                canonical_disk_size == production_descriptor["route3"]["appliance"]["rawSizeBytes"]
+            ),
             "route1PayloadVerified": True,
             "activeGenerationIdentity": active_v1,
             "activeExecutables": {

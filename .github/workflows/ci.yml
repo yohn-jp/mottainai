@@ -1016,6 +1016,7 @@ jobs:
           grep -F 'ISSUE_630_GOLDEN_PATH_EVIDENCE ' "$golden_log" | tail -n 1 | sed 's/^.*ISSUE_630_GOLDEN_PATH_EVIDENCE //' > "$evidence"
           jq -e '
             .productionCertification != null and
+            .productionCertification.route3ApplianceVerified == true and
             .productionCertification.managedRuntimeReady == true and
             .productionCertification.secondEnsure == "noop" and
             .productionCertification.garbageCollection.activeGenerationExecutableAfterGc == true and
