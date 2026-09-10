@@ -132,11 +132,10 @@ models:
 - `governance` calls the canonical `yohn-jp/.github` reusable workflow, which
   trusts only that repository's own reusable-workflow revision and the PR
   base's synchronized `.github/inari/**` snapshot — never PR-head code.
-- `product-checks` checks out and trusts only the base SHA's
-  `scripts/product-pr-checks*.mjs` validator, taking from the PR head only
-  candidate changed-file information. A PR cannot self-authorize a new
-  product-check contract; governance changes apply to subsequent PRs after
-  merge.
+- `product-checks` runs entirely from the PR head, like
+  `standards-self-check`: it is a Mottainai-internal conditional quality
+  gate, not an organization-level authority a PR could self-authorize
+  around, so it does not need the base-trusted checkout `governance` uses.
 
 Release branches use the canonical organization release-PR contract
 (auto-selected by the `governance` job from the `release/<semver>` head

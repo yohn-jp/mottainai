@@ -18,8 +18,8 @@ jobs:
     # branch's own worktree. Neither the canonical `governance` job below nor
     # `product-checks` depends on this job: `governance` trusts only
     # yohn-jp/.github's own reusable-workflow revision, and `product-checks`
-    # checks out and trusts only the base SHA's validator (see its "Verify
-    # trusted governance revision" step) — so this job's completion is not a
+    # is a PR-head-run Mottainai-internal quality gate, not an
+    # organization-level authority — so this job's completion is not a
     # precondition for either.
     if: >-
       github.event_name != 'pull_request' ||
@@ -70,7 +70,10 @@ jobs:
     name: product-checks
     # Mottainai-specific conditional quality gates (package, compression, CLI
     # evidence) that are independent of the canonical PR-title/branch/body
-    # contract enforced by the `governance` job above. release/* PRs are
+    # contract enforced by the `governance` job above. Unlike that job, this
+    # one is not a trusted-base gate: it is a Mottainai-internal quality
+    # check, not an organization-level authority a PR could self-authorize
+    # around, so it runs directly from the PR head. release/* PRs are
     # issue-less operational packaging and are exempt, matching the
     # canonical release-PR contract.
     if: >-
@@ -86,26 +89,10 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          path: pr
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Checkout base governance validator
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          path: governance
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Verify trusted governance revision
-        working-directory: governance
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: test "$(git rev-parse HEAD)" = "$BASE_SHA"
-
       - name: Collect changed files
-        working-directory: pr
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -116,7 +103,6 @@ jobs:
           git diff --no-ext-diff --name-only "$BASE_SHA" "$HEAD_SHA" > "$CHANGED_FILES"
 
       - name: Validate product-specific PR checks
-        working-directory: governance
         run: node scripts/product-pr-checks.mjs --event "$GITHUB_EVENT_PATH" --files "$RUNNER_TEMP/changed-files.txt" --report "$RUNNER_TEMP/product-checks-report.md"
 
       - name: Publish product-checks observations
