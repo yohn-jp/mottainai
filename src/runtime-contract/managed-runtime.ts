@@ -11,6 +11,7 @@ import { parseManagedPackageManifest, semanticIdentityOf } from "./managed-packa
 import type { ManagedPackageManifest } from "./managed-package-manifest.js";
 import {
   MANAGED_RUNTIME_CONTROL_STATE_ROOT,
+  MANAGED_RUNTIME_GC_ROOTS_PATH,
   MANAGED_RUNTIME_MANIFEST_RELATIVE_PATH,
   MANAGED_RUNTIME_STATE_CONTRACT_ID,
   MANAGED_RUNTIME_STATE_SCHEMA_VERSION,
@@ -19,6 +20,7 @@ import {
   assertManagedStorePath,
   clearManagedRuntimePointer,
   readManagedRuntimePointer,
+  readManagedRuntimeRetentionRoots,
   updateManagedRuntimeRetentionRoots,
   readManagedRuntimeState,
   resolveManagedRuntimePaths,
@@ -1134,11 +1136,68 @@ function resultFromState(
     ...(state.active === undefined ? {} : { active: state.active }),
     ...(state.previous === undefined ? {} : { previous: state.previous }),
     ...(state.observed === undefined ? {} : { observed: state.observed }),
-    status: statusFromState(state, pointer),
+    status: statusFromState(state, pointer, paths),
   };
 }
 
-function statusFromState(state: ManagedRuntimeState, pointer: string | undefined): ManagedRuntimeStatusReport {
+/**
+ * A valid managed-runtime record must retain every generation it names.  The
+ * roots are deliberately checked through the canonical root directory rather
+ * than inferred from the Nix store.  In the production appliance also verify
+ * that each root target is still realized; isolated unit fixtures use
+ * synthetic /nix/store names and exercise the root-symlink contract only.
+ */
+function assertRetainedGenerations(paths: ManagedRuntimePaths, state: ManagedRuntimeState): void {
+  const expected = {
+    active: state.active?.storePath,
+    previous: state.previous?.storePath,
+    candidate: state.activation.candidate?.storePath,
+  } as const;
+  if (Object.values(expected).every((target) => target === undefined)) return;
+
+  let roots;
+  try {
+    roots = readManagedRuntimeRetentionRoots(paths);
+  } catch (error) {
+    throw new ManagedRuntimeError(
+      "retention_failure",
+      `managed Runtime retention roots cannot be read: ${errorMessage(error)}`,
+      state.activation.phase,
+    );
+  }
+  for (const slot of ["active", "previous", "candidate"] as const) {
+    const target = expected[slot];
+    if (target === undefined) continue;
+    if (!pointerMatches(roots[slot], target)) {
+      throw new ManagedRuntimeError(
+        "retention_failure",
+        `managed Runtime ${slot} retention root is missing or points to an unexpected target (observed=${roots[slot] ?? "absent"}, expected=${target})`,
+        state.activation.phase,
+      );
+    }
+    // A real canonical appliance must not report readiness for a dangling
+    // store target. Synthetic unit fixtures intentionally do not materialize
+    // paths in the global Nix store, so retain their existing root assertions.
+    if (paths.gcRootsDirectory === MANAGED_RUNTIME_GC_ROOTS_PATH) {
+      try {
+        if (!fs.statSync(target).isDirectory()) throw new Error("target is not a directory");
+      } catch (error) {
+        throw new ManagedRuntimeError(
+          "retention_failure",
+          `managed Runtime ${slot} retention target is not realized: ${target}: ${errorMessage(error)}`,
+          state.activation.phase,
+        );
+      }
+    }
+  }
+}
+
+function statusFromState(
+  state: ManagedRuntimeState,
+  pointer: string | undefined,
+  paths: ManagedRuntimePaths,
+): ManagedRuntimeStatusReport {
+  assertRetainedGenerations(paths, state);
   let observedGenerationIdentity: string | undefined;
   let observedStorePath = pointer;
   if (pointerMatches(pointer, state.active?.storePath)) observedGenerationIdentity = state.active?.generationIdentity;
@@ -1241,7 +1300,7 @@ export function readManagedRuntimeStatus(options: ManagedRuntimeStatusOptions = 
       ...(loaded.pointer === undefined ? {} : { observedStorePath: loaded.pointer }),
     };
   }
-  return statusFromState(loaded.state, loaded.pointer);
+  return statusFromState(loaded.state, loaded.pointer, paths);
 }
 
 /** Alias used by callers that name this operation `status`. */

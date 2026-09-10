@@ -968,6 +968,38 @@ test("status exposes bounded desired, active, previous, and observed identities"
   }
 });
 
+test("status fails closed when a persisted generation loses its lifecycle GC root", async () => {
+  const value = fixture();
+  try {
+    await reconcileManagedRuntime({ ...value.baseOptions(), manifest: initialManifest });
+    const paths = resolveManagedRuntimePaths(value.root);
+    fs.unlinkSync(path.join(paths.gcRootsDirectory, "active"));
+    assert.throws(
+      () => readManagedRuntimeStatus({ stateDirectory: value.root }),
+      (error: unknown) => error instanceof ManagedRuntimeError && error.code === "retention_failure",
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
+test("status fails closed when a retained root is present but points at an unexpected target", async () => {
+  const value = fixture();
+  try {
+    await reconcileManagedRuntime({ ...value.baseOptions(), manifest: initialManifest });
+    const paths = resolveManagedRuntimePaths(value.root);
+    const activeRoot = path.join(paths.gcRootsDirectory, "active");
+    fs.unlinkSync(activeRoot);
+    fs.symlinkSync("/nix/store/unrelated-generation", activeRoot);
+    assert.throws(
+      () => readManagedRuntimeStatus({ stateDirectory: value.root }),
+      (error: unknown) => error instanceof ManagedRuntimeError && error.code === "retention_failure",
+    );
+  } finally {
+    value.cleanup();
+  }
+});
+
 // Issue #644 review response: readManagedRuntimeStatus (and, through it,
 // the guest-invokable `mottainai-bootstrap managed-status` — see
 // src/bootstrap/cli.test.ts) is the canonical validation boundary the
