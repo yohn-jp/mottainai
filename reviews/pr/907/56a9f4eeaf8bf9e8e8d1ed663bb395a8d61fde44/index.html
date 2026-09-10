@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #907 @ 56a9f4eeaf8b</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #907: refactor(runtime): split runtime correctness from deployment certification</h1>
+<p>Base <code>main</code> @ <code>fdb4df9508636aae54a885d6ceba35d5a4ce8dc4</code> &rarr;
+Head <code>epic/890-runtime-certification</code> @ <code>56a9f4eeaf8bf9e8e8d1ed663bb395a8d61fde44</code></p>
+<p>Revision <code>56a9f4eeaf8b</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/890">#890</a> refactor(runtime): split runtime correctness from deployment certification (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Document the distinction between Deployment Golden Path (`R4 -&gt; R3 -&gt; R2 -&gt; R1`) and Runtime correctness boundary (`R3 -&gt; R2 -&gt; R1`).</li>
+<li>[ ] Preserve Route 4 as the mandatory fresh-host entry point for the current supported deployment profile.</li>
+<li>[ ] Define the seven-layer certification ladder and what each layer proves or intentionally does not prove.</li>
+<li>[ ] Define Route 3 as the provider-independent convergence boundary consumed by Lima/QEMU and future providers.</li>
+<li>[ ] Link the Wave 0 correctness blockers required before another #261 run.</li>
+<li>[ ] Add/adjust repository architecture documentation so #232, ADR-0003, and #261 use consistent terminology.</li>
+<li>[ ] Require Route 3 -&gt; 2 -&gt; 1 certification and Lima provider certification to pass before the next #261 real-host run.</li></ul>
+
+
+
+<h2>Changed files (20, +1132/-113)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/workflows/ci.yml</td><td>modified</td><td>+128</td><td>-5</td></tr>
+<tr><td>docs/architecture/ci/topology.md</td><td>modified</td><td>+17</td><td>-2</td></tr>
+<tr><td>docs/architecture/deployment/certification.md</td><td>added</td><td>+123</td><td>-0</td></tr>
+<tr><td>docs/architecture/README.md</td><td>modified</td><td>+1</td><td>-0</td></tr>
+<tr><td>docs/decisions/0003-layered-declarative-deployment.md</td><td>modified</td><td>+8</td><td>-1</td></tr>
+<tr><td>docs/operations/deployment/route4-to-route1.md</td><td>modified</td><td>+18</td><td>-7</td></tr>
+<tr><td>nix/bootstrap.nix</td><td>modified</td><td>+2</td><td>-0</td></tr>
+<tr><td>nix/modules/runtime.nix</td><td>modified</td><td>+4</td><td>-0</td></tr>
+<tr><td>nix/tests/runtime-appliance-golden-path.nix</td><td>modified</td><td>+315</td><td>-61</td></tr>
+<tr><td>nix/tests/runtime.nix</td><td>modified</td><td>+14</td><td>-0</td></tr>
+<tr><td>package.json</td><td>modified</td><td>+2</td><td>-2</td></tr>
+<tr><td>scripts/ci-contract-ownership-census.test.mjs</td><td>modified</td><td>+15</td><td>-0</td></tr>
+<tr><td>scripts/ci-runtime-contract-gates.mjs</td><td>modified</td><td>+7</td><td>-1</td></tr>
+<tr><td>scripts/ci-runtime-contract-gates.test.mjs</td><td>modified</td><td>+18</td><td>-0</td></tr>
+<tr><td>scripts/create-trusted-main-runtime-certification-input.mjs</td><td>added</td><td>+241</td><td>-0</td></tr>
+<tr><td>scripts/deployment-artifact-roundtrip-gate.test.mjs</td><td>modified</td><td>+58</td><td>-0</td></tr>
+<tr><td>scripts/lib/canonical-payload.mjs</td><td>modified</td><td>+4</td><td>-1</td></tr>
+<tr><td>src/runtime-contract/managed-runtime.test.ts</td><td>modified</td><td>+32</td><td>-0</td></tr>
+<tr><td>src/runtime-contract/managed-runtime.ts</td><td>modified</td><td>+62</td><td>-3</td></tr>
+<tr><td>src/semantics/diff/engine.test.ts</td><td>modified</td><td>+63</td><td>-30</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
