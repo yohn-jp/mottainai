@@ -460,6 +460,7 @@ jobs:
               - 'pnpm-lock.yaml'
               - '.github/workflows/ci.yml'
             governance:
+              - '.github/agent-governance/**'
               - '.github/inari/**'
               - '.github/workflows/governance.yml'
               - '.github/workflows/issue-governance.yml'

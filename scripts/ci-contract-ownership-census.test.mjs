@@ -50,6 +50,21 @@ test("review-pages changes reach real Node/integration gates after #879", () => 
   assert.equal(isDirectlyGatedPath(".github/workflows/review-pages.yml", repositoryRoot), true);
 });
 
+test("agent-governance authority files select governance and are not unowned (#913)", () => {
+  const agentGovernanceFiles = [
+    ".github/agent-governance/change-workflow.md",
+    ".github/agent-governance/runtime-profiles.json",
+    ".github/agent-governance/runtime-profiles.md",
+    ".github/agent-governance/runtime-profiles.schema.json",
+  ];
+  const selected = classifyChangedFiles(classes, agentGovernanceFiles);
+  assert.equal(selected.governance, true);
+  assert.deepEqual(
+    findUnownedTrackedFiles(repositoryRoot, { trackedFiles: agentGovernanceFiles, classes }),
+    [],
+  );
+});
+
 test("publish workflow is not falsely treated as self-governing", () => {
   assert.equal(isExemptPath(".github/workflows/publish.yml"), false);
   assert.deepEqual(
