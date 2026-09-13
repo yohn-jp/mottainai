@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "d71768a58a00095dc6d8d1fea983054bd91fa944",
+    "draft": false,
+    "headRef": "dependabot/github_actions/DeterminateSystems/nix-installer-action-23",
+    "headSha": "8fe017b8ed278b055d3be418b893400aa66cdc5b",
+    "number": 917,
+    "title": "chore(deps): bump DeterminateSystems/nix-installer-action from 22 to 23"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "8fe017b8ed278b055d3be418b893400aa66cdc5b",
+    "immutable": true,
+    "shortId": "8fe017b8ed27"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-13T03:24:28.437Z"
+  }
+}

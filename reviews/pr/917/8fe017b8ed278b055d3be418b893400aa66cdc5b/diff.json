@@ -1,0 +1,58 @@
+{
+  "baseSha": "d71768a58a00095dc6d8d1fea983054bd91fa944",
+  "files": [
+    {
+      "additions": 3,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 518,
+          "oldLines": 1,
+          "oldStart": 518
+        },
+        {
+          "newLines": 1,
+          "newStart": 603,
+          "oldLines": 1,
+          "oldStart": 603
+        },
+        {
+          "newLines": 1,
+          "newStart": 727,
+          "oldLines": 1,
+          "oldStart": 727
+        }
+      ],
+      "path": ".github/workflows/ci.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 581,
+          "oldLines": 1,
+          "oldStart": 581
+        },
+        {
+          "newLines": 1,
+          "newStart": 1286,
+          "oldLines": 1,
+          "oldStart": 1286
+        }
+      ],
+      "path": ".github/workflows/publish.yml",
+      "status": "modified"
+    }
+  ],
+  "headSha": "8fe017b8ed278b055d3be418b893400aa66cdc5b",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 5,
+    "deletions": 5,
+    "filesChanged": 2
+  }
+}
