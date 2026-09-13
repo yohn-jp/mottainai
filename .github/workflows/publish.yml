@@ -578,7 +578,7 @@ jobs:
           echo "RUNTIME_APPLIANCE_PACKAGE_VERSION=$package_version" >> "$GITHUB_ENV"
 
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
 
       - name: Download canonical Route 1 payload
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -1283,7 +1283,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Nix for the deployment artifact round-trip gate
-        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
 
       - name: Setup Node.js and pnpm with frozen-lockfile install for descriptor validation
         uses: yohn-jp/.github/.github/actions/setup-node-pnpm@main
