@@ -1,3 +1,14 @@
+<p align="center">
+  <img src="./docs/assets/readme/mottainai-hero.webp" alt="Mottainai — Coding-Agent Orchestration. Bound the work. Preserve the evidence. Delegate authority." width="100%">
+</p>
+
+<p align="center">
+  <a href="https://github.com/yohn-jp/mottainai/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/yohn-jp/mottainai/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://www.npmjs.com/package/mottainai"><img alt="npm" src="https://img.shields.io/npm/v/mottainai"></a>
+  <a href="https://www.npmjs.com/package/mottainai"><img alt="Node" src="https://img.shields.io/node/v/mottainai"></a>
+  <a href="./LICENSE"><img alt="License" src="https://img.shields.io/npm/l/mottainai"></a>
+</p>
+
 # Mottainai
 
 **Mottainai** is a coding-agent orchestration and MCP context runtime for governed repository work.
