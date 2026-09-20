@@ -1,0 +1,43 @@
+{
+  "baseSha": "159d1e98a2b91cf96e59a5d8f2f3aaaaa3e17654",
+  "headSha": "cb757f10abe50c1af10d1fcf605d34b19db8f50a",
+  "preview": {
+    "excluded_count": 2,
+    "excluded_files": [
+      {
+        "deletions": 0,
+        "exclude_reason": "unsupported_ext",
+        "insertions": 11,
+        "path": "README.md",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "binary",
+        "insertions": 0,
+        "path": "docs/assets/readme/mottainai-hero.webp",
+        "status": "binary"
+      }
+    ],
+    "from": "159d1e98a2b91cf96e59a5d8f2f3aaaaa3e17654",
+    "merge_base": "8399e983dbc2107f67ed526adb1cb36cf72eb97e",
+    "mode": "range",
+    "reviewable_count": 0,
+    "reviewable_files": [],
+    "schema_version": "1",
+    "to": "cb757f10abe50c1af10d1fcf605d34b19db8f50a",
+    "total_deletions": 0,
+    "total_files": 2,
+    "total_insertions": 11
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.4"
+  },
+  "rule": {
+    "groups": [],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}

@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "159d1e98a2b91cf96e59a5d8f2f3aaaaa3e17654",
+    "draft": false,
+    "headRef": "chore/918-readme-hero-badges",
+    "headSha": "cb757f10abe50c1af10d1fcf605d34b19db8f50a",
+    "number": 919,
+    "title": "chore(readme): add hero banner and badges"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "cb757f10abe50c1af10d1fcf605d34b19db8f50a",
+    "immutable": true,
+    "shortId": "cb757f10abe5"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-20T10:57:04.073Z"
+  }
+}

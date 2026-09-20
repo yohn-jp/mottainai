@@ -1,0 +1,31 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "docs/assets/readme/mottainai-hero.png を追加"
+    },
+    {
+      "checked": false,
+      "text": "README.md 先頭にhero画像(alt text付き)を追加"
+    },
+    {
+      "checked": false,
+      "text": "CI/npm/node/licenseバッジ行を追加(inari/nawabari同様の構成)"
+    },
+    {
+      "checked": false,
+      "text": "既存本文の内容は変更しない"
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 918,
+    "state": "open",
+    "title": "chore: add hero banner and badges to README",
+    "url": "https://github.com/yohn-jp/mottainai/issues/918"
+  },
+  "linked": {
+    "number": 918
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
