@@ -6,6 +6,7 @@ import type { RepositorySemanticSnapshot, SemanticFact, SemanticTransaction, Sym
 import { callsAndPackageFixture, pureFunctionFixture } from "../fixtures/snapshots.js";
 import { compileRepositoryModel } from "../model/compiler.js";
 import { createSemanticMutationService } from "../mutations/service.js";
+import { compareSemanticSnapshotsForTest } from "./engine.js";
 import { compareSemanticSnapshots, parseSemanticChangeSet, serializeSemanticChangeSet } from "./index.js";
 
 function cloneSnapshot(snapshot: RepositorySemanticSnapshot): RepositorySemanticSnapshot {
@@ -244,6 +245,7 @@ function buildScaledSnapshot(symbolCount: number, factsPerSymbol: number): Repos
 interface FactIndexWork {
   indexBuilds: number;
   factEntriesVisited: number;
+  indexedLookups: number;
 }
 
 interface InstrumentedSnapshot {
@@ -251,28 +253,39 @@ interface InstrumentedSnapshot {
   work: FactIndexWork;
 }
 
-/**
- * Counts the deterministic work performed while factsBySubject() consumes a snapshot.
- * A Proxy keeps the production API unchanged while making an accidental full-fact scan
- * observable in this regression test.
- */
+/** Counts the deterministic work performed while factsBySubject() consumes a snapshot. */
 function instrumentFactIndex(snapshot: RepositorySemanticSnapshot): InstrumentedSnapshot {
-  const work: FactIndexWork = { indexBuilds: 0, factEntriesVisited: 0 };
-  const facts = snapshot.derived.facts;
-  const countedFacts = new Proxy(facts, {
-    get(target, property, receiver) {
-      if (property !== Symbol.iterator) return Reflect.get(target, property, receiver);
-      return function* (): IterableIterator<SemanticFact> {
-        work.indexBuilds += 1;
-        for (const fact of target) {
-          work.factEntriesVisited += 1;
-          yield fact;
-        }
-      };
+  return { snapshot, work: { indexBuilds: 0, factEntriesVisited: 0, indexedLookups: 0 } };
+}
+
+function snapshotFactCount(snapshot: RepositorySemanticSnapshot): number {
+  return (
+    snapshot.derived.facts.length +
+    snapshot.declarations.facts.length +
+    snapshot.observed.facts.length +
+    snapshot.analysis.facts.length
+  );
+}
+
+function observeFactIndexWork(
+  base: InstrumentedSnapshot,
+  head: InstrumentedSnapshot,
+): {
+  onFactIndexBuild(side: "base" | "head"): void;
+  onFactEntryVisited(side: "base" | "head"): void;
+  onFactIndexLookup(side: "base" | "head"): void;
+} {
+  return {
+    onFactIndexBuild: (side) => {
+      (side === "base" ? base : head).work.indexBuilds += 1;
     },
-  });
-  snapshot.derived = { ...snapshot.derived, facts: countedFacts };
-  return { snapshot, work };
+    onFactEntryVisited: (side) => {
+      (side === "base" ? base : head).work.factEntriesVisited += 1;
+    },
+    onFactIndexLookup: (side) => {
+      (side === "base" ? base : head).work.indexedLookups += 1;
+    },
+  };
 }
 
 test("#871 per-symbol fact lookups reuse the hoisted index instead of rebuilding it per symbol", () => {
@@ -284,8 +297,16 @@ test("#871 per-symbol fact lookups reuse the hoisted index instead of rebuilding
   const largeBase = instrumentFactIndex(buildScaledSnapshot(600, factsPerSymbol));
   const largeHead = instrumentFactIndex(buildScaledSnapshot(600, factsPerSymbol));
 
-  const smallResult = compareSemanticSnapshots(smallBase.snapshot, smallHead.snapshot);
-  const largeResult = compareSemanticSnapshots(largeBase.snapshot, largeHead.snapshot);
+  const smallResult = compareSemanticSnapshotsForTest(
+    smallBase.snapshot,
+    smallHead.snapshot,
+    observeFactIndexWork(smallBase, smallHead),
+  );
+  const largeResult = compareSemanticSnapshotsForTest(
+    largeBase.snapshot,
+    largeHead.snapshot,
+    observeFactIndexWork(largeBase, largeHead),
+  );
 
   // One index is required for each side of a diff. Rebuilding either full index from inside
   // the symbol loop would increase this count by S and fail independently of machine speed.
@@ -294,12 +315,16 @@ test("#871 per-symbol fact lookups reuse the hoisted index instead of rebuilding
   assert.equal(largeBase.work.indexBuilds, 1);
   assert.equal(largeHead.work.indexBuilds, 1);
 
-  const smallFactCount = smallBase.snapshot.derived.facts.length + smallHead.snapshot.derived.facts.length;
-  const largeFactCount = largeBase.snapshot.derived.facts.length + largeHead.snapshot.derived.facts.length;
+  const smallFactCount = snapshotFactCount(smallBase.snapshot) + snapshotFactCount(smallHead.snapshot);
+  const largeFactCount = snapshotFactCount(largeBase.snapshot) + snapshotFactCount(largeHead.snapshot);
   const smallWork = smallBase.work.factEntriesVisited + smallHead.work.factEntriesVisited;
   const largeWork = largeBase.work.factEntriesVisited + largeHead.work.factEntriesVisited;
   assert.equal(smallWork, smallFactCount);
   assert.equal(largeWork, largeFactCount);
+  assert.ok(smallBase.work.indexedLookups > 0);
+  assert.ok(smallHead.work.indexedLookups > 0);
+  assert.ok(largeBase.work.indexedLookups > 0);
+  assert.ok(largeHead.work.indexedLookups > 0);
 
   // Doubling both symbol count and fact count should at most roughly double indexed work. The
   // pre-fix O(S*F) behavior grows roughly 4x and is rejected without scheduler/timing noise.
