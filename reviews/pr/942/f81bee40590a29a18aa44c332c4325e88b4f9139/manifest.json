@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "cb4dda2c26f67e573bd2b9edb661c73b11493e7e",
+    "draft": false,
+    "headRef": "feat/927-canon-read-dedupe",
+    "headSha": "f81bee40590a29a18aa44c332c4325e88b4f9139",
+    "number": 942,
+    "title": "feat(context): exact delivered Canon read dedupe (#927)"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "f81bee40590a29a18aa44c332c4325e88b4f9139",
+    "immutable": true,
+    "shortId": "f81bee40590a"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-21T17:31:26.622Z"
+  }
+}

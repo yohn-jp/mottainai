@@ -1,0 +1,222 @@
+{
+  "baseSha": "cb4dda2c26f67e573bd2b9edb661c73b11493e7e",
+  "files": [
+    {
+      "additions": 1,
+      "deletions": 6,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 8,
+          "oldLines": 1,
+          "oldStart": 8
+        },
+        {
+          "newLines": 0,
+          "newStart": 54,
+          "oldLines": 5,
+          "oldStart": 55
+        }
+      ],
+      "path": ".github/inari/manifest.json",
+      "status": "modified"
+    },
+    {
+      "additions": 0,
+      "deletions": 89,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 89,
+          "oldStart": 1
+        }
+      ],
+      "path": ".github/inari/pull-requests/issue-integration.json",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 37,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 37,
+          "oldStart": 1
+        }
+      ],
+      "path": ".github/PULL_REQUEST_TEMPLATE/issue-integration.md",
+      "status": "removed"
+    },
+    {
+      "additions": 104,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 6,
+          "newStart": 10,
+          "oldLines": 1,
+          "oldStart": 10
+        },
+        {
+          "newLines": 1,
+          "newStart": 18,
+          "oldLines": 0,
+          "oldStart": 12
+        },
+        {
+          "newLines": 97,
+          "newStart": 178,
+          "oldLines": 0,
+          "oldStart": 171
+        }
+      ],
+      "path": "src/context-runtime/dedupe.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 236,
+      "deletions": 9,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 32,
+          "oldLines": 0,
+          "oldStart": 31
+        },
+        {
+          "newLines": 3,
+          "newStart": 45,
+          "oldLines": 0,
+          "oldStart": 40
+        },
+        {
+          "newLines": 2,
+          "newStart": 55,
+          "oldLines": 0,
+          "oldStart": 47
+        },
+        {
+          "newLines": 39,
+          "newStart": 59,
+          "oldLines": 0,
+          "oldStart": 49
+        },
+        {
+          "newLines": 7,
+          "newStart": 119,
+          "oldLines": 1,
+          "oldStart": 71
+        },
+        {
+          "newLines": 2,
+          "newStart": 141,
+          "oldLines": 0,
+          "oldStart": 86
+        },
+        {
+          "newLines": 2,
+          "newStart": 163,
+          "oldLines": 0,
+          "oldStart": 106
+        },
+        {
+          "newLines": 70,
+          "newStart": 184,
+          "oldLines": 0,
+          "oldStart": 125
+        },
+        {
+          "newLines": 45,
+          "newStart": 260,
+          "oldLines": 0,
+          "oldStart": 131
+        },
+        {
+          "newLines": 1,
+          "newStart": 333,
+          "oldLines": 0,
+          "oldStart": 159
+        },
+        {
+          "newLines": 1,
+          "newStart": 345,
+          "oldLines": 1,
+          "oldStart": 171
+        },
+        {
+          "newLines": 43,
+          "newStart": 391,
+          "oldLines": 0,
+          "oldStart": 216
+        },
+        {
+          "newLines": 1,
+          "newStart": 436,
+          "oldLines": 1,
+          "oldStart": 219
+        },
+        {
+          "newLines": 2,
+          "newStart": 440,
+          "oldLines": 2,
+          "oldStart": 223
+        },
+        {
+          "newLines": 6,
+          "newStart": 444,
+          "oldLines": 1,
+          "oldStart": 227
+        },
+        {
+          "newLines": 6,
+          "newStart": 451,
+          "oldLines": 1,
+          "oldStart": 229
+        },
+        {
+          "newLines": 2,
+          "newStart": 464,
+          "oldLines": 2,
+          "oldStart": 237
+        }
+      ],
+      "path": "src/context-runtime/dedupe.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 6,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 20,
+          "oldLines": 0,
+          "oldStart": 19
+        },
+        {
+          "newLines": 2,
+          "newStart": 139,
+          "oldLines": 0,
+          "oldStart": 137
+        },
+        {
+          "newLines": 3,
+          "newStart": 473,
+          "oldLines": 0,
+          "oldStart": 469
+        }
+      ],
+      "path": "src/proxy.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "f81bee40590a29a18aa44c332c4325e88b4f9139",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 347,
+    "deletions": 142,
+    "filesChanged": 6
+  }
+}

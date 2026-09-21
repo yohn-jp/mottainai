@@ -1,0 +1,43 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Metadata-only Canon entry cannot suppress first content delivery."
+    },
+    {
+      "checked": false,
+      "text": "Exact already-delivered AGENTS/runtime instruction can seed a hit without reinjecting its body."
+    },
+    {
+      "checked": false,
+      "text": "Exact unchanged C3 projection can return compact dedupe hit/reference."
+    },
+    {
+      "checked": false,
+      "text": "Source generation or projection identity/version change causes miss/invalidation."
+    },
+    {
+      "checked": false,
+      "text": "Context Runtime stores/compares opaque typed identities only; no producer semantic reduction."
+    },
+    {
+      "checked": false,
+      "text": "Telemetry is bounded and body-free."
+    },
+    {
+      "checked": false,
+      "text": "Existing descriptor-bound read identity protections remain intact."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 927,
+    "state": "open",
+    "title": "feat(context): seed exact managed-read dedupe from delivered Canon identities",
+    "url": "https://github.com/yohn-jp/mottainai/issues/927"
+  },
+  "linked": {
+    "number": 927
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
