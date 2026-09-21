@@ -1,0 +1,54 @@
+{
+  "baseSha": "73ca46a5eb2d2afbf3f380f68ad8a3bcfa03e9a5",
+  "files": [
+    {
+      "additions": 190,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 190,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/canon/admission.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 468,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 468,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/canon/admission.ts",
+      "status": "added"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 4,
+          "oldLines": 0,
+          "oldStart": 3
+        }
+      ],
+      "path": "src/canon/index.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "c7cd1504408abe209938a48e8d44d4e74cae1fa3",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 659,
+    "deletions": 0,
+    "filesChanged": 3
+  }
+}
