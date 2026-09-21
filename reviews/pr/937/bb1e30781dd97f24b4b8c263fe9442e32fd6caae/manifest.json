@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "ca9e2135abb8eb585a1e1fcf315585f4d43adb09",
+    "draft": false,
+    "headRef": "feat/924-c3-candidate-selection",
+    "headSha": "bb1e30781dd97f24b4b8c263fe9442e32fd6caae",
+    "number": 937,
+    "title": "feat(canon): derive bounded deterministic C3 candidates"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "bb1e30781dd97f24b4b8c263fe9442e32fd6caae",
+    "immutable": true,
+    "shortId": "bb1e30781dd9"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-21T14:40:19.460Z"
+  }
+}

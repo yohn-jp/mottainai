@@ -1,0 +1,40 @@
+{
+  "baseSha": "ca9e2135abb8eb585a1e1fcf315585f4d43adb09",
+  "files": [
+    {
+      "additions": 174,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 174,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/canon/candidates.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 569,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 569,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/canon/candidates.ts",
+      "status": "added"
+    }
+  ],
+  "headSha": "bb1e30781dd97f24b4b8c263fe9442e32fd6caae",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 743,
+    "deletions": 0,
+    "filesChanged": 2
+  }
+}

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #937 @ bb1e30781dd9</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #937: feat(canon): derive bounded deterministic C3 candidates</h1>
+<p>Base <code>main</code> @ <code>ca9e2135abb8eb585a1e1fcf315585f4d43adb09</code> &rarr;
+Head <code>feat/924-c3-candidate-selection</code> @ <code>bb1e30781dd97f24b4b8c263fe9442e32fd6caae</code></p>
+<p>Revision <code>bb1e30781dd9</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/924">#924</a> feat(canon): derive bounded deterministic C3 candidates from C2 and repository semantics (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Explicit path and resolvable symbol/component selectors produce bounded candidates.</li>
+<li>[ ] Deterministically represented associated test/interface relations can add bounded candidates.</li>
+<li>[ ] Candidate ordering and identities replay identically for equal C2/semantic state.</li>
+<li>[ ] Relevant semantic/source association change invalidates selection.</li>
+<li>[ ] Unrelated file change does not change selected identity unless its semantic relation changes.</li>
+<li>[ ] Ambiguous/unknown scope remains explicitly incomplete without broad prefetch.</li>
+<li>[ ] No source rendering/reduction or Suzukuri invocation occurs here.</li></ul>
+
+
+
+<h2>Changed files (2, +743/-0)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>src/canon/candidates.test.ts</td><td>added</td><td>+174</td><td>-0</td></tr>
+<tr><td>src/canon/candidates.ts</td><td>added</td><td>+569</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
