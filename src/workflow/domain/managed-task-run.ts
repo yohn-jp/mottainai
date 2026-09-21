@@ -2,6 +2,13 @@ import crypto from "node:crypto";
 import { NawabariExecutionClient } from "../nawabari.js";
 import type { TaskRecord, ManagerSessionRecord, WorkflowStateStore } from "../state/store.js";
 import { ManagerError, ManagerSessionService, type NewManagerSessionInput } from "../../manager/service.js";
+import {
+  composeGovernedIssueC2,
+  governedIssueC2Instruction,
+  type CanonGovernanceEvidence,
+  type CanonRepositoryIdentity,
+} from "../../canon/c2.js";
+import type { GhInariIssueReadResult, GhInariResult } from "../../gh-inari.js";
 
 const MAX_ERROR_LENGTH = 512;
 
@@ -18,6 +25,14 @@ export interface ManagedTaskRunInput {
   model?: string;
   instruction: string;
   idempotencyKey?: string;
+  /** Optional typed #411 result supplied by the orchestration boundary. */
+  governedIssue?: GhInariIssueReadResult;
+  /** Resolve the typed #411 result immediately before Manager launch. */
+  resolveGovernedIssue?: () => Promise<GhInariResult<GhInariIssueReadResult>>;
+  /** Required when a governed Issue is supplied; never inferred from cwd/Markdown. */
+  canonRepository?: CanonRepositoryIdentity | string;
+  canonGovernance?: CanonGovernanceEvidence;
+  canonFreshness?: import("../../canon/identity.js").CanonJsonValue;
 }
 
 export interface TaskRunExecutionProjection {
@@ -245,6 +260,45 @@ async function projectionFor(
 
 /** Compose the existing Manager task-bound launch with a bounded recovery projection. */
 export async function runManagedTask(input: ManagedTaskRunInput): Promise<ManagedTaskRunResult> {
+  let launchInstruction = input.instruction;
+  try {
+    let governedIssue = input.governedIssue;
+    if (governedIssue === undefined && input.resolveGovernedIssue !== undefined) {
+      const resolved = await input.resolveGovernedIssue();
+      if (!resolved.ok) throw new Error(`governed Issue resolution failed: ${resolved.error.message}`);
+      governedIssue = resolved.value;
+    }
+    if (governedIssue !== undefined) {
+      const c2 = composeGovernedIssueC2({
+        repository: input.canonRepository ?? "",
+        issue: governedIssue,
+        task: {
+          taskSlug: input.taskSlug,
+          issueRef: input.issueRef,
+          lifecycleState: "active",
+          profile: {
+            agentKind: input.agentKind,
+            ...(input.provider === undefined ? {} : { provider: input.provider }),
+            ...(input.model === undefined ? {} : { model: input.model }),
+          },
+        },
+        ...(input.canonGovernance === undefined ? {} : { governance: input.canonGovernance }),
+        ...(input.canonFreshness === undefined ? {} : { freshness: input.canonFreshness }),
+      });
+      launchInstruction = `${input.instruction}${governedIssueC2Instruction(c2)}`;
+    }
+  } catch (error) {
+    const reportedIdempotencyKey = (input.idempotencyKey ?? deriveTaskRunIdempotencyKey(input)).slice(0, 128);
+    const message = (error instanceof Error ? error.message : String(error)).slice(0, MAX_ERROR_LENGTH);
+    return {
+      ok: false,
+      operation: "task-run",
+      idempotencyKey: reportedIdempotencyKey,
+      error: { code: "canon_resolution_failed", message },
+      recoverable: false,
+      currentState: "blocked",
+    };
+  }
   const idempotencyKey =
     input.idempotencyKey ??
     deriveTaskRunIdempotencyKey({
@@ -254,11 +308,11 @@ export async function runManagedTask(input: ManagedTaskRunInput): Promise<Manage
       agentKind: input.agentKind,
       provider: input.provider,
       model: input.model,
-      instruction: input.instruction,
+      instruction: launchInstruction,
     });
   const reportedIdempotencyKey = idempotencyKey.slice(0, 128);
   const managerInput: NewManagerSessionInput = {
-    instruction: input.instruction,
+    instruction: launchInstruction,
     agentKind: input.agentKind,
     ...(input.provider === undefined ? {} : { provider: input.provider }),
     ...(input.model === undefined ? {} : { model: input.model }),

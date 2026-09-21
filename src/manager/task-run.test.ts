@@ -8,10 +8,12 @@ import type { ManagerExecutionAuthority } from "../workflow/domain/manager-execu
 import { ManagerSessionService } from "./service.js";
 import { defaultTaskRunInstruction, runManagedTask } from "../workflow/domain/managed-task-run.js";
 import type { ZellijObservedState, ZellijRuntime } from "./zellij.js";
+import type { GhInariIssueReadResult } from "../gh-inari.js";
 
 class FakeRuntime implements ZellijRuntime {
   readonly sessions = new Set<string>();
   readonly started: string[] = [];
+  readonly invocations: Array<{ command: string; args: readonly string[] }> = [];
   failStarts = 0;
 
   async checkAvailability(): Promise<{ version: string }> {
@@ -24,6 +26,7 @@ class FakeRuntime implements ZellijRuntime {
 
   async start(input: { sessionName: string; cwd: string; command: string; args: readonly string[] }): Promise<void> {
     this.started.push(input.sessionName);
+    this.invocations.push({ command: input.command, args: input.args });
     if (this.failStarts > 0) {
       this.failStarts -= 1;
       throw new Error("injected runtime launch failure");
@@ -171,4 +174,45 @@ test("task run recovers after task/execution creation but before Manager persist
   assert.equal(store.listTasks().length, 1);
   assert.equal(store.listManagerSessions(root).length, 1);
   assert.equal(runtime.started.length, 1);
+});
+
+test("task run resolves governed C2 before the Manager runtime launch", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = new WorkflowSqliteStateStore({ dbPath: ":memory:" });
+  store.init();
+  t.after(() => store.close());
+  const runtime = new FakeRuntime();
+  const governedIssue: GhInariIssueReadResult = {
+    kind: "issue",
+    valid: true,
+    projection: "canonical",
+    classification: "valid",
+    repository: "acme/repo",
+    number: 333,
+    url: "https://github.com/acme/repo/issues/333",
+    template: { id: "feature", name: "Feature", path: ".github/ISSUE_TEMPLATE/feature.yml", source: "issue_form" },
+    fields: { scope: "managed" },
+    dependencies: { parent: 1 },
+    diagnostics: [],
+    metadata: { title: "Managed", state: "open", labels: [], assignees: [] },
+  };
+  const result = await runManagedTask({
+    ...input(root, store, runtime, "task-run-c2"),
+    governedIssue,
+    canonRepository: "acme/repo",
+    canonGovernance: { generation: "governance-1" },
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(runtime.invocations.length, 1);
+  const launchInstruction = runtime.invocations[0]?.args.at(-1) ?? "";
+  assert.match(launchInstruction, /Mottainai Canon C2 \(governed Issue projection\)/u);
+  assert.match(launchInstruction, /c2\.governed\.artifact/u);
+  const retry = await runManagedTask({
+    ...input(root, store, runtime, "task-run-c2"),
+    governedIssue,
+    canonRepository: "acme/repo",
+    canonGovernance: { generation: "governance-1" },
+  });
+  assert.equal(retry.ok, true, JSON.stringify(retry));
+  assert.equal(runtime.invocations.length, 1);
 });
