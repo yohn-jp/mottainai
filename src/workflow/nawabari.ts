@@ -143,6 +143,27 @@ export interface NawabariClaimEvidenceSnapshot {
   claims: readonly NawabariClaimEvidence[];
 }
 
+/** Stable read-only repository evidence returned by Nawabari's repository-evidence capability. */
+export interface NawabariRepositoryEvidence {
+  schemaVersion: number;
+  repository: string;
+  worktree: string;
+  branchId: string;
+  branch: string;
+  sessionId: string;
+  sessionState: string;
+  sessionCreatedAt: string;
+  sessionUpdatedAt: string;
+  baseRevision: string | null;
+  baseRevisionProven: boolean;
+  head: string;
+  clean: boolean;
+  complete: boolean;
+  incompleteReasons: readonly string[];
+  evidenceHash: string;
+  raw: NawabariCommandResult;
+}
+
 export interface NawabariExecutionClientOptions {
   command?: string;
   runner?: NawabariCommandRunner;
@@ -867,6 +888,122 @@ export class NawabariExecutionClient {
   async inspectSession(input: { cwd: string; sessionId: string }): Promise<NawabariSession> {
     await this.capabilities(input.cwd);
     return this.sessionDiagnostic(await this.invoke(["session", "inspect", "--session", input.sessionId], input.cwd));
+  }
+
+  /** Capture the current physical repository generation without mutating it. */
+  async repositoryEvidence(input: { cwd: string; sessionId: string }): Promise<NawabariRepositoryEvidence> {
+    await this.capabilities(input.cwd);
+    const result = await this.invoke(["evidence", "snapshot", "--session", input.sessionId], input.cwd);
+    const paths = object(result.paths);
+    if (paths === undefined)
+      throw new NawabariExecutionError(
+        "nawabari-contract-invalid",
+        "Nawabari repository evidence is missing paths",
+        undefined,
+        result,
+      );
+    for (const field of ["changed", "staged", "unstaged", "untracked"] as const) {
+      if (!Array.isArray(paths[field]) || !paths[field].every((value) => typeof value === "string"))
+        throw new NawabariExecutionError(
+          "nawabari-contract-invalid",
+          `Nawabari repository evidence is missing paths.${field}`,
+          undefined,
+          result,
+        );
+    }
+    if (
+      !Array.isArray(paths.stats) ||
+      !paths.stats.every((value) => {
+        const stat = object(value);
+        return stat !== undefined && typeof stat.path === "string" && typeof stat.available === "boolean";
+      })
+    )
+      throw new NawabariExecutionError(
+        "nawabari-contract-invalid",
+        "Nawabari repository evidence is missing paths.stats",
+        undefined,
+        result,
+      );
+    if (result.source !== "git" || result.guarantee !== "git-observable-only")
+      throw new NawabariExecutionError(
+        "nawabari-contract-invalid",
+        "Nawabari repository evidence has an unsupported source guarantee",
+        undefined,
+        result,
+      );
+    if (
+      !Array.isArray(result.incomplete_reasons) ||
+      !result.incomplete_reasons.every((value) => typeof value === "string")
+    )
+      throw new NawabariExecutionError(
+        "nawabari-contract-invalid",
+        "Nawabari repository evidence is missing incomplete_reasons",
+        undefined,
+        result,
+      );
+    if (result.base_revision !== null && typeof result.base_revision !== "string")
+      throw new NawabariExecutionError(
+        "nawabari-contract-invalid",
+        "Nawabari repository evidence has invalid base_revision",
+        undefined,
+        result,
+      );
+    if (typeof result.base_revision_proven !== "boolean")
+      throw new NawabariExecutionError(
+        "nawabari-contract-invalid",
+        "Nawabari repository evidence is missing base_revision_proven",
+        undefined,
+        result,
+      );
+    for (const field of ["clean", "complete"] as const) {
+      if (typeof result[field] !== "boolean")
+        throw new NawabariExecutionError(
+          "nawabari-contract-invalid",
+          `Nawabari repository evidence is missing ${field}`,
+          undefined,
+          result,
+        );
+    }
+    const schemaVersion = requiredInteger(result.schema_version, "schema_version");
+    if (schemaVersion !== 1)
+      throw new NawabariExecutionError(
+        "nawabari-incompatible",
+        `Nawabari repository evidence schema ${schemaVersion} is unsupported`,
+        undefined,
+        result,
+      );
+    const evidenceHash = requiredString(result.evidence_hash, "evidence_hash");
+    if (evidenceHash.length > 512)
+      throw new NawabariExecutionError(
+        "nawabari-contract-invalid",
+        "Nawabari repository evidence hash is unbounded",
+        undefined,
+        result,
+      );
+    return {
+      schemaVersion,
+      repository: requiredString(result.repository, "repository"),
+      worktree: requiredString(result.worktree, "worktree"),
+      branchId: requiredString(result.branch_id, "branch_id"),
+      branch: requiredString(result.branch, "branch"),
+      sessionId: requiredString(result.session_id, "session_id"),
+      sessionState: requiredString(result.session_state, "session_state"),
+      sessionCreatedAt: requiredString(result.session_created_at, "session_created_at"),
+      sessionUpdatedAt: requiredString(result.session_updated_at, "session_updated_at"),
+      baseRevision: result.base_revision,
+      baseRevisionProven: result.base_revision_proven,
+      head: requiredString(result.head, "head"),
+      clean: result.clean as boolean,
+      complete: result.complete as boolean,
+      incompleteReasons: result.incomplete_reasons,
+      evidenceHash,
+      raw: result,
+    };
+  }
+
+  /** Alias using Nawabari's command terminology. */
+  async evidenceSnapshot(input: { cwd: string; sessionId: string }): Promise<NawabariRepositoryEvidence> {
+    return this.repositoryEvidence(input);
   }
 
   async listSessions(cwd: string): Promise<NawabariSession[]> {

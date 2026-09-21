@@ -55,6 +55,7 @@ import {
   pushWorkflowTask,
 } from "./workflow/commands/write.js";
 import type { CleanupPlan } from "./workflow/domain/cleanup-plan.js";
+import { resolveCanon } from "./canon/resolver.js";
 
 /**
  * upstream と profile の管理 CLI。
@@ -94,6 +95,7 @@ export const USAGE = `usage:
   mottainai task run <slug> [options]            start an Issue-bound task and launch its Manager agent
   mottainai task status [--workspace path]       active Git workflow task for the current worktree
   mottainai task status --task-id id [--json]    AUTHORITATIVE fresh resolve of one task id's worktree path
+  mottainai canon --task-id id --json             resolve one managed task's read-only Canon document
   mottainai task list [--json]                   discovery snapshot of candidate tasks (NOT a live/available guarantee;
                                                    re-resolve with task status --task-id before acting on any of them)
   mottainai task migrate-legacy [options]        explicitly complete or adopt one pre-cutover task
@@ -930,6 +932,21 @@ export async function runCli(args: string[]): Promise<number> {
             }
           : {};
         print({ ok: true, workspace, ...rest, ...statusDetails });
+      } finally {
+        store.close();
+      }
+    } else if (command === "canon") {
+      const explicitTaskId = requireFlagValue(argv, "task-id");
+      if (explicitTaskId === undefined) fail("canon requires --task-id");
+      const store = await openWorkflowStateStore(undefined, true);
+      try {
+        const result = await resolveCanon({
+          store,
+          taskId: explicitTaskId as TaskId,
+          nawabari: new NawabariExecutionClient(),
+        });
+        print(result);
+        return result.ok ? 0 : 1;
       } finally {
         store.close();
       }
