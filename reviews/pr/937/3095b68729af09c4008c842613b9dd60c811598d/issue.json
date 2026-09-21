@@ -1,0 +1,43 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Explicit path and resolvable symbol/component selectors produce bounded candidates."
+    },
+    {
+      "checked": false,
+      "text": "Deterministically represented associated test/interface relations can add bounded candidates."
+    },
+    {
+      "checked": false,
+      "text": "Candidate ordering and identities replay identically for equal C2/semantic state."
+    },
+    {
+      "checked": false,
+      "text": "Relevant semantic/source association change invalidates selection."
+    },
+    {
+      "checked": false,
+      "text": "Unrelated file change does not change selected identity unless its semantic relation changes."
+    },
+    {
+      "checked": false,
+      "text": "Ambiguous/unknown scope remains explicitly incomplete without broad prefetch."
+    },
+    {
+      "checked": false,
+      "text": "No source rendering/reduction or Suzukuri invocation occurs here."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 924,
+    "state": "open",
+    "title": "feat(canon): derive bounded deterministic C3 candidates from C2 and repository semantics",
+    "url": "https://github.com/yohn-jp/mottainai/issues/924"
+  },
+  "linked": {
+    "number": 924
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
