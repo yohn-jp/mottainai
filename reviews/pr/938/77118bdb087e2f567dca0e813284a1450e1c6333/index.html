@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #938 @ 77118bdb087e</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #938: feat(manager): persist Canon checkpoint lineage</h1>
+<p>Base <code>main</code> @ <code>ca9e2135abb8eb585a1e1fcf315585f4d43adb09</code> &rarr;
+Head <code>feat/925-canon-lineage-persistence</code> @ <code>77118bdb087e2f567dca0e813284a1450e1c6333</code></p>
+<p>Revision <code>77118bdb087e</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/925">#925</a> feat(manager): persist versioned Canon checkpoints and execution lineage (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Independent-root and fork checkpoint records persist and reload across Manager restart.</li>
+<li>[ ] Two execution records can share one `prefix_id` with distinct `execution_state_id` values.</li>
+<li>[ ] Parent/child ancestry reconstructs deterministically.</li>
+<li>[ ] Changed bound repository/task/artifact generation marks/rejects stale parent reuse.</li>
+<li>[ ] Missing/corrupt parent fails boundedly without inventing ancestry.</li>
+<li>[ ] Agent/model/profile changes outside Canon do not alter persisted `prefix_id`.</li>
+<li>[ ] Existing Manager session persistence remains compatible.</li>
+<li>[ ] No production path creates/reserves/cleans worktrees/branches or launches Zellij/Nawabari children.</li></ul>
+
+
+
+<h2>Changed files (5, +698/-0)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>src/manager/service.ts</td><td>modified</td><td>+26</td><td>-0</td></tr>
+<tr><td>src/state/migrations.ts</td><td>modified</td><td>+31</td><td>-0</td></tr>
+<tr><td>src/workflow/state/canon-lineage.test.ts</td><td>added</td><td>+218</td><td>-0</td></tr>
+<tr><td>src/workflow/state/sqlite-store.ts</td><td>modified</td><td>+339</td><td>-0</td></tr>
+<tr><td>src/workflow/state/store.ts</td><td>modified</td><td>+84</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

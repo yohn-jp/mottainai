@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "ca9e2135abb8eb585a1e1fcf315585f4d43adb09",
+    "draft": false,
+    "headRef": "feat/925-canon-lineage-persistence",
+    "headSha": "77118bdb087e2f567dca0e813284a1450e1c6333",
+    "number": 938,
+    "title": "feat(manager): persist Canon checkpoint lineage"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "77118bdb087e2f567dca0e813284a1450e1c6333",
+    "immutable": true,
+    "shortId": "77118bdb087e"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-21T14:40:59.451Z"
+  }
+}

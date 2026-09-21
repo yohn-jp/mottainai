@@ -1,0 +1,112 @@
+{
+  "baseSha": "ca9e2135abb8eb585a1e1fcf315585f4d43adb09",
+  "files": [
+    {
+      "additions": 26,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 5,
+          "newStart": 21,
+          "oldLines": 0,
+          "oldStart": 20
+        },
+        {
+          "newLines": 21,
+          "newStart": 1570,
+          "oldLines": 0,
+          "oldStart": 1564
+        }
+      ],
+      "path": "src/manager/service.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 31,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 31,
+          "newStart": 851,
+          "oldLines": 0,
+          "oldStart": 850
+        }
+      ],
+      "path": "src/state/migrations.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 218,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 218,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/workflow/state/canon-lineage.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 339,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 6,
+          "newStart": 64,
+          "oldLines": 0,
+          "oldStart": 63
+        },
+        {
+          "newLines": 3,
+          "newStart": 85,
+          "oldLines": 0,
+          "oldStart": 78
+        },
+        {
+          "newLines": 110,
+          "newStart": 471,
+          "oldLines": 0,
+          "oldStart": 461
+        },
+        {
+          "newLines": 220,
+          "newStart": 2337,
+          "oldLines": 0,
+          "oldStart": 2217
+        }
+      ],
+      "path": "src/workflow/state/sqlite-store.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 84,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 76,
+          "newStart": 229,
+          "oldLines": 0,
+          "oldStart": 228
+        },
+        {
+          "newLines": 8,
+          "newStart": 1058,
+          "oldLines": 0,
+          "oldStart": 981
+        }
+      ],
+      "path": "src/workflow/state/store.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "77118bdb087e2f567dca0e813284a1450e1c6333",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 698,
+    "deletions": 0,
+    "filesChanged": 5
+  }
+}

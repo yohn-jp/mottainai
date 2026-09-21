@@ -1,0 +1,47 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Independent-root and fork checkpoint records persist and reload across Manager restart."
+    },
+    {
+      "checked": false,
+      "text": "Two execution records can share one `prefix_id` with distinct `execution_state_id` values."
+    },
+    {
+      "checked": false,
+      "text": "Parent/child ancestry reconstructs deterministically."
+    },
+    {
+      "checked": false,
+      "text": "Changed bound repository/task/artifact generation marks/rejects stale parent reuse."
+    },
+    {
+      "checked": false,
+      "text": "Missing/corrupt parent fails boundedly without inventing ancestry."
+    },
+    {
+      "checked": false,
+      "text": "Agent/model/profile changes outside Canon do not alter persisted `prefix_id`."
+    },
+    {
+      "checked": false,
+      "text": "Existing Manager session persistence remains compatible."
+    },
+    {
+      "checked": false,
+      "text": "No production path creates/reserves/cleans worktrees/branches or launches Zellij/Nawabari children."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 925,
+    "state": "open",
+    "title": "feat(manager): persist versioned Canon checkpoints and execution lineage",
+    "url": "https://github.com/yohn-jp/mottainai/issues/925"
+  },
+  "linked": {
+    "number": 925
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
