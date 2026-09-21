@@ -1,0 +1,164 @@
+{
+  "baseSha": "961fa822a2e36f449cf7f644719f5f8e061d8129",
+  "files": [
+    {
+      "additions": 0,
+      "deletions": 236,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 236,
+          "oldStart": 1
+        }
+      ],
+      "path": ".github/inari/issues/implementation.json",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 182,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 182,
+          "oldStart": 1
+        }
+      ],
+      "path": ".github/ISSUE_TEMPLATE/implementation.yml",
+      "status": "removed"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 90,
+          "oldLines": 1,
+          "oldStart": 90
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 6,
+      "deletions": 6,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 61,
+          "oldLines": 2,
+          "oldStart": 61
+        },
+        {
+          "newLines": 3,
+          "newStart": 1032,
+          "oldLines": 3,
+          "oldStart": 1032
+        },
+        {
+          "newLines": 1,
+          "newStart": 2092,
+          "oldLines": 1,
+          "oldStart": 2092
+        }
+      ],
+      "path": "pnpm-lock.yaml",
+      "status": "modified"
+    },
+    {
+      "additions": 24,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 27,
+          "oldLines": 0,
+          "oldStart": 26
+        },
+        {
+          "newLines": 2,
+          "newStart": 175,
+          "oldLines": 0,
+          "oldStart": 172
+        },
+        {
+          "newLines": 2,
+          "newStart": 211,
+          "oldLines": 0,
+          "oldStart": 206
+        },
+        {
+          "newLines": 1,
+          "newStart": 245,
+          "oldLines": 0,
+          "oldStart": 238
+        },
+        {
+          "newLines": 1,
+          "newStart": 288,
+          "oldLines": 0,
+          "oldStart": 280
+        },
+        {
+          "newLines": 1,
+          "newStart": 478,
+          "oldLines": 0,
+          "oldStart": 469
+        },
+        {
+          "newLines": 1,
+          "newStart": 509,
+          "oldLines": 0,
+          "oldStart": 499
+        },
+        {
+          "newLines": 14,
+          "newStart": 543,
+          "oldLines": 0,
+          "oldStart": 532
+        }
+      ],
+      "path": "src/config.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 210,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 210,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/suzukuri.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 977,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 977,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/suzukuri.ts",
+      "status": "added"
+    }
+  ],
+  "headSha": "6771c58c243f5d5cb057084a476f850ffbeda512",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 1218,
+    "deletions": 425,
+    "filesChanged": 7
+  }
+}

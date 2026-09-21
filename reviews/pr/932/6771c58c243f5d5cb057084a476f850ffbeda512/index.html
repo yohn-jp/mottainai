@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #932 @ 6771c58c243f</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #932: feat(semantics): add bounded Suzukuri companion projection client</h1>
+<p>Base <code>main</code> @ <code>961fa822a2e36f449cf7f644719f5f8e061d8129</code> &rarr;
+Head <code>feat/923-suzukuri-companion</code> @ <code>6771c58c243f5d5cb057084a476f850ffbeda512</code></p>
+<p>Revision <code>6771c58c243f</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/923">#923</a> feat(semantics): add one bounded Suzukuri companion projection client (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] One process boundary owns all managed Suzukuri invocation/compatibility/result decoding.</li>
+<li>[ ] Projection intent and budget are explicit inputs.</li>
+<li>[ ] Typed result retains exact projection/source/component identity and completeness/loss metadata.</li>
+<li>[ ] Same explicit input against the same companion version yields stable decoded identity.</li>
+<li>[ ] Missing/incompatible/malformed/oversized/timed-out companion fails explicitly and boundedly.</li>
+<li>[ ] No silent local semantic-compression or generic-text fallback exists.</li>
+<li>[ ] Packed/process coverage exercises the supported Suzukuri machine surface.</li>
+<li>[ ] Existing Repository Semantics remains selection authority and is not duplicated.</li></ul>
+
+
+
+<h2>Changed files (7, +1218/-425)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/inari/issues/implementation.json</td><td>removed</td><td>+0</td><td>-236</td></tr>
+<tr><td>.github/ISSUE_TEMPLATE/implementation.yml</td><td>removed</td><td>+0</td><td>-182</td></tr>
+<tr><td>package.json</td><td>modified</td><td>+1</td><td>-1</td></tr>
+<tr><td>pnpm-lock.yaml</td><td>modified</td><td>+6</td><td>-6</td></tr>
+<tr><td>src/config.ts</td><td>modified</td><td>+24</td><td>-0</td></tr>
+<tr><td>src/suzukuri.test.ts</td><td>added</td><td>+210</td><td>-0</td></tr>
+<tr><td>src/suzukuri.ts</td><td>added</td><td>+977</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

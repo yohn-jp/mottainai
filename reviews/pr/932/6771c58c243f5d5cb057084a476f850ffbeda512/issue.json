@@ -1,0 +1,47 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "One process boundary owns all managed Suzukuri invocation/compatibility/result decoding."
+    },
+    {
+      "checked": false,
+      "text": "Projection intent and budget are explicit inputs."
+    },
+    {
+      "checked": false,
+      "text": "Typed result retains exact projection/source/component identity and completeness/loss metadata."
+    },
+    {
+      "checked": false,
+      "text": "Same explicit input against the same companion version yields stable decoded identity."
+    },
+    {
+      "checked": false,
+      "text": "Missing/incompatible/malformed/oversized/timed-out companion fails explicitly and boundedly."
+    },
+    {
+      "checked": false,
+      "text": "No silent local semantic-compression or generic-text fallback exists."
+    },
+    {
+      "checked": false,
+      "text": "Packed/process coverage exercises the supported Suzukuri machine surface."
+    },
+    {
+      "checked": false,
+      "text": "Existing Repository Semantics remains selection authority and is not duplicated."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 923,
+    "state": "open",
+    "title": "feat(semantics): add one bounded Suzukuri companion projection client",
+    "url": "https://github.com/yohn-jp/mottainai/issues/923"
+  },
+  "linked": {
+    "number": 923
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
