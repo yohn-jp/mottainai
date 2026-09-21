@@ -226,6 +226,82 @@ export interface ManagerSessionRecord {
   errorMessage: string | undefined;
 }
 
+export type CanonCheckpointId = string & { readonly __brand: "CanonCheckpointId" };
+export type CanonCheckpointLineageKind = "independent-root" | "fork";
+export type CanonCheckpointState = "current" | "stale";
+
+/** JSON facts carried by a durable Canon freshness boundary. */
+export type CanonCheckpointJsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | CanonCheckpointJsonValue[]
+  | { [key: string]: CanonCheckpointJsonValue };
+
+/**
+ * Freshness is intentionally persisted as the exact bounded input projection
+ * supplied by the Canon authority. The five required bindings prevent a
+ * checkpoint from being detached from the repository/task/base/source and
+ * artifact generation it claims to describe.
+ */
+export interface CanonCheckpointFreshnessInputs {
+  repository: CanonCheckpointJsonValue;
+  task: CanonCheckpointJsonValue;
+  base: CanonCheckpointJsonValue;
+  source: CanonCheckpointJsonValue;
+  artifactGeneration: CanonCheckpointJsonValue;
+  [key: string]: CanonCheckpointJsonValue;
+}
+
+export interface CanonCheckpointRecord {
+  checkpointId: CanonCheckpointId;
+  canonContractId: string;
+  canonSchemaVersion: number;
+  prefix_id: string;
+  parentCheckpointId: CanonCheckpointId | undefined;
+  lineageKind: CanonCheckpointLineageKind;
+  freshness: CanonCheckpointFreshnessInputs;
+  execution_state_id: string | undefined;
+  attachmentGeneration: number | undefined;
+  agentId: string | undefined;
+  modelId: string | undefined;
+  profile: string | undefined;
+  state: CanonCheckpointState;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface RecordCanonCheckpointInput {
+  checkpointId?: CanonCheckpointId | string;
+  canonContractId?: string;
+  canonSchemaVersion: number;
+  prefix_id: string;
+  parentCheckpointId?: CanonCheckpointId | string;
+  lineageKind: CanonCheckpointLineageKind;
+  freshness: CanonCheckpointFreshnessInputs;
+  execution_state_id?: string;
+  attachmentGeneration?: number;
+  agentId?: string;
+  modelId?: string;
+  profile?: string;
+  recordedAt?: number;
+}
+
+export interface ReconcileCanonCheckpointInput {
+  checkpointId: CanonCheckpointId;
+  freshness: CanonCheckpointFreshnessInputs;
+  reconciledAt?: number;
+}
+
+export interface ListCanonCheckpointsOptions {
+  prefix_id?: string;
+  parentCheckpointId?: CanonCheckpointId;
+  lineageKind?: CanonCheckpointLineageKind;
+  state?: CanonCheckpointState;
+  limit?: number;
+}
+
 export interface CreateManagerSessionInput {
   sessionId: ManagerSessionId;
   runtimeId?: ManagerRuntimeId;
@@ -979,6 +1055,14 @@ export interface WorkflowStateStore {
   updateManagerSession(sessionId: ManagerSessionId, input: UpdateManagerSessionInput): ManagerSessionRecord;
   /** Persist only runtime observation freshness; reconciliation state remains untouched. */
   checkpointManagerSessionRuntimeObservedAt(sessionId: ManagerSessionId, observedAt: number): ManagerSessionRecord;
+  /** Persist one versioned Canon root/fork checkpoint without owning physical execution resources. */
+  recordCanonCheckpoint(input: RecordCanonCheckpointInput): CanonCheckpointRecord;
+  getCanonCheckpoint(checkpointId: CanonCheckpointId): CanonCheckpointRecord | undefined;
+  listCanonCheckpoints(options?: ListCanonCheckpointsOptions): CanonCheckpointRecord[];
+  /** Return the deterministic root-to-leaf ancestry, failing closed on missing/corrupt parents. */
+  listCanonCheckpointAncestry(checkpointId: CanonCheckpointId): CanonCheckpointRecord[];
+  /** Reconcile currentness against fresh bounded bindings; stale state never becomes current implicitly. */
+  reconcileCanonCheckpoint(input: ReconcileCanonCheckpointInput): CanonCheckpointRecord;
   /** `reserved`/`mutating`/`verifying` の期限切れを reconciliation が検出するための全件参照。 */
   listCleanupLeases(instanceId?: RepositoryInstanceId): CleanupLeaseRecord[];
   getCleanupLease(operationId: string): CleanupLeaseRecord | undefined;
