@@ -302,6 +302,76 @@ export interface ListCanonCheckpointsOptions {
   limit?: number;
 }
 
+export type CanonForkLaunchState = "planned" | "attached" | "launched" | "failed";
+
+/** Durable control-plane state for one physical Canon fork launch. */
+export interface CanonForkLaunchRecord {
+  forkId: string;
+  workspaceRoot: string;
+  idempotencyKey: string | undefined;
+  parentCheckpointId: CanonCheckpointId;
+  childCheckpointId: CanonCheckpointId;
+  plannedManagerSessionId: ManagerSessionId;
+  prefix_id: string;
+  freshness: CanonCheckpointFreshnessInputs;
+  branchName: string;
+  base: string;
+  runtimeName: string;
+  instruction: string;
+  agentId: string;
+  modelId: string | undefined;
+  profile: ManagerAgentKind;
+  launchCommand: string;
+  launchArgs: string[];
+  nawabariSessionId: string | undefined;
+  worktreePath: string | undefined;
+  execution_state_id: string | undefined;
+  attachmentGeneration: number | undefined;
+  managerSessionId: ManagerSessionId | undefined;
+  state: CanonForkLaunchState;
+  detail: string | undefined;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface PlanCanonForkLaunchInput {
+  forkId: string;
+  workspaceRoot: string;
+  idempotencyKey?: string;
+  parentCheckpointId: CanonCheckpointId;
+  childCheckpointId: CanonCheckpointId;
+  plannedManagerSessionId: ManagerSessionId;
+  prefix_id: string;
+  freshness: CanonCheckpointFreshnessInputs;
+  branchName: string;
+  base: string;
+  runtimeName: string;
+  instruction: string;
+  agentId: string;
+  modelId?: string;
+  profile: ManagerAgentKind;
+  launchCommand: string;
+  launchArgs: readonly string[];
+  plannedAt?: number;
+}
+
+export interface AttachCanonForkLaunchInput {
+  forkId: string;
+  nawabariSessionId: string;
+  worktreePath: string;
+  execution_state_id: string;
+  attachmentGeneration: number;
+  attachedAt?: number;
+}
+
+export interface ListCanonForkLaunchesOptions {
+  workspaceRoot?: string;
+  state?: CanonForkLaunchState;
+  parentCheckpointId?: CanonCheckpointId;
+  idempotencyKey?: string;
+  limit?: number;
+}
+
 export interface CreateManagerSessionInput {
   sessionId: ManagerSessionId;
   runtimeId?: ManagerRuntimeId;
@@ -1063,6 +1133,13 @@ export interface WorkflowStateStore {
   listCanonCheckpointAncestry(checkpointId: CanonCheckpointId): CanonCheckpointRecord[];
   /** Reconcile currentness against fresh bounded bindings; stale state never becomes current implicitly. */
   reconcileCanonCheckpoint(input: ReconcileCanonCheckpointInput): CanonCheckpointRecord;
+  /** Persist/reconcile the physical fork-launch control plane around external effects. */
+  planCanonForkLaunch(input: PlanCanonForkLaunchInput): CanonForkLaunchRecord;
+  getCanonForkLaunch(forkId: string): CanonForkLaunchRecord | undefined;
+  listCanonForkLaunches(options?: ListCanonForkLaunchesOptions): CanonForkLaunchRecord[];
+  attachCanonForkLaunch(input: AttachCanonForkLaunchInput): CanonForkLaunchRecord;
+  launchCanonForkLaunch(forkId: string, managerSessionId: ManagerSessionId, launchedAt?: number): CanonForkLaunchRecord;
+  failCanonForkLaunch(forkId: string, detail: string, failedAt?: number): CanonForkLaunchRecord;
   /** `reserved`/`mutating`/`verifying` の期限切れを reconciliation が検出するための全件参照。 */
   listCleanupLeases(instanceId?: RepositoryInstanceId): CleanupLeaseRecord[];
   getCleanupLease(operationId: string): CleanupLeaseRecord | undefined;

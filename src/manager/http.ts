@@ -4,6 +4,7 @@ import { MANAGER_API_PREFIX, type ManagerHttpHandler } from "../dashboard/http.j
 import {
   ManagerError,
   ManagerSessionService,
+  type ManagerForkLaunchInput,
   type ManagerSessionFilter,
   type NewManagerSessionInput,
 } from "./service.js";
@@ -123,6 +124,24 @@ function inputFromBody(value: unknown): NewManagerSessionInput {
   };
 }
 
+function forkInputFromBody(value: unknown): ManagerForkLaunchInput {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new ManagerError("invalid_request", "request body must be an object", 400);
+  }
+  const body = value as Record<string, unknown>;
+  if (typeof body.checkpointId !== "string" || body.checkpointId.length === 0)
+    throw new ManagerError("invalid_request", "checkpointId is required", 400);
+  if (typeof body.freshness !== "object" || body.freshness === null || Array.isArray(body.freshness))
+    throw new ManagerError("invalid_request", "freshness is required", 400);
+  return {
+    ...inputFromBody(value),
+    checkpointId: body.checkpointId,
+    freshness: body.freshness as ManagerForkLaunchInput["freshness"],
+    ...(body.branchName === undefined ? {} : { branchName: body.branchName as string }),
+    ...(body.base === undefined ? {} : { base: body.base as string }),
+  };
+}
+
 function normalizeAgentAliasValue(value: string): string {
   return value === "claude-code" ? "claude" : value;
 }
@@ -229,6 +248,7 @@ type ManagerRouteName =
   | "runtimes"
   | "runtime"
   | "sessions"
+  | "fork"
   | "sessions-preview"
   | "sessions-preflight"
   | "preview"
@@ -253,6 +273,7 @@ const MANAGER_ROUTES: readonly ManagerRouteDefinition[] = [
   { name: "runtimes", path: ["runtimes"], methods: ["GET"] },
   { name: "runtime", path: ["runtimes", ":runtimeId"], methods: ["GET"] },
   { name: "sessions", path: ["sessions"], methods: ["GET", "POST"] },
+  { name: "fork", path: ["fork"], methods: ["POST"] },
   // Keep static session aliases ahead of the dynamic session detail route.
   { name: "sessions-preview", path: ["sessions", "preview"], methods: ["POST"] },
   { name: "sessions-preflight", path: ["sessions", "preflight"], methods: ["POST"] },
@@ -340,6 +361,14 @@ export class ManagerHttpApi implements ManagerHttpHandler {
           requireJsonContentType(request);
           sendJson(response, 201, {
             session: this.service.projectSession(await this.service.start(inputFromBody(await readJsonBody(request)))),
+          });
+          return;
+        case "fork":
+          requireJsonContentType(request);
+          sendJson(response, 201, {
+            session: this.service.projectSession(
+              await this.service.fork(forkInputFromBody(await readJsonBody(request))),
+            ),
           });
           return;
         case "sessions-preview":

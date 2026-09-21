@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runProgram } from "../subprocess.js";
-import { NawabariExecutionClient, NawabariExecutionError } from "../workflow/nawabari.js";
+import { NawabariExecutionClient, NawabariExecutionError, type NawabariSession } from "../workflow/nawabari.js";
 import { buildWorktreeNaming, WorktreeNamingError } from "../workflow/git/worktree.js";
 import { validateBranchNameAgainstGovernance } from "../workflow/governance/branch.js";
 import { resolveRepoState } from "../workflow/domain/repo-state.js";
@@ -20,6 +20,8 @@ import type {
   CommitReconciliationState,
   CanonCheckpointId,
   CanonCheckpointRecord,
+  CanonCheckpointFreshnessInputs,
+  CanonForkLaunchRecord,
   ListCanonCheckpointsOptions,
   RecordCanonCheckpointInput,
   ReconcileCanonCheckpointInput,
@@ -44,6 +46,7 @@ import { isContinuableLifecycleState } from "../workflow/domain/lifecycle.js";
 import type { LifecycleState } from "../workflow/domain/lifecycle.js";
 import { validateIssueRef, validateTaskSlug } from "../workflow/commands/validate.js";
 import { PI_GUARD_ASSET_MARKER } from "./pi-guard.js";
+import { executionStateIdentityOf } from "../canon/identity.js";
 import {
   createNawabariManagerExecutionAuthority,
   createManagerFallbackSemanticExecutionPlan,
@@ -119,6 +122,19 @@ export function selectControllingManagerSession(
 
 function boundedStatus(value: string): string {
   return value.slice(0, MAX_STATUS_LENGTH);
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean")
+    return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
+      .join(",")}}`;
+  }
+  throw invalid("Canon freshness is invalid");
 }
 
 function validateRuntimeIdentity(value: unknown): ManagerRuntimeId {
@@ -206,6 +222,27 @@ export interface NewManagerSessionInput {
   /** Compatibility transport alias for scope.paths. */
   paths?: readonly string[];
   /** Compatibility transport alias for scope.claims. */
+  claims?: readonly ManagerResourceClaim[];
+}
+
+export interface ManagerForkLaunchInput {
+  checkpointId: CanonCheckpointId | string;
+  /** Exact Canon freshness projection observed by the caller. */
+  freshness: CanonCheckpointFreshnessInputs;
+  instruction: string;
+  agentKind?: string;
+  launchProfile?: string;
+  provider?: string;
+  model?: string;
+  /** Existing governed naming inputs; branchName may be supplied by a trusted caller. */
+  branchName?: string;
+  base?: string;
+  taskSlug?: string;
+  issueRef?: string;
+  branchType?: string;
+  idempotencyKey?: string;
+  scope?: ManagerResourceScope;
+  paths?: readonly string[];
   claims?: readonly ManagerResourceClaim[];
 }
 
@@ -1431,6 +1468,7 @@ export class ManagerSessionService {
         lastSeenAt: Date.now(),
       });
       await this.reconcile();
+      await this.reconcileForkLaunches();
       return this.health();
     } catch (error) {
       if (this.managerRuntime !== undefined) {
@@ -1586,6 +1624,321 @@ export class ManagerSessionService {
 
   reconcileCanonCheckpoint(input: ReconcileCanonCheckpointInput): CanonCheckpointRecord {
     return this.options.store.reconcileCanonCheckpoint(input);
+  }
+
+  listCanonForkLaunches(): CanonForkLaunchRecord[] {
+    return this.options.store.listCanonForkLaunches({ workspaceRoot: this.options.workspaceRoot });
+  }
+
+  private assertForkParentCurrent(fork: CanonForkLaunchRecord): CanonCheckpointRecord {
+    const parent = this.options.store.getCanonCheckpoint(fork.parentCheckpointId);
+    if (parent === undefined)
+      throw new ManagerError("task_start_failed", "Canon fork parent checkpoint is missing", 409);
+    if (parent.state !== "current")
+      throw new ManagerError("task_start_failed", "Canon fork parent checkpoint is stale", 409);
+    if (parent.prefix_id !== fork.prefix_id)
+      throw new ManagerError("task_start_failed", "Canon fork parent prefix_id no longer matches", 409);
+    if (canonicalJson(parent.freshness) !== canonicalJson(fork.freshness))
+      throw new ManagerError("task_start_failed", "Canon fork parent freshness no longer matches", 409);
+    return parent;
+  }
+
+  private async findForkNawabariSession(fork: CanonForkLaunchRecord): Promise<NawabariSession | undefined> {
+    const sessions = await this.options.nawabari.listSessions(this.options.workspaceRoot);
+    const matches = sessions.filter((session) => session.branch === fork.branchName);
+    if (matches.length > 1)
+      throw new ManagerError("task_start_failed", "Nawabari returned duplicate fork branches", 409);
+    return matches[0];
+  }
+
+  private async ensureForkClaims(fork: CanonForkLaunchRecord, session: NawabariSession): Promise<void> {
+    const claims = await this.options.nawabari.listClaims({ cwd: session.worktree, sessionId: session.sessionId });
+    if (claims.length > 0) return;
+    this.assertForkParentCurrent(fork);
+    await this.options.nawabari.claimSession({
+      cwd: session.worktree,
+      sessionId: session.sessionId,
+      claims: createManagerFallbackSemanticExecutionPlan().claims,
+    });
+  }
+
+  private async persistForkAttachment(
+    fork: CanonForkLaunchRecord,
+    session: NawabariSession,
+  ): Promise<CanonForkLaunchRecord> {
+    if (session.state !== "active")
+      throw new ManagerError("task_start_failed", "Nawabari fork attachment is not active", 409);
+    if (session.branch !== fork.branchName)
+      throw new ManagerError("task_start_failed", "Nawabari fork attachment branch mismatched persisted identity", 409);
+    const parent = this.assertForkParentCurrent(fork);
+    const attachmentGeneration = fork.attachmentGeneration ?? (parent.attachmentGeneration ?? 0) + 1;
+    const attachment = {
+      generation: attachmentGeneration,
+      sessionId: session.sessionId,
+      worktreeId: session.worktree,
+      branchName: session.branch,
+      agentId: fork.agentId,
+      ...(fork.modelId === undefined ? {} : { modelId: fork.modelId }),
+    };
+    const execution_state_id = executionStateIdentityOf(fork.prefix_id, attachment);
+    const child = this.options.store.getCanonCheckpoint(fork.childCheckpointId);
+    if (child === undefined) {
+      this.options.store.recordCanonCheckpoint({
+        checkpointId: fork.childCheckpointId,
+        canonContractId: parent.canonContractId,
+        canonSchemaVersion: parent.canonSchemaVersion,
+        prefix_id: fork.prefix_id,
+        parentCheckpointId: fork.parentCheckpointId,
+        lineageKind: "fork",
+        freshness: fork.freshness,
+        execution_state_id,
+        attachmentGeneration,
+        agentId: fork.agentId,
+        modelId: fork.modelId,
+        profile: fork.profile,
+      });
+    } else if (child.execution_state_id !== execution_state_id || child.prefix_id !== fork.prefix_id) {
+      throw new ManagerError("task_start_failed", "Canon fork child attachment identity mismatch", 409);
+    }
+    const attached = this.options.store.attachCanonForkLaunch({
+      forkId: fork.forkId,
+      nawabariSessionId: session.sessionId,
+      worktreePath: session.worktree,
+      execution_state_id,
+      attachmentGeneration,
+    });
+    await this.ensureForkClaims(fork, session);
+    return attached;
+  }
+
+  private createForkManagerSession(fork: CanonForkLaunchRecord, session: NawabariSession): ManagerSessionRecord {
+    const existing = this.options.store.getManagerSession(fork.plannedManagerSessionId);
+    if (existing !== undefined) return existing;
+    return this.options.store.createManagerSession({
+      sessionId: fork.plannedManagerSessionId,
+      runtimeId: this.runtimeConfiguration.runtimeId,
+      workspaceRoot: this.options.workspaceRoot,
+      idempotencyKey: fork.idempotencyKey,
+      executionSessionId: session.sessionId,
+      executionMode: "workspace",
+      worktreePath: session.worktree,
+      branchName: session.branch,
+      agentKind: fork.profile,
+      launchProfile: fork.profile,
+      instruction: fork.instruction,
+      model: fork.modelId,
+      launchCommand: fork.launchCommand,
+      launchArgs: fork.launchArgs,
+      runtimeName: fork.runtimeName,
+      lifecycleState: "starting",
+      runtimeState: "starting",
+      semanticLifecycleState: "active",
+      attachable: false,
+      reconciliationState: "synced",
+      latestStatus: "Canon fork attachment persisted; launching agent runtime",
+      latestReceipt: receipt("fork_attachment_persisted", "Canon fork attachment persisted", "workflow"),
+    });
+  }
+
+  private async launchAttachedFork(fork: CanonForkLaunchRecord): Promise<ManagerSessionRecord> {
+    if (fork.nawabariSessionId === undefined || fork.worktreePath === undefined)
+      throw new ManagerError("task_start_failed", "Canon fork attachment is incomplete", 409);
+    const inspected = await this.options.nawabari.inspectSession({
+      cwd: fork.worktreePath,
+      sessionId: fork.nawabariSessionId,
+    });
+    if (
+      inspected.sessionId !== fork.nawabariSessionId ||
+      inspected.worktree !== fork.worktreePath ||
+      inspected.branch !== fork.branchName
+    )
+      throw new ManagerError(
+        "task_start_failed",
+        "Nawabari fork attachment evidence mismatched persisted identity",
+        409,
+      );
+    if (inspected.state !== "active")
+      throw new ManagerError("task_start_failed", "Nawabari fork attachment is no longer active", 409);
+    let observed = await this.options.runtime.inspect(fork.runtimeName, fork.worktreePath);
+    if (observed === "absent") {
+      const session = this.createForkManagerSession(fork, inspected);
+      try {
+        this.assertForkParentCurrent(fork);
+        await this.options.runtime.start({
+          sessionName: fork.runtimeName,
+          cwd: fork.worktreePath,
+          command: fork.launchCommand,
+          args: fork.launchArgs,
+        });
+        this.options.store.updateManagerSession(session.sessionId, {
+          lifecycleState: "running",
+          runtimeState: "running",
+          attachable: true,
+          reconciliationState: "synced",
+          latestStatus: fork.profile + " runtime started in Canon fork attachment",
+          latestReceipt: receipt("fork_runtime_started", fork.profile + " runtime started", "runtime"),
+          terminationState: "running",
+          runtimeObservedAt: Date.now(),
+        });
+        observed = "running";
+      } catch (error) {
+        const failure = managerError(error);
+        this.options.store.updateManagerSession(session.sessionId, {
+          lifecycleState: "failed",
+          runtimeState: "failed",
+          attachable: false,
+          reconciliationState: "drifted",
+          reconciliationMessage: failure.message,
+          latestStatus: failure.message,
+          latestReceipt: receipt("fork_runtime_start_failed", failure.message, "zellij"),
+          terminationState: "failed",
+          errorMessage: failure.message,
+          finishedAt: Date.now(),
+        });
+        throw failure;
+      }
+    }
+    if (observed !== "running" && observed !== "detached")
+      throw new ManagerError("task_start_failed", "Zellij fork runtime is not running", 409);
+    const managerSession = this.options.store.getManagerSession(fork.plannedManagerSessionId);
+    if (managerSession === undefined)
+      throw new ManagerError("task_start_failed", "fork Manager session is missing", 409);
+    if (fork.state !== "launched" || fork.managerSessionId !== managerSession.sessionId)
+      this.options.store.launchCanonForkLaunch(fork.forkId, managerSession.sessionId);
+    return this.options.store.getManagerSession(managerSession.sessionId)!;
+  }
+
+  private async resumeForkLaunch(fork: CanonForkLaunchRecord): Promise<ManagerSessionRecord> {
+    if (fork.state === "failed")
+      throw new ManagerError("task_start_failed", fork.detail ?? "Canon fork launch failed", 409);
+    if (fork.state === "launched") {
+      const existing = this.options.store.getManagerSession(fork.plannedManagerSessionId);
+      if (existing !== undefined) return existing;
+    }
+    let session: NawabariSession | undefined;
+    try {
+      session = await this.findForkNawabariSession(fork);
+    } catch (error) {
+      const detail = boundedStatus(error instanceof Error ? error.message : String(error));
+      throw new ManagerError("task_start_failed", detail, 409);
+    }
+    let createdSession = false;
+    if (session === undefined) {
+      // The exact parent check is repeated after durable planning and immediately before
+      // crossing Nawabari's production boundary.
+      this.assertForkParentCurrent(fork);
+      try {
+        session = await this.options.nawabari.createSession({
+          cwd: this.options.workspaceRoot,
+          branch: fork.branchName,
+          base: fork.base,
+          label: "mottainai-canon-fork-" + fork.forkId.slice(0, 8),
+        });
+        createdSession = true;
+      } catch (error) {
+        const detail = boundedStatus(error instanceof Error ? error.message : String(error));
+        this.options.store.failCanonForkLaunch(fork.forkId, detail);
+        throw new ManagerError("task_start_failed", detail, 409);
+      }
+    }
+    try {
+      const attached = fork.state === "planned" ? await this.persistForkAttachment(fork, session) : fork;
+      return await this.launchAttachedFork(attached);
+    } catch (error) {
+      const detail = boundedStatus(error instanceof Error ? error.message : String(error));
+      if (createdSession && session !== undefined) {
+        await this.options.nawabari
+          .closeSession({ cwd: session.worktree, sessionId: session.sessionId })
+          .catch(() => undefined);
+      }
+      try {
+        this.options.store.failCanonForkLaunch(fork.forkId, detail);
+      } catch {
+        // A persistence failure remains fail-closed; restart reconciliation will inspect Nawabari evidence.
+      }
+      throw error instanceof ManagerError ? error : new ManagerError("task_start_failed", detail, 409);
+    }
+  }
+
+  async fork(input: ManagerForkLaunchInput): Promise<ManagerSessionRecord> {
+    const checkpointId = input.checkpointId as CanonCheckpointId;
+    const parent = this.options.store.getCanonCheckpoint(checkpointId);
+    if (parent === undefined)
+      throw new ManagerError("session_not_found", "Canon fork parent checkpoint was not found", 404);
+    if (parent.state !== "current")
+      throw new ManagerError("task_start_failed", "Canon fork parent checkpoint is stale", 409);
+    if (canonicalJson(parent.freshness) !== canonicalJson(input.freshness))
+      throw new ManagerError("task_start_failed", "Canon fork parent freshness does not match", 409);
+    const normalized = normalizeManagerSessionInput({
+      instruction: input.instruction,
+      ...(input.agentKind === undefined ? {} : { agentKind: input.agentKind }),
+      ...(input.launchProfile === undefined ? {} : { launchProfile: input.launchProfile }),
+      ...(input.provider === undefined ? {} : { provider: input.provider }),
+      ...(input.model === undefined ? {} : { model: input.model }),
+      taskSlug: input.taskSlug ?? "canon-fork",
+      ...(input.issueRef === undefined ? {} : { issueRef: input.issueRef }),
+      ...(input.branchType === undefined ? {} : { branchType: input.branchType }),
+      ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
+      ...(input.scope === undefined ? {} : { scope: input.scope }),
+      ...(input.paths === undefined ? {} : { paths: input.paths }),
+      ...(input.claims === undefined ? {} : { claims: input.claims }),
+    });
+    if (this.zellijVersion === undefined) await this.initialize();
+    const existing =
+      input.idempotencyKey === undefined
+        ? undefined
+        : this.options.store.listCanonForkLaunches({
+            workspaceRoot: this.options.workspaceRoot,
+            idempotencyKey: input.idempotencyKey,
+          })[0];
+    if (existing !== undefined) return this.resumeForkLaunch(existing);
+    const forkId = crypto.randomUUID();
+    const managerSessionId = crypto.randomUUID() as ManagerSessionId;
+    const childCheckpointId = ("canon-fork-" + forkId) as CanonCheckpointId;
+    const base =
+      input.base ?? (await readGitValue(this.options.workspaceRoot, ["symbolic-ref", "--short", "HEAD"])) ?? "HEAD";
+    const branchBase =
+      input.branchName ??
+      buildWorktreeNaming({
+        branchType: normalized.branchType,
+        issueRef: normalized.issueRef ?? "unlinked",
+        taskSlug: normalized.taskSlug ?? "canon-fork",
+      }).branchName;
+    const generatedBranch = branchBase + "-fork-" + forkId.slice(0, 8);
+    const branchValidation = await validateBranchNameAgainstGovernance(generatedBranch, this.options.workspaceRoot);
+    if (!branchValidation.ok) throw new ManagerError("task_start_failed", branchValidation.detail, 409);
+    const piGuardPath = normalized.agentKind === "pi" ? configuredPiGuardPath(this.options.piGuardPath) : undefined;
+    const invocation = buildManagerLaunchInvocation({
+      agentKind: normalized.agentKind,
+      provider: normalized.provider,
+      model: normalized.model,
+      instruction: normalized.instruction,
+      piGuardPath,
+      commands: {
+        ...(this.options.agentCommands ?? {}),
+        ...(this.options.agentCommand === undefined ? {} : { codex: this.options.agentCommand }),
+      },
+    });
+    const fork = this.options.store.planCanonForkLaunch({
+      forkId,
+      workspaceRoot: this.options.workspaceRoot,
+      idempotencyKey: normalized.idempotencyKey,
+      parentCheckpointId: checkpointId,
+      childCheckpointId,
+      plannedManagerSessionId: managerSessionId,
+      prefix_id: parent.prefix_id,
+      freshness: input.freshness,
+      branchName: generatedBranch,
+      base,
+      runtimeName: deriveZellijSessionName(managerSessionId),
+      instruction: normalized.instruction,
+      agentId: normalized.agentKind,
+      modelId: normalized.model,
+      profile: normalized.agentKind,
+      launchCommand: invocation.command,
+      launchArgs: invocation.args,
+    });
+    return this.resumeForkLaunch(fork);
   }
 
   /** Read-only inspection of a Nawabari owner surfaced by claim preflight. */
@@ -2174,6 +2527,42 @@ export class ManagerSessionService {
   async reconcileNow(): Promise<ManagerSessionRecord[]> {
     await this.reconcile();
     return this.projectSessions(this.loadControlPlaneSessions(), {});
+  }
+
+  private async reconcileForkLaunches(): Promise<void> {
+    const launches = this.options.store.listCanonForkLaunches({ workspaceRoot: this.options.workspaceRoot });
+    for (const fork of launches) {
+      if (fork.state === "failed") continue;
+      try {
+        if (fork.state === "launched") {
+          if (fork.managerSessionId === undefined) {
+            await this.resumeForkLaunch(fork);
+            continue;
+          }
+          const observed = await this.options.runtime.inspect(fork.runtimeName, fork.worktreePath);
+          if (observed === "running" || observed === "detached") continue;
+          this.options.store.failCanonForkLaunch(
+            fork.forkId,
+            "persisted launched fork has no authoritative Zellij runtime",
+          );
+          continue;
+        }
+        const session = await this.findForkNawabariSession(fork);
+        // A planned record with no matching Nawabari evidence is safe to retry
+        // only through the explicit fork request; startup never guesses a
+        // physical mutation from incomplete evidence.
+        if (session === undefined) continue;
+        const attached = fork.state === "planned" ? await this.persistForkAttachment(fork, session) : fork;
+        await this.launchAttachedFork(attached);
+      } catch (error) {
+        const detail = boundedStatus(error instanceof Error ? error.message : String(error));
+        try {
+          this.options.store.failCanonForkLaunch(fork.forkId, detail);
+        } catch {
+          // Preserve the original reconciliation diagnostic; state remains fail-closed.
+        }
+      }
+    }
   }
 
   private requireSession(sessionId: ManagerSessionId): ManagerSessionRecord {

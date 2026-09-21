@@ -85,6 +85,11 @@ import type {
   RecordCanonCheckpointInput,
   ReconcileCanonCheckpointInput,
   ListCanonCheckpointsOptions,
+  CanonForkLaunchRecord,
+  CanonForkLaunchState,
+  ListCanonForkLaunchesOptions,
+  PlanCanonForkLaunchInput,
+  AttachCanonForkLaunchInput,
   ReserveCleanupLeaseInput,
   ReserveCleanupLeaseResult,
   TaskId,
@@ -573,6 +578,88 @@ function toCanonCheckpointRecord(row: Record<string, unknown>): CanonCheckpointR
     modelId: canonCheckpointField(row.model_id, "model_id", true),
     profile: canonCheckpointField(row.profile, "profile", true),
     state,
+    createdAt: row.created_at as number,
+    updatedAt: row.updated_at as number,
+  };
+}
+
+const CANON_FORK_LAUNCH_STATES = new Set<CanonForkLaunchState>(["planned", "attached", "launched", "failed"]);
+
+function toCanonForkLaunchRecord(row: Record<string, unknown>): CanonForkLaunchRecord {
+  const forkId = canonCheckpointField(row.fork_id, "fork_id")!;
+  const workspaceRoot = canonCheckpointField(row.workspace_root, "workspace_root")!;
+  const parentCheckpointId = canonCheckpointField(
+    row.parent_checkpoint_id,
+    "parent_checkpoint_id",
+  ) as CanonCheckpointId;
+  const childCheckpointId = canonCheckpointField(row.child_checkpoint_id, "child_checkpoint_id") as CanonCheckpointId;
+  const plannedManagerSessionId = canonCheckpointField(
+    row.planned_manager_session_id,
+    "planned_manager_session_id",
+  ) as ManagerSessionId;
+  const prefix_id = canonCheckpointField(row.prefix_id, "prefix_id")!;
+  if (!CANON_PREFIX_ID_PATTERN.test(prefix_id)) throw new Error(`Canon fork ${forkId} has an invalid prefix_id`);
+  let freshness: CanonCheckpointFreshnessInputs;
+  try {
+    freshness = canonicalCanonCheckpointFreshness(JSON.parse(String(row.freshness_json)));
+  } catch (error) {
+    throw new Error(
+      `Canon fork ${forkId} has corrupt freshness: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const branchName = canonCheckpointField(row.branch_name, "branch_name")!;
+  const base = canonCheckpointField(row.base, "base")!;
+  const runtimeName = canonCheckpointField(row.runtime_name, "runtime_name")!;
+  const instruction = canonCheckpointField(row.instruction, "instruction")!;
+  const agentId = canonCheckpointField(row.agent_id, "agent_id")!;
+  const modelId = canonCheckpointField(row.model_id, "model_id", true);
+  const profile = canonCheckpointField(row.profile, "profile")!;
+  const launchCommand = canonCheckpointField(row.launch_command, "launch_command")!;
+  let launchArgs: string[];
+  try {
+    const parsed: unknown = JSON.parse(String(row.launch_args_json ?? "[]"));
+    if (!Array.isArray(parsed) || parsed.some((value) => typeof value !== "string")) throw new Error("invalid argv");
+    launchArgs = [...parsed];
+  } catch (error) {
+    throw new Error(
+      `Canon fork ${forkId} has invalid launch args: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const state = row.state as CanonForkLaunchState;
+  if (!CANON_FORK_LAUNCH_STATES.has(state)) throw new Error(`Canon fork ${forkId} has an invalid state`);
+  const execution_state_id = canonCheckpointField(row.execution_state_id, "execution_state_id", true);
+  if (execution_state_id !== undefined && !CANON_EXECUTION_STATE_ID_PATTERN.test(execution_state_id))
+    throw new Error(`Canon fork ${forkId} has an invalid execution_state_id`);
+  const attachmentGeneration = row.attachment_generation === null ? undefined : (row.attachment_generation as number);
+  if (attachmentGeneration !== undefined && (!Number.isSafeInteger(attachmentGeneration) || attachmentGeneration <= 0))
+    throw new Error(`Canon fork ${forkId} has an invalid attachment generation`);
+  return {
+    forkId,
+    workspaceRoot,
+    idempotencyKey: canonCheckpointField(row.idempotency_key, "idempotency_key", true),
+    parentCheckpointId,
+    childCheckpointId,
+    plannedManagerSessionId,
+    prefix_id,
+    freshness,
+    branchName,
+    base,
+    runtimeName,
+    instruction,
+    agentId,
+    modelId,
+    profile: profile as CanonForkLaunchRecord["profile"],
+    launchCommand,
+    launchArgs,
+    nawabariSessionId: canonCheckpointField(row.nawabari_session_id, "nawabari_session_id", true),
+    worktreePath: canonCheckpointField(row.worktree_path, "worktree_path", true),
+    execution_state_id,
+    attachmentGeneration,
+    managerSessionId: canonCheckpointField(row.manager_session_id, "manager_session_id", true) as
+      | ManagerSessionId
+      | undefined,
+    state,
+    detail: canonCheckpointField(row.detail, "detail", true),
     createdAt: row.created_at as number,
     updatedAt: row.updated_at as number,
   };
@@ -2549,6 +2636,274 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
         db.exec("ROLLBACK");
       } catch {
         // Preserve the bounded checkpoint error.
+      }
+      throw error;
+    }
+  }
+
+  planCanonForkLaunch(input: PlanCanonForkLaunchInput): CanonForkLaunchRecord {
+    const forkId = canonCheckpointField(input.forkId, "forkId")!;
+    const workspaceRoot = canonCheckpointField(input.workspaceRoot, "workspaceRoot")!;
+    const parentCheckpointId = canonCheckpointField(
+      input.parentCheckpointId,
+      "parentCheckpointId",
+    ) as CanonCheckpointId;
+    const childCheckpointId = canonCheckpointField(input.childCheckpointId, "childCheckpointId") as CanonCheckpointId;
+    const plannedManagerSessionId = canonCheckpointField(
+      input.plannedManagerSessionId,
+      "plannedManagerSessionId",
+    ) as ManagerSessionId;
+    const prefix_id = canonCheckpointField(input.prefix_id, "prefix_id")!;
+    if (!CANON_PREFIX_ID_PATTERN.test(prefix_id)) throw new Error("Canon fork prefix_id is invalid");
+    const freshness = canonicalCanonCheckpointFreshness(input.freshness);
+    const freshnessJson = canonCheckpointFreshnessJson(freshness);
+    const branchName = canonCheckpointField(input.branchName, "branchName")!;
+    const base = canonCheckpointField(input.base, "base")!;
+    const runtimeName = canonCheckpointField(input.runtimeName, "runtimeName")!;
+    const instruction = canonCheckpointField(input.instruction, "instruction")!;
+    const agentId = canonCheckpointField(input.agentId, "agentId")!;
+    const modelId = canonCheckpointField(input.modelId, "modelId", true);
+    const profile = canonCheckpointField(input.profile, "profile")!;
+    const launchCommand = canonCheckpointField(input.launchCommand, "launchCommand")!;
+    const launchArgs = input.launchArgs.map((value, index) => canonCheckpointField(value, `launchArgs[${index}]`)!);
+    const idempotencyKey = canonCheckpointField(input.idempotencyKey, "idempotencyKey", true);
+    const parent = this.getCanonCheckpoint(parentCheckpointId);
+    if (parent === undefined) throw new Error(`Canon fork parent checkpoint not found: ${parentCheckpointId}`);
+    if (parent.state !== "current") throw new Error(`Canon fork parent checkpoint is stale: ${parentCheckpointId}`);
+    if (parent.prefix_id !== prefix_id) throw new Error(`Canon fork parent prefix_id mismatch: ${parentCheckpointId}`);
+    const plannedAt = input.plannedAt ?? Date.now();
+    const db = this.handle();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const existingRow =
+        idempotencyKey === undefined
+          ? (db.prepare("SELECT * FROM canon_fork_launches WHERE fork_id = ?").get(forkId) as
+              | Record<string, unknown>
+              | undefined)
+          : (db
+              .prepare("SELECT * FROM canon_fork_launches WHERE workspace_root = ? AND idempotency_key = ?")
+              .get(workspaceRoot, idempotencyKey) as Record<string, unknown> | undefined);
+      if (existingRow !== undefined) {
+        const existing = toCanonForkLaunchRecord(existingRow);
+        const sameIdentity =
+          existing.forkId === forkId &&
+          existing.parentCheckpointId === parentCheckpointId &&
+          existing.childCheckpointId === childCheckpointId &&
+          existing.plannedManagerSessionId === plannedManagerSessionId &&
+          existing.prefix_id === prefix_id &&
+          JSON.stringify(existing.freshness) === freshnessJson &&
+          existing.branchName === branchName &&
+          existing.base === base &&
+          existing.runtimeName === runtimeName &&
+          existing.instruction === instruction &&
+          existing.agentId === agentId &&
+          existing.modelId === modelId &&
+          existing.profile === profile &&
+          existing.launchCommand === launchCommand &&
+          JSON.stringify(existing.launchArgs) === JSON.stringify(launchArgs);
+        if (!sameIdentity) throw new Error(`Canon fork launch already exists with different identity: ${forkId}`);
+        db.exec("COMMIT");
+        return existing;
+      }
+      db.prepare(
+        `INSERT INTO canon_fork_launches
+          (fork_id, workspace_root, idempotency_key, parent_checkpoint_id, child_checkpoint_id, planned_manager_session_id, prefix_id,
+           branch_name, base, runtime_name, instruction, agent_id, model_id, profile, launch_command,
+           freshness_json,
+           launch_args_json, state, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?)`,
+      ).run(
+        forkId,
+        workspaceRoot,
+        idempotencyKey ?? null,
+        parentCheckpointId,
+        childCheckpointId,
+        plannedManagerSessionId,
+        prefix_id,
+        branchName,
+        base,
+        runtimeName,
+        instruction,
+        agentId,
+        modelId ?? null,
+        profile,
+        launchCommand,
+        freshnessJson,
+        JSON.stringify(launchArgs),
+        plannedAt,
+        plannedAt,
+      );
+      const result = toCanonForkLaunchRecord(
+        db.prepare("SELECT * FROM canon_fork_launches WHERE fork_id = ?").get(forkId) as Record<string, unknown>,
+      );
+      db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // Preserve the primary persistence failure.
+      }
+      throw error;
+    }
+  }
+
+  getCanonForkLaunch(forkId: string): CanonForkLaunchRecord | undefined {
+    const id = canonCheckpointField(forkId, "forkId")!;
+    const row = this.handle().prepare("SELECT * FROM canon_fork_launches WHERE fork_id = ?").get(id) as
+      | Record<string, unknown>
+      | undefined;
+    return row === undefined ? undefined : toCanonForkLaunchRecord(row);
+  }
+
+  listCanonForkLaunches(options: ListCanonForkLaunchesOptions = {}): CanonForkLaunchRecord[] {
+    const clauses: string[] = [];
+    const parameters: Array<string | number> = [];
+    if (options.workspaceRoot !== undefined) {
+      clauses.push("workspace_root = ?");
+      parameters.push(canonCheckpointField(options.workspaceRoot, "workspaceRoot")!);
+    }
+    if (options.state !== undefined) {
+      if (!CANON_FORK_LAUNCH_STATES.has(options.state)) throw new Error("Canon fork launch state is invalid");
+      clauses.push("state = ?");
+      parameters.push(options.state);
+    }
+    if (options.parentCheckpointId !== undefined) {
+      clauses.push("parent_checkpoint_id = ?");
+      parameters.push(options.parentCheckpointId);
+    }
+    if (options.idempotencyKey !== undefined) {
+      clauses.push("idempotency_key = ?");
+      parameters.push(options.idempotencyKey);
+    }
+    const requestedLimit = options.limit;
+    const limit =
+      requestedLimit === undefined || !Number.isFinite(requestedLimit)
+        ? 500
+        : Math.min(Math.max(Math.trunc(requestedLimit), 1), 1000);
+    const where = clauses.length === 0 ? "" : ` WHERE ${clauses.join(" AND ")}`;
+    const rows = this.handle()
+      .prepare(`SELECT * FROM canon_fork_launches${where} ORDER BY created_at ASC, fork_id ASC LIMIT ?`)
+      .all(...parameters, limit) as Record<string, unknown>[];
+    return rows.map(toCanonForkLaunchRecord);
+  }
+
+  attachCanonForkLaunch(input: AttachCanonForkLaunchInput): CanonForkLaunchRecord {
+    const forkId = canonCheckpointField(input.forkId, "forkId")!;
+    const nawabariSessionId = canonCheckpointField(input.nawabariSessionId, "nawabariSessionId")!;
+    const worktreePath = canonCheckpointField(input.worktreePath, "worktreePath")!;
+    const execution_state_id = canonCheckpointField(input.execution_state_id, "execution_state_id")!;
+    if (!CANON_EXECUTION_STATE_ID_PATTERN.test(execution_state_id))
+      throw new Error("Canon fork execution_state_id is invalid");
+    if (!Number.isSafeInteger(input.attachmentGeneration) || input.attachmentGeneration <= 0)
+      throw new Error("Canon fork attachmentGeneration must be a positive integer");
+    const attachedAt = input.attachedAt ?? Date.now();
+    const db = this.handle();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const current = this.getCanonForkLaunch(forkId);
+      if (current === undefined) throw new Error(`Canon fork launch not found: ${forkId}`);
+      if (current.state === "failed") throw new Error(`Canon fork launch is failed: ${forkId}`);
+      if (current.state === "launched") {
+        if (
+          current.nawabariSessionId !== nawabariSessionId ||
+          current.worktreePath !== worktreePath ||
+          current.execution_state_id !== execution_state_id
+        )
+          throw new Error(`Canon fork launch attachment mismatch: ${forkId}`);
+        db.exec("COMMIT");
+        return current;
+      }
+      const child = this.getCanonCheckpoint(current.childCheckpointId);
+      if (child === undefined) throw new Error(`Canon fork child checkpoint is missing: ${current.childCheckpointId}`);
+      if (child.prefix_id !== current.prefix_id || child.execution_state_id !== execution_state_id)
+        throw new Error(`Canon fork child checkpoint identity mismatch: ${forkId}`);
+      db.prepare(
+        `UPDATE canon_fork_launches
+         SET nawabari_session_id = ?, worktree_path = ?, execution_state_id = ?, attachment_generation = ?,
+             state = 'attached', detail = NULL, updated_at = ?
+         WHERE fork_id = ?`,
+      ).run(nawabariSessionId, worktreePath, execution_state_id, input.attachmentGeneration, attachedAt, forkId);
+      const result = toCanonForkLaunchRecord(
+        db.prepare("SELECT * FROM canon_fork_launches WHERE fork_id = ?").get(forkId) as Record<string, unknown>,
+      );
+      db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // Preserve the primary persistence failure.
+      }
+      throw error;
+    }
+  }
+
+  launchCanonForkLaunch(
+    forkId: string,
+    managerSessionId: ManagerSessionId,
+    launchedAt?: number,
+  ): CanonForkLaunchRecord {
+    const id = canonCheckpointField(forkId, "forkId")!;
+    const managerId = canonCheckpointField(managerSessionId, "managerSessionId") as ManagerSessionId;
+    const updatedAt = launchedAt ?? Date.now();
+    const db = this.handle();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const current = this.getCanonForkLaunch(id);
+      if (current === undefined) throw new Error(`Canon fork launch not found: ${id}`);
+      if (current.state === "failed") throw new Error(`Canon fork launch is failed: ${id}`);
+      if (current.managerSessionId !== undefined && current.managerSessionId !== managerId)
+        throw new Error(`Canon fork launch manager session mismatch: ${id}`);
+      if (current.state === "planned") throw new Error(`Canon fork launch is not attached: ${id}`);
+      db.prepare(
+        `UPDATE canon_fork_launches
+         SET manager_session_id = ?, state = 'launched', detail = NULL, updated_at = ?
+         WHERE fork_id = ?`,
+      ).run(managerId, updatedAt, id);
+      const result = toCanonForkLaunchRecord(
+        db.prepare("SELECT * FROM canon_fork_launches WHERE fork_id = ?").get(id) as Record<string, unknown>,
+      );
+      db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // Preserve the primary persistence failure.
+      }
+      throw error;
+    }
+  }
+
+  failCanonForkLaunch(forkId: string, detail: string, failedAt?: number): CanonForkLaunchRecord {
+    const id = canonCheckpointField(forkId, "forkId")!;
+    const boundedDetail = canonCheckpointField(detail, "detail")!;
+    const updatedAt = failedAt ?? Date.now();
+    const db = this.handle();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const current = this.getCanonForkLaunch(id);
+      if (current === undefined) throw new Error(`Canon fork launch not found: ${id}`);
+      if (current.state === "launched") {
+        db.exec("COMMIT");
+        return current;
+      }
+      db.prepare("UPDATE canon_fork_launches SET state = 'failed', detail = ?, updated_at = ? WHERE fork_id = ?").run(
+        boundedDetail,
+        updatedAt,
+        id,
+      );
+      const result = toCanonForkLaunchRecord(
+        db.prepare("SELECT * FROM canon_fork_launches WHERE fork_id = ?").get(id) as Record<string, unknown>,
+      );
+      db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // Preserve the primary persistence failure.
       }
       throw error;
     }
