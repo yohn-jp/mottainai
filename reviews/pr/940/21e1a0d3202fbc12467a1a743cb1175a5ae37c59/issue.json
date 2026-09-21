@@ -1,0 +1,47 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Every candidate is transformed only through the single Suzukuri companion."
+    },
+    {
+      "checked": false,
+      "text": "Stable candidate/source/projection/version inputs replay to stable C3 and `prefix_id`."
+    },
+    {
+      "checked": false,
+      "text": "Source generation or meaning-affecting projection/component version change invalidates C3."
+    },
+    {
+      "checked": false,
+      "text": "Unselected unrelated source change leaves C3 unchanged."
+    },
+    {
+      "checked": false,
+      "text": "Budget/completeness/loss metadata is retained deterministically and boundedly."
+    },
+    {
+      "checked": false,
+      "text": "Unsupported/insufficient projection fails explicitly."
+    },
+    {
+      "checked": false,
+      "text": "Generic-text appears only when explicitly selected."
+    },
+    {
+      "checked": false,
+      "text": "No local or Context Runtime semantic reducer is introduced."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 926,
+    "state": "open",
+    "title": "feat(canon): project selected C3 candidates through Suzukuri into Canon",
+    "url": "https://github.com/yohn-jp/mottainai/issues/926"
+  },
+  "linked": {
+    "number": 926
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
