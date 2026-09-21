@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #941 @ d322ac3efdd4</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #941: fix: restore current-main verification baseline</h1>
+<p>Base <code>main</code> @ <code>73ca46a5eb2d2afbf3f380f68ad8a3bcfa03e9a5</code> &rarr;
+Head <code>fix/939-baseline</code> @ <code>d322ac3efdd46ac38322ce7f32e80221dbf7aa91</code></p>
+<p>Revision <code>d322ac3efdd4</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/939">#939</a> fix(ci): restore a clean current-main verification baseline (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] `architecture:check` passes on current `main` without suppressing or weakening unsafe-type-escape enforcement.</li>
+<li>[ ] Documentation governance accepts the repository tree; the README hero asset is placed/classified through the existing canonical documentation taxonomy rather than an ad-hoc allowlist.</li>
+<li>[ ] Managed-runtime tests do not depend on ambient write permission to `/var/lib/mottainai-control/managed-runtime`; production ownership semantics remain unchanged.</li>
+<li>[ ] Zellij package/e2e setup and assertions derive from one existing canonical supported-version authority and cannot silently drift.</li>
+<li>[ ] `suzukuri@0.2.2` passes the existing minimum-release-age policy naturally; no exception, age reduction, alternate registry, downgrade, or bypass is introduced.</li>
+<li>[ ] After the release-age condition is satisfied, repository-required full verification and PR CI are green from a clean environment, or any newly discovered independent baseline failure is reported and split rather than hidden.</li>
+<li>[ ] Canon/C2/C3/Manager product semantics remain unchanged except where strictly required to remove the concrete architecture violation.</li>
+<li>[ ] No Nix Runtime/Golden Path product change is included. If reproduction proves such ownership, stop that subtask and split it into a separate Issue.</li></ul>
+
+
+
+<h2>Changed files (8, +57/-43)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>docs/design/mockups/readme/mottainai-hero.webp</td><td>renamed</td><td>+?</td><td>-?</td></tr>
+<tr><td>pnpm-workspace.yaml</td><td>modified</td><td>+7</td><td>-2</td></tr>
+<tr><td>README.md</td><td>modified</td><td>+1</td><td>-1</td></tr>
+<tr><td>scripts/packed-workflow-e2e.test.mjs</td><td>modified</td><td>+10</td><td>-4</td></tr>
+<tr><td>src/bootstrap/cli.test.ts</td><td>modified</td><td>+17</td><td>-28</td></tr>
+<tr><td>src/manager/zellij.test.ts</td><td>modified</td><td>+8</td><td>-0</td></tr>
+<tr><td>src/manager/zellij.ts</td><td>modified</td><td>+7</td><td>-1</td></tr>
+<tr><td>src/suzukuri.ts</td><td>modified</td><td>+7</td><td>-7</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
