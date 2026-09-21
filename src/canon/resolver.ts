@@ -7,11 +7,6 @@ import {
   type CanonExecutionAttachment,
   type CanonPrefix,
 } from "./identity.js";
-import {
-  NawabariExecutionError,
-  type NawabariExecutionClient,
-  type NawabariRepositoryEvidence,
-} from "../workflow/nawabari.js";
 import type { TaskId, TaskRecord, WorkflowStateStore } from "../workflow/state/store.js";
 
 const MAX_DIAGNOSTIC_LENGTH = 512;
@@ -65,7 +60,29 @@ export type CanonResolutionResult = CanonResolutionSuccess | CanonResolutionFail
 export interface ResolveCanonInput {
   readonly store: WorkflowStateStore;
   readonly taskId: TaskId;
-  readonly nawabari: NawabariExecutionClient;
+  readonly nawabari: CanonRepositoryEvidenceReader;
+}
+
+/**
+ * Read-only evidence boundary supplied by the workflow execution authority.
+ * Canon consumes only this narrow contract and never imports Nawabari itself.
+ */
+export interface CanonRepositoryEvidenceReader {
+  repositoryEvidence(input: { cwd: string; sessionId: string }): Promise<CanonRepositoryEvidence>;
+}
+
+export interface CanonRepositoryEvidence {
+  readonly repository: string;
+  readonly worktree: string;
+  readonly branch: string;
+  readonly sessionId: string;
+  readonly sessionState: string;
+  readonly baseRevision: string | null;
+  readonly baseRevisionProven: boolean;
+  readonly complete: boolean;
+  readonly incompleteReasons: readonly string[];
+  readonly evidenceHash: string;
+  readonly raw: Readonly<Record<string, unknown>>;
 }
 
 function boundedMessage(value: unknown): string {
@@ -103,7 +120,7 @@ function sameRepository(left: string, right: string): boolean {
   return left.replace(/[\\/]+$/u, "") === right.replace(/[\\/]+$/u, "");
 }
 
-function generationFromEvidence(evidence: NawabariRepositoryEvidence): {
+function generationFromEvidence(evidence: CanonRepositoryEvidence): {
   value: number;
   source: "nawabari" | "initial-attachment";
 } {
@@ -169,7 +186,7 @@ export async function resolveCanon(input: ResolveCanonInput): Promise<CanonResol
   const source = input.store.getRepositorySource(instance.sourceId);
   if (source === undefined) return failure(input.taskId, "repository-fact-missing", "repository source is missing");
 
-  let evidence: NawabariRepositoryEvidence;
+  let evidence: CanonRepositoryEvidence;
   try {
     evidence = await input.nawabari.repositoryEvidence({
       cwd: paths[0]!.canonicalPath,
@@ -177,9 +194,9 @@ export async function resolveCanon(input: ResolveCanonInput): Promise<CanonResol
     });
   } catch (error) {
     const code =
-      error instanceof NawabariExecutionError && error.code === "nawabari-incompatible"
+      typeof error === "object" && error !== null && "code" in error && error.code === "nawabari-incompatible"
         ? "nawabari-incompatible"
-        : error instanceof NawabariExecutionError && error.code === "nawabari-contract-invalid"
+        : typeof error === "object" && error !== null && "code" in error && error.code === "nawabari-contract-invalid"
           ? "nawabari-evidence-invalid"
           : "nawabari-evidence-unavailable";
     return failure(input.taskId, code, boundedMessage(error));
