@@ -79,6 +79,12 @@ type FakeSessionClaimFailure = {
   details?: Record<string, unknown>;
 };
 
+type FakeSessionCreateFailure = {
+  code?: string;
+  message?: string;
+  details?: Record<string, unknown>;
+};
+
 /**
  * `nawabari` CLIを模したfake runner。#203以降Nawabariが管理worktreeの唯一の物理権限に
  * なったため、check/write系integrationテストが共通で必要とするsession create/show/claim等
@@ -93,7 +99,9 @@ export function fakeNawabari(
     claims?: Map<string, Record<string, unknown>[]>;
     currentSessionId?: string;
     failSessionList?: boolean;
+    failSessionCreate?: boolean | FakeSessionCreateFailure;
     failSessionClaim?: boolean | FakeSessionClaimFailure;
+    afterSessionCreate?: (session: Record<string, unknown>) => void;
     beforeSessionClose?: () => void;
     /** Advertise the Nawabari #160/#161 close-fetch contract in `capabilities`. */
     supportsCloseFetch?: boolean;
@@ -128,6 +136,20 @@ export function fakeNawabari(
               })
             : runResult(JSON.stringify({ ok: true, command: "session id", session_id: options.currentSessionId }));
         if (args[0] === "session" && args[1] === "create") {
+          if (options.failSessionCreate) {
+            const failure = typeof options.failSessionCreate === "object" ? options.failSessionCreate : undefined;
+            return runResult(
+              JSON.stringify({
+                ok: false,
+                command: "session create",
+                code: failure?.code ?? "CREATE_FAILED",
+                message: failure?.message ?? "injected",
+                ...(failure?.details === undefined ? {} : { details: failure.details }),
+              }),
+              "",
+              { exitCode: 3 },
+            );
+          }
           const sessionId = fakeSessionId(++sequence);
           const branch = args[args.indexOf("--branch") + 1]!;
           const labelIndex = args.indexOf("--label");
@@ -144,6 +166,7 @@ export function fakeNawabari(
           };
           sessions.set(sessionId, session);
           claims.set(sessionId, []);
+          options.afterSessionCreate?.(session);
           return runResult(JSON.stringify(session));
         }
         if (args[0] === "session" && args[1] === "list") {

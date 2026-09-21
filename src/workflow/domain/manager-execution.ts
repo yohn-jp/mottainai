@@ -154,6 +154,7 @@ export function createNawabariManagerExecutionAuthority(
         if (
           boundWorkspaceRoot !== undefined &&
           context.taskId === undefined &&
+          context.executionSessionId === undefined &&
           path.resolve(context.worktreePath) !== path.resolve(boundWorkspaceRoot)
         ) {
           return {

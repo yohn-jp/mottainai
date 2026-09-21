@@ -879,6 +879,49 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 27,
+    description: "manager: durable Canon fork-launch reconciliation",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE canon_fork_launches (
+          fork_id TEXT PRIMARY KEY,
+          workspace_root TEXT NOT NULL,
+          idempotency_key TEXT,
+          parent_checkpoint_id TEXT NOT NULL REFERENCES canon_checkpoints (checkpoint_id),
+          child_checkpoint_id TEXT NOT NULL,
+          planned_manager_session_id TEXT NOT NULL,
+          prefix_id TEXT NOT NULL,
+          freshness_json TEXT NOT NULL,
+          branch_name TEXT NOT NULL,
+          base TEXT NOT NULL,
+          runtime_name TEXT NOT NULL,
+          instruction TEXT NOT NULL,
+          agent_id TEXT NOT NULL,
+          model_id TEXT,
+          profile TEXT NOT NULL,
+          launch_command TEXT NOT NULL,
+          launch_args_json TEXT NOT NULL,
+          nawabari_session_id TEXT,
+          worktree_path TEXT,
+          execution_state_id TEXT,
+          attachment_generation INTEGER,
+          manager_session_id TEXT,
+          state TEXT NOT NULL CHECK (state IN ('planned', 'attached', 'launched', 'failed')),
+          detail TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE (workspace_root, idempotency_key)
+        );
+        CREATE INDEX idx_canon_fork_launches_workspace
+          ON canon_fork_launches (workspace_root, state, updated_at DESC, fork_id ASC);
+        CREATE INDEX idx_canon_fork_launches_parent
+          ON canon_fork_launches (parent_checkpoint_id, created_at ASC, fork_id ASC);
+        CREATE INDEX idx_canon_fork_launches_branch
+          ON canon_fork_launches (workspace_root, branch_name, state);
+      `);
+    },
+  },
 ];
 
 function appliedVersions(db: DatabaseSync): Set<number> {
