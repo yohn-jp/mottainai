@@ -367,6 +367,28 @@ test("public CLI task status --task-id fails closed for an unknown task id with 
   }
 });
 
+test("public CLI canon --task-id fails closed from an unrelated cwd without task fallback (Issue #921)", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-canon-task-id-"));
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ["--import", "tsx", entryPoint, "canon", "--task-id", "not-a-real-task-id", "--json"],
+      {
+        cwd: path.resolve(path.dirname(entryPoint), ".."),
+        env: { ...process.env, HOME: workspace, USERPROFILE: workspace },
+        encoding: "utf8",
+      },
+    );
+    assert.equal(result.status, 1, `${result.stdout}${result.stderr}`);
+    const parsed = JSON.parse(result.stdout) as { ok: boolean; code: string; reason: string };
+    assert.equal(parsed.ok, false);
+    assert.equal(parsed.code, "task-not-found");
+    assert.equal(parsed.reason, "task-not-found");
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 test("public CLI skill subcommand reports an unknown scenario to stderr with a non-zero exit", () => {
   const result = spawnSync(process.execPath, ["--import", "tsx", entryPoint, "skill", "not-a-real-scenario"], {
     cwd: path.resolve(path.dirname(entryPoint), ".."),
