@@ -1,0 +1,200 @@
+{
+  "baseSha": "73ca46a5eb2d2afbf3f380f68ad8a3bcfa03e9a5",
+  "files": [
+    {
+      "additions": null,
+      "deletions": null,
+      "hunks": [],
+      "path": "docs/design/mockups/readme/mottainai-hero.webp",
+      "previousPath": "docs/assets/readme/mottainai-hero.webp",
+      "status": "renamed"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 2,
+          "oldLines": 1,
+          "oldStart": 2
+        }
+      ],
+      "path": "README.md",
+      "status": "modified"
+    },
+    {
+      "additions": 10,
+      "deletions": 4,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 9,
+          "oldLines": 0,
+          "oldStart": 8
+        },
+        {
+          "newLines": 1,
+          "newStart": 1057,
+          "oldLines": 2,
+          "oldStart": 1056
+        },
+        {
+          "newLines": 4,
+          "newStart": 1072,
+          "oldLines": 1,
+          "oldStart": 1072
+        },
+        {
+          "newLines": 4,
+          "newStart": 1105,
+          "oldLines": 1,
+          "oldStart": 1102
+        }
+      ],
+      "path": "scripts/packed-workflow-e2e.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 17,
+      "deletions": 28,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 9,
+          "oldLines": 1,
+          "oldStart": 10
+        },
+        {
+          "newLines": 1,
+          "newStart": 12,
+          "oldLines": 0,
+          "oldStart": 12
+        },
+        {
+          "newLines": 3,
+          "newStart": 589,
+          "oldLines": 2,
+          "oldStart": 589
+        },
+        {
+          "newLines": 1,
+          "newStart": 593,
+          "oldLines": 4,
+          "oldStart": 592
+        },
+        {
+          "newLines": 4,
+          "newStart": 597,
+          "oldLines": 8,
+          "oldStart": 599
+        },
+        {
+          "newLines": 3,
+          "newStart": 603,
+          "oldLines": 2,
+          "oldStart": 609
+        },
+        {
+          "newLines": 1,
+          "newStart": 607,
+          "oldLines": 4,
+          "oldStart": 612
+        },
+        {
+          "newLines": 4,
+          "newStart": 626,
+          "oldLines": 7,
+          "oldStart": 634
+        }
+      ],
+      "path": "src/bootstrap/cli.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 8,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 6,
+          "oldLines": 0,
+          "oldStart": 5
+        },
+        {
+          "newLines": 7,
+          "newStart": 36,
+          "oldLines": 0,
+          "oldStart": 34
+        }
+      ],
+      "path": "src/manager/zellij.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 7,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 10,
+          "oldLines": 1,
+          "oldStart": 10
+        },
+        {
+          "newLines": 6,
+          "newStart": 70,
+          "oldLines": 0,
+          "oldStart": 69
+        }
+      ],
+      "path": "src/manager/zellij.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 7,
+      "deletions": 7,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 434,
+          "oldLines": 3,
+          "oldStart": 434
+        },
+        {
+          "newLines": 1,
+          "newStart": 439,
+          "oldLines": 1,
+          "oldStart": 439
+        },
+        {
+          "newLines": 1,
+          "newStart": 442,
+          "oldLines": 1,
+          "oldStart": 442
+        },
+        {
+          "newLines": 1,
+          "newStart": 449,
+          "oldLines": 1,
+          "oldStart": 449
+        },
+        {
+          "newLines": 1,
+          "newStart": 451,
+          "oldLines": 1,
+          "oldStart": 451
+        }
+      ],
+      "path": "src/suzukuri.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "dda2c570974aff917a94264aa1ccd4446b405f6f",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 50,
+    "deletions": 41,
+    "filesChanged": 7
+  }
+}

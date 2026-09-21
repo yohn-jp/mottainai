@@ -1,0 +1,47 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "`architecture:check` passes on current `main` without suppressing or weakening unsafe-type-escape enforcement."
+    },
+    {
+      "checked": false,
+      "text": "Documentation governance accepts the repository tree; the README hero asset is placed/classified through the existing canonical documentation taxonomy rather than an ad-hoc allowlist."
+    },
+    {
+      "checked": false,
+      "text": "Managed-runtime tests do not depend on ambient write permission to `/var/lib/mottainai-control/managed-runtime`; production ownership semantics remain unchanged."
+    },
+    {
+      "checked": false,
+      "text": "Zellij package/e2e setup and assertions derive from one existing canonical supported-version authority and cannot silently drift."
+    },
+    {
+      "checked": false,
+      "text": "`suzukuri@0.2.2` passes the existing minimum-release-age policy naturally; no exception, age reduction, alternate registry, downgrade, or bypass is introduced."
+    },
+    {
+      "checked": false,
+      "text": "After the release-age condition is satisfied, repository-required full verification and PR CI are green from a clean environment, or any newly discovered independent baseline failure is reported and split rather than hidden."
+    },
+    {
+      "checked": false,
+      "text": "Canon/C2/C3/Manager product semantics remain unchanged except where strictly required to remove the concrete architecture violation."
+    },
+    {
+      "checked": false,
+      "text": "No Nix Runtime/Golden Path product change is included. If reproduction proves such ownership, stop that subtask and split it into a separate Issue."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 939,
+    "state": "open",
+    "title": "fix(ci): restore a clean current-main verification baseline",
+    "url": "https://github.com/yohn-jp/mottainai/issues/939"
+  },
+  "linked": {
+    "number": 939
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
