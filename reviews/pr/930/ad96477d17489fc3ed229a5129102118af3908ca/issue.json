@@ -1,0 +1,39 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Correct indexed implementation passes deterministically without wall-clock thresholds."
+    },
+    {
+      "checked": false,
+      "text": "Work evidence scales with index construction count, not CI scheduler timing."
+    },
+    {
+      "checked": false,
+      "text": "Reintroducing the pre-#871 repeated full-fact scan pattern causes the regression test to fail."
+    },
+    {
+      "checked": false,
+      "text": "Existing semantic diff result/correctness tests remain authoritative and unchanged in meaning."
+    },
+    {
+      "checked": false,
+      "text": "No public/runtime telemetry or performance counter is added for this test."
+    },
+    {
+      "checked": false,
+      "text": "Focused semantic-diff tests, typecheck, and repository-required validation for the changed scope pass."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 920,
+    "state": "open",
+    "title": "test(semantics): instrument deterministic semantic-diff work complexity",
+    "url": "https://github.com/yohn-jp/mottainai/issues/920"
+  },
+  "linked": {
+    "number": 920
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

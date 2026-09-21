@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #930 @ ad96477d1748</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #930: test(semantics): instrument deterministic semantic-diff work complexity</h1>
+<p>Base <code>main</code> @ <code>961fa822a2e36f449cf7f644719f5f8e061d8129</code> &rarr;
+Head <code>test/920-semantic-diff-complexity</code> @ <code>ad96477d17489fc3ed229a5129102118af3908ca</code></p>
+<p>Revision <code>ad96477d1748</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/920">#920</a> test(semantics): instrument deterministic semantic-diff work complexity (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Correct indexed implementation passes deterministically without wall-clock thresholds.</li>
+<li>[ ] Work evidence scales with index construction count, not CI scheduler timing.</li>
+<li>[ ] Reintroducing the pre-#871 repeated full-fact scan pattern causes the regression test to fail.</li>
+<li>[ ] Existing semantic diff result/correctness tests remain authoritative and unchanged in meaning.</li>
+<li>[ ] No public/runtime telemetry or performance counter is added for this test.</li>
+<li>[ ] Focused semantic-diff tests, typecheck, and repository-required validation for the changed scope pass.</li></ul>
+
+
+
+<h2>Changed files (4, +102/-447)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/inari/issues/implementation.json</td><td>removed</td><td>+0</td><td>-236</td></tr>
+<tr><td>.github/ISSUE_TEMPLATE/implementation.yml</td><td>removed</td><td>+0</td><td>-182</td></tr>
+<tr><td>src/semantics/diff/engine.test.ts</td><td>modified</td><td>+49</td><td>-24</td></tr>
+<tr><td>src/semantics/diff/engine.ts</td><td>modified</td><td>+53</td><td>-5</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

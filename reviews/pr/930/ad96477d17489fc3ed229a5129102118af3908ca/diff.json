@@ -1,0 +1,146 @@
+{
+  "baseSha": "961fa822a2e36f449cf7f644719f5f8e061d8129",
+  "files": [
+    {
+      "additions": 0,
+      "deletions": 236,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 236,
+          "oldStart": 1
+        }
+      ],
+      "path": ".github/inari/issues/implementation.json",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 182,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 182,
+          "oldStart": 1
+        }
+      ],
+      "path": ".github/ISSUE_TEMPLATE/implementation.yml",
+      "status": "removed"
+    },
+    {
+      "additions": 49,
+      "deletions": 24,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 9,
+          "oldLines": 0,
+          "oldStart": 8
+        },
+        {
+          "newLines": 1,
+          "newStart": 248,
+          "oldLines": 0,
+          "oldStart": 246
+        },
+        {
+          "newLines": 1,
+          "newStart": 256,
+          "oldLines": 5,
+          "oldStart": 254
+        },
+        {
+          "newLines": 23,
+          "newStart": 258,
+          "oldLines": 12,
+          "oldStart": 260
+        },
+        {
+          "newLines": 7,
+          "newStart": 282,
+          "oldLines": 3,
+          "oldStart": 273
+        },
+        {
+          "newLines": 10,
+          "newStart": 300,
+          "oldLines": 2,
+          "oldStart": 287
+        },
+        {
+          "newLines": 2,
+          "newStart": 318,
+          "oldLines": 2,
+          "oldStart": 297
+        },
+        {
+          "newLines": 4,
+          "newStart": 324,
+          "oldLines": 0,
+          "oldStart": 302
+        }
+      ],
+      "path": "src/semantics/diff/engine.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 53,
+      "deletions": 5,
+      "hunks": [
+        {
+          "newLines": 29,
+          "newStart": 101,
+          "oldLines": 1,
+          "oldStart": 101
+        },
+        {
+          "newLines": 1,
+          "newStart": 138,
+          "oldLines": 0,
+          "oldStart": 109
+        },
+        {
+          "newLines": 1,
+          "newStart": 153,
+          "oldLines": 1,
+          "oldStart": 124
+        },
+        {
+          "newLines": 1,
+          "newStart": 1065,
+          "oldLines": 1,
+          "oldStart": 1036
+        },
+        {
+          "newLines": 1,
+          "newStart": 1069,
+          "oldLines": 0,
+          "oldStart": 1039
+        },
+        {
+          "newLines": 2,
+          "newStart": 1073,
+          "oldLines": 2,
+          "oldStart": 1043
+        },
+        {
+          "newLines": 18,
+          "newStart": 1784,
+          "oldLines": 0,
+          "oldStart": 1753
+        }
+      ],
+      "path": "src/semantics/diff/engine.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "ad96477d17489fc3ed229a5129102118af3908ca",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 102,
+    "deletions": 447,
+    "filesChanged": 4
+  }
+}

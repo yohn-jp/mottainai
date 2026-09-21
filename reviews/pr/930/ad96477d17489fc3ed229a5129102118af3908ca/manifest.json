@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "961fa822a2e36f449cf7f644719f5f8e061d8129",
+    "draft": false,
+    "headRef": "test/920-semantic-diff-complexity",
+    "headSha": "ad96477d17489fc3ed229a5129102118af3908ca",
+    "number": 930,
+    "title": "test(semantics): instrument deterministic semantic-diff work complexity"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "ad96477d17489fc3ed229a5129102118af3908ca",
+    "immutable": true,
+    "shortId": "ad96477d1748"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-21T13:20:24.350Z"
+  }
+}
