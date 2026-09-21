@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   deriveZellijSessionName,
   isCanonicalManagerSessionId,
+  isSupportedZellijVersion,
   ZellijCliRuntime,
   ZellijRuntimeError,
 } from "./zellij.js";
@@ -30,6 +31,13 @@ test("Manager session IDs use the canonical UUID shape for runtime naming", () =
     assert.equal(isCanonicalManagerSessionId(malformed), false, malformed);
     assert.throws(() => deriveZellijSessionName(malformed), /invalid manager session id/);
   }
+});
+
+test("the canonical Zellij support check accepts newer compatible releases", () => {
+  assert.equal(isSupportedZellijVersion("zellij 0.44.0"), true);
+  assert.equal(isSupportedZellijVersion("zellij 0.45.1"), true);
+  assert.equal(isSupportedZellijVersion("zellij 0.43.9"), false);
+  assert.equal(isSupportedZellijVersion("zellij unknown"), false);
 });
 
 test("Zellij adapter builds argv-safe background, pane, inspect, and terminate commands", async () => {

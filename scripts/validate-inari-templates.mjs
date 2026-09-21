@@ -4,10 +4,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const ISSUE_TEMPLATE_IDS = Object.freeze(["architecture", "bug", "feature", "maintenance", "research"]);
-
 const MAX_OUTPUT_BYTES = 1_048_576;
 const DEFAULT_REPOSITORY = "yohn-jp/mottainai";
+const ISSUE_SOURCE_PREFIX = ".github/inari/issues/";
 const INTEGRATION_CASES = Object.freeze([
   { number: 265, template: "feature" },
   { number: 229, template: "maintenance" },
@@ -17,9 +16,31 @@ function semanticPath(root, id) {
   return path.join(root, ".github", "inari", "issues", `${id}.json`);
 }
 
-export function readSemanticTemplates(root) {
+export function readCanonicalIssueTemplateIds(root) {
+  const manifestPath = path.join(root, ".github", "inari", "manifest.json");
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  if (!Array.isArray(manifest.files))
+    throw new Error(`canonical Inari manifest has no file list: ${path.relative(root, manifestPath)}`);
+  const issuePaths = manifest.files
+    .map((entry) => entry?.path)
+    .filter((file) => typeof file === "string" && file.startsWith(ISSUE_SOURCE_PREFIX));
+  if (
+    issuePaths.length === 0 ||
+    issuePaths.some((file) => !file.endsWith(".json") || file.slice(ISSUE_SOURCE_PREFIX.length, -5).includes("/"))
+  ) {
+    throw new Error(`canonical Inari manifest has invalid issue sources: ${issuePaths.join(", ")}`);
+  }
+  const ids = issuePaths.map((file) => file.slice(ISSUE_SOURCE_PREFIX.length, -5)).sort();
+  if (new Set(ids).size !== ids.length || ids.some((id) => id.length === 0)) {
+    throw new Error(`canonical Inari manifest has duplicate or empty issue source IDs: ${ids.join(", ")}`);
+  }
+  return Object.freeze(ids);
+}
+
+function readSemanticTemplateSet(root) {
+  const issueTemplateIds = readCanonicalIssueTemplateIds(root);
   const templates = new Map();
-  for (const id of ISSUE_TEMPLATE_IDS) {
+  for (const id of issueTemplateIds) {
     const file = semanticPath(root, id);
     if (!fs.existsSync(file)) throw new Error(`missing canonical Inari source: ${path.relative(root, file)}`);
     const value = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -34,17 +55,21 @@ export function readSemanticTemplates(root) {
     .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
     .map((entry) => entry.name.slice(0, -5))
     .sort();
-  if (JSON.stringify(files) !== JSON.stringify([...ISSUE_TEMPLATE_IDS].sort())) {
+  if (JSON.stringify(files) !== JSON.stringify(issueTemplateIds)) {
     throw new Error(`canonical Inari issue source set drifted: ${files.join(", ")}`);
   }
-  return templates;
+  return { issueTemplateIds, templates };
+}
+
+export function readSemanticTemplates(root) {
+  return readSemanticTemplateSet(root).templates;
 }
 
 function sorted(values) {
   return [...values].sort();
 }
 
-export function validateSyncReport(report) {
+export function validateSyncReport(report, issueTemplateIds) {
   const errors = [];
   if (report?.check !== true) errors.push("template sync did not run in check mode");
   if (report?.changed !== false) errors.push("template sync reports changed projections");
@@ -52,7 +77,7 @@ export function validateSyncReport(report) {
   if (!Array.isArray(report?.staleGenerated) || report.staleGenerated.length !== 0) {
     errors.push("stale generated template projections detected");
   }
-  const expected = ISSUE_TEMPLATE_IDS.map((id) => `.github/ISSUE_TEMPLATE/${id}.yml`).sort();
+  const expected = issueTemplateIds.map((id) => `.github/ISSUE_TEMPLATE/${id}.yml`).sort();
   const generated = Array.isArray(report?.generated)
     ? report.generated.filter((file) => file.startsWith(".github/ISSUE_TEMPLATE/")).sort()
     : [];
@@ -111,17 +136,20 @@ export function validateRepositoryInari(
   root,
   { repository = resolveRepository(), run = createCommandRunner(root), integration = false } = {},
 ) {
-  const templates = readSemanticTemplates(root);
+  const { issueTemplateIds, templates } = readSemanticTemplateSet(root);
   // Local snapshot/schema validation is hermetic: no --repository, so gh-inari
   // never falls through to a live gh/GitHub lookup for this default self-check path.
   const syncArgs = ["template", "sync", "--check", "--json"];
   const firstSync = run(syncArgs);
   const secondSync = run(syncArgs);
-  const errors = [...validateSyncReport(firstSync), ...validateSyncReport(secondSync)];
+  const errors = [
+    ...validateSyncReport(firstSync, issueTemplateIds),
+    ...validateSyncReport(secondSync, issueTemplateIds),
+  ];
   if (JSON.stringify(firstSync) !== JSON.stringify(secondSync)) errors.push("template sync is not deterministic");
 
   const schemas = {};
-  for (const id of ISSUE_TEMPLATE_IDS) {
+  for (const id of issueTemplateIds) {
     const report = run(["issue", "schema", id, "--compact", "--json"]);
     schemas[id] = report;
     errors.push(...validateSchemaReport(id, report, templates.get(id)));

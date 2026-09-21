@@ -7,7 +7,7 @@ const DEFAULT_OUTPUT_BYTES = 64 * 1024;
 // session, was only added in Zellij 0.44.0. Versions 0.40.0-0.43.x passed
 // the previous, lower gate but failed closed the first time a live session
 // needed inspecting.
-const MINIMUM_ZELLIJ_VERSION = [0, 44, 0] as const;
+export const MINIMUM_ZELLIJ_VERSION = [0, 44, 0] as const;
 const SESSION_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/u;
 // Manager session IDs are emitted by crypto.randomUUID(): lower-case UUID v4
 // values using the RFC 4122 variant. Keep this contract identical for HTTP
@@ -65,6 +65,12 @@ function isBeforeMinimum(version: readonly [number, number, number]): boolean {
       version[1] === MINIMUM_ZELLIJ_VERSION[1] &&
       version[2] < MINIMUM_ZELLIJ_VERSION[2])
   );
+}
+
+/** Return whether a `zellij --version` response satisfies the Manager contract. */
+export function isSupportedZellijVersion(output: string): boolean {
+  const version = parseVersion(output);
+  return version !== undefined && !isBeforeMinimum(version);
 }
 
 function assertSessionName(sessionName: string): void {
