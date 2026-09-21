@@ -1,0 +1,81 @@
+{
+  "baseSha": "04995455263c446c0aa33ffbe0b21b0a37762264",
+  "headSha": "2251de9470a91ec382aafd2a208560ddd1bf595c",
+  "preview": {
+    "excluded_count": 2,
+    "excluded_files": [
+      {
+        "deletions": 0,
+        "exclude_reason": "default_path",
+        "insertions": 235,
+        "path": "src/canon/resolver.test.ts",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "exclude_reason": "default_path",
+        "insertions": 22,
+        "path": "src/cli.test.ts",
+        "status": "modified"
+      }
+    ],
+    "from": "04995455263c446c0aa33ffbe0b21b0a37762264",
+    "merge_base": "04995455263c446c0aa33ffbe0b21b0a37762264",
+    "mode": "range",
+    "reviewable_count": 4,
+    "reviewable_files": [
+      {
+        "deletions": 0,
+        "insertions": 1,
+        "path": "src/canon/index.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 279,
+        "path": "src/canon/resolver.ts",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 17,
+        "path": "src/cli.ts",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 137,
+        "path": "src/workflow/nawabari.ts",
+        "status": "modified"
+      }
+    ],
+    "schema_version": "1",
+    "to": "2251de9470a91ec382aafd2a208560ddd1bf595c",
+    "total_deletions": 0,
+    "total_files": 6,
+    "total_insertions": 691
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.4"
+  },
+  "rule": {
+    "groups": [
+      {
+        "files": [
+          "src/canon/index.ts",
+          "src/canon/resolver.ts",
+          "src/cli.ts",
+          "src/workflow/nawabari.ts"
+        ],
+        "group_id": 1,
+        "pattern": "**/*.{ts,js,tsx,jsx,mjs,cjs}",
+        "rule": "#### Obvious Typos or Spelling Errors\n- Spelling errors in variable names, function names, component names, or Props property names\n- Strings in log or error messages containing spelling errors that affect readability\n\n#### Dead Code\n- Code blocks that will never be executed (e.g., branches where the condition is always false, code after a return statement)\n- Variables that are declared but never read or referenced\n- Large blocks of commented-out code (with no apparent intent to retain)\n\n#### Code Quality Checks\n- **Duplicate Code**: Check for common logic that can be extracted\n- **Code Comments**: Complex business logic should have clear explanatory comments (avoid commenting obvious code)\n- **Hardcoding**: Business-related hardcoded strings are prohibited, especially URL paths and business numbers; simple UI text may be relaxed\n- **Variable Declarations**: Using `var` is strictly prohibited; use `let` or `const`\n- **Equality Comparisons**: Using `==` and `!=` is prohibited; use strict equality `===` and `!==`\n- **TypeScript Types**: Avoid using `any` type; if necessary, provide a comment explaining the reason\n- **Null Checks**: Perform null checks when accessing values or destructuring to avoid null pointer exceptions\n- **Ternary Expressions**: Nested ternary expressions are not allowed\n\n#### React Best Practices\n- **Hooks Usage**: Verify compliance with Hooks rules (only call at the top level, only call in React functions)\n- **State Management**: Ensure state is placed at the appropriate level; avoid unnecessary state lifting\n- **Side Effect Handling**: Verify useEffect correctly handles dependencies and cleanup functions\n- **Performance Optimization**: Verify proper use of React.memo, useMemo, useCallback (based on performance analysis; avoid over-optimization)\n- **Render Side Effects**: Side effects in React component render methods are strictly prohibited (e.g., API calls, DOM manipulation)\n- **Inline Styles**: Avoid using inline `style` attributes, except for dynamic styles\n- **Inner Components**: Declaring new components inside a component is prohibited; use render methods instead (e.g., `renderItem`, not `<Item/>`)\n\n#### Async Handling Standards\n- **Error Handling**: Async functions must include proper error handling with user-friendly error messages\n- **Prefer async/await**: Prefer async/await over Promises; callback hell is prohibited\n- **Async in Loops**: Distinguish between independent async operations (use `Promise.all` for parallelism) and dependent async operations (use sequential execution); prefer `Promise.all` for performance\n\n#### Code Security Checks\n- **XSS Protection**: Verify that user input is properly escaped\n- **innerHTML Safety**: Using innerHTML to directly insert user input is prohibited; use textContent or apply XSS protection\n- **Code Injection Protection**: Using eval(), Function() constructor, and string argument forms of setTimeout/setInterval is strictly prohibited\n- **Dangerous Methods**: Using document.write() is prohibited as it causes page reflow and security issues\n- **Sensitive Information**: Check whether API keys or sensitive data are exposed\n- **Prototype Chain Safety**: Modifying native object prototypes (e.g., Array.prototype, Object.prototype) is prohibited",
+        "source": "system"
+      }
+    ],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}
