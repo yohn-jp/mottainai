@@ -17,6 +17,7 @@ import { codeSearchTools, dispatchCodeSearchTool, isCodeSearchTool } from "./cod
 import { finalizeToolResult } from "./context-runtime/adapter.js";
 import { BurstBudgetController } from "./context-runtime/burst-budget.js";
 import { IdentitySession } from "./context-runtime/dedupe.js";
+import type { DeliveredIdentitySeed } from "./context-runtime/dedupe.js";
 import type { IdentityAdapter } from "./context-runtime/identity.js";
 import { ProcessRegistry } from "./context-runtime/process-registry.js";
 import type { ToolCatalog } from "./catalog.js";
@@ -135,6 +136,8 @@ function withRequestId(result: CallToolResult, requestId: string, structured: bo
  * 併せて、呼び出し側が `_mottainai` で添えたタスク metadata を trace として記録する。
  */
 export interface ProxyHandlers {
+  /** Seed only identities whose Canon delivery authority confirms prior supply. */
+  seedDeliveredIdentity(input: DeliveredIdentitySeed): boolean;
   /** connection/process shutdown 用。この connection が保持する実行中 local process を全て強制終了する。 */
   dispose(): void;
 }
@@ -467,6 +470,9 @@ export function registerProxyHandlers(
   }
 
   return {
+    seedDeliveredIdentity(input: DeliveredIdentitySeed): boolean {
+      return identitySession.seedDelivered(input);
+    },
     dispose(): void {
       processes.dispose();
       identitySession.dispose();

@@ -7,9 +7,15 @@ import { resolveGatewayConfig } from "../config.js";
 import { callLocalTool } from "../local-tools.js";
 import { InMemoryArtifactStore } from "../retrieve.js";
 import { finalizeToolResult } from "./adapter.js";
-import { IdentitySession } from "./dedupe.js";
+import {
+  dedupeCanonProjectionResult,
+  dedupeRuntimeInstructionResult,
+  IdentitySession,
+  type CanonC3ProjectionIdentity,
+} from "./dedupe.js";
 import { createIdentityHint } from "./identity.js";
 import type { IdentityDedupeContext } from "./adapter.js";
+import { projectResult } from "./project.js";
 
 function structured(result: { structuredContent?: unknown }): Record<string, unknown> {
   assert.ok(result.structuredContent);
@@ -167,6 +173,103 @@ test("dedupe telemetry records only compact counters and avoids no hashes/body",
   assert.ok(records[1].estimatedTokensAvoided > 0);
   assert.equal(JSON.stringify(records).includes("private body"), false);
   assert.equal(JSON.stringify(records).includes("sha256"), false);
+});
+
+function canonProjectionIdentity(overrides: Partial<CanonC3ProjectionIdentity> = {}): CanonC3ProjectionIdentity {
+  return {
+    content_id: "c3:candidate-1",
+    source_key: "canon:repo:file.ts",
+    source_generation: "generation-1",
+    projection_digest: "digest-1",
+    projection_version: "suzukuri-core-1",
+    component_identity: "adapter@1|contract@1|view@1|renderer@1",
+    ...overrides,
+  };
+}
+
+function projectedRead(store: InMemoryArtifactStore) {
+  const raw = readResult(store, { contentId: "unused", projectionKey: "unused", text: "projected body\n" });
+  return projectResult({
+    structuredContent: raw.structuredContent,
+    content: raw.content,
+  });
+}
+
+test("metadata-only Canon records do not suppress the first C3 delivery", () => {
+  const store = new InMemoryArtifactStore({ createId: () => "c3-current" });
+  const session = new IdentitySession();
+  const identity = canonProjectionIdentity();
+  const projected = projectedRead(store);
+
+  assert.equal(session.lookupCanonProjection(identity).hit, false);
+  const first = dedupeCanonProjectionResult(projected, store, context(session), identity);
+  assert.equal(first.hit, false);
+  assert.equal(
+    first.result.identity && "changed" in first.result.identity ? first.result.identity.changed : undefined,
+    true,
+  );
+});
+
+test("an explicitly delivered C3 identity returns a compact reference without its body", () => {
+  const store = new InMemoryArtifactStore({ createId: () => "c3-current" });
+  const session = new IdentitySession();
+  const identity = canonProjectionIdentity();
+  assert.equal(
+    session.seedCanonProjection({
+      ...identity,
+      kind: "canon-c3-projection",
+      delivered: true,
+      result_id: "canon-delivered-reference",
+    }),
+    true,
+  );
+
+  const result = dedupeCanonProjectionResult(projectedRead(store), store, context(session), identity);
+  assert.equal(result.hit, true);
+  assert.equal(result.result.status, "unchanged");
+  assert.equal(result.result.resultId, "canon-delivered-reference");
+  assert.deepEqual(result.result.content, []);
+  assert.equal(result.result.omissions[0]?.retrievalAvailable, false);
+});
+
+test("every C3 projection identity input invalidates the seeded delivery", () => {
+  const identity = canonProjectionIdentity();
+  const session = new IdentitySession();
+  assert.equal(session.seedDelivered({ ...identity, kind: "canon-c3-projection", delivered: true }), true);
+  for (const field of ["source_generation", "projection_digest", "projection_version", "component_identity"] as const) {
+    const changed = { ...identity, [field]: `${identity[field]}-changed` };
+    assert.equal(session.lookupCanonProjection(changed).hit, false, field);
+  }
+});
+
+test("runtime instruction seeding requires already-supplied provenance and explicit delivery", () => {
+  const session = new IdentitySession();
+  assert.equal(
+    session.seedDelivered({
+      kind: "runtime-instruction",
+      instruction_id: "AGENTS.md",
+      provenance: "already-supplied",
+      delivered: false as unknown as true,
+    }),
+    false,
+  );
+  assert.equal(session.lookupRuntimeInstruction("AGENTS.md").hit, false);
+
+  assert.equal(
+    session.seedDelivered({
+      kind: "runtime-instruction",
+      instruction_id: "AGENTS.md",
+      provenance: "already-supplied",
+      delivered: true,
+      result_id: "agents-reference",
+    }),
+    true,
+  );
+  const store = new InMemoryArtifactStore({ createId: () => "agents-current" });
+  const result = dedupeRuntimeInstructionResult(projectedRead(store), store, context(session), "AGENTS.md");
+  assert.equal(result.hit, true);
+  assert.equal(result.result.resultId, "agents-reference");
+  assert.deepEqual(result.result.content, []);
 });
 
 test("local read integration materially reduces repeated visible bytes and tokens", async () => {
