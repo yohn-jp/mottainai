@@ -6,6 +6,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { after, before, test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { isSupportedZellijVersion, MINIMUM_ZELLIJ_VERSION } from "../dist/manager/zellij.js";
 import { createWorkspace, isolatedEnv, writeConfig } from "./lib/mcp-blackbox-test-support.mjs";
 import { extractTarball, linkDependencies, packRepository, resolvePackagedBin } from "./lib/mcp-blackbox-client.mjs";
 
@@ -1053,8 +1054,7 @@ function companionAvailability() {
   const env = isolatedEnv(repoRoot);
   const zellij = companionPath("zellij", env);
   const zellijVersion = zellij.length === 0 ? "" : run(zellij, ["--version"], { env }).stdout.trim();
-  const parsed = /(\d+)\.(\d+)\.(\d+)/u.exec(zellijVersion);
-  const zellijSupported = parsed !== null && (Number(parsed[1]) > 0 || Number(parsed[2]) >= 44);
+  const zellijSupported = isSupportedZellijVersion(zellijVersion);
   return {
     zellij: zellijSupported ? zellij : "",
     nawabari: companionPath("nawabari", env),
@@ -1069,7 +1069,10 @@ test(
     // This fixture is the mandatory real-companion evidence for #510. A
     // missing or incompatible companion must fail the suite, never become a
     // skipped or fake-only pass.
-    assert.ok(companions.zellij.length > 0, "Zellij >= 0.44 is required for the real Manager dogfood");
+    assert.ok(
+      companions.zellij.length > 0,
+      `Zellij >= ${MINIMUM_ZELLIJ_VERSION.join(".")} is required for the real Manager dogfood`,
+    );
     assert.ok(companions.nawabari.length > 0, "Nawabari >= 0.5 is required for the real Manager dogfood");
     const fixture = createFixture({
       managerAgent: true,
@@ -1099,7 +1102,10 @@ test(
     const health = await managerRequest(manager, "health");
     assert.equal(health.response.status, 200, JSON.stringify(health.body));
     assert.equal(health.body.zellij.available, true);
-    assert.match(health.body.zellij.version, /^zellij 0\.44\./u);
+    assert.ok(
+      isSupportedZellijVersion(health.body.zellij.version),
+      `Manager reported an unsupported Zellij version: ${health.body.zellij.version}`,
+    );
 
     const unrelatedBody = {
       instruction: "keep this unrelated Issue session active",

@@ -431,24 +431,24 @@ function normalizeSource(
   value: SuzukuriProjectionRequest["source"],
   explicitIdentity: SuzukuriProjectionRequest["sourceIdentity"],
 ): SuzukuriResult<{ readonly source: SuzukuriSource; readonly identity: SuzukuriSourceIdentity }> {
-  if (typeof value === "object" && value !== null && !Array.isArray(value) && !(value instanceof Uint8Array)) {
-    const sourceRecord = value as unknown as Record<string, unknown>;
-    if (typeof sourceRecord.content !== "string" && !(sourceRecord.content instanceof Uint8Array)) {
+  if (isRecord(value)) {
+    const content = value.content;
+    if (typeof content !== "string" && !(content instanceof Uint8Array)) {
       return invalidRequest("source content must be a string or byte array.", "source.content");
     }
-    const identityValue = sourceRecord.identity ?? sourceRecord.id ?? explicitIdentity;
+    const identityValue = value.identity ?? value.id ?? explicitIdentity;
     const identity = normalizeSourceIdentity(identityValue);
     if (identity === undefined) return invalidRequest("source identity must be explicit.", "source.identity");
-    if (explicitIdentity !== undefined && sourceRecord.identity !== undefined) {
+    if (explicitIdentity !== undefined && value.identity !== undefined) {
       const explicit = normalizeSourceIdentity(explicitIdentity);
       if (explicit === undefined || stableIdentity(explicit) !== stableIdentity(identity)) {
         return invalidRequest("source identity was provided more than once with different values.", "sourceIdentity");
       }
     }
     const source: SuzukuriSource = {
-      content: sourceRecord.content as string | Uint8Array,
+      content,
       identity,
-      ...(typeof sourceRecord.mediaType === "string" ? { mediaType: sourceRecord.mediaType } : {}),
+      ...(typeof value.mediaType === "string" ? { mediaType: value.mediaType } : {}),
     };
     return { ok: true, value: { source, identity } };
   }

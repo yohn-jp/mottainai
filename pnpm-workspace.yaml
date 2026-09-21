@@ -19,8 +19,13 @@ allowBuilds:
   tree-sitter-javascript: true
   tree-sitter-typescript: true
 minimumReleaseAgeExclude:
-  - nawabari@0.5.0 || 0.6.1
-  - suzukuri@0.1.0
+  # npm exposes yohn-jp's packages under the unscoped names maintained by
+  # yohnark; pnpm exclusions match package names, not npm maintainers.
+  - gh-inari
+  - mottainai
+  - nawabari
+  - suzukuri
+  - wabachi
   - '@alibaba-group/ocr-darwin-arm64@1.11.4'
   - '@alibaba-group/ocr-darwin-x64@1.11.4'
   - '@alibaba-group/ocr-linux-arm64@1.11.4'

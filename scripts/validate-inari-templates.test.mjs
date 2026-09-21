@@ -3,7 +3,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
-  ISSUE_TEMPLATE_IDS,
+  readCanonicalIssueTemplateIds,
   readSemanticTemplates,
   validateIssueReport,
   validateRepositoryInari,
@@ -13,10 +13,15 @@ import {
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-test("canonical issue source set contains exactly the five governed families", () => {
+const issueTemplateIds = readCanonicalIssueTemplateIds(repositoryRoot);
+
+test("canonical issue source set follows the synced manifest", () => {
   const templates = readSemanticTemplates(repositoryRoot);
-  assert.deepEqual([...templates.keys()], ISSUE_TEMPLATE_IDS);
-  for (const template of templates.values()) assert.ok(template.fieldIds.includes("acceptance"));
+  assert.deepEqual([...templates.keys()], issueTemplateIds);
+  assert.ok(issueTemplateIds.includes("implementation"));
+  for (const template of templates.values()) {
+    assert.ok(template.fieldIds.includes("acceptance") || template.fieldIds.includes("acceptance_criteria"));
+  }
 });
 
 test("clean sync report is accepted and drift is rejected", () => {
@@ -25,11 +30,17 @@ test("clean sync report is accepted and drift is rejected", () => {
     changed: false,
     drift: [],
     staleGenerated: [],
-    generated: ISSUE_TEMPLATE_IDS.map((id) => `.github/ISSUE_TEMPLATE/${id}.yml`),
+    generated: issueTemplateIds.map((id) => `.github/ISSUE_TEMPLATE/${id}.yml`),
   };
-  assert.deepEqual(validateSyncReport(clean), []);
-  assert.ok(validateSyncReport({ ...clean, changed: true }).length > 0);
-  assert.ok(validateSyncReport({ ...clean, drift: ["feature"] }).length > 0);
+  assert.deepEqual(validateSyncReport(clean, issueTemplateIds), []);
+  assert.ok(validateSyncReport({ ...clean, changed: true }, issueTemplateIds).length > 0);
+  assert.ok(validateSyncReport({ ...clean, drift: ["feature"] }, issueTemplateIds).length > 0);
+  assert.ok(
+    validateSyncReport(
+      { ...clean, generated: [...clean.generated, ".github/ISSUE_TEMPLATE/stale.yml"] },
+      issueTemplateIds,
+    ).length > 0,
+  );
 });
 
 test("compiled schema must preserve canonical field IDs", () => {
@@ -59,7 +70,7 @@ test("default self-check is hermetic: no --repository reaches gh-inari and no ne
         changed: false,
         drift: [],
         staleGenerated: [],
-        generated: ISSUE_TEMPLATE_IDS.map((id) => `.github/ISSUE_TEMPLATE/${id}.yml`),
+        generated: issueTemplateIds.map((id) => `.github/ISSUE_TEMPLATE/${id}.yml`),
       };
     }
     if (args[0] === "issue" && args[1] === "schema") {

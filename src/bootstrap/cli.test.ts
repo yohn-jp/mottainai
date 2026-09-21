@@ -7,9 +7,9 @@ import { test } from "node:test";
 import { reconcileAdapters, reconcileHealthCheck, runBootstrapCli } from "./cli.js";
 import { CANONICAL_BOOTSTRAP_STATE_FILE_PATH } from "./paths.js";
 import {
-  MANAGED_RUNTIME_CONTROL_STATE_ROOT,
   ManagedRuntimeError,
   reconcileManagedRuntime,
+  readManagedRuntimeStatus,
 } from "../runtime-contract/managed-runtime.js";
 import { readManagedRuntimePointer, readManagedRuntimeState } from "../runtime-contract/managed-runtime-state.js";
 import { generationIdentityOf } from "../runtime-contract/managed-generation.js";
@@ -586,33 +586,25 @@ test("managed-status --json against a fresh control-state root reports valid:tru
   assert.equal(parsed.present, false);
 });
 
-test("managed-status --json reports valid:false with a bounded code/message against malformed persisted state", async (t) => {
-  const stateDirectory = path.join(MANAGED_RUNTIME_CONTROL_STATE_ROOT, "managed-runtime");
+test("managed-runtime status reports a bounded state_corrupt error for malformed persisted state", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-managed-status-test-"));
+  const stateDirectory = path.join(root, "managed-runtime");
   const stateFile = path.join(stateDirectory, "state.json");
-  const alreadyPresent = fs.existsSync(stateFile);
-  t.after(() => {
-    if (!alreadyPresent) fs.rmSync(stateFile, { force: true });
-  });
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   fs.mkdirSync(stateDirectory, { recursive: true });
   fs.writeFileSync(stateFile, "{ not valid json");
 
-  const capture = captureStdout();
-  const exitCode = await runBootstrapCli(["managed-status", "--json"]);
-  const output = capture.restore();
-  assert.equal(exitCode, 0);
-  const parsed = JSON.parse(output);
-  assert.equal(parsed.valid, false);
-  assert.equal(parsed.code, "state_corrupt");
-  assert.equal(typeof parsed.message, "string");
+  assert.throws(
+    () => readManagedRuntimeStatus({ stateDirectory: root }),
+    (error) => error instanceof ManagedRuntimeError && error.code === "state_corrupt" && error.message.length > 0,
+  );
 });
 
-test("managed-status --json reports valid:false against a schema-invalid-but-field-complete state (unknown top-level key)", async (t) => {
-  const stateDirectory = path.join(MANAGED_RUNTIME_CONTROL_STATE_ROOT, "managed-runtime");
+test("managed-runtime status reports state_corrupt for schema-invalid persisted state", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-managed-status-test-"));
+  const stateDirectory = path.join(root, "managed-runtime");
   const stateFile = path.join(stateDirectory, "state.json");
-  const alreadyPresent = fs.existsSync(stateFile);
-  t.after(() => {
-    if (!alreadyPresent) fs.rmSync(stateFile, { force: true });
-  });
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   fs.mkdirSync(stateDirectory, { recursive: true });
   // Every field a valid mottainai.managed-runtime-state.v1 record needs is
   // present and well-typed EXCEPT for one unrecognized top-level key
@@ -631,13 +623,10 @@ test("managed-status --json reports valid:false against a schema-invalid-but-fie
     }),
   );
 
-  const capture = captureStdout();
-  const exitCode = await runBootstrapCli(["managed-status", "--json"]);
-  const output = capture.restore();
-  assert.equal(exitCode, 0);
-  const parsed = JSON.parse(output);
-  assert.equal(parsed.valid, false);
-  assert.equal(parsed.code, "state_corrupt");
+  assert.throws(
+    () => readManagedRuntimeStatus({ stateDirectory: root }),
+    (error) => error instanceof ManagedRuntimeError && error.code === "state_corrupt",
+  );
 });
 
 test("managed-status has no state-directory/state-file/current-pointer/manifest-path override flag: no code path reads one from argv", async () => {

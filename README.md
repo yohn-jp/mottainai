@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./docs/assets/readme/mottainai-hero.webp" alt="Mottainai — Coding-Agent Orchestration. Bound the work. Preserve the evidence. Delegate authority." width="100%">
+  <img src="./docs/design/mockups/readme/mottainai-hero.webp" alt="Mottainai — Coding-Agent Orchestration. Bound the work. Preserve the evidence. Delegate authority." width="100%">
 </p>
 
 <p align="center">
