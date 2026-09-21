@@ -98,7 +98,35 @@ function symbolMap(snapshot: RepositorySemanticSnapshot): Map<LogicalId, SymbolE
   return new Map(snapshot.derived.symbols.map((item) => [item.id, item]));
 }
 
-function factsBySubject(snapshot: RepositorySemanticSnapshot): Map<LogicalId, Map<string, JsonValue[]>> {
+type FactIndexSide = "base" | "head";
+
+interface SemanticDiffTestObservation {
+  onFactIndexBuild?: (side: FactIndexSide) => void;
+  onFactEntryVisited?: (side: FactIndexSide) => void;
+  onFactIndexLookup?: (side: FactIndexSide) => void;
+}
+
+class ObservedFactIndex extends Map<LogicalId, Map<string, JsonValue[]>> {
+  constructor(
+    entries: Map<LogicalId, Map<string, JsonValue[]>>,
+    private readonly side: FactIndexSide,
+    private readonly observation: SemanticDiffTestObservation,
+  ) {
+    super(entries);
+  }
+
+  override get(subject: LogicalId): Map<string, JsonValue[]> | undefined {
+    this.observation.onFactIndexLookup?.(this.side);
+    return super.get(subject);
+  }
+}
+
+function factsBySubject(
+  snapshot: RepositorySemanticSnapshot,
+  side: FactIndexSide,
+  observation?: SemanticDiffTestObservation,
+): Map<LogicalId, Map<string, JsonValue[]>> {
+  observation?.onFactIndexBuild?.(side);
   const result = new Map<LogicalId, Map<string, JsonValue[]>>();
   const allFacts = [
     ...snapshot.derived.facts,
@@ -107,6 +135,7 @@ function factsBySubject(snapshot: RepositorySemanticSnapshot): Map<LogicalId, Ma
     ...snapshot.analysis.facts,
   ];
   for (const fact of allFacts) {
+    observation?.onFactEntryVisited?.(side);
     const predicates = result.get(fact.subject) ?? new Map<string, JsonValue[]>();
     const values = predicates.get(fact.predicate) ?? [];
     values.push(fact.value);
@@ -121,7 +150,7 @@ function factsBySubject(snapshot: RepositorySemanticSnapshot): Map<LogicalId, Ma
       );
     }
   }
-  return result;
+  return observation === undefined ? result : new ObservedFactIndex(result, side, observation);
 }
 
 function firstFact(
@@ -1033,15 +1062,16 @@ function projectEntityChange(
 }
 
 /** Compare two validated or fixture Repository Models without reading source text. */
-export function compareSemanticSnapshots(
+function compareSemanticSnapshotsInternal(
   baseSnapshot: RepositorySemanticSnapshot,
   headSnapshot: RepositorySemanticSnapshot,
   options: SemanticDiffOptions = {},
+  observation?: SemanticDiffTestObservation,
 ): SemanticChangeSet {
   const baseEntities = entityMap(baseSnapshot);
   const headEntities = entityMap(headSnapshot);
-  const baseFacts = factsBySubject(baseSnapshot);
-  const headFacts = factsBySubject(headSnapshot);
+  const baseFacts = factsBySubject(baseSnapshot, "base", observation);
+  const headFacts = factsBySubject(headSnapshot, "head", observation);
   const derived: DerivedChange[] = [];
   const deltaMap = new Map<string, MutableDelta>();
   const changedSymbols = new Set<LogicalId>();
@@ -1749,6 +1779,24 @@ export function compareSemanticSnapshots(
     },
   };
   return clone(set);
+}
+
+export function compareSemanticSnapshots(
+  baseSnapshot: RepositorySemanticSnapshot,
+  headSnapshot: RepositorySemanticSnapshot,
+  options: SemanticDiffOptions = {},
+): SemanticChangeSet {
+  return compareSemanticSnapshotsInternal(baseSnapshot, headSnapshot, options);
+}
+
+/** Internal test seam; omitted from the semantic-diff package surface. */
+export function compareSemanticSnapshotsForTest(
+  baseSnapshot: RepositorySemanticSnapshot,
+  headSnapshot: RepositorySemanticSnapshot,
+  observation: SemanticDiffTestObservation,
+  options: SemanticDiffOptions = {},
+): SemanticChangeSet {
+  return compareSemanticSnapshotsInternal(baseSnapshot, headSnapshot, options, observation);
 }
 
 export function computeSemanticChangeSet(input: SemanticDiffInput): SemanticChangeSet {
