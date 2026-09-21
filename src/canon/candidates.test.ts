@@ -73,10 +73,12 @@ test("explicit path, symbol, and component selectors produce bounded candidates 
   const result = selectCanonC3Candidates({
     c2: [
       c2({
-        scope: {
-          paths: ["src/target.ts"],
-          symbols: [{ type: "symbol", value: { symbol: "normalizeInput", file: "src/target.ts" } }],
-          components: ["component:semantic-core"],
+        fields: {
+          scope: {
+            paths: ["src/target.ts"],
+            symbols: [{ type: "symbol", value: { symbol: "normalizeInput", file: "src/target.ts" } }],
+            components: ["component:semantic-core"],
+          },
         },
       }),
     ],

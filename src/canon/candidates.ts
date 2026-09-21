@@ -111,7 +111,15 @@ const selectorTypeByKey: Readonly<Record<string, CanonC3SelectorType | undefined
 };
 
 const associationRelations = new Set(["tests", "verifies", "implements"]);
-const selectorContainers = new Set(["scope", "scopes", "dependency", "dependencies", "selectors", "selector"]);
+const selectorContainers = new Set([
+  "fields",
+  "scope",
+  "scopes",
+  "dependency",
+  "dependencies",
+  "selectors",
+  "selector",
+]);
 const candidateEntityKinds = new Set(["file", "symbol", "component", "test"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
