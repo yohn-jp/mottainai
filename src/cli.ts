@@ -4,6 +4,7 @@ import path from "node:path";
 import { collectDoctorReport, formatDoctorHuman } from "./commands/doctor.js";
 import { loadConfigSnapshot, loadMottainaiConfig, loadRawConfig, resolveConfigPath, saveRawConfig } from "./config.js";
 import type { MottainaiConfig } from "./config.js";
+import { GhInariClient } from "./gh-inari.js";
 import { openDashboardBrowser, parseDashboardOptions, startDashboard } from "./dashboard/command.js";
 import { openDashboardBrowser as openManagerBrowser, parseManagerOptions, startManager } from "./manager/command.js";
 import { ManagerSessionService } from "./manager/service.js";
@@ -53,6 +54,7 @@ import {
   finishWorkflowTask,
   openWorkflowTaskPullRequest,
   pushWorkflowTask,
+  resolveGithubRepository,
 } from "./workflow/commands/write.js";
 import type { CleanupPlan } from "./workflow/domain/cleanup-plan.js";
 import { resolveCanon } from "./canon/resolver.js";
@@ -774,6 +776,22 @@ export async function runCli(args: string[]): Promise<number> {
       const idempotencyKey = requireFlagValue(argv, "idempotency-key");
       const store = await openWorkflowStateStore();
       const nawabari = new NawabariExecutionClient();
+      const repositoryResult = await resolveGithubRepository(workspace);
+      let ghInariConfig = undefined;
+      try {
+        ghInariConfig = loadConfigSnapshot(configPath, workspace).gatewayConfig.ghInari;
+      } catch {
+        // Workflow-only repositories may not have a Mottainai config; the
+        // companion's safe defaults remain authoritative in that case.
+      }
+      const governedIssueResolver =
+        repositoryResult.ok && /^\d+$/u.test(issueRef)
+          ? () =>
+              new GhInariClient({ cwd: workspace, ...(ghInariConfig ?? {}) }).getIssue({
+                repository: repositoryResult.repository.id,
+                number: Number(issueRef),
+              })
+          : undefined;
       const manager = new ManagerSessionService({
         workspaceRoot: workspace,
         store,
@@ -798,6 +816,8 @@ export async function runCli(args: string[]): Promise<number> {
           ...(model === undefined ? {} : { model }),
           instruction,
           ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+          ...(governedIssueResolver === undefined ? {} : { resolveGovernedIssue: governedIssueResolver }),
+          ...(repositoryResult.ok ? { canonRepository: repositoryResult.repository.id } : {}),
         });
         print({ workspace, ...result });
         return result.ok ? 0 : 1;
