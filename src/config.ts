@@ -24,6 +24,8 @@ import { DEFAULT_GH_INARI_CONFIG, resolveGhInariConfig } from "./gh-inari.js";
 import type { GhInariConfig, ResolvedGhInariConfig } from "./gh-inari.js";
 import { DEFAULT_GH_MAKAMI_CONFIG, resolveGhMakamiConfig } from "./gh-makami.js";
 import type { GhMakamiConfig, ResolvedGhMakamiConfig } from "./gh-makami.js";
+import { DEFAULT_SUZUKURI_CONFIG, resolveSuzukuriConfig } from "./suzukuri.js";
+import type { ResolvedSuzukuriConfig, SuzukuriConfig } from "./suzukuri.js";
 
 export interface OAuthAuthConfig {
   type: "oauth";
@@ -170,6 +172,8 @@ export interface GatewayConfig {
   ghInari?: GhInariConfig;
   /** Mottainai-managed read-only PR observationの唯一のauthorityとなる外部gh-makami companionの実行境界。 */
   ghMakami?: GhMakamiConfig;
+  /** Mottainai-managed semantic projectionの唯一のauthorityとなる外部Suzukuri companionの実行境界。 */
+  suzukuri?: SuzukuriConfig;
 }
 
 export interface AwaitPolicyConfig {
@@ -204,6 +208,8 @@ export interface ResolvedGatewayConfig {
   ghInari?: ResolvedGhInariConfig;
   /** 設定を手書きする既存fixtureとの互換性のためoptional。resolveGatewayConfigでは必ず解決する。 */
   ghMakami?: ResolvedGhMakamiConfig;
+  /** 設定を手書きする既存fixtureとの互換性のためoptional。resolveGatewayConfigでは必ず解決する。 */
+  suzukuri?: ResolvedSuzukuriConfig;
   worktree?: ResolvedWorktreeConfig;
   workflowTasks: boolean;
   await: AwaitPolicy;
@@ -236,6 +242,7 @@ const DEFAULT_GATEWAY_CONFIG: Omit<ResolvedGatewayConfig, "workspaceRoot"> = {
   burstBudget: DEFAULT_BURST_BUDGET_POLICY,
   ghInari: DEFAULT_GH_INARI_CONFIG,
   ghMakami: DEFAULT_GH_MAKAMI_CONFIG,
+  suzukuri: DEFAULT_SUZUKURI_CONFIG,
   workflowTasks: false,
   await: DEFAULT_AWAIT_POLICY,
   managedProcesses: DEFAULT_MANAGED_PROCESS_POLICY,
@@ -278,6 +285,7 @@ export function resolveGatewayConfig(
     burstBudget: resolveBurstBudgetPolicy(config?.burstBudget),
     ghInari: resolveGhInariConfig(config?.ghInari),
     ghMakami: resolveGhMakamiConfig(config?.ghMakami),
+    suzukuri: resolveSuzukuriConfig(config?.suzukuri),
     worktree: resolveWorktreeConfig(config?.worktree),
     workflowTasks: config?.workflowTasks === true,
     await: resolveAwaitPolicy(config?.await),
@@ -467,6 +475,7 @@ const GATEWAY_CONFIG_KEYS = [
   "managedProcesses",
   "ghInari",
   "ghMakami",
+  "suzukuri",
 ] as const;
 
 function normalizeGateway(value: unknown): GatewayConfig | undefined {
@@ -497,6 +506,7 @@ function normalizeGateway(value: unknown): GatewayConfig | undefined {
     managedProcesses: managedProcessPolicyConfig(value.managedProcesses, "invalid gateway managedProcesses"),
     ghInari: ghInariConfig(value.ghInari, "invalid gateway ghInari"),
     ghMakami: ghMakamiConfig(value.ghMakami, "invalid gateway ghMakami"),
+    suzukuri: suzukuriConfig(value.suzukuri, "invalid gateway suzukuri"),
   };
   validateGatewayBounds(config);
   return config;
@@ -522,6 +532,20 @@ function ghMakamiConfig(value: unknown, field: string): GhMakamiConfig | undefin
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw new Error(field);
   rejectUnknownKeys(value, GH_MAKAMI_CONFIG_KEYS, field);
+  return {
+    command: optionalNonEmptyString(value.command, `${field}.command`),
+    timeoutMs: positiveIntegerConfig(value.timeoutMs, `${field}.timeoutMs`),
+    maxOutputBytes: positiveIntegerConfig(value.maxOutputBytes, `${field}.maxOutputBytes`),
+    maxInputBytes: positiveIntegerConfig(value.maxInputBytes, `${field}.maxInputBytes`),
+  };
+}
+
+const SUZUKURI_CONFIG_KEYS = ["command", "timeoutMs", "maxOutputBytes", "maxInputBytes"] as const;
+
+function suzukuriConfig(value: unknown, field: string): SuzukuriConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error(field);
+  rejectUnknownKeys(value, SUZUKURI_CONFIG_KEYS, field);
   return {
     command: optionalNonEmptyString(value.command, `${field}.command`),
     timeoutMs: positiveIntegerConfig(value.timeoutMs, `${field}.timeoutMs`),
