@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "3d84e97fd72992b0d768a8a4ac2139585653481a",
+    "draft": false,
+    "headRef": "feat/928-canon-fork-launch",
+    "headSha": "165dde56aab3fc1a0734a6a4d614b83ca909be46",
+    "number": 943,
+    "title": "feat(manager): launch forked executions from Canon checkpoints"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "165dde56aab3fc1a0734a6a4d614b83ca909be46",
+    "immutable": true,
+    "shortId": "165dde56aab3"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-21T17:58:14.414Z"
+  }
+}

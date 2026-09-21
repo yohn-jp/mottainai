@@ -1,0 +1,43 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Valid parent checkpoint launches a child with same `prefix_id`, new Nawabari attachment and distinct `execution_state_id`."
+    },
+    {
+      "checked": false,
+      "text": "Parent currentness is revalidated immediately before physical creation."
+    },
+    {
+      "checked": false,
+      "text": "Two children from one parent use distinct worktrees/sessions."
+    },
+    {
+      "checked": false,
+      "text": "Nawabari failure, attachment mismatch, persistence fault and Zellij failure cannot falsely mark a child running."
+    },
+    {
+      "checked": false,
+      "text": "Restart reconciles planned/attached/launched/failed states without duplicate physical mutation."
+    },
+    {
+      "checked": false,
+      "text": "Manager never directly creates/reserves/cleans Git branches/worktrees."
+    },
+    {
+      "checked": false,
+      "text": "Existing independent-root Manager launch remains supported."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 928,
+    "state": "open",
+    "title": "feat(manager): launch forked executions from persisted Canon checkpoints",
+    "url": "https://github.com/yohn-jp/mottainai/issues/928"
+  },
+  "linked": {
+    "number": 928
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

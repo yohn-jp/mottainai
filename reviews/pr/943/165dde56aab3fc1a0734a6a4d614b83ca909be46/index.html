@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #943 @ 165dde56aab3</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #943: feat(manager): launch forked executions from Canon checkpoints</h1>
+<p>Base <code>main</code> @ <code>3d84e97fd72992b0d768a8a4ac2139585653481a</code> &rarr;
+Head <code>feat/928-canon-fork-launch</code> @ <code>165dde56aab3fc1a0734a6a4d614b83ca909be46</code></p>
+<p>Revision <code>165dde56aab3</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/928">#928</a> feat(manager): launch forked executions from persisted Canon checkpoints (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Valid parent checkpoint launches a child with same `prefix_id`, new Nawabari attachment and distinct `execution_state_id`.</li>
+<li>[ ] Parent currentness is revalidated immediately before physical creation.</li>
+<li>[ ] Two children from one parent use distinct worktrees/sessions.</li>
+<li>[ ] Nawabari failure, attachment mismatch, persistence fault and Zellij failure cannot falsely mark a child running.</li>
+<li>[ ] Restart reconciles planned/attached/launched/failed states without duplicate physical mutation.</li>
+<li>[ ] Manager never directly creates/reserves/cleans Git branches/worktrees.</li>
+<li>[ ] Existing independent-root Manager launch remains supported.</li></ul>
+
+
+
+<h2>Changed files (14, +1261/-479)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/inari/manifest.json</td><td>modified</td><td>+1</td><td>-6</td></tr>
+<tr><td>.github/inari/pull-requests/issue-integration.json</td><td>removed</td><td>+0</td><td>-89</td></tr>
+<tr><td>.github/PULL_REQUEST_TEMPLATE/issue-integration.md</td><td>removed</td><td>+0</td><td>-37</td></tr>
+<tr><td>src/context-runtime/dedupe.test.ts</td><td>modified</td><td>+1</td><td>-104</td></tr>
+<tr><td>src/context-runtime/dedupe.ts</td><td>modified</td><td>+9</td><td>-236</td></tr>
+<tr><td>src/manager/fork.test.ts</td><td>added</td><td>+332</td><td>-0</td></tr>
+<tr><td>src/manager/http.ts</td><td>modified</td><td>+29</td><td>-0</td></tr>
+<tr><td>src/manager/service.ts</td><td>modified</td><td>+390</td><td>-1</td></tr>
+<tr><td>src/proxy.ts</td><td>modified</td><td>+0</td><td>-6</td></tr>
+<tr><td>src/state/migrations.ts</td><td>modified</td><td>+43</td><td>-0</td></tr>
+<tr><td>src/test-support/nawabari-fixture.ts</td><td>modified</td><td>+23</td><td>-0</td></tr>
+<tr><td>src/workflow/domain/manager-execution.ts</td><td>modified</td><td>+1</td><td>-0</td></tr>
+<tr><td>src/workflow/state/sqlite-store.ts</td><td>modified</td><td>+355</td><td>-0</td></tr>
+<tr><td>src/workflow/state/store.ts</td><td>modified</td><td>+77</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
