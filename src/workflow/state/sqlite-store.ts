@@ -61,6 +61,12 @@ import type {
   CommitCleanupInput,
   CommitCleanupResult,
   CreateManagerSessionInput,
+  CanonCheckpointId,
+  CanonCheckpointJsonValue,
+  CanonCheckpointRecord,
+  CanonCheckpointFreshnessInputs,
+  CanonCheckpointLineageKind,
+  CanonCheckpointState,
   GuardrailAuditRecord,
   GuardrailAuditDecision,
   ListGuardrailAuditRecordsOptions,
@@ -76,6 +82,9 @@ import type {
   MarkCleanupLeaseInput,
   NawabariSessionId,
   RecordGuardrailDecisionInput,
+  RecordCanonCheckpointInput,
+  ReconcileCanonCheckpointInput,
+  ListCanonCheckpointsOptions,
   ReserveCleanupLeaseInput,
   ReserveCleanupLeaseResult,
   TaskId,
@@ -454,6 +463,116 @@ function toWorktreeRecord(row: Record<string, unknown>): WorktreeRecord {
     status: row.status as WorktreeRecord["status"],
     baseBranch: row.base_branch as string,
     baseCommit: row.base_commit as string,
+    createdAt: row.created_at as number,
+    updatedAt: row.updated_at as number,
+  };
+}
+
+const MAX_CANON_CHECKPOINT_FIELD_LENGTH = 512;
+const MAX_CANON_CHECKPOINT_JSON_DEPTH = 32;
+const MAX_CANON_CHECKPOINT_JSON_ENTRIES = 256;
+const CANON_PREFIX_ID_PATTERN = /^cp1:[0-9a-f]{64}$/u;
+const CANON_EXECUTION_STATE_ID_PATTERN = /^es1:[0-9a-f]{64}$/u;
+
+function canonCheckpointField(value: unknown, field: string, optional = false): string | undefined {
+  if ((value === undefined || value === null) && optional) return undefined;
+  if (typeof value !== "string" || value.length === 0 || value.length > MAX_CANON_CHECKPOINT_FIELD_LENGTH)
+    throw new Error(`Canon checkpoint ${field} is invalid`);
+  if (value !== value.trim() || /[\u0000-\u001f\u007f]/u.test(value))
+    throw new Error(`Canon checkpoint ${field} is invalid`);
+  return value;
+}
+
+function canonicalCanonCheckpointJson(value: unknown, depth = 0): CanonCheckpointJsonValue {
+  if (value === null || typeof value === "boolean" || typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (depth >= MAX_CANON_CHECKPOINT_JSON_DEPTH) throw new Error("Canon checkpoint freshness is too deeply nested");
+  if (Array.isArray(value)) {
+    if (value.length > MAX_CANON_CHECKPOINT_JSON_ENTRIES) throw new Error("Canon checkpoint freshness is too large");
+    return value.map((entry) => canonicalCanonCheckpointJson(entry, depth + 1));
+  }
+  if (typeof value !== "object" || value === undefined) throw new Error("Canon checkpoint freshness is invalid");
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length > MAX_CANON_CHECKPOINT_JSON_ENTRIES) throw new Error("Canon checkpoint freshness is too large");
+  return Object.fromEntries(
+    entries
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([key, entry]) => {
+        if (key.length > MAX_CANON_CHECKPOINT_FIELD_LENGTH || /[\u0000-\u001f\u007f]/u.test(key))
+          throw new Error("Canon checkpoint freshness has an invalid key");
+        return [key, canonicalCanonCheckpointJson(entry, depth + 1)];
+      }),
+  ) as CanonCheckpointJsonValue;
+}
+
+function canonicalCanonCheckpointFreshness(value: unknown): CanonCheckpointFreshnessInputs {
+  const canonical = canonicalCanonCheckpointJson(value);
+  if (typeof canonical !== "object" || canonical === null || Array.isArray(canonical))
+    throw new Error("Canon checkpoint freshness must be an object");
+  const record = canonical as Record<string, CanonCheckpointJsonValue>;
+  for (const field of ["repository", "task", "base", "source"] as const) {
+    if (!(field in record)) throw new Error(`Canon checkpoint freshness ${field} is required`);
+  }
+  if (!("artifactGeneration" in record)) throw new Error("Canon checkpoint freshness artifactGeneration is required");
+  return record as CanonCheckpointFreshnessInputs;
+}
+
+function canonCheckpointFreshnessJson(value: CanonCheckpointFreshnessInputs): string {
+  return JSON.stringify(canonicalCanonCheckpointFreshness(value));
+}
+
+function toCanonCheckpointRecord(row: Record<string, unknown>): CanonCheckpointRecord {
+  const checkpointId = canonCheckpointField(row.checkpoint_id, "checkpoint_id") as CanonCheckpointId;
+  const canonContractId = canonCheckpointField(row.canon_contract_id, "canon_contract_id")!;
+  const canonSchemaVersion = row.canon_schema_version;
+  if (!Number.isSafeInteger(canonSchemaVersion) || (canonSchemaVersion as number) <= 0)
+    throw new Error(`Canon checkpoint ${checkpointId} has an invalid schema version`);
+  const prefix_id = canonCheckpointField(row.prefix_id, "prefix_id")!;
+  if (!CANON_PREFIX_ID_PATTERN.test(prefix_id))
+    throw new Error(`Canon checkpoint ${checkpointId} has an invalid prefix_id`);
+  const parentCheckpointId =
+    row.parent_checkpoint_id === null || row.parent_checkpoint_id === undefined
+      ? undefined
+      : (canonCheckpointField(row.parent_checkpoint_id, "parent_checkpoint_id") as CanonCheckpointId);
+  const lineageKind = row.lineage_kind as CanonCheckpointLineageKind;
+  if (lineageKind !== "independent-root" && lineageKind !== "fork")
+    throw new Error(`Canon checkpoint ${checkpointId} has an invalid lineage kind`);
+  if ((lineageKind === "independent-root") !== (parentCheckpointId === undefined))
+    throw new Error(`Canon checkpoint ${checkpointId} has inconsistent parent lineage`);
+  let freshness: CanonCheckpointFreshnessInputs;
+  try {
+    freshness = canonicalCanonCheckpointFreshness(JSON.parse(String(row.freshness_json)));
+  } catch (error) {
+    throw new Error(
+      `Canon checkpoint ${checkpointId} has corrupt freshness: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const execution_state_id =
+    row.execution_state_id === null || row.execution_state_id === undefined
+      ? undefined
+      : canonCheckpointField(row.execution_state_id, "execution_state_id");
+  if (execution_state_id !== undefined && !CANON_EXECUTION_STATE_ID_PATTERN.test(execution_state_id))
+    throw new Error(`Canon checkpoint ${checkpointId} has an invalid execution_state_id`);
+  const attachmentGeneration = row.attachment_generation === null ? undefined : (row.attachment_generation as number);
+  if (attachmentGeneration !== undefined && (!Number.isSafeInteger(attachmentGeneration) || attachmentGeneration <= 0))
+    throw new Error(`Canon checkpoint ${checkpointId} has an invalid attachment generation`);
+  const state = row.state as CanonCheckpointState;
+  if (state !== "current" && state !== "stale")
+    throw new Error(`Canon checkpoint ${checkpointId} has an invalid state`);
+  return {
+    checkpointId,
+    canonContractId,
+    canonSchemaVersion: canonSchemaVersion as number,
+    prefix_id,
+    parentCheckpointId,
+    lineageKind,
+    freshness,
+    execution_state_id,
+    attachmentGeneration,
+    agentId: canonCheckpointField(row.agent_id, "agent_id", true),
+    modelId: canonCheckpointField(row.model_id, "model_id", true),
+    profile: canonCheckpointField(row.profile, "profile", true),
+    state,
     createdAt: row.created_at as number,
     updatedAt: row.updated_at as number,
   };
@@ -2213,6 +2332,226 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       .run(observedAt, observedAt, sessionId);
     if (result.changes === 0) throw new Error(`manager session not found: ${sessionId}`);
     return this.getManagerSession(sessionId)!;
+  }
+
+  recordCanonCheckpoint(input: RecordCanonCheckpointInput): CanonCheckpointRecord {
+    const checkpointId = canonCheckpointField(
+      input.checkpointId ?? crypto.randomUUID(),
+      "checkpointId",
+    ) as CanonCheckpointId;
+    const canonContractId = canonCheckpointField(
+      input.canonContractId ?? "mottainai.execution-canon.v1",
+      "canonContractId",
+    )!;
+    if (!Number.isSafeInteger(input.canonSchemaVersion) || input.canonSchemaVersion <= 0)
+      throw new Error("Canon checkpoint canonSchemaVersion must be a positive integer");
+    if (!CANON_PREFIX_ID_PATTERN.test(input.prefix_id)) throw new Error("Canon checkpoint prefix_id is invalid");
+    const parentCheckpointId =
+      input.parentCheckpointId === undefined
+        ? undefined
+        : (canonCheckpointField(input.parentCheckpointId, "parentCheckpointId") as CanonCheckpointId);
+    if (input.lineageKind === "independent-root" && parentCheckpointId !== undefined)
+      throw new Error("independent-root Canon checkpoint must not have a parent");
+    if (input.lineageKind === "fork" && parentCheckpointId === undefined)
+      throw new Error("fork Canon checkpoint requires a parent");
+    const freshness = canonicalCanonCheckpointFreshness(input.freshness);
+    const freshnessJson = canonCheckpointFreshnessJson(freshness);
+    if (input.execution_state_id !== undefined && !CANON_EXECUTION_STATE_ID_PATTERN.test(input.execution_state_id))
+      throw new Error("Canon checkpoint execution_state_id is invalid");
+    if (
+      input.attachmentGeneration !== undefined &&
+      (!Number.isSafeInteger(input.attachmentGeneration) || input.attachmentGeneration <= 0)
+    )
+      throw new Error("Canon checkpoint attachmentGeneration must be a positive integer");
+    const agentId = canonCheckpointField(input.agentId, "agentId", true);
+    const modelId = canonCheckpointField(input.modelId, "modelId", true);
+    const profile = canonCheckpointField(input.profile, "profile", true);
+    const recordedAt = input.recordedAt ?? Date.now();
+    const db = this.handle();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const existingRow = db.prepare("SELECT * FROM canon_checkpoints WHERE checkpoint_id = ?").get(checkpointId) as
+        | Record<string, unknown>
+        | undefined;
+      if (existingRow !== undefined) {
+        const existing = toCanonCheckpointRecord(existingRow);
+        const sameIdentity =
+          existing.canonContractId === canonContractId &&
+          existing.canonSchemaVersion === input.canonSchemaVersion &&
+          existing.prefix_id === input.prefix_id &&
+          existing.parentCheckpointId === parentCheckpointId &&
+          existing.lineageKind === input.lineageKind &&
+          JSON.stringify(existing.freshness) === freshnessJson &&
+          existing.execution_state_id === input.execution_state_id &&
+          existing.attachmentGeneration === input.attachmentGeneration &&
+          existing.agentId === agentId &&
+          existing.modelId === modelId &&
+          existing.profile === profile;
+        if (!sameIdentity) throw new Error(`Canon checkpoint already exists with different identity: ${checkpointId}`);
+        db.exec("COMMIT");
+        return existing;
+      }
+
+      if (parentCheckpointId !== undefined) {
+        const parentRow = db
+          .prepare("SELECT * FROM canon_checkpoints WHERE checkpoint_id = ?")
+          .get(parentCheckpointId) as Record<string, unknown> | undefined;
+        if (parentRow === undefined) throw new Error(`Canon checkpoint parent not found: ${parentCheckpointId}`);
+        const parent = toCanonCheckpointRecord(parentRow);
+        if (parent.state !== "current") throw new Error(`Canon checkpoint parent is stale: ${parentCheckpointId}`);
+        if (JSON.stringify(parent.freshness) !== freshnessJson) {
+          db.prepare(
+            `WITH RECURSIVE descendants(checkpoint_id) AS (
+               SELECT ?
+               UNION ALL
+               SELECT child.checkpoint_id FROM canon_checkpoints child JOIN descendants parent
+                 ON child.parent_checkpoint_id = parent.checkpoint_id
+             )
+             UPDATE canon_checkpoints SET state = 'stale', updated_at = ?
+             WHERE checkpoint_id IN (SELECT checkpoint_id FROM descendants)`,
+          ).run(parentCheckpointId, recordedAt);
+          db.exec("COMMIT");
+          throw new Error(`Canon checkpoint parent freshness is stale: ${parentCheckpointId}`);
+        }
+      }
+
+      db.prepare(
+        `INSERT INTO canon_checkpoints
+          (checkpoint_id, canon_contract_id, canon_schema_version, prefix_id, parent_checkpoint_id, lineage_kind,
+           freshness_json, execution_state_id, attachment_generation, agent_id, model_id, profile, state, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'current', ?, ?)`,
+      ).run(
+        checkpointId,
+        canonContractId,
+        input.canonSchemaVersion,
+        input.prefix_id,
+        parentCheckpointId ?? null,
+        input.lineageKind,
+        freshnessJson,
+        input.execution_state_id ?? null,
+        input.attachmentGeneration ?? null,
+        agentId ?? null,
+        modelId ?? null,
+        profile ?? null,
+        recordedAt,
+        recordedAt,
+      );
+      const row = db.prepare("SELECT * FROM canon_checkpoints WHERE checkpoint_id = ?").get(checkpointId) as Record<
+        string,
+        unknown
+      >;
+      const result = toCanonCheckpointRecord(row);
+      db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // Preserve the bounded checkpoint error.
+      }
+      throw error;
+    }
+  }
+
+  getCanonCheckpoint(checkpointId: CanonCheckpointId): CanonCheckpointRecord | undefined {
+    const row = this.handle().prepare("SELECT * FROM canon_checkpoints WHERE checkpoint_id = ?").get(checkpointId) as
+      | Record<string, unknown>
+      | undefined;
+    return row === undefined ? undefined : toCanonCheckpointRecord(row);
+  }
+
+  listCanonCheckpoints(options: ListCanonCheckpointsOptions = {}): CanonCheckpointRecord[] {
+    const clauses: string[] = [];
+    const parameters: Array<string | number> = [];
+    if (options.prefix_id !== undefined) {
+      clauses.push("prefix_id = ?");
+      parameters.push(options.prefix_id);
+    }
+    if (options.parentCheckpointId !== undefined) {
+      clauses.push("parent_checkpoint_id = ?");
+      parameters.push(options.parentCheckpointId);
+    }
+    if (options.lineageKind !== undefined) {
+      clauses.push("lineage_kind = ?");
+      parameters.push(options.lineageKind);
+    }
+    if (options.state !== undefined) {
+      clauses.push("state = ?");
+      parameters.push(options.state);
+    }
+    const requestedLimit = options.limit;
+    const limit =
+      requestedLimit === undefined || !Number.isFinite(requestedLimit)
+        ? 500
+        : Math.min(Math.max(Math.trunc(requestedLimit), 1), 1000);
+    const where = clauses.length === 0 ? "" : ` WHERE ${clauses.join(" AND ")}`;
+    const rows = this.handle()
+      .prepare(`SELECT * FROM canon_checkpoints${where} ORDER BY created_at ASC, checkpoint_id ASC LIMIT ?`)
+      .all(...parameters, limit) as Record<string, unknown>[];
+    return rows.map(toCanonCheckpointRecord);
+  }
+
+  listCanonCheckpointAncestry(checkpointId: CanonCheckpointId): CanonCheckpointRecord[] {
+    const ancestry: CanonCheckpointRecord[] = [];
+    const seen = new Set<string>();
+    let currentId: CanonCheckpointId | undefined = checkpointId;
+    while (currentId !== undefined) {
+      if (seen.has(currentId)) throw new Error(`Canon checkpoint ancestry contains a cycle: ${currentId}`);
+      seen.add(currentId);
+      if (seen.size > 256) throw new Error("Canon checkpoint ancestry exceeds its bound");
+      const current = this.getCanonCheckpoint(currentId);
+      if (current === undefined) throw new Error(`Canon checkpoint parent not found: ${currentId}`);
+      ancestry.push(current);
+      currentId = current.parentCheckpointId;
+    }
+    return ancestry.reverse();
+  }
+
+  reconcileCanonCheckpoint(input: ReconcileCanonCheckpointInput): CanonCheckpointRecord {
+    const current = this.getCanonCheckpoint(input.checkpointId);
+    if (current === undefined) throw new Error(`Canon checkpoint not found: ${input.checkpointId}`);
+    const freshnessJson = canonCheckpointFreshnessJson(input.freshness);
+    const ancestry = this.listCanonCheckpointAncestry(input.checkpointId);
+    const parentStale = ancestry.slice(0, -1).some((record) => record.state === "stale");
+    const nextState: CanonCheckpointState =
+      current.state === "stale" || parentStale || JSON.stringify(current.freshness) !== freshnessJson
+        ? "stale"
+        : "current";
+    const reconciledAt = input.reconciledAt ?? Date.now();
+    const db = this.handle();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      if (nextState === "stale") {
+        db.prepare(
+          `WITH RECURSIVE descendants(checkpoint_id) AS (
+             SELECT ?
+             UNION ALL
+             SELECT child.checkpoint_id FROM canon_checkpoints child JOIN descendants parent
+               ON child.parent_checkpoint_id = parent.checkpoint_id
+           )
+           UPDATE canon_checkpoints SET state = 'stale', updated_at = ?
+           WHERE checkpoint_id IN (SELECT checkpoint_id FROM descendants)`,
+        ).run(input.checkpointId, reconciledAt);
+      } else {
+        db.prepare("UPDATE canon_checkpoints SET state = 'current', updated_at = ? WHERE checkpoint_id = ?").run(
+          reconciledAt,
+          input.checkpointId,
+        );
+      }
+      const row = db
+        .prepare("SELECT * FROM canon_checkpoints WHERE checkpoint_id = ?")
+        .get(input.checkpointId) as Record<string, unknown>;
+      const result = toCanonCheckpointRecord(row);
+      db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // Preserve the bounded checkpoint error.
+      }
+      throw error;
+    }
   }
 
   listCleanupLeases(instanceId?: RepositoryInstanceId): CleanupLeaseRecord[] {

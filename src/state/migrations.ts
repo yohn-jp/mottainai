@@ -848,6 +848,37 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 26,
+    description: "manager: durable versioned Canon checkpoint lineage",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE canon_checkpoints (
+          checkpoint_id TEXT PRIMARY KEY,
+          canon_contract_id TEXT NOT NULL,
+          canon_schema_version INTEGER NOT NULL CHECK (canon_schema_version > 0),
+          prefix_id TEXT NOT NULL,
+          parent_checkpoint_id TEXT,
+          lineage_kind TEXT NOT NULL CHECK (lineage_kind IN ('independent-root', 'fork')),
+          freshness_json TEXT NOT NULL,
+          execution_state_id TEXT,
+          attachment_generation INTEGER CHECK (attachment_generation IS NULL OR attachment_generation > 0),
+          agent_id TEXT,
+          model_id TEXT,
+          profile TEXT,
+          state TEXT NOT NULL CHECK (state IN ('current', 'stale')),
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          CHECK ((lineage_kind = 'independent-root' AND parent_checkpoint_id IS NULL)
+            OR (lineage_kind = 'fork' AND parent_checkpoint_id IS NOT NULL)),
+          FOREIGN KEY (parent_checkpoint_id) REFERENCES canon_checkpoints (checkpoint_id)
+        );
+        CREATE INDEX idx_canon_checkpoints_prefix ON canon_checkpoints (prefix_id, created_at ASC, checkpoint_id ASC);
+        CREATE INDEX idx_canon_checkpoints_parent ON canon_checkpoints (parent_checkpoint_id, created_at ASC, checkpoint_id ASC);
+        CREATE INDEX idx_canon_checkpoints_state ON canon_checkpoints (state, updated_at DESC, checkpoint_id ASC);
+      `);
+    },
+  },
 ];
 
 function appliedVersions(db: DatabaseSync): Set<number> {

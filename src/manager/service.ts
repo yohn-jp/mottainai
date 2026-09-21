@@ -18,6 +18,11 @@ import {
 import type {
   CommitReconciliationRecord,
   CommitReconciliationState,
+  CanonCheckpointId,
+  CanonCheckpointRecord,
+  ListCanonCheckpointsOptions,
+  RecordCanonCheckpointInput,
+  ReconcileCanonCheckpointInput,
   ManagerAgentKind,
   ManagerReconciliationState,
   ManagerRuntimeId,
@@ -1560,6 +1565,27 @@ export class ManagerSessionService {
 
   async get(sessionId: ManagerSessionId): Promise<ManagerSessionRecord> {
     return this.withSessionOperation(sessionId, () => this.reconcileOneUnlocked(this.requireSession(sessionId)));
+  }
+
+  /** Persist one Canon checkpoint; this path only touches Manager state. */
+  recordCanonCheckpoint(input: RecordCanonCheckpointInput): CanonCheckpointRecord {
+    return this.options.store.recordCanonCheckpoint(input);
+  }
+
+  getCanonCheckpoint(checkpointId: CanonCheckpointId): CanonCheckpointRecord | undefined {
+    return this.options.store.getCanonCheckpoint(checkpointId);
+  }
+
+  listCanonCheckpoints(options?: ListCanonCheckpointsOptions): CanonCheckpointRecord[] {
+    return this.options.store.listCanonCheckpoints(options);
+  }
+
+  listCanonCheckpointAncestry(checkpointId: CanonCheckpointId): CanonCheckpointRecord[] {
+    return this.options.store.listCanonCheckpointAncestry(checkpointId);
+  }
+
+  reconcileCanonCheckpoint(input: ReconcileCanonCheckpointInput): CanonCheckpointRecord {
+    return this.options.store.reconcileCanonCheckpoint(input);
   }
 
   /** Read-only inspection of a Nawabari owner surfaced by claim preflight. */
