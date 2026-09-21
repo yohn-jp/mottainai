@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "961fa822a2e36f449cf7f644719f5f8e061d8129",
+    "draft": false,
+    "headRef": "feat/921-canon-resolver",
+    "headSha": "e053c5a4055b99b1c363ea0dfc467426515d32a9",
+    "number": 931,
+    "title": "feat(canon): resolve managed task Canon"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "e053c5a4055b99b1c363ea0dfc467426515d32a9",
+    "immutable": true,
+    "shortId": "e053c5a4055b"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-21T13:37:48.627Z"
+  }
+}
