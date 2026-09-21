@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #931 @ fd47bc658747</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #931: feat(canon): resolve managed task Canon</h1>
+<p>Base <code>main</code> @ <code>961fa822a2e36f449cf7f644719f5f8e061d8129</code> &rarr;
+Head <code>feat/921-canon-resolver</code> @ <code>fd47bc6587479caf400033d46d06612d04453a6a</code></p>
+<p>Revision <code>fd47bc658747</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/921">#921</a> feat(canon): resolve managed task Canon from authoritative Nawabari evidence (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Explicit task id resolves to a #409 Canon document plus both identities.</li>
+<li>[ ] Physical attachment comes only from current Nawabari evidence.</li>
+<li>[ ] Two physical sessions with equivalent deterministic prefix inputs can share `prefix_id` while differing in `execution_state_id`.</li>
+<li>[ ] Source/base/generation mismatch fails closed before returning an applicable Canon.</li>
+<li>[ ] Missing/incompatible/malformed/ambiguous Nawabari evidence returns bounded structured failure.</li>
+<li>[ ] Running from an unrelated cwd cannot redirect the resolved repository/task/session.</li>
+<li>[ ] Resolver and CLI perform no Git/GitHub/worktree/session mutation.</li>
+<li>[ ] Packed/public CLI coverage proves the machine JSON surface.</li></ul>
+
+
+
+<h2>Changed files (8, +691/-418)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/inari/issues/implementation.json</td><td>removed</td><td>+0</td><td>-236</td></tr>
+<tr><td>.github/ISSUE_TEMPLATE/implementation.yml</td><td>removed</td><td>+0</td><td>-182</td></tr>
+<tr><td>src/canon/index.ts</td><td>modified</td><td>+1</td><td>-0</td></tr>
+<tr><td>src/canon/resolver.test.ts</td><td>added</td><td>+235</td><td>-0</td></tr>
+<tr><td>src/canon/resolver.ts</td><td>added</td><td>+279</td><td>-0</td></tr>
+<tr><td>src/cli.test.ts</td><td>modified</td><td>+22</td><td>-0</td></tr>
+<tr><td>src/cli.ts</td><td>modified</td><td>+17</td><td>-0</td></tr>
+<tr><td>src/workflow/nawabari.ts</td><td>modified</td><td>+137</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

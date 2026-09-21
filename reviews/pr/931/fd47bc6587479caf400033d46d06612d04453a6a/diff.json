@@ -1,0 +1,142 @@
+{
+  "baseSha": "961fa822a2e36f449cf7f644719f5f8e061d8129",
+  "files": [
+    {
+      "additions": 0,
+      "deletions": 236,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 236,
+          "oldStart": 1
+        }
+      ],
+      "path": ".github/inari/issues/implementation.json",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 182,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 182,
+          "oldStart": 1
+        }
+      ],
+      "path": ".github/ISSUE_TEMPLATE/implementation.yml",
+      "status": "removed"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 2,
+          "oldLines": 0,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/canon/index.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 235,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 235,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/canon/resolver.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 279,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 279,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/canon/resolver.ts",
+      "status": "added"
+    },
+    {
+      "additions": 22,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 22,
+          "newStart": 370,
+          "oldLines": 0,
+          "oldStart": 369
+        }
+      ],
+      "path": "src/cli.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 17,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 58,
+          "oldLines": 0,
+          "oldStart": 57
+        },
+        {
+          "newLines": 1,
+          "newStart": 98,
+          "oldLines": 0,
+          "oldStart": 96
+        },
+        {
+          "newLines": 15,
+          "newStart": 938,
+          "oldLines": 0,
+          "oldStart": 935
+        }
+      ],
+      "path": "src/cli.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 137,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 21,
+          "newStart": 146,
+          "oldLines": 0,
+          "oldStart": 145
+        },
+        {
+          "newLines": 116,
+          "newStart": 893,
+          "oldLines": 0,
+          "oldStart": 871
+        }
+      ],
+      "path": "src/workflow/nawabari.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "fd47bc6587479caf400033d46d06612d04453a6a",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 691,
+    "deletions": 418,
+    "filesChanged": 8
+  }
+}

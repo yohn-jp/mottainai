@@ -1,0 +1,47 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Explicit task id resolves to a #409 Canon document plus both identities."
+    },
+    {
+      "checked": false,
+      "text": "Physical attachment comes only from current Nawabari evidence."
+    },
+    {
+      "checked": false,
+      "text": "Two physical sessions with equivalent deterministic prefix inputs can share `prefix_id` while differing in `execution_state_id`."
+    },
+    {
+      "checked": false,
+      "text": "Source/base/generation mismatch fails closed before returning an applicable Canon."
+    },
+    {
+      "checked": false,
+      "text": "Missing/incompatible/malformed/ambiguous Nawabari evidence returns bounded structured failure."
+    },
+    {
+      "checked": false,
+      "text": "Running from an unrelated cwd cannot redirect the resolved repository/task/session."
+    },
+    {
+      "checked": false,
+      "text": "Resolver and CLI perform no Git/GitHub/worktree/session mutation."
+    },
+    {
+      "checked": false,
+      "text": "Packed/public CLI coverage proves the machine JSON surface."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 921,
+    "state": "open",
+    "title": "feat(canon): resolve managed task Canon from authoritative Nawabari evidence",
+    "url": "https://github.com/yohn-jp/mottainai/issues/921"
+  },
+  "linked": {
+    "number": 921
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
