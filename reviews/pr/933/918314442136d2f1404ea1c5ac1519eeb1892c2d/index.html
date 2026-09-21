@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #933 @ 918314442136</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #933: feat(canon): compose governed Issue task C2 (#922)</h1>
+<p>Base <code>main</code> @ <code>961fa822a2e36f449cf7f644719f5f8e061d8129</code> &rarr;
+Head <code>feat/922-c2-governed-task-canon</code> @ <code>918314442136d2f1404ea1c5ac1519eeb1892c2d</code></p>
+<p>Revision <code>918314442136</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/922">#922</a> feat(canon): compose governed Issue meaning into deterministic C2 (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Issue-backed task produces deterministic ordered C2 from Mottainai task state + #411 governed projection.</li>
+<li>[ ] Equivalent governed/task inputs replay to identical C2 and `prefix_id`.</li>
+<li>[ ] Governed artifact or governance-generation change invalidates C2 deterministically.</li>
+<li>[ ] Invalid/incomplete/wrong-template governed meaning fails closed.</li>
+<li>[ ] Managed launch receives C2 before inference and does not require native Issue Markdown orientation.</li>
+<li>[ ] No gh-inari parser/validator semantics are copied into Mottainai.</li>
+<li>[ ] Unmanaged/manual host skill behavior is unchanged.</li>
+<li>[ ] Focused tests cover stable replay, artifact change, governance change, invalid projection and launch ordering.</li></ul>
+
+
+
+<h2>Changed files (8, +488/-420)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>.github/inari/issues/implementation.json</td><td>removed</td><td>+0</td><td>-236</td></tr>
+<tr><td>.github/ISSUE_TEMPLATE/implementation.yml</td><td>removed</td><td>+0</td><td>-182</td></tr>
+<tr><td>src/canon/c2.test.ts</td><td>added</td><td>+113</td><td>-0</td></tr>
+<tr><td>src/canon/c2.ts</td><td>added</td><td>+254</td><td>-0</td></tr>
+<tr><td>src/canon/index.ts</td><td>modified</td><td>+1</td><td>-0</td></tr>
+<tr><td>src/cli.ts</td><td>modified</td><td>+20</td><td>-0</td></tr>
+<tr><td>src/manager/task-run.test.ts</td><td>modified</td><td>+44</td><td>-0</td></tr>
+<tr><td>src/workflow/domain/managed-task-run.ts</td><td>modified</td><td>+56</td><td>-2</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>

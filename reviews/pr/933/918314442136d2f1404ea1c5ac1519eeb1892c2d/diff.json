@@ -1,0 +1,184 @@
+{
+  "baseSha": "961fa822a2e36f449cf7f644719f5f8e061d8129",
+  "files": [
+    {
+      "additions": 0,
+      "deletions": 236,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 236,
+          "oldStart": 1
+        }
+      ],
+      "path": ".github/inari/issues/implementation.json",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 182,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 182,
+          "oldStart": 1
+        }
+      ],
+      "path": ".github/ISSUE_TEMPLATE/implementation.yml",
+      "status": "removed"
+    },
+    {
+      "additions": 113,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 113,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/canon/c2.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 254,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 254,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/canon/c2.ts",
+      "status": "added"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 2,
+          "oldLines": 0,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/canon/index.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 20,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 7,
+          "oldLines": 0,
+          "oldStart": 6
+        },
+        {
+          "newLines": 1,
+          "newStart": 57,
+          "oldLines": 0,
+          "oldStart": 55
+        },
+        {
+          "newLines": 16,
+          "newStart": 777,
+          "oldLines": 0,
+          "oldStart": 774
+        },
+        {
+          "newLines": 2,
+          "newStart": 817,
+          "oldLines": 0,
+          "oldStart": 798
+        }
+      ],
+      "path": "src/cli.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 44,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 11,
+          "oldLines": 0,
+          "oldStart": 10
+        },
+        {
+          "newLines": 1,
+          "newStart": 16,
+          "oldLines": 0,
+          "oldStart": 14
+        },
+        {
+          "newLines": 1,
+          "newStart": 29,
+          "oldLines": 0,
+          "oldStart": 26
+        },
+        {
+          "newLines": 41,
+          "newStart": 178,
+          "oldLines": 0,
+          "oldStart": 174
+        }
+      ],
+      "path": "src/manager/task-run.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 56,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 7,
+          "newStart": 5,
+          "oldLines": 0,
+          "oldStart": 4
+        },
+        {
+          "newLines": 8,
+          "newStart": 28,
+          "oldLines": 0,
+          "oldStart": 20
+        },
+        {
+          "newLines": 39,
+          "newStart": 263,
+          "oldLines": 0,
+          "oldStart": 247
+        },
+        {
+          "newLines": 1,
+          "newStart": 311,
+          "oldLines": 1,
+          "oldStart": 257
+        },
+        {
+          "newLines": 1,
+          "newStart": 315,
+          "oldLines": 1,
+          "oldStart": 261
+        }
+      ],
+      "path": "src/workflow/domain/managed-task-run.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "918314442136d2f1404ea1c5ac1519eeb1892c2d",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 488,
+    "deletions": 420,
+    "filesChanged": 8
+  }
+}

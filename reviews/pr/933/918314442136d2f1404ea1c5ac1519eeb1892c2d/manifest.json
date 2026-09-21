@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "961fa822a2e36f449cf7f644719f5f8e061d8129",
+    "draft": false,
+    "headRef": "feat/922-c2-governed-task-canon",
+    "headSha": "918314442136d2f1404ea1c5ac1519eeb1892c2d",
+    "number": 933,
+    "title": "feat(canon): compose governed Issue task C2 (#922)"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "918314442136d2f1404ea1c5ac1519eeb1892c2d",
+    "immutable": true,
+    "shortId": "918314442136"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-21T13:44:35.588Z"
+  }
+}

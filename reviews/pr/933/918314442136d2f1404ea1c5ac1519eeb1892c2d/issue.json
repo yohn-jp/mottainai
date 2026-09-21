@@ -1,0 +1,47 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Issue-backed task produces deterministic ordered C2 from Mottainai task state + #411 governed projection."
+    },
+    {
+      "checked": false,
+      "text": "Equivalent governed/task inputs replay to identical C2 and `prefix_id`."
+    },
+    {
+      "checked": false,
+      "text": "Governed artifact or governance-generation change invalidates C2 deterministically."
+    },
+    {
+      "checked": false,
+      "text": "Invalid/incomplete/wrong-template governed meaning fails closed."
+    },
+    {
+      "checked": false,
+      "text": "Managed launch receives C2 before inference and does not require native Issue Markdown orientation."
+    },
+    {
+      "checked": false,
+      "text": "No gh-inari parser/validator semantics are copied into Mottainai."
+    },
+    {
+      "checked": false,
+      "text": "Unmanaged/manual host skill behavior is unchanged."
+    },
+    {
+      "checked": false,
+      "text": "Focused tests cover stable replay, artifact change, governance change, invalid projection and launch ordering."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 922,
+    "state": "open",
+    "title": "feat(canon): compose governed Issue meaning into deterministic C2",
+    "url": "https://github.com/yohn-jp/mottainai/issues/922"
+  },
+  "linked": {
+    "number": 922
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
