@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "a4bf64e3cef9fcaef37bdccea5f875160877815f",
+    "draft": false,
+    "headRef": "feat/926-c3-suzukuri-admission",
+    "headSha": "d37801260e0954a72259b4fa79ae14ba87b42a88",
+    "number": 940,
+    "title": "feat(canon): project C3 candidates through Suzukuri into Canon"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "d37801260e0954a72259b4fa79ae14ba87b42a88",
+    "immutable": true,
+    "shortId": "d37801260e09"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-21T16:49:16.558Z"
+  }
+}
