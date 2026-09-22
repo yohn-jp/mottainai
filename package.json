@@ -118,8 +118,5 @@
     "gateway",
     "proxy",
     "tool-compression"
-  ],
-  "optionalDependencies": {
-    "pi-mottainai": "workspace:*"
-  }
+  ]
 }
