@@ -1,19 +1,54 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  CERTIFICATION_BASE_SHA,
-  CERTIFICATION_BRANCH,
+  CERTIFICATION_EPIC_BRANCH,
+  CERTIFICATION_EXPECTED_REVISION_ENV,
   CertificationExternalBlocker,
   CertificationProductDefect,
   assertBodyFreeEvidence,
   assertObservationReadOnly,
   classifyProviderFailure,
   compactWorkerProjection,
+  resolveCertificationRevision,
 } from "./pi-runtime-certification.mjs";
 
-test("certification is pinned to the governed immutable base and branch", () => {
-  assert.equal(CERTIFICATION_BASE_SHA, "f5e9268a5a40fcfaafc4bb8c4087a18917bfaeaf");
-  assert.equal(CERTIFICATION_BRANCH, "test/956-pi-runtime-certification");
+test("certification accepts the integrated Epic head or an explicit expected revision", () => {
+  assert.equal(CERTIFICATION_EPIC_BRANCH, "epic/946-agent-runtime-supervision");
+  assert.equal(CERTIFICATION_EXPECTED_REVISION_ENV, "MOTTAINAI_PI_CERT_EXPECTED_REVISION");
+  assert.equal(
+    resolveCertificationRevision({
+      head: "abc123",
+      branch: CERTIFICATION_EPIC_BRANCH,
+      expectedRevision: undefined,
+    }),
+    "abc123",
+  );
+  assert.equal(
+    resolveCertificationRevision({
+      head: "def456",
+      branch: "fix/969-pi-certification-governance",
+      expectedRevision: "def456",
+    }),
+    "def456",
+  );
+  assert.throws(
+    () =>
+      resolveCertificationRevision({
+        head: "def456",
+        branch: "fix/969-pi-certification-governance",
+        expectedRevision: "other",
+      }),
+    CertificationProductDefect,
+  );
+  assert.throws(
+    () =>
+      resolveCertificationRevision({
+        head: "def456",
+        branch: "fix/969-pi-certification-governance",
+        expectedRevision: undefined,
+      }),
+    CertificationProductDefect,
+  );
 });
 
 test("provider credential failures are external blockers, not certification success", () => {

@@ -13,8 +13,8 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-export const CERTIFICATION_BASE_SHA = "f5e9268a5a40fcfaafc4bb8c4087a18917bfaeaf";
-export const CERTIFICATION_BRANCH = "test/956-pi-runtime-certification";
+export const CERTIFICATION_EPIC_BRANCH = "epic/946-agent-runtime-supervision";
+export const CERTIFICATION_EXPECTED_REVISION_ENV = "MOTTAINAI_PI_CERT_EXPECTED_REVISION";
 export const PACKED_PACKAGE_NAME = "pi-mottainai";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -277,16 +277,33 @@ function currentGitValueAt(cwd, args) {
   return run("git", args, { cwd }).stdout.trim();
 }
 
-function assertFixedBase() {
-  assert(
-    currentGitValue(["rev-parse", "HEAD"]) === CERTIFICATION_BASE_SHA,
-    "certification worktree is not on fixed base SHA",
-  );
-  assert(currentGitValue(["branch", "--show-current"]) === CERTIFICATION_BRANCH, "certification branch is incorrect");
+export function resolveCertificationRevision({ head, branch, expectedRevision }) {
+  if (expectedRevision !== undefined && expectedRevision.length > 0) {
+    if (head !== expectedRevision) {
+      throw new CertificationProductDefect(
+        `certification revision mismatch: expected ${expectedRevision}, observed ${head}`,
+      );
+    }
+    return head;
+  }
+  if (branch !== CERTIFICATION_EPIC_BRANCH) {
+    throw new CertificationProductDefect(
+      `certification must run on ${CERTIFICATION_EPIC_BRANCH} or declare ${CERTIFICATION_EXPECTED_REVISION_ENV}`,
+    );
+  }
+  return head;
+}
+
+function currentCertificationRevision() {
+  return resolveCertificationRevision({
+    head: currentGitValue(["rev-parse", "HEAD"]),
+    branch: currentGitValue(["branch", "--show-current"]),
+    expectedRevision: process.env[CERTIFICATION_EXPECTED_REVISION_ENV],
+  });
 }
 
 export async function certify() {
-  assertFixedBase();
+  const certificationRevision = currentCertificationRevision();
   ensureBuild();
   const packed = await loadPackedAdapter();
   const managerModule = await import(pathToFileURL(path.join(repositoryRoot, "dist", "manager", "service.js")).href);
@@ -297,10 +314,10 @@ export async function certify() {
   const managerTempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-manager-certification-"));
   const managerWorkspaceRoot = path.join(managerTempRoot, "repository");
   run("git", ["clone", "--shared", "--no-tags", repositoryRoot, managerWorkspaceRoot]);
-  run("git", ["checkout", "-B", "main", CERTIFICATION_BASE_SHA], { cwd: managerWorkspaceRoot });
+  run("git", ["checkout", "-B", "main", certificationRevision], { cwd: managerWorkspaceRoot });
   assert(
-    currentGitValueAt(managerWorkspaceRoot, ["rev-parse", "HEAD"]) === CERTIFICATION_BASE_SHA,
-    "temporary certification repository is not pinned to the fixed base",
+    currentGitValueAt(managerWorkspaceRoot, ["rev-parse", "HEAD"]) === certificationRevision,
+    "temporary certification repository is not pinned to the certification revision",
   );
   const store = new storeModule.WorkflowSqliteStateStore({ dbPath: path.join(managerTempRoot, "state.sqlite3") });
   store.init();
@@ -449,7 +466,7 @@ export async function certify() {
     assert(restartProjection.runtimeState === "stopped", "restart/reconciliation changed terminal state to live");
     return assertBodyFreeEvidence({
       result: "certified",
-      base: CERTIFICATION_BASE_SHA,
+      revision: certificationRevision,
       artifact: { package: PACKED_PACKAGE_NAME, entry: packed.installedEntry },
       attachment: {
         worktree: evidence.worktree,
