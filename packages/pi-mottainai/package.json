@@ -45,6 +45,6 @@
   },
   "homepage": "https://github.com/yohn-jp/mottainai#readme",
   "peerDependencies": {
-    "mottainai": ">=0.9.3"
+    "mottainai": ">=0.9.4"
   }
 }
