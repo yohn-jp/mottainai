@@ -72,6 +72,9 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: 0.87.0
         version: 0.87.0(@modelcontextprotocol/sdk@1.29.0(supports-color@7.2.0)(zod@3.25.76))(supports-color@7.2.0)(ws@8.21.3)(zod@3.25.76)
+      mottainai:
+        specifier: workspace:*
+        version: link:../..
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
