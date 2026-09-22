@@ -126,6 +126,7 @@ function inputFromBody(value: unknown): NewManagerSessionInput {
     ...(body.issueRef === undefined ? {} : { issueRef: body.issueRef as string }),
     ...(body.branchType === undefined ? {} : { branchType: body.branchType as string }),
     ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey as string }),
+    ...(body.canon === undefined ? {} : { canon: body.canon as NewManagerSessionInput["canon"] }),
     ...(body.scope === undefined ? {} : { scope: body.scope as NewManagerSessionInput["scope"] }),
     ...(body.paths === undefined ? {} : { paths: body.paths as NewManagerSessionInput["paths"] }),
     ...(body.claims === undefined ? {} : { claims: body.claims as NewManagerSessionInput["claims"] }),
@@ -227,6 +228,14 @@ function workerListOptionsFromQuery(url: URL): { limit?: number } {
   return { limit };
 }
 
+function controlDirectiveFromBody(value: unknown): string {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    throw new ManagerError("invalid_request", "request body must be an object", 400);
+  const directive = (value as Record<string, unknown>).directive;
+  if (typeof directive !== "string") throw new ManagerError("invalid_request", "directive is required", 400);
+  return directive;
+}
+
 function requireJsonContentType(request: IncomingMessage): void {
   const contentType = request.headers["content-type"];
   if (typeof contentType !== "string" || contentType.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") {
@@ -267,6 +276,8 @@ type ManagerRouteName =
   | "runtime"
   | "workers"
   | "worker"
+  | "worker-steer"
+  | "worker-stop"
   | "sessions"
   | "fork"
   | "sessions-preview"
@@ -294,6 +305,8 @@ const MANAGER_ROUTES: readonly ManagerRouteDefinition[] = [
   { name: "runtime", path: ["runtimes", ":runtimeId"], methods: ["GET"] },
   { name: "workers", path: ["workers"], methods: ["GET"] },
   { name: "worker", path: ["workers", ":workerId"], methods: ["GET"] },
+  { name: "worker-steer", path: ["workers", ":workerId", "steer"], methods: ["POST"] },
+  { name: "worker-stop", path: ["workers", ":workerId", "stop"], methods: ["POST"] },
   { name: "sessions", path: ["sessions"], methods: ["GET", "POST"] },
   { name: "fork", path: ["fork"], methods: ["POST"] },
   // Keep static session aliases ahead of the dynamic session detail route.
@@ -380,6 +393,22 @@ export class ManagerHttpApi implements ManagerHttpHandler {
         case "worker":
           sendJson(response, 200, {
             worker: this.service.getWorkerSupervision(workerSessionIdFromPath(segments[1] ?? "")),
+          });
+          return;
+        case "worker-steer":
+          requireJsonContentType(request);
+          sendJson(response, 200, {
+            session: this.service.projectSession(
+              await this.service.steer(
+                workerSessionIdFromPath(segments[1] ?? ""),
+                controlDirectiveFromBody(await readJsonBody(request)),
+              ),
+            ),
+          });
+          return;
+        case "worker-stop":
+          sendJson(response, 200, {
+            session: this.service.projectSession(await this.service.stop(workerSessionIdFromPath(segments[1] ?? ""))),
           });
           return;
         case "sessions":
