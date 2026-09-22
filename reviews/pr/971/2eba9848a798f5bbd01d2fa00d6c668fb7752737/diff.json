@@ -1,0 +1,172 @@
+{
+  "baseSha": "4e7e7aea37d7ee9be474e8f3ea1381ff10b2778e",
+  "files": [
+    {
+      "additions": 12,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 12,
+          "newStart": 121,
+          "oldLines": 1,
+          "oldStart": 121
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 5,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 19,
+          "oldLines": 0,
+          "oldStart": 18
+        },
+        {
+          "newLines": 1,
+          "newStart": 22,
+          "oldLines": 1,
+          "oldStart": 20
+        },
+        {
+          "newLines": 2,
+          "newStart": 25,
+          "oldLines": 1,
+          "oldStart": 23
+        }
+      ],
+      "path": "packages/pi-mottainai/package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 25,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 25,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/src/contract-authority.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 2,
+          "oldLines": 1,
+          "oldStart": 2
+        }
+      ],
+      "path": "packages/pi-mottainai/src/events.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 34,
+      "deletions": 112,
+      "hunks": [
+        {
+          "newLines": 33,
+          "newStart": 10,
+          "oldLines": 55,
+          "oldStart": 10
+        },
+        {
+          "newLines": 1,
+          "newStart": 44,
+          "oldLines": 57,
+          "oldStart": 66
+        }
+      ],
+      "path": "packages/pi-mottainai/src/runtime.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 15,
+      "deletions": 194,
+      "hunks": [
+        {
+          "newLines": 5,
+          "newStart": 2,
+          "oldLines": 1,
+          "oldStart": 2
+        },
+        {
+          "newLines": 2,
+          "newStart": 11,
+          "oldLines": 84,
+          "oldStart": 7
+        },
+        {
+          "newLines": 7,
+          "newStart": 21,
+          "oldLines": 106,
+          "oldStart": 99
+        },
+        {
+          "newLines": 1,
+          "newStart": 39,
+          "oldLines": 1,
+          "oldStart": 216
+        },
+        {
+          "newLines": 0,
+          "newStart": 46,
+          "oldLines": 2,
+          "oldStart": 224
+        }
+      ],
+      "path": "packages/pi-mottainai/src/status-tool.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 3,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 75,
+          "oldLines": 0,
+          "oldStart": 74
+        }
+      ],
+      "path": "pnpm-lock.yaml",
+      "status": "modified"
+    },
+    {
+      "additions": 82,
+      "deletions": 7,
+      "hunks": [
+        {
+          "newLines": 15,
+          "newStart": 48,
+          "oldLines": 7,
+          "oldStart": 48
+        },
+        {
+          "newLines": 67,
+          "newStart": 187,
+          "oldLines": 0,
+          "oldStart": 178
+        }
+      ],
+      "path": "src/manager/worker-runtime.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "2eba9848a798f5bbd01d2fa00d6c668fb7752737",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 177,
+    "deletions": 317,
+    "filesChanged": 8
+  }
+}
