@@ -448,6 +448,7 @@ jobs:
               - 'pnpm-lock.yaml'
               - '.github/workflows/ci.yml'
             package:
+              - 'packages/pi-mottainai/**'
               - 'src/**'
               - 'scripts/smoke-test.mjs'
               - 'scripts/run-package-suite.mjs'
