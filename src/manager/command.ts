@@ -53,10 +53,23 @@ interface PiManagerAdapterModule {
 
 export type PiManagerAdapterLoader = () => Promise<PiManagerAdapterModule>;
 
+function isPiManagerAdapterModule(value: unknown): value is PiManagerAdapterModule {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "createManagedPiMottainaiRuntime" in value &&
+    typeof value.createManagedPiMottainaiRuntime === "function"
+  );
+}
+
 export function createProductionPiWorkerFactory(
   loader: PiManagerAdapterLoader = async () => {
     const packageName = "pi-mottainai";
-    return (await import(packageName)) as unknown as PiManagerAdapterModule;
+    const loaded: unknown = await import(packageName);
+    if (!isPiManagerAdapterModule(loaded)) {
+      throw new Error("pi-mottainai does not export createManagedPiMottainaiRuntime");
+    }
+    return loaded;
   },
 ): ManagerPiWorkerFactory {
   return async (input) => {
