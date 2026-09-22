@@ -1,0 +1,192 @@
+{
+  "baseSha": "4e7e7aea37d7ee9be474e8f3ea1381ff10b2778e",
+  "files": [
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 20,
+          "oldLines": 1,
+          "oldStart": 20
+        }
+      ],
+      "path": "packages/pi-mottainai/package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 4,
+          "oldLines": 0,
+          "oldStart": 3
+        }
+      ],
+      "path": "packages/pi-mottainai/src/index.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 40,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 40,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/src/manager-factory.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 91,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 91,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/src/manager-factory.ts",
+      "status": "added"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 62,
+          "oldLines": 0,
+          "oldStart": 61
+        }
+      ],
+      "path": "scripts/test-suites.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 16,
+      "deletions": 32,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 8,
+          "oldLines": 0,
+          "oldStart": 7
+        },
+        {
+          "newLines": 15,
+          "newStart": 12,
+          "oldLines": 0,
+          "oldStart": 10
+        },
+        {
+          "newLines": 0,
+          "newStart": 70,
+          "oldLines": 32,
+          "oldStart": 55
+        }
+      ],
+      "path": "src/manager/command.integration.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 29,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 6,
+          "newStart": 15,
+          "oldLines": 1,
+          "oldStart": 15
+        },
+        {
+          "newLines": 1,
+          "newStart": 45,
+          "oldLines": 0,
+          "oldStart": 39
+        },
+        {
+          "newLines": 21,
+          "newStart": 50,
+          "oldLines": 0,
+          "oldStart": 43
+        },
+        {
+          "newLines": 1,
+          "newStart": 148,
+          "oldLines": 0,
+          "oldStart": 120
+        }
+      ],
+      "path": "src/manager/command.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 9,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 113,
+          "oldLines": 0,
+          "oldStart": 112
+        },
+        {
+          "newLines": 1,
+          "newStart": 115,
+          "oldLines": 1,
+          "oldStart": 114
+        },
+        {
+          "newLines": 6,
+          "newStart": 229,
+          "oldLines": 1,
+          "oldStart": 228
+        },
+        {
+          "newLines": 1,
+          "newStart": 268,
+          "oldLines": 1,
+          "oldStart": 262
+        }
+      ],
+      "path": "src/manager/pi-runtime.integration.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 42,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 38,
+          "newStart": 1893,
+          "oldLines": 0,
+          "oldStart": 1892
+        },
+        {
+          "newLines": 4,
+          "newStart": 1938,
+          "oldLines": 1,
+          "oldStart": 1900
+        }
+      ],
+      "path": "src/manager/service.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "007d54c3f5f47eaa0a31dbe9815ec1e60216401f",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 230,
+    "deletions": 38,
+    "filesChanged": 9
+  }
+}
