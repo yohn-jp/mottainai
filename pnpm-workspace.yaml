@@ -14,8 +14,10 @@ allowBuilds:
   # deliberately to avoid running an arbitrary postinstall script from a
   # third-party package for functionality this repository doesn't need.
   '@alibaba-group/open-code-review': false
+  '@google/genai': false
   esbuild: true
   node-pty: true
+  protobufjs: false
   tree-sitter: true
   tree-sitter-javascript: true
   tree-sitter-typescript: true
