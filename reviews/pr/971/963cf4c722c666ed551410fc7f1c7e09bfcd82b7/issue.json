@@ -1,0 +1,16 @@
+{
+  "acceptanceCriteria": [],
+  "issue": {
+    "labels": [
+      "implementation"
+    ],
+    "number": 968,
+    "state": "open",
+    "title": "impl: make the Mottainai worker runtime contract the single adapter authority",
+    "url": "https://github.com/yohn-jp/mottainai/issues/968"
+  },
+  "linked": {
+    "number": 968
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
