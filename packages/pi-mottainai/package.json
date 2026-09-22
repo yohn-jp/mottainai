@@ -1,0 +1,24 @@
+{
+  "name": "pi-mottainai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json --incremental false",
+    "test": "node --import tsx --test src/runtime.test.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.87.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}
