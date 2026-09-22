@@ -53,7 +53,11 @@ const integrationPatterns = Object.freeze([
 ]);
 
 const e2ePatterns = Object.freeze(["src/e2e/**/*.spec.ts"]);
-const packagePatterns = Object.freeze(["scripts/smoke-test.mjs", "scripts/mcp-stdio-package.test.mjs"]);
+const packagePatterns = Object.freeze([
+  "scripts/smoke-test.mjs",
+  "scripts/mcp-stdio-package.test.mjs",
+  "packages/pi-mottainai/src/runtime.test.ts",
+]);
 const nonStandardsTestFiles = Object.freeze([
   "scripts/lib/mcp-blackbox-client.test.mjs",
   "scripts/mcp-stdio-package.test.mjs",
