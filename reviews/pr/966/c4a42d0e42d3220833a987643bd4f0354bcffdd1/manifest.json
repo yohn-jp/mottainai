@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "epic/946-agent-runtime-supervision",
+    "baseSha": "f5e9268a5a40fcfaafc4bb8c4087a18917bfaeaf",
+    "draft": false,
+    "headRef": "test/956-pi-runtime-certification",
+    "headSha": "c4a42d0e42d3220833a987643bd4f0354bcffdd1",
+    "number": 966,
+    "title": "test: add Pi runtime certification harness (#956)"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "c4a42d0e42d3220833a987643bd4f0354bcffdd1",
+    "immutable": true,
+    "shortId": "c4a42d0e42d3"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-22T08:57:45.550Z"
+  }
+}
