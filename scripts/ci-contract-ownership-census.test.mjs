@@ -72,6 +72,8 @@ test("Pi certification scripts select the Node contract and are not unowned (#96
   ];
   const selected = classifyChangedFiles(classes, certificationFiles);
   assert.equal(selected.node, true);
+  assert.equal(selected.integration, true);
+  assert.equal(selected.package, true);
   assert.deepEqual(
     findUnownedTrackedFiles(repositoryRoot, { trackedFiles: certificationFiles, classes }),
     [],
