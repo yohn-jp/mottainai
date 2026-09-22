@@ -45,13 +45,21 @@ export type WorkerRuntimeObservationEventKind = (typeof WORKER_RUNTIME_OBSERVATI
 export const WORKER_RUNTIME_CONTROL_OPERATIONS = ["start", "bind", "stop", "steer", "input"] as const;
 export type WorkerRuntimeControlOperation = (typeof WORKER_RUNTIME_CONTROL_OPERATIONS)[number];
 
-const MAX_IDENTITY_LENGTH = 256 as const;
-const MAX_PROVIDER_LENGTH = 128 as const;
-const MAX_LABEL_LENGTH = 256 as const;
-const MAX_BLOCKER_CODE_LENGTH = 128 as const;
-const MAX_BLOCKER_DETAIL_LENGTH = 512 as const;
-const MAX_CONTROL_TEXT_LENGTH = 4_096 as const;
-const MAX_TOKEN_COUNT = 1_000_000_000_000 as const;
+export const WORKER_RUNTIME_MAX_IDENTITY_LENGTH = 256 as const;
+export const WORKER_RUNTIME_MAX_PROVIDER_LENGTH = 128 as const;
+export const WORKER_RUNTIME_MAX_LABEL_LENGTH = 256 as const;
+export const WORKER_RUNTIME_MAX_BLOCKER_CODE_LENGTH = 128 as const;
+export const WORKER_RUNTIME_MAX_BLOCKER_DETAIL_LENGTH = 512 as const;
+export const WORKER_RUNTIME_MAX_CONTROL_TEXT_LENGTH = 4_096 as const;
+export const WORKER_RUNTIME_MAX_TOKEN_COUNT = 1_000_000_000_000 as const;
+
+const MAX_IDENTITY_LENGTH = WORKER_RUNTIME_MAX_IDENTITY_LENGTH;
+const MAX_PROVIDER_LENGTH = WORKER_RUNTIME_MAX_PROVIDER_LENGTH;
+const MAX_LABEL_LENGTH = WORKER_RUNTIME_MAX_LABEL_LENGTH;
+const MAX_BLOCKER_CODE_LENGTH = WORKER_RUNTIME_MAX_BLOCKER_CODE_LENGTH;
+const MAX_BLOCKER_DETAIL_LENGTH = WORKER_RUNTIME_MAX_BLOCKER_DETAIL_LENGTH;
+const MAX_CONTROL_TEXT_LENGTH = WORKER_RUNTIME_MAX_CONTROL_TEXT_LENGTH;
+const MAX_TOKEN_COUNT = WORKER_RUNTIME_MAX_TOKEN_COUNT;
 
 const boundedIdentitySchema = z.string().min(1).max(MAX_IDENTITY_LENGTH);
 const boundedProviderSchema = z.string().min(1).max(MAX_PROVIDER_LENGTH);
@@ -175,6 +183,73 @@ export const WorkerRuntimeStatusReportInputSchema = z
   })
   .strict();
 export type WorkerRuntimeStatusReportInput = z.infer<typeof WorkerRuntimeStatusReportInputSchema>;
+
+/** Canonical JSON Schema projection of WorkerRuntimeStatusReportInputSchema for provider tool registration. */
+export const WORKER_RUNTIME_STATUS_REPORT_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    lifecycleState: { type: "string", enum: WORKER_RUNTIME_LIFECYCLE_STATES },
+    phase: { type: "string", enum: WORKER_RUNTIME_PHASES },
+    activity: {
+      type: "object",
+      properties: {
+        kind: { type: "string", enum: WORKER_RUNTIME_ACTIVITY_KINDS },
+        label: { type: "string", minLength: 1, maxLength: MAX_LABEL_LENGTH },
+      },
+      required: ["kind"],
+      additionalProperties: false,
+    },
+    progress: {
+      type: "object",
+      properties: {
+        completed: { type: "integer", minimum: 0, maximum: MAX_TOKEN_COUNT },
+        current: {
+          anyOf: [
+            { type: "string", minLength: 1, maxLength: MAX_LABEL_LENGTH },
+            { type: "null" },
+          ],
+        },
+        remaining: {
+          anyOf: [
+            { type: "integer", minimum: 0, maximum: MAX_TOKEN_COUNT },
+            { type: "null" },
+          ],
+        },
+      },
+      required: ["completed", "current", "remaining"],
+      additionalProperties: false,
+    },
+    attention: { type: "string", enum: WORKER_RUNTIME_ATTENTION_STATES },
+    blocker: {
+      type: "object",
+      properties: {
+        code: { type: "string", minLength: 1, maxLength: MAX_BLOCKER_CODE_LENGTH },
+        detail: { type: "string", minLength: 1, maxLength: MAX_BLOCKER_DETAIL_LENGTH },
+      },
+      required: ["code", "detail"],
+      additionalProperties: false,
+    },
+    usage: {
+      type: "object",
+      properties: {
+        inputTokens: { type: "integer", minimum: 0, maximum: MAX_TOKEN_COUNT },
+        outputTokens: { type: "integer", minimum: 0, maximum: MAX_TOKEN_COUNT },
+        totalTokens: { type: "integer", minimum: 0, maximum: MAX_TOKEN_COUNT },
+      },
+      additionalProperties: false,
+    },
+    context: {
+      type: "object",
+      properties: {
+        usedTokens: { type: "integer", minimum: 0, maximum: MAX_TOKEN_COUNT },
+        limitTokens: { type: "integer", minimum: 0, maximum: MAX_TOKEN_COUNT },
+      },
+      additionalProperties: false,
+    },
+  },
+  required: ["lifecycleState", "phase", "activity", "progress", "attention"],
+  additionalProperties: false,
+} as const;
 
 export const WorkerRuntimeObservationSchema = z
   .object({

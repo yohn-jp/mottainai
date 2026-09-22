@@ -1,5 +1,5 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import type { WorkerRuntimeStatusReportInput } from "./runtime.js";
+import type { WorkerRuntimeStatusReportInput } from "mottainai/worker-runtime";
 
 const MAX_LABEL_LENGTH = 256;
 
