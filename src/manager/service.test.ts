@@ -1839,3 +1839,60 @@ test("selectControllingManagerSession falls back to the most recently started se
 test("selectControllingManagerSession returns undefined for an empty candidate set", () => {
   assert.equal(selectControllingManagerSession([]), undefined);
 });
+
+test("worker supervision projections are bounded, explicit about missing/stale state, and read-only", (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  const service = new ManagerSessionService({ workspaceRoot: root, store, runtime: new FakeRuntime() });
+  const observedSession = seedRunningManagerSession(store, root, "000000000101");
+  const staleSession = seedRunningManagerSession(store, root, "000000000102");
+  const missingSession = seedRunningManagerSession(store, root, "000000000103");
+  store.updateManagerSession(staleSession.sessionId, { runtimeState: "stale" });
+  const binding = {
+    identity: {
+      managerSessionId: observedSession.sessionId,
+      runtimeId: observedSession.runtimeId,
+      executionSessionId: "execution-worker-1",
+      provider: "provider-neutral",
+    },
+    boundAt: "2026-01-01T00:00:00.000Z",
+  } as const;
+  const status = {
+    lifecycleState: "running",
+    phase: "executing",
+    activity: { kind: "working", label: "bounded status" },
+    progress: { completed: 2, current: "step-3", remaining: 4 },
+    attention: "none",
+    usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+    context: { usedTokens: 120, limitTokens: 1_000 },
+  } as const;
+  store.recordWorkerSupervision({
+    observation: { binding, status, observedAt: "2026-01-01T00:00:01.000Z" },
+    diagnosticEvent: { kind: "status", binding, status, observedAt: "2026-01-01T00:00:02.000Z" },
+  });
+  const staleBinding = { ...binding, identity: { ...binding.identity, managerSessionId: staleSession.sessionId } };
+  store.recordWorkerSupervision({
+    observation: { binding: staleBinding, status, observedAt: "2026-01-01T00:00:01.000Z" },
+  });
+  const auditCountBefore = store.listWorkerControlAudit(observedSession.sessionId).length;
+
+  const workers = service.listWorkerSupervision();
+  const observed = workers.find((worker) => worker.identity.managerSessionId === observedSession.sessionId);
+  const stale = workers.find((worker) => worker.identity.managerSessionId === staleSession.sessionId);
+  const missing = workers.find((worker) => worker.identity.managerSessionId === missingSession.sessionId);
+  assert.equal(observed?.observationState, "current");
+  assert.equal(observed?.phase, "executing");
+  assert.deepEqual(observed?.progress, { completed: 2, current: "step-3", remaining: 4 });
+  assert.equal(observed?.lastActivityAt, "2026-01-01T00:00:01.000Z");
+  assert.equal(observed?.usage?.totalTokens, 120);
+  assert.equal(stale?.observationState, "stale");
+  assert.equal(missing?.observationState, "missing");
+  assert.equal(missing?.lifecycleState, null);
+  assert.equal("latestObservation" in (observed ?? {}), false);
+  assert.equal(service.listWorkerSupervision({ limit: 1 }).length, 1);
+  assert.equal(store.listWorkerControlAudit(observedSession.sessionId).length, auditCountBefore);
+
+  const detail = service.getWorkerSupervision(observedSession.sessionId);
+  assert.equal(detail.diagnosticEvents.length, 1);
+  assert.equal("detail" in detail.diagnosticEvents[0]!, false);
+});
