@@ -31,6 +31,28 @@ test("local publish remains OIDC-only and does not add a long-lived npm credenti
   assert.match(workflowText, /npm publish "\$\(find \. -maxdepth 1 -type f -name 'mottainai-\*\.tgz'/u);
 });
 
+test("Pi release verification uses exact root/Pi artifacts from one release revision", () => {
+  assert.match(
+    workflowText,
+    /prepare-pi-release:[\s\S]*?source_revision: \$\{\{ steps\.detect\.outputs\.source_revision \}\}/u,
+  );
+  const piBuildStart = workflowText.indexOf("  pi-build:");
+  const rootBuildStart = workflowText.indexOf("  build:", piBuildStart);
+  const piBuild = workflowText.slice(piBuildStart, rootBuildStart);
+  assert.match(piBuild, /ref: \$\{\{ needs\.prepare-pi-release\.outputs\.source_revision \}\}/u);
+  assert.match(piBuild, /npm pack --ignore-scripts --pack-destination "\$artifact_directory"/gu);
+  assert.match(piBuild, /--root-tarball "\$root_tarball"/u);
+  assert.match(piBuild, /--pi-tarball "\$pi_tarball"/u);
+
+  const piPublishStart = workflowText.indexOf("  pi-publish:");
+  const piPublish = workflowText.slice(piPublishStart, rootBuildStart);
+  assert.match(piPublish, /name: pi-mottainai-paired-artifacts/u);
+  assert.match(piPublish, /npm view "mottainai@\$peer_range" version --json/u);
+  assert.match(piPublish, /refusing to publish pi-mottainai/u);
+  assert.match(piPublish, /npm publish "\$pi_tarball"/u);
+  assert.doesNotMatch(piPublish, /npm publish "\$root_tarball"/u);
+});
+
 test("release descriptor keeps Route 1 payload bytes separate from Route 2 source NAR identity", () => {
   assert.match(workflowText, /source_nar_sha256: \$\{\{ steps\.route2_closure_smoke\.outputs\.source_nar_sha256 \}\}/u);
   assert.match(workflowText, /sourceStorePath/u);
