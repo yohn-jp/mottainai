@@ -1098,6 +1098,10 @@ test(
       removeFixtureWorkspace(fixture.workspace);
     });
 
+    // This scenario certifies the existing Zellij/Nawabari physical-authority
+    // path, not the Pi SDK adapter. Disable the production SDK factory so the
+    // fake Pi process remains the deliberate runtime fixture for conflict recovery.
+    fixture.env.MOTTAINAI_DISABLE_PI_SDK_ADAPTER = "1";
     manager = await startManagerProcess(fixture);
     const health = await managerRequest(manager, "health");
     assert.equal(health.response.status, 200, JSON.stringify(health.body));
