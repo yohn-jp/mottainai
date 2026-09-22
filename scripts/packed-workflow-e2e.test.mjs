@@ -676,6 +676,7 @@ function createFixture({ mode = "golden", missingGhInari = false, managerAgent =
   );
 
   writeExecutable(path.join(companionDirectory, "pi"), managerAgent ? managerPiSource() : fakePiSource());
+  if (managerAgent) writeExecutable(path.join(companionDirectory, "codex"), managerPiSource());
   writeExecutable(path.join(companionDirectory, "gh"), fakeGhSource());
   if (!missingGhInari) writeExecutable(path.join(companionDirectory, "gh-inari"), fakeGhInariSource());
   writeExecutable(path.join(companionDirectory, "nawabari"), nawabariWrapperSource());
@@ -1109,7 +1110,7 @@ test(
 
     const unrelatedBody = {
       instruction: "keep this unrelated Issue session active",
-      agentKind: "pi",
+      agentKind: "codex",
       taskSlug: "manager-510-unrelated",
       issueRef: "362",
       branchType: "feat",
@@ -1124,13 +1125,13 @@ test(
     const unrelated = unrelatedResponse.body.session;
     sessions.push(unrelated);
     await waitForFile(fixture.managerAgentMarker);
-    assert.equal(unrelated.agentKind, "pi");
+    assert.equal(unrelated.agentKind, "codex");
     assert.equal(unrelated.issueRef, "362");
     assert.equal(unrelated.operational.identities.executionSessionId, unrelated.executionSessionId);
 
     const blockerBody = {
       instruction: "establish the bounded overlapping blocker",
-      agentKind: "pi",
+      agentKind: "codex",
       taskSlug: "manager-510-blocker",
       issueRef: "362",
       branchType: "feat",
@@ -1150,7 +1151,7 @@ test(
 
     const targetBody = {
       instruction: "bounded Issue #362 Manager dogfood",
-      agentKind: "pi",
+      agentKind: "codex",
       taskSlug: "manager-510-target",
       issueRef: "362",
       branchType: "feat",
