@@ -1,0 +1,66 @@
+{
+  "baseSha": "f0879d17195ad35ce15ba415477e892d66100aab",
+  "files": [
+    {
+      "additions": 3,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 581,
+          "oldLines": 1,
+          "oldStart": 581
+        },
+        {
+          "newLines": 2,
+          "newStart": 583,
+          "oldLines": 2,
+          "oldStart": 583
+        }
+      ],
+      "path": "scripts/mcp-stdio-package.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 5,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 5,
+          "newStart": 26,
+          "oldLines": 0,
+          "oldStart": 25
+        },
+        {
+          "newLines": 0,
+          "newStart": 51,
+          "oldLines": 1,
+          "oldStart": 47
+        }
+      ],
+      "path": "scripts/run-package-suite.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 302,
+          "oldLines": 1,
+          "oldStart": 302
+        }
+      ],
+      "path": "src/mcp-cli.test.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "3b48586fa251f75ce74eadf873a10d38c867243e",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 9,
+    "deletions": 5,
+    "filesChanged": 3
+  }
+}
