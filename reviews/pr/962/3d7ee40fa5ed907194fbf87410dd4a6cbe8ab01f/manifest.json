@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "epic/946-agent-runtime-supervision",
+    "baseSha": "b5c860ea965bdbfe961ddd61b1a0d3aeb3e728e1",
+    "draft": false,
+    "headRef": "feat/951-worker-supervision-projection",
+    "headSha": "3d7ee40fa5ed907194fbf87410dd4a6cbe8ab01f",
+    "number": 962,
+    "title": "feat(manager): expose bounded worker supervision projections"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "3d7ee40fa5ed907194fbf87410dd4a6cbe8ab01f",
+    "immutable": true,
+    "shortId": "3d7ee40fa5ed"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-22T06:29:04.318Z"
+  }
+}

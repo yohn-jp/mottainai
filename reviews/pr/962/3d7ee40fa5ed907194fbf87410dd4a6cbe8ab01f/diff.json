@@ -1,0 +1,116 @@
+{
+  "baseSha": "b5c860ea965bdbfe961ddd61b1a0d3aeb3e728e1",
+  "files": [
+    {
+      "additions": 76,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 13,
+          "oldLines": 0,
+          "oldStart": 12
+        },
+        {
+          "newLines": 75,
+          "newStart": 142,
+          "oldLines": 0,
+          "oldStart": 140
+        }
+      ],
+      "path": "src/manager/http.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 32,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 8,
+          "newStart": 88,
+          "oldLines": 0,
+          "oldStart": 87
+        },
+        {
+          "newLines": 10,
+          "newStart": 220,
+          "oldLines": 0,
+          "oldStart": 211
+        },
+        {
+          "newLines": 2,
+          "newStart": 268,
+          "oldLines": 0,
+          "oldStart": 249
+        },
+        {
+          "newLines": 2,
+          "newStart": 295,
+          "oldLines": 0,
+          "oldStart": 274
+        },
+        {
+          "newLines": 10,
+          "newStart": 375,
+          "oldLines": 0,
+          "oldStart": 352
+        }
+      ],
+      "path": "src/manager/http.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 57,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 57,
+          "newStart": 1842,
+          "oldLines": 0,
+          "oldStart": 1841
+        }
+      ],
+      "path": "src/manager/service.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 136,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 42,
+          "oldLines": 0,
+          "oldStart": 41
+        },
+        {
+          "newLines": 9,
+          "newStart": 73,
+          "oldLines": 0,
+          "oldStart": 69
+        },
+        {
+          "newLines": 72,
+          "newStart": 440,
+          "oldLines": 0,
+          "oldStart": 427
+        },
+        {
+          "newLines": 52,
+          "newStart": 1596,
+          "oldLines": 0,
+          "oldStart": 1511
+        }
+      ],
+      "path": "src/manager/service.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "3d7ee40fa5ed907194fbf87410dd4a6cbe8ab01f",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 301,
+    "deletions": 0,
+    "filesChanged": 4
+  }
+}

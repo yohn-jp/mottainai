@@ -1,0 +1,16 @@
+{
+  "acceptanceCriteria": [],
+  "issue": {
+    "labels": [
+      "implementation"
+    ],
+    "number": 951,
+    "state": "open",
+    "title": "impl: expose bounded read-only worker and fleet supervision projections",
+    "url": "https://github.com/yohn-jp/mottainai/issues/951"
+  },
+  "linked": {
+    "number": 951
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
