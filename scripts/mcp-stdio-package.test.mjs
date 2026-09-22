@@ -578,10 +578,10 @@ test(
           instruction: "packed Pi profile",
         }),
       });
-      assert.equal(piResponse.status, 503);
+      assert.equal(piResponse.status, 409);
       const piFailure = await piResponse.json();
-      assert.equal(piFailure.error.code, "runtime_error");
-      assert.match(piFailure.error.message, /pi-mottainai|Pi worker adapter/iu);
+      assert.equal(piFailure.error.code, "execution_unresolved");
+      assert.match(piFailure.error.message, /execution|task|admission|physical/iu);
       const viewer = await fetch(url);
       assert.match(viewer.headers.get("content-type") ?? "", /^text\/html/u);
       const html = await viewer.text();
