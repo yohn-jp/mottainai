@@ -5,8 +5,24 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { createTempDir } from "../test-support/tmp-dir.js";
+import { createProductionPiWorkerFactory } from "./command.js";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+
+test("production Pi factory delegates to the independently packaged adapter", async () => {
+  const adapter = {} as never;
+  let received: unknown;
+  const factory = createProductionPiWorkerFactory(async () => ({
+    createManagedPiMottainaiRuntime(input) {
+      received = input;
+      return adapter;
+    },
+  }));
+  const input = { identity: { managerSessionId: "m", runtimeId: "r", provider: "pi" } } as never;
+  const result = await factory(input);
+  assert.equal(result, adapter);
+  assert.equal(received, input);
+});
 
 test("mottainai manager starts a loopback endpoint and reports the Zellij runtime", async (t) => {
   const temporary = createTempDir(t, "mottainai-manager-cli-");
@@ -52,38 +68,6 @@ test("mottainai manager starts a loopback endpoint and reports the Zellij runtim
   assert.equal(health.zellij.available, true);
   assert.equal(health.zellij.version, "zellij 0.44.0");
 
-  const piResponse = await fetch(`${url}api/v1/manager/sessions`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      agentKind: "pi",
-      provider: "anthropic",
-      model: "claude-sonnet-4",
-      instruction: "hermetic Pi process",
-    }),
-  });
-  assert.equal(piResponse.status, 201);
-  const piSession = (await piResponse.json()).session as {
-    agentKind: string;
-    launchProfile: string;
-    provider: string;
-    launchCommand: string;
-    launchArgs: string[];
-  };
-  assert.equal(piSession.agentKind, "pi");
-  assert.equal(piSession.launchProfile, "pi");
-  assert.equal(piSession.provider, "anthropic");
-  assert.equal(piSession.launchCommand, "pi");
-  const guardIndex = piSession.launchArgs.indexOf("--extension");
-  assert.ok(guardIndex >= 0);
-  assert.deepEqual(piSession.launchArgs.slice(0, guardIndex), [
-    "--provider",
-    "anthropic",
-    "--model",
-    "claude-sonnet-4",
-  ]);
-  assert.equal(piSession.launchArgs[guardIndex + 1], path.join(repositoryRoot, "src", "manager", "pi-guard.ts"));
-  assert.deepEqual(piSession.launchArgs.slice(guardIndex + 2), ["--", "hermetic Pi process"]);
   child.kill("SIGTERM");
   const exit = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
     child.once("error", reject);
