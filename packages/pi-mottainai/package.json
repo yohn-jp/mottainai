@@ -1,8 +1,17 @@
 {
   "name": "pi-mottainai",
   "version": "0.1.0",
-  "private": true,
+  "description": "Pi agent runtime adapter for Mottainai worker supervision.",
   "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
   "files": [
     "dist"
   ],
@@ -20,5 +29,16 @@
   },
   "engines": {
     "node": ">=24.0.0"
-  }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yohn-jp/mottainai.git",
+    "directory": "packages/pi-mottainai"
+  },
+  "homepage": "https://github.com/yohn-jp/mottainai#readme"
 }

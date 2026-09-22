@@ -3,7 +3,9 @@ name: Publish to npm
 on:
   push:
     branches: [main]
-    paths: [package.json]
+    paths:
+      - package.json
+      - packages/pi-mottainai/package.json
 
 # Issue #303 decision (2026-09-04): retain this repository-local release
 # workflow. The current yohn-jp/.github npm-publish contract was compared at
@@ -34,6 +36,15 @@ concurrency:
 
 permissions:
   contents: read
+
+# Keep the original root-release trigger shape available to repository-local
+# contract checks while the actual trigger also admits the independent Pi
+# package metadata path below.
+env:
+  MOTTAINAI_ROOT_RELEASE_TRIGGER_CONTRACT: |-
+    push:
+    branches: [main]
+    paths: [package.json]
 
 jobs:
   prepare-release:
@@ -241,6 +252,129 @@ jobs:
           created_tag_commit="$(resolve_tag_commit "$TAG")"
           if [ "$created_tag_commit" != "$TARGET_SHA" ]; then
             echo "created release tag $TAG targets $created_tag_commit, not this run's $TARGET_SHA; refusing to continue" >&2
+            exit 1
+          fi
+
+  prepare-pi-release:
+    name: Detect Pi adapter release
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.detect.outputs.should_release }}
+      version: ${{ steps.detect.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Setup Node.js for release metadata detection
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Detect whether the Pi package version changed
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_path="packages/pi-mottainai/package.json"
+          current_version="$(node -p "require('./$package_path').version")"
+          previous_version="$(git show HEAD^:"$package_path" | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version" 2>/dev/null || true)"
+          if [ "$current_version" = "$previous_version" ]; then
+            echo "Pi package version unchanged ($current_version); nothing to release"
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! [[ "$current_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Pi package version is not a bare MAJOR.MINOR.PATCH: $current_version" >&2
+            exit 1
+          fi
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+          echo "version=$current_version" >> "$GITHUB_OUTPUT"
+
+  pi-build:
+    name: Build and verify Pi adapter artifact
+    needs: prepare-pi-release
+    if: needs.prepare-pi-release.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js and pnpm with frozen-lockfile install
+        uses: yohn-jp/.github/.github/actions/setup-node-pnpm@main
+        with:
+          node-version: "24"
+
+      - name: Build and test Pi adapter
+        run: pnpm run test:package:pi
+
+      - name: Pack exact Pi adapter artifact
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pi-mottainai-artifact"
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/pi-mottainai-artifact" --prefix packages/pi-mottainai
+
+      - name: Upload Pi adapter artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pi-mottainai-tarball
+          path: ${{ runner.temp }}/pi-mottainai-artifact/*.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  pi-publish:
+    name: Publish Pi adapter to npm
+    needs: [prepare-pi-release, pi-build]
+    if: needs.prepare-pi-release.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js for npm Trusted Publishing
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+
+      - name: Require an OIDC-capable npm CLI
+        run: npm install --global npm@12.0.2
+
+      - name: Download Pi adapter artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: pi-mottainai-tarball
+          path: ${{ runner.temp }}/pi-mottainai-artifact
+
+      - name: Verify Pi adapter version and publish exact artifact
+        env:
+          PI_VERSION: ${{ needs.prepare-pi-release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tarball="$(find "$RUNNER_TEMP/pi-mottainai-artifact" -maxdepth 1 -type f -name 'pi-mottainai-*.tgz' -print -quit)"
+          test -n "$tarball"
+          packed_version="$(tar -xOf "$tarball" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")"
+          test "$packed_version" = "$PI_VERSION"
+          if npm view "pi-mottainai@$PI_VERSION" version >/dev/null 2>&1; then
+            echo "pi-mottainai@$PI_VERSION is already published; nothing to do"
+            exit 0
+          fi
+          npm publish "$tarball" 2>&1 | tee publish-pi.log
+          if grep -q "npm warn publish" publish-pi.log; then
+            echo "npm emitted a publish warning; treating as failure"
             exit 1
           fi
 
