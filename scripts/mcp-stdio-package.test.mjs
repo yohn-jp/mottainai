@@ -578,16 +578,10 @@ test(
           instruction: "packed Pi profile",
         }),
       });
-      assert.equal(piResponse.status, 201);
-      const piSession = (await piResponse.json()).session;
-      assert.equal(piSession.agentKind, "pi");
-      assert.equal(piSession.launchCommand, "pi");
-      const guardIndex = piSession.launchArgs.indexOf("--extension");
-      assert.ok(guardIndex >= 0);
-      const guardPath = piSession.launchArgs[guardIndex + 1];
-      assert.equal(typeof guardPath, "string");
-      assert.match(guardPath, /[\\/]dist[\\/]manager[\\/]pi-guard\.js$/u);
-      assert.equal(fs.existsSync(guardPath), true);
+      assert.equal(piResponse.status, 503);
+      const piFailure = await piResponse.json();
+      assert.equal(piFailure.error.code, "runtime_error");
+      assert.match(piFailure.error.message, /pi-mottainai|Pi worker adapter/iu);
       const viewer = await fetch(url);
       assert.match(viewer.headers.get("content-type") ?? "", /^text\/html/u);
       const html = await viewer.text();
