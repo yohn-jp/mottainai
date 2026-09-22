@@ -37,6 +37,7 @@
     "test:mutation": "node scripts/mutation-test.mjs",
     "test:effectiveness": "pnpm run test:property && pnpm run test:mutation",
     "test:package": "pnpm run build && node scripts/run-package-suite.mjs",
+    "test:package:pi": "pnpm --filter pi-mottainai build && pnpm --filter pi-mottainai test && node scripts/pi-mottainai-package-smoke.mjs",
     "verify": "pnpm run verify:standards && pnpm run typecheck && pnpm test && pnpm run test:integration && pnpm run build && pnpm run test:e2e && pnpm run test:coverage && pnpm run test:package",
     "mcp": "tsx scripts/mcp.ts",
     "policy": "tsx scripts/policy.ts",
