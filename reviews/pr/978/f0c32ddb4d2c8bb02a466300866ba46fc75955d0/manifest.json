@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "epic/946-agent-runtime-supervision",
+    "baseSha": "f0879d17195ad35ce15ba415477e892d66100aab",
+    "draft": false,
+    "headRef": "fix/977-mcp-doctor-portable-fixture",
+    "headSha": "f0c32ddb4d2c8bb02a466300866ba46fc75955d0",
+    "number": 978,
+    "title": "test: use portable MCP doctor fixture"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "f0c32ddb4d2c8bb02a466300866ba46fc75955d0",
+    "immutable": true,
+    "shortId": "f0c32ddb4d2c"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-22T12:11:36.825Z"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "baseSha": "f0879d17195ad35ce15ba415477e892d66100aab",
+  "files": [
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 302,
+          "oldLines": 1,
+          "oldStart": 302
+        }
+      ],
+      "path": "src/mcp-cli.test.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "f0c32ddb4d2c8bb02a466300866ba46fc75955d0",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 1,
+    "deletions": 1,
+    "filesChanged": 1
+  }
+}
