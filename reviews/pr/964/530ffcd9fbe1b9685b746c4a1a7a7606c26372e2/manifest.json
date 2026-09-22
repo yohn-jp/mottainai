@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "epic/946-agent-runtime-supervision",
+    "baseSha": "1df382769334c0633724730bc935ea6bbc2bc47c",
+    "draft": false,
+    "headRef": "chore/955-pi-mottainai-release",
+    "headSha": "530ffcd9fbe1b9685b746c4a1a7a7606c26372e2",
+    "number": 964,
+    "title": "chore: independently release pi-mottainai"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "530ffcd9fbe1b9685b746c4a1a7a7606c26372e2",
+    "immutable": true,
+    "shortId": "530ffcd9fbe1"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-22T07:59:23.334Z"
+  }
+}

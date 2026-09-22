@@ -1,0 +1,16 @@
+{
+  "acceptanceCriteria": [],
+  "issue": {
+    "labels": [
+      "implementation"
+    ],
+    "number": 955,
+    "state": "open",
+    "title": "impl: add independent pi-mottainai package verification and release path",
+    "url": "https://github.com/yohn-jp/mottainai/issues/955"
+  },
+  "linked": {
+    "number": 955
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

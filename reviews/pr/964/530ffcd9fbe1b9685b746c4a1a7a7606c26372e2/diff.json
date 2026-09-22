@@ -1,0 +1,140 @@
+{
+  "baseSha": "1df382769334c0633724730bc935ea6bbc2bc47c",
+  "files": [
+    {
+      "additions": 5,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 262,
+          "oldLines": 0,
+          "oldStart": 261
+        },
+        {
+          "newLines": 2,
+          "newStart": 461,
+          "oldLines": 0,
+          "oldStart": 457
+        }
+      ],
+      "path": ".github/workflows/ci.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 135,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 6,
+          "oldLines": 1,
+          "oldStart": 6
+        },
+        {
+          "newLines": 9,
+          "newStart": 40,
+          "oldLines": 0,
+          "oldStart": 37
+        },
+        {
+          "newLines": 123,
+          "newStart": 258,
+          "oldLines": 0,
+          "oldStart": 246
+        }
+      ],
+      "path": ".github/workflows/publish.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 40,
+          "oldLines": 0,
+          "oldStart": 39
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 22,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 4,
+          "oldLines": 1,
+          "oldStart": 4
+        },
+        {
+          "newLines": 9,
+          "newStart": 6,
+          "oldLines": 0,
+          "oldStart": 5
+        },
+        {
+          "newLines": 12,
+          "newStart": 32,
+          "oldLines": 1,
+          "oldStart": 23
+        }
+      ],
+      "path": "packages/pi-mottainai/package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 86,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 86,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/pi-mottainai-package-smoke.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 28,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 28,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/pi-mottainai-package-smoke.test.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 47,
+          "oldLines": 0,
+          "oldStart": 46
+        }
+      ],
+      "path": "scripts/run-package-suite.mjs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "530ffcd9fbe1b9685b746c4a1a7a7606c26372e2",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 278,
+    "deletions": 3,
+    "filesChanged": 7
+  }
+}
