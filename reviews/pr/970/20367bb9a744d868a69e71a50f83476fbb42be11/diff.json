@@ -1,0 +1,110 @@
+{
+  "baseSha": "4e7e7aea37d7ee9be474e8f3ea1381ff10b2778e",
+  "files": [
+    {
+      "additions": 2,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 463,
+          "oldLines": 0,
+          "oldStart": 462
+        }
+      ],
+      "path": ".github/workflows/ci.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 13,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 13,
+          "newStart": 68,
+          "oldLines": 0,
+          "oldStart": 67
+        }
+      ],
+      "path": "scripts/ci-contract-ownership-census.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 30,
+      "deletions": 13,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 16,
+          "oldLines": 2,
+          "oldStart": 16
+        },
+        {
+          "newLines": 23,
+          "newStart": 280,
+          "oldLines": 6,
+          "oldStart": 280
+        },
+        {
+          "newLines": 1,
+          "newStart": 306,
+          "oldLines": 1,
+          "oldStart": 289
+        },
+        {
+          "newLines": 1,
+          "newStart": 317,
+          "oldLines": 1,
+          "oldStart": 300
+        },
+        {
+          "newLines": 2,
+          "newStart": 319,
+          "oldLines": 2,
+          "oldStart": 302
+        },
+        {
+          "newLines": 1,
+          "newStart": 469,
+          "oldLines": 1,
+          "oldStart": 452
+        }
+      ],
+      "path": "scripts/pi-runtime-certification.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 40,
+      "deletions": 5,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 4,
+          "oldLines": 2,
+          "oldStart": 4
+        },
+        {
+          "newLines": 1,
+          "newStart": 12,
+          "oldLines": 0,
+          "oldStart": 11
+        },
+        {
+          "newLines": 37,
+          "newStart": 15,
+          "oldLines": 3,
+          "oldStart": 14
+        }
+      ],
+      "path": "scripts/pi-runtime-certification.test.mjs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "20367bb9a744d868a69e71a50f83476fbb42be11",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 85,
+    "deletions": 18,
+    "filesChanged": 4
+  }
+}
