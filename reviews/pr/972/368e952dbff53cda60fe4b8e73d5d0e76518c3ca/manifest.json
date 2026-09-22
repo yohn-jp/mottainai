@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "epic/946-agent-runtime-supervision",
+    "baseSha": "4e7e7aea37d7ee9be474e8f3ea1381ff10b2778e",
+    "draft": false,
+    "headRef": "fix/967-production-pi-runtime-wiring",
+    "headSha": "368e952dbff53cda60fe4b8e73d5d0e76518c3ca",
+    "number": 972,
+    "title": "fix(manager): wire production Pi runtime and initial work (#967)"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "368e952dbff53cda60fe4b8e73d5d0e76518c3ca",
+    "immutable": true,
+    "shortId": "368e952dbff5"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-22T09:41:08.924Z"
+  }
+}
