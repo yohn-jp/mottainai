@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "epic/946-agent-runtime-supervision",
+    "baseSha": "7c1f5e52e7e3c04d2e120f4249eda0501b45c3c9",
+    "draft": false,
+    "headRef": "feat/952-pi-status-event-bridge",
+    "headSha": "828445680ff0e0ecd32d2174f2b1e52f0d4db44b",
+    "number": 963,
+    "title": "impl: bridge Pi runtime events and semantic report_status into worker supervision"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "828445680ff0e0ecd32d2174f2b1e52f0d4db44b",
+    "immutable": true,
+    "shortId": "828445680ff0"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-22T07:37:07.997Z"
+  }
+}

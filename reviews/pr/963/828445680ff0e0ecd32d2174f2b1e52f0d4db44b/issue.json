@@ -1,0 +1,16 @@
+{
+  "acceptanceCriteria": [],
+  "issue": {
+    "labels": [
+      "implementation"
+    ],
+    "number": 952,
+    "state": "open",
+    "title": "impl: bridge Pi runtime events and semantic report_status into worker supervision",
+    "url": "https://github.com/yohn-jp/mottainai/issues/952"
+  },
+  "linked": {
+    "number": 952
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

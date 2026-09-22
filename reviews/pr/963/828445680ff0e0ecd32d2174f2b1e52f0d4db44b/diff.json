@@ -1,0 +1,220 @@
+{
+  "baseSha": "7c1f5e52e7e3c04d2e120f4249eda0501b45c3c9",
+  "files": [
+    {
+      "additions": 59,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 59,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/src/events.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 58,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 58,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/src/events.ts",
+      "status": "added"
+    },
+    {
+      "additions": 2,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 2,
+          "oldLines": 0,
+          "oldStart": 1
+        }
+      ],
+      "path": "packages/pi-mottainai/src/index.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 46,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 3,
+          "oldLines": 1,
+          "oldStart": 3
+        },
+        {
+          "newLines": 1,
+          "newStart": 10,
+          "oldLines": 0,
+          "oldStart": 9
+        },
+        {
+          "newLines": 3,
+          "newStart": 58,
+          "oldLines": 1,
+          "oldStart": 57
+        },
+        {
+          "newLines": 41,
+          "newStart": 119,
+          "oldLines": 0,
+          "oldStart": 115
+        }
+      ],
+      "path": "packages/pi-mottainai/src/runtime.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 50,
+      "deletions": 43,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 7,
+          "oldLines": 0,
+          "oldStart": 6
+        },
+        {
+          "newLines": 8,
+          "newStart": 13,
+          "oldLines": 1,
+          "oldStart": 11
+        },
+        {
+          "newLines": 3,
+          "newStart": 124,
+          "oldLines": 0,
+          "oldStart": 114
+        },
+        {
+          "newLines": 1,
+          "newStart": 128,
+          "oldLines": 4,
+          "oldStart": 116
+        },
+        {
+          "newLines": 1,
+          "newStart": 136,
+          "oldLines": 0,
+          "oldStart": 126
+        },
+        {
+          "newLines": 7,
+          "newStart": 145,
+          "oldLines": 1,
+          "oldStart": 135
+        },
+        {
+          "newLines": 1,
+          "newStart": 201,
+          "oldLines": 0,
+          "oldStart": 184
+        },
+        {
+          "newLines": 1,
+          "newStart": 212,
+          "oldLines": 0,
+          "oldStart": 194
+        },
+        {
+          "newLines": 5,
+          "newStart": 222,
+          "oldLines": 1,
+          "oldStart": 204
+        },
+        {
+          "newLines": 1,
+          "newStart": 231,
+          "oldLines": 1,
+          "oldStart": 209
+        },
+        {
+          "newLines": 1,
+          "newStart": 280,
+          "oldLines": 1,
+          "oldStart": 258
+        },
+        {
+          "newLines": 2,
+          "newStart": 321,
+          "oldLines": 33,
+          "oldStart": 299
+        },
+        {
+          "newLines": 1,
+          "newStart": 330,
+          "oldLines": 1,
+          "oldStart": 339
+        },
+        {
+          "newLines": 16,
+          "newStart": 337,
+          "oldLines": 0,
+          "oldStart": 345
+        }
+      ],
+      "path": "packages/pi-mottainai/src/runtime.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 49,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 49,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/src/status-tool.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 225,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 225,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/src/status-tool.ts",
+      "status": "added"
+    },
+    {
+      "additions": 2,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 60,
+          "oldLines": 0,
+          "oldStart": 59
+        }
+      ],
+      "path": "scripts/test-suites.mjs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "828445680ff0e0ecd32d2174f2b1e52f0d4db44b",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 491,
+    "deletions": 45,
+    "filesChanged": 8
+  }
+}
