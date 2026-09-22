@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "epic/946-agent-runtime-supervision",
+    "baseSha": "b650938252f1a2e8fa2fc78565478260c6fc53b9",
+    "draft": false,
+    "headRef": "fix/974-pi-canonical-peer-artifact",
+    "headSha": "aa4ffa460ac419f78fc7842701084ecde8dfd583",
+    "number": 975,
+    "title": "fix: certify pi-mottainai against canonical artifact"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "aa4ffa460ac419f78fc7842701084ecde8dfd583",
+    "immutable": true,
+    "shortId": "aa4ffa460ac4"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-22T10:44:06.533Z"
+  }
+}

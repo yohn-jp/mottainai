@@ -1,0 +1,264 @@
+{
+  "baseSha": "b650938252f1a2e8fa2fc78565478260c6fc53b9",
+  "files": [
+    {
+      "additions": 39,
+      "deletions": 10,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 264,
+          "oldLines": 0,
+          "oldStart": 263
+        },
+        {
+          "newLines": 1,
+          "newStart": 285,
+          "oldLines": 0,
+          "oldStart": 283
+        },
+        {
+          "newLines": 1,
+          "newStart": 308,
+          "oldLines": 0,
+          "oldStart": 305
+        },
+        {
+          "newLines": 1,
+          "newStart": 319,
+          "oldLines": 1,
+          "oldStart": 316
+        },
+        {
+          "newLines": 13,
+          "newStart": 322,
+          "oldLines": 2,
+          "oldStart": 319
+        },
+        {
+          "newLines": 1,
+          "newStart": 339,
+          "oldLines": 1,
+          "oldStart": 325
+        },
+        {
+          "newLines": 1,
+          "newStart": 358,
+          "oldLines": 0,
+          "oldStart": 343
+        },
+        {
+          "newLines": 1,
+          "newStart": 373,
+          "oldLines": 1,
+          "oldStart": 358
+        },
+        {
+          "newLines": 1,
+          "newStart": 376,
+          "oldLines": 1,
+          "oldStart": 361
+        },
+        {
+          "newLines": 9,
+          "newStart": 382,
+          "oldLines": 3,
+          "oldStart": 367
+        },
+        {
+          "newLines": 9,
+          "newStart": 396,
+          "oldLines": 1,
+          "oldStart": 375
+        }
+      ],
+      "path": ".github/workflows/publish.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 48,
+          "oldLines": 1,
+          "oldStart": 48
+        }
+      ],
+      "path": "packages/pi-mottainai/package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 90,
+          "oldLines": 1,
+          "oldStart": 90
+        }
+      ],
+      "path": "pnpm-lock.yaml",
+      "status": "modified"
+    },
+    {
+      "additions": 22,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 22,
+          "newStart": 34,
+          "oldLines": 0,
+          "oldStart": 33
+        }
+      ],
+      "path": "scripts/npm-publish-contract.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 186,
+      "deletions": 38,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 2,
+          "oldLines": 3,
+          "oldStart": 2
+        },
+        {
+          "newLines": 1,
+          "newStart": 10,
+          "oldLines": 1,
+          "oldStart": 10
+        },
+        {
+          "newLines": 2,
+          "newStart": 14,
+          "oldLines": 0,
+          "oldStart": 13
+        },
+        {
+          "newLines": 4,
+          "newStart": 32,
+          "oldLines": 0,
+          "oldStart": 29
+        },
+        {
+          "newLines": 156,
+          "newStart": 42,
+          "oldLines": 0,
+          "oldStart": 35
+        },
+        {
+          "newLines": 5,
+          "newStart": 202,
+          "oldLines": 0,
+          "oldStart": 39
+        },
+        {
+          "newLines": 1,
+          "newStart": 208,
+          "oldLines": 0,
+          "oldStart": 40
+        },
+        {
+          "newLines": 0,
+          "newStart": 209,
+          "oldLines": 1,
+          "oldStart": 42
+        },
+        {
+          "newLines": 0,
+          "newStart": 210,
+          "oldLines": 1,
+          "oldStart": 44
+        },
+        {
+          "newLines": 6,
+          "newStart": 213,
+          "oldLines": 18,
+          "oldStart": 47
+        },
+        {
+          "newLines": 2,
+          "newStart": 220,
+          "oldLines": 3,
+          "oldStart": 66
+        },
+        {
+          "newLines": 5,
+          "newStart": 223,
+          "oldLines": 9,
+          "oldStart": 70
+        },
+        {
+          "newLines": 0,
+          "newStart": 228,
+          "oldLines": 1,
+          "oldStart": 80
+        },
+        {
+          "newLines": 1,
+          "newStart": 234,
+          "oldLines": 1,
+          "oldStart": 86
+        }
+      ],
+      "path": "scripts/pi-mottainai-package-smoke.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 92,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 4,
+          "oldLines": 0,
+          "oldStart": 3
+        },
+        {
+          "newLines": 4,
+          "newStart": 12,
+          "oldLines": 0,
+          "oldStart": 10
+        },
+        {
+          "newLines": 67,
+          "newStart": 17,
+          "oldLines": 1,
+          "oldStart": 12
+        },
+        {
+          "newLines": 1,
+          "newStart": 86,
+          "oldLines": 0,
+          "oldStart": 14
+        },
+        {
+          "newLines": 1,
+          "newStart": 96,
+          "oldLines": 1,
+          "oldStart": 24
+        },
+        {
+          "newLines": 18,
+          "newStart": 99,
+          "oldLines": 1,
+          "oldStart": 27
+        }
+      ],
+      "path": "scripts/pi-mottainai-package-smoke.test.mjs",
+      "status": "modified"
+    }
+  ],
+  "headSha": "aa4ffa460ac419f78fc7842701084ecde8dfd583",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 341,
+    "deletions": 53,
+    "filesChanged": 6
+  }
+}
