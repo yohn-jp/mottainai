@@ -20,7 +20,11 @@ export interface ReportStatusToolOptions {
 
 /** Validate through the single Mottainai-owned runtime schema. */
 export function validateReportStatus(input: unknown): WorkerRuntimeStatusReportInput {
-  return WorkerRuntimeStatusReportInputSchema.parse(input);
+  const parsed = WorkerRuntimeStatusReportInputSchema.safeParse(input);
+  if (parsed.success) return parsed.data;
+  const issue = parsed.error.issues[0];
+  const path = issue?.path.length ? issue.path.join(".") : "input";
+  throw new Error(`report_status ${path}: ${issue?.message ?? "invalid status"}`);
 }
 
 /** Create the Mottainai-owned semantic progress tool. */
