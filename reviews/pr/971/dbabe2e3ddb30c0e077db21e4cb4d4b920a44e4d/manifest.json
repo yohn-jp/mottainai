@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "epic/946-agent-runtime-supervision",
+    "baseSha": "acb6ba999a65cb02d5a9b56713deee565104b5b6",
+    "draft": false,
+    "headRef": "refactor/968-worker-runtime-contract-authority",
+    "headSha": "dbabe2e3ddb30c0e077db21e4cb4d4b920a44e4d",
+    "number": 971,
+    "title": "refactor(pi): consume canonical worker runtime contract (#968)"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "dbabe2e3ddb30c0e077db21e4cb4d4b920a44e4d",
+    "immutable": true,
+    "shortId": "dbabe2e3ddb3"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-22T09:48:46.035Z"
+  }
+}
