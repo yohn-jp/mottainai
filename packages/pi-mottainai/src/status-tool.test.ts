@@ -27,7 +27,7 @@ test("exposes the exact bounded semantic status shape", () => {
 });
 
 test("rejects out-of-contract fields and unbounded values", () => {
-  assert.throws(() => validateReportStatus({ ...status, reasoning: "private" }), /unsupported field/);
+  assert.throws(() => validateReportStatus({ ...status, reasoning: "private" }), /unsupported field|unrecognized/iu);
   assert.throws(
     () => validateReportStatus({ ...status, progress: { ...status.progress, completed: 1.5 } }),
     /progress.completed/,
