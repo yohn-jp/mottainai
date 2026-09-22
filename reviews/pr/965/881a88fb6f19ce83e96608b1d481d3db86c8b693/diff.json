@@ -1,0 +1,186 @@
+{
+  "baseSha": "1df382769334c0633724730bc935ea6bbc2bc47c",
+  "files": [
+    {
+      "additions": 29,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 129,
+          "oldLines": 0,
+          "oldStart": 128
+        },
+        {
+          "newLines": 8,
+          "newStart": 231,
+          "oldLines": 0,
+          "oldStart": 229
+        },
+        {
+          "newLines": 2,
+          "newStart": 279,
+          "oldLines": 0,
+          "oldStart": 269
+        },
+        {
+          "newLines": 2,
+          "newStart": 308,
+          "oldLines": 0,
+          "oldStart": 296
+        },
+        {
+          "newLines": 16,
+          "newStart": 398,
+          "oldLines": 0,
+          "oldStart": 384
+        }
+      ],
+      "path": "src/manager/http.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 264,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 264,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/manager/pi-runtime.integration.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 435,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 6,
+          "newStart": 59,
+          "oldLines": 0,
+          "oldStart": 58
+        },
+        {
+          "newLines": 5,
+          "newStart": 87,
+          "oldLines": 0,
+          "oldStart": 80
+        },
+        {
+          "newLines": 2,
+          "newStart": 243,
+          "oldLines": 0,
+          "oldStart": 231
+        },
+        {
+          "newLines": 1,
+          "newStart": 346,
+          "oldLines": 0,
+          "oldStart": 332
+        },
+        {
+          "newLines": 64,
+          "newStart": 350,
+          "oldLines": 0,
+          "oldStart": 335
+        },
+        {
+          "newLines": 58,
+          "newStart": 555,
+          "oldLines": 0,
+          "oldStart": 476
+        },
+        {
+          "newLines": 6,
+          "newStart": 758,
+          "oldLines": 0,
+          "oldStart": 621
+        },
+        {
+          "newLines": 1,
+          "newStart": 804,
+          "oldLines": 0,
+          "oldStart": 661
+        },
+        {
+          "newLines": 1,
+          "newStart": 994,
+          "oldLines": 0,
+          "oldStart": 850
+        },
+        {
+          "newLines": 1,
+          "newStart": 1075,
+          "oldLines": 0,
+          "oldStart": 930
+        },
+        {
+          "newLines": 4,
+          "newStart": 1638,
+          "oldLines": 0,
+          "oldStart": 1492
+        },
+        {
+          "newLines": 2,
+          "newStart": 1658,
+          "oldLines": 0,
+          "oldStart": 1508
+        },
+        {
+          "newLines": 2,
+          "newStart": 1674,
+          "oldLines": 0,
+          "oldStart": 1522
+        },
+        {
+          "newLines": 158,
+          "newStart": 1801,
+          "oldLines": 0,
+          "oldStart": 1647
+        },
+        {
+          "newLines": 25,
+          "newStart": 2695,
+          "oldLines": 0,
+          "oldStart": 2383
+        },
+        {
+          "newLines": 29,
+          "newStart": 2808,
+          "oldLines": 0,
+          "oldStart": 2471
+        },
+        {
+          "newLines": 1,
+          "newStart": 2974,
+          "oldLines": 0,
+          "oldStart": 2608
+        },
+        {
+          "newLines": 35,
+          "newStart": 2991,
+          "oldLines": 0,
+          "oldStart": 2624
+        },
+        {
+          "newLines": 34,
+          "newStart": 3163,
+          "oldLines": 0,
+          "oldStart": 2761
+        }
+      ],
+      "path": "src/manager/service.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "881a88fb6f19ce83e96608b1d481d3db86c8b693",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 728,
+    "deletions": 0,
+    "filesChanged": 3
+  }
+}

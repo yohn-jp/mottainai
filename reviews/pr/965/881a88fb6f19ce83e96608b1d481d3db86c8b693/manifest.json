@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "epic/946-agent-runtime-supervision",
+    "baseSha": "1df382769334c0633724730bc935ea6bbc2bc47c",
+    "draft": false,
+    "headRef": "feat/954-manager-pi-runtime-integration",
+    "headSha": "881a88fb6f19ce83e96608b1d481d3db86c8b693",
+    "number": 965,
+    "title": "feat(manager): integrate governed Pi workers"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "881a88fb6f19ce83e96608b1d481d3db86c8b693",
+    "immutable": true,
+    "shortId": "881a88fb6f19"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-22T08:11:56.876Z"
+  }
+}

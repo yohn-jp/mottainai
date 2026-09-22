@@ -1,0 +1,16 @@
+{
+  "acceptanceCriteria": [],
+  "issue": {
+    "labels": [
+      "implementation"
+    ],
+    "number": 954,
+    "state": "open",
+    "title": "impl: integrate governed Pi workers into Manager launch observation and control",
+    "url": "https://github.com/yohn-jp/mottainai/issues/954"
+  },
+  "linked": {
+    "number": 954
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
