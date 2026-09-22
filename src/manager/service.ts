@@ -1890,6 +1890,44 @@ export class ManagerSessionService {
     this.piWorkers.set(session.sessionId, worker);
     await this.persistPiObservation(worker);
     this.consumePiWorkerEvents(session.sessionId, worker);
+
+    const initialInstruction = session.instruction?.trim();
+    if (initialInstruction !== undefined && initialInstruction.length > 0) {
+      const requestedAt = new Date().toISOString();
+      void adapter
+        .sendInput({ binding: worker.binding, input: initialInstruction })
+        .then((control) => {
+          this.options.store.recordWorkerControlAudit({
+            binding: worker.binding,
+            operation: "input",
+            requestedAt,
+            acceptedAt: control.acceptedAt,
+          });
+        })
+        .catch((error) => {
+          this.options.store.recordWorkerControlAudit({
+            binding: worker.binding,
+            operation: "input",
+            requestedAt,
+          });
+          const current = this.options.store.getManagerSession(session.sessionId);
+          if (current === undefined || current.runtimeState === "stopped" || current.runtimeState === "exited") return;
+          const detail = boundedStatus(error instanceof Error ? error.message : String(error));
+          this.options.store.updateManagerSession(session.sessionId, {
+            lifecycleState: "failed",
+            runtimeState: "failed",
+            attachable: false,
+            reconciliationState: "unresolved",
+            reconciliationMessage: detail,
+            latestStatus: detail,
+            latestReceipt: receipt("worker_initial_input_failed", detail, "runtime"),
+            terminationState: "failed",
+            errorMessage: detail,
+            finishedAt: Date.now(),
+          });
+        });
+    }
+
     const now = Date.now();
     return this.options.store.updateManagerSession(session.sessionId, {
       lifecycleState: "running",
@@ -1897,7 +1935,10 @@ export class ManagerSessionService {
       attachable: false,
       reconciliationState: "synced",
       reconciliationMessage: null,
-      latestStatus: "Pi SDK worker started in admitted execution context",
+      latestStatus:
+        initialInstruction === undefined || initialInstruction.length === 0
+          ? "Pi SDK worker started in admitted execution context"
+          : "Pi SDK worker started; initial governed instruction delivered",
       latestReceipt: receipt("worker_runtime_started", "Pi SDK worker started", "runtime"),
       terminationState: "running",
       runtimeObservedAt: now,
