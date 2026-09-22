@@ -1,0 +1,1248 @@
+{
+  "baseSha": "b5c860ea965bdbfe961ddd61b1a0d3aeb3e728e1",
+  "files": [
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 451,
+          "oldLines": 0,
+          "oldStart": 450
+        }
+      ],
+      "path": ".github/workflows/ci.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 31,
+          "oldLines": 1,
+          "oldStart": 31
+        },
+        {
+          "newLines": 1,
+          "newStart": 285,
+          "oldLines": 0,
+          "oldStart": 284
+        }
+      ],
+      "path": "nix/mottainai.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 24,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 24,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/package.json",
+      "status": "added"
+    },
+    {
+      "additions": 1,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/src/index.ts",
+      "status": "added"
+    },
+    {
+      "additions": 115,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 115,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/src/runtime.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 349,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 349,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/src/runtime.ts",
+      "status": "added"
+    },
+    {
+      "additions": 17,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 17,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/tsconfig.json",
+      "status": "added"
+    },
+    {
+      "additions": 1249,
+      "deletions": 24,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 53,
+          "oldLines": 1,
+          "oldStart": 53
+        },
+        {
+          "newLines": 17,
+          "newStart": 68,
+          "oldLines": 1,
+          "oldStart": 68
+        },
+        {
+          "newLines": 119,
+          "newStart": 123,
+          "oldLines": 0,
+          "oldStart": 106
+        },
+        {
+          "newLines": 6,
+          "newStart": 248,
+          "oldLines": 0,
+          "oldStart": 112
+        },
+        {
+          "newLines": 6,
+          "newStart": 260,
+          "oldLines": 0,
+          "oldStart": 118
+        },
+        {
+          "newLines": 6,
+          "newStart": 272,
+          "oldLines": 0,
+          "oldStart": 124
+        },
+        {
+          "newLines": 6,
+          "newStart": 284,
+          "oldLines": 0,
+          "oldStart": 130
+        },
+        {
+          "newLines": 6,
+          "newStart": 296,
+          "oldLines": 0,
+          "oldStart": 136
+        },
+        {
+          "newLines": 6,
+          "newStart": 308,
+          "oldLines": 0,
+          "oldStart": 142
+        },
+        {
+          "newLines": 6,
+          "newStart": 320,
+          "oldLines": 0,
+          "oldStart": 148
+        },
+        {
+          "newLines": 6,
+          "newStart": 332,
+          "oldLines": 0,
+          "oldStart": 154
+        },
+        {
+          "newLines": 6,
+          "newStart": 344,
+          "oldLines": 0,
+          "oldStart": 160
+        },
+        {
+          "newLines": 6,
+          "newStart": 356,
+          "oldLines": 0,
+          "oldStart": 166
+        },
+        {
+          "newLines": 6,
+          "newStart": 368,
+          "oldLines": 0,
+          "oldStart": 172
+        },
+        {
+          "newLines": 6,
+          "newStart": 380,
+          "oldLines": 0,
+          "oldStart": 178
+        },
+        {
+          "newLines": 6,
+          "newStart": 392,
+          "oldLines": 0,
+          "oldStart": 184
+        },
+        {
+          "newLines": 6,
+          "newStart": 404,
+          "oldLines": 0,
+          "oldStart": 190
+        },
+        {
+          "newLines": 6,
+          "newStart": 416,
+          "oldLines": 0,
+          "oldStart": 196
+        },
+        {
+          "newLines": 6,
+          "newStart": 428,
+          "oldLines": 0,
+          "oldStart": 202
+        },
+        {
+          "newLines": 6,
+          "newStart": 440,
+          "oldLines": 0,
+          "oldStart": 208
+        },
+        {
+          "newLines": 6,
+          "newStart": 452,
+          "oldLines": 0,
+          "oldStart": 214
+        },
+        {
+          "newLines": 6,
+          "newStart": 464,
+          "oldLines": 0,
+          "oldStart": 220
+        },
+        {
+          "newLines": 6,
+          "newStart": 476,
+          "oldLines": 0,
+          "oldStart": 226
+        },
+        {
+          "newLines": 6,
+          "newStart": 488,
+          "oldLines": 0,
+          "oldStart": 232
+        },
+        {
+          "newLines": 6,
+          "newStart": 500,
+          "oldLines": 0,
+          "oldStart": 238
+        },
+        {
+          "newLines": 6,
+          "newStart": 512,
+          "oldLines": 0,
+          "oldStart": 244
+        },
+        {
+          "newLines": 6,
+          "newStart": 524,
+          "oldLines": 0,
+          "oldStart": 250
+        },
+        {
+          "newLines": 6,
+          "newStart": 536,
+          "oldLines": 0,
+          "oldStart": 256
+        },
+        {
+          "newLines": 6,
+          "newStart": 548,
+          "oldLines": 0,
+          "oldStart": 262
+        },
+        {
+          "newLines": 9,
+          "newStart": 596,
+          "oldLines": 0,
+          "oldStart": 304
+        },
+        {
+          "newLines": 57,
+          "newStart": 641,
+          "oldLines": 0,
+          "oldStart": 340
+        },
+        {
+          "newLines": 3,
+          "newStart": 707,
+          "oldLines": 0,
+          "oldStart": 349
+        },
+        {
+          "newLines": 8,
+          "newStart": 792,
+          "oldLines": 0,
+          "oldStart": 431
+        },
+        {
+          "newLines": 6,
+          "newStart": 828,
+          "oldLines": 0,
+          "oldStart": 459
+        },
+        {
+          "newLines": 3,
+          "newStart": 838,
+          "oldLines": 0,
+          "oldStart": 463
+        },
+        {
+          "newLines": 3,
+          "newStart": 848,
+          "oldLines": 0,
+          "oldStart": 470
+        },
+        {
+          "newLines": 4,
+          "newStart": 871,
+          "oldLines": 0,
+          "oldStart": 490
+        },
+        {
+          "newLines": 4,
+          "newStart": 913,
+          "oldLines": 0,
+          "oldStart": 528
+        },
+        {
+          "newLines": 4,
+          "newStart": 933,
+          "oldLines": 0,
+          "oldStart": 544
+        },
+        {
+          "newLines": 3,
+          "newStart": 941,
+          "oldLines": 0,
+          "oldStart": 548
+        },
+        {
+          "newLines": 5,
+          "newStart": 968,
+          "oldLines": 0,
+          "oldStart": 572
+        },
+        {
+          "newLines": 3,
+          "newStart": 1049,
+          "oldLines": 0,
+          "oldStart": 648
+        },
+        {
+          "newLines": 3,
+          "newStart": 1061,
+          "oldLines": 0,
+          "oldStart": 657
+        },
+        {
+          "newLines": 4,
+          "newStart": 1076,
+          "oldLines": 0,
+          "oldStart": 669
+        },
+        {
+          "newLines": 4,
+          "newStart": 1099,
+          "oldLines": 0,
+          "oldStart": 688
+        },
+        {
+          "newLines": 12,
+          "newStart": 1119,
+          "oldLines": 0,
+          "oldStart": 704
+        },
+        {
+          "newLines": 8,
+          "newStart": 1147,
+          "oldLines": 0,
+          "oldStart": 720
+        },
+        {
+          "newLines": 7,
+          "newStart": 1159,
+          "oldLines": 0,
+          "oldStart": 724
+        },
+        {
+          "newLines": 3,
+          "newStart": 1178,
+          "oldLines": 0,
+          "oldStart": 736
+        },
+        {
+          "newLines": 4,
+          "newStart": 1185,
+          "oldLines": 0,
+          "oldStart": 740
+        },
+        {
+          "newLines": 12,
+          "newStart": 1193,
+          "oldLines": 0,
+          "oldStart": 744
+        },
+        {
+          "newLines": 4,
+          "newStart": 1217,
+          "oldLines": 0,
+          "oldStart": 756
+        },
+        {
+          "newLines": 4,
+          "newStart": 1254,
+          "oldLines": 0,
+          "oldStart": 789
+        },
+        {
+          "newLines": 3,
+          "newStart": 1265,
+          "oldLines": 0,
+          "oldStart": 796
+        },
+        {
+          "newLines": 4,
+          "newStart": 1271,
+          "oldLines": 0,
+          "oldStart": 799
+        },
+        {
+          "newLines": 6,
+          "newStart": 1287,
+          "oldLines": 0,
+          "oldStart": 811
+        },
+        {
+          "newLines": 12,
+          "newStart": 1307,
+          "oldLines": 0,
+          "oldStart": 825
+        },
+        {
+          "newLines": 9,
+          "newStart": 1368,
+          "oldLines": 0,
+          "oldStart": 874
+        },
+        {
+          "newLines": 11,
+          "newStart": 1399,
+          "oldLines": 0,
+          "oldStart": 896
+        },
+        {
+          "newLines": 4,
+          "newStart": 1422,
+          "oldLines": 0,
+          "oldStart": 908
+        },
+        {
+          "newLines": 3,
+          "newStart": 1434,
+          "oldLines": 0,
+          "oldStart": 916
+        },
+        {
+          "newLines": 7,
+          "newStart": 1465,
+          "oldLines": 0,
+          "oldStart": 944
+        },
+        {
+          "newLines": 9,
+          "newStart": 1476,
+          "oldLines": 0,
+          "oldStart": 948
+        },
+        {
+          "newLines": 8,
+          "newStart": 1509,
+          "oldLines": 0,
+          "oldStart": 972
+        },
+        {
+          "newLines": 3,
+          "newStart": 1521,
+          "oldLines": 0,
+          "oldStart": 976
+        },
+        {
+          "newLines": 6,
+          "newStart": 1567,
+          "oldLines": 0,
+          "oldStart": 1019
+        },
+        {
+          "newLines": 3,
+          "newStart": 1617,
+          "oldLines": 0,
+          "oldStart": 1063
+        },
+        {
+          "newLines": 3,
+          "newStart": 1626,
+          "oldLines": 0,
+          "oldStart": 1069
+        },
+        {
+          "newLines": 3,
+          "newStart": 1642,
+          "oldLines": 0,
+          "oldStart": 1082
+        },
+        {
+          "newLines": 4,
+          "newStart": 1665,
+          "oldLines": 0,
+          "oldStart": 1102
+        },
+        {
+          "newLines": 4,
+          "newStart": 1680,
+          "oldLines": 0,
+          "oldStart": 1113
+        },
+        {
+          "newLines": 5,
+          "newStart": 1708,
+          "oldLines": 0,
+          "oldStart": 1137
+        },
+        {
+          "newLines": 271,
+          "newStart": 1754,
+          "oldLines": 0,
+          "oldStart": 1178
+        },
+        {
+          "newLines": 3,
+          "newStart": 2028,
+          "oldLines": 0,
+          "oldStart": 1181
+        },
+        {
+          "newLines": 3,
+          "newStart": 2034,
+          "oldLines": 0,
+          "oldStart": 1184
+        },
+        {
+          "newLines": 3,
+          "newStart": 2040,
+          "oldLines": 0,
+          "oldStart": 1187
+        },
+        {
+          "newLines": 3,
+          "newStart": 2046,
+          "oldLines": 0,
+          "oldStart": 1190
+        },
+        {
+          "newLines": 3,
+          "newStart": 2052,
+          "oldLines": 0,
+          "oldStart": 1193
+        },
+        {
+          "newLines": 3,
+          "newStart": 2058,
+          "oldLines": 0,
+          "oldStart": 1196
+        },
+        {
+          "newLines": 3,
+          "newStart": 2064,
+          "oldLines": 0,
+          "oldStart": 1199
+        },
+        {
+          "newLines": 3,
+          "newStart": 2070,
+          "oldLines": 0,
+          "oldStart": 1202
+        },
+        {
+          "newLines": 3,
+          "newStart": 2076,
+          "oldLines": 0,
+          "oldStart": 1205
+        },
+        {
+          "newLines": 3,
+          "newStart": 2082,
+          "oldLines": 0,
+          "oldStart": 1208
+        },
+        {
+          "newLines": 3,
+          "newStart": 2088,
+          "oldLines": 0,
+          "oldStart": 1211
+        },
+        {
+          "newLines": 3,
+          "newStart": 2094,
+          "oldLines": 0,
+          "oldStart": 1214
+        },
+        {
+          "newLines": 3,
+          "newStart": 2100,
+          "oldLines": 0,
+          "oldStart": 1217
+        },
+        {
+          "newLines": 3,
+          "newStart": 2106,
+          "oldLines": 0,
+          "oldStart": 1220
+        },
+        {
+          "newLines": 3,
+          "newStart": 2112,
+          "oldLines": 0,
+          "oldStart": 1223
+        },
+        {
+          "newLines": 3,
+          "newStart": 2118,
+          "oldLines": 0,
+          "oldStart": 1226
+        },
+        {
+          "newLines": 3,
+          "newStart": 2124,
+          "oldLines": 0,
+          "oldStart": 1229
+        },
+        {
+          "newLines": 3,
+          "newStart": 2130,
+          "oldLines": 0,
+          "oldStart": 1232
+        },
+        {
+          "newLines": 3,
+          "newStart": 2136,
+          "oldLines": 0,
+          "oldStart": 1235
+        },
+        {
+          "newLines": 3,
+          "newStart": 2142,
+          "oldLines": 0,
+          "oldStart": 1238
+        },
+        {
+          "newLines": 3,
+          "newStart": 2148,
+          "oldLines": 0,
+          "oldStart": 1241
+        },
+        {
+          "newLines": 3,
+          "newStart": 2154,
+          "oldLines": 0,
+          "oldStart": 1244
+        },
+        {
+          "newLines": 3,
+          "newStart": 2160,
+          "oldLines": 0,
+          "oldStart": 1247
+        },
+        {
+          "newLines": 3,
+          "newStart": 2166,
+          "oldLines": 0,
+          "oldStart": 1250
+        },
+        {
+          "newLines": 3,
+          "newStart": 2172,
+          "oldLines": 0,
+          "oldStart": 1253
+        },
+        {
+          "newLines": 4,
+          "newStart": 2178,
+          "oldLines": 1,
+          "oldStart": 1257
+        },
+        {
+          "newLines": 1,
+          "newStart": 2183,
+          "oldLines": 1,
+          "oldStart": 1259
+        },
+        {
+          "newLines": 13,
+          "newStart": 2229,
+          "oldLines": 0,
+          "oldStart": 1304
+        },
+        {
+          "newLines": 57,
+          "newStart": 2284,
+          "oldLines": 0,
+          "oldStart": 1346
+        },
+        {
+          "newLines": 2,
+          "newStart": 2349,
+          "oldLines": 0,
+          "oldStart": 1354
+        },
+        {
+          "newLines": 1,
+          "newStart": 2355,
+          "oldLines": 1,
+          "oldStart": 1359
+        },
+        {
+          "newLines": 1,
+          "newStart": 2358,
+          "oldLines": 1,
+          "oldStart": 1362
+        },
+        {
+          "newLines": 2,
+          "newStart": 2360,
+          "oldLines": 2,
+          "oldStart": 1364
+        },
+        {
+          "newLines": 1,
+          "newStart": 2363,
+          "oldLines": 1,
+          "oldStart": 1367
+        },
+        {
+          "newLines": 1,
+          "newStart": 2371,
+          "oldLines": 1,
+          "oldStart": 1375
+        },
+        {
+          "newLines": 1,
+          "newStart": 2378,
+          "oldLines": 1,
+          "oldStart": 1382
+        },
+        {
+          "newLines": 1,
+          "newStart": 2401,
+          "oldLines": 1,
+          "oldStart": 1405
+        },
+        {
+          "newLines": 1,
+          "newStart": 2405,
+          "oldLines": 1,
+          "oldStart": 1409
+        },
+        {
+          "newLines": 1,
+          "newStart": 2407,
+          "oldLines": 1,
+          "oldStart": 1411
+        },
+        {
+          "newLines": 1,
+          "newStart": 2430,
+          "oldLines": 1,
+          "oldStart": 1434
+        },
+        {
+          "newLines": 1,
+          "newStart": 2432,
+          "oldLines": 1,
+          "oldStart": 1436
+        },
+        {
+          "newLines": 1,
+          "newStart": 2436,
+          "oldLines": 1,
+          "oldStart": 1440
+        },
+        {
+          "newLines": 4,
+          "newStart": 2461,
+          "oldLines": 0,
+          "oldStart": 1464
+        },
+        {
+          "newLines": 4,
+          "newStart": 2493,
+          "oldLines": 0,
+          "oldStart": 1492
+        },
+        {
+          "newLines": 2,
+          "newStart": 2511,
+          "oldLines": 0,
+          "oldStart": 1506
+        },
+        {
+          "newLines": 2,
+          "newStart": 2522,
+          "oldLines": 0,
+          "oldStart": 1515
+        },
+        {
+          "newLines": 2,
+          "newStart": 2543,
+          "oldLines": 0,
+          "oldStart": 1534
+        },
+        {
+          "newLines": 2,
+          "newStart": 2574,
+          "oldLines": 0,
+          "oldStart": 1563
+        },
+        {
+          "newLines": 2,
+          "newStart": 2586,
+          "oldLines": 0,
+          "oldStart": 1573
+        },
+        {
+          "newLines": 4,
+          "newStart": 2594,
+          "oldLines": 0,
+          "oldStart": 1579
+        },
+        {
+          "newLines": 29,
+          "newStart": 2639,
+          "oldLines": 0,
+          "oldStart": 1620
+        },
+        {
+          "newLines": 1,
+          "newStart": 2683,
+          "oldLines": 1,
+          "oldStart": 1636
+        },
+        {
+          "newLines": 1,
+          "newStart": 2685,
+          "oldLines": 1,
+          "oldStart": 1638
+        },
+        {
+          "newLines": 2,
+          "newStart": 2720,
+          "oldLines": 0,
+          "oldStart": 1672
+        },
+        {
+          "newLines": 2,
+          "newStart": 2792,
+          "oldLines": 0,
+          "oldStart": 1742
+        },
+        {
+          "newLines": 2,
+          "newStart": 2800,
+          "oldLines": 0,
+          "oldStart": 1748
+        },
+        {
+          "newLines": 5,
+          "newStart": 2808,
+          "oldLines": 0,
+          "oldStart": 1754
+        },
+        {
+          "newLines": 4,
+          "newStart": 2840,
+          "oldLines": 0,
+          "oldStart": 1781
+        },
+        {
+          "newLines": 18,
+          "newStart": 2853,
+          "oldLines": 0,
+          "oldStart": 1790
+        },
+        {
+          "newLines": 13,
+          "newStart": 2895,
+          "oldLines": 0,
+          "oldStart": 1814
+        },
+        {
+          "newLines": 4,
+          "newStart": 2910,
+          "oldLines": 0,
+          "oldStart": 1816
+        },
+        {
+          "newLines": 2,
+          "newStart": 2922,
+          "oldLines": 0,
+          "oldStart": 1824
+        },
+        {
+          "newLines": 4,
+          "newStart": 2926,
+          "oldLines": 0,
+          "oldStart": 1826
+        },
+        {
+          "newLines": 25,
+          "newStart": 2938,
+          "oldLines": 0,
+          "oldStart": 1834
+        },
+        {
+          "newLines": 2,
+          "newStart": 2971,
+          "oldLines": 0,
+          "oldStart": 1842
+        },
+        {
+          "newLines": 2,
+          "newStart": 2996,
+          "oldLines": 0,
+          "oldStart": 1865
+        },
+        {
+          "newLines": 4,
+          "newStart": 3004,
+          "oldLines": 0,
+          "oldStart": 1871
+        },
+        {
+          "newLines": 5,
+          "newStart": 3010,
+          "oldLines": 0,
+          "oldStart": 1873
+        },
+        {
+          "newLines": 11,
+          "newStart": 3023,
+          "oldLines": 0,
+          "oldStart": 1881
+        },
+        {
+          "newLines": 6,
+          "newStart": 3049,
+          "oldLines": 0,
+          "oldStart": 1896
+        },
+        {
+          "newLines": 8,
+          "newStart": 3087,
+          "oldLines": 0,
+          "oldStart": 1928
+        },
+        {
+          "newLines": 5,
+          "newStart": 3113,
+          "oldLines": 0,
+          "oldStart": 1946
+        },
+        {
+          "newLines": 5,
+          "newStart": 3135,
+          "oldLines": 0,
+          "oldStart": 1963
+        },
+        {
+          "newLines": 2,
+          "newStart": 3146,
+          "oldLines": 0,
+          "oldStart": 1969
+        },
+        {
+          "newLines": 20,
+          "newStart": 3162,
+          "oldLines": 0,
+          "oldStart": 1983
+        },
+        {
+          "newLines": 2,
+          "newStart": 3187,
+          "oldLines": 0,
+          "oldStart": 1988
+        },
+        {
+          "newLines": 4,
+          "newStart": 3209,
+          "oldLines": 0,
+          "oldStart": 2008
+        },
+        {
+          "newLines": 2,
+          "newStart": 3223,
+          "oldLines": 0,
+          "oldStart": 2018
+        },
+        {
+          "newLines": 7,
+          "newStart": 3290,
+          "oldLines": 0,
+          "oldStart": 2083
+        },
+        {
+          "newLines": 2,
+          "newStart": 3336,
+          "oldLines": 0,
+          "oldStart": 2122
+        },
+        {
+          "newLines": 2,
+          "newStart": 3342,
+          "oldLines": 0,
+          "oldStart": 2126
+        },
+        {
+          "newLines": 3,
+          "newStart": 3360,
+          "oldLines": 1,
+          "oldStart": 2143
+        },
+        {
+          "newLines": 2,
+          "newStart": 3364,
+          "oldLines": 2,
+          "oldStart": 2145
+        },
+        {
+          "newLines": 2,
+          "newStart": 3367,
+          "oldLines": 2,
+          "oldStart": 2148
+        },
+        {
+          "newLines": 2,
+          "newStart": 3379,
+          "oldLines": 0,
+          "oldStart": 2159
+        },
+        {
+          "newLines": 2,
+          "newStart": 3389,
+          "oldLines": 0,
+          "oldStart": 2167
+        },
+        {
+          "newLines": 2,
+          "newStart": 3401,
+          "oldLines": 0,
+          "oldStart": 2177
+        }
+      ],
+      "path": "pnpm-lock.yaml",
+      "status": "modified"
+    },
+    {
+      "additions": 9,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 8,
+          "oldLines": 0,
+          "oldStart": 7
+        },
+        {
+          "newLines": 1,
+          "newStart": 17,
+          "oldLines": 0,
+          "oldStart": 15
+        },
+        {
+          "newLines": 1,
+          "newStart": 20,
+          "oldLines": 0,
+          "oldStart": 17
+        },
+        {
+          "newLines": 6,
+          "newStart": 39,
+          "oldLines": 0,
+          "oldStart": 35
+        }
+      ],
+      "path": "pnpm-workspace.yaml",
+      "status": "modified"
+    },
+    {
+      "additions": 5,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 5,
+          "newStart": 56,
+          "oldLines": 1,
+          "oldStart": 56
+        }
+      ],
+      "path": "scripts/test-suites.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 0,
+      "deletions": 168,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 168,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/manager/execution-admission.test.ts",
+      "status": "removed"
+    },
+    {
+      "additions": 0,
+      "deletions": 478,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 478,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/manager/execution-admission.ts",
+      "status": "removed"
+    },
+    {
+      "additions": 2,
+      "deletions": 374,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 12,
+          "oldLines": 19,
+          "oldStart": 12
+        },
+        {
+          "newLines": 0,
+          "newStart": 103,
+          "oldLines": 7,
+          "oldStart": 122
+        },
+        {
+          "newLines": 0,
+          "newStart": 136,
+          "oldLines": 186,
+          "oldStart": 162
+        },
+        {
+          "newLines": 0,
+          "newStart": 940,
+          "oldLines": 1,
+          "oldStart": 1152
+        },
+        {
+          "newLines": 1,
+          "newStart": 2033,
+          "oldLines": 3,
+          "oldStart": 2245
+        },
+        {
+          "newLines": 0,
+          "newStart": 2423,
+          "oldLines": 158,
+          "oldStart": 2638
+        }
+      ],
+      "path": "src/workflow/state/sqlite-store.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 83,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 3,
+          "oldLines": 9,
+          "oldStart": 4
+        },
+        {
+          "newLines": 0,
+          "newStart": 428,
+          "oldLines": 61,
+          "oldStart": 438
+        },
+        {
+          "newLines": 1,
+          "newStart": 1107,
+          "oldLines": 3,
+          "oldStart": 1177
+        },
+        {
+          "newLines": 0,
+          "newStart": 1127,
+          "oldLines": 10,
+          "oldStart": 1200
+        }
+      ],
+      "path": "src/workflow/state/store.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 0,
+      "deletions": 151,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 0,
+          "oldLines": 151,
+          "oldStart": 1
+        }
+      ],
+      "path": "src/workflow/state/worker-supervision.test.ts",
+      "status": "removed"
+    }
+  ],
+  "headSha": "5f03eb26b889cc62080ba1aa684a062fa92a5f5a",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 1775,
+    "deletions": 1280,
+    "filesChanged": 15
+  }
+}
