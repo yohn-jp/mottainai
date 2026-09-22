@@ -57,6 +57,8 @@ const packagePatterns = Object.freeze([
   "scripts/smoke-test.mjs",
   "scripts/mcp-stdio-package.test.mjs",
   "packages/pi-mottainai/src/runtime.test.ts",
+  "packages/pi-mottainai/src/events.test.ts",
+  "packages/pi-mottainai/src/status-tool.test.ts",
 ]);
 const nonStandardsTestFiles = Object.freeze([
   "scripts/lib/mcp-blackbox-client.test.mjs",
