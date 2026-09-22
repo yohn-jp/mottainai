@@ -23,6 +23,11 @@ function run(command, args, options = {}) {
 
 const artifactDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-package-suite-"));
 try {
+  // pi-mottainai's package tests build the canonical root worker-runtime
+  // dependency. Run them before freezing the root dist artifact so the
+  // package suite never mutates an artifact after it has been packed.
+  run("pnpm", ["run", "test:package:pi"]);
+
   const distEntry = path.join(repoRoot, "dist", "index.js");
   if (!fs.existsSync(distEntry)) throw new Error("dist is missing; run pnpm run build before the package suite");
   const distMtime = fs.statSync(distEntry).mtimeMs;
@@ -44,7 +49,6 @@ try {
 
   // 依存解決・launcher・initの責務は既存smokeへ委譲する。同一artifactを渡して再packを防ぐ。
   run(process.execPath, ["scripts/smoke-test.mjs", "--tarball", tarballPath], { env: environment });
-  run("pnpm", ["run", "test:package:pi"]);
   run(process.execPath, ["--test", "scripts/mcp-stdio-package.test.mjs"], { env: environment });
   run(process.execPath, ["--test", "scripts/packed-workflow-e2e.test.mjs"], { env: environment });
 } finally {
