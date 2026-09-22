@@ -282,6 +282,7 @@ NODE
     rm -rf node_modules
     pnpm install --prod --offline --frozen-lockfile --ignore-scripts --store-dir "$pnpmStore"
     pnpm rebuild node-pty --store-dir "$pnpmStore"
+    rm -rf node_modules/pi-mottainai
     cp -a node_modules "$packageRoot/node_modules"
     rm -rf "$packageRoot/node_modules/.cache"
 
