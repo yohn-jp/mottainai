@@ -45,6 +45,9 @@ importers:
       '@types/node':
         specifier: ^24.0.0
         version: 24.13.3
+      mottainai:
+        specifier: workspace:*
+        version: link:../..
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
@@ -72,9 +75,6 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: 0.87.0
         version: 0.87.0(@modelcontextprotocol/sdk@1.29.0(supports-color@7.2.0)(zod@3.25.76))(supports-color@7.2.0)(ws@8.21.3)(zod@3.25.76)
-      mottainai:
-        specifier: workspace:*
-        version: link:../..
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -85,6 +85,11 @@ importers:
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
+    peerDependencies:
+      mottainai:
+        specifier: '>=0.9.3'
+        version: 0.9.3
+
 
 packages:
 
