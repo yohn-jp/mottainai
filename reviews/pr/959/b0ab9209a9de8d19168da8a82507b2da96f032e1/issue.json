@@ -1,0 +1,16 @@
+{
+  "acceptanceCriteria": [],
+  "issue": {
+    "labels": [
+      "implementation"
+    ],
+    "number": 950,
+    "state": "open",
+    "title": "impl: create the independently buildable pi-mottainai SDK adapter package",
+    "url": "https://github.com/yohn-jp/mottainai/issues/950"
+  },
+  "linked": {
+    "number": 950
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
