@@ -110,8 +110,9 @@ class FakePiWorker implements WorkerRuntimeAdapter {
   }
 
   async sendInput(input: WorkerRuntimeInput): Promise<WorkerRuntimeControlReceipt> {
+    assert.deepEqual(input.binding, this.binding);
     this.calls.push(`input:${input.input}`);
-    throw new Error("Manager must not send implicit worker input");
+    return { operation: "input", acceptedAt: this.timestamp() };
   }
 
   reportStatus(status: WorkerRuntimeStatusReportInput): void {
@@ -225,7 +226,12 @@ test("managed Pi admission binds a read-only worker and explicit controls", asyn
   });
 
   assert.equal(session.runtimeState, "running");
-  assert.deepEqual(adapter.calls.slice(0, 3), ["start", "bind", "observe"]);
+  assert.deepEqual(adapter.calls.slice(0, 4), [
+    "start",
+    "bind",
+    "observe",
+    "input:prompt text is not part of the worker context",
+  ]);
   assert.equal(zellij.started.length, 0);
   assert.ok(factoryInput);
   const captured = factoryInput;
@@ -259,6 +265,6 @@ test("managed Pi admission binds a read-only worker and explicit controls", asyn
   );
   assert.deepEqual(
     store.listWorkerControlAudit(session.sessionId).map((audit) => audit.operation),
-    ["steer", "stop"],
+    ["input", "steer", "stop"],
   );
 });
