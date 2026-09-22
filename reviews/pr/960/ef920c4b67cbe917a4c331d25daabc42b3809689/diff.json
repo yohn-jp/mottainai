@@ -1,0 +1,40 @@
+{
+  "baseSha": "8ef1a8929db954bdf946d7881f48166a277d5be8",
+  "files": [
+    {
+      "additions": 168,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 168,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/manager/execution-admission.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 478,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 478,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/manager/execution-admission.ts",
+      "status": "added"
+    }
+  ],
+  "headSha": "ef920c4b67cbe917a4c331d25daabc42b3809689",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 646,
+    "deletions": 0,
+    "filesChanged": 2
+  }
+}

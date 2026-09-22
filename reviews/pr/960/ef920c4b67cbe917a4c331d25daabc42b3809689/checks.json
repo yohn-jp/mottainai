@@ -1,0 +1,49 @@
+{
+  "available": true,
+  "checkRuns": [
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692957285/job/106633656713",
+      "name": "detect CI ownership path changes",
+      "status": "queued"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692956707/job/106633654290",
+      "name": "Generate review package",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": "success",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692957056/job/106633655147",
+      "name": "governance / Validate branch name",
+      "status": "completed"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692957056/job/106633655154",
+      "name": "governance / Validate PR contract (Inari snapshot)",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692957056/job/106633655581",
+      "name": "linked-issue-check",
+      "status": "queued"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692957056/job/106633654677",
+      "name": "product-checks",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692957056/job/106633654971",
+      "name": "standards-self-check",
+      "status": "in_progress"
+    }
+  ],
+  "headSha": "ef920c4b67cbe917a4c331d25daabc42b3809689",
+  "schemaVersion": "mottainai.review-pages.checks/v1"
+}

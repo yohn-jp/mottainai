@@ -1,0 +1,16 @@
+{
+  "acceptanceCriteria": [],
+  "issue": {
+    "labels": [
+      "implementation"
+    ],
+    "number": 953,
+    "state": "open",
+    "title": "impl: admit governed execution manifests against authoritative Nawabari evidence",
+    "url": "https://github.com/yohn-jp/mottainai/issues/953"
+  },
+  "linked": {
+    "number": 953
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
