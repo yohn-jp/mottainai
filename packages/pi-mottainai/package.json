@@ -22,13 +22,13 @@
     "test": "node --import tsx --test src/*.test.ts"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.87.0",
-    "mottainai": "workspace:*"
+    "@earendil-works/pi-coding-agent": "0.87.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "tsx": "^4.19.4",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "mottainai": "workspace:*"
   },
   "engines": {
     "node": ">=24.0.0"
@@ -43,5 +43,8 @@
     "url": "git+https://github.com/yohn-jp/mottainai.git",
     "directory": "packages/pi-mottainai"
   },
-  "homepage": "https://github.com/yohn-jp/mottainai#readme"
+  "homepage": "https://github.com/yohn-jp/mottainai#readme",
+  "peerDependencies": {
+    "mottainai": ">=0.9.3"
+  }
 }
