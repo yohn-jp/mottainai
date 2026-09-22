@@ -1,0 +1,40 @@
+{
+  "baseSha": "363c349c27a45475595ca2eec3bd211be6cce5e8",
+  "files": [
+    {
+      "additions": 98,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 98,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/manager/worker-runtime.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 256,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 256,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/manager/worker-runtime.ts",
+      "status": "added"
+    }
+  ],
+  "headSha": "db855b498dc536d036489cb1f37b5f004d5dd66f",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 354,
+    "deletions": 0,
+    "filesChanged": 2
+  }
+}

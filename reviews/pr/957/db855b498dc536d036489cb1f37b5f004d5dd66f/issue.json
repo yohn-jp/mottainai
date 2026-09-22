@@ -1,0 +1,16 @@
+{
+  "acceptanceCriteria": [],
+  "issue": {
+    "labels": [
+      "implementation"
+    ],
+    "number": 947,
+    "state": "open",
+    "title": "impl: define provider-neutral worker runtime and supervision contracts",
+    "url": "https://github.com/yohn-jp/mottainai/issues/947"
+  },
+  "linked": {
+    "number": 947
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

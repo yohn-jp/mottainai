@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "epic/946-agent-runtime-supervision",
+    "baseSha": "363c349c27a45475595ca2eec3bd211be6cce5e8",
+    "draft": false,
+    "headRef": "refactor/947-worker-runtime-contract",
+    "headSha": "db855b498dc536d036489cb1f37b5f004d5dd66f",
+    "number": 957,
+    "title": "feat(manager): define provider-neutral worker runtime contract"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "db855b498dc536d036489cb1f37b5f004d5dd66f",
+    "immutable": true,
+    "shortId": "db855b498dc5"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-22T05:11:50.351Z"
+  }
+}
