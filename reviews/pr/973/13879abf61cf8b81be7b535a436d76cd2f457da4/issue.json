@@ -1,0 +1,71 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "#944 and #945 are valid governed Source Issues under this Epic."
+    },
+    {
+      "checked": false,
+      "text": "Every implementation responsibility is represented by a child Implementation Issue with explicit scope, tests, branch and dependencies."
+    },
+    {
+      "checked": false,
+      "text": "Provider-neutral worker/runtime and governed-execution contracts are implemented without Pi-native core types."
+    },
+    {
+      "checked": false,
+      "text": "Pi adapter package launches/binds workers and consumes live Pi lifecycle/tool events."
+    },
+    {
+      "checked": false,
+      "text": "A worker can report bounded semantic phase/activity/progress through the Mottainai contract."
+    },
+    {
+      "checked": false,
+      "text": "Fleet/worker status can be repeatedly observed without adding input to or interrupting the worker session."
+    },
+    {
+      "checked": false,
+      "text": "Explicit steer/stop control remains separate from observation and is auditable."
+    },
+    {
+      "checked": false,
+      "text": "Governed execution admission binds accepted task authority to authoritative Nawabari evidence and a runtime worker without direct Pi↔Nawabari domain coupling."
+    },
+    {
+      "checked": false,
+      "text": "Correctly admitted workers can obtain canonical branch/base/worktree/task/scope/verification facts without routine Git/history rediscovery."
+    },
+    {
+      "checked": false,
+      "text": "The Pi adapter is independently buildable, testable, versioned and releasable from this repository."
+    },
+    {
+      "checked": false,
+      "text": "Package smoke/certification installs/loads the produced Pi adapter artifact."
+    },
+    {
+      "checked": false,
+      "text": "End-to-end certification proves one Mottainai-launched Pi worker can execute governed work while an orchestrator observes compact live progress without interrupting it."
+    },
+    {
+      "checked": false,
+      "text": "Existing non-Pi Manager/runtime behavior remains compatible."
+    },
+    {
+      "checked": false,
+      "text": "Full repository verification is green on the integrated Epic head before the Epic PR is considered ready."
+    }
+  ],
+  "issue": {
+    "labels": [],
+    "number": 946,
+    "state": "open",
+    "title": "refactor: govern agent-runtime execution and supervision",
+    "url": "https://github.com/yohn-jp/mottainai/issues/946"
+  },
+  "linked": {
+    "number": 946
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

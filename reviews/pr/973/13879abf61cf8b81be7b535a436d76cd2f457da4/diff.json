@@ -1,0 +1,1914 @@
+{
+  "baseSha": "363c349c27a45475595ca2eec3bd211be6cce5e8",
+  "files": [
+    {
+      "additions": 12,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 262,
+          "oldLines": 0,
+          "oldStart": 261
+        },
+        {
+          "newLines": 2,
+          "newStart": 432,
+          "oldLines": 0,
+          "oldStart": 428
+        },
+        {
+          "newLines": 2,
+          "newStart": 450,
+          "oldLines": 0,
+          "oldStart": 444
+        },
+        {
+          "newLines": 1,
+          "newStart": 458,
+          "oldLines": 0,
+          "oldStart": 450
+        },
+        {
+          "newLines": 4,
+          "newStart": 465,
+          "oldLines": 0,
+          "oldStart": 456
+        }
+      ],
+      "path": ".github/workflows/ci.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 164,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 6,
+          "oldLines": 1,
+          "oldStart": 6
+        },
+        {
+          "newLines": 9,
+          "newStart": 40,
+          "oldLines": 0,
+          "oldStart": 37
+        },
+        {
+          "newLines": 152,
+          "newStart": 258,
+          "oldLines": 0,
+          "oldStart": 246
+        }
+      ],
+      "path": ".github/workflows/publish.yml",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 31,
+          "oldLines": 1,
+          "oldStart": 31
+        },
+        {
+          "newLines": 1,
+          "newStart": 285,
+          "oldLines": 0,
+          "oldStart": 284
+        }
+      ],
+      "path": "nix/mottainai.nix",
+      "status": "modified"
+    },
+    {
+      "additions": 13,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 40,
+          "oldLines": 0,
+          "oldStart": 39
+        },
+        {
+          "newLines": 12,
+          "newStart": 121,
+          "oldLines": 1,
+          "oldStart": 120
+        }
+      ],
+      "path": "package.json",
+      "status": "modified"
+    },
+    {
+      "additions": 50,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 50,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/package.json",
+      "status": "added"
+    },
+    {
+      "additions": 25,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 25,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/src/contract-authority.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 59,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 59,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/src/events.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 58,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 58,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/src/events.ts",
+      "status": "added"
+    },
+    {
+      "additions": 4,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/src/index.ts",
+      "status": "added"
+    },
+    {
+      "additions": 40,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 40,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/src/manager-factory.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 91,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 91,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/src/manager-factory.ts",
+      "status": "added"
+    },
+    {
+      "additions": 159,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 159,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/src/runtime.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 278,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 278,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/src/runtime.ts",
+      "status": "added"
+    },
+    {
+      "additions": 49,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 49,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/src/status-tool.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 46,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 46,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/src/status-tool.ts",
+      "status": "added"
+    },
+    {
+      "additions": 17,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 17,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "packages/pi-mottainai/tsconfig.json",
+      "status": "added"
+    },
+    {
+      "additions": 1257,
+      "deletions": 24,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 53,
+          "oldLines": 1,
+          "oldStart": 53
+        },
+        {
+          "newLines": 25,
+          "newStart": 68,
+          "oldLines": 1,
+          "oldStart": 68
+        },
+        {
+          "newLines": 119,
+          "newStart": 131,
+          "oldLines": 0,
+          "oldStart": 106
+        },
+        {
+          "newLines": 6,
+          "newStart": 256,
+          "oldLines": 0,
+          "oldStart": 112
+        },
+        {
+          "newLines": 6,
+          "newStart": 268,
+          "oldLines": 0,
+          "oldStart": 118
+        },
+        {
+          "newLines": 6,
+          "newStart": 280,
+          "oldLines": 0,
+          "oldStart": 124
+        },
+        {
+          "newLines": 6,
+          "newStart": 292,
+          "oldLines": 0,
+          "oldStart": 130
+        },
+        {
+          "newLines": 6,
+          "newStart": 304,
+          "oldLines": 0,
+          "oldStart": 136
+        },
+        {
+          "newLines": 6,
+          "newStart": 316,
+          "oldLines": 0,
+          "oldStart": 142
+        },
+        {
+          "newLines": 6,
+          "newStart": 328,
+          "oldLines": 0,
+          "oldStart": 148
+        },
+        {
+          "newLines": 6,
+          "newStart": 340,
+          "oldLines": 0,
+          "oldStart": 154
+        },
+        {
+          "newLines": 6,
+          "newStart": 352,
+          "oldLines": 0,
+          "oldStart": 160
+        },
+        {
+          "newLines": 6,
+          "newStart": 364,
+          "oldLines": 0,
+          "oldStart": 166
+        },
+        {
+          "newLines": 6,
+          "newStart": 376,
+          "oldLines": 0,
+          "oldStart": 172
+        },
+        {
+          "newLines": 6,
+          "newStart": 388,
+          "oldLines": 0,
+          "oldStart": 178
+        },
+        {
+          "newLines": 6,
+          "newStart": 400,
+          "oldLines": 0,
+          "oldStart": 184
+        },
+        {
+          "newLines": 6,
+          "newStart": 412,
+          "oldLines": 0,
+          "oldStart": 190
+        },
+        {
+          "newLines": 6,
+          "newStart": 424,
+          "oldLines": 0,
+          "oldStart": 196
+        },
+        {
+          "newLines": 6,
+          "newStart": 436,
+          "oldLines": 0,
+          "oldStart": 202
+        },
+        {
+          "newLines": 6,
+          "newStart": 448,
+          "oldLines": 0,
+          "oldStart": 208
+        },
+        {
+          "newLines": 6,
+          "newStart": 460,
+          "oldLines": 0,
+          "oldStart": 214
+        },
+        {
+          "newLines": 6,
+          "newStart": 472,
+          "oldLines": 0,
+          "oldStart": 220
+        },
+        {
+          "newLines": 6,
+          "newStart": 484,
+          "oldLines": 0,
+          "oldStart": 226
+        },
+        {
+          "newLines": 6,
+          "newStart": 496,
+          "oldLines": 0,
+          "oldStart": 232
+        },
+        {
+          "newLines": 6,
+          "newStart": 508,
+          "oldLines": 0,
+          "oldStart": 238
+        },
+        {
+          "newLines": 6,
+          "newStart": 520,
+          "oldLines": 0,
+          "oldStart": 244
+        },
+        {
+          "newLines": 6,
+          "newStart": 532,
+          "oldLines": 0,
+          "oldStart": 250
+        },
+        {
+          "newLines": 6,
+          "newStart": 544,
+          "oldLines": 0,
+          "oldStart": 256
+        },
+        {
+          "newLines": 6,
+          "newStart": 556,
+          "oldLines": 0,
+          "oldStart": 262
+        },
+        {
+          "newLines": 9,
+          "newStart": 604,
+          "oldLines": 0,
+          "oldStart": 304
+        },
+        {
+          "newLines": 57,
+          "newStart": 649,
+          "oldLines": 0,
+          "oldStart": 340
+        },
+        {
+          "newLines": 3,
+          "newStart": 715,
+          "oldLines": 0,
+          "oldStart": 349
+        },
+        {
+          "newLines": 8,
+          "newStart": 800,
+          "oldLines": 0,
+          "oldStart": 431
+        },
+        {
+          "newLines": 6,
+          "newStart": 836,
+          "oldLines": 0,
+          "oldStart": 459
+        },
+        {
+          "newLines": 3,
+          "newStart": 846,
+          "oldLines": 0,
+          "oldStart": 463
+        },
+        {
+          "newLines": 3,
+          "newStart": 856,
+          "oldLines": 0,
+          "oldStart": 470
+        },
+        {
+          "newLines": 4,
+          "newStart": 879,
+          "oldLines": 0,
+          "oldStart": 490
+        },
+        {
+          "newLines": 4,
+          "newStart": 921,
+          "oldLines": 0,
+          "oldStart": 528
+        },
+        {
+          "newLines": 4,
+          "newStart": 941,
+          "oldLines": 0,
+          "oldStart": 544
+        },
+        {
+          "newLines": 3,
+          "newStart": 949,
+          "oldLines": 0,
+          "oldStart": 548
+        },
+        {
+          "newLines": 5,
+          "newStart": 976,
+          "oldLines": 0,
+          "oldStart": 572
+        },
+        {
+          "newLines": 3,
+          "newStart": 1057,
+          "oldLines": 0,
+          "oldStart": 648
+        },
+        {
+          "newLines": 3,
+          "newStart": 1069,
+          "oldLines": 0,
+          "oldStart": 657
+        },
+        {
+          "newLines": 4,
+          "newStart": 1084,
+          "oldLines": 0,
+          "oldStart": 669
+        },
+        {
+          "newLines": 4,
+          "newStart": 1107,
+          "oldLines": 0,
+          "oldStart": 688
+        },
+        {
+          "newLines": 12,
+          "newStart": 1127,
+          "oldLines": 0,
+          "oldStart": 704
+        },
+        {
+          "newLines": 8,
+          "newStart": 1155,
+          "oldLines": 0,
+          "oldStart": 720
+        },
+        {
+          "newLines": 7,
+          "newStart": 1167,
+          "oldLines": 0,
+          "oldStart": 724
+        },
+        {
+          "newLines": 3,
+          "newStart": 1186,
+          "oldLines": 0,
+          "oldStart": 736
+        },
+        {
+          "newLines": 4,
+          "newStart": 1193,
+          "oldLines": 0,
+          "oldStart": 740
+        },
+        {
+          "newLines": 12,
+          "newStart": 1201,
+          "oldLines": 0,
+          "oldStart": 744
+        },
+        {
+          "newLines": 4,
+          "newStart": 1225,
+          "oldLines": 0,
+          "oldStart": 756
+        },
+        {
+          "newLines": 4,
+          "newStart": 1262,
+          "oldLines": 0,
+          "oldStart": 789
+        },
+        {
+          "newLines": 3,
+          "newStart": 1273,
+          "oldLines": 0,
+          "oldStart": 796
+        },
+        {
+          "newLines": 4,
+          "newStart": 1279,
+          "oldLines": 0,
+          "oldStart": 799
+        },
+        {
+          "newLines": 6,
+          "newStart": 1295,
+          "oldLines": 0,
+          "oldStart": 811
+        },
+        {
+          "newLines": 12,
+          "newStart": 1315,
+          "oldLines": 0,
+          "oldStart": 825
+        },
+        {
+          "newLines": 9,
+          "newStart": 1376,
+          "oldLines": 0,
+          "oldStart": 874
+        },
+        {
+          "newLines": 11,
+          "newStart": 1407,
+          "oldLines": 0,
+          "oldStart": 896
+        },
+        {
+          "newLines": 4,
+          "newStart": 1430,
+          "oldLines": 0,
+          "oldStart": 908
+        },
+        {
+          "newLines": 3,
+          "newStart": 1442,
+          "oldLines": 0,
+          "oldStart": 916
+        },
+        {
+          "newLines": 7,
+          "newStart": 1473,
+          "oldLines": 0,
+          "oldStart": 944
+        },
+        {
+          "newLines": 9,
+          "newStart": 1484,
+          "oldLines": 0,
+          "oldStart": 948
+        },
+        {
+          "newLines": 8,
+          "newStart": 1517,
+          "oldLines": 0,
+          "oldStart": 972
+        },
+        {
+          "newLines": 3,
+          "newStart": 1529,
+          "oldLines": 0,
+          "oldStart": 976
+        },
+        {
+          "newLines": 6,
+          "newStart": 1575,
+          "oldLines": 0,
+          "oldStart": 1019
+        },
+        {
+          "newLines": 3,
+          "newStart": 1625,
+          "oldLines": 0,
+          "oldStart": 1063
+        },
+        {
+          "newLines": 3,
+          "newStart": 1634,
+          "oldLines": 0,
+          "oldStart": 1069
+        },
+        {
+          "newLines": 3,
+          "newStart": 1650,
+          "oldLines": 0,
+          "oldStart": 1082
+        },
+        {
+          "newLines": 4,
+          "newStart": 1673,
+          "oldLines": 0,
+          "oldStart": 1102
+        },
+        {
+          "newLines": 4,
+          "newStart": 1688,
+          "oldLines": 0,
+          "oldStart": 1113
+        },
+        {
+          "newLines": 5,
+          "newStart": 1716,
+          "oldLines": 0,
+          "oldStart": 1137
+        },
+        {
+          "newLines": 271,
+          "newStart": 1762,
+          "oldLines": 0,
+          "oldStart": 1178
+        },
+        {
+          "newLines": 3,
+          "newStart": 2036,
+          "oldLines": 0,
+          "oldStart": 1181
+        },
+        {
+          "newLines": 3,
+          "newStart": 2042,
+          "oldLines": 0,
+          "oldStart": 1184
+        },
+        {
+          "newLines": 3,
+          "newStart": 2048,
+          "oldLines": 0,
+          "oldStart": 1187
+        },
+        {
+          "newLines": 3,
+          "newStart": 2054,
+          "oldLines": 0,
+          "oldStart": 1190
+        },
+        {
+          "newLines": 3,
+          "newStart": 2060,
+          "oldLines": 0,
+          "oldStart": 1193
+        },
+        {
+          "newLines": 3,
+          "newStart": 2066,
+          "oldLines": 0,
+          "oldStart": 1196
+        },
+        {
+          "newLines": 3,
+          "newStart": 2072,
+          "oldLines": 0,
+          "oldStart": 1199
+        },
+        {
+          "newLines": 3,
+          "newStart": 2078,
+          "oldLines": 0,
+          "oldStart": 1202
+        },
+        {
+          "newLines": 3,
+          "newStart": 2084,
+          "oldLines": 0,
+          "oldStart": 1205
+        },
+        {
+          "newLines": 3,
+          "newStart": 2090,
+          "oldLines": 0,
+          "oldStart": 1208
+        },
+        {
+          "newLines": 3,
+          "newStart": 2096,
+          "oldLines": 0,
+          "oldStart": 1211
+        },
+        {
+          "newLines": 3,
+          "newStart": 2102,
+          "oldLines": 0,
+          "oldStart": 1214
+        },
+        {
+          "newLines": 3,
+          "newStart": 2108,
+          "oldLines": 0,
+          "oldStart": 1217
+        },
+        {
+          "newLines": 3,
+          "newStart": 2114,
+          "oldLines": 0,
+          "oldStart": 1220
+        },
+        {
+          "newLines": 3,
+          "newStart": 2120,
+          "oldLines": 0,
+          "oldStart": 1223
+        },
+        {
+          "newLines": 3,
+          "newStart": 2126,
+          "oldLines": 0,
+          "oldStart": 1226
+        },
+        {
+          "newLines": 3,
+          "newStart": 2132,
+          "oldLines": 0,
+          "oldStart": 1229
+        },
+        {
+          "newLines": 3,
+          "newStart": 2138,
+          "oldLines": 0,
+          "oldStart": 1232
+        },
+        {
+          "newLines": 3,
+          "newStart": 2144,
+          "oldLines": 0,
+          "oldStart": 1235
+        },
+        {
+          "newLines": 3,
+          "newStart": 2150,
+          "oldLines": 0,
+          "oldStart": 1238
+        },
+        {
+          "newLines": 3,
+          "newStart": 2156,
+          "oldLines": 0,
+          "oldStart": 1241
+        },
+        {
+          "newLines": 3,
+          "newStart": 2162,
+          "oldLines": 0,
+          "oldStart": 1244
+        },
+        {
+          "newLines": 3,
+          "newStart": 2168,
+          "oldLines": 0,
+          "oldStart": 1247
+        },
+        {
+          "newLines": 3,
+          "newStart": 2174,
+          "oldLines": 0,
+          "oldStart": 1250
+        },
+        {
+          "newLines": 3,
+          "newStart": 2180,
+          "oldLines": 0,
+          "oldStart": 1253
+        },
+        {
+          "newLines": 4,
+          "newStart": 2186,
+          "oldLines": 1,
+          "oldStart": 1257
+        },
+        {
+          "newLines": 1,
+          "newStart": 2191,
+          "oldLines": 1,
+          "oldStart": 1259
+        },
+        {
+          "newLines": 13,
+          "newStart": 2237,
+          "oldLines": 0,
+          "oldStart": 1304
+        },
+        {
+          "newLines": 57,
+          "newStart": 2292,
+          "oldLines": 0,
+          "oldStart": 1346
+        },
+        {
+          "newLines": 2,
+          "newStart": 2357,
+          "oldLines": 0,
+          "oldStart": 1354
+        },
+        {
+          "newLines": 1,
+          "newStart": 2363,
+          "oldLines": 1,
+          "oldStart": 1359
+        },
+        {
+          "newLines": 1,
+          "newStart": 2366,
+          "oldLines": 1,
+          "oldStart": 1362
+        },
+        {
+          "newLines": 2,
+          "newStart": 2368,
+          "oldLines": 2,
+          "oldStart": 1364
+        },
+        {
+          "newLines": 1,
+          "newStart": 2371,
+          "oldLines": 1,
+          "oldStart": 1367
+        },
+        {
+          "newLines": 1,
+          "newStart": 2379,
+          "oldLines": 1,
+          "oldStart": 1375
+        },
+        {
+          "newLines": 1,
+          "newStart": 2386,
+          "oldLines": 1,
+          "oldStart": 1382
+        },
+        {
+          "newLines": 1,
+          "newStart": 2409,
+          "oldLines": 1,
+          "oldStart": 1405
+        },
+        {
+          "newLines": 1,
+          "newStart": 2413,
+          "oldLines": 1,
+          "oldStart": 1409
+        },
+        {
+          "newLines": 1,
+          "newStart": 2415,
+          "oldLines": 1,
+          "oldStart": 1411
+        },
+        {
+          "newLines": 1,
+          "newStart": 2438,
+          "oldLines": 1,
+          "oldStart": 1434
+        },
+        {
+          "newLines": 1,
+          "newStart": 2440,
+          "oldLines": 1,
+          "oldStart": 1436
+        },
+        {
+          "newLines": 1,
+          "newStart": 2444,
+          "oldLines": 1,
+          "oldStart": 1440
+        },
+        {
+          "newLines": 4,
+          "newStart": 2469,
+          "oldLines": 0,
+          "oldStart": 1464
+        },
+        {
+          "newLines": 4,
+          "newStart": 2501,
+          "oldLines": 0,
+          "oldStart": 1492
+        },
+        {
+          "newLines": 2,
+          "newStart": 2519,
+          "oldLines": 0,
+          "oldStart": 1506
+        },
+        {
+          "newLines": 2,
+          "newStart": 2530,
+          "oldLines": 0,
+          "oldStart": 1515
+        },
+        {
+          "newLines": 2,
+          "newStart": 2551,
+          "oldLines": 0,
+          "oldStart": 1534
+        },
+        {
+          "newLines": 2,
+          "newStart": 2582,
+          "oldLines": 0,
+          "oldStart": 1563
+        },
+        {
+          "newLines": 2,
+          "newStart": 2594,
+          "oldLines": 0,
+          "oldStart": 1573
+        },
+        {
+          "newLines": 4,
+          "newStart": 2602,
+          "oldLines": 0,
+          "oldStart": 1579
+        },
+        {
+          "newLines": 29,
+          "newStart": 2647,
+          "oldLines": 0,
+          "oldStart": 1620
+        },
+        {
+          "newLines": 1,
+          "newStart": 2691,
+          "oldLines": 1,
+          "oldStart": 1636
+        },
+        {
+          "newLines": 1,
+          "newStart": 2693,
+          "oldLines": 1,
+          "oldStart": 1638
+        },
+        {
+          "newLines": 2,
+          "newStart": 2728,
+          "oldLines": 0,
+          "oldStart": 1672
+        },
+        {
+          "newLines": 2,
+          "newStart": 2800,
+          "oldLines": 0,
+          "oldStart": 1742
+        },
+        {
+          "newLines": 2,
+          "newStart": 2808,
+          "oldLines": 0,
+          "oldStart": 1748
+        },
+        {
+          "newLines": 5,
+          "newStart": 2816,
+          "oldLines": 0,
+          "oldStart": 1754
+        },
+        {
+          "newLines": 4,
+          "newStart": 2848,
+          "oldLines": 0,
+          "oldStart": 1781
+        },
+        {
+          "newLines": 18,
+          "newStart": 2861,
+          "oldLines": 0,
+          "oldStart": 1790
+        },
+        {
+          "newLines": 13,
+          "newStart": 2903,
+          "oldLines": 0,
+          "oldStart": 1814
+        },
+        {
+          "newLines": 4,
+          "newStart": 2918,
+          "oldLines": 0,
+          "oldStart": 1816
+        },
+        {
+          "newLines": 2,
+          "newStart": 2930,
+          "oldLines": 0,
+          "oldStart": 1824
+        },
+        {
+          "newLines": 4,
+          "newStart": 2934,
+          "oldLines": 0,
+          "oldStart": 1826
+        },
+        {
+          "newLines": 25,
+          "newStart": 2946,
+          "oldLines": 0,
+          "oldStart": 1834
+        },
+        {
+          "newLines": 2,
+          "newStart": 2979,
+          "oldLines": 0,
+          "oldStart": 1842
+        },
+        {
+          "newLines": 2,
+          "newStart": 3004,
+          "oldLines": 0,
+          "oldStart": 1865
+        },
+        {
+          "newLines": 4,
+          "newStart": 3012,
+          "oldLines": 0,
+          "oldStart": 1871
+        },
+        {
+          "newLines": 5,
+          "newStart": 3018,
+          "oldLines": 0,
+          "oldStart": 1873
+        },
+        {
+          "newLines": 11,
+          "newStart": 3031,
+          "oldLines": 0,
+          "oldStart": 1881
+        },
+        {
+          "newLines": 6,
+          "newStart": 3057,
+          "oldLines": 0,
+          "oldStart": 1896
+        },
+        {
+          "newLines": 8,
+          "newStart": 3095,
+          "oldLines": 0,
+          "oldStart": 1928
+        },
+        {
+          "newLines": 5,
+          "newStart": 3121,
+          "oldLines": 0,
+          "oldStart": 1946
+        },
+        {
+          "newLines": 5,
+          "newStart": 3143,
+          "oldLines": 0,
+          "oldStart": 1963
+        },
+        {
+          "newLines": 2,
+          "newStart": 3154,
+          "oldLines": 0,
+          "oldStart": 1969
+        },
+        {
+          "newLines": 20,
+          "newStart": 3170,
+          "oldLines": 0,
+          "oldStart": 1983
+        },
+        {
+          "newLines": 2,
+          "newStart": 3195,
+          "oldLines": 0,
+          "oldStart": 1988
+        },
+        {
+          "newLines": 4,
+          "newStart": 3217,
+          "oldLines": 0,
+          "oldStart": 2008
+        },
+        {
+          "newLines": 2,
+          "newStart": 3231,
+          "oldLines": 0,
+          "oldStart": 2018
+        },
+        {
+          "newLines": 7,
+          "newStart": 3298,
+          "oldLines": 0,
+          "oldStart": 2083
+        },
+        {
+          "newLines": 2,
+          "newStart": 3344,
+          "oldLines": 0,
+          "oldStart": 2122
+        },
+        {
+          "newLines": 2,
+          "newStart": 3350,
+          "oldLines": 0,
+          "oldStart": 2126
+        },
+        {
+          "newLines": 3,
+          "newStart": 3368,
+          "oldLines": 1,
+          "oldStart": 2143
+        },
+        {
+          "newLines": 2,
+          "newStart": 3372,
+          "oldLines": 2,
+          "oldStart": 2145
+        },
+        {
+          "newLines": 2,
+          "newStart": 3375,
+          "oldLines": 2,
+          "oldStart": 2148
+        },
+        {
+          "newLines": 2,
+          "newStart": 3387,
+          "oldLines": 0,
+          "oldStart": 2159
+        },
+        {
+          "newLines": 2,
+          "newStart": 3397,
+          "oldLines": 0,
+          "oldStart": 2167
+        },
+        {
+          "newLines": 2,
+          "newStart": 3409,
+          "oldLines": 0,
+          "oldStart": 2177
+        }
+      ],
+      "path": "pnpm-lock.yaml",
+      "status": "modified"
+    },
+    {
+      "additions": 9,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 8,
+          "oldLines": 0,
+          "oldStart": 7
+        },
+        {
+          "newLines": 1,
+          "newStart": 17,
+          "oldLines": 0,
+          "oldStart": 15
+        },
+        {
+          "newLines": 1,
+          "newStart": 20,
+          "oldLines": 0,
+          "oldStart": 17
+        },
+        {
+          "newLines": 6,
+          "newStart": 39,
+          "oldLines": 0,
+          "oldStart": 35
+        }
+      ],
+      "path": "pnpm-workspace.yaml",
+      "status": "modified"
+    },
+    {
+      "additions": 15,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 15,
+          "newStart": 68,
+          "oldLines": 0,
+          "oldStart": 67
+        }
+      ],
+      "path": "scripts/ci-contract-ownership-census.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 4,
+      "deletions": 10,
+      "hunks": [
+        {
+          "newLines": 4,
+          "newStart": 581,
+          "oldLines": 10,
+          "oldStart": 581
+        }
+      ],
+      "path": "scripts/mcp-stdio-package.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 22,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 22,
+          "newStart": 34,
+          "oldLines": 0,
+          "oldStart": 33
+        }
+      ],
+      "path": "scripts/npm-publish-contract.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 5,
+      "deletions": 4,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 679,
+          "oldLines": 0,
+          "oldStart": 678
+        },
+        {
+          "newLines": 1,
+          "newStart": 1113,
+          "oldLines": 1,
+          "oldStart": 1112
+        },
+        {
+          "newLines": 1,
+          "newStart": 1128,
+          "oldLines": 1,
+          "oldStart": 1127
+        },
+        {
+          "newLines": 1,
+          "newStart": 1134,
+          "oldLines": 1,
+          "oldStart": 1133
+        },
+        {
+          "newLines": 1,
+          "newStart": 1154,
+          "oldLines": 1,
+          "oldStart": 1153
+        }
+      ],
+      "path": "scripts/packed-workflow-e2e.test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 234,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 234,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/pi-mottainai-package-smoke.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 117,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 117,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/pi-mottainai-package-smoke.test.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 522,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 522,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/pi-runtime-certification.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 105,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 105,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "scripts/pi-runtime-certification.test.mjs",
+      "status": "added"
+    },
+    {
+      "additions": 5,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 5,
+          "newStart": 26,
+          "oldLines": 0,
+          "oldStart": 25
+        }
+      ],
+      "path": "scripts/run-package-suite.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 9,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 9,
+          "newStart": 56,
+          "oldLines": 1,
+          "oldStart": 56
+        }
+      ],
+      "path": "scripts/test-suites.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 16,
+      "deletions": 32,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 8,
+          "oldLines": 0,
+          "oldStart": 7
+        },
+        {
+          "newLines": 15,
+          "newStart": 12,
+          "oldLines": 0,
+          "oldStart": 10
+        },
+        {
+          "newLines": 0,
+          "newStart": 70,
+          "oldLines": 32,
+          "oldStart": 55
+        }
+      ],
+      "path": "src/manager/command.integration.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 42,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 6,
+          "newStart": 15,
+          "oldLines": 1,
+          "oldStart": 15
+        },
+        {
+          "newLines": 1,
+          "newStart": 45,
+          "oldLines": 0,
+          "oldStart": 39
+        },
+        {
+          "newLines": 34,
+          "newStart": 50,
+          "oldLines": 0,
+          "oldStart": 43
+        },
+        {
+          "newLines": 1,
+          "newStart": 161,
+          "oldLines": 0,
+          "oldStart": 120
+        }
+      ],
+      "path": "src/manager/command.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 168,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 168,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/manager/execution-admission.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 478,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 478,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/manager/execution-admission.ts",
+      "status": "added"
+    },
+    {
+      "additions": 76,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 13,
+          "oldLines": 0,
+          "oldStart": 12
+        },
+        {
+          "newLines": 75,
+          "newStart": 142,
+          "oldLines": 0,
+          "oldStart": 140
+        }
+      ],
+      "path": "src/manager/http.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 61,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 8,
+          "newStart": 88,
+          "oldLines": 0,
+          "oldStart": 87
+        },
+        {
+          "newLines": 1,
+          "newStart": 129,
+          "oldLines": 0,
+          "oldStart": 120
+        },
+        {
+          "newLines": 18,
+          "newStart": 221,
+          "oldLines": 0,
+          "oldStart": 211
+        },
+        {
+          "newLines": 4,
+          "newStart": 277,
+          "oldLines": 0,
+          "oldStart": 249
+        },
+        {
+          "newLines": 4,
+          "newStart": 306,
+          "oldLines": 0,
+          "oldStart": 274
+        },
+        {
+          "newLines": 26,
+          "newStart": 388,
+          "oldLines": 0,
+          "oldStart": 352
+        }
+      ],
+      "path": "src/manager/http.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 270,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 270,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/manager/pi-runtime.integration.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 57,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 57,
+          "newStart": 1842,
+          "oldLines": 0,
+          "oldStart": 1841
+        }
+      ],
+      "path": "src/manager/service.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 612,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 3,
+          "newStart": 42,
+          "oldLines": 0,
+          "oldStart": 41
+        },
+        {
+          "newLines": 6,
+          "newStart": 59,
+          "oldLines": 0,
+          "oldStart": 55
+        },
+        {
+          "newLines": 14,
+          "newStart": 79,
+          "oldLines": 0,
+          "oldStart": 69
+        },
+        {
+          "newLines": 2,
+          "newStart": 243,
+          "oldLines": 0,
+          "oldStart": 219
+        },
+        {
+          "newLines": 1,
+          "newStart": 346,
+          "oldLines": 0,
+          "oldStart": 320
+        },
+        {
+          "newLines": 64,
+          "newStart": 350,
+          "oldLines": 0,
+          "oldStart": 323
+        },
+        {
+          "newLines": 130,
+          "newStart": 518,
+          "oldLines": 0,
+          "oldStart": 427
+        },
+        {
+          "newLines": 6,
+          "newStart": 758,
+          "oldLines": 0,
+          "oldStart": 537
+        },
+        {
+          "newLines": 1,
+          "newStart": 804,
+          "oldLines": 0,
+          "oldStart": 577
+        },
+        {
+          "newLines": 1,
+          "newStart": 994,
+          "oldLines": 0,
+          "oldStart": 766
+        },
+        {
+          "newLines": 1,
+          "newStart": 1075,
+          "oldLines": 0,
+          "oldStart": 846
+        },
+        {
+          "newLines": 4,
+          "newStart": 1638,
+          "oldLines": 0,
+          "oldStart": 1408
+        },
+        {
+          "newLines": 2,
+          "newStart": 1658,
+          "oldLines": 0,
+          "oldStart": 1424
+        },
+        {
+          "newLines": 2,
+          "newStart": 1674,
+          "oldLines": 0,
+          "oldStart": 1438
+        },
+        {
+          "newLines": 251,
+          "newStart": 1749,
+          "oldLines": 0,
+          "oldStart": 1511
+        },
+        {
+          "newLines": 25,
+          "newStart": 2736,
+          "oldLines": 0,
+          "oldStart": 2247
+        },
+        {
+          "newLines": 29,
+          "newStart": 2849,
+          "oldLines": 0,
+          "oldStart": 2335
+        },
+        {
+          "newLines": 1,
+          "newStart": 3015,
+          "oldLines": 0,
+          "oldStart": 2472
+        },
+        {
+          "newLines": 35,
+          "newStart": 3032,
+          "oldLines": 0,
+          "oldStart": 2488
+        },
+        {
+          "newLines": 34,
+          "newStart": 3204,
+          "oldLines": 0,
+          "oldStart": 2625
+        }
+      ],
+      "path": "src/manager/service.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 98,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 98,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/manager/worker-runtime.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 331,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 331,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/manager/worker-runtime.ts",
+      "status": "added"
+    },
+    {
+      "additions": 1,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 302,
+          "oldLines": 1,
+          "oldStart": 302
+        }
+      ],
+      "path": "src/mcp-cli.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 205,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 205,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/workflow/domain/execution-manifest.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 648,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 648,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/workflow/domain/execution-manifest.ts",
+      "status": "added"
+    },
+    {
+      "additions": 374,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 19,
+          "newStart": 12,
+          "oldLines": 1,
+          "oldStart": 12
+        },
+        {
+          "newLines": 7,
+          "newStart": 122,
+          "oldLines": 0,
+          "oldStart": 103
+        },
+        {
+          "newLines": 186,
+          "newStart": 162,
+          "oldLines": 0,
+          "oldStart": 136
+        },
+        {
+          "newLines": 1,
+          "newStart": 1152,
+          "oldLines": 0,
+          "oldStart": 940
+        },
+        {
+          "newLines": 3,
+          "newStart": 2245,
+          "oldLines": 1,
+          "oldStart": 2033
+        },
+        {
+          "newLines": 158,
+          "newStart": 2638,
+          "oldLines": 0,
+          "oldStart": 2423
+        }
+      ],
+      "path": "src/workflow/state/sqlite-store.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 83,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 9,
+          "newStart": 4,
+          "oldLines": 0,
+          "oldStart": 3
+        },
+        {
+          "newLines": 61,
+          "newStart": 438,
+          "oldLines": 0,
+          "oldStart": 428
+        },
+        {
+          "newLines": 3,
+          "newStart": 1177,
+          "oldLines": 1,
+          "oldStart": 1107
+        },
+        {
+          "newLines": 10,
+          "newStart": 1200,
+          "oldLines": 0,
+          "oldStart": 1127
+        }
+      ],
+      "path": "src/workflow/state/store.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 151,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 151,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/workflow/state/worker-supervision.test.ts",
+      "status": "added"
+    }
+  ],
+  "headSha": "13879abf61cf8b81be7b535a436d76cd2f457da4",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 7042,
+    "deletions": 79,
+    "filesChanged": 45
+  }
+}
