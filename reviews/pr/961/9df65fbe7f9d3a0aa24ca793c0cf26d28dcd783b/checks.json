@@ -1,0 +1,115 @@
+{
+  "available": true,
+  "checkRuns": [
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692981131/job/106633745861",
+      "name": "build / packed artifact e2e / package",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": "success",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692981131/job/106633719098",
+      "name": "detect CI ownership path changes",
+      "status": "completed"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692980483/job/106633718405",
+      "name": "Generate review package",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": "success",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692980788/job/106633718313",
+      "name": "governance / Validate branch name",
+      "status": "completed"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692980788/job/106633718354",
+      "name": "governance / Validate PR contract (Inari snapshot)",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": "skipped",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692981131/job/106633747932",
+      "name": "host bootstrap (Rust)",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692980788/job/106633718104",
+      "name": "linked-issue-check",
+      "status": "completed"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692981131/job/106633748416",
+      "name": "Nix Runtime evaluation / image / VM test",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": "skipped",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692981131/job/106633748037",
+      "name": "Nix Runtime: evaluation / managed packages / Route 2",
+      "status": "completed"
+    },
+    {
+      "conclusion": "success",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692980788/job/106633718248",
+      "name": "product-checks",
+      "status": "completed"
+    },
+    {
+      "conclusion": "skipped",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692981131/job/106633748567",
+      "name": "Runtime Appliance: canonical image / bounded manifest",
+      "status": "completed"
+    },
+    {
+      "conclusion": "skipped",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692981131/job/106633748958",
+      "name": "Runtime VM: guest boot",
+      "status": "completed"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692980788/job/106633718261",
+      "name": "standards-self-check",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692981131/job/106633745892",
+      "name": "test:integration (shard 1/4)",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692981131/job/106633745969",
+      "name": "test:integration (shard 2/4)",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692981131/job/106633745900",
+      "name": "test:integration (shard 3/4)",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692981131/job/106633745921",
+      "name": "test:integration (shard 4/4)",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35692981131/job/106633747178",
+      "name": "TypeScript foundation / Plan",
+      "status": "in_progress"
+    }
+  ],
+  "headSha": "9df65fbe7f9d3a0aa24ca793c0cf26d28dcd783b",
+  "schemaVersion": "mottainai.review-pages.checks/v1"
+}

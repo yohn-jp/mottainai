@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "epic/946-agent-runtime-supervision",
+    "baseSha": "8ef1a8929db954bdf946d7881f48166a277d5be8",
+    "draft": false,
+    "headRef": "feat/949-worker-supervision-state",
+    "headSha": "9df65fbe7f9d3a0aa24ca793c0cf26d28dcd783b",
+    "number": 961,
+    "title": "feat(workflow): persist worker supervision state"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "9df65fbe7f9d3a0aa24ca793c0cf26d28dcd783b",
+    "immutable": true,
+    "shortId": "9df65fbe7f9d"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-22T06:01:08.512Z"
+  }
+}

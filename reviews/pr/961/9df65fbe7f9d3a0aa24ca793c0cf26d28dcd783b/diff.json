@@ -1,0 +1,102 @@
+{
+  "baseSha": "8ef1a8929db954bdf946d7881f48166a277d5be8",
+  "files": [
+    {
+      "additions": 374,
+      "deletions": 2,
+      "hunks": [
+        {
+          "newLines": 19,
+          "newStart": 12,
+          "oldLines": 1,
+          "oldStart": 12
+        },
+        {
+          "newLines": 7,
+          "newStart": 122,
+          "oldLines": 0,
+          "oldStart": 103
+        },
+        {
+          "newLines": 186,
+          "newStart": 162,
+          "oldLines": 0,
+          "oldStart": 136
+        },
+        {
+          "newLines": 1,
+          "newStart": 1152,
+          "oldLines": 0,
+          "oldStart": 940
+        },
+        {
+          "newLines": 3,
+          "newStart": 2245,
+          "oldLines": 1,
+          "oldStart": 2033
+        },
+        {
+          "newLines": 158,
+          "newStart": 2638,
+          "oldLines": 0,
+          "oldStart": 2423
+        }
+      ],
+      "path": "src/workflow/state/sqlite-store.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 83,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 9,
+          "newStart": 4,
+          "oldLines": 0,
+          "oldStart": 3
+        },
+        {
+          "newLines": 61,
+          "newStart": 438,
+          "oldLines": 0,
+          "oldStart": 428
+        },
+        {
+          "newLines": 3,
+          "newStart": 1177,
+          "oldLines": 1,
+          "oldStart": 1107
+        },
+        {
+          "newLines": 10,
+          "newStart": 1200,
+          "oldLines": 0,
+          "oldStart": 1127
+        }
+      ],
+      "path": "src/workflow/state/store.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 151,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 151,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/workflow/state/worker-supervision.test.ts",
+      "status": "added"
+    }
+  ],
+  "headSha": "9df65fbe7f9d3a0aa24ca793c0cf26d28dcd783b",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 608,
+    "deletions": 3,
+    "filesChanged": 3
+  }
+}
