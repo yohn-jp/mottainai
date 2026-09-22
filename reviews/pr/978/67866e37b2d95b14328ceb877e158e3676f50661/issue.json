@@ -1,0 +1,16 @@
+{
+  "acceptanceCriteria": [],
+  "issue": {
+    "labels": [
+      "implementation"
+    ],
+    "number": 977,
+    "state": "open",
+    "title": "impl: make the MCP doctor healthy fixture portable",
+    "url": "https://github.com/yohn-jp/mottainai/issues/977"
+  },
+  "linked": {
+    "number": 977
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
