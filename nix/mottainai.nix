@@ -28,7 +28,7 @@ let
   # there is no historical-lockfile mapping to own here, and adding or
   # changing a future HEAD dependency never requires touching a historical
   # release's hash.
-  pnpmDepsOutputHash = "sha256-e+3DH2Ylivwm3ZytsDp2IB1FVzQbz7MKrLTANWHButQ=";
+  pnpmDepsOutputHash = "sha256-nfl/iPOM6tzkCBR0h9739xKpQKhqAmYsMgAZ58w+ZSw=";
 
   pnpmDeps = pkgs.stdenvNoCC.mkDerivation {
     pname = "${pname}-pnpm-deps";
