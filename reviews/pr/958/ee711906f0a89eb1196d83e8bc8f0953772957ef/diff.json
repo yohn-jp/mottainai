@@ -1,0 +1,40 @@
+{
+  "baseSha": "363c349c27a45475595ca2eec3bd211be6cce5e8",
+  "files": [
+    {
+      "additions": 205,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 205,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/workflow/domain/execution-manifest.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 648,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 648,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/workflow/domain/execution-manifest.ts",
+      "status": "added"
+    }
+  ],
+  "headSha": "ee711906f0a89eb1196d83e8bc8f0953772957ef",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 853,
+    "deletions": 0,
+    "filesChanged": 2
+  }
+}

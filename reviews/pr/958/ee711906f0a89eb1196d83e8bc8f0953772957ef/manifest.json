@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "epic/946-agent-runtime-supervision",
+    "baseSha": "363c349c27a45475595ca2eec3bd211be6cce5e8",
+    "draft": false,
+    "headRef": "feat/948-governed-execution-manifest",
+    "headSha": "ee711906f0a89eb1196d83e8bc8f0953772957ef",
+    "number": 958,
+    "title": "feat(workflow): add governed execution manifest"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "ee711906f0a89eb1196d83e8bc8f0953772957ef",
+    "immutable": true,
+    "shortId": "ee711906f0a8"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-22T05:21:11.414Z"
+  }
+}

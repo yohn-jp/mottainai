@@ -1,0 +1,16 @@
+{
+  "acceptanceCriteria": [],
+  "issue": {
+    "labels": [
+      "implementation"
+    ],
+    "number": 948,
+    "state": "open",
+    "title": "impl: define governed execution manifest and runtime attachment projection",
+    "url": "https://github.com/yohn-jp/mottainai/issues/948"
+  },
+  "linked": {
+    "number": 948
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
