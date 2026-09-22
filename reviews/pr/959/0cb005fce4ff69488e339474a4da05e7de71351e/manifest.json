@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "epic/946-agent-runtime-supervision",
+    "baseSha": "8ef1a8929db954bdf946d7881f48166a277d5be8",
+    "draft": false,
+    "headRef": "feat/950-pi-mottainai-sdk-adapter",
+    "headSha": "0cb005fce4ff69488e339474a4da05e7de71351e",
+    "number": 959,
+    "title": "feat(pi): add Pi SDK runtime adapter (#950)"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "0cb005fce4ff69488e339474a4da05e7de71351e",
+    "immutable": true,
+    "shortId": "0cb005fce4ff"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-22T06:04:13.287Z"
+  }
+}
