@@ -17,7 +17,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json --incremental false",
-    "test": "node --import tsx --test src/runtime.test.ts"
+    "test": "node --import tsx --test src/runtime.test.ts src/manager-factory.test.ts"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.87.0"
