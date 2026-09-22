@@ -1,0 +1,50 @@
+{
+  "name": "pi-mottainai",
+  "version": "0.1.0",
+  "description": "Pi agent runtime adapter for Mottainai worker supervision.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prebuild": "pnpm --dir ../.. run build",
+    "pretest": "pnpm --dir ../.. run build",
+    "build": "tsc -p tsconfig.json --incremental false",
+    "test": "node --import tsx --test src/*.test.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.87.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "mottainai": "workspace:*"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yohn-jp/mottainai.git",
+    "directory": "packages/pi-mottainai"
+  },
+  "homepage": "https://github.com/yohn-jp/mottainai#readme",
+  "peerDependencies": {
+    "mottainai": ">=0.9.4"
+  }
+}

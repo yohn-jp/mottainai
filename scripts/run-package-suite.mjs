@@ -23,6 +23,11 @@ function run(command, args, options = {}) {
 
 const artifactDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-package-suite-"));
 try {
+  // pi-mottainai's package tests build the canonical root worker-runtime
+  // dependency. Run them before freezing the root dist artifact so the
+  // package suite never mutates an artifact after it has been packed.
+  run("pnpm", ["run", "test:package:pi"]);
+
   const distEntry = path.join(repoRoot, "dist", "index.js");
   if (!fs.existsSync(distEntry)) throw new Error("dist is missing; run pnpm run build before the package suite");
   const distMtime = fs.statSync(distEntry).mtimeMs;

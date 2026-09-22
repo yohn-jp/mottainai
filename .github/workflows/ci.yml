@@ -259,6 +259,9 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      - name: Build and test pi-mottainai package
+        run: pnpm run test:package:pi
+
       # Both consumers use the same build. Running them concurrently removes
       # the old build -> e2e -> package serialization without hiding either
       # result; each log is printed and each exit status is checked. This job
@@ -426,6 +429,8 @@ jobs:
               - 'scripts/verify-deployment-artifact-roundtrip.mjs'
               - 'scripts/verify-managed-generation-catalog.mjs'
               - 'scripts/verify-managed-generation-cwd-independence.mjs'
+              - 'scripts/pi-runtime-certification.mjs'
+              - 'scripts/pi-runtime-certification.test.mjs'
               - 'review-pages/**'
               - '.github/workflows/review-pages.yml'
               - 'package.json'
@@ -442,18 +447,25 @@ jobs:
               - 'scripts/run-test-suite.mjs'
               - 'scripts/test-suites.mjs'
               - 'scripts/test-suites.test.mjs'
+              - 'scripts/pi-runtime-certification.mjs'
+              - 'scripts/pi-runtime-certification.test.mjs'
               - 'review-pages/**'
               - '.github/workflows/review-pages.yml'
               - 'package.json'
               - 'pnpm-lock.yaml'
               - '.github/workflows/ci.yml'
             package:
+              - 'packages/pi-mottainai/**'
               - 'src/**'
               - 'scripts/smoke-test.mjs'
               - 'scripts/run-package-suite.mjs'
               - 'scripts/mcp-stdio-package.test.mjs'
               - 'scripts/packed-workflow-e2e.test.mjs'
               - 'scripts/gh-inari-package-smoke.mjs'
+              - 'scripts/pi-mottainai-package-smoke.mjs'
+              - 'scripts/pi-mottainai-package-smoke.test.mjs'
+              - 'scripts/pi-runtime-certification.mjs'
+              - 'scripts/pi-runtime-certification.test.mjs'
               - 'scripts/lib/mcp-blackbox-*.mjs'
               - '.github/workflows/publish.yml'
               - 'package.json'

@@ -39,6 +39,9 @@ import type {
   PushReconciliationState,
   TaskId,
   UpdateManagerSessionInput,
+  ListWorkerSupervisionOptions,
+  WorkerSupervisionDiagnosticEvent,
+  WorkerSupervisionRecord,
   WorkflowStateStore,
 } from "../workflow/state/store.js";
 import type { PullRequestLifecycleState } from "../workflow/providers/model.js";
@@ -54,6 +57,12 @@ import {
   type ManagerExecutionContext,
 } from "../workflow/domain/manager-execution.js";
 import {
+  createExecutionManifest,
+  type ExecutionManifest,
+  type ExecutionManifestCanonInput,
+} from "../workflow/domain/execution-manifest.js";
+import { admitExecution } from "./execution-admission.js";
+import {
   createClaimPreflight,
   failedClaimPreflight,
   notApplicableClaimPreflight,
@@ -67,6 +76,20 @@ import {
   type ZellijObservedState,
   type ZellijRuntime,
 } from "./zellij.js";
+import type {
+  WorkerRuntimeActivity,
+  WorkerRuntimeAttentionState,
+  WorkerRuntimeContext,
+  WorkerRuntimeLifecycleState,
+  WorkerRuntimePhase,
+  WorkerRuntimeProgress,
+  WorkerRuntimeUsage,
+  WorkerRuntimeAdapter,
+  WorkerRuntimeBinding,
+  WorkerRuntimeIdentity,
+  WorkerRuntimeObservation,
+  WorkerRuntimeObservationEvent,
+} from "./worker-runtime.js";
 
 const MAX_INSTRUCTION_LENGTH = 64 * 1024;
 const MAX_PROVIDER_LENGTH = 128;
@@ -217,6 +240,8 @@ export interface NewManagerSessionInput {
   branchType?: string;
   /** Stable operation identity used by the public task-run orchestration. */
   idempotencyKey?: string;
+  /** Canonical execution identity supplied when a Pi SDK worker is admitted. */
+  canon?: ExecutionManifestCanonInput;
   /** Explicit repository-relative execution scope. */
   scope?: ManagerResourceScope;
   /** Compatibility transport alias for scope.paths. */
@@ -318,8 +343,73 @@ export interface ManagerLaunchRequest {
   issueRef?: string;
   branchType: string;
   idempotencyKey?: string;
+  canon?: ExecutionManifestCanonInput;
   scope?: ManagerResourceScope;
 }
+
+/**
+ * Bounded, prompt-free facts made available to an admitted Pi worker. The
+ * projection is derived from the canonical ExecutionManifest and contains no
+ * transcript, reasoning, or control payload.
+ */
+export interface ManagerPiExecutionContext {
+  schemaVersion: 1;
+  task: {
+    taskId: string;
+    taskSlug: string;
+    issueRef: string | null;
+    lifecycleState: LifecycleState;
+    baseBranch: string;
+    baseCommit: string;
+  } | null;
+  repository: {
+    instanceId: string;
+    worktree: string;
+    branch: string;
+    branchId: string | null;
+    sessionId: string;
+  };
+  scope: {
+    claims: readonly ExecutionClaim[];
+    verification: {
+      requiredChecks: readonly string[];
+      rationale: string;
+    };
+  };
+  manager: {
+    sessionId: string;
+    runtimeId: string;
+    executionSessionId: string | null;
+  };
+}
+
+/** Provider-neutral surface a Pi SDK integration can register as a resource/tool. */
+export interface ManagerPiExecutionSurface {
+  readonly resourceUri: "mottainai://execution";
+  readonly resourceLoader: () => { uri: "mottainai://execution"; text: string };
+  readonly tool: {
+    readonly name: "mottainai_execution";
+    readonly description: string;
+    readonly execute: () => Promise<{
+      content: readonly [{ type: "text"; text: string }];
+      details: { readonly readOnly: true };
+    }>;
+  };
+}
+
+export interface ManagerPiWorkerFactoryInput {
+  readonly identity: WorkerRuntimeIdentity;
+  /** Validated managed Pi guard asset that the SDK integration must compose. */
+  readonly piGuardPath: string;
+  readonly executionManifest: ExecutionManifest;
+  readonly executionContext: ManagerPiExecutionContext;
+  readonly executionSurface: ManagerPiExecutionSurface;
+}
+
+/** Factory seam for the #950 Pi SDK adapter; Manager owns only the port binding. */
+export type ManagerPiWorkerFactory = (
+  input: ManagerPiWorkerFactoryInput,
+) => WorkerRuntimeAdapter | Promise<WorkerRuntimeAdapter>;
 
 export type ManagerLaunchFieldState = "required" | "provided" | "derived" | "defaulted" | "dependent";
 
@@ -423,6 +513,136 @@ export interface ManagerOperationalProjection {
 
 export interface ManagerSessionProjection extends ManagerSessionRecord {
   operational: ManagerOperationalProjection;
+}
+
+export type ManagerWorkerObservationState = "current" | "stale" | "missing";
+
+/**
+ * Compact provider-neutral worker state for polling callers. The worker
+ * runtime's observation contract is already bounded; this projection keeps
+ * only its semantic fields and the existing Manager identity/state needed to
+ * explain missing or stale observations.
+ */
+export interface ManagerWorkerStatusProjection {
+  identity: {
+    managerSessionId: string;
+    runtimeId: string;
+    taskId: string | null;
+    executionSessionId: string | null;
+    provider: string | null;
+    agentKind: ManagerAgentKind | null;
+    runtimeName: string | null;
+  };
+  observationState: ManagerWorkerObservationState;
+  observedAt: string | null;
+  runtimeState: ManagerRuntimeState | null;
+  semanticLifecycleState: LifecycleState | "unbound" | null;
+  lifecycleState: WorkerRuntimeLifecycleState | null;
+  phase: WorkerRuntimePhase | null;
+  activity: WorkerRuntimeActivity | null;
+  progress: WorkerRuntimeProgress | null;
+  lastActivityAt: string | null;
+  attention: WorkerRuntimeAttentionState | null;
+  blockerCode: string | null;
+  usage: WorkerRuntimeUsage | null;
+  context: WorkerRuntimeContext | null;
+}
+
+export interface ManagerWorkerDetailProjection extends ManagerWorkerStatusProjection {
+  diagnosticEvents: readonly WorkerSupervisionDiagnosticEvent[];
+}
+
+function piExecutionContextFromManifest(manifest: ExecutionManifest): ManagerPiExecutionContext {
+  const task = manifest.intent.task;
+  const physical = manifest.attachment.physical;
+  if (task === undefined || physical === undefined || manifest.intent.manager === undefined) {
+    throw new ManagerError("execution_unresolved", "admitted Pi execution is missing canonical identity facts", 409);
+  }
+  const manager = manifest.intent.manager;
+  if (manager.managerSessionId === undefined || manager.runtimeId === undefined) {
+    throw new ManagerError("execution_unresolved", "admitted Pi execution is missing Manager identity facts", 409);
+  }
+  return {
+    schemaVersion: 1,
+    task: {
+      taskId: task.taskId,
+      taskSlug: task.taskSlug,
+      issueRef: task.issueRef ?? null,
+      lifecycleState: task.lifecycleState,
+      baseBranch: task.baseBranch,
+      baseCommit: task.baseCommit,
+    },
+    repository: {
+      instanceId: task.instanceId,
+      worktree: physical.worktree,
+      branch: physical.branch,
+      branchId: physical.branchId ?? null,
+      sessionId: physical.sessionId,
+    },
+    scope: {
+      claims: manifest.intent.semanticPlan.claims.map((claim) => ({ ...claim })),
+      verification: {
+        requiredChecks: [...manifest.intent.semanticPlan.verification.requiredChecks],
+        rationale: manifest.intent.semanticPlan.verification.rationale,
+      },
+    },
+    manager: {
+      sessionId: manager.managerSessionId,
+      runtimeId: manager.runtimeId,
+      executionSessionId: manager.executionSessionId ?? null,
+    },
+  };
+}
+
+function piExecutionSurface(executionContext: ManagerPiExecutionContext): ManagerPiExecutionSurface {
+  const text = (): string => JSON.stringify(executionContext);
+  return {
+    resourceUri: "mottainai://execution",
+    resourceLoader: () => ({ uri: "mottainai://execution", text: text() }),
+    tool: {
+      name: "mottainai_execution",
+      description: "Read the current admitted Mottainai execution facts.",
+      execute: async () => ({
+        content: [{ type: "text", text: text() }],
+        details: { readOnly: true },
+      }),
+    },
+  };
+}
+
+function projectWorkerSupervision(
+  record: WorkerSupervisionRecord | undefined,
+  session: ManagerSessionRecord | undefined,
+): ManagerWorkerStatusProjection {
+  const identity = record?.binding.identity;
+  const status = record?.latestStatus;
+  const runtimeState = session?.runtimeState ?? null;
+  const observationState: ManagerWorkerObservationState =
+    record === undefined ? "missing" : runtimeState === "stale" ? "stale" : "current";
+  return {
+    identity: {
+      managerSessionId: identity?.managerSessionId ?? session!.sessionId,
+      runtimeId: identity?.runtimeId ?? session!.runtimeId,
+      taskId: identity?.taskId ?? session?.taskId ?? null,
+      executionSessionId: identity?.executionSessionId ?? session?.executionSessionId ?? null,
+      provider: identity?.provider ?? session?.provider ?? null,
+      agentKind: session?.agentKind ?? null,
+      runtimeName: session?.runtimeName ?? null,
+    },
+    observationState,
+    observedAt: record?.latestObservation.observedAt ?? null,
+    runtimeState,
+    semanticLifecycleState: session?.semanticLifecycleState ?? null,
+    lifecycleState: status?.lifecycleState ?? null,
+    phase: status?.phase ?? null,
+    activity: status === undefined ? null : { ...status.activity },
+    progress: status === undefined ? null : { ...status.progress },
+    lastActivityAt: record?.latestObservation.observedAt ?? null,
+    attention: status?.attention ?? null,
+    blockerCode: status?.blocker?.code ?? null,
+    usage: status?.usage === undefined ? null : { ...status.usage },
+    context: status?.context === undefined ? null : { ...status.context },
+  };
 }
 
 function managerErrorStatusCode(code: string): number {
@@ -535,6 +755,12 @@ function validateInstruction(value: unknown): string {
   return value;
 }
 
+function validateControlDirective(value: unknown): string {
+  if (typeof value !== "string" || value.trim().length === 0 || value.length > 4_096 || value.includes("\u0000"))
+    throw invalid("directive is invalid");
+  return value;
+}
+
 function validateOptionalArg(value: unknown, name: string, maxLength: number): string | undefined {
   if (value === undefined || value === null || value === "") return undefined;
   if (typeof value !== "string" || value.length > maxLength || /[\u0000\u0001-\u001f\u007f]/u.test(value)) {
@@ -575,6 +801,7 @@ interface ValidatedManagerSessionInput {
   issueRef: string | undefined;
   branchType: string;
   idempotencyKey: string | undefined;
+  canon: ExecutionManifestCanonInput | undefined;
   scope: ManagerResourceScope | undefined;
   scopeProvided: boolean;
   inputFields: {
@@ -764,6 +991,7 @@ function normalizeManagerSessionInput(input: NewManagerSessionInput): ValidatedM
     issueRef,
     branchType,
     idempotencyKey,
+    canon: input.canon,
     scope: normalizedScope.scope,
     scopeProvided: normalizedScope.provided,
     inputFields: {
@@ -844,6 +1072,7 @@ function canonicalLaunchRequest(input: ValidatedManagerSessionInput): ManagerLau
     ...(input.issueRef === undefined ? {} : { issueRef: input.issueRef }),
     branchType: input.branchType,
     ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
+    ...(input.canon === undefined ? {} : { canon: input.canon }),
     ...(input.scope === undefined ? {} : { scope: input.scope }),
   };
 }
@@ -1406,6 +1635,10 @@ export class ManagerSessionService {
   private readonly runtimeConfiguration: ReturnType<typeof normalizeRuntimeConfiguration>;
   private readonly execution: ManagerExecutionAuthority;
   private readonly sessionOperations = new Map<ManagerSessionId, Promise<void>>();
+  private readonly piWorkers = new Map<
+    ManagerSessionId,
+    { adapter: WorkerRuntimeAdapter; binding: WorkerRuntimeBinding; manifest: ExecutionManifest }
+  >();
   /**
    * Concurrent `list()`/`reconcileNow()` callers (e.g. several dashboard tabs polling at once)
    * share one in-flight reconciliation pass instead of each driving their own full sweep.
@@ -1422,6 +1655,8 @@ export class ManagerSessionService {
     agentCommands?: Partial<Record<ManagerAgentKind, { command: string; baseArgs?: readonly string[] }>>;
     /** Hermetic test seam; production resolves the packaged Mottainai asset. */
     piGuardPath?: string;
+    /** Optional #950 Pi SDK adapter factory. Non-Pi and legacy Pi launches are unchanged when absent. */
+    piWorkerFactory?: ManagerPiWorkerFactory;
     runtimeConfig?: ManagerRuntimeConfiguration;
   };
 
@@ -1436,6 +1671,8 @@ export class ManagerSessionService {
     agentCommands?: Partial<Record<ManagerAgentKind, { command: string; baseArgs?: readonly string[] }>>;
     /** Hermetic test seam; production resolves the packaged Mottainai asset. */
     piGuardPath?: string;
+    /** Optional #950 Pi SDK adapter factory. */
+    piWorkerFactory?: ManagerPiWorkerFactory;
     /** Optional injection seam; production defaults to the Nawabari-backed adapter. */
     executionAuthority?: ManagerExecutionAuthority;
     /** Canonical Runtime identity/configuration; credentials are never accepted or persisted. */
@@ -1507,6 +1744,257 @@ export class ManagerSessionService {
     if (runtime === undefined)
       throw new ManagerError("session_not_found", `Manager Runtime was not found: ${runtimeId}`, 404);
     return runtime;
+  }
+
+  /**
+   * Project persisted worker observations without reconciling or consulting a
+   * worker runtime. This is intentionally separate from `list()`, whose
+   * existing session projection performs reconciliation for control-plane
+   * correctness.
+   */
+  listWorkerSupervision(options: ListWorkerSupervisionOptions = {}): ManagerWorkerStatusProjection[] {
+    const requestedLimit = options.limit;
+    const limit =
+      requestedLimit === undefined || !Number.isFinite(requestedLimit)
+        ? MAX_LIST_LIMIT
+        : Math.min(Math.max(Math.trunc(requestedLimit), 1), MAX_LIST_LIMIT);
+    const observations = this.options.store.listWorkerSupervision({ limit });
+    const sessions = this.options.store.listManagerSessions(this.options.workspaceRoot, { limit: MAX_LIST_LIMIT });
+    const sessionsById = new Map(sessions.map((session) => [session.sessionId, session]));
+    const recordsById = new Map(observations.map((record) => [record.managerSessionId, record]));
+    const projected = [
+      ...observations.map((record) => projectWorkerSupervision(record, sessionsById.get(record.managerSessionId))),
+      ...sessions
+        .filter((session) => !recordsById.has(session.sessionId))
+        .map((session) => projectWorkerSupervision(undefined, session)),
+    ];
+    projected.sort((left, right) => {
+      const leftTimestamp = left.observedAt === null ? 0 : Date.parse(left.observedAt);
+      const rightTimestamp = right.observedAt === null ? 0 : Date.parse(right.observedAt);
+      return (
+        rightTimestamp - leftTimestamp || left.identity.managerSessionId.localeCompare(right.identity.managerSessionId)
+      );
+    });
+    return projected.slice(0, limit);
+  }
+
+  /** Return one compact worker projection and bounded diagnostic metadata. */
+  getWorkerSupervision(managerSessionId: ManagerSessionId): ManagerWorkerDetailProjection {
+    const record = this.options.store.getWorkerSupervision(managerSessionId);
+    const session = this.options.store.getManagerSession(managerSessionId);
+    if (record === undefined && session === undefined)
+      throw new ManagerError("session_not_found", `Worker was not found: ${managerSessionId}`, 404);
+    return {
+      ...projectWorkerSupervision(record, session),
+      diagnosticEvents: record === undefined ? [] : record.diagnosticEvents.map((event) => ({ ...event })),
+    };
+  }
+
+  listWorkers(options: ListWorkerSupervisionOptions = {}): ManagerWorkerStatusProjection[] {
+    return this.listWorkerSupervision(options);
+  }
+
+  getWorker(managerSessionId: ManagerSessionId): ManagerWorkerDetailProjection {
+    return this.getWorkerSupervision(managerSessionId);
+  }
+
+  private piWorkerFor(
+    sessionId: ManagerSessionId,
+  ): { adapter: WorkerRuntimeAdapter; binding: WorkerRuntimeBinding } | undefined {
+    const worker = this.piWorkers.get(sessionId);
+    return worker === undefined ? undefined : { adapter: worker.adapter, binding: worker.binding };
+  }
+
+  private async persistPiObservation(
+    worker: { adapter: WorkerRuntimeAdapter; binding: WorkerRuntimeBinding },
+    diagnosticEvent?: WorkerRuntimeObservationEvent,
+  ): Promise<WorkerRuntimeObservation> {
+    const observation = await worker.adapter.observe(worker.binding);
+    this.options.store.recordWorkerSupervision({
+      observation,
+      ...(diagnosticEvent === undefined ? {} : { diagnosticEvent }),
+    });
+    return observation;
+  }
+
+  private consumePiWorkerEvents(
+    sessionId: ManagerSessionId,
+    worker: { adapter: WorkerRuntimeAdapter; binding: WorkerRuntimeBinding },
+  ): void {
+    void (async () => {
+      try {
+        for await (const event of worker.adapter.events(worker.binding)) {
+          if (this.piWorkers.get(sessionId)?.binding !== worker.binding) return;
+          await this.persistPiObservation(worker, event);
+        }
+      } catch {
+        // A worker observation stream is best-effort. Manager never substitutes
+        // transcript polling or an unrelated runtime when the stream ends.
+      }
+    })();
+  }
+
+  private async admitPiExecution(
+    session: ManagerSessionRecord,
+    semanticPlan: SemanticExecutionPlan,
+    canon: ExecutionManifestCanonInput | undefined,
+    priorManifest?: ExecutionManifest,
+  ): Promise<ExecutionManifest> {
+    const task = session.taskId === undefined ? undefined : this.options.store.getTask(session.taskId);
+    const result = await admitExecution({
+      task,
+      manager: session,
+      managerAuthority: this.execution,
+      nawabari: this.options.nawabari,
+      projectManifest: createExecutionManifest,
+      ...(canon === undefined ? {} : { canon }),
+      semanticPlan,
+      ...(priorManifest === undefined ? {} : { manifest: priorManifest }),
+    });
+    if (!result.ok) {
+      const detail =
+        result.diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "execution admission failed";
+      throw new ManagerError("execution_unresolved", detail, 409, { diagnostics: result.diagnostics });
+    }
+    return result.manifest;
+  }
+
+  private async startPiWorker(
+    session: ManagerSessionRecord,
+    semanticPlan: SemanticExecutionPlan,
+    canon: ExecutionManifestCanonInput | undefined,
+    piGuardPath: string,
+    priorManifest?: ExecutionManifest,
+  ): Promise<ManagerSessionRecord> {
+    const factory = this.options.piWorkerFactory;
+    if (factory === undefined) throw new ManagerError("runtime_error", "Pi worker adapter is unavailable", 503);
+    const manifest = await this.admitPiExecution(session, semanticPlan, canon, priorManifest);
+    const executionContext = piExecutionContextFromManifest(manifest);
+    const identity: WorkerRuntimeIdentity = {
+      managerSessionId: session.sessionId,
+      runtimeId: session.runtimeId,
+      ...(session.taskId === undefined ? {} : { taskId: session.taskId }),
+      ...(session.executionSessionId === undefined ? {} : { executionSessionId: session.executionSessionId }),
+      provider: session.provider ?? "pi",
+    };
+    const adapter = await factory({
+      identity,
+      piGuardPath,
+      executionManifest: manifest,
+      executionContext,
+      executionSurface: piExecutionSurface(executionContext),
+    });
+    const started = await adapter.start({ identity, requestedAt: new Date().toISOString() });
+    const bound = await adapter.bind({ identity, boundAt: started.binding.boundAt });
+    const worker = { adapter, binding: bound.binding, manifest };
+    this.piWorkers.set(session.sessionId, worker);
+    await this.persistPiObservation(worker);
+    this.consumePiWorkerEvents(session.sessionId, worker);
+
+    const initialInstruction = session.instruction?.trim();
+    if (initialInstruction !== undefined && initialInstruction.length > 0) {
+      const requestedAt = new Date().toISOString();
+      void adapter
+        .sendInput({ binding: worker.binding, input: initialInstruction })
+        .then((control) => {
+          this.options.store.recordWorkerControlAudit({
+            binding: worker.binding,
+            operation: "input",
+            requestedAt,
+            acceptedAt: control.acceptedAt,
+          });
+        })
+        .catch((error) => {
+          this.options.store.recordWorkerControlAudit({
+            binding: worker.binding,
+            operation: "input",
+            requestedAt,
+          });
+          const current = this.options.store.getManagerSession(session.sessionId);
+          if (current === undefined || current.runtimeState === "stopped" || current.runtimeState === "exited") return;
+          const detail = boundedStatus(error instanceof Error ? error.message : String(error));
+          this.options.store.updateManagerSession(session.sessionId, {
+            lifecycleState: "failed",
+            runtimeState: "failed",
+            attachable: false,
+            reconciliationState: "unresolved",
+            reconciliationMessage: detail,
+            latestStatus: detail,
+            latestReceipt: receipt("worker_initial_input_failed", detail, "runtime"),
+            terminationState: "failed",
+            errorMessage: detail,
+            finishedAt: Date.now(),
+          });
+        });
+    }
+
+    const now = Date.now();
+    return this.options.store.updateManagerSession(session.sessionId, {
+      lifecycleState: "running",
+      runtimeState: "running",
+      attachable: false,
+      reconciliationState: "synced",
+      reconciliationMessage: null,
+      latestStatus:
+        initialInstruction === undefined || initialInstruction.length === 0
+          ? "Pi SDK worker started in admitted execution context"
+          : "Pi SDK worker started; initial governed instruction delivered",
+      latestReceipt: receipt("worker_runtime_started", "Pi SDK worker started", "runtime"),
+      terminationState: "running",
+      runtimeObservedAt: now,
+    });
+  }
+
+  private async observePiWorker(session: ManagerSessionRecord): Promise<WorkerRuntimeObservation | undefined> {
+    const worker = this.piWorkerFor(session.sessionId);
+    if (worker === undefined) return undefined;
+    return this.persistPiObservation(worker);
+  }
+
+  private workerRuntimeState(observation: WorkerRuntimeObservation): ManagerRuntimeState {
+    switch (observation.status.lifecycleState) {
+      case "completed":
+        return "exited";
+      case "failed":
+        return "failed";
+      case "stopped":
+        return "stopped";
+      default:
+        return "running";
+    }
+  }
+
+  private async steerPiWorker(sessionId: ManagerSessionId, directive: string): Promise<ManagerSessionRecord> {
+    const session = this.requireSession(sessionId);
+    const worker = this.piWorkerFor(sessionId);
+    if (worker === undefined) throw new ManagerError("runtime_error", "Pi worker adapter is unavailable", 503);
+    const requestedAt = new Date().toISOString();
+    try {
+      const control = await worker.adapter.steer({ binding: worker.binding, directive });
+      this.options.store.recordWorkerControlAudit({
+        binding: worker.binding,
+        operation: "steer",
+        requestedAt,
+        acceptedAt: control.acceptedAt,
+      });
+      return this.options.store.updateManagerSession(sessionId, {
+        latestStatus: "explicit Pi worker steer accepted",
+        latestReceipt: receipt("worker_steer_accepted", "explicit Pi worker steer accepted", "runtime"),
+      });
+    } catch (error) {
+      this.options.store.recordWorkerControlAudit({ binding: worker.binding, operation: "steer", requestedAt });
+      throw error;
+    }
+  }
+
+  async steer(sessionId: ManagerSessionId, directive: string): Promise<ManagerSessionRecord> {
+    const boundedDirective = validateControlDirective(directive);
+    return this.withSessionOperation(sessionId, async () => {
+      const current = await this.reconcileOneUnlocked(this.requireSession(sessionId));
+      if (current.runtimeState !== "running" && current.runtimeState !== "detached")
+        throw new ManagerError("session_not_running", `session is not running: ${sessionId}`, 409);
+      return this.steerPiWorker(sessionId, boundedDirective);
+    });
   }
 
   health(): ManagerHealth {
@@ -2245,6 +2733,31 @@ export class ManagerSessionService {
         });
         throw new ManagerError("worktree_missing", detail, 409);
       }
+      if (agentKind === "pi" && this.options.piWorkerFactory !== undefined) {
+        try {
+          return await this.startPiWorker(
+            this.options.store.getManagerSession(sessionId)!,
+            semanticPlan,
+            normalized.canon,
+            piGuardPath!,
+          );
+        } catch (error) {
+          const failure = error instanceof ManagerError ? error : managerError(error);
+          this.options.store.updateManagerSession(sessionId, {
+            lifecycleState: "failed",
+            runtimeState: "failed",
+            attachable: false,
+            reconciliationState: "unresolved",
+            reconciliationMessage: failure.message,
+            latestStatus: failure.message,
+            latestReceipt: receipt("worker_runtime_start_failed", failure.message, "runtime"),
+            terminationState: "failed",
+            errorMessage: failure.message,
+            finishedAt: Date.now(),
+          });
+          throw failure;
+        }
+      }
       try {
         await this.options.runtime.start({
           sessionName: runtimeName,
@@ -2333,6 +2846,35 @@ export class ManagerSessionService {
       session.runtimeState !== "starting"
     )
       return session;
+    const piWorker = this.piWorkerFor(sessionId);
+    if (piWorker !== undefined) {
+      const requestedAt = new Date().toISOString();
+      try {
+        const control = await piWorker.adapter.stop({ binding: piWorker.binding, reason: "Manager stop requested" });
+        this.options.store.recordWorkerControlAudit({
+          binding: piWorker.binding,
+          operation: "stop",
+          requestedAt,
+          acceptedAt: control.acceptedAt,
+        });
+        const now = Date.now();
+        return this.options.store.updateManagerSession(session.sessionId, {
+          lifecycleState: "stopped",
+          runtimeState: "stopped",
+          attachable: false,
+          terminationState: "stopped",
+          finishedAt: now,
+          runtimeObservedAt: now,
+          latestStatus: "explicit Pi worker stop accepted",
+          latestReceipt: receipt("worker_stop_accepted", "explicit Pi worker stop accepted", "runtime"),
+          reconciliationState: "synced",
+          reconciliationMessage: null,
+        });
+      } catch (error) {
+        this.options.store.recordWorkerControlAudit({ binding: piWorker.binding, operation: "stop", requestedAt });
+        throw error;
+      }
+    }
     try {
       const observed = await this.options.runtime.inspect(session.runtimeName, session.worktreePath);
       if (observed !== "running" && observed !== "detached" && observed !== "exited") {
@@ -2470,6 +3012,7 @@ export class ManagerSessionService {
     const context = this.contextFromRecord(current);
     const validation = await this.execution.validate(context);
     if (!validation.ok) throw new ManagerError("execution_unresolved", validation.detail, 409);
+    const piGuardPath = current.agentKind === "pi" ? configuredPiGuardPath(this.options.piGuardPath) : undefined;
     if (current.agentKind === "pi") validateStoredPiGuardInvocation(current.launchArgs);
     const restartCount = current.restartCount + 1;
     const started = this.options.store.updateManagerSession(current.sessionId, {
@@ -2486,6 +3029,41 @@ export class ManagerSessionService {
       finishedAt: null,
       exitCode: null,
     });
+    if (current.agentKind === "pi" && this.options.piWorkerFactory !== undefined) {
+      const previousWorker = this.piWorkers.get(sessionId);
+      if (previousWorker === undefined) {
+        throw new ManagerError(
+          "runtime_error",
+          "Pi worker adapter binding is unavailable; refusing an unbound CLI restart",
+          503,
+        );
+      }
+      this.piWorkers.delete(sessionId);
+      try {
+        return await this.startPiWorker(
+          started,
+          previousWorker.manifest.intent.semanticPlan,
+          undefined,
+          piGuardPath!,
+          previousWorker.manifest,
+        );
+      } catch (error) {
+        const failure = error instanceof ManagerError ? error : managerError(error);
+        this.options.store.updateManagerSession(sessionId, {
+          lifecycleState: "failed",
+          runtimeState: "failed",
+          attachable: false,
+          reconciliationState: "drifted",
+          reconciliationMessage: failure.message,
+          latestStatus: failure.message,
+          latestReceipt: receipt("worker_runtime_restart_failed", failure.message, "runtime"),
+          terminationState: "failed",
+          errorMessage: failure.message,
+          finishedAt: Date.now(),
+        });
+        throw failure;
+      }
+    }
     try {
       if (current.runtimeState === "exited")
         await this.options.runtime.terminate(current.runtimeName, current.worktreePath).catch(() => undefined);
@@ -2621,6 +3199,40 @@ export class ManagerSessionService {
         MAX_STATUS_LENGTH,
       );
       semanticReceipt = receipt("workflow_observation_failed", status, "workflow");
+    }
+
+    const piObservation = await this.observePiWorker(session).catch(() => undefined);
+    if (piObservation !== undefined) {
+      const runtimeState = this.workerRuntimeState(piObservation);
+      const now = Date.now();
+      const detail = `Pi worker is ${piObservation.status.lifecycleState} (${piObservation.status.phase})`;
+      return this.applyReconciliationPatch(session, {
+        lifecycleState:
+          runtimeState === "running"
+            ? "running"
+            : runtimeState === "stopped"
+              ? "stopped"
+              : runtimeState === "failed"
+                ? "failed"
+                : "exited",
+        runtimeState,
+        semanticLifecycleState: semantic,
+        attachable: false,
+        reconciliationState: runtimeState === "running" ? "synced" : "drifted",
+        reconciliationMessage: runtimeState === "running" ? null : detail,
+        latestStatus: detail,
+        latestReceipt:
+          runtimeState === "running"
+            ? semanticReceipt
+            : receipt(runtimeState === "failed" ? "worker_runtime_failed" : "worker_runtime_exited", detail, "runtime"),
+        finishedAt: runtimeState === "running" ? null : (session.finishedAt ?? now),
+        runtimeObservedAt: now,
+        terminationState:
+          runtimeState === "running" || runtimeState === "stopped" || runtimeState === "failed"
+            ? runtimeState
+            : "exited",
+        errorMessage: runtimeState === "failed" ? detail : null,
+      });
     }
 
     // Runtime-terminal records still observe workflow semantics so restart

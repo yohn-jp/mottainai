@@ -299,7 +299,7 @@ test("mcp cli doctor reports unreachable commands and exits non-zero", () => {
   ]);
 
   run(directory, "disable", "codegraph");
-  run(directory, "add", "echo", "--command", "/bin/echo", "--capabilities", "text_matches");
+  run(directory, "add", "echo", "--command", process.execPath, "--capabilities", "text_matches");
   const healthy = run(directory, "doctor");
   assert.equal(healthy.status, 0);
   assert.deepEqual(healthy.json.problems, []);

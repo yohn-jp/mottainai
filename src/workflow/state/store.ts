@@ -1,6 +1,15 @@
 import type { RepositoryInstanceId, RootCommitDigest } from "../domain/identity.js";
 import type { LifecycleState } from "../domain/lifecycle.js";
 import type { PullRequestLifecycleState } from "../providers/model.js";
+import type {
+  WorkerRuntimeAttentionState,
+  WorkerRuntimeBinding,
+  WorkerRuntimeControlOperation,
+  WorkerRuntimeLifecycleState,
+  WorkerRuntimeObservation,
+  WorkerRuntimeObservationEvent,
+  WorkerRuntimeStatusReportInput,
+} from "../../manager/worker-runtime.js";
 
 /**
  * Git workflow 専用の永続 state 抽象。`src/state/store.ts` の StateStore
@@ -424,6 +433,67 @@ export interface UpdateManagerSessionInput {
   terminationState?: ManagerSessionRecord["terminationState"];
   errorMessage?: string | null;
   updatedAt?: number;
+}
+
+/** Version of the provider-neutral worker supervision projection. */
+export const WORKER_SUPERVISION_SCHEMA_VERSION = 1 as const;
+export const WORKER_SUPERVISION_MAX_DIAGNOSTIC_EVENTS = 32 as const;
+
+/** Body-free metadata retained for bounded diagnostic drill-down. */
+export interface WorkerSupervisionDiagnosticEvent {
+  kind: WorkerRuntimeObservationEvent["kind"];
+  observedAt: string;
+  phase?: string;
+  activity?: string;
+  attention?: WorkerRuntimeAttentionState;
+  blockerCode?: string;
+  reason?: string;
+}
+
+/** Restart-safe provider-neutral projection for one Manager worker binding. */
+export interface WorkerSupervisionRecord {
+  managerSessionId: ManagerSessionId;
+  schemaVersion: typeof WORKER_SUPERVISION_SCHEMA_VERSION;
+  binding: WorkerRuntimeBinding;
+  latestLifecycleState: WorkerRuntimeLifecycleState;
+  latestStatus: WorkerRuntimeStatusReportInput;
+  latestObservation: WorkerRuntimeObservation;
+  diagnosticEvents: WorkerSupervisionDiagnosticEvent[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface RecordWorkerSupervisionInput {
+  observation: WorkerRuntimeObservation;
+  diagnosticEvent?: WorkerRuntimeObservationEvent;
+  recordedAt?: number;
+}
+
+export interface ListWorkerSupervisionOptions {
+  limit?: number;
+}
+
+/** Explicit control audit. Control payloads are intentionally not represented. */
+export interface WorkerControlAuditRecord {
+  auditId: string;
+  managerSessionId: ManagerSessionId;
+  binding: WorkerRuntimeBinding;
+  operation: WorkerRuntimeControlOperation;
+  requestedAt: string;
+  acceptedAt: string | undefined;
+  recordedAt: number;
+}
+
+export interface RecordWorkerControlAuditInput {
+  binding: WorkerRuntimeBinding;
+  operation: WorkerRuntimeControlOperation;
+  requestedAt?: string;
+  acceptedAt?: string;
+  recordedAt?: number;
+}
+
+export interface ListWorkerControlAuditOptions {
+  limit?: number;
 }
 
 export interface ListManagerSessionsOptions {
@@ -1104,7 +1174,9 @@ export interface WorkflowStateStore {
    * already advanced the task past the expected prior state (`changes === 0`), never a
    * silent overwrite.
    */
-  updateTaskLifecycleStateIfCurrent(input: UpdateTaskLifecycleStateExpectedInput): UpdateTaskLifecycleStateExpectedResult;
+  updateTaskLifecycleStateIfCurrent(
+    input: UpdateTaskLifecycleStateExpectedInput,
+  ): UpdateTaskLifecycleStateExpectedResult;
   /** Attach exactly one external execution session; never stores its ownership fields locally. */
   attachNawabariSession(taskId: TaskId, sessionId: NawabariSessionId, updatedAt?: number): TaskRecord;
   getTask(taskId: TaskId): TaskRecord | undefined;
@@ -1125,6 +1197,16 @@ export interface WorkflowStateStore {
   updateManagerSession(sessionId: ManagerSessionId, input: UpdateManagerSessionInput): ManagerSessionRecord;
   /** Persist only runtime observation freshness; reconciliation state remains untouched. */
   checkpointManagerSessionRuntimeObservedAt(sessionId: ManagerSessionId, observedAt: number): ManagerSessionRecord;
+  /** Persist the bounded latest worker status/observation projection and optional diagnostics. */
+  recordWorkerSupervision(input: RecordWorkerSupervisionInput): WorkerSupervisionRecord;
+  getWorkerSupervision(managerSessionId: ManagerSessionId): WorkerSupervisionRecord | undefined;
+  listWorkerSupervision(options?: ListWorkerSupervisionOptions): WorkerSupervisionRecord[];
+  /** Persist an explicit control request separately from runtime observation. */
+  recordWorkerControlAudit(input: RecordWorkerControlAuditInput): WorkerControlAuditRecord;
+  listWorkerControlAudit(
+    managerSessionId: ManagerSessionId,
+    options?: ListWorkerControlAuditOptions,
+  ): WorkerControlAuditRecord[];
   /** Persist one versioned Canon root/fork checkpoint without owning physical execution resources. */
   recordCanonCheckpoint(input: RecordCanonCheckpointInput): CanonCheckpointRecord;
   getCanonCheckpoint(checkpointId: CanonCheckpointId): CanonCheckpointRecord | undefined;

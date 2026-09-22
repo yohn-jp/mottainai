@@ -9,7 +9,25 @@ import { applyMigrations } from "../../state/migrations.js";
 import type { Migration } from "../../state/migrations.js";
 import { resolveStateDbPath } from "../../state/paths.js";
 import { sanitizeAuditMetadata } from "../domain/audit.js";
-import { REPOSITORY_PRINCIPAL_SCHEMA_VERSION } from "./store.js";
+import {
+  REPOSITORY_PRINCIPAL_SCHEMA_VERSION,
+  WORKER_SUPERVISION_MAX_DIAGNOSTIC_EVENTS,
+  WORKER_SUPERVISION_SCHEMA_VERSION,
+} from "./store.js";
+import {
+  WORKER_RUNTIME_CONTROL_OPERATIONS,
+  WorkerRuntimeBindingSchema,
+  WorkerRuntimeControlReceiptSchema,
+  WorkerRuntimeObservationEventSchema,
+  WorkerRuntimeObservationSchema,
+  WorkerRuntimeStatusReportInputSchema,
+} from "../../manager/worker-runtime.js";
+import type {
+  WorkerRuntimeBinding,
+  WorkerRuntimeObservationEvent,
+  WorkerRuntimeObservation,
+  WorkerRuntimeStatusReportInput,
+} from "../../manager/worker-runtime.js";
 import type { RepositoryInstanceId, RootCommitDigest } from "../domain/identity.js";
 import type { LifecycleState } from "../domain/lifecycle.js";
 import type {
@@ -101,6 +119,13 @@ import type {
   UpdateTaskLifecycleStateExpectedResult,
   ValidationEvidenceRecord,
   WorkflowStateStore,
+  WorkerControlAuditRecord,
+  RecordWorkerControlAuditInput,
+  ListWorkerControlAuditOptions,
+  ListWorkerSupervisionOptions,
+  RecordWorkerSupervisionInput,
+  WorkerSupervisionDiagnosticEvent,
+  WorkerSupervisionRecord,
   WorktreeId,
   WorktreeRecord,
 } from "./store.js";
@@ -132,6 +157,192 @@ function readOnlyDatabasePath(dbPath: string): string {
   // path so an in-flight WAL remains visible to the preview.
   if (fs.existsSync(`${dbPath}-wal`) || fs.existsSync(`${dbPath}-shm`)) return dbPath;
   return `${pathToFileURL(dbPath).href}?immutable=1`;
+}
+
+/**
+ * Worker supervision is intentionally migrated here rather than by the
+ * Manager service. The tables are additive and the operation is idempotent,
+ * so opening an existing workflow database preserves every prior record.
+ */
+function ensureWorkerSupervisionSchema(db: DatabaseSync): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS worker_supervision_records (
+      manager_session_id TEXT PRIMARY KEY,
+      schema_version INTEGER NOT NULL CHECK (schema_version = ${WORKER_SUPERVISION_SCHEMA_VERSION}),
+      binding_json TEXT NOT NULL,
+      latest_lifecycle_state TEXT NOT NULL,
+      latest_status_json TEXT NOT NULL,
+      latest_observation_json TEXT NOT NULL,
+      diagnostic_events_json TEXT NOT NULL DEFAULT '[]',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS worker_control_audit (
+      audit_id TEXT PRIMARY KEY,
+      manager_session_id TEXT NOT NULL,
+      binding_json TEXT NOT NULL,
+      operation TEXT NOT NULL CHECK (operation IN ('start', 'bind', 'stop', 'steer', 'input')),
+      requested_at TEXT NOT NULL,
+      accepted_at TEXT,
+      recorded_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_worker_control_audit_session
+      ON worker_control_audit (manager_session_id, recorded_at ASC, audit_id ASC);
+  `);
+}
+
+function workerTimestampMs(value: string, field: string): number {
+  if (
+    typeof value !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/u.test(value) ||
+    !Number.isFinite(Date.parse(value))
+  ) {
+    throw new Error(`worker ${field} is invalid`);
+  }
+  return Date.parse(value);
+}
+
+function workerRecordedAt(value: number | undefined): number {
+  const recordedAt = value ?? Date.now();
+  if (!Number.isSafeInteger(recordedAt) || recordedAt < 0) throw new Error("worker recordedAt is invalid");
+  return recordedAt;
+}
+
+function workerBindingIdentityMatches(left: WorkerRuntimeBinding, right: WorkerRuntimeBinding): boolean {
+  return (
+    left.identity.managerSessionId === right.identity.managerSessionId &&
+    left.identity.runtimeId === right.identity.runtimeId &&
+    left.identity.taskId === right.identity.taskId &&
+    left.identity.executionSessionId === right.identity.executionSessionId &&
+    left.identity.provider === right.identity.provider
+  );
+}
+
+function assertWorkerBindingIdentity(left: WorkerRuntimeBinding, right: WorkerRuntimeBinding): void {
+  if (!workerBindingIdentityMatches(left, right)) throw new Error("worker binding identity mismatch");
+}
+
+function projectWorkerDiagnosticEvent(event: WorkerRuntimeObservationEvent): WorkerSupervisionDiagnosticEvent {
+  const projected: WorkerSupervisionDiagnosticEvent = {
+    kind: event.kind,
+    observedAt: event.observedAt,
+  };
+  if (event.kind === "status") {
+    projected.phase = event.status.phase;
+    projected.activity = event.status.activity.kind;
+    projected.attention = event.status.attention;
+    if (event.status.blocker !== undefined) projected.blockerCode = event.status.blocker.code;
+  } else if (event.kind === "failed") {
+    projected.blockerCode = event.blocker.code;
+  } else if (event.kind === "stopped" && event.reason !== undefined) {
+    projected.reason = event.reason;
+  }
+  return projected;
+}
+
+function parseWorkerDiagnosticEvents(value: unknown): WorkerSupervisionDiagnosticEvent[] {
+  if (!Array.isArray(value) || value.length > WORKER_SUPERVISION_MAX_DIAGNOSTIC_EVENTS)
+    throw new Error("worker diagnostic events are invalid");
+  return value.map((entry) => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry))
+      throw new Error("worker diagnostic event is invalid");
+    const candidate = entry as Record<string, unknown>;
+    const allowed = new Set(["kind", "observedAt", "phase", "activity", "attention", "blockerCode", "reason"]);
+    if (Object.keys(candidate).some((key) => !allowed.has(key))) throw new Error("worker diagnostic event is invalid");
+    if (
+      !["started", "status", "stopped", "failed"].includes(String(candidate.kind)) ||
+      typeof candidate.observedAt !== "string"
+    ) {
+      throw new Error("worker diagnostic event is invalid");
+    }
+    workerTimestampMs(candidate.observedAt, "diagnostic event observedAt");
+    const projected: WorkerSupervisionDiagnosticEvent = {
+      kind: candidate.kind as WorkerSupervisionDiagnosticEvent["kind"],
+      observedAt: candidate.observedAt,
+    };
+    for (const field of ["phase", "activity", "blockerCode", "reason"] as const) {
+      if (candidate[field] !== undefined) {
+        if (typeof candidate[field] !== "string" || candidate[field].length === 0 || candidate[field].length > 512)
+          throw new Error("worker diagnostic event is invalid");
+        projected[field] = candidate[field];
+      }
+    }
+    if (candidate.attention !== undefined) {
+      if (!["none", "attention", "blocked"].includes(String(candidate.attention)))
+        throw new Error("worker diagnostic event is invalid");
+      projected.attention = candidate.attention as WorkerSupervisionDiagnosticEvent["attention"];
+    }
+    return projected;
+  });
+}
+
+function mergeWorkerDiagnosticEvents(
+  current: readonly WorkerSupervisionDiagnosticEvent[],
+  next: WorkerSupervisionDiagnosticEvent | undefined,
+): WorkerSupervisionDiagnosticEvent[] {
+  if (next === undefined) return [...current];
+  const events = [...current, next];
+  events.sort((left, right) => {
+    const time =
+      workerTimestampMs(left.observedAt, "diagnostic event observedAt") -
+      workerTimestampMs(right.observedAt, "diagnostic event observedAt");
+    return time !== 0 ? time : left.kind.localeCompare(right.kind);
+  });
+  return events.slice(-WORKER_SUPERVISION_MAX_DIAGNOSTIC_EVENTS);
+}
+
+function parseJson(value: unknown, field: string): unknown {
+  try {
+    return JSON.parse(String(value));
+  } catch (error) {
+    throw new Error(`worker ${field} is corrupt: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function toWorkerSupervisionRecord(row: Record<string, unknown>): WorkerSupervisionRecord {
+  if (row.schema_version !== WORKER_SUPERVISION_SCHEMA_VERSION)
+    throw new Error("worker supervision schema version is unsupported");
+  const binding = WorkerRuntimeBindingSchema.parse(parseJson(row.binding_json, "binding"));
+  const latestStatus = WorkerRuntimeStatusReportInputSchema.parse(parseJson(row.latest_status_json, "status"));
+  const latestObservation = WorkerRuntimeObservationSchema.parse(parseJson(row.latest_observation_json, "observation"));
+  assertWorkerBindingIdentity(binding, latestObservation.binding);
+  if (latestStatus.lifecycleState !== latestObservation.status.lifecycleState)
+    throw new Error("worker supervision status and observation disagree");
+  const diagnosticEvents = parseWorkerDiagnosticEvents(parseJson(row.diagnostic_events_json, "diagnostic events"));
+  return {
+    managerSessionId: binding.identity.managerSessionId,
+    schemaVersion: WORKER_SUPERVISION_SCHEMA_VERSION,
+    binding,
+    latestLifecycleState: row.latest_lifecycle_state as WorkerSupervisionRecord["latestLifecycleState"],
+    latestStatus,
+    latestObservation,
+    diagnosticEvents,
+    createdAt: row.created_at as number,
+    updatedAt: row.updated_at as number,
+  };
+}
+
+function toWorkerControlAuditRecord(row: Record<string, unknown>): WorkerControlAuditRecord {
+  const binding = WorkerRuntimeBindingSchema.parse(parseJson(row.binding_json, "control binding"));
+  const requestedAt = String(row.requested_at);
+  workerTimestampMs(requestedAt, "control requestedAt");
+  const acceptedAt = row.accepted_at === null || row.accepted_at === undefined ? undefined : String(row.accepted_at);
+  if (acceptedAt !== undefined) workerTimestampMs(acceptedAt, "control acceptedAt");
+  if (
+    !WORKER_RUNTIME_CONTROL_OPERATIONS.includes(
+      String(row.operation) as (typeof WORKER_RUNTIME_CONTROL_OPERATIONS)[number],
+    )
+  )
+    throw new Error("worker control operation is invalid");
+  return {
+    auditId: String(row.audit_id),
+    managerSessionId: binding.identity.managerSessionId,
+    binding,
+    operation: row.operation as WorkerControlAuditRecord["operation"],
+    requestedAt,
+    acceptedAt,
+    recordedAt: row.recorded_at as number,
+  };
 }
 
 const MAX_MANAGER_DIAGNOSTIC_LENGTH = 512;
@@ -938,6 +1149,7 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
         this.boundaries.file("sqlite.migrations", () =>
           applyMigrations(db, this.migrations.length === 0 ? undefined : this.migrations, this.boundaries),
         );
+        this.boundaries.file("sqlite.worker-supervision-schema", () => ensureWorkerSupervisionSchema(db));
         if (isFileBacked) {
           this.boundaries.file("sqlite.wal.permission", () => restrictToOwner(`${this.dbPath}-wal`, 0o600));
           this.boundaries.file("sqlite.shm.permission", () => restrictToOwner(`${this.dbPath}-shm`, 0o600));
@@ -2030,7 +2242,9 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
     return toTaskRecord(row);
   }
 
-  updateTaskLifecycleStateIfCurrent(input: UpdateTaskLifecycleStateExpectedInput): UpdateTaskLifecycleStateExpectedResult {
+  updateTaskLifecycleStateIfCurrent(
+    input: UpdateTaskLifecycleStateExpectedInput,
+  ): UpdateTaskLifecycleStateExpectedResult {
     const db = this.handle();
     const now = input.updatedAt ?? Date.now();
     // activateWorktree/attachNawabariSession と同じ単一 UPDATE...WHERE の CAS idiom。
@@ -2419,6 +2633,164 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
       .run(observedAt, observedAt, sessionId);
     if (result.changes === 0) throw new Error(`manager session not found: ${sessionId}`);
     return this.getManagerSession(sessionId)!;
+  }
+
+  recordWorkerSupervision(input: RecordWorkerSupervisionInput): WorkerSupervisionRecord {
+    const observation = WorkerRuntimeObservationSchema.parse(input.observation);
+    const managerSessionId = observation.binding.identity.managerSessionId;
+    const diagnosticEvent =
+      input.diagnosticEvent === undefined
+        ? undefined
+        : projectWorkerDiagnosticEvent(WorkerRuntimeObservationEventSchema.parse(input.diagnosticEvent));
+    if (input.diagnosticEvent !== undefined) {
+      const parsedEvent = WorkerRuntimeObservationEventSchema.parse(input.diagnosticEvent);
+      assertWorkerBindingIdentity(observation.binding, parsedEvent.binding);
+    }
+    const recordedAt = workerRecordedAt(input.recordedAt);
+    const db = this.handle();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const existingRow = db
+        .prepare("SELECT * FROM worker_supervision_records WHERE manager_session_id = ?")
+        .get(managerSessionId) as Record<string, unknown> | undefined;
+      let record: WorkerSupervisionRecord;
+      if (existingRow === undefined) {
+        const diagnosticEvents = mergeWorkerDiagnosticEvents([], diagnosticEvent);
+        db.prepare(
+          `INSERT INTO worker_supervision_records
+             (manager_session_id, schema_version, binding_json, latest_lifecycle_state,
+              latest_status_json, latest_observation_json, diagnostic_events_json, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+          managerSessionId,
+          WORKER_SUPERVISION_SCHEMA_VERSION,
+          JSON.stringify(observation.binding),
+          observation.status.lifecycleState,
+          JSON.stringify(observation.status),
+          JSON.stringify(observation),
+          JSON.stringify(diagnosticEvents),
+          recordedAt,
+          recordedAt,
+        );
+        record = toWorkerSupervisionRecord(
+          db
+            .prepare("SELECT * FROM worker_supervision_records WHERE manager_session_id = ?")
+            .get(managerSessionId) as Record<string, unknown>,
+        );
+      } else {
+        const current = toWorkerSupervisionRecord(existingRow);
+        assertWorkerBindingIdentity(current.binding, observation.binding);
+        const shouldReplaceLatest =
+          workerTimestampMs(observation.observedAt, "observation observedAt") >=
+          workerTimestampMs(current.latestObservation.observedAt, "observation observedAt");
+        const nextBinding = shouldReplaceLatest ? observation.binding : current.binding;
+        const nextStatus = shouldReplaceLatest ? observation.status : current.latestStatus;
+        const nextObservation = shouldReplaceLatest ? observation : current.latestObservation;
+        const nextEvents = mergeWorkerDiagnosticEvents(current.diagnosticEvents, diagnosticEvent);
+        const updatedAt = Math.max(current.updatedAt, recordedAt);
+        db.prepare(
+          `UPDATE worker_supervision_records
+             SET binding_json = ?, latest_lifecycle_state = ?, latest_status_json = ?,
+                 latest_observation_json = ?, diagnostic_events_json = ?, updated_at = ?
+           WHERE manager_session_id = ?`,
+        ).run(
+          JSON.stringify(nextBinding),
+          nextStatus.lifecycleState,
+          JSON.stringify(nextStatus),
+          JSON.stringify(nextObservation),
+          JSON.stringify(nextEvents),
+          updatedAt,
+          managerSessionId,
+        );
+        record = toWorkerSupervisionRecord(
+          db
+            .prepare("SELECT * FROM worker_supervision_records WHERE manager_session_id = ?")
+            .get(managerSessionId) as Record<string, unknown>,
+        );
+      }
+      db.exec("COMMIT");
+      return record;
+    } catch (error) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // Preserve the original persistence/validation error.
+      }
+      throw error;
+    }
+  }
+
+  getWorkerSupervision(managerSessionId: ManagerSessionId): WorkerSupervisionRecord | undefined {
+    const row = this.handle()
+      .prepare("SELECT * FROM worker_supervision_records WHERE manager_session_id = ?")
+      .get(managerSessionId) as Record<string, unknown> | undefined;
+    return row === undefined ? undefined : toWorkerSupervisionRecord(row);
+  }
+
+  listWorkerSupervision(options: ListWorkerSupervisionOptions = {}): WorkerSupervisionRecord[] {
+    const requestedLimit = options.limit;
+    const limit =
+      requestedLimit === undefined || !Number.isFinite(requestedLimit)
+        ? 500
+        : Math.min(Math.max(Math.trunc(requestedLimit), 1), 500);
+    const rows = this.handle()
+      .prepare("SELECT * FROM worker_supervision_records ORDER BY updated_at DESC, manager_session_id ASC LIMIT ?")
+      .all(limit) as Record<string, unknown>[];
+    return rows.map(toWorkerSupervisionRecord);
+  }
+
+  recordWorkerControlAudit(input: RecordWorkerControlAuditInput): WorkerControlAuditRecord {
+    const binding = WorkerRuntimeBindingSchema.parse(input.binding);
+    if (!WORKER_RUNTIME_CONTROL_OPERATIONS.includes(input.operation))
+      throw new Error(`worker control operation is invalid: ${input.operation}`);
+    const recordedAt = workerRecordedAt(input.recordedAt);
+    const requestedAt = input.requestedAt ?? new Date(recordedAt).toISOString();
+    workerTimestampMs(requestedAt, "control requestedAt");
+    const acceptedAt =
+      input.acceptedAt === undefined
+        ? undefined
+        : WorkerRuntimeControlReceiptSchema.parse({ operation: input.operation, acceptedAt: input.acceptedAt })
+            .acceptedAt;
+    const auditId = crypto.randomUUID();
+    this.handle()
+      .prepare(
+        `INSERT INTO worker_control_audit
+          (audit_id, manager_session_id, binding_json, operation, requested_at, accepted_at, recorded_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        auditId,
+        binding.identity.managerSessionId,
+        JSON.stringify(binding),
+        input.operation,
+        requestedAt,
+        acceptedAt ?? null,
+        recordedAt,
+      );
+    return toWorkerControlAuditRecord(
+      this.handle().prepare("SELECT * FROM worker_control_audit WHERE audit_id = ?").get(auditId) as Record<
+        string,
+        unknown
+      >,
+    );
+  }
+
+  listWorkerControlAudit(
+    managerSessionId: ManagerSessionId,
+    options: ListWorkerControlAuditOptions = {},
+  ): WorkerControlAuditRecord[] {
+    const requestedLimit = options.limit;
+    const limit =
+      requestedLimit === undefined || !Number.isFinite(requestedLimit)
+        ? 500
+        : Math.min(Math.max(Math.trunc(requestedLimit), 1), 500);
+    const rows = this.handle()
+      .prepare(
+        `SELECT * FROM worker_control_audit
+         WHERE manager_session_id = ? ORDER BY recorded_at ASC, audit_id ASC LIMIT ?`,
+      )
+      .all(managerSessionId, limit) as Record<string, unknown>[];
+    return rows.map(toWorkerControlAuditRecord);
   }
 
   recordCanonCheckpoint(input: RecordCanonCheckpointInput): CanonCheckpointRecord {
