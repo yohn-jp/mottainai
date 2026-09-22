@@ -118,5 +118,16 @@
     "gateway",
     "proxy",
     "tool-compression"
-  ]
+  ],
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./worker-runtime": {
+      "types": "./dist/manager/worker-runtime.d.ts",
+      "import": "./dist/manager/worker-runtime.js",
+      "default": "./dist/manager/worker-runtime.js"
+    }
+  }
 }
