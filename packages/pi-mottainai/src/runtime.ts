@@ -4,11 +4,20 @@ import {
   type AgentSessionEvent,
   type CreateAgentSessionOptions,
 } from "@earendil-works/pi-coding-agent";
+import { mapPiAgentEvent } from "./events.js";
+import { createReportStatusTool } from "./status-tool.js";
 
 export const PI_MOTTAINAI_PROVIDER = "pi" as const;
 
 export type WorkerRuntimeLifecycleState = "starting" | "running" | "paused" | "completed" | "failed" | "stopped";
-export type WorkerRuntimePhase = "initializing" | "ready" | "executing" | "waiting" | "finalizing" | "complete" | "failed";
+export type WorkerRuntimePhase =
+  | "initializing"
+  | "ready"
+  | "executing"
+  | "waiting"
+  | "finalizing"
+  | "complete"
+  | "failed";
 export type WorkerRuntimeActivityKind = "idle" | "working" | "waiting" | "blocked" | "finalizing";
 export type WorkerRuntimeAttentionState = "none" | "attention" | "blocked";
 
@@ -112,11 +121,11 @@ export interface WorkerRuntimeControlPort {
 
 export interface WorkerRuntimeAdapter extends WorkerRuntimeObservationPort, WorkerRuntimeControlPort {}
 
+/** Provider-neutral supervision receives only bounded observation events. */
+export type WorkerRuntimeObservationSink = (event: WorkerRuntimeObservationEvent) => void;
+
 /** The SDK surface used by the adapter; a small structural port keeps fakes simple in tests. */
-export type PiAgentSession = Pick<
-  AgentSession,
-  "subscribe" | "steer" | "prompt" | "abort" | "dispose"
->;
+export type PiAgentSession = Pick<AgentSession, "subscribe" | "steer" | "prompt" | "abort" | "dispose">;
 
 export type PiAgentSessionFactory = (options: CreateAgentSessionOptions) => Promise<PiAgentSession>;
 
@@ -124,6 +133,7 @@ export interface PiMottainaiRuntimeOptions {
   sessionFactory?: PiAgentSessionFactory;
   sessionOptions?: CreateAgentSessionOptions;
   now?: () => Date;
+  observationSink?: WorkerRuntimeObservationSink;
 }
 
 const defaultSessionFactory: PiAgentSessionFactory = async (options) => {
@@ -132,7 +142,13 @@ const defaultSessionFactory: PiAgentSessionFactory = async (options) => {
 };
 
 function identityKey(identity: WorkerRuntimeIdentity): string {
-  return [identity.managerSessionId, identity.runtimeId, identity.taskId ?? "", identity.executionSessionId ?? "", identity.provider].join("\u0000");
+  return [
+    identity.managerSessionId,
+    identity.runtimeId,
+    identity.taskId ?? "",
+    identity.executionSessionId ?? "",
+    identity.provider,
+  ].join("\u0000");
 }
 
 function bindingKey(binding: WorkerRuntimeBinding): string {
@@ -182,6 +198,7 @@ export class PiMottainaiRuntime implements WorkerRuntimeAdapter {
   private readonly sessionFactory: PiAgentSessionFactory;
   private readonly sessionOptions: CreateAgentSessionOptions;
   private readonly now: () => Date;
+  private readonly observationSink: WorkerRuntimeObservationSink | undefined;
   private readonly channel = new EventChannel<WorkerRuntimeObservationEvent>();
   private session: PiAgentSession | undefined;
   private unsubscribe: (() => void) | undefined;
@@ -192,6 +209,7 @@ export class PiMottainaiRuntime implements WorkerRuntimeAdapter {
     this.sessionFactory = options.sessionFactory ?? defaultSessionFactory;
     this.sessionOptions = options.sessionOptions ?? {};
     this.now = options.now ?? (() => new Date());
+    this.observationSink = options.observationSink;
   }
 
   public async start(input: WorkerRuntimeStartInput): Promise<WorkerRuntimeStartResult> {
@@ -201,12 +219,16 @@ export class PiMottainaiRuntime implements WorkerRuntimeAdapter {
       identity: { ...input.identity },
       boundAt: input.requestedAt ?? this.timestamp(),
     };
-    const session = await this.sessionFactory(this.sessionOptions);
+    const reportStatusTool = createReportStatusTool({ onStatus: (status) => this.acceptStatus(status) });
+    const session = await this.sessionFactory({
+      ...this.sessionOptions,
+      customTools: [...(this.sessionOptions.customTools ?? []), reportStatusTool],
+    });
     this.session = session;
     this.binding = binding;
     this.status = idleStatus();
     this.unsubscribe = session.subscribe((event) => this.projectEvent(event));
-    this.channel.push({ kind: "started", binding, observedAt: this.timestamp() });
+    this.publishEvent({ kind: "started", binding, observedAt: this.timestamp() });
     return { binding };
   }
 
@@ -255,7 +277,7 @@ export class PiMottainaiRuntime implements WorkerRuntimeAdapter {
       phase: "complete",
       activity: { kind: "idle" },
     };
-    this.channel.push({
+    this.publishEvent({
       kind: "stopped",
       binding: this.binding as WorkerRuntimeBinding,
       ...(input.reason === undefined ? {} : { reason: input.reason }),
@@ -296,39 +318,8 @@ export class PiMottainaiRuntime implements WorkerRuntimeAdapter {
 
   private projectEvent(event: AgentSessionEvent): void {
     if (!this.binding || !this.status) return;
-
-    switch (event.type) {
-      case "agent_start":
-      case "turn_start":
-      case "message_start":
-      case "message_update":
-      case "tool_execution_start":
-      case "tool_execution_update":
-      case "tool_execution_end":
-        this.emitStatus({ lifecycleState: "running", phase: "executing", activity: { kind: "working" } });
-        return;
-      case "agent_end":
-        this.emitStatus({ lifecycleState: "running", phase: "waiting", activity: { kind: "waiting" } });
-        return;
-      case "agent_settled":
-        this.emitStatus({ lifecycleState: "completed", phase: "complete", activity: { kind: "idle" } });
-        return;
-      case "queue_update":
-        this.emitStatus({
-          lifecycleState: "running",
-          phase: "waiting",
-          activity: { kind: event.steering.length + event.followUp.length > 0 ? "waiting" : "idle" },
-        });
-        return;
-      case "compaction_start":
-        this.emitStatus({ lifecycleState: "running", phase: "finalizing", activity: { kind: "finalizing" } });
-        return;
-      case "compaction_end":
-        this.emitStatus({ lifecycleState: "running", phase: "ready", activity: { kind: "idle" } });
-        return;
-      default:
-        return;
-    }
+    const status = mapPiAgentEvent(event);
+    if (status !== undefined) this.emitStatus(status);
   }
 
   private emitStatus(status: Pick<WorkerRuntimeStatusReportInput, "lifecycleState" | "phase" | "activity">): void {
@@ -336,12 +327,28 @@ export class PiMottainaiRuntime implements WorkerRuntimeAdapter {
       ...(this.status as WorkerRuntimeStatusReportInput),
       ...status,
     };
-    this.channel.push({
+    this.publishEvent({
       kind: "status",
       binding: this.binding as WorkerRuntimeBinding,
       status: this.status,
       observedAt: this.timestamp(),
     });
+  }
+
+  private acceptStatus(status: WorkerRuntimeStatusReportInput): void {
+    if (!this.binding || !this.status) throw new Error("Pi Mottainai runtime is not started");
+    this.status = status;
+    this.publishEvent({
+      kind: "status",
+      binding: this.binding,
+      status,
+      observedAt: this.timestamp(),
+    });
+  }
+
+  private publishEvent(event: WorkerRuntimeObservationEvent): void {
+    this.channel.push(event);
+    this.observationSink?.(event);
   }
 }
 
