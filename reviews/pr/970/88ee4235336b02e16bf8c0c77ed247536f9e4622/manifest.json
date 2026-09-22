@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "epic/946-agent-runtime-supervision",
+    "baseSha": "4e7e7aea37d7ee9be474e8f3ea1381ff10b2778e",
+    "draft": false,
+    "headRef": "fix/969-pi-certification-governance",
+    "headSha": "88ee4235336b02e16bf8c0c77ed247536f9e4622",
+    "number": 970,
+    "title": "fix(ci): repair Pi certification governance (#969)"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "88ee4235336b02e16bf8c0c77ed247536f9e4622",
+    "immutable": true,
+    "shortId": "88ee4235336b"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-22T09:35:01.457Z"
+  }
+}

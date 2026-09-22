@@ -1,0 +1,16 @@
+{
+  "acceptanceCriteria": [],
+  "issue": {
+    "labels": [
+      "implementation"
+    ],
+    "number": 969,
+    "state": "open",
+    "title": "impl: repair Pi certification governance and integrated-head readiness checks",
+    "url": "https://github.com/yohn-jp/mottainai/issues/969"
+  },
+  "linked": {
+    "number": 969
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
