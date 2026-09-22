@@ -1,0 +1,119 @@
+{
+  "baseSha": "8ef1a8929db954bdf946d7881f48166a277d5be8",
+  "headSha": "3a6e0293b3e071b7fdee4924c0f22922a4740c91",
+  "preview": {
+    "excluded_count": 1,
+    "excluded_files": [
+      {
+        "deletions": 0,
+        "exclude_reason": "default_path",
+        "insertions": 115,
+        "path": "packages/pi-mottainai/src/runtime.test.ts",
+        "status": "added"
+      }
+    ],
+    "from": "8ef1a8929db954bdf946d7881f48166a277d5be8",
+    "merge_base": "8ef1a8929db954bdf946d7881f48166a277d5be8",
+    "mode": "range",
+    "reviewable_count": 7,
+    "reviewable_files": [
+      {
+        "deletions": 0,
+        "insertions": 24,
+        "path": "packages/pi-mottainai/package.json",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 1,
+        "path": "packages/pi-mottainai/src/index.ts",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 349,
+        "path": "packages/pi-mottainai/src/runtime.ts",
+        "status": "added"
+      },
+      {
+        "deletions": 0,
+        "insertions": 17,
+        "path": "packages/pi-mottainai/tsconfig.json",
+        "status": "added"
+      },
+      {
+        "deletions": 24,
+        "insertions": 1249,
+        "path": "pnpm-lock.yaml",
+        "status": "modified"
+      },
+      {
+        "deletions": 0,
+        "insertions": 7,
+        "path": "pnpm-workspace.yaml",
+        "status": "modified"
+      },
+      {
+        "deletions": 1,
+        "insertions": 5,
+        "path": "scripts/test-suites.mjs",
+        "status": "modified"
+      }
+    ],
+    "schema_version": "1",
+    "to": "3a6e0293b3e071b7fdee4924c0f22922a4740c91",
+    "total_deletions": 25,
+    "total_files": 8,
+    "total_insertions": 1767
+  },
+  "provider": {
+    "cli": "ocr delegate",
+    "package": "@alibaba-group/open-code-review",
+    "version": "1.11.4"
+  },
+  "rule": {
+    "groups": [
+      {
+        "files": [
+          "packages/pi-mottainai/package.json"
+        ],
+        "group_id": 1,
+        "pattern": "**/package.json",
+        "rule": "- Avoid introducing dependencies with a version of `latest` or `*`; use specific version numbers instead. Note: ignore this rule when the version number is not on a newly added line of code\n- Dependency conflicts or duplicate declarations: the same dependency exists in both `dependencies` and `devDependencies`\n- Required tool dependencies not declared: tool names such as eslint, jest, or prettier appear in `scripts` but are not listed in `devDependencies`",
+        "source": "system"
+      },
+      {
+        "files": [
+          "packages/pi-mottainai/src/index.ts",
+          "packages/pi-mottainai/src/runtime.ts",
+          "scripts/test-suites.mjs"
+        ],
+        "group_id": 2,
+        "pattern": "**/*.{ts,js,tsx,jsx,mjs,cjs}",
+        "rule": "#### Obvious Typos or Spelling Errors\n- Spelling errors in variable names, function names, component names, or Props property names\n- Strings in log or error messages containing spelling errors that affect readability\n\n#### Dead Code\n- Code blocks that will never be executed (e.g., branches where the condition is always false, code after a return statement)\n- Variables that are declared but never read or referenced\n- Large blocks of commented-out code (with no apparent intent to retain)\n\n#### Code Quality Checks\n- **Duplicate Code**: Check for common logic that can be extracted\n- **Code Comments**: Complex business logic should have clear explanatory comments (avoid commenting obvious code)\n- **Hardcoding**: Business-related hardcoded strings are prohibited, especially URL paths and business numbers; simple UI text may be relaxed\n- **Variable Declarations**: Using `var` is strictly prohibited; use `let` or `const`\n- **Equality Comparisons**: Using `==` and `!=` is prohibited; use strict equality `===` and `!==`\n- **TypeScript Types**: Avoid using `any` type; if necessary, provide a comment explaining the reason\n- **Null Checks**: Perform null checks when accessing values or destructuring to avoid null pointer exceptions\n- **Ternary Expressions**: Nested ternary expressions are not allowed\n\n#### React Best Practices\n- **Hooks Usage**: Verify compliance with Hooks rules (only call at the top level, only call in React functions)\n- **State Management**: Ensure state is placed at the appropriate level; avoid unnecessary state lifting\n- **Side Effect Handling**: Verify useEffect correctly handles dependencies and cleanup functions\n- **Performance Optimization**: Verify proper use of React.memo, useMemo, useCallback (based on performance analysis; avoid over-optimization)\n- **Render Side Effects**: Side effects in React component render methods are strictly prohibited (e.g., API calls, DOM manipulation)\n- **Inline Styles**: Avoid using inline `style` attributes, except for dynamic styles\n- **Inner Components**: Declaring new components inside a component is prohibited; use render methods instead (e.g., `renderItem`, not `<Item/>`)\n\n#### Async Handling Standards\n- **Error Handling**: Async functions must include proper error handling with user-friendly error messages\n- **Prefer async/await**: Prefer async/await over Promises; callback hell is prohibited\n- **Async in Loops**: Distinguish between independent async operations (use `Promise.all` for parallelism) and dependent async operations (use sequential execution); prefer `Promise.all` for performance\n\n#### Code Security Checks\n- **XSS Protection**: Verify that user input is properly escaped\n- **innerHTML Safety**: Using innerHTML to directly insert user input is prohibited; use textContent or apply XSS protection\n- **Code Injection Protection**: Using eval(), Function() constructor, and string argument forms of setTimeout/setInterval is strictly prohibited\n- **Dangerous Methods**: Using document.write() is prohibited as it causes page reflow and security issues\n- **Sensitive Information**: Check whether API keys or sensitive data are exposed\n- **Prototype Chain Safety**: Modifying native object prototypes (e.g., Array.prototype, Object.prototype) is prohibited",
+        "source": "system"
+      },
+      {
+        "files": [
+          "packages/pi-mottainai/tsconfig.json"
+        ],
+        "group_id": 3,
+        "pattern": "**/*.{json,json5}",
+        "rule": "Check JSON files for spelling errors in json-keys; ignore the content of json-values.",
+        "source": "system"
+      },
+      {
+        "files": [
+          "pnpm-lock.yaml",
+          "pnpm-workspace.yaml"
+        ],
+        "group_id": 4,
+        "pattern": "**/*.{yaml,yml}",
+        "rule": "Check for spelling errors in yaml-keys within YAML files; ignore the content of yaml-values.",
+        "source": "system"
+      }
+    ],
+    "schema_version": "1"
+  },
+  "schemaVersion": "mottainai.review-pages.ocr/v1"
+}
