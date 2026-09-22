@@ -1,5 +1,6 @@
 import {
   DefaultResourceLoader,
+  getAgentDir,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { PiMottainaiRuntime, type WorkerRuntimeAdapter } from "./runtime.js";
@@ -38,7 +39,11 @@ export function managerExecutionTool(surface: ManagedPiExecutionSurface): ToolDe
       additionalProperties: false,
     } as unknown as ToolDefinition["parameters"],
     async execute() {
-      return surface.tool.execute();
+      const result = await surface.tool.execute();
+      return {
+        content: result.content.map((entry) => ({ ...entry })),
+        details: { ...result.details },
+      };
     },
   };
 }
@@ -68,6 +73,7 @@ export async function createManagedPiMottainaiRuntime(input: ManagedPiRuntimeInp
   const contextFile = managerExecutionContextFile(input);
   const resourceLoader = new DefaultResourceLoader({
     cwd,
+    agentDir: getAgentDir(),
     additionalExtensionPaths: [input.piGuardPath],
     agentsFilesOverride: (current) => ({
       agentsFiles: [...current.agentsFiles, contextFile],
