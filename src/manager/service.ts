@@ -39,6 +39,9 @@ import type {
   PushReconciliationState,
   TaskId,
   UpdateManagerSessionInput,
+  ListWorkerSupervisionOptions,
+  WorkerSupervisionDiagnosticEvent,
+  WorkerSupervisionRecord,
   WorkflowStateStore,
 } from "../workflow/state/store.js";
 import type { PullRequestLifecycleState } from "../workflow/providers/model.js";
@@ -67,6 +70,15 @@ import {
   type ZellijObservedState,
   type ZellijRuntime,
 } from "./zellij.js";
+import type {
+  WorkerRuntimeActivity,
+  WorkerRuntimeAttentionState,
+  WorkerRuntimeContext,
+  WorkerRuntimeLifecycleState,
+  WorkerRuntimePhase,
+  WorkerRuntimeProgress,
+  WorkerRuntimeUsage,
+} from "./worker-runtime.js";
 
 const MAX_INSTRUCTION_LENGTH = 64 * 1024;
 const MAX_PROVIDER_LENGTH = 128;
@@ -423,6 +435,78 @@ export interface ManagerOperationalProjection {
 
 export interface ManagerSessionProjection extends ManagerSessionRecord {
   operational: ManagerOperationalProjection;
+}
+
+export type ManagerWorkerObservationState = "current" | "stale" | "missing";
+
+/**
+ * Compact provider-neutral worker state for polling callers. The worker
+ * runtime's observation contract is already bounded; this projection keeps
+ * only its semantic fields and the existing Manager identity/state needed to
+ * explain missing or stale observations.
+ */
+export interface ManagerWorkerStatusProjection {
+  identity: {
+    managerSessionId: string;
+    runtimeId: string;
+    taskId: string | null;
+    executionSessionId: string | null;
+    provider: string | null;
+    agentKind: ManagerAgentKind | null;
+    runtimeName: string | null;
+  };
+  observationState: ManagerWorkerObservationState;
+  observedAt: string | null;
+  runtimeState: ManagerRuntimeState | null;
+  semanticLifecycleState: LifecycleState | "unbound" | null;
+  lifecycleState: WorkerRuntimeLifecycleState | null;
+  phase: WorkerRuntimePhase | null;
+  activity: WorkerRuntimeActivity | null;
+  progress: WorkerRuntimeProgress | null;
+  lastActivityAt: string | null;
+  attention: WorkerRuntimeAttentionState | null;
+  blockerCode: string | null;
+  usage: WorkerRuntimeUsage | null;
+  context: WorkerRuntimeContext | null;
+}
+
+export interface ManagerWorkerDetailProjection extends ManagerWorkerStatusProjection {
+  diagnosticEvents: readonly WorkerSupervisionDiagnosticEvent[];
+}
+
+function projectWorkerSupervision(
+  record: WorkerSupervisionRecord | undefined,
+  session: ManagerSessionRecord | undefined,
+): ManagerWorkerStatusProjection {
+  const identity = record?.binding.identity;
+  const status = record?.latestStatus;
+  const runtimeState = session?.runtimeState ?? null;
+  const observationState: ManagerWorkerObservationState =
+    record === undefined ? "missing" : runtimeState === "stale" ? "stale" : "current";
+  return {
+    identity: {
+      managerSessionId: identity?.managerSessionId ?? session!.sessionId,
+      runtimeId: identity?.runtimeId ?? session!.runtimeId,
+      taskId: identity?.taskId ?? session?.taskId ?? null,
+      executionSessionId: identity?.executionSessionId ?? session?.executionSessionId ?? null,
+      provider: identity?.provider ?? session?.provider ?? null,
+      agentKind: session?.agentKind ?? null,
+      runtimeName: session?.runtimeName ?? null,
+    },
+    observationState,
+    observedAt: record?.latestObservation.observedAt ?? null,
+    runtimeState,
+    semanticLifecycleState: session?.semanticLifecycleState ?? null,
+    lifecycleState: status?.lifecycleState ?? null,
+    phase: status?.phase ?? null,
+    activity: status === undefined ? null : { ...status.activity },
+    progress: status === undefined ? null : { ...status.progress },
+    lastActivityAt: record?.latestObservation.observedAt ?? null,
+    attention: status?.attention ?? null,
+    blockerCode: status?.blocker?.code ?? null,
+    usage: status?.usage === undefined ? null : { ...status.usage },
+    context: status?.context === undefined ? null : { ...status.context },
+  };
 }
 
 function managerErrorStatusCode(code: string): number {
@@ -1507,6 +1591,58 @@ export class ManagerSessionService {
     if (runtime === undefined)
       throw new ManagerError("session_not_found", `Manager Runtime was not found: ${runtimeId}`, 404);
     return runtime;
+  }
+
+  /**
+   * Project persisted worker observations without reconciling or consulting a
+   * worker runtime. This is intentionally separate from `list()`, whose
+   * existing session projection performs reconciliation for control-plane
+   * correctness.
+   */
+  listWorkerSupervision(options: ListWorkerSupervisionOptions = {}): ManagerWorkerStatusProjection[] {
+    const requestedLimit = options.limit;
+    const limit =
+      requestedLimit === undefined || !Number.isFinite(requestedLimit)
+        ? MAX_LIST_LIMIT
+        : Math.min(Math.max(Math.trunc(requestedLimit), 1), MAX_LIST_LIMIT);
+    const observations = this.options.store.listWorkerSupervision({ limit });
+    const sessions = this.options.store.listManagerSessions(this.options.workspaceRoot, { limit: MAX_LIST_LIMIT });
+    const sessionsById = new Map(sessions.map((session) => [session.sessionId, session]));
+    const recordsById = new Map(observations.map((record) => [record.managerSessionId, record]));
+    const projected = [
+      ...observations.map((record) => projectWorkerSupervision(record, sessionsById.get(record.managerSessionId))),
+      ...sessions
+        .filter((session) => !recordsById.has(session.sessionId))
+        .map((session) => projectWorkerSupervision(undefined, session)),
+    ];
+    projected.sort((left, right) => {
+      const leftTimestamp = left.observedAt === null ? 0 : Date.parse(left.observedAt);
+      const rightTimestamp = right.observedAt === null ? 0 : Date.parse(right.observedAt);
+      return (
+        rightTimestamp - leftTimestamp || left.identity.managerSessionId.localeCompare(right.identity.managerSessionId)
+      );
+    });
+    return projected.slice(0, limit);
+  }
+
+  /** Return one compact worker projection and bounded diagnostic metadata. */
+  getWorkerSupervision(managerSessionId: ManagerSessionId): ManagerWorkerDetailProjection {
+    const record = this.options.store.getWorkerSupervision(managerSessionId);
+    const session = this.options.store.getManagerSession(managerSessionId);
+    if (record === undefined && session === undefined)
+      throw new ManagerError("session_not_found", `Worker was not found: ${managerSessionId}`, 404);
+    return {
+      ...projectWorkerSupervision(record, session),
+      diagnosticEvents: record === undefined ? [] : record.diagnosticEvents.map((event) => ({ ...event })),
+    };
+  }
+
+  listWorkers(options: ListWorkerSupervisionOptions = {}): ManagerWorkerStatusProjection[] {
+    return this.listWorkerSupervision(options);
+  }
+
+  getWorker(managerSessionId: ManagerSessionId): ManagerWorkerDetailProjection {
+    return this.getWorkerSupervision(managerSessionId);
   }
 
   health(): ManagerHealth {

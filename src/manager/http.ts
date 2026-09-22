@@ -85,6 +85,14 @@ function sessionIdFromPath(value: string): ManagerSessionId {
   return decoded as ManagerSessionId;
 }
 
+function workerSessionIdFromPath(value: string): ManagerSessionId {
+  const decoded = decodedSessionIdFromPath(value);
+  if (decoded.length === 0 || decoded.length > 256 || /[\u0000-\u001f\u007f]/u.test(decoded)) {
+    throw new ManagerError("invalid_request", "invalid worker id", 400);
+  }
+  return decoded as ManagerSessionId;
+}
+
 function runtimeIdFromPath(value: string): ManagerRuntimeId {
   const decoded = decodedSessionIdFromPath(value);
   if (decoded.trim().length === 0 || /[\u0000-\u001f\u007f]/u.test(decoded))
@@ -209,6 +217,16 @@ function filterFromQuery(url: URL): ManagerSessionFilter {
   };
 }
 
+function workerListOptionsFromQuery(url: URL): { limit?: number } {
+  const value = url.searchParams.get("limit");
+  if (value === null) return {};
+  const limit = Number(value);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+    throw new ManagerError("invalid_request", "limit must be an integer between 1 and 500", 400);
+  }
+  return { limit };
+}
+
 function requireJsonContentType(request: IncomingMessage): void {
   const contentType = request.headers["content-type"];
   if (typeof contentType !== "string" || contentType.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") {
@@ -247,6 +265,8 @@ type ManagerRouteName =
   | "health"
   | "runtimes"
   | "runtime"
+  | "workers"
+  | "worker"
   | "sessions"
   | "fork"
   | "sessions-preview"
@@ -272,6 +292,8 @@ const MANAGER_ROUTES: readonly ManagerRouteDefinition[] = [
   { name: "health", path: ["health"], methods: ["GET"] },
   { name: "runtimes", path: ["runtimes"], methods: ["GET"] },
   { name: "runtime", path: ["runtimes", ":runtimeId"], methods: ["GET"] },
+  { name: "workers", path: ["workers"], methods: ["GET"] },
+  { name: "worker", path: ["workers", ":workerId"], methods: ["GET"] },
   { name: "sessions", path: ["sessions"], methods: ["GET", "POST"] },
   { name: "fork", path: ["fork"], methods: ["POST"] },
   // Keep static session aliases ahead of the dynamic session detail route.
@@ -349,6 +371,16 @@ export class ManagerHttpApi implements ManagerHttpHandler {
           return;
         case "runtime":
           sendJson(response, 200, { runtime: this.service.getRuntime(runtimeIdFromPath(segments[1] ?? "")) });
+          return;
+        case "workers":
+          sendJson(response, 200, {
+            workers: this.service.listWorkerSupervision(workerListOptionsFromQuery(url)),
+          });
+          return;
+        case "worker":
+          sendJson(response, 200, {
+            worker: this.service.getWorkerSupervision(workerSessionIdFromPath(segments[1] ?? "")),
+          });
           return;
         case "sessions":
           if (method === "GET") {
