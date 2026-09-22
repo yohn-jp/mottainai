@@ -460,6 +460,8 @@ jobs:
               - 'scripts/gh-inari-package-smoke.mjs'
               - 'scripts/pi-mottainai-package-smoke.mjs'
               - 'scripts/pi-mottainai-package-smoke.test.mjs'
+              - 'scripts/pi-runtime-certification.mjs'
+              - 'scripts/pi-runtime-certification.test.mjs'
               - 'scripts/lib/mcp-blackbox-*.mjs'
               - '.github/workflows/publish.yml'
               - 'package.json'
