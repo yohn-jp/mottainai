@@ -65,6 +65,19 @@ test("agent-governance authority files select governance and are not unowned (#9
   );
 });
 
+test("Pi certification scripts select the Node contract and are not unowned (#969)", () => {
+  const certificationFiles = [
+    "scripts/pi-runtime-certification.mjs",
+    "scripts/pi-runtime-certification.test.mjs",
+  ];
+  const selected = classifyChangedFiles(classes, certificationFiles);
+  assert.equal(selected.node, true);
+  assert.deepEqual(
+    findUnownedTrackedFiles(repositoryRoot, { trackedFiles: certificationFiles, classes }),
+    [],
+  );
+});
+
 test("publish workflow is not falsely treated as self-governing", () => {
   assert.equal(isExemptPath(".github/workflows/publish.yml"), false);
   assert.deepEqual(
