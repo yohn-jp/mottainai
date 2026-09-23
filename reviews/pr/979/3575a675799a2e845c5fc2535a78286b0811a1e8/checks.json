@@ -1,0 +1,61 @@
+{
+  "available": true,
+  "checkRuns": [
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35867736491/job/107203580318",
+      "name": "CodeQL / Analyze (actions)",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35867736491/job/107203580364",
+      "name": "CodeQL / Analyze (javascript-typescript)",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": "success",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35867736491/job/107203540768",
+      "name": "CodeQL / Plan",
+      "status": "completed"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35867735825/job/107203528491",
+      "name": "Generate review package",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": "skipped",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35867736468/job/107203533923",
+      "name": "governance / Validate branch name",
+      "status": "completed"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35867736468/job/107203531541",
+      "name": "governance / Validate PR contract (Inari snapshot)",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": "success",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35867736468/job/107203531318",
+      "name": "linked-issue-check",
+      "status": "completed"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35867736468/job/107203531288",
+      "name": "product-checks",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35867736468/job/107203530827",
+      "name": "standards-self-check",
+      "status": "in_progress"
+    }
+  ],
+  "headSha": "3575a675799a2e845c5fc2535a78286b0811a1e8",
+  "schemaVersion": "mottainai.review-pages.checks/v1"
+}
