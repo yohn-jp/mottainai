@@ -1,0 +1,41 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "`identity` participates in aggregate response projection/budgeting."
+    },
+    {
+      "checked": false,
+      "text": "Final serialized bytes are measured after all result decoration/finalization."
+    },
+    {
+      "checked": false,
+      "text": "Every successful response satisfies the effective hard byte/token invariant."
+    },
+    {
+      "checked": false,
+      "text": "If mandatory fields alone cannot fit, the behavior is explicit and bounded rather than returning an oversized result."
+    },
+    {
+      "checked": false,
+      "text": "Regression coverage includes oversized `identity.upstreams` and asserts the final serialized byte count."
+    },
+    {
+      "checked": false,
+      "text": "Normal-size identity semantics remain stable."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 827,
+    "state": "open",
+    "title": "fix: enforce the MCP hard response budget after final serialization",
+    "url": "https://github.com/yohn-jp/mottainai/issues/827"
+  },
+  "linked": {
+    "number": 827
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
