@@ -142,6 +142,61 @@ test("blocking diagnostics and structured test results outrank verbose metrics",
   assert.ok(projectedBytes(result) <= hardBudget.hardBytes);
 });
 
+test("oversized identity.upstreams is bounded by the hard response budget", () => {
+  const upstreams = Array.from({ length: 100 }, (_, index) => ({
+    name: `provider-${index}-${"x".repeat(64)}`,
+    transport: "stdio",
+    enabled: true,
+    state: "unhealthy",
+    health: "unhealthy",
+    failure_count: 3,
+    failure: { category: "network", summary: "connection failed: " + "detail ".repeat(50) },
+  }));
+  const result = applyResponseBudget(
+    projected({
+      identity: {
+        schema_version: 1,
+        package_name: "mottainai",
+        package_version: "1.0.0",
+        build_id: "build-1",
+        node_version: "v20.0.0",
+        platform: "linux",
+        architecture: "x64",
+        entry_point: "cli",
+        distribution_kind: "development/source",
+        startup_timestamp: "2026-01-01T00:00:00.000Z",
+        startup_cwd: "/workspace",
+        config_path: "/workspace/mottainai.config.json",
+        provenance: {},
+        upstreams,
+      },
+    }),
+    MIN_RESPONSE_BUDGET,
+  );
+  assert.ok(
+    projectedBytes(result) <= MIN_RESPONSE_BUDGET.hardBytes,
+    "identity.upstreams must not push the final serialized result past the hard response budget",
+  );
+  assertRequired(result);
+});
+
+test("normal-size identity is preserved unless budget forces compaction", () => {
+  const identity = {
+    version: 1,
+    content_id: "abc",
+    adapter: "local_file_read_v1",
+    source_key: "src/file.ts",
+    projection_key: "rk1:xyz",
+  };
+  const result = applyResponseBudget(projected({ identity }), hardBudget);
+  const structured = serializeProjectedResult(result).structuredContent;
+  assert.deepEqual(structured.identity, identity);
+  assert.equal(
+    result.omissions.some((omission) => omission.field === "identity"),
+    false,
+  );
+});
+
 test("smallest supported budget and invalid configuration are explicit", () => {
   assert.deepEqual(resolveResponseBudget(MIN_RESPONSE_BUDGET), MIN_RESPONSE_BUDGET);
   assert.throws(() => resolveResponseBudget({ softTokens: 127 }), /softTokens/);
