@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "33fb23cf2bce5c2c6341c823a4777dafe9f66447",
+    "draft": false,
+    "headRef": "fix/827-mcp-hard-response-budget",
+    "headSha": "41cdd5bdf86ab3c9f9f38cb6213e4b6077ee2a74",
+    "number": 979,
+    "title": "fix: enforce the MCP hard response budget after final serialization"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "41cdd5bdf86ab3c9f9f38cb6213e4b6077ee2a74",
+    "immutable": true,
+    "shortId": "41cdd5bdf86a"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-23T13:34:07.638Z"
+  }
+}

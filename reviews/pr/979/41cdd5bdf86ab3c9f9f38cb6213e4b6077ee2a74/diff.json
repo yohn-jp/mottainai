@@ -1,0 +1,52 @@
+{
+  "baseSha": "33fb23cf2bce5c2c6341c823a4777dafe9f66447",
+  "files": [
+    {
+      "additions": 36,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 13,
+          "newStart": 221,
+          "oldLines": 0,
+          "oldStart": 220
+        },
+        {
+          "newLines": 22,
+          "newStart": 322,
+          "oldLines": 0,
+          "oldStart": 308
+        },
+        {
+          "newLines": 1,
+          "newStart": 487,
+          "oldLines": 0,
+          "oldStart": 451
+        }
+      ],
+      "path": "src/context-runtime/budget.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 55,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 55,
+          "newStart": 145,
+          "oldLines": 0,
+          "oldStart": 144
+        }
+      ],
+      "path": "src/context-runtime/context-runtime.test.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "41cdd5bdf86ab3c9f9f38cb6213e4b6077ee2a74",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 91,
+    "deletions": 0,
+    "filesChanged": 2
+  }
+}

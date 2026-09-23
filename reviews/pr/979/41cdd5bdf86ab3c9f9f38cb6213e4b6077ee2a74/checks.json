@@ -1,0 +1,31 @@
+{
+  "available": true,
+  "checkRuns": [
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35867942790/job/107204288786",
+      "name": "CodeQL / Analyze (actions)",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35867942790/job/107204288833",
+      "name": "CodeQL / Analyze (javascript-typescript)",
+      "status": "in_progress"
+    },
+    {
+      "conclusion": "success",
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35867942790/job/107204243951",
+      "name": "CodeQL / Plan",
+      "status": "completed"
+    },
+    {
+      "conclusion": null,
+      "detailsUrl": "https://github.com/yohn-jp/mottainai/actions/runs/35867942030/job/107204246503",
+      "name": "Generate review package",
+      "status": "in_progress"
+    }
+  ],
+  "headSha": "41cdd5bdf86ab3c9f9f38cb6213e4b6077ee2a74",
+  "schemaVersion": "mottainai.review-pages.checks/v1"
+}
