@@ -173,6 +173,47 @@ function main() {
       fail(`dry-run init unexpectedly wrote configuration: ${JSON.stringify(initSummary)}`);
     if (fs.existsSync(configPath)) fail(`dry-run init wrote configuration file at ${configPath}`);
 
+    // Issue #825: init previously only consumed separate-token `--flag value` forms,
+    // so an inline `--flag=value` (the form the dispatcher's own `--config` already
+    // accepts) could be silently ignored and init would resolve the wrong
+    // workspace/configuration. Prove the inline form is honored on the packed CLI.
+    console.log("running init with inline --workspace=/--scope=/--client=/--config= forms...");
+    const inlineWorkspace = path.join(installDirectory, "inline-workspace");
+    fs.mkdirSync(inlineWorkspace, { recursive: true });
+    const inlineConfigPath = path.join(inlineWorkspace, "mottainai.config.json");
+    const inlineInitResult = spawnSync(
+      process.execPath,
+      [
+        primaryBin,
+        "init",
+        "--yes",
+        `--workspace=${inlineWorkspace}`,
+        "--scope=project",
+        "--client=none",
+        "--no-doctor",
+        "--dry-run",
+        "--json",
+        `--config=${inlineConfigPath}`,
+      ],
+      { cwd: installDirectory, encoding: "utf8", timeout: 10_000 },
+    );
+    if (inlineInitResult.status !== 0)
+      fail(
+        `inline-value init exited with status ${inlineInitResult.status}:\n${inlineInitResult.stdout}\n${inlineInitResult.stderr}`,
+      );
+    let inlineInitSummary;
+    try {
+      inlineInitSummary = JSON.parse(inlineInitResult.stdout);
+    } catch {
+      fail(`inline-value init --json did not print valid JSON:\n${inlineInitResult.stdout}`);
+    }
+    if (inlineInitSummary.workspace !== inlineWorkspace)
+      fail(`inline --workspace= was not honored: ${JSON.stringify(inlineInitSummary)}`);
+    if (inlineInitSummary.configuration !== inlineConfigPath)
+      fail(`inline --config= was not honored: ${JSON.stringify(inlineInitSummary)}`);
+    if (inlineInitSummary.scope !== "project")
+      fail(`inline --scope= was not honored: ${JSON.stringify(inlineInitSummary)}`);
+
     const runtimeStateDirectory = path.join(installDirectory, "runtime-state");
     console.log("running packed retired runtime ensure --help...");
     const runtimeEnsureHelpResult = spawnSync(process.execPath, [primaryBin, "runtime", "ensure", "--help"], {
