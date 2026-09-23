@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "cc87143383875acb66d7057a1c85a3a65912123f",
+    "draft": false,
+    "headRef": "fix/825-init-inline-option-parsing",
+    "headSha": "68bf6a430e32717f88cbfe215dc28876e8b3aedb",
+    "number": 980,
+    "title": "fix: parse init inline option values consistently"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "68bf6a430e32717f88cbfe215dc28876e8b3aedb",
+    "immutable": true,
+    "shortId": "68bf6a430e32"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-09-23T13:18:59.770Z"
+  }
+}

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #980 @ 68bf6a430e32</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #980: fix: parse init inline option values consistently</h1>
+<p>Base <code>main</code> @ <code>cc87143383875acb66d7057a1c85a3a65912123f</code> &rarr;
+Head <code>fix/825-init-inline-option-parsing</code> @ <code>68bf6a430e32717f88cbfe215dc28876e8b3aedb</code></p>
+<p>Revision <code>68bf6a430e32</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/825">#825</a> fix: parse init inline option values consistently (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] Init uses the shared/canonical flag parser rather than independently parsing the same public options.</li>
+<li>[ ] `--foo value` and `--foo=value` behave identically for every affected value option.</li>
+<li>[ ] Missing values, duplicate/conflicting values, and unknown/unconsumed arguments fail closed with bounded diagnostics.</li>
+<li>[ ] Regression tests cover `--workspace`, `--config`, `--scope`, `--client`, and `--import` in inline and separate-token forms.</li>
+<li>[ ] Packed-package smoke coverage includes at least one inline-value init invocation.</li></ul>
+
+
+
+<h2>Changed files (5, +234/-71)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>scripts/smoke-test.mjs</td><td>modified</td><td>+41</td><td>-0</td></tr>
+<tr><td>src/cli-flags.ts</td><td>added</td><td>+76</td><td>-0</td></tr>
+<tr><td>src/cli.ts</td><td>modified</td><td>+1</td><td>-48</td></tr>
+<tr><td>src/init.test.ts</td><td>modified</td><td>+67</td><td>-0</td></tr>
+<tr><td>src/init.ts</td><td>modified</td><td>+49</td><td>-23</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
