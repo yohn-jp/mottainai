@@ -218,6 +218,19 @@ function compactExcerptFields(result: ProjectedResult): ProjectedResult {
 
 function compactStructuredParts(result: ProjectedResult): ProjectedResult {
   let current = result;
+  if (current.identity !== undefined) {
+    const identity = compactIdentity(current.identity);
+    if (JSON.stringify(identity) !== JSON.stringify(current.identity)) {
+      current = addOmission(
+        { ...current, identity: identity as ProjectedResult["identity"] },
+        {
+          field: "identity",
+          reason: "identity detail bounded for response budget",
+          retrievalAvailable: current.resultId.length > 0,
+        },
+      );
+    }
+  }
   const diagnostics = compactDiagnostics(current.diagnostics);
   if (JSON.stringify(diagnostics) !== JSON.stringify(current.diagnostics)) {
     current = addOmission(
@@ -304,6 +317,28 @@ function dropMetrics(result: ProjectedResult): ProjectedResult {
       retrievalAvailable: result.resultId.length > 0,
     },
   );
+}
+
+/**
+ * `identity` carries adapter-defined shapes beyond the declared
+ * `IdentityHint | ResultIdentity` union (e.g. the runtime-status tool's
+ * `RuntimeDiagnostic`, which is where an oversized `upstreams` array
+ * originates). Operating on `unknown` — the same boundary `project.ts` already
+ * casts `identity` from — keeps the assignment back into `ProjectedResult`
+ * a same-as-elsewhere cast from `unknown` rather than an unrelated-type
+ * bypass through `Record<string, unknown>`.
+ */
+function compactIdentity(identity: unknown): unknown {
+  if (!isRecord(identity)) return compactValue(identity, 512);
+  const result: Record<string, unknown> = {};
+  for (const [key, entryValue] of Object.entries(identity)) {
+    if (key === "upstreams" && Array.isArray(entryValue)) {
+      result[key] = entryValue.slice(0, 8).map((entry) => compactValue(entry, 128));
+      continue;
+    }
+    result[key] = compactValue(entryValue, key === "provenance" ? 256 : 128);
+  }
+  return result;
 }
 
 function compactContent(result: ProjectedResult): ProjectedResult {
@@ -449,6 +484,7 @@ function minimalResult(result: ProjectedResult, targetBytes: number): ProjectedR
     fields: actionableFields,
     content: [],
     meta: undefined,
+    identity: undefined,
     truncated: true,
   });
   const withBudgetOmission = addOmission(base, {
