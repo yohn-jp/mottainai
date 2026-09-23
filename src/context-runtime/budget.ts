@@ -222,7 +222,7 @@ function compactStructuredParts(result: ProjectedResult): ProjectedResult {
     const identity = compactIdentity(current.identity);
     if (JSON.stringify(identity) !== JSON.stringify(current.identity)) {
       current = addOmission(
-        { ...current, identity: identity as ProjectedResult["identity"] },
+        { ...current, identity: identity as unknown as ProjectedResult["identity"] },
         {
           field: "identity",
           reason: "identity detail bounded for response budget",
