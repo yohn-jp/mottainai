@@ -1,0 +1,37 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Init uses the shared/canonical flag parser rather than independently parsing the same public options."
+    },
+    {
+      "checked": false,
+      "text": "`--foo value` and `--foo=value` behave identically for every affected value option."
+    },
+    {
+      "checked": false,
+      "text": "Missing values, duplicate/conflicting values, and unknown/unconsumed arguments fail closed with bounded diagnostics."
+    },
+    {
+      "checked": false,
+      "text": "Regression tests cover `--workspace`, `--config`, `--scope`, `--client`, and `--import` in inline and separate-token forms."
+    },
+    {
+      "checked": false,
+      "text": "Packed-package smoke coverage includes at least one inline-value init invocation."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "bug"
+    ],
+    "number": 825,
+    "state": "open",
+    "title": "fix: parse init inline option values consistently",
+    "url": "https://github.com/yohn-jp/mottainai/issues/825"
+  },
+  "linked": {
+    "number": 825
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}

@@ -1,0 +1,150 @@
+{
+  "baseSha": "cc87143383875acb66d7057a1c85a3a65912123f",
+  "files": [
+    {
+      "additions": 41,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 41,
+          "newStart": 176,
+          "oldLines": 0,
+          "oldStart": 175
+        }
+      ],
+      "path": "scripts/smoke-test.mjs",
+      "status": "modified"
+    },
+    {
+      "additions": 76,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 76,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/cli-flags.ts",
+      "status": "added"
+    },
+    {
+      "additions": 28,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 28,
+          "newStart": 506,
+          "oldLines": 0,
+          "oldStart": 505
+        }
+      ],
+      "path": "src/cli.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "deletions": 48,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 4,
+          "oldLines": 0,
+          "oldStart": 3
+        },
+        {
+          "newLines": 0,
+          "newStart": 167,
+          "oldLines": 42,
+          "oldStart": 167
+        },
+        {
+          "newLines": 0,
+          "newStart": 333,
+          "oldLines": 6,
+          "oldStart": 375
+        }
+      ],
+      "path": "src/cli.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 67,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 67,
+          "newStart": 33,
+          "oldLines": 0,
+          "oldStart": 32
+        }
+      ],
+      "path": "src/init.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 49,
+      "deletions": 23,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 12,
+          "oldLines": 0,
+          "oldStart": 11
+        },
+        {
+          "newLines": 33,
+          "newStart": 112,
+          "oldLines": 10,
+          "oldStart": 111
+        },
+        {
+          "newLines": 1,
+          "newStart": 148,
+          "oldLines": 1,
+          "oldStart": 124
+        },
+        {
+          "newLines": 3,
+          "newStart": 151,
+          "oldLines": 1,
+          "oldStart": 127
+        },
+        {
+          "newLines": 1,
+          "newStart": 157,
+          "oldLines": 1,
+          "oldStart": 131
+        },
+        {
+          "newLines": 1,
+          "newStart": 161,
+          "oldLines": 1,
+          "oldStart": 135
+        },
+        {
+          "newLines": 2,
+          "newStart": 166,
+          "oldLines": 2,
+          "oldStart": 140
+        },
+        {
+          "newLines": 7,
+          "newStart": 171,
+          "oldLines": 7,
+          "oldStart": 145
+        }
+      ],
+      "path": "src/init.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "89b8269e7f5b02beb0189bd1c99f3b155eaa0ff1",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 262,
+    "deletions": 71,
+    "filesChanged": 6
+  }
+}
