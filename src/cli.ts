@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { fail, flag, hasFlag, requireFlagValue } from "./cli-flags.js";
 import { collectDoctorReport, formatDoctorHuman } from "./commands/doctor.js";
 import { loadConfigSnapshot, loadMottainaiConfig, loadRawConfig, resolveConfigPath, saveRawConfig } from "./config.js";
 import type { MottainaiConfig } from "./config.js";
@@ -163,48 +164,6 @@ const RUNTIME_DEPRECATION_MESSAGE =
   "The npm CLI no longer provides `mottainai runtime ensure/status`; local Runtime lifecycle is owned by the standalone " +
   "`mottainai-init` artifact. Use `mottainai-init runtime ensure --spec PATH [--json]`. The command exits before reading " +
   "or writing legacy Runtime state.";
-
-interface FlagValue {
-  found: boolean;
-  inline: boolean;
-  value?: string;
-}
-
-function findFlag(argv: string[], name: string): FlagValue {
-  const option = `--${name}`;
-  const inlinePrefix = `${option}=`;
-  const index = argv.findIndex((argument) => argument === option || argument.startsWith(inlinePrefix));
-  if (index === -1) return { found: false, inline: false };
-  const argument = argv[index];
-  if (argument.startsWith(inlinePrefix))
-    return { found: true, inline: true, value: argument.slice(inlinePrefix.length) };
-  return { found: true, inline: false, value: argv[index + 1] };
-}
-
-function flag(argv: string[], name: string): string | undefined {
-  return findFlag(argv, name).value;
-}
-
-function hasFlag(argv: string[], name: string): boolean {
-  return argv.includes(`--${name}`);
-}
-
-/** `--name` が渡された場合、値が欠落または別 flag に見える（`--` 始まり）なら fail する。
- * `--name=value` は option-looking な値を明示的に渡す transport として許可する。
- * 素の `flag()` はそのまま返すため、`--workspace` 抜けが cwd への静かな fallback に、
- * `--workspace --issue 12` が `--issue` を workspace 値として誤読することにつながる
- * （`task start` は worktree/branch を作るため、誤った workspace への書き込みになる）。 */
-function requireFlagValue(argv: string[], name: string): string | undefined {
-  const parsed = findFlag(argv, name);
-  if (!parsed.found) return undefined;
-  if (
-    parsed.value === undefined ||
-    (parsed.inline && parsed.value === "") ||
-    (!parsed.inline && parsed.value.startsWith("--"))
-  )
-    fail(`missing value for --${name}`);
-  return parsed.value;
-}
 
 const INVALID_ARGS_MESSAGE =
   'invalid --args: expected a JSON array of strings (for example, --args=\'["one","two"]\'); ' +
@@ -370,12 +329,6 @@ function hookContext(
     configPath: resolvedConfigPath,
     workflowProvider: createWorkflowHookProvider({ workspaceRoot, nawabari: new NawabariExecutionClient() }),
   };
-}
-
-class CliError extends Error {}
-
-function fail(message: string): never {
-  throw new CliError(message);
 }
 
 /** 検証エラーは CLI のエラー形式で返す。設定ファイルは不正なら書き換わっていない。 */

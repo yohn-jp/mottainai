@@ -503,3 +503,31 @@ test("mottainai add preserves the default and documented priority boundaries", (
     }
   }
 });
+
+test("public CLI accepts --config=path and --priority=n inline forms identically to separate-token forms", () => {
+  // Issue #825: src/cli.ts's flag-parsing helpers (findFlag/flag/hasFlag/requireFlagValue) moved into
+  // the shared src/cli-flags.ts so src/init.ts could consume the same grammar. Prove the dispatcher's
+  // own inline `--flag=value` contract still holds through the real CLI entrypoint after that move.
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "mottainai-cli-inline-flags-"));
+  const configPath = path.join(workspace, "mottainai.config.json");
+  try {
+    fs.writeFileSync(configPath, `${JSON.stringify({ version: 2, mcpServers: {} }, null, 2)}\n`);
+    const result = spawnSync(
+      process.execPath,
+      ["--import", "tsx", entryPoint, "add", "example", "--command", "node", "--priority=5", `--config=${configPath}`],
+      {
+        cwd: path.resolve(path.dirname(entryPoint), ".."),
+        env: { ...process.env, HOME: workspace, USERPROFILE: workspace },
+        encoding: "utf8",
+      },
+    );
+    assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+    const written = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
+      mcpServers: Record<string, { priority?: number; command?: string }>;
+    };
+    assert.equal(written.mcpServers.example?.command, "node");
+    assert.equal(written.mcpServers.example?.priority, 5);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});

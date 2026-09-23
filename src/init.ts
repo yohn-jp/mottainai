@@ -9,6 +9,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import packageMetadata from "../package.json" with { type: "json" };
 import { DIRECT_BOUNDARIES } from "./boundary.js";
 import type { BoundaryOperations } from "./boundary.js";
+import { hasFlag, requireSingleFlagValue } from "./cli-flags.js";
 import { collectDoctorReport, formatDoctorHuman } from "./commands/doctor.js";
 import { resolveConfigPath, saveRawConfig } from "./config.js";
 import type { DoctorReport } from "./commands/doctor.js";
@@ -108,47 +109,72 @@ const COMMAND_PRESETS: Record<string, Record<string, unknown>> = {
   "fff-mcp": { command: "fff-mcp", args: ["."] },
 };
 
-function optionValue(args: string[], name: string): string | undefined {
-  const index = args.indexOf(`--${name}`);
-  if (index === -1) return undefined;
-  const value = args[index + 1];
-  if (value === undefined || value.startsWith("--")) throw new Error(`missing value for --${name}`);
-  return value;
-}
+/** init が認識する値付き public option。`--foo value` と `--foo=value` を
+ * cli.ts のディスパッチャと同じ文法（`./cli-flags.js`）で同一に扱う。 */
+const INIT_VALUE_OPTIONS = ["workspace", "config", "scope", "client", "import"] as const;
+/** init が認識する真偽値 public option。値を取らない。 */
+const INIT_BOOLEAN_OPTIONS = ["yes", "force", "dry-run", "json", "no-register", "no-doctor", "latest"] as const;
 
-function hasOption(args: string[], name: string): boolean {
-  return args.includes(`--${name}`);
+/** 認識済み option 群では消費しきれない token（未知の `--flag`、boolean option への
+ * 誤った inline 値、余剰の positional 引数）を見つける。init は positional 引数を
+ * 一切取らないため、`--` で始まらない token は無条件に unconsumed。 */
+function findUnconsumedArgument(args: string[]): string | undefined {
+  const valueFlags = new Set(INIT_VALUE_OPTIONS.map((name) => `--${name}`));
+  const booleanFlags = new Set(INIT_BOOLEAN_OPTIONS.map((name) => `--${name}`));
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+    if (!token.startsWith("--")) return token;
+    const equals = token.indexOf("=");
+    const bareFlag = equals === -1 ? token : token.slice(0, equals);
+    if (booleanFlags.has(bareFlag)) {
+      if (equals !== -1) return token;
+      continue;
+    }
+    if (valueFlags.has(bareFlag)) {
+      // 分離トークン形式では、次の token が `--` で始まらない場合のみ値として消費する。
+      // 値が欠落している場合や次 token が別 flag に見える場合は、ここでは判定せず
+      // 後段の `requireSingleFlagValue` に委ねる（同じ option-looking 値の扱いを二重に
+      // 実装しない）。
+      const next = args[index + 1];
+      if (equals === -1 && next !== undefined && !next.startsWith("--")) index += 1;
+      continue;
+    }
+    return token;
+  }
+  return undefined;
 }
 
 function parseArguments(args: string[]): InitArguments {
-  if (hasOption(args, "runtime")) {
+  if (hasFlag(args, "runtime")) {
     throw new Error("--runtime is not an init option; use `mottainai-init runtime ensure --spec PATH`");
   }
-  const scopeValue = optionValue(args, "scope");
+  const unconsumed = findUnconsumedArgument(args);
+  if (unconsumed !== undefined) throw new Error(`unknown or unconsumed argument: ${unconsumed}`);
+  const scopeValue = requireSingleFlagValue(args, "scope");
   if (scopeValue !== undefined && scopeValue !== "personal" && scopeValue !== "project") {
     throw new Error("invalid --scope; expected personal or project");
   }
-  const clientValue = optionValue(args, "client");
+  const clientValue = requireSingleFlagValue(args, "client");
   if (clientValue !== undefined && clientValue !== "claude" && clientValue !== "codex" && clientValue !== "none") {
     throw new Error("invalid --client; expected claude, codex or none");
   }
-  const importValue = optionValue(args, "import");
+  const importValue = requireSingleFlagValue(args, "import");
   if (importValue !== undefined && importValue !== "claude" && importValue !== "codex" && importValue !== "none") {
     throw new Error("invalid --import; expected claude, codex or none");
   }
   return {
-    workspace: optionValue(args, "workspace"),
-    config: optionValue(args, "config"),
+    workspace: requireSingleFlagValue(args, "workspace"),
+    config: requireSingleFlagValue(args, "config"),
     scope: scopeValue as InitScope | undefined,
     client: clientValue as InitClient | undefined,
     importSource: importValue as InitImportSource | undefined,
-    yes: hasOption(args, "yes"),
-    force: hasOption(args, "force"),
-    dryRun: hasOption(args, "dry-run"),
-    json: hasOption(args, "json"),
-    noRegister: hasOption(args, "no-register"),
-    noDoctor: hasOption(args, "no-doctor"),
-    latest: hasOption(args, "latest"),
+    yes: hasFlag(args, "yes"),
+    force: hasFlag(args, "force"),
+    dryRun: hasFlag(args, "dry-run"),
+    json: hasFlag(args, "json"),
+    noRegister: hasFlag(args, "no-register"),
+    noDoctor: hasFlag(args, "no-doctor"),
+    latest: hasFlag(args, "latest"),
     selectedCommands: [],
     manualUpstreams: [],
   };

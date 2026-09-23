@@ -30,6 +30,73 @@ async function initialize(workspace: string, ...args: string[]) {
   }
 }
 
+test("init accepts --workspace=path, --config=path, --scope=, --client= and --import= inline forms identically to separate-token forms", async () => {
+  const workspace = temporaryWorkspace();
+  const configPath = path.join(workspace, "custom.config.json");
+  try {
+    const summary = await runInit({
+      args: [
+        "--yes",
+        `--workspace=${workspace}`,
+        `--config=${configPath}`,
+        "--scope=project",
+        "--client=none",
+        "--import=none",
+        "--no-doctor",
+      ],
+      cwd: workspace,
+      stdinIsTTY: false,
+      stdoutIsTTY: false,
+    });
+    assert.equal(summary.workspace, workspace);
+    assert.equal(summary.configuration, configPath);
+    assert.equal(summary.scope, "project");
+    assert.equal(fs.existsSync(configPath), true);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("init fails closed on a missing inline value, an option-looking separate-token value, a duplicated flag, and an unknown argument", async () => {
+  const workspace = temporaryWorkspace();
+  try {
+    await assert.rejects(
+      runInit({ args: ["--yes", "--workspace="], cwd: workspace, stdinIsTTY: false, stdoutIsTTY: false }),
+      /missing value for --workspace/,
+    );
+    await assert.rejects(
+      runInit({
+        args: ["--yes", "--workspace", "--client", "none"],
+        cwd: workspace,
+        stdinIsTTY: false,
+        stdoutIsTTY: false,
+      }),
+      /missing value for --workspace/,
+    );
+    await assert.rejects(
+      runInit({
+        args: ["--yes", "--workspace", workspace, "--workspace", workspace, "--client", "none", "--no-doctor"],
+        cwd: workspace,
+        stdinIsTTY: false,
+        stdoutIsTTY: false,
+      }),
+      /--workspace was passed more than once/,
+    );
+    await assert.rejects(
+      runInit({
+        args: ["--yes", "--workspace", workspace, "--client", "none", "--no-doctor", "--bogus"],
+        cwd: workspace,
+        stdinIsTTY: false,
+        stdoutIsTTY: false,
+      }),
+      /unknown or unconsumed argument: --bogus/,
+    );
+    assert.equal(fs.existsSync(path.join(workspace, "mottainai.config.json")), false);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 test("init creates a portable empty v2 configuration with non-interactive defaults", async () => {
   const workspace = temporaryWorkspace();
   try {
