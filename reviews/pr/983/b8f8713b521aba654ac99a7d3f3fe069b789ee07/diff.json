@@ -1,0 +1,86 @@
+{
+  "baseSha": "072c570ae8f68d6a6600595536b5e49072b35a03",
+  "files": [
+    {
+      "additions": 13,
+      "deletions": 18,
+      "hunks": [
+        {
+          "newLines": 0,
+          "newStart": 87,
+          "oldLines": 5,
+          "oldStart": 88
+        },
+        {
+          "newLines": 2,
+          "newStart": 1067,
+          "oldLines": 2,
+          "oldStart": 1072
+        },
+        {
+          "newLines": 2,
+          "newStart": 1264,
+          "oldLines": 2,
+          "oldStart": 1269
+        },
+        {
+          "newLines": 2,
+          "newStart": 1492,
+          "oldLines": 2,
+          "oldStart": 1497
+        },
+        {
+          "newLines": 1,
+          "newStart": 2217,
+          "oldLines": 1,
+          "oldStart": 2222
+        },
+        {
+          "newLines": 1,
+          "newStart": 2482,
+          "oldLines": 1,
+          "oldStart": 2487
+        },
+        {
+          "newLines": 1,
+          "newStart": 2508,
+          "oldLines": 1,
+          "oldStart": 2513
+        },
+        {
+          "newLines": 1,
+          "newStart": 2784,
+          "oldLines": 1,
+          "oldStart": 2789
+        },
+        {
+          "newLines": 1,
+          "newStart": 2805,
+          "oldLines": 1,
+          "oldStart": 2810
+        },
+        {
+          "newLines": 1,
+          "newStart": 3003,
+          "oldLines": 1,
+          "oldStart": 3008
+        },
+        {
+          "newLines": 1,
+          "newStart": 3194,
+          "oldLines": 1,
+          "oldStart": 3199
+        }
+      ],
+      "path": "pnpm-lock.yaml",
+      "status": "modified"
+    }
+  ],
+  "headSha": "b8f8713b521aba654ac99a7d3f3fe069b789ee07",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 13,
+    "deletions": 18,
+    "filesChanged": 1
+  }
+}
