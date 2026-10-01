@@ -1,0 +1,110 @@
+{
+  "baseSha": "33ecbe237b5ed5ebbcc6ceead5e8f54c4967c09a",
+  "files": [
+    {
+      "additions": 19,
+      "deletions": 19,
+      "hunks": [
+        {
+          "newLines": 2,
+          "newStart": 847,
+          "oldLines": 2,
+          "oldStart": 847
+        },
+        {
+          "newLines": 2,
+          "newStart": 850,
+          "oldLines": 2,
+          "oldStart": 850
+        },
+        {
+          "newLines": 2,
+          "newStart": 1187,
+          "oldLines": 2,
+          "oldStart": 1187
+        },
+        {
+          "newLines": 2,
+          "newStart": 1238,
+          "oldLines": 2,
+          "oldStart": 1238
+        },
+        {
+          "newLines": 1,
+          "newStart": 2253,
+          "oldLines": 1,
+          "oldStart": 2253
+        },
+        {
+          "newLines": 1,
+          "newStart": 2255,
+          "oldLines": 1,
+          "oldStart": 2255
+        },
+        {
+          "newLines": 1,
+          "newStart": 2275,
+          "oldLines": 1,
+          "oldStart": 2275
+        },
+        {
+          "newLines": 1,
+          "newStart": 2285,
+          "oldLines": 1,
+          "oldStart": 2285
+        },
+        {
+          "newLines": 1,
+          "newStart": 2524,
+          "oldLines": 1,
+          "oldStart": 2524
+        },
+        {
+          "newLines": 1,
+          "newStart": 2529,
+          "oldLines": 1,
+          "oldStart": 2529
+        },
+        {
+          "newLines": 1,
+          "newStart": 2766,
+          "oldLines": 1,
+          "oldStart": 2766
+        },
+        {
+          "newLines": 1,
+          "newStart": 2935,
+          "oldLines": 1,
+          "oldStart": 2935
+        },
+        {
+          "newLines": 1,
+          "newStart": 2993,
+          "oldLines": 1,
+          "oldStart": 2993
+        },
+        {
+          "newLines": 1,
+          "newStart": 3080,
+          "oldLines": 1,
+          "oldStart": 3080
+        },
+        {
+          "newLines": 1,
+          "newStart": 3084,
+          "oldLines": 1,
+          "oldStart": 3084
+        }
+      ],
+      "path": "pnpm-lock.yaml",
+      "status": "modified"
+    }
+  ],
+  "headSha": "08a9e9628489cdfe54e16f98da9e239cc9d83ee6",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 19,
+    "deletions": 19,
+    "filesChanged": 1
+  }
+}
