@@ -2228,9 +2228,11 @@ export class ManagerSessionService {
     piGuardPath: string,
     priorManifest?: ExecutionManifest,
   ): Promise<ManagerSessionRecord> {
-    const { starter } = await this.openTsukai();
+    // Orchestration admission comes first: an unadmitted launch is rejected
+    // before any AgentRun authority is contacted.
     const manifest = await this.admitPiExecution(session, semanticPlan, canon, priorManifest);
     this.admittedPiManifests.set(session.sessionId, manifest);
+    const { starter } = await this.openTsukai();
     const executionContext = piExecutionContextFromManifest(manifest);
     const started = await starter.start({
       startKey: tsukaiStartKey(session.sessionId, session.restartCount),

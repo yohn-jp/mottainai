@@ -20,7 +20,7 @@ import type { ManagerExecutionAuthority } from "../workflow/domain/manager-execu
 import type { NawabariRepositoryEvidence } from "../workflow/nawabari.js";
 import type { WorkflowStateStore } from "../workflow/state/store.js";
 import { ManagerSessionService } from "./service.js";
-import { TSUKAI_GUARD_EXTENSION_ID, tsukaiStartKey } from "./tsukai-integration.js";
+import { TSUKAI_GUARD_EXTENSION_ID, tsukaiStartKey, type ManagerTsukaiRuntimeFactory } from "./tsukai-integration.js";
 import type { ZellijObservedState, ZellijRuntime } from "./zellij.js";
 import { createTempGitRepo } from "../test-support/tmp-git-repo.js";
 import { createWorkflowStore } from "../test-support/workflow-store.js";
@@ -201,7 +201,7 @@ interface CutoverHarness {
   fixture: Awaited<ReturnType<typeof startNawabariManagedTask>>;
   creates: () => number;
   /** A fresh Manager process over the same durable state, Tsukai store, and Jinushi. */
-  manager(): Promise<ManagerSessionService>;
+  manager(overrides?: { tsukai?: ManagerTsukaiRuntimeFactory }): Promise<ManagerSessionService>;
 }
 
 async function cutoverHarness(t: TestContext): Promise<CutoverHarness> {
@@ -258,28 +258,30 @@ async function cutoverHarness(t: TestContext): Promise<CutoverHarness> {
     zellij,
     fixture,
     creates: () => creates,
-    async manager() {
+    async manager(overrides = {}) {
       const service = new ManagerSessionService({
         workspaceRoot: root,
         store,
         nawabari: fixture.nawabari,
         runtime: zellij,
         executionAuthority: authority,
-        tsukai: async () => {
-          const runtime = createPiRuntime({
-            execution: jinushi,
-            piVersion: SUPPORTED_PI_VERSION,
-            piRevision: SUPPORTED_PI_REVISION,
-            durableStore: createFileDurableStore({ dir: tsukaiDir, fsync: false }),
-          });
-          runtimes.push(runtime);
-          const create = runtime.runs.create.bind(runtime.runs);
-          runtime.runs.create = async (input) => {
-            creates += 1;
-            return create(input);
-          };
-          return runtime;
-        },
+        tsukai:
+          overrides.tsukai ??
+          (async () => {
+            const runtime = createPiRuntime({
+              execution: jinushi,
+              piVersion: SUPPORTED_PI_VERSION,
+              piRevision: SUPPORTED_PI_REVISION,
+              durableStore: createFileDurableStore({ dir: tsukaiDir, fsync: false }),
+            });
+            runtimes.push(runtime);
+            const create = runtime.runs.create.bind(runtime.runs);
+            runtime.runs.create = async (input) => {
+              creates += 1;
+              return create(input);
+            };
+            return runtime;
+          }),
       });
       services.push(service);
       await service.initialize();
@@ -572,22 +574,39 @@ test("unconfirmed AgentRun state stays uncertain and is never strengthened or re
   assert.equal(harness.creates(), 1);
 });
 
-test("an unavailable Tsukai runtime fails Pi launches explicitly and never falls back", async (t) => {
-  const root = createTempGitRepo(t);
-  const store = createWorkflowStore(t);
-  const zellij = new InertZellij();
-  const service = new ManagerSessionService({
-    workspaceRoot: root,
-    store,
-    runtime: zellij,
+test("an unavailable Tsukai runtime fails admitted Pi launches explicitly and never falls back", async (t) => {
+  const harness = await cutoverHarness(t);
+  const service = await harness.manager({
     tsukai: async () => {
       throw new Error("MOTTAINAI_JINUSHI_STATE_DIR is not configured");
     },
   });
-  await service.initialize();
   await assert.rejects(
-    service.start({ agentKind: "pi", instruction: "no fallback" }),
+    startPi(harness, service, "no fallback"),
     /Tsukai AgentRun runtime is unavailable: MOTTAINAI_JINUSHI_STATE_DIR is not configured/u,
   );
-  assert.equal(zellij.started.length, 0);
+  assert.equal(harness.zellij.started.length, 0);
+  assert.equal(harness.jinushi.opens.length, 0);
+});
+
+test("an unadmitted Pi launch is rejected by orchestration admission before Tsukai is contacted", async (t) => {
+  const root = createTempGitRepo(t);
+  const store = createWorkflowStore(t);
+  let opened = 0;
+  const service = new ManagerSessionService({
+    workspaceRoot: root,
+    store,
+    runtime: new InertZellij(),
+    tsukai: async () => {
+      opened += 1;
+      throw new Error("MOTTAINAI_JINUSHI_STATE_DIR is not configured");
+    },
+  });
+  await service.initialize();
+  const openedAtInitialize = opened;
+  await assert.rejects(
+    service.start({ agentKind: "pi", instruction: "no admission" }),
+    (error: Error & { code?: string }) => error.code === "execution_unresolved",
+  );
+  assert.equal(opened, openedAtInitialize);
 });
