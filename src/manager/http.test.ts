@@ -212,6 +212,18 @@ test("Manager HTTP worker supervision routes are bounded GET-only projections", 
   assert.equal(post.status, 405);
   assert.equal(post.headers.get("allow"), "GET");
   assert.equal(store.listWorkerControlAudit(managerSessionId).length, 0);
+
+  // AgentRun replay/result routes are Tsukai-only relays; a non-Tsukai worker has none.
+  for (const route of ["events", "result"]) {
+    const response = await fetch(`${handle.url}api/v1/manager/workers/${managerSessionId}/${route}`);
+    assert.equal(response.status, 400);
+    const postRoute = await fetch(`${handle.url}api/v1/manager/workers/${managerSessionId}/${route}`, {
+      method: "POST",
+    });
+    assert.equal(postRoute.status, 405);
+  }
+  const badCursor = await fetch(`${handle.url}api/v1/manager/workers/${managerSessionId}/events?after=-1`);
+  assert.equal(badCursor.status, 400);
 });
 
 test("Manager HTTP API rejects wrong methods per route before validation and keeps HEAD/OPTIONS explicit", async (t) => {

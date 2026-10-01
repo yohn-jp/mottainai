@@ -228,6 +228,14 @@ function workerListOptionsFromQuery(url: URL): { limit?: number } {
   return { limit };
 }
 
+function workerEventsOptionsFromQuery(url: URL): { afterSeq?: number; limit?: number } {
+  const after = url.searchParams.get("after");
+  const afterSeq = after === null ? undefined : Number(after);
+  if (afterSeq !== undefined && (!Number.isSafeInteger(afterSeq) || afterSeq < 0))
+    throw new ManagerError("invalid_request", "after must be a non-negative integer", 400);
+  return { ...workerListOptionsFromQuery(url), ...(afterSeq === undefined ? {} : { afterSeq }) };
+}
+
 function controlDirectiveFromBody(value: unknown): string {
   if (typeof value !== "object" || value === null || Array.isArray(value))
     throw new ManagerError("invalid_request", "request body must be an object", 400);
@@ -276,6 +284,8 @@ type ManagerRouteName =
   | "runtime"
   | "workers"
   | "worker"
+  | "worker-events"
+  | "worker-result"
   | "worker-steer"
   | "worker-stop"
   | "sessions"
@@ -305,6 +315,8 @@ const MANAGER_ROUTES: readonly ManagerRouteDefinition[] = [
   { name: "runtime", path: ["runtimes", ":runtimeId"], methods: ["GET"] },
   { name: "workers", path: ["workers"], methods: ["GET"] },
   { name: "worker", path: ["workers", ":workerId"], methods: ["GET"] },
+  { name: "worker-events", path: ["workers", ":workerId", "events"], methods: ["GET"] },
+  { name: "worker-result", path: ["workers", ":workerId", "result"], methods: ["GET"] },
   { name: "worker-steer", path: ["workers", ":workerId", "steer"], methods: ["POST"] },
   { name: "worker-stop", path: ["workers", ":workerId", "stop"], methods: ["POST"] },
   { name: "sessions", path: ["sessions"], methods: ["GET", "POST"] },
@@ -393,6 +405,19 @@ export class ManagerHttpApi implements ManagerHttpHandler {
         case "worker":
           sendJson(response, 200, {
             worker: this.service.getWorkerSupervision(workerSessionIdFromPath(segments[1] ?? "")),
+          });
+          return;
+        case "worker-events":
+          sendJson(response, 200, {
+            events: this.service.getWorkerEvents(
+              workerSessionIdFromPath(segments[1] ?? ""),
+              workerEventsOptionsFromQuery(url),
+            ),
+          });
+          return;
+        case "worker-result":
+          sendJson(response, 200, {
+            result: this.service.getWorkerResult(workerSessionIdFromPath(segments[1] ?? "")),
           });
           return;
         case "worker-steer":

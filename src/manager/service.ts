@@ -90,6 +90,25 @@ import type {
   WorkerRuntimeObservation,
   WorkerRuntimeObservationEvent,
 } from "./worker-runtime.js";
+import {
+  HarnessCapabilityError,
+  projectObservation,
+  type FleetRun,
+  type ObservationEnvelope,
+  type ProjectionGap,
+  type RunCompleteness,
+  type RunMetrics,
+  type RunResult,
+  type RunSnapshot,
+  type TimelineEntry,
+} from "tsukai";
+import {
+  MANAGER_PI_BUILTIN_TOOLS,
+  TsukaiAgentRunStarter,
+  tsukaiStartKey,
+  type ManagerTsukaiRuntime,
+  type ManagerTsukaiRuntimeFactory,
+} from "./tsukai-integration.js";
 
 const MAX_INSTRUCTION_LENGTH = 64 * 1024;
 const MAX_PROVIDER_LENGTH = 128;
@@ -546,11 +565,65 @@ export interface ManagerWorkerStatusProjection {
   blockerCode: string | null;
   usage: WorkerRuntimeUsage | null;
   context: WorkerRuntimeContext | null;
+  /**
+   * Tsukai AgentRun evidence for a Tsukai-backed worker, relayed without
+   * strengthening. Null for workers that never ran through Tsukai.
+   */
+  agentRun: ManagerAgentRunProjection | null;
+}
+
+/**
+ * Manager-facing relay of one Tsukai AgentRun. Tsukai is the only authority
+ * for these fields; Mottainai adds only its own correlation (start key and
+ * attempt). Unavailable evidence stays null with an explicit reason.
+ */
+export interface ManagerAgentRunProjection {
+  provenance: "tsukai";
+  startKey: string;
+  attempt: number;
+  agentRunId: string | null;
+  availability: "available" | "unavailable";
+  unavailableReason: string | null;
+  lifecycle: RunSnapshot["lifecycle"] | null;
+  semantic: RunSnapshot["semantic"] | null;
+  activity: RunSnapshot["activity"] | null;
+  outcome: NonNullable<RunSnapshot["outcome"]> | null;
+  reason: string | null;
+  completeness: RunSnapshot["completeness"] | null;
+  recovery: NonNullable<RunSnapshot["recovery"]> | null;
+  execution: { executionRunId: string; backend: string } | null;
+  receipt: NonNullable<RunSnapshot["receipt"]> | null;
+  revision: number | null;
+  updatedAt: string | null;
+}
+
+/** Tsukai's own operator projection of one AgentRun over a bounded event page. */
+export interface ManagerAgentRunObservation {
+  run: FleetRun | null;
+  metrics: RunMetrics | null;
+  completeness: RunCompleteness | null;
+  timeline: readonly TimelineEntry[];
+  retainedFrom: number;
+  gap: boolean;
+  nextCursor: number | null;
 }
 
 export interface ManagerWorkerDetailProjection extends ManagerWorkerStatusProjection {
   diagnosticEvents: readonly WorkerSupervisionDiagnosticEvent[];
+  agentRunObservation: ManagerAgentRunObservation | null;
 }
+
+/** One replay page of Tsukai observation envelopes; gaps are never hidden. */
+export interface ManagerWorkerEventsPage {
+  provenance: "tsukai";
+  agentRunId: string;
+  items: readonly ObservationEnvelope[];
+  retainedFrom: number;
+  gap: boolean;
+  nextCursor: number | null;
+}
+
+export type ManagerWorkerResult = RunResult & { provenance: "tsukai" };
 
 function piExecutionContextFromManifest(manifest: ExecutionManifest): ManagerPiExecutionContext {
   const task = manifest.intent.task;
@@ -642,7 +715,156 @@ function projectWorkerSupervision(
     blockerCode: status?.blocker?.code ?? null,
     usage: status?.usage === undefined ? null : { ...status.usage },
     context: status?.context === undefined ? null : { ...status.context },
+    agentRun: null,
   };
+}
+
+/** Evidence for the AgentRun of a session's current launch attempt. */
+interface AgentRunEvidence {
+  readonly startKey: string;
+  readonly attempt: number;
+  readonly snapshot?: RunSnapshot;
+  /** Tsukai answered and holds no run for this attempt. */
+  readonly absent?: true;
+  readonly unavailableReason?: string;
+}
+
+const TSUKAI_DETAIL_EVENT_LIMIT = 64;
+const TSUKAI_EVENT_PAGE_MAX = 100;
+/** Bound on how long a continuation waits for a cancelled AgentRun to become terminal. */
+const TSUKAI_CONTINUE_WAIT_MS = 30_000;
+
+function agentRunProjection(evidence: AgentRunEvidence): ManagerAgentRunProjection {
+  const snapshot = evidence.snapshot;
+  return {
+    provenance: "tsukai",
+    startKey: evidence.startKey,
+    attempt: evidence.attempt,
+    agentRunId: snapshot?.agentRunId ?? null,
+    availability: snapshot === undefined ? "unavailable" : "available",
+    unavailableReason: snapshot === undefined ? (evidence.unavailableReason ?? "Tsukai AgentRun evidence is unavailable") : null,
+    lifecycle: snapshot?.lifecycle ?? null,
+    semantic: snapshot?.semantic ?? null,
+    activity: snapshot?.activity ?? null,
+    outcome: snapshot?.outcome ?? null,
+    reason: snapshot?.reason ?? null,
+    completeness: snapshot?.completeness ?? null,
+    recovery:
+      snapshot?.recovery === undefined
+        ? null
+        : { ...snapshot.recovery, gaps: snapshot.recovery.gaps.map((gap) => ({ ...gap })) },
+    execution:
+      snapshot?.execution === undefined
+        ? null
+        : { executionRunId: snapshot.execution.executionRunId, backend: snapshot.execution.backend },
+    receipt: snapshot?.receipt === undefined ? null : { ...snapshot.receipt },
+    revision: snapshot?.revision ?? null,
+    updatedAt: snapshot?.updatedAt ?? null,
+  };
+}
+
+/**
+ * Worker projection of a Tsukai-backed session. Legacy self-reported worker
+ * fields stay null: Tsukai does not report them, and null means unavailable,
+ * never zero or idle.
+ */
+function projectAgentRunWorker(session: ManagerSessionRecord, evidence: AgentRunEvidence): ManagerWorkerStatusProjection {
+  const projection = projectWorkerSupervision(undefined, session);
+  const snapshot = evidence.snapshot;
+  return {
+    ...projection,
+    observationState: snapshot === undefined ? "missing" : session.runtimeState === "stale" ? "stale" : "current",
+    observedAt: snapshot?.updatedAt ?? null,
+    lastActivityAt: snapshot?.updatedAt ?? null,
+    agentRun: agentRunProjection(evidence),
+  };
+}
+
+function agentRunStatus(snapshot: RunSnapshot): string {
+  const facts = [`semantic ${snapshot.semantic}`, `activity ${snapshot.activity}`];
+  if (snapshot.outcome !== undefined) facts.push(`outcome ${snapshot.outcome}`);
+  if (snapshot.completeness === "incomplete") facts.push("evidence incomplete");
+  if (snapshot.recovery !== undefined && snapshot.recovery.gaps.length > 0)
+    facts.push(`${snapshot.recovery.gaps.length} recovery gap(s)`);
+  return boundedStatus(`Tsukai AgentRun ${snapshot.agentRunId} is ${snapshot.lifecycle} (${facts.join(", ")})`);
+}
+
+/**
+ * Project Tsukai lifecycle onto the Manager session record without
+ * strengthening it: reconciling/uncertain evidence (or a terminal run
+ * without an outcome) never becomes running or terminal.
+ */
+function agentRunSessionPatch(session: ManagerSessionRecord, snapshot: RunSnapshot): UpdateManagerSessionInput {
+  const detail = agentRunStatus(snapshot);
+  const now = Date.now();
+  if (snapshot.lifecycle === "accepted" || snapshot.lifecycle === "starting")
+    return {
+      lifecycleState: "starting",
+      runtimeState: "starting",
+      attachable: false,
+      reconciliationState: "synced",
+      reconciliationMessage: null,
+      latestStatus: detail,
+      terminationState: "running",
+      finishedAt: null,
+      runtimeObservedAt: now,
+    };
+  if (snapshot.lifecycle === "running" || snapshot.lifecycle === "stopping")
+    return {
+      lifecycleState: "running",
+      runtimeState: "running",
+      attachable: false,
+      reconciliationState: "synced",
+      reconciliationMessage: null,
+      latestStatus: detail,
+      terminationState: "running",
+      finishedAt: null,
+      runtimeObservedAt: now,
+    };
+  if (snapshot.lifecycle === "terminal" && snapshot.outcome !== undefined) {
+    const state = snapshot.outcome === "completed" ? "exited" : snapshot.outcome === "cancelled" ? "stopped" : "failed";
+    const complete = snapshot.completeness === "complete";
+    return {
+      lifecycleState: state,
+      runtimeState: state,
+      attachable: false,
+      reconciliationState: complete ? "synced" : "drifted",
+      reconciliationMessage: complete ? null : detail,
+      latestStatus: detail,
+      latestReceipt: receipt(`agent_run_${snapshot.outcome}`, detail, "runtime"),
+      terminationState: state,
+      finishedAt: session.finishedAt ?? now,
+      exitCode: snapshot.receipt?.exitCode ?? null,
+      errorMessage: state === "failed" ? boundedStatus(snapshot.reason ?? detail) : null,
+      runtimeObservedAt: now,
+    };
+  }
+  return {
+    runtimeState: "stale",
+    attachable: false,
+    reconciliationState: "unresolved",
+    reconciliationMessage: detail,
+    latestStatus: detail,
+    latestReceipt: receipt("agent_run_uncertain", detail, "runtime"),
+    runtimeObservedAt: now,
+  };
+}
+
+/** Mottainai prompt/context policy: the admitted execution facts precede the governed instruction. */
+export function managerPiPrompt(executionContext: ManagerPiExecutionContext, instruction: string): string {
+  return [
+    "# Mottainai governed execution",
+    "",
+    "This Pi run is bound to a Mottainai-governed execution.",
+    "Do not rediscover your assigned branch, base, worktree, authority, scope, or verification contract via Git history.",
+    "",
+    "Admitted execution facts:",
+    JSON.stringify(executionContext),
+    "",
+    "# Instruction",
+    "",
+    instruction,
+  ].join("\n");
 }
 
 function managerErrorStatusCode(code: string): number {
@@ -656,7 +878,8 @@ function managerErrorStatusCode(code: string): number {
     code === "worktree_missing" ||
     code === "session_restart_rejected" ||
     code === "session_continue_rejected" ||
-    code === "idempotency_conflict"
+    code === "idempotency_conflict" ||
+    code === "agent_run_capability_unsupported"
   ) {
     return 409;
   }
@@ -686,7 +909,8 @@ export class ManagerError extends Error {
       | "runtime_error"
       | "worktree_missing"
       | "execution_unresolved"
-      | "idempotency_conflict",
+      | "idempotency_conflict"
+      | "agent_run_capability_unsupported",
     message: string,
     readonly statusCode = managerErrorStatusCode(code),
     readonly details?: unknown,
@@ -1639,6 +1863,14 @@ export class ManagerSessionService {
     ManagerSessionId,
     { adapter: WorkerRuntimeAdapter; binding: WorkerRuntimeBinding; manifest: ExecutionManifest }
   >();
+  /** Opened Tsukai run service; reconciled with its backend before first use. */
+  private tsukaiHandle: { runtime: ManagerTsukaiRuntime; starter: TsukaiAgentRunStarter } | undefined;
+  private tsukaiOpening: Promise<{ runtime: ManagerTsukaiRuntime; starter: TsukaiAgentRunStarter }> | undefined;
+  /**
+   * Admitted orchestration context of each Tsukai-backed session, kept so a
+   * retry re-admits the same semantic plan. It holds no AgentRun state.
+   */
+  private readonly admittedPiManifests = new Map<ManagerSessionId, ExecutionManifest>();
   /**
    * Concurrent `list()`/`reconcileNow()` callers (e.g. several dashboard tabs polling at once)
    * share one in-flight reconciliation pass instead of each driving their own full sweep.
@@ -1657,6 +1889,8 @@ export class ManagerSessionService {
     piGuardPath?: string;
     /** Optional #950 Pi SDK adapter factory. Non-Pi and legacy Pi launches are unchanged when absent. */
     piWorkerFactory?: ManagerPiWorkerFactory;
+    /** Tsukai AgentRun authority for Pi launches; takes precedence over `piWorkerFactory`. */
+    tsukai?: ManagerTsukaiRuntimeFactory;
     runtimeConfig?: ManagerRuntimeConfiguration;
   };
 
@@ -1673,6 +1907,8 @@ export class ManagerSessionService {
     piGuardPath?: string;
     /** Optional #950 Pi SDK adapter factory. */
     piWorkerFactory?: ManagerPiWorkerFactory;
+    /** Tsukai AgentRun authority for Pi launches (production path). */
+    tsukai?: ManagerTsukaiRuntimeFactory;
     /** Optional injection seam; production defaults to the Nawabari-backed adapter. */
     executionAuthority?: ManagerExecutionAuthority;
     /** Canonical Runtime identity/configuration; credentials are never accepted or persisted. */
@@ -1704,6 +1940,10 @@ export class ManagerSessionService {
         state: "available",
         lastSeenAt: Date.now(),
       });
+      // Reconnect to Tsukai (and its own restart reconciliation) before any
+      // Manager reconciliation reads AgentRun evidence. An unavailable Tsukai
+      // runtime is surfaced per session, never replaced by another authority.
+      if (this.options.tsukai !== undefined) await this.openTsukai().catch(() => undefined);
       await this.reconcile();
       await this.reconcileForkLaunches();
       return this.health();
@@ -1766,7 +2006,11 @@ export class ManagerSessionService {
       ...observations.map((record) => projectWorkerSupervision(record, sessionsById.get(record.managerSessionId))),
       ...sessions
         .filter((session) => !recordsById.has(session.sessionId))
-        .map((session) => projectWorkerSupervision(undefined, session)),
+        .map((session) =>
+          this.isTsukaiSession(session)
+            ? projectAgentRunWorker(session, this.readAgentRunEvidence(session))
+            : projectWorkerSupervision(undefined, session),
+        ),
     ];
     projected.sort((left, right) => {
       const leftTimestamp = left.observedAt === null ? 0 : Date.parse(left.observedAt);
@@ -1784,10 +2028,382 @@ export class ManagerSessionService {
     const session = this.options.store.getManagerSession(managerSessionId);
     if (record === undefined && session === undefined)
       throw new ManagerError("session_not_found", `Worker was not found: ${managerSessionId}`, 404);
+    if (record === undefined && session !== undefined && this.isTsukaiSession(session)) {
+      const evidence = this.readAgentRunEvidence(session);
+      return {
+        ...projectAgentRunWorker(session, evidence),
+        diagnosticEvents: [],
+        agentRunObservation: this.agentRunObservation(evidence.snapshot),
+      };
+    }
     return {
       ...projectWorkerSupervision(record, session),
       diagnosticEvents: record === undefined ? [] : record.diagnosticEvents.map((event) => ({ ...event })),
+      agentRunObservation: null,
     };
+  }
+
+  /** Replay one page of the current AgentRun's Tsukai observation journal. */
+  getWorkerEvents(
+    managerSessionId: ManagerSessionId,
+    options: { afterSeq?: number; limit?: number } = {},
+  ): ManagerWorkerEventsPage {
+    const { snapshot, runtime } = this.requireAgentRun(managerSessionId);
+    const limit = Math.min(Math.max(Math.trunc(options.limit ?? TSUKAI_DETAIL_EVENT_LIMIT), 1), TSUKAI_EVENT_PAGE_MAX);
+    const page = runtime.runs.eventsPage(snapshot.agentRunId, options.afterSeq, limit);
+    return {
+      provenance: "tsukai",
+      agentRunId: snapshot.agentRunId,
+      items: page.items,
+      retainedFrom: page.retainedFrom,
+      gap: page.gap,
+      nextCursor: page.nextCursor === undefined ? null : Number(page.nextCursor),
+    };
+  }
+
+  /** The current AgentRun's result exactly as Tsukai reports it (`ready: false` until terminal). */
+  getWorkerResult(managerSessionId: ManagerSessionId): ManagerWorkerResult {
+    const { snapshot, runtime } = this.requireAgentRun(managerSessionId);
+    return { ...runtime.runs.result(snapshot.agentRunId), provenance: "tsukai" };
+  }
+
+  /** Detach from Tsukai without retiring runs, so a later Manager reconnects to them. */
+  async close(): Promise<void> {
+    const opening = this.tsukaiOpening;
+    this.tsukaiOpening = undefined;
+    this.tsukaiHandle = undefined;
+    const handle = await opening?.catch(() => undefined);
+    await handle?.runtime.detach();
+  }
+
+  private isTsukaiSession(session: ManagerSessionRecord): boolean {
+    return session.agentKind === "pi" && this.options.tsukai !== undefined;
+  }
+
+  private openTsukai(): Promise<{ runtime: ManagerTsukaiRuntime; starter: TsukaiAgentRunStarter }> {
+    const factory = this.options.tsukai;
+    if (factory === undefined)
+      return Promise.reject(new ManagerError("runtime_error", "Tsukai AgentRun runtime is not configured", 503));
+    if (this.tsukaiOpening !== undefined) return this.tsukaiOpening;
+    const opening = (async () => {
+      const runtime = await factory();
+      await runtime.reconcile();
+      const handle = { runtime, starter: new TsukaiAgentRunStarter({ store: this.options.store, runs: runtime.runs }) };
+      this.tsukaiHandle = handle;
+      return handle;
+    })().catch((error: unknown) => {
+      if (this.tsukaiOpening === opening) this.tsukaiOpening = undefined;
+      throw new ManagerError(
+        "runtime_error",
+        `Tsukai AgentRun runtime is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        503,
+      );
+    });
+    this.tsukaiOpening = opening;
+    return opening;
+  }
+
+  /**
+   * Read-only AgentRun evidence for projections: only a bound correlation is
+   * read, and nothing is reconciled, bound, or created.
+   */
+  private readAgentRunEvidence(session: ManagerSessionRecord): AgentRunEvidence {
+    const attempt = session.restartCount;
+    const startKey = tsukaiStartKey(session.sessionId, attempt);
+    const handle = this.tsukaiHandle;
+    if (handle === undefined)
+      return { startKey, attempt, unavailableReason: "Tsukai AgentRun runtime is not connected" };
+    const correlation = this.options.store.getTsukaiRunCorrelation(startKey);
+    if (correlation?.agentRunId === undefined)
+      return {
+        startKey,
+        attempt,
+        unavailableReason:
+          correlation === undefined
+            ? "no Tsukai AgentRun is correlated with this attempt"
+            : "Tsukai AgentRun creation is not yet confirmed for this attempt",
+      };
+    try {
+      return { startKey, attempt, snapshot: handle.runtime.runs.get(correlation.agentRunId) };
+    } catch (error) {
+      return {
+        startKey,
+        attempt,
+        unavailableReason: boundedStatus(
+          `Tsukai AgentRun ${correlation.agentRunId} evidence is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      };
+    }
+  }
+
+  /**
+   * Reconcile the current attempt's durable correlation with Tsukai. This is
+   * the restart/reconnect path: it may bind a run Tsukai already holds, but it
+   * never creates one.
+   */
+  private async reconcileAgentRunEvidence(session: ManagerSessionRecord): Promise<AgentRunEvidence> {
+    const attempt = session.restartCount;
+    const startKey = tsukaiStartKey(session.sessionId, attempt);
+    let handle: { runtime: ManagerTsukaiRuntime; starter: TsukaiAgentRunStarter };
+    try {
+      handle = await this.openTsukai();
+    } catch (error) {
+      return { startKey, attempt, unavailableReason: error instanceof Error ? error.message : String(error) };
+    }
+    try {
+      const snapshot = handle.starter.recover(startKey, session.sessionId);
+      return snapshot === undefined ? { startKey, attempt, absent: true } : { startKey, attempt, snapshot };
+    } catch (error) {
+      return {
+        startKey,
+        attempt,
+        unavailableReason: boundedStatus(
+          `Tsukai AgentRun evidence is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      };
+    }
+  }
+
+  private requireAgentRun(managerSessionId: ManagerSessionId): {
+    snapshot: RunSnapshot;
+    runtime: ManagerTsukaiRuntime;
+  } {
+    const session = this.options.store.getManagerSession(managerSessionId);
+    if (session === undefined)
+      throw new ManagerError("session_not_found", `Worker was not found: ${managerSessionId}`, 404);
+    if (!this.isTsukaiSession(session))
+      throw new ManagerError("invalid_request", "worker is not a Tsukai AgentRun", 400);
+    const evidence = this.readAgentRunEvidence(session);
+    if (evidence.snapshot === undefined || this.tsukaiHandle === undefined)
+      throw new ManagerError("runtime_error", evidence.unavailableReason ?? "Tsukai AgentRun is unavailable", 503);
+    return { snapshot: evidence.snapshot, runtime: this.tsukaiHandle.runtime };
+  }
+
+  private agentRunObservation(snapshot: RunSnapshot | undefined): ManagerAgentRunObservation | null {
+    const handle = this.tsukaiHandle;
+    if (snapshot === undefined || handle === undefined) return null;
+    let page;
+    try {
+      page = handle.runtime.runs.eventsPage(snapshot.agentRunId, undefined, TSUKAI_DETAIL_EVENT_LIMIT);
+    } catch {
+      return null;
+    }
+    const gaps: ProjectionGap[] = page.gap
+      ? [
+          {
+            runId: snapshot.agentRunId,
+            kind: "event",
+            code: "OBSERVATION_RETENTION_GAP",
+            ...(page.retainedFrom > 1 ? { fromSeq: 1, toSeq: page.retainedFrom - 1 } : {}),
+            provenance: {
+              availability: "unavailable",
+              source: "journal",
+              eventSeqs: [],
+              explanation: "Tsukai no longer retains the earlier observation events",
+            },
+          },
+        ]
+      : [];
+    const projection = projectObservation({ snapshots: [snapshot], events: page.items, gaps });
+    return {
+      run: projection.fleet.find((run) => run.agentRunId === snapshot.agentRunId) ?? null,
+      metrics: projection.metrics[snapshot.agentRunId] ?? null,
+      completeness: projection.completeness.runs[snapshot.agentRunId] ?? null,
+      timeline: projection.timeline,
+      retainedFrom: page.retainedFrom,
+      gap: page.gap,
+      nextCursor: page.nextCursor === undefined ? null : Number(page.nextCursor),
+    };
+  }
+
+  /**
+   * Create (or recover) the AgentRun of the session's current attempt through
+   * Tsukai. Restart reconciliation runs before any create, so an attempt that
+   * already owns a run never creates a second one.
+   */
+  private async startAgentRun(
+    session: ManagerSessionRecord,
+    semanticPlan: SemanticExecutionPlan,
+    canon: ExecutionManifestCanonInput | undefined,
+    piGuardPath: string,
+    priorManifest?: ExecutionManifest,
+  ): Promise<ManagerSessionRecord> {
+    // Orchestration admission comes first: an unadmitted launch is rejected
+    // before any AgentRun authority is contacted.
+    const manifest = await this.admitPiExecution(session, semanticPlan, canon, priorManifest);
+    this.admittedPiManifests.set(session.sessionId, manifest);
+    const { starter } = await this.openTsukai();
+    const executionContext = piExecutionContextFromManifest(manifest);
+    const started = await starter.start({
+      startKey: tsukaiStartKey(session.sessionId, session.restartCount),
+      session,
+      manifest,
+      prompt: managerPiPrompt(executionContext, session.instruction),
+      guardPath: piGuardPath,
+      tools: { builtin: MANAGER_PI_BUILTIN_TOOLS },
+    });
+    const detail = agentRunStatus(started.snapshot);
+    return this.options.store.updateManagerSession(session.sessionId, {
+      ...agentRunSessionPatch(session, started.snapshot),
+      latestReceipt: receipt(started.created ? "agent_run_created" : "agent_run_recovered", detail, "runtime"),
+    });
+  }
+
+  private async reconcileAgentRunSession(
+    session: ManagerSessionRecord,
+    semantic: ManagerSessionRecord["semanticLifecycleState"],
+    status: string | undefined,
+    semanticReceipt: ManagerSessionReceipt | undefined,
+  ): Promise<ManagerSessionRecord> {
+    const evidence = await this.reconcileAgentRunEvidence(session);
+    if (evidence.snapshot !== undefined) {
+      const patch = agentRunSessionPatch(session, evidence.snapshot);
+      return this.applyReconciliationPatch(session, {
+        ...patch,
+        semanticLifecycleState: semantic,
+        ...(patch.latestReceipt === undefined && semanticReceipt !== undefined ? { latestReceipt: semanticReceipt } : {}),
+      });
+    }
+    const runtimeTerminal =
+      session.runtimeState === "exited" || session.runtimeState === "stopped" || session.runtimeState === "failed";
+    if (evidence.absent === true && !runtimeTerminal) {
+      // Tsukai answered and holds no run for this attempt: its create was
+      // never accepted. Nothing is created here; a retry is a new attempt.
+      const detail = `Tsukai holds no AgentRun for launch attempt ${evidence.attempt}; no run was created`;
+      return this.applyReconciliationPatch(session, {
+        lifecycleState: "failed",
+        runtimeState: "failed",
+        semanticLifecycleState: semantic,
+        attachable: false,
+        reconciliationState: "unresolved",
+        reconciliationMessage: detail,
+        latestStatus: detail,
+        latestReceipt: receipt("agent_run_absent", detail, "runtime"),
+        terminationState: "failed",
+        errorMessage: detail,
+        finishedAt: session.finishedAt ?? Date.now(),
+      });
+    }
+    if (evidence.absent === true || runtimeTerminal)
+      return this.applyReconciliationPatch(session, {
+        semanticLifecycleState: semantic,
+        latestStatus: status,
+        ...(semanticReceipt === undefined ? {} : { latestReceipt: semanticReceipt }),
+      });
+    // Tsukai evidence is unavailable: keep the recorded lifecycle unchanged and say so.
+    const detail = boundedStatus(evidence.unavailableReason ?? "Tsukai AgentRun evidence is unavailable");
+    return this.applyReconciliationPatch(session, {
+      semanticLifecycleState: semantic,
+      reconciliationState: "unresolved",
+      reconciliationMessage: detail,
+      latestStatus: detail,
+    });
+  }
+
+  private async stopAgentRun(session: ManagerSessionRecord): Promise<ManagerSessionRecord> {
+    const { runtime } = await this.openTsukai();
+    const evidence = await this.reconcileAgentRunEvidence(session);
+    if (evidence.snapshot === undefined)
+      throw new ManagerError(
+        "session_not_running",
+        evidence.unavailableReason ?? `no Tsukai AgentRun exists for launch attempt ${evidence.attempt}`,
+        409,
+      );
+    const cancelled = await runtime.runs.cancel(evidence.snapshot.agentRunId);
+    const detail = agentRunStatus(cancelled);
+    const patch = agentRunSessionPatch(session, cancelled);
+    return this.options.store.updateManagerSession(session.sessionId, {
+      ...patch,
+      latestReceipt: patch.latestReceipt ?? receipt("agent_run_cancel_requested", detail, "runtime"),
+    });
+  }
+
+  /** Wait (bounded) for the cancelled AgentRun to become terminal before a continuation retries. */
+  private async awaitAgentRunTerminal(session: ManagerSessionRecord): Promise<ManagerSessionRecord> {
+    const evidence = this.readAgentRunEvidence(session);
+    if (evidence.snapshot === undefined || evidence.snapshot.lifecycle === "terminal" || this.tsukaiHandle === undefined)
+      return session;
+    await this.tsukaiHandle.runtime.runs
+      .wait(evidence.snapshot.agentRunId, { timeoutMs: TSUKAI_CONTINUE_WAIT_MS })
+      .catch(() => undefined);
+    return this.reconcileOneUnlocked(this.requireSession(session.sessionId));
+  }
+
+  private async steerAgentRun(session: ManagerSessionRecord, directive: string): Promise<never> {
+    const { runtime } = await this.openTsukai();
+    const evidence = await this.reconcileAgentRunEvidence(session);
+    if (evidence.snapshot === undefined)
+      throw new ManagerError("session_not_running", evidence.unavailableReason ?? "no Tsukai AgentRun exists", 409);
+    try {
+      return await runtime.runs.steer(evidence.snapshot.agentRunId, directive);
+    } catch (error) {
+      if (error instanceof HarnessCapabilityError)
+        throw new ManagerError("agent_run_capability_unsupported", boundedStatus(error.message), 409);
+      throw managerError(error);
+    }
+  }
+
+  /**
+   * An orchestration retry: the current AgentRun must be terminal (it is never
+   * resurrected or overlapped) and the next attempt creates a distinct run.
+   */
+  private async restartAgentRun(current: ManagerSessionRecord): Promise<ManagerSessionRecord> {
+    const evidence = await this.reconcileAgentRunEvidence(current);
+    if (evidence.snapshot === undefined && evidence.absent !== true)
+      throw new ManagerError(
+        "session_restart_rejected",
+        evidence.unavailableReason ?? "Tsukai AgentRun evidence is unavailable",
+        409,
+      );
+    if (evidence.snapshot !== undefined && evidence.snapshot.lifecycle !== "terminal")
+      throw new ManagerError(
+        "session_restart_rejected",
+        `the current Tsukai AgentRun is ${evidence.snapshot.lifecycle}; a retry never overlaps or resurrects a run`,
+        409,
+      );
+    const manifest = this.admittedPiManifests.get(current.sessionId);
+    if (manifest === undefined)
+      throw new ManagerError(
+        "runtime_error",
+        "admitted Pi execution context is unavailable in this Manager process; refusing an unadmitted retry",
+        503,
+      );
+    const context = this.contextFromRecord(current);
+    const validation = await this.execution.validate(context);
+    if (!validation.ok) throw new ManagerError("execution_unresolved", validation.detail, 409);
+    const piGuardPath = configuredPiGuardPath(this.options.piGuardPath)!;
+    const started = this.options.store.updateManagerSession(current.sessionId, {
+      lifecycleState: "starting",
+      runtimeState: "starting",
+      attachable: false,
+      reconciliationState: "drifted",
+      reconciliationMessage: "retry requested; creating a new Tsukai AgentRun",
+      latestStatus: "retry requested; creating a new Tsukai AgentRun",
+      latestReceipt: receipt("agent_run_retry_requested", "retry requested; creating a new Tsukai AgentRun", "manager"),
+      restartCount: current.restartCount + 1,
+      terminationState: "running",
+      errorMessage: null,
+      finishedAt: null,
+      exitCode: null,
+    });
+    try {
+      return await this.startAgentRun(started, manifest.intent.semanticPlan, undefined, piGuardPath, manifest);
+    } catch (error) {
+      const failure = error instanceof ManagerError ? error : managerError(error);
+      this.options.store.updateManagerSession(current.sessionId, {
+        lifecycleState: "failed",
+        runtimeState: "failed",
+        attachable: false,
+        reconciliationState: "unresolved",
+        reconciliationMessage: failure.message,
+        latestStatus: failure.message,
+        latestReceipt: receipt("agent_run_retry_failed", failure.message, "runtime"),
+        terminationState: "failed",
+        errorMessage: failure.message,
+        finishedAt: Date.now(),
+      });
+      throw failure;
+    }
   }
 
   listWorkers(options: ListWorkerSupervisionOptions = {}): ManagerWorkerStatusProjection[] {
@@ -1993,6 +2609,7 @@ export class ManagerSessionService {
       const current = await this.reconcileOneUnlocked(this.requireSession(sessionId));
       if (current.runtimeState !== "running" && current.runtimeState !== "detached")
         throw new ManagerError("session_not_running", `session is not running: ${sessionId}`, 409);
+      if (this.isTsukaiSession(current)) return this.steerAgentRun(current, boundedDirective);
       return this.steerPiWorker(sessionId, boundedDirective);
     });
   }
@@ -2733,6 +3350,31 @@ export class ManagerSessionService {
         });
         throw new ManagerError("worktree_missing", detail, 409);
       }
+      if (agentKind === "pi" && this.options.tsukai !== undefined) {
+        try {
+          return await this.startAgentRun(
+            this.options.store.getManagerSession(sessionId)!,
+            semanticPlan,
+            normalized.canon,
+            piGuardPath!,
+          );
+        } catch (error) {
+          const failure = error instanceof ManagerError ? error : managerError(error);
+          this.options.store.updateManagerSession(sessionId, {
+            lifecycleState: "failed",
+            runtimeState: "failed",
+            attachable: false,
+            reconciliationState: "unresolved",
+            reconciliationMessage: failure.message,
+            latestStatus: failure.message,
+            latestReceipt: receipt("agent_run_start_failed", failure.message, "runtime"),
+            terminationState: "failed",
+            errorMessage: failure.message,
+            finishedAt: Date.now(),
+          });
+          throw failure;
+        }
+      }
       if (agentKind === "pi" && this.options.piWorkerFactory !== undefined) {
         try {
           return await this.startPiWorker(
@@ -2846,6 +3488,7 @@ export class ManagerSessionService {
       session.runtimeState !== "starting"
     )
       return session;
+    if (this.isTsukaiSession(session)) return this.stopAgentRun(session);
     const piWorker = this.piWorkerFor(sessionId);
     if (piWorker !== undefined) {
       const requestedAt = new Date().toISOString();
@@ -2940,6 +3583,7 @@ export class ManagerSessionService {
         current.runtimeState === "detached"
       ) {
         current = await this.stopUnlocked(sessionId);
+        if (this.isTsukaiSession(current)) current = await this.awaitAgentRunTerminal(current);
       }
 
       const separator = "\n\n--- Mottainai follow-up ---\n";
@@ -2998,6 +3642,10 @@ export class ManagerSessionService {
         "restart is only valid for a non-running managed runtime",
         409,
       );
+    }
+    if (this.isTsukaiSession(current)) {
+      validateStoredPiGuardInvocation(current.launchArgs);
+      return this.restartAgentRun(current);
     }
     if (current.runtimeState === "stale") {
       const observed = await this.options.runtime.inspect(current.runtimeName, current.worktreePath);
@@ -3200,6 +3848,9 @@ export class ManagerSessionService {
       );
       semanticReceipt = receipt("workflow_observation_failed", status, "workflow");
     }
+
+    if (this.isTsukaiSession(session))
+      return this.reconcileAgentRunSession(session, semantic, status, semanticReceipt);
 
     const piObservation = await this.observePiWorker(session).catch(() => undefined);
     if (piObservation !== undefined) {

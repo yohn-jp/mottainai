@@ -18,7 +18,17 @@ import {
   type ManagerPiWorkerFactoryInput,
   type ManagerRuntimeConfiguration,
 } from "./service.js";
+import {
+  createFileDurableStore,
+  createJinushiClient,
+  createJinushiPiExecutionPort,
+  createPiRuntime,
+  SUPPORTED_PI_REVISION,
+  SUPPORTED_PI_VERSION,
+} from "tsukai";
+import { resolveStateDir } from "../state/paths.js";
 import { NawabariExecutionClient } from "../workflow/nawabari.js";
+import type { ManagerTsukaiRuntimeFactory } from "./tsukai-integration.js";
 import { ZellijCliRuntime, type ZellijRuntime } from "./zellij.js";
 import { createManagerTerminalBridge } from "./terminal-bridge.js";
 
@@ -43,6 +53,7 @@ export interface ManagerStartOptions extends ManagerCommandOptions {
   executionAuthority?: ManagerExecutionAuthority;
   runtimeConfig?: ManagerRuntimeConfiguration;
   piWorkerFactory?: ManagerPiWorkerFactory;
+  tsukai?: ManagerTsukaiRuntimeFactory;
 }
 
 let activeManager: DashboardServerHandle | undefined;
@@ -78,6 +89,35 @@ export function createProductionPiWorkerFactory(
       throw new Error("pi-mottainai does not export createManagedPiMottainaiRuntime");
     }
     return module.createManagedPiMottainaiRuntime(input);
+  };
+}
+
+function requiredAbsolutePath(environment: NodeJS.ProcessEnv, name: string): string {
+  const value = environment[name];
+  if (value === undefined || value.length === 0) throw new Error(`${name} is not configured`);
+  if (!path.isAbsolute(value)) throw new Error(`${name} must be an absolute path`);
+  return value;
+}
+
+/**
+ * Production Tsukai AgentRun authority: a durable Pi run service whose only
+ * physical execution path is the Jinushi supervisor. Mottainai never spawns
+ * the coding agent itself.
+ */
+export function createProductionTsukaiRuntimeFactory(environment: NodeJS.ProcessEnv): ManagerTsukaiRuntimeFactory {
+  return async () => {
+    const jinushiStateDir = requiredAbsolutePath(environment, "MOTTAINAI_JINUSHI_STATE_DIR");
+    const executable = requiredAbsolutePath(environment, "MOTTAINAI_PI_EXECUTABLE");
+    return createPiRuntime({
+      execution: createJinushiPiExecutionPort({
+        client: createJinushiClient(jinushiStateDir),
+        executable,
+        environment: { mode: "inherit-supervisor" },
+      }),
+      piVersion: SUPPORTED_PI_VERSION,
+      piRevision: SUPPORTED_PI_REVISION,
+      durableStore: createFileDurableStore({ dir: path.join(resolveStateDir(environment), "tsukai") }),
+    });
   };
 }
 
@@ -158,7 +198,8 @@ export async function startManager(options: ManagerStartOptions): Promise<Dashbo
     nawabari: new NawabariExecutionClient(),
     agentCommands: options.agentCommands,
     executionAuthority: options.executionAuthority,
-    piWorkerFactory: options.piWorkerFactory ?? createProductionPiWorkerFactory(),
+    ...(options.piWorkerFactory === undefined ? {} : { piWorkerFactory: options.piWorkerFactory }),
+    tsukai: options.tsukai ?? createProductionTsukaiRuntimeFactory(environment),
     runtimeConfig: options.runtimeConfig,
   });
   try {
@@ -181,6 +222,7 @@ export async function startManager(options: ManagerStartOptions): Promise<Dashbo
       close: async () => {
         await close();
         terminalBridge.close();
+        await service.close();
         if (activeManager === wrappedHandle) activeManager = undefined;
         if (options.store === undefined) store.close();
       },
@@ -188,6 +230,7 @@ export async function startManager(options: ManagerStartOptions): Promise<Dashbo
     activeManager = wrappedHandle;
     return wrappedHandle;
   } catch (error) {
+    await service.close().catch(() => undefined);
     if (options.store === undefined) store.close();
     throw error;
   }

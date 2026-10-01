@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { createTempDir } from "../test-support/tmp-dir.js";
-import { createProductionPiWorkerFactory } from "./command.js";
+import { createProductionPiWorkerFactory, createProductionTsukaiRuntimeFactory } from "./command.js";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -22,6 +22,18 @@ test("production Pi factory delegates to the independently packaged adapter", as
   const result = await factory(input);
   assert.equal(result, adapter);
   assert.equal(received, input);
+});
+
+test("production Tsukai runtime requires an explicit Jinushi supervisor and Pi executable", async () => {
+  await assert.rejects(createProductionTsukaiRuntimeFactory({})(), /MOTTAINAI_JINUSHI_STATE_DIR is not configured/u);
+  await assert.rejects(
+    createProductionTsukaiRuntimeFactory({ MOTTAINAI_JINUSHI_STATE_DIR: "relative/jinushi" })(),
+    /MOTTAINAI_JINUSHI_STATE_DIR must be an absolute path/u,
+  );
+  await assert.rejects(
+    createProductionTsukaiRuntimeFactory({ MOTTAINAI_JINUSHI_STATE_DIR: "/run/jinushi" })(),
+    /MOTTAINAI_PI_EXECUTABLE is not configured/u,
+  );
 });
 
 test("mottainai manager starts a loopback endpoint and reports the Zellij runtime", async (t) => {
