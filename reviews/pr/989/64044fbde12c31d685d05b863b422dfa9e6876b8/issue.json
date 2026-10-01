@@ -1,0 +1,61 @@
+{
+  "acceptanceCriteria": [
+    {
+      "checked": false,
+      "text": "Production assignment creates/uses a Tsukai AgentRun rather than directly owning a Pi AgentSession lifecycle."
+    },
+    {
+      "checked": false,
+      "text": "Lifecycle observation and event/replay consumption flow from Tsukai."
+    },
+    {
+      "checked": false,
+      "text": "Result retrieval flows from Tsukai."
+    },
+    {
+      "checked": false,
+      "text": "Cancellation flows through Tsukai scoped AgentRun control."
+    },
+    {
+      "checked": false,
+      "text": "Stored agentRunId is used for restart/reconnect reconciliation before any create."
+    },
+    {
+      "checked": false,
+      "text": "Restart/reconnect does not duplicate an already-established AgentRun."
+    },
+    {
+      "checked": false,
+      "text": "Retry creates a distinct AgentRun while retaining Mottainai orchestration correlation."
+    },
+    {
+      "checked": false,
+      "text": "Manager projections preserve explicit gaps, uncertainty, provenance, and unavailable metrics."
+    },
+    {
+      "checked": false,
+      "text": "Nawabari workspace authority remains unchanged."
+    },
+    {
+      "checked": false,
+      "text": "Jinushi remains the physical process owner."
+    },
+    {
+      "checked": false,
+      "text": "Existing Manager API behavior is covered by focused regression tests after cutover."
+    }
+  ],
+  "issue": {
+    "labels": [
+      "implementation"
+    ],
+    "number": 986,
+    "state": "open",
+    "title": "impl: cut Manager execution and observation over to Tsukai",
+    "url": "https://github.com/yohn-jp/mottainai/issues/986"
+  },
+  "linked": {
+    "number": 986
+  },
+  "schemaVersion": "mottainai.review-pages.issue/v1"
+}
