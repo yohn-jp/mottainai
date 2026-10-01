@@ -1,0 +1,40 @@
+{
+  "generator": {
+    "name": "mottainai-review-pages",
+    "version": "1.0.0"
+  },
+  "pullRequest": {
+    "baseRef": "main",
+    "baseSha": "d809095ae4d9cb85eeb611c1de81f003e672feb7",
+    "draft": false,
+    "headRef": "refactor/986-tsukai-manager-cutover",
+    "headSha": "9f71ea5c56bed59e4ba3a0dbabeddad2bf31a871",
+    "number": 989,
+    "title": "feat(manager): cut Manager AgentRun execution and observation over to Tsukai"
+  },
+  "repository": {
+    "fullName": "yohn-jp/mottainai",
+    "name": "mottainai",
+    "owner": "yohn-jp"
+  },
+  "resources": {
+    "checks": "checks.json",
+    "diff": "diff.json",
+    "html": "index.html",
+    "issue": "issue.json",
+    "ocr": "ocr.json"
+  },
+  "revision": {
+    "id": "9f71ea5c56bed59e4ba3a0dbabeddad2bf31a871",
+    "immutable": true,
+    "shortId": "9f71ea5c56be"
+  },
+  "schemaVersion": "mottainai.review-pages.manifest/v1",
+  "volatile": {
+    "fields": [
+      "volatile.generatedAt",
+      "checks.checkRuns"
+    ],
+    "generatedAt": "2026-10-01T10:39:24.150Z"
+  }
+}

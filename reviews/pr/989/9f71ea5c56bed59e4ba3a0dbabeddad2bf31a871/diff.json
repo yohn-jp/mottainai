@@ -1,0 +1,314 @@
+{
+  "baseSha": "d809095ae4d9cb85eeb611c1de81f003e672feb7",
+  "files": [
+    {
+      "additions": 13,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 1,
+          "newStart": 8,
+          "oldLines": 1,
+          "oldStart": 8
+        },
+        {
+          "newLines": 12,
+          "newStart": 27,
+          "oldLines": 0,
+          "oldStart": 26
+        }
+      ],
+      "path": "src/manager/command.integration.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 44,
+      "deletions": 1,
+      "hunks": [
+        {
+          "newLines": 9,
+          "newStart": 21,
+          "oldLines": 0,
+          "oldStart": 20
+        },
+        {
+          "newLines": 1,
+          "newStart": 31,
+          "oldLines": 0,
+          "oldStart": 21
+        },
+        {
+          "newLines": 1,
+          "newStart": 56,
+          "oldLines": 0,
+          "oldStart": 45
+        },
+        {
+          "newLines": 29,
+          "newStart": 95,
+          "oldLines": 0,
+          "oldStart": 83
+        },
+        {
+          "newLines": 2,
+          "newStart": 201,
+          "oldLines": 1,
+          "oldStart": 161
+        },
+        {
+          "newLines": 1,
+          "newStart": 225,
+          "oldLines": 0,
+          "oldStart": 183
+        },
+        {
+          "newLines": 1,
+          "newStart": 233,
+          "oldLines": 0,
+          "oldStart": 190
+        }
+      ],
+      "path": "src/manager/command.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 12,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 12,
+          "newStart": 215,
+          "oldLines": 0,
+          "oldStart": 214
+        }
+      ],
+      "path": "src/manager/http.test.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 25,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 8,
+          "newStart": 231,
+          "oldLines": 0,
+          "oldStart": 230
+        },
+        {
+          "newLines": 2,
+          "newStart": 287,
+          "oldLines": 0,
+          "oldStart": 278
+        },
+        {
+          "newLines": 2,
+          "newStart": 318,
+          "oldLines": 0,
+          "oldStart": 307
+        },
+        {
+          "newLines": 13,
+          "newStart": 410,
+          "oldLines": 0,
+          "oldStart": 397
+        }
+      ],
+      "path": "src/manager/http.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 652,
+      "deletions": 3,
+      "hunks": [
+        {
+          "newLines": 19,
+          "newStart": 93,
+          "oldLines": 0,
+          "oldStart": 92
+        },
+        {
+          "newLines": 41,
+          "newStart": 568,
+          "oldLines": 0,
+          "oldStart": 548
+        },
+        {
+          "newLines": 1,
+          "newStart": 613,
+          "oldLines": 0,
+          "oldStart": 552
+        },
+        {
+          "newLines": 12,
+          "newStart": 616,
+          "oldLines": 0,
+          "oldStart": 554
+        },
+        {
+          "newLines": 132,
+          "newStart": 718,
+          "oldLines": 0,
+          "oldStart": 644
+        },
+        {
+          "newLines": 17,
+          "newStart": 853,
+          "oldLines": 0,
+          "oldStart": 647
+        },
+        {
+          "newLines": 2,
+          "newStart": 881,
+          "oldLines": 1,
+          "oldStart": 659
+        },
+        {
+          "newLines": 2,
+          "newStart": 912,
+          "oldLines": 1,
+          "oldStart": 689
+        },
+        {
+          "newLines": 8,
+          "newStart": 1866,
+          "oldLines": 0,
+          "oldStart": 1641
+        },
+        {
+          "newLines": 2,
+          "newStart": 1892,
+          "oldLines": 0,
+          "oldStart": 1659
+        },
+        {
+          "newLines": 2,
+          "newStart": 1910,
+          "oldLines": 0,
+          "oldStart": 1675
+        },
+        {
+          "newLines": 4,
+          "newStart": 1943,
+          "oldLines": 0,
+          "oldStart": 1706
+        },
+        {
+          "newLines": 5,
+          "newStart": 2009,
+          "oldLines": 1,
+          "oldStart": 1769
+        },
+        {
+          "newLines": 8,
+          "newStart": 2031,
+          "oldLines": 0,
+          "oldStart": 1786
+        },
+        {
+          "newLines": 1,
+          "newStart": 2042,
+          "oldLines": 0,
+          "oldStart": 1789
+        },
+        {
+          "newLines": 361,
+          "newStart": 2046,
+          "oldLines": 0,
+          "oldStart": 1792
+        },
+        {
+          "newLines": 1,
+          "newStart": 2610,
+          "oldLines": 0,
+          "oldStart": 1995
+        },
+        {
+          "newLines": 25,
+          "newStart": 3351,
+          "oldLines": 0,
+          "oldStart": 2735
+        },
+        {
+          "newLines": 1,
+          "newStart": 3489,
+          "oldLines": 0,
+          "oldStart": 2848
+        },
+        {
+          "newLines": 1,
+          "newStart": 3584,
+          "oldLines": 0,
+          "oldStart": 2942
+        },
+        {
+          "newLines": 4,
+          "newStart": 3644,
+          "oldLines": 0,
+          "oldStart": 3001
+        },
+        {
+          "newLines": 3,
+          "newStart": 3850,
+          "oldLines": 0,
+          "oldStart": 3203
+        }
+      ],
+      "path": "src/manager/service.ts",
+      "status": "modified"
+    },
+    {
+      "additions": 593,
+      "deletions": 0,
+      "hunks": [
+        {
+          "newLines": 593,
+          "newStart": 1,
+          "oldLines": 0,
+          "oldStart": 0
+        }
+      ],
+      "path": "src/manager/tsukai-cutover.test.ts",
+      "status": "added"
+    },
+    {
+      "additions": 63,
+      "deletions": 18,
+      "hunks": [
+        {
+          "newLines": 8,
+          "newStart": 5,
+          "oldLines": 1,
+          "oldStart": 5
+        },
+        {
+          "newLines": 31,
+          "newStart": 36,
+          "oldLines": 0,
+          "oldStart": 28
+        },
+        {
+          "newLines": 3,
+          "newStart": 191,
+          "oldLines": 9,
+          "oldStart": 153
+        },
+        {
+          "newLines": 21,
+          "newStart": 206,
+          "oldLines": 8,
+          "oldStart": 174
+        }
+      ],
+      "path": "src/manager/tsukai-integration.ts",
+      "status": "modified"
+    }
+  ],
+  "headSha": "9f71ea5c56bed59e4ba3a0dbabeddad2bf31a871",
+  "schemaVersion": "mottainai.review-pages.diff/v1",
+  "stats": {
+    "additions": 1402,
+    "deletions": 23,
+    "filesChanged": 7
+  }
+}
