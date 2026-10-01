@@ -49,6 +49,9 @@ import type {
   PullRequestRecord,
   PullRequestRecordId,
   RecordPullRequestInput,
+  BindTsukaiRunCorrelationInput,
+  ReserveTsukaiRunCorrelationInput,
+  TsukaiRunCorrelationRecord,
   ManagedPullRequestState,
   ManagedPullRequestStateId,
   ManagedPullRequestDerivedInput,
@@ -188,7 +191,32 @@ function ensureWorkerSupervisionSchema(db: DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS idx_worker_control_audit_session
       ON worker_control_audit (manager_session_id, recorded_at ASC, audit_id ASC);
+    CREATE TABLE IF NOT EXISTS tsukai_run_correlations (
+      start_key TEXT PRIMARY KEY,
+      manager_session_id TEXT NOT NULL,
+      agent_run_id TEXT UNIQUE,
+      reserved_at INTEGER NOT NULL,
+      bound_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_tsukai_run_correlations_session
+      ON tsukai_run_correlations (manager_session_id, reserved_at ASC, start_key ASC);
   `);
+}
+
+function toTsukaiRunCorrelationRecord(row: Record<string, unknown>): TsukaiRunCorrelationRecord {
+  return {
+    startKey: String(row.start_key),
+    managerSessionId: String(row.manager_session_id) as ManagerSessionId,
+    agentRunId: row.agent_run_id === null || row.agent_run_id === undefined ? undefined : String(row.agent_run_id),
+    reservedAt: Number(row.reserved_at),
+    boundAt: row.bound_at === null || row.bound_at === undefined ? undefined : Number(row.bound_at),
+  };
+}
+
+function tsukaiCorrelationIdentifier(value: string, field: string): string {
+  if (typeof value !== "string" || value.length === 0 || value.length > 256)
+    throw new Error(`tsukai correlation ${field} is invalid`);
+  return value;
 }
 
 function workerTimestampMs(value: string, field: string): number {
@@ -2773,6 +2801,56 @@ export class WorkflowSqliteStateStore implements WorkflowStateStore {
         unknown
       >,
     );
+  }
+
+  reserveTsukaiRunCorrelation(input: ReserveTsukaiRunCorrelationInput): TsukaiRunCorrelationRecord {
+    const startKey = tsukaiCorrelationIdentifier(input.startKey, "startKey");
+    const managerSessionId = tsukaiCorrelationIdentifier(input.managerSessionId, "managerSessionId");
+    this.handle()
+      .prepare(
+        `INSERT INTO tsukai_run_correlations (start_key, manager_session_id, reserved_at)
+         VALUES (?, ?, ?) ON CONFLICT (start_key) DO NOTHING`,
+      )
+      .run(startKey, managerSessionId, workerRecordedAt(input.recordedAt));
+    const record = this.getTsukaiRunCorrelation(startKey)!;
+    if (record.managerSessionId !== managerSessionId)
+      throw new Error(`tsukai start ${startKey} is already correlated with another Manager session`);
+    return record;
+  }
+
+  bindTsukaiRunCorrelation(input: BindTsukaiRunCorrelationInput): TsukaiRunCorrelationRecord {
+    const startKey = tsukaiCorrelationIdentifier(input.startKey, "startKey");
+    const agentRunId = tsukaiCorrelationIdentifier(input.agentRunId, "agentRunId");
+    const existing = this.getTsukaiRunCorrelation(startKey);
+    if (existing === undefined) throw new Error(`tsukai start ${startKey} is not reserved`);
+    if (existing.agentRunId !== undefined) {
+      if (existing.agentRunId !== agentRunId)
+        throw new Error(`tsukai start ${startKey} is already bound to another AgentRun`);
+      return existing;
+    }
+    this.handle()
+      .prepare(
+        "UPDATE tsukai_run_correlations SET agent_run_id = ?, bound_at = ? WHERE start_key = ? AND agent_run_id IS NULL",
+      )
+      .run(agentRunId, workerRecordedAt(input.recordedAt), startKey);
+    return this.getTsukaiRunCorrelation(startKey)!;
+  }
+
+  getTsukaiRunCorrelation(startKey: string): TsukaiRunCorrelationRecord | undefined {
+    const row = this.handle().prepare("SELECT * FROM tsukai_run_correlations WHERE start_key = ?").get(startKey) as
+      | Record<string, unknown>
+      | undefined;
+    return row === undefined ? undefined : toTsukaiRunCorrelationRecord(row);
+  }
+
+  listTsukaiRunCorrelations(managerSessionId: ManagerSessionId): TsukaiRunCorrelationRecord[] {
+    const rows = this.handle()
+      .prepare(
+        `SELECT * FROM tsukai_run_correlations
+         WHERE manager_session_id = ? ORDER BY reserved_at ASC, start_key ASC`,
+      )
+      .all(managerSessionId) as Record<string, unknown>[];
+    return rows.map(toTsukaiRunCorrelationRecord);
   }
 
   listWorkerControlAudit(

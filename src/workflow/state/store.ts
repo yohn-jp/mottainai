@@ -496,6 +496,32 @@ export interface ListWorkerControlAuditOptions {
   limit?: number;
 }
 
+/**
+ * Durable correlation between one idempotent Manager start and the Tsukai
+ * AgentRun it created. Tsukai owns AgentRun identity and lifecycle; this
+ * record holds only the opaque `agentRunId` reference, never run state.
+ * `agentRunId` is undefined only while a start is reserved but unbound.
+ */
+export interface TsukaiRunCorrelationRecord {
+  startKey: string;
+  managerSessionId: ManagerSessionId;
+  agentRunId: string | undefined;
+  reservedAt: number;
+  boundAt: number | undefined;
+}
+
+export interface ReserveTsukaiRunCorrelationInput {
+  startKey: string;
+  managerSessionId: ManagerSessionId;
+  recordedAt?: number;
+}
+
+export interface BindTsukaiRunCorrelationInput {
+  startKey: string;
+  agentRunId: string;
+  recordedAt?: number;
+}
+
 export interface ListManagerSessionsOptions {
   limit?: number;
   runtimeStates?: readonly ManagerRuntimeState[];
@@ -1207,6 +1233,12 @@ export interface WorkflowStateStore {
     managerSessionId: ManagerSessionId,
     options?: ListWorkerControlAuditOptions,
   ): WorkerControlAuditRecord[];
+  /** Reserve (or return the existing) correlation for one idempotent Tsukai start. */
+  reserveTsukaiRunCorrelation(input: ReserveTsukaiRunCorrelationInput): TsukaiRunCorrelationRecord;
+  /** Bind a reserved start to its Tsukai agentRunId; rebinding to another run is rejected. */
+  bindTsukaiRunCorrelation(input: BindTsukaiRunCorrelationInput): TsukaiRunCorrelationRecord;
+  getTsukaiRunCorrelation(startKey: string): TsukaiRunCorrelationRecord | undefined;
+  listTsukaiRunCorrelations(managerSessionId: ManagerSessionId): TsukaiRunCorrelationRecord[];
   /** Persist one versioned Canon root/fork checkpoint without owning physical execution resources. */
   recordCanonCheckpoint(input: RecordCanonCheckpointInput): CanonCheckpointRecord;
   getCanonCheckpoint(checkpointId: CanonCheckpointId): CanonCheckpointRecord | undefined;

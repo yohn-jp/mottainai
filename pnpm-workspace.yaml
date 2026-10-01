@@ -28,6 +28,7 @@ minimumReleaseAgeExclude:
   - mottainai
   - nawabari
   - suzukuri
+  - tsukai
   - wabachi
   - '@alibaba-group/ocr-darwin-arm64@1.11.4'
   - '@alibaba-group/ocr-darwin-x64@1.11.4'
