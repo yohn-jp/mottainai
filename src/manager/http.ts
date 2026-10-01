@@ -399,12 +399,12 @@ export class ManagerHttpApi implements ManagerHttpHandler {
           return;
         case "workers":
           sendJson(response, 200, {
-            workers: this.service.listWorkerSupervision(workerListOptionsFromQuery(url)),
+            workers: this.service.listWorkers(workerListOptionsFromQuery(url)),
           });
           return;
         case "worker":
           sendJson(response, 200, {
-            worker: this.service.getWorkerSupervision(workerSessionIdFromPath(segments[1] ?? "")),
+            worker: this.service.getWorker(workerSessionIdFromPath(segments[1] ?? "")),
           });
           return;
         case "worker-events":
