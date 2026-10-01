@@ -20,7 +20,9 @@ test("canonical issue source set follows the synced manifest", () => {
   assert.deepEqual([...templates.keys()], issueTemplateIds);
   assert.ok(issueTemplateIds.includes("implementation"));
   for (const template of templates.values()) {
-    assert.ok(template.fieldIds.includes("acceptance") || template.fieldIds.includes("acceptance_criteria"));
+    assert.ok(
+      ["acceptance", "acceptance_criteria", "final_acceptance"].some((fieldId) => template.fieldIds.includes(fieldId)),
+    );
   }
 });
 
