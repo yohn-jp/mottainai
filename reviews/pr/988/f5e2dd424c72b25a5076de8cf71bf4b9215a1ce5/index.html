@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — yohn-jp/mottainai #988 @ f5e2dd424c72</title>
+<style>
+body { font: 14px system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 13px; }
+code { background: #f0f0f0; padding: 1px 4px; }
+a { color: #0a58ca; }
+</style>
+</head>
+<body>
+<h1>yohn-jp/mottainai #988: feat(manager): establish Tsukai AgentRun integration foundation</h1>
+<p>Base <code>main</code> @ <code>913ded2be17c0a4e94f5a7d8bb943b92c321cfcf</code> &rarr;
+Head <code>feat/985-tsukai-integration</code> @ <code>f5e2dd424c72b25a5076de8cf71bf4b9215a1ce5</code></p>
+<p>Revision <code>f5e2dd424c72</code> is immutable. Machine-readable entry point:
+<a href="manifest.json">manifest.json</a></p>
+
+<h2>Linked issue</h2>
+<p><a href="https://github.com/yohn-jp/mottainai/issues/985">#985</a> impl: establish Tsukai AgentRun integration foundation (open)</p>
+<h3>Acceptance criteria</h3><ul><li>[ ] package.json/pnpm-lock consume exact tsukai@0.2.2.</li>
+<li>[ ] One bounded integration seam creates AgentRuns only through Tsukai public API.</li>
+<li>[ ] Provider/model/tool/guard/custom-tool intent maps to the M5.5 execution profile.</li>
+<li>[ ] Existing Nawabari workspace/worktree binding is passed without widening authority.</li>
+<li>[ ] Tsukai agentRunId is durably correlated with Manager/orchestration identity.</li>
+<li>[ ] Repeating the same idempotent start does not create a second AgentRun.</li>
+<li>[ ] Existing Pi runtime remains only as the pre-cutover path; no new duplicate lifecycle authority is added.</li></ul>
+
+
+
+<h2>Changed files (10, +681/-1)</h2>
+<table>
+<tr><th>Path</th><th>Status</th><th>Additions</th><th>Deletions</th></tr>
+<tr><td>package.json</td><td>modified</td><td>+1</td><td>-0</td></tr>
+<tr><td>pnpm-lock.yaml</td><td>modified</td><td>+10</td><td>-0</td></tr>
+<tr><td>pnpm-workspace.yaml</td><td>modified</td><td>+1</td><td>-0</td></tr>
+<tr><td>scripts/validate-inari-templates.test.mjs</td><td>modified</td><td>+3</td><td>-1</td></tr>
+<tr><td>src/context-runtime/budget.ts</td><td>modified</td><td>+4</td><td>-0</td></tr>
+<tr><td>src/context-runtime/context-runtime.test.ts</td><td>modified</td><td>+11</td><td>-0</td></tr>
+<tr><td>src/manager/tsukai-integration.test.ts</td><td>added</td><td>+339</td><td>-0</td></tr>
+<tr><td>src/manager/tsukai-integration.ts</td><td>added</td><td>+202</td><td>-0</td></tr>
+<tr><td>src/workflow/state/sqlite-store.ts</td><td>modified</td><td>+78</td><td>-0</td></tr>
+<tr><td>src/workflow/state/store.ts</td><td>modified</td><td>+32</td><td>-0</td></tr>
+</table>
+
+<h2>Resources</h2>
+<ul>
+<li><a href="manifest.json">manifest.json</a></li>
+<li><a href="issue.json">issue.json</a></li>
+<li><a href="diff.json">diff.json</a></li>
+<li><a href="ocr.json">ocr.json</a></li>
+<li><a href="checks.json">checks.json</a></li>
+</ul>
+</body>
+</html>
