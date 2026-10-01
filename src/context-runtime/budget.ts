@@ -492,7 +492,11 @@ function minimalResult(result: ProjectedResult, targetBytes: number): ProjectedR
     reason: "hard response budget requires minimal envelope",
     retrievalAvailable: base.resultId.length > 0,
   });
+  // A compact identity (read change detection, content id) is preferred
+  // while it still fits; it is dropped only when the hard budget requires it.
+  const identity = result.identity === undefined ? undefined : compactIdentity(result.identity);
   const variants: ProjectedResult[] = [
+    ...(identity === undefined ? [] : [{ ...withBudgetOmission, identity: identity as ProjectedResult["identity"] }]),
     withBudgetOmission,
     { ...withBudgetOmission, testResults: undefined },
     { ...withBudgetOmission, testResults: undefined, fields: actionableFields.slice(0, 4) },
